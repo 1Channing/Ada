@@ -1,0 +1,16 @@
+{
+  "name": "mc-export-worker",
+  "version": "1.0.0",
+  "description": "Node.js worker for executing scheduled study runs with Zyte scraping",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  }
+}

@@ -1,0 +1,6 @@
+ID,BRAND,MODEL,YEAR,MAX_MILEAGE,COUNTRY_TARGET,MARKET_TARGET_URL,COUNTRY_SOURCE,MARKET_SOURCE_URL
+MS_TOYOTA_RAV4_2022_FR_NL,TOYOTA,RAV4,2022,80000,NL,https://www.marktplaats.nl/toyota-rav4-2022,FR,https://www.leboncoin.fr/toyota-rav4-2022
+MS_TOYOTA_YARIS_2023_FR_DK,TOYOTA,YARIS,2023,50000,DK,https://www.bilbasen.dk/toyota-yaris-2023,FR,https://www.leboncoin.fr/toyota-yaris-2023
+MS_BMW_SERIE3_2022_FR_NL,BMW,Série 3,2022,100000,NL,https://www.marktplaats.nl/bmw-serie3-2022,FR,https://www.leboncoin.fr/bmw-serie3-2022
+MS_AUDI_A4_2022_FR_BE,AUDI,A4,2022,0,BE,https://www.2dehands.be/audi-a4-2022,FR,https://www.leboncoin.fr/audi-a4-2022
+MS_MERCEDES_CLASSE_C_2023_FR_NL,MERCEDES,Classe C,2023,60000,NL,https://www.marktplaats.nl/mercedes-c-2023,FR,https://www.leboncoin.fr/mercedes-c-2023
