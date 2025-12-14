@@ -176,16 +176,18 @@ app.post('/execute-studies', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 3001;
+
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`[WORKER] ===== MC Export Worker Service Started =====`);
-  console.log(`[WORKER] Port: ${PORT}`);
-  console.log(`[WORKER] Environment check:`, {
-    hasWorkerSecret: !!WORKER_SECRET,
-    hasSupabaseUrl: !!SUPABASE_URL,
-    hasSupabaseKey: !!SUPABASE_SERVICE_ROLE_KEY,
+  console.log(`[WORKER] Listening on 0.0.0.0:${PORT}`);
+  console.log('[WORKER] Environment check:', {
+    hasWorkerSecret: !!process.env.WORKER_SECRET,
+    hasSupabaseUrl: !!process.env.SUPABASE_URL,
+    hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     hasZyteKey: !!process.env.ZYTE_API_KEY,
   });
-  console.log(`[WORKER] Health endpoint: http://localhost:${PORT}/health`);
-  console.log(`[WORKER] Execute endpoint: http://localhost:${PORT}/execute-studies`);
+  console.log(`[WORKER] Health endpoint: /health`);
+  console.log(`[WORKER] Execute endpoint: /execute-studies`);
   console.log(`[WORKER] Ready to process scheduled study runs`);
 });
