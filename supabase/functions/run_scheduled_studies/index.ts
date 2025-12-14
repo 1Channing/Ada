@@ -14,7 +14,7 @@ interface ScheduledStudyPayload {
   scrapeMode?: 'fast' | 'full';
 }
 
-const WORKER_URL = Deno.env.get('WORKER_URL') || '';
+const WORKER_URL = (Deno.env.get('WORKER_URL') || '').replace(/\/+$/, '');
 const WORKER_SECRET = Deno.env.get('WORKER_SECRET') || '';
 
 Deno.serve(async (req: Request) => {
@@ -154,7 +154,29 @@ Deno.serve(async (req: Request) => {
         const payload = job.payload as ScheduledStudyPayload;
         const scrapeMode = payload.scrapeMode || 'fast';
 
-        console.log(`[EDGE_FUNCTION] Processing job ${job.id} with ${scrapeMode.toUpperCase()} mode`);
+        console.log(`[EDGE_FUNCTION] ===== Job ${job.id} Payload Extracted =====`);
+        console.log(`[EDGE_FUNCTION] Raw payload:`, JSON.stringify(payload));
+        console.log(`[EDGE_FUNCTION] Study IDs count: ${payload.studyIds?.length || 0}`);
+        console.log(`[EDGE_FUNCTION] First 3 study IDs:`, payload.studyIds?.slice(0, 3));
+        console.log(`[EDGE_FUNCTION] Threshold: ${payload.threshold}`);
+        console.log(`[EDGE_FUNCTION] Scrape mode: ${scrapeMode.toUpperCase()}`);
+
+        if (!payload.studyIds || payload.studyIds.length === 0) {
+          const errorMsg = 'No study IDs found in scheduled job payload';
+          console.error(`[EDGE_FUNCTION] ❌ ${errorMsg}`);
+
+          await supabase
+            .from('scheduled_study_runs')
+            .update({
+              status: 'failed',
+              last_error: errorMsg,
+            })
+            .eq('id', job.id);
+
+          throw new Error(errorMsg);
+        }
+
+        console.log(`[EDGE_FUNCTION] ✅ Validated ${payload.studyIds.length} study IDs`);
 
         const { data: runData, error: runError } = await supabase
           .from('study_runs')
@@ -183,30 +205,48 @@ Deno.serve(async (req: Request) => {
           })
           .eq('id', job.id);
 
-        console.log(`[EDGE_FUNCTION] 🚀 Delegating execution to Node.js worker at ${WORKER_URL}`);
+        const workerUrl = `${WORKER_URL}/execute-studies`;
+        const workerPayload = {
+          runId,
+          studyIds: payload.studyIds,
+          threshold: payload.threshold,
+          scrapeMode,
+        };
 
-        const workerResponse = await fetch(`${WORKER_URL}/execute-studies`, {
+        console.log(`[EDGE_FUNCTION] ===== Delegating to Worker =====`);
+        console.log(`[EDGE_FUNCTION] Worker URL: ${workerUrl}`);
+        console.log(`[EDGE_FUNCTION] Worker payload:`, JSON.stringify(workerPayload));
+        console.log(`[EDGE_FUNCTION] Has WORKER_SECRET: ${!!WORKER_SECRET}`);
+
+        const workerResponse = await fetch(workerUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${WORKER_SECRET}`,
           },
-          body: JSON.stringify({
-            runId,
-            studyIds: payload.studyIds,
-            threshold: payload.threshold,
-            scrapeMode,
-          }),
+          body: JSON.stringify(workerPayload),
         });
 
         if (!workerResponse.ok) {
           const errorText = await workerResponse.text();
-          console.error(`[EDGE_FUNCTION] ❌ Worker returned error: ${workerResponse.status} - ${errorText}`);
-          throw new Error(`Worker failed: ${workerResponse.status} - ${errorText}`);
+          const errorMsg = `Worker HTTP ${workerResponse.status}: ${errorText.slice(0, 500)}`;
+          console.error(`[EDGE_FUNCTION] ❌ Worker returned error: ${errorMsg}`);
+
+          await supabase
+            .from('study_runs')
+            .update({
+              status: 'error',
+              error_message: errorMsg,
+            })
+            .eq('id', runId);
+
+          throw new Error(errorMsg);
         }
 
         const workerResult = await workerResponse.json();
-        console.log(`[EDGE_FUNCTION] ✅ Worker completed successfully:`, workerResult);
+        console.log(`[EDGE_FUNCTION] ===== Worker Response =====`);
+        console.log(`[EDGE_FUNCTION] Worker result:`, JSON.stringify(workerResult));
+        console.log(`[EDGE_FUNCTION] Processed: ${workerResult.processed}, Opportunities: ${workerResult.results?.opportunities || 0}`);
 
         await supabase
           .from('scheduled_study_runs')
@@ -218,26 +258,43 @@ Deno.serve(async (req: Request) => {
         completed++;
         console.log(`[EDGE_FUNCTION] ✅ Job ${job.id} completed via worker`);
       } catch (error) {
-        console.error(`[EDGE_FUNCTION] ❌ Job ${job.id} failed:`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[EDGE_FUNCTION] ===== Job ${job.id} Failed =====`);
+        console.error(`[EDGE_FUNCTION] Error:`, errorMessage);
+        console.error(`[EDGE_FUNCTION] Payload was:`, JSON.stringify(job.payload));
 
         await supabase
           .from('scheduled_study_runs')
           .update({
             status: 'failed',
-            last_error: (error as Error).message,
+            last_error: errorMessage.slice(0, 1000),
           })
           .eq('id', job.id);
 
-        try {
-          await supabase
-            .from('study_runs')
-            .update({
-              status: 'failed',
-              error_message: (error as Error).message,
-            })
-            .eq('id', job.id);
-        } catch (updateError) {
-          console.error(`[EDGE_FUNCTION] Failed to update study_runs:`, updateError);
+        const payload = job.payload as ScheduledStudyPayload;
+        if (payload.studyIds && payload.studyIds.length > 0) {
+          console.log(`[EDGE_FUNCTION] Attempting to mark study_runs as failed...`);
+          try {
+            const { data: runRecords } = await supabase
+              .from('study_runs')
+              .select('id')
+              .eq('run_type', 'scheduled')
+              .eq('status', 'running')
+              .order('executed_at', { ascending: false })
+              .limit(1);
+
+            if (runRecords && runRecords.length > 0) {
+              await supabase
+                .from('study_runs')
+                .update({
+                  status: 'error',
+                  error_message: errorMessage.slice(0, 1000),
+                })
+                .eq('id', runRecords[0].id);
+            }
+          } catch (updateError) {
+            console.error(`[EDGE_FUNCTION] Failed to update study_runs:`, updateError);
+          }
         }
 
         failed++;
