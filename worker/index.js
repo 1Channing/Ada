@@ -176,8 +176,6 @@ app.post('/execute-studies', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3001;
-
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[WORKER] ===== MC Export Worker Service Started =====`);
   console.log(`[WORKER] Listening on 0.0.0.0:${PORT}`);
