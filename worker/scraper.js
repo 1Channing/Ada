@@ -7,8 +7,56 @@ const FX_RATES = {
   UNKNOWN: 1,
 };
 
+const BLOCKED_KEYWORDS = [
+  'captcha',
+  'recaptcha',
+  'hcaptcha',
+  'access denied',
+  'blocked',
+  'bot detection',
+  'unusual traffic',
+  'not a robot',
+  'security check',
+  'verify you are human',
+  'cloudflare',
+];
+
 export function toEur(price, currency) {
   return price * (FX_RATES[currency] ?? 1);
+}
+
+function detectBlockedContent(html) {
+  const lowerHtml = html.toLowerCase();
+
+  for (const keyword of BLOCKED_KEYWORDS) {
+    if (lowerHtml.includes(keyword)) {
+      return {
+        isBlocked: true,
+        matchedKeyword: keyword,
+      };
+    }
+  }
+
+  return { isBlocked: false, matchedKeyword: null };
+}
+
+function extractDiagnostics(html, marketplace) {
+  const blockedDetection = detectBlockedContent(html);
+
+  const htmlSnippet = html.slice(0, 1500)
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '[SCRIPT]')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '[STYLE]');
+
+  const hasNextData = html.includes('id="__NEXT_DATA__"');
+
+  return {
+    marketplace,
+    htmlLength: html.length,
+    htmlSnippet,
+    hasNextData,
+    detectedBlocked: blockedDetection.isBlocked,
+    matchedKeyword: blockedDetection.matchedKeyword,
+  };
 }
 
 async function fetchHtmlWithScraper(targetUrl) {
@@ -46,8 +94,72 @@ async function fetchHtmlWithScraper(targetUrl) {
   }
 }
 
-function parseMarktplaatsListings(html) {
+function parseMarktplaatsListingsFromNextData(html) {
   const listings = [];
+
+  const nextDataMatch = /<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/.exec(html);
+  if (!nextDataMatch) {
+    console.log('[WORKER] No __NEXT_DATA__ found in Marktplaats HTML');
+    return null;
+  }
+
+  try {
+    const nextData = JSON.parse(nextDataMatch[1]);
+
+    const searchResults = nextData?.props?.pageProps?.searchResults?.listings ||
+                         nextData?.props?.pageProps?.initialState?.listings?.listings ||
+                         nextData?.props?.pageProps?.listings ||
+                         [];
+
+    console.log(`[WORKER] __NEXT_DATA__ found, attempting to parse ${searchResults.length} items`);
+
+    for (const item of searchResults) {
+      if (!item) continue;
+
+      const itemId = item.itemId || item.id || item.vipUrl?.split('/').pop();
+      const title = item.title || item.description || '';
+
+      const priceInfo = item.priceInfo || item.price || {};
+      const priceValue = priceInfo.priceCents ? priceInfo.priceCents / 100 :
+                        (priceInfo.price || priceInfo.amount || 0);
+
+      if (!title || !priceValue || priceValue <= 0) continue;
+
+      const attributes = item.attributes || {};
+      const mileageAttr = attributes.find?.(a => a.key === 'mileage' || a.key === 'kilometer-stand') || {};
+      const yearAttr = attributes.find?.(a => a.key === 'year' || a.key === 'bouwjaar') || {};
+
+      const mileage = mileageAttr.value ? parseInt(String(mileageAttr.value).replace(/\D/g, '')) : null;
+      const year = yearAttr.value ? parseInt(String(yearAttr.value).replace(/\D/g, '')) : null;
+
+      const listingUrl = item.vipUrl || (itemId ? `https://www.marktplaats.nl/a/${itemId}` : '');
+
+      listings.push({
+        title: title.trim(),
+        price: priceValue,
+        currency: 'EUR',
+        mileage,
+        year,
+        trim: null,
+        listing_url: listingUrl,
+        description: item.description || '',
+        price_type: 'one-off',
+      });
+    }
+
+    console.log(`[WORKER] Successfully parsed ${listings.length} listings from __NEXT_DATA__`);
+  } catch (error) {
+    console.error('[WORKER] Error parsing Marktplaats __NEXT_DATA__:', error.message);
+    return null;
+  }
+
+  return listings;
+}
+
+function parseMarktplaatsListingsFromHtml(html) {
+  const listings = [];
+  console.log('[WORKER] Falling back to HTML parsing for Marktplaats');
+
   const listingPattern = /<article[^>]*data-item-id="(\d+)"[^>]*>([\s\S]*?)<\/article>/g;
 
   let match;
@@ -79,7 +191,18 @@ function parseMarktplaatsListings(html) {
     }
   }
 
+  console.log(`[WORKER] HTML fallback extracted ${listings.length} listings`);
   return listings;
+}
+
+function parseMarktplaatsListings(html) {
+  const nextDataListings = parseMarktplaatsListingsFromNextData(html);
+
+  if (nextDataListings && nextDataListings.length > 0) {
+    return nextDataListings;
+  }
+
+  return parseMarktplaatsListingsFromHtml(html);
 }
 
 function parseLeboncoinListings(html) {
@@ -161,28 +284,62 @@ export async function scrapeSearch(url, scrapeMode) {
   const html = await fetchHtmlWithScraper(url);
 
   if (!html) {
-    return { listings: [], error: 'SCRAPER_FAILED' };
+    return {
+      listings: [],
+      error: 'SCRAPER_FAILED',
+      errorReason: 'Zyte API returned no HTML',
+    };
   }
 
+  let marketplace = 'unknown';
+  if (url.includes('marktplaats.nl')) marketplace = 'marktplaats';
+  else if (url.includes('leboncoin.fr')) marketplace = 'leboncoin';
+  else if (url.includes('bilbasen.dk')) marketplace = 'bilbasen';
+
   if (html.includes('/download/website-ban') || html.toLowerCase().includes('website ban')) {
+    const diagnostics = extractDiagnostics(html, marketplace);
     return {
       listings: [],
       blockedByProvider: true,
       blockReason: 'Zyte website-ban error detected',
+      diagnostics,
+    };
+  }
+
+  const blockedDetection = detectBlockedContent(html);
+  if (blockedDetection.isBlocked) {
+    const diagnostics = extractDiagnostics(html, marketplace);
+    console.log(`[WORKER] 🚫 Blocked content detected: ${blockedDetection.matchedKeyword}`);
+    return {
+      listings: [],
+      blockedByProvider: true,
+      blockReason: `${marketplace.toUpperCase()}_BLOCKED: ${blockedDetection.matchedKeyword}`,
+      diagnostics,
     };
   }
 
   let listings = [];
 
-  if (url.includes('marktplaats.nl')) {
+  if (marketplace === 'marktplaats') {
     listings = parseMarktplaatsListings(html);
-  } else if (url.includes('leboncoin.fr')) {
+  } else if (marketplace === 'leboncoin') {
     listings = parseLeboncoinListings(html);
-  } else if (url.includes('bilbasen.dk')) {
+  } else if (marketplace === 'bilbasen') {
     listings = parseBilbasenListings(html);
   }
 
   console.log(`[WORKER] Extracted ${listings.length} listings from ${url}`);
+
+  if (listings.length === 0) {
+    const diagnostics = extractDiagnostics(html, marketplace);
+    console.log(`[WORKER] ⚠️ Zero listings extracted from ${marketplace}`);
+    console.log(`[WORKER] 📊 Diagnostics:`, JSON.stringify(diagnostics, null, 2));
+    return {
+      listings: [],
+      diagnostics,
+      errorReason: `${marketplace.toUpperCase()}_PARSE_ZERO_LISTINGS`,
+    };
+  }
 
   return { listings };
 }
@@ -315,6 +472,23 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
     const targetResult = await scrapeSearch(targetUrl, scrapeMode);
 
     if (targetResult.error === 'SCRAPER_FAILED') {
+      const errorReason = targetResult.errorReason || 'Zyte scraper failed';
+
+      if (targetResult.diagnostics) {
+        await supabase.from('study_run_logs').insert([{
+          study_run_id: runId,
+          status: 'SCRAPER_FAILED',
+          last_stage: 'target_scrape',
+          error_message: errorReason,
+          logs_json: {
+            studyId: study.id,
+            stage: 'target_scrape',
+            error: errorReason,
+            diagnostics: targetResult.diagnostics,
+          },
+        }]);
+      }
+
       await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
@@ -323,13 +497,31 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
         best_source_price: null,
         price_difference: null,
         target_stats: null,
-        target_error_reason: 'Zyte scraper failed',
+        target_error_reason: errorReason,
       }]);
 
       return { status: 'NULL', nullCount: 1, opportunitiesCount: 0 };
     }
 
     if (targetResult.blockedByProvider) {
+      console.log(`[WORKER] 🚫 Target market blocked: ${targetResult.blockReason}`);
+
+      if (targetResult.diagnostics) {
+        await supabase.from('study_run_logs').insert([{
+          study_run_id: runId,
+          status: 'TARGET_BLOCKED',
+          last_stage: 'target_scrape',
+          error_message: targetResult.blockReason,
+          logs_json: {
+            studyId: study.id,
+            stage: 'target_scrape',
+            blocked: true,
+            blockReason: targetResult.blockReason,
+            diagnostics: targetResult.diagnostics,
+          },
+        }]);
+      }
+
       await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
@@ -348,6 +540,27 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
     const filteredTargetListings = filterListingsByStudy(targetListings, study);
 
     if (filteredTargetListings.length === 0) {
+      const errorReason = targetResult.errorReason ||
+                         (targetListings.length === 0 ? 'No target listings extracted' : 'No valid target listings after filtering');
+
+      if (targetResult.diagnostics) {
+        console.log(`[WORKER] ⚠️ Logging zero-listings diagnostics to study_run_logs`);
+        await supabase.from('study_run_logs').insert([{
+          study_run_id: runId,
+          status: 'NO_TARGET_LISTINGS',
+          last_stage: 'target_filter',
+          error_message: errorReason,
+          logs_json: {
+            studyId: study.id,
+            stage: 'target_filter',
+            rawListingsCount: targetListings.length,
+            filteredListingsCount: filteredTargetListings.length,
+            errorReason,
+            diagnostics: targetResult.diagnostics,
+          },
+        }]);
+      }
+
       await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
@@ -356,7 +569,7 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
         best_source_price: null,
         price_difference: null,
         target_stats: null,
-        target_error_reason: 'No valid target listings found',
+        target_error_reason: errorReason,
       }]);
 
       return { status: 'NULL', nullCount: 1, opportunitiesCount: 0 };
@@ -370,6 +583,23 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
     const sourceResult = await scrapeSearch(sourceUrl, scrapeMode);
 
     if (sourceResult.error === 'SCRAPER_FAILED') {
+      const errorReason = sourceResult.errorReason || 'Zyte scraper failed on source';
+
+      if (sourceResult.diagnostics) {
+        await supabase.from('study_run_logs').insert([{
+          study_run_id: runId,
+          status: 'SCRAPER_FAILED',
+          last_stage: 'source_scrape',
+          error_message: errorReason,
+          logs_json: {
+            studyId: study.id,
+            stage: 'source_scrape',
+            error: errorReason,
+            diagnostics: sourceResult.diagnostics,
+          },
+        }]);
+      }
+
       await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
@@ -378,7 +608,40 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
         best_source_price: null,
         price_difference: null,
         target_stats: targetStats,
-        target_error_reason: 'Zyte scraper failed on source',
+        target_error_reason: errorReason,
+      }]);
+
+      return { status: 'NULL', nullCount: 1, opportunitiesCount: 0 };
+    }
+
+    if (sourceResult.blockedByProvider) {
+      console.log(`[WORKER] 🚫 Source market blocked: ${sourceResult.blockReason}`);
+
+      if (sourceResult.diagnostics) {
+        await supabase.from('study_run_logs').insert([{
+          study_run_id: runId,
+          status: 'SOURCE_BLOCKED',
+          last_stage: 'source_scrape',
+          error_message: sourceResult.blockReason,
+          logs_json: {
+            studyId: study.id,
+            stage: 'source_scrape',
+            blocked: true,
+            blockReason: sourceResult.blockReason,
+            diagnostics: sourceResult.diagnostics,
+          },
+        }]);
+      }
+
+      await supabase.from('study_run_results').insert([{
+        run_id: runId,
+        study_id: study.id,
+        status: 'NULL',
+        target_market_price: targetMarketPriceEur,
+        best_source_price: null,
+        price_difference: null,
+        target_stats: targetStats,
+        target_error_reason: sourceResult.blockReason,
       }]);
 
       return { status: 'NULL', nullCount: 1, opportunitiesCount: 0 };
@@ -388,6 +651,27 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
     const filteredSourceListings = filterListingsByStudy(sourceListings, study);
 
     if (filteredSourceListings.length === 0) {
+      const errorReason = sourceResult.errorReason ||
+                         (sourceListings.length === 0 ? 'No source listings extracted' : 'No valid source listings after filtering');
+
+      if (sourceResult.diagnostics) {
+        console.log(`[WORKER] ⚠️ Logging zero-source-listings diagnostics to study_run_logs`);
+        await supabase.from('study_run_logs').insert([{
+          study_run_id: runId,
+          status: 'NO_SOURCE_LISTINGS',
+          last_stage: 'source_filter',
+          error_message: errorReason,
+          logs_json: {
+            studyId: study.id,
+            stage: 'source_filter',
+            rawListingsCount: sourceListings.length,
+            filteredListingsCount: filteredSourceListings.length,
+            errorReason,
+            diagnostics: sourceResult.diagnostics,
+          },
+        }]);
+      }
+
       await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
@@ -396,7 +680,7 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
         best_source_price: null,
         price_difference: null,
         target_stats: targetStats,
-        target_error_reason: 'No valid source listings found',
+        target_error_reason: errorReason,
       }]);
 
       return { status: 'NULL', nullCount: 1, opportunitiesCount: 0 };
