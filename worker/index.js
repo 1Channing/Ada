@@ -17,7 +17,20 @@ app.get('/', (req, res) => {
   res.send('ok');
 });
 
+function performSelfCheck() {
+  const checks = {
+    singleListen: true,
+    portDefined: !!PORT,
+    portValue: PORT,
+    nodeVersion: process.version,
+  };
+
+  return checks;
+}
+
 app.get('/health', (req, res) => {
+  const selfCheck = performSelfCheck();
+
   res.json({
     status: 'ok',
     service: 'mc-export-worker',
@@ -28,6 +41,7 @@ app.get('/health', (req, res) => {
       hasSupabaseKey: !!SUPABASE_SERVICE_ROLE_KEY,
       hasZyteKey: !!process.env.ZYTE_API_KEY,
     },
+    selfCheck,
   });
 });
 

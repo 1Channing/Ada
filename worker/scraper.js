@@ -57,7 +57,7 @@ function detectBlockedContent(html, hasListings = false) {
   return { isBlocked: false, matchedKeyword: null, reason: null };
 }
 
-function extractDiagnostics(html, marketplace, retryCount = 0) {
+function extractDiagnostics(html, marketplace, retryCount = 0, profileLevel = 1, extractionMethod = null) {
   const blockedDetection = detectBlockedContent(html);
 
   const htmlSnippet = html.slice(0, 800)
@@ -75,6 +75,8 @@ function extractDiagnostics(html, marketplace, retryCount = 0) {
     matchedKeyword: blockedDetection.matchedKeyword,
     blockReason: blockedDetection.reason,
     retryCount,
+    profileLevel,
+    extractionMethod,
   };
 }
 
@@ -105,7 +107,7 @@ function getZyteRequestProfile(profileLevel, url) {
       javascript: true,
       actions: [{
         action: 'waitForTimeout',
-        timeout: 2000,
+        timeout: 2.0,
       }],
     };
   }
@@ -148,6 +150,131 @@ async function fetchHtmlWithScraper(targetUrl, profileLevel = 1) {
     console.error('[WORKER] Scraper fetch error:', error);
     return { html: null, statusCode: null };
   }
+}
+
+function findListingLikeObjects(obj, path = '') {
+  const results = [];
+
+  if (!obj || typeof obj !== 'object') return results;
+
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      const item = obj[i];
+      if (item && typeof item === 'object') {
+        const hasUrl = item.vipUrl || item.url || item.href || item.link || item.itemId || item.id;
+        const hasTitle = item.title || item.subject || item.description || item.name;
+        const hasPrice = item.priceInfo || item.price || item.priceCents || item.amount;
+
+        if (hasUrl && hasTitle && hasPrice) {
+          results.push({ item, path: `${path}[${i}]` });
+        }
+
+        results.push(...findListingLikeObjects(item, `${path}[${i}]`));
+      }
+    }
+  } else {
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        results.push(...findListingLikeObjects(obj[key], path ? `${path}.${key}` : key));
+      }
+    }
+  }
+
+  return results;
+}
+
+function normalizeMarktplaatsListing(item) {
+  const itemId = item.itemId || item.id || item.vipUrl?.split('/').pop() || '';
+  const title = item.title || item.subject || item.description || item.name || '';
+
+  const priceInfo = item.priceInfo || item.price || {};
+  let priceValue = 0;
+
+  if (priceInfo.priceCents) {
+    priceValue = priceInfo.priceCents / 100;
+  } else if (typeof priceInfo === 'number') {
+    priceValue = priceInfo;
+  } else if (priceInfo.price) {
+    priceValue = priceInfo.price;
+  } else if (priceInfo.amount) {
+    priceValue = priceInfo.amount;
+  } else if (item.priceCents) {
+    priceValue = item.priceCents / 100;
+  } else if (typeof item.price === 'number') {
+    priceValue = item.price;
+  }
+
+  if (!title || !priceValue || priceValue <= 0) return null;
+
+  const attributes = item.attributes || [];
+  const mileageAttr = attributes.find?.(a => a.key === 'mileage' || a.key === 'kilometer-stand') || {};
+  const yearAttr = attributes.find?.(a => a.key === 'year' || a.key === 'bouwjaar') || {};
+
+  const mileage = mileageAttr.value ? parseInt(String(mileageAttr.value).replace(/\D/g, '')) : null;
+  const year = yearAttr.value ? parseInt(String(yearAttr.value).replace(/\D/g, '')) : null;
+
+  const listingUrl = item.vipUrl || item.url || item.href || (itemId ? `https://www.marktplaats.nl/a/${itemId}` : '');
+
+  return {
+    title: title.trim(),
+    price: priceValue,
+    currency: 'EUR',
+    mileage,
+    year,
+    trim: null,
+    listing_url: listingUrl,
+    description: item.description || '',
+    price_type: 'one-off',
+  };
+}
+
+function parseMarktplaatsListingsFromAllJson(html) {
+  const listings = [];
+  let foundMethod = null;
+
+  const scriptPattern = /<script[^>]*>(.*?)<\/script>/gs;
+  const scripts = [];
+  let match;
+
+  while ((match = scriptPattern.exec(html)) !== null) {
+    scripts.push({ content: match[1], isNextData: match[0].includes('__NEXT_DATA__') });
+  }
+
+  console.log(`[WORKER] Found ${scripts.length} script tags in Marktplaats HTML`);
+
+  for (const script of scripts) {
+    if (!script.content || script.content.length < 10) continue;
+
+    try {
+      const jsonData = JSON.parse(script.content);
+      const candidates = findListingLikeObjects(jsonData);
+
+      if (candidates.length > 0) {
+        console.log(`[WORKER] Found ${candidates.length} listing candidates in ${script.isNextData ? '__NEXT_DATA__' : 'other JSON'}`);
+
+        for (const candidate of candidates) {
+          const normalized = normalizeMarktplaatsListing(candidate.item);
+          if (normalized) {
+            listings.push(normalized);
+          }
+        }
+
+        if (listings.length > 0 && !foundMethod) {
+          foundMethod = script.isNextData ? 'NEXT_DATA' : 'OTHER_JSON';
+        }
+
+        if (listings.length > 0) break;
+      }
+    } catch (e) {
+    }
+  }
+
+  if (listings.length > 0) {
+    console.log(`[WORKER] Successfully parsed ${listings.length} listings from ${foundMethod}`);
+    return { listings, method: foundMethod };
+  }
+
+  return { listings: [], method: null };
 }
 
 function parseMarktplaatsListingsFromNextData(html) {
@@ -252,13 +379,22 @@ function parseMarktplaatsListingsFromHtml(html) {
 }
 
 function parseMarktplaatsListings(html) {
-  const nextDataListings = parseMarktplaatsListingsFromNextData(html);
+  const jsonResult = parseMarktplaatsListingsFromAllJson(html);
 
-  if (nextDataListings && nextDataListings.length > 0) {
-    return nextDataListings;
+  if (jsonResult.listings.length > 0) {
+    console.log(`[WORKER] Using extraction method: ${jsonResult.method}`);
+    return { listings: jsonResult.listings, method: jsonResult.method };
   }
 
-  return parseMarktplaatsListingsFromHtml(html);
+  console.log('[WORKER] JSON methods failed, trying HTML fallback');
+  const htmlListings = parseMarktplaatsListingsFromHtml(html);
+
+  if (htmlListings.length > 0) {
+    console.log(`[WORKER] Using extraction method: HTML_FALLBACK`);
+    return { listings: htmlListings, method: 'HTML_FALLBACK' };
+  }
+
+  return { listings: [], method: 'NONE' };
 }
 
 function parseLeboncoinListings(html) {
@@ -381,7 +517,7 @@ export async function scrapeSearch(url, scrapeMode) {
         console.log(`[WORKER] 🚫 Zyte website-ban detected, retrying with stronger profile...`);
         continue;
       }
-      const diagnostics = extractDiagnostics(html, marketplace, attempt);
+      const diagnostics = extractDiagnostics(html, marketplace, attempt, profileLevel, null);
       return {
         listings: [],
         blockedByProvider: true,
@@ -392,13 +528,18 @@ export async function scrapeSearch(url, scrapeMode) {
     }
 
     let listings = [];
+    let extractionMethod = null;
 
     if (marketplace === 'marktplaats') {
-      listings = parseMarktplaatsListings(html);
+      const result = parseMarktplaatsListings(html);
+      listings = result.listings;
+      extractionMethod = result.method;
     } else if (marketplace === 'leboncoin') {
       listings = parseLeboncoinListings(html);
+      extractionMethod = 'NEXT_DATA';
     } else if (marketplace === 'bilbasen') {
       listings = parseBilbasenListings(html);
+      extractionMethod = 'HTML';
     }
 
     const blockedDetection = detectBlockedContent(html, listings.length > 0);
@@ -408,7 +549,7 @@ export async function scrapeSearch(url, scrapeMode) {
         console.log(`[WORKER] 🚫 Blocked content detected (${blockedDetection.matchedKeyword}), retrying...`);
         continue;
       }
-      const diagnostics = extractDiagnostics(html, marketplace, attempt);
+      const diagnostics = extractDiagnostics(html, marketplace, attempt, profileLevel, extractionMethod);
       console.log(`[WORKER] 🚫 Blocked after all retries: ${blockedDetection.matchedKeyword}`);
       return {
         listings: [],
@@ -424,22 +565,22 @@ export async function scrapeSearch(url, scrapeMode) {
         console.log(`[WORKER] ⚠️ Zero listings extracted, retrying with stronger profile...`);
         continue;
       }
-      const diagnostics = extractDiagnostics(html, marketplace, attempt);
+      const diagnostics = extractDiagnostics(html, marketplace, attempt, profileLevel, 'NONE');
       console.log(`[WORKER] ⚠️ Zero listings after all retries from ${marketplace}`);
       console.log(`[WORKER] 📊 Diagnostics:`, JSON.stringify(diagnostics, null, 2));
       return {
         listings: [],
         diagnostics,
-        errorReason: `${marketplace.toUpperCase()}_PARSE_ZERO_LISTINGS`,
+        errorReason: `${marketplace.toUpperCase()}_ZERO_LISTINGS_AFTER_RETRIES`,
         zyteStatusCode: statusCode,
       };
     }
 
     console.log(`[WORKER] ✅ Extracted ${listings.length} listings from ${url}${isRetry ? ` (after ${attempt} ${attempt === 1 ? 'retry' : 'retries'})` : ''}`);
-    return { listings, retryCount: attempt };
+    return { listings, retryCount: attempt, extractionMethod };
   }
 
-  const diagnostics = extractDiagnostics('', marketplace, MAX_RETRIES);
+  const diagnostics = extractDiagnostics('', marketplace, MAX_RETRIES, MAX_RETRIES + 1, 'NONE');
   return {
     listings: [],
     error: 'SCRAPER_FAILED',
