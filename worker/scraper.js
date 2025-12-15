@@ -25,7 +25,7 @@ export function toEur(price, currency) {
   return price * (FX_RATES[currency] ?? 1);
 }
 
-function detectBlockedContent(html) {
+function detectBlockedContent(html, hasListings = false) {
   const lowerHtml = html.toLowerCase();
 
   for (const keyword of BLOCKED_KEYWORDS) {
@@ -33,17 +33,34 @@ function detectBlockedContent(html) {
       return {
         isBlocked: true,
         matchedKeyword: keyword,
+        reason: 'keyword_match',
       };
     }
   }
 
-  return { isBlocked: false, matchedKeyword: null };
+  if (!hasListings) {
+    const suspiciousPatterns = [
+      'robot', 'access denied', 'blocked', 'security', 'verification'
+    ];
+
+    for (const pattern of suspiciousPatterns) {
+      if (lowerHtml.includes(pattern) && html.length < 50000) {
+        return {
+          isBlocked: true,
+          matchedKeyword: pattern,
+          reason: 'no_listings_with_suspicious_content',
+        };
+      }
+    }
+  }
+
+  return { isBlocked: false, matchedKeyword: null, reason: null };
 }
 
-function extractDiagnostics(html, marketplace) {
+function extractDiagnostics(html, marketplace, retryCount = 0) {
   const blockedDetection = detectBlockedContent(html);
 
-  const htmlSnippet = html.slice(0, 1500)
+  const htmlSnippet = html.slice(0, 800)
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '[SCRIPT]')
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '[STYLE]');
 
@@ -56,20 +73,57 @@ function extractDiagnostics(html, marketplace) {
     hasNextData,
     detectedBlocked: blockedDetection.isBlocked,
     matchedKeyword: blockedDetection.matchedKeyword,
+    blockReason: blockedDetection.reason,
+    retryCount,
   };
 }
 
-async function fetchHtmlWithScraper(targetUrl) {
+function getZyteRequestProfile(profileLevel, url) {
+  const isMarktplaats = url.includes('marktplaats.nl');
+
+  const baseProfile = {
+    url,
+    browserHtml: true,
+  };
+
+  if (profileLevel === 1) {
+    return baseProfile;
+  }
+
+  if (profileLevel === 2 && isMarktplaats) {
+    return {
+      ...baseProfile,
+      geolocation: 'NL',
+      javascript: true,
+    };
+  }
+
+  if (profileLevel === 3 && isMarktplaats) {
+    return {
+      ...baseProfile,
+      geolocation: 'NL',
+      javascript: true,
+      actions: [{
+        action: 'waitForTimeout',
+        timeout: 2000,
+      }],
+    };
+  }
+
+  return baseProfile;
+}
+
+async function fetchHtmlWithScraper(targetUrl, profileLevel = 1) {
   if (!ZYTE_API_KEY) {
     console.error('[WORKER] Missing ZYTE_API_KEY environment variable');
-    return null;
+    return { html: null, statusCode: null };
   }
 
   try {
     const authHeader = `Basic ${Buffer.from(ZYTE_API_KEY + ':').toString('base64')}`;
-    const requestBody = { url: targetUrl, browserHtml: true };
+    const requestBody = getZyteRequestProfile(profileLevel, targetUrl);
 
-    console.log(`[WORKER] Fetching ${targetUrl.slice(0, 100)}...`);
+    console.log(`[WORKER] Fetching ${targetUrl.slice(0, 100)}... (profile level ${profileLevel})`);
 
     const response = await fetch(ZYTE_ENDPOINT, {
       method: 'POST',
@@ -80,17 +134,19 @@ async function fetchHtmlWithScraper(targetUrl) {
       body: JSON.stringify(requestBody),
     });
 
+    const statusCode = response.status;
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[WORKER] Zyte API error: ${response.status} - ${errorText}`);
-      return null;
+      console.error(`[WORKER] Zyte API error: ${statusCode} - ${errorText}`);
+      return { html: null, statusCode };
     }
 
     const result = await response.json();
-    return result.browserHtml || null;
+    return { html: result.browserHtml || null, statusCode };
   } catch (error) {
     console.error('[WORKER] Scraper fetch error:', error);
-    return null;
+    return { html: null, statusCode: null };
   }
 }
 
@@ -278,70 +334,118 @@ function parseBilbasenListings(html) {
   return listings;
 }
 
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function scrapeSearch(url, scrapeMode) {
-  console.log(`[WORKER] Scraping ${url} in ${scrapeMode.toUpperCase()} mode`);
-
-  const html = await fetchHtmlWithScraper(url);
-
-  if (!html) {
-    return {
-      listings: [],
-      error: 'SCRAPER_FAILED',
-      errorReason: 'Zyte API returned no HTML',
-    };
-  }
+  const MAX_RETRIES = 2;
+  const RETRY_DELAYS = [1000, 3000];
 
   let marketplace = 'unknown';
   if (url.includes('marktplaats.nl')) marketplace = 'marktplaats';
   else if (url.includes('leboncoin.fr')) marketplace = 'leboncoin';
   else if (url.includes('bilbasen.dk')) marketplace = 'bilbasen';
 
-  if (html.includes('/download/website-ban') || html.toLowerCase().includes('website ban')) {
-    const diagnostics = extractDiagnostics(html, marketplace);
-    return {
-      listings: [],
-      blockedByProvider: true,
-      blockReason: 'Zyte website-ban error detected',
-      diagnostics,
-    };
+  const isMarktplaats = marketplace === 'marktplaats';
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const profileLevel = attempt + 1;
+    const isRetry = attempt > 0;
+
+    if (isRetry) {
+      const delay = RETRY_DELAYS[attempt - 1];
+      console.log(`[WORKER] 🔄 Retry ${attempt}/${MAX_RETRIES} after ${delay}ms with profile level ${profileLevel}...`);
+      await sleep(delay);
+    } else {
+      console.log(`[WORKER] Scraping ${url} in ${scrapeMode.toUpperCase()} mode`);
+    }
+
+    const { html, statusCode } = await fetchHtmlWithScraper(url, profileLevel);
+
+    if (!html) {
+      if (attempt === MAX_RETRIES) {
+        return {
+          listings: [],
+          error: 'SCRAPER_FAILED',
+          errorReason: 'Zyte API returned no HTML after retries',
+          zyteStatusCode: statusCode,
+        };
+      }
+      console.log(`[WORKER] ⚠️ No HTML returned, will retry...`);
+      continue;
+    }
+
+    if (html.includes('/download/website-ban') || html.toLowerCase().includes('website ban')) {
+      if (isMarktplaats && attempt < MAX_RETRIES) {
+        console.log(`[WORKER] 🚫 Zyte website-ban detected, retrying with stronger profile...`);
+        continue;
+      }
+      const diagnostics = extractDiagnostics(html, marketplace, attempt);
+      return {
+        listings: [],
+        blockedByProvider: true,
+        blockReason: 'Zyte website-ban error detected',
+        diagnostics,
+        zyteStatusCode: statusCode,
+      };
+    }
+
+    let listings = [];
+
+    if (marketplace === 'marktplaats') {
+      listings = parseMarktplaatsListings(html);
+    } else if (marketplace === 'leboncoin') {
+      listings = parseLeboncoinListings(html);
+    } else if (marketplace === 'bilbasen') {
+      listings = parseBilbasenListings(html);
+    }
+
+    const blockedDetection = detectBlockedContent(html, listings.length > 0);
+
+    if (blockedDetection.isBlocked) {
+      if (isMarktplaats && attempt < MAX_RETRIES) {
+        console.log(`[WORKER] 🚫 Blocked content detected (${blockedDetection.matchedKeyword}), retrying...`);
+        continue;
+      }
+      const diagnostics = extractDiagnostics(html, marketplace, attempt);
+      console.log(`[WORKER] 🚫 Blocked after all retries: ${blockedDetection.matchedKeyword}`);
+      return {
+        listings: [],
+        blockedByProvider: true,
+        blockReason: `${marketplace.toUpperCase()}_BLOCKED: ${blockedDetection.matchedKeyword}`,
+        diagnostics,
+        zyteStatusCode: statusCode,
+      };
+    }
+
+    if (listings.length === 0) {
+      if (isMarktplaats && attempt < MAX_RETRIES) {
+        console.log(`[WORKER] ⚠️ Zero listings extracted, retrying with stronger profile...`);
+        continue;
+      }
+      const diagnostics = extractDiagnostics(html, marketplace, attempt);
+      console.log(`[WORKER] ⚠️ Zero listings after all retries from ${marketplace}`);
+      console.log(`[WORKER] 📊 Diagnostics:`, JSON.stringify(diagnostics, null, 2));
+      return {
+        listings: [],
+        diagnostics,
+        errorReason: `${marketplace.toUpperCase()}_PARSE_ZERO_LISTINGS`,
+        zyteStatusCode: statusCode,
+      };
+    }
+
+    console.log(`[WORKER] ✅ Extracted ${listings.length} listings from ${url}${isRetry ? ` (after ${attempt} ${attempt === 1 ? 'retry' : 'retries'})` : ''}`);
+    return { listings, retryCount: attempt };
   }
 
-  const blockedDetection = detectBlockedContent(html);
-  if (blockedDetection.isBlocked) {
-    const diagnostics = extractDiagnostics(html, marketplace);
-    console.log(`[WORKER] 🚫 Blocked content detected: ${blockedDetection.matchedKeyword}`);
-    return {
-      listings: [],
-      blockedByProvider: true,
-      blockReason: `${marketplace.toUpperCase()}_BLOCKED: ${blockedDetection.matchedKeyword}`,
-      diagnostics,
-    };
-  }
-
-  let listings = [];
-
-  if (marketplace === 'marktplaats') {
-    listings = parseMarktplaatsListings(html);
-  } else if (marketplace === 'leboncoin') {
-    listings = parseLeboncoinListings(html);
-  } else if (marketplace === 'bilbasen') {
-    listings = parseBilbasenListings(html);
-  }
-
-  console.log(`[WORKER] Extracted ${listings.length} listings from ${url}`);
-
-  if (listings.length === 0) {
-    const diagnostics = extractDiagnostics(html, marketplace);
-    console.log(`[WORKER] ⚠️ Zero listings extracted from ${marketplace}`);
-    console.log(`[WORKER] 📊 Diagnostics:`, JSON.stringify(diagnostics, null, 2));
-    return {
-      listings: [],
-      diagnostics,
-      errorReason: `${marketplace.toUpperCase()}_PARSE_ZERO_LISTINGS`,
-    };
-  }
-
-  return { listings };
+  const diagnostics = extractDiagnostics('', marketplace, MAX_RETRIES);
+  return {
+    listings: [],
+    error: 'SCRAPER_FAILED',
+    errorReason: 'Max retries exceeded',
+    diagnostics,
+  };
 }
 
 export function filterListingsByStudy(listings, study) {
@@ -484,6 +588,8 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
             studyId: study.id,
             stage: 'target_scrape',
             error: errorReason,
+            zyteStatusCode: targetResult.zyteStatusCode,
+            retryCount: targetResult.retryCount || 0,
             diagnostics: targetResult.diagnostics,
           },
         }]);
@@ -510,13 +616,15 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
         await supabase.from('study_run_logs').insert([{
           study_run_id: runId,
           status: 'TARGET_BLOCKED',
-          last_stage: 'target_scrape',
-          error_message: targetResult.blockReason,
+          last_stage: 'target_search',
+          error_message: 'MARKTPLAATS_BLOCKED',
           logs_json: {
             studyId: study.id,
-            stage: 'target_scrape',
+            stage: 'target_search',
             blocked: true,
             blockReason: targetResult.blockReason,
+            zyteStatusCode: targetResult.zyteStatusCode,
+            retryCount: targetResult.retryCount || 0,
             diagnostics: targetResult.diagnostics,
           },
         }]);
@@ -556,6 +664,8 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
             rawListingsCount: targetListings.length,
             filteredListingsCount: filteredTargetListings.length,
             errorReason,
+            zyteStatusCode: targetResult.zyteStatusCode,
+            retryCount: targetResult.retryCount || 0,
             diagnostics: targetResult.diagnostics,
           },
         }]);
@@ -595,6 +705,8 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
             studyId: study.id,
             stage: 'source_scrape',
             error: errorReason,
+            zyteStatusCode: sourceResult.zyteStatusCode,
+            retryCount: sourceResult.retryCount || 0,
             diagnostics: sourceResult.diagnostics,
           },
         }]);
@@ -628,6 +740,8 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
             stage: 'source_scrape',
             blocked: true,
             blockReason: sourceResult.blockReason,
+            zyteStatusCode: sourceResult.zyteStatusCode,
+            retryCount: sourceResult.retryCount || 0,
             diagnostics: sourceResult.diagnostics,
           },
         }]);
@@ -667,6 +781,8 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
             rawListingsCount: sourceListings.length,
             filteredListingsCount: filteredSourceListings.length,
             errorReason,
+            zyteStatusCode: sourceResult.zyteStatusCode,
+            retryCount: sourceResult.retryCount || 0,
             diagnostics: sourceResult.diagnostics,
           },
         }]);
