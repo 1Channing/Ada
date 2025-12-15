@@ -967,20 +967,79 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
 
     console.log(`[WORKER] OPPORTUNITY: ${priceDifferenceEur.toFixed(0)} EUR >= ${threshold} EUR`);
 
-    await supabase.from('study_run_results').insert([{
-      run_id: runId,
-      study_id: study.id,
-      status: 'OPPORTUNITIES',
-      target_market_price: targetMarketPriceEur,
-      best_source_price: bestSourcePriceEur,
-      price_difference: priceDifferenceEur,
-      target_stats: {
-        ...targetStats,
-        targetMarketUrl: targetUrl,
-        sourceMarketUrl: sourceUrl,
-        targetMarketMedianEur: targetMarketPriceEur,
-      },
-    }]);
+    const MAX_INTERESTING_LISTINGS = 5;
+    const maxInterestingPriceEur = targetMarketPriceEur - threshold;
+
+    const interestingListings = filteredSourceListings
+      .filter(l => {
+        const priceEur = toEur(l.price, l.currency);
+        return priceEur <= maxInterestingPriceEur;
+      })
+      .sort((a, b) => toEur(a.price, a.currency) - toEur(b.price, b.currency))
+      .slice(0, MAX_INTERESTING_LISTINGS);
+
+    console.log(`[WORKER] Found ${interestingListings.length} interesting listings (below target median - ${threshold} EUR)`);
+
+    const { data: resultData, error: resultError } = await supabase
+      .from('study_run_results')
+      .insert([{
+        run_id: runId,
+        study_id: study.id,
+        status: 'OPPORTUNITIES',
+        target_market_price: targetMarketPriceEur,
+        best_source_price: bestSourcePriceEur,
+        price_difference: priceDifferenceEur,
+        target_stats: {
+          ...targetStats,
+          targetMarketUrl: targetUrl,
+          sourceMarketUrl: sourceUrl,
+          targetMarketMedianEur: targetMarketPriceEur,
+        },
+      }])
+      .select()
+      .single();
+
+    if (resultError) {
+      console.error(`[WORKER] Error inserting study_run_results:`, resultError);
+      throw resultError;
+    }
+
+    console.log(`[WORKER] ✅ Stored OPPORTUNITIES result with ID: ${resultData.id}`);
+
+    if (interestingListings.length > 0) {
+      const listingsToStore = interestingListings.map(listing => ({
+        run_result_id: resultData.id,
+        listing_url: listing.listing_url,
+        title: listing.title,
+        price: toEur(listing.price, listing.currency),
+        mileage: listing.mileage,
+        year: listing.year,
+        trim: listing.trim,
+        is_damaged: false,
+        defects_summary: null,
+        maintenance_summary: null,
+        options_summary: null,
+        entretien: '',
+        options: [],
+        full_description: listing.description || '',
+        car_image_urls: [],
+        status: 'NEW',
+      }));
+
+      const { error: listingsError } = await supabase
+        .from('study_source_listings')
+        .insert(listingsToStore);
+
+      if (listingsError) {
+        console.error(`[WORKER] Error inserting study_source_listings:`, listingsError);
+        throw listingsError;
+      }
+
+      console.log(`[WORKER] ✅ Persisted ${listingsToStore.length} listings for study ${study.id} run ${runId} (source market)`);
+      console.log(`[WORKER] 📊 Listings stored in study_source_listings table, linked to run_result_id: ${resultData.id}`);
+    } else {
+      console.log(`[WORKER] ℹ️ No interesting listings below threshold to store`);
+    }
 
     return { status: 'OPPORTUNITIES', nullCount: 0, opportunitiesCount: 1 };
   } catch (error) {
