@@ -2633,6 +2633,7 @@ export function filterListingsByStudy(
   study: { brand: string; model: string; year: number; max_mileage: number }
 ): ScrapedListing[] {
   const initialCount = listings.length;
+  console.log(`[INSTANT_FILTER] Starting with ${initialCount} listings for ${study.brand} ${study.model} ${study.year}`);
 
   const filtered = listings.filter(listing => {
     if (shouldFilterListing(listing)) {
@@ -2640,24 +2641,25 @@ export function filterListingsByStudy(
     }
 
     if (listing.year && listing.year < study.year) {
+      console.log(`[INSTANT_FILTER] Year too old: ${listing.title} (${listing.year} < ${study.year})`);
       return false;
     }
 
     if (study.max_mileage > 0 && listing.mileage && listing.mileage > study.max_mileage) {
-      console.log('[FILTER] Mileage too high:', listing.title, listing.mileage);
+      console.log(`[INSTANT_FILTER] Mileage too high: ${listing.title} (${listing.mileage} > ${study.max_mileage})`);
       return false;
     }
 
     const matchResult = matchesBrandModel(listing.title, study.brand, study.model);
     if (!matchResult.matches) {
-      console.log(`[FILTER] Brand/model mismatch (token check failed): ${listing.title} - ${matchResult.reason}`);
+      console.log(`[INSTANT_FILTER] Brand/model mismatch: ${listing.title} - ${matchResult.reason}`);
       return false;
     }
 
     return true;
   });
 
-  console.log(`[FILTER] Kept ${filtered.length}/${initialCount} listings after filtering`);
+  console.log(`[INSTANT_FILTER] ✅ Kept ${filtered.length}/${initialCount} listings after filtering (${initialCount - filtered.length} filtered out)`);
 
   return filtered;
 }
@@ -2676,7 +2678,7 @@ export function computeTargetMarketStats(listings: ScrapedListing[]): {
   percentile_75: number;
 } {
   if (listings.length === 0) {
-    console.log('[TARGET STATS] No listings to compute stats from');
+    console.log('[INSTANT_STATS] No listings to compute stats from');
     return {
       median_price: 0,
       average_price: 0,
@@ -2715,7 +2717,7 @@ export function computeTargetMarketStats(listings: ScrapedListing[]): {
 
   const currencyNote = listings[0]?.currency === 'DKK' ? ' (converted from DKK)' : '';
   const limitNote = listings.length > MAX_TARGET_LISTINGS ? ` (using first ${MAX_TARGET_LISTINGS} listings)` : '';
-  console.log(`[TARGET STATS] Computed statistics in EUR${currencyNote}${limitNote}:`, {
+  console.log(`[INSTANT_STATS] Computed target market stats in EUR${currencyNote}${limitNote}:`, {
     median: stats.median_price.toFixed(0) + ' EUR',
     average: stats.average_price.toFixed(0) + ' EUR',
     count: stats.count,

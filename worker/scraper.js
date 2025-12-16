@@ -589,25 +589,168 @@ export async function scrapeSearch(url, scrapeMode) {
   };
 }
 
+function isPriceMonthly(text) {
+  const monthlyKeywords = [
+    '/mois',
+    '€/mois',
+    '€ / mois',
+    'per month',
+    '€/month',
+    'par mois',
+    'p/m',
+    '/maand',
+    '€/mnd',
+    'per maand',
+    '/month',
+    'lease',
+    'privé lease',
+    'private lease',
+    'loa',
+    'lld',
+    'operational lease',
+    'leasing',
+    'maandelijkse betaling',
+  ];
+  return monthlyKeywords.some(kw => text.toLowerCase().includes(kw));
+}
+
+function isDamagedVehicle(text) {
+  const textLower = text.toLowerCase();
+
+  const damageKeywords = [
+    'accidenté',
+    'véhicule accidenté',
+    'épave',
+    'choc',
+    'réparé suite à choc',
+    'châssis tordu',
+    'damaged',
+    'accident damage',
+    'salvage',
+    'cat c',
+    'cat d',
+    'cat s',
+    'cat n',
+    'written off',
+    'write off',
+    'schade',
+    'ongeval',
+    'schadeauto',
+    'total loss',
+    'skadet',
+    'skade',
+    'kollisionsskade',
+    'ulykke',
+    'for parts',
+    'pour pièces',
+    'non roulant',
+    'as is',
+    'hs',
+    'hors service',
+    'parts only',
+    'dépanneuse',
+    'not running',
+    'moteur hs',
+  ];
+
+  return damageKeywords.some(keyword => textLower.includes(keyword));
+}
+
+function matchesBrandModel(title, brand, model) {
+  const titleLower = title.toLowerCase();
+  const brandLower = brand.toLowerCase();
+
+  if (!titleLower.includes(brandLower)) {
+    return {
+      matches: false,
+      reason: `Brand "${brand}" not found in title`,
+    };
+  }
+
+  const modelTokens = model
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(t => t.length > 0);
+
+  const missingTokens = modelTokens.filter(token => !titleLower.includes(token));
+
+  if (missingTokens.length > 0) {
+    return {
+      matches: false,
+      reason: `Model tokens missing: ${missingTokens.join(', ')}`,
+    };
+  }
+
+  return { matches: true, reason: '' };
+}
+
+function shouldFilterListing(listing) {
+  const text = `${listing.title} ${listing.description}`;
+  const textLower = text.toLowerCase();
+
+  const isMonthly = isPriceMonthly(textLower);
+  const isLowMonthlyPrice = listing.price_type === 'per-month' ||
+    (listing.price >= 200 && listing.price <= 500 && isMonthly);
+
+  if (isLowMonthlyPrice || isMonthly) {
+    console.log('[WORKER_FILTER] Leasing detected:', listing.title);
+    return true;
+  }
+
+  if (isDamagedVehicle(text)) {
+    console.log('[WORKER_FILTER] Damaged vehicle detected (pre-AI):', listing.title);
+    return true;
+  }
+
+  if (listing.price <= 0) {
+    return true;
+  }
+
+  if (listing.price_type === 'per-month') {
+    return true;
+  }
+
+  return false;
+}
+
 export function filterListingsByStudy(listings, study) {
-  return listings.filter(listing => {
-    if (listing.price_type !== 'one-off') return false;
-    if (listing.price <= 0) return false;
+  const initialCount = listings.length;
+  console.log(`[WORKER_FILTER] Starting with ${initialCount} listings for ${study.brand} ${study.model} ${study.year}`);
 
-    if (listing.year && Math.abs(listing.year - study.year) > 1) return false;
+  const filtered = listings.filter(listing => {
+    if (shouldFilterListing(listing)) {
+      return false;
+    }
 
-    if (listing.mileage && study.max_mileage > 0) {
-      if (listing.mileage > study.max_mileage) return false;
+    if (listing.year && listing.year < study.year) {
+      console.log(`[WORKER_FILTER] Year too old: ${listing.title} (${listing.year} < ${study.year})`);
+      return false;
+    }
+
+    if (study.max_mileage > 0 && listing.mileage && listing.mileage > study.max_mileage) {
+      console.log(`[WORKER_FILTER] Mileage too high: ${listing.title} (${listing.mileage} > ${study.max_mileage})`);
+      return false;
+    }
+
+    const matchResult = matchesBrandModel(listing.title, study.brand, study.model);
+    if (!matchResult.matches) {
+      console.log(`[WORKER_FILTER] Brand/model mismatch: ${listing.title} - ${matchResult.reason}`);
+      return false;
     }
 
     return true;
   });
+
+  console.log(`[WORKER_FILTER] ✅ Kept ${filtered.length}/${initialCount} listings after filtering (${initialCount - filtered.length} filtered out)`);
+
+  return filtered;
 }
 
 export function computeTargetMarketStats(listings) {
-  const prices = listings.map(l => toEur(l.price, l.currency)).sort((a, b) => a - b);
-
-  if (prices.length === 0) {
+  if (listings.length === 0) {
+    console.log('[WORKER_STATS] No listings to compute stats from');
     return {
       median_price: 0,
       average_price: 0,
@@ -619,23 +762,43 @@ export function computeTargetMarketStats(listings) {
     };
   }
 
-  const sum = prices.reduce((a, b) => a + b, 0);
-  const avg = sum / prices.length;
-  const mid = Math.floor(prices.length / 2);
-  const median = prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
+  const MAX_TARGET_LISTINGS = 6;
 
-  const p25Index = Math.floor(prices.length * 0.25);
-  const p75Index = Math.floor(prices.length * 0.75);
+  const sortedListings = listings
+    .map(l => ({ ...l, priceEur: toEur(l.price, l.currency) }))
+    .sort((a, b) => a.priceEur - b.priceEur);
 
-  return {
-    median_price: median,
-    average_price: avg,
-    min_price: prices[0],
-    max_price: prices[prices.length - 1],
-    count: prices.length,
-    percentile_25: prices[p25Index],
-    percentile_75: prices[p75Index],
+  const limitedListings = sortedListings.slice(0, MAX_TARGET_LISTINGS);
+  const pricesInEur = limitedListings.map(l => l.priceEur);
+  const sum = pricesInEur.reduce((acc, price) => acc + price, 0);
+
+  const getPercentile = (arr, p) => {
+    const index = Math.ceil((arr.length * p) / 100) - 1;
+    return arr[Math.max(0, index)];
   };
+
+  const stats = {
+    median_price: pricesInEur[Math.floor(pricesInEur.length / 2)],
+    average_price: sum / pricesInEur.length,
+    min_price: pricesInEur[0],
+    max_price: pricesInEur[pricesInEur.length - 1],
+    count: limitedListings.length,
+    percentile_25: getPercentile(pricesInEur, 25),
+    percentile_75: getPercentile(pricesInEur, 75),
+  };
+
+  const currencyNote = listings[0]?.currency === 'DKK' ? ' (converted from DKK)' : '';
+  const limitNote = listings.length > MAX_TARGET_LISTINGS ? ` (using first ${MAX_TARGET_LISTINGS} listings)` : '';
+  console.log(`[WORKER_STATS] Computed target market stats in EUR${currencyNote}${limitNote}:`, {
+    count: stats.count,
+    median: stats.median_price.toFixed(0),
+    average: stats.average_price.toFixed(0),
+    min: stats.min_price.toFixed(0),
+    max: stats.max_price.toFixed(0),
+    total_listings_available: listings.length,
+  });
+
+  return stats;
 }
 
 function applyTrimLeboncoin(url, trim) {
@@ -786,6 +949,7 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
     }
 
     const targetListings = targetResult.listings;
+    console.log(`[WORKER] 🎯 Raw target listings extracted: ${targetListings.length}`);
     const filteredTargetListings = filterListingsByStudy(targetListings, study);
 
     if (filteredTargetListings.length === 0) {
@@ -829,7 +993,11 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
     const targetStats = computeTargetMarketStats(filteredTargetListings);
     const targetMarketPriceEur = targetStats.median_price;
 
-    console.log(`[WORKER] Target median: ${targetMarketPriceEur.toFixed(0)} EUR`);
+    console.log(`[WORKER] 📊 Target Market Summary for ${study.brand} ${study.model} ${study.year}:`);
+    console.log(`[WORKER]    - Raw listings: ${targetListings.length}`);
+    console.log(`[WORKER]    - After filtering: ${filteredTargetListings.length}`);
+    console.log(`[WORKER]    - Used for median: ${targetStats.count}`);
+    console.log(`[WORKER]    - Median price: ${targetMarketPriceEur.toFixed(0)} EUR`);
 
     const sourceResult = await scrapeSearch(sourceUrl, scrapeMode);
 
@@ -903,6 +1071,7 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
     }
 
     const sourceListings = sourceResult.listings;
+    console.log(`[WORKER] 🎯 Raw source listings extracted: ${sourceListings.length}`);
     const filteredSourceListings = filterListingsByStudy(sourceListings, study);
 
     if (filteredSourceListings.length === 0) {
