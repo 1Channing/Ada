@@ -777,8 +777,13 @@ export function computeTargetMarketStats(listings) {
     return arr[Math.max(0, index)];
   };
 
+  const mid = Math.floor(pricesInEur.length / 2);
+  const median = pricesInEur.length % 2 === 0
+    ? (pricesInEur[mid - 1] + pricesInEur[mid]) / 2
+    : pricesInEur[mid];
+
   const stats = {
-    median_price: pricesInEur[Math.floor(pricesInEur.length / 2)],
+    median_price: median,
     average_price: sum / pricesInEur.length,
     min_price: pricesInEur[0],
     max_price: pricesInEur[pricesInEur.length - 1],
