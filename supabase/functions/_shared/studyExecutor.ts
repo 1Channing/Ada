@@ -254,22 +254,25 @@ function computeTargetMarketStats(listings: ScrapedListing[]) {
     };
   }
 
-  const sum = prices.reduce((a, b) => a + b, 0);
-  const avg = sum / prices.length;
-  const mid = Math.floor(prices.length / 2);
-  const median = prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
+  const MAX_TARGET_LISTINGS = 6;
+  const limitedPrices = prices.slice(0, MAX_TARGET_LISTINGS);
 
-  const p25Index = Math.floor(prices.length * 0.25);
-  const p75Index = Math.floor(prices.length * 0.75);
+  const sum = limitedPrices.reduce((a, b) => a + b, 0);
+  const avg = sum / limitedPrices.length;
+  const mid = Math.floor(limitedPrices.length / 2);
+  const median = limitedPrices.length % 2 === 0 ? (limitedPrices[mid - 1] + limitedPrices[mid]) / 2 : limitedPrices[mid];
+
+  const p25Index = Math.floor(limitedPrices.length * 0.25);
+  const p75Index = Math.floor(limitedPrices.length * 0.75);
 
   return {
     median_price: median,
     average_price: avg,
-    min_price: prices[0],
-    max_price: prices[prices.length - 1],
-    count: prices.length,
-    percentile_25: prices[p25Index],
-    percentile_75: prices[p75Index],
+    min_price: limitedPrices[0],
+    max_price: limitedPrices[limitedPrices.length - 1],
+    count: limitedPrices.length,
+    percentile_25: limitedPrices[p25Index],
+    percentile_75: limitedPrices[p75Index],
   };
 }
 
@@ -461,6 +464,7 @@ export async function executeStudy(params: ExecuteStudyParams): Promise<ExecuteS
     const bestSourcePriceEur = sourcePricesEur[0];
     const priceDifferenceEur = targetMarketPriceEur - bestSourcePriceEur;
 
+    console.log(`[SCHEDULED_PRICING] ${study.id} ${study.country_target}<-${study.country_source} target=${targetMarketPriceEur.toFixed(0)} sourceBest=${bestSourcePriceEur.toFixed(0)} diff=${priceDifferenceEur.toFixed(0)}`);
     console.log(`[EXECUTOR] Best source: ${bestSourcePriceEur.toFixed(0)} EUR, diff: ${priceDifferenceEur.toFixed(0)} EUR`);
 
     if (priceDifferenceEur < threshold) {
