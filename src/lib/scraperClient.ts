@@ -2608,6 +2608,12 @@ export function shouldFilterListing(listing: ScrapedListing): boolean {
   const text = `${listing.title} ${listing.description}`;
   const textLower = text.toLowerCase();
 
+  const priceEur = toEur(listing.price, listing.currency);
+  if (priceEur <= 2000) {
+    console.log(`[FILTER] Price too low (≤2000€): ${listing.title} (${priceEur.toFixed(0)}€)`);
+    return true;
+  }
+
   const isMonthly = isPriceMonthly(textLower);
   const isLowMonthlyPrice = listing.price_type === 'per-month' ||
     (listing.price >= 200 && listing.price <= 500 && isMonthly);
@@ -2705,8 +2711,12 @@ export function computeTargetMarketStats(listings: ScrapedListing[]): {
     return arr[Math.max(0, index)];
   };
 
+  const medianPrice = pricesInEur.length % 2 === 0
+    ? (pricesInEur[pricesInEur.length / 2 - 1] + pricesInEur[pricesInEur.length / 2]) / 2
+    : pricesInEur[Math.floor(pricesInEur.length / 2)];
+
   const stats = {
-    median_price: pricesInEur[Math.floor(pricesInEur.length / 2)],
+    median_price: medianPrice,
     average_price: sum / pricesInEur.length,
     min_price: pricesInEur[0],
     max_price: pricesInEur[pricesInEur.length - 1],

@@ -690,6 +690,12 @@ function shouldFilterListing(listing) {
   const text = `${listing.title} ${listing.description}`;
   const textLower = text.toLowerCase();
 
+  const priceEur = toEur(listing.price, listing.currency);
+  if (priceEur <= 2000) {
+    console.log(`[WORKER_FILTER] Price too low (≤2000€): ${listing.title} (${priceEur.toFixed(0)}€)`);
+    return true;
+  }
+
   const isMonthly = isPriceMonthly(textLower);
   const isLowMonthlyPrice = listing.price_type === 'per-month' ||
     (listing.price >= 200 && listing.price <= 500 && isMonthly);

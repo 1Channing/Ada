@@ -229,6 +229,12 @@ function filterListingsByStudy(listings: ScrapedListing[], study: StudyV2): Scra
     if (listing.price_type !== 'one-off') return false;
     if (listing.price <= 0) return false;
 
+    const priceEur = toEur(listing.price, listing.currency);
+    if (priceEur <= 2000) {
+      console.log(`[SCHEDULED_FILTER] Price too low (≤2000€): ${listing.title} (${priceEur.toFixed(0)}€)`);
+      return false;
+    }
+
     if (listing.year && Math.abs(listing.year - study.year) > 1) return false;
 
     if (listing.mileage && study.max_mileage > 0) {
@@ -259,7 +265,9 @@ function computeTargetMarketStats(listings: ScrapedListing[]) {
 
   const sum = limitedPrices.reduce((a, b) => a + b, 0);
   const avg = sum / limitedPrices.length;
-  const median = limitedPrices[Math.floor(limitedPrices.length / 2)];
+  const median = limitedPrices.length % 2 === 0
+    ? (limitedPrices[limitedPrices.length / 2 - 1] + limitedPrices[limitedPrices.length / 2]) / 2
+    : limitedPrices[Math.floor(limitedPrices.length / 2)];
 
   const p25Index = Math.floor(limitedPrices.length * 0.25);
   const p75Index = Math.floor(limitedPrices.length * 0.75);
