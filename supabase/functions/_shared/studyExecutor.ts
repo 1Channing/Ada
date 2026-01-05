@@ -259,8 +259,7 @@ function computeTargetMarketStats(listings: ScrapedListing[]) {
 
   const sum = limitedPrices.reduce((a, b) => a + b, 0);
   const avg = sum / limitedPrices.length;
-  const mid = Math.floor(limitedPrices.length / 2);
-  const median = limitedPrices.length % 2 === 0 ? (limitedPrices[mid - 1] + limitedPrices[mid]) / 2 : limitedPrices[mid];
+  const median = limitedPrices[Math.floor(limitedPrices.length / 2)];
 
   const p25Index = Math.floor(limitedPrices.length * 0.25);
   const p75Index = Math.floor(limitedPrices.length * 0.75);
@@ -421,6 +420,13 @@ export async function executeStudy(params: ExecuteStudyParams): Promise<ExecuteS
     const targetStats = computeTargetMarketStats(filteredTargetListings);
     const targetMarketPriceEur = targetStats.median_price;
 
+    const targetPricesForLog = filteredTargetListings
+      .map(l => toEur(l.price, l.currency))
+      .sort((a, b) => a - b)
+      .slice(0, 6)
+      .map(p => p.toFixed(0));
+
+    console.log(`[SCHEDULED_PRICING_MEDIAN] ${study.id} raw=${filteredTargetListings.length} used=${Math.min(filteredTargetListings.length, 6)} prices=[${targetPricesForLog.join(', ')}] median=${targetMarketPriceEur.toFixed(0)}`);
     console.log(`[EXECUTOR] Target median: ${targetMarketPriceEur.toFixed(0)} EUR`);
 
     const sourceResult = await scrapeSearch(sourceUrl, scrapeMode);
