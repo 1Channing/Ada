@@ -25,6 +25,15 @@
  */
 
 import { supabase } from './supabase';
+import {
+  toEur as toEurEngine,
+  shouldFilterListing as shouldFilterListingEngine,
+  filterListingsByStudy as filterListingsByStudyEngine,
+  computeTargetMarketStats as computeTargetMarketStatsEngine,
+  matchesBrandModel as matchesBrandModelEngine,
+  executeStudyAnalysis,
+  type MarketStats,
+} from './study-engine';
 
 const ZYTE_API_KEY =
   (import.meta.env.VITE_ZYTE_API_KEY as string | undefined) ||
@@ -67,14 +76,15 @@ export interface SearchResult {
   error?: 'SCRAPER_FAILED';
 }
 
-const FX_RATES: Record<Currency, number> = {
-  EUR: 1,
-  DKK: 0.13,
-  UNKNOWN: 1,
-};
-
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * DELEGATED TO STUDY ENGINE - DO NOT MODIFY
+ * ════════════════════════════════════════════════════════════════════════════
+ * This function delegates to the Study Execution Engine (study-engine.ts).
+ * ALL business logic modifications MUST be made in study-engine.ts.
+ */
 export function toEur(price: number, currency: Currency): number {
-  return price * (FX_RATES[currency] ?? 1);
+  return toEurEngine(price, currency);
 }
 
 let zyteKeyWarningShown = false;
@@ -340,38 +350,19 @@ function extractThumbnail(cardHtml: string): string | null {
  * Token-based brand/model matching.
  * Splits model into tokens and checks if all tokens are present in title.
  */
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * DELEGATED TO STUDY ENGINE - DO NOT MODIFY
+ * ════════════════════════════════════════════════════════════════════════════
+ * This function delegates to the Study Execution Engine (study-engine.ts).
+ * ALL brand/model matching logic MUST be in study-engine.ts.
+ */
 export function matchesBrandModel(
   title: string,
   brand: string,
   model: string
 ): { matches: boolean; reason: string } {
-  const titleLower = title.toLowerCase();
-  const brandLower = brand.toLowerCase();
-
-  if (!titleLower.includes(brandLower)) {
-    return {
-      matches: false,
-      reason: `Brand "${brand}" not found in title`,
-    };
-  }
-
-  const modelTokens = model
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(t => t.length > 0);
-
-  const missingTokens = modelTokens.filter(token => !titleLower.includes(token));
-
-  if (missingTokens.length > 0) {
-    return {
-      matches: false,
-      reason: `Model tokens missing: ${missingTokens.join(', ')}`,
-    };
-  }
-
-  return { matches: true, reason: 'All tokens match' };
+  return matchesBrandModelEngine(title, brand, model);
 }
 
 /**
@@ -2602,37 +2593,36 @@ export async function SCRAPER_DETAIL(
 }
 
 /**
- * Helper function to check if a listing should be filtered out.
+ * ════════════════════════════════════════════════════════════════════════════
+ * DELEGATED TO STUDY ENGINE - DO NOT MODIFY
+ * ════════════════════════════════════════════════════════════════════════════
+ * This function delegates to the Study Execution Engine (study-engine.ts).
+ * ALL filtering logic modifications MUST be made in study-engine.ts.
  */
 export function shouldFilterListing(listing: ScrapedListing): boolean {
-  const text = `${listing.title} ${listing.description}`;
-  const textLower = text.toLowerCase();
+  const result = shouldFilterListingEngine(listing);
 
-  const priceEur = toEur(listing.price, listing.currency);
-  if (priceEur <= 2000) {
-    console.log(`[FILTER] Price too low (≤2000€): ${listing.title} (${priceEur.toFixed(0)}€)`);
-    return true;
+  // Preserve logging for debugging (engine doesn't log)
+  if (result) {
+    const priceEur = toEur(listing.price, listing.currency);
+    if (priceEur <= 2000) {
+      console.log(`[FILTER] Price too low (≤2000€): ${listing.title} (${priceEur.toFixed(0)}€)`);
+    } else if (listing.price_type === 'per-month') {
+      console.log('[FILTER] Leasing detected:', listing.title);
+    } else {
+      console.log('[FILTER] Filtered:', listing.title);
+    }
   }
 
-  const isMonthly = isPriceMonthly(textLower);
-  const isLowMonthlyPrice = listing.price_type === 'per-month' ||
-    (listing.price >= 200 && listing.price <= 500 && isMonthly);
-
-  if (isLowMonthlyPrice || isMonthly) {
-    console.log('[FILTER] Leasing detected:', listing.title);
-    return true;
-  }
-
-  if (isDamagedVehicle(text)) {
-    console.log('[FILTER] Damaged vehicle detected (pre-AI):', listing.title);
-    return true;
-  }
-
-  return false;
+  return result;
 }
 
 /**
- * Filter a list of listings based on study criteria.
+ * ════════════════════════════════════════════════════════════════════════════
+ * DELEGATED TO STUDY ENGINE - DO NOT MODIFY
+ * ════════════════════════════════════════════════════════════════════════════
+ * This function delegates to the Study Execution Engine (study-engine.ts).
+ * ALL filtering logic modifications MUST be made in study-engine.ts.
  */
 export function filterListingsByStudy(
   listings: ScrapedListing[],
@@ -2641,29 +2631,8 @@ export function filterListingsByStudy(
   const initialCount = listings.length;
   console.log(`[INSTANT_FILTER] Starting with ${initialCount} listings for ${study.brand} ${study.model} ${study.year}`);
 
-  const filtered = listings.filter(listing => {
-    if (shouldFilterListing(listing)) {
-      return false;
-    }
-
-    if (listing.year && listing.year < study.year) {
-      console.log(`[INSTANT_FILTER] Year too old: ${listing.title} (${listing.year} < ${study.year})`);
-      return false;
-    }
-
-    if (study.max_mileage > 0 && listing.mileage && listing.mileage > study.max_mileage) {
-      console.log(`[INSTANT_FILTER] Mileage too high: ${listing.title} (${listing.mileage} > ${study.max_mileage})`);
-      return false;
-    }
-
-    const matchResult = matchesBrandModel(listing.title, study.brand, study.model);
-    if (!matchResult.matches) {
-      console.log(`[INSTANT_FILTER] Brand/model mismatch: ${listing.title} - ${matchResult.reason}`);
-      return false;
-    }
-
-    return true;
-  });
+  // Delegate to engine
+  const filtered = filterListingsByStudyEngine(listings, study);
 
   console.log(`[INSTANT_FILTER] ✅ Kept ${filtered.length}/${initialCount} listings after filtering (${initialCount - filtered.length} filtered out)`);
 
@@ -2671,68 +2640,29 @@ export function filterListingsByStudy(
 }
 
 /**
- * Compute aggregated statistics from target market listings.
- * All prices are converted to EUR for comparison.
+ * ════════════════════════════════════════════════════════════════════════════
+ * DELEGATED TO STUDY ENGINE - DO NOT MODIFY
+ * ════════════════════════════════════════════════════════════════════════════
+ * This function delegates to the Study Execution Engine (study-engine.ts).
+ * ALL pricing/stats logic modifications MUST be made in study-engine.ts.
  */
-export function computeTargetMarketStats(listings: ScrapedListing[]): {
-  median_price: number;
-  average_price: number;
-  min_price: number;
-  max_price: number;
-  count: number;
-  percentile_25: number;
-  percentile_75: number;
-} {
-  if (listings.length === 0) {
+export function computeTargetMarketStats(listings: ScrapedListing[]): MarketStats {
+  // Delegate to engine
+  const stats = computeTargetMarketStatsEngine(listings);
+
+  // Preserve logging for debugging (engine doesn't log)
+  if (stats.count > 0) {
+    const currencyNote = listings[0]?.currency === 'DKK' ? ' (converted from DKK)' : '';
+    const limitNote = listings.length > 6 ? ` (using first 6 listings)` : '';
+    console.log(`[INSTANT_STATS] Computed target market stats in EUR${currencyNote}${limitNote}:`, {
+      median: stats.median_price.toFixed(0) + ' EUR',
+      average: stats.average_price.toFixed(0) + ' EUR',
+      count: stats.count,
+      range: `${stats.min_price.toFixed(0)} EUR - ${stats.max_price.toFixed(0)} EUR`
+    });
+  } else {
     console.log('[INSTANT_STATS] No listings to compute stats from');
-    return {
-      median_price: 0,
-      average_price: 0,
-      min_price: 0,
-      max_price: 0,
-      count: 0,
-      percentile_25: 0,
-      percentile_75: 0,
-    };
   }
-
-  const MAX_TARGET_LISTINGS = 6;
-
-  const sortedListings = listings
-    .map(l => ({ ...l, priceEur: toEur(l.price, l.currency) }))
-    .sort((a, b) => a.priceEur - b.priceEur);
-
-  const limitedListings = sortedListings.slice(0, MAX_TARGET_LISTINGS);
-  const pricesInEur = limitedListings.map(l => l.priceEur);
-  const sum = pricesInEur.reduce((acc, price) => acc + price, 0);
-
-  const getPercentile = (arr: number[], p: number) => {
-    const index = Math.ceil((arr.length * p) / 100) - 1;
-    return arr[Math.max(0, index)];
-  };
-
-  const medianPrice = pricesInEur.length % 2 === 0
-    ? (pricesInEur[pricesInEur.length / 2 - 1] + pricesInEur[pricesInEur.length / 2]) / 2
-    : pricesInEur[Math.floor(pricesInEur.length / 2)];
-
-  const stats = {
-    median_price: medianPrice,
-    average_price: sum / pricesInEur.length,
-    min_price: pricesInEur[0],
-    max_price: pricesInEur[pricesInEur.length - 1],
-    count: limitedListings.length,
-    percentile_25: getPercentile(pricesInEur, 25),
-    percentile_75: getPercentile(pricesInEur, 75),
-  };
-
-  const currencyNote = listings[0]?.currency === 'DKK' ? ' (converted from DKK)' : '';
-  const limitNote = listings.length > MAX_TARGET_LISTINGS ? ` (using first ${MAX_TARGET_LISTINGS} listings)` : '';
-  console.log(`[INSTANT_STATS] Computed target market stats in EUR${currencyNote}${limitNote}:`, {
-    median: stats.median_price.toFixed(0) + ' EUR',
-    average: stats.average_price.toFixed(0) + ' EUR',
-    count: stats.count,
-    range: `${stats.min_price.toFixed(0)} EUR - ${stats.max_price.toFixed(0)} EUR`
-  });
 
   return stats;
 }

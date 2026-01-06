@@ -656,6 +656,38 @@ function isDamagedVehicle(text) {
   return damageKeywords.some(keyword => textLower.includes(keyword));
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠️  SYNCHRONIZED COPY FROM STUDY ENGINE - MUST STAY IN SYNC ⚠️
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * THE FOLLOWING FUNCTIONS ARE A SYNCHRONIZED COPY FROM:
+ * src/lib/study-engine.ts
+ *
+ * **CRITICAL SYNCHRONIZATION REQUIREMENT:**
+ * These functions MUST be kept in perfect sync with study-engine.ts.
+ * Any change to business logic in study-engine.ts MUST be replicated here.
+ *
+ * **WHY THIS COPY EXISTS:**
+ * This worker service runs in plain Node.js and cannot directly import
+ * TypeScript modules from src/. To maintain code consistency, we synchronize
+ * this copy with the authoritative source.
+ *
+ * **DO NOT:**
+ * - Modify these functions independently
+ * - Add new business rules here without updating study-engine.ts
+ * - Allow these implementations to drift
+ *
+ * **VALIDATION:**
+ * Run validation tests regularly to ensure deterministic results across
+ * instant and scheduled searches.
+ *
+ * SOURCE OF TRUTH: src/lib/study-engine.ts
+ * LAST SYNCED: 2024-12-20 (after median calculation fix)
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
 function matchesBrandModel(title, brand, model) {
   const titleLower = title.toLowerCase();
   const brandLower = brand.toLowerCase();

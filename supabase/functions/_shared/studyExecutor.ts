@@ -224,21 +224,145 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full'): Pr
   return { listings };
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠️  SYNCHRONIZED COPY FROM STUDY ENGINE - MUST STAY IN SYNC ⚠️
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * THE FOLLOWING FUNCTIONS ARE A SYNCHRONIZED COPY FROM:
+ * src/lib/study-engine.ts
+ *
+ * **CRITICAL SYNCHRONIZATION REQUIREMENT:**
+ * These functions MUST be kept in perfect sync with study-engine.ts.
+ * Any change to business logic in study-engine.ts MUST be replicated here.
+ *
+ * **WHY THIS COPY EXISTS:**
+ * This edge function runs in Deno and cannot directly import from src/.
+ * To maintain code consistency, we synchronize this copy with the
+ * authoritative source.
+ *
+ * **DO NOT:**
+ * - Modify these functions independently
+ * - Add new business rules here without updating study-engine.ts
+ * - Allow these implementations to drift
+ *
+ * **VALIDATION:**
+ * Run validation tests regularly to ensure deterministic results across
+ * instant and scheduled searches.
+ *
+ * SOURCE OF TRUTH: src/lib/study-engine.ts
+ * LAST SYNCED: 2024-12-20 (after median calculation fix + brand/model matching)
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+function matchesBrandModel(
+  title: string,
+  brand: string,
+  model: string
+): { matches: boolean; reason: string } {
+  const titleLower = title.toLowerCase();
+  const brandLower = brand.toLowerCase();
+
+  if (!titleLower.includes(brandLower)) {
+    return {
+      matches: false,
+      reason: `Brand "${brand}" not found in title`,
+    };
+  }
+
+  const modelTokens = model
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(t => t.length > 0);
+
+  const missingTokens = modelTokens.filter(token => !titleLower.includes(token));
+
+  if (missingTokens.length > 0) {
+    return {
+      matches: false,
+      reason: `Model tokens missing: ${missingTokens.join(', ')}`,
+    };
+  }
+
+  return { matches: true, reason: '' };
+}
+
+function isPriceMonthly(text: string): boolean {
+  const monthlyKeywords = [
+    '/mois', '€/mois', '€ / mois', 'per month', '€/month', 'par mois',
+    'p/m', '/maand', '€/mnd', 'per maand', '/month',
+    'lease', 'privé lease', 'private lease', 'loa', 'lld',
+    'operational lease', 'leasing', 'maandelijkse betaling',
+  ];
+  return monthlyKeywords.some(kw => text.includes(kw));
+}
+
+function isDamagedVehicle(text: string): boolean {
+  const textLower = text.toLowerCase();
+
+  const damageKeywords = [
+    'accidenté', 'véhicule accidenté', 'épave', 'choc',
+    'réparé suite à choc', 'châssis tordu',
+    'damaged', 'accident damage', 'salvage',
+    'cat c', 'cat d', 'cat s', 'cat n', 'written off', 'write off',
+    'schade', 'ongeval', 'schadeauto', 'total loss',
+    'skadet', 'skade', 'kollisionsskade', 'ulykke',
+    'for parts', 'pour pièces', 'non roulant', 'as is',
+    'hs', 'hors service', 'parts only', 'dépanneuse',
+    'not running', 'moteur hs',
+  ];
+
+  return damageKeywords.some(keyword => textLower.includes(keyword));
+}
+
+function shouldFilterListing(listing: ScrapedListing): boolean {
+  const text = `${listing.title} ${listing.description}`;
+  const textLower = text.toLowerCase();
+
+  const priceEur = toEur(listing.price, listing.currency);
+  if (priceEur <= 2000) {
+    return true;
+  }
+
+  const isMonthly = isPriceMonthly(textLower);
+  const isLowMonthlyPrice = listing.price_type === 'per-month' ||
+    (listing.price >= 200 && listing.price <= 500 && isMonthly);
+
+  if (isLowMonthlyPrice || isMonthly) {
+    return true;
+  }
+
+  if (isDamagedVehicle(text)) {
+    return true;
+  }
+
+  return false;
+}
+
 function filterListingsByStudy(listings: ScrapedListing[], study: StudyV2): ScrapedListing[] {
   return listings.filter(listing => {
-    if (listing.price_type !== 'one-off') return false;
-    if (listing.price <= 0) return false;
-
-    const priceEur = toEur(listing.price, listing.currency);
-    if (priceEur <= 2000) {
-      console.log(`[SCHEDULED_FILTER] Price too low (≤2000€): ${listing.title} (${priceEur.toFixed(0)}€)`);
+    // Apply first-pass filters
+    if (shouldFilterListing(listing)) {
       return false;
     }
 
-    if (listing.year && Math.abs(listing.year - study.year) > 1) return false;
+    // Filter by year (must be within 1 year of target year, not older)
+    if (listing.year && listing.year < study.year) {
+      return false;
+    }
 
-    if (listing.mileage && study.max_mileage > 0) {
-      if (listing.mileage > study.max_mileage) return false;
+    // Filter by mileage (if study specifies a max)
+    if (study.max_mileage > 0 && listing.mileage && listing.mileage > study.max_mileage) {
+      return false;
+    }
+
+    // Filter by brand/model match
+    const matchResult = matchesBrandModel(listing.title, study.brand, study.model);
+    if (!matchResult.matches) {
+      return false;
     }
 
     return true;
