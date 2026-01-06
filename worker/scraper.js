@@ -858,7 +858,36 @@ function applyTrimBilbasen(url, trim) {
   return url + `${sep}free=${encoded}`;
 }
 
-export async function executeStudy({ study, runId, threshold, scrapeMode, supabase }) {
+async function updateHeartbeat(supabase, runId, scheduledJobId) {
+  const now = new Date().toISOString();
+  const updates = [];
+
+  if (runId) {
+    updates.push(
+      supabase
+        .from('study_runs')
+        .update({ last_heartbeat_at: now })
+        .eq('id', runId)
+    );
+  }
+
+  if (scheduledJobId) {
+    updates.push(
+      supabase
+        .from('scheduled_study_runs')
+        .update({ last_heartbeat_at: now })
+        .eq('id', scheduledJobId)
+    );
+  }
+
+  if (updates.length > 0) {
+    await Promise.all(updates).catch(err => {
+      console.warn('[WORKER] Failed to update heartbeat:', err.message);
+    });
+  }
+}
+
+export async function executeStudy({ study, runId, threshold, scrapeMode, supabase, scheduledJobId }) {
   console.log(`[WORKER] Processing study ${study.id} in ${scrapeMode.toUpperCase()} mode`);
 
   const trimTarget = study.trim_text_target?.trim() || study.trim_text?.trim() || undefined;
@@ -888,7 +917,11 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
   }
 
   try {
+    await updateHeartbeat(supabase, runId, scheduledJobId);
+
     const targetResult = await scrapeSearch(targetUrl, scrapeMode);
+
+    await updateHeartbeat(supabase, runId, scheduledJobId);
 
     if (targetResult.error === 'SCRAPER_FAILED') {
       const errorReason = targetResult.errorReason || 'Zyte scraper failed';
@@ -1010,7 +1043,11 @@ export async function executeStudy({ study, runId, threshold, scrapeMode, supaba
     console.log(`[WORKER]    - Used for median: ${targetStats.count}`);
     console.log(`[WORKER]    - Median price: ${targetMarketPriceEur.toFixed(0)} EUR`);
 
+    await updateHeartbeat(supabase, runId, scheduledJobId);
+
     const sourceResult = await scrapeSearch(sourceUrl, scrapeMode);
+
+    await updateHeartbeat(supabase, runId, scheduledJobId);
 
     if (sourceResult.error === 'SCRAPER_FAILED') {
       const errorReason = sourceResult.errorReason || 'Zyte scraper failed on source';

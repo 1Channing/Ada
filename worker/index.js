@@ -70,7 +70,7 @@ app.post('/execute-studies', async (req, res) => {
     });
   }
 
-  const { runId, studyIds, threshold, scrapeMode } = req.body;
+  const { runId, studyIds, threshold, scrapeMode, scheduledJobId } = req.body;
 
   if (!runId || !studyIds || !threshold) {
     console.error('[WORKER] Missing required parameters:', { runId, studyIds, threshold });
@@ -122,6 +122,7 @@ app.post('/execute-studies', async (req, res) => {
           threshold,
           scrapeMode: scrapeMode || 'fast',
           supabase,
+          scheduledJobId,
         });
 
         totalNullCount += result.nullCount;

@@ -129,6 +129,7 @@ Deno.serve(async (req: Request) => {
     let failed = 0;
 
     for (const job of jobs) {
+      const jobStartTime = Date.now();
       console.log(`[EDGE_FUNCTION] ⚙️ Processing job ${job.id}...`);
       console.log(`[EDGE_FUNCTION]   Scheduled at: ${job.scheduled_at}`);
       console.log(`[EDGE_FUNCTION]   Payload:`, JSON.stringify(job.payload));
@@ -138,6 +139,7 @@ Deno.serve(async (req: Request) => {
         .update({
           status: 'running',
           last_run_at: new Date().toISOString(),
+          last_heartbeat_at: new Date().toISOString(),
         })
         .eq('id', job.id)
         .eq('status', 'pending');
@@ -211,6 +213,7 @@ Deno.serve(async (req: Request) => {
           studyIds: payload.studyIds,
           threshold: payload.threshold,
           scrapeMode,
+          scheduledJobId: job.id,
         };
 
         console.log(`[EDGE_FUNCTION] ===== Delegating to Worker =====`);
@@ -248,15 +251,17 @@ Deno.serve(async (req: Request) => {
         console.log(`[EDGE_FUNCTION] Worker result:`, JSON.stringify(workerResult));
         console.log(`[EDGE_FUNCTION] Processed: ${workerResult.processed}, Opportunities: ${workerResult.results?.opportunities || 0}`);
 
+        const executionDuration = Date.now() - jobStartTime;
         await supabase
           .from('scheduled_study_runs')
           .update({
             status: 'completed',
+            execution_duration_ms: executionDuration,
           })
           .eq('id', job.id);
 
         completed++;
-        console.log(`[EDGE_FUNCTION] ✅ Job ${job.id} completed via worker`);
+        console.log(`[EDGE_FUNCTION] ✅ Job ${job.id} completed via worker in ${executionDuration}ms`);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error(`[EDGE_FUNCTION] ===== Job ${job.id} Failed =====`);
