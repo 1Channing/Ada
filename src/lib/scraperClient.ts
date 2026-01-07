@@ -35,6 +35,31 @@ import {
   type MarketStats,
 } from './study-engine';
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * SCRAPER CLIENT - BROWSER ENVIRONMENT
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * This module handles scraping in the browser environment.
+ *
+ * **UNIFIED PIPELINE:**
+ * - Business logic: Delegates to study-core via study-engine.ts
+ * - Scraping logic: Remains here (browser-specific HTML parsing)
+ *
+ * **WHAT IS SHARED:**
+ * - Filtering rules (toEur, shouldFilterListing, filterListingsByStudy)
+ * - Statistics computation (computeTargetMarketStats)
+ * - Opportunity detection (executeStudyAnalysis)
+ *
+ * **WHAT IS ENVIRONMENT-SPECIFIC:**
+ * - fetchHtmlWithScraper() - Browser fetch API
+ * - parseMarktplaatsListings() - DOM-compatible parsing
+ * - parseLeboncoinListings() - Browser JSON parsing
+ * - UI-specific features (thumbnails, progress callbacks)
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
 const ZYTE_API_KEY =
   (import.meta.env.VITE_ZYTE_API_KEY as string | undefined) ||
   (import.meta.env.ZYTE_API_KEY as string | undefined) ||

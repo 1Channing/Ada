@@ -1,3 +1,43 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠️  DEPRECATED - EDGE FUNCTION EXECUTOR (BEING REPLACED) ⚠️
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * **DEPRECATION NOTICE:**
+ * This edge function executor is being phased out in favor of the unified
+ * worker-based execution pipeline that uses study-core.
+ *
+ * **MIGRATION STATUS:**
+ * - ✅ Worker pipeline (worker/scraper.js) is the primary execution path
+ * - ✅ Business logic unified through study-core
+ * - ⚠️  This edge function kept for backwards compatibility
+ * - ❌ DO NOT ADD NEW FEATURES HERE
+ *
+ * **WHY DEPRECATED:**
+ * This edge function has simplified scraping logic that differs from the
+ * advanced scraping in scraperClient.ts (used by instant runs). The worker
+ * pipeline provides better parity with instant runs.
+ *
+ * **CURRENT USAGE:**
+ * - Used by some legacy scheduled runs
+ * - Will be fully replaced by worker/scraper.js
+ *
+ * **TIMELINE:**
+ * - Deprecation Date: 2026-01-07
+ * - Planned Removal: 2026-02-01 (after 30-day transition)
+ *
+ * **ALTERNATIVES:**
+ * - For new scheduled runs: Use worker pipeline (triggered via HTTP)
+ * - For instant runs: Use scraperClient.ts (delegates to study-core)
+ *
+ * **DO NOT:**
+ * - Add new features to this file
+ * - Modify business logic here (modify study-core instead)
+ * - Rely on this for new integrations
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
@@ -226,35 +266,40 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full'): Pr
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * ⚠️  SYNCHRONIZED COPY FROM STUDY ENGINE - MUST STAY IN SYNC ⚠️
+ * ⚠️  DEPRECATED SYNCHRONIZED COPY - NOW UNIFIED THROUGH STUDY-CORE ⚠️
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * THE FOLLOWING FUNCTIONS ARE A SYNCHRONIZED COPY FROM:
- * src/lib/study-engine.ts
+ * **DEPRECATION NOTICE:** This entire edge function is being phased out.
  *
- * **CRITICAL SYNCHRONIZATION REQUIREMENT:**
- * These functions MUST be kept in perfect sync with study-engine.ts.
- * Any change to business logic in study-engine.ts MUST be replicated here.
+ * **IMPORTANT:** These functions are now maintained in src/lib/study-core/business-logic.ts
  *
- * **WHY THIS COPY EXISTS:**
- * This edge function runs in Deno and cannot directly import from src/.
- * To maintain code consistency, we synchronize this copy with the
- * authoritative source.
+ * **MIGRATION STATUS:**
+ * - ✅ study-engine.ts now re-exports from study-core
+ * - ✅ worker/scraper.js is primary execution path (uses synchronized copy temporarily)
+ * - ⚠️  This edge function kept for backwards compatibility only
+ * - ❌ This entire file will be removed by 2026-02-01
+ *
+ * **WHY DEPRECATED:**
+ * - Simplified scraping differs from instant runs (causes divergence)
+ * - Cannot easily import from study-core in Deno edge functions
+ * - Worker pipeline provides better parity with instant execution
  *
  * **DO NOT:**
- * - Modify these functions independently
- * - Add new business rules here without updating study-engine.ts
- * - Allow these implementations to drift
+ * - Modify these functions
+ * - Add business rules here
+ * - Use this for new scheduled runs
  *
- * **VALIDATION:**
- * Run validation tests regularly to ensure deterministic results across
- * instant and scheduled searches.
+ * **ALTERNATIVES:**
+ * Use worker/scraper.js which will eventually import directly from study-core
  *
- * SOURCE OF TRUTH: src/lib/study-engine.ts
- * LAST SYNCED: 2024-12-20 (after median calculation fix + brand/model matching)
+ * **SOURCE OF TRUTH:** src/lib/study-core/business-logic.ts
+ * **LAST SYNCED:** 2026-01-07 (unified pipeline migration)
+ * **REMOVAL DATE:** 2026-02-01
  *
  * ═══════════════════════════════════════════════════════════════════════════
  */
+
+/** @deprecated Use worker pipeline instead */
 
 function matchesBrandModel(
   title: string,

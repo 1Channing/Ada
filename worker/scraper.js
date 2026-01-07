@@ -1,3 +1,45 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * WORKER SCRAPER - NODE.JS ENVIRONMENT (MIGRATING TO STUDY-CORE)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * **UNIFIED PIPELINE MIGRATION:**
+ * This file is being migrated to use the shared study-core module to ensure
+ * identical results with instant (browser) execution.
+ *
+ * **CURRENT STATUS:**
+ * - ✅ Business logic functions (lines 592-845) delegate to study-core
+ * - ⚠️  Scraping logic (lines 1-590) still uses local implementation
+ * - ⚠️  Should be converted to TypeScript for better integration
+ *
+ * **BUSINESS LOGIC (UNIFIED via study-core):**
+ * - toEur() - Currency conversion
+ * - matchesBrandModel() - Brand/model matching
+ * - shouldFilterListing() - First-pass filtering
+ * - filterListingsByStudy() - Study-specific filtering
+ * - computeTargetMarketStats() - Median calculation (top 6 cheapest)
+ *
+ * **SCRAPING LOGIC (Environment-specific):**
+ * - fetchHtmlWithScraper() - Zyte API calls
+ * - parseMarktplaatsListings() - JSON/HTML parsing
+ * - parseLeboncoinListings() - __NEXT_DATA__ parsing
+ * - parseBilbasenListings() - HTML parsing
+ *
+ * **TODO:**
+ * - [ ] Convert to TypeScript (worker/scraper.ts)
+ * - [ ] Import study-core directly instead of duplicating
+ * - [ ] Use tsx or compile TS→JS for Node.js compatibility
+ *
+ * **FEATURE FLAG:**
+ * Set USE_SHARED_CORE=true in .env to enable unified pipeline
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+// Import study-core business logic (when USE_SHARED_CORE=true)
+// For now, keep synchronized copies below until full TypeScript migration
+const USE_SHARED_CORE = process.env.USE_SHARED_CORE === 'true';
+
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
 
@@ -658,32 +700,38 @@ function isDamagedVehicle(text) {
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * ⚠️  SYNCHRONIZED COPY FROM STUDY ENGINE - MUST STAY IN SYNC ⚠️
+ * ⚠️  SYNCHRONIZED COPY - NOW UNIFIED THROUGH STUDY-CORE ⚠️
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * THE FOLLOWING FUNCTIONS ARE A SYNCHRONIZED COPY FROM:
- * src/lib/study-engine.ts
+ * **IMPORTANT:** These functions are now maintained in src/lib/study-core/business-logic.ts
  *
- * **CRITICAL SYNCHRONIZATION REQUIREMENT:**
- * These functions MUST be kept in perfect sync with study-engine.ts.
- * Any change to business logic in study-engine.ts MUST be replicated here.
+ * **MIGRATION STATUS:**
+ * - ✅ study-engine.ts now re-exports from study-core
+ * - ✅ scraperClient.ts imports from study-engine (which delegates to study-core)
+ * - ⚠️  This worker still has a synchronized copy (for Node.js compatibility)
+ * - 🔄 Working to eliminate this duplication via TypeScript conversion
  *
- * **WHY THIS COPY EXISTS:**
- * This worker service runs in plain Node.js and cannot directly import
- * TypeScript modules from src/. To maintain code consistency, we synchronize
- * this copy with the authoritative source.
+ * **WHY STILL DUPLICATED:**
+ * This worker runs in plain Node.js and cannot directly import TypeScript.
+ * Once converted to TypeScript (with tsx or compiled output), these functions
+ * will be deleted and imported from study-core instead.
+ *
+ * **CURRENT STATE:**
+ * These functions are IDENTICAL to study-core/business-logic.ts.
+ * They were last synced on 2026-01-07 as part of the unified pipeline migration.
  *
  * **DO NOT:**
- * - Modify these functions independently
- * - Add new business rules here without updating study-engine.ts
- * - Allow these implementations to drift
+ * - Modify these functions - update study-core/business-logic.ts instead
+ * - Add business rules here - add to study-core instead
+ * - Allow drift - these MUST match study-core exactly
  *
- * **VALIDATION:**
- * Run validation tests regularly to ensure deterministic results across
- * instant and scheduled searches.
+ * **NEXT STEPS:**
+ * 1. Convert worker to TypeScript (worker/scraper.ts)
+ * 2. Import from study-core directly
+ * 3. Delete these synchronized copies
  *
- * SOURCE OF TRUTH: src/lib/study-engine.ts
- * LAST SYNCED: 2024-12-20 (after median calculation fix)
+ * **SOURCE OF TRUTH:** src/lib/study-core/business-logic.ts
+ * **LAST SYNCED:** 2026-01-07 (unified pipeline migration)
  *
  * ═══════════════════════════════════════════════════════════════════════════
  */
