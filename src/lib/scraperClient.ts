@@ -2424,10 +2424,50 @@ function buildPaginatedUrl(parser: ParserType, baseUrl: string, pageNumber: numb
 }
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * UNIFIED SCRAPER ADAPTER (Feature Flag Controlled)
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * Check if shared core scraping is enabled via feature flag
+ */
+function isSharedCoreScrapingEnabled(): boolean {
+  return (
+    import.meta.env.VITE_USE_SHARED_CORE === 'true' ||
+    import.meta.env.USE_SHARED_CORE === 'true'
+  );
+}
+
+/**
+ * Scrape using unified study-core implementation
+ */
+async function scrapeWithUnifiedCore(
+  url: string,
+  scrapeMode: 'fast' | 'full'
+): Promise<SearchResult> {
+  console.log('[SCRAPER_UNIFIED] Using unified study-core scraper');
+
+  const { coreScrapeSearch, DEFAULT_CORE_SCRAPER_CONFIG } = await import('./study-core');
+
+  const config = {
+    ...DEFAULT_CORE_SCRAPER_CONFIG,
+    zyteApiKey: ZYTE_API_KEY,
+    fetchImpl: fetch,
+  };
+
+  return await coreScrapeSearch(url, scrapeMode, config);
+}
+
+/**
  * Scrapes a marketplace URL and returns a list of listings.
  *
  * @param url - The marketplace search URL to scrape
  * @param scrapeMode - 'fast' (page 1 only) or 'full' (all pages with pagination)
+ *
+ * **UNIFIED PIPELINE:**
+ * - When USE_SHARED_CORE=true: Uses study-core/scrapingImpl.ts (unified scraper)
+ * - When USE_SHARED_CORE=false: Uses legacy browser-specific implementation
  *
  * FAST MODE CONFIGURATION:
  * - Currently: Fetches only page 1 per search query
@@ -2439,6 +2479,14 @@ function buildPaginatedUrl(parser: ParserType, baseUrl: string, pageNumber: numb
  * - To adjust full mode limits: Modify MAX_PAGES_* constants at top of file
  */
 export async function SCRAPER_SEARCH(url: string, scrapeMode: 'fast' | 'full' = 'full'): Promise<SearchResult> {
+  // Feature flag: Use unified scraper if enabled
+  if (isSharedCoreScrapingEnabled()) {
+    console.log('[SCRAPER] 🔀 Unified pipeline enabled (USE_SHARED_CORE=true)');
+    return await scrapeWithUnifiedCore(url, scrapeMode);
+  }
+
+  console.log('[SCRAPER] 🔙 Using legacy browser scraper (USE_SHARED_CORE=false)');
+  // Legacy implementation continues below...
   console.log(`[SCRAPER_SEARCH] Starting search for URL (${scrapeMode.toUpperCase()} mode):`, url);
 
   const html = await fetchHtmlWithScraper(url);

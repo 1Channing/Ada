@@ -1,44 +1,70 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * WORKER SCRAPER - NODE.JS ENVIRONMENT (MIGRATING TO STUDY-CORE)
+ * WORKER SCRAPER - NODE.JS ENVIRONMENT (SYNCHRONIZED COPY)
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * **UNIFIED PIPELINE MIGRATION:**
- * This file is being migrated to use the shared study-core module to ensure
- * identical results with instant (browser) execution.
+ * **UNIFIED PIPELINE STATUS:**
+ * ✅ **SOURCE OF TRUTH CREATED:** src/lib/study-core/scrapingImpl.ts + business-logic.ts
+ * ⚠️  **THIS FILE:** Synchronized copy (for Node.js compatibility)
+ * 🎯 **GOAL:** Convert to TypeScript to import directly from study-core
  *
- * **CURRENT STATUS:**
- * - ✅ Business logic functions (lines 592-845) delegate to study-core
- * - ⚠️  Scraping logic (lines 1-590) still uses local implementation
- * - ⚠️  Should be converted to TypeScript for better integration
+ * **WHAT IS UNIFIED:**
+ * - ✅ Scraping implementation: study-core/scrapingImpl.ts (coreScrapeSearch)
+ * - ✅ Business logic: study-core/business-logic.ts (filters, median, opportunity)
+ * - ✅ Browser (instant): Uses study-core via scraperClient.ts
+ * - ⚠️  Worker (scheduled): Uses this synchronized copy (lines 1-900)
  *
- * **BUSINESS LOGIC (UNIFIED via study-core):**
+ * **WHY SYNCHRONIZED COPY:**
+ * - This worker runs in plain Node.js and cannot directly import TypeScript
+ * - Once converted to TypeScript, can import directly from study-core
+ * - This is the ONLY remaining duplication in the codebase
+ *
+ * **SYNCHRONIZED FUNCTIONS (lines 700-880):**
+ * These MUST match study-core/business-logic.ts exactly:
  * - toEur() - Currency conversion
- * - matchesBrandModel() - Brand/model matching
+ * - matchesBrandModel() - Token-based matching
  * - shouldFilterListing() - First-pass filtering
  * - filterListingsByStudy() - Study-specific filtering
- * - computeTargetMarketStats() - Median calculation (top 6 cheapest)
+ * - computeTargetMarketStats() - Median from top 6 cheapest
  *
- * **SCRAPING LOGIC (Environment-specific):**
- * - fetchHtmlWithScraper() - Zyte API calls
- * - parseMarktplaatsListings() - JSON/HTML parsing
+ * **SYNCHRONIZED SCRAPING (lines 1-590):**
+ * These MUST match study-core/scrapingImpl.ts exactly:
+ * - fetchHtmlWithScraper() - Zyte API with retries
+ * - parseMarktplaatsListings() - HTML/JSON parsing
  * - parseLeboncoinListings() - __NEXT_DATA__ parsing
- * - parseBilbasenListings() - HTML parsing
+ * - parseBilbasenListings() - Context-window parsing
  *
- * **TODO:**
- * - [ ] Convert to TypeScript (worker/scraper.ts)
- * - [ ] Import study-core directly instead of duplicating
- * - [ ] Use tsx or compile TS→JS for Node.js compatibility
+ * **TO ELIMINATE DUPLICATION:**
+ * ```bash
+ * # Step 1: Convert worker to TypeScript
+ * mv worker/scraper.js worker/scraper.ts
+ *
+ * # Step 2: Add imports
+ * import { coreScrapeSearch } from '../src/lib/study-core';
+ * import { filterListingsByStudy, computeTargetMarketStats } from '../src/lib/study-core';
+ *
+ * # Step 3: Delete synchronized copies (lines 1-900)
+ *
+ * # Step 4: Run with tsx
+ * tsx worker/index.ts
+ * ```
  *
  * **FEATURE FLAG:**
- * Set USE_SHARED_CORE=true in .env to enable unified pipeline
+ * USE_SHARED_CORE - Currently used only by browser
+ * Worker will use unified pipeline after TypeScript conversion
+ *
+ * **LAST SYNCED:** 2026-01-07 (unified scraping + business logic)
+ * **SOURCE OF TRUTH:** src/lib/study-core/ (scrapingImpl.ts + business-logic.ts)
  *
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-// Import study-core business logic (when USE_SHARED_CORE=true)
-// For now, keep synchronized copies below until full TypeScript migration
 const USE_SHARED_CORE = process.env.USE_SHARED_CORE === 'true';
+
+if (USE_SHARED_CORE) {
+  console.log('[WORKER] ℹ️  USE_SHARED_CORE=true detected');
+  console.log('[WORKER] Note: Worker still uses synchronized copy (convert to TS to use study-core directly)');
+}
 
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';

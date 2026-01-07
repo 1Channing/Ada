@@ -78,6 +78,13 @@ export {
   type ScraperImplementation,
 } from './scraping';
 
+// Export unified scraping implementation
+export {
+  coreScrapeSearch,
+  DEFAULT_SCRAPER_CONFIG as DEFAULT_CORE_SCRAPER_CONFIG,
+  type CoreScraperConfig,
+} from './scrapingImpl';
+
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  * VERSION AND METADATA

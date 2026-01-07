@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test:parity": "tsx test/parity/business-logic-parity.test.ts"
+    "test:parity": "tsx test/parity/business-logic-parity.test.ts",
+    "test:parity:e2e": "tsx test/parity/scraping-parity.test.ts",
+    "test:parity:all": "npm run test:parity && npm run test:parity:e2e"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
