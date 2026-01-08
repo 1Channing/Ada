@@ -76,6 +76,13 @@ export {
   validateSearchResult,
   hashListingPool,
   type ScraperImplementation,
+  // Pure parser functions
+  coreParseSearchPage,
+  selectParserByHostname,
+  buildPaginatedUrl,
+  detectTotalPages,
+  normalizeListingUrl,
+  type MarketplaceParser,
 } from './scraping';
 
 // Export unified scraping implementation

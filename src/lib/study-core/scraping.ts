@@ -1,30 +1,27 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * STUDY CORE - SCRAPING INTERFACE
+ * STUDY CORE - PURE SCRAPING ORCHESTRATOR
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * This module defines the interface for scraping operations.
+ * This module provides the unified scraping orchestration layer.
  *
- * **IMPORTANT:**
- * The actual scraping implementation details remain in their respective
- * environments (browser vs Node.js) due to different HTML parsing capabilities.
- * This module provides the INTERFACE and configuration that both must follow.
+ * **CRITICAL:**
+ * ALL parsing logic is now in src/lib/study-core/parsers/
+ * Each marketplace has ONE authoritative parser:
+ * - marktplaats.ts
+ * - leboncoin.ts
+ * - gaspedaal.ts
+ * - bilbasen.ts
+ * - generic.ts
  *
- * **SHARED BEHAVIORS:**
- * - Same retry strategies
- * - Same error handling
- * - Same blocked content detection
- * - Same result normalization
+ * **PURE ARCHITECTURE:**
+ * - Parsers: 100% pure functions (NO I/O, NO side effects)
+ * - This module: Re-exports parsers + provides helpers
+ * - Adapters (scraperClient.ts, worker): Handle I/O and call parsers
  *
- * **Environment-Specific:**
- * - Browser: src/lib/scraperClient.ts (uses DOM-compatible parsers)
- * - Worker: worker/scraper.js (uses Node.js string manipulation)
- *
- * Both environments MUST:
- * 1. Call Zyte API with same parameters
- * 2. Use same retry delays
- * 3. Return ScrapedListing[] in same format
- * 4. Detect blocked content identically
+ * **DETERMINISTIC GUARANTEE:**
+ * Given identical HTML, both INSTANT and SCHEDULED produce identical listings.
+ * No drift between frontend and worker.
  *
  * ═══════════════════════════════════════════════════════════════════════════
  */
@@ -357,3 +354,21 @@ export function hashListingPool(listings: ScrapedListing[]): string {
 
   return JSON.stringify(signature);
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * PURE PARSER EXPORTS
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Re-export the pure parsing functions from parsers module.
+ * These are the SINGLE SOURCE OF TRUTH for all parsing logic.
+ */
+
+export {
+  coreParseSearchPage,
+  selectParserByHostname,
+  buildPaginatedUrl,
+  detectTotalPages,
+  normalizeListingUrl,
+  type MarketplaceParser,
+} from './parsers';

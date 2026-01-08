@@ -2446,17 +2446,44 @@ async function scrapeWithUnifiedCore(
   url: string,
   scrapeMode: 'fast' | 'full'
 ): Promise<SearchResult> {
-  console.log('[SCRAPER_UNIFIED] Using unified study-core scraper');
+  console.log('[SCRAPER_UNIFIED] Using unified pure parser pipeline');
 
-  const { coreScrapeSearch, DEFAULT_CORE_SCRAPER_CONFIG } = await import('./study-core');
+  // Import pure parser function
+  const { coreParseSearchPage } = await import('./study-core');
 
-  const config = {
-    ...DEFAULT_CORE_SCRAPER_CONFIG,
-    zyteApiKey: ZYTE_API_KEY,
-    fetchImpl: fetch,
-  };
+  // Fetch HTML (I/O - environment-specific)
+  const html = await fetchHtmlWithZyte(url, 1);
+  if (!html) {
+    return { listings: [], error: 'Failed to fetch HTML' };
+  }
 
-  return await coreScrapeSearch(url, scrapeMode, config);
+  // Parse HTML (PURE - deterministic)
+  const listings = coreParseSearchPage(html, url);
+
+  // If no listings found in fast mode, try one retry
+  if (listings.length === 0 && scrapeMode === 'fast') {
+    const retryHtml = await fetchHtmlWithZyte(url, 2);
+    if (retryHtml) {
+      const retryListings = coreParseSearchPage(retryHtml, url);
+      if (retryListings.length > 0) {
+        return { listings: retryListings };
+      }
+    }
+  }
+
+  // If still no listings, check for blocked content
+  if (listings.length === 0) {
+    const { detectBlockedContent } = await import('./study-core');
+    const blockedCheck = detectBlockedContent(html, false);
+    if (blockedCheck.isBlocked) {
+      return {
+        listings: [],
+        error: `Blocked: ${blockedCheck.matchedKeyword}`,
+      };
+    }
+  }
+
+  return { listings };
 }
 
 /**

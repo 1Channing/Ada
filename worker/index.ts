@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
-import { executeStudy } from './scraper.js';
+import { executeStudy } from './scraper';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
