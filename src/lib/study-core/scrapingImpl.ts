@@ -263,7 +263,7 @@ async function fetchHtmlWithZyte(
       return null;
     }
 
-    const result = await response.json();
+    const result = await response.json() as { browserHtml?: string };
     return result.browserHtml || null;
   } catch (error) {
     console.error('[CORE_SCRAPER] Scraper fetch error:', error);

@@ -1,10 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
-import { executeStudy } from './scraper';
+import { executeStudy } from './scraper.js';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT || '3001', 10);
 
 const WORKER_SECRET = process.env.WORKER_SECRET || '';
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -49,7 +49,8 @@ app.post('/execute-studies', async (req, res) => {
   console.log('[WORKER] ===== Execute Studies Request Received =====');
   console.log('[WORKER] Timestamp:', new Date().toISOString());
 
-  const authHeader = req.headers.authorization || req.headers['x-worker-secret'] || '';
+  const authHeaderRaw = req.headers.authorization || req.headers['x-worker-secret'] || '';
+  const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
   const providedSecret = authHeader.replace('Bearer ', '');
 
   if (!WORKER_SECRET) {

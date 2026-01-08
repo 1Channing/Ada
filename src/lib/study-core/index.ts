@@ -145,12 +145,17 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
  */
 export function getFeatureFlags(): FeatureFlags {
   // Try browser environment first
-  const env =
-    typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env
-      : typeof process !== 'undefined' && process.env
-        ? process.env
-        : {};
+  let env: any = {};
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+      env = (import.meta as any).env;
+    }
+  } catch {
+    // import.meta not available in Node.js
+  }
+  if (Object.keys(env).length === 0 && typeof process !== 'undefined' && process.env) {
+    env = process.env;
+  }
 
   return {
     USE_SHARED_CORE:

@@ -67,7 +67,7 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
       return null;
     }
 
-    const data = await response.json();
+    const data = await response.json() as { browserHtml?: string };
     return data.browserHtml || null;
   } catch (error) {
     console.error('[WORKER_SCRAPER] Fetch error:', error);
@@ -294,7 +294,8 @@ export async function executeStudy({
     const studyCriteria: StudyCriteria = {
       brand: study.brand,
       model: study.model,
-      priceFloor: 2000,
+      year: study.min_year || 2000,
+      max_mileage: study.max_mileage || 500000,
     };
 
     const filteredTarget = filterListingsByStudy(targetResult.listings, studyCriteria);
@@ -328,12 +329,12 @@ export async function executeStudy({
       run_id: runId,
       study_id: study.id,
       status,
-      target_market_price: targetStats.median,
+      target_market_price: targetStats.median_price,
       best_source_price: opportunityResult.bestSourcePrice,
       price_difference: opportunityResult.priceDifference,
       target_stats: {
         count: targetStats.count,
-        median: targetStats.median,
+        median: targetStats.median_price,
         min: targetStats.min_price,
         max: targetStats.max_price,
       },
