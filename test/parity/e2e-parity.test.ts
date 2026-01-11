@@ -17,7 +17,7 @@ import {
   computeTargetMarketStats,
   detectOpportunity,
   type StudyCriteria,
-} from '../../src/lib/study-core/index.js';
+} from '../../src/lib/study-core/index';
 
 // Test helpers
 function assertEqual(actual: any, expected: any, message: string) {

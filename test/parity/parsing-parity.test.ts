@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { coreParseSearchPage } from '../../src/lib/study-core/index.js';
+import { coreParseSearchPage } from '../../src/lib/study-core/index';
 
 // Test helpers
 function assertEqual(actual: any, expected: any, message: string) {
@@ -140,7 +140,7 @@ allPassed = await runTest('Empty HTML - Returns empty array', () => {
 
 // Test 7: Parser selection - correct parser for each domain
 allPassed = await runTest('Parser selection - Routes to correct parser by hostname', async () => {
-  const { selectParserByHostname } = await import('../../src/lib/study-core/index.js');
+  const { selectParserByHostname } = await import('../../src/lib/study-core/index');
 
   assertEqual(selectParserByHostname('https://www.marktplaats.nl/test'), 'MARKTPLAATS', 'Should select MARKTPLAATS');
   assertEqual(selectParserByHostname('https://www.leboncoin.fr/test'), 'LEBONCOIN', 'Should select LEBONCOIN');
