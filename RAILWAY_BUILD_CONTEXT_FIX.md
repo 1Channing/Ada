@@ -1,201 +1,141 @@
-# Railway Build Context Fix
+# Railway Build Context Fix - Summary
 
-**Status:** ✅ FIXED
+**Status:** 🔧 REQUIRES MANUAL RAILWAY DASHBOARD CONFIGURATION
 **Date:** 2026-01-11
-**Critical:** Production blocking issue
+**See:** `RAILWAY_MONOREPO_CONFIG.md` for complete guide
 
-## Problem: Railway Build Failure
+---
 
-Railway deployment was failing with:
+## Problem
+
+Railway deployment fails with:
 ```
 [ERROR] Could not resolve "../src/lib/study-core/index"
-scraper.ts:27
 ```
 
-### Root Cause
+**Root cause:** Railway service "Root Directory" is set to `worker/`, so `../src/` doesn't exist in the build container.
 
-**Railway's default behavior** when deploying from a subdirectory:
-- Sets `worker/` as the root directory in the build container
-- This means the parent directory structure (`../src/`) doesn't exist
-- Any imports like `../src/lib/study-core/index` fail at build time
+---
 
-**Why local builds worked:**
-- Local: Build runs from repo root → `cd worker && npm run build`
-- Railway (before fix): Build runs FROM worker/ as root → `npm run build`
+## Solution: Update Railway Dashboard Settings
 
-**Verification:**
+**YOU MUST MANUALLY CONFIGURE IN RAILWAY DASHBOARD:**
+
+### 1. Service Settings → Root Directory
+```
+/
+```
+(Or leave **completely blank**)
+
+### 2. Service Settings → Build Command
 ```bash
-# Simulate Railway's build context (FAILS)
-$ mkdir /tmp/test && cp -r worker /tmp/test/
-$ cd /tmp/test/worker && npm install && npm run build
-✘ [ERROR] Could not resolve "../src/lib/study-core/index"
-
-# Simulate correct build context (WORKS)
-$ cd /repo/root && cd worker && npm run build
-✓ dist/index.js  42.3kb
+cd worker && npm ci && npm run build
 ```
 
-## Solution: Force Build from Repository Root
-
-Created `railway.toml` configuration file to explicitly set the build context:
-
-### Configuration File: `railway.toml`
-
-```toml
-[build]
-builder = "nixpacks"
-buildCommand = "cd worker && npm ci && npm run build"
-
-[deploy]
-startCommand = "cd worker && npm start"
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 10
-```
-
-### Why This Works
-
-1. **Repository Root as Build Context:**
-   - Railway now builds from the repository root (not `worker/`)
-   - The directory structure includes both `worker/` AND `src/`
-
-2. **Build Command Execution:**
-   ```bash
-   cd worker && npm ci && npm run build
-   ```
-   - Changes to `worker/` directory
-   - Installs dependencies with `npm ci` (faster, deterministic)
-   - Runs esbuild from `worker/` context
-   - esbuild resolves `../src/lib/study-core/index` relative to `worker/scraper.ts`
-   - Path resolves to: `src/lib/study-core/index.ts` ✓
-
-3. **Start Command Execution:**
-   ```bash
-   cd worker && npm start
-   ```
-   - Changes to `worker/` directory
-   - Runs `node dist/index.js` (pre-bundled, all deps included)
-
-### File Structure Context
-
-```
-/repo/root/                    ← Railway builds from here
-├── railway.toml               ← Configuration file
-├── src/
-│   └── lib/
-│       └── study-core/        ← Shared source code
-│           ├── index.ts
-│           ├── parsers/
-│           └── business-logic.ts
-└── worker/                    ← Commands execute FROM here
-    ├── package.json
-    ├── index.ts               (imports from ./scraper)
-    ├── scraper.ts             (imports from ../src/lib/study-core)
-    └── dist/
-        └── index.js           ← Bundled output (includes study-core)
-```
-
-## Verification Steps
-
-### 1. Build from Repo Root (Simulating Railway)
+### 3. Service Settings → Start Command
 ```bash
-$ cd /repo/root
-$ cd worker && npm ci && npm run build
-
-✓ dist/index.js  42.3kb
-⚡ Done in 45ms
+cd worker && npm start
 ```
 
-### 2. Verify Bundle Contains Shared Code
+### 4. Redeploy
+
+---
+
+## Why `railway.toml` Was Ignored
+
+The `railway.toml` file at repository root is only read if Railway's build context includes the repository root.
+
+**Before (broken):**
+- Railway Root Directory = `worker/`
+- Build context = `worker/` only
+- `railway.toml` at `../railway.toml` (outside container) → **ignored**
+- `src/` at `../src/` (outside container) → **inaccessible**
+
+**After (fixed):**
+- Railway Root Directory = `/` (repo root)
+- Build context = entire repository
+- `railway.toml` at `/railway.toml` → **detected and used**
+- `src/` at `/src/` → **accessible to worker build**
+
+---
+
+## Files Added/Modified
+
+| File | Status | Purpose |
+|------|--------|---------|
+| `railway.toml` | ✅ CREATED | Railway config (Nixpacks) |
+| `package.json` (root) | ✅ UPDATED | Added `build:worker`, `start:worker` scripts |
+| `worker/package.json` | ✅ UPDATED | Added `prebuild` validation |
+| `worker/check-build-context.js` | ✅ CREATED | Build context safeguard |
+| `RAILWAY_MONOREPO_CONFIG.md` | ✅ CREATED | Complete configuration guide |
+
+---
+
+## Local Validation
+
+Test that Railway configuration will work:
+
 ```bash
-$ grep "coreParseSearchPage\|filterListingsByStudy" worker/dist/index.js
-filterListingsByStudy      ✓
-computeTargetMarketStats   ✓
-coreParseSearchPage        ✓
+# Build from repo root (should succeed)
+npm run build:worker
+
+# Expected output:
+✓ Build context validated: ../src/lib/study-core/ found
+  dist/index.js  42.3kb
+⚡ Done in 40ms
 ```
 
-### 3. Verify Start Command
+Test that safeguard catches misconfiguration:
+
 ```bash
-$ cd worker && npm start
+# Simulate Railway's wrong config (should fail with clear error)
+mkdir /tmp/test && cp -r worker /tmp/test/
+cd /tmp/test/worker && npm install && npm run build
 
-[WORKER] ===== MC Export Worker Service Started =====
-[WORKER] Listening on 0.0.0.0:3001
-✓ Worker starts successfully
+# Expected output:
+❌ BUILD CONTEXT ERROR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Cannot find: ../src/lib/study-core/index.ts
+🔧 RAILWAY CONFIGURATION REQUIRED:
+[... instructions ...]
 ```
 
-## Railway Deployment Configuration
+---
 
-**In Railway Dashboard:**
+## After Railway Configuration
 
-1. **Service Settings:**
-   - Root Directory: `/` (repo root) or leave empty
-   - The `railway.toml` file handles the rest automatically
+Once Railway is configured correctly, the build will:
 
-2. **Environment Variables:**
-   - `WORKER_SECRET` - Authentication secret
-   - `SUPABASE_URL` - Supabase project URL
-   - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key
-   - `ZYTE_API_KEY` - Zyte API key for scraping
+1. ✅ Detect `railway.toml` at repo root
+2. ✅ Execute: `cd worker && npm ci && npm run build`
+3. ✅ Pass validation: `✓ Build context validated`
+4. ✅ Bundle successfully: `dist/index.js 42.3kb`
+5. ✅ Start with: `cd worker && npm start`
+6. ✅ Worker listens on Railway's `$PORT`
 
-3. **Build/Deploy:**
-   - Railway automatically detects `railway.toml`
-   - Uses custom build/start commands from config
-   - No manual command overrides needed
+---
 
-## Key Benefits
+## Zero Code Duplication
 
-✅ **Single Source of Truth:** No code duplication - worker imports directly from `src/lib/study-core/`
-✅ **Zero Drift:** Shared parsing logic maintained in one location
-✅ **Clean Bundling:** esbuild bundles everything into single 42KB file
-✅ **Production Ready:** Restart policy handles failures automatically
+This solution maintains a single source of truth:
 
-## Alternative Approaches Considered (and Rejected)
+- **Canonical source:** `src/lib/study-core/` (shared parsing logic)
+- **Frontend:** Imports from `@/lib/study-core`
+- **Worker:** Imports from `../src/lib/study-core`
+- **Build output:** esbuild bundles shared code into `worker/dist/index.js`
+- **No drift:** Changes automatically included in both frontend and worker builds
 
-### ❌ Option B: Copy study-core into worker/
-**Why rejected:**
-- Creates code duplication
-- Introduces drift between frontend and worker
-- Violates DRY principle
-- Maintenance nightmare
+---
 
-### ❌ Option C: Symlinks
-**Why rejected:**
-- Railway build environments don't support symlinks
-- Git doesn't handle symlinks well across platforms
-- Fragile and error-prone
+## See Complete Guide
 
-### ❌ Option D: Keep worker/ as root, copy files during build
-**Why rejected:**
-- Adds complexity to build process
-- Temporary copy step prone to cache issues
-- Still creates duplication (even if ephemeral)
+For detailed configuration steps, validation checklist, and troubleshooting:
 
-## Troubleshooting
+📖 **[RAILWAY_MONOREPO_CONFIG.md](./RAILWAY_MONOREPO_CONFIG.md)**
 
-### If Railway Build Still Fails
-
-1. **Verify railway.toml is committed:**
-   ```bash
-   $ git ls-files railway.toml
-   railway.toml   ← Should be present
-   ```
-
-2. **Check Railway service settings:**
-   - Root Directory should be `/` or empty
-   - Do NOT set custom build/start commands in UI (use railway.toml)
-
-3. **Check build logs for context:**
-   ```
-   Build context: /repo/root  ✓ (correct)
-   Build context: /worker     ✗ (wrong - check config)
-   ```
-
-4. **Manual Railway CLI deployment:**
-   ```bash
-   $ railway up
-   ```
-
-## Related Documentation
-
-- `WORKER_PRODUCTION_FIX.md` - Initial TypeScript build configuration
-- `UNIFIED_PIPELINE_GUIDE.md` - Shared parsing architecture
-- `worker/README.md` - Worker service documentation
+Covers:
+- Detailed Railway dashboard configuration
+- Build context architecture diagrams
+- Validation checklist
+- Potential runtime issues (Node version, env vars, memory)
+- Troubleshooting guide
