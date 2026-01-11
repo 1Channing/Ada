@@ -24,7 +24,7 @@ import {
   detectBlockedContent,
   type ScrapedListing,
   type StudyCriteria,
-} from '../src/lib/study-core/index.js';
+} from '../src/lib/study-core/index';
 
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';

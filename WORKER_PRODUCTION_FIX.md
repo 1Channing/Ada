@@ -37,7 +37,21 @@ The worker was attempting to run TypeScript directly in production using `tsx`:
 
 ## Solution: Production Build with esbuild
 
-Implemented a proper production build process using esbuild:
+Implemented a proper production build process using esbuild with correct import paths:
+
+### Critical Fix: Import Path Resolution
+
+**Before (Broken on Railway):**
+```typescript
+import { coreParseSearchPage } from '../src/lib/study-core/index.js';
+```
+
+**After (Works with esbuild):**
+```typescript
+import { coreParseSearchPage } from '../src/lib/study-core/index';
+```
+
+**Why:** esbuild needs to resolve TypeScript source files (`.ts`), not compiled JavaScript (`.js`). The `.js` extension in the import prevented esbuild from finding the actual `index.ts` file during bundling.
 
 ### 1. Build Configuration
 
