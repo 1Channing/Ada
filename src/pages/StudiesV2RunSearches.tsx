@@ -1,9 +1,26 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Play, Calendar, CheckSquare, Square, XCircle, Clock } from 'lucide-react';
-import { runStudyInBackground, type StudyV2 } from '../services/studyRunner';
+import { runStudyRemotely } from '../services/remoteStudyRunner';
 import { useStudyRunsStore } from '../store/studyRunsStore';
 import type { ScheduledStudyPayload, ScheduledStudyRun } from '../types/scheduling';
+
+const SCRAPER_MODE = import.meta.env.VITE_SCRAPER_MODE || 'local';
+
+export interface StudyV2 {
+  id: string;
+  brand: string;
+  model: string;
+  year: number;
+  max_mileage: number;
+  country_target: string;
+  market_target_url: string;
+  country_source: string;
+  market_source_url: string;
+  trim_text?: string | null;
+  trim_text_target?: string | null;
+  trim_text_source?: string | null;
+}
 
 interface RunProgress {
   isRunning: boolean;
@@ -213,23 +230,42 @@ export function StudiesV2RunSearches() {
 
         try {
           console.log(`[BATCH_RUN] ▶️ Starting study ${i + 1}/${studiesToRun.length}: ${studyCode}`);
+          console.log(`[BATCH_RUN] Using scraper mode: ${SCRAPER_MODE}`);
 
-          const result = await runStudyInBackground(
-            studyRunId,
-            {
-              study,
-              runId,
-              threshold: priceDiffThreshold,
-              scrapeMode,
-            },
-            (event) => {
-              addLog(studyRunId, event);
-              updateRun(studyRunId, { stage: event.stage });
-              if (event.stage === 'done') {
-                updateRun(studyRunId, { finishedAt: Date.now() });
-              }
-            },
-          );
+          const progressCallback = (event: any) => {
+            addLog(studyRunId, event);
+            updateRun(studyRunId, { stage: event.stage });
+            if (event.stage === 'done') {
+              updateRun(studyRunId, { finishedAt: Date.now() });
+            }
+          };
+
+          let result;
+
+          if (SCRAPER_MODE === 'api') {
+            result = await runStudyRemotely(
+              studyRunId,
+              {
+                study,
+                runId,
+                threshold: priceDiffThreshold,
+                scrapeMode,
+              },
+              progressCallback,
+            );
+          } else {
+            const { runStudyInBackground } = await import('../services/studyRunner');
+            result = await runStudyInBackground(
+              studyRunId,
+              {
+                study,
+                runId,
+                threshold: priceDiffThreshold,
+                scrapeMode,
+              },
+              progressCallback,
+            );
+          }
 
           if (result.status === 'NULL') {
             nullCount++;
@@ -478,6 +514,24 @@ export function StudiesV2RunSearches() {
       )}
 
       <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4 space-y-4">
+        <div className="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800">
+          <div>
+            <span className="text-sm font-medium text-zinc-400">Execution Mode:</span>
+            <span className={`ml-2 px-2 py-1 rounded text-xs font-medium ${
+              SCRAPER_MODE === 'api'
+                ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700'
+                : 'bg-orange-900/50 text-orange-300 border border-orange-700'
+            }`}>
+              {SCRAPER_MODE === 'api' ? 'REMOTE (via Worker)' : 'LOCAL (browser)'}
+            </span>
+          </div>
+          <p className="text-xs text-zinc-500">
+            {SCRAPER_MODE === 'api'
+              ? 'Studies execute on backend Worker'
+              : 'Studies execute in browser (dev mode)'}
+          </p>
+        </div>
+
         <div>
           <label className="block text-sm font-medium text-zinc-300 mb-2">
             Scrape Mode

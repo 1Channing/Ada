@@ -166,15 +166,36 @@ Required in `.env`:
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 VITE_OPENAI_API_KEY=your_openai_api_key
+VITE_SCRAPER_MODE=api  # 'api' (production) or 'local' (dev only)
 ```
 
 For Edge Functions (auto-configured):
 ```
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
-SCRAPER_API_URL
-SCRAPER_API_KEY
+WORKER_URL
+WORKER_SECRET
+SCHEDULER_CRON_SECRET
 ```
+
+**IMPORTANT:** Always set `VITE_SCRAPER_MODE=api` in production. This delegates all scraping to the backend Worker and prevents browser-side execution errors.
+
+### Troubleshooting Browser Errors
+
+If you encounter `ReferenceError: fetchHtmlWithZyte is not defined`:
+
+1. **Set execution mode to API:**
+   ```bash
+   VITE_SCRAPER_MODE=api
+   ```
+
+2. **Restart dev server** after changing `.env`
+
+3. **Hard refresh browser:** Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows/Linux)
+
+4. **Verify the mode:** Check the "Run Searches" page for a green badge showing "REMOTE (via Worker)"
+
+See `BROWSER_EXECUTION_FIX.md` for detailed technical explanation of the dynamic import solution.
 
 ## Development
 

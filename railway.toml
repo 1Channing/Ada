@@ -1,8 +1,0 @@
-[build]
-builder = "nixpacks"
-buildCommand = "cd worker && npm ci && npm run build"
-
-[deploy]
-startCommand = "cd worker && npm start"
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 10
