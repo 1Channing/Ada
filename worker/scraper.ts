@@ -291,15 +291,25 @@ export async function executeStudy({
     }
 
     // Apply unified business logic (PURE functions)
-    const studyCriteria: StudyCriteria = {
+    // Create separate criteria for target and source to support different trim filters
+    const targetCriteria: StudyCriteria = {
       brand: study.brand,
       model: study.model,
-      year: study.min_year || 2000,
-      max_mileage: study.max_mileage || 500000,
+      year: study.year,
+      max_mileage: study.max_mileage || 0,
+      trim_text: trimTarget || undefined,
     };
 
-    const filteredTarget = filterListingsByStudy(targetResult.listings, studyCriteria);
-    const filteredSource = filterListingsByStudy(sourceResult.listings, studyCriteria);
+    const sourceCriteria: StudyCriteria = {
+      brand: study.brand,
+      model: study.model,
+      year: study.year,
+      max_mileage: study.max_mileage || 0,
+      trim_text: trimSource || undefined,
+    };
+
+    const filteredTarget = filterListingsByStudy(targetResult.listings, targetCriteria);
+    const filteredSource = filterListingsByStudy(sourceResult.listings, sourceCriteria);
 
     if (filteredTarget.length === 0) {
       await supabase.from('study_run_results').insert([{

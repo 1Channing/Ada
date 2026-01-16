@@ -42,6 +42,7 @@ export interface StudyCriteria {
   model: string;
   year: number;
   max_mileage: number;
+  trim_text?: string | null;
 }
 
 /**
