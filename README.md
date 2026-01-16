@@ -167,6 +167,7 @@ VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 VITE_OPENAI_API_KEY=your_openai_api_key
 VITE_SCRAPER_MODE=api  # 'api' (production) or 'local' (dev only)
+VITE_SCHEDULER_CRON_SECRET=your_scheduler_secret  # Must match Edge Function secret
 ```
 
 For Edge Functions (auto-configured):

@@ -117,6 +117,7 @@ The `studyRunner` module is now in its own chunk, loaded only when needed.
 VITE_SCRAPER_MODE=api
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key
+VITE_SCHEDULER_CRON_SECRET=your_scheduler_secret  # Must match Edge Function secret
 ```
 
 **What happens:**
@@ -257,18 +258,24 @@ console.log(import.meta.env.VITE_SCRAPER_MODE);
 1. **Update `.env` on Railway:**
    ```bash
    VITE_SCRAPER_MODE=api
+   VITE_SCHEDULER_CRON_SECRET=your_scheduler_secret
    ```
 
-2. **Redeploy frontend:**
+2. **Verify Edge Function secret matches:**
+   - Go to Supabase Dashboard → Edge Functions → Settings
+   - Check that `SCHEDULER_CRON_SECRET` is set
+   - Frontend secret must match backend secret exactly
+
+3. **Redeploy frontend:**
    ```bash
    git pull
    npm run build
    # Deploy via Railway
    ```
 
-3. **No backend changes needed** - Worker already supports this
+4. **No backend changes needed** - Worker already supports this
 
-4. **Test end-to-end:**
+5. **Test end-to-end:**
    - Run instant study
    - Verify Worker logs show execution
    - Confirm results appear in UI
@@ -305,6 +312,31 @@ npm run build
 2. Check base path in `vite.config.ts`
 3. Verify CDN/hosting serves all chunks
 
+### 401 Authentication Error
+
+**Error:** `Invalid or missing SCHEDULER_CRON_SECRET`
+
+**Cause:** Frontend secret doesn't match backend secret
+
+**Fix:**
+1. Check Supabase Edge Function environment variables:
+   - Go to Supabase Dashboard → Edge Functions → Settings
+   - Find `SCHEDULER_CRON_SECRET` value
+
+2. Update your `.env` file:
+   ```bash
+   VITE_SCHEDULER_CRON_SECRET=<exact_value_from_edge_function>
+   ```
+
+3. Restart dev server:
+   ```bash
+   npm run dev
+   ```
+
+4. Verify console logs don't show 401 errors
+
+**Note:** The secret must match exactly. No extra spaces, quotes, or characters.
+
 ### Edge Function Not Triggered
 
 **Symptom:** Job stays in "pending" status
@@ -313,6 +345,7 @@ npm run build
 1. Supabase Edge Function deployed
 2. `WORKER_URL` set in Edge Function env vars
 3. Worker is running and healthy
+4. `SCHEDULER_CRON_SECRET` matches between frontend and backend
 
 **Fix:** See `REMOTE_EXECUTION_MODE.md` for full troubleshooting guide
 

@@ -23,7 +23,10 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key_here
 VITE_OPENAI_API_KEY=your_openai_key_here
 VITE_SCRAPER_MODE=api
+VITE_SCHEDULER_CRON_SECRET=your_scheduler_secret_here
 ```
+
+**Note:** The `VITE_SCHEDULER_CRON_SECRET` must match the `SCHEDULER_CRON_SECRET` configured in your Supabase Edge Function environment.
 
 ### Step 2: Restart
 
@@ -95,7 +98,10 @@ VITE_SCRAPER_MODE=api
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key
 VITE_OPENAI_API_KEY=your_key
+VITE_SCHEDULER_CRON_SECRET=your_scheduler_secret
 ```
+
+**Important:** The `VITE_SCHEDULER_CRON_SECRET` value must match the `SCHEDULER_CRON_SECRET` set in your Supabase Edge Function environment variables. This is used to authenticate requests to trigger remote study execution.
 
 Then redeploy.
 

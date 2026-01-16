@@ -13,6 +13,7 @@ import type { StudyRunProgressEvent } from '../store/studyRunsStore';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SCHEDULER_CRON_SECRET = import.meta.env.VITE_SCHEDULER_CRON_SECRET;
 
 export interface StudyV2 {
   id: string;
@@ -93,7 +94,7 @@ export async function runStudyRemotely(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${SCHEDULER_CRON_SECRET}`,
       },
       body: JSON.stringify({}),
     });
