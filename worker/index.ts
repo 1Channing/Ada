@@ -136,7 +136,7 @@ app.post('/execute-studies', async (req, res) => {
       } catch (error) {
         console.error(`[WORKER] ❌ Error executing study ${study.id}:`, error);
 
-        await supabase.from('study_run_results').insert([{
+        const { error: insertError } = await supabase.from('study_run_results').insert([{
           run_id: runId,
           study_id: study.id,
           status: 'NULL',
@@ -146,6 +146,10 @@ app.post('/execute-studies', async (req, res) => {
           target_stats: null,
           target_error_reason: `Execution error: ${error.message}`,
         }]);
+
+        if (insertError) {
+          console.error(`[DATABASE_ERROR] Failed to insert error result for ${study.id}:`, insertError);
+        }
 
         totalNullCount++;
       }

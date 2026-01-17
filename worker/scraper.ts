@@ -277,7 +277,7 @@ export async function executeStudy({
     const targetResult = await scrapeSearch(targetUrl, scrapeMode);
 
     if (targetResult.error) {
-      await supabase.from('study_run_results').insert([{
+      const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
         status: 'NULL',
@@ -287,6 +287,11 @@ export async function executeStudy({
         target_stats: null,
         target_error_reason: targetResult.errorReason || 'Unknown error',
       }]);
+
+      if (insertError) {
+        console.error(`[DATABASE_ERROR] Failed to insert NULL result for ${study.id}:`, insertError);
+        throw new Error(`Database insert failed: ${insertError.message}`);
+      }
 
       return {
         status: targetResult.error,
@@ -301,7 +306,7 @@ export async function executeStudy({
     const sourceResult = await scrapeSearch(sourceUrl, scrapeMode);
 
     if (sourceResult.error) {
-      await supabase.from('study_run_results').insert([{
+      const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
         status: 'NULL',
@@ -309,8 +314,13 @@ export async function executeStudy({
         best_source_price: null,
         price_difference: null,
         target_stats: null,
-        source_error_reason: sourceResult.errorReason || 'Unknown error',
+        target_error_reason: sourceResult.errorReason || 'Unknown error',
       }]);
+
+      if (insertError) {
+        console.error(`[DATABASE_ERROR] Failed to insert NULL result for ${study.id}:`, insertError);
+        throw new Error(`Database insert failed: ${insertError.message}`);
+      }
 
       return {
         status: sourceResult.error,
@@ -332,7 +342,7 @@ export async function executeStudy({
     const filteredSource = filterListingsByStudy(sourceResult.listings, studyCriteria);
 
     if (filteredTarget.length === 0) {
-      await supabase.from('study_run_results').insert([{
+      const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
         status: 'NULL',
@@ -342,6 +352,11 @@ export async function executeStudy({
         target_stats: null,
         target_error_reason: 'No listings after filtering',
       }]);
+
+      if (insertError) {
+        console.error(`[DATABASE_ERROR] Failed to insert NULL result for ${study.id}:`, insertError);
+        throw new Error(`Database insert failed: ${insertError.message}`);
+      }
 
       return {
         status: 'NULL',
@@ -353,9 +368,12 @@ export async function executeStudy({
     const targetStats = computeTargetMarketStats(filteredTarget);
     const opportunityResult = detectOpportunity(filteredTarget, filteredSource, threshold, 5);
 
-    const status = opportunityResult.hasOpportunity ? 'OPPORTUNITY' : 'NULL';
+    const status = opportunityResult.hasOpportunity ? 'OPPORTUNITIES' : 'NULL';
 
-    await supabase.from('study_run_results').insert([{
+    console.log(`[WORKER] Study ${study.id} result: ${status} (diff: ${opportunityResult.priceDifference.toFixed(0)}€)`);
+    console.log(`[WORKER] Target median: ${targetStats.median_price.toFixed(0)}€, Best source: ${opportunityResult.bestSourcePrice.toFixed(0)}€`);
+
+    const { data: insertedResult, error: insertError } = await supabase.from('study_run_results').insert([{
       run_id: runId,
       study_id: study.id,
       status,
@@ -364,22 +382,64 @@ export async function executeStudy({
       price_difference: opportunityResult.priceDifference,
       target_stats: {
         count: targetStats.count,
-        median: targetStats.median_price,
-        min: targetStats.min_price,
-        max: targetStats.max_price,
+        median_price: targetStats.median_price,
+        average_price: targetStats.average_price,
+        min_price: targetStats.min_price,
+        max_price: targetStats.max_price,
+        percentile_25: targetStats.percentile_25,
+        percentile_75: targetStats.percentile_75,
       },
-      interesting_listings: opportunityResult.interestingListings,
-    }]);
+    }]).select();
+
+    if (insertError) {
+      console.error(`[DATABASE_ERROR] Failed to insert ${status} result for ${study.id}:`, insertError);
+      console.error(`[DATABASE_ERROR] Insert data:`, {
+        run_id: runId,
+        study_id: study.id,
+        status,
+        target_market_price: targetStats.median_price,
+        best_source_price: opportunityResult.bestSourcePrice,
+        price_difference: opportunityResult.priceDifference,
+      });
+      throw new Error(`Database insert failed: ${insertError.message}`);
+    }
+
+    console.log(`[WORKER] ✅ Result persisted to study_run_results (id: ${insertedResult[0]?.id})`);
+
+    if (status === 'OPPORTUNITIES' && opportunityResult.interestingListings.length > 0) {
+      console.log(`[WORKER] Persisting ${opportunityResult.interestingListings.length} interesting listings...`);
+
+      const resultId = insertedResult[0].id;
+      const listingsToInsert = opportunityResult.interestingListings.map(listing => ({
+        run_result_id: resultId,
+        listing_url: listing.url,
+        title: listing.title,
+        price: toEur(listing.price, listing.currency),
+        mileage: listing.mileage || null,
+        year: listing.year || null,
+        trim: listing.trim || null,
+      }));
+
+      const { error: listingsError } = await supabase
+        .from('study_source_listings')
+        .insert(listingsToInsert);
+
+      if (listingsError) {
+        console.error(`[DATABASE_ERROR] Failed to insert listings for ${study.id}:`, listingsError);
+      } else {
+        console.log(`[WORKER] ✅ ${listingsToInsert.length} listings persisted to study_source_listings`);
+      }
+    }
 
     return {
       status,
       nullCount: status === 'NULL' ? 1 : 0,
-      opportunitiesCount: status === 'OPPORTUNITY' ? 1 : 0,
+      opportunitiesCount: status === 'OPPORTUNITIES' ? 1 : 0,
     };
   } catch (error: any) {
     console.error(`[WORKER] Error executing study ${study.id}:`, error);
 
-    await supabase.from('study_run_results').insert([{
+    const { error: insertError } = await supabase.from('study_run_results').insert([{
       run_id: runId,
       study_id: study.id,
       status: 'NULL',
@@ -389,6 +449,11 @@ export async function executeStudy({
       target_stats: null,
       target_error_reason: `Execution error: ${error.message}`,
     }]);
+
+    if (insertError) {
+      console.error(`[DATABASE_ERROR] Failed to insert error result for ${study.id}:`, insertError);
+      throw new Error(`Database insert failed after execution error: ${insertError.message}`);
+    }
 
     return {
       status: 'ERROR',
