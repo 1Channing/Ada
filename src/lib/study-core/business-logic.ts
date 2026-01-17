@@ -232,7 +232,13 @@ export function shouldFilterListing(listing: ScrapedListing): boolean {
  * - Brand/model match
  * - Year filter (must be >= study year)
  * - Mileage filter (if specified)
- * - Trim filter (if specified) - case-insensitive match in title/description
+ *
+ * **NOTE ON TRIM FILTERING:**
+ * Trim/finition filtering is handled at the URL level (pre-scraping) by injecting
+ * trim keywords into the search URL. We do NOT filter by trim post-scraping because:
+ * 1. The scraper already filtered by trim (URL contains trim keyword)
+ * 2. Post-scrape filtering would be redundant and overly strict
+ * 3. Legacy behavior only uses URL-based trim filtering
  *
  * @param listings - Listings to filter
  * @param study - Study criteria
@@ -256,23 +262,6 @@ export function filterListingsByStudy(
     // Filter by mileage (if study specifies a max)
     if (study.max_mileage > 0 && listing.mileage && listing.mileage > study.max_mileage) {
       return false;
-    }
-
-    // Filter by trim text (if specified)
-    // Case-insensitive search in title, description, and listing.trim field
-    if (study.trim_text && study.trim_text.trim() !== '') {
-      const trimTextLower = study.trim_text.toLowerCase();
-      const titleLower = listing.title.toLowerCase();
-      const descriptionLower = listing.description.toLowerCase();
-      const listingTrimLower = (listing.trim || '').toLowerCase();
-
-      const matchesInTitle = titleLower.includes(trimTextLower);
-      const matchesInDescription = descriptionLower.includes(trimTextLower);
-      const matchesInTrim = listingTrimLower.includes(trimTextLower);
-
-      if (!matchesInTitle && !matchesInDescription && !matchesInTrim) {
-        return false;
-      }
     }
 
     // Filter by brand/model match

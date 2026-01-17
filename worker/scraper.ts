@@ -162,32 +162,61 @@ async function updateHeartbeat(
 
 /**
  * Apply trim filter to Marktplaats URL
+ * Injects q:<trim>| prefix before existing hash filters
  */
 function applyTrimMarktplaats(url: string, trim: string): string {
-  if (url.includes('?')) {
-    return `${url}&query=${encodeURIComponent(trim)}`;
+  const [base, hash = ''] = url.split('#');
+  if (!hash) return url;
+
+  const encoded = trim.toLowerCase();
+  let newHash: string;
+
+  if (hash.startsWith('q:')) {
+    newHash = hash.replace(/^q:[^|]*/, `q:${encoded}`);
+  } else {
+    newHash = `q:${encoded}|` + hash;
   }
-  return `${url}?query=${encodeURIComponent(trim)}`;
+
+  return `${base}#${newHash}`;
 }
 
 /**
  * Apply trim filter to Leboncoin URL
+ * Injects &text=<trim> parameter before &kst=k if present, or at the end
  */
 function applyTrimLeboncoin(url: string, trim: string): string {
-  if (url.includes('?')) {
-    return `${url}&text=${encodeURIComponent(trim)}`;
+  const encoded = encodeURIComponent(trim);
+
+  if (url.includes('text=')) {
+    return url.replace(/text=[^&]*/, `text=${encoded}`);
   }
-  return `${url}?text=${encodeURIComponent(trim)}`;
+
+  const kstIndex = url.indexOf('&kst=');
+  if (kstIndex !== -1) {
+    return (
+      url.slice(0, kstIndex) +
+      `&text=${encoded}` +
+      url.slice(kstIndex)
+    );
+  }
+
+  return url + `&text=${encoded}`;
 }
 
 /**
  * Apply trim filter to Bilbasen URL
+ * Injects free=<trim> query parameter
  */
 function applyTrimBilbasen(url: string, trim: string): string {
-  if (url.includes('?')) {
-    return `${url}&includetext=${encodeURIComponent(trim)}`;
+  const encoded = encodeURIComponent(trim);
+
+  if (url.includes('free=')) {
+    return url.replace(/free=[^&]*/, `free=${encoded}`);
   }
-  return `${url}?includetext=${encodeURIComponent(trim)}`;
+
+  const hasQuery = url.includes('?');
+  const sep = hasQuery ? '&' : '?';
+  return url + `${sep}free=${encoded}`;
 }
 
 /**
@@ -291,25 +320,16 @@ export async function executeStudy({
     }
 
     // Apply unified business logic (PURE functions)
-    // Create separate criteria for target and source to support different trim filters
-    const targetCriteria: StudyCriteria = {
+    // NOTE: Trim filtering is handled at URL level (pre-scraping), not here
+    const studyCriteria: StudyCriteria = {
       brand: study.brand,
       model: study.model,
       year: study.year,
       max_mileage: study.max_mileage || 0,
-      trim_text: trimTarget || undefined,
     };
 
-    const sourceCriteria: StudyCriteria = {
-      brand: study.brand,
-      model: study.model,
-      year: study.year,
-      max_mileage: study.max_mileage || 0,
-      trim_text: trimSource || undefined,
-    };
-
-    const filteredTarget = filterListingsByStudy(targetResult.listings, targetCriteria);
-    const filteredSource = filterListingsByStudy(sourceResult.listings, sourceCriteria);
+    const filteredTarget = filterListingsByStudy(targetResult.listings, studyCriteria);
+    const filteredSource = filterListingsByStudy(sourceResult.listings, studyCriteria);
 
     if (filteredTarget.length === 0) {
       await supabase.from('study_run_results').insert([{
