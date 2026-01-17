@@ -110,8 +110,9 @@ export function StudiesV2Results() {
       realtimeChannelRef.current = null;
     }
 
-    if (isFreshRunning) {
-      console.log('[RESULTS] Fresh batch is running, setting up realtime subscription and fallback polling');
+    if (isFreshRunning || (latestRun?.status === 'completed' && results.length < (latestRun?.total_studies || 0))) {
+      console.log('[RESULTS] 📡 Setting up Realtime subscriptions for run:', latestRun!.id);
+      console.log('[RESULTS] Current results:', results.length, '/', latestRun!.total_studies);
 
       currentRunIdRef.current = latestRun!.id;
       lastActivityRef.current = Date.now();
@@ -119,42 +120,66 @@ export function StudiesV2Results() {
       lastCompletedCountRef.current = results.length;
 
       const channel = supabase
-        .channel('study-runs-changes')
+        .channel(`study-runs-changes-${latestRun!.id}`)
         .on(
           'postgres_changes',
           {
-            event: '*',
+            event: 'UPDATE',
             schema: 'public',
             table: 'study_runs',
             filter: `id=eq.${latestRun!.id}`,
           },
           (payload) => {
-            console.log('[RESULTS] Realtime event on study_runs:', payload.eventType);
+            console.log('[RESULTS] 📬 Realtime UPDATE on study_runs:', payload.new.status);
             handleRealtimeUpdate();
           }
         )
         .on(
           'postgres_changes',
           {
-            event: '*',
+            event: 'INSERT',
             schema: 'public',
             table: 'study_run_results',
             filter: `run_id=eq.${latestRun!.id}`,
           },
           (payload) => {
-            console.log('[RESULTS] Realtime event on study_run_results:', payload.eventType);
+            console.log('[RESULTS] 📬 Realtime INSERT on study_run_results!');
+            console.log('[RESULTS] Result data:', {
+              study_id: payload.new.study_id,
+              status: payload.new.status,
+              price_diff: payload.new.price_difference,
+            });
+            handleRealtimeUpdate();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'study_run_results',
+            filter: `run_id=eq.${latestRun!.id}`,
+          },
+          (payload) => {
+            console.log('[RESULTS] 📬 Realtime UPDATE on study_run_results');
             handleRealtimeUpdate();
           }
         )
         .subscribe((status) => {
-          console.log('[RESULTS] Realtime subscription status:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('[RESULTS] ✅ Realtime channel subscribed');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('[RESULTS] ❌ Realtime channel error');
+          } else if (status === 'TIMED_OUT') {
+            console.error('[RESULTS] ⏱️ Realtime channel timed out');
+          }
         });
 
       realtimeChannelRef.current = channel;
 
       scheduleNextPoll();
     } else {
-      console.log('[RESULTS] Batch completed or not running, stopping updates');
+      console.log('[RESULTS] ✅ All results received, stopping updates');
       currentRunIdRef.current = null;
       pollingIntervalRef.current = 5000;
     }
@@ -164,10 +189,11 @@ export function StudiesV2Results() {
         clearTimeout(pollTimerRef.current);
       }
       if (realtimeChannelRef.current) {
+        console.log('[RESULTS] 🧹 Cleaning up Realtime subscriptions');
         supabase.removeChannel(realtimeChannelRef.current);
       }
     };
-  }, [isFreshRunning, latestRun?.id]);
+  }, [isFreshRunning, latestRun?.id, latestRun?.status, latestRun?.total_studies, results.length]);
 
   async function handleRealtimeUpdate() {
     if (!currentRunIdRef.current) return;
