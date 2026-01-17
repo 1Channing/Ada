@@ -1,15 +1,17 @@
 /**
- * Remote Study Runner
+ * Remote Study Runner - Realtime Push Architecture
  *
  * Delegates study execution to the Worker via Supabase Edge Functions.
- * This ensures all scraping happens server-side, never in the browser.
+ * Uses Supabase Realtime for instant updates - ZERO POLLING.
  *
  * Flow:
  * Frontend → Edge Function (run_scheduled_studies) → Worker → Zyte API
+ * Worker → Database → Realtime → Frontend (instant push)
  */
 
 import { supabase } from '../lib/supabase';
 import type { StudyRunProgressEvent } from '../store/studyRunsStore';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -39,8 +41,8 @@ export interface RemoteStudyParams {
 
 type ProgressCallback = (event: StudyRunProgressEvent) => void;
 
-const POLL_INTERVAL_MS = 2000;
-const MAX_POLL_DURATION_MS = 300000;
+const REALTIME_TIMEOUT_MS = 300000; // 5 minutes max wait
+const FALLBACK_FETCH_DELAY_MS = 5000; // 5 seconds after completion before fallback
 
 /**
  * Execute a single study remotely via the Worker.
@@ -48,8 +50,8 @@ const MAX_POLL_DURATION_MS = 300000;
  * This function:
  * 1. Creates a scheduled job with immediate execution
  * 2. Triggers the run_scheduled_studies Edge Function
- * 3. Polls for completion
- * 4. Returns the result
+ * 3. Subscribes to Realtime updates (NO POLLING)
+ * 4. Returns the result immediately when pushed from Worker
  */
 export async function runStudyRemotely(
   studyRunId: string,
@@ -59,7 +61,11 @@ export async function runStudyRemotely(
   const { study, runId, threshold, scrapeMode = 'fast' } = params;
   const studyCode = `${study.brand}_${study.model}_${study.year}_${study.country_source}_${study.country_target}`;
 
-  console.log(`[REMOTE_RUNNER] Starting remote execution for study: ${studyCode}`);
+  console.log(`[REMOTE_RUNNER] 🚀 Starting remote execution for study: ${studyCode}`);
+  console.log(`[REMOTE_RUNNER] 📡 Using Realtime push architecture (zero polling)`);
+
+  let statusChannel: RealtimeChannel | null = null;
+  let resultsChannel: RealtimeChannel | null = null;
 
   try {
     emitProgress(studyRunId, studyCode, 'queued', 'Queued', 'Scheduling remote execution...', onProgress);
@@ -72,7 +78,7 @@ export async function runStudyRemotely(
       .from('scheduled_study_runs')
       .insert([{
         scheduled_at: scheduledAt.toISOString(),
-        status: 'pending', // Explicitly set to pending
+        status: 'pending',
         payload: {
           studyIds: [study.id],
           threshold,
@@ -88,9 +94,10 @@ export async function runStudyRemotely(
       throw new Error(`Failed to schedule remote execution: ${scheduleError.message}`);
     }
 
-    console.log(`[REMOTE_RUNNER] Scheduled job created: ${scheduledJob.id}`);
+    console.log(`[REMOTE_RUNNER] ✅ Scheduled job created: ${scheduledJob.id}`);
     emitProgress(studyRunId, studyCode, 'scraping_target', 'Triggering', 'Triggering backend execution...', onProgress);
 
+    // Trigger Edge Function
     const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/run_scheduled_studies`;
     const triggerResponse = await fetch(edgeFunctionUrl, {
       method: 'POST',
@@ -108,151 +115,32 @@ export async function runStudyRemotely(
     }
 
     const triggerResult = await triggerResponse.json();
-    console.log('[REMOTE_RUNNER] Edge Function triggered:', triggerResult);
+    console.log('[REMOTE_RUNNER] ✅ Edge Function triggered:', triggerResult);
 
-    // If Edge Function successfully processed the job, immediately show "Running"
     if (triggerResult.success && triggerResult.processed > 0) {
-      console.log('[REMOTE_RUNNER] Edge Function confirmed job pickup - showing Running state');
-      emitProgress(studyRunId, studyCode, 'scraping_target', 'Running', 'Backend processing study...', onProgress);
+      console.log('[REMOTE_RUNNER] 🎯 Edge Function confirmed job pickup');
     }
 
-    // Keep "Triggering" state until job actually starts
-    const startTime = Date.now();
-    let lastStatus = 'pending';
-    let jobStarted = triggerResult.success && triggerResult.processed > 0; // Already started if Edge Function processed it
-
-    while (Date.now() - startTime < MAX_POLL_DURATION_MS) {
-      // Poll more frequently at start (500ms), then back off to 2s
-      const elapsed = Date.now() - startTime;
-      const pollInterval = elapsed < 10000 ? 500 : POLL_INTERVAL_MS;
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-
-      const { data: jobStatus, error: statusError } = await supabase
-        .from('scheduled_study_runs')
-        .select('status, last_error, run_id')
-        .eq('id', scheduledJob.id)
-        .single();
-
-      if (statusError) {
-        console.error('[REMOTE_RUNNER] Failed to check job status:', statusError);
-        continue;
-      }
-
-      if (jobStatus.status !== lastStatus) {
-        console.log(`[REMOTE_RUNNER] Job status changed: ${lastStatus} → ${jobStatus.status}`);
-        lastStatus = jobStatus.status;
-
-        if (jobStatus.status === 'running') {
-          jobStarted = true;
-          emitProgress(studyRunId, studyCode, 'scraping_target', 'Running', 'Backend processing study...', onProgress);
-        }
-      } else if (!jobStarted && jobStatus.status === 'pending') {
-        // Keep showing "Triggering" while waiting for pickup
-        emitProgress(studyRunId, studyCode, 'scraping_target', 'Triggering', 'Waiting for backend pickup...', onProgress);
-      }
-
-      if (jobStatus.status === 'completed') {
-        console.log(`[REMOTE_RUNNER] Job completed successfully`);
-
-        if (jobStatus.run_id) {
-          emitProgress(studyRunId, studyCode, 'saving_results', 'Fetching results', 'Loading results...', onProgress);
-
-          console.log(`[REMOTE_RUNNER] Fetching results with:`);
-          console.log(`  run_id: ${jobStatus.run_id}`);
-          console.log(`  study_id: ${study.id}`);
-
-          // Poll for results with retry logic (Worker needs time to write to DB)
-          let result = null;
-          let retries = 0;
-          const maxRetries = 10; // Increased from 5 to 10
-
-          while (!result && retries < maxRetries) {
-            if (retries > 0) {
-              console.log(`[REMOTE_RUNNER] Retry ${retries}/${maxRetries} - waiting for Worker to write results...`);
-              // Increased from 1s to 2s to give Worker more time
-              await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-
-            const { data: fetchedResult, error: resultError } = await supabase
-              .from('study_run_results')
-              .select('*')
-              .eq('run_id', jobStatus.run_id)
-              .eq('study_id', study.id)
-              .maybeSingle();
-
-            if (resultError) {
-              console.error('[REMOTE_RUNNER] Failed to fetch result:', resultError);
-              retries++;
-              continue;
-            }
-
-            if (fetchedResult) {
-              console.log(`[REMOTE_RUNNER] ✅ Result found on retry ${retries + 1}:`, {
-                status: fetchedResult.status,
-                margin: fetchedResult.price_difference,
-                target_count: fetchedResult.filtered_target_count,
-                source_count: fetchedResult.filtered_source_count,
-              });
-              result = fetchedResult;
-            } else {
-              console.log(`[REMOTE_RUNNER] No result yet on retry ${retries + 1}`);
-            }
-
-            retries++;
-          }
-
-          if (!result) {
-            console.warn('[REMOTE_RUNNER] ❌ No result found after 10 retries (20 seconds)');
-            console.warn('[REMOTE_RUNNER] This suggests Worker did not write results to DB');
-
-            // Check if ANY results exist for this run_id
-            const { data: anyResults, error: checkError } = await supabase
-              .from('study_run_results')
-              .select('study_id, status')
-              .eq('run_id', jobStatus.run_id);
-
-            if (!checkError && anyResults && anyResults.length > 0) {
-              console.warn(`[REMOTE_RUNNER] Found ${anyResults.length} results for other studies in this run:`, anyResults);
-              console.warn(`[REMOTE_RUNNER] But no result for study_id: ${study.id}`);
-            } else {
-              console.warn(`[REMOTE_RUNNER] No results at all for run_id: ${jobStatus.run_id}`);
-            }
-
-            emitProgress(studyRunId, studyCode, 'done', 'Completed', 'No results found', onProgress, 'warning');
-            return { status: 'NULL' };
-          }
-
-          const status = result.status === 'OPPORTUNITIES' ? 'OPPORTUNITIES'
-                      : result.status === 'TARGET_BLOCKED' ? 'TARGET_BLOCKED'
-                      : 'NULL';
-
-          console.log(`[REMOTE_RUNNER] ✅ Result fetched: ${status}, margin: ${result.price_difference || 0}€`);
-          emitProgress(studyRunId, studyCode, 'done', 'Completed', `Study completed: ${status}`, onProgress);
-          return { status };
-        }
-
-        emitProgress(studyRunId, studyCode, 'done', 'Completed', 'Study completed (no run_id)', onProgress);
-        return { status: 'NULL' };
-      }
-
-      if (jobStatus.status === 'failed') {
-        const errorMsg = jobStatus.last_error || 'Unknown error';
-        console.error(`[REMOTE_RUNNER] Job failed: ${errorMsg}`);
-        emitProgress(studyRunId, studyCode, 'error', 'Failed', errorMsg, onProgress, 'error');
-        throw new Error(`Backend execution failed: ${errorMsg}`);
-      }
-
-      if (jobStatus.status === 'cancelled') {
-        console.log('[REMOTE_RUNNER] Job was cancelled');
-        emitProgress(studyRunId, studyCode, 'done', 'Cancelled', 'Study cancelled', onProgress, 'warning');
-        return { status: 'NULL' };
-      }
-    }
-
-    throw new Error('Backend execution timed out after 5 minutes');
+    // Now set up Realtime subscriptions and wait for updates
+    return await waitForResultsViaRealtime(
+      scheduledJob.id,
+      study.id,
+      studyRunId,
+      studyCode,
+      onProgress,
+    );
 
   } catch (error) {
-    console.error(`[REMOTE_RUNNER] Error executing remote study ${study.id}:`, error);
+    console.error(`[REMOTE_RUNNER] ❌ Error executing remote study ${study.id}:`, error);
+
+    // Clean up any subscriptions
+    if (statusChannel) {
+      await supabase.removeChannel(statusChannel);
+    }
+    if (resultsChannel) {
+      await supabase.removeChannel(resultsChannel);
+    }
+
     emitProgress(
       studyRunId,
       studyCode,
@@ -264,6 +152,220 @@ export async function runStudyRemotely(
     );
     throw error;
   }
+}
+
+/**
+ * Wait for results via Supabase Realtime (ZERO POLLING)
+ *
+ * Subscribes to:
+ * 1. scheduled_study_runs - for status changes (pending → running → completed)
+ * 2. study_run_results - for actual results (pushed immediately by Worker)
+ *
+ * Returns immediately when results arrive via push notification.
+ */
+async function waitForResultsViaRealtime(
+  jobId: string,
+  studyId: string,
+  studyRunId: string,
+  studyCode: string,
+  onProgress?: ProgressCallback,
+): Promise<{ status: 'NULL' | 'OPPORTUNITIES' | 'TARGET_BLOCKED' }> {
+  console.log('[REMOTE_RUNNER] 📡 Setting up Realtime subscriptions...');
+
+  return new Promise((resolve, reject) => {
+    let statusChannel: RealtimeChannel | null = null;
+    let resultsChannel: RealtimeChannel | null = null;
+    let timeoutId: NodeJS.Timeout;
+    let hasCompleted = false;
+    let completionTime: number | null = null;
+    let fallbackTimeoutId: NodeJS.Timeout | null = null;
+    let runIdFromStatus: string | null = null;
+
+    const cleanup = async () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (fallbackTimeoutId) clearTimeout(fallbackTimeoutId);
+
+      if (statusChannel) {
+        console.log('[REMOTE_RUNNER] 🧹 Cleaning up status channel');
+        await supabase.removeChannel(statusChannel);
+      }
+      if (resultsChannel) {
+        console.log('[REMOTE_RUNNER] 🧹 Cleaning up results channel');
+        await supabase.removeChannel(resultsChannel);
+      }
+    };
+
+    // Timeout after 5 minutes
+    timeoutId = setTimeout(async () => {
+      console.error('[REMOTE_RUNNER] ⏱️ Realtime timeout after 5 minutes');
+      await cleanup();
+      reject(new Error('Backend execution timed out after 5 minutes'));
+    }, REALTIME_TIMEOUT_MS);
+
+    // Subscribe to job status changes
+    console.log(`[REMOTE_RUNNER] 📻 Subscribing to job status: ${jobId}`);
+    statusChannel = supabase
+      .channel(`job_status_${jobId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'scheduled_study_runs',
+          filter: `id=eq.${jobId}`,
+        },
+        (payload) => {
+          const newStatus = payload.new.status;
+          console.log(`[REMOTE_RUNNER] 📬 Status update: ${newStatus}`);
+
+          if (newStatus === 'running') {
+            console.log('[REMOTE_RUNNER] 🏃 Job is now running on Worker');
+            emitProgress(studyRunId, studyCode, 'scraping_target', 'Running', 'Backend processing study...', onProgress);
+          }
+
+          if (newStatus === 'completed') {
+            console.log('[REMOTE_RUNNER] ✅ Job marked as completed');
+            hasCompleted = true;
+            completionTime = Date.now();
+            runIdFromStatus = payload.new.run_id;
+
+            emitProgress(studyRunId, studyCode, 'saving_results', 'Fetching results', 'Waiting for results...', onProgress);
+
+            // Set up fallback fetch in case Realtime fails to deliver results
+            fallbackTimeoutId = setTimeout(async () => {
+              console.warn('[REMOTE_RUNNER] ⚠️ No results received via Realtime after 5s, using fallback fetch');
+
+              if (runIdFromStatus) {
+                try {
+                  const { data: result, error } = await supabase
+                    .from('study_run_results')
+                    .select('*')
+                    .eq('run_id', runIdFromStatus)
+                    .eq('study_id', studyId)
+                    .maybeSingle();
+
+                  if (error) {
+                    console.error('[REMOTE_RUNNER] ❌ Fallback fetch failed:', error);
+                    await cleanup();
+                    reject(new Error(`Failed to fetch results: ${error.message}`));
+                    return;
+                  }
+
+                  if (result) {
+                    console.log('[REMOTE_RUNNER] ✅ Results fetched via fallback:', {
+                      status: result.status,
+                      margin: result.price_difference,
+                    });
+
+                    const status = result.status === 'OPPORTUNITIES' ? 'OPPORTUNITIES'
+                                : result.status === 'TARGET_BLOCKED' ? 'TARGET_BLOCKED'
+                                : 'NULL';
+
+                    emitProgress(studyRunId, studyCode, 'done', 'Completed', `Study completed: ${status}`, onProgress);
+                    await cleanup();
+                    resolve({ status });
+                  } else {
+                    console.warn('[REMOTE_RUNNER] ⚠️ No results found in fallback fetch');
+                    emitProgress(studyRunId, studyCode, 'done', 'Completed', 'No results found', onProgress, 'warning');
+                    await cleanup();
+                    resolve({ status: 'NULL' });
+                  }
+                } catch (err) {
+                  console.error('[REMOTE_RUNNER] ❌ Fallback fetch error:', err);
+                  await cleanup();
+                  reject(err);
+                }
+              } else {
+                console.error('[REMOTE_RUNNER] ❌ No run_id available for fallback fetch');
+                await cleanup();
+                reject(new Error('No run_id available for results'));
+              }
+            }, FALLBACK_FETCH_DELAY_MS);
+          }
+
+          if (newStatus === 'failed') {
+            const errorMsg = payload.new.last_error || 'Unknown error';
+            console.error(`[REMOTE_RUNNER] ❌ Job failed: ${errorMsg}`);
+            emitProgress(studyRunId, studyCode, 'error', 'Failed', errorMsg, onProgress, 'error');
+            cleanup().then(() => reject(new Error(`Backend execution failed: ${errorMsg}`)));
+          }
+
+          if (newStatus === 'cancelled') {
+            console.log('[REMOTE_RUNNER] 🚫 Job was cancelled');
+            emitProgress(studyRunId, studyCode, 'done', 'Cancelled', 'Study cancelled', onProgress, 'warning');
+            cleanup().then(() => resolve({ status: 'NULL' }));
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[REMOTE_RUNNER] ✅ Status channel subscribed');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[REMOTE_RUNNER] ❌ Status channel error');
+        } else if (status === 'TIMED_OUT') {
+          console.error('[REMOTE_RUNNER] ⏱️ Status channel timed out');
+        }
+      });
+
+    // Subscribe to results (filtered by study_id)
+    // Note: We'll filter by run_id once we know it, but for now we filter by study_id
+    console.log(`[REMOTE_RUNNER] 📻 Subscribing to results for study: ${studyId}`);
+    resultsChannel = supabase
+      .channel(`study_results_${studyId}_${Date.now()}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'study_run_results',
+          filter: `study_id=eq.${studyId}`,
+        },
+        async (payload) => {
+          console.log('[REMOTE_RUNNER] 📬 Results received via Realtime!');
+
+          // Cancel fallback if it's pending
+          if (fallbackTimeoutId) {
+            clearTimeout(fallbackTimeoutId);
+            fallbackTimeoutId = null;
+          }
+
+          const result = payload.new;
+
+          // Verify this result matches our run_id (if we have it)
+          if (runIdFromStatus && result.run_id !== runIdFromStatus) {
+            console.log('[REMOTE_RUNNER] ⚠️ Received result for different run_id, ignoring');
+            return;
+          }
+
+          console.log('[REMOTE_RUNNER] ✅ Result data:', {
+            status: result.status,
+            margin: result.price_difference,
+            target_count: result.filtered_target_count,
+            source_count: result.filtered_source_count,
+          });
+
+          const status = result.status === 'OPPORTUNITIES' ? 'OPPORTUNITIES'
+                      : result.status === 'TARGET_BLOCKED' ? 'TARGET_BLOCKED'
+                      : 'NULL';
+
+          emitProgress(studyRunId, studyCode, 'done', 'Completed', `Study completed: ${status}`, onProgress);
+
+          await cleanup();
+          resolve({ status });
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[REMOTE_RUNNER] ✅ Results channel subscribed');
+          // Now that both channels are ready, show "Running" state
+          emitProgress(studyRunId, studyCode, 'scraping_target', 'Running', 'Backend processing study...', onProgress);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[REMOTE_RUNNER] ❌ Results channel error');
+        } else if (status === 'TIMED_OUT') {
+          console.error('[REMOTE_RUNNER] ⏱️ Results channel timed out');
+        }
+      });
+  });
 }
 
 function emitProgress(
