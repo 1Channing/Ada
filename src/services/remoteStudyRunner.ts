@@ -110,10 +110,16 @@ export async function runStudyRemotely(
     const triggerResult = await triggerResponse.json();
     console.log('[REMOTE_RUNNER] Edge Function triggered:', triggerResult);
 
+    // If Edge Function successfully processed the job, immediately show "Running"
+    if (triggerResult.success && triggerResult.processed > 0) {
+      console.log('[REMOTE_RUNNER] Edge Function confirmed job pickup - showing Running state');
+      emitProgress(studyRunId, studyCode, 'scraping_target', 'Running', 'Backend processing study...', onProgress);
+    }
+
     // Keep "Triggering" state until job actually starts
     const startTime = Date.now();
     let lastStatus = 'pending';
-    let jobStarted = false;
+    let jobStarted = triggerResult.success && triggerResult.processed > 0; // Already started if Edge Function processed it
 
     while (Date.now() - startTime < MAX_POLL_DURATION_MS) {
       // Poll more frequently at start (500ms), then back off to 2s
@@ -151,15 +157,20 @@ export async function runStudyRemotely(
         if (jobStatus.run_id) {
           emitProgress(studyRunId, studyCode, 'saving_results', 'Fetching results', 'Loading results...', onProgress);
 
-          // Poll for results with retry logic (results might take a moment to appear)
+          console.log(`[REMOTE_RUNNER] Fetching results with:`);
+          console.log(`  run_id: ${jobStatus.run_id}`);
+          console.log(`  study_id: ${study.id}`);
+
+          // Poll for results with retry logic (Worker needs time to write to DB)
           let result = null;
           let retries = 0;
-          const maxRetries = 5;
+          const maxRetries = 10; // Increased from 5 to 10
 
           while (!result && retries < maxRetries) {
             if (retries > 0) {
-              console.log(`[REMOTE_RUNNER] Retry ${retries}/${maxRetries} - waiting for results...`);
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              console.log(`[REMOTE_RUNNER] Retry ${retries}/${maxRetries} - waiting for Worker to write results...`);
+              // Increased from 1s to 2s to give Worker more time
+              await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
             const { data: fetchedResult, error: resultError } = await supabase
@@ -175,12 +186,38 @@ export async function runStudyRemotely(
               continue;
             }
 
-            result = fetchedResult;
+            if (fetchedResult) {
+              console.log(`[REMOTE_RUNNER] ✅ Result found on retry ${retries + 1}:`, {
+                status: fetchedResult.status,
+                margin: fetchedResult.price_difference,
+                target_count: fetchedResult.filtered_target_count,
+                source_count: fetchedResult.filtered_source_count,
+              });
+              result = fetchedResult;
+            } else {
+              console.log(`[REMOTE_RUNNER] No result yet on retry ${retries + 1}`);
+            }
+
             retries++;
           }
 
           if (!result) {
-            console.warn('[REMOTE_RUNNER] No result found after retries');
+            console.warn('[REMOTE_RUNNER] ❌ No result found after 10 retries (20 seconds)');
+            console.warn('[REMOTE_RUNNER] This suggests Worker did not write results to DB');
+
+            // Check if ANY results exist for this run_id
+            const { data: anyResults, error: checkError } = await supabase
+              .from('study_run_results')
+              .select('study_id, status')
+              .eq('run_id', jobStatus.run_id);
+
+            if (!checkError && anyResults && anyResults.length > 0) {
+              console.warn(`[REMOTE_RUNNER] Found ${anyResults.length} results for other studies in this run:`, anyResults);
+              console.warn(`[REMOTE_RUNNER] But no result for study_id: ${study.id}`);
+            } else {
+              console.warn(`[REMOTE_RUNNER] No results at all for run_id: ${jobStatus.run_id}`);
+            }
+
             emitProgress(studyRunId, studyCode, 'done', 'Completed', 'No results found', onProgress, 'warning');
             return { status: 'NULL' };
           }
@@ -189,7 +226,7 @@ export async function runStudyRemotely(
                       : result.status === 'TARGET_BLOCKED' ? 'TARGET_BLOCKED'
                       : 'NULL';
 
-          console.log(`[REMOTE_RUNNER] Result fetched: ${status}, margin: ${result.price_difference || 0}€`);
+          console.log(`[REMOTE_RUNNER] ✅ Result fetched: ${status}, margin: ${result.price_difference || 0}€`);
           emitProgress(studyRunId, studyCode, 'done', 'Completed', `Study completed: ${status}`, onProgress);
           return { status };
         }
