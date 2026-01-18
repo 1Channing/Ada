@@ -10,7 +10,7 @@
  */
 
 import { supabase } from '../lib/supabase';
-import type { StudyRunProgressEvent } from '../store/studyRunsStore';
+import { useStudyRunsStore, type StudyRunProgressEvent } from '../store/studyRunsStore';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -150,6 +150,15 @@ export async function runStudyRemotely(
       onProgress,
       'error',
     );
+
+    // Update store on error
+    const store = useStudyRunsStore.getState();
+    store.updateRun(studyRunId, {
+      stage: 'error',
+      finishedAt: Date.now(),
+      errorMessage: (error as Error).message,
+    });
+
     throw error;
   }
 }
@@ -261,12 +270,33 @@ async function waitForResultsViaRealtime(
                                 : result.status === 'TARGET_BLOCKED' ? 'TARGET_BLOCKED'
                                 : 'NULL';
 
-                    emitProgress(studyRunId, studyCode, 'done', 'Completed', `Study completed: ${status}`, onProgress);
+                    console.log('[REMOTE_RUNNER] 🎯 Emitting completion event to UI (fallback)...');
+                    emitProgress(studyRunId, studyCode, 'done', 'Completed', `Study completed: ${status}`, onProgress, 'info');
+
+                    // Explicitly update global store to ensure widget closes
+                    console.log('[REMOTE_RUNNER] 📊 Updating global store to mark study as done (fallback)...');
+                    const store = useStudyRunsStore.getState();
+                    store.updateRun(studyRunId, {
+                      stage: 'done',
+                      finishedAt: Date.now(),
+                      status: status === 'OPPORTUNITIES' ? 'SUCCESS' as const : 'NO_TARGET_RESULTS' as const,
+                    });
+
                     await cleanup();
+                    console.log('[REMOTE_RUNNER] ✅ Remote execution completed successfully (fallback)');
                     resolve({ status });
                   } else {
                     console.warn('[REMOTE_RUNNER] ⚠️ No results found in fallback fetch');
                     emitProgress(studyRunId, studyCode, 'done', 'Completed', 'No results found', onProgress, 'warning');
+
+                    // Update store even when no results found
+                    const store = useStudyRunsStore.getState();
+                    store.updateRun(studyRunId, {
+                      stage: 'done',
+                      finishedAt: Date.now(),
+                      status: 'NO_TARGET_RESULTS' as const,
+                    });
+
                     await cleanup();
                     resolve({ status: 'NULL' });
                   }
@@ -287,12 +317,29 @@ async function waitForResultsViaRealtime(
             const errorMsg = payload.new.last_error || 'Unknown error';
             console.error(`[REMOTE_RUNNER] ❌ Job failed: ${errorMsg}`);
             emitProgress(studyRunId, studyCode, 'error', 'Failed', errorMsg, onProgress, 'error');
+
+            // Update store on failure
+            const store = useStudyRunsStore.getState();
+            store.updateRun(studyRunId, {
+              stage: 'error',
+              finishedAt: Date.now(),
+              errorMessage: errorMsg,
+            });
+
             cleanup().then(() => reject(new Error(`Backend execution failed: ${errorMsg}`)));
           }
 
           if (newStatus === 'cancelled') {
             console.log('[REMOTE_RUNNER] 🚫 Job was cancelled');
-            emitProgress(studyRunId, studyCode, 'done', 'Cancelled', 'Study cancelled', onProgress, 'warning');
+            emitProgress(studyRunId, studyCode, 'cancelled', 'Cancelled', 'Study cancelled', onProgress, 'warning');
+
+            // Update store on cancellation
+            const store = useStudyRunsStore.getState();
+            store.updateRun(studyRunId, {
+              stage: 'cancelled',
+              finishedAt: Date.now(),
+            });
+
             cleanup().then(() => resolve({ status: 'NULL' }));
           }
         }
@@ -348,9 +395,22 @@ async function waitForResultsViaRealtime(
                       : result.status === 'TARGET_BLOCKED' ? 'TARGET_BLOCKED'
                       : 'NULL';
 
-          emitProgress(studyRunId, studyCode, 'done', 'Completed', `Study completed: ${status}`, onProgress);
+          console.log('[REMOTE_RUNNER] 🎯 Emitting completion event to UI...');
+          emitProgress(studyRunId, studyCode, 'done', 'Completed', `Study completed: ${status}`, onProgress, 'info');
 
+          // Explicitly update global store to ensure widget closes
+          console.log('[REMOTE_RUNNER] 📊 Updating global store to mark study as done...');
+          const store = useStudyRunsStore.getState();
+          store.updateRun(studyRunId, {
+            stage: 'done',
+            finishedAt: Date.now(),
+            status: status === 'OPPORTUNITIES' ? 'SUCCESS' as const : 'NO_TARGET_RESULTS' as const,
+          });
+
+          console.log('[REMOTE_RUNNER] 🧹 Cleaning up channels...');
           await cleanup();
+
+          console.log('[REMOTE_RUNNER] ✅ Remote execution completed successfully');
           resolve({ status });
         }
       )

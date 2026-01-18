@@ -199,8 +199,15 @@ export function StudiesV2Results() {
     if (!currentRunIdRef.current) return;
 
     console.log('[RESULTS] Handling realtime update, refreshing data...');
+
+    const oldResultsCount = results.length;
+    const oldRunStatus = latestRun?.status;
+
     await loadRunResults(currentRunIdRef.current, true);
     await loadLatestRun();
+
+    console.log('[RESULTS] Update complete. Old results:', oldResultsCount, 'New results:', results.length);
+    console.log('[RESULTS] Old status:', oldRunStatus, 'New status:', latestRun?.status);
   }
 
   function scheduleNextPoll() {
