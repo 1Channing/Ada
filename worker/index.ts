@@ -164,6 +164,17 @@ app.post('/execute-studies', async (req, res) => {
       })
       .eq('id', runId);
 
+    if (scheduledJobId) {
+      await supabase
+        .from('scheduled_study_runs')
+        .update({
+          status: 'completed',
+          run_id: runId,
+        })
+        .eq('id', scheduledJobId);
+      console.log(`[WORKER] ✅ Updated scheduled_study_runs (${scheduledJobId}) to completed`);
+    }
+
     console.log('[WORKER] ✅ All studies processed successfully');
     console.log(`[WORKER] Results: ${totalOpportunitiesCount} opportunities, ${totalNullCount} null, ${totalBlockedCount} blocked`);
 
@@ -189,8 +200,18 @@ app.post('/execute-studies', async (req, res) => {
           error_message: error.message,
         })
         .eq('id', runId);
+
+      if (scheduledJobId) {
+        await supabase
+          .from('scheduled_study_runs')
+          .update({
+            status: 'failed',
+            last_error: error.message,
+          })
+          .eq('id', scheduledJobId);
+      }
     } catch (updateError) {
-      console.error('[WORKER] Failed to update study_runs status:', updateError);
+      console.error('[WORKER] Failed to update status:', updateError);
     }
 
     res.status(500).json({

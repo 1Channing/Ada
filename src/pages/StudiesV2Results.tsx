@@ -735,28 +735,24 @@ export function StudiesV2Results() {
                     Target Market ({selectedResult.studies_v2.country_target})
                   </h4>
                   <div className="flex items-center gap-2">
-                    {selectedResult.target_stats.targetMarketUrl && (
-                      <a
-                        href={selectedResult.target_stats.targetMarketUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs flex items-center gap-1.5 transition-colors"
-                      >
-                        View NL market
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
-                    {selectedResult.target_stats.sourceMarketUrl && (
-                      <a
-                        href={selectedResult.target_stats.sourceMarketUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs flex items-center gap-1.5 transition-colors"
-                      >
-                        View FR market
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
+                    <a
+                      href={selectedResult.studies_v2.market_target_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs flex items-center gap-1.5 transition-colors"
+                    >
+                      View {selectedResult.studies_v2.country_target} market
+                      <ExternalLink size={12} />
+                    </a>
+                    <a
+                      href={selectedResult.studies_v2.market_source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs flex items-center gap-1.5 transition-colors"
+                    >
+                      View {selectedResult.studies_v2.country_source} market
+                      <ExternalLink size={12} />
+                    </a>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
