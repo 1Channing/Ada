@@ -30,6 +30,22 @@ const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
 
 /**
+ * Exchange rates for currency conversion
+ */
+const FX_RATES: Record<string, number> = {
+  'EUR': 1.0,
+  'DKK': 0.134,  // 1 DKK ≈ 0.134 EUR
+  'UNKNOWN': 1.0,
+};
+
+/**
+ * Convert price to EUR based on currency
+ */
+function toEur(price: number, currency: string): number {
+  return price * (FX_RATES[currency] ?? 1.0);
+}
+
+/**
  * Fetch HTML from Zyte API with retries
  */
 async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<string | null> {
@@ -412,12 +428,17 @@ export async function executeStudy({
       const resultId = insertedResult[0].id;
       const listingsToInsert = opportunityResult.interestingListings.map(listing => ({
         run_result_id: resultId,
-        listing_url: listing.url,
+        listing_url: listing.listing_url,
         title: listing.title,
         price: toEur(listing.price, listing.currency),
         mileage: listing.mileage || null,
         year: listing.year || null,
         trim: listing.trim || null,
+        is_damaged: false,
+        defects_summary: null,
+        maintenance_summary: null,
+        options_summary: null,
+        full_description: listing.description || null,
       }));
 
       const { error: listingsError } = await supabase
