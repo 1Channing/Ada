@@ -44,6 +44,8 @@ interface StudyRunResult {
     year: number;
     country_target: string;
     country_source: string;
+    market_target_url: string;
+    market_source_url: string;
     source_trim_text?: string | null;
     target_trim_text?: string | null;
   };
@@ -306,7 +308,9 @@ export function StudiesV2Results() {
             model,
             year,
             country_target,
-            country_source
+            country_source,
+            market_target_url,
+            market_source_url
           )
         `)
         .eq('run_id', cleanRunId)

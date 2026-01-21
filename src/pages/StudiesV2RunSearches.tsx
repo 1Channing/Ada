@@ -52,12 +52,61 @@ export function StudiesV2RunSearches() {
   const [rescheduleTime, setRescheduleTime] = useState('');
   const [scrapeMode, setScrapeMode] = useState<'fast' | 'full'>('fast');
   const cancelRequestedRef = useRef(false);
+  const currentRunIdRef = useRef<string | null>(null);
   const { addRun, updateRun, addLog } = useStudyRunsStore();
 
   useEffect(() => {
     loadStudies();
     loadNextScheduledJob();
+    checkForActiveRuns();
   }, []);
+
+  async function checkForActiveRuns() {
+    try {
+      const { data: activeRun, error } = await supabase
+        .from('study_runs')
+        .select('*')
+        .eq('status', 'running')
+        .order('executed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (activeRun) {
+        const executedAt = activeRun.executed_at ? new Date(activeRun.executed_at).getTime() : 0;
+        const ageMs = Date.now() - executedAt;
+        const maxAgeMs = 60 * 60 * 1000;
+
+        if (ageMs < maxAgeMs) {
+          console.log('[RUN_SEARCHES] Found active run from previous session:', activeRun.id);
+
+          const { data: completedResults } = await supabase
+            .from('study_run_results')
+            .select('id')
+            .eq('run_id', activeRun.id);
+
+          const completedCount = completedResults?.length || 0;
+
+          setRunProgress({
+            isRunning: true,
+            currentIndex: completedCount,
+            total: activeRun.total_studies,
+            stage: activeRun.cancel_requested
+              ? 'Cancelling after current study...'
+              : 'Resumed from previous session',
+          });
+          setRunning(true);
+          cancelRequestedRef.current = activeRun.cancel_requested || false;
+          currentRunIdRef.current = activeRun.id;
+
+          console.log(`[RUN_SEARCHES] Restored state: ${completedCount}/${activeRun.total_studies}, cancel_requested=${activeRun.cancel_requested}`);
+        }
+      }
+    } catch (error) {
+      console.error('[RUN_SEARCHES] Error checking for active runs:', error);
+    }
+  }
 
   async function loadStudies() {
     try {
@@ -199,6 +248,7 @@ export function StudiesV2RunSearches() {
       if (runError) throw runError;
 
       const runId = runData.id;
+      currentRunIdRef.current = runId;
       let nullCount = 0;
       let opportunitiesCount = 0;
       let blockedCount = 0;
@@ -351,16 +401,33 @@ export function StudiesV2RunSearches() {
     } finally {
       setRunning(false);
       setProgress('');
+      currentRunIdRef.current = null;
+      cancelRequestedRef.current = false;
     }
   }
 
-  function handleCancelRun() {
-    if (runProgress.isRunning) {
+  async function handleCancelRun() {
+    if (runProgress.isRunning && currentRunIdRef.current) {
       cancelRequestedRef.current = true;
       setRunProgress({
         ...runProgress,
         stage: 'Cancelling after current study...',
       });
+
+      try {
+        const { error } = await supabase
+          .from('study_runs')
+          .update({ cancel_requested: true })
+          .eq('id', currentRunIdRef.current);
+
+        if (error) {
+          console.error('[RUN_SEARCHES] Error updating cancel_requested:', error);
+        } else {
+          console.log('[RUN_SEARCHES] ✅ Persisted cancel_requested to database');
+        }
+      } catch (error) {
+        console.error('[RUN_SEARCHES] Error persisting cancel:', error);
+      }
     }
   }
 
