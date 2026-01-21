@@ -41,8 +41,8 @@ export interface RemoteStudyParams {
 
 type ProgressCallback = (event: StudyRunProgressEvent) => void;
 
-const REALTIME_TIMEOUT_MS = 300000; // 5 minutes max wait
-const FALLBACK_FETCH_DELAY_MS = 5000; // 5 seconds after completion before fallback
+const REALTIME_TIMEOUT_MS = 90000; // 90 seconds max wait per study
+const FALLBACK_FETCH_DELAY_MS = 3000; // 3 seconds after completion before fallback
 
 /**
  * Execute a single study remotely via the Worker.

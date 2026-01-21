@@ -73,7 +73,10 @@ export function StudyRunsPanel() {
               </div>
               <div className="text-xs text-zinc-400">
                 {activeRuns.length > 0 ? (
-                  <span className="text-blue-400">{activeRuns.length} running</span>
+                  <span className="text-blue-400">
+                    {activeRuns.length} running
+                    {activeRuns.length === 1 && completedRuns.length > 0 && ` (${completedRuns.length + 1} of ${allRuns.length})`}
+                  </span>
                 ) : (
                   <span className="text-green-400">All completed</span>
                 )}

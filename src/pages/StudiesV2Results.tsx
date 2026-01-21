@@ -699,6 +699,16 @@ export function StudiesV2Results() {
                           {result.studies_v2.country_target}: Provider blocked
                         </div>
                       )}
+                      {result.status === 'NULL' && result.target_error_reason && (
+                        <div className="text-xs text-zinc-500 max-w-xs truncate" title={result.target_error_reason}>
+                          {result.target_error_reason}
+                        </div>
+                      )}
+                      {result.status === 'NULL' && !result.target_error_reason && result.price_difference !== null && result.price_difference < (latestRun?.price_diff_threshold_eur || 7000) && (
+                        <div className="text-xs text-zinc-500">
+                          Below threshold ({latestRun?.price_diff_threshold_eur || 7000}€)
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
