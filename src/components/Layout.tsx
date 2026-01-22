@@ -1,5 +1,4 @@
 import { ReactNode } from 'react';
-import { StudyRunsPanel } from './StudyRunsPanel';
 
 type LayoutProps = {
   children: ReactNode;
@@ -17,8 +16,6 @@ export function Layout({ children }: LayoutProps) {
           {children}
         </div>
       </main>
-
-      <StudyRunsPanel />
     </div>
   );
 }

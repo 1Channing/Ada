@@ -2,8 +2,9 @@ import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Play, Calendar, CheckSquare, Square, XCircle, Clock } from 'lucide-react';
 import { runStudyRemotely } from '../services/remoteStudyRunner';
-import { useStudyRunsStore } from '../store/studyRunsStore';
+import { StudyStatusBadge } from '../components/StudyStatusBadge';
 import type { ScheduledStudyPayload, ScheduledStudyRun } from '../types/scheduling';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 const SCRAPER_MODE = import.meta.env.VITE_SCRAPER_MODE || 'local';
 
@@ -30,6 +31,8 @@ interface RunProgress {
   stage?: string;
 }
 
+type StudyStatus = 'idle' | 'queued' | 'running' | 'success' | 'null' | 'error';
+
 export function StudiesV2RunSearches() {
   const [studies, setStudies] = useState<StudyV2[]>([]);
   const [selectedStudies, setSelectedStudies] = useState<Set<string>>(new Set());
@@ -53,13 +56,63 @@ export function StudiesV2RunSearches() {
   const [scrapeMode, setScrapeMode] = useState<'fast' | 'full'>('fast');
   const cancelRequestedRef = useRef(false);
   const currentRunIdRef = useRef<string | null>(null);
-  const { addRun, updateRun, addLog } = useStudyRunsStore();
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
+  const [studyStatuses, setStudyStatuses] = useState<Record<string, StudyStatus>>({});
 
   useEffect(() => {
     loadStudies();
     loadNextScheduledJob();
     checkForActiveRuns();
+
+    return () => {
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+      }
+    };
   }, []);
+
+  useEffect(() => {
+    if (!currentRunIdRef.current) return;
+
+    console.log('[RUN_SEARCHES] Setting up Realtime for run:', currentRunIdRef.current);
+
+    if (realtimeChannelRef.current) {
+      supabase.removeChannel(realtimeChannelRef.current);
+    }
+
+    const channel = supabase
+      .channel(`study-results-${currentRunIdRef.current}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'study_run_results',
+          filter: `run_id=eq.${currentRunIdRef.current}`,
+        },
+        (payload) => {
+          const result = payload.new;
+          const studyId = result.study_id;
+          const status = result.status;
+
+          console.log('[RUN_SEARCHES] Result received:', { studyId, status });
+
+          setStudyStatuses((prev) => ({
+            ...prev,
+            [studyId]: status === 'OPPORTUNITIES' ? 'success' : 'null',
+          }));
+        }
+      )
+      .subscribe();
+
+    realtimeChannelRef.current = channel;
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [currentRunIdRef.current]);
 
   async function checkForActiveRuns() {
     try {
@@ -258,6 +311,8 @@ export function StudiesV2RunSearches() {
         const studyLabel = `${study.brand} ${study.model}`;
         const studyCode = `${study.brand}_${study.model}_${study.year}_${study.country_source}_${study.country_target}`;
 
+        setStudyStatuses((prev) => ({ ...prev, [study.id]: 'queued' }));
+
         setRunProgress({
           isRunning: true,
           currentIndex: i + 1,
@@ -269,25 +324,14 @@ export function StudiesV2RunSearches() {
 
         const studyRunId = crypto.randomUUID();
 
-        addRun({
-          id: studyRunId,
-          studyCode,
-          studyId: study.id,
-          runId,
-          stage: 'queued',
-          startedAt: Date.now(),
-        });
-
         try {
           console.log(`[BATCH_RUN] ▶️ Starting study ${i + 1}/${studiesToRun.length}: ${studyCode}`);
           console.log(`[BATCH_RUN] Using scraper mode: ${SCRAPER_MODE}`);
 
+          setStudyStatuses((prev) => ({ ...prev, [study.id]: 'running' }));
+
           const progressCallback = (event: any) => {
-            addLog(studyRunId, event);
-            updateRun(studyRunId, { stage: event.stage });
-            if (event.stage === 'done') {
-              updateRun(studyRunId, { finishedAt: Date.now() });
-            }
+            console.log(`[BATCH_RUN] Progress: ${event.stage} - ${event.message}`);
           };
 
           let result;
@@ -319,28 +363,22 @@ export function StudiesV2RunSearches() {
 
           if (result.status === 'NULL') {
             nullCount++;
+            setStudyStatuses((prev) => ({ ...prev, [study.id]: 'null' }));
             console.log(`[BATCH_RUN] ℹ️ Study ${studyCode} completed with NULL result (count: ${nullCount})`);
           } else if (result.status === 'TARGET_BLOCKED') {
             blockedCount++;
+            setStudyStatuses((prev) => ({ ...prev, [study.id]: 'error' }));
             console.log(`[BATCH_RUN] ⛔ Study ${studyCode} blocked by provider (count: ${blockedCount})`);
           } else {
             opportunitiesCount++;
-            console.log(`[BATCH_RUN] 💰 Study ${studyCode} found opportunities (count: ${opportunitiesCount})`);
+            setStudyStatuses((prev) => ({ ...prev, [study.id]: 'success' }));
+            console.log(`[BATCH_RUN] �� Study ${studyCode} found opportunities (count: ${opportunitiesCount})`);
           }
 
           console.log(`[BATCH_RUN] ✅ Study ${i + 1}/${studiesToRun.length} completed and persisted: ${studyCode}`);
-
-          updateRun(studyRunId, {
-            stage: 'done',
-            finishedAt: Date.now(),
-          });
         } catch (error) {
           console.error(`[BATCH_RUN] ❌ Error processing study ${study.id}:`, error);
-          updateRun(studyRunId, {
-            stage: 'error',
-            finishedAt: Date.now(),
-            errorMessage: (error as Error).message,
-          });
+          setStudyStatuses((prev) => ({ ...prev, [study.id]: 'error' }));
         }
 
         if (cancelRequestedRef.current) {
@@ -837,6 +875,7 @@ export function StudiesV2RunSearches() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Year</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Target</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Source</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Status</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Target Trim</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Source Trim</th>
                 </tr>
@@ -870,6 +909,9 @@ export function StudiesV2RunSearches() {
                     </td>
                     <td className="px-4 py-3 cursor-pointer" onClick={() => toggleStudy(study.id)}>
                       <div className="text-sm font-medium text-emerald-400">{study.country_source}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <StudyStatusBadge status={studyStatuses[study.id] || 'idle'} />
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <input

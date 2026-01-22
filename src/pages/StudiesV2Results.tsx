@@ -81,21 +81,13 @@ export function StudiesV2Results() {
   const [loading, setLoading] = useState(true);
   const [exportingListingId, setExportingListingId] = useState<string | null>(null);
 
-  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const pollingIntervalRef = useRef<number>(5000);
-  const lastCompletedCountRef = useRef<number>(0);
-  const lastActivityRef = useRef<number>(Date.now());
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
-  const currentRunIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadLatestRun();
     loadHistory();
 
     return () => {
-      if (pollTimerRef.current) {
-        clearTimeout(pollTimerRef.current);
-      }
       if (realtimeChannelRef.current) {
         supabase.removeChannel(realtimeChannelRef.current);
       }
@@ -103,26 +95,16 @@ export function StudiesV2Results() {
   }, []);
 
   useEffect(() => {
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
     if (realtimeChannelRef.current) {
       supabase.removeChannel(realtimeChannelRef.current);
       realtimeChannelRef.current = null;
     }
 
     if (isFreshRunning || (latestRun?.status === 'completed' && results.length < (latestRun?.total_studies || 0))) {
-      console.log('[RESULTS] 📡 Setting up Realtime subscriptions for run:', latestRun!.id);
-      console.log('[RESULTS] Current results:', results.length, '/', latestRun!.total_studies);
-
-      currentRunIdRef.current = latestRun!.id;
-      lastActivityRef.current = Date.now();
-      pollingIntervalRef.current = 5000;
-      lastCompletedCountRef.current = results.length;
+      console.log('[RESULTS] Setting up Realtime for run:', latestRun!.id);
 
       const channel = supabase
-        .channel(`study-runs-changes-${latestRun!.id}`)
+        .channel(`study-runs-${latestRun!.id}`)
         .on(
           'postgres_changes',
           {
@@ -131,9 +113,9 @@ export function StudiesV2Results() {
             table: 'study_runs',
             filter: `id=eq.${latestRun!.id}`,
           },
-          (payload) => {
-            console.log('[RESULTS] 📬 Realtime UPDATE on study_runs:', payload.new.status);
-            handleRealtimeUpdate();
+          () => {
+            console.log('[RESULTS] Study run updated');
+            handleRealtimeUpdate(latestRun!.id);
           }
         )
         .on(
@@ -145,120 +127,30 @@ export function StudiesV2Results() {
             filter: `run_id=eq.${latestRun!.id}`,
           },
           (payload) => {
-            console.log('[RESULTS] 📬 Realtime INSERT on study_run_results!');
-            console.log('[RESULTS] Result data:', {
-              study_id: payload.new.study_id,
-              status: payload.new.status,
-              price_diff: payload.new.price_difference,
-            });
-            handleRealtimeUpdate();
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'study_run_results',
-            filter: `run_id=eq.${latestRun!.id}`,
-          },
-          (payload) => {
-            console.log('[RESULTS] 📬 Realtime UPDATE on study_run_results');
-            handleRealtimeUpdate();
+            console.log('[RESULTS] New result:', payload.new.status);
+            handleRealtimeUpdate(latestRun!.id);
           }
         )
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
-            console.log('[RESULTS] ✅ Realtime channel subscribed');
-          } else if (status === 'CHANNEL_ERROR') {
-            console.error('[RESULTS] ❌ Realtime channel error');
-          } else if (status === 'TIMED_OUT') {
-            console.error('[RESULTS] ⏱️ Realtime channel timed out');
+            console.log('[RESULTS] Realtime subscribed');
           }
         });
 
       realtimeChannelRef.current = channel;
-
-      scheduleNextPoll();
-    } else {
-      console.log('[RESULTS] ✅ All results received, stopping updates');
-      currentRunIdRef.current = null;
-      pollingIntervalRef.current = 5000;
     }
 
     return () => {
-      if (pollTimerRef.current) {
-        clearTimeout(pollTimerRef.current);
-      }
       if (realtimeChannelRef.current) {
-        console.log('[RESULTS] 🧹 Cleaning up Realtime subscriptions');
         supabase.removeChannel(realtimeChannelRef.current);
       }
     };
   }, [isFreshRunning, latestRun?.id, latestRun?.status, latestRun?.total_studies, results.length]);
 
-  async function handleRealtimeUpdate() {
-    if (!currentRunIdRef.current) return;
-
-    console.log('[RESULTS] Handling realtime update, refreshing data...');
-
-    const oldResultsCount = results.length;
-    const oldRunStatus = latestRun?.status;
-
-    await loadRunResults(currentRunIdRef.current, true);
+  async function handleRealtimeUpdate(runId: string) {
+    console.log('[RESULTS] Realtime update received, refreshing...');
+    await loadRunResults(runId, false);
     await loadLatestRun();
-
-    console.log('[RESULTS] Update complete. Old results:', oldResultsCount, 'New results:', results.length);
-    console.log('[RESULTS] Old status:', oldRunStatus, 'New status:', latestRun?.status);
-  }
-
-  function scheduleNextPoll() {
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current);
-    }
-
-    const inactivityMs = Date.now() - lastActivityRef.current;
-    const maxInactivityMs = 10 * 60 * 1000;
-
-    if (inactivityMs > maxInactivityMs) {
-      console.log('[RESULTS] Inactivity timeout reached (10 min), stopping polling');
-      return;
-    }
-
-    if (!isFreshRunning) {
-      console.log('[RESULTS] No fresh running batch, stopping polling');
-      return;
-    }
-
-    console.log(`[RESULTS] Scheduling next poll in ${pollingIntervalRef.current}ms`);
-
-    pollTimerRef.current = setTimeout(async () => {
-      await handlePollingRefresh();
-      scheduleNextPoll();
-    }, pollingIntervalRef.current);
-  }
-
-  async function handlePollingRefresh() {
-    if (!currentRunIdRef.current) return;
-
-    console.log('[RESULTS] Polling refresh triggered');
-
-    const oldCompletedCount = lastCompletedCountRef.current;
-
-    await loadRunResults(currentRunIdRef.current, true);
-    await loadLatestRun();
-
-    const newCompletedCount = lastCompletedCountRef.current;
-
-    if (newCompletedCount > oldCompletedCount) {
-      console.log(`[RESULTS] Progress detected: ${oldCompletedCount} -> ${newCompletedCount} completed studies`);
-      lastActivityRef.current = Date.now();
-      pollingIntervalRef.current = 5000;
-    } else {
-      const oldInterval = pollingIntervalRef.current;
-      pollingIntervalRef.current = Math.min(oldInterval * 2, 60000);
-      console.log(`[RESULTS] No progress, backing off: ${oldInterval}ms -> ${pollingIntervalRef.current}ms`);
-    }
   }
 
   async function loadLatestRun() {
@@ -296,7 +188,7 @@ export function StudiesV2Results() {
     }
   }
 
-  async function loadRunResults(runId: string, checkForChanges = false) {
+  async function loadRunResults(runId: string, _checkForChanges = false) {
     try {
       const cleanRunId = sanitizeUUID(runId);
       const { data, error } = await supabase
@@ -318,16 +210,8 @@ export function StudiesV2Results() {
 
       if (error) throw error;
 
-      const newCount = data?.length || 0;
-
-      if (checkForChanges && newCount === lastCompletedCountRef.current && newCount > 0) {
-        console.log('[RESULTS] Same result count, skipping state update to avoid re-render');
-        return;
-      }
-
-      console.log('[RESULTS] Loaded', newCount, 'results for run', runId);
+      console.log('[RESULTS] Loaded', data?.length || 0, 'results');
       setResults(data || []);
-      lastCompletedCountRef.current = newCount;
     } catch (error) {
       console.error('Error loading run results:', error);
     }
@@ -568,7 +452,7 @@ export function StudiesV2Results() {
             <div>
               <p className="text-blue-100 font-medium">Batch is currently running</p>
               <p className="text-blue-200 text-sm">
-                Showing {results.length} completed studies so far (realtime updates + smart polling)
+                Showing {results.length} completed studies so far (realtime updates)
               </p>
             </div>
           </div>
