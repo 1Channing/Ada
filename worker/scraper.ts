@@ -346,12 +346,13 @@ export async function executeStudy({
     }
 
     // Apply unified business logic (PURE functions)
-    // NOTE: Trim filtering is handled at URL level (pre-scraping), not here
+    // NOTE: Trim filtering is now CODE-DRIVEN (not URL-based) as of 2026-01-23
     const studyCriteria: StudyCriteria = {
       brand: study.brand,
       model: study.model,
       year: study.year,
       max_mileage: study.max_mileage || 0,
+      trim_text: trimTarget || null,
     };
 
     const filteredTarget = filterListingsByStudy(targetResult.listings, studyCriteria);

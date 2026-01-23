@@ -228,17 +228,80 @@ export function shouldFilterListing(listing: ScrapedListing): boolean {
 }
 
 /**
+ * Known trim variant mappings for common trims.
+ * Maps base trim keyword to list of acceptable variants.
+ *
+ * Example: "GR" → ["gr", "gr sport", "gazoo racing"]
+ * This prevents false matches like "Sport" from passing as "GR Sport"
+ */
+const TRIM_VARIANT_MAP: Record<string, string[]> = {
+  'gr': ['gr', 'gr sport', 'gr-sport', 'gazoo racing', 'gazoo-racing'],
+  'rs': ['rs', 'rs line', 'rs-line'],
+  'gt': ['gt', 'gt line', 'gt-line'],
+  'r-line': ['r-line', 'r line', 'rline'],
+  's-line': ['s-line', 's line', 'sline'],
+  'sport': ['sport', 'sport line', 'sportline'],
+  'dynamic': ['dynamic', 'dynamique'],
+  'prestige': ['prestige'],
+  'luxury': ['luxury', 'luxe'],
+};
+
+/**
+ * Check if a listing matches the specified trim.
+ *
+ * **CRITICAL:**
+ * - Marktplaats URL-based trim filtering (#q:) is CLIENT-SIDE ONLY
+ * - Zyte returns unfiltered HTML, so we MUST filter in code
+ * - This filter is applied BEFORE sorting and median calculation
+ *
+ * **Matching Strategy:**
+ * 1. If trim has known variants (e.g., GR → "gr sport", "gazoo racing"), check all variants
+ * 2. Otherwise, use safe token matching (trim tokens must appear in title/description)
+ * 3. Case-insensitive, normalized matching
+ *
+ * @param listing - Listing to check
+ * @param trim - Trim keyword (e.g., "GR", "Sport", "Dynamic")
+ * @returns true if listing matches trim
+ */
+function matchesTrim(listing: ScrapedListing, trim: string): boolean {
+  if (!trim) return true; // No trim filter
+
+  const trimLower = trim.toLowerCase().trim();
+  const text = `${listing.title} ${listing.description}`.toLowerCase();
+
+  // Strategy 1: Check known variants
+  const knownVariants = TRIM_VARIANT_MAP[trimLower];
+  if (knownVariants) {
+    return knownVariants.some(variant => text.includes(variant));
+  }
+
+  // Strategy 2: Safe token matching for unknown trims
+  // All trim tokens must appear in text (prevents false matches)
+  const trimTokens = trimLower
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(t => t.length > 0);
+
+  if (trimTokens.length === 0) return true;
+
+  return trimTokens.every(token => text.includes(token));
+}
+
+/**
  * SECOND PASS FILTER: Apply study-specific criteria:
  * - Brand/model match
  * - Year filter (must be >= study year)
  * - Mileage filter (if specified)
+ * - **Trim filter (CODE-LEVEL, not URL-based)**
  *
- * **NOTE ON TRIM FILTERING:**
- * Trim/finition filtering is handled at the URL level (pre-scraping) by injecting
- * trim keywords into the search URL. We do NOT filter by trim post-scraping because:
- * 1. The scraper already filtered by trim (URL contains trim keyword)
- * 2. Post-scrape filtering would be redundant and overly strict
- * 3. Legacy behavior only uses URL-based trim filtering
+ * **CRITICAL CHANGE (2026-01-23):**
+ * Trim filtering is now CODE-DRIVEN, not URL-based. This is because:
+ * 1. Marktplaats #q: parameter is client-side only (not applied by Zyte)
+ * 2. Scraped listings may include non-trim vehicles
+ * 3. Trim filter MUST be applied before sorting and median calculation
+ *
+ * This ensures that ONLY trim-matching listings are used for the 6-cheapest selection.
  *
  * @param listings - Listings to filter
  * @param study - Study criteria
@@ -270,6 +333,11 @@ export function filterListingsByStudy(
       return false;
     }
 
+    // Filter by trim (CODE-LEVEL, not URL-based)
+    if (study.trim_text && !matchesTrim(listing, study.trim_text)) {
+      return false;
+    }
+
     return true;
   });
 }
@@ -281,6 +349,12 @@ export function filterListingsByStudy(
  */
 
 /**
+ * Debug flag for trim filtering diagnostics.
+ * Set to true to enable detailed logging of trim filter results.
+ */
+const DEBUG_TRIM_FILTER = false;
+
+/**
  * Compute market statistics from filtered listings.
  *
  * **CRITICAL BUSINESS RULE:**
@@ -289,9 +363,13 @@ export function filterListingsByStudy(
  * - All prices converted to EUR before calculation
  *
  * @param listings - Filtered listings (already passed all filters)
+ * @param debugLabel - Optional label for debug logging (e.g., "TARGET" or "SOURCE")
  * @returns Market statistics including median, average, min, max, percentiles
  */
-export function computeTargetMarketStats(listings: ScrapedListing[]): MarketStats {
+export function computeTargetMarketStats(
+  listings: ScrapedListing[],
+  debugLabel?: string
+): MarketStats {
   if (listings.length === 0) {
     return {
       median_price: 0,
@@ -316,6 +394,16 @@ export function computeTargetMarketStats(listings: ScrapedListing[]): MarketStat
   const limitedListings = sortedListings.slice(0, MAX_TARGET_LISTINGS);
   const pricesInEur = limitedListings.map(l => l.priceEur);
   const sum = pricesInEur.reduce((acc, price) => acc + price, 0);
+
+  // Debug logging: Show which listings were used for median calculation
+  if (DEBUG_TRIM_FILTER && debugLabel) {
+    console.log(`\n[${debugLabel} MEDIAN DEBUG]`);
+    console.log(`Total filtered listings: ${listings.length}`);
+    console.log(`Using 6 cheapest listings for median:`);
+    limitedListings.forEach((l, i) => {
+      console.log(`  ${i + 1}. €${l.priceEur.toFixed(0)} - ${l.title.substring(0, 60)}`);
+    });
+  }
 
   // Percentile calculation helper
   const getPercentile = (arr: number[], p: number) => {
@@ -437,15 +525,28 @@ export function executeStudyAnalysis(
   const rawTargetCount = targetListings.length;
   const rawSourceCount = sourceListings.length;
 
+  // Debug logging: Show filtering progress
+  if (DEBUG_TRIM_FILTER && study.trim_text) {
+    console.log(`\n[TRIM FILTER DEBUG]`);
+    console.log(`Study: ${study.brand} ${study.model} - Trim: "${study.trim_text}"`);
+    console.log(`Raw listings: Target=${rawTargetCount}, Source=${rawSourceCount}`);
+  }
+
   // Filter target listings
   const filteredTargetListings = filterListingsByStudy(targetListings, study);
   const filteredTargetCount = filteredTargetListings.length;
+
+  // Debug logging: Show trim filter results
+  if (DEBUG_TRIM_FILTER && study.trim_text) {
+    const rejectedTarget = rawTargetCount - filteredTargetCount;
+    console.log(`Target: ${filteredTargetCount} passed, ${rejectedTarget} rejected by trim filter`);
+  }
 
   // If no valid target listings, return NULL result
   if (filteredTargetCount === 0) {
     return {
       status: 'NULL',
-      targetStats: computeTargetMarketStats([]),
+      targetStats: computeTargetMarketStats([], 'TARGET'),
       targetMedianPrice: 0,
       bestSourcePrice: null,
       priceDifference: null,
@@ -458,12 +559,18 @@ export function executeStudyAnalysis(
   }
 
   // Compute target market statistics
-  const targetStats = computeTargetMarketStats(filteredTargetListings);
+  const targetStats = computeTargetMarketStats(filteredTargetListings, 'TARGET');
   const targetMedianPrice = targetStats.median_price;
 
   // Filter source listings
   const filteredSourceListings = filterListingsByStudy(sourceListings, study);
   const filteredSourceCount = filteredSourceListings.length;
+
+  // Debug logging: Show trim filter results
+  if (DEBUG_TRIM_FILTER && study.trim_text) {
+    const rejectedSource = rawSourceCount - filteredSourceCount;
+    console.log(`Source: ${filteredSourceCount} passed, ${rejectedSource} rejected by trim filter`);
+  }
 
   // If no valid source listings, return NULL result
   if (filteredSourceCount === 0) {

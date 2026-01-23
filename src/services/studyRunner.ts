@@ -8,6 +8,7 @@ import {
 } from '../lib/scraperClient';
 import { analyzeListingsBatch } from '../lib/aiAnalysis';
 import type { StudyRunProgressEvent, StudyStage, StudyRunStatus } from '../store/studyRunsStore';
+import type { StudyCriteria } from '../lib/study-core/types';
 import { persistStudyRunLogsSafe } from './studyRunLogs';
 
 /**
@@ -331,7 +332,17 @@ export async function runStudyInBackground(
     }
 
     const targetListings = targetResult.listings;
-    const filteredTargetListings = filterListingsByStudy(targetListings, study);
+
+    // Build StudyCriteria with proper trim for target market
+    const targetCriteria: StudyCriteria = {
+      brand: study.brand,
+      model: study.model,
+      year: study.year,
+      max_mileage: study.max_mileage || 0,
+      trim_text: trimTarget || null,
+    };
+
+    const filteredTargetListings = filterListingsByStudy(targetListings, targetCriteria);
 
     if (filteredTargetListings.length === 0) {
       console.log(`[RUN] No valid target listings found`);
@@ -427,7 +438,17 @@ export async function runStudyInBackground(
     }
 
     const sourceListings = sourceResult.listings;
-    const filteredSourceListings = filterListingsByStudy(sourceListings, study);
+
+    // Build StudyCriteria with proper trim for source market
+    const sourceCriteria: StudyCriteria = {
+      brand: study.brand,
+      model: study.model,
+      year: study.year,
+      max_mileage: study.max_mileage || 0,
+      trim_text: trimSource || null,
+    };
+
+    const filteredSourceListings = filterListingsByStudy(sourceListings, sourceCriteria);
 
     lastStage = 'evaluating_price';
     emitProgress(

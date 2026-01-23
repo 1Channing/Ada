@@ -65,6 +65,14 @@ export interface SearchResult {
   error?: 'SCRAPER_FAILED';
 }
 
+export interface StudyCriteria {
+  brand: string;
+  model: string;
+  year: number;
+  max_mileage: number;
+  trim_text?: string | null;
+}
+
 export interface StudyV2 {
   id: string;
   brand: string;
@@ -577,7 +585,17 @@ export async function executeStudy(params: ExecuteStudyParams): Promise<ExecuteS
     }
 
     const targetListings = targetResult.listings;
-    const filteredTargetListings = filterListingsByStudy(targetListings, study);
+
+    // Build StudyCriteria with proper trim for target market
+    const targetCriteria: StudyCriteria = {
+      brand: study.brand,
+      model: study.model,
+      year: study.year,
+      max_mileage: study.max_mileage || 0,
+      trim_text: trimTarget || null,
+    };
+
+    const filteredTargetListings = filterListingsByStudy(targetListings, targetCriteria);
 
     if (filteredTargetListings.length === 0) {
       await supabase.from('study_run_results').insert([{
@@ -624,7 +642,17 @@ export async function executeStudy(params: ExecuteStudyParams): Promise<ExecuteS
     }
 
     const sourceListings = sourceResult.listings;
-    const filteredSourceListings = filterListingsByStudy(sourceListings, study);
+
+    // Build StudyCriteria with proper trim for source market
+    const sourceCriteria: StudyCriteria = {
+      brand: study.brand,
+      model: study.model,
+      year: study.year,
+      max_mileage: study.max_mileage || 0,
+      trim_text: trimSource || null,
+    };
+
+    const filteredSourceListings = filterListingsByStudy(sourceListings, sourceCriteria);
 
     if (filteredSourceListings.length === 0) {
       await supabase.from('study_run_results').insert([{
