@@ -523,6 +523,13 @@ export function StudiesV2RunSearches() {
     } finally {
       setRunning(false);
       setProgress('');
+      setRunProgress({
+        isRunning: false,
+        currentIndex: 0,
+        total: 0,
+        currentStudyId: undefined,
+        stage: undefined,
+      });
       currentRunIdRef.current = null;
       cancelRequestedRef.current = false;
     }
@@ -550,6 +557,24 @@ export function StudiesV2RunSearches() {
       } catch (error) {
         console.error('[RUN_SEARCHES] Error persisting cancel:', error);
       }
+
+      // Safety: If run doesn't complete within 30s of cancel, force reset UI
+      setTimeout(() => {
+        if (cancelRequestedRef.current) {
+          console.log('[RUN_SEARCHES] ⚠️ Force resetting UI after cancel timeout');
+          setRunning(false);
+          setProgress('');
+          setRunProgress({
+            isRunning: false,
+            currentIndex: 0,
+            total: 0,
+            currentStudyId: undefined,
+            stage: undefined,
+          });
+          currentRunIdRef.current = null;
+          cancelRequestedRef.current = false;
+        }
+      }, 30000);
     }
   }
 
