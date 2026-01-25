@@ -48,10 +48,12 @@ const PREMIUM_OPTIONS = [
   { keywords: ['suspension adaptative', 'adaptive suspension', 'suspension pneumatique', 'air suspension'], label: 'Suspension adaptative' },
 ];
 
-const MAINTENANCE_TOKENS = [
-  'révision', 'entretien', 'service', 'vidange', 'carnet', 'historique',
-  'factures', 'toyota', 'mercedes', 'bmw', 'audi', 'concessionnaire',
-  'distribution', 'courroie', 'timing belt', 'pneus neufs', 'ct', 'contrôle technique',
+const STRONG_MAINTENANCE_TOKENS = [
+  'révision', 'vidange', 'carnet', 'factures', 'entretien toyota', 'entretien mercedes',
+  'entretien bmw', 'entretien audi', 'distribution', 'courroie', 'timing belt',
+  'embrayage', 'plaquettes', 'pneus neufs', 'ct ', 'contrôle technique',
+  'concessionnaire', 'historique entretien', 'carnet entretien', 'service complet',
+  'révisions', 'vidanges',
 ];
 
 const DEFECT_TOKENS = [
@@ -187,11 +189,39 @@ function extractLeboncoinSellerContent(html: string): SellerContent {
       }
     }
 
-    // DO NOT extract structured equipment for Leboncoin
-    // (Will be ignored for options extraction)
+    // Extract structured equipment from attributes (FAIL-CLOSED)
+    const structuredEquipment: string[] = [];
+    if (adData.attributes && Array.isArray(adData.attributes)) {
+      for (const attr of adData.attributes) {
+        // Look for equipment-related attributes
+        if (attr.key && attr.value && typeof attr.value === 'string') {
+          const attrLower = attr.key.toLowerCase();
+          // Common Leboncoin equipment attribute keys
+          if (attrLower.includes('equipment') || attrLower.includes('options') ||
+              attrLower === 'vehicule_equipments' || attrLower === 'equipments') {
+            const values = String(attr.value).toLowerCase().split(/[,;|]/);
+            for (const val of values) {
+              const cleaned = val.trim();
+              if (cleaned.length > 2) {
+                structuredEquipment.push(cleaned);
+              }
+            }
+          }
+        }
+        // Also check if value is an array of equipment items
+        if (attr.key && Array.isArray(attr.value)) {
+          for (const item of attr.value) {
+            if (typeof item === 'string' && item.trim().length > 2) {
+              structuredEquipment.push(item.toLowerCase().trim());
+            }
+          }
+        }
+      }
+    }
+
     return {
       description,
-      structuredEquipment: [],
+      structuredEquipment,
       rawDescriptionLength: rawDescription.length,
       year,
       mileage
@@ -305,46 +335,52 @@ function extractSellerContent(html: string, listingUrl: string): SellerContent {
 }
 
 /**
- * Extract premium options from seller description ONLY
- * STRICT: Only returns options found in whitelist with exact keyword match in description
- * FAIL-CLOSED: For Leboncoin, ignores structured equipment completely
+ * Extract premium options from seller description and structured equipment
+ * STRICT: Only returns options found in whitelist with exact keyword match
+ * FAIL-CLOSED: Uses structured equipment for Leboncoin if available
  */
-function extractPremiumOptions(content: SellerContent, isLeboncoin: boolean): { options: string[]; evidence: string[] } {
+function extractPremiumOptions(content: SellerContent, isLeboncoin: boolean): { options: string[]; evidence: string[]; source: string } {
   const options: string[] = [];
   const evidence: string[] = [];
+  let source = 'none';
   const descLower = content.description.toLowerCase();
 
   for (const { keywords, label } of PREMIUM_OPTIONS) {
     let found = false;
     let foundEvidence = '';
+    let foundSource = '';
 
-    // Check in description text (ONLY source for Leboncoin)
-    for (const keyword of keywords) {
-      if (descLower.includes(keyword.toLowerCase())) {
-        found = true;
-        // Extract sentence containing the keyword
-        const sentences = content.description.split(/[.!?]+/);
-        for (const sentence of sentences) {
-          if (sentence.toLowerCase().includes(keyword.toLowerCase())) {
-            foundEvidence = sentence.trim().substring(0, 80);
-            break;
-          }
-        }
-        break;
-      }
-    }
-
-    // For non-Leboncoin, check structured equipment as fallback
-    if (!found && !isLeboncoin && content.structuredEquipment.length > 0) {
+    // Check structured equipment first (preferred for Leboncoin)
+    if (content.structuredEquipment.length > 0) {
       for (const keyword of keywords) {
         for (const equipment of content.structuredEquipment) {
           if (equipment.includes(keyword.toLowerCase())) {
             found = true;
             foundEvidence = `[Equipment: ${equipment.substring(0, 60)}]`;
+            foundSource = 'structured';
             break;
           }
         }
         if (found) break;
+      }
+    }
+
+    // Check in description text as fallback
+    if (!found) {
+      for (const keyword of keywords) {
+        if (descLower.includes(keyword.toLowerCase())) {
+          found = true;
+          foundSource = 'desc';
+          // Extract sentence containing the keyword
+          const sentences = content.description.split(/[.!?]+/);
+          for (const sentence of sentences) {
+            if (sentence.toLowerCase().includes(keyword.toLowerCase())) {
+              foundEvidence = sentence.trim().substring(0, 80);
+              break;
+            }
+          }
+          break;
+        }
       }
     }
 
@@ -353,24 +389,33 @@ function extractPremiumOptions(content: SellerContent, isLeboncoin: boolean): { 
       if (foundEvidence) {
         evidence.push(`${label}: "${foundEvidence}"`);
       }
+      if (source === 'none') source = foundSource;
     }
   }
 
-  return { options, evidence: evidence.slice(0, 3) };
+  return { options, evidence: evidence.slice(0, 3), source };
 }
 
 /**
  * Extract maintenance info from seller description ONLY
  * Returns sentences containing maintenance keywords
- * FAIL-CLOSED: Applies quality gate to reject equipment-list-like text
+ * FAIL-CLOSED: Requires STRONG evidence - must have strong token AND supporting evidence (date/km/dealer)
  */
-function extractMaintenanceInfo(description: string): { entretien: string; evidence: string[] } {
+function extractMaintenanceInfo(description: string): {
+  entretien: string;
+  evidence: string[];
+  gatePass: boolean;
+  hasStrongToken: boolean;
+  evidenceType: string;
+} {
   if (!description || description.length < 20) {
-    return { entretien: '', evidence: [] };
+    return { entretien: '', evidence: [], gatePass: false, hasStrongToken: false, evidenceType: 'none' };
   }
 
   const sentences = description.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 15);
   const matchedSentences: string[] = [];
+  let hasStrongToken = false;
+  let evidenceType = 'none';
 
   for (const sentence of sentences) {
     const sentenceLower = sentence.toLowerCase();
@@ -380,18 +425,38 @@ function extractMaintenanceInfo(description: string): { entretien: string; evide
       continue;
     }
 
-    for (const token of MAINTENANCE_TOKENS) {
-      if (sentenceLower.includes(token)) {
-        matchedSentences.push(sentence);
+    // Check for strong maintenance tokens
+    let hasStrongTokenInSentence = false;
+    for (const token of STRONG_MAINTENANCE_TOKENS) {
+      if (sentenceLower.includes(token.toLowerCase())) {
+        hasStrongTokenInSentence = true;
+        hasStrongToken = true;
         break;
+      }
+    }
+
+    if (hasStrongTokenInSentence) {
+      // Check for supporting evidence (date, mileage, or dealer)
+      const hasDate = /\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{1,2}[\/\-\.]\d{4}|\d{4}/.test(sentence);
+      const hasMileage = /\d{1,3}[\s\.]?\d{3}[\s]?km|à\s+\d{1,3}[\s\.]?\d{3}\s?km/i.test(sentence);
+      const hasDealerMention = /toyota|mercedes|bmw|audi|volkswagen|ford|renault|peugeot|citroën|garage|concession/i.test(sentence);
+
+      if (hasDate || hasMileage || hasDealerMention) {
+        matchedSentences.push(sentence);
+        if (evidenceType === 'none') {
+          if (hasDate) evidenceType = 'date';
+          else if (hasMileage) evidenceType = 'km';
+          else if (hasDealerMention) evidenceType = 'dealer';
+        }
       }
     }
   }
 
-  const entretien = matchedSentences.slice(0, 3).join('. ').substring(0, 500);
+  const gatePass = matchedSentences.length > 0;
+  const entretien = gatePass ? matchedSentences.slice(0, 3).join('. ').substring(0, 500) : '';
   const evidence = matchedSentences.slice(0, 2).map(s => s.substring(0, 80));
 
-  return { entretien: entretien || '', evidence };
+  return { entretien: entretien || '', evidence, gatePass, hasStrongToken, evidenceType };
 }
 
 /**
@@ -575,18 +640,15 @@ export function parseDetailPage(html: string, listingUrl: string): DetailPageDat
 
   // Log extraction metrics for Leboncoin
   if (isLeboncoin) {
-    const rawLen = sellerContent.rawDescriptionLength || 0;
-    const cleanedLen = sellerContent.description.length;
-    const entretienLen = entretien.length;
-    const defectsLen = defects_summary.length;
+    const gateStatus = maintenanceResult.gatePass ? 'pass' : 'fail';
+    const strongToken = maintenanceResult.hasStrongToken ? 'yes' : 'no';
+    const evidence = maintenanceResult.evidenceType || 'none';
+    const optionsFrom = optionsResult.source || 'none';
     const optionsCount = optionsResult.options.length;
-    const hasYear = sellerContent.year ? 'yes' : 'no';
-    const hasMileage = sellerContent.mileage ? 'yes' : 'no';
 
     console.log(
-      `[DETAIL_SCRAPE] lb_desc_source_len=${rawLen} cleaned_len=${cleanedLen} ` +
-      `entretien_len=${entretienLen} defects_len=${defectsLen} options_count=${optionsCount} ` +
-      `year=${hasYear} mileage=${hasMileage}`
+      `[DETAIL_SCRAPE] lb_entretien_gate=${gateStatus} strong_token=${strongToken} ` +
+      `evidence=${evidence} options_from=${optionsFrom} options_count=${optionsCount}`
     );
   }
 
