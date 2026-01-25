@@ -405,6 +405,9 @@ export async function executeStudy({
         max_price: targetStats.max_price,
         percentile_25: targetStats.percentile_25,
         percentile_75: targetStats.percentile_75,
+        targetMarketUrl: targetUrl,
+        sourceMarketUrl: sourceUrl,
+        targetMarketMedianEur: targetStats.median_price,
       },
     }]).select();
 

@@ -634,7 +634,7 @@ export function StudiesV2Results() {
                   </h4>
                   <div className="flex items-center gap-2">
                     <a
-                      href={selectedResult.studies_v2.market_target_url}
+                      href={selectedResult.target_stats.targetMarketUrl || selectedResult.studies_v2.market_target_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs flex items-center gap-1.5 transition-colors"
@@ -643,7 +643,7 @@ export function StudiesV2Results() {
                       <ExternalLink size={12} />
                     </a>
                     <a
-                      href={selectedResult.studies_v2.market_source_url}
+                      href={selectedResult.target_stats.sourceMarketUrl || selectedResult.studies_v2.market_source_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs flex items-center gap-1.5 transition-colors"
