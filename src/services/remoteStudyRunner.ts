@@ -36,6 +36,13 @@ export interface RemoteStudyParams {
   scrapeMode?: 'fast' | 'full';
 }
 
+export interface RemoteBatchParams {
+  studies: StudyV2[];
+  runId: string;
+  threshold: number;
+  scrapeMode?: 'fast' | 'full';
+}
+
 type ProgressCallback = (event: { stage: string; message: string }) => void;
 
 const REALTIME_TIMEOUT_MS = 300000; // 5 minutes max per study
@@ -78,6 +85,7 @@ export async function runStudyRemotely(
         status: 'pending',
         payload: {
           studyIds: [study.id],
+          runId,
           threshold,
           type: 'instant',
           scrapeMode,
@@ -315,6 +323,82 @@ async function waitForResultsViaRealtime(
         }
       });
   });
+}
+
+/**
+ * Execute multiple studies as a single batch remotely via the Worker.
+ * Creates ONE scheduled job with all study IDs.
+ */
+export async function runStudiesBatchRemotely(
+  params: RemoteBatchParams,
+  onProgress?: ProgressCallback,
+): Promise<void> {
+  const { studies, runId, threshold, scrapeMode = 'fast' } = params;
+
+  if (studies.length === 0) {
+    throw new Error('No studies provided for batch execution');
+  }
+
+  console.log(`[REMOTE_RUNNER] Starting batch execution: ${studies.length} studies, runId=${runId}`);
+
+  try {
+    emitProgress('queued', `Scheduling ${studies.length} studies for remote execution...`, onProgress);
+
+    // Schedule job for immediate execution with ALL studies
+    const now = new Date();
+    const scheduledAt = new Date(now.getTime() - 1000);
+
+    const studyIds = studies.map(s => s.id);
+
+    const { data: scheduledJob, error: scheduleError } = await supabase
+      .from('scheduled_study_runs')
+      .insert([{
+        scheduled_at: scheduledAt.toISOString(),
+        status: 'pending',
+        payload: {
+          studyIds,
+          runId,
+          threshold,
+          type: 'instant',
+          scrapeMode,
+        },
+      }])
+      .select()
+      .single();
+
+    if (scheduleError) {
+      throw new Error(`Failed to schedule batch: ${scheduleError.message}`);
+    }
+
+    console.log(`[REMOTE_RUNNER] Batch job scheduled: ${scheduledJob.id}, studyIds: ${studyIds.join(', ')}`);
+    emitProgress('running', 'Triggering backend execution...', onProgress);
+
+    // Trigger Edge Function
+    const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/run_scheduled_studies`;
+    const triggerResponse = await fetch(edgeFunctionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SCHEDULER_CRON_SECRET}`,
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (!triggerResponse.ok) {
+      const errorText = await triggerResponse.text();
+      throw new Error(`Failed to trigger backend: ${triggerResponse.status} ${errorText}`);
+    }
+
+    const triggerResult = await triggerResponse.json();
+    console.log('[REMOTE_RUNNER] Edge Function triggered for batch:', triggerResult);
+
+    emitProgress('running', `Backend processing ${studies.length} studies...`, onProgress);
+
+  } catch (error) {
+    console.error(`[REMOTE_RUNNER] Batch error:`, error);
+    emitProgress('error', `Error: ${(error as Error).message}`, onProgress);
+    throw error;
+  }
 }
 
 function emitProgress(

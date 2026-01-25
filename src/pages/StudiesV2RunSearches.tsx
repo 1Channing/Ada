@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Play, Calendar, CheckSquare, Square, XCircle, Clock } from 'lucide-react';
-import { runStudyRemotely } from '../services/remoteStudyRunner';
+import { runStudyRemotely, runStudiesBatchRemotely } from '../services/remoteStudyRunner';
 import { StudyStatusBadge } from '../components/StudyStatusBadge';
 import type { ScheduledStudyPayload, ScheduledStudyRun } from '../types/scheduling';
 import type { RealtimeChannel } from '@supabase/supabase-js';
@@ -309,7 +309,93 @@ export function StudiesV2RunSearches() {
       let opportunitiesCount = 0;
       let blockedCount = 0;
 
-      for (let i = 0; i < studiesToRun.length; i++) {
+      // API mode: batch all studies into ONE worker request
+      if (SCRAPER_MODE === 'api') {
+        console.log(`[BATCH_RUN] API mode: batching ${studiesToRun.length} studies into ONE request`);
+
+        studiesToRun.forEach(study => {
+          setStudyStatuses((prev) => ({ ...prev, [study.id]: 'queued' }));
+        });
+
+        setProgress(`Scheduling ${studiesToRun.length} studies for remote execution...`);
+
+        try {
+          await runStudiesBatchRemotely(
+            {
+              studies: studiesToRun,
+              runId,
+              threshold: priceDiffThreshold,
+              scrapeMode,
+            },
+            (event) => {
+              console.log(`[BATCH_RUN] Batch progress: ${event.stage} - ${event.message}`);
+              setProgress(event.message);
+            }
+          );
+
+          console.log(`[BATCH_RUN] Batch job created. Waiting for results...`);
+
+          const studyIds = studiesToRun.map(s => s.id);
+          const completedStudies = new Set<string>();
+          const maxWaitTime = 300000;
+          const pollInterval = 3000;
+          const startTime = Date.now();
+
+          while (completedStudies.size < studiesToRun.length) {
+            if (Date.now() - startTime > maxWaitTime) {
+              throw new Error('Batch execution timed out');
+            }
+
+            if (cancelRequestedRef.current) break;
+
+            const { data: results, error: resultsError } = await supabase
+              .from('study_run_results')
+              .select('*')
+              .eq('run_id', runId)
+              .in('study_id', studyIds);
+
+            if (resultsError) throw resultsError;
+
+            if (results) {
+              for (const result of results) {
+                if (!completedStudies.has(result.study_id)) {
+                  completedStudies.add(result.study_id);
+
+                  if (result.status === 'NULL') {
+                    nullCount++;
+                    setStudyStatuses((prev) => ({ ...prev, [result.study_id]: 'null' }));
+                  } else if (result.status === 'TARGET_BLOCKED') {
+                    blockedCount++;
+                    setStudyStatuses((prev) => ({ ...prev, [result.study_id]: 'error' }));
+                  } else {
+                    opportunitiesCount++;
+                    setStudyStatuses((prev) => ({ ...prev, [result.study_id]: 'success' }));
+                  }
+                }
+              }
+            }
+
+            setRunProgress({
+              isRunning: true,
+              currentIndex: completedStudies.size,
+              total: studiesToRun.length,
+              stage: `Completed ${completedStudies.size}/${studiesToRun.length}...`,
+            });
+            setProgress(`Processing... ${completedStudies.size}/${studiesToRun.length} completed`);
+
+            if (completedStudies.size < studiesToRun.length) {
+              await new Promise(resolve => setTimeout(resolve, pollInterval));
+            }
+          }
+
+        } catch (error) {
+          console.error('[BATCH_RUN] Batch error:', error);
+          throw error;
+        }
+
+      } else {
+        // Local mode: sequential processing
+        for (let i = 0; i < studiesToRun.length; i++) {
         const study = studiesToRun[i];
         const studyLabel = `${study.brand} ${study.model}`;
         const studyCode = `${study.brand}_${study.model}_${study.year}_${study.country_source}_${study.country_target}`;
@@ -328,8 +414,7 @@ export function StudiesV2RunSearches() {
         const studyRunId = crypto.randomUUID();
 
         try {
-          console.log(`[BATCH_RUN] ▶️ Starting study ${i + 1}/${studiesToRun.length}: ${studyCode}`);
-          console.log(`[BATCH_RUN] Using scraper mode: ${SCRAPER_MODE}`);
+          console.log(`[BATCH_RUN] Starting study ${i + 1}/${studiesToRun.length}: ${studyCode}`);
 
           setStudyStatuses((prev) => ({ ...prev, [study.id]: 'running' }));
 
@@ -337,32 +422,17 @@ export function StudiesV2RunSearches() {
             console.log(`[BATCH_RUN] Progress: ${event.stage} - ${event.message}`);
           };
 
-          let result;
-
-          if (SCRAPER_MODE === 'api') {
-            result = await runStudyRemotely(
-              studyRunId,
-              {
-                study,
-                runId,
-                threshold: priceDiffThreshold,
-                scrapeMode,
-              },
-              progressCallback,
-            );
-          } else {
-            const { runStudyInBackground } = await import('../services/studyRunner');
-            result = await runStudyInBackground(
-              studyRunId,
-              {
-                study,
-                runId,
-                threshold: priceDiffThreshold,
-                scrapeMode,
-              },
-              progressCallback,
-            );
-          }
+          const { runStudyInBackground } = await import('../services/studyRunner');
+          const result = await runStudyInBackground(
+            studyRunId,
+            {
+              study,
+              runId,
+              threshold: priceDiffThreshold,
+              scrapeMode,
+            },
+            progressCallback,
+          );
 
           if (result.status === 'NULL') {
             nullCount++;
@@ -395,6 +465,7 @@ export function StudiesV2RunSearches() {
           });
           break;
         }
+      }
       }
 
       const finalStatus = cancelRequestedRef.current ? 'cancelled' : 'completed';
