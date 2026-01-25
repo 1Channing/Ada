@@ -39,6 +39,8 @@ export interface RemoteStudyParams {
 type ProgressCallback = (event: { stage: string; message: string }) => void;
 
 const REALTIME_TIMEOUT_MS = 300000; // 5 minutes max per study
+const POLL_INTERVAL_MS = 2000; // Poll every 2 seconds as fallback
+const POLL_MAX_ATTEMPTS = 150; // 150 attempts × 2s = 5 minutes max
 
 /**
  * Execute a single study remotely via the Worker.
@@ -132,7 +134,7 @@ export async function runStudyRemotely(
 }
 
 /**
- * Wait for results via Realtime ONLY - no polling fallback
+ * Wait for results via Realtime + polling fallback for fast completion detection
  */
 async function waitForResultsViaRealtime(
   jobId: string,
@@ -141,16 +143,20 @@ async function waitForResultsViaRealtime(
   studyCode: string,
   onProgress?: ProgressCallback,
 ): Promise<{ status: 'NULL' | 'OPPORTUNITIES' | 'TARGET_BLOCKED' }> {
-  console.log('[REMOTE_RUNNER] Setting up Realtime subscriptions...');
+  console.log('[REMOTE_RUNNER] 🚀 Starting: waiting for results...');
+  const startTime = Date.now();
 
   return new Promise((resolve, reject) => {
     let statusChannel: RealtimeChannel | null = null;
     let resultsChannel: RealtimeChannel | null = null;
     let timeoutId: NodeJS.Timeout;
+    let pollIntervalId: NodeJS.Timeout;
     let runIdFromStatus: string | null = null;
+    let pollAttempts = 0;
 
     const cleanup = async () => {
       if (timeoutId) clearTimeout(timeoutId);
+      if (pollIntervalId) clearInterval(pollIntervalId);
       if (statusChannel) {
         console.log('[REMOTE_RUNNER] Cleaning up status channel');
         await supabase.removeChannel(statusChannel);
@@ -161,9 +167,57 @@ async function waitForResultsViaRealtime(
       }
     };
 
-    // Timeout after 5 minutes
+    // Polling fallback: Check database every 2 seconds for results
+    const pollForResults = async () => {
+      pollAttempts++;
+
+      if (pollAttempts > POLL_MAX_ATTEMPTS) {
+        console.error('[REMOTE_RUNNER] ⏱️ Poll timeout after 5 minutes');
+        await cleanup();
+        reject(new Error('Backend execution timed out after 5 minutes'));
+        return;
+      }
+
+      try {
+        // Check if result exists
+        const { data, error } = await supabase
+          .from('study_run_results')
+          .select('*')
+          .eq('study_id', studyId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          console.error('[REMOTE_RUNNER] Polling error:', error);
+          return;
+        }
+
+        if (data) {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.log(`[REMOTE_RUNNER] ✅ Result detected via polling after ${elapsed}s (Realtime may have missed it)`);
+
+          const status = data.status === 'OPPORTUNITIES' ? 'OPPORTUNITIES'
+                      : data.status === 'TARGET_BLOCKED' ? 'TARGET_BLOCKED'
+                      : 'NULL';
+
+          emitProgress('done', `Study completed: ${status}`, onProgress);
+
+          await cleanup();
+          resolve({ status });
+        }
+      } catch (err) {
+        console.error('[REMOTE_RUNNER] Polling exception:', err);
+      }
+    };
+
+    // Start polling immediately, then every 2 seconds
+    pollForResults();
+    pollIntervalId = setInterval(pollForResults, POLL_INTERVAL_MS);
+
+    // Timeout after 5 minutes (backup for polling)
     timeoutId = setTimeout(async () => {
-      console.error('[REMOTE_RUNNER] Realtime timeout after 5 minutes');
+      console.error('[REMOTE_RUNNER] ⏱️ Global timeout after 5 minutes');
       await cleanup();
       reject(new Error('Backend execution timed out after 5 minutes'));
     }, REALTIME_TIMEOUT_MS);
@@ -227,7 +281,8 @@ async function waitForResultsViaRealtime(
           filter: `study_id=eq.${studyId}`,
         },
         async (payload) => {
-          console.log('[REMOTE_RUNNER] Results received via Realtime!');
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.log(`[REMOTE_RUNNER] ⚡ Results received via Realtime after ${elapsed}s`);
 
           const result = payload.new;
 
@@ -249,7 +304,7 @@ async function waitForResultsViaRealtime(
           emitProgress('done', `Study completed: ${status}`, onProgress);
 
           await cleanup();
-          console.log('[REMOTE_RUNNER] Execution completed successfully');
+          console.log(`[REMOTE_RUNNER] ✅ Execution completed successfully (${elapsed}s total)`);
           resolve({ status });
         }
       )

@@ -286,6 +286,9 @@ export function StudiesV2RunSearches() {
     });
 
     try {
+      const runStartTime = Date.now();
+      console.log(`[BATCH_RUN] 🚀 Run started at ${new Date().toISOString()}`);
+
       const { data: runData, error: runError } = await supabase
         .from('study_runs')
         .insert([{
@@ -395,8 +398,10 @@ export function StudiesV2RunSearches() {
       }
 
       const finalStatus = cancelRequestedRef.current ? 'cancelled' : 'completed';
+      const completionTime = Date.now();
+      const totalDuration = ((completionTime - runStartTime) / 1000).toFixed(1);
 
-      console.log(`[BATCH_RUN] 🏁 Batch ${finalStatus}. Updating run record with final counts...`);
+      console.log(`[BATCH_RUN] 🏁 Batch ${finalStatus} after ${totalDuration}s. Updating run record...`);
 
       await supabase
         .from('study_runs')
@@ -407,7 +412,9 @@ export function StudiesV2RunSearches() {
         })
         .eq('id', runId);
 
-      console.log(`[BATCH_RUN] ✅ Run record updated: status=${finalStatus}, null=${nullCount}, opportunities=${opportunitiesCount}`);
+      const updateTime = Date.now();
+      const updateDelay = ((updateTime - completionTime) / 1000).toFixed(1);
+      console.log(`[BATCH_RUN] ✅ Database updated after ${updateDelay}s (status=${finalStatus}, null=${nullCount}, opp=${opportunitiesCount})`);
 
       setRunProgress({
         isRunning: false,
@@ -419,10 +426,16 @@ export function StudiesV2RunSearches() {
       if (cancelRequestedRef.current) {
         setProgress('Run cancelled');
         console.log(`[BATCH_RUN] ⚠️ User cancelled batch after ${nullCount + opportunitiesCount + blockedCount} studies`);
+        const popupTime = Date.now();
+        const popupDelay = ((popupTime - runStartTime) / 1000).toFixed(1);
+        console.log(`[BATCH_RUN] 🔔 Showing CANCELLED popup after ${popupDelay}s total`);
         alert(`Run cancelled!\n${nullCount} studies with NULL status\n${opportunitiesCount} studies with opportunities\n${blockedCount} studies blocked by provider\n(${studiesToRun.length - (nullCount + opportunitiesCount + blockedCount)} studies not processed)`);
       } else {
         setProgress('Run completed!');
         console.log(`[BATCH_RUN] 🎉 All ${studiesToRun.length} studies completed successfully`);
+        const popupTime = Date.now();
+        const popupDelay = ((popupTime - runStartTime) / 1000).toFixed(1);
+        console.log(`[BATCH_RUN] 🔔 Showing COMPLETED popup after ${popupDelay}s total`);
         alert(`Run completed!\n${nullCount} studies with NULL status\n${opportunitiesCount} studies with opportunities\n${blockedCount} studies blocked by provider`);
       }
 
