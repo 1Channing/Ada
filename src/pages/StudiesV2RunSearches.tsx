@@ -116,6 +116,56 @@ export function StudiesV2RunSearches() {
 
   async function checkForActiveRuns() {
     try {
+      // Check scheduled_study_runs first (worker-executed runs)
+      const { data: scheduledRun } = await supabase
+        .from('scheduled_study_runs')
+        .select('*')
+        .eq('status', 'running')
+        .order('scheduled_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (scheduledRun) {
+        const { data: completedResults } = await supabase
+          .from('study_run_results')
+          .select('id')
+          .eq('run_id', scheduledRun.run_id);
+
+        const completedCount = completedResults?.length || 0;
+        const totalStudies = Array.isArray(scheduledRun.study_ids) ? scheduledRun.study_ids.length : 0;
+
+        // If actually completed, force reset UI
+        if (completedCount >= totalStudies) {
+          console.log('[RUN_SEARCHES] Scheduled run already complete, resetting UI');
+          setRunning(false);
+          setProgress('');
+          setRunProgress({
+            isRunning: false,
+            currentIndex: 0,
+            total: 0,
+            currentStudyId: undefined,
+            stage: undefined,
+          });
+          currentRunIdRef.current = null;
+          cancelRequestedRef.current = false;
+          return;
+        }
+
+        // Still running, restore state
+        console.log('[RUN_SEARCHES] Resuming scheduled run:', scheduledRun.run_id);
+        setRunProgress({
+          isRunning: true,
+          currentIndex: completedCount,
+          total: totalStudies,
+          stage: 'Resumed from previous session',
+        });
+        setRunning(true);
+        cancelRequestedRef.current = false;
+        currentRunIdRef.current = scheduledRun.run_id;
+        return;
+      }
+
+      // Check study_runs (browser-executed runs)
       const { data: activeRun, error } = await supabase
         .from('study_runs')
         .select('*')
@@ -132,8 +182,6 @@ export function StudiesV2RunSearches() {
         const maxAgeMs = 60 * 60 * 1000;
 
         if (ageMs < maxAgeMs) {
-          console.log('[RUN_SEARCHES] Found active run from previous session:', activeRun.id);
-
           const { data: completedResults } = await supabase
             .from('study_run_results')
             .select('id')
@@ -141,15 +189,13 @@ export function StudiesV2RunSearches() {
 
           const completedCount = completedResults?.length || 0;
 
-          // Check if run is actually complete
           if (completedCount >= activeRun.total_studies) {
-            console.log('[RUN_SEARCHES] Run is actually complete, updating DB and resetting UI');
+            console.log('[RUN_SEARCHES] Browser run already complete, resetting UI');
             await supabase
               .from('study_runs')
               .update({ status: 'completed' })
               .eq('id', activeRun.id);
 
-            // Reset UI to idle
             setRunning(false);
             setProgress('');
             setRunProgress({
@@ -175,8 +221,6 @@ export function StudiesV2RunSearches() {
           setRunning(true);
           cancelRequestedRef.current = activeRun.cancel_requested || false;
           currentRunIdRef.current = activeRun.id;
-
-          console.log(`[RUN_SEARCHES] Restored state: ${completedCount}/${activeRun.total_studies}, cancel_requested=${activeRun.cancel_requested}`);
         }
       }
     } catch (error) {
