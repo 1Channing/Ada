@@ -234,6 +234,38 @@ export function StudiesV2Results() {
         .order('executed_at', { ascending: false });
 
       if (error) throw error;
+
+      // Reconciliation: Check for stale "running" runs that are actually complete
+      const runningRuns = (data || []).filter(run => run.status === 'running');
+
+      for (const run of runningRuns) {
+        // Check if this run has completed results
+        const { data: resultsData, error: resultsError } = await supabase
+          .from('study_run_results')
+          .select('id', { count: 'exact', head: true })
+          .eq('run_id', run.id);
+
+        if (!resultsError) {
+          const completedCount = resultsData?.length || 0;
+
+          // If we have results >= total_studies, the run is actually complete
+          if (completedCount >= run.total_studies) {
+            console.log(`[HISTORY_RECONCILIATION] Run ${run.id} marked running but has ${completedCount}/${run.total_studies} results. Updating to completed.`);
+
+            // Update DB status to completed
+            const { error: updateError } = await supabase
+              .from('study_runs')
+              .update({ status: 'completed' })
+              .eq('id', run.id);
+
+            if (!updateError) {
+              // Update local state
+              run.status = 'completed';
+            }
+          }
+        }
+      }
+
       setHistory(data || []);
     } catch (error) {
       console.error('Error loading history:', error);
@@ -719,8 +751,22 @@ export function StudiesV2Results() {
             )}
 
             <div className="overflow-y-auto p-4 space-y-4">
-              {listings.map((listing) => (
-                <div key={listing.id} className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700">
+              {listings.length === 0 ? (
+                <div className="py-12 text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-zinc-800/50 mb-4">
+                    <XCircle size={32} className="text-zinc-500" />
+                  </div>
+                  <h4 className="text-lg font-semibold text-zinc-300 mb-2">
+                    No interesting listings found
+                  </h4>
+                  <p className="text-sm text-zinc-400 max-w-md mx-auto">
+                    No interesting listings found on the source market for this study.
+                    The search completed successfully but no results met the criteria.
+                  </p>
+                </div>
+              ) : (
+                listings.map((listing) => (
+                  <div key={listing.id} className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700">
                   <div className="flex items-start justify-between gap-4 mb-3">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
@@ -844,7 +890,8 @@ export function StudiesV2Results() {
                     )}
                   </div>
                 </div>
-              ))}
+              ))
+              )}
             </div>
           </div>
         </div>
