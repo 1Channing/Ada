@@ -25,6 +25,7 @@ import {
   type ScrapedListing,
   type StudyCriteria,
 } from '../src/lib/study-core/index';
+import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
 
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
@@ -89,6 +90,30 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
     console.error('[WORKER_SCRAPER] Fetch error:', error);
     return null;
   }
+}
+
+/**
+ * Scrape detail page for enriched listing data
+ */
+async function scrapeDetailPage(listingUrl: string): Promise<DetailPageData | null> {
+  console.log(`[DETAIL_SCRAPE] Fetching listing detail ${listingUrl}`);
+
+  const html = await fetchHtmlWithZyte(listingUrl, 1);
+
+  if (!html) {
+    console.warn(`[DETAIL_SCRAPE] Failed to fetch ${listingUrl}`);
+    return null;
+  }
+
+  const detailData = parseDetailPage(html, listingUrl);
+
+  console.log(
+    `[DETAIL_SCRAPE] Extracted options=[${detailData.options.join(', ')}], ` +
+    `maintenance=${detailData.maintenance_summary ? 'yes' : 'no'}, defects=${detailData.defects_summary ? 'yes' : 'no'}, ` +
+    `images=${detailData.car_image_urls.length}`
+  );
+
+  return detailData;
 }
 
 /**
@@ -430,20 +455,36 @@ export async function executeStudy({
       console.log(`[WORKER] Persisting ${opportunityResult.interestingListings.length} interesting listings...`);
 
       const resultId = insertedResult[0].id;
-      const listingsToInsert = opportunityResult.interestingListings.map(listing => ({
-        run_result_id: resultId,
-        listing_url: listing.listing_url,
-        title: listing.title,
-        price: toEur(listing.price, listing.currency),
-        mileage: listing.mileage || null,
-        year: listing.year || null,
-        trim: listing.trim || null,
-        is_damaged: false,
-        defects_summary: null,
-        maintenance_summary: null,
-        options_summary: null,
-        full_description: listing.description || null,
-      }));
+
+      // Second-pass: scrape detail pages for enriched data (max 5 for FAST mode)
+      const listingsToInsert = [];
+      for (const listing of opportunityResult.interestingListings) {
+        let detailData: DetailPageData | null = null;
+
+        // Only scrape detail pages in FAST mode (keep it lightweight)
+        if (scrapeMode === 'fast') {
+          detailData = await scrapeDetailPage(listing.listing_url);
+        }
+
+        listingsToInsert.push({
+          run_result_id: resultId,
+          listing_url: listing.listing_url,
+          title: listing.title,
+          price: toEur(listing.price, listing.currency),
+          mileage: listing.mileage || null,
+          year: listing.year || null,
+          trim: listing.trim || null,
+          is_damaged: false,
+          defects_summary: detailData?.defects_summary || null,
+          maintenance_summary: detailData?.maintenance_summary || null,
+          options_summary: null,
+          entretien: detailData?.entretien || '',
+          options: detailData?.options || [],
+          full_description: listing.description || null,
+          car_image_urls: detailData?.car_image_urls || [],
+          status: 'NEW',
+        });
+      }
 
       const { error: listingsError } = await supabase
         .from('study_source_listings')
