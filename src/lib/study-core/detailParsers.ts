@@ -25,6 +25,7 @@ export interface DetailPageData {
 interface SellerContent {
   description: string;
   structuredEquipment: string[];
+  rawDescriptionLength?: number; // For Leboncoin logging
 }
 
 const PREMIUM_OPTIONS = [
@@ -60,8 +61,68 @@ const DEFECT_TOKENS = [
 ];
 
 /**
+ * Template/equipment patterns that indicate boilerplate content
+ */
+const LEBONCOIN_TEMPLATE_PATTERNS = [
+  'OPTIONS ET ÉQUIPEMENTS',
+  'Télécommunications',
+  'Label Toyota Occasions',
+  'Consommation',
+  'Audio :',
+  'Sécurité :',
+  'Confort :',
+  'Équipements :',
+  'Garantie :',
+];
+
+/**
+ * Clean seller description by removing template/equipment boilerplate
+ * FAIL-CLOSED: Strip everything from first template pattern onward
+ */
+function cleanLeboncoinDescription(rawDescription: string): string {
+  if (!rawDescription) return '';
+
+  let cleaned = rawDescription;
+
+  // Find first occurrence of any template pattern
+  let firstPatternIndex = -1;
+  for (const pattern of LEBONCOIN_TEMPLATE_PATTERNS) {
+    const index = cleaned.indexOf(pattern);
+    if (index !== -1 && (firstPatternIndex === -1 || index < firstPatternIndex)) {
+      firstPatternIndex = index;
+    }
+  }
+
+  // Strip from first pattern onward
+  if (firstPatternIndex !== -1) {
+    cleaned = cleaned.substring(0, firstPatternIndex).trim();
+  }
+
+  return cleaned;
+}
+
+/**
+ * Quality gate: detect if text looks like an equipment list (fail-closed)
+ * Returns true if text appears to be boilerplate/lists rather than prose
+ */
+function isEquipmentList(text: string): boolean {
+  if (!text || text.length < 20) return true;
+
+  const colonCount = (text.match(/:/g) || []).length;
+  const dashCount = (text.match(/-/g) || []).length;
+  const words = text.split(/\s+/);
+  const uppercaseWords = words.filter(w => w === w.toUpperCase() && w.length > 2).length;
+
+  // Detect list-like patterns
+  const hasManySeparators = colonCount >= 3 || dashCount >= 5;
+  const hasManyUppercase = words.length > 0 && (uppercaseWords / words.length) > 0.6;
+
+  return hasManySeparators || hasManyUppercase;
+}
+
+/**
  * Extract seller's description text from Leboncoin HTML
- * FAIL-CLOSED: Only extracts from __NEXT_DATA__ ad body
+ * FAIL-CLOSED: Only extracts from __NEXT_DATA__ ad body, strips templates
  */
 function extractLeboncoinSellerContent(html: string): SellerContent {
   const nextDataPatterns = [
@@ -101,27 +162,17 @@ function extractLeboncoinSellerContent(html: string): SellerContent {
       return { description: '', structuredEquipment: [] };
     }
 
-    // Extract seller's description (body text)
-    const description = adData.body || adData.description || adData.text || '';
+    // Extract and clean seller's description (body text)
+    const rawDescription = adData.body || adData.description || adData.text || '';
+    const description = cleanLeboncoinDescription(rawDescription);
 
-    // Extract structured equipment if available
-    const structuredEquipment: string[] = [];
-    if (adData.options && Array.isArray(adData.options)) {
-      structuredEquipment.push(...adData.options.map((o: any) => String(o.label || o.name || o).toLowerCase()));
-    }
-    if (adData.attributes && Array.isArray(adData.attributes)) {
-      for (const attr of adData.attributes) {
-        if (attr.key === 'options' || attr.key === 'equipment') {
-          if (Array.isArray(attr.values)) {
-            structuredEquipment.push(...attr.values.map((v: any) => String(v).toLowerCase()));
-          } else if (attr.value) {
-            structuredEquipment.push(String(attr.value).toLowerCase());
-          }
-        }
-      }
-    }
-
-    return { description, structuredEquipment };
+    // DO NOT extract structured equipment for Leboncoin
+    // (Will be ignored for options extraction)
+    return {
+      description,
+      structuredEquipment: [],
+      rawDescriptionLength: rawDescription.length
+    };
   } catch (error) {
     return { description: '', structuredEquipment: [] };
   }
@@ -231,20 +282,20 @@ function extractSellerContent(html: string, listingUrl: string): SellerContent {
 }
 
 /**
- * Extract premium options from seller description and structured equipment
- * STRICT: Only returns options found in whitelist, with evidence
+ * Extract premium options from seller description ONLY
+ * STRICT: Only returns options found in whitelist with exact keyword match in description
+ * FAIL-CLOSED: For Leboncoin, ignores structured equipment completely
  */
-function extractPremiumOptions(content: SellerContent): { options: string[]; evidence: string[] } {
+function extractPremiumOptions(content: SellerContent, isLeboncoin: boolean): { options: string[]; evidence: string[] } {
   const options: string[] = [];
   const evidence: string[] = [];
   const descLower = content.description.toLowerCase();
-  const allEquipment = [...content.structuredEquipment];
 
   for (const { keywords, label } of PREMIUM_OPTIONS) {
     let found = false;
     let foundEvidence = '';
 
-    // Check in description text
+    // Check in description text (ONLY source for Leboncoin)
     for (const keyword of keywords) {
       if (descLower.includes(keyword.toLowerCase())) {
         found = true;
@@ -260,10 +311,10 @@ function extractPremiumOptions(content: SellerContent): { options: string[]; evi
       }
     }
 
-    // Check in structured equipment
-    if (!found) {
+    // For non-Leboncoin, check structured equipment as fallback
+    if (!found && !isLeboncoin && content.structuredEquipment.length > 0) {
       for (const keyword of keywords) {
-        for (const equipment of allEquipment) {
+        for (const equipment of content.structuredEquipment) {
           if (equipment.includes(keyword.toLowerCase())) {
             found = true;
             foundEvidence = `[Equipment: ${equipment.substring(0, 60)}]`;
@@ -288,6 +339,7 @@ function extractPremiumOptions(content: SellerContent): { options: string[]; evi
 /**
  * Extract maintenance info from seller description ONLY
  * Returns sentences containing maintenance keywords
+ * FAIL-CLOSED: Applies quality gate to reject equipment-list-like text
  */
 function extractMaintenanceInfo(description: string): { entretien: string; evidence: string[] } {
   if (!description || description.length < 20) {
@@ -296,10 +348,15 @@ function extractMaintenanceInfo(description: string): { entretien: string; evide
 
   const sentences = description.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 15);
   const matchedSentences: string[] = [];
-  const descLower = description.toLowerCase();
 
   for (const sentence of sentences) {
     const sentenceLower = sentence.toLowerCase();
+
+    // Quality gate: reject equipment-list-like sentences
+    if (isEquipmentList(sentence)) {
+      continue;
+    }
+
     for (const token of MAINTENANCE_TOKENS) {
       if (sentenceLower.includes(token)) {
         matchedSentences.push(sentence);
@@ -317,6 +374,7 @@ function extractMaintenanceInfo(description: string): { entretien: string; evide
 /**
  * Extract defects from seller description ONLY
  * Returns sentences containing defect keywords
+ * FAIL-CLOSED: Applies quality gate to reject equipment-list-like text
  */
 function extractDefects(description: string): { defects_summary: string; evidence: string[] } {
   if (!description || description.length < 20) {
@@ -328,6 +386,12 @@ function extractDefects(description: string): { defects_summary: string; evidenc
 
   for (const sentence of sentences) {
     const sentenceLower = sentence.toLowerCase();
+
+    // Quality gate: reject equipment-list-like sentences
+    if (isEquipmentList(sentence)) {
+      continue;
+    }
+
     for (const token of DEFECT_TOKENS) {
       if (sentenceLower.includes(token)) {
         matchedSentences.push(sentence);
@@ -457,6 +521,7 @@ function extractCarImages(html: string, listingUrl: string): string[] {
  * @returns Enriched detail data with evidence
  */
 export function parseDetailPage(html: string, listingUrl: string): DetailPageData {
+  const isLeboncoin = listingUrl.includes('leboncoin.fr');
   const sellerContent = extractSellerContent(html, listingUrl);
 
   if (!sellerContent.description && sellerContent.structuredEquipment.length === 0) {
@@ -469,7 +534,7 @@ export function parseDetailPage(html: string, listingUrl: string): DetailPageDat
     };
   }
 
-  const optionsResult = extractPremiumOptions(sellerContent);
+  const optionsResult = extractPremiumOptions(sellerContent, isLeboncoin);
   const maintenanceResult = extractMaintenanceInfo(sellerContent.description);
   const defectsResult = extractDefects(sellerContent.description);
   const car_image_urls = extractCarImages(html, listingUrl);
@@ -483,6 +548,20 @@ export function parseDetailPage(html: string, listingUrl: string): DetailPageDat
   let defects_summary = defectsResult.defects_summary;
   if (defectsResult.evidence.length > 0) {
     defects_summary = defects_summary ? `${defects_summary} [Evidence: ${defectsResult.evidence[0]}...]` : '';
+  }
+
+  // Log extraction metrics for Leboncoin
+  if (isLeboncoin) {
+    const rawLen = sellerContent.rawDescriptionLength || 0;
+    const cleanedLen = sellerContent.description.length;
+    const entretienLen = entretien.length;
+    const defectsLen = defects_summary.length;
+    const optionsCount = optionsResult.options.length;
+
+    console.log(
+      `[DETAIL_SCRAPE] lb_desc_source_len=${rawLen} cleaned_len=${cleanedLen} ` +
+      `entretien_len=${entretienLen} defects_len=${defectsLen} options_count=${optionsCount}`
+    );
   }
 
   return {

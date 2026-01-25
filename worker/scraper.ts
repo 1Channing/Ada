@@ -458,12 +458,15 @@ export async function executeStudy({
 
       // Second-pass: scrape detail pages for enriched data (max 5 for FAST mode)
       const listingsToInsert = [];
+      let detailRequestCount = 0;
+
       for (const listing of opportunityResult.interestingListings) {
         let detailData: DetailPageData | null = null;
 
         // Only scrape detail pages in FAST mode (keep it lightweight)
         if (scrapeMode === 'fast') {
           detailData = await scrapeDetailPage(listing.listing_url);
+          detailRequestCount++;
         }
 
         listingsToInsert.push({
@@ -485,6 +488,8 @@ export async function executeStudy({
           status: 'NEW',
         });
       }
+
+      console.log(`[DETAIL_SCRAPE] total_detail_requests=${detailRequestCount}`);
 
       const { error: listingsError } = await supabase
         .from('study_source_listings')
