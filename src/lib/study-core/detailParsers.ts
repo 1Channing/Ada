@@ -1,13 +1,17 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * DETAIL PAGE PARSERS - PURE FUNCTIONS
+ * DETAIL PAGE PARSERS - FAIL-CLOSED, SOURCE-LIMITED
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Extract enriched data from individual listing detail pages:
- * - Premium options (non-standard features)
- * - Maintenance notes (entretien)
- * - Defects/condition notes
- * - Car images
+ * HARD RULES:
+ * 1. Extract ONLY from seller's description text (ad body), not entire DOM
+ * 2. Extract ONLY from structured equipment sections (if available)
+ * 3. NEVER parse footer, nav, legal, reviews, or global page content
+ * 4. If unsure, return "None mentioned"
+ * 5. Store evidence snippets showing exact phrases that triggered extraction
+ *
+ * Premium options: whitelist only, no inference
+ * Maintenance/Defects: sentence-level extraction from seller text only
  */
 
 export interface DetailPageData {
@@ -18,128 +22,324 @@ export interface DetailPageData {
   car_image_urls: string[];
 }
 
-const PREMIUM_OPTIONS_KEYWORDS = [
-  // Roof/Glass
-  { pattern: /(?:toit|sunroof|panoram)/i, label: 'Toit panoramique' },
+interface SellerContent {
+  description: string;
+  structuredEquipment: string[];
+}
 
-  // Audio
-  { pattern: /(?:jbl|harman|bose|b&o|burmester|premium\s+audio|système\s+audio)/i, label: 'Audio premium' },
-
-  // Convenience
-  { pattern: /(?:hayon|coffre|tailgate).*(?:électrique|electric|hands-free|automatique)/i, label: 'Hayon électrique' },
-  { pattern: /(?:sièges?).*(?:mémoire|memory)/i, label: 'Sièges à mémoire' },
-
-  // Lighting
-  { pattern: /(?:laser|matrix|led).*(?:headlight|phare|feux)/i, label: 'Phares LED/Matrix' },
-  { pattern: /(?:phares?).*(?:laser|matrix|led)/i, label: 'Phares LED/Matrix' },
-
-  // Driver Assist
-  { pattern: /(?:hud|head-up|affichage\s+tête\s+haute)/i, label: 'Affichage tête haute' },
-  { pattern: /(?:caméra|camera)\s+360/i, label: 'Caméra 360°' },
-  { pattern: /(?:park\s+assist|aide\s+au\s+stationnement|parking\s+automatique)/i, label: 'Aide au stationnement' },
-  { pattern: /(?:acc|adaptive\s+cruise|régulateur.*adaptatif)/i, label: 'Régulateur adaptatif' },
-  { pattern: /(?:blind\s+spot|angle\s+mort|blis)/i, label: 'Détection angle mort' },
-
-  // Seating
-  { pattern: /(?:sièges?).*(?:chauffants|heated|ventil)/i, label: 'Sièges chauffants/ventilés' },
-  { pattern: /(?:heated|ventilated|chauffants|ventilés).*(?:seats|sièges)/i, label: 'Sièges chauffants/ventilés' },
-
-  // Towing/Suspension
-  { pattern: /(?:attelage|towbar|trekhaak|anhänger)/i, label: 'Attelage' },
-  { pattern: /(?:adaptive|air|pneumatique).*(?:suspension|amortisseurs)/i, label: 'Suspension adaptative' },
+const PREMIUM_OPTIONS = [
+  { keywords: ['toit panoramique', 'toit ouvrant panoramique', 'sunroof panoramic', 'panoramic roof'], label: 'Toit panoramique' },
+  { keywords: ['jbl', 'harman kardon', 'bose', 'b&o', 'bang & olufsen', 'burmester'], label: 'Audio premium' },
+  { keywords: ['hayon électrique', 'coffre électrique', 'hands-free tailgate', 'power tailgate'], label: 'Hayon électrique' },
+  { keywords: ['phares laser', 'laser headlights', 'matrix led', 'phares matrix', 'adaptive led'], label: 'Phares LED/Matrix' },
+  { keywords: ['affichage tête haute', 'head-up display', 'hud'], label: 'Affichage tête haute' },
+  { keywords: ['caméra 360', 'camera 360', '360 camera', 'vue 360'], label: 'Caméra 360°' },
+  { keywords: ['aide au stationnement', 'park assist', 'parking automatique', 'auto park'], label: 'Aide au stationnement' },
+  { keywords: ['régulateur adaptatif', 'adaptive cruise', 'acc', 'cruise control adaptatif'], label: 'Régulateur adaptatif' },
+  { keywords: ['détection angle mort', 'blind spot', 'surveillance angle mort', 'blis'], label: 'Détection angle mort' },
+  { keywords: ['sièges chauffants', 'sièges ventilés', 'heated seats', 'ventilated seats', 'sieges chauffants'], label: 'Sièges chauffants/ventilés' },
+  { keywords: ['sièges à mémoire', 'memory seats', 'sieges memoire'], label: 'Sièges à mémoire' },
+  { keywords: ['attelage', 'trekhaak', 'towbar', 'crochet attelage'], label: 'Attelage' },
+  { keywords: ['suspension adaptative', 'adaptive suspension', 'suspension pneumatique', 'air suspension'], label: 'Suspension adaptative' },
 ];
 
-const MAINTENANCE_KEYWORDS = [
-  { pattern: /(?:révision|entretien|service).*(?:\d{4}|récent|complet|à\s+jour)/i, type: 'maintenance' },
-  { pattern: /(?:carnet|historique|dossier).*(?:entretien|service|révision)/i, type: 'maintenance' },
-  { pattern: /(?:distribution|courroie|timing\s+belt).*(?:changée?|remplacée?|neuve?|ok)/i, type: 'maintenance' },
-  { pattern: /(?:pneus?|tyres?).*(?:neufs?|récents?|changés?|\d{4})/i, type: 'maintenance' },
-  { pattern: /(?:ct|controle\s+technique).*(?:ok|valid|passé)/i, type: 'maintenance' },
+const MAINTENANCE_TOKENS = [
+  'révision', 'entretien', 'service', 'vidange', 'carnet', 'historique',
+  'factures', 'toyota', 'mercedes', 'bmw', 'audi', 'concessionnaire',
+  'distribution', 'courroie', 'timing belt', 'pneus neufs', 'ct', 'contrôle technique',
 ];
 
-const DEFECT_KEYWORDS = [
-  { pattern: /(?:rayure|scratch|égratignure)/i, type: 'defect' },
-  { pattern: /(?:choc|impact|coup|dent)/i, type: 'defect' },
-  { pattern: /(?:usure|worn|abîmé|endommagé)/i, type: 'defect' },
-  { pattern: /(?:rouille|rust|corrosion)/i, type: 'defect' },
-  { pattern: /(?:fissure|crack|brisé)/i, type: 'defect' },
-  { pattern: /(?:problème|problem|défaut|issue|fault)/i, type: 'defect' },
-  { pattern: /(?:accident|accidenté|sinistre)/i, type: 'defect' },
+const DEFECT_TOKENS = [
+  'rayé', 'rayure', 'rayures', 'égratignure', 'éraflure',
+  'bosse', 'bosses', 'choc', 'impact', 'coup',
+  'usure', 'usé', 'abîmé', 'endommagé',
+  'rouille', 'corrosion', 'oxydation',
+  'fissure', 'fissuré', 'craquelé', 'brisé',
+  'peinture', 'carrosserie', 'jante', 'jantes', 'pare-choc', 'pare-chocs',
+  'griffe', 'griffure', 'défaut', 'problème',
 ];
 
 /**
- * Extract text content from HTML
+ * Extract seller's description text from Leboncoin HTML
+ * FAIL-CLOSED: Only extracts from __NEXT_DATA__ ad body
  */
-function extractTextContent(html: string): string {
-  return html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function extractLeboncoinSellerContent(html: string): SellerContent {
+  const nextDataPatterns = [
+    /<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i,
+    /<script\s+type=["']application\/json["'][^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i,
+  ];
+
+  let nextDataMatch = null;
+  for (const pattern of nextDataPatterns) {
+    nextDataMatch = html.match(pattern);
+    if (nextDataMatch) break;
+  }
+
+  if (!nextDataMatch) {
+    return { description: '', structuredEquipment: [] };
+  }
+
+  try {
+    const data = JSON.parse(nextDataMatch[1]);
+
+    // Navigate to ad data
+    const possiblePaths = [
+      data?.props?.pageProps?.ad,
+      data?.props?.pageProps?.adData,
+      data?.props?.pageProps?.initialData?.ad,
+    ];
+
+    let adData = null;
+    for (const path of possiblePaths) {
+      if (path && typeof path === 'object') {
+        adData = path;
+        break;
+      }
+    }
+
+    if (!adData) {
+      return { description: '', structuredEquipment: [] };
+    }
+
+    // Extract seller's description (body text)
+    const description = adData.body || adData.description || adData.text || '';
+
+    // Extract structured equipment if available
+    const structuredEquipment: string[] = [];
+    if (adData.options && Array.isArray(adData.options)) {
+      structuredEquipment.push(...adData.options.map((o: any) => String(o.label || o.name || o).toLowerCase()));
+    }
+    if (adData.attributes && Array.isArray(adData.attributes)) {
+      for (const attr of adData.attributes) {
+        if (attr.key === 'options' || attr.key === 'equipment') {
+          if (Array.isArray(attr.values)) {
+            structuredEquipment.push(...attr.values.map((v: any) => String(v).toLowerCase()));
+          } else if (attr.value) {
+            structuredEquipment.push(String(attr.value).toLowerCase());
+          }
+        }
+      }
+    }
+
+    return { description, structuredEquipment };
+  } catch (error) {
+    return { description: '', structuredEquipment: [] };
+  }
 }
 
 /**
- * Extract premium options from listing detail page
+ * Extract seller's description text from Marktplaats HTML
+ * FAIL-CLOSED: Only extracts from description container
  */
-function extractPremiumOptions(text: string): string[] {
+function extractMarktplaatsSellerContent(html: string): SellerContent {
+  const descPatterns = [
+    /<div[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<section[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/section>/i,
+  ];
+
+  for (const pattern of descPatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      const description = match[1]
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (description.length > 50) {
+        return { description, structuredEquipment: [] };
+      }
+    }
+  }
+
+  return { description: '', structuredEquipment: [] };
+}
+
+/**
+ * Extract seller's description text from Bilbasen HTML
+ * FAIL-CLOSED: Only extracts from description section
+ */
+function extractBilbasenSellerContent(html: string): SellerContent {
+  const descPatterns = [
+    /<div[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*id="description"[^>]*>([\s\S]*?)<\/div>/i,
+  ];
+
+  for (const pattern of descPatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      const description = match[1]
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (description.length > 50) {
+        return { description, structuredEquipment: [] };
+      }
+    }
+  }
+
+  return { description: '', structuredEquipment: [] };
+}
+
+/**
+ * Extract seller's description text from Gaspedaal HTML
+ * FAIL-CLOSED: Only extracts from description section
+ */
+function extractGaspedaalSellerContent(html: string): SellerContent {
+  const descPatterns = [
+    /<div[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+  ];
+
+  for (const pattern of descPatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      const description = match[1]
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (description.length > 50) {
+        return { description, structuredEquipment: [] };
+      }
+    }
+  }
+
+  return { description: '', structuredEquipment: [] };
+}
+
+/**
+ * Extract seller content based on marketplace
+ */
+function extractSellerContent(html: string, listingUrl: string): SellerContent {
+  if (listingUrl.includes('leboncoin.fr')) {
+    return extractLeboncoinSellerContent(html);
+  } else if (listingUrl.includes('marktplaats.nl')) {
+    return extractMarktplaatsSellerContent(html);
+  } else if (listingUrl.includes('bilbasen.dk')) {
+    return extractBilbasenSellerContent(html);
+  } else if (listingUrl.includes('gaspedaal.nl')) {
+    return extractGaspedaalSellerContent(html);
+  }
+
+  return { description: '', structuredEquipment: [] };
+}
+
+/**
+ * Extract premium options from seller description and structured equipment
+ * STRICT: Only returns options found in whitelist, with evidence
+ */
+function extractPremiumOptions(content: SellerContent): { options: string[]; evidence: string[] } {
   const options: string[] = [];
-  const lowerText = text.toLowerCase();
+  const evidence: string[] = [];
+  const descLower = content.description.toLowerCase();
+  const allEquipment = [...content.structuredEquipment];
 
-  for (const { pattern, label } of PREMIUM_OPTIONS_KEYWORDS) {
-    if (pattern.test(text)) {
-      if (!options.includes(label)) {
-        options.push(label);
+  for (const { keywords, label } of PREMIUM_OPTIONS) {
+    let found = false;
+    let foundEvidence = '';
+
+    // Check in description text
+    for (const keyword of keywords) {
+      if (descLower.includes(keyword.toLowerCase())) {
+        found = true;
+        // Extract sentence containing the keyword
+        const sentences = content.description.split(/[.!?]+/);
+        for (const sentence of sentences) {
+          if (sentence.toLowerCase().includes(keyword.toLowerCase())) {
+            foundEvidence = sentence.trim().substring(0, 80);
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    // Check in structured equipment
+    if (!found) {
+      for (const keyword of keywords) {
+        for (const equipment of allEquipment) {
+          if (equipment.includes(keyword.toLowerCase())) {
+            found = true;
+            foundEvidence = `[Equipment: ${equipment.substring(0, 60)}]`;
+            break;
+          }
+        }
+        if (found) break;
+      }
+    }
+
+    if (found && !options.includes(label)) {
+      options.push(label);
+      if (foundEvidence) {
+        evidence.push(`${label}: "${foundEvidence}"`);
       }
     }
   }
 
-  return options;
+  return { options, evidence: evidence.slice(0, 3) };
 }
 
 /**
- * Extract maintenance info with seller context
+ * Extract maintenance info from seller description ONLY
+ * Returns sentences containing maintenance keywords
  */
-function extractMaintenanceInfo(text: string): { entretien: string; maintenance_summary: string } {
-  const sentences: string[] = [];
+function extractMaintenanceInfo(description: string): { entretien: string; evidence: string[] } {
+  if (!description || description.length < 20) {
+    return { entretien: '', evidence: [] };
+  }
 
-  // Split into sentences
-  const parts = text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 10);
+  const sentences = description.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 15);
+  const matchedSentences: string[] = [];
+  const descLower = description.toLowerCase();
 
-  for (const sentence of parts) {
-    for (const { pattern } of MAINTENANCE_KEYWORDS) {
-      if (pattern.test(sentence)) {
-        sentences.push(sentence);
+  for (const sentence of sentences) {
+    const sentenceLower = sentence.toLowerCase();
+    for (const token of MAINTENANCE_TOKENS) {
+      if (sentenceLower.includes(token)) {
+        matchedSentences.push(sentence);
         break;
       }
     }
   }
 
-  const entretien = sentences.slice(0, 3).join('. ').substring(0, 500);
-  const maintenance_summary = entretien ? 'Entretien mentionné' : '';
+  const entretien = matchedSentences.slice(0, 3).join('. ').substring(0, 500);
+  const evidence = matchedSentences.slice(0, 2).map(s => s.substring(0, 80));
 
-  return { entretien, maintenance_summary };
+  return { entretien: entretien || '', evidence };
 }
 
 /**
- * Extract defects/condition notes
+ * Extract defects from seller description ONLY
+ * Returns sentences containing defect keywords
  */
-function extractDefects(text: string): string {
-  const sentences: string[] = [];
+function extractDefects(description: string): { defects_summary: string; evidence: string[] } {
+  if (!description || description.length < 20) {
+    return { defects_summary: '', evidence: [] };
+  }
 
-  // Split into sentences
-  const parts = text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 10);
+  const sentences = description.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 15);
+  const matchedSentences: string[] = [];
 
-  for (const sentence of parts) {
-    for (const { pattern } of DEFECT_KEYWORDS) {
-      if (pattern.test(sentence)) {
-        sentences.push(sentence);
+  for (const sentence of sentences) {
+    const sentenceLower = sentence.toLowerCase();
+    for (const token of DEFECT_TOKENS) {
+      if (sentenceLower.includes(token)) {
+        matchedSentences.push(sentence);
         break;
       }
     }
   }
 
-  return sentences.slice(0, 3).join('. ').substring(0, 500);
+  const defects_summary = matchedSentences.slice(0, 3).join('. ').substring(0, 500);
+  const evidence = matchedSentences.slice(0, 2).map(s => s.substring(0, 80));
+
+  return { defects_summary: defects_summary || '', evidence };
 }
 
 /**
@@ -148,7 +348,6 @@ function extractDefects(text: string): string {
 function extractLeboncoinImages(html: string): string[] {
   const images: string[] = [];
 
-  // Look for image URLs in various formats
   const patterns = [
     /https:\/\/img\d*\.leboncoin\.fr\/api\/v1\/lbcpb1\/images\/[a-f0-9-]+\.jpg\?rule=classified-[0-9x]+/gi,
     /https:\/\/img\d*\.leboncoin\.fr\/[^"'\s]+\.jpg/gi,
@@ -251,24 +450,46 @@ function extractCarImages(html: string, listingUrl: string): string[] {
 
 /**
  * Parse detail page HTML to extract enriched listing data
+ * FAIL-CLOSED: Only extracts from verified seller content
  *
  * @param html - Detail page HTML
  * @param listingUrl - Listing URL (for marketplace detection)
- * @returns Enriched detail data
+ * @returns Enriched detail data with evidence
  */
 export function parseDetailPage(html: string, listingUrl: string): DetailPageData {
-  const textContent = extractTextContent(html);
+  const sellerContent = extractSellerContent(html, listingUrl);
 
-  const options = extractPremiumOptions(textContent);
-  const { entretien, maintenance_summary } = extractMaintenanceInfo(textContent);
-  const defects_summary = extractDefects(textContent);
+  if (!sellerContent.description && sellerContent.structuredEquipment.length === 0) {
+    return {
+      options: [],
+      entretien: '',
+      defects_summary: '',
+      maintenance_summary: '',
+      car_image_urls: [],
+    };
+  }
+
+  const optionsResult = extractPremiumOptions(sellerContent);
+  const maintenanceResult = extractMaintenanceInfo(sellerContent.description);
+  const defectsResult = extractDefects(sellerContent.description);
   const car_image_urls = extractCarImages(html, listingUrl);
 
+  // Store evidence in entretien/defects_summary (append at end with delimiter)
+  let entretien = maintenanceResult.entretien;
+  if (maintenanceResult.evidence.length > 0) {
+    entretien = entretien ? `${entretien} [Evidence: ${maintenanceResult.evidence[0]}...]` : '';
+  }
+
+  let defects_summary = defectsResult.defects_summary;
+  if (defectsResult.evidence.length > 0) {
+    defects_summary = defects_summary ? `${defects_summary} [Evidence: ${defectsResult.evidence[0]}...]` : '';
+  }
+
   return {
-    options,
-    entretien,
-    defects_summary,
-    maintenance_summary,
+    options: optionsResult.options,
+    entretien: entretien || '',
+    defects_summary: defects_summary || '',
+    maintenance_summary: maintenanceResult.entretien ? 'Entretien mentionné' : '',
     car_image_urls,
   };
 }
