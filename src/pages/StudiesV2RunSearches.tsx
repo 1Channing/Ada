@@ -120,7 +120,7 @@ export function StudiesV2RunSearches() {
       const { data: scheduledRun } = await supabase
         .from('scheduled_study_runs')
         .select('*')
-        .eq('status', 'running')
+        .in('status', ['pending', 'running'])
         .order('scheduled_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -134,9 +134,14 @@ export function StudiesV2RunSearches() {
         const completedCount = completedResults?.length || 0;
         const totalStudies = Array.isArray(scheduledRun.study_ids) ? scheduledRun.study_ids.length : 0;
 
-        // If actually completed, force reset UI
+        // If actually completed, update DB and force reset UI
         if (completedCount >= totalStudies) {
-          console.log('[RUN_SEARCHES] Scheduled run already complete, resetting UI');
+          console.log('[RUN_SEARCHES] Scheduled run already complete, updating DB and resetting UI');
+          await supabase
+            .from('scheduled_study_runs')
+            .update({ status: 'completed' })
+            .eq('id', scheduledRun.id);
+
           setRunning(false);
           setProgress('');
           setRunProgress({
@@ -221,7 +226,24 @@ export function StudiesV2RunSearches() {
           setRunning(true);
           cancelRequestedRef.current = activeRun.cancel_requested || false;
           currentRunIdRef.current = activeRun.id;
+          return;
         }
+      }
+
+      // No active runs found - force reset UI if it's stuck in running state
+      if (running || runProgress.isRunning || cancelRequestedRef.current) {
+        console.log('[RUN_SEARCHES] No active runs found, forcing UI reset');
+        setRunning(false);
+        setProgress('');
+        setRunProgress({
+          isRunning: false,
+          currentIndex: 0,
+          total: 0,
+          currentStudyId: undefined,
+          stage: undefined,
+        });
+        currentRunIdRef.current = null;
+        cancelRequestedRef.current = false;
       }
     } catch (error) {
       console.error('[RUN_SEARCHES] Error checking for active runs:', error);
