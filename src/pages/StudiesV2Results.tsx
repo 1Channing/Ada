@@ -80,8 +80,16 @@ export function StudiesV2Results() {
   const [showListingsModal, setShowListingsModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [exportingListingId, setExportingListingId] = useState<string | null>(null);
+  const [verifyMarketsResult, setVerifyMarketsResult] = useState<StudyRunResult | null>(null);
 
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
+
+  function hasZeroListings(result: StudyRunResult): boolean {
+    if (!result.target_stats || result.target_stats.count === 0) return true;
+    if (result.target_error_reason?.includes('No valid source listings found')) return true;
+    if (result.target_error_reason?.includes('No valid target listings found')) return true;
+    return false;
+  }
 
   useEffect(() => {
     loadLatestRun();
@@ -588,8 +596,18 @@ export function StudiesV2Results() {
                         </div>
                       )}
                       {result.status === 'NULL' && result.target_error_reason && (
-                        <div className="text-xs text-zinc-500 max-w-xs truncate" title={result.target_error_reason}>
-                          {result.target_error_reason}
+                        <div className="space-y-1">
+                          <div className="text-xs text-zinc-500 max-w-xs truncate" title={result.target_error_reason}>
+                            {result.target_error_reason}
+                          </div>
+                          {hasZeroListings(result) && (
+                            <button
+                              onClick={() => setVerifyMarketsResult(result)}
+                              className="text-xs text-blue-400 hover:text-blue-300 underline"
+                            >
+                              Verify markets
+                            </button>
+                          )}
                         </div>
                       )}
                       {result.status === 'NULL' && !result.target_error_reason && result.price_difference !== null && result.price_difference < (latestRun?.price_diff_threshold_eur || 7000) && (
@@ -804,6 +822,53 @@ export function StudiesV2Results() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {verifyMarketsResult && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-zinc-900 rounded-lg border border-zinc-800 max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-zinc-100">Verify Markets</h3>
+              <button
+                onClick={() => setVerifyMarketsResult(null)}
+                className="text-zinc-400 hover:text-zinc-100 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <p className="text-sm text-zinc-400 mb-4">
+                No listings found for this study. Verify the markets manually:
+              </p>
+              <div className="space-y-2">
+                <a
+                  href={verifyMarketsResult.target_stats?.targetMarketUrl || verifyMarketsResult.studies_v2.market_target_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between px-4 py-3 bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 rounded-lg transition-colors group"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-zinc-100">Target Market</div>
+                    <div className="text-xs text-blue-400">{verifyMarketsResult.studies_v2.country_target}</div>
+                  </div>
+                  <ExternalLink size={16} className="text-zinc-500 group-hover:text-zinc-300" />
+                </a>
+                <a
+                  href={verifyMarketsResult.target_stats?.sourceMarketUrl || verifyMarketsResult.studies_v2.market_source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between px-4 py-3 bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 rounded-lg transition-colors group"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-zinc-100">Source Market</div>
+                    <div className="text-xs text-emerald-400">{verifyMarketsResult.studies_v2.country_source}</div>
+                  </div>
+                  <ExternalLink size={16} className="text-zinc-500 group-hover:text-zinc-300" />
+                </a>
+              </div>
             </div>
           </div>
         </div>
