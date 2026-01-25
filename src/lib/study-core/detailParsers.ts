@@ -20,12 +20,16 @@ export interface DetailPageData {
   defects_summary: string;
   maintenance_summary: string;
   car_image_urls: string[];
+  year?: number | null;
+  mileage?: number | null;
 }
 
 interface SellerContent {
   description: string;
   structuredEquipment: string[];
   rawDescriptionLength?: number; // For Leboncoin logging
+  year?: number | null;
+  mileage?: number | null;
 }
 
 const PREMIUM_OPTIONS = [
@@ -166,12 +170,31 @@ function extractLeboncoinSellerContent(html: string): SellerContent {
     const rawDescription = adData.body || adData.description || adData.text || '';
     const description = cleanLeboncoinDescription(rawDescription);
 
+    // Extract year and mileage if explicitly present (FAIL-CLOSED)
+    let year: number | null = null;
+    let mileage: number | null = null;
+
+    if (adData.attributes && Array.isArray(adData.attributes)) {
+      for (const attr of adData.attributes) {
+        if (attr.key === 'regdate' && attr.value) {
+          const yearMatch = String(attr.value).match(/(\d{4})/);
+          if (yearMatch) year = parseInt(yearMatch[1], 10);
+        }
+        if (attr.key === 'mileage' && attr.value) {
+          const mileageNum = parseInt(String(attr.value), 10);
+          if (!isNaN(mileageNum) && mileageNum > 0) mileage = mileageNum;
+        }
+      }
+    }
+
     // DO NOT extract structured equipment for Leboncoin
     // (Will be ignored for options extraction)
     return {
       description,
       structuredEquipment: [],
-      rawDescriptionLength: rawDescription.length
+      rawDescriptionLength: rawDescription.length,
+      year,
+      mileage
     };
   } catch (error) {
     return { description: '', structuredEquipment: [] };
@@ -557,10 +580,13 @@ export function parseDetailPage(html: string, listingUrl: string): DetailPageDat
     const entretienLen = entretien.length;
     const defectsLen = defects_summary.length;
     const optionsCount = optionsResult.options.length;
+    const hasYear = sellerContent.year ? 'yes' : 'no';
+    const hasMileage = sellerContent.mileage ? 'yes' : 'no';
 
     console.log(
       `[DETAIL_SCRAPE] lb_desc_source_len=${rawLen} cleaned_len=${cleanedLen} ` +
-      `entretien_len=${entretienLen} defects_len=${defectsLen} options_count=${optionsCount}`
+      `entretien_len=${entretienLen} defects_len=${defectsLen} options_count=${optionsCount} ` +
+      `year=${hasYear} mileage=${hasMileage}`
     );
   }
 
@@ -570,5 +596,7 @@ export function parseDetailPage(html: string, listingUrl: string): DetailPageDat
     defects_summary: defects_summary || '',
     maintenance_summary: maintenanceResult.entretien ? 'Entretien mentionné' : '',
     car_image_urls,
+    year: sellerContent.year,
+    mileage: sellerContent.mileage,
   };
 }

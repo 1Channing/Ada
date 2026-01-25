@@ -650,6 +650,18 @@ export function StudiesV2Results() {
               </button>
             </div>
 
+            {isFreshRunning && (
+              <div className="mx-4 mt-4 p-3 bg-amber-900/30 border border-amber-700/50 rounded-lg flex items-center gap-3">
+                <div className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-amber-400 border-t-transparent"></div>
+                <div>
+                  <p className="text-amber-100 text-sm font-medium">Enrichment in progress…</p>
+                  <p className="text-amber-200 text-xs">
+                    Fetching mileage, options, defects, and maintenance details. Please wait 10–30s.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {selectedResult.target_stats && (
               <div className="px-4 pt-4 pb-2 bg-zinc-800/30 border-b border-zinc-800">
                 <div className="flex items-center justify-between mb-2">
@@ -715,6 +727,13 @@ export function StudiesV2Results() {
                         <h4 className="font-medium text-zinc-100">{listing.title}</h4>
                         {getStatusBadge(listing.status)}
                       </div>
+                      {(listing.year || listing.mileage) && (
+                        <div className="text-sm text-zinc-400 mb-2">
+                          {listing.year && <span>{listing.year}</span>}
+                          {listing.year && listing.mileage && <span className="mx-1.5">•</span>}
+                          {listing.mileage && <span>{listing.mileage.toLocaleString()} km</span>}
+                        </div>
+                      )}
                       <div className="flex items-center gap-4 text-sm text-zinc-400">
                         <span className="font-bold text-lg text-emerald-400">{listing.price.toLocaleString()}€</span>
                         {selectedResult.target_stats && (
@@ -722,8 +741,6 @@ export function StudiesV2Results() {
                             +{(selectedResult.target_stats.median_price - listing.price).toLocaleString()}€ opportunity
                           </span>
                         )}
-                        {listing.year && <span>{listing.year}</span>}
-                        {listing.mileage && <span>{listing.mileage.toLocaleString()} km</span>}
                         {listing.trim && <span className="text-zinc-500">{listing.trim}</span>}
                       </div>
                     </div>
