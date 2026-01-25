@@ -600,19 +600,25 @@ export function StudiesV2Results() {
                           <div className="text-xs text-zinc-500 max-w-xs truncate" title={result.target_error_reason}>
                             {result.target_error_reason}
                           </div>
-                          {hasZeroListings(result) && (
-                            <button
-                              onClick={() => setVerifyMarketsResult(result)}
-                              className="text-xs text-blue-400 hover:text-blue-300 underline"
-                            >
-                              Verify markets
-                            </button>
-                          )}
+                          <button
+                            onClick={() => setVerifyMarketsResult(result)}
+                            className="text-xs text-blue-400 hover:text-blue-300 underline"
+                          >
+                            Verify markets
+                          </button>
                         </div>
                       )}
                       {result.status === 'NULL' && !result.target_error_reason && result.price_difference !== null && result.price_difference < (latestRun?.price_diff_threshold_eur || 7000) && (
-                        <div className="text-xs text-zinc-500">
-                          Below threshold ({latestRun?.price_diff_threshold_eur || 7000}€)
+                        <div className="space-y-1">
+                          <div className="text-xs text-zinc-500">
+                            Below threshold ({latestRun?.price_diff_threshold_eur || 7000}€)
+                          </div>
+                          <button
+                            onClick={() => setVerifyMarketsResult(result)}
+                            className="text-xs text-blue-400 hover:text-blue-300 underline"
+                          >
+                            Verify markets
+                          </button>
                         </div>
                       )}
                     </td>

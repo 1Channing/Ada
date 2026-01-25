@@ -141,6 +141,29 @@ export function StudiesV2RunSearches() {
 
           const completedCount = completedResults?.length || 0;
 
+          // Check if run is actually complete
+          if (completedCount >= activeRun.total_studies) {
+            console.log('[RUN_SEARCHES] Run is actually complete, updating DB and resetting UI');
+            await supabase
+              .from('study_runs')
+              .update({ status: 'completed' })
+              .eq('id', activeRun.id);
+
+            // Reset UI to idle
+            setRunning(false);
+            setProgress('');
+            setRunProgress({
+              isRunning: false,
+              currentIndex: 0,
+              total: 0,
+              currentStudyId: undefined,
+              stage: undefined,
+            });
+            currentRunIdRef.current = null;
+            cancelRequestedRef.current = false;
+            return;
+          }
+
           setRunProgress({
             isRunning: true,
             currentIndex: completedCount,
