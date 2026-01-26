@@ -68,6 +68,8 @@ interface SourceListing {
   options: string[] | null;
   status: string;
   car_image_urls: string[] | null;
+  internal_ref?: string;
+  assigned_to?: string | null;
 }
 
 interface TodayRun {
@@ -356,7 +358,33 @@ export function StudiesV2Results() {
       );
     } catch (error) {
       console.error('Error updating listing status:', error);
-      alert(`Error updating status: ${(error as Error).message}`);
+    }
+  }
+
+  async function approveForNegotiation(listing: SourceListing, assignee: 'channing' | 'antoine') {
+    try {
+      const { error } = await supabase
+        .from('study_source_listings')
+        .update({
+          status: 'APPROVED',
+          assigned_to: assignee,
+        })
+        .eq('id', listing.id);
+
+      if (error) {
+        console.error('Error approving for negotiation:', error);
+        return;
+      }
+
+      setListings(prevListings =>
+        prevListings.map(l =>
+          l.id === listing.id
+            ? { ...l, status: 'APPROVED', assigned_to: assignee }
+            : l
+        )
+      );
+    } catch (error) {
+      console.error('Error approving listing:', error);
     }
   }
 
@@ -822,6 +850,11 @@ export function StudiesV2Results() {
                       <div className="flex items-center gap-2 mb-1">
                         <h4 className="font-medium text-zinc-100">{listing.title}</h4>
                         {getStatusBadge(listing.status)}
+                        {listing.assigned_to && (
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-900/30 text-blue-400">
+                            {listing.assigned_to === 'channing' ? 'Channing' : 'Antoine'}
+                          </span>
+                        )}
                       </div>
                       {(listing.year || listing.mileage) && (
                         <div className="text-sm text-zinc-400 mb-2">
@@ -906,13 +939,28 @@ export function StudiesV2Results() {
                   <div className="flex gap-2 pt-3 border-t border-zinc-700">
                     {listing.status === 'NEW' && (
                       <>
-                        <button
-                          onClick={() => updateListingStatus(listing.id, 'APPROVED')}
-                          className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <CheckCircle size={16} />
-                          Approve for negotiation
-                        </button>
+                        {listing.assigned_to ? (
+                          <div className="flex-1 px-3 py-2 bg-amber-900/30 text-amber-400 rounded text-xs text-center">
+                            Already assigned to {listing.assigned_to === 'channing' ? 'Channing' : 'Antoine'}
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => approveForNegotiation(listing, 'channing')}
+                              className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm flex items-center justify-center gap-2 transition-colors"
+                            >
+                              <CheckCircle size={16} />
+                              Approve for Channing
+                            </button>
+                            <button
+                              onClick={() => approveForNegotiation(listing, 'antoine')}
+                              className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm flex items-center justify-center gap-2 transition-colors"
+                            >
+                              <CheckCircle size={16} />
+                              Approve for Antoine
+                            </button>
+                          </>
+                        )}
                         <button
                           onClick={() => updateListingStatus(listing.id, 'REJECTED')}
                           className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm flex items-center justify-center gap-2 transition-colors"

@@ -17,6 +17,7 @@ interface NegotiationListing {
   options_summary: string | null;
   entretien: string | null;
   options: string[] | null;
+  assigned_to?: string | null;
   study_run_results: {
     target_market_price: number | null;
     price_difference: number | null;
@@ -31,16 +32,16 @@ interface NegotiationListing {
   };
 }
 
-type StatusFilter = 'APPROVED' | 'COMPLETED' | 'ALL';
+type AssigneeFilter = 'all' | 'channing' | 'antoine';
 
 export function StudiesV2Negotiations() {
   const [listings, setListings] = useState<NegotiationListing[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('APPROVED');
+  const [assigneeFilter, setAssigneeFilter] = useState<AssigneeFilter>('all');
 
   useEffect(() => {
     loadListings();
-  }, [statusFilter]);
+  }, [assigneeFilter]);
 
   async function loadListings() {
     try {
@@ -63,15 +64,11 @@ export function StudiesV2Negotiations() {
             )
           )
         `)
-        .neq('status', 'DELETED')
+        .eq('status', 'APPROVED')
         .order('created_at', { ascending: false });
 
-      if (statusFilter === 'APPROVED') {
-        query = query.eq('status', 'APPROVED');
-      } else if (statusFilter === 'COMPLETED') {
-        query = query.eq('status', 'COMPLETED');
-      } else {
-        query = query.in('status', ['APPROVED', 'COMPLETED']);
+      if (assigneeFilter !== 'all') {
+        query = query.eq('assigned_to', assigneeFilter);
       }
 
       const { data, error } = await query;
@@ -97,7 +94,6 @@ export function StudiesV2Negotiations() {
       await loadListings();
     } catch (error) {
       console.error('Error updating listing status:', error);
-      alert(`Error updating status: ${(error as Error).message}`);
     }
   }
 
@@ -117,7 +113,6 @@ export function StudiesV2Negotiations() {
       await loadListings();
     } catch (error) {
       console.error('Error deleting listing:', error);
-      alert(`Error deleting listing: ${(error as Error).message}`);
     }
   }
 
@@ -144,34 +139,34 @@ export function StudiesV2Negotiations() {
 
         <div className="flex gap-2">
           <button
-            onClick={() => setStatusFilter('APPROVED')}
+            onClick={() => setAssigneeFilter('all')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              statusFilter === 'APPROVED'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-            }`}
-          >
-            In Negotiation
-          </button>
-          <button
-            onClick={() => setStatusFilter('COMPLETED')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              statusFilter === 'COMPLETED'
-                ? 'bg-blue-600 text-white'
-                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-            }`}
-          >
-            Completed
-          </button>
-          <button
-            onClick={() => setStatusFilter('ALL')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              statusFilter === 'ALL'
+              assigneeFilter === 'all'
                 ? 'bg-zinc-600 text-white'
                 : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
             }`}
           >
             All
+          </button>
+          <button
+            onClick={() => setAssigneeFilter('channing')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              assigneeFilter === 'channing'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+            }`}
+          >
+            Channing
+          </button>
+          <button
+            onClick={() => setAssigneeFilter('antoine')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              assigneeFilter === 'antoine'
+                ? 'bg-blue-600 text-white'
+                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+            }`}
+          >
+            Antoine
           </button>
         </div>
       </div>
@@ -179,9 +174,9 @@ export function StudiesV2Negotiations() {
       <div className="bg-zinc-900 rounded-lg border border-zinc-800">
         <div className="p-4 border-b border-zinc-800">
           <h3 className="font-semibold text-zinc-100">
-            {statusFilter === 'APPROVED' && `Listings in Negotiation (${listings.length})`}
-            {statusFilter === 'COMPLETED' && `Completed Negotiations (${listings.length})`}
-            {statusFilter === 'ALL' && `All Negotiations (${listings.length})`}
+            {assigneeFilter === 'all' && `All Negotiations (${listings.length})`}
+            {assigneeFilter === 'channing' && `Channing's Negotiations (${listings.length})`}
+            {assigneeFilter === 'antoine' && `Antoine's Negotiations (${listings.length})`}
           </h3>
         </div>
 
@@ -189,9 +184,9 @@ export function StudiesV2Negotiations() {
           <div className="p-8 text-center text-zinc-400">Loading negotiations...</div>
         ) : listings.length === 0 ? (
           <div className="p-8 text-center text-zinc-400">
-            {statusFilter === 'APPROVED' && 'No listings in negotiation. Approve listings from the Results tab.'}
-            {statusFilter === 'COMPLETED' && 'No completed negotiations yet.'}
-            {statusFilter === 'ALL' && 'No negotiations found.'}
+            {assigneeFilter === 'all' && 'No approved listings yet. Approve listings from the Results tab.'}
+            {assigneeFilter === 'channing' && 'No listings assigned to Channing yet.'}
+            {assigneeFilter === 'antoine' && 'No listings assigned to Antoine yet.'}
           </div>
         ) : (
           <div className="divide-y divide-zinc-800">
@@ -203,6 +198,11 @@ export function StudiesV2Negotiations() {
                       <div className="flex items-center gap-2 mb-1">
                         <h4 className="font-medium text-zinc-100">{listing.title}</h4>
                         {getStatusBadge(listing.status)}
+                        {listing.assigned_to && (
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-900/30 text-blue-400">
+                            {listing.assigned_to === 'channing' ? 'Channing' : 'Antoine'}
+                          </span>
+                        )}
                       </div>
                       <div className="text-sm text-zinc-400">
                         <span className="font-medium text-blue-400">

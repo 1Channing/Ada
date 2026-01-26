@@ -10,6 +10,7 @@ import { analyzeListingsBatch } from '../lib/aiAnalysis';
 import type { StudyRunProgressEvent, StudyStage, StudyRunStatus } from '../store/studyRunsStore';
 import type { StudyCriteria } from '../lib/study-core/types';
 import { persistStudyRunLogsSafe } from './studyRunLogs';
+import { generateInternalRef } from '../lib/internalRefGenerator';
 
 /**
  * Applies trim/finition filter to Leboncoin URL.
@@ -673,18 +674,22 @@ export async function runStudyInBackground(
         full_description: listing.full_description,
         car_image_urls: listing.car_image_urls || [],
         status: 'NEW',
+        internal_ref: generateInternalRef({ listing_url: listing.listing_url }),
       };
     });
 
     if (listingsToStore.length > 0) {
       const { error: listingsError } = await supabase
         .from('study_source_listings')
-        .insert(listingsToStore);
+        .upsert(listingsToStore, {
+          onConflict: 'internal_ref',
+          ignoreDuplicates: true,
+        });
 
       if (listingsError) throw listingsError;
 
       const totalImages = listingsToStore.reduce((sum, l) => sum + (l.car_image_urls?.length || 0), 0);
-      console.log(`[RUN] ✅ Stored ${listingsToStore.length} non-damaged source listings with ${totalImages} total images`);
+      console.log(`[RUN] ✅ Stored ${listingsToStore.length} non-damaged source listings with ${totalImages} total images (existing listings preserved)`);
     } else {
       console.log(`[RUN] No non-damaged listings to store`);
     }
