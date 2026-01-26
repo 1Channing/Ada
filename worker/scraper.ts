@@ -26,6 +26,7 @@ import {
   type StudyCriteria,
 } from '../src/lib/study-core/index';
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
+import { generateInternalRef } from '../src/lib/internalRefGenerator';
 
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
@@ -491,6 +492,7 @@ export async function executeStudy({
           full_description: listing.description || null,
           car_image_urls: detailData?.car_image_urls || [],
           status: 'NEW',
+          internal_ref: generateInternalRef({ listing_url: listing.listing_url }),
         });
       }
 
@@ -498,7 +500,10 @@ export async function executeStudy({
 
       const { error: listingsError } = await supabase
         .from('study_source_listings')
-        .insert(listingsToInsert);
+        .upsert(listingsToInsert, {
+          onConflict: 'internal_ref',
+          ignoreDuplicates: true,
+        });
 
       if (listingsError) {
         console.error(`[DATABASE_ERROR] Failed to insert listings for ${study.id}:`, listingsError);

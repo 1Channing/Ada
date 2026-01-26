@@ -48,10 +48,11 @@ function extractListingId(url: string, marketplace: string): string | null {
       return match ? match[1] : null;
     }
 
-    // Leboncoin: /12345678.htm
+    // Leboncoin: /ad/voitures/<id> OR /<id>.htm
     if (marketplace === 'leboncoin') {
-      const match = url.match(/\/(\d+)\.htm/);
-      return match ? match[1] : null;
+      const match = url.match(/\/ad\/voitures\/(\d+)(?:\/|$)|\/(\d+)\.htm(?:\/|$)/);
+      const id = match ? (match[1] || match[2]) : null;
+      return id;
     }
 
     // Bilbasen: ?id=12345 or /id-12345
