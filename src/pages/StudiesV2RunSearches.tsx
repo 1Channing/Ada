@@ -53,7 +53,7 @@ export function StudiesV2RunSearches() {
   const [reschedulingJob, setReschedulingJob] = useState<ScheduledStudyRun | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleTime, setRescheduleTime] = useState('');
-  const [scrapeMode, setScrapeMode] = useState<'fast' | 'full' | 'detailed'>('detailed');
+  const [scrapeMode, setScrapeMode] = useState<'fast' | 'full' | 'detailed'>('fast');
   const cancelRequestedRef = useRef(false);
   const currentRunIdRef = useRef<string | null>(null);
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);

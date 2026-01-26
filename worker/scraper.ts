@@ -476,7 +476,6 @@ export async function executeStudy({
         }
 
         listingsToInsert.push({
-          run_result_id: resultId,
           listing_url: listing.listing_url,
           title: listing.title,
           price: toEur(listing.price, listing.currency),
@@ -498,17 +497,63 @@ export async function executeStudy({
 
       console.log(`[DETAIL_SCRAPE] total_detail_requests=${detailRequestCount}`);
 
-      const { error: listingsError } = await supabase
+      // Fetch existing listings to preserve ownership
+      const internalRefs = listingsToInsert.map(l => l.internal_ref);
+      const { data: existingListings } = await supabase
+        .from('study_source_listings')
+        .select('id, internal_ref, assigned_to, status')
+        .in('internal_ref', internalRefs);
+
+      const existingMap = new Map(
+        (existingListings || []).map(e => [
+          e.internal_ref,
+          { id: e.id, assigned_to: e.assigned_to, status: e.status }
+        ])
+      );
+
+      // Merge ownership fields from existing rows
+      for (const listing of listingsToInsert) {
+        const existingData = existingMap.get(listing.internal_ref);
+        if (existingData) {
+          (listing as any).assigned_to = existingData.assigned_to;
+          (listing as any).status = existingData.status;
+        }
+      }
+
+      // Upsert listings (update all fields including run data)
+      const { data: upsertedListings, error: listingsError } = await supabase
         .from('study_source_listings')
         .upsert(listingsToInsert, {
           onConflict: 'internal_ref',
-          ignoreDuplicates: true,
-        });
+          ignoreDuplicates: false,
+        })
+        .select('id, internal_ref');
 
       if (listingsError) {
-        console.error(`[DATABASE_ERROR] Failed to insert listings for ${study.id}:`, listingsError);
+        console.error(`[DATABASE_ERROR] Failed to upsert listings for ${study.id}:`, listingsError);
       } else {
-        console.log(`[WORKER] ✅ ${listingsToInsert.length} listings persisted to study_source_listings`);
+        console.log(`[WORKER] ✅ ${listingsToInsert.length} listings upserted (attempted: ${listingsToInsert.length}, existing: ${existingListings?.length || 0})`);
+
+        if (existingListings && existingListings.length > 0) {
+          console.log(`[WORKER] Sample reused ref: ${existingListings[0].internal_ref}`);
+        }
+
+        // Create mapping rows in join table
+        const mappings = (upsertedListings || []).map(listing => ({
+          run_result_id: resultId,
+          listing_id: listing.id,
+        }));
+
+        const { error: mappingError } = await supabase
+          .from('study_run_result_listings')
+          .insert(mappings)
+          .select();
+
+        if (mappingError) {
+          console.error(`[DATABASE_ERROR] Failed to insert mappings for ${study.id}:`, mappingError);
+        } else {
+          console.log(`[WORKER] ✅ ${mappings.length} run-listing mappings created`);
+        }
       }
     }
 

@@ -313,10 +313,26 @@ export function StudiesV2Results() {
   async function loadListings(resultId: string) {
     try {
       const cleanResultId = sanitizeUUID(resultId);
+
+      // Query through join table to get listings for this run
+      const { data: mappings, error: mappingsError } = await supabase
+        .from('study_run_result_listings')
+        .select('listing_id')
+        .eq('run_result_id', cleanResultId);
+
+      if (mappingsError) throw mappingsError;
+
+      if (!mappings || mappings.length === 0) {
+        setListings([]);
+        return;
+      }
+
+      const listingIds = mappings.map(m => m.listing_id);
+
       const { data, error } = await supabase
         .from('study_source_listings')
         .select('*')
-        .eq('run_result_id', cleanResultId)
+        .in('id', listingIds)
         .order('price', { ascending: true });
 
       if (error) throw error;
