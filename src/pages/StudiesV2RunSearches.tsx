@@ -364,28 +364,9 @@ export function StudiesV2RunSearches() {
       const runStartTime = Date.now();
       console.log(`[BATCH_RUN] 🚀 Run started at ${new Date().toISOString()}`);
 
-      const { data: runData, error: runError } = await supabase
-        .from('study_runs')
-        .insert([{
-          run_type: 'instant',
-          status: 'running',
-          total_studies: selectedStudies.size,
-          executed_at: new Date().toISOString(),
-          price_diff_threshold_eur: priceDiffThreshold,
-        }])
-        .select()
-        .single();
-
-      if (runError) throw runError;
-
-      const runId = runData.id;
-      currentRunIdRef.current = runId;
-      let nullCount = 0;
-      let opportunitiesCount = 0;
-      let blockedCount = 0;
-
       // API mode: batch all studies into ONE worker request
       if (SCRAPER_MODE === 'api') {
+        console.log('[RUN_SEARCHES] Remote instant run: UI will not create study_runs; worker/edge owns run record');
         console.log(`[BATCH_RUN] API mode: batching ${studiesToRun.length} studies into ONE request`);
 
         studiesToRun.forEach(study => {
@@ -398,7 +379,7 @@ export function StudiesV2RunSearches() {
           await runStudiesBatchRemotely(
             {
               studies: studiesToRun,
-              runId,
+              runId: null as any, // Edge function will create its own runId
               threshold: priceDiffThreshold,
               scrapeMode,
             },
@@ -408,60 +389,27 @@ export function StudiesV2RunSearches() {
             }
           );
 
-          console.log(`[BATCH_RUN] Batch job created. Waiting for results...`);
+          console.log(`[BATCH_RUN] Batch job submitted to worker. Check Results page for completion.`);
+          setProgress(`${studiesToRun.length} studies submitted to worker. Check Results page for status.`);
 
-          const studyIds = studiesToRun.map(s => s.id);
-          const completedStudies = new Set<string>();
-          const maxWaitTime = 300000;
-          const pollInterval = 3000;
-          const startTime = Date.now();
-
-          while (completedStudies.size < studiesToRun.length) {
-            if (Date.now() - startTime > maxWaitTime) {
-              throw new Error('Batch execution timed out');
-            }
-
-            if (cancelRequestedRef.current) break;
-
-            const { data: results, error: resultsError } = await supabase
-              .from('study_run_results')
-              .select('*')
-              .eq('run_id', runId)
-              .in('study_id', studyIds);
-
-            if (resultsError) throw resultsError;
-
-            if (results) {
-              for (const result of results) {
-                if (!completedStudies.has(result.study_id)) {
-                  completedStudies.add(result.study_id);
-
-                  if (result.status === 'NULL') {
-                    nullCount++;
-                    setStudyStatuses((prev) => ({ ...prev, [result.study_id]: 'null' }));
-                  } else if (result.status === 'TARGET_BLOCKED') {
-                    blockedCount++;
-                    setStudyStatuses((prev) => ({ ...prev, [result.study_id]: 'error' }));
-                  } else {
-                    opportunitiesCount++;
-                    setStudyStatuses((prev) => ({ ...prev, [result.study_id]: 'success' }));
-                  }
-                }
-              }
-            }
-
+          // Clear UI after brief delay (no runId to track for remote execution)
+          setTimeout(() => {
+            setRunning(false);
+            setProgress('');
             setRunProgress({
-              isRunning: true,
-              currentIndex: completedStudies.size,
-              total: studiesToRun.length,
-              stage: `Completed ${completedStudies.size}/${studiesToRun.length}...`,
+              isRunning: false,
+              currentIndex: 0,
+              total: 0,
+              currentStudyId: undefined,
+              stage: undefined,
             });
-            setProgress(`Processing... ${completedStudies.size}/${studiesToRun.length} completed`);
-
-            if (completedStudies.size < studiesToRun.length) {
-              await new Promise(resolve => setTimeout(resolve, pollInterval));
-            }
-          }
+            currentRunIdRef.current = null;
+            cancelRequestedRef.current = false;
+            setSelectedStudies(new Set());
+            studiesToRun.forEach(study => {
+              setStudyStatuses((prev) => ({ ...prev, [study.id]: 'idle' }));
+            });
+          }, 3000);
 
         } catch (error) {
           console.error('[BATCH_RUN] Batch error:', error);
@@ -469,6 +417,27 @@ export function StudiesV2RunSearches() {
         }
 
       } else {
+        // Local mode: create study_runs record and execute in browser
+        const { data: runData, error: runError } = await supabase
+          .from('study_runs')
+          .insert([{
+            run_type: 'instant',
+            status: 'running',
+            total_studies: selectedStudies.size,
+            executed_at: new Date().toISOString(),
+            price_diff_threshold_eur: priceDiffThreshold,
+          }])
+          .select()
+          .single();
+
+        if (runError) throw runError;
+
+        const runId = runData.id;
+        currentRunIdRef.current = runId;
+        let nullCount = 0;
+        let opportunitiesCount = 0;
+        let blockedCount = 0;
+
         // Local mode: sequential processing
         for (let i = 0; i < studiesToRun.length; i++) {
         const study = studiesToRun[i];
@@ -520,7 +489,7 @@ export function StudiesV2RunSearches() {
           } else {
             opportunitiesCount++;
             setStudyStatuses((prev) => ({ ...prev, [study.id]: 'success' }));
-            console.log(`[BATCH_RUN] �� Study ${studyCode} found opportunities (count: ${opportunitiesCount})`);
+            console.log(`[BATCH_RUN] ✅ Study ${studyCode} found opportunities (count: ${opportunitiesCount})`);
           }
 
           console.log(`[BATCH_RUN] ✅ Study ${i + 1}/${studiesToRun.length} completed and persisted: ${studyCode}`);
@@ -540,7 +509,6 @@ export function StudiesV2RunSearches() {
           });
           break;
         }
-      }
       }
 
       const finalStatus = cancelRequestedRef.current ? 'cancelled' : 'completed';
@@ -586,6 +554,8 @@ export function StudiesV2RunSearches() {
       }
 
       setSelectedStudies(new Set());
+      }
+
     } catch (error) {
       console.error('Error running search:', error);
       alert(`Error: ${(error as Error).message}`);
@@ -596,17 +566,19 @@ export function StudiesV2RunSearches() {
         stage: 'Error',
       });
     } finally {
-      setRunning(false);
-      setProgress('');
-      setRunProgress({
-        isRunning: false,
-        currentIndex: 0,
-        total: 0,
-        currentStudyId: undefined,
-        stage: undefined,
-      });
-      currentRunIdRef.current = null;
-      cancelRequestedRef.current = false;
+      if (SCRAPER_MODE !== 'api') {
+        setRunning(false);
+        setProgress('');
+        setRunProgress({
+          isRunning: false,
+          currentIndex: 0,
+          total: 0,
+          currentStudyId: undefined,
+          stage: undefined,
+        });
+        currentRunIdRef.current = null;
+        cancelRequestedRef.current = false;
+      }
     }
   }
 
