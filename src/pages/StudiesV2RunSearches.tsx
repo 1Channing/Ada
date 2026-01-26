@@ -134,14 +134,9 @@ export function StudiesV2RunSearches() {
         const completedCount = completedResults?.length || 0;
         const totalStudies = Array.isArray(scheduledRun.study_ids) ? scheduledRun.study_ids.length : 0;
 
-        // If actually completed, update DB and reset UI silently
+        // If all studies completed, just clear UI (worker will update DB)
         if (completedCount >= totalStudies) {
-          console.log('[RUN_SEARCHES] Scheduled run complete, updating DB');
-          await supabase
-            .from('scheduled_study_runs')
-            .update({ status: 'completed' })
-            .eq('id', scheduledRun.id);
-
+          console.log('[RUN_SEARCHES] Scheduled run complete, clearing UI');
           setRunning(false);
           setProgress('');
           setRunProgress({
@@ -182,32 +177,6 @@ export function StudiesV2RunSearches() {
       if (error) throw error;
 
       if (activeRun) {
-        const executedAt = activeRun.executed_at ? new Date(activeRun.executed_at).getTime() : 0;
-        const ageMs = Date.now() - executedAt;
-        const maxAgeMs = 10 * 60 * 1000; // 10 minutes (reduced from 60 minutes)
-
-        // Stale instant run detection: If too old, silently clear and mark as failed
-        if (ageMs >= maxAgeMs) {
-          console.log('[RUN_SEARCHES] Instant run is stale, silently clearing');
-          await supabase
-            .from('study_runs')
-            .update({ status: 'failed' })
-            .eq('id', activeRun.id);
-
-          setRunning(false);
-          setProgress('');
-          setRunProgress({
-            isRunning: false,
-            currentIndex: 0,
-            total: 0,
-            currentStudyId: undefined,
-            stage: undefined,
-          });
-          currentRunIdRef.current = null;
-          cancelRequestedRef.current = false;
-          return;
-        }
-
         const { data: completedResults } = await supabase
           .from('study_run_results')
           .select('id')
@@ -215,14 +184,9 @@ export function StudiesV2RunSearches() {
 
         const completedCount = completedResults?.length || 0;
 
-        // If all studies completed, mark as complete and clear UI
+        // If all studies completed, just clear UI (worker/backend will update DB)
         if (completedCount >= activeRun.total_studies) {
-          console.log('[RUN_SEARCHES] Instant run complete, updating DB');
-          await supabase
-            .from('study_runs')
-            .update({ status: 'completed' })
-            .eq('id', activeRun.id);
-
+          console.log('[RUN_SEARCHES] Instant run complete, clearing UI');
           setRunning(false);
           setProgress('');
           setRunProgress({
@@ -237,7 +201,7 @@ export function StudiesV2RunSearches() {
           return;
         }
 
-        // Valid active instant run - restore state
+        // Active instant run - restore state
         setRunProgress({
           isRunning: true,
           currentIndex: completedCount,

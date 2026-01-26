@@ -1,12 +1,12 @@
 # Instant Run Silent Cleanup Fix
 
 **Date:** 2026-01-26
-**Status:** ✅ Complete
+**Status:** ✅ Complete (UI-Only)
 **Build:** ✅ Passing
 
 ## Summary
 
-Implemented a fail-silent UI cleanup strategy that prevents stuck instant run states without blocking any user actions. Stale instant runs are automatically detected and cleared, while scheduled runs continue to work normally.
+Implemented a fail-silent UI-only cleanup strategy that prevents stuck instant run states without blocking any user actions. UI automatically clears when no active run exists in the database, regardless of UI state.
 
 ## Problem
 
@@ -14,8 +14,12 @@ Instant runs could get stuck in "running" state even when no worker was active, 
 - ✗ Endless "Running..." UI state
 - ✗ Misleading progress indicators
 - ✗ User confusion about actual run status
+- ✗ Blocking alerts preventing new runs from starting
 
-**Root Cause:** Instant run records in `study_runs` with `status='running'` would persist indefinitely without timeout or cleanup, even when the browser session ended or the user navigated away.
+**Root Cause:**
+1. UI was trying to enforce run exclusivity with blocking alerts
+2. UI was attempting to update database status (mixing concerns)
+3. No mechanism for UI to self-heal when DB state diverged from UI state
 
 ## Solution: Non-Blocking Silent Cleanup
 
@@ -31,53 +35,60 @@ Instant runs could get stuck in "running" state even when no worker was active, 
 
 ## Changes
 
-### Change 1: Aggressive Stale Detection
+### Change 1: Removed Time-Based Stale Detection & DB Updates
 
-**File:** `src/pages/StudiesV2RunSearches.tsx:184-209`
+**File:** `src/pages/StudiesV2RunSearches.tsx:184-222`
 
 **Before:**
 ```typescript
-const maxAgeMs = 60 * 60 * 1000; // 60 minutes
+if (activeRun) {
+  const executedAt = activeRun.executed_at ? new Date(activeRun.executed_at).getTime() : 0;
+  const ageMs = Date.now() - executedAt;
+  const maxAgeMs = 60 * 60 * 1000; // 60 minutes
 
-if (ageMs < maxAgeMs) {
-  // Check results and restore state
+  // If too old, skip without cleanup
+  if (ageMs < maxAgeMs) {
+    // Check results and restore state
+    if (completedCount >= activeRun.total_studies) {
+      // Mark as completed in DB
+      await supabase.from('study_runs').update({ status: 'completed' }).eq('id', activeRun.id);
+    }
+  }
 }
-// If too old, skip without cleanup
 ```
 
 **After:**
 ```typescript
-const maxAgeMs = 10 * 60 * 1000; // 10 minutes (reduced from 60)
+if (activeRun) {
+  const { data: completedResults } = await supabase
+    .from('study_run_results')
+    .select('id')
+    .eq('run_id', activeRun.id);
 
-// Stale instant run detection: If too old, silently clear and mark as failed
-if (ageMs >= maxAgeMs) {
-  console.log('[RUN_SEARCHES] Instant run is stale, silently clearing');
-  await supabase
-    .from('study_runs')
-    .update({ status: 'failed' })
-    .eq('id', activeRun.id);
+  const completedCount = completedResults?.length || 0;
 
-  // Clear UI state silently
-  setRunning(false);
-  setProgress('');
-  setRunProgress({
-    isRunning: false,
-    currentIndex: 0,
-    total: 0,
-    currentStudyId: undefined,
-    stage: undefined,
-  });
-  currentRunIdRef.current = null;
-  cancelRequestedRef.current = false;
-  return;
+  // If all studies completed, just clear UI (worker/backend will update DB)
+  if (completedCount >= activeRun.total_studies) {
+    console.log('[RUN_SEARCHES] Instant run complete, clearing UI');
+    // Clear UI state only - NO database update
+    setRunning(false);
+    setProgress('');
+    setRunProgress({ isRunning: false, ... });
+    return;
+  }
+
+  // Active instant run - restore state (regardless of age)
+  setRunProgress({ isRunning: true, ... });
+  setRunning(true);
 }
 ```
 
 **Impact:**
-- Instant runs older than 10 minutes are considered stale
-- Automatically marked as 'failed' in database
-- UI state cleared silently without user notification
-- No popups, no alerts, no blocking
+- NO time-based stale detection
+- NO database updates from UI
+- UI respects whatever status is in the database
+- Worker/backend responsible for marking runs as failed/completed
+- UI-only: just clears local state when run is complete
 
 ---
 
@@ -130,34 +141,41 @@ async function runInstantSearch() {
 
 ---
 
-### Change 3: Simplified Scheduled Run Check
+### Change 3: Removed Scheduled Run DB Updates
 
-**File:** `src/pages/StudiesV2RunSearches.tsx:119-127`
+**File:** `src/pages/StudiesV2RunSearches.tsx:137-151`
 
 **Before:**
 ```typescript
-// Check for pending, running, OR completed
-.in('status', ['pending', 'running', 'completed'])
+// If actually completed, update DB and reset UI silently
+if (completedCount >= totalStudies) {
+  console.log('[RUN_SEARCHES] Scheduled run complete, updating DB');
+  await supabase
+    .from('scheduled_study_runs')
+    .update({ status: 'completed' })
+    .eq('id', scheduledRun.id);
 
-// Special handling for completed status
-if (scheduledRun.status === 'completed') {
-  // Clear everything...
+  // Clear UI state...
 }
 ```
 
 **After:**
 ```typescript
-// Only check for active scheduled runs
-.in('status', ['pending', 'running'])
-
-// Natural flow - if scheduled run is running, show it
-// If not, check instant runs
+// If all studies completed, just clear UI (worker will update DB)
+if (completedCount >= totalStudies) {
+  console.log('[RUN_SEARCHES] Scheduled run complete, clearing UI');
+  // Clear UI state only - NO database update
+  setRunning(false);
+  setProgress('');
+  setRunProgress({ isRunning: false, ... });
+}
 ```
 
 **Impact:**
-- No special case for completed scheduled runs
-- Cleaner code with less branching
-- Completed runs naturally fall through to cleanup logic
+- No database updates for scheduled runs from UI
+- Worker responsible for updating scheduled run status
+- UI only manages local display state
+- Consistent with instant run handling
 
 ---
 
@@ -169,22 +187,22 @@ if (scheduledRun.status === 'completed') {
 checkForActiveRuns()
     ↓
     ├─ Check scheduled_study_runs (pending/running)
-    │   └─ Found? → Show scheduled run progress
-    │              → Ignore instant runs
+    │   └─ Found? → Check if all studies completed
+    │               ├─ Yes? → Clear UI state (NO DB update)
+    │               └─ No? → Show scheduled run progress
     │
     └─ No scheduled run?
         ↓
         Check study_runs (instant runs with status='running')
         ↓
-        ├─ Older than 10 min? → Silently mark as 'failed'
-        │                      → Clear UI state
-        │                      → Log to console only
+        ├─ All studies completed? → Clear UI state (NO DB update)
+        │                          → Log to console only
         │
-        ├─ All studies completed? → Mark as 'completed'
-        │                          → Clear UI state
+        ├─ Active run found? → Restore instant run state
+        │                     → Show progress (regardless of age)
         │
-        └─ Valid & active? → Restore instant run state
-                          → Show progress
+        └─ NO active run found? → Clear UI if stuck
+                                 → Reset all state refs
 ```
 
 ### User Clicks "Instant Run"
@@ -204,21 +222,27 @@ runInstantSearch()
 
 ## Key Behaviors
 
-### ✅ Stale Instant Run (10+ minutes old)
-1. User refreshes page
-2. `checkForActiveRuns()` finds instant run older than 10 minutes
-3. Updates DB: `status='failed'`
-4. Clears all UI state silently
-5. Logs: `[RUN_SEARCHES] Instant run is stale, silently clearing`
-6. **No alert shown to user**
+### ✅ Stuck UI State (No Active Run in DB)
+1. User refreshes page with UI showing "running"
+2. `checkForActiveRuns()` finds NO scheduled run (pending/running)
+3. `checkForActiveRuns()` finds NO instant run (status='running')
+4. Clears all UI state silently at lines 224-233
+5. Logs: `[RUN_SEARCHES] No active runs found, forcing UI reset`
+6. **No alert shown to user, no DB update**
 
 ### ✅ Completed Instant Run
 1. User refreshes page
 2. `checkForActiveRuns()` finds instant run with all studies complete
-3. Updates DB: `status='completed'`
-4. Clears all UI state silently
-5. Logs: `[RUN_SEARCHES] Instant run complete, updating DB`
-6. **No alert shown to user**
+3. Clears all UI state silently (NO DB update)
+4. Logs: `[RUN_SEARCHES] Instant run complete, clearing UI`
+5. **No alert shown to user, worker will update DB later**
+
+### ✅ Completed Scheduled Run
+1. User refreshes page
+2. `checkForActiveRuns()` finds scheduled run with all studies complete
+3. Clears all UI state silently (NO DB update)
+4. Logs: `[RUN_SEARCHES] Scheduled run complete, clearing UI`
+5. **No alert shown to user, worker will update DB later**
 
 ### ✅ User Starts Instant Run (Any Time)
 1. User selects studies
@@ -243,12 +267,16 @@ runInstantSearch()
 ### ❌ Previous (Incorrect) Approach
 - **Blocked** instant runs if scheduled run existed
 - Showed **alerts** preventing user actions
-- Tried to enforce **exclusivity** at UI level
+- UI **updated database** status (failed/completed)
+- Used **time-based stale detection** (10 min timeout)
 - Created **friction** in user workflow
 
 ### ✅ Current (Correct) Approach
 - **Never blocks** any user action
-- **Silently cleans up** stale state
+- **Never updates database** from UI
+- UI is **truth-follower** (respects DB state)
+- **Silently clears UI** when no active run in DB
+- Worker/backend **owns DB status** updates
 - **Natural priority** in display (scheduled runs shown first)
 - **Smooth user experience** without popups
 
@@ -259,41 +287,54 @@ runInstantSearch()
 **File:** `src/pages/StudiesV2RunSearches.tsx`
 
 **Lines changed:**
-- 117-171: Simplified scheduled run checking (removed 'completed' special case)
-- 184-209: Added stale instant run detection (10 min timeout)
-- 218-238: Simplified instant run completion handling
+- 137-151: Removed DB update for completed scheduled runs (UI-only clear)
+- 184-222: Removed time-based stale detection & DB updates for instant runs
 - 379-385: Removed blocking logic from runInstantSearch
 
-**Total lines:** ~50 lines modified
+**What was removed:**
+- All `supabase.update()` calls for run status
+- Time-based age checking (maxAgeMs)
+- Blocking checks before starting instant runs
+- Alerts preventing user actions
+
+**What remains:**
+- Silent UI state clearing when no active run found
+- Progress restoration for valid active runs
+- Display priority (scheduled > instant)
+- Logging to console only
+
+**Total lines:** ~40 lines modified/removed
 **Files modified:** 1 file
 **Backend changes:** None
 **Schema changes:** None
 **Worker changes:** None
+**Database writes:** None (removed all)
 
 ---
 
 ## Logging
 
-**Stale Instant Run:**
-```
-[RUN_SEARCHES] Instant run is stale, silently clearing
-```
-
 **Completed Instant Run:**
 ```
-[RUN_SEARCHES] Instant run complete, updating DB
+[RUN_SEARCHES] Instant run complete, clearing UI
 ```
 
-**Scheduled Run:**
+**Completed Scheduled Run:**
+```
+[RUN_SEARCHES] Scheduled run complete, clearing UI
+```
+
+**Resuming Scheduled Run:**
 ```
 [RUN_SEARCHES] Resuming scheduled run: {uuid}
-[RUN_SEARCHES] Scheduled run complete, updating DB
 ```
 
-**No Active Runs:**
+**No Active Runs (Stuck UI):**
 ```
 [RUN_SEARCHES] No active runs found, forcing UI reset
 ```
+
+**Note:** All logs are console-only. No user-facing messages or alerts.
 
 ---
 
@@ -302,16 +343,37 @@ runInstantSearch()
 **Build Status:** ✅ Pass
 ```bash
 npm run build
-# ✓ built in 10.13s
+# ✓ built in 11.10s
 ```
 
 **Manual Testing Scenarios:**
 
-1. ✅ Instant run stuck for 15 min → Refresh → Should silently clear
-2. ✅ Scheduled run active → Start instant run → Should work without alert
-3. ✅ No active runs → Start instant run → Should work normally
-4. ✅ Instant run completes → Refresh → Should show clean slate
-5. ✅ Multiple instant runs in DB → Should show most recent valid one
+### Truth-Based Detection Tests
+
+1. ✅ **UI stuck, no DB run** → Refresh → Should silently clear
+   - UI shows "running" but no run exists in DB
+   - Expected: UI clears, logs "No active runs found"
+   - NO database updates
+
+2. ✅ **Scheduled run active** → Start instant run → Should work without alert
+   - Scheduled run with status='running' exists
+   - User clicks "Instant Run"
+   - Expected: Instant run starts, no blocking alert
+
+3. ✅ **No active runs** → Start instant run → Should work normally
+   - Clean slate, no runs in DB
+   - User clicks "Instant Run"
+   - Expected: Instant run starts immediately
+
+4. ✅ **Instant run completes** → Refresh → Should clear UI only
+   - Instant run exists with all results complete
+   - Expected: UI clears, logs "Instant run complete, clearing UI"
+   - DB status unchanged (worker updates later)
+
+5. ✅ **Old instant run (30+ min)** → Refresh → Should still show if status='running'
+   - Instant run from 30 minutes ago with status='running'
+   - Expected: UI shows the run (age doesn't matter)
+   - Worker responsible for marking as failed/completed
 
 ---
 
@@ -344,14 +406,16 @@ npm run build
 
 ## Acceptance Criteria Met
 
-✅ No stuck "instant run running" state (cleared after 10 min)
+✅ No stuck "instant run running" state (cleared when no DB run exists)
 ✅ No blocking of any user actions
 ✅ No alerts or popups
 ✅ Scheduled runs always work regardless of instant run state
 ✅ Instant runs always start without blocking
-✅ UI-only fix (no backend changes)
+✅ **UI-only fix** (no backend, worker, or schema changes)
+✅ **No database updates from UI** (worker owns DB status)
 ✅ Silent cleanup (fail-silent)
 ✅ Small, readable, easily revertible
+✅ Truth-based detection (UI follows DB state)
 
 ---
 
@@ -372,39 +436,46 @@ git revert <this_commit_hash>
 
 ## Architecture Philosophy
 
+**UI as Truth-Follower, Not Truth-Maker:**
+- UI reads DB state but never writes status updates
+- Worker/backend owns all DB status transitions
+- UI only manages local display state
+- Clear separation of concerns
+
 **Fail Silent, Never Block:**
-- State inconsistencies are cleaned up automatically
-- User actions are never prevented
+- State inconsistencies cleared automatically
+- User actions never prevented
 - System self-heals on page load
 - No manual intervention required
 
 **Display Priority, Not Execution Priority:**
 - Scheduled runs shown first (if active)
-- But instant runs can still execute
+- Instant runs can still execute
 - Multiple runs can coexist
 - UI picks most relevant to show
 
-**Time-Based Cleanup:**
-- 10 minute timeout for instant runs
-- Automatic failure marking
-- Prevents indefinite "stuck" states
-- No manual cleanup needed
+**Truth-Based, Not Time-Based:**
+- UI respects DB state regardless of age
+- No arbitrary timeouts or stale detection
+- If DB says running, UI shows running
+- If DB has no run, UI clears state
 
 ---
 
 ## Future Considerations
 
-**Potential Improvements (Not Implemented Now):**
-- Heartbeat/ping system to detect active runs more accurately
-- WebSocket connection to get real-time run status
-- Shorter timeout (5 min) for even faster cleanup
-- Automatic retry for failed runs
+**Potential Backend Improvements (Not UI Concerns):**
+- Worker heartbeat/timeout system to auto-mark stale runs as failed
+- Edge function to clean up orphaned runs periodically
+- WebSocket for real-time run status updates
+- Automatic retry mechanism for failed runs
 
 **Current Approach Rationale:**
-- 10 minutes is reasonable timeout (balances false positives vs stuck state)
-- Silent cleanup prevents user confusion
-- No complex heartbeat logic needed
-- Simple and maintainable
+- UI should not enforce timeouts or stale detection
+- Worker/backend better positioned to detect actual failures
+- UI-only cleanup is immediate and simple
+- Clear separation: UI displays, backend manages
+- No false positives from arbitrary timeouts
 
 ---
 
