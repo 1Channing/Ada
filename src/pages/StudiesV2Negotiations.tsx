@@ -175,9 +175,10 @@ export function StudiesV2Negotiations() {
 
   async function addNote(listingId: string) {
     const noteText = newNotes[listingId]?.trim();
+    console.log('[NOTES] add clicked', listingId, noteAuthors[listingId], noteText);
     if (!noteText) return;
 
-    const author = noteAuthors[listingId];
+    const author = noteAuthors[listingId] || 'channing';
 
     try {
       const { error } = await supabase
@@ -199,7 +200,7 @@ export function StudiesV2Negotiations() {
 
       await loadNotes(listingId);
     } catch (error) {
-      console.error('Error adding note:', error);
+      console.error('[NOTES] insert failed', error);
     }
   }
 
