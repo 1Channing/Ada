@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { ExternalLink, CheckCircle, RefreshCw, X } from 'lucide-react';
+import { ExternalLink, CheckCircle, RefreshCw, X, MessageSquare, DollarSign } from 'lucide-react';
 
 interface NegotiationListing {
   id: string;
@@ -32,16 +32,54 @@ interface NegotiationListing {
   };
 }
 
+interface NegotiationNote {
+  id: string;
+  author: string;
+  note: string;
+  created_at: string;
+}
+
 type AssigneeFilter = 'all' | 'channing' | 'antoine';
+type Author = 'channing' | 'antoine';
 
 export function StudiesV2Negotiations() {
   const [listings, setListings] = useState<NegotiationListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigneeFilter, setAssigneeFilter] = useState<AssigneeFilter>('all');
+  const [notes, setNotes] = useState<Record<string, NegotiationNote[]>>({});
+  const [newNotes, setNewNotes] = useState<Record<string, string>>({});
+  const [noteAuthors, setNoteAuthors] = useState<Record<string, Author>>({});
+  const [lastSelectedAuthor, setLastSelectedAuthor] = useState<Author>('channing');
+  const [showSoldForm, setShowSoldForm] = useState<Record<string, boolean>>({});
+  const [saleFormData, setSaleFormData] = useState<Record<string, { buyPrice: string; salePrice: string; soldBy: Author }>>({});
 
   useEffect(() => {
     loadListings();
   }, [assigneeFilter]);
+
+  useEffect(() => {
+    if (listings.length > 0) {
+      listings.forEach((listing) => {
+        loadNotes(listing.id);
+        if (!noteAuthors[listing.id]) {
+          setNoteAuthors((prev) => ({
+            ...prev,
+            [listing.id]: listing.assigned_to as Author || lastSelectedAuthor,
+          }));
+        }
+        if (!saleFormData[listing.id]) {
+          setSaleFormData((prev) => ({
+            ...prev,
+            [listing.id]: {
+              buyPrice: '',
+              salePrice: '',
+              soldBy: listing.assigned_to as Author || lastSelectedAuthor,
+            },
+          }));
+        }
+      });
+    }
+  }, [listings]);
 
   async function loadListings() {
     try {
@@ -114,6 +152,113 @@ export function StudiesV2Negotiations() {
     } catch (error) {
       console.error('Error deleting listing:', error);
     }
+  }
+
+  async function loadNotes(listingId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('negotiation_notes')
+        .select('*')
+        .eq('listing_id', listingId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setNotes((prev) => ({
+        ...prev,
+        [listingId]: data || [],
+      }));
+    } catch (error) {
+      console.error('Error loading notes:', error);
+    }
+  }
+
+  async function addNote(listingId: string) {
+    const noteText = newNotes[listingId]?.trim();
+    if (!noteText) return;
+
+    const author = noteAuthors[listingId];
+
+    try {
+      const { error } = await supabase
+        .from('negotiation_notes')
+        .insert({
+          listing_id: listingId,
+          author,
+          note: noteText,
+        });
+
+      if (error) throw error;
+
+      setNewNotes((prev) => ({
+        ...prev,
+        [listingId]: '',
+      }));
+
+      setLastSelectedAuthor(author);
+
+      await loadNotes(listingId);
+    } catch (error) {
+      console.error('Error adding note:', error);
+    }
+  }
+
+  async function markAsSold(listingId: string) {
+    const formData = saleFormData[listingId];
+    if (!formData) return;
+
+    const buyPrice = parseFloat(formData.buyPrice);
+    const salePrice = parseFloat(formData.salePrice);
+
+    if (isNaN(buyPrice) || isNaN(salePrice) || buyPrice <= 0 || salePrice <= 0) {
+      alert('Please enter valid prices');
+      return;
+    }
+
+    try {
+      const { error: salesError } = await supabase.from('sales').insert({
+        listing_id: listingId,
+        sold_by: formData.soldBy,
+        buy_price: buyPrice,
+        sale_price: salePrice,
+      });
+
+      if (salesError) throw salesError;
+
+      const { error: statusError } = await supabase
+        .from('study_source_listings')
+        .update({ status: 'SOLD' })
+        .eq('id', listingId);
+
+      if (statusError) throw statusError;
+
+      setShowSoldForm((prev) => ({
+        ...prev,
+        [listingId]: false,
+      }));
+
+      await loadListings();
+    } catch (error) {
+      console.error('Error marking as sold:', error);
+      alert('Failed to mark as sold. The vehicle may already be sold.');
+    }
+  }
+
+  function toggleSoldForm(listingId: string) {
+    setShowSoldForm((prev) => ({
+      ...prev,
+      [listingId]: !prev[listingId],
+    }));
+  }
+
+  function updateSaleFormData(listingId: string, field: 'buyPrice' | 'salePrice' | 'soldBy', value: string | Author) {
+    setSaleFormData((prev) => ({
+      ...prev,
+      [listingId]: {
+        ...prev[listingId],
+        [field]: value,
+      },
+    }));
   }
 
   function getStatusBadge(status: string) {
@@ -269,6 +414,125 @@ export function StudiesV2Negotiations() {
                         )}
                       </div>
                     )}
+
+                    <div className="pt-3 border-t border-zinc-800">
+                      <div className="flex items-center gap-2 mb-2">
+                        <MessageSquare size={16} className="text-zinc-500" />
+                        <h5 className="text-sm font-semibold text-zinc-300">Call Notes</h5>
+                      </div>
+
+                      {notes[listing.id] && notes[listing.id].length > 0 && (
+                        <div className="space-y-2 mb-3">
+                          {notes[listing.id].map((note) => {
+                            const date = new Date(note.created_at);
+                            const formatted = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                            return (
+                              <div key={note.id} className="text-xs text-zinc-400 bg-zinc-800/50 p-2 rounded">
+                                <span className="text-zinc-500">{formatted}</span>
+                                {' — '}
+                                <span className="text-blue-400 font-medium">
+                                  {note.author === 'channing' ? 'Channing' : 'Antoine'}:
+                                </span>
+                                {' '}
+                                {note.note}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        <select
+                          value={noteAuthors[listing.id] || 'channing'}
+                          onChange={(e) => {
+                            const author = e.target.value as Author;
+                            setNoteAuthors((prev) => ({
+                              ...prev,
+                              [listing.id]: author,
+                            }));
+                            setLastSelectedAuthor(author);
+                          }}
+                          className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300"
+                        >
+                          <option value="channing">Channing</option>
+                          <option value="antoine">Antoine</option>
+                        </select>
+                        <textarea
+                          value={newNotes[listing.id] || ''}
+                          onChange={(e) =>
+                            setNewNotes((prev) => ({
+                              ...prev,
+                              [listing.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Add a note..."
+                          className="flex-1 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 resize-none"
+                          rows={2}
+                        />
+                        <button
+                          onClick={() => addNote(listing.id)}
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+
+                    {showSoldForm[listing.id] && (
+                      <div className="pt-3 border-t border-zinc-800">
+                        <div className="flex items-center gap-2 mb-3">
+                          <DollarSign size={16} className="text-emerald-500" />
+                          <h5 className="text-sm font-semibold text-zinc-300">Mark as Sold</h5>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <label className="text-xs text-zinc-500 mb-1 block">Buy Price (€)</label>
+                            <input
+                              type="number"
+                              value={saleFormData[listing.id]?.buyPrice || ''}
+                              onChange={(e) => updateSaleFormData(listing.id, 'buyPrice', e.target.value)}
+                              placeholder="10000"
+                              className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-300"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-zinc-500 mb-1 block">Sale Price (€)</label>
+                            <input
+                              type="number"
+                              value={saleFormData[listing.id]?.salePrice || ''}
+                              onChange={(e) => updateSaleFormData(listing.id, 'salePrice', e.target.value)}
+                              placeholder="15000"
+                              className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-300"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-zinc-500 mb-1 block">Sold By</label>
+                            <select
+                              value={saleFormData[listing.id]?.soldBy || 'channing'}
+                              onChange={(e) => updateSaleFormData(listing.id, 'soldBy', e.target.value as Author)}
+                              className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-300"
+                            >
+                              <option value="channing">Channing</option>
+                              <option value="antoine">Antoine</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            onClick={() => markAsSold(listing.id)}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm transition-colors"
+                          >
+                            Confirm Sale
+                          </button>
+                          <button
+                            onClick={() => toggleSoldForm(listing.id)}
+                            className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded text-sm transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-start gap-2">
@@ -284,13 +548,22 @@ export function StudiesV2Negotiations() {
                       </a>
 
                       {listing.status === 'APPROVED' && (
-                        <button
-                          onClick={() => updateListingStatus(listing.id, 'COMPLETED')}
-                          className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
-                        >
-                          <CheckCircle size={14} />
-                          Mark Completed
-                        </button>
+                        <>
+                          <button
+                            onClick={() => toggleSoldForm(listing.id)}
+                            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
+                          >
+                            <DollarSign size={14} />
+                            Mark as Sold
+                          </button>
+                          <button
+                            onClick={() => updateListingStatus(listing.id, 'COMPLETED')}
+                            className="px-3 py-2 bg-zinc-600 hover:bg-zinc-700 text-white rounded text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
+                          >
+                            <CheckCircle size={14} />
+                            Mark Completed
+                          </button>
+                        </>
                       )}
 
                       {listing.status === 'COMPLETED' && (
