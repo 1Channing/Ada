@@ -116,16 +116,34 @@ export function StudiesV2RunSearches() {
 
   async function checkForActiveRuns() {
     try {
-      // Check scheduled_study_runs first (worker-executed runs)
+      // UI PRIORITY RULE: If a scheduled run exists (pending, running, OR completed),
+      // completely ignore any instant runs to prevent stuck/duplicate state
       const { data: scheduledRun } = await supabase
         .from('scheduled_study_runs')
         .select('*')
-        .in('status', ['pending', 'running'])
+        .in('status', ['pending', 'running', 'completed'])
         .order('scheduled_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (scheduledRun) {
+        // If scheduled run exists in any state, instant run must not interfere
+        if (scheduledRun.status === 'completed') {
+          console.log('[RUN_SEARCHES] Scheduled run completed, clearing instant run state');
+          setRunning(false);
+          setProgress('');
+          setRunProgress({
+            isRunning: false,
+            currentIndex: 0,
+            total: 0,
+            currentStudyId: undefined,
+            stage: undefined,
+          });
+          currentRunIdRef.current = null;
+          cancelRequestedRef.current = false;
+          return;
+        }
+
         const { data: completedResults } = await supabase
           .from('study_run_results')
           .select('id')
@@ -357,6 +375,21 @@ export function StudiesV2RunSearches() {
   async function runInstantSearch() {
     if (selectedStudies.size === 0) {
       alert('Please select at least one study');
+      return;
+    }
+
+    // UI PRIORITY RULE: Block instant run if an active scheduled run exists
+    const { data: existingScheduledRun } = await supabase
+      .from('scheduled_study_runs')
+      .select('id, status, scheduled_at')
+      .in('status', ['pending', 'running'])
+      .order('scheduled_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingScheduledRun) {
+      console.log('[RUN_SEARCHES] Blocking instant run - active scheduled run exists:', existingScheduledRun.status);
+      alert(`Cannot start instant run: A ${existingScheduledRun.status} scheduled run is active. Please wait for it to complete or cancel it first.`);
       return;
     }
 
