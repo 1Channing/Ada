@@ -323,7 +323,15 @@ export function StudiesV2Results() {
       if (mappingsError) throw mappingsError;
 
       if (!mappings || mappings.length === 0) {
-        setListings([]);
+        // Fallback for old runs (pre-join-table data)
+        const { data, error } = await supabase
+          .from('study_source_listings')
+          .select('*')
+          .eq('run_result_id', cleanResultId)
+          .order('price', { ascending: true });
+
+        if (error) throw error;
+        setListings(data || []);
         return;
       }
 

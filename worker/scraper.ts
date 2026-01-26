@@ -476,6 +476,7 @@ export async function executeStudy({
         }
 
         listingsToInsert.push({
+          run_result_id: resultId,
           listing_url: listing.listing_url,
           title: listing.title,
           price: toEur(listing.price, listing.currency),
