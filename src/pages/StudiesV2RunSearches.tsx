@@ -390,26 +390,9 @@ export function StudiesV2RunSearches() {
           );
 
           console.log(`[BATCH_RUN] Batch job submitted to worker. Check Results page for completion.`);
-          setProgress(`${studiesToRun.length} studies submitted to worker. Check Results page for status.`);
+          alert(`${studiesToRun.length} studies submitted to worker. Check Results page for status.`);
 
-          // Clear UI after brief delay (no runId to track for remote execution)
-          setTimeout(() => {
-            setRunning(false);
-            setProgress('');
-            setRunProgress({
-              isRunning: false,
-              currentIndex: 0,
-              total: 0,
-              currentStudyId: undefined,
-              stage: undefined,
-            });
-            currentRunIdRef.current = null;
-            cancelRequestedRef.current = false;
-            setSelectedStudies(new Set());
-            studiesToRun.forEach(study => {
-              setStudyStatuses((prev) => ({ ...prev, [study.id]: 'idle' }));
-            });
-          }, 3000);
+          setSelectedStudies(new Set());
 
         } catch (error) {
           console.error('[BATCH_RUN] Batch error:', error);
@@ -566,19 +549,17 @@ export function StudiesV2RunSearches() {
         stage: 'Error',
       });
     } finally {
-      if (SCRAPER_MODE !== 'api') {
-        setRunning(false);
-        setProgress('');
-        setRunProgress({
-          isRunning: false,
-          currentIndex: 0,
-          total: 0,
-          currentStudyId: undefined,
-          stage: undefined,
-        });
-        currentRunIdRef.current = null;
-        cancelRequestedRef.current = false;
-      }
+      setRunning(false);
+      setProgress('');
+      setRunProgress({
+        isRunning: false,
+        currentIndex: 0,
+        total: 0,
+        currentStudyId: undefined,
+        stage: undefined,
+      });
+      currentRunIdRef.current = null;
+      cancelRequestedRef.current = false;
     }
   }
 
@@ -604,24 +585,6 @@ export function StudiesV2RunSearches() {
       } catch (error) {
         console.error('[RUN_SEARCHES] Error persisting cancel:', error);
       }
-
-      // Safety: If run doesn't complete within 30s of cancel, force reset UI
-      setTimeout(() => {
-        if (cancelRequestedRef.current) {
-          console.log('[RUN_SEARCHES] ⚠️ Force resetting UI after cancel timeout');
-          setRunning(false);
-          setProgress('');
-          setRunProgress({
-            isRunning: false,
-            currentIndex: 0,
-            total: 0,
-            currentStudyId: undefined,
-            stage: undefined,
-          });
-          currentRunIdRef.current = null;
-          cancelRequestedRef.current = false;
-        }
-      }, 30000);
     }
   }
 
