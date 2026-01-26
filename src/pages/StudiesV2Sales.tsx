@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { ExternalLink, TrendingUp, TrendingDown } from 'lucide-react';
+import { ExternalLink, TrendingUp, TrendingDown, X } from 'lucide-react';
 
 interface Sale {
   id: string;
@@ -83,6 +83,39 @@ export function StudiesV2Sales() {
     return salePrice - buyPrice;
   }
 
+  async function removeSale(saleId: string, listingId: string) {
+    if (!confirm('Are you sure you want to remove this sale? The vehicle will be moved back to Negotiations.')) {
+      return;
+    }
+
+    try {
+      const { error: deleteError } = await supabase
+        .from('sales')
+        .delete()
+        .eq('listing_id', listingId);
+
+      if (deleteError) throw deleteError;
+
+      const { error: updateError } = await supabase
+        .from('study_source_listings')
+        .update({ status: 'APPROVED' })
+        .eq('id', listingId);
+
+      if (updateError) throw updateError;
+
+      setSales((prevSales) => prevSales.filter((sale) => sale.id !== saleId));
+    } catch (error) {
+      console.error('Error removing sale:', error);
+    }
+  }
+
+  function calculateTotals() {
+    const totalBuyPrice = sales.reduce((sum, sale) => sum + sale.buy_price, 0);
+    const totalSalePrice = sales.reduce((sum, sale) => sum + sale.sale_price, 0);
+    const totalMargin = totalSalePrice - totalBuyPrice;
+    return { totalBuyPrice, totalSalePrice, totalMargin };
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -93,6 +126,40 @@ export function StudiesV2Sales() {
           </p>
         </div>
       </div>
+
+      {!loading && sales.length > 0 && (
+        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6">
+          <h3 className="text-sm font-semibold text-zinc-400 uppercase mb-4">Summary</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <div className="text-xs text-zinc-500 mb-1">Total Buy Price</div>
+              <div className="text-2xl font-bold text-zinc-100">
+                {calculateTotals().totalBuyPrice.toLocaleString()}€
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500 mb-1">Total Sale Price</div>
+              <div className="text-2xl font-bold text-zinc-100">
+                {calculateTotals().totalSalePrice.toLocaleString()}€
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500 mb-1">Total Margin</div>
+              <div className={`text-2xl font-bold flex items-center gap-2 ${
+                calculateTotals().totalMargin >= 0 ? 'text-emerald-400' : 'text-red-400'
+              }`}>
+                {calculateTotals().totalMargin >= 0 ? (
+                  <TrendingUp size={20} />
+                ) : (
+                  <TrendingDown size={20} />
+                )}
+                {calculateTotals().totalMargin >= 0 ? '+' : ''}
+                {calculateTotals().totalMargin.toLocaleString()}€
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-zinc-900 rounded-lg border border-zinc-800">
         <div className="p-4 border-b border-zinc-800">
@@ -189,15 +256,25 @@ export function StudiesV2Sales() {
                       </div>
                     </div>
 
-                    <a
-                      href={sale.listing.listing_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
-                    >
-                      View Listing
-                      <ExternalLink size={14} />
-                    </a>
+                    <div className="flex items-start gap-2">
+                      <a
+                        href={sale.listing.listing_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
+                      >
+                        View Listing
+                        <ExternalLink size={14} />
+                      </a>
+
+                      <button
+                        onClick={() => removeSale(sale.id, sale.listing.id)}
+                        className="p-2 hover:bg-red-900/30 text-zinc-500 hover:text-red-400 rounded transition-colors"
+                        title="Remove sale"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
