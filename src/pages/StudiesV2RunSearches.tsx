@@ -390,9 +390,9 @@ export function StudiesV2RunSearches() {
           );
 
           console.log(`[BATCH_RUN] Batch job submitted to worker. Check Results page for completion.`);
-          alert(`${studiesToRun.length} studies submitted to worker. Check Results page for status.`);
 
           setSelectedStudies(new Set());
+          await checkForActiveRuns();
 
         } catch (error) {
           console.error('[BATCH_RUN] Batch error:', error);
@@ -541,7 +541,6 @@ export function StudiesV2RunSearches() {
 
     } catch (error) {
       console.error('Error running search:', error);
-      alert(`Error: ${(error as Error).message}`);
       setRunProgress({
         isRunning: false,
         currentIndex: 0,
@@ -549,17 +548,19 @@ export function StudiesV2RunSearches() {
         stage: 'Error',
       });
     } finally {
-      setRunning(false);
-      setProgress('');
-      setRunProgress({
-        isRunning: false,
-        currentIndex: 0,
-        total: 0,
-        currentStudyId: undefined,
-        stage: undefined,
-      });
-      currentRunIdRef.current = null;
-      cancelRequestedRef.current = false;
+      if (SCRAPER_MODE !== 'api') {
+        setRunning(false);
+        setProgress('');
+        setRunProgress({
+          isRunning: false,
+          currentIndex: 0,
+          total: 0,
+          currentStudyId: undefined,
+          stage: undefined,
+        });
+        currentRunIdRef.current = null;
+        cancelRequestedRef.current = false;
+      }
     }
   }
 
