@@ -33,14 +33,14 @@ export interface RemoteStudyParams {
   study: StudyV2;
   runId: string;
   threshold: number;
-  scrapeMode?: 'fast' | 'full';
+  scrapeMode?: 'fast' | 'full' | 'detailed';
 }
 
 export interface RemoteBatchParams {
   studies: StudyV2[];
   runId: string;
   threshold: number;
-  scrapeMode?: 'fast' | 'full';
+  scrapeMode?: 'fast' | 'full' | 'detailed';
 }
 
 type ProgressCallback = (event: { stage: string; message: string }) => void;

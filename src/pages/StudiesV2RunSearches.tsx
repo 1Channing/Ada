@@ -53,7 +53,7 @@ export function StudiesV2RunSearches() {
   const [reschedulingJob, setReschedulingJob] = useState<ScheduledStudyRun | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleTime, setRescheduleTime] = useState('');
-  const [scrapeMode, setScrapeMode] = useState<'fast' | 'full'>('fast');
+  const [scrapeMode, setScrapeMode] = useState<'fast' | 'full' | 'detailed'>('detailed');
   const cancelRequestedRef = useRef(false);
   const currentRunIdRef = useRef<string | null>(null);
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
@@ -775,6 +775,17 @@ export function StudiesV2RunSearches() {
             </button>
             <button
               type="button"
+              onClick={() => setScrapeMode('detailed')}
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
+                scrapeMode === 'detailed'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              DETAILED
+            </button>
+            <button
+              type="button"
               onClick={() => setScrapeMode('full')}
               className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                 scrapeMode === 'full'
@@ -787,7 +798,9 @@ export function StudiesV2RunSearches() {
           </div>
           <p className="text-xs text-zinc-500 mt-2">
             {scrapeMode === 'fast'
-              ? 'FAST: Scrapes only page 1 per query. Minimal Zyte usage, ~1-2 min per study.'
+              ? 'FAST: Search scraping only. No detail scraping. ~1-2 min per study.'
+              : scrapeMode === 'detailed'
+              ? 'DETAILED: Search scraping + detail page enrichment for opportunities. ~3-5 min per study.'
               : 'FULL: Scrapes all pages with full details. Complete data, ~10+ min per study.'}
           </p>
         </div>

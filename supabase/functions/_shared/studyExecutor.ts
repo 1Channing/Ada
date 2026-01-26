@@ -240,7 +240,7 @@ function parseBilbasenListings(html: string): ScrapedListing[] {
   return listings;
 }
 
-export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full'): Promise<SearchResult> {
+export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed'): Promise<SearchResult> {
   console.log(`[EXECUTOR] Scraping ${url} in ${scrapeMode.toUpperCase()} mode`);
 
   const html = await fetchHtmlWithScraper(url);
@@ -510,7 +510,7 @@ export interface ExecuteStudyParams {
   study: StudyV2;
   runId: string;
   threshold: number;
-  scrapeMode: 'fast' | 'full';
+  scrapeMode: 'fast' | 'full' | 'detailed';
   supabase: SupabaseClient;
 }
 

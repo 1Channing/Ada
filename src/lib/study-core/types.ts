@@ -118,6 +118,6 @@ export interface StudyExecutionParams {
   targetUrl: string;
   sourceUrl: string;
   threshold: number;
-  scrapeMode: 'fast' | 'full';
+  scrapeMode: 'fast' | 'full' | 'detailed';
   scrapingConfig?: ScrapingConfig;
 }

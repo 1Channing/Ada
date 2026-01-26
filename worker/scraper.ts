@@ -119,7 +119,7 @@ async function scrapeDetailPage(listingUrl: string): Promise<DetailPageData | nu
 /**
  * Scrape a marketplace URL and parse listings
  */
-async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full'): Promise<{
+async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed'): Promise<{
   listings: ScrapedListing[];
   error?: string;
   errorReason?: string;
@@ -274,7 +274,7 @@ export async function executeStudy({
   study: any;
   runId: string;
   threshold: number;
-  scrapeMode: 'fast' | 'full';
+  scrapeMode: 'fast' | 'full' | 'detailed';
   supabase: SupabaseClient;
   scheduledJobId?: string;
 }): Promise<{
@@ -283,6 +283,7 @@ export async function executeStudy({
   opportunitiesCount: number;
 }> {
   console.log(`[WORKER] Processing study ${study.id} in ${scrapeMode.toUpperCase()} mode`);
+  console.log(`[DETAIL_SCRAPE] mode=${scrapeMode} detail_enabled=${scrapeMode === 'detailed'}`);
 
   const trimTarget = study.trim_text_target?.trim() || study.trim_text?.trim() || undefined;
   const trimSource = study.trim_text_source?.trim() || study.trim_text?.trim() || undefined;
@@ -456,15 +457,19 @@ export async function executeStudy({
 
       const resultId = insertedResult[0].id;
 
-      // Second-pass: scrape detail pages for enriched data (max 5 for FAST mode)
+      // Second-pass: scrape detail pages for enriched data (only in DETAILED mode)
       const listingsToInsert = [];
       let detailRequestCount = 0;
+
+      if (scrapeMode === 'fast') {
+        console.log(`[DETAIL_SCRAPE] skipped (mode=fast)`);
+      }
 
       for (const listing of opportunityResult.interestingListings) {
         let detailData: DetailPageData | null = null;
 
-        // Only scrape detail pages in FAST mode (keep it lightweight)
-        if (scrapeMode === 'fast') {
+        // Only scrape detail pages in DETAILED mode (current behavior)
+        if (scrapeMode === 'detailed') {
           detailData = await scrapeDetailPage(listing.listing_url);
           detailRequestCount++;
         }
