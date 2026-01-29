@@ -1,0 +1,684 @@
+{
+  "capturedAt": "2026-01-29T21:47:44.134Z",
+  "testUrl": "https://www.marktplaats.nl/l/auto-s/#q:volkswagen+tiguan|f:10882|mileageTo:70001|constructionYearFrom:2020|sortBy:PRICE|sortOrder:INCREASING",
+  "request": {
+    "url": "https://www.marktplaats.nl/lrp/api/search?attributeRanges[]=mileage%3Anull%3A70001&attributeRanges[]=constructionYear%3A2020%3Anull&attributesById[]=10882&l1CategoryId=91&limit=30&offset=0&query=volkswagen%20tiguan&searchInTitleAndDescription=true&sortBy=PRICE&sortOrder=INCREASING&viewOptions=list-view",
+    "method": "GET",
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "https://www.marktplaats.nl/l/auto-s/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+      "sec-ch-ua": "\"Not:A-Brand\";v=\"99\", \"HeadlessChrome\";v=\"145\", \"Chromium\";v=\"145\"",
+      "sec-ch-ua-mobile": "?0"
+    },
+    "postData": null
+  },
+  "sampleResponse": {
+    "totalItems": 30,
+    "firstThreeItems": [
+      {
+        "itemId": "m2357956770",
+        "title": "Volkswagen Tiguan 1.5 TSI ACT Highline Business R 2 EIGENAAR",
+        "description": "*zeer nette tiguan. *Automaat. *212000 Km nap *wordt dagelijks gereden. *Apk 2028  volkswagen tiguan 1.5 Tsi act highline business r 2 eigenaar * dealeronderhouden * nap * automaat *navi* pano* cruise",
+        "categorySpecificDescription": "*zeer nette tiguan. *Automaat. *212000 Km nap *wordt dagelijks gereden. *Apk 2028  volkswagen tiguan 1.5 Tsi act highline business r 2 eigenaar * dealeronderhouden * nap * automaat *navi* pano* cruise *xenon* enz* volkswagen tiguan 1.5 Tsi act highlin...",
+        "thinContent": false,
+        "priceInfo": {
+          "priceCents": 1900000,
+          "priceType": "FIXED"
+        },
+        "location": {
+          "cityName": "Heerhugowaard",
+          "countryName": "Nederland",
+          "countryAbbreviation": "NL",
+          "distanceMeters": -1000,
+          "isBuyerLocation": false,
+          "onCountryLevel": false,
+          "abroad": false,
+          "latitude": 52.671488554483,
+          "longitude": 4.8247230211389
+        },
+        "date": "21 jan 26",
+        "imageUrls": [
+          "//images.marktplaats.com/api/v1/listing-mp-p/images/6b/6bf79d0f-79ce-4159-94f3-4081041c038b?rule=ecg_mp_eps$_82.jpg"
+        ],
+        "sellerInformation": {
+          "sellerId": 14984415,
+          "sellerName": "Autobedrijf Broersma",
+          "showSoiUrl": true,
+          "showWebsiteUrl": false,
+          "isVerified": false
+        },
+        "categoryId": 157,
+        "priorityProduct": "NONE",
+        "videoOnVip": false,
+        "urgencyFeatureActive": false,
+        "napAvailable": false,
+        "attributes": [
+          {
+            "key": "constructionYear",
+            "value": "2020",
+            "values": [
+              "2020"
+            ]
+          },
+          {
+            "key": "mileage",
+            "value": "1",
+            "unit": "km",
+            "values": [
+              "1"
+            ]
+          },
+          {
+            "key": "energyLabel",
+            "value": "C",
+            "values": [
+              "C"
+            ]
+          },
+          {
+            "key": "fuel",
+            "value": "Benzine",
+            "values": [
+              "Benzine"
+            ]
+          },
+          {
+            "key": "transmission",
+            "value": "Automaat",
+            "values": [
+              "Automaat"
+            ]
+          },
+          {
+            "key": "body",
+            "value": "SUV of Terreinwagen",
+            "values": [
+              "SUV of Terreinwagen"
+            ]
+          },
+          {
+            "key": "model",
+            "value": "Tiguan",
+            "values": [
+              "Tiguan"
+            ]
+          },
+          {
+            "key": "options",
+            "value": "Adaptive Cruise Control",
+            "values": [
+              "Adaptive Cruise Control",
+              "Cruise Control",
+              "Climate control",
+              "Parkeersensor",
+              "Regensensor",
+              "Mistlampen",
+              "Elektrische buitenspiegels",
+              "Verwarmde buitenspiegels",
+              "Alarm",
+              "Elektrische achterklep",
+              "Vermoeidheidsdetectie",
+              "Airconditioning",
+              "Radio",
+              "Start-stop-systeem",
+              "Emergency brake assist",
+              "Electronic Stability Program (ESP)",
+              "Elektrische ramen",
+              "Spraakbediening",
+              "Lane Departure Warning",
+              "Navigatiesysteem",
+              "LED verlichting",
+              "Bluetooth",
+              "Traction-control",
+              "Dakrails",
+              "Verkeersbordherkenning",
+              "Airbags",
+              "Centrale vergrendeling",
+              "Bochtverlichting",
+              "Boordcomputer",
+              "ABS",
+              "Lichtmetalen velgen"
+            ]
+          },
+          {
+            "key": "priceType",
+            "value": "Te koop",
+            "values": [
+              "Te koop"
+            ]
+          }
+        ],
+        "extendedAttributes": [
+          {
+            "key": "euronormBE",
+            "value": "Euro 6",
+            "values": [
+              "Euro 6"
+            ]
+          },
+          {
+            "key": "engineHorsepower",
+            "value": "150 pk",
+            "values": [
+              "150 pk"
+            ]
+          },
+          {
+            "key": "imported",
+            "value": "Origineel Nederlands",
+            "values": [
+              "Origineel Nederlands"
+            ]
+          },
+          {
+            "key": "body",
+            "value": "SUV of Terreinwagen",
+            "values": [
+              "SUV of Terreinwagen"
+            ]
+          }
+        ],
+        "traits": [
+          "DEALER_PACKAGE_BASIC",
+          "TRADE_IN_REQUEST_AVAILABLE",
+          "FEED_BOOSTER_REMOVER",
+          "TEST_DRIVE_REQUEST_AVAILABLE",
+          "CALL_BACK_REQUEST_AVAILABLE",
+          "EXTERNAL_REVIEWS",
+          "NO_RESPONSE_TIME_IN_VIP",
+          "AUTOMOTIVE_EXTENDED_ASQ",
+          "REQUEST_BUYER_LOCATION_IN_ASQ",
+          "PACKAGE_BASIC"
+        ],
+        "verticals": [
+          "cars",
+          "volkswagen",
+          "automotive"
+        ],
+        "pictures": [
+          {
+            "id": 0,
+            "mediaId": "",
+            "url": "https://images.marktplaats.com/api/v1/listing-mp-p/images/6b/6bf79d0f-79ce-4159-94f3-4081041c038b?rule=ecg_mp_eps$_#.jpg",
+            "extraSmallUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/6b/6bf79d0f-79ce-4159-94f3-4081041c038b?rule=ecg_mp_eps$_14.jpg",
+            "mediumUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/6b/6bf79d0f-79ce-4159-94f3-4081041c038b?rule=ecg_mp_eps$_82.jpg",
+            "largeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/6b/6bf79d0f-79ce-4159-94f3-4081041c038b?rule=ecg_mp_eps$_83.jpg",
+            "extraExtraLargeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/6b/6bf79d0f-79ce-4159-94f3-4081041c038b?rule=ecg_mp_eps$_85.jpg",
+            "aspectRatio": {
+              "width": 4,
+              "height": 3
+            }
+          }
+        ],
+        "searchType": "TokenMatch",
+        "reserved": false,
+        "vipUrl": "/v/auto-s/volkswagen/m2357956770-volkswagen-tiguan-1-5-tsi-act-highline-business-r-2-eigenaar"
+      },
+      {
+        "itemId": "m2357900937",
+        "title": "Volkswagen Tiguan 1.5 TSI Comfortline 150pk NAVI/PDC/STOELVE",
+        "description": "Merk: volkswagen model: tiguan tellerstand: 45562 km carrosserievorm: suv aantal deuren: 5 brandstofsoort: benzine bouwjaar: 2020 transmissie: handgeschakeld kleur: grijs bekleding: stof kleur interie",
+        "categorySpecificDescription": "Merk: volkswagen model: tiguan tellerstand: 45562 km carrosserievorm: suv aantal deuren: 5 brandstofsoort: benzine bouwjaar: 2020 transmissie: handgeschakeld kleur: grijs bekleding: stof kleur interieur: zwart motorinhoud: 1498 cc aantal cilinders: 4 vermogen...",
+        "thinContent": false,
+        "priceInfo": {
+          "priceCents": 2325000,
+          "priceType": "FIXED"
+        },
+        "location": {
+          "cityName": "Winkel",
+          "countryName": "Nederland",
+          "countryAbbreviation": "NL",
+          "distanceMeters": -1000,
+          "isBuyerLocation": false,
+          "onCountryLevel": false,
+          "abroad": false,
+          "latitude": 52.755589249627,
+          "longitude": 4.8919010938654
+        },
+        "date": "21 jan 26",
+        "imageUrls": [
+          "//images.marktplaats.com/api/v1/listing-mp-p/images/f5/f5ae72a1-517f-4d27-a6e0-2cedd646eeab?rule=ecg_mp_eps$_82.jpg",
+          "//images.marktplaats.com/api/v1/listing-mp-p/images/de/de834006-4b31-4f39-b853-a0a7bb0a3660?rule=ecg_mp_eps$_82.jpg",
+          "//images.marktplaats.com/api/v1/listing-mp-p/images/41/41b4a39a-aca3-4977-b6cb-42d8ff79c956?rule=ecg_mp_eps$_82.jpg"
+        ],
+        "sellerInformation": {
+          "sellerId": 12242205,
+          "sellerName": "Hof Occasions",
+          "showSoiUrl": true,
+          "showWebsiteUrl": false,
+          "sellerLogoUrl": "//images.marktplaats.com/api/v1/profile-mp-p/images/25/2502ad40-2f54-482a-96b8-13885e56bf8a?rule=ecg_mp_eps$_82",
+          "isVerified": false
+        },
+        "categoryId": 157,
+        "priorityProduct": "NONE",
+        "videoOnVip": true,
+        "urgencyFeatureActive": false,
+        "napAvailable": false,
+        "trustIndicators": [
+          {
+            "key": "FinanceAvailable"
+          },
+          {
+            "key": "BookFromDealer"
+          },
+          {
+            "key": "LezSuitable"
+          }
+        ],
+        "highlights": [
+          {
+            "key": "FinanceAvailable"
+          },
+          {
+            "key": "BookFromDealer"
+          },
+          {
+            "key": "LezSuitable"
+          }
+        ],
+        "attributes": [
+          {
+            "key": "constructionYear",
+            "value": "2020",
+            "values": [
+              "2020"
+            ]
+          },
+          {
+            "key": "mileage",
+            "value": "45562",
+            "unit": "km",
+            "values": [
+              "45562"
+            ]
+          },
+          {
+            "key": "condition",
+            "value": "Gebruikt",
+            "values": [
+              "Gebruikt"
+            ]
+          },
+          {
+            "key": "fuel",
+            "value": "Benzine",
+            "values": [
+              "Benzine"
+            ]
+          },
+          {
+            "key": "transmission",
+            "value": "Handgeschakeld",
+            "values": [
+              "Handgeschakeld"
+            ]
+          },
+          {
+            "key": "body",
+            "value": "SUV of Terreinwagen",
+            "values": [
+              "SUV of Terreinwagen"
+            ]
+          },
+          {
+            "key": "model",
+            "value": "Tiguan",
+            "values": [
+              "Tiguan"
+            ]
+          },
+          {
+            "key": "options",
+            "value": "Adaptive Cruise Control",
+            "values": [
+              "Adaptive Cruise Control",
+              "Cruise Control",
+              "Climate control",
+              "Parkeersensor",
+              "Startonderbreker",
+              "Regensensor",
+              "Mistlampen",
+              "Elektrische buitenspiegels",
+              "Verwarmde buitenspiegels",
+              "Dakrails",
+              "Alarm",
+              "Vermoeidheidsdetectie",
+              "Airconditioning",
+              "Radio",
+              "Stoelverwarming",
+              "Start-stop-systeem",
+              "Metallic lak",
+              "Emergency brake assist",
+              "Electronic Stability Program (ESP)",
+              "Elektrische ramen",
+              "Lane Departure Warning",
+              "Navigatiesysteem",
+              "LED verlichting",
+              "Bluetooth",
+              "Traction-control",
+              "Airbags",
+              "Centrale vergrendeling",
+              "Bochtverlichting",
+              "Boordcomputer",
+              "ABS",
+              "Lichtmetalen velgen"
+            ]
+          },
+          {
+            "key": "priceType",
+            "value": "Te koop",
+            "values": [
+              "Te koop"
+            ]
+          }
+        ],
+        "extendedAttributes": [
+          {
+            "key": "driveTrain",
+            "value": "Voorwielaandrijving",
+            "values": [
+              "Voorwielaandrijving"
+            ]
+          },
+          {
+            "key": "upholstery",
+            "value": "Stof",
+            "values": [
+              "Stof"
+            ]
+          },
+          {
+            "key": "interiorcolor",
+            "value": "Zwart",
+            "values": [
+              "Zwart"
+            ]
+          },
+          {
+            "key": "numberOfCilindersCars",
+            "value": "4 cilinders",
+            "values": [
+              "4 cilinders"
+            ]
+          }
+        ],
+        "traits": [
+          "MICROTIP",
+          "EXTRA_BRANDING",
+          "TRADE_IN_REQUEST_AVAILABLE",
+          "NO_COMMERCIAL_CONTENT",
+          "WARRANTY_LABEL",
+          "FEED_BOOSTER_HIGH",
+          "DEALER_HIGHLIGHTS",
+          "TEST_DRIVE_REQUEST_AVAILABLE",
+          "CALL_BACK_REQUEST_AVAILABLE",
+          "FINANCE_AVAILABLE",
+          "VIDEO",
+          "PACKAGE_PREMIUM",
+          "PROXIMITY_CAROUSEL",
+          "AUTOMOTIVE_EXTENDED_ASQ",
+          "REQUEST_BUYER_LOCATION_IN_ASQ",
+          "EXTRA_LARGE_PHOTOS",
+          "EXTRA_IMAGES_SNIPPET",
+          "HIGHLIGHTS",
+          "CONTACT_SALES_REPRESENTATIVES",
+          "DELIVERY_PACKAGES",
+          "DEALER_PACKAGE_PREMIUM",
+          "EXTERNAL_REVIEWS",
+          "NO_RESPONSE_TIME_IN_VIP",
+          "COMPANY_PHOTO_AND_LOGO"
+        ],
+        "verticals": [
+          "cars",
+          "volkswagen",
+          "automotive"
+        ],
+        "pictures": [
+          {
+            "id": 0,
+            "mediaId": "",
+            "url": "https://images.marktplaats.com/api/v1/listing-mp-p/images/f5/f5ae72a1-517f-4d27-a6e0-2cedd646eeab?rule=ecg_mp_eps$_#.jpg",
+            "extraSmallUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/f5/f5ae72a1-517f-4d27-a6e0-2cedd646eeab?rule=ecg_mp_eps$_14.jpg",
+            "mediumUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/f5/f5ae72a1-517f-4d27-a6e0-2cedd646eeab?rule=ecg_mp_eps$_82.jpg",
+            "largeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/f5/f5ae72a1-517f-4d27-a6e0-2cedd646eeab?rule=ecg_mp_eps$_83.jpg",
+            "extraExtraLargeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/f5/f5ae72a1-517f-4d27-a6e0-2cedd646eeab?rule=ecg_mp_eps$_85.jpg",
+            "aspectRatio": {
+              "width": 1024,
+              "height": 767
+            }
+          },
+          {
+            "id": 0,
+            "mediaId": "",
+            "url": "https://images.marktplaats.com/api/v1/listing-mp-p/images/de/de834006-4b31-4f39-b853-a0a7bb0a3660?rule=ecg_mp_eps$_#.jpg",
+            "extraSmallUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/de/de834006-4b31-4f39-b853-a0a7bb0a3660?rule=ecg_mp_eps$_14.jpg",
+            "mediumUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/de/de834006-4b31-4f39-b853-a0a7bb0a3660?rule=ecg_mp_eps$_82.jpg",
+            "largeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/de/de834006-4b31-4f39-b853-a0a7bb0a3660?rule=ecg_mp_eps$_83.jpg",
+            "extraExtraLargeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/de/de834006-4b31-4f39-b853-a0a7bb0a3660?rule=ecg_mp_eps$_85.jpg",
+            "aspectRatio": {
+              "width": 4,
+              "height": 3
+            }
+          },
+          {
+            "id": 0,
+            "mediaId": "",
+            "url": "https://images.marktplaats.com/api/v1/listing-mp-p/images/41/41b4a39a-aca3-4977-b6cb-42d8ff79c956?rule=ecg_mp_eps$_#.jpg",
+            "extraSmallUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/41/41b4a39a-aca3-4977-b6cb-42d8ff79c956?rule=ecg_mp_eps$_14.jpg",
+            "mediumUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/41/41b4a39a-aca3-4977-b6cb-42d8ff79c956?rule=ecg_mp_eps$_82.jpg",
+            "largeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/41/41b4a39a-aca3-4977-b6cb-42d8ff79c956?rule=ecg_mp_eps$_83.jpg",
+            "extraExtraLargeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/41/41b4a39a-aca3-4977-b6cb-42d8ff79c956?rule=ecg_mp_eps$_85.jpg",
+            "aspectRatio": {
+              "width": 4,
+              "height": 3
+            }
+          }
+        ],
+        "searchType": "TokenMatch",
+        "reserved": false,
+        "vipUrl": "/v/auto-s/volkswagen/m2357900937-volkswagen-tiguan-1-5-tsi-comfortline-150pk-navi-pdc-stoelve"
+      },
+      {
+        "itemId": "m2360272877",
+        "title": "Volkswagen Tiguan 1.5 TSI ACT Comfortline Business |GT16602|",
+        "description": "Volkswagen tiguan 1.5 Tsi act comfortline business |gt16602| algemene gegevens tellerstand: 59.941 Km carrosserievorm: suv aantal deuren: 5 brandstofsoort: benzine bouwjaar: mei 2020 nieuw: nee transm",
+        "categorySpecificDescription": "Volkswagen tiguan 1.5 Tsi act comfortline business |gt16602| algemene gegevens tellerstand: 59.941 Km carrosserievorm: suv aantal deuren: 5 brandstofsoort: benzine bouwjaar: mei 2020 nieuw: nee transmissie: 6 versnellingen, handgeschakeld kleur: wit metalli...",
+        "thinContent": false,
+        "priceInfo": {
+          "priceCents": 2354900,
+          "priceType": "FIXED"
+        },
+        "location": {
+          "cityName": "Amsterdam",
+          "countryName": "Nederland",
+          "countryAbbreviation": "NL",
+          "distanceMeters": -1000,
+          "isBuyerLocation": false,
+          "onCountryLevel": false,
+          "abroad": false,
+          "latitude": 52.304305521353,
+          "longitude": 4.9492749105181
+        },
+        "date": "Gisteren",
+        "imageUrls": [
+          "//images.marktplaats.com/api/v1/listing-mp-p/images/a8/a8276f93-c66e-457a-80dc-1bef38089436?rule=ecg_mp_eps$_82.jpg"
+        ],
+        "sellerInformation": {
+          "sellerId": 24556017,
+          "sellerName": "Autohero Nederland",
+          "showSoiUrl": true,
+          "showWebsiteUrl": false,
+          "isVerified": false
+        },
+        "categoryId": 157,
+        "priorityProduct": "NONE",
+        "videoOnVip": false,
+        "urgencyFeatureActive": false,
+        "napAvailable": false,
+        "attributes": [
+          {
+            "key": "constructionYear",
+            "value": "2020",
+            "values": [
+              "2020"
+            ]
+          },
+          {
+            "key": "mileage",
+            "value": "59941",
+            "unit": "km",
+            "values": [
+              "59941"
+            ]
+          },
+          {
+            "key": "energyLabel",
+            "value": "C",
+            "values": [
+              "C"
+            ]
+          },
+          {
+            "key": "fuel",
+            "value": "Benzine",
+            "values": [
+              "Benzine"
+            ]
+          },
+          {
+            "key": "transmission",
+            "value": "Handgeschakeld",
+            "values": [
+              "Handgeschakeld"
+            ]
+          },
+          {
+            "key": "body",
+            "value": "SUV of Terreinwagen",
+            "values": [
+              "SUV of Terreinwagen"
+            ]
+          },
+          {
+            "key": "model",
+            "value": "Tiguan",
+            "values": [
+              "Tiguan"
+            ]
+          },
+          {
+            "key": "options",
+            "value": "Adaptive Cruise Control",
+            "values": [
+              "Adaptive Cruise Control",
+              "Cruise Control",
+              "Climate control",
+              "Parkeersensor",
+              "Regensensor",
+              "Mistlampen",
+              "Elektrische buitenspiegels",
+              "Verwarmde buitenspiegels",
+              "Alarm",
+              "Elektrische achterklep",
+              "Vermoeidheidsdetectie",
+              "Airconditioning",
+              "Radio",
+              "Start-stop-systeem",
+              "Metallic lak",
+              "Emergency brake assist",
+              "Electronic Stability Program (ESP)",
+              "Elektrische ramen",
+              "Spraakbediening",
+              "Lane Departure Warning",
+              "Navigatiesysteem",
+              "LED verlichting",
+              "Bluetooth",
+              "Traction-control",
+              "Dakrails",
+              "Verkeersbordherkenning",
+              "Airbags",
+              "Centrale vergrendeling",
+              "Bochtverlichting",
+              "Boordcomputer",
+              "ABS",
+              "Lichtmetalen velgen"
+            ]
+          },
+          {
+            "key": "priceType",
+            "value": "Te koop",
+            "values": [
+              "Te koop"
+            ]
+          }
+        ],
+        "extendedAttributes": [
+          {
+            "key": "driveTrain",
+            "value": "Voorwielaandrijving",
+            "values": [
+              "Voorwielaandrijving"
+            ]
+          },
+          {
+            "key": "upholstery",
+            "value": "Alcantara",
+            "values": [
+              "Alcantara"
+            ]
+          },
+          {
+            "key": "color",
+            "value": "Wit",
+            "values": [
+              "Wit"
+            ]
+          },
+          {
+            "key": "transmission",
+            "value": "Handgeschakeld",
+            "values": [
+              "Handgeschakeld"
+            ]
+          }
+        ],
+        "traits": [
+          "DEALER_PACKAGE_BASIC",
+          "TRADE_IN_REQUEST_AVAILABLE",
+          "FEED_BOOSTER_REMOVER",
+          "TEST_DRIVE_REQUEST_AVAILABLE",
+          "CALL_BACK_REQUEST_AVAILABLE",
+          "EXTERNAL_REVIEWS",
+          "NO_RESPONSE_TIME_IN_VIP",
+          "AUTOMOTIVE_EXTENDED_ASQ",
+          "REQUEST_BUYER_LOCATION_IN_ASQ",
+          "PACKAGE_BASIC"
+        ],
+        "verticals": [
+          "cars",
+          "volkswagen",
+          "automotive"
+        ],
+        "pictures": [
+          {
+            "id": 0,
+            "mediaId": "",
+            "url": "https://images.marktplaats.com/api/v1/listing-mp-p/images/a8/a8276f93-c66e-457a-80dc-1bef38089436?rule=ecg_mp_eps$_#.jpg",
+            "extraSmallUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/a8/a8276f93-c66e-457a-80dc-1bef38089436?rule=ecg_mp_eps$_14.jpg",
+            "mediumUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/a8/a8276f93-c66e-457a-80dc-1bef38089436?rule=ecg_mp_eps$_82.jpg",
+            "largeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/a8/a8276f93-c66e-457a-80dc-1bef38089436?rule=ecg_mp_eps$_83.jpg",
+            "extraExtraLargeUrl": "https://images.marktplaats.com/api/v1/listing-mp-p/images/a8/a8276f93-c66e-457a-80dc-1bef38089436?rule=ecg_mp_eps$_85.jpg",
+            "aspectRatio": {
+              "width": 4,
+              "height": 3
+            }
+          }
+        ],
+        "searchType": "TokenMatch",
+        "reserved": false,
+        "vipUrl": "/v/auto-s/volkswagen/m2360272877-volkswagen-tiguan-1-5-tsi-act-comfortline-business-gt16602"
+      }
+    ]
+  }
+}
