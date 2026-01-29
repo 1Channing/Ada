@@ -352,7 +352,7 @@ export function filterListingsByStudy(
  * Debug flag for trim filtering diagnostics.
  * Set to true to enable detailed logging of trim filter results.
  */
-const DEBUG_TRIM_FILTER = false;
+const DEBUG_TRIM_FILTER = true;
 
 /**
  * Compute market statistics from filtered listings.
@@ -385,15 +385,46 @@ export function computeTargetMarketStats(
   // BUSINESS RULE: Use only the 6 cheapest listings
   const MAX_TARGET_LISTINGS = 6;
 
+  // CRITICAL DEBUG: Log all prices BEFORE sorting
+  console.log(`\n[MEDIAN_DEBUG ${debugLabel || 'UNKNOWN'}] === STAGE 1: INPUT ===`);
+  console.log(`[MEDIAN_DEBUG] Total listings received: ${listings.length}`);
+  const allPricesBeforeSort = listings.map(l => ({
+    price: l.price,
+    currency: l.currency,
+    priceEur: toEur(l.price, l.currency),
+    title: l.title.substring(0, 50)
+  }));
+  console.log(`[MEDIAN_DEBUG] All prices (unsorted):`);
+  allPricesBeforeSort.slice(0, 10).forEach((p, i) => {
+    console.log(`  ${i + 1}. ${p.price} ${p.currency} → €${p.priceEur.toFixed(0)} - ${p.title}`);
+  });
+  if (allPricesBeforeSort.length > 10) {
+    console.log(`  ... and ${allPricesBeforeSort.length - 10} more`);
+  }
+
   // Sort by price (EUR) ascending
   const sortedListings = listings
     .map(l => ({ ...l, priceEur: toEur(l.price, l.currency) }))
     .sort((a, b) => a.priceEur - b.priceEur);
 
+  // CRITICAL DEBUG: Log first 10 sorted prices
+  console.log(`\n[MEDIAN_DEBUG] === STAGE 2: AFTER NUMERIC SORT (ASC) ===`);
+  console.log(`[MEDIAN_DEBUG] First 10 sorted prices (numeric sort):`);
+  sortedListings.slice(0, 10).forEach((l, i) => {
+    console.log(`  ${i + 1}. €${l.priceEur.toFixed(0)} (${l.price} ${l.currency}) - ${l.title.substring(0, 50)}`);
+  });
+
   // Take top 6 cheapest
   const limitedListings = sortedListings.slice(0, MAX_TARGET_LISTINGS);
   const pricesInEur = limitedListings.map(l => l.priceEur);
   const sum = pricesInEur.reduce((acc, price) => acc + price, 0);
+
+  // CRITICAL DEBUG: Show the exact top 6 prices used for stats
+  console.log(`\n[MEDIAN_DEBUG] === STAGE 3: TOP 6 CHEAPEST (used for stats) ===`);
+  console.log(`[MEDIAN_DEBUG] Exact top6 prices array:`);
+  pricesInEur.forEach((p, i) => {
+    console.log(`  top6[${i}] = €${p.toFixed(0)} - ${limitedListings[i].title.substring(0, 50)}`);
+  });
 
   // Debug logging: Show which listings were used for median calculation
   if (DEBUG_TRIM_FILTER && debugLabel) {
@@ -412,12 +443,29 @@ export function computeTargetMarketStats(
   };
 
   // MEDIAN CALCULATION: Average of two middle values for even counts
-  const medianPrice =
-    pricesInEur.length % 2 === 0
-      ? (pricesInEur[pricesInEur.length / 2 - 1] + pricesInEur[pricesInEur.length / 2]) / 2
-      : pricesInEur[Math.floor(pricesInEur.length / 2)];
+  console.log(`\n[MEDIAN_DEBUG] === STAGE 4: MEDIAN COMPUTATION ===`);
+  console.log(`[MEDIAN_DEBUG] Array length: ${pricesInEur.length}`);
+  console.log(`[MEDIAN_DEBUG] Is even: ${pricesInEur.length % 2 === 0}`);
 
-  return {
+  let medianPrice: number;
+  if (pricesInEur.length % 2 === 0) {
+    const idx1 = pricesInEur.length / 2 - 1;
+    const idx2 = pricesInEur.length / 2;
+    const val1 = pricesInEur[idx1];
+    const val2 = pricesInEur[idx2];
+    medianPrice = (val1 + val2) / 2;
+    console.log(`[MEDIAN_DEBUG] Even count: taking average of middle two`);
+    console.log(`[MEDIAN_DEBUG]   pricesInEur[${idx1}] = €${val1.toFixed(2)}`);
+    console.log(`[MEDIAN_DEBUG]   pricesInEur[${idx2}] = €${val2.toFixed(2)}`);
+    console.log(`[MEDIAN_DEBUG]   median = (${val1.toFixed(2)} + ${val2.toFixed(2)}) / 2 = €${medianPrice.toFixed(2)}`);
+  } else {
+    const idx = Math.floor(pricesInEur.length / 2);
+    medianPrice = pricesInEur[idx];
+    console.log(`[MEDIAN_DEBUG] Odd count: taking middle value`);
+    console.log(`[MEDIAN_DEBUG]   pricesInEur[${idx}] = €${medianPrice.toFixed(2)}`);
+  }
+
+  const stats = {
     median_price: medianPrice,
     average_price: sum / pricesInEur.length,
     min_price: pricesInEur[0],
@@ -426,6 +474,16 @@ export function computeTargetMarketStats(
     percentile_25: getPercentile(pricesInEur, 25),
     percentile_75: getPercentile(pricesInEur, 75),
   };
+
+  console.log(`\n[MEDIAN_DEBUG] === FINAL STATS ===`);
+  console.log(`[MEDIAN_DEBUG] Count: ${stats.count}`);
+  console.log(`[MEDIAN_DEBUG] Range: €${stats.min_price.toFixed(0)} - €${stats.max_price.toFixed(0)}`);
+  console.log(`[MEDIAN_DEBUG] Median: €${stats.median_price.toFixed(0)}`);
+  console.log(`[MEDIAN_DEBUG] Average: €${stats.average_price.toFixed(0)}`);
+  console.log(`[MEDIAN_DEBUG] P25: €${stats.percentile_25.toFixed(0)}`);
+  console.log(`[MEDIAN_DEBUG] P75: €${stats.percentile_75.toFixed(0)}`);
+
+  return stats;
 }
 
 /**
