@@ -345,16 +345,6 @@ export async function runStudyInBackground(
 
     const filteredTargetListings = filterListingsByStudy(targetListings, targetCriteria);
 
-    console.log(`[STUDY_RUNNER] Raw target listings scraped: ${targetListings.length}`);
-    console.log(`[STUDY_RUNNER] After filterListingsByStudy: ${filteredTargetListings.length}`);
-    console.log(`[STUDY_RUNNER] Target listings prices (pre-stats):`);
-    filteredTargetListings.slice(0, 10).forEach((l, i) => {
-      console.log(`  ${i + 1}. ${l.price} ${l.currency} - ${l.title.substring(0, 50)}`);
-    });
-    if (filteredTargetListings.length > 10) {
-      console.log(`  ... and ${filteredTargetListings.length - 10} more`);
-    }
-
     if (filteredTargetListings.length === 0) {
       console.log(`[RUN] No valid target listings found`);
       status = 'NO_TARGET_RESULTS';
@@ -383,7 +373,7 @@ export async function runStudyInBackground(
       'Analyzing target market prices...',
       onProgress,
     );
-    const targetStats = computeTargetMarketStats(filteredTargetListings, 'TARGET');
+    const targetStats = computeTargetMarketStats(filteredTargetListings);
     const targetMarketPriceEur = targetStats.median_price;
 
     console.log(`[RUN] Target market median price: ${targetMarketPriceEur.toFixed(0)} EUR`);

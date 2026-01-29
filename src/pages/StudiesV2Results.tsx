@@ -26,7 +26,6 @@ interface StudyRunResult {
   best_source_price: number | null;
   price_difference: number | null;
   target_error_reason: string | null;
-  created_at: string;
   target_stats: {
     median_price: number;
     average_price: number;
@@ -178,26 +177,6 @@ export function StudiesV2Results() {
   async function handleRealtimeUpdate(_runId: string) {
     console.log('[RESULTS] Realtime update received, refreshing...');
     await loadTodayRuns();
-
-    // Update selectedResult if modal is open to ensure it shows the latest data
-    if (selectedResult && showListingsModal) {
-      // Find the newest result for the same study across all runs
-      const allResults = todayRuns.flatMap(tr => tr.results);
-      const sameStudyResults = allResults.filter(r => r.study_id === selectedResult.study_id);
-
-      if (sameStudyResults.length > 0) {
-        // Sort by created_at descending and pick the newest
-        const newestResult = sameStudyResults.sort((a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )[0];
-
-        console.log('[RESULTS] Updating selectedResult from', selectedResult.id, 'to', newestResult.id);
-        setSelectedResult(newestResult);
-
-        // Reload listings for the new result
-        await loadListings(newestResult.id);
-      }
-    }
   }
 
   async function loadTodayRuns() {
@@ -795,9 +774,6 @@ export function StudiesV2Results() {
                 </h3>
                 <p className="text-sm text-zinc-400 mt-1">
                   {listings.length} listings found in {selectedResult.studies_v2.country_source}
-                </p>
-                <p className="text-xs text-zinc-500 mt-1">
-                  Result ID: {selectedResult.id.substring(0, 8)}... • Created: {new Date(selectedResult.created_at).toLocaleString()}
                 </p>
               </div>
               <button
