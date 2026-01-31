@@ -73,8 +73,8 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
     requestBody.actions = [{ action: 'waitForTimeout', timeout: 2.0 }];
   }
 
-  // STEP 1 DIAGNOSTIC: Log fetch target for Marktplaats (any marktplaats.nl request)
-  if (url.includes('marktplaats.nl')) {
+  // STEP 1 DIAGNOSTIC: Log fetch target for Marktplaats (search URLs only)
+  if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s/') || url.includes('/lrp/api/'))) {
     const mode = url.includes('/lrp/api/search') ? 'DIRECT_API' : 'ZYTE_HTML';
     console.log(
       `[MARKTPLAATS_RUNTIME] mode=${mode} url=${url.substring(0, 200)}`
@@ -98,8 +98,8 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
 
     const data = await response.json() as { browserHtml?: string };
 
-    // STEP 1 DIAGNOSTIC: Log response for Marktplaats (any marktplaats.nl request)
-    if (url.includes('marktplaats.nl')) {
+    // STEP 1 DIAGNOSTIC: Log response for Marktplaats (search URLs only)
+    if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s/') || url.includes('/lrp/api/'))) {
       const contentType = response.headers.get('content-type') || 'unknown';
       const raw = (data.browserHtml ?? '').trim();
       const preview = raw.substring(0, 80).replace(/\s+/g, ' ');
@@ -186,8 +186,8 @@ async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed
     // Parse using PURE parser (deterministic)
     const listings = coreParseSearchPage(html, url);
 
-    // DIAGNOSTIC: Log parsing result for Marktplaats
-    if (url.includes('marktplaats.nl')) {
+    // DIAGNOSTIC: Log parsing result for Marktplaats (search URLs only)
+    if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s/') || url.includes('/lrp/api/'))) {
       console.log(`[MARKTPLAATS_PARSED] count=${listings.length} attempt=${attempt + 1}`);
     }
 
