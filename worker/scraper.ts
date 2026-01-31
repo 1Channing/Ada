@@ -70,6 +70,17 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
     requestBody.actions = [{ action: 'waitForTimeout', timeout: 2.0 }];
   }
 
+  // STEP 1 DIAGNOSTIC: Log fetch target for Marktplaats
+  if (
+    url.includes('marktplaats.nl') &&
+    (url.includes('/l/auto-s/') || url.includes('/lrp/api/'))
+  ) {
+    const mode = url.includes('/lrp/api/search') ? 'DIRECT_API' : 'ZYTE_HTML';
+    console.log(
+      `[MARKTPLAATS_RUNTIME] mode=${mode} url=${url.substring(0, 200)}`
+    );
+  }
+
   try {
     const response = await fetch(ZYTE_ENDPOINT, {
       method: 'POST',
@@ -86,6 +97,26 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
     }
 
     const data = await response.json() as { browserHtml?: string };
+
+    // STEP 1 DIAGNOSTIC: Log response for Marktplaats
+    if (
+      url.includes('marktplaats.nl') &&
+      (url.includes('/l/auto-s/') || url.includes('/lrp/api/'))
+    ) {
+      const contentType = response.headers.get('content-type') || 'unknown';
+      const raw = (data.browserHtml ?? '').trim();
+      const preview = raw.substring(0, 80).replace(/\s+/g, ' ');
+
+      const bodyKind =
+        raw.startsWith('<') ? 'HTML' :
+        raw.startsWith('{') || raw.startsWith('[') ? 'JSON' :
+        raw ? 'UNKNOWN' : 'EMPTY';
+
+      console.log(
+        `[MARKTPLAATS_RUNTIME] status=${response.status} content_type=${contentType} body_kind=${bodyKind} preview="${preview}"`
+      );
+    }
+
     return data.browserHtml || null;
   } catch (error) {
     console.error('[WORKER_SCRAPER] Fetch error:', error);
