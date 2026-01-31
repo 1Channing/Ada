@@ -31,6 +31,9 @@ import { generateInternalRef } from '../src/lib/internalRefGenerator';
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
 
+// DIAGNOSTIC: Worker build tag for production verification
+console.log('[WORKER_BUILD_TAG] marktplaats_diag_v1 deployed');
+
 /**
  * Exchange rates for currency conversion
  */
@@ -70,11 +73,8 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
     requestBody.actions = [{ action: 'waitForTimeout', timeout: 2.0 }];
   }
 
-  // STEP 1 DIAGNOSTIC: Log fetch target for Marktplaats
-  if (
-    url.includes('marktplaats.nl') &&
-    (url.includes('/l/auto-s/') || url.includes('/lrp/api/'))
-  ) {
+  // STEP 1 DIAGNOSTIC: Log fetch target for Marktplaats (any marktplaats.nl request)
+  if (url.includes('marktplaats.nl')) {
     const mode = url.includes('/lrp/api/search') ? 'DIRECT_API' : 'ZYTE_HTML';
     console.log(
       `[MARKTPLAATS_RUNTIME] mode=${mode} url=${url.substring(0, 200)}`
@@ -98,11 +98,8 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
 
     const data = await response.json() as { browserHtml?: string };
 
-    // STEP 1 DIAGNOSTIC: Log response for Marktplaats
-    if (
-      url.includes('marktplaats.nl') &&
-      (url.includes('/l/auto-s/') || url.includes('/lrp/api/'))
-    ) {
+    // STEP 1 DIAGNOSTIC: Log response for Marktplaats (any marktplaats.nl request)
+    if (url.includes('marktplaats.nl')) {
       const contentType = response.headers.get('content-type') || 'unknown';
       const raw = (data.browserHtml ?? '').trim();
       const preview = raw.substring(0, 80).replace(/\s+/g, ' ');
@@ -156,6 +153,15 @@ async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed
   error?: string;
   errorReason?: string;
 }> {
+  // DIAGNOSTIC: Log routing decision for each marketplace
+  const marketplace =
+    url.includes('marktplaats.nl') ? 'MARKTPLAATS' :
+    url.includes('leboncoin.fr') ? 'LEBONCOIN' :
+    url.includes('bilbasen.dk') ? 'BILBASEN' :
+    url.includes('gaspedaal.nl') ? 'GASPEDAAL' :
+    'UNKNOWN';
+  console.log(`[SCRAPE_ROUTE] marketplace=${marketplace} scrapeMode=${scrapeMode} url=${url.substring(0, 150)}`);
+
   const MAX_RETRIES = scrapeMode === 'fast' ? 1 : 3;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -179,6 +185,11 @@ async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed
 
     // Parse using PURE parser (deterministic)
     const listings = coreParseSearchPage(html, url);
+
+    // DIAGNOSTIC: Log parsing result for Marktplaats
+    if (url.includes('marktplaats.nl')) {
+      console.log(`[MARKTPLAATS_PARSED] count=${listings.length} attempt=${attempt + 1}`);
+    }
 
     if (listings.length > 0) {
       console.log(`[WORKER_SCRAPER] ✅ Parsed ${listings.length} listings`);
@@ -451,6 +462,17 @@ export async function executeStudy({
 
     const targetStats = computeTargetMarketStats(filteredTarget);
     const opportunityResult = detectOpportunity(filteredTarget, filteredSource, threshold, 5);
+
+    // DIAGNOSTIC: Show top6 prices/titles used for target market stats
+    const top6 = filteredTarget
+      .sort((a, b) => a.price - b.price)
+      .slice(0, 6)
+      .map(l => ({ price: l.price, title: l.title?.substring(0, 50) || 'NO_TITLE' }));
+    console.log(
+      `[TARGET_STATS_NL] study=${study.id} country=${study.country_target} count=${filteredTarget.length} ` +
+      `median=${targetStats.median_price.toFixed(0)} top6_prices=[${top6.map(x => x.price.toFixed(0)).join(', ')}] ` +
+      `top6_titles=[${top6.map(x => `"${x.title}"`).join(', ')}]`
+    );
 
     const status = opportunityResult.hasOpportunity ? 'OPPORTUNITIES' : 'NULL';
 
