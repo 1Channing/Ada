@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link2, Plus, Trash2, ExternalLink } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Link2, Plus, Trash2, ExternalLink, Play, BarChart3, Copy } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -122,6 +122,14 @@ export function StudiesV2LinkGenerator() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  const [mappingSeedUrl, setMappingSeedUrl] = useState<string>('');
+  const [mappingRunId, setMappingRunId] = useState<string | null>(null);
+  const [mappingStatus, setMappingStatus] = useState<string>('idle');
+  const [mappingStats, setMappingStats] = useState<any>(null);
+  const [showMappingStats, setShowMappingStats] = useState<boolean>(false);
+  const [mappingError, setMappingError] = useState<string>('');
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     const saved = localStorage.getItem('linkgen_stats');
     if (saved) {
@@ -209,8 +217,306 @@ export function StudiesV2LinkGenerator() {
 
   const availableModels = selectedBrand ? BRAND_MODELS[selectedBrand] || [] : [];
 
+  const startMappingCrawl = async () => {
+    if (!mappingSeedUrl.trim()) {
+      setMappingError('Please enter a seed listing URL');
+      return;
+    }
+
+    if (!mappingSeedUrl.includes('marktplaats.nl')) {
+      setMappingError('URL must be from marktplaats.nl');
+      return;
+    }
+
+    setMappingError('');
+    setMappingStatus('starting');
+
+    try {
+      const workerUrl = import.meta.env.VITE_WORKER_URL || 'http://localhost:3001';
+      const workerSecret = import.meta.env.VITE_WORKER_SECRET || '';
+
+      const response = await fetch(`${workerUrl}/linkgen/mapping-auto/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${workerSecret}`,
+        },
+        body: JSON.stringify({
+          marketplace: 'MARKTPLAATS',
+          seed_listing_url: mappingSeedUrl,
+          steps: 100,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to start crawl');
+      }
+
+      const data = await response.json();
+      setMappingRunId(data.runId);
+      setMappingStatus('running');
+      startPolling(data.runId);
+    } catch (error) {
+      console.error('[LINKGEN_AUTO] Start error:', error);
+      setMappingError(error instanceof Error ? error.message : 'Failed to start crawl');
+      setMappingStatus('error');
+    }
+  };
+
+  const fetchMappingStats = useCallback(async (runId: string) => {
+    try {
+      const workerUrl = import.meta.env.VITE_WORKER_URL || 'http://localhost:3001';
+      const workerSecret = import.meta.env.VITE_WORKER_SECRET || '';
+
+      const response = await fetch(`${workerUrl}/linkgen/mapping-auto/stats?runId=${runId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${workerSecret}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch stats');
+      }
+
+      const stats = await response.json();
+      setMappingStats(stats);
+      setMappingStatus(stats.run.status);
+
+      if (stats.run.status === 'completed' || stats.run.status === 'failed') {
+        stopPolling();
+      }
+    } catch (error) {
+      console.error('[LINKGEN_AUTO] Stats error:', error);
+    }
+  }, []);
+
+  const startPolling = (runId: string) => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    fetchMappingStats(runId);
+
+    pollingIntervalRef.current = setInterval(() => {
+      fetchMappingStats(runId);
+    }, 5000);
+  };
+
+  const stopPolling = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  };
+
+  const toggleStatsPanel = () => {
+    setShowMappingStats(!showMappingStats);
+    if (!showMappingStats && mappingRunId) {
+      fetchMappingStats(mappingRunId);
+    }
+  };
+
+  const copyMappingSuggestions = () => {
+    if (!mappingStats?.mappingCandidates) return;
+
+    const json = JSON.stringify(mappingStats.mappingCandidates, null, 2);
+    navigator.clipboard.writeText(json);
+    console.log('Mapping suggestions copied to clipboard');
+  };
+
+  useEffect(() => {
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
+      <div className="bg-gray-900 rounded-lg shadow-sm border border-gray-700 p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <BarChart3 className="w-6 h-6 text-green-400" />
+          <h2 className="text-2xl font-bold text-white">Mapping Auto</h2>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Seed Listing URL (Marktplaats)
+            </label>
+            <input
+              type="text"
+              value={mappingSeedUrl}
+              onChange={(e) => setMappingSeedUrl(e.target.value)}
+              placeholder="https://www.marktplaats.nl/a/..."
+              className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              disabled={mappingStatus === 'running' || mappingStatus === 'starting'}
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={startMappingCrawl}
+              disabled={mappingStatus === 'running' || mappingStatus === 'starting' || !mappingSeedUrl.trim()}
+              className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            >
+              {mappingStatus === 'starting' || mappingStatus === 'running' ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Running...
+                </>
+              ) : (
+                <>
+                  <Play className="w-5 h-5" />
+                  Start (100)
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={toggleStatsPanel}
+              disabled={!mappingRunId}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              <BarChart3 className="w-5 h-5" />
+              {showMappingStats ? 'Hide Stats' : 'Stats'}
+            </button>
+          </div>
+
+          {mappingError && (
+            <div className="p-3 bg-red-900/50 border border-red-700 rounded-lg text-sm text-red-200">
+              {mappingError}
+            </div>
+          )}
+
+          {mappingStats?.run && (
+            <div className="p-4 bg-gray-800 border border-gray-700 rounded-lg">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <div className="text-gray-400">Status</div>
+                  <div className={`font-medium ${
+                    mappingStats.run.status === 'completed' ? 'text-green-400' :
+                    mappingStats.run.status === 'failed' ? 'text-red-400' :
+                    'text-yellow-400'
+                  }`}>
+                    {mappingStats.run.status}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Steps</div>
+                  <div className="font-medium text-white">
+                    {mappingStats.run.stepsDone} / {mappingStats.run.targetSteps}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Samples</div>
+                  <div className="font-medium text-white">{mappingStats.run.insertedSamples}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Errors</div>
+                  <div className="font-medium text-white">{mappingStats.run.errorsCount}</div>
+                </div>
+              </div>
+
+              {mappingStats.run.lastError && (
+                <div className="mt-3 p-2 bg-red-900/30 border border-red-800 rounded text-xs text-red-200">
+                  {mappingStats.run.lastError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {showMappingStats && mappingStats && (
+            <div className="space-y-4 p-4 bg-gray-800 border border-gray-700 rounded-lg">
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-3">Last 20 Samples</h3>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {mappingStats.lastSamples?.map((sample: any, idx: number) => (
+                    <div key={idx} className="p-3 bg-gray-900 rounded border border-gray-700">
+                      <div className="text-sm text-gray-300 truncate mb-1">{sample.listing_url}</div>
+                      <div className="flex flex-wrap gap-3 text-xs text-gray-400">
+                        {sample.brand && <span>Brand: {sample.brand}</span>}
+                        {sample.model && <span>Model: {sample.model}</span>}
+                        {sample.price_eur && <span>€{sample.price_eur}</span>}
+                        {sample.year && <span>{sample.year}</span>}
+                        {sample.mileage && <span>{sample.mileage.toLocaleString()} km</span>}
+                        <span className="text-gray-500">Step {sample.step_index}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-3">Top 20 Brand-Model Combinations</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {mappingStats.topBrandModels?.map((item: any, idx: number) => (
+                    <div key={idx} className="p-2 bg-gray-900 rounded border border-gray-700 text-sm">
+                      <div className="text-white">{item.brand} {item.model}</div>
+                      <div className="text-gray-400 text-xs">{item.count} samples</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-white">Mapping Candidates (Top 50)</h3>
+                  <button
+                    onClick={copyMappingSuggestions}
+                    className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy JSON
+                  </button>
+                </div>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {mappingStats.mappingCandidates?.map((candidate: any, idx: number) => (
+                    <div key={idx} className="p-3 bg-gray-900 rounded border border-gray-700">
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        {candidate.brand && (
+                          <div>
+                            <span className="text-gray-400">Brand:</span>
+                            <span className="text-white ml-2">{candidate.brand}</span>
+                          </div>
+                        )}
+                        {candidate.model && (
+                          <div>
+                            <span className="text-gray-400">Model:</span>
+                            <span className="text-white ml-2">{candidate.model}</span>
+                          </div>
+                        )}
+                        {candidate.brand_id && (
+                          <div>
+                            <span className="text-gray-400">Brand ID:</span>
+                            <span className="text-white ml-2">{candidate.brand_id}</span>
+                          </div>
+                        )}
+                        {candidate.model_slug && (
+                          <div>
+                            <span className="text-gray-400">Model Slug:</span>
+                            <span className="text-white ml-2">{candidate.model_slug}</span>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-gray-400">Occurrences:</span>
+                          <span className="text-white ml-2">{candidate.occurrences}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-sm text-gray-400">
+                Total visited URLs: {mappingStats.totalVisited}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="flex items-center gap-3 mb-6">
           <Link2 className="w-6 h-6 text-blue-600" />
