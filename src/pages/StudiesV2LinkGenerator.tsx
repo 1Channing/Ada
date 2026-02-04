@@ -248,12 +248,23 @@ export function StudiesV2LinkGenerator() {
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to start crawl');
+      const text = await response.text();
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        console.error('[LINKGEN_AUTO] Failed to parse response:', text);
+        throw new Error('Invalid server response (not JSON)');
       }
 
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || `Server error: ${response.status}`);
+      }
+
+      if (!data?.runId) {
+        throw new Error('Server did not return a valid run ID');
+      }
+
       setMappingRunId(data.runId);
       setMappingStatus('running');
       startPolling(data.runId);
@@ -276,11 +287,25 @@ export function StudiesV2LinkGenerator() {
         },
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch stats');
+      const text = await response.text();
+      let stats = null;
+      try {
+        stats = JSON.parse(text);
+      } catch (parseError) {
+        console.error('[LINKGEN_AUTO] Failed to parse stats response:', text);
+        return;
       }
 
-      const stats = await response.json();
+      if (!response.ok) {
+        console.error('[LINKGEN_AUTO] Stats request failed:', stats?.error || response.status);
+        return;
+      }
+
+      if (!stats?.run) {
+        console.error('[LINKGEN_AUTO] Invalid stats response format');
+        return;
+      }
+
       setMappingStats(stats);
       setMappingStatus(stats.run.status);
 

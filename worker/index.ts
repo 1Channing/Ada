@@ -235,6 +235,7 @@ app.post('/linkgen/mapping-auto/start', async (req, res) => {
   } else if (providedSecret !== WORKER_SECRET) {
     console.error('[LINKGEN_AUTO] ❌ Unauthorized: Invalid or missing WORKER_SECRET');
     return res.status(401).json({
+      ok: false,
       error: 'Unauthorized: Invalid or missing WORKER_SECRET',
     });
   }
@@ -246,6 +247,7 @@ app.post('/linkgen/mapping-auto/start', async (req, res) => {
   if (!marketplace || !seed_listing_url) {
     console.error('[LINKGEN_AUTO] Missing required parameters');
     return res.status(400).json({
+      ok: false,
       error: 'Missing required parameters: marketplace, seed_listing_url',
     });
   }
@@ -253,6 +255,7 @@ app.post('/linkgen/mapping-auto/start', async (req, res) => {
   if (marketplace !== 'MARKTPLAATS') {
     console.error('[LINKGEN_AUTO] Unsupported marketplace:', marketplace);
     return res.status(400).json({
+      ok: false,
       error: 'Only MARKTPLAATS marketplace is currently supported',
     });
   }
@@ -260,6 +263,7 @@ app.post('/linkgen/mapping-auto/start', async (req, res) => {
   if (!seed_listing_url.includes('marktplaats.nl')) {
     console.error('[LINKGEN_AUTO] Invalid seed URL for MARKTPLAATS');
     return res.status(400).json({
+      ok: false,
       error: 'seed_listing_url must be a valid marktplaats.nl URL',
     });
   }
@@ -269,6 +273,7 @@ app.post('/linkgen/mapping-auto/start', async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error('[LINKGEN_AUTO] Missing Supabase configuration');
     return res.status(500).json({
+      ok: false,
       error: 'Missing Supabase configuration',
     });
   }
@@ -289,6 +294,7 @@ app.post('/linkgen/mapping-auto/start', async (req, res) => {
     if (insertError || !run) {
       console.error('[LINKGEN_AUTO] Failed to create run:', insertError);
       return res.status(500).json({
+        ok: false,
         error: 'Failed to create mapping run',
       });
     }
@@ -309,7 +315,7 @@ app.post('/linkgen/mapping-auto/start', async (req, res) => {
           .update({
             status: 'failed',
             finished_at: new Date().toISOString(),
-            last_error: error.message,
+            last_error: error?.message || String(error),
           })
           .eq('id', run.id)
           .then(() => {
@@ -318,15 +324,16 @@ app.post('/linkgen/mapping-auto/start', async (req, res) => {
       });
     });
 
-    res.json({
+    return res.json({
       ok: true,
       runId: run.id,
     });
   } catch (error) {
     console.error('[LINKGEN_AUTO] Fatal error:', error);
-    res.status(500).json({
+    return res.status(500).json({
+      ok: false,
       error: 'Internal server error',
-      message: error.message,
+      message: error?.message || String(error),
     });
   }
 });
@@ -343,6 +350,7 @@ app.get('/linkgen/mapping-auto/stats', async (req, res) => {
   } else if (providedSecret !== WORKER_SECRET) {
     console.error('[LINKGEN_AUTO] ❌ Unauthorized: Invalid or missing WORKER_SECRET');
     return res.status(401).json({
+      ok: false,
       error: 'Unauthorized: Invalid or missing WORKER_SECRET',
     });
   }
@@ -351,6 +359,7 @@ app.get('/linkgen/mapping-auto/stats', async (req, res) => {
 
   if (!runId || typeof runId !== 'string') {
     return res.status(400).json({
+      ok: false,
       error: 'Missing required parameter: runId',
     });
   }
@@ -358,6 +367,7 @@ app.get('/linkgen/mapping-auto/stats', async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error('[LINKGEN_AUTO] Missing Supabase configuration');
     return res.status(500).json({
+      ok: false,
       error: 'Missing Supabase configuration',
     });
   }
@@ -366,12 +376,13 @@ app.get('/linkgen/mapping-auto/stats', async (req, res) => {
 
   try {
     const stats = await getMappingStats(runId, supabase);
-    res.json(stats);
+    return res.json(stats);
   } catch (error) {
     console.error('[LINKGEN_AUTO] Stats error:', error);
-    res.status(500).json({
+    return res.status(500).json({
+      ok: false,
       error: 'Failed to fetch stats',
-      message: error.message,
+      message: error?.message || String(error),
     });
   }
 });
