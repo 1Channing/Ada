@@ -1,10 +1,18 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * LINKGEN MAPPING AUTO - CRAWL MODULE
+ * LINKGEN MAPPING AUTO - CRAWL MODULE (CHAINED CRAWLER)
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * Crawls marketplace listings to discover URL patterns and extract minimal data.
- * Implements diversity-driven sampling to avoid repetitive data.
+ * Implements diversity-driven sampling and chained discovery from both listing
+ * and list pages.
+ *
+ * KEY PRINCIPLES:
+ * - stepsDone = successful mapping samples only (not fetches, not pages)
+ * - List pages = discovery only (never create mapping, never increment stepsDone)
+ * - Listing pages with no data = skip storage entirely (no null-only samples)
+ * - Diversity filter (threshold = 10) applies only to listing URLs, not list pages
+ * - Crawl continues until queue exhausted OR max_steps reached
  *
  * CONSTRAINTS:
  * - Read-only imports of existing parsers (no modification)
@@ -163,6 +171,58 @@ function isValidMarktplaatsListingUrl(url: string): boolean {
   }
 }
 
+function isMarktplaatsListPage(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+
+    const validHosts = ['marktplaats.nl', 'www.marktplaats.nl'];
+    if (!validHosts.includes(parsed.hostname)) {
+      return false;
+    }
+
+    const path = parsed.pathname;
+
+    const listPagePatterns = [
+      /^\/l\//,
+      /^\/q\//,
+      /^\/aanbod\//,
+    ];
+
+    return listPagePatterns.some(pattern => pattern.test(path));
+  } catch (error) {
+    return false;
+  }
+}
+
+function detectPageType(
+  url: string,
+  html: string,
+  parsedListings: any[],
+  marketplace: string
+): 'listing' | 'list' | 'unknown' {
+  if (marketplace === 'MARKTPLAATS') {
+    if (isMarktplaatsListPage(url)) {
+      return 'list';
+    }
+
+    if (isValidMarktplaatsListingUrl(url)) {
+      return 'listing';
+    }
+
+    if (parsedListings.length > 5) {
+      return 'list';
+    }
+
+    if (parsedListings.length === 1) {
+      return 'listing';
+    }
+
+    return 'unknown';
+  }
+
+  return 'unknown';
+}
+
 function extractListingUrls(html: string, marketplace: string, baseUrl: string): { urls: string[], externalLinksSkipped: number, nonListingLinksSkipped: number } {
   const urls: string[] = [];
   let externalLinksSkipped = 0;
@@ -274,9 +334,12 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
 
   console.log(`[LINKGEN_AUTO] Starting crawl: runId=${runId}, marketplace=${marketplace}, steps=${steps}`);
 
-  // Early validation: check seed URL before crawl starts
-  if (!isValidMarktplaatsListingUrl(seedListingUrl)) {
-    const errorMsg = `Invalid seed URL format: ${seedListingUrl}`;
+  // Relaxed seed validation: accept both listing URLs and list page URLs
+  const isListingUrl = isValidMarktplaatsListingUrl(seedListingUrl);
+  const isListPageUrl = isMarktplaatsListPage(seedListingUrl);
+
+  if (!isListingUrl && !isListPageUrl) {
+    const errorMsg = `Invalid seed URL (neither listing nor list page): ${seedListingUrl}`;
     console.error(`[LINKGEN_AUTO] ${errorMsg}`);
     await supabase
       .from('linkgen_mapping_runs')
@@ -288,6 +351,9 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
       .eq('id', runId);
     return;
   }
+
+  const seedType = isListingUrl ? 'listing' : 'list';
+  console.log(`[LINKGEN_AUTO] Seed URL type: ${seedType}`);
 
   const urlQueue: URLCandidate[] = [];
   const visitedUrls = new Set<string>();
@@ -304,6 +370,8 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
   let externalLinksSkipped = 0;
   let nonListingLinksSkipped = 0;
   let urlsDiscovered = 0;
+  let listPagesVisited = 0;
+  let listingsWithNoData = 0;
 
   urlQueue.push({
     url: seedListingUrl,
@@ -329,7 +397,7 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
     visitedUrls.add(url);
 
     try {
-      console.log(`[LINKGEN_AUTO] Step ${stepsDone + 1}/${steps}: Fetching ${url.substring(0, 80)}...`);
+      console.log(`[LINKGEN_AUTO] Fetching (${stepsDone} samples so far): ${url.substring(0, 80)}...`);
 
       const html = await fetchHtmlWithZyte(url);
 
@@ -338,119 +406,237 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
       }
 
       const listings = marketplace === 'MARKTPLAATS' ? parseMarktplaatsListings(html, url) : [];
+      const pageType = detectPageType(url, html, listings, marketplace);
 
-      let listing = listings.length > 0 ? listings[0] : null;
+      console.log(`[LINKGEN_AUTO] Detected page type: ${pageType}`);
 
-      if (!listing) {
-        listing = {
-          title: 'Unknown',
-          price: null,
-          currency: 'EUR',
-          mileage: null,
-          year: null,
-          trim: null,
-          listing_url: url,
-          description: '',
-          price_type: 'one-off',
-        };
-      }
+      // SECTION 3: Conditional Mapping Storage
+      if (pageType === 'list') {
+        // List pages: discovery only, no mapping, no stepsDone increment
+        listPagesVisited++;
+        console.log(`[LINKGEN_AUTO] List page detected - skipping mapping extraction`);
 
-      const internalRef = generateInternalRef({ listing_url: url });
+        // Discover URLs and continue
+        const baseUrl = new URL(url).origin;
+        const extractionResult = extractListingUrls(html, marketplace, baseUrl);
+        const discoveredUrls = extractionResult.urls;
+        externalLinksSkipped += extractionResult.externalLinksSkipped;
+        nonListingLinksSkipped += extractionResult.nonListingLinksSkipped;
+        urlsDiscovered += discoveredUrls.length;
 
-      if (visitedRefs.has(internalRef)) {
-        dedupedSamples++;
-        stepsDone++;
+        console.log(`[LINKGEN_AUTO] List page discovered ${discoveredUrls.length} listing URLs`);
+
+        for (const newUrl of discoveredUrls) {
+          if (visitedUrls.has(newUrl)) continue;
+          if (urlQueue.length >= MAX_QUEUE_SIZE) break;
+
+          const newExtracted = extractBrandModel(newUrl);
+          const diversityScore = calculateDiversityScore(
+            brandModelCounts,
+            newExtracted.brand,
+            newExtracted.model
+          );
+
+          urlQueue.push({
+            url: newUrl,
+            discoveredFrom: url,
+            score: diversityScore,
+          });
+        }
+
+        // List pages do NOT increment stepsDone
         continue;
-      }
 
-      visitedRefs.add(internalRef);
+      } else if (pageType === 'listing') {
+        // Listing pages: extract and conditionally store
+        let listing = listings.length > 0 ? listings[0] : null;
 
-      const extracted = extractBrandModel(listing.title || '');
-      const brand = extracted.brand;
-      const model = extracted.model;
+        if (!listing) {
+          listing = {
+            title: 'Unknown',
+            price: null,
+            currency: 'EUR',
+            mileage: null,
+            year: null,
+            trim: null,
+            listing_url: url,
+            description: '',
+            price_type: 'one-off',
+          };
+        }
 
-      const priceEur = listing.price ? Math.round(listing.price) : null;
+        const extracted = extractBrandModel(listing.title || '');
+        const brand = extracted.brand;
+        const model = extracted.model;
 
-      const rawSnapshot = {
-        title: listing.title || null,
-        price: listing.price || null,
-        year: listing.year || null,
-        mileage: listing.mileage || null,
-      };
+        // CRITICAL: Only store if there's extractable data
+        const hasData = brand !== null || listing.year !== null || listing.mileage !== null || listing.price !== null;
 
-      if (!isValidMarktplaatsListingUrl(url)) {
-        console.warn(`[LINKGEN_MAP] Skipping invalid URL before insert: ${url}`);
-        stepsDone++;
-        continue;
-      }
+        if (!hasData) {
+          console.warn(`[LINKGEN_AUTO] Listing page with no extractable data - skipping storage: ${url.substring(0, 80)}`);
+          listingsWithNoData++;
 
-      const { error: insertError } = await supabase
-        .from('linkgen_mapping_samples')
-        .insert({
-          run_id: runId,
-          marketplace,
-          listing_url: url,
-          internal_ref: internalRef,
-          brand,
-          model,
-          year: listing.year,
-          mileage: listing.mileage,
-          price_eur: priceEur,
-          currency: listing.currency || 'EUR',
-          discovered_from_url: discoveredFrom === 'seed' ? null : discoveredFrom,
-          step_index: stepsDone,
-          raw: rawSnapshot,
-        });
+          // Still discover URLs from this page
+          const baseUrl = new URL(url).origin;
+          const extractionResult = extractListingUrls(html, marketplace, baseUrl);
+          const discoveredUrls = extractionResult.urls;
+          externalLinksSkipped += extractionResult.externalLinksSkipped;
+          nonListingLinksSkipped += extractionResult.nonListingLinksSkipped;
+          urlsDiscovered += discoveredUrls.length;
 
-      if (insertError && !insertError.message.includes('duplicate')) {
-        console.error('[LINKGEN_AUTO] Insert error:', insertError);
-      } else if (!insertError) {
-        insertedSamples++;
+          for (const newUrl of discoveredUrls) {
+            if (visitedUrls.has(newUrl)) continue;
+            if (urlQueue.length >= MAX_QUEUE_SIZE) break;
 
-        const key = `${brand || 'unknown'}:${model || 'unknown'}`;
-        brandModelCounts[key] = (brandModelCounts[key] || 0) + 1;
-      } else {
-        dedupedSamples++;
-      }
+            const newExtracted = extractBrandModel(newUrl);
+            const diversityScore = calculateDiversityScore(
+              brandModelCounts,
+              newExtracted.brand,
+              newExtracted.model
+            );
 
-      const mappingCandidate = extractMappingFromUrl(url, marketplace);
-      if (mappingCandidate.brandId || mappingCandidate.modelSlug) {
-        const candidateKey = `${marketplace}:${mappingCandidate.brand || ''}:${mappingCandidate.model || ''}:${mappingCandidate.brandId || ''}:${mappingCandidate.modelSlug || ''}`;
-        mappingCandidatesMap.set(candidateKey, mappingCandidate);
-      }
+            const currentCount = brandModelCounts[`${newExtracted.brand || 'unknown'}:${newExtracted.model || 'unknown'}`] || 0;
+            if (currentCount >= 10 && diversityScore < 990) {
+              skippedDiversity++;
+              continue;
+            }
 
-      const baseUrl = new URL(url).origin;
-      const extractionResult = extractListingUrls(html, marketplace, baseUrl);
-      const discoveredUrls = extractionResult.urls;
-      externalLinksSkipped += extractionResult.externalLinksSkipped;
-      nonListingLinksSkipped += extractionResult.nonListingLinksSkipped;
-      urlsDiscovered += discoveredUrls.length;
+            urlQueue.push({
+              url: newUrl,
+              discoveredFrom: url,
+              score: diversityScore,
+            });
+          }
 
-      for (const newUrl of discoveredUrls) {
-        if (visitedUrls.has(newUrl)) continue;
-        if (urlQueue.length >= MAX_QUEUE_SIZE) break;
-
-        const newExtracted = extractBrandModel(newUrl);
-        const diversityScore = calculateDiversityScore(
-          brandModelCounts,
-          newExtracted.brand,
-          newExtracted.model
-        );
-
-        const currentCount = brandModelCounts[`${newExtracted.brand || 'unknown'}:${newExtracted.model || 'unknown'}`] || 0;
-        if (currentCount >= 3 && diversityScore < 997) {
-          skippedDiversity++;
+          // No data = no stepsDone increment
           continue;
         }
 
-        urlQueue.push({
-          url: newUrl,
-          discoveredFrom: url,
-          score: diversityScore,
-        });
-      }
+        // Has data, proceed with storage
+        const internalRef = generateInternalRef({ listing_url: url });
 
-      stepsDone++;
+        if (visitedRefs.has(internalRef)) {
+          dedupedSamples++;
+          continue;
+        }
+
+        visitedRefs.add(internalRef);
+
+        const priceEur = listing.price ? Math.round(listing.price) : null;
+
+        const rawSnapshot = {
+          title: listing.title || null,
+          price: listing.price || null,
+          year: listing.year || null,
+          mileage: listing.mileage || null,
+        };
+
+        const { error: insertError } = await supabase
+          .from('linkgen_mapping_samples')
+          .insert({
+            run_id: runId,
+            marketplace,
+            listing_url: url,
+            internal_ref: internalRef,
+            brand,
+            model,
+            year: listing.year,
+            mileage: listing.mileage,
+            price_eur: priceEur,
+            currency: listing.currency || 'EUR',
+            discovered_from_url: discoveredFrom === 'seed' ? null : discoveredFrom,
+            step_index: stepsDone,
+            raw: rawSnapshot,
+          });
+
+        if (insertError && !insertError.message.includes('duplicate')) {
+          console.error('[LINKGEN_AUTO] Insert error:', insertError);
+        } else if (!insertError) {
+          insertedSamples++;
+
+          const key = `${brand || 'unknown'}:${model || 'unknown'}`;
+          brandModelCounts[key] = (brandModelCounts[key] || 0) + 1;
+
+          // stepsDone only increments on successful insert
+          stepsDone++;
+        } else {
+          dedupedSamples++;
+          // Duplicate = no stepsDone increment
+          continue;
+        }
+
+        const mappingCandidate = extractMappingFromUrl(url, marketplace);
+        if (mappingCandidate.brandId || mappingCandidate.modelSlug) {
+          const candidateKey = `${marketplace}:${mappingCandidate.brand || ''}:${mappingCandidate.model || ''}:${mappingCandidate.brandId || ''}:${mappingCandidate.modelSlug || ''}`;
+          mappingCandidatesMap.set(candidateKey, mappingCandidate);
+        }
+
+        const baseUrl = new URL(url).origin;
+        const extractionResult = extractListingUrls(html, marketplace, baseUrl);
+        const discoveredUrls = extractionResult.urls;
+        externalLinksSkipped += extractionResult.externalLinksSkipped;
+        nonListingLinksSkipped += extractionResult.nonListingLinksSkipped;
+        urlsDiscovered += discoveredUrls.length;
+
+        for (const newUrl of discoveredUrls) {
+          if (visitedUrls.has(newUrl)) continue;
+          if (urlQueue.length >= MAX_QUEUE_SIZE) break;
+
+          const newExtracted = extractBrandModel(newUrl);
+          const diversityScore = calculateDiversityScore(
+            brandModelCounts,
+            newExtracted.brand,
+            newExtracted.model
+          );
+
+          const currentCount = brandModelCounts[`${newExtracted.brand || 'unknown'}:${newExtracted.model || 'unknown'}`] || 0;
+          if (currentCount >= 10 && diversityScore < 990) {
+            skippedDiversity++;
+            continue;
+          }
+
+          urlQueue.push({
+            url: newUrl,
+            discoveredFrom: url,
+            score: diversityScore,
+          });
+        }
+
+      } else {
+        // Unknown page type
+        console.warn(`[LINKGEN_AUTO] Unknown page type: ${url.substring(0, 80)}`);
+        errorsCount++;
+        lastError = `Unknown page type for URL: ${url}`;
+
+        // Still try to discover URLs
+        const baseUrl = new URL(url).origin;
+        const extractionResult = extractListingUrls(html, marketplace, baseUrl);
+        const discoveredUrls = extractionResult.urls;
+        externalLinksSkipped += extractionResult.externalLinksSkipped;
+        nonListingLinksSkipped += extractionResult.nonListingLinksSkipped;
+        urlsDiscovered += discoveredUrls.length;
+
+        for (const newUrl of discoveredUrls) {
+          if (visitedUrls.has(newUrl)) continue;
+          if (urlQueue.length >= MAX_QUEUE_SIZE) break;
+
+          const newExtracted = extractBrandModel(newUrl);
+          const diversityScore = calculateDiversityScore(
+            brandModelCounts,
+            newExtracted.brand,
+            newExtracted.model
+          );
+
+          urlQueue.push({
+            url: newUrl,
+            discoveredFrom: url,
+            score: diversityScore,
+          });
+        }
+
+        // Unknown pages do NOT increment stepsDone
+        continue;
+      }
 
       if (stepsDone % 10 === 0 || stepsDone === steps) {
         await supabase
@@ -468,16 +654,15 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
     } catch (error) {
       errorsCount++;
       lastError = error instanceof Error ? error.message : String(error);
-      console.error(`[LINKGEN_AUTO] Error on step ${stepsDone + 1}:`, lastError);
+      console.error(`[LINKGEN_AUTO] Error fetching URL:`, lastError);
 
-      stepsDone++;
+      // Errors do NOT increment stepsDone (no mapping was created)
 
       await supabase
         .from('linkgen_mapping_runs')
         .update({
           errors_count: errorsCount,
           last_error: lastError,
-          steps_done: stepsDone,
         })
         .eq('id', runId);
     }
@@ -521,7 +706,9 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
     }
   }
 
-  const finalStatus = urlQueue.length === 0 && stepsDone < steps ? 'completed' : 'completed';
+  // Determine stop reason
+  const stopReason = urlQueue.length === 0 ? 'queue_exhausted' : 'max_steps_reached';
+  const finalStatus = 'completed';
 
   await supabase
     .from('linkgen_mapping_runs')
@@ -534,11 +721,22 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
       skipped_diversity: skippedDiversity,
       errors_count: errorsCount,
       last_error: lastError,
+      stop_reason: stopReason,
     })
     .eq('id', runId);
 
-  console.log(`[LINKGEN_AUTO] Crawl completed: runId=${runId}, steps=${stepsDone}, samples=${insertedSamples}, errors=${errorsCount}`);
-  console.log(`[LINKGEN_MAP] URL filtering stats: discovered=${urlsDiscovered}, externalSkipped=${externalLinksSkipped}, nonListingSkipped=${nonListingLinksSkipped}`);
+  console.log(`[LINKGEN_AUTO] ═══════════════════════════════════════════════════════════════`);
+  console.log(`[LINKGEN_AUTO] Crawl completed: runId=${runId}`);
+  console.log(`[LINKGEN_AUTO]   Stop reason: ${stopReason}`);
+  console.log(`[LINKGEN_AUTO]   Mapping samples: ${stepsDone} (inserted: ${insertedSamples}, deduped: ${dedupedSamples})`);
+  console.log(`[LINKGEN_AUTO]   List pages visited: ${listPagesVisited}`);
+  console.log(`[LINKGEN_AUTO]   Listings with no data: ${listingsWithNoData}`);
+  console.log(`[LINKGEN_AUTO]   Diversity filtered: ${skippedDiversity}`);
+  console.log(`[LINKGEN_AUTO]   Errors: ${errorsCount}`);
+  console.log(`[LINKGEN_AUTO]   URLs discovered: ${urlsDiscovered}`);
+  console.log(`[LINKGEN_AUTO]   External URLs skipped: ${externalLinksSkipped}`);
+  console.log(`[LINKGEN_AUTO]   Non-listing URLs skipped: ${nonListingLinksSkipped}`);
+  console.log(`[LINKGEN_AUTO] ═══════════════════════════════════════════════════════════════`);
 }
 
 export async function getMappingStats(runId: string, supabase: SupabaseClient): Promise<any> {
