@@ -86,23 +86,130 @@ async function fetchHtmlWithZyte(url: string): Promise<string | null> {
   }
 }
 
-function extractListingUrls(html: string, marketplace: string): string[] {
+function normalizeMarktplaatsUrl(url: string, baseUrl: string): string | null {
+  try {
+    let absoluteUrl: string;
+
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      absoluteUrl = url;
+    } else if (url.startsWith('//')) {
+      absoluteUrl = 'https:' + url;
+    } else if (url.startsWith('/')) {
+      absoluteUrl = baseUrl + url;
+    } else {
+      return null;
+    }
+
+    const parsed = new URL(absoluteUrl);
+
+    if (parsed.protocol !== 'https:') {
+      parsed.protocol = 'https:';
+    }
+
+    if (parsed.hostname === 'marktplaats.nl') {
+      parsed.hostname = 'www.marktplaats.nl';
+    }
+
+    parsed.hash = '';
+
+    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'ref', 'source', 'fbclid', 'gclid'];
+    trackingParams.forEach(param => parsed.searchParams.delete(param));
+
+    return parsed.toString();
+  } catch (error) {
+    return null;
+  }
+}
+
+function isValidMarktplaatsListingUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.protocol !== 'https:') {
+      return false;
+    }
+
+    const validHosts = ['marktplaats.nl', 'www.marktplaats.nl'];
+    if (!validHosts.includes(parsed.hostname)) {
+      return false;
+    }
+
+    const invalidSchemes = ['javascript:', 'mailto:', 'tel:', 'data:'];
+    if (invalidSchemes.some(scheme => url.toLowerCase().startsWith(scheme))) {
+      return false;
+    }
+
+    const path = parsed.pathname;
+
+    const validPatterns = [
+      /^\/v\/.+\/a\d+$/,
+      /^\/a\/m?\d+$/,
+      /^\/m\/\d+$/,
+    ];
+
+    if (!validPatterns.some(pattern => pattern.test(path))) {
+      return false;
+    }
+
+    const invalidPaths = ['/l/', '/q/', '/help', '/account', '/veilig', '/ads', '/widget'];
+    if (invalidPaths.some(invalid => path.includes(invalid))) {
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function extractListingUrls(html: string, marketplace: string, baseUrl: string): { urls: string[], externalLinksSkipped: number, nonListingLinksSkipped: number } {
   const urls: string[] = [];
+  let externalLinksSkipped = 0;
+  let nonListingLinksSkipped = 0;
 
   if (marketplace === 'MARKTPLAATS') {
-    const hrefPattern = /href=["'](\/(?:a|v)\/[^"']+)["']/gi;
+    const hrefPattern = /href=["']([^"']+)["']/gi;
     const matches = Array.from(html.matchAll(hrefPattern));
+
+    console.log(`[LINKGEN_MAP] Found ${matches.length} total hrefs in HTML`);
 
     for (const match of matches) {
       const href = match[1];
-      if (href.includes('/a/') || href.includes('/v/')) {
-        const fullUrl = href.startsWith('http') ? href : `https://www.marktplaats.nl${href}`;
-        urls.push(fullUrl);
+
+      const normalized = normalizeMarktplaatsUrl(href, baseUrl);
+      if (!normalized) {
+        continue;
       }
+
+      try {
+        const parsedNormalized = new URL(normalized);
+        const validHosts = ['marktplaats.nl', 'www.marktplaats.nl'];
+
+        if (!validHosts.includes(parsedNormalized.hostname)) {
+          externalLinksSkipped++;
+          continue;
+        }
+      } catch (error) {
+        continue;
+      }
+
+      if (!isValidMarktplaatsListingUrl(normalized)) {
+        nonListingLinksSkipped++;
+        continue;
+      }
+
+      urls.push(normalized);
     }
+
+    const uniqueUrls = [...new Set(urls)];
+    console.log(`[LINKGEN_MAP] Valid listing URLs kept: ${uniqueUrls.length}`);
+    console.log(`[LINKGEN_MAP] External URLs rejected: ${externalLinksSkipped}`);
+    console.log(`[LINKGEN_MAP] Non-listing Marktplaats URLs rejected: ${nonListingLinksSkipped}`);
+
+    return { urls: uniqueUrls, externalLinksSkipped, nonListingLinksSkipped };
   }
 
-  return [...new Set(urls)];
+  return { urls: [...new Set(urls)], externalLinksSkipped: 0, nonListingLinksSkipped: 0 };
 }
 
 function extractBrandModel(text: string): { brand: string | null; model: string | null } {
@@ -178,6 +285,9 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
   let skippedDiversity = 0;
   let errorsCount = 0;
   let lastError: string | null = null;
+  let externalLinksSkipped = 0;
+  let nonListingLinksSkipped = 0;
+  let urlsDiscovered = 0;
 
   urlQueue.push({
     url: seedListingUrl,
@@ -252,6 +362,12 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
         mileage: listing.mileage || null,
       };
 
+      if (!isValidMarktplaatsListingUrl(url)) {
+        console.warn(`[LINKGEN_MAP] Skipping invalid URL before insert: ${url}`);
+        stepsDone++;
+        continue;
+      }
+
       const { error: insertError } = await supabase
         .from('linkgen_mapping_samples')
         .insert({
@@ -287,7 +403,12 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
         mappingCandidatesMap.set(candidateKey, mappingCandidate);
       }
 
-      const discoveredUrls = extractListingUrls(html, marketplace);
+      const baseUrl = new URL(url).origin;
+      const extractionResult = extractListingUrls(html, marketplace, baseUrl);
+      const discoveredUrls = extractionResult.urls;
+      externalLinksSkipped += extractionResult.externalLinksSkipped;
+      nonListingLinksSkipped += extractionResult.nonListingLinksSkipped;
+      urlsDiscovered += discoveredUrls.length;
 
       for (const newUrl of discoveredUrls) {
         if (visitedUrls.has(newUrl)) continue;
@@ -401,6 +522,7 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
     .eq('id', runId);
 
   console.log(`[LINKGEN_AUTO] Crawl completed: runId=${runId}, steps=${stepsDone}, samples=${insertedSamples}, errors=${errorsCount}`);
+  console.log(`[LINKGEN_MAP] URL filtering stats: discovered=${urlsDiscovered}, externalSkipped=${externalLinksSkipped}, nonListingSkipped=${nonListingLinksSkipped}`);
 }
 
 export async function getMappingStats(runId: string, supabase: SupabaseClient): Promise<any> {
