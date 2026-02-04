@@ -218,6 +218,8 @@ export function StudiesV2LinkGenerator() {
   const availableModels = selectedBrand ? BRAND_MODELS[selectedBrand] || [] : [];
 
   const startMappingCrawl = async () => {
+    console.log('[LINKGEN_MAP] Start clicked');
+
     if (!mappingSeedUrl.trim()) {
       setMappingError('Please enter a seed listing URL');
       return;
@@ -235,7 +237,35 @@ export function StudiesV2LinkGenerator() {
       const workerUrl = import.meta.env.VITE_WORKER_URL || 'http://localhost:3001';
       const workerSecret = import.meta.env.VITE_WORKER_SECRET || '';
 
-      const response = await fetch(`${workerUrl}/linkgen/mapping-auto/start`, {
+      // Validate configuration
+      if (!workerUrl || !workerUrl.startsWith('http')) {
+        setMappingError('Worker URL not configured (add VITE_WORKER_URL to .env file)');
+        setMappingStatus('error');
+        return;
+      }
+
+      // Validate seed URL format
+      try {
+        new URL(mappingSeedUrl);
+      } catch {
+        setMappingError('Seed URL format invalid');
+        setMappingStatus('error');
+        return;
+      }
+
+      // Build endpoint URL safely
+      let endpoint: string;
+      try {
+        endpoint = new URL('/linkgen/mapping-auto/start', workerUrl).toString();
+      } catch (urlError) {
+        setMappingError('Failed to construct worker endpoint URL');
+        setMappingStatus('error');
+        return;
+      }
+
+      console.log('[LINKGEN_MAP] Calling fetch:', endpoint);
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -270,7 +300,14 @@ export function StudiesV2LinkGenerator() {
       startPolling(data.runId);
     } catch (error) {
       console.error('[LINKGEN_AUTO] Start error:', error);
-      setMappingError(error instanceof Error ? error.message : 'Failed to start crawl');
+
+      // Distinguish between network errors and other errors
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        setMappingError(`Cannot connect to worker at ${import.meta.env.VITE_WORKER_URL || 'http://localhost:3001'}`);
+      } else {
+        setMappingError(error instanceof Error ? error.message : 'Failed to start crawl');
+      }
+
       setMappingStatus('error');
     }
   };
