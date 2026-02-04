@@ -143,6 +143,7 @@ function isValidMarktplaatsListingUrl(url: string): boolean {
 
     const validPatterns = [
       /^\/v\/.+\/a\d+$/,
+      /^\/v\/.+\/m\d+(-[a-z0-9-]+)?$/,
       /^\/a\/m?\d+$/,
       /^\/m\/\d+$/,
     ];
@@ -272,6 +273,21 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
   const { runId, marketplace, seedListingUrl, steps, supabase } = params;
 
   console.log(`[LINKGEN_AUTO] Starting crawl: runId=${runId}, marketplace=${marketplace}, steps=${steps}`);
+
+  // Early validation: check seed URL before crawl starts
+  if (!isValidMarktplaatsListingUrl(seedListingUrl)) {
+    const errorMsg = `Invalid seed URL format: ${seedListingUrl}`;
+    console.error(`[LINKGEN_AUTO] ${errorMsg}`);
+    await supabase
+      .from('linkgen_mapping_runs')
+      .update({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        last_error: errorMsg,
+      })
+      .eq('id', runId);
+    return;
+  }
 
   const urlQueue: URLCandidate[] = [];
   const visitedUrls = new Set<string>();
