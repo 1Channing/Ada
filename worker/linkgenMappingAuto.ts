@@ -290,6 +290,97 @@ function extractBrandModel(text: string): { brand: string | null; model: string 
   return { brand, model: null };
 }
 
+/**
+ * Parse single listing from Marktplaats HTML using __NEXT_DATA__ structured fields.
+ *
+ * CRITICAL RULES:
+ * 1. Brand/model extracted from structured fields ONLY (listing.make, listing.model, attributes array)
+ * 2. Title stored for debugging ONLY - NEVER parsed
+ * 3. Returns null if structural validation fails (no id, no price, no attributes)
+ *
+ * @param html Raw HTML from Marktplaats listing page
+ * @returns Parsed listing data or null if structurally invalid
+ */
+function parseSingleMarktplaatsListing(html: string): {
+  brand: string | null;
+  model: string | null;
+  year: number | null;
+  mileage: number | null;
+  price: number | null;
+  fuel: string | null;
+  title: string | null;
+  listingId: string | null;
+} | null {
+  try {
+    // Extract __NEXT_DATA__ JSON
+    const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.+?)<\/script>/);
+    if (!nextDataMatch) {
+      console.warn('[LINKGEN_AUTO] No __NEXT_DATA__ found in HTML');
+      return null;
+    }
+
+    const nextData = JSON.parse(nextDataMatch[1]);
+    const listing = nextData?.props?.pageProps?.listing;
+
+    // STRUCTURAL VALIDATION - Two-stage gate (Stage 2)
+    // MUST have all three stable signals:
+    const hasId = listing?.id !== undefined && listing?.id !== null;
+    const hasPrice = (listing?.priceInfo?.priceCents !== undefined && listing?.priceInfo?.priceCents !== null) ||
+                     (listing?.price !== undefined && listing?.price !== null);
+    const hasAttributes = Array.isArray(listing?.attributes);
+
+    if (!hasId || !hasPrice || !hasAttributes) {
+      console.warn('[LINKGEN_AUTO] Structural validation failed - missing required signals (id, price, or attributes)');
+      return null;
+    }
+
+    // Extract brand/model from STRUCTURED FIELDS ONLY
+    const attributes = listing.attributes || [];
+
+    const brand = listing.make ||
+                  attributes.find((a: any) => a.key === 'make' || a.key === 'merk')?.value ||
+                  null;
+
+    const model = listing.model ||
+                  attributes.find((a: any) => a.key === 'model')?.value ||
+                  null;
+
+    // Extract other fields from attributes array
+    const yearAttr = attributes.find((a: any) => a.key === 'year' || a.key === 'bouwjaar');
+    const year = yearAttr?.value ? parseInt(yearAttr.value, 10) : null;
+
+    const mileageAttr = attributes.find((a: any) => a.key === 'mileage' || a.key === 'kilometerstand');
+    const mileage = mileageAttr?.value ? parseInt(String(mileageAttr.value).replace(/\D/g, ''), 10) : null;
+
+    const fuelAttr = attributes.find((a: any) => a.key === 'fuel' || a.key === 'brandstof');
+    const fuel = fuelAttr?.value || null;
+
+    // Extract price from structured fields
+    const price = listing.priceInfo?.priceCents
+                  ? listing.priceInfo.priceCents / 100
+                  : (listing.price || null);
+
+    // Store title for DEBUG ONLY (never parsed)
+    const title = listing.title || null;
+
+    const listingId = listing.id;
+
+    return {
+      brand,
+      model,
+      year,
+      mileage,
+      price,
+      fuel,
+      title,
+      listingId,
+    };
+  } catch (error) {
+    console.error('[LINKGEN_AUTO] Error parsing single listing:', error);
+    return null;
+  }
+}
+
 function extractMappingFromUrl(url: string, marketplace: string): MappingCandidate {
   const result: MappingCandidate = {
     brand: null,
@@ -448,29 +539,49 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
         continue;
 
       } else if (pageType === 'listing') {
-        // Listing pages: extract and conditionally store
-        let listing = listings.length > 0 ? listings[0] : null;
+        // Listing pages: extract using __NEXT_DATA__ structured fields
+        const extracted = parseSingleMarktplaatsListing(html);
 
-        if (!listing) {
-          listing = {
-            title: 'Unknown',
-            price: null,
-            currency: 'EUR',
-            mileage: null,
-            year: null,
-            trim: null,
-            listing_url: url,
-            description: '',
-            price_type: 'one-off',
-          };
+        // If structural validation failed → treat as unknown (discovery only)
+        if (!extracted) {
+          console.warn('[LINKGEN_AUTO] Listing URL but invalid structure - treating as unknown');
+          listingsWithNoData++;
+
+          // Discovery only (no mapping, no stepsDone increment)
+          const baseUrl = new URL(url).origin;
+          const extractionResult = extractListingUrls(html, marketplace, baseUrl);
+          const discoveredUrls = extractionResult.urls;
+          externalLinksSkipped += extractionResult.externalLinksSkipped;
+          nonListingLinksSkipped += extractionResult.nonListingLinksSkipped;
+          urlsDiscovered += discoveredUrls.length;
+
+          for (const newUrl of discoveredUrls) {
+            if (visitedUrls.has(newUrl)) continue;
+            if (urlQueue.length >= MAX_QUEUE_SIZE) break;
+
+            const newExtracted = extractBrandModel(newUrl);
+            const diversityScore = calculateDiversityScore(
+              brandModelCounts,
+              newExtracted.brand,
+              newExtracted.model
+            );
+
+            urlQueue.push({
+              url: newUrl,
+              discoveredFrom: url,
+              score: diversityScore,
+            });
+          }
+
+          // No stepsDone increment for invalid listings
+          continue;
         }
 
-        const extracted = extractBrandModel(listing.title || '');
-        const brand = extracted.brand;
-        const model = extracted.model;
+        // Valid listing with structural signals → proceed with storage
+        const { brand, model, year, mileage, price, fuel, title, listingId } = extracted;
 
-        // CRITICAL: Only store if there's extractable data
-        const hasData = brand !== null || listing.year !== null || listing.mileage !== null || listing.price !== null;
+        // Apply storage gate (existing logic)
+        const hasData = brand !== null || year !== null || mileage !== null || price !== null;
 
         if (!hasData) {
           console.warn(`[LINKGEN_AUTO] Listing page with no extractable data - skipping storage: ${url.substring(0, 80)}`);
@@ -522,13 +633,17 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
 
         visitedRefs.add(internalRef);
 
-        const priceEur = listing.price ? Math.round(listing.price) : null;
+        const priceEur = price ? Math.round(price) : null;
 
         const rawSnapshot = {
-          title: listing.title || null,
-          price: listing.price || null,
-          year: listing.year || null,
-          mileage: listing.mileage || null,
+          listingId,
+          title,
+          brand,
+          model,
+          price,
+          year,
+          mileage,
+          fuel,
         };
 
         const { error: insertError } = await supabase
@@ -540,10 +655,10 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
             internal_ref: internalRef,
             brand,
             model,
-            year: listing.year,
-            mileage: listing.mileage,
+            year,
+            mileage,
             price_eur: priceEur,
-            currency: listing.currency || 'EUR',
+            currency: 'EUR',
             discovered_from_url: discoveredFrom === 'seed' ? null : discoveredFrom,
             step_index: stepsDone,
             raw: rawSnapshot,
