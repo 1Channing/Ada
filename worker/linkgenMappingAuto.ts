@@ -463,6 +463,101 @@ function debugAnalyzeHtml(url: string, html: string): void {
   console.log('[LINKGEN_DEBUG] ═══════════════════════════════════════════════════════════');
 }
 
+/**
+ * Deep inspection of JSON-LD structured data for debugging
+ * SAFE: Only logs structure analysis, never full content
+ * BOUNDED: Limited script scanning to prevent performance issues
+ */
+function debugInspectJsonLd(url: string, html: string): void {
+  console.log('[LINKGEN_DEBUG] ENTER debugInspectJsonLd');
+
+  // Extract all JSON-LD script tags (bounded to first 500k chars)
+  const htmlForJsonLdScan = html.slice(0, 500000);
+  const jsonLdPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  const jsonLdBlocks: any[] = [];
+  let jsonLdMatch;
+  let scannedJsonLdCount = 0;
+  const MAX_JSONLD_TO_SCAN = 10;
+
+  while ((jsonLdMatch = jsonLdPattern.exec(htmlForJsonLdScan)) !== null && scannedJsonLdCount < MAX_JSONLD_TO_SCAN) {
+    scannedJsonLdCount++;
+    const content = jsonLdMatch[1].trim();
+
+    try {
+      const parsed = JSON.parse(content);
+      jsonLdBlocks.push(parsed);
+    } catch (error) {
+      console.log(`[LINKGEN_DEBUG] JSON-LD block ${scannedJsonLdCount} parse error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  console.log('[LINKGEN_DEBUG] JSON-LD DEEP INSPECTION');
+  console.log(`[LINKGEN_DEBUG] URL: ${url}`);
+  console.log(`[LINKGEN_DEBUG] JSON-LD blocks found: ${jsonLdBlocks.length}`);
+
+  jsonLdBlocks.forEach((block, index) => {
+    console.log(`[LINKGEN_DEBUG] ─────────────────────────────────────────────────────`);
+    console.log(`[LINKGEN_DEBUG] Block ${index + 1}:`);
+
+    // Check if block is an object with @graph
+    if (block && typeof block === 'object' && !Array.isArray(block) && Array.isArray(block['@graph'])) {
+      const graph = block['@graph'];
+      console.log(`[LINKGEN_DEBUG]   Type: Object with @graph (array length: ${graph.length})`);
+
+      if (graph.length > 0 && graph[0] && typeof graph[0] === 'object') {
+        const keys = Object.keys(graph[0]).slice(0, 10);
+        console.log(`[LINKGEN_DEBUG]   @graph[0] keys (first 10): ${keys.join(', ')}`);
+      }
+    }
+    // Check if block is a top-level array
+    else if (Array.isArray(block)) {
+      console.log(`[LINKGEN_DEBUG]   Type: Top-level array (length: ${block.length})`);
+
+      // Find first non-null, non-array item
+      let firstValidItem = null;
+      for (const item of block) {
+        if (item !== null && !Array.isArray(item) && typeof item === 'object') {
+          firstValidItem = item;
+          break;
+        }
+      }
+
+      if (firstValidItem) {
+        const keys = Object.keys(firstValidItem);
+        console.log(`[LINKGEN_DEBUG]   First valid item keys: ${keys.join(', ')}`);
+      } else {
+        console.log(`[LINKGEN_DEBUG]   No valid items found (all null or arrays)`);
+      }
+
+      // Additionally search for first item with @type
+      const firstItemWithType = block.find((item: any) =>
+        item && typeof item === 'object' && !Array.isArray(item) && item['@type']
+      );
+
+      if (firstItemWithType) {
+        const typeKeys = Object.keys(firstItemWithType);
+        console.log(`[LINKGEN_DEBUG]   First item with @type keys: ${typeKeys.join(', ')}`);
+        console.log(`[LINKGEN_DEBUG]   @type value: ${firstItemWithType['@type']}`);
+      }
+    }
+    // Regular object (no @graph)
+    else if (block && typeof block === 'object') {
+      const keys = Object.keys(block);
+      console.log(`[LINKGEN_DEBUG]   Type: Object`);
+      console.log(`[LINKGEN_DEBUG]   Keys: ${keys.join(', ')}`);
+
+      if (block['@type']) {
+        console.log(`[LINKGEN_DEBUG]   @type value: ${block['@type']}`);
+      }
+    } else {
+      console.log(`[LINKGEN_DEBUG]   Type: ${typeof block}`);
+    }
+  });
+
+  console.log(`[LINKGEN_DEBUG] ─────────────────────────────────────────────────────`);
+  console.log('[LINKGEN_DEBUG] EXIT debugInspectJsonLd');
+}
+
 function extractMappingFromUrl(url: string, marketplace: string): MappingCandidate {
   const result: MappingCandidate = {
     brand: null,
@@ -545,7 +640,7 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
   let urlsDiscovered = 0;
   let listPagesVisited = 0;
   let listingsWithNoData = 0;
-  let debugHtmlPrinted = 0; // Limit debug output to first 3 listing pages
+  let debugHtmlPrinted = 0; // Limit debug output to first listing page only
 
   urlQueue.push({
     url: seedListingUrl,
@@ -579,9 +674,10 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
         throw new Error('Failed to fetch HTML');
       }
 
-      // DEBUG: Analyze HTML for first 3 listing pages if debug enabled
-      if (LINKGEN_DEBUG_HTML && debugHtmlPrinted < 3 && isValidMarktplaatsListingUrl(url)) {
+      // DEBUG: Analyze HTML for first listing page if debug enabled
+      if (LINKGEN_DEBUG_HTML && debugHtmlPrinted < 1 && isValidMarktplaatsListingUrl(url)) {
         debugAnalyzeHtml(url, html);
+        debugInspectJsonLd(url, html);
         debugHtmlPrinted++;
       }
 
