@@ -294,7 +294,7 @@ function extractBrandModel(text: string): { brand: string | null; model: string 
 }
 
 /**
- * Parse single listing from Marktplaats HTML using __NEXT_DATA__ structured fields.
+ * Parse single listing from Marktplaats HTML using __NEXT_DATA__ approach.
  *
  * CRITICAL RULES:
  * 1. Brand/model extracted from structured fields ONLY (listing.make, listing.model, attributes array)
@@ -304,7 +304,7 @@ function extractBrandModel(text: string): { brand: string | null; model: string 
  * @param html Raw HTML from Marktplaats listing page
  * @returns Parsed listing data or null if structurally invalid
  */
-function parseSingleMarktplaatsListing(html: string): {
+function parseSingleMarktplaatsListingFromNextData(html: string): {
   brand: string | null;
   model: string | null;
   year: number | null;
@@ -385,6 +385,262 @@ function parseSingleMarktplaatsListing(html: string): {
     };
   } catch (error) {
     console.error('[LINKGEN_AUTO] Error parsing single listing:', error);
+    return null;
+  }
+}
+
+/**
+ * Parse single listing from Marktplaats HTML using JSON-LD Product fallback.
+ *
+ * This parser is used when __NEXT_DATA__ is unavailable. It extracts structured
+ * data from JSON-LD blocks embedded in the HTML.
+ *
+ * KEY FEATURES:
+ * - Handles EU price formats (25.000,00) and US formats (25,000.00)
+ * - Robust numeric normalization for price, mileage, year
+ * - Extracts listingId from URL parameter (not from JSON-LD)
+ * - Fail-closed: returns null if no usable data extracted
+ *
+ * @param html Raw HTML from Marktplaats listing page
+ * @param listingUrl Current listing URL being processed
+ * @returns Parsed listing data or null if no usable data
+ */
+function parseSingleMarktplaatsListingFromJsonLd(html: string, listingUrl: string): {
+  brand: string | null;
+  model: string | null;
+  year: number | null;
+  mileage: number | null;
+  price: number | null;
+  fuel: string | null;
+  title: string | null;
+  listingId: string | null;
+} | null {
+  try {
+    // Step 1: Extract JSON-LD blocks (bounded to first 500k chars, max 10 blocks)
+    const htmlForJsonLdScan = html.slice(0, 500000);
+    const jsonLdPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    const jsonLdBlocks: any[] = [];
+    let jsonLdMatch;
+    let scannedJsonLdCount = 0;
+    const MAX_JSONLD_TO_SCAN = 10;
+
+    while ((jsonLdMatch = jsonLdPattern.exec(htmlForJsonLdScan)) !== null && scannedJsonLdCount < MAX_JSONLD_TO_SCAN) {
+      scannedJsonLdCount++;
+      const content = jsonLdMatch[1].trim();
+
+      try {
+        const parsed = JSON.parse(content);
+        jsonLdBlocks.push(parsed);
+      } catch (error) {
+        // Safe JSON.parse failure - continue to next block
+        continue;
+      }
+    }
+
+    if (jsonLdBlocks.length === 0) {
+      return null;
+    }
+
+    // Step 2: Find best Product candidate using scoring system
+    let bestProduct: any = null;
+    let bestScore = 0;
+
+    for (const block of jsonLdBlocks) {
+      // Handle three structures: object with @type, array, object with @graph
+      let candidates: any[] = [];
+
+      if (block && typeof block === 'object' && !Array.isArray(block)) {
+        if (Array.isArray(block['@graph'])) {
+          candidates = block['@graph'];
+        } else {
+          candidates = [block];
+        }
+      } else if (Array.isArray(block)) {
+        candidates = block;
+      }
+
+      // Score each candidate
+      for (const candidate of candidates) {
+        if (!candidate || typeof candidate !== 'object') continue;
+
+        const type = candidate['@type'];
+        const isProduct = type === 'Product' || (Array.isArray(type) && type.includes('Product'));
+
+        if (!isProduct) continue;
+
+        // Scoring logic
+        let score = 1; // Base score for having @type: Product
+
+        const hasOffers = candidate.offers != null;
+        const hasBrand = candidate.brand != null;
+        const hasModel = candidate.model != null;
+
+        if (hasOffers && hasBrand && hasModel) {
+          score = 3; // Best candidate
+        } else if (hasOffers && (hasBrand || hasModel)) {
+          score = 2; // Good candidate
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestProduct = candidate;
+        }
+      }
+    }
+
+    if (!bestProduct) {
+      return null;
+    }
+
+    // Step 3: Extract structured fields from best Product candidate
+
+    // Brand extraction
+    const brand: string | null =
+      (bestProduct.brand && typeof bestProduct.brand === 'object' ? bestProduct.brand.name : null) ||
+      (typeof bestProduct.brand === 'string' ? bestProduct.brand : null);
+
+    // Model extraction
+    const model: string | null =
+      (typeof bestProduct.model === 'string' ? bestProduct.model : null) ||
+      (bestProduct.model && typeof bestProduct.model === 'object' ? bestProduct.model.name : null);
+
+    // Year extraction (FIX #3)
+    let year: number | null = null;
+    const yearSource = bestProduct.productionDate || bestProduct.vehicleModelDate;
+    if (yearSource) {
+      const yearMatch = String(yearSource).match(/\b(19[0-9]{2}|20[0-3][0-9])\b/);
+      if (yearMatch) {
+        const parsedYear = parseInt(yearMatch[1], 10);
+        if (parsedYear >= 1900 && parsedYear <= 2035) {
+          year = parsedYear;
+        }
+      }
+    }
+
+    // Price extraction with robust EU/US format support (FIX #2, #3, #6 + micro-fix)
+    let price: number | null = null;
+    if (bestProduct.offers) {
+      const offersArray = Array.isArray(bestProduct.offers) ? bestProduct.offers : [bestProduct.offers];
+
+      for (const offer of offersArray) {
+        if (!offer || typeof offer !== 'object') continue;
+
+        // Prefer lowPrice, fallback to price
+        const priceValue = offer.lowPrice ?? offer.price;
+
+        if (priceValue != null) {
+          let normalized: number;
+
+          if (typeof priceValue === 'number') {
+            normalized = priceValue;
+          } else if (typeof priceValue === 'string') {
+            let cleaned = priceValue;
+
+            // FIX #6: Handle both EU and US formats + micro-fix for comma-only
+            const hasDot = cleaned.includes('.');
+            const hasComma = cleaned.includes(',');
+
+            if (hasDot && hasComma) {
+              const lastDotIndex = cleaned.lastIndexOf('.');
+              const lastCommaIndex = cleaned.lastIndexOf(',');
+
+              if (lastCommaIndex > lastDotIndex) {
+                // EU format: "25.000,00" → dot = thousands, comma = decimal
+                cleaned = cleaned.replace(/\./g, '');      // Remove thousands separator
+                cleaned = cleaned.replace(/,/g, '.');      // Replace decimal separator
+              } else {
+                // US format: "25,000.00" → comma = thousands, dot = decimal
+                cleaned = cleaned.replace(/,/g, '');       // Remove thousands separator
+                // Keep dot as decimal separator
+              }
+            } else if (hasComma) {
+              // MICRO-FIX: Only comma - detect if thousands or decimal separator
+              const lastCommaIndex = cleaned.lastIndexOf(',');
+              const digitsAfterLastComma = cleaned.length - lastCommaIndex - 1;
+
+              if (digitsAfterLastComma === 3) {
+                // Last comma followed by exactly 3 digits → thousands separator (e.g., "25,000")
+                cleaned = cleaned.replace(/,/g, '');
+              } else {
+                // Otherwise → decimal separator (e.g., "25,50")
+                cleaned = cleaned.replace(/,/g, '.');
+              }
+            }
+            // If only dot or neither, keep as-is
+
+            // Final cleanup: remove any remaining non-digit/non-dot characters
+            cleaned = cleaned.replace(/[^\d.]/g, '');
+            normalized = parseFloat(cleaned);
+          } else {
+            continue;
+          }
+
+          if (!isNaN(normalized) && normalized > 0) {
+            price = normalized;
+            break; // Use first valid price
+          }
+        }
+      }
+    }
+
+    // Mileage extraction (FIX #3)
+    let mileage: number | null = null;
+    if (bestProduct.mileageFromOdometer) {
+      const mileageSource = bestProduct.mileageFromOdometer;
+
+      if (typeof mileageSource === 'number') {
+        mileage = mileageSource > 0 ? mileageSource : null;
+      } else if (typeof mileageSource === 'object' && mileageSource.value != null) {
+        const value = mileageSource.value;
+        if (typeof value === 'number') {
+          mileage = value > 0 ? value : null;
+        } else if (typeof value === 'string') {
+          const cleaned = value.replace(/\D/g, '');
+          const parsed = parseInt(cleaned, 10);
+          mileage = !isNaN(parsed) && parsed > 0 ? parsed : null;
+        }
+      } else if (typeof mileageSource === 'string') {
+        const cleaned = mileageSource.replace(/\D/g, '');
+        const parsed = parseInt(cleaned, 10);
+        mileage = !isNaN(parsed) && parsed > 0 ? parsed : null;
+      }
+    }
+
+    // Fuel extraction (optional, best-effort)
+    const fuel: string | null =
+      (typeof bestProduct.fuelType === 'string' ? bestProduct.fuelType : null) ||
+      (bestProduct.vehicleConfiguration && typeof bestProduct.vehicleConfiguration.fuelType === 'string'
+        ? bestProduct.vehicleConfiguration.fuelType
+        : null);
+
+    // Title extraction (optional, for debugging)
+    const title: string | null = typeof bestProduct.name === 'string' ? bestProduct.name : null;
+
+    // ListingId extraction from URL parameter (FIX #4)
+    let listingId: string | null = null;
+    const listingIdMatch = listingUrl.match(/\/m(\d+)/);
+    if (listingIdMatch) {
+      listingId = listingIdMatch[1];
+    }
+
+    // Step 4: Validate - return null if no usable data
+    if (brand === null && model === null && year === null && price === null && mileage === null) {
+      return null;
+    }
+
+    return {
+      brand,
+      model,
+      year,
+      mileage,
+      price,
+      fuel,
+      title,
+      listingId,
+    };
+
+  } catch (error) {
+    console.error('[LINKGEN_AUTO] Error parsing JSON-LD listing:', error);
     return null;
   }
 }
@@ -727,8 +983,25 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
         continue;
 
       } else if (pageType === 'listing') {
+        // FIX #5: Declare extractionSource at the very beginning of listing-page branch
+        let extractionSource: 'next_data' | 'jsonld' = 'next_data';
+
         // Listing pages: extract using __NEXT_DATA__ structured fields
-        const extracted = parseSingleMarktplaatsListing(html);
+        let extracted = parseSingleMarktplaatsListingFromNextData(html);
+
+        // If NEXT_DATA extraction failed, try JSON-LD Product fallback
+        if (!extracted) {
+          console.log('[LINKGEN_AUTO] NEXT_DATA missing/invalid, attempting JSON-LD Product parse');
+          const jsonLdExtracted = parseSingleMarktplaatsListingFromJsonLd(html, url);
+
+          if (jsonLdExtracted) {
+            console.log('[LINKGEN_AUTO] JSON-LD Product parse success -> storing sample');
+            extracted = jsonLdExtracted;
+            extractionSource = 'jsonld';  // Only update on success
+          } else {
+            console.log('[LINKGEN_AUTO] JSON-LD Product parse returned no usable data');
+          }
+        }
 
         // If structural validation failed → treat as unknown (discovery only)
         if (!extracted) {
@@ -823,7 +1096,9 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
 
         const priceEur = price ? Math.round(price) : null;
 
+        // FIX #5: extractionSource is guaranteed to be defined here (in same scope)
         const rawSnapshot = {
+          source: extractionSource,
           listingId,
           title,
           brand,
