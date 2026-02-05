@@ -29,6 +29,9 @@ import { generateInternalRef } from '../src/lib/internalRefGenerator';
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
 
+// Debug flag for HTML diagnostics (Railway env: LINKGEN_DEBUG_HTML=true)
+const LINKGEN_DEBUG_HTML = process.env.LINKGEN_DEBUG_HTML === 'true';
+
 interface CrawlParams {
   runId: string;
   marketplace: string;
@@ -315,7 +318,12 @@ function parseSingleMarktplaatsListing(html: string): {
     // Extract __NEXT_DATA__ JSON
     const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.+?)<\/script>/);
     if (!nextDataMatch) {
-      console.warn('[LINKGEN_AUTO] No __NEXT_DATA__ found in HTML');
+      if (LINKGEN_DEBUG_HTML) {
+        console.warn('[LINKGEN_AUTO] No __NEXT_DATA__ found in HTML');
+        console.warn('[LINKGEN_DEBUG] __NEXT_DATA__ missing. Likely consent/captcha/alt rendering. See signals above.');
+      } else {
+        console.warn('[LINKGEN_AUTO] No __NEXT_DATA__ found in HTML (enable LINKGEN_DEBUG_HTML=true for details)');
+      }
       return null;
     }
 
@@ -379,6 +387,80 @@ function parseSingleMarktplaatsListing(html: string): {
     console.error('[LINKGEN_AUTO] Error parsing single listing:', error);
     return null;
   }
+}
+
+/**
+ * Analyze HTML for debugging __NEXT_DATA__ extraction issues
+ * SAFE: Only logs small previews and metrics, never full HTML
+ * BOUNDED: Script regex runs on max 300k chars
+ * SANITIZED: Masks base64/UUID-like tokens in preview
+ */
+function debugAnalyzeHtml(url: string, html: string): void {
+  const htmlLength = html?.length || 0;
+
+  // EDIT 2: Sanitize 200-char preview (mask base64-like tokens and UUIDs)
+  let first200 = html.slice(0, 200).replace(/\n/g, ' ').replace(/\s+/g, ' ');
+  // Mask base64-like sequences (80+ alphanumeric chars)
+  first200 = first200.replace(/[A-Za-z0-9+/=]{80,}/g, '[BASE64]');
+  // Mask UUID patterns
+  first200 = first200.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '[UUID]');
+
+  // Check for __NEXT_DATA__ presence
+  const hasNextData = html.includes('id="__NEXT_DATA__"') || html.includes('__NEXT_DATA__');
+  const hasJsonLd = html.includes('application/ld+json');
+
+  // Check for captcha/blocking signals (bounded to first 5k chars)
+  const captchaPattern = /captcha|cloudflare|attention required|verify you are human/i;
+  const hasCaptchaSignals = captchaPattern.test(html.slice(0, 5000));
+
+  // Check for consent/cookie walls (bounded to first 5k chars)
+  const consentPattern = /cookie|consent|CMP|privacy settings|cookie-banner/i;
+  const hasConsentSignals = consentPattern.test(html.slice(0, 5000));
+
+  // EDIT 1: Bound script-tag regex to first 300k chars max
+  const htmlForScriptScan = html.slice(0, 300000);
+  const scriptStats: Array<{id: string; type: string; len: number}> = [];
+  const scriptPattern = /<script([^>]*)>([\s\S]*?)<\/script>/gi;
+  let scriptMatch;
+  let scannedCount = 0;
+  const MAX_SCRIPTS_TO_SCAN = 10;
+
+  while ((scriptMatch = scriptPattern.exec(htmlForScriptScan)) !== null && scannedCount < MAX_SCRIPTS_TO_SCAN) {
+    scannedCount++;
+    const attrs = scriptMatch[1];
+    const content = scriptMatch[2];
+
+    const idMatch = attrs.match(/id=["']([^"']+)["']/);
+    const typeMatch = attrs.match(/type=["']([^"']+)["']/);
+
+    const id = idMatch ? idMatch[1] : 'no-id';
+    const type = typeMatch ? typeMatch[1] : 'text/javascript';
+    const len = content.length;
+
+    scriptStats.push({ id, type, len });
+  }
+
+  // FIX 1: Avoid global regex state issues - simpler boolean logic
+  const hasMoreScripts = scannedCount === MAX_SCRIPTS_TO_SCAN;
+
+  // Sort by length and take top 5
+  scriptStats.sort((a, b) => b.len - a.len);
+  const topScripts = scriptStats.slice(0, 5);
+
+  console.log('[LINKGEN_DEBUG] ═══════════════════════════════════════════════════════════');
+  console.log(`[LINKGEN_DEBUG] URL: ${url}`);
+  console.log(`[LINKGEN_DEBUG] HTML Length: ${htmlLength}`);
+  console.log(`[LINKGEN_DEBUG] First 200 chars (sanitized): "${first200}"`);
+  console.log(`[LINKGEN_DEBUG] Has __NEXT_DATA__: ${hasNextData}`);
+  console.log(`[LINKGEN_DEBUG] Has JSON-LD: ${hasJsonLd}`);
+  console.log(`[LINKGEN_DEBUG] Has Captcha Signals: ${hasCaptchaSignals}`);
+  console.log(`[LINKGEN_DEBUG] Has Consent Signals: ${hasConsentSignals}`);
+  console.log(`[LINKGEN_DEBUG] Scripts scanned: ${scannedCount} (hasMore: ${hasMoreScripts}, scanLimit: ${MAX_SCRIPTS_TO_SCAN})`);
+  console.log(`[LINKGEN_DEBUG] Top 5 Scripts by size:`);
+  topScripts.forEach((s, i) => {
+    console.log(`[LINKGEN_DEBUG]   ${i+1}. id="${s.id}" type="${s.type}" length=${s.len}`);
+  });
+  console.log('[LINKGEN_DEBUG] ═══════════════════════════════════════════════════════════');
 }
 
 function extractMappingFromUrl(url: string, marketplace: string): MappingCandidate {
@@ -463,6 +545,7 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
   let urlsDiscovered = 0;
   let listPagesVisited = 0;
   let listingsWithNoData = 0;
+  let debugHtmlPrinted = 0; // Limit debug output to first 3 listing pages
 
   urlQueue.push({
     url: seedListingUrl,
@@ -496,6 +579,12 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
         throw new Error('Failed to fetch HTML');
       }
 
+      // DEBUG: Analyze HTML for first 3 listing pages if debug enabled
+      if (LINKGEN_DEBUG_HTML && debugHtmlPrinted < 3 && isValidMarktplaatsListingUrl(url)) {
+        debugAnalyzeHtml(url, html);
+        debugHtmlPrinted++;
+      }
+
       const listings = marketplace === 'MARKTPLAATS' ? parseMarktplaatsListings(html, url) : [];
       const pageType = detectPageType(url, html, listings, marketplace);
 
@@ -506,6 +595,9 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
         // List pages: discovery only, no mapping, no stepsDone increment
         listPagesVisited++;
         console.log(`[LINKGEN_AUTO] List page detected - skipping mapping extraction`);
+        if (LINKGEN_DEBUG_HTML && debugHtmlPrinted < 10) {
+          console.log(`[LINKGEN_DEBUG] List page fetched: length=${html.length}`);
+        }
 
         // Discover URLs and continue
         const baseUrl = new URL(url).origin;
