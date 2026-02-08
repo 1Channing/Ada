@@ -227,10 +227,22 @@ function detectPageType(
   return 'unknown';
 }
 
-function extractListingUrls(html: string, marketplace: string, baseUrl: string): { urls: string[], externalLinksSkipped: number, nonListingLinksSkipped: number } {
+function extractListingUrls(html: string, marketplace: string, baseUrl: string): {
+  urls: string[],
+  externalLinksSkipped: number,
+  nonListingLinksSkipped: number,
+  rejectedInternalUrls: string[],
+  rejectedExternalUrls: string[],
+  keptListingUrls: string[],
+  keptListPageUrls: string[]
+} {
   const urls: string[] = [];
   let externalLinksSkipped = 0;
   let nonListingLinksSkipped = 0;
+  const rejectedInternalUrls: string[] = [];
+  const rejectedExternalUrls: string[] = [];
+  const keptListingUrls: string[] = [];
+  const keptListPageUrls: string[] = [];
 
   if (marketplace === 'MARKTPLAATS') {
     const hrefPattern = /href=["']([^"']+)["']/gi;
@@ -252,29 +264,70 @@ function extractListingUrls(html: string, marketplace: string, baseUrl: string):
 
         if (!validHosts.includes(parsedNormalized.hostname)) {
           externalLinksSkipped++;
+          if (rejectedExternalUrls.length < 100) {
+            rejectedExternalUrls.push(normalized);
+          }
           continue;
         }
       } catch (error) {
         continue;
       }
 
-      if (!isValidMarktplaatsListingUrl(normalized)) {
+      // Check if it's a valid listing URL
+      if (isValidMarktplaatsListingUrl(normalized)) {
+        urls.push(normalized);
+        if (keptListingUrls.length < 100) {
+          keptListingUrls.push(normalized);
+        }
+        continue;
+      }
+
+      // Check if it's a list page URL (for debug tracking)
+      if (isMarktplaatsListPage(normalized)) {
+        if (keptListPageUrls.length < 100) {
+          keptListPageUrls.push(normalized);
+        }
         nonListingLinksSkipped++;
         continue;
       }
 
-      urls.push(normalized);
+      // It's an internal Marktplaats URL but neither listing nor list page
+      nonListingLinksSkipped++;
+      if (rejectedInternalUrls.length < 100) {
+        rejectedInternalUrls.push(normalized);
+      }
     }
 
     const uniqueUrls = [...new Set(urls)];
+    const uniqueListingUrls = [...new Set(keptListingUrls)];
+    const uniqueListPageUrls = [...new Set(keptListPageUrls)];
+    const uniqueRejectedInternalUrls = [...new Set(rejectedInternalUrls)];
+    const uniqueRejectedExternalUrls = [...new Set(rejectedExternalUrls)];
+
     console.log(`[LINKGEN_MAP] Valid listing URLs kept: ${uniqueUrls.length}`);
     console.log(`[LINKGEN_MAP] External URLs rejected: ${externalLinksSkipped}`);
     console.log(`[LINKGEN_MAP] Non-listing Marktplaats URLs rejected: ${nonListingLinksSkipped}`);
 
-    return { urls: uniqueUrls, externalLinksSkipped, nonListingLinksSkipped };
+    return {
+      urls: uniqueUrls,
+      externalLinksSkipped,
+      nonListingLinksSkipped,
+      rejectedInternalUrls: uniqueRejectedInternalUrls,
+      rejectedExternalUrls: uniqueRejectedExternalUrls,
+      keptListingUrls: uniqueListingUrls,
+      keptListPageUrls: uniqueListPageUrls
+    };
   }
 
-  return { urls: [...new Set(urls)], externalLinksSkipped: 0, nonListingLinksSkipped: 0 };
+  return {
+    urls: [...new Set(urls)],
+    externalLinksSkipped: 0,
+    nonListingLinksSkipped: 0,
+    rejectedInternalUrls: [],
+    rejectedExternalUrls: [],
+    keptListingUrls: [],
+    keptListPageUrls: []
+  };
 }
 
 function extractBrandModel(text: string): { brand: string | null; model: string | null } {
@@ -1079,6 +1132,59 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
         urlsDiscovered += discoveredUrls.length;
 
         console.log(`[LINKGEN_AUTO] List page discovered ${discoveredUrls.length} listing URLs`);
+
+        // DEBUG: Log URL samples when list page finds 0 listing URLs
+        if (LINKGEN_DEBUG_HTML && discoveredUrls.length === 0) {
+          console.log('[LINKGEN_DEBUG] ═══════════════════════════════════════════════════════════');
+          console.log('[LINKGEN_DEBUG] List page with 0 kept listing URLs - showing rejected samples:');
+          console.log(`[LINKGEN_DEBUG] URL: ${url}`);
+          console.log('[LINKGEN_DEBUG] ───────────────────────────────────────────────────────────');
+
+          console.log(`[LINKGEN_DEBUG] Rejected Internal URLs (first 30 of ${extractionResult.rejectedInternalUrls.length}):`);
+          const internalSample = extractionResult.rejectedInternalUrls.slice(0, 30);
+          if (internalSample.length === 0) {
+            console.log('[LINKGEN_DEBUG]   (none)');
+          } else {
+            internalSample.forEach((href, idx) => {
+              console.log(`[LINKGEN_DEBUG]   ${idx + 1}. ${href}`);
+            });
+          }
+
+          console.log('[LINKGEN_DEBUG] ───────────────────────────────────────────────────────────');
+          console.log(`[LINKGEN_DEBUG] Rejected External URLs (first 10 of ${extractionResult.rejectedExternalUrls.length}):`);
+          const externalSample = extractionResult.rejectedExternalUrls.slice(0, 10);
+          if (externalSample.length === 0) {
+            console.log('[LINKGEN_DEBUG]   (none)');
+          } else {
+            externalSample.forEach((href, idx) => {
+              console.log(`[LINKGEN_DEBUG]   ${idx + 1}. ${href}`);
+            });
+          }
+
+          console.log('[LINKGEN_DEBUG] ───────────────────────────────────────────────────────────');
+          console.log(`[LINKGEN_DEBUG] Kept Listing URLs (first 10 of ${extractionResult.keptListingUrls.length}):`);
+          const listingSample = extractionResult.keptListingUrls.slice(0, 10);
+          if (listingSample.length === 0) {
+            console.log('[LINKGEN_DEBUG]   (none)');
+          } else {
+            listingSample.forEach((href, idx) => {
+              console.log(`[LINKGEN_DEBUG]   ${idx + 1}. ${href}`);
+            });
+          }
+
+          console.log('[LINKGEN_DEBUG] ───────────────────────────────────────────────────────────');
+          console.log(`[LINKGEN_DEBUG] Kept List Page URLs (first 10 of ${extractionResult.keptListPageUrls.length}):`);
+          const listPageSample = extractionResult.keptListPageUrls.slice(0, 10);
+          if (listPageSample.length === 0) {
+            console.log('[LINKGEN_DEBUG]   (none)');
+          } else {
+            listPageSample.forEach((href, idx) => {
+              console.log(`[LINKGEN_DEBUG]   ${idx + 1}. ${href}`);
+            });
+          }
+
+          console.log('[LINKGEN_DEBUG] ═══════════════════════════════════════════════════════════');
+        }
 
         for (const newUrl of discoveredUrls) {
           if (visitedUrls.has(newUrl)) continue;
