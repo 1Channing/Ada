@@ -189,6 +189,7 @@ function isMarktplaatsListPage(url: string): boolean {
       /^\/l\//,
       /^\/q\//,
       /^\/aanbod\//,
+      /^\/cp\/\d+\//,
     ];
 
     return listPagePatterns.some(pattern => pattern.test(path));
@@ -291,6 +292,99 @@ function extractBrandModel(text: string): { brand: string | null; model: string 
   }
 
   return { brand, model: null };
+}
+
+/**
+ * Normalize fuel type strings to canonical values.
+ *
+ * Maps common fuel type aliases to standard values used in the system.
+ * Returns null if the input is not a recognized fuel type (fail-closed).
+ *
+ * @param fuelRaw Raw fuel type string from data source
+ * @returns Canonical fuel type string or null if unrecognized
+ */
+function normalizeFuelType(fuelRaw: string | null | undefined): string | null {
+  if (!fuelRaw || typeof fuelRaw !== 'string') {
+    return null;
+  }
+
+  const normalized = fuelRaw.toLowerCase().trim();
+
+  if (normalized.includes('benzine') || normalized.includes('petrol') || normalized.includes('gasoline')) {
+    return 'benzine';
+  }
+
+  if (normalized === 'diesel' || normalized.includes('diesel')) {
+    return 'diesel';
+  }
+
+  if (normalized === 'hybrid' || normalized.includes('hybrid')) {
+    if (normalized.includes('plug') || normalized.includes('phev')) {
+      return 'phev';
+    }
+    return 'hybrid';
+  }
+
+  if (normalized.includes('phev') || normalized.includes('plug-in')) {
+    return 'phev';
+  }
+
+  if (normalized.includes('electric') || normalized === 'ev' || normalized.includes('elektr')) {
+    return 'electric';
+  }
+
+  return null;
+}
+
+/**
+ * Check if a string is all uppercase (A-Z + spaces/hyphen).
+ *
+ * Used to detect potentially low-quality model data.
+ *
+ * @param text String to check
+ * @returns True if all uppercase, false otherwise
+ */
+function isAllUppercase(text: string | null | undefined): boolean {
+  if (!text || typeof text !== 'string') {
+    return false;
+  }
+
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return false;
+  }
+
+  return /^[A-Z\s\-]+$/.test(trimmed);
+}
+
+/**
+ * Generate data quality flags for listing data.
+ *
+ * Flags are informational only and do not reject listings.
+ *
+ * @param data Parsed listing data
+ * @returns Array of flag strings
+ */
+function generateDataQualityFlags(data: {
+  mileage: number | null;
+  fuel: string | null;
+  model: string | null;
+}): string[] {
+  const flags: string[] = [];
+
+  if (data.mileage != null && data.mileage < 50) {
+    flags.push('low_mileage');
+  }
+
+  if (data.fuel == null) {
+    flags.push('missing_fuel');
+  }
+
+  if (data.model != null && isAllUppercase(data.model)) {
+    flags.push('model_uppercase');
+  }
+
+  return flags;
 }
 
 /**
@@ -606,12 +700,37 @@ function parseSingleMarktplaatsListingFromJsonLd(html: string, listingUrl: strin
       }
     }
 
-    // Fuel extraction (optional, best-effort)
-    const fuel: string | null =
-      (typeof bestProduct.fuelType === 'string' ? bestProduct.fuelType : null) ||
-      (bestProduct.vehicleConfiguration && typeof bestProduct.vehicleConfiguration.fuelType === 'string'
-        ? bestProduct.vehicleConfiguration.fuelType
-        : null);
+    // Fuel extraction with enhanced fallback logic (priority: fuelType, vehicleConfiguration.fuelType, vehicleEngine.fuelType, additionalType)
+    let fuel: string | null = null;
+    const fuelCandidates = [
+      bestProduct.fuelType,
+      bestProduct.vehicleConfiguration?.fuelType,
+      bestProduct.vehicleEngine?.fuelType,
+      bestProduct.additionalType,
+    ];
+
+    for (const candidate of fuelCandidates) {
+      if (!candidate) continue;
+
+      let fuelRaw: string | null = null;
+
+      if (typeof candidate === 'string') {
+        fuelRaw = candidate;
+      } else if (Array.isArray(candidate) && candidate.length > 0) {
+        const firstValid = candidate.find((item) => typeof item === 'string');
+        if (firstValid) {
+          fuelRaw = firstValid;
+        }
+      }
+
+      if (fuelRaw) {
+        const normalized = normalizeFuelType(fuelRaw);
+        if (normalized) {
+          fuel = normalized;
+          break;
+        }
+      }
+    }
 
     // Title extraction (optional, for debugging)
     const title: string | null = typeof bestProduct.name === 'string' ? bestProduct.name : null;
@@ -1096,6 +1215,9 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
 
         const priceEur = price ? Math.round(price) : null;
 
+        // Generate data quality flags
+        const flags = generateDataQualityFlags({ mileage, fuel, model });
+
         // FIX #5: extractionSource is guaranteed to be defined here (in same scope)
         const rawSnapshot = {
           source: extractionSource,
@@ -1107,6 +1229,7 @@ export async function executeMappingCrawl(params: CrawlParams): Promise<void> {
           year,
           mileage,
           fuel,
+          flags,
         };
 
         const { error: insertError } = await supabase
