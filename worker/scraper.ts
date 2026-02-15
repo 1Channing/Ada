@@ -34,6 +34,18 @@ const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
 // DIAGNOSTIC: Worker build tag for production verification
 console.log('[WORKER_BUILD_TAG] marktplaats_diag_v1 deployed');
 
+// DEBUG: Study debug instrumentation flags
+const STUDY_DEBUG = process.env.STUDY_DEBUG === 'true';
+const STUDY_DEBUG_HTML = process.env.STUDY_DEBUG_HTML === 'true';
+
+interface DebugContext {
+  runId: string;
+  studyId: string;
+  studyKey: string;
+  marketplace: string;
+  country: string;
+}
+
 /**
  * Exchange rates for currency conversion
  */
@@ -53,7 +65,7 @@ function toEur(price: number, currency: string): number {
 /**
  * Fetch HTML from Zyte API with retries
  */
-async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<string | null> {
+async function fetchHtmlWithZyte(url: string, profileLevel: number, debugContext?: DebugContext): Promise<string | null> {
   if (!ZYTE_API_KEY) {
     console.error('[WORKER_SCRAPER] ZYTE_API_KEY not configured');
     return null;
@@ -97,6 +109,44 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
     }
 
     const data = await response.json() as { browserHtml?: string };
+
+    // LAYER A: Study debug instrumentation (fetch layer)
+    if (STUDY_DEBUG) {
+      try {
+        const html = data.browserHtml ?? '';
+        const htmlLength = html.length;
+        const hasNextData = html.toLowerCase().includes('__next_data__');
+        const hasLdJson = html.toLowerCase().includes('application/ld+json');
+        const contentType = response.headers.get('content-type') || 'unknown';
+
+        console.log(`[STUDY_DEBUG_FETCH] marketplace=${debugContext?.marketplace || 'unknown'} url=${url} status=${response.status} content_type=${contentType} html_length=${htmlLength} has_next_data=${hasNextData} has_ld_json=${hasLdJson}`);
+
+        // Write HTML to /tmp if STUDY_DEBUG_HTML is also enabled
+        if (STUDY_DEBUG_HTML && html) {
+          const fs = await import('fs');
+          const timestamp = Date.now();
+          let filename: string;
+
+          if (debugContext) {
+            // Primary pattern: deterministic
+            filename = `/tmp/study_${debugContext.runId}_${debugContext.studyKey}_${debugContext.marketplace}_${debugContext.country}.html`;
+          } else {
+            // Fallback pattern
+            const marketplace = url.includes('marktplaats.nl') ? 'MARKTPLAATS' :
+                              url.includes('leboncoin.fr') ? 'LEBONCOIN' :
+                              url.includes('bilbasen.dk') ? 'BILBASEN' :
+                              url.includes('gaspedaal.nl') ? 'GASPEDAAL' : 'UNKNOWN';
+            filename = `/tmp/study_${timestamp}_${marketplace}_unknown.html`;
+          }
+
+          await fs.promises.writeFile(filename, html, 'utf-8');
+          const preview = html.substring(0, 200).replace(/\n/g, ' ').replace(/\s+/g, ' ');
+          console.log(`[STUDY_DEBUG_HTML] Written to: ${filename} (${htmlLength} bytes) preview: ${preview}`);
+        }
+      } catch (err) {
+        console.error(`[STUDY_DEBUG_FETCH] Error in debug instrumentation:`, err);
+      }
+    }
 
     // STEP 1 DIAGNOSTIC: Log response for Marktplaats (search URLs only)
     if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s') || url.includes('/lrp/api/'))) {
@@ -148,7 +198,7 @@ async function scrapeDetailPage(listingUrl: string): Promise<DetailPageData | nu
 /**
  * Scrape a marketplace URL and parse listings
  */
-async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed'): Promise<{
+async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed', debugContext?: DebugContext): Promise<{
   listings: ScrapedListing[];
   error?: string;
   errorReason?: string;
@@ -169,7 +219,7 @@ async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed
 
     console.log(`[WORKER_SCRAPER] Fetching ${url} (attempt ${attempt + 1}/${MAX_RETRIES + 1}, profile ${profileLevel})`);
 
-    const html = await fetchHtmlWithZyte(url, profileLevel);
+    const html = await fetchHtmlWithZyte(url, profileLevel, debugContext);
 
     if (!html) {
       if (attempt === MAX_RETRIES) {
@@ -185,6 +235,50 @@ async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed
 
     // Parse using PURE parser (deterministic)
     const listings = coreParseSearchPage(html, url);
+
+    // LAYER B: Study debug instrumentation (parsed dump)
+    if (STUDY_DEBUG && listings.length > 0) {
+      try {
+        const parsedCount = listings.length;
+        const missingPrice = listings.filter(l => !l.price || l.price === 0).length;
+        const missingYear = listings.filter(l => !l.year).length;
+        const missingMileage = listings.filter(l => !l.mileage).length;
+        const validPrices = listings.filter(l => l.price && l.price > 0).map(l => l.price);
+        const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
+        const maxPrice = validPrices.length > 0 ? Math.max(...validPrices) : 0;
+
+        console.log(`[STUDY_DEBUG_PARSED] marketplace=${debugContext?.marketplace || 'unknown'} parsedCount=${parsedCount} missing_price=${missingPrice} missing_year=${missingYear} missing_mileage=${missingMileage} min_price=${minPrice} max_price=${maxPrice}`);
+
+        // Show 10 cheapest (by price)
+        const sortedByPrice = [...listings]
+          .filter(l => l.price && l.price > 0)
+          .sort((a, b) => a.price - b.price)
+          .slice(0, 10);
+
+        console.log(`[STUDY_DEBUG_PARSED] === 10 CHEAPEST (by price) ===`);
+        sortedByPrice.forEach((l, i) => {
+          const price = l.price ? `€${l.price}` : '€0';
+          const year = l.year || 'null';
+          const mileage = l.mileage ? `${l.mileage}km` : 'null km';
+          const title = (l.title || '').substring(0, 80);
+          const urlStr = (l.url || '').substring(0, 120);
+          console.log(`[STUDY_DEBUG_PARSED] ${i + 1}. ${price} | ${year} | ${mileage} | ${title} | ${urlStr}`);
+        });
+
+        // Show first 10 raw (original order)
+        console.log(`[STUDY_DEBUG_PARSED] === FIRST 10 RAW (original order) ===`);
+        listings.slice(0, 10).forEach((l, i) => {
+          const price = l.price ? `€${l.price}` : '€0';
+          const year = l.year || 'null';
+          const mileage = l.mileage ? `${l.mileage}km` : 'null km';
+          const title = (l.title || '').substring(0, 80);
+          const urlStr = (l.url || '').substring(0, 120);
+          console.log(`[STUDY_DEBUG_PARSED] ${i + 1}. ${price} | ${year} | ${mileage} | ${title} | ${urlStr}`);
+        });
+      } catch (err) {
+        console.error(`[STUDY_DEBUG_PARSED] Error in debug instrumentation:`, err);
+      }
+    }
 
     // DIAGNOSTIC: Log parsing result for Marktplaats (search URLs only)
     if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s') || url.includes('/lrp/api/'))) {
@@ -355,11 +449,52 @@ export async function executeStudy({
     }
   }
 
+  // Build debug contexts if STUDY_DEBUG is enabled
+  let targetDebugContext: DebugContext | undefined;
+  let sourceDebugContext: DebugContext | undefined;
+
+  if (STUDY_DEBUG) {
+    // Extract studyKey: check if study.id starts with "MS_", otherwise fallback
+    const studyKey = (typeof study.id === 'string' && study.id.startsWith('MS_'))
+      ? study.id
+      : (study.study_key ?? study.key ?? String(study.id));
+
+    // Extract marketplace from target URL
+    const targetMarketplace =
+      targetUrl.includes('marktplaats.nl') ? 'MARKTPLAATS' :
+      targetUrl.includes('leboncoin.fr') ? 'LEBONCOIN' :
+      targetUrl.includes('bilbasen.dk') ? 'BILBASEN' :
+      targetUrl.includes('gaspedaal.nl') ? 'GASPEDAAL' : 'UNKNOWN';
+
+    // Extract marketplace from source URL
+    const sourceMarketplace =
+      sourceUrl.includes('marktplaats.nl') ? 'MARKTPLAATS' :
+      sourceUrl.includes('leboncoin.fr') ? 'LEBONCOIN' :
+      sourceUrl.includes('bilbasen.dk') ? 'BILBASEN' :
+      sourceUrl.includes('gaspedaal.nl') ? 'GASPEDAAL' : 'UNKNOWN';
+
+    targetDebugContext = {
+      runId,
+      studyId: study.id,
+      studyKey,
+      marketplace: targetMarketplace,
+      country: study.country_target || 'unknown',
+    };
+
+    sourceDebugContext = {
+      runId,
+      studyId: study.id,
+      studyKey,
+      marketplace: sourceMarketplace,
+      country: study.country_source || 'unknown',
+    };
+  }
+
   try {
     await updateHeartbeat(supabase, runId, scheduledJobId);
 
     // Scrape target market
-    const targetResult = await scrapeSearch(targetUrl, scrapeMode);
+    const targetResult = await scrapeSearch(targetUrl, scrapeMode, targetDebugContext);
 
     if (targetResult.error) {
       const { error: insertError } = await supabase.from('study_run_results').insert([{
@@ -388,7 +523,7 @@ export async function executeStudy({
     await updateHeartbeat(supabase, runId, scheduledJobId);
 
     // Scrape source market
-    const sourceResult = await scrapeSearch(sourceUrl, scrapeMode);
+    const sourceResult = await scrapeSearch(sourceUrl, scrapeMode, sourceDebugContext);
 
     if (sourceResult.error) {
       const { error: insertError } = await supabase.from('study_run_results').insert([{

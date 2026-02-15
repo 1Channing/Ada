@@ -36,6 +36,9 @@ import type {
   StudyExecutionResult,
 } from './types';
 
+// DEBUG: Study debug instrumentation flag
+const STUDY_DEBUG = typeof process !== 'undefined' && process.env?.STUDY_DEBUG === 'true';
+
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  * CURRENCY CONVERSION
@@ -289,6 +292,41 @@ function matchesTrim(listing: ScrapedListing, trim: string): boolean {
 }
 
 /**
+ * DEBUG HELPER: Detect specific filter rejection reason (mirrors shouldFilterListing logic).
+ * This is ONLY used for debug instrumentation and does NOT replace shouldFilterListing.
+ *
+ * @param listing - Listing to check
+ * @returns Rejection reason or null if passes
+ */
+function detectFilterReason(listing: ScrapedListing): 'price_floor' | 'monthly_price' | 'damaged' | null {
+  const text = `${listing.title} ${listing.description}`;
+  const textLower = text.toLowerCase();
+
+  // Check 1: Price floor
+  const priceEur = toEur(listing.price, listing.currency);
+  if (priceEur <= 2000) {
+    return 'price_floor';
+  }
+
+  // Check 2: Monthly pricing
+  const isMonthly = isPriceMonthly(textLower);
+  const isLowMonthlyPrice =
+    listing.price_type === 'per-month' ||
+    (listing.price >= 200 && listing.price <= 500 && isMonthly);
+
+  if (isLowMonthlyPrice || isMonthly) {
+    return 'monthly_price';
+  }
+
+  // Check 3: Damaged vehicles
+  if (isDamagedVehicle(text)) {
+    return 'damaged';
+  }
+
+  return null;
+}
+
+/**
  * SECOND PASS FILTER: Apply study-specific criteria:
  * - Brand/model match
  * - Year filter (must be >= study year)
@@ -311,35 +349,129 @@ export function filterListingsByStudy(
   listings: ScrapedListing[],
   study: StudyCriteria
 ): ScrapedListing[] {
-  return listings.filter(listing => {
+  // LAYER C: Initialize debug tracking if enabled
+  const rejectionBuckets = STUDY_DEBUG ? {
+    price_floor: [] as Array<{ listing: ScrapedListing; detail: string }>,
+    monthly_price: [] as Array<{ listing: ScrapedListing; detail: string }>,
+    damaged: [] as Array<{ listing: ScrapedListing; detail: string }>,
+    year: [] as Array<{ listing: ScrapedListing; detail: string }>,
+    mileage: [] as Array<{ listing: ScrapedListing; detail: string }>,
+    brand_model: [] as Array<{ listing: ScrapedListing; detail: string }>,
+    trim: [] as Array<{ listing: ScrapedListing; detail: string }>,
+  } : null;
+
+  let afterShouldFilterCount = 0;
+
+  const filtered = listings.filter(listing => {
     // Apply first-pass filters
-    if (shouldFilterListing(listing)) {
+    const shouldFilter = shouldFilterListing(listing);
+    if (shouldFilter) {
+      // Track rejection reason if debug enabled
+      if (STUDY_DEBUG && rejectionBuckets) {
+        const reason = detectFilterReason(listing);
+        if (reason && rejectionBuckets[reason].length < 5) {
+          const priceEur = toEur(listing.price, listing.currency);
+          rejectionBuckets[reason].push({
+            listing,
+            detail: `€${priceEur.toFixed(0)} (${listing.price} ${listing.currency})`,
+          });
+        }
+      }
       return false;
+    }
+
+    if (STUDY_DEBUG) {
+      afterShouldFilterCount++;
     }
 
     // Filter by year (must be >= study year)
     if (listing.year && listing.year < study.year) {
+      if (STUDY_DEBUG && rejectionBuckets && rejectionBuckets.year.length < 5) {
+        rejectionBuckets.year.push({
+          listing,
+          detail: `year ${listing.year} < ${study.year}`,
+        });
+      }
       return false;
     }
 
     // Filter by mileage (if study specifies a max)
     if (study.max_mileage > 0 && listing.mileage && listing.mileage > study.max_mileage) {
+      if (STUDY_DEBUG && rejectionBuckets && rejectionBuckets.mileage.length < 5) {
+        rejectionBuckets.mileage.push({
+          listing,
+          detail: `${listing.mileage}km > ${study.max_mileage}km`,
+        });
+      }
       return false;
     }
 
     // Filter by brand/model match
     const matchResult = matchesBrandModel(listing.title, study.brand, study.model);
     if (!matchResult.matches) {
+      if (STUDY_DEBUG && rejectionBuckets && rejectionBuckets.brand_model.length < 5) {
+        rejectionBuckets.brand_model.push({
+          listing,
+          detail: `brand/model mismatch`,
+        });
+      }
       return false;
     }
 
     // Filter by trim (CODE-LEVEL, not URL-based)
     if (study.trim_text && !matchesTrim(listing, study.trim_text)) {
+      if (STUDY_DEBUG && rejectionBuckets && rejectionBuckets.trim.length < 5) {
+        rejectionBuckets.trim.push({
+          listing,
+          detail: `trim mismatch (expected: ${study.trim_text})`,
+        });
+      }
       return false;
     }
 
     return true;
   });
+
+  // LAYER C: Output debug summary if enabled
+  if (STUDY_DEBUG && rejectionBuckets) {
+    try {
+      const parsedCount = listings.length;
+      const passedCount = filtered.length;
+      const rejectedCount = parsedCount - passedCount;
+
+      console.log(`[STUDY_DEBUG_FILTER] === FILTER SUMMARY ===`);
+      console.log(`[STUDY_DEBUG_FILTER] Total input (parsedCount): ${parsedCount}`);
+      console.log(`[STUDY_DEBUG_FILTER] After shouldFilter: ${afterShouldFilterCount}`);
+      console.log(`[STUDY_DEBUG_FILTER] After criteria filters (passedCount): ${passedCount}`);
+      console.log(`[STUDY_DEBUG_FILTER] Total rejected: ${rejectedCount}`);
+      console.log(`[STUDY_DEBUG_FILTER] Rejected by price_floor: ${rejectionBuckets.price_floor.length}`);
+      console.log(`[STUDY_DEBUG_FILTER] Rejected by monthly_price: ${rejectionBuckets.monthly_price.length}`);
+      console.log(`[STUDY_DEBUG_FILTER] Rejected by damaged: ${rejectionBuckets.damaged.length}`);
+      console.log(`[STUDY_DEBUG_FILTER] Rejected by year: ${rejectionBuckets.year.length}`);
+      console.log(`[STUDY_DEBUG_FILTER] Rejected by mileage: ${rejectionBuckets.mileage.length}`);
+      console.log(`[STUDY_DEBUG_FILTER] Rejected by brand_model: ${rejectionBuckets.brand_model.length}`);
+      console.log(`[STUDY_DEBUG_FILTER] Rejected by trim: ${rejectionBuckets.trim.length}`);
+
+      // Show examples for each bucket that has rejections
+      for (const [bucket, items] of Object.entries(rejectionBuckets)) {
+        if (items.length > 0) {
+          console.log(`[STUDY_DEBUG_FILTER] === EXAMPLES: ${bucket} (showing up to 5) ===`);
+          items.forEach((item) => {
+            const l = item.listing;
+            const price = l.price ? `€${l.price}` : '€0';
+            const year = l.year || 'null';
+            const mileage = l.mileage ? `${l.mileage}km` : 'null km';
+            const title = (l.title || '').substring(0, 60);
+            console.log(`[STUDY_DEBUG_FILTER] ${price} | ${year} | ${mileage} | ${title} | ${item.detail}`);
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`[STUDY_DEBUG_FILTER] Error in debug instrumentation:`, err);
+    }
+  }
+
+  return filtered;
 }
 
 /**
@@ -418,6 +550,17 @@ export function computeTargetMarketStats(
   const limitedListings = sortedListings.slice(0, MAX_TARGET_LISTINGS);
   const pricesInEur = limitedListings.map(l => l.priceEur);
   const sum = pricesInEur.reduce((acc, price) => acc + price, 0);
+
+  // STUDY_DEBUG: Log the exact prices used for median calculation
+  if (STUDY_DEBUG) {
+    try {
+      console.log(`[STUDY_DEBUG_STATS] Using MAX_TARGET_LISTINGS=${MAX_TARGET_LISTINGS} for median calculation`);
+      console.log(`[STUDY_DEBUG_STATS] Actually using top N=${limitedListings.length} (filtered count may be less than 6)`);
+      console.log(`[STUDY_DEBUG_STATS] TOP N prices for median: [${pricesInEur.map(p => `€${p.toFixed(0)}`).join(', ')}]`);
+    } catch (err) {
+      console.error(`[STUDY_DEBUG_STATS] Error in debug instrumentation:`, err);
+    }
+  }
 
   // CRITICAL DEBUG: Show the exact top 6 prices used for stats
   console.log(`\n[MEDIAN_DEBUG] === STAGE 3: TOP 6 CHEAPEST (used for stats) ===`);
