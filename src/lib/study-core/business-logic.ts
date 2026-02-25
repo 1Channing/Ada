@@ -151,8 +151,20 @@ function isDamagedVehicle(text: string): boolean {
 }
 
 /**
+ * Compact string by removing all non-alphanumeric characters.
+ * Used for hyphen-insensitive model matching (e.g., "C-HR" → "chr").
+ *
+ * @param str - String to compact
+ * @returns Compacted lowercase alphanumeric string
+ */
+function compactString(str: string): string {
+  return str.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
  * Check if listing title matches expected brand and model.
  * Uses token-based matching for flexibility with naming variations.
+ * Falls back to compaction matching for hyphenated models (e.g., C-HR).
  *
  * @param title - Listing title
  * @param brand - Expected brand name
@@ -184,6 +196,19 @@ export function matchesBrandModel(
   const missingTokens = modelTokens.filter(token => !titleLower.includes(token));
 
   if (missingTokens.length > 0) {
+    // Fallback: Try compaction matching for hyphenated models (e.g., C-HR, CHR, C HR)
+    const compactTitle = compactString(title);
+    const compactModel = compactString(model);
+
+    if (compactTitle.includes(compactModel)) {
+      // Optional debug logging when compaction fallback succeeds
+      if (typeof process !== 'undefined' && process.env?.STUDY_DEBUG === 'true') {
+        const truncatedTitle = title.length > 80 ? title.substring(0, 80) : title;
+        console.log(`[STUDY_DEBUG_MATCH] compaction_fallback_match title="${truncatedTitle}" model="${model}"`);
+      }
+      return { matches: true, reason: '' };
+    }
+
     return {
       matches: false,
       reason: `Model tokens missing: ${missingTokens.join(', ')}`,
