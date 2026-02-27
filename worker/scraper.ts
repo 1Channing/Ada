@@ -142,6 +142,45 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number, debugContext
           await fs.promises.writeFile(filename, html, 'utf-8');
           const preview = html.substring(0, 200).replace(/\n/g, ' ').replace(/\s+/g, ' ');
           console.log(`[STUDY_DEBUG_HTML] Written to: ${filename} (${htmlLength} bytes) preview: ${preview}`);
+
+          // Dump __NEXT_DATA__ JSON if present
+          if (html && typeof html === 'string' && html.toLowerCase().includes('__next_data__')) {
+            try {
+              const nextDataMatch = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+              if (nextDataMatch) {
+                const jsonContent = nextDataMatch[1];
+                let nextDataFilename: string;
+
+                if (debugContext) {
+                  // Deterministic pattern matching HTML filename
+                  nextDataFilename = `/tmp/study_${debugContext.runId}_${debugContext.studyKey}_${debugContext.marketplace}_${debugContext.country}__NEXT_DATA__.json`;
+                } else {
+                  // Fallback pattern
+                  const marketplace = url.includes('marktplaats.nl') ? 'MARKTPLAATS' :
+                                    url.includes('leboncoin.fr') ? 'LEBONCOIN' :
+                                    url.includes('bilbasen.dk') ? 'BILBASEN' :
+                                    url.includes('gaspedaal.nl') ? 'GASPEDAAL' : 'UNKNOWN';
+                  nextDataFilename = `/tmp/study_${timestamp}_${marketplace}_unknown__NEXT_DATA__.json`;
+                }
+
+                // Bounded write: max 500KB to prevent disk issues
+                const boundedContent = jsonContent.length > 500000
+                  ? jsonContent.substring(0, 500000) + '\n... [TRUNCATED at 500KB]'
+                  : jsonContent;
+
+                // Fire-and-forget write (no await, no build risk)
+                void fs.promises.writeFile(nextDataFilename, boundedContent, 'utf-8')
+                  .then(() => {
+                    console.log(`[STUDY_DEBUG_HTML] __NEXT_DATA__ written to: ${nextDataFilename} (${jsonContent.length} bytes)`);
+                  })
+                  .catch(() => {
+                    // Silent failure - never throw
+                  });
+              }
+            } catch (err) {
+              // Silent failure - never throw
+            }
+          }
         }
       } catch (err) {
         console.error(`[STUDY_DEBUG_FETCH] Error in debug instrumentation:`, err);
