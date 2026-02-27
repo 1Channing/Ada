@@ -256,6 +256,23 @@ export function shouldFilterListing(listing: ScrapedListing): boolean {
 }
 
 /**
+ * Normalize a string for matching: lowercase, remove accents, normalize separators, collapse spaces.
+ * Used for flexible trim matching across markets with varied naming conventions.
+ *
+ * @param str - String to normalize
+ * @returns Normalized string
+ */
+function normalizeString(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[-_/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Known trim variant mappings for common trims.
  * Maps base trim keyword to list of acceptable variants.
  *
@@ -266,12 +283,13 @@ const TRIM_VARIANT_MAP: Record<string, string[]> = {
   'gr': ['gr', 'gr sport', 'gr-sport', 'gazoo racing', 'gazoo-racing'],
   'rs': ['rs', 'rs line', 'rs-line'],
   'gt': ['gt', 'gt line', 'gt-line'],
-  'r-line': ['r-line', 'r line', 'rline'],
-  's-line': ['s-line', 's line', 'sline'],
+  'r-line': ['r-line', 'r line', 'rline', 'r-line', 'r line'],
+  's-line': ['s-line', 's line', 'sline', 's-line', 's line'],
   'sport': ['sport', 'sport line', 'sportline'],
   'dynamic': ['dynamic', 'dynamique'],
   'prestige': ['prestige'],
   'luxury': ['luxury', 'luxe'],
+  'r line exclusive': ['r line exclusive', 'rline exclusive', 'r-line exclusive'],
 };
 
 /**
@@ -283,29 +301,33 @@ const TRIM_VARIANT_MAP: Record<string, string[]> = {
  * - This filter is applied BEFORE sorting and median calculation
  *
  * **Matching Strategy:**
- * 1. If trim has known variants (e.g., GR → "gr sport", "gazoo racing"), check all variants
- * 2. Otherwise, use safe token matching (trim tokens must appear in title/description)
- * 3. Case-insensitive, normalized matching
+ * 1. Normalize both trim query and listing text (remove accents, normalize separators)
+ * 2. If trim has known variants (e.g., GR → "gr sport", "gazoo racing"), check normalized variants
+ * 3. For multi-word trims (e.g., "r line exclusive"), require ALL tokens present (order-independent)
+ * 4. Otherwise, use safe token matching (trim tokens must appear in title/description)
  *
  * @param listing - Listing to check
- * @param trim - Trim keyword (e.g., "GR", "Sport", "Dynamic")
+ * @param trim - Trim keyword (e.g., "GR", "Sport", "Dynamic", "R-Line Exclusive")
  * @returns true if listing matches trim
  */
 function matchesTrim(listing: ScrapedListing, trim: string): boolean {
   if (!trim) return true; // No trim filter
 
-  const trimLower = trim.toLowerCase().trim();
-  const text = `${listing.title} ${listing.description}`.toLowerCase();
+  const trimNormalized = normalizeString(trim);
+  const textNormalized = normalizeString(`${listing.title} ${listing.description}`);
 
-  // Strategy 1: Check known variants
-  const knownVariants = TRIM_VARIANT_MAP[trimLower];
+  // Strategy 1: Check known variants (normalized)
+  const knownVariants = TRIM_VARIANT_MAP[trimNormalized];
   if (knownVariants) {
-    return knownVariants.some(variant => text.includes(variant));
+    return knownVariants.some(variant => {
+      const variantNormalized = normalizeString(variant);
+      return textNormalized.includes(variantNormalized);
+    });
   }
 
-  // Strategy 2: Safe token matching for unknown trims
-  // All trim tokens must appear in text (prevents false matches)
-  const trimTokens = trimLower
+  // Strategy 2: Multi-token matching for unknown trims
+  // Extract tokens from normalized trim, require ALL present (order-independent)
+  const trimTokens = trimNormalized
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .split(/\s+/)
@@ -313,7 +335,9 @@ function matchesTrim(listing: ScrapedListing, trim: string): boolean {
 
   if (trimTokens.length === 0) return true;
 
-  return trimTokens.every(token => text.includes(token));
+  // For multi-word expected trims like "r line exclusive", require ALL tokens present
+  // This prevents "R-Line" from matching "R-Line Exclusive"
+  return trimTokens.every(token => textNormalized.includes(token));
 }
 
 /**
@@ -497,6 +521,73 @@ export function filterListingsByStudy(
   }
 
   return filtered;
+}
+
+/**
+ * Filter listings with rejection summary (used for NULL diagnostics).
+ * This is a wrapper around filterListingsByStudy that also returns rejection counts.
+ *
+ * @param listings - Raw listings to filter
+ * @param study - Study criteria
+ * @returns Filtered listings and rejection summary with top 3 reasons
+ */
+export function filterWithSummary(
+  listings: ScrapedListing[],
+  study: StudyCriteria
+): {
+  filtered: ScrapedListing[];
+  rejectionCounts: Record<string, number>;
+} {
+  const rejectionCounts: Record<string, number> = {
+    price_floor: 0,
+    monthly_price: 0,
+    damaged: 0,
+    year: 0,
+    mileage: 0,
+    brand_model: 0,
+    trim: 0,
+  };
+
+  const filtered = listings.filter(listing => {
+    // Apply first-pass filters
+    const shouldFilter = shouldFilterListing(listing);
+    if (shouldFilter) {
+      const reason = detectFilterReason(listing);
+      if (reason) {
+        rejectionCounts[reason]++;
+      }
+      return false;
+    }
+
+    // Filter by year
+    if (listing.year && listing.year < study.year) {
+      rejectionCounts.year++;
+      return false;
+    }
+
+    // Filter by mileage
+    if (study.max_mileage > 0 && listing.mileage && listing.mileage > study.max_mileage) {
+      rejectionCounts.mileage++;
+      return false;
+    }
+
+    // Filter by brand/model
+    const matchResult = matchesBrandModel(listing.title, study.brand, study.model);
+    if (!matchResult.matches) {
+      rejectionCounts.brand_model++;
+      return false;
+    }
+
+    // Filter by trim
+    if (study.trim_text && !matchesTrim(listing, study.trim_text)) {
+      rejectionCounts.trim++;
+      return false;
+    }
+
+    return true;
+  });
+
+  return { filtered, rejectionCounts };
 }
 
 /**
@@ -729,18 +820,72 @@ export function detectOpportunity(
  */
 
 /**
+ * Determine NULL reason code based on parsing and filtering results.
+ */
+function determineNullReasonCode(
+  parsedTargetCount: number,
+  filteredTargetCount: number,
+  parsedSourceCount: number,
+  filteredSourceCount: number,
+  hasOpportunity: boolean
+): string | null {
+  // Target market issues
+  if (parsedTargetCount === 0) {
+    return 'TARGET_NO_LISTINGS';
+  }
+  if (parsedTargetCount > 0 && filteredTargetCount === 0) {
+    return 'TARGET_PARSED_BUT_ALL_FILTERED';
+  }
+
+  // Source market issues
+  if (parsedSourceCount === 0) {
+    return 'SOURCE_NO_LISTINGS';
+  }
+  if (parsedSourceCount > 0 && filteredSourceCount === 0) {
+    return 'SOURCE_PARSED_BUT_ALL_FILTERED';
+  }
+
+  // Insufficient data for reliable statistics
+  if (filteredTargetCount > 0 && filteredTargetCount < 3) {
+    return 'STATS_INSUFFICIENT_DATA';
+  }
+
+  // Threshold not met (opportunity exists but below threshold)
+  if (!hasOpportunity) {
+    return 'THRESHOLD_NOT_MET';
+  }
+
+  return null;
+}
+
+/**
+ * Get top 3 rejection reasons from rejection counts.
+ */
+function getTopRejectReasons(rejectionCounts: Record<string, number>): Record<string, number> | null {
+  const sorted = Object.entries(rejectionCounts)
+    .filter(([_, count]) => count > 0)
+    .sort(([_, a], [__, b]) => b - a)
+    .slice(0, 3);
+
+  if (sorted.length === 0) return null;
+
+  return Object.fromEntries(sorted);
+}
+
+/**
  * Execute a complete market study analysis.
  *
  * This is the MAIN ENTRY POINT for study execution. It orchestrates:
- * 1. Filtering target and source listings
+ * 1. Filtering target and source listings with rejection tracking
  * 2. Computing target market statistics
  * 3. Detecting opportunities
+ * 4. Determining NULL reason codes for diagnostic tracking
  *
  * @param targetListings - Raw target market listings
  * @param sourceListings - Raw source market listings
  * @param study - Study criteria
  * @param threshold - Opportunity threshold in EUR
- * @returns Complete execution result with status and metrics
+ * @returns Complete execution result with status, metrics, and diagnostics
  */
 export function executeStudyAnalysis(
   targetListings: ScrapedListing[],
@@ -758,9 +903,11 @@ export function executeStudyAnalysis(
     console.log(`Raw listings: Target=${rawTargetCount}, Source=${rawSourceCount}`);
   }
 
-  // Filter target listings
-  const filteredTargetListings = filterListingsByStudy(targetListings, study);
+  // Filter target listings with rejection tracking
+  const targetResult = filterWithSummary(targetListings, study);
+  const filteredTargetListings = targetResult.filtered;
   const filteredTargetCount = filteredTargetListings.length;
+  const targetRejections = targetResult.rejectionCounts;
 
   // Debug logging: Show trim filter results
   if (DEBUG_TRIM_FILTER && study.trim_text) {
@@ -768,29 +915,11 @@ export function executeStudyAnalysis(
     console.log(`Target: ${filteredTargetCount} passed, ${rejectedTarget} rejected by trim filter`);
   }
 
-  // If no valid target listings, return NULL result
-  if (filteredTargetCount === 0) {
-    return {
-      status: 'NULL',
-      targetStats: computeTargetMarketStats([], 'TARGET'),
-      targetMedianPrice: 0,
-      bestSourcePrice: null,
-      priceDifference: null,
-      interestingListings: [],
-      filteredTargetCount: 0,
-      filteredSourceCount: 0,
-      rawTargetCount,
-      rawSourceCount,
-    };
-  }
-
-  // Compute target market statistics
-  const targetStats = computeTargetMarketStats(filteredTargetListings, 'TARGET');
-  const targetMedianPrice = targetStats.median_price;
-
-  // Filter source listings
-  const filteredSourceListings = filterListingsByStudy(sourceListings, study);
+  // Filter source listings with rejection tracking
+  const sourceResult = filterWithSummary(sourceListings, study);
+  const filteredSourceListings = sourceResult.filtered;
   const filteredSourceCount = filteredSourceListings.length;
+  const sourceRejections = sourceResult.rejectionCounts;
 
   // Debug logging: Show trim filter results
   if (DEBUG_TRIM_FILTER && study.trim_text) {
@@ -798,27 +927,65 @@ export function executeStudyAnalysis(
     console.log(`Source: ${filteredSourceCount} passed, ${rejectedSource} rejected by trim filter`);
   }
 
-  // If no valid source listings, return NULL result
-  if (filteredSourceCount === 0) {
-    return {
-      status: 'NULL',
-      targetStats,
+  // Compute target market statistics if we have data
+  let targetStats: MarketStats;
+  let targetMedianPrice: number;
+
+  if (filteredTargetCount > 0) {
+    targetStats = computeTargetMarketStats(filteredTargetListings, 'TARGET');
+    targetMedianPrice = targetStats.median_price;
+  } else {
+    targetStats = computeTargetMarketStats([], 'TARGET');
+    targetMedianPrice = 0;
+  }
+
+  // Detect opportunity if we have both target and source data
+  let opportunity: OpportunityResult;
+  if (filteredTargetCount > 0 && filteredSourceCount > 0) {
+    opportunity = detectOpportunity(filteredTargetListings, filteredSourceListings, threshold);
+  } else {
+    opportunity = {
+      hasOpportunity: false,
       targetMedianPrice,
-      bestSourcePrice: null,
-      priceDifference: null,
+      bestSourcePrice: 0,
+      priceDifference: 0,
       interestingListings: [],
-      filteredTargetCount,
-      filteredSourceCount: 0,
-      rawTargetCount,
-      rawSourceCount,
     };
   }
 
-  // Detect opportunity
-  const opportunity = detectOpportunity(filteredTargetListings, filteredSourceListings, threshold);
+  const status = opportunity.hasOpportunity ? 'OPPORTUNITIES' : 'NULL';
+
+  // Determine NULL reason code and top reject reasons
+  let nullReasonCode: string | null = null;
+  let topRejectReasons: Record<string, number> | null = null;
+
+  if (status === 'NULL') {
+    nullReasonCode = determineNullReasonCode(
+      rawTargetCount,
+      filteredTargetCount,
+      rawSourceCount,
+      filteredSourceCount,
+      opportunity.hasOpportunity
+    );
+
+    // Combine target and source rejections for top reasons
+    const combinedRejections: Record<string, number> = {};
+    for (const [reason, count] of Object.entries(targetRejections)) {
+      combinedRejections[reason] = count + (sourceRejections[reason] || 0);
+    }
+    topRejectReasons = getTopRejectReasons(combinedRejections);
+
+    // Debug logging for NULL reason
+    if (STUDY_DEBUG) {
+      console.log(`[STUDY_DEBUG_NULL_REASON] status=${status} reason=${nullReasonCode} parsed_target=${rawTargetCount} filtered_target=${filteredTargetCount} parsed_source=${rawSourceCount} filtered_source=${filteredSourceCount}`);
+      if (topRejectReasons) {
+        console.log(`[STUDY_DEBUG_NULL_REASON] top_reject_reasons=${JSON.stringify(topRejectReasons)}`);
+      }
+    }
+  }
 
   return {
-    status: opportunity.hasOpportunity ? 'OPPORTUNITIES' : 'NULL',
+    status,
     targetStats,
     targetMedianPrice: opportunity.targetMedianPrice,
     bestSourcePrice: opportunity.bestSourcePrice,
@@ -828,6 +995,10 @@ export function executeStudyAnalysis(
     filteredSourceCount,
     rawTargetCount,
     rawSourceCount,
+    nullReasonCode,
+    parsedTargetCount: rawTargetCount,
+    parsedSourceCount: rawSourceCount,
+    topRejectReasons,
   };
 }
 

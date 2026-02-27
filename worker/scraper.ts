@@ -610,7 +610,16 @@ export async function executeStudy({
     const filteredTarget = filterListingsByStudy(targetResult.listings, targetCriteria);
     const filteredSource = filterListingsByStudy(sourceResult.listings, sourceCriteria);
 
+    const parsedTargetCount = targetResult.listings.length;
+    const parsedSourceCount = sourceResult.listings.length;
+    const filteredTargetCount = filteredTarget.length;
+    const filteredSourceCount = filteredSource.length;
+
     if (filteredTarget.length === 0) {
+      const nullReasonCode = parsedTargetCount === 0
+        ? 'TARGET_NO_LISTINGS'
+        : 'TARGET_PARSED_BUT_ALL_FILTERED';
+
       const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
@@ -620,6 +629,11 @@ export async function executeStudy({
         price_difference: null,
         target_stats: null,
         target_error_reason: 'No listings after filtering',
+        null_reason_code: nullReasonCode,
+        parsed_target_count: parsedTargetCount,
+        filtered_target_count: filteredTargetCount,
+        parsed_source_count: parsedSourceCount,
+        filtered_source_count: filteredSourceCount,
       }]);
 
       if (insertError) {
@@ -653,6 +667,20 @@ export async function executeStudy({
     console.log(`[WORKER] Study ${study.id} result: ${status} (diff: ${opportunityResult.priceDifference.toFixed(0)}€)`);
     console.log(`[WORKER] Target median: ${targetStats.median_price.toFixed(0)}€, Best source: ${opportunityResult.bestSourcePrice.toFixed(0)}€`);
 
+    // Determine NULL reason code if result is NULL
+    let nullReasonCode: string | null = null;
+    if (status === 'NULL') {
+      if (parsedSourceCount === 0) {
+        nullReasonCode = 'SOURCE_NO_LISTINGS';
+      } else if (filteredSourceCount === 0) {
+        nullReasonCode = 'SOURCE_PARSED_BUT_ALL_FILTERED';
+      } else if (filteredTargetCount < 3) {
+        nullReasonCode = 'STATS_INSUFFICIENT_DATA';
+      } else {
+        nullReasonCode = 'THRESHOLD_NOT_MET';
+      }
+    }
+
     const { data: insertedResult, error: insertError } = await supabase.from('study_run_results').insert([{
       run_id: runId,
       study_id: study.id,
@@ -672,6 +700,11 @@ export async function executeStudy({
         sourceMarketUrl: sourceUrl,
         targetMarketMedianEur: targetStats.median_price,
       },
+      null_reason_code: nullReasonCode,
+      parsed_target_count: parsedTargetCount,
+      filtered_target_count: filteredTargetCount,
+      parsed_source_count: parsedSourceCount,
+      filtered_source_count: filteredSourceCount,
     }]).select();
 
     if (insertError) {
