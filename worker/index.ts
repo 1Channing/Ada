@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { executeStudy } from './scraper';
-import { executeMappingCrawl, getMappingStats } from './linkgenMappingAuto';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -222,171 +221,6 @@ app.post('/execute-studies', async (req, res) => {
   }
 });
 
-app.post('/linkgen/mapping-auto/start', async (req, res) => {
-  console.log('[LINKGEN_AUTO] ===== Start Mapping Crawl Request Received =====');
-  console.log('[LINKGEN_AUTO] Timestamp:', new Date().toISOString());
-
-  const authHeaderRaw = req.headers.authorization || req.headers['x-worker-secret'] || '';
-  const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
-  const providedSecret = authHeader.replace('Bearer ', '');
-
-  if (!WORKER_SECRET) {
-    console.warn('[LINKGEN_AUTO] ⚠️ WORKER_SECRET not configured - running without auth');
-  } else if (providedSecret !== WORKER_SECRET) {
-    console.error('[LINKGEN_AUTO] ❌ Unauthorized: Invalid or missing WORKER_SECRET');
-    return res.status(401).json({
-      ok: false,
-      error: 'Unauthorized: Invalid or missing WORKER_SECRET',
-    });
-  }
-
-  console.log('[LINKGEN_AUTO] ✅ Authentication passed');
-
-  const { marketplace, seed_listing_url, steps } = req.body;
-
-  if (!marketplace || !seed_listing_url) {
-    console.error('[LINKGEN_AUTO] Missing required parameters');
-    return res.status(400).json({
-      ok: false,
-      error: 'Missing required parameters: marketplace, seed_listing_url',
-    });
-  }
-
-  if (marketplace !== 'MARKTPLAATS') {
-    console.error('[LINKGEN_AUTO] Unsupported marketplace:', marketplace);
-    return res.status(400).json({
-      ok: false,
-      error: 'Only MARKTPLAATS marketplace is currently supported',
-    });
-  }
-
-  if (!seed_listing_url.includes('marktplaats.nl')) {
-    console.error('[LINKGEN_AUTO] Invalid seed URL for MARKTPLAATS');
-    return res.status(400).json({
-      ok: false,
-      error: 'seed_listing_url must be a valid marktplaats.nl URL',
-    });
-  }
-
-  const targetSteps = Math.min(steps || 100, 200);
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('[LINKGEN_AUTO] Missing Supabase configuration');
-    return res.status(500).json({
-      ok: false,
-      error: 'Missing Supabase configuration',
-    });
-  }
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-  try {
-    const { data: run, error: insertError } = await supabase
-      .from('linkgen_mapping_runs')
-      .insert({
-        marketplace,
-        seed_listing_url,
-        target_steps: targetSteps,
-      })
-      .select()
-      .single();
-
-    if (insertError || !run) {
-      console.error('[LINKGEN_AUTO] Failed to create run:', insertError);
-      return res.status(500).json({
-        ok: false,
-        error: 'Failed to create mapping run',
-      });
-    }
-
-    console.log(`[LINKGEN_AUTO] ✅ Created run: ${run.id}`);
-
-    setImmediate(() => {
-      executeMappingCrawl({
-        runId: run.id,
-        marketplace,
-        seedListingUrl: seed_listing_url,
-        steps: targetSteps,
-        supabase,
-      }).catch((error) => {
-        console.error('[LINKGEN_AUTO] Crawl error:', error);
-        supabase
-          .from('linkgen_mapping_runs')
-          .update({
-            status: 'failed',
-            finished_at: new Date().toISOString(),
-            last_error: error?.message || String(error),
-          })
-          .eq('id', run.id)
-          .then(() => {
-            console.log(`[LINKGEN_AUTO] Marked run ${run.id} as failed`);
-          });
-      });
-    });
-
-    return res.json({
-      ok: true,
-      runId: run.id,
-    });
-  } catch (error) {
-    console.error('[LINKGEN_AUTO] Fatal error:', error);
-    return res.status(500).json({
-      ok: false,
-      error: 'Internal server error',
-      message: error?.message || String(error),
-    });
-  }
-});
-
-app.get('/linkgen/mapping-auto/stats', async (req, res) => {
-  console.log('[LINKGEN_AUTO] ===== Stats Request Received =====');
-
-  const authHeaderRaw = req.headers.authorization || req.headers['x-worker-secret'] || '';
-  const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
-  const providedSecret = authHeader.replace('Bearer ', '');
-
-  if (!WORKER_SECRET) {
-    console.warn('[LINKGEN_AUTO] ⚠️ WORKER_SECRET not configured - running without auth');
-  } else if (providedSecret !== WORKER_SECRET) {
-    console.error('[LINKGEN_AUTO] ❌ Unauthorized: Invalid or missing WORKER_SECRET');
-    return res.status(401).json({
-      ok: false,
-      error: 'Unauthorized: Invalid or missing WORKER_SECRET',
-    });
-  }
-
-  const { runId } = req.query;
-
-  if (!runId || typeof runId !== 'string') {
-    return res.status(400).json({
-      ok: false,
-      error: 'Missing required parameter: runId',
-    });
-  }
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('[LINKGEN_AUTO] Missing Supabase configuration');
-    return res.status(500).json({
-      ok: false,
-      error: 'Missing Supabase configuration',
-    });
-  }
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-  try {
-    const stats = await getMappingStats(runId, supabase);
-    return res.json(stats);
-  } catch (error) {
-    console.error('[LINKGEN_AUTO] Stats error:', error);
-    return res.status(500).json({
-      ok: false,
-      error: 'Failed to fetch stats',
-      message: error?.message || String(error),
-    });
-  }
-});
-
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[WORKER] ===== MC Export Worker Service Started =====`);
   console.log(`[WORKER] Node version: ${process.version}`);
@@ -401,7 +235,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`[WORKER] Health endpoint: GET /`);
   console.log(`[WORKER] Health endpoint: GET /health`);
   console.log(`[WORKER] Execute endpoint: POST /execute-studies`);
-  console.log(`[WORKER] Mapping Auto endpoint: POST /linkgen/mapping-auto/start`);
-  console.log(`[WORKER] Mapping Auto endpoint: GET /linkgen/mapping-auto/stats`);
   console.log(`[WORKER] Ready to process scheduled study runs`);
 });
