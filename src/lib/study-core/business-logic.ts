@@ -433,12 +433,12 @@ export function filterListingsByStudy(
       afterShouldFilterCount++;
     }
 
-    // Filter by year (must be >= study year)
-    if (listing.year && listing.year < study.year) {
+    // Filter by year (must equal study year exactly)
+    if (listing.year && listing.year !== study.year) {
       if (STUDY_DEBUG && rejectionBuckets && rejectionBuckets.year.length < 5) {
         rejectionBuckets.year.push({
           listing,
-          detail: `year ${listing.year} < ${study.year}`,
+          detail: `year ${listing.year} !== ${study.year}`,
         });
       }
       return false;
@@ -559,8 +559,8 @@ export function filterWithSummary(
       return false;
     }
 
-    // Filter by year
-    if (listing.year && listing.year < study.year) {
+    // Filter by year (must equal study year exactly)
+    if (listing.year && listing.year !== study.year) {
       rejectionCounts.year++;
       return false;
     }
