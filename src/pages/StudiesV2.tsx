@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { FileText, PlayCircle, BarChart3, MessageSquare, DollarSign } from 'lucide-react';
+import { FileText, PlayCircle, BarChart3, MessageSquare, DollarSign, Link2 } from 'lucide-react';
 import { StudiesV2MakesStudies } from './StudiesV2MakesStudies';
 import { StudiesV2RunSearches } from './StudiesV2RunSearches';
 import { StudiesV2Results } from './StudiesV2Results';
 import { StudiesV2Negotiations } from './StudiesV2Negotiations';
 import { StudiesV2Sales } from './StudiesV2Sales';
+import { StudiesV2LinkGenerator } from './StudiesV2LinkGenerator';
 
-type Tab = 'makes' | 'run' | 'results' | 'negotiations' | 'sales';
+type Tab = 'makes' | 'run' | 'results' | 'negotiations' | 'sales' | 'linkgen';
 
 export function StudiesV2() {
   const [activeTab, setActiveTab] = useState<Tab>('makes');
@@ -17,6 +18,7 @@ export function StudiesV2() {
     { id: 'results' as Tab, label: 'Results', icon: BarChart3 },
     { id: 'negotiations' as Tab, label: 'Negotiations', icon: MessageSquare },
     { id: 'sales' as Tab, label: 'Sales', icon: DollarSign },
+    { id: 'linkgen' as Tab, label: 'Link Generator', icon: Link2 },
   ];
 
   return (
@@ -56,6 +58,7 @@ export function StudiesV2() {
         {activeTab === 'results' && <StudiesV2Results />}
         {activeTab === 'negotiations' && <StudiesV2Negotiations />}
         {activeTab === 'sales' && <StudiesV2Sales />}
+        {activeTab === 'linkgen' && <StudiesV2LinkGenerator />}
       </div>
     </div>
   );

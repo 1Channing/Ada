@@ -42,16 +42,18 @@ function applyTrimLeboncoin(url: string, trim?: string): string {
 /**
  * Applies trim/finition filter to Marktplaats URL.
  * Injects q:<trim>| prefix before existing hash filters.
+ * URL-encodes the trim value to handle spaces and special characters.
  *
  * @example
  * applyTrimMarktplaats('...#f:10882|...', 'gr') → '...#q:gr|f:10882|...'
+ * applyTrimMarktplaats('...#f:10882|...', 'R Line') → '...#q:R%20Line|f:10882|...'
  */
 function applyTrimMarktplaats(url: string, trim?: string): string {
   if (!trim) return url;
   const [base, hash = ''] = url.split('#');
   if (!hash) return url;
 
-  const encoded = trim.toLowerCase();
+  const encoded = encodeURIComponent(trim.toLowerCase());
   let newHash: string;
 
   if (hash.startsWith('q:')) {

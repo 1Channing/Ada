@@ -95,6 +95,17 @@ export interface OpportunityResult {
 }
 
 /**
+ * NULL reason codes for diagnostic tracking
+ */
+export type NullReasonCode =
+  | 'TARGET_NO_LISTINGS'
+  | 'TARGET_PARSED_BUT_ALL_FILTERED'
+  | 'SOURCE_NO_LISTINGS'
+  | 'SOURCE_PARSED_BUT_ALL_FILTERED'
+  | 'STATS_INSUFFICIENT_DATA'
+  | 'THRESHOLD_NOT_MET';
+
+/**
  * Complete study execution result
  */
 export interface StudyExecutionResult {
@@ -108,6 +119,10 @@ export interface StudyExecutionResult {
   filteredSourceCount: number;
   rawTargetCount: number;
   rawSourceCount: number;
+  nullReasonCode?: string | null;
+  parsedTargetCount?: number;
+  parsedSourceCount?: number;
+  topRejectReasons?: Record<string, number> | null;
 }
 
 /**
