@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Save, X } from 'lucide-react';
+import { Search, Plus, Save, X, UserPlus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 type Contact = {
@@ -163,6 +163,11 @@ export function Administrative() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [savingSellerContact, setSavingSellerContact] = useState(false);
+  const [savingSeller2Contact, setSavingSeller2Contact] = useState(false);
+  const [savingBuyerContact, setSavingBuyerContact] = useState(false);
+  const [savingBuyer2Contact, setSavingBuyer2Contact] = useState(false);
+
   useEffect(() => {
     loadContacts();
   }, []);
@@ -186,7 +191,7 @@ export function Administrative() {
       contact.first_name?.toLowerCase().includes(lowerQuery) ||
       contact.last_name?.toLowerCase().includes(lowerQuery) ||
       contact.company_name?.toLowerCase().includes(lowerQuery) ||
-      contact.email?.toLowerCase().includes(lowerQuery)
+      contact.siren?.toLowerCase().includes(lowerQuery)
     );
   };
 
@@ -223,6 +228,69 @@ export function Administrative() {
       setShowBuyer2Search(false);
     }
     setSearchQuery('');
+  };
+
+  const saveContactAs = async (
+    form: ContactForm,
+    selectedContact: Contact | null,
+    setSavingState: (val: boolean) => void,
+    role: 'seller' | 'buyer'
+  ) => {
+    setSavingState(true);
+    try {
+      if (selectedContact) {
+        const { error } = await supabase
+          .from('contacts')
+          .update({
+            company_name: form.company_name || null,
+            first_name: form.first_name || null,
+            last_name: form.last_name || null,
+            birth_date: form.birth_date || null,
+            birth_place: form.birth_place || null,
+            address_line1: form.address_line1 || null,
+            address_line2: form.address_line2 || null,
+            postal_code: form.postal_code || null,
+            city: form.city || null,
+            country: form.country || 'FR',
+            siren: form.siren || null,
+          })
+          .eq('id', selectedContact.id);
+
+        if (error) throw error;
+        setSaveMessage({ type: 'success', text: 'Contact updated successfully!' });
+      } else {
+        const { error } = await supabase
+          .from('contacts')
+          .insert({
+            type: role,
+            company_name: form.company_name || null,
+            first_name: form.first_name || null,
+            last_name: form.last_name || null,
+            birth_date: form.birth_date || null,
+            birth_place: form.birth_place || null,
+            address_line1: form.address_line1 || null,
+            address_line2: form.address_line2 || null,
+            postal_code: form.postal_code || null,
+            city: form.city || null,
+            country: form.country || 'FR',
+            siren: form.siren || null,
+          });
+
+        if (error) throw error;
+        setSaveMessage({ type: 'success', text: 'Contact created successfully!' });
+      }
+
+      await loadContacts();
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error) {
+      console.error('Error saving contact:', error);
+      setSaveMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Failed to save contact'
+      });
+    } finally {
+      setSavingState(false);
+    }
   };
 
   const handleSave = async () => {
@@ -473,7 +541,7 @@ export function Administrative() {
             <div className="flex items-center gap-2 mb-3">
               <input
                 type="text"
-                placeholder="Search by name, company, or email..."
+                placeholder="Search by name, company, or SIREN..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm focus:outline-none focus:border-blue-500"
@@ -502,9 +570,11 @@ export function Administrative() {
                     <div className="text-sm font-medium">
                       {contact.company_name || `${contact.first_name} ${contact.last_name}`}
                     </div>
-                    {contact.email && (
-                      <div className="text-xs text-zinc-400">{contact.email}</div>
-                    )}
+                    <div className="text-xs text-zinc-400 mt-0.5">
+                      {contact.siren && <span>SIREN: {contact.siren}</span>}
+                      {contact.siren && contact.city && <span className="mx-2">•</span>}
+                      {contact.city && <span>{contact.city}</span>}
+                    </div>
                   </button>
                 ))
               )}
@@ -519,17 +589,22 @@ export function Administrative() {
     form: ContactForm,
     setForm: (form: ContactForm) => void,
     selectedContact: Contact | null,
-    label: string
+    label: string,
+    savingState: boolean,
+    setSavingState: (val: boolean) => void,
+    role: 'seller' | 'buyer'
   ) => {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="space-y-4">
         {selectedContact && (
-          <div className="col-span-2 px-3 py-2 bg-blue-900/30 border border-blue-700/50 rounded text-sm">
+          <div className="px-3 py-2 bg-blue-900/30 border border-blue-700/50 rounded text-sm">
             Using existing contact: <span className="font-medium">
               {selectedContact.company_name || `${selectedContact.first_name} ${selectedContact.last_name}`}
             </span>
           </div>
         )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         <div>
           <label className="block text-sm font-medium mb-1 text-zinc-300">Company Name</label>
@@ -640,6 +715,16 @@ export function Administrative() {
             className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
+        </div>
+
+        <button
+          onClick={() => saveContactAs(form, selectedContact, setSavingState, role)}
+          disabled={savingState}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded-lg transition-colors text-sm font-medium"
+        >
+          <UserPlus size={16} />
+          {savingState ? 'Saving...' : selectedContact ? 'Update Contact' : 'Save as Contact'}
+        </button>
       </div>
     );
   };
@@ -836,7 +921,15 @@ export function Administrative() {
             'Search Existing Contact'
           )}
 
-          {renderContactFields(sellerForm, setSellerForm, selectedSellerContact, 'Seller')}
+          {renderContactFields(
+            sellerForm,
+            setSellerForm,
+            selectedSellerContact,
+            'Seller',
+            savingSellerContact,
+            setSavingSellerContact,
+            'seller'
+          )}
 
           <div className="mt-4">
             {!showSecondSeller ? (
@@ -882,7 +975,15 @@ export function Administrative() {
                   'Search Existing Contact'
                 )}
 
-                {renderContactFields(sellerForm2, setSellerForm2, selectedSeller2Contact, 'Second Seller')}
+                {renderContactFields(
+                  sellerForm2,
+                  setSellerForm2,
+                  selectedSeller2Contact,
+                  'Second Seller',
+                  savingSeller2Contact,
+                  setSavingSeller2Contact,
+                  'seller'
+                )}
               </div>
             )}
           </div>
@@ -898,7 +999,15 @@ export function Administrative() {
             'Search Existing Contact'
           )}
 
-          {renderContactFields(buyerForm, setBuyerForm, selectedBuyerContact, 'Buyer')}
+          {renderContactFields(
+            buyerForm,
+            setBuyerForm,
+            selectedBuyerContact,
+            'Buyer',
+            savingBuyerContact,
+            setSavingBuyerContact,
+            'buyer'
+          )}
 
           <div className="mt-4">
             {!showSecondBuyer ? (
@@ -944,7 +1053,15 @@ export function Administrative() {
                   'Search Existing Contact'
                 )}
 
-                {renderContactFields(buyerForm2, setBuyerForm2, selectedBuyer2Contact, 'Second Buyer')}
+                {renderContactFields(
+                  buyerForm2,
+                  setBuyerForm2,
+                  selectedBuyer2Contact,
+                  'Second Buyer',
+                  savingBuyer2Contact,
+                  setSavingBuyer2Contact,
+                  'buyer'
+                )}
               </div>
             )}
           </div>
