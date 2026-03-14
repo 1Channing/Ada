@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Download, FileText } from 'lucide-react';
+import { Download, FileText, Search, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 type DocumentHistoryItem = {
@@ -30,12 +30,15 @@ type DocumentHistoryItem = {
 export function AdminHistory() {
   const [documents, setDocuments] = useState<DocumentHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchDocType, setSearchDocType] = useState('');
+  const [searchPlate, setSearchPlate] = useState('');
 
   useEffect(() => {
     loadDocuments();
   }, []);
 
   const loadDocuments = async () => {
+    console.log('[ADMIN_HISTORY] Loading document history');
     setLoading(true);
     try {
       const thirtyDaysAgo = new Date();
@@ -90,13 +93,24 @@ export function AdminHistory() {
         },
       })) || [];
 
+      console.log(`[ADMIN_HISTORY] Loaded ${formattedData.length} document history rows`);
       setDocuments(formattedData);
     } catch (error) {
-      console.error('Error loading documents:', error);
+      console.error('[ADMIN_HISTORY] Error loading documents:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  const filteredDocuments = documents.filter((doc) => {
+    const matchesDocType = !searchDocType ||
+      doc.document_type.toLowerCase().includes(searchDocType.toLowerCase());
+
+    const matchesPlate = !searchPlate ||
+      doc.transaction.vehicle.plate_number?.toLowerCase().includes(searchPlate.toLowerCase());
+
+    return matchesDocType && matchesPlate;
+  });
 
   const formatContactName = (contact: { company_name?: string; first_name?: string; last_name?: string } | null) => {
     if (!contact) return '—';
@@ -133,12 +147,80 @@ export function AdminHistory() {
         </button>
       </div>
 
+      <div className="mb-6 bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <Search size={20} className="text-zinc-400" />
+          <h3 className="font-medium text-zinc-300">Search Documents</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm text-zinc-400 mb-1">Document Type</label>
+            <div className="relative">
+              <input
+                type="text"
+                value={searchDocType}
+                onChange={(e) => setSearchDocType(e.target.value)}
+                placeholder="e.g. Certificat, Bon d'achat..."
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 pr-8"
+              />
+              {searchDocType && (
+                <button
+                  onClick={() => setSearchDocType('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm text-zinc-400 mb-1">Vehicle Plate</label>
+            <div className="relative">
+              <input
+                type="text"
+                value={searchPlate}
+                onChange={(e) => setSearchPlate(e.target.value)}
+                placeholder="e.g. AB-123-CD"
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 pr-8"
+              />
+              {searchPlate && (
+                <button
+                  onClick={() => setSearchPlate('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        {(searchDocType || searchPlate) && (
+          <div className="mt-3 text-sm text-zinc-400">
+            Showing {filteredDocuments.length} of {documents.length} documents
+          </div>
+        )}
+      </div>
+
       {loading ? (
         <div className="text-center py-12 text-zinc-400">Loading documents...</div>
       ) : documents.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-12 text-center">
           <FileText size={48} className="mx-auto mb-4 text-zinc-600" />
           <p className="text-zinc-400">No documents found in the last 30 days</p>
+        </div>
+      ) : filteredDocuments.length === 0 ? (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-12 text-center">
+          <Search size={48} className="mx-auto mb-4 text-zinc-600" />
+          <p className="text-zinc-400">No documents match your search criteria</p>
+          <button
+            onClick={() => {
+              setSearchDocType('');
+              setSearchPlate('');
+            }}
+            className="mt-4 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
+          >
+            Clear Filters
+          </button>
         </div>
       ) : (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
@@ -157,7 +239,7 @@ export function AdminHistory() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {documents.map((doc) => (
+                {filteredDocuments.map((doc) => (
                   <tr key={doc.id} className="hover:bg-zinc-800/50 transition-colors">
                     <td className="px-4 py-3 text-sm">
                       <span className="px-2 py-1 bg-zinc-800 rounded text-xs font-medium">

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Save, X, UserPlus, FileText, Download } from 'lucide-react';
+import { Search, Plus, Save, X, UserPlus, FileText, Download, History } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { generateAdminDocument, downloadBlob } from '../lib/adminDocGenerator';
 
@@ -527,32 +527,57 @@ export function Administrative() {
   };
 
   const handleGenerateDocument = async (documentType: string) => {
-    if (!lastSavedTransactionId) {
+    console.log('[ADMIN_DOC_GEN] Generating document:', documentType);
+
+    let transactionId = lastSavedTransactionId;
+
+    if (!transactionId) {
+      console.log('[ADMIN_DOC_GEN] No saved transaction, saving first');
       setSaveMessage({
         type: 'error',
-        text: 'Please save the transaction first before generating documents'
+        text: 'Saving transaction before generating document...'
       });
-      return;
+
+      try {
+        await handleSave();
+        transactionId = lastSavedTransactionId;
+
+        if (!transactionId) {
+          setSaveMessage({
+            type: 'error',
+            text: 'Failed to save transaction'
+          });
+          return;
+        }
+      } catch (error) {
+        console.error('[ADMIN_DOC_GEN] Save failed:', error);
+        setSaveMessage({
+          type: 'error',
+          text: 'Failed to save transaction before generating document'
+        });
+        return;
+      }
     }
 
     setGeneratingDoc(documentType);
     try {
       const blob = await generateAdminDocument(
         documentType as any,
-        lastSavedTransactionId
+        transactionId
       );
 
       const fileName = `${documentType.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
       downloadBlob(blob, fileName);
+      console.log('[ADMIN_DOC_GEN] Document generated and download started');
 
       setSaveMessage({
         type: 'success',
-        text: `${documentType} generated successfully!`
+        text: `${documentType} generated and downloaded successfully!`
       });
 
       setTimeout(() => setSaveMessage(null), 3000);
     } catch (error) {
-      console.error('Error generating document:', error);
+      console.error('[ADMIN_DOC_GEN] Generation failed:', error);
       setSaveMessage({
         type: 'error',
         text: error instanceof Error ? error.message : 'Failed to generate document'
@@ -779,12 +804,15 @@ export function Administrative() {
         <h1 className="text-3xl font-bold">Administrative</h1>
 
         <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded-lg transition-colors font-medium"
+          onClick={() => {
+            console.log('[ADMIN_UI] Navigating to history');
+            window.history.pushState({}, '', '/admin/history');
+            window.location.reload();
+          }}
+          className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
         >
-          <Save size={18} />
-          {saving ? 'Saving...' : 'Save Transaction'}
+          <History size={18} />
+          History
         </button>
       </div>
 
@@ -1214,125 +1242,104 @@ export function Administrative() {
           </section>
         )}
 
-        {lastSavedTransactionId && (
-          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <FileText className="text-blue-500" size={24} />
-              <h2 className="text-xl font-semibold text-zinc-100">Generate Documents</h2>
-            </div>
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <FileText className="text-blue-500" size={24} />
+            <h2 className="text-xl font-semibold text-zinc-100">Generate Documents</h2>
+          </div>
 
-            <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-4 mb-6">
-              <p className="text-sm text-blue-200">
-                Transaction saved successfully! You can now generate documents.
-              </p>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <button
+              onClick={() => handleGenerateDocument('Certificat de cession')}
+              disabled={generatingDoc !== null}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+            >
+              {generatingDoc === 'Certificat de cession' ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Download size={18} />
+                  Certificat de cession
+                </>
+              )}
+            </button>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <button
-                onClick={() => handleGenerateDocument('Certificat de cession')}
-                disabled={generatingDoc !== null}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-              >
-                {generatingDoc === 'Certificat de cession' ? (
-                  <>
-                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Download size={18} />
-                    Certificat de cession
-                  </>
-                )}
-              </button>
+            <button
+              onClick={() => handleGenerateDocument('Déclaration d\'achat')}
+              disabled={generatingDoc !== null}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+            >
+              {generatingDoc === 'Déclaration d\'achat' ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Download size={18} />
+                  Déclaration d'achat
+                </>
+              )}
+            </button>
 
-              <button
-                onClick={() => handleGenerateDocument('Déclaration d\'achat')}
-                disabled={generatingDoc !== null}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-              >
-                {generatingDoc === 'Déclaration d\'achat' ? (
-                  <>
-                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Download size={18} />
-                    Déclaration d'achat
-                  </>
-                )}
-              </button>
+            <button
+              onClick={() => handleGenerateDocument('Bon d\'achat')}
+              disabled={generatingDoc !== null}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+            >
+              {generatingDoc === 'Bon d\'achat' ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Download size={18} />
+                  Bon d'achat
+                </>
+              )}
+            </button>
 
-              <button
-                onClick={() => handleGenerateDocument('Bon d\'achat')}
-                disabled={generatingDoc !== null}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-              >
-                {generatingDoc === 'Bon d\'achat' ? (
-                  <>
-                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Download size={18} />
-                    Bon d'achat
-                  </>
-                )}
-              </button>
+            <button
+              onClick={() => handleGenerateDocument('Fiche enlèvement')}
+              disabled={generatingDoc !== null}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+            >
+              {generatingDoc === 'Fiche enlèvement' ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Download size={18} />
+                  Fiche enlèvement
+                </>
+              )}
+            </button>
 
-              <button
-                onClick={() => handleGenerateDocument('Fiche enlèvement')}
-                disabled={generatingDoc !== null}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-              >
-                {generatingDoc === 'Fiche enlèvement' ? (
-                  <>
-                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Download size={18} />
-                    Fiche enlèvement
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={() => handleGenerateDocument('Réception / Expédition')}
-                disabled={generatingDoc !== null}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-              >
-                {generatingDoc === 'Réception / Expédition' ? (
-                  <>
-                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Download size={18} />
-                    Réception / Expédition
-                  </>
-                )}
-              </button>
-            </div>
-
-            <div className="mt-6 pt-6 border-t border-zinc-800">
-              <button
-                onClick={() => {
-                  window.history.pushState({}, '', '/admin/history');
-                  window.location.reload();
-                }}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                <FileText size={16} />
-                View Document History
-              </button>
-            </div>
-          </section>
-        )}
+            <button
+              onClick={() => handleGenerateDocument('Réception / Expédition')}
+              disabled={generatingDoc !== null}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+            >
+              {generatingDoc === 'Réception / Expédition' ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Download size={18} />
+                  Réception / Expédition
+                </>
+              )}
+            </button>
+          </div>
+        </section>
       </div>
     </div>
   );
