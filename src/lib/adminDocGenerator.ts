@@ -11,17 +11,21 @@ export async function generateAdminDocument(
     .from('transactions_admin')
     .select(`
       *,
-      vehicle:vehicles_admin(*),
-      seller:seller_contact_id(*),
-      seller2:seller_contact_id_2(*),
-      buyer:buyer_contact_id(*),
-      buyer2:buyer_contact_id_2(*)
+      vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(*),
+      seller:contacts!transactions_admin_seller_contact_id_fkey(*),
+      seller2:contacts!transactions_admin_seller_contact_id_2_fkey(*),
+      buyer:contacts!transactions_admin_buyer_contact_id_fkey(*),
+      buyer2:contacts!transactions_admin_buyer_contact_id_2_fkey(*)
     `)
     .eq('id', transactionId)
     .single();
 
   if (txError || !transaction) {
-    throw new Error('Failed to load transaction data');
+    const errorMessage = txError
+      ? `Failed to load transaction data: ${txError.message}${txError.details ? ` (${txError.details})` : ''}${txError.code ? ` [${txError.code}]` : ''}`
+      : 'Failed to load transaction data: No transaction found';
+    console.error('[ADMIN_DOC_GEN] Transaction load error:', txError);
+    throw new Error(errorMessage);
   }
 
   const documentData: DocumentData = {
@@ -83,27 +87,38 @@ export async function generateAdminDocument(
 
   const blob = new Blob([pdfBytes], { type: 'application/pdf' });
 
-  const fileName = `${documentType.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
-  const { data: uploadData, error: uploadError } = await supabase.storage
-    .from('admin-documents')
-    .upload(`transactions/${transactionId}/${fileName}`, blob);
+  try {
+    const fileName = `${documentType.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('admin-documents')
+      .upload(`transactions/${transactionId}/${fileName}`, blob);
 
-  if (uploadError) {
-    console.error('[ADMIN_DOC_GEN] Upload error:', uploadError);
-    throw new Error('Failed to upload document');
+    if (uploadError) {
+      const uploadErrorMessage = `Storage upload failed: ${uploadError.message}${uploadError.cause ? ` (${uploadError.cause})` : ''}`;
+      console.error('[ADMIN_DOC_GEN]', uploadErrorMessage, uploadError);
+      throw new Error(uploadErrorMessage);
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('admin-documents')
+      .getPublicUrl(uploadData.path);
+
+    const { error: historyError } = await supabase.from('documents_admin_history').insert({
+      transaction_id: transactionId,
+      document_type: documentType,
+      pdf_url: urlData.publicUrl,
+    });
+
+    if (historyError) {
+      const historyErrorMessage = `History insert failed: ${historyError.message}${historyError.details ? ` (${historyError.details})` : ''}${historyError.code ? ` [${historyError.code}]` : ''}`;
+      console.error('[ADMIN_DOC_GEN]', historyErrorMessage, historyError);
+      throw new Error(historyErrorMessage);
+    }
+
+    console.log('[ADMIN_DOC_GEN] Document saved to storage and history');
+  } catch (error) {
+    console.warn('[ADMIN_DOC_GEN] Upload/history failed but returning PDF blob:', error);
   }
-
-  const { data: urlData } = supabase.storage
-    .from('admin-documents')
-    .getPublicUrl(uploadData.path);
-
-  await supabase.from('documents_admin_history').insert({
-    transaction_id: transactionId,
-    document_type: documentType,
-    pdf_url: urlData.publicUrl,
-  });
-
-  console.log('[ADMIN_DOC_GEN] Document saved to history');
 
   return blob;
 }
