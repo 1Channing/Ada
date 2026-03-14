@@ -1,0 +1,31 @@
+{
+  "template_name": "Certificat de cession",
+  "template_file": "pdf-templates/Certificat_de_cession.pdf",
+  "has_form_fields": false,
+  "use_coordinates": true,
+  "is_multi_page": true,
+  "coordinate_mappings": {
+    "vehicle.plate_number": { "x": 60, "y": 735, "size": 9 },
+    "vehicle.vin": { "x": 280, "y": 735, "size": 9 },
+    "vehicle.first_registration_date": { "x": 490, "y": 735, "size": 9, "format": "date" },
+    "vehicle.brand": { "x": 60, "y": 715, "size": 9 },
+    "vehicle.type_variant_version": { "x": 230, "y": 715, "size": 9 },
+    "vehicle.national_type": { "x": 390, "y": 715, "size": 9 },
+    "vehicle.commercial_name": { "x": 470, "y": 715, "size": 9 },
+    "vehicle.mileage": { "x": 230, "y": 695, "size": 9 },
+    "vehicle.registration_certificate_number": { "x": 180, "y": 675, "size": 9 },
+    "seller.full_name": { "x": 100, "y": 590, "size": 9 },
+    "seller.siren": { "x": 430, "y": 590, "size": 9 },
+    "seller.address": { "x": 145, "y": 570, "size": 9 },
+    "seller.postal_code": { "x": 60, "y": 550, "size": 9 },
+    "seller.city": { "x": 120, "y": 550, "size": 9 },
+    "transaction.transaction_date": { "x": 120, "y": 445, "size": 9, "format": "date" },
+    "buyer.full_name": { "x": 100, "y": 300, "size": 9 },
+    "buyer.siren": { "x": 430, "y": 300, "size": 9 },
+    "buyer.birth_date": { "x": 80, "y": 280, "size": 9, "format": "date" },
+    "buyer.birth_place": { "x": 190, "y": 280, "size": 9 },
+    "buyer.address": { "x": 145, "y": 260, "size": 9 },
+    "buyer.postal_code": { "x": 60, "y": 240, "size": 9 },
+    "buyer.city": { "x": 120, "y": 240, "size": 9 }
+  }
+}

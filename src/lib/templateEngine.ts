@@ -5,6 +5,7 @@ export type TemplateMapping = {
   template_file: string;
   has_form_fields: boolean;
   use_coordinates: boolean;
+  is_multi_page?: boolean;
   field_mappings?: Record<string, string>;
   coordinate_mappings?: Record<string, {
     x: number;
@@ -89,27 +90,41 @@ export async function loadTemplateMapping(templateName: string): Promise<Templat
     throw new Error(`No mapping found for template: ${templateName}`);
   }
 
+  console.log('[TEMPLATE_ENGINE] Fetching mapping from:', mappingPath);
   const response = await fetch(mappingPath);
   if (!response.ok) {
-    throw new Error(`Failed to load mapping: ${response.statusText}`);
+    console.error(`[TEMPLATE_ENGINE] Failed to load mapping from ${mappingPath} - Status: ${response.status} ${response.statusText}`);
+    throw new Error(`Failed to load mapping from ${mappingPath}: ${response.status} ${response.statusText}`);
   }
 
   const mapping: TemplateMapping = await response.json();
-  console.log('[TEMPLATE_ENGINE] Mapping configuration loaded successfully');
+  console.log('[TEMPLATE_ENGINE] Mapping loaded:', {
+    template_file: mapping.template_file,
+    has_form_fields: mapping.has_form_fields,
+    use_coordinates: mapping.use_coordinates,
+    is_multi_page: mapping.is_multi_page || false,
+    field_count: mapping.field_mappings ? Object.keys(mapping.field_mappings).length : 0,
+    coordinate_count: mapping.coordinate_mappings ? Object.keys(mapping.coordinate_mappings).length : 0
+  });
+
   return mapping;
 }
 
 export async function loadTemplate(templatePath: string): Promise<ArrayBuffer> {
   console.log('[TEMPLATE_ENGINE] Loading template:', templatePath);
 
-  const fullPath = `/admin/templates/${templatePath}`;
+  const fullPath = `/${templatePath}`;
+  console.log('[TEMPLATE_ENGINE] Fetching template from:', fullPath);
+
   const response = await fetch(fullPath);
   if (!response.ok) {
-    throw new Error(`Failed to load template: ${response.statusText}`);
+    console.error(`[TEMPLATE_ENGINE] Failed to load template from ${fullPath} - Status: ${response.status} ${response.statusText}`);
+    throw new Error(`Failed to load template from ${fullPath}: ${response.status} ${response.statusText}`);
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  console.log('[TEMPLATE_ENGINE] Template loaded');
+  const sizeKB = (arrayBuffer.byteLength / 1024).toFixed(2);
+  console.log(`[TEMPLATE_ENGINE] Template loaded successfully (${sizeKB} KB)`);
   return arrayBuffer;
 }
 
@@ -211,45 +226,68 @@ export async function fillPDFWithCoordinates(
 
   const preparedData = prepareData(data);
   const pages = pdfDoc.getPages();
-  const firstPage = pages[0];
   const font = await pdfDoc.embedFont('Helvetica');
+
+  const pageIndexes = mapping.is_multi_page ? pages.map((_, i) => i) : [0];
+  console.log(`[TEMPLATE_ENGINE] Applying to ${pageIndexes.length} page(s)`);
 
   let appliedCount = 0;
 
-  for (const [fieldPath, coords] of Object.entries(mapping.coordinate_mappings)) {
-    const rawValue = resolveValue(preparedData, fieldPath);
-    const value = formatValue(rawValue, coords.format);
+  for (const pageIndex of pageIndexes) {
+    const page = pages[pageIndex];
+    if (!page) continue;
 
-    if (value) {
-      firstPage.drawText(value, {
-        x: coords.x,
-        y: coords.y,
-        size: coords.size || 10,
-        font: font,
-        color: rgb(0, 0, 0),
-      });
-      appliedCount++;
+    for (const [fieldPath, coords] of Object.entries(mapping.coordinate_mappings)) {
+      const rawValue = resolveValue(preparedData, fieldPath);
+      const value = formatValue(rawValue, coords.format);
+
+      if (value) {
+        page.drawText(value, {
+          x: coords.x,
+          y: coords.y,
+          size: coords.size || 10,
+          font: font,
+          color: rgb(0, 0, 0),
+        });
+        appliedCount++;
+      }
     }
   }
 
-  console.log(`[TEMPLATE_ENGINE] Overlay applied: ${appliedCount} fields mapped`);
+  console.log(`[TEMPLATE_ENGINE] Overlay applied: ${appliedCount} fields mapped across ${pageIndexes.length} page(s)`);
 }
 
 export async function fillPDFWithFields(
   pdfDoc: PDFDocument,
   mapping: TemplateMapping,
   data: DocumentData
-): Promise<void> {
+): Promise<boolean> {
   console.log('[TEMPLATE_ENGINE] Applying form field mapping');
 
   if (!mapping.field_mappings) {
     console.log('[TEMPLATE_ENGINE] No field mappings found');
-    return;
+    return false;
   }
 
   const preparedData = prepareData(data);
-  const form = pdfDoc.getForm();
+
+  let form;
+  try {
+    form = pdfDoc.getForm();
+    const fields = form.getFields();
+    console.log(`[TEMPLATE_ENGINE] PDF has ${fields.length} form fields`);
+
+    if (fields.length === 0) {
+      console.warn('[TEMPLATE_ENGINE] PDF has no form fields, cannot use field mapping');
+      return false;
+    }
+  } catch (error) {
+    console.warn('[TEMPLATE_ENGINE] Failed to get form from PDF:', error);
+    return false;
+  }
+
   let appliedCount = 0;
+  let failedCount = 0;
 
   for (const [dataPath, fieldName] of Object.entries(mapping.field_mappings)) {
     const value = resolveValue(preparedData, dataPath);
@@ -261,12 +299,24 @@ export async function fillPDFWithFields(
         appliedCount++;
       } catch (error) {
         console.warn(`[TEMPLATE_ENGINE] Field not found: ${fieldName}`);
+        failedCount++;
       }
     }
   }
 
-  form.flatten();
-  console.log(`[TEMPLATE_ENGINE] Mapping applied: ${appliedCount} fields mapped`);
+  if (appliedCount === 0 && failedCount > 0) {
+    console.warn(`[TEMPLATE_ENGINE] No fields were mapped successfully (${failedCount} failed)`);
+    return false;
+  }
+
+  try {
+    form.flatten();
+    console.log(`[TEMPLATE_ENGINE] Form mapping applied: ${appliedCount} fields mapped, ${failedCount} failed`);
+    return true;
+  } catch (error) {
+    console.warn('[TEMPLATE_ENGINE] Failed to flatten form:', error);
+    return false;
+  }
 }
 
 export async function generatePDFFromTemplate(
@@ -280,17 +330,34 @@ export async function generatePDFFromTemplate(
   const templateBytes = await loadTemplate(mapping.template_file);
 
   const pdfDoc = await PDFDocument.load(templateBytes);
+  const pageCount = pdfDoc.getPageCount();
+  console.log(`[TEMPLATE_ENGINE] PDF loaded with ${pageCount} page(s)`);
+
+  let fillSuccess = false;
 
   if (mapping.has_form_fields && mapping.field_mappings) {
-    await fillPDFWithFields(pdfDoc, mapping, data);
+    console.log('[TEMPLATE_ENGINE] Attempting form field filling');
+    fillSuccess = await fillPDFWithFields(pdfDoc, mapping, data);
+
+    if (!fillSuccess && mapping.use_coordinates && mapping.coordinate_mappings) {
+      console.log('[TEMPLATE_ENGINE] Form field filling failed, falling back to coordinate overlay');
+      await fillPDFWithCoordinates(pdfDoc, mapping, data);
+      fillSuccess = true;
+    }
   } else if (mapping.use_coordinates && mapping.coordinate_mappings) {
+    console.log('[TEMPLATE_ENGINE] Using coordinate overlay');
     await fillPDFWithCoordinates(pdfDoc, mapping, data);
+    fillSuccess = true;
   } else {
     console.warn('[TEMPLATE_ENGINE] No mapping strategy defined');
   }
 
+  if (!fillSuccess) {
+    console.warn('[TEMPLATE_ENGINE] No data was filled into the PDF - returning blank template');
+  }
+
   const pdfBytes = await pdfDoc.save();
-  console.log('[TEMPLATE_ENGINE] PDF exported successfully');
+  console.log(`[TEMPLATE_ENGINE] PDF exported successfully (${(pdfBytes.length / 1024).toFixed(2)} KB)`);
 
   return pdfBytes;
 }
