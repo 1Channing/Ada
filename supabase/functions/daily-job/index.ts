@@ -263,6 +263,18 @@ Deno.serve(async (req: Request) => {
       })
       .eq("id", jobId);
 
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const { data: deletedDocs } = await supabase
+      .from("documents_admin_history")
+      .delete()
+      .lt("created_at", thirtyDaysAgo.toISOString())
+      .select();
+
+    const deletedCount = deletedDocs?.length || 0;
+    console.log(`Deleted ${deletedCount} admin documents older than 30 days`);
+
     return new Response(
       JSON.stringify({
         success: true,
