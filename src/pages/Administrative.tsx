@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Save, X, UserPlus } from 'lucide-react';
+import { Search, Plus, Save, X, UserPlus, FileText, Download } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { generateAdminDocument, downloadBlob } from '../lib/adminDocGenerator';
 
 type Contact = {
   id: string;
@@ -167,6 +168,9 @@ export function Administrative() {
   const [savingSeller2Contact, setSavingSeller2Contact] = useState(false);
   const [savingBuyerContact, setSavingBuyerContact] = useState(false);
   const [savingBuyer2Contact, setSavingBuyer2Contact] = useState(false);
+
+  const [lastSavedTransactionId, setLastSavedTransactionId] = useState<string | null>(null);
+  const [generatingDoc, setGeneratingDoc] = useState<string | null>(null);
 
   useEffect(() => {
     loadContacts();
@@ -392,7 +396,7 @@ export function Administrative() {
         }
       }
 
-      const { error: transactionError } = await supabase
+      const { data: transactionData, error: transactionError } = await supabase
         .from('transactions_admin')
         .insert({
           transaction_type: transactionType,
@@ -409,9 +413,13 @@ export function Administrative() {
           pickup_datetime: transactionForm.pickup_datetime || null,
           destination: transactionForm.destination || null,
           transporter: transactionForm.transporter || null,
-        });
+        })
+        .select()
+        .single();
 
       if (transactionError) throw transactionError;
+
+      setLastSavedTransactionId(transactionData.id);
 
       setSaveMessage({ type: 'success', text: 'Transaction saved successfully!' });
 
@@ -515,6 +523,42 @@ export function Administrative() {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleGenerateDocument = async (documentType: string) => {
+    if (!lastSavedTransactionId) {
+      setSaveMessage({
+        type: 'error',
+        text: 'Please save the transaction first before generating documents'
+      });
+      return;
+    }
+
+    setGeneratingDoc(documentType);
+    try {
+      const blob = await generateAdminDocument(
+        documentType as any,
+        lastSavedTransactionId
+      );
+
+      const fileName = `${documentType.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+      downloadBlob(blob, fileName);
+
+      setSaveMessage({
+        type: 'success',
+        text: `${documentType} generated successfully!`
+      });
+
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error) {
+      console.error('Error generating document:', error);
+      setSaveMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Failed to generate document'
+      });
+    } finally {
+      setGeneratingDoc(null);
     }
   };
 
@@ -1166,6 +1210,126 @@ export function Administrative() {
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
+            </div>
+          </section>
+        )}
+
+        {lastSavedTransactionId && (
+          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <FileText className="text-blue-500" size={24} />
+              <h2 className="text-xl font-semibold text-zinc-100">Generate Documents</h2>
+            </div>
+
+            <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-4 mb-6">
+              <p className="text-sm text-blue-200">
+                Transaction saved successfully! You can now generate documents.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <button
+                onClick={() => handleGenerateDocument('Certificat de cession')}
+                disabled={generatingDoc !== null}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+              >
+                {generatingDoc === 'Certificat de cession' ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download size={18} />
+                    Certificat de cession
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => handleGenerateDocument('Déclaration d\'achat')}
+                disabled={generatingDoc !== null}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+              >
+                {generatingDoc === 'Déclaration d\'achat' ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download size={18} />
+                    Déclaration d'achat
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => handleGenerateDocument('Bon d\'achat')}
+                disabled={generatingDoc !== null}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+              >
+                {generatingDoc === 'Bon d\'achat' ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download size={18} />
+                    Bon d'achat
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => handleGenerateDocument('Fiche enlèvement')}
+                disabled={generatingDoc !== null}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+              >
+                {generatingDoc === 'Fiche enlèvement' ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download size={18} />
+                    Fiche enlèvement
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => handleGenerateDocument('Réception / Expédition')}
+                disabled={generatingDoc !== null}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+              >
+                {generatingDoc === 'Réception / Expédition' ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download size={18} />
+                    Réception / Expédition
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="mt-6 pt-6 border-t border-zinc-800">
+              <button
+                onClick={() => {
+                  window.history.pushState({}, '', '/admin/history');
+                  window.location.reload();
+                }}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                <FileText size={16} />
+                View Document History
+              </button>
             </div>
           </section>
         )}
