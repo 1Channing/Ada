@@ -1,0 +1,26 @@
+{
+  "template_name": "Déclaration d'achat",
+  "template_file": "declaration_achat.pdf/Declaration_d'achat.pdf",
+  "has_form_fields": false,
+  "use_coordinates": true,
+  "coordinate_mappings": {
+    "buyer.full_name": { "x": 100, "y": 705, "size": 9 },
+    "buyer.siren": { "x": 450, "y": 705, "size": 9 },
+    "buyer.address_line1": { "x": 70, "y": 685, "size": 9 },
+    "buyer.postal_code": { "x": 60, "y": 665, "size": 9 },
+    "buyer.city": { "x": 120, "y": 665, "size": 9 },
+    "transaction.transaction_date": { "x": 120, "y": 570, "size": 9, "format": "date_time" },
+    "vehicle.plate_number": { "x": 80, "y": 525, "size": 9 },
+    "vehicle.vin": { "x": 280, "y": 525, "size": 9 },
+    "vehicle.brand": { "x": 460, "y": 525, "size": 9 },
+    "vehicle.type_variant_version": { "x": 80, "y": 505, "size": 9 },
+    "vehicle.commercial_name": { "x": 280, "y": 505, "size": 9 },
+    "vehicle.national_type": { "x": 460, "y": 505, "size": 9 },
+    "vehicle.registration_certificate_number": { "x": 230, "y": 470, "size": 9 },
+    "seller.full_name": { "x": 100, "y": 280, "size": 9 },
+    "seller.siren": { "x": 450, "y": 280, "size": 9 },
+    "seller.address_line1": { "x": 70, "y": 260, "size": 9 },
+    "seller.postal_code": { "x": 60, "y": 240, "size": 9 },
+    "seller.city": { "x": 120, "y": 240, "size": 9 }
+  }
+}
