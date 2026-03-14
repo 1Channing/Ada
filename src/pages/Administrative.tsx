@@ -301,8 +301,25 @@ export function Administrative() {
     if (err instanceof Error) {
       return err.message;
     }
-    if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
-      return err.message;
+    if (err && typeof err === 'object') {
+      const obj = err as Record<string, unknown>;
+
+      // Handle Supabase/PostgrestError with code, details, hint
+      if ('message' in obj && typeof obj.message === 'string') {
+        let message = obj.message;
+
+        if ('code' in obj && obj.code) {
+          message += ` [Code: ${obj.code}]`;
+        }
+        if ('details' in obj && obj.details) {
+          message += ` (Details: ${obj.details})`;
+        }
+        if ('hint' in obj && obj.hint) {
+          message += ` Hint: ${obj.hint}`;
+        }
+
+        return message;
+      }
     }
     try {
       return JSON.stringify(err);
@@ -535,6 +552,7 @@ export function Administrative() {
     } catch (error) {
       const errorMsg = getErrorMessage(error);
       console.error('[ADMIN_UI] Error saving transaction:', errorMsg);
+      console.error('[ADMIN_UI] Full error object:', error);
       setSaveMessage({
         type: 'error',
         text: errorMsg
@@ -592,6 +610,7 @@ export function Administrative() {
     } catch (error) {
       const errorMsg = getErrorMessage(error);
       console.error('[ADMIN_DOC_GEN] Generation failed:', errorMsg);
+      console.error('[ADMIN_DOC_GEN] Full error object:', error);
       setSaveMessage({
         type: 'error',
         text: `Failed to generate document: ${errorMsg}`
