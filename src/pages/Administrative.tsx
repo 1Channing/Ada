@@ -297,7 +297,21 @@ export function Administrative() {
     }
   };
 
-  const handleSave = async () => {
+  const getErrorMessage = (err: unknown): string => {
+    if (err instanceof Error) {
+      return err.message;
+    }
+    if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+      return err.message;
+    }
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return 'An unknown error occurred';
+    }
+  };
+
+  const handleSave = async (): Promise<string> => {
     setSaving(true);
     setSaveMessage(null);
 
@@ -419,7 +433,8 @@ export function Administrative() {
 
       if (transactionError) throw transactionError;
 
-      setLastSavedTransactionId(transactionData.id);
+      const savedTransactionId = transactionData.id;
+      setLastSavedTransactionId(savedTransactionId);
 
       setSaveMessage({ type: 'success', text: 'Transaction saved successfully!' });
 
@@ -515,12 +530,16 @@ export function Administrative() {
       await loadContacts();
 
       setTimeout(() => setSaveMessage(null), 5000);
+
+      return savedTransactionId;
     } catch (error) {
-      console.error('Error saving transaction:', error);
+      const errorMsg = getErrorMessage(error);
+      console.error('[ADMIN_UI] Error saving transaction:', errorMsg);
       setSaveMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to save transaction'
+        text: errorMsg
       });
+      throw error;
     } finally {
       setSaving(false);
     }
@@ -534,26 +553,19 @@ export function Administrative() {
     if (!transactionId) {
       console.log('[ADMIN_DOC_GEN] No saved transaction, saving first');
       setSaveMessage({
-        type: 'error',
+        type: 'info',
         text: 'Saving transaction before generating document...'
       });
 
       try {
-        await handleSave();
-        transactionId = lastSavedTransactionId;
-
-        if (!transactionId) {
-          setSaveMessage({
-            type: 'error',
-            text: 'Failed to save transaction'
-          });
-          return;
-        }
+        transactionId = await handleSave();
+        console.log('[ADMIN_DOC_GEN] Transaction saved with ID:', transactionId);
       } catch (error) {
-        console.error('[ADMIN_DOC_GEN] Save failed:', error);
+        const errorMsg = getErrorMessage(error);
+        console.error('[ADMIN_DOC_GEN] Save failed:', errorMsg);
         setSaveMessage({
           type: 'error',
-          text: 'Failed to save transaction before generating document'
+          text: `Failed to save transaction: ${errorMsg}`
         });
         return;
       }
@@ -561,6 +573,7 @@ export function Administrative() {
 
     setGeneratingDoc(documentType);
     try {
+      console.log('[ADMIN_DOC_GEN] Generating PDF for transaction:', transactionId);
       const blob = await generateAdminDocument(
         documentType as any,
         transactionId
@@ -577,10 +590,11 @@ export function Administrative() {
 
       setTimeout(() => setSaveMessage(null), 3000);
     } catch (error) {
-      console.error('[ADMIN_DOC_GEN] Generation failed:', error);
+      const errorMsg = getErrorMessage(error);
+      console.error('[ADMIN_DOC_GEN] Generation failed:', errorMsg);
       setSaveMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to generate document'
+        text: `Failed to generate document: ${errorMsg}`
       });
     } finally {
       setGeneratingDoc(null);
