@@ -3,13 +3,20 @@
   "template_file": "pdf-templates/Réception___Expédition.pdf",
   "has_form_fields": false,
   "use_coordinates": true,
+  "boxed_fields": [
+    "vehicle.plate_number",
+    "vehicle.vin"
+  ],
+  "multiline_fields": [
+    "vehicle.known_defects"
+  ],
   "coordinate_mappings": {
     "transaction.transaction_date": { "x": 180, "y": 755, "size": 10, "format": "date" },
     "vehicle.description": { "x": 100, "y": 730, "size": 10 },
-    "vehicle.plate_number": { "x": 145, "y": 715, "size": 10 },
-    "vehicle.vin": { "x": 80, "y": 700, "size": 10 },
+    "vehicle.plate_number": { "x": 145, "y": 715, "size": 10, "type": "boxed", "char_spacing": 10 },
+    "vehicle.vin": { "x": 80, "y": 700, "size": 10, "type": "boxed", "char_spacing": 8 },
     "vehicle.mileage": { "x": 130, "y": 685, "size": 10 },
-    "vehicle.known_defects": { "x": 145, "y": 670, "size": 10 },
+    "vehicle.known_defects": { "x": 145, "y": 670, "size": 10, "type": "multiline", "max_chars": 50, "max_lines": 3, "line_height": 12 },
     "transaction.destination": { "x": 130, "y": 405, "size": 10 },
     "transaction.transporter": { "x": 135, "y": 390, "size": 10 }
   }

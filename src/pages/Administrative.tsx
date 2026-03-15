@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { Search, Plus, Save, X, UserPlus, FileText, Download, History } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Search, Plus, Save, X, UserPlus, FileText, Download, History, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { generateAdminDocument, downloadBlob } from '../lib/adminDocGenerator';
+import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
 
 type Contact = {
   id: string;
@@ -173,6 +174,24 @@ export function Administrative() {
   const [generatingDoc, setGeneratingDoc] = useState<string | null>(null);
 
   useEffect(() => {
+    const draft = loadDraft();
+    if (draft) {
+      setTransactionType(draft.transactionType);
+      setVehicleForm(draft.vehicleForm);
+      setSellerForm(draft.sellerForm);
+      setSellerForm2(draft.sellerForm2);
+      setBuyerForm(draft.buyerForm);
+      setBuyerForm2(draft.buyerForm2);
+      setTransactionForm(draft.transactionForm);
+      setShowSecondSeller(draft.showSecondSeller);
+      setShowSecondBuyer(draft.showSecondBuyer);
+      setLastSavedTransactionId(draft.lastSavedTransactionId);
+
+      console.log('[ADMIN_DRAFT] Form state restored from draft');
+    }
+  }, []);
+
+  useEffect(() => {
     loadContacts();
   }, []);
 
@@ -198,6 +217,44 @@ export function Administrative() {
       contact.siren?.toLowerCase().includes(lowerQuery)
     );
   };
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      saveDraft({
+        transactionType,
+        vehicleForm,
+        sellerForm,
+        sellerForm2,
+        buyerForm,
+        buyerForm2,
+        transactionForm,
+        showSecondSeller,
+        showSecondBuyer,
+        selectedSellerContactId: selectedSellerContact?.id || null,
+        selectedSeller2ContactId: selectedSeller2Contact?.id || null,
+        selectedBuyerContactId: selectedBuyerContact?.id || null,
+        selectedBuyer2ContactId: selectedBuyer2Contact?.id || null,
+        lastSavedTransactionId,
+      });
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    transactionType,
+    vehicleForm,
+    sellerForm,
+    sellerForm2,
+    buyerForm,
+    buyerForm2,
+    transactionForm,
+    showSecondSeller,
+    showSecondBuyer,
+    selectedSellerContact,
+    selectedSeller2Contact,
+    selectedBuyerContact,
+    selectedBuyer2Contact,
+    lastSavedTransactionId,
+  ]);
 
   const selectContact = (contact: Contact, type: 'seller' | 'seller2' | 'buyer' | 'buyer2') => {
     const form: ContactForm = {
@@ -233,6 +290,101 @@ export function Administrative() {
     }
     setSearchQuery('');
   };
+
+  const handleClearForm = useCallback(() => {
+    console.log('[ADMIN_DRAFT] Clearing form');
+
+    setTransactionType('purchase');
+    setVehicleForm({
+      plate_number: '',
+      vin: '',
+      brand: '',
+      model: '',
+      commercial_name: '',
+      type_variant_version: '',
+      national_type: '',
+      first_registration_date: '',
+      mileage: '',
+      registration_certificate_present: false,
+      registration_certificate_number: '',
+      known_defects: '',
+    });
+    setSellerForm({
+      company_name: '',
+      first_name: '',
+      last_name: '',
+      birth_date: '',
+      birth_place: '',
+      address_line1: '',
+      address_line2: '',
+      postal_code: '',
+      city: '',
+      country: 'FR',
+      siren: '',
+    });
+    setSellerForm2({
+      company_name: '',
+      first_name: '',
+      last_name: '',
+      birth_date: '',
+      birth_place: '',
+      address_line1: '',
+      address_line2: '',
+      postal_code: '',
+      city: '',
+      country: 'FR',
+      siren: '',
+    });
+    setBuyerForm({
+      company_name: '',
+      first_name: '',
+      last_name: '',
+      birth_date: '',
+      birth_place: '',
+      address_line1: '',
+      address_line2: '',
+      postal_code: '',
+      city: '',
+      country: 'FR',
+      siren: '',
+    });
+    setBuyerForm2({
+      company_name: '',
+      first_name: '',
+      last_name: '',
+      birth_date: '',
+      birth_place: '',
+      address_line1: '',
+      address_line2: '',
+      postal_code: '',
+      city: '',
+      country: 'FR',
+      siren: '',
+    });
+    setTransactionForm({
+      transaction_price: '',
+      transaction_date: '',
+      transaction_time: '',
+      pickup_location: '',
+      pickup_contact: '',
+      pickup_datetime: '',
+      destination: '',
+      transporter: '',
+    });
+    setShowSecondSeller(false);
+    setShowSecondBuyer(false);
+    setSelectedSellerContact(null);
+    setSelectedSeller2Contact(null);
+    setSelectedBuyerContact(null);
+    setSelectedBuyer2Contact(null);
+    setLastSavedTransactionId(null);
+    setSaveMessage(null);
+    setGeneratingDoc(null);
+
+    clearDraft();
+    setSaveMessage({ type: 'success', text: 'Form cleared' });
+    setTimeout(() => setSaveMessage(null), 3000);
+  }, []);
 
   const saveContactAs = async (
     form: ContactForm,
@@ -836,17 +988,27 @@ export function Administrative() {
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Administrative</h1>
 
-        <button
-          onClick={() => {
-            console.log('[ADMIN_UI] Navigating to history');
-            window.history.pushState({}, '', '/admin/history');
-            window.location.reload();
-          }}
-          className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
-        >
-          <History size={18} />
-          History
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleClearForm}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors font-medium"
+          >
+            <Trash2 size={18} />
+            Clear Form
+          </button>
+
+          <button
+            onClick={() => {
+              console.log('[ADMIN_UI] Navigating to history');
+              window.history.pushState({}, '', '/admin/history');
+              window.location.reload();
+            }}
+            className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
+          >
+            <History size={18} />
+            History
+          </button>
+        </div>
       </div>
 
       {saveMessage && (

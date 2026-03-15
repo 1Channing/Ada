@@ -3,12 +3,19 @@
   "template_file": "pdf-templates/ENLÈVEMENT_VÉHICULE-12.pdf",
   "has_form_fields": false,
   "use_coordinates": true,
+  "boxed_fields": [
+    "vehicle.plate_number",
+    "vehicle.vin"
+  ],
+  "multiline_fields": [
+    "vehicle.known_defects"
+  ],
   "coordinate_mappings": {
     "vehicle.description": { "x": 100, "y": 715, "size": 10 },
-    "vehicle.plate_number": { "x": 140, "y": 700, "size": 10 },
-    "vehicle.vin": { "x": 155, "y": 685, "size": 10 },
+    "vehicle.plate_number": { "x": 140, "y": 700, "size": 10, "type": "boxed", "char_spacing": 10 },
+    "vehicle.vin": { "x": 155, "y": 685, "size": 10, "type": "boxed", "char_spacing": 8 },
     "vehicle.mileage": { "x": 125, "y": 670, "size": 10 },
-    "vehicle.known_defects": { "x": 140, "y": 655, "size": 10 },
+    "vehicle.known_defects": { "x": 140, "y": 655, "size": 10, "type": "multiline", "max_chars": 50, "max_lines": 3, "line_height": 12 },
     "transaction.pickup_location": { "x": 155, "y": 525, "size": 10 },
     "transaction.pickup_contact": { "x": 250, "y": 510, "size": 10 },
     "transaction.pickup_datetime": { "x": 230, "y": 480, "size": 10, "format": "date" }

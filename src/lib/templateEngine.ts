@@ -12,7 +12,15 @@ export type TemplateMapping = {
     y: number;
     size?: number;
     format?: 'date' | 'date_time' | 'currency';
+    type?: 'text' | 'boxed' | 'checkbox' | 'multiline';
+    char_spacing?: number;
+    max_chars?: number;
+    max_lines?: number;
+    line_height?: number;
   }>;
+  boxed_fields?: string[];
+  checkbox_fields?: string[];
+  multiline_fields?: string[];
 };
 
 export type DocumentData = {
@@ -212,15 +220,136 @@ function prepareData(data: DocumentData): DocumentData {
   return prepared;
 }
 
+function renderBoxedField(
+  page: any,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  font: any,
+  charSpacing: number = 12
+): void {
+  console.log(`[ADMIN_PDF_BOXED] Rendering boxed field: "${text}" at (${x}, ${y}) with char spacing ${charSpacing}`);
+
+  const chars = text.toUpperCase().split('');
+
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    const charX = x + (i * charSpacing);
+
+    page.drawText(char, {
+      x: charX,
+      y: y,
+      size: size,
+      font: font,
+      color: rgb(0, 0, 0),
+    });
+  }
+
+  console.log(`[ADMIN_PDF_BOXED] Rendered ${chars.length} characters`);
+}
+
+function renderCheckbox(
+  page: any,
+  checked: boolean,
+  x: number,
+  y: number,
+  size: number,
+  font: any
+): void {
+  console.log(`[ADMIN_PDF_CHECKBOX] Rendering checkbox at (${x}, ${y}), checked=${checked}`);
+
+  if (checked) {
+    page.drawText('X', {
+      x: x,
+      y: y,
+      size: size,
+      font: font,
+      color: rgb(0, 0, 0),
+    });
+  }
+}
+
+function renderMultilineText(
+  page: any,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  font: any,
+  maxCharsPerLine: number = 60,
+  maxLines: number = 5,
+  lineHeight: number = 12
+): void {
+  console.log(`[ADMIN_PDF_MULTILINE] Rendering multiline text at (${x}, ${y}), max ${maxLines} lines`);
+
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+
+    if (testLine.length <= maxCharsPerLine) {
+      currentLine = testLine;
+    } else {
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      currentLine = word;
+    }
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  const linesToRender = lines.slice(0, maxLines);
+
+  for (let i = 0; i < linesToRender.length; i++) {
+    const line = linesToRender[i];
+    const lineY = y - (i * lineHeight);
+
+    page.drawText(line, {
+      x: x,
+      y: lineY,
+      size: size,
+      font: font,
+      color: rgb(0, 0, 0),
+    });
+  }
+
+  console.log(`[ADMIN_PDF_MULTILINE] Rendered ${linesToRender.length} lines`);
+}
+
+function getFieldType(fieldPath: string, mapping: TemplateMapping): string {
+  if (mapping.boxed_fields?.includes(fieldPath)) {
+    return 'boxed';
+  }
+  if (mapping.checkbox_fields?.includes(fieldPath)) {
+    return 'checkbox';
+  }
+  if (mapping.multiline_fields?.includes(fieldPath)) {
+    return 'multiline';
+  }
+
+  const coordMapping = mapping.coordinate_mappings?.[fieldPath];
+  if (coordMapping?.type) {
+    return coordMapping.type;
+  }
+
+  return 'text';
+}
+
 export async function fillPDFWithCoordinates(
   pdfDoc: PDFDocument,
   mapping: TemplateMapping,
   data: DocumentData
 ): Promise<void> {
-  console.log('[TEMPLATE_ENGINE] Applying coordinate overlay');
+  console.log('[ADMIN_PDF] Applying coordinate overlay');
 
   if (!mapping.coordinate_mappings) {
-    console.log('[TEMPLATE_ENGINE] No coordinate mappings found');
+    console.log('[ADMIN_PDF] No coordinate mappings found');
     return;
   }
 
@@ -229,7 +358,7 @@ export async function fillPDFWithCoordinates(
   const font = await pdfDoc.embedFont('Helvetica');
 
   const pageIndexes = mapping.is_multi_page ? pages.map((_, i) => i) : [0];
-  console.log(`[TEMPLATE_ENGINE] Applying to ${pageIndexes.length} page(s)`);
+  console.log(`[ADMIN_PDF] Applying to ${pageIndexes.length} page(s)`);
 
   let appliedCount = 0;
 
@@ -239,22 +368,47 @@ export async function fillPDFWithCoordinates(
 
     for (const [fieldPath, coords] of Object.entries(mapping.coordinate_mappings)) {
       const rawValue = resolveValue(preparedData, fieldPath);
-      const value = formatValue(rawValue, coords.format);
+      const fieldType = getFieldType(fieldPath, mapping);
 
-      if (value) {
-        page.drawText(value, {
-          x: coords.x,
-          y: coords.y,
-          size: coords.size || 10,
-          font: font,
-          color: rgb(0, 0, 0),
-        });
+      if (!rawValue && fieldType !== 'checkbox') {
+        continue;
+      }
+
+      const value = formatValue(rawValue, coords.format);
+      const size = coords.size || 10;
+
+      console.log(`[ADMIN_PDF] Field: ${fieldPath}, Type: ${fieldType}, Value: "${value}"`);
+
+      if (fieldType === 'boxed') {
+        const charSpacing = coords.char_spacing || 12;
+        renderBoxedField(page, value, coords.x, coords.y, size, font, charSpacing);
         appliedCount++;
+      } else if (fieldType === 'checkbox') {
+        const checked = rawValue === 'true' || rawValue === 'yes' || (typeof rawValue === 'boolean' && rawValue);
+        renderCheckbox(page, checked, coords.x, coords.y, size, font);
+        appliedCount++;
+      } else if (fieldType === 'multiline') {
+        const maxChars = coords.max_chars || 60;
+        const maxLines = coords.max_lines || 5;
+        const lineHeight = coords.line_height || 12;
+        renderMultilineText(page, value, coords.x, coords.y, size, font, maxChars, maxLines, lineHeight);
+        appliedCount++;
+      } else {
+        if (value) {
+          page.drawText(value, {
+            x: coords.x,
+            y: coords.y,
+            size: size,
+            font: font,
+            color: rgb(0, 0, 0),
+          });
+          appliedCount++;
+        }
       }
     }
   }
 
-  console.log(`[TEMPLATE_ENGINE] Overlay applied: ${appliedCount} fields mapped across ${pageIndexes.length} page(s)`);
+  console.log(`[ADMIN_PDF] Overlay applied: ${appliedCount} fields mapped across ${pageIndexes.length} page(s)`);
 }
 
 export async function fillPDFWithFields(
@@ -262,10 +416,10 @@ export async function fillPDFWithFields(
   mapping: TemplateMapping,
   data: DocumentData
 ): Promise<boolean> {
-  console.log('[TEMPLATE_ENGINE] Applying form field mapping');
+  console.log('[ADMIN_PDF] Applying form field mapping');
 
   if (!mapping.field_mappings) {
-    console.log('[TEMPLATE_ENGINE] No field mappings found');
+    console.log('[ADMIN_PDF] No field mappings found');
     return false;
   }
 
@@ -275,14 +429,16 @@ export async function fillPDFWithFields(
   try {
     form = pdfDoc.getForm();
     const fields = form.getFields();
-    console.log(`[TEMPLATE_ENGINE] PDF has ${fields.length} form fields`);
+    console.log(`[ADMIN_PDF] PDF has ${fields.length} form fields`);
 
     if (fields.length === 0) {
-      console.warn('[TEMPLATE_ENGINE] PDF has no form fields, cannot use field mapping');
+      console.warn('[ADMIN_PDF] PDF has no form fields, cannot use field mapping');
       return false;
     }
+
+    console.log('[ADMIN_PDF] Available form field names:', fields.map(f => f.getName()).join(', '));
   } catch (error) {
-    console.warn('[TEMPLATE_ENGINE] Failed to get form from PDF:', error);
+    console.warn('[ADMIN_PDF] Failed to get form from PDF:', error);
     return false;
   }
 
@@ -296,25 +452,26 @@ export async function fillPDFWithFields(
       try {
         const field = form.getTextField(fieldName);
         field.setText(value);
+        console.log(`[ADMIN_PDF_FIELD] Successfully filled field "${fieldName}" with "${value}"`);
         appliedCount++;
       } catch (error) {
-        console.warn(`[TEMPLATE_ENGINE] Field not found: ${fieldName}`);
+        console.warn(`[ADMIN_PDF_FIELD] Field not found: ${fieldName}, will use overlay fallback`);
         failedCount++;
       }
     }
   }
 
   if (appliedCount === 0 && failedCount > 0) {
-    console.warn(`[TEMPLATE_ENGINE] No fields were mapped successfully (${failedCount} failed)`);
+    console.warn(`[ADMIN_PDF] No fields were mapped successfully (${failedCount} failed)`);
     return false;
   }
 
   try {
     form.flatten();
-    console.log(`[TEMPLATE_ENGINE] Form mapping applied: ${appliedCount} fields mapped, ${failedCount} failed`);
+    console.log(`[ADMIN_PDF] Form mapping applied: ${appliedCount} fields mapped, ${failedCount} failed`);
     return true;
   } catch (error) {
-    console.warn('[TEMPLATE_ENGINE] Failed to flatten form:', error);
+    console.warn('[ADMIN_PDF] Failed to flatten form:', error);
     return false;
   }
 }
@@ -323,7 +480,7 @@ export async function generatePDFFromTemplate(
   templateName: string,
   data: DocumentData
 ): Promise<Uint8Array> {
-  console.log('[TEMPLATE_ENGINE] Starting PDF generation for:', templateName);
+  console.log('[ADMIN_PDF] Starting PDF generation for:', templateName);
 
   const mapping = await loadTemplateMapping(templateName);
 
@@ -331,33 +488,44 @@ export async function generatePDFFromTemplate(
 
   const pdfDoc = await PDFDocument.load(templateBytes);
   const pageCount = pdfDoc.getPageCount();
-  console.log(`[TEMPLATE_ENGINE] PDF loaded with ${pageCount} page(s)`);
+  console.log(`[ADMIN_PDF] PDF loaded with ${pageCount} page(s)`);
+
+  try {
+    const form = pdfDoc.getForm();
+    const fields = form.getFields();
+    console.log(`[ADMIN_PDF] detected ${fields.length} form fields for ${templateName}`);
+    if (fields.length > 0) {
+      console.log('[ADMIN_PDF] Form field names:', fields.map(f => f.getName()).slice(0, 10).join(', '));
+    }
+  } catch (error) {
+    console.log('[ADMIN_PDF] No form fields detected');
+  }
 
   let fillSuccess = false;
 
   if (mapping.has_form_fields && mapping.field_mappings) {
-    console.log('[TEMPLATE_ENGINE] Attempting form field filling');
+    console.log('[ADMIN_PDF] using AcroForm mode');
     fillSuccess = await fillPDFWithFields(pdfDoc, mapping, data);
 
     if (!fillSuccess && mapping.use_coordinates && mapping.coordinate_mappings) {
-      console.log('[TEMPLATE_ENGINE] Form field filling failed, falling back to coordinate overlay');
+      console.log('[ADMIN_PDF_FALLBACK] Form field filling failed, falling back to coordinate overlay');
       await fillPDFWithCoordinates(pdfDoc, mapping, data);
       fillSuccess = true;
     }
   } else if (mapping.use_coordinates && mapping.coordinate_mappings) {
-    console.log('[TEMPLATE_ENGINE] Using coordinate overlay');
+    console.log('[ADMIN_PDF] Using coordinate overlay (no form fields configured)');
     await fillPDFWithCoordinates(pdfDoc, mapping, data);
     fillSuccess = true;
   } else {
-    console.warn('[TEMPLATE_ENGINE] No mapping strategy defined');
+    console.warn('[ADMIN_PDF] No mapping strategy defined');
   }
 
   if (!fillSuccess) {
-    console.warn('[TEMPLATE_ENGINE] No data was filled into the PDF - returning blank template');
+    console.warn('[ADMIN_PDF] No data was filled into the PDF - returning blank template');
   }
 
   const pdfBytes = await pdfDoc.save();
-  console.log(`[TEMPLATE_ENGINE] PDF exported successfully (${(pdfBytes.length / 1024).toFixed(2)} KB)`);
+  console.log(`[ADMIN_PDF] PDF exported successfully (${(pdfBytes.length / 1024).toFixed(2)} KB)`);
 
   return pdfBytes;
 }
