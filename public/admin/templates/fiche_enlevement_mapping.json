@@ -1,7 +1,7 @@
 {
   "template_name": "Fiche enlèvement",
   "template_file": "pdf-templates/ENLÈVEMENT_VÉHICULE-12.pdf",
-  "has_form_fields": false,
+  "has_form_fields": true,
   "use_coordinates": true,
   "boxed_fields": [
     "vehicle.plate_number",
@@ -10,6 +10,16 @@
   "multiline_fields": [
     "vehicle.known_defects"
   ],
+  "field_mappings": {
+    "vehicle.description": "vehicle_description",
+    "vehicle.plate_number": "plate_number",
+    "vehicle.vin": "vin",
+    "vehicle.mileage": "mileage",
+    "vehicle.known_defects": "known_defects",
+    "transaction.pickup_location": "pickup_location",
+    "transaction.pickup_contact": "pickup_contact",
+    "transaction.pickup_datetime": "pickup_datetime"
+  },
   "coordinate_mappings": {
     "vehicle.description": { "x": 100, "y": 715, "size": 10 },
     "vehicle.plate_number": { "x": 140, "y": 700, "size": 10, "type": "boxed", "char_spacing": 10 },

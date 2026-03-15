@@ -1,12 +1,23 @@
 {
   "template_name": "Bon d'achat",
   "template_file": "pdf-templates/Bon_d_achat.pdf",
-  "has_form_fields": false,
+  "has_form_fields": true,
   "use_coordinates": true,
   "boxed_fields": [
     "vehicle.plate_number",
     "vehicle.vin"
   ],
+  "field_mappings": {
+    "vehicle.brand": "brand",
+    "vehicle.model": "model",
+    "vehicle.plate_number": "plate_number",
+    "vehicle.vin": "vin",
+    "vehicle.first_registration_date": "first_registration_date",
+    "vehicle.mileage": "mileage",
+    "transaction.transaction_price": "transaction_price",
+    "seller.full_name": "seller_name",
+    "transaction.transaction_date": "transaction_date"
+  },
   "coordinate_mappings": {
     "vehicle.brand": { "x": 120, "y": 595, "size": 10 },
     "vehicle.model": { "x": 120, "y": 580, "size": 10 },

@@ -220,6 +220,27 @@ function prepareData(data: DocumentData): DocumentData {
   return prepared;
 }
 
+function normalizeBoxedValue(fieldPath: string, value: string): string {
+  const raw = value;
+  let normalized = value;
+
+  if (fieldPath === 'vehicle.plate_number') {
+    normalized = value.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 7);
+  } else if (fieldPath === 'vehicle.vin') {
+    normalized = value.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 17);
+  } else if (fieldPath.endsWith('.postal_code')) {
+    normalized = value.replace(/\D/g, '').slice(0, 5);
+  } else if (fieldPath.endsWith('.siren')) {
+    normalized = value.replace(/\D/g, '').slice(0, 9);
+  }
+
+  if (normalized !== raw) {
+    console.log(`[ADMIN_PDF_BOXED_NORMALIZE] field=${fieldPath} raw="${raw}" normalized="${normalized}"`);
+  }
+
+  return normalized;
+}
+
 function renderBoxedField(
   page: any,
   text: string,
@@ -344,9 +365,10 @@ function getFieldType(fieldPath: string, mapping: TemplateMapping): string {
 export async function fillPDFWithCoordinates(
   pdfDoc: PDFDocument,
   mapping: TemplateMapping,
-  data: DocumentData
+  data: DocumentData,
+  onlyFields?: Set<string>
 ): Promise<void> {
-  console.log('[ADMIN_PDF] Applying coordinate overlay');
+  console.log('[ADMIN_PDF] Applying coordinate overlay', onlyFields ? `(selective: ${onlyFields.size} fields)` : '(all fields)');
 
   if (!mapping.coordinate_mappings) {
     console.log('[ADMIN_PDF] No coordinate mappings found');
@@ -361,12 +383,18 @@ export async function fillPDFWithCoordinates(
   console.log(`[ADMIN_PDF] Applying to ${pageIndexes.length} page(s)`);
 
   let appliedCount = 0;
+  let skippedCount = 0;
 
   for (const pageIndex of pageIndexes) {
     const page = pages[pageIndex];
     if (!page) continue;
 
     for (const [fieldPath, coords] of Object.entries(mapping.coordinate_mappings)) {
+      if (onlyFields && !onlyFields.has(fieldPath)) {
+        skippedCount++;
+        continue;
+      }
+
       const rawValue = resolveValue(preparedData, fieldPath);
       const fieldType = getFieldType(fieldPath, mapping);
 
@@ -380,8 +408,9 @@ export async function fillPDFWithCoordinates(
       console.log(`[ADMIN_PDF] Field: ${fieldPath}, Type: ${fieldType}, Value: "${value}"`);
 
       if (fieldType === 'boxed') {
+        const normalizedValue = normalizeBoxedValue(fieldPath, value);
         const charSpacing = coords.char_spacing || 12;
-        renderBoxedField(page, value, coords.x, coords.y, size, font, charSpacing);
+        renderBoxedField(page, normalizedValue, coords.x, coords.y, size, font, charSpacing);
         appliedCount++;
       } else if (fieldType === 'checkbox') {
         const checked = rawValue === 'true' || rawValue === 'yes' || (typeof rawValue === 'boolean' && rawValue);
@@ -408,19 +437,25 @@ export async function fillPDFWithCoordinates(
     }
   }
 
-  console.log(`[ADMIN_PDF] Overlay applied: ${appliedCount} fields mapped across ${pageIndexes.length} page(s)`);
+  if (onlyFields) {
+    console.log(`[ADMIN_PDF] Overlay applied: ${appliedCount} fields mapped, ${skippedCount} skipped (already filled by AcroForm)`);
+  } else {
+    console.log(`[ADMIN_PDF] Overlay applied: ${appliedCount} fields mapped across ${pageIndexes.length} page(s)`);
+  }
 }
 
 export async function fillPDFWithFields(
   pdfDoc: PDFDocument,
   mapping: TemplateMapping,
   data: DocumentData
-): Promise<boolean> {
+): Promise<{ success: boolean; failedFields: Set<string> }> {
   console.log('[ADMIN_PDF] Applying form field mapping');
+
+  const failedFields = new Set<string>();
 
   if (!mapping.field_mappings) {
     console.log('[ADMIN_PDF] No field mappings found');
-    return false;
+    return { success: false, failedFields };
   }
 
   const preparedData = prepareData(data);
@@ -433,17 +468,22 @@ export async function fillPDFWithFields(
 
     if (fields.length === 0) {
       console.warn('[ADMIN_PDF] PDF has no form fields, cannot use field mapping');
-      return false;
+      for (const dataPath of Object.keys(mapping.field_mappings)) {
+        failedFields.add(dataPath);
+      }
+      return { success: false, failedFields };
     }
 
     console.log('[ADMIN_PDF] Available form field names:', fields.map(f => f.getName()).join(', '));
   } catch (error) {
     console.warn('[ADMIN_PDF] Failed to get form from PDF:', error);
-    return false;
+    for (const dataPath of Object.keys(mapping.field_mappings)) {
+      failedFields.add(dataPath);
+    }
+    return { success: false, failedFields };
   }
 
   let appliedCount = 0;
-  let failedCount = 0;
 
   for (const [dataPath, fieldName] of Object.entries(mapping.field_mappings)) {
     const value = resolveValue(preparedData, dataPath);
@@ -455,24 +495,24 @@ export async function fillPDFWithFields(
         console.log(`[ADMIN_PDF_FIELD] Successfully filled field "${fieldName}" with "${value}"`);
         appliedCount++;
       } catch (error) {
-        console.warn(`[ADMIN_PDF_FIELD] Field not found: ${fieldName}, will use overlay fallback`);
-        failedCount++;
+        console.warn(`[ADMIN_PDF_FIELD] Field not found: ${fieldName}, marking for overlay fallback`);
+        failedFields.add(dataPath);
       }
     }
   }
 
-  if (appliedCount === 0 && failedCount > 0) {
-    console.warn(`[ADMIN_PDF] No fields were mapped successfully (${failedCount} failed)`);
-    return false;
+  if (appliedCount === 0 && failedFields.size > 0) {
+    console.warn(`[ADMIN_PDF] No fields were mapped successfully (${failedFields.size} failed)`);
+    return { success: false, failedFields };
   }
 
   try {
     form.flatten();
-    console.log(`[ADMIN_PDF] Form mapping applied: ${appliedCount} fields mapped, ${failedCount} failed`);
-    return true;
+    console.log(`[ADMIN_PDF] Form mapping applied: ${appliedCount} fields mapped, ${failedFields.size} will use overlay`);
+    return { success: true, failedFields };
   } catch (error) {
     console.warn('[ADMIN_PDF] Failed to flatten form:', error);
-    return false;
+    return { success: false, failedFields };
   }
 }
 
@@ -505,10 +545,16 @@ export async function generatePDFFromTemplate(
 
   if (mapping.has_form_fields && mapping.field_mappings) {
     console.log('[ADMIN_PDF] using AcroForm mode');
-    fillSuccess = await fillPDFWithFields(pdfDoc, mapping, data);
+    const result = await fillPDFWithFields(pdfDoc, mapping, data);
 
-    if (!fillSuccess && mapping.use_coordinates && mapping.coordinate_mappings) {
-      console.log('[ADMIN_PDF_FALLBACK] Form field filling failed, falling back to coordinate overlay');
+    if (result.success) {
+      fillSuccess = true;
+      if (result.failedFields.size > 0 && mapping.use_coordinates && mapping.coordinate_mappings) {
+        console.log(`[ADMIN_PDF_HYBRID] ${result.failedFields.size} fields failed in AcroForm, applying selective overlay`);
+        await fillPDFWithCoordinates(pdfDoc, mapping, data, result.failedFields);
+      }
+    } else if (mapping.use_coordinates && mapping.coordinate_mappings) {
+      console.log('[ADMIN_PDF_FALLBACK] Form field filling completely failed, falling back to full coordinate overlay');
       await fillPDFWithCoordinates(pdfDoc, mapping, data);
       fillSuccess = true;
     }

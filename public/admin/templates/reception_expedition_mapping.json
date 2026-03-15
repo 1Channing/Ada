@@ -1,7 +1,7 @@
 {
   "template_name": "Réception / Expédition",
   "template_file": "pdf-templates/Réception___Expédition.pdf",
-  "has_form_fields": false,
+  "has_form_fields": true,
   "use_coordinates": true,
   "boxed_fields": [
     "vehicle.plate_number",
@@ -10,6 +10,16 @@
   "multiline_fields": [
     "vehicle.known_defects"
   ],
+  "field_mappings": {
+    "transaction.transaction_date": "transaction_date",
+    "vehicle.description": "vehicle_description",
+    "vehicle.plate_number": "plate_number",
+    "vehicle.vin": "vin",
+    "vehicle.mileage": "mileage",
+    "vehicle.known_defects": "known_defects",
+    "transaction.destination": "destination",
+    "transaction.transporter": "transporter"
+  },
   "coordinate_mappings": {
     "transaction.transaction_date": { "x": 180, "y": 755, "size": 10, "format": "date" },
     "vehicle.description": { "x": 100, "y": 730, "size": 10 },
