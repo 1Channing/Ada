@@ -5,7 +5,8 @@ export async function generateAdminDocument(
   documentType: string,
   transactionId: string
 ): Promise<Blob> {
-  console.log('[ADMIN_DOC_GEN] Starting document generation:', documentType);
+  const correlationId = `adminDocGen_${transactionId}_${Date.now()}`;
+  console.log(`[ADMIN_DOC_GEN:${correlationId}] Starting document generation: template="${documentType}"`);
 
   const { data: transaction, error: txError } = await supabase
     .from('transactions_admin')
@@ -24,9 +25,11 @@ export async function generateAdminDocument(
     const errorMessage = txError
       ? `Failed to load transaction data: ${txError.message}${txError.details ? ` (${txError.details})` : ''}${txError.code ? ` [${txError.code}]` : ''}`
       : 'Failed to load transaction data: No transaction found';
-    console.error('[ADMIN_DOC_GEN] Transaction load error:', txError);
+    console.error(`[ADMIN_DOC_GEN:${correlationId}] Transaction load error:`, txError);
     throw new Error(errorMessage);
   }
+
+  console.log(`[ADMIN_DOC_GEN:${correlationId}] Transaction loaded: vehicle=${transaction.vehicle?.plate_number || 'N/A'}, seller=${transaction.seller?.company_name || transaction.seller?.last_name || 'N/A'}, buyer=${transaction.buyer?.company_name || transaction.buyer?.last_name || 'N/A'}`);
 
   const documentData: DocumentData = {
     vehicle: {
@@ -67,6 +70,19 @@ export async function generateAdminDocument(
       country: transaction.seller.country,
       siren: transaction.seller.siren,
     } : undefined,
+    seller2: transaction.seller2 ? {
+      company_name: transaction.seller2.company_name,
+      first_name: transaction.seller2.first_name,
+      last_name: transaction.seller2.last_name,
+      birth_date: transaction.seller2.birth_date,
+      birth_place: transaction.seller2.birth_place,
+      address_line1: transaction.seller2.address_line1,
+      address_line2: transaction.seller2.address_line2,
+      postal_code: transaction.seller2.postal_code,
+      city: transaction.seller2.city,
+      country: transaction.seller2.country,
+      siren: transaction.seller2.siren,
+    } : undefined,
     buyer: transaction.buyer ? {
       company_name: transaction.buyer.company_name,
       first_name: transaction.buyer.first_name,
@@ -80,44 +96,67 @@ export async function generateAdminDocument(
       country: transaction.buyer.country,
       siren: transaction.buyer.siren,
     } : undefined,
+    buyer2: transaction.buyer2 ? {
+      company_name: transaction.buyer2.company_name,
+      first_name: transaction.buyer2.first_name,
+      last_name: transaction.buyer2.last_name,
+      birth_date: transaction.buyer2.birth_date,
+      birth_place: transaction.buyer2.birth_place,
+      address_line1: transaction.buyer2.address_line1,
+      address_line2: transaction.buyer2.address_line2,
+      postal_code: transaction.buyer2.postal_code,
+      city: transaction.buyer2.city,
+      country: transaction.buyer2.country,
+      siren: transaction.buyer2.siren,
+    } : undefined,
   };
 
+  console.log(`[ADMIN_DOC_GEN:${correlationId}] Calling template engine for "${documentType}"`);
   const pdfBytes = await generatePDFFromTemplate(documentType, documentData);
-  console.log('[ADMIN_DOC_GEN] PDF generated successfully');
+  const pdfSizeKB = (pdfBytes.length / 1024).toFixed(2);
+  console.log(`[ADMIN_DOC_GEN:${correlationId}] PDF generated successfully: size=${pdfSizeKB}KB`);
 
   const blob = new Blob([pdfBytes], { type: 'application/pdf' });
 
   try {
     const fileName = `${documentType.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+    const storagePath = `transactions/${transactionId}/${fileName}`;
+    console.log(`[ADMIN_DOC_GEN:${correlationId}] Uploading to storage: path="${storagePath}"`);
+
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('admin-documents')
-      .upload(`transactions/${transactionId}/${fileName}`, blob);
+      .upload(storagePath, blob);
 
     if (uploadError) {
       const uploadErrorMessage = `Storage upload failed: ${uploadError.message}${uploadError.cause ? ` (${uploadError.cause})` : ''}`;
-      console.error('[ADMIN_DOC_GEN]', uploadErrorMessage, uploadError);
+      console.error(`[ADMIN_DOC_GEN:${correlationId}]`, uploadErrorMessage, uploadError);
       throw new Error(uploadErrorMessage);
     }
+
+    console.log(`[ADMIN_DOC_GEN:${correlationId}] Upload successful: storage_path="${uploadData.path}"`);
 
     const { data: urlData } = supabase.storage
       .from('admin-documents')
       .getPublicUrl(uploadData.path);
 
+    console.log(`[ADMIN_DOC_GEN:${correlationId}] Saving to history: storage_path="${uploadData.path}", public_url="${urlData.publicUrl}"`);
+
     const { error: historyError } = await supabase.from('documents_admin_history').insert({
       transaction_id: transactionId,
       document_type: documentType,
       pdf_url: urlData.publicUrl,
+      storage_path: uploadData.path,
     });
 
     if (historyError) {
       const historyErrorMessage = `History insert failed: ${historyError.message}${historyError.details ? ` (${historyError.details})` : ''}${historyError.code ? ` [${historyError.code}]` : ''}`;
-      console.error('[ADMIN_DOC_GEN]', historyErrorMessage, historyError);
+      console.error(`[ADMIN_DOC_GEN:${correlationId}]`, historyErrorMessage, historyError);
       throw new Error(historyErrorMessage);
     }
 
-    console.log('[ADMIN_DOC_GEN] Document saved to storage and history');
+    console.log(`[ADMIN_DOC_GEN:${correlationId}] Document saved to storage and history successfully`);
   } catch (error) {
-    console.warn('[ADMIN_DOC_GEN] Upload/history failed but returning PDF blob:', error);
+    console.warn(`[ADMIN_DOC_GEN:${correlationId}] Upload/history failed but returning PDF blob:`, error);
   }
 
   return blob;

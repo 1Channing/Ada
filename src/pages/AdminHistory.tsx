@@ -7,6 +7,7 @@ type DocumentHistoryItem = {
   created_at: string;
   document_type: string;
   pdf_url: string;
+  storage_path?: string;
   transaction: {
     transaction_date: string;
     vehicle: {
@@ -51,6 +52,7 @@ export function AdminHistory() {
           created_at,
           document_type,
           pdf_url,
+          storage_path,
           transaction_id,
           transactions_admin!inner (
             transaction_date,
@@ -81,6 +83,7 @@ export function AdminHistory() {
         created_at: doc.created_at,
         document_type: doc.document_type,
         pdf_url: doc.pdf_url,
+        storage_path: doc.storage_path,
         transaction: {
           transaction_date: doc.transactions_admin.transaction_date,
           vehicle: {
@@ -129,6 +132,48 @@ export function AdminHistory() {
       month: '2-digit',
       day: '2-digit',
     });
+  };
+
+  const handleDownload = async (doc: DocumentHistoryItem) => {
+    console.log(`[ADMIN_HISTORY] Download requested for doc ${doc.id}, type="${doc.document_type}"`);
+
+    try {
+      const response = await fetch(doc.pdf_url, { method: 'HEAD' });
+      if (response.ok) {
+        console.log(`[ADMIN_HISTORY] Public URL accessible, opening: ${doc.pdf_url}`);
+        window.open(doc.pdf_url, '_blank');
+        return;
+      }
+    } catch (error) {
+      console.warn(`[ADMIN_HISTORY] Public URL not accessible (${error}), trying signed URL fallback`);
+    }
+
+    if (doc.storage_path) {
+      console.log(`[ADMIN_HISTORY] Generating signed URL for storage_path: ${doc.storage_path}`);
+      try {
+        const { data: signedData, error: signedError } = await supabase.storage
+          .from('admin-documents')
+          .createSignedUrl(doc.storage_path, 60);
+
+        if (signedError) {
+          console.error(`[ADMIN_HISTORY] Signed URL generation failed:`, signedError);
+          throw signedError;
+        }
+
+        if (signedData?.signedUrl) {
+          console.log(`[ADMIN_HISTORY] Signed URL generated successfully, opening`);
+          window.open(signedData.signedUrl, '_blank');
+          return;
+        }
+      } catch (error) {
+        console.error(`[ADMIN_HISTORY] Failed to generate signed URL:`, error);
+        alert('Failed to download document. The file may have been deleted or is inaccessible.');
+        return;
+      }
+    }
+
+    console.error(`[ADMIN_HISTORY] No storage_path available for fallback`);
+    alert('Failed to download document. No storage path available.');
   };
 
   return (
@@ -265,15 +310,13 @@ export function AdminHistory() {
                       {formatDate(doc.created_at)}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <a
-                        href={doc.pdf_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        onClick={() => handleDownload(doc)}
                         className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded transition-colors text-sm font-medium"
                       >
                         <Download size={14} />
                         Download
-                      </a>
+                      </button>
                     </td>
                   </tr>
                 ))}

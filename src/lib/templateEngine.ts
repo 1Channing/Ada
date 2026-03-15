@@ -23,6 +23,22 @@ export type TemplateMapping = {
   multiline_fields?: string[];
 };
 
+export type ContactData = {
+  company_name?: string;
+  first_name?: string;
+  last_name?: string;
+  birth_date?: string;
+  birth_place?: string;
+  address_line1?: string;
+  address_line2?: string;
+  postal_code?: string;
+  city?: string;
+  country?: string;
+  siren?: string;
+  full_name?: string;
+  address?: string;
+};
+
 export type DocumentData = {
   vehicle: {
     plate_number?: string;
@@ -50,36 +66,10 @@ export type DocumentData = {
     destination?: string;
     transporter?: string;
   };
-  seller?: {
-    company_name?: string;
-    first_name?: string;
-    last_name?: string;
-    birth_date?: string;
-    birth_place?: string;
-    address_line1?: string;
-    address_line2?: string;
-    postal_code?: string;
-    city?: string;
-    country?: string;
-    siren?: string;
-    full_name?: string;
-    address?: string;
-  };
-  buyer?: {
-    company_name?: string;
-    first_name?: string;
-    last_name?: string;
-    birth_date?: string;
-    birth_place?: string;
-    address_line1?: string;
-    address_line2?: string;
-    postal_code?: string;
-    city?: string;
-    country?: string;
-    siren?: string;
-    full_name?: string;
-    address?: string;
-  };
+  seller?: ContactData;
+  seller2?: ContactData;
+  buyer?: ContactData;
+  buyer2?: ContactData;
 };
 
 export async function loadTemplateMapping(templateName: string): Promise<TemplateMapping> {
