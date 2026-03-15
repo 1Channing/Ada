@@ -172,6 +172,7 @@ export function Administrative() {
 
   const [lastSavedTransactionId, setLastSavedTransactionId] = useState<string | null>(null);
   const [generatingDoc, setGeneratingDoc] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
     const draft = loadDraft();
@@ -187,7 +188,8 @@ export function Administrative() {
       setShowSecondBuyer(draft.showSecondBuyer);
       setLastSavedTransactionId(draft.lastSavedTransactionId);
 
-      console.log('[ADMIN_DRAFT] Form state restored from draft');
+      setIsDirty(false);
+      console.log('[ADMIN_DRAFT] Form state restored from draft, isDirty initialized to false');
     }
   }, []);
 
@@ -256,6 +258,58 @@ export function Administrative() {
     lastSavedTransactionId,
   ]);
 
+  const markDirty = () => {
+    if (lastSavedTransactionId && !isDirty) {
+      setIsDirty(true);
+      console.log('[ADMIN_DIRTY] Form changed, dirty=true');
+    }
+  };
+
+  const updateVehicleForm = (updates: Partial<VehicleForm>) => {
+    setVehicleForm(prev => ({ ...prev, ...updates }));
+    markDirty();
+  };
+
+  const updateSellerForm = (updates: Partial<ContactForm>) => {
+    setSellerForm(prev => ({ ...prev, ...updates }));
+    markDirty();
+  };
+
+  const updateSellerForm2 = (updates: Partial<ContactForm>) => {
+    setSellerForm2(prev => ({ ...prev, ...updates }));
+    markDirty();
+  };
+
+  const updateBuyerForm = (updates: Partial<ContactForm>) => {
+    setBuyerForm(prev => ({ ...prev, ...updates }));
+    markDirty();
+  };
+
+  const updateBuyerForm2 = (updates: Partial<ContactForm>) => {
+    setBuyerForm2(prev => ({ ...prev, ...updates }));
+    markDirty();
+  };
+
+  const updateTransactionForm = (updates: Partial<TransactionForm>) => {
+    setTransactionForm(prev => ({ ...prev, ...updates }));
+    markDirty();
+  };
+
+  const toggleShowSecondSeller = (value: boolean) => {
+    setShowSecondSeller(value);
+    markDirty();
+  };
+
+  const toggleShowSecondBuyer = (value: boolean) => {
+    setShowSecondBuyer(value);
+    markDirty();
+  };
+
+  const updateTransactionType = (type: 'purchase' | 'sale') => {
+    setTransactionType(type);
+    markDirty();
+  };
+
   const selectContact = (contact: Contact, type: 'seller' | 'seller2' | 'buyer' | 'buyer2') => {
     const form: ContactForm = {
       company_name: contact.company_name || '',
@@ -289,6 +343,11 @@ export function Administrative() {
       setShowBuyer2Search(false);
     }
     setSearchQuery('');
+
+    if (lastSavedTransactionId) {
+      setIsDirty(true);
+      console.log('[ADMIN_DIRTY] Contact selection changed, dirty=true');
+    }
   };
 
   const handleClearForm = useCallback(() => {
@@ -380,8 +439,10 @@ export function Administrative() {
     setLastSavedTransactionId(null);
     setSaveMessage(null);
     setGeneratingDoc(null);
+    setIsDirty(false);
 
     clearDraft();
+    console.log('[ADMIN_DRAFT] Form cleared, isDirty=false');
     setSaveMessage({ type: 'success', text: 'Form cleared' });
     setTimeout(() => setSaveMessage(null), 3000);
   }, []);
@@ -604,7 +665,9 @@ export function Administrative() {
 
       const savedTransactionId = transactionData.id;
       setLastSavedTransactionId(savedTransactionId);
+      setIsDirty(false);
 
+      console.log('[ADMIN_SAVE] Transaction saved successfully, id:', savedTransactionId, 'isDirty=false');
       setSaveMessage({ type: 'success', text: 'Transaction saved successfully!' });
 
       await loadContacts();
@@ -626,13 +689,170 @@ export function Administrative() {
     }
   };
 
+  const handleUpdateTransaction = async (): Promise<string> => {
+    if (!lastSavedTransactionId) {
+      throw new Error('No saved transaction to update');
+    }
+
+    console.log('[ADMIN_UPDATE] Updating existing transaction:', lastSavedTransactionId);
+    setSaving(true);
+    setSaveMessage(null);
+
+    try {
+      const { data: existingTransaction, error: fetchError } = await supabase
+        .from('transactions_admin')
+        .select('vehicle_id')
+        .eq('id', lastSavedTransactionId)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!existingTransaction) throw new Error('Transaction not found');
+
+      const { error: vehicleError } = await supabase
+        .from('vehicles_admin')
+        .update({
+          plate_number: vehicleForm.plate_number,
+          vin: vehicleForm.vin,
+          brand: vehicleForm.brand,
+          model: vehicleForm.model,
+          commercial_name: vehicleForm.commercial_name,
+          type_variant_version: vehicleForm.type_variant_version,
+          national_type: vehicleForm.national_type,
+          first_registration_date: vehicleForm.first_registration_date || null,
+          mileage: vehicleForm.mileage ? parseInt(vehicleForm.mileage) : null,
+          registration_certificate_present: vehicleForm.registration_certificate_present,
+          registration_certificate_number: vehicleForm.registration_certificate_number,
+          known_defects: vehicleForm.known_defects,
+        })
+        .eq('id', existingTransaction.vehicle_id);
+
+      if (vehicleError) throw vehicleError;
+
+      let sellerContactId1: string | null = null;
+      let sellerContactId2: string | null = null;
+      let buyerContactId1: string | null = null;
+      let buyerContactId2: string | null = null;
+
+      if (selectedSellerContact) {
+        sellerContactId1 = selectedSellerContact.id;
+      } else if (sellerForm.first_name || sellerForm.last_name || sellerForm.company_name) {
+        const { data: newSeller, error: sellerError } = await supabase
+          .from('contacts')
+          .insert({
+            type: transactionType === 'purchase' ? 'seller' : 'buyer',
+            ...sellerForm,
+          })
+          .select()
+          .single();
+
+        if (sellerError) throw sellerError;
+        sellerContactId1 = newSeller.id;
+      }
+
+      if (showSecondSeller) {
+        if (selectedSeller2Contact) {
+          sellerContactId2 = selectedSeller2Contact.id;
+        } else if (sellerForm2.first_name || sellerForm2.last_name || sellerForm2.company_name) {
+          const { data: newSeller2, error: seller2Error } = await supabase
+            .from('contacts')
+            .insert({
+              type: transactionType === 'purchase' ? 'seller' : 'buyer',
+              ...sellerForm2,
+            })
+            .select()
+            .single();
+
+          if (seller2Error) throw seller2Error;
+          sellerContactId2 = newSeller2.id;
+        }
+      }
+
+      if (selectedBuyerContact) {
+        buyerContactId1 = selectedBuyerContact.id;
+      } else if (buyerForm.first_name || buyerForm.last_name || buyerForm.company_name) {
+        const { data: newBuyer, error: buyerError } = await supabase
+          .from('contacts')
+          .insert({
+            type: transactionType === 'sale' ? 'buyer' : 'seller',
+            ...buyerForm,
+          })
+          .select()
+          .single();
+
+        if (buyerError) throw buyerError;
+        buyerContactId1 = newBuyer.id;
+      }
+
+      if (showSecondBuyer) {
+        if (selectedBuyer2Contact) {
+          buyerContactId2 = selectedBuyer2Contact.id;
+        } else if (buyerForm2.first_name || buyerForm2.last_name || buyerForm2.company_name) {
+          const { data: newBuyer2, error: buyer2Error } = await supabase
+            .from('contacts')
+            .insert({
+              type: transactionType === 'sale' ? 'buyer' : 'seller',
+              ...buyerForm2,
+            })
+            .select()
+            .single();
+
+          if (buyer2Error) throw buyer2Error;
+          buyerContactId2 = newBuyer2.id;
+        }
+      }
+
+      const { error: transactionError } = await supabase
+        .from('transactions_admin')
+        .update({
+          transaction_type: transactionType,
+          seller_contact_id: sellerContactId1,
+          seller_contact_id_2: sellerContactId2,
+          buyer_contact_id: buyerContactId1,
+          buyer_contact_id_2: buyerContactId2,
+          transaction_price: transactionForm.transaction_price ? parseFloat(transactionForm.transaction_price) : null,
+          transaction_date: transactionForm.transaction_date || null,
+          transaction_time: transactionForm.transaction_time || null,
+          pickup_location: transactionForm.pickup_location || null,
+          pickup_contact: transactionForm.pickup_contact || null,
+          pickup_datetime: transactionForm.pickup_datetime || null,
+          destination: transactionForm.destination || null,
+          transporter: transactionForm.transporter || null,
+        })
+        .eq('id', lastSavedTransactionId);
+
+      if (transactionError) throw transactionError;
+
+      setIsDirty(false);
+
+      console.log('[ADMIN_UPDATE] Transaction updated successfully, id:', lastSavedTransactionId, 'isDirty=false');
+      setSaveMessage({ type: 'success', text: 'Transaction updated successfully!' });
+
+      await loadContacts();
+
+      setTimeout(() => setSaveMessage(null), 5000);
+
+      return lastSavedTransactionId;
+    } catch (error) {
+      const errorMsg = getErrorMessage(error);
+      console.error('[ADMIN_UPDATE] Error updating transaction:', errorMsg);
+      console.error('[ADMIN_UPDATE] Full error object:', error);
+      setSaveMessage({
+        type: 'error',
+        text: errorMsg
+      });
+      throw error;
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleGenerateDocument = async (documentType: string) => {
-    console.log('[ADMIN_DOC_GEN] Generating document:', documentType);
+    console.log('[ADMIN_GEN] Starting document generation for:', documentType);
 
     let transactionId = lastSavedTransactionId;
 
     if (!transactionId) {
-      console.log('[ADMIN_DOC_GEN] No saved transaction, saving first');
+      console.log('[ADMIN_GEN] No saved transaction, creating current transaction first');
       setSaveMessage({
         type: 'info',
         text: 'Saving transaction before generating document...'
@@ -640,40 +860,67 @@ export function Administrative() {
 
       try {
         transactionId = await handleSave();
-        console.log('[ADMIN_DOC_GEN] Transaction saved with ID:', transactionId);
+        console.log('[ADMIN_GEN] Transaction saved with ID:', transactionId);
       } catch (error) {
         const errorMsg = getErrorMessage(error);
-        console.error('[ADMIN_DOC_GEN] Save failed:', errorMsg);
+        console.error('[ADMIN_GEN] Save failed:', errorMsg);
         setSaveMessage({
           type: 'error',
           text: `Failed to save transaction: ${errorMsg}`
         });
         return;
       }
+    } else if (isDirty) {
+      console.log('[ADMIN_GEN] Form dirty, updating existing transaction id=', transactionId);
+      setSaveMessage({
+        type: 'info',
+        text: 'Updating transaction with current data...'
+      });
+
+      try {
+        transactionId = await handleUpdateTransaction();
+        console.log('[ADMIN_GEN] Transaction updated with ID:', transactionId);
+      } catch (error) {
+        const errorMsg = getErrorMessage(error);
+        console.error('[ADMIN_GEN] Update failed:', errorMsg);
+        setSaveMessage({
+          type: 'error',
+          text: `Failed to update transaction: ${errorMsg}`
+        });
+        return;
+      }
+    } else {
+      console.log('[ADMIN_GEN] Using existing transaction, no update needed, id=', transactionId);
     }
 
     setGeneratingDoc(documentType);
     try {
-      console.log('[ADMIN_DOC_GEN] Generating PDF for transaction:', transactionId);
+      const plateNumber = vehicleForm.plate_number || 'NO_PLATE';
+      const sanitizedPlate = plateNumber.replace(/[^a-zA-Z0-9]/g, '');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+
+      console.log('[ADMIN_GEN] Generating', documentType, 'for current plate=', plateNumber);
       const blob = await generateAdminDocument(
         documentType as any,
         transactionId
       );
 
-      const fileName = `${documentType.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+      const docTypeSlug = documentType.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      const fileName = `${docTypeSlug}_${sanitizedPlate}_${timestamp}.pdf`;
+
       downloadBlob(blob, fileName);
-      console.log('[ADMIN_DOC_GEN] Document generated and download started');
+      console.log('[ADMIN_GEN] Fresh PDF created, filename=', fileName);
 
       setSaveMessage({
         type: 'success',
-        text: `${documentType} generated and downloaded successfully!`
+        text: `${documentType} generated with current vehicle data!`
       });
 
       setTimeout(() => setSaveMessage(null), 3000);
     } catch (error) {
       const errorMsg = getErrorMessage(error);
-      console.error('[ADMIN_DOC_GEN] Generation failed:', errorMsg);
-      console.error('[ADMIN_DOC_GEN] Full error object:', error);
+      console.error('[ADMIN_GEN] Generation failed:', errorMsg);
+      console.error('[ADMIN_GEN] Full error object:', error);
       setSaveMessage({
         type: 'error',
         text: `Failed to generate document: ${errorMsg}`
@@ -943,7 +1190,7 @@ export function Administrative() {
               <input
                 type="text"
                 value={vehicleForm.plate_number}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, plate_number: e.target.value })}
+                onChange={(e) => updateVehicleForm({ plate_number: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -953,7 +1200,7 @@ export function Administrative() {
               <input
                 type="text"
                 value={vehicleForm.vin}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, vin: e.target.value })}
+                onChange={(e) => updateVehicleForm({ vin: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -963,7 +1210,7 @@ export function Administrative() {
               <input
                 type="text"
                 value={vehicleForm.brand}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, brand: e.target.value })}
+                onChange={(e) => updateVehicleForm({ brand: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -973,7 +1220,7 @@ export function Administrative() {
               <input
                 type="text"
                 value={vehicleForm.model}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, model: e.target.value })}
+                onChange={(e) => updateVehicleForm({ model: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -983,7 +1230,7 @@ export function Administrative() {
               <input
                 type="text"
                 value={vehicleForm.commercial_name}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, commercial_name: e.target.value })}
+                onChange={(e) => updateVehicleForm({ commercial_name: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -993,7 +1240,7 @@ export function Administrative() {
               <input
                 type="text"
                 value={vehicleForm.type_variant_version}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, type_variant_version: e.target.value })}
+                onChange={(e) => updateVehicleForm({ type_variant_version: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -1003,7 +1250,7 @@ export function Administrative() {
               <input
                 type="text"
                 value={vehicleForm.national_type}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, national_type: e.target.value })}
+                onChange={(e) => updateVehicleForm({ national_type: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -1013,7 +1260,7 @@ export function Administrative() {
               <input
                 type="date"
                 value={vehicleForm.first_registration_date}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, first_registration_date: e.target.value })}
+                onChange={(e) => updateVehicleForm({ first_registration_date: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -1023,7 +1270,7 @@ export function Administrative() {
               <input
                 type="number"
                 value={vehicleForm.mileage}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, mileage: e.target.value })}
+                onChange={(e) => updateVehicleForm({ mileage: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -1033,7 +1280,7 @@ export function Administrative() {
                 type="checkbox"
                 id="registration-cert"
                 checked={vehicleForm.registration_certificate_present}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, registration_certificate_present: e.target.checked })}
+                onChange={(e) => updateVehicleForm({ registration_certificate_present: e.target.checked })}
                 className="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-blue-600 focus:ring-blue-500"
               />
               <label htmlFor="registration-cert" className="text-sm font-medium text-zinc-300">
@@ -1046,7 +1293,7 @@ export function Administrative() {
               <input
                 type="text"
                 value={vehicleForm.registration_certificate_number}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, registration_certificate_number: e.target.value })}
+                onChange={(e) => updateVehicleForm({ registration_certificate_number: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -1055,7 +1302,7 @@ export function Administrative() {
               <label className="block text-sm font-medium mb-1 text-zinc-300">Known Defects</label>
               <textarea
                 value={vehicleForm.known_defects}
-                onChange={(e) => setVehicleForm({ ...vehicleForm, known_defects: e.target.value })}
+                onChange={(e) => updateVehicleForm({ known_defects: e.target.value })}
                 rows={3}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
@@ -1068,7 +1315,7 @@ export function Administrative() {
 
           <div className="flex gap-4">
             <button
-              onClick={() => setTransactionType('purchase')}
+              onClick={() => updateTransactionType('purchase')}
               className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors ${
                 transactionType === 'purchase'
                   ? 'bg-blue-600 text-white'
@@ -1078,7 +1325,7 @@ export function Administrative() {
               Purchase
             </button>
             <button
-              onClick={() => setTransactionType('sale')}
+              onClick={() => updateTransactionType('sale')}
               className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors ${
                 transactionType === 'sale'
                   ? 'bg-blue-600 text-white'
@@ -1113,7 +1360,7 @@ export function Administrative() {
           <div className="mt-4">
             {!showSecondSeller ? (
               <button
-                onClick={() => setShowSecondSeller(true)}
+                onClick={() => toggleShowSecondSeller(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
               >
                 <Plus size={16} />
@@ -1125,7 +1372,7 @@ export function Administrative() {
                   <h3 className="text-lg font-medium text-zinc-200">Second Seller</h3>
                   <button
                     onClick={() => {
-                      setShowSecondSeller(false);
+                      toggleShowSecondSeller(false);
                       setSelectedSeller2Contact(null);
                       setSellerForm2({
                         company_name: '',
@@ -1191,7 +1438,7 @@ export function Administrative() {
           <div className="mt-4">
             {!showSecondBuyer ? (
               <button
-                onClick={() => setShowSecondBuyer(true)}
+                onClick={() => toggleShowSecondBuyer(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
               >
                 <Plus size={16} />
@@ -1203,7 +1450,7 @@ export function Administrative() {
                   <h3 className="text-lg font-medium text-zinc-200">Second Buyer</h3>
                   <button
                     onClick={() => {
-                      setShowSecondBuyer(false);
+                      toggleShowSecondBuyer(false);
                       setSelectedBuyer2Contact(null);
                       setBuyerForm2({
                         company_name: '',
@@ -1256,7 +1503,7 @@ export function Administrative() {
                 type="number"
                 step="0.01"
                 value={transactionForm.transaction_price}
-                onChange={(e) => setTransactionForm({ ...transactionForm, transaction_price: e.target.value })}
+                onChange={(e) => updateTransactionForm({ transaction_price: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -1266,7 +1513,7 @@ export function Administrative() {
               <input
                 type="date"
                 value={transactionForm.transaction_date}
-                onChange={(e) => setTransactionForm({ ...transactionForm, transaction_date: e.target.value })}
+                onChange={(e) => updateTransactionForm({ transaction_date: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -1276,7 +1523,7 @@ export function Administrative() {
               <input
                 type="time"
                 value={transactionForm.transaction_time}
-                onChange={(e) => setTransactionForm({ ...transactionForm, transaction_time: e.target.value })}
+                onChange={(e) => updateTransactionForm({ transaction_time: e.target.value })}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -1293,7 +1540,7 @@ export function Administrative() {
                 <input
                   type="text"
                   value={transactionForm.pickup_location}
-                  onChange={(e) => setTransactionForm({ ...transactionForm, pickup_location: e.target.value })}
+                  onChange={(e) => updateTransactionForm({ pickup_location: e.target.value })}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1303,7 +1550,7 @@ export function Administrative() {
                 <input
                   type="text"
                   value={transactionForm.pickup_contact}
-                  onChange={(e) => setTransactionForm({ ...transactionForm, pickup_contact: e.target.value })}
+                  onChange={(e) => updateTransactionForm({ pickup_contact: e.target.value })}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1313,7 +1560,7 @@ export function Administrative() {
                 <input
                   type="datetime-local"
                   value={transactionForm.pickup_datetime}
-                  onChange={(e) => setTransactionForm({ ...transactionForm, pickup_datetime: e.target.value })}
+                  onChange={(e) => updateTransactionForm({ pickup_datetime: e.target.value })}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1331,7 +1578,7 @@ export function Administrative() {
                 <input
                   type="text"
                   value={transactionForm.destination}
-                  onChange={(e) => setTransactionForm({ ...transactionForm, destination: e.target.value })}
+                  onChange={(e) => updateTransactionForm({ destination: e.target.value })}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1341,7 +1588,7 @@ export function Administrative() {
                 <input
                   type="text"
                   value={transactionForm.transporter}
-                  onChange={(e) => setTransactionForm({ ...transactionForm, transporter: e.target.value })}
+                  onChange={(e) => updateTransactionForm({ transporter: e.target.value })}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
