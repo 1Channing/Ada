@@ -140,7 +140,7 @@ export function AdminHistory() {
         </div>
 
         <button
-          onClick={() => window.location.pathname = '/admin'}
+          onClick={() => window.history.pushState({}, '', '/admin')}
           className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm font-medium"
         >
           Back to Administrative

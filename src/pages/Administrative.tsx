@@ -163,7 +163,7 @@ export function Administrative() {
   const [selectedBuyer2Contact, setSelectedBuyer2Contact] = useState<Contact | null>(null);
 
   const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   const [savingSellerContact, setSavingSellerContact] = useState(false);
   const [savingSeller2Contact, setSavingSeller2Contact] = useState(false);
@@ -607,95 +607,6 @@ export function Administrative() {
 
       setSaveMessage({ type: 'success', text: 'Transaction saved successfully!' });
 
-      setVehicleForm({
-        plate_number: '',
-        vin: '',
-        brand: '',
-        model: '',
-        commercial_name: '',
-        type_variant_version: '',
-        national_type: '',
-        first_registration_date: '',
-        mileage: '',
-        registration_certificate_present: false,
-        registration_certificate_number: '',
-        known_defects: '',
-      });
-
-      setSellerForm({
-        company_name: '',
-        first_name: '',
-        last_name: '',
-        birth_date: '',
-        birth_place: '',
-        address_line1: '',
-        address_line2: '',
-        postal_code: '',
-        city: '',
-        country: 'FR',
-        siren: '',
-      });
-
-      setSellerForm2({
-        company_name: '',
-        first_name: '',
-        last_name: '',
-        birth_date: '',
-        birth_place: '',
-        address_line1: '',
-        address_line2: '',
-        postal_code: '',
-        city: '',
-        country: 'FR',
-        siren: '',
-      });
-
-      setBuyerForm({
-        company_name: '',
-        first_name: '',
-        last_name: '',
-        birth_date: '',
-        birth_place: '',
-        address_line1: '',
-        address_line2: '',
-        postal_code: '',
-        city: '',
-        country: 'FR',
-        siren: '',
-      });
-
-      setBuyerForm2({
-        company_name: '',
-        first_name: '',
-        last_name: '',
-        birth_date: '',
-        birth_place: '',
-        address_line1: '',
-        address_line2: '',
-        postal_code: '',
-        city: '',
-        country: 'FR',
-        siren: '',
-      });
-
-      setTransactionForm({
-        transaction_price: '',
-        transaction_date: '',
-        transaction_time: '',
-        pickup_location: '',
-        pickup_contact: '',
-        pickup_datetime: '',
-        destination: '',
-        transporter: '',
-      });
-
-      setShowSecondSeller(false);
-      setShowSecondBuyer(false);
-      setSelectedSellerContact(null);
-      setSelectedSeller2Contact(null);
-      setSelectedBuyerContact(null);
-      setSelectedBuyer2Contact(null);
-
       await loadContacts();
 
       setTimeout(() => setSaveMessage(null), 5000);
@@ -1001,7 +912,6 @@ export function Administrative() {
             onClick={() => {
               console.log('[ADMIN_UI] Navigating to history');
               window.history.pushState({}, '', '/admin/history');
-              window.location.reload();
             }}
             className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
           >
@@ -1015,6 +925,8 @@ export function Administrative() {
         <div className={`mb-6 px-4 py-3 rounded-lg ${
           saveMessage.type === 'success'
             ? 'bg-green-900/30 border border-green-700/50 text-green-200'
+            : saveMessage.type === 'info'
+            ? 'bg-blue-900/30 border border-blue-700/50 text-blue-200'
             : 'bg-red-900/30 border border-red-700/50 text-red-200'
         }`}>
           {saveMessage.text}
