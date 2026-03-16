@@ -1,4 +1,5 @@
 import { PDFDocument, rgb } from 'pdf-lib';
+import { renderCertificatCession } from './certificatCessionRenderer';
 
 export type TemplateMapping = {
   template_name: string;
@@ -511,6 +512,19 @@ export async function generatePDFFromTemplate(
   data: DocumentData
 ): Promise<Uint8Array> {
   console.log('[ADMIN_PDF] Starting PDF generation for:', templateName);
+
+  if (templateName === 'Certificat de cession') {
+    console.log('[ADMIN_PDF] Using dedicated certificate of cession renderer');
+    const mapping = await loadTemplateMapping(templateName);
+    const templateBytes = await loadTemplate(mapping.template_file);
+    const pdfDoc = await PDFDocument.load(templateBytes);
+
+    await renderCertificatCession(pdfDoc, data);
+
+    const pdfBytes = await pdfDoc.save();
+    console.log(`[ADMIN_PDF] PDF exported successfully (${(pdfBytes.length / 1024).toFixed(2)} KB)`);
+    return pdfBytes;
+  }
 
   const mapping = await loadTemplateMapping(templateName);
 
