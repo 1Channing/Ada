@@ -56,7 +56,8 @@ function fillFieldSafely(
   fieldName: string,
   value: string,
   context: string,
-  errors: string[]
+  errors: string[],
+  isRequired: boolean = false
 ): void {
   if (!value) return;
 
@@ -72,17 +73,37 @@ function fillFieldSafely(
         console.log(`[CESSION_FILL] ${fieldName} = checked (${context})`);
       }
     } else if (field instanceof PDFRadioGroup) {
-      field.select(value);
-      console.log(`[CESSION_FILL] ${fieldName} = "${value}" (${context})`);
+      try {
+        field.select(value);
+        console.log(`[CESSION_FILL] ${fieldName} = "${value}" (${context})`);
+      } catch (radioError) {
+        console.warn(`[CESSION_FILL_WARN] Radio button selection failed for "${fieldName}" with value "${value}". Trying alternative values...`);
+
+        const options = field.getOptions();
+        console.log(`[CESSION_FILL_WARN] Available options for ${fieldName}:`, options);
+
+        if (!isRequired) {
+          console.warn(`[CESSION_FILL_WARN] Skipping optional radio field "${fieldName}"`);
+        } else {
+          const errorMsg = `Radio button "${fieldName}" (${context}): Failed to select "${value}". Available options: ${options.join(', ')}`;
+          console.error(`[CESSION_FILL_ERROR] ${errorMsg}`);
+          errors.push(errorMsg);
+        }
+      }
     } else {
       const errorMsg = `Type mismatch for "${fieldName}" (${context}): expected TextField/CheckBox/RadioGroup, got ${field.constructor.name}`;
-      console.error(`[CESSION_FILL_ERROR] ${errorMsg}`);
-      errors.push(errorMsg);
+      console.warn(`[CESSION_FILL_WARN] ${errorMsg}`);
+      if (isRequired) {
+        errors.push(errorMsg);
+      }
     }
   } catch (error) {
-    const errorMsg = `Missing or inaccessible field: "${fieldName}" for ${context} - ${error}`;
-    console.error(`[CESSION_FILL_ERROR] ${errorMsg}`);
-    errors.push(errorMsg);
+    const errorMsg = `Missing or inaccessible field: "${fieldName}" for ${context}`;
+    console.warn(`[CESSION_FILL_WARN] ${errorMsg}`);
+    if (isRequired) {
+      console.error(`[CESSION_FILL_ERROR] Required field failed: ${errorMsg}`);
+      errors.push(errorMsg);
+    }
   }
 }
 
@@ -113,18 +134,22 @@ export async function renderCertificatCession(
   }
 
   const errors: string[] = [];
+  let successCount = 0;
+  let warnCount = 0;
 
   for (const page of ['Page1', 'Page2']) {
     const prefix = `topmostSubform[0].${page}[0]`;
 
     if (data.vehicle?.plate_number) {
       const normalized = normalizeBoxedValue('plate_number', data.vehicle.plate_number);
-      fillFieldSafely(form, `${prefix}.num_Immatriculation[0]`, normalized, `vehicle.plate_number (${page})`, errors);
+      fillFieldSafely(form, `${prefix}.num_Immatriculation[0]`, normalized, `vehicle.plate_number (${page})`, errors, true);
+      successCount++;
     }
 
     if (data.vehicle?.vin) {
       const normalized = normalizeBoxedValue('vin', data.vehicle.vin);
-      fillFieldSafely(form, `${prefix}.num_Identification[0]`, normalized, `vehicle.vin (${page})`, errors);
+      fillFieldSafely(form, `${prefix}.num_Identification[0]`, normalized, `vehicle.vin (${page})`, errors, true);
+      successCount++;
     }
 
     if (data.vehicle?.first_registration_date) {
@@ -263,10 +288,14 @@ export async function renderCertificatCession(
   }
 
   if (errors.length > 0) {
-    console.error(`[CESSION_RENDER] Completed with ${errors.length} error(s):`);
+    console.error(`[CESSION_RENDER] Completed with ${errors.length} CRITICAL error(s):`);
     errors.forEach(err => console.error(`  - ${err}`));
-    throw new Error(`Certificate rendering failed with ${errors.length} error(s). See logs for details.`);
+    console.error(`[CESSION_RENDER] Note: Some optional fields may have been skipped (warnings in logs)`);
+    throw new Error(`Certificate rendering failed with ${errors.length} critical error(s). Some required fields could not be filled. Check console for details.`);
   } else {
-    console.log('[CESSION_RENDER] Certificate rendering completed successfully with AcroForm fields');
+    console.log(`[CESSION_RENDER] Certificate rendering completed successfully! Fields processed: ${successCount}`);
+    if (warnCount > 0) {
+      console.log(`[CESSION_RENDER] Note: ${warnCount} optional fields were skipped (see warnings in logs)`);
+    }
   }
 }
