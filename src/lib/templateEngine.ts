@@ -1,5 +1,6 @@
 import { PDFDocument, rgb } from 'pdf-lib';
 import { renderCertificatCession } from './certificatCessionRenderer';
+import { renderWithAcroForm } from './acroFormRenderer';
 
 export type TemplateMapping = {
   template_name: string;
@@ -8,6 +9,8 @@ export type TemplateMapping = {
   use_coordinates: boolean;
   is_multi_page?: boolean;
   field_mappings?: Record<string, string>;
+  acroform_field_mappings?: Record<string, string>;
+  acroform_required_fields?: string[];
   coordinate_mappings?: Record<string, {
     x: number;
     y: number;
@@ -513,65 +516,44 @@ export async function generatePDFFromTemplate(
 ): Promise<Uint8Array> {
   console.log('[ADMIN_PDF] Starting PDF generation for:', templateName);
 
-  if (templateName === 'Certificat de cession') {
-    console.log('[ADMIN_PDF] Using dedicated certificate of cession renderer');
-    const mapping = await loadTemplateMapping(templateName);
-    const templateBytes = await loadTemplate(mapping.template_file);
-    const pdfDoc = await PDFDocument.load(templateBytes);
-
-    await renderCertificatCession(pdfDoc, data);
-
-    const pdfBytes = await pdfDoc.save();
-    console.log(`[ADMIN_PDF] PDF exported successfully (${(pdfBytes.length / 1024).toFixed(2)} KB)`);
-    return pdfBytes;
-  }
-
   const mapping = await loadTemplateMapping(templateName);
-
   const templateBytes = await loadTemplate(mapping.template_file);
-
   const pdfDoc = await PDFDocument.load(templateBytes);
   const pageCount = pdfDoc.getPageCount();
   console.log(`[ADMIN_PDF] PDF loaded with ${pageCount} page(s)`);
 
+  let hasFormFields = false;
   try {
     const form = pdfDoc.getForm();
     const fields = form.getFields();
+    hasFormFields = fields.length > 0;
     console.log(`[ADMIN_PDF] detected ${fields.length} form fields for ${templateName}`);
-    if (fields.length > 0) {
+    if (hasFormFields) {
       console.log('[ADMIN_PDF] Form field names:', fields.map(f => f.getName()).slice(0, 10).join(', '));
     }
   } catch (error) {
     console.log('[ADMIN_PDF] No form fields detected');
   }
 
-  let fillSuccess = false;
-
-  if (mapping.has_form_fields && mapping.field_mappings) {
-    console.log('[ADMIN_PDF] using AcroForm mode');
+  if (mapping.acroform_field_mappings && hasFormFields) {
+    console.log('[ADMIN_PDF] Using generic AcroForm renderer');
+    await renderWithAcroForm(
+      pdfDoc,
+      data,
+      mapping.acroform_field_mappings,
+      mapping.acroform_required_fields || []
+    );
+  } else if (mapping.field_mappings && !mapping.use_coordinates) {
+    console.log('[ADMIN_PDF] Using legacy field mappings (backward compatibility)');
     const result = await fillPDFWithFields(pdfDoc, mapping, data);
-
-    if (result.success) {
-      fillSuccess = true;
-      if (result.failedFields.size > 0 && mapping.use_coordinates && mapping.coordinate_mappings) {
-        console.log(`[ADMIN_PDF_HYBRID] ${result.failedFields.size} fields failed in AcroForm, applying selective overlay`);
-        await fillPDFWithCoordinates(pdfDoc, mapping, data, result.failedFields);
-      }
-    } else if (mapping.use_coordinates && mapping.coordinate_mappings) {
-      console.log('[ADMIN_PDF_FALLBACK] Form field filling completely failed, falling back to full coordinate overlay');
-      await fillPDFWithCoordinates(pdfDoc, mapping, data);
-      fillSuccess = true;
+    if (!result.success) {
+      console.warn('[ADMIN_PDF] Field filling failed but no fallback configured');
     }
   } else if (mapping.use_coordinates && mapping.coordinate_mappings) {
-    console.log('[ADMIN_PDF] Using coordinate overlay (no form fields configured)');
+    console.log('[ADMIN_PDF] Using coordinate overlay');
     await fillPDFWithCoordinates(pdfDoc, mapping, data);
-    fillSuccess = true;
   } else {
-    console.warn('[ADMIN_PDF] No mapping strategy defined');
-  }
-
-  if (!fillSuccess) {
-    console.warn('[ADMIN_PDF] No data was filled into the PDF - returning blank template');
+    console.warn('[ADMIN_PDF] No mapping strategy defined - returning blank template');
   }
 
   const pdfBytes = await pdfDoc.save();
