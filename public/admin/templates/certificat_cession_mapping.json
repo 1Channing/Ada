@@ -1,9 +1,10 @@
 {
   "template_name": "Certificat de cession",
   "template_file": "pdf-templates/Certificat_de_cession.pdf",
-  "has_form_fields": false,
-  "use_coordinates": true,
+  "has_form_fields": true,
+  "use_coordinates": false,
   "is_multi_page": true,
+  "_note": "This template now uses AcroForm field filling via certificatCessionRenderer.ts. Field names are discovered at runtime from the PDF form.",
   "boxed_fields": [
     "vehicle.plate_number",
     "vehicle.vin",
