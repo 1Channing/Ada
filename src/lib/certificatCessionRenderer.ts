@@ -1,6 +1,121 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFForm, PDFTextField, PDFCheckBox, PDFRadioGroup } from 'pdf-lib';
 import { DocumentData } from './templateEngine';
-import { normalizeBoxedValue, splitDate, splitTime, fillFieldSafely, discoverPDFFields } from './pdfFieldHelpers';
+
+function normalizeBoxedValue(fieldName: string, value: string): string {
+  const raw = value;
+  let normalized = value;
+
+  if (fieldName === 'plate_number') {
+    normalized = value.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  } else if (fieldName === 'vin') {
+    normalized = value.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  } else if (fieldName.includes('postal_code')) {
+    normalized = value.replace(/\D/g, '');
+  } else if (fieldName.includes('siret')) {
+    normalized = value.replace(/\D/g, '');
+  } else if (fieldName.includes('date')) {
+    normalized = value.replace(/\D/g, '');
+  } else if (fieldName === 'transaction_time') {
+    normalized = value.replace(/\D/g, '').slice(0, 4);
+  }
+
+  if (normalized !== raw) {
+    console.log(`[CESSION_NORMALIZE] field=${fieldName} raw="${raw}" normalized="${normalized}"`);
+  }
+
+  return normalized;
+}
+
+function splitDate(dateString?: string): { day: string; month: string; year: string } {
+  if (!dateString) return { day: '', month: '', year: '' };
+
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return { day: '', month: '', year: '' };
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = String(date.getFullYear());
+
+  return { day, month, year };
+}
+
+function splitTime(timeString?: string): { hours: string; minutes: string } {
+  if (!timeString) return { hours: '', minutes: '' };
+
+  const match = timeString.match(/(\d{1,2}):(\d{2})/);
+  if (!match) return { hours: '', minutes: '' };
+
+  const hours = match[1].padStart(2, '0');
+  const minutes = match[2].padStart(2, '0');
+
+  return { hours, minutes };
+}
+
+function fillFieldSafely(
+  form: PDFForm,
+  fieldName: string,
+  value: string,
+  context: string,
+  errors: string[],
+  isRequired: boolean = false
+): void {
+  if (!value) return;
+
+  try {
+    const field = form.getField(fieldName);
+
+    if (field instanceof PDFTextField) {
+      field.setText(value);
+      console.log(`[CESSION_FILL] ${fieldName} = "${value}" (${context})`);
+    } else if (field instanceof PDFCheckBox) {
+      if (value.toLowerCase() === 'yes' || value === '1' || value === 'true') {
+        field.check();
+        console.log(`[CESSION_FILL] ${fieldName} = checked (${context})`);
+      }
+    } else if (field instanceof PDFRadioGroup) {
+      try {
+        field.select(value);
+        console.log(`[CESSION_FILL] ${fieldName} = "${value}" (${context})`);
+      } catch (radioError) {
+        console.warn(`[CESSION_FILL_WARN] Radio button selection failed for "${fieldName}" with value "${value}". Trying alternative values...`);
+
+        const options = field.getOptions();
+        console.log(`[CESSION_FILL_WARN] Available options for ${fieldName}:`, options);
+
+        if (!isRequired) {
+          console.warn(`[CESSION_FILL_WARN] Skipping optional radio field "${fieldName}"`);
+        } else {
+          const errorMsg = `Radio button "${fieldName}" (${context}): Failed to select "${value}". Available options: ${options.join(', ')}`;
+          console.error(`[CESSION_FILL_ERROR] ${errorMsg}`);
+          errors.push(errorMsg);
+        }
+      }
+    } else {
+      const errorMsg = `Type mismatch for "${fieldName}" (${context}): expected TextField/CheckBox/RadioGroup, got ${field.constructor.name}`;
+      console.warn(`[CESSION_FILL_WARN] ${errorMsg}`);
+      if (isRequired) {
+        errors.push(errorMsg);
+      }
+    }
+  } catch (error) {
+    const errorMsg = `Missing or inaccessible field: "${fieldName}" for ${context}`;
+    console.warn(`[CESSION_FILL_WARN] ${errorMsg}`);
+    if (isRequired) {
+      console.error(`[CESSION_FILL_ERROR] Required field failed: ${errorMsg}`);
+      errors.push(errorMsg);
+    }
+  }
+}
+
+function discoverPDFFields(pdfDoc: PDFDocument): void {
+  console.log(`[CESSION_DISCOVER] PDF has ${pdfDoc.getPageCount()} pages`);
+
+  const form = pdfDoc.getForm();
+  console.log(`[CESSION_DISCOVER] Form has XFA: ${form.hasXFA()}`);
+
+  const fields = form.getFields();
+  console.log(`[CESSION_DISCOVER] Found ${fields.length} form fields`);
+}
 
 export async function renderCertificatCession(
   pdfDoc: PDFDocument,
