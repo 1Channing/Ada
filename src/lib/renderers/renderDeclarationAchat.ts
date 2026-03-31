@@ -7,6 +7,35 @@ export async function renderDeclarationAchat(
   pdfDoc: PDFDocument,
   data: DocumentData
 ): Promise<void> {
+  // ==================== TEMPORARY DEBUG CODE - START ====================
+  // This section is for field discovery only. Remove after capturing field names.
+  console.log('[DECL_ACHAT_DEBUG] Starting field discovery...');
+
+  const form = pdfDoc.getForm();
+
+  // Check and remove XFA if present
+  if (form.hasXFA()) {
+    console.log('[DECL_ACHAT_DEBUG] XFA detected, removing...');
+    form.deleteXFA();
+  }
+
+  // Log all form fields
+  const fields = form.getFields();
+  console.log(`[DECL_ACHAT_DEBUG] Found ${fields.length} form fields:`);
+
+  fields.forEach((field, index) => {
+    console.log('[DECL_ACHAT_FIELD]', {
+      index,
+      name: field.getName(),
+      type: field.constructor.name
+    });
+  });
+
+  // Early return - do not proceed with rendering
+  console.log('[DECL_ACHAT_DEBUG] Field discovery complete. Returning early.');
+  return;
+  // ==================== TEMPORARY DEBUG CODE - END ====================
+
   console.log('[DECL_ACHAT] Starting coordinate-based declaration rendering');
 
   const pages = pdfDoc.getPages();
