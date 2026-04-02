@@ -3,40 +3,20 @@ import { DocumentData } from '../templateEngine';
 import { normalizeBoxedValue, formatValue } from './utils/fieldHelpers';
 import { renderBoxedField } from './utils/drawHelpers';
 
+const DEBUG_MODE = false;
+
+function drawDebugMarker(page: any, x: number, y: number, label: string, font: any) {
+  if (!DEBUG_MODE) return;
+
+  page.drawText('•', { x, y, size: 12, font, color: rgb(1, 0, 0) });
+  page.drawText(label, { x: x + 10, y, size: 6, font, color: rgb(1, 0, 0) });
+}
+
 export async function renderDeclarationAchat(
   pdfDoc: PDFDocument,
   data: DocumentData
 ): Promise<void> {
-  // ==================== TEMPORARY DEBUG CODE - START ====================
-  // This section is for field discovery only. Remove after capturing field names.
-  console.log('[DECL_ACHAT_DEBUG] Starting field discovery...');
-
-  const form = pdfDoc.getForm();
-
-  // Check and remove XFA if present
-  if (form.hasXFA()) {
-    console.log('[DECL_ACHAT_DEBUG] XFA detected, removing...');
-    form.deleteXFA();
-  }
-
-  // Log all form fields
-  const fields = form.getFields();
-  console.log(`[DECL_ACHAT_DEBUG] Found ${fields.length} form fields:`);
-
-  fields.forEach((field, index) => {
-    console.log('[DECL_ACHAT_FIELD]', {
-      index,
-      name: field.getName(),
-      type: field.constructor.name
-    });
-  });
-
-  // Early return - do not proceed with rendering
-  console.log('[DECL_ACHAT_DEBUG] Field discovery complete. Returning early.');
-  return;
-  // ==================== TEMPORARY DEBUG CODE - END ====================
-
-  console.log('[DECL_ACHAT] Starting coordinate-based declaration rendering');
+  console.log('[DECL_ACHAT] Starting coordinate-based rendering (NO AcroForm fields available)');
 
   const pages = pdfDoc.getPages();
   const page = pages[0];
@@ -44,104 +24,78 @@ export async function renderDeclarationAchat(
 
   console.log(`[DECL_ACHAT] PDF has ${pages.length} page(s)`);
 
-  if (data.buyer?.company_name || (data.buyer?.first_name && data.buyer?.last_name)) {
-    const buyerName = data.buyer.company_name || `${data.buyer.first_name || ''} ${data.buyer.last_name || ''}`.trim();
-    page.drawText(buyerName, { x: 100, y: 705, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] buyer.full_name = "${buyerName}"`);
-  }
-
-  if (data.buyer?.siren) {
-    const normalized = normalizeBoxedValue('siren', data.buyer.siren);
-    renderBoxedField(page, normalized, 450, 705, 9, font, 10);
-    console.log(`[DECL_ACHAT] buyer.siren = "${normalized}" (boxed)`);
-  }
-
-  if (data.buyer?.address_line1) {
-    page.drawText(data.buyer.address_line1, { x: 70, y: 685, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] buyer.address_line1 = "${data.buyer.address_line1}"`);
-  }
-
-  if (data.buyer?.postal_code) {
-    const normalized = normalizeBoxedValue('postal_code', data.buyer.postal_code);
-    renderBoxedField(page, normalized, 60, 665, 9, font, 10);
-    console.log(`[DECL_ACHAT] buyer.postal_code = "${normalized}" (boxed)`);
-  }
-
-  if (data.buyer?.city) {
-    page.drawText(data.buyer.city, { x: 120, y: 665, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] buyer.city = "${data.buyer.city}"`);
-  }
-
-  if (data.transaction?.transaction_date) {
-    const formatted = formatValue(data.transaction.transaction_date, 'date_time');
-    page.drawText(formatted, { x: 120, y: 570, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] transaction.transaction_date = "${formatted}"`);
-  }
-
   if (data.vehicle?.plate_number) {
     const normalized = normalizeBoxedValue('plate_number', data.vehicle.plate_number);
-    renderBoxedField(page, normalized, 80, 525, 9, font, 10);
-    console.log(`[DECL_ACHAT] vehicle.plate_number = "${normalized}" (boxed)`);
+    drawDebugMarker(page, 100, 500, 'plate', font);
+    renderBoxedField(page, normalized, 100, 500, 10, font, 12);
+    console.log(`[DECL_ACHAT] vehicle.plate_number = "${normalized}" at (100, 500)`);
   }
 
   if (data.vehicle?.vin) {
     const normalized = normalizeBoxedValue('vin', data.vehicle.vin);
-    renderBoxedField(page, normalized, 280, 525, 9, font, 8);
-    console.log(`[DECL_ACHAT] vehicle.vin = "${normalized}" (boxed)`);
+    drawDebugMarker(page, 100, 480, 'vin', font);
+    renderBoxedField(page, normalized, 100, 480, 9, font, 9);
+    console.log(`[DECL_ACHAT] vehicle.vin = "${normalized}" at (100, 480)`);
   }
 
   if (data.vehicle?.brand) {
-    page.drawText(data.vehicle.brand, { x: 460, y: 525, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] vehicle.brand = "${data.vehicle.brand}"`);
+    drawDebugMarker(page, 100, 460, 'brand', font);
+    page.drawText(data.vehicle.brand, { x: 100, y: 460, size: 10, font, color: rgb(0, 0, 0) });
+    console.log(`[DECL_ACHAT] vehicle.brand = "${data.vehicle.brand}" at (100, 460)`);
   }
 
-  if (data.vehicle?.type_variant_version) {
-    page.drawText(data.vehicle.type_variant_version, { x: 80, y: 505, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] vehicle.type_variant_version = "${data.vehicle.type_variant_version}"`);
-  }
-
-  if (data.vehicle?.commercial_name) {
-    page.drawText(data.vehicle.commercial_name, { x: 280, y: 505, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] vehicle.commercial_name = "${data.vehicle.commercial_name}"`);
-  }
-
-  if (data.vehicle?.national_type) {
-    page.drawText(data.vehicle.national_type, { x: 460, y: 505, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] vehicle.national_type = "${data.vehicle.national_type}"`);
-  }
-
-  if (data.vehicle?.registration_certificate_number) {
-    page.drawText(data.vehicle.registration_certificate_number, { x: 230, y: 470, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] vehicle.registration_certificate_number = "${data.vehicle.registration_certificate_number}"`);
+  if (data.vehicle?.model) {
+    drawDebugMarker(page, 100, 440, 'model', font);
+    page.drawText(data.vehicle.model, { x: 100, y: 440, size: 10, font, color: rgb(0, 0, 0) });
+    console.log(`[DECL_ACHAT] vehicle.model = "${data.vehicle.model}" at (100, 440)`);
   }
 
   if (data.seller?.company_name || (data.seller?.first_name && data.seller?.last_name)) {
     const sellerName = data.seller.company_name || `${data.seller.first_name || ''} ${data.seller.last_name || ''}`.trim();
-    page.drawText(sellerName, { x: 100, y: 280, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] seller.full_name = "${sellerName}"`);
-  }
-
-  if (data.seller?.siren) {
-    const normalized = normalizeBoxedValue('siren', data.seller.siren);
-    renderBoxedField(page, normalized, 450, 280, 9, font, 10);
-    console.log(`[DECL_ACHAT] seller.siren = "${normalized}" (boxed)`);
+    drawDebugMarker(page, 100, 380, 'seller_name', font);
+    page.drawText(sellerName, { x: 100, y: 380, size: 10, font, color: rgb(0, 0, 0) });
+    console.log(`[DECL_ACHAT] seller.name = "${sellerName}" at (100, 380)`);
   }
 
   if (data.seller?.address_line1) {
-    page.drawText(data.seller.address_line1, { x: 70, y: 260, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] seller.address_line1 = "${data.seller.address_line1}"`);
+    drawDebugMarker(page, 100, 360, 'seller_address', font);
+    page.drawText(data.seller.address_line1, { x: 100, y: 360, size: 10, font, color: rgb(0, 0, 0) });
+    console.log(`[DECL_ACHAT] seller.address = "${data.seller.address_line1}" at (100, 360)`);
   }
 
-  if (data.seller?.postal_code) {
-    const normalized = normalizeBoxedValue('postal_code', data.seller.postal_code);
-    renderBoxedField(page, normalized, 60, 240, 9, font, 10);
-    console.log(`[DECL_ACHAT] seller.postal_code = "${normalized}" (boxed)`);
+  if (data.seller?.postal_code && data.seller?.city) {
+    const location = `${data.seller.postal_code} ${data.seller.city}`;
+    drawDebugMarker(page, 100, 340, 'seller_city', font);
+    page.drawText(location, { x: 100, y: 340, size: 10, font, color: rgb(0, 0, 0) });
+    console.log(`[DECL_ACHAT] seller.location = "${location}" at (100, 340)`);
   }
 
-  if (data.seller?.city) {
-    page.drawText(data.seller.city, { x: 120, y: 240, size: 9, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] seller.city = "${data.seller.city}"`);
+  if (data.buyer?.company_name || (data.buyer?.first_name && data.buyer?.last_name)) {
+    const buyerName = data.buyer.company_name || `${data.buyer.first_name || ''} ${data.buyer.last_name || ''}`.trim();
+    drawDebugMarker(page, 100, 280, 'buyer_name', font);
+    page.drawText(buyerName, { x: 100, y: 280, size: 10, font, color: rgb(0, 0, 0) });
+    console.log(`[DECL_ACHAT] buyer.name = "${buyerName}" at (100, 280)`);
   }
 
-  console.log('[DECL_ACHAT] Declaration rendering completed successfully');
+  if (data.buyer?.address_line1) {
+    drawDebugMarker(page, 100, 260, 'buyer_address', font);
+    page.drawText(data.buyer.address_line1, { x: 100, y: 260, size: 10, font, color: rgb(0, 0, 0) });
+    console.log(`[DECL_ACHAT] buyer.address = "${data.buyer.address_line1}" at (100, 260)`);
+  }
+
+  if (data.buyer?.postal_code && data.buyer?.city) {
+    const location = `${data.buyer.postal_code} ${data.buyer.city}`;
+    drawDebugMarker(page, 100, 240, 'buyer_city', font);
+    page.drawText(location, { x: 100, y: 240, size: 10, font, color: rgb(0, 0, 0) });
+    console.log(`[DECL_ACHAT] buyer.location = "${location}" at (100, 240)`);
+  }
+
+  if (data.transaction?.transaction_date) {
+    const formatted = formatValue(data.transaction.transaction_date, 'date');
+    drawDebugMarker(page, 100, 180, 'date', font);
+    page.drawText(formatted, { x: 100, y: 180, size: 10, font, color: rgb(0, 0, 0) });
+    console.log(`[DECL_ACHAT] transaction_date = "${formatted}" at (100, 180)`);
+  }
+
+  console.log('[DECL_ACHAT] Coordinate-based rendering complete');
 }
