@@ -1,71 +1,155 @@
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import { DocumentData } from '../templateEngine';
-import { normalizeBoxedValue, formatValue } from './utils/fieldHelpers';
-import { renderBoxedField } from './utils/drawHelpers';
 
 export async function renderBonAchat(
   pdfDoc: PDFDocument,
   data: DocumentData
 ): Promise<void> {
-  console.log('[BON_ACHAT] Starting coordinate-based bon d\'achat rendering');
+  console.log('[BON_ACHAT_ACROFORM] Starting AcroForm-based rendering');
 
-  const pages = pdfDoc.getPages();
-  const page = pages[0];
-  const font = await pdfDoc.embedFont('Helvetica');
+  const form = pdfDoc.getForm();
 
-  console.log(`[BON_ACHAT] PDF has ${pages.length} page(s)`);
+  if (form.hasXFA && form.hasXFA()) {
+    console.log('[BON_ACHAT_ACROFORM] XFA detected, removing...');
+    form.deleteXFA();
+  }
 
+  const fields = form.getFields();
+  const errors: string[] = [];
+
+  console.log(`[BON_ACHAT_ACROFORM] Form has ${fields.length} fields`);
+
+  fillVehicleFields(form, data, errors);
+  fillTransactionFields(form, data, errors);
+  fillSellerFields(form, data, errors);
+
+  try {
+    form.flatten();
+    console.log('[BON_ACHAT_ACROFORM] Form flattened successfully');
+  } catch (err) {
+    console.warn('[BON_ACHAT_ACROFORM] Could not flatten form, PDF will have editable fields:', err);
+    errors.push(`Form flattening failed: ${err}`);
+  }
+
+  const warningCount = errors.length;
+  console.log(`[BON_ACHAT_ACROFORM] Rendering complete: ${errors.length === 0 ? 'success' : `${warningCount} warnings`}`);
+
+  if (warningCount > 0) {
+    console.warn('[BON_ACHAT_ACROFORM_WARN] Warnings:', errors);
+  }
+}
+
+function fillVehicleFields(form: any, data: DocumentData, errors: string[]): void {
   if (data.vehicle?.brand) {
-    page.drawText(data.vehicle.brand, { x: 120, y: 595, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[BON_ACHAT] vehicle.brand = "${data.vehicle.brand}"`);
+    try {
+      const field = form.getTextField('Marque');
+      field.setText(data.vehicle.brand);
+      console.log(`[BON_ACHAT_ACROFORM] Filled Marque: "${data.vehicle.brand}"`);
+    } catch (err) {
+      errors.push(`Failed to fill Marque: ${err}`);
+    }
   }
 
   if (data.vehicle?.model) {
-    page.drawText(data.vehicle.model, { x: 120, y: 580, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[BON_ACHAT] vehicle.model = "${data.vehicle.model}"`);
+    try {
+      const field = form.getTextField('Modele');
+      field.setText(data.vehicle.model);
+      console.log(`[BON_ACHAT_ACROFORM] Filled Modele: "${data.vehicle.model}"`);
+    } catch (err) {
+      errors.push(`Failed to fill Modele: ${err}`);
+    }
   }
 
   if (data.vehicle?.plate_number) {
-    const normalized = normalizeBoxedValue('plate_number', data.vehicle.plate_number);
-    renderBoxedField(page, normalized, 150, 565, 10, font, 10);
-    console.log(`[BON_ACHAT] vehicle.plate_number = "${normalized}" (boxed)`);
+    try {
+      const field = form.getTextField('Immatriculation');
+      field.setText(data.vehicle.plate_number);
+      console.log(`[BON_ACHAT_ACROFORM] Filled Immatriculation: "${data.vehicle.plate_number}"`);
+    } catch (err) {
+      errors.push(`Failed to fill Immatriculation: ${err}`);
+    }
   }
 
   if (data.vehicle?.vin) {
-    const normalized = normalizeBoxedValue('vin', data.vehicle.vin);
-    renderBoxedField(page, normalized, 165, 550, 10, font, 8);
-    console.log(`[BON_ACHAT] vehicle.vin = "${normalized}" (boxed)`);
+    try {
+      const field = form.getTextField('VIN');
+      const normalizedVIN = data.vehicle.vin.toUpperCase();
+      field.setText(normalizedVIN);
+      console.log(`[BON_ACHAT_ACROFORM] Filled VIN: "${normalizedVIN}"`);
+    } catch (err) {
+      errors.push(`Failed to fill VIN: ${err}`);
+    }
   }
 
   if (data.vehicle?.first_registration_date) {
-    const formatted = formatValue(data.vehicle.first_registration_date, 'date');
-    page.drawText(formatted, { x: 180, y: 535, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[BON_ACHAT] vehicle.first_registration_date = "${formatted}"`);
+    try {
+      const field = form.getTextField('premire mise en circulation');
+      const formatted = formatDate(data.vehicle.first_registration_date);
+      field.setText(formatted);
+      console.log(`[BON_ACHAT_ACROFORM] Filled premire mise en circulation: "${formatted}"`);
+    } catch (err) {
+      errors.push(`Failed to fill premire mise en circulation: ${err}`);
+    }
   }
 
   if (data.vehicle?.mileage) {
-    const mileageStr = String(data.vehicle.mileage);
-    page.drawText(mileageStr, { x: 140, y: 520, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[BON_ACHAT] vehicle.mileage = "${mileageStr}"`);
+    try {
+      const field = form.getTextField('Kilometrage');
+      const mileageStr = String(data.vehicle.mileage);
+      field.setText(mileageStr);
+      console.log(`[BON_ACHAT_ACROFORM] Filled Kilometrage: "${mileageStr}"`);
+    } catch (err) {
+      errors.push(`Failed to fill Kilometrage: ${err}`);
+    }
   }
+}
 
+function fillTransactionFields(form: any, data: DocumentData, errors: string[]): void {
   if (data.transaction?.transaction_price) {
-    const formatted = formatValue(String(data.transaction.transaction_price), 'currency');
-    page.drawText(formatted, { x: 400, y: 455, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[BON_ACHAT] transaction.transaction_price = "${formatted}"`);
-  }
-
-  if (data.seller?.company_name || (data.seller?.first_name && data.seller?.last_name)) {
-    const sellerName = data.seller.company_name || `${data.seller.first_name || ''} ${data.seller.last_name || ''}`.trim();
-    page.drawText(sellerName, { x: 80, y: 425, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[BON_ACHAT] seller.full_name = "${sellerName}"`);
+    try {
+      const field = form.getTextField('Prix');
+      const priceStr = String(data.transaction.transaction_price);
+      field.setText(priceStr);
+      console.log(`[BON_ACHAT_ACROFORM] Filled Prix: "${priceStr}"`);
+    } catch (err) {
+      errors.push(`Failed to fill Prix: ${err}`);
+    }
   }
 
   if (data.transaction?.transaction_date) {
-    const formatted = formatValue(data.transaction.transaction_date, 'date');
-    page.drawText(formatted, { x: 170, y: 280, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[BON_ACHAT] transaction.transaction_date = "${formatted}"`);
+    try {
+      const field = form.getTextField('Date_1');
+      const formatted = formatDate(data.transaction.transaction_date);
+      field.setText(formatted);
+      console.log(`[BON_ACHAT_ACROFORM] Filled Date_1: "${formatted}"`);
+    } catch (err) {
+      errors.push(`Failed to fill Date_1: ${err}`);
+    }
   }
+}
 
-  console.log('[BON_ACHAT] Bon d\'achat rendering completed successfully');
+function fillSellerFields(form: any, data: DocumentData, errors: string[]): void {
+  if (data.seller?.company_name || (data.seller?.first_name && data.seller?.last_name)) {
+    try {
+      const sellerName = data.seller.company_name ||
+        `${data.seller.first_name || ''} ${data.seller.last_name || ''}`.trim();
+      const field = form.getTextField('Vendeur x Adresse');
+      field.setText(sellerName);
+      console.log(`[BON_ACHAT_ACROFORM] Filled Vendeur x Adresse: "${sellerName}"`);
+    } catch (err) {
+      errors.push(`Failed to fill Vendeur x Adresse: ${err}`);
+    }
+  }
+}
+
+function formatDate(dateStr: string): string {
+  try {
+    const date = new Date(dateStr);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch (err) {
+    return dateStr;
+  }
 }
