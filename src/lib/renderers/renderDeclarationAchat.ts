@@ -15,6 +15,13 @@ export async function renderDeclarationAchat(
   console.log('[DECL_ACHAT_ACROFORM] Starting AcroForm-based rendering');
 
   const form = pdfDoc.getForm();
+
+  // Handle XFA if present (safety check for future PDF updates)
+  if (form.hasXFA && form.hasXFA()) {
+    console.log('[DECL_ACHAT_ACROFORM] XFA detected, removing...');
+    form.deleteXFA();
+  }
+
   const fields = form.getFields();
   const errors: string[] = [];
 
