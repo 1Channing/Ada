@@ -1,101 +1,195 @@
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import { DocumentData } from '../templateEngine';
-import { normalizeBoxedValue, formatValue } from './utils/fieldHelpers';
-import { renderBoxedField } from './utils/drawHelpers';
-
-const DEBUG_MODE = false;
-
-function drawDebugMarker(page: any, x: number, y: number, label: string, font: any) {
-  if (!DEBUG_MODE) return;
-
-  page.drawText('•', { x, y, size: 12, font, color: rgb(1, 0, 0) });
-  page.drawText(label, { x: x + 10, y, size: 6, font, color: rgb(1, 0, 0) });
-}
+import {
+  fillFieldSafely,
+  fillSplitField,
+  fillSplitDateFields,
+  fillSplitTimeFields,
+  normalizeForAcroForm
+} from './utils/acroformHelpers';
 
 export async function renderDeclarationAchat(
   pdfDoc: PDFDocument,
   data: DocumentData
 ): Promise<void> {
-  console.log('[DECL_ACHAT] Starting coordinate-based rendering (NO AcroForm fields available)');
+  console.log('[DECL_ACHAT_ACROFORM] Starting AcroForm-based rendering');
 
-  const pages = pdfDoc.getPages();
-  const page = pages[0];
-  const font = await pdfDoc.embedFont('Helvetica');
+  const form = pdfDoc.getForm();
+  const fields = form.getFields();
+  const errors: string[] = [];
 
-  console.log(`[DECL_ACHAT] PDF has ${pages.length} page(s)`);
+  console.log(`[DECL_ACHAT_ACROFORM] Form has ${fields.length} fields`);
 
+  fillVehicleFields(form, data, errors);
+  fillTransactionFields(form, data, errors);
+  fillSellerFields(form, data, errors);
+
+  form.flatten();
+
+  const warningCount = errors.filter(e => !e.includes('Required')).length;
+  const errorCount = errors.filter(e => e.includes('Required')).length;
+
+  console.log(`[DECL_ACHAT_ACROFORM] Rendering complete: ${errors.length === 0 ? 'success' : `${warningCount} warnings, ${errorCount} errors`}`);
+
+  if (errorCount > 0) {
+    console.error('[DECL_ACHAT_ACROFORM_ERROR] Critical errors:', errors.filter(e => e.includes('Required')));
+  }
+
+  if (warningCount > 0) {
+    console.warn('[DECL_ACHAT_ACROFORM_WARN] Warnings:', errors.filter(e => !e.includes('Required')));
+  }
+}
+
+function fillVehicleFields(form: any, data: DocumentData, errors: string[]): void {
   if (data.vehicle?.plate_number) {
-    const normalized = normalizeBoxedValue('plate_number', data.vehicle.plate_number);
-    drawDebugMarker(page, 100, 500, 'plate', font);
-    renderBoxedField(page, normalized, 100, 500, 10, font, 12);
-    console.log(`[DECL_ACHAT] vehicle.plate_number = "${normalized}" at (100, 500)`);
+    const normalized = normalizeForAcroForm(data.vehicle.plate_number, 'plate');
+    fillFieldSafely(form, 'vehicule_plate', normalized, 'vehicle plate', errors, true);
   }
 
   if (data.vehicle?.vin) {
-    const normalized = normalizeBoxedValue('vin', data.vehicle.vin);
-    drawDebugMarker(page, 100, 480, 'vin', font);
-    renderBoxedField(page, normalized, 100, 480, 9, font, 9);
-    console.log(`[DECL_ACHAT] vehicle.vin = "${normalized}" at (100, 480)`);
+    const normalized = normalizeForAcroForm(data.vehicle.vin, 'vin');
+    fillFieldSafely(form, 'vehicle_vin', normalized, 'vehicle VIN', errors, true);
   }
 
   if (data.vehicle?.brand) {
-    drawDebugMarker(page, 100, 460, 'brand', font);
-    page.drawText(data.vehicle.brand, { x: 100, y: 460, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] vehicle.brand = "${data.vehicle.brand}" at (100, 460)`);
+    fillFieldSafely(form, 'vehicle_brand', data.vehicle.brand, 'vehicle brand', errors, true);
   }
 
   if (data.vehicle?.model) {
-    drawDebugMarker(page, 100, 440, 'model', font);
-    page.drawText(data.vehicle.model, { x: 100, y: 440, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] vehicle.model = "${data.vehicle.model}" at (100, 440)`);
+    fillFieldSafely(form, 'vehicle_model', data.vehicle.model, 'vehicle model', errors, false);
+  }
+}
+
+function fillTransactionFields(form: any, data: DocumentData, errors: string[]): void {
+  const transactionDate = data.transaction?.transaction_date;
+  const transactionTime = data.transaction?.transaction_time;
+  const transactionLocation = data.transaction?.pickup_location;
+
+  if (transactionDate) {
+    fillSplitDateFields(
+      form,
+      'transaction_day_',
+      'transaction_month_',
+      'transaction_year_',
+      transactionDate,
+      errors,
+      'transaction date (top)'
+    );
+
+    fillSplitDateFields(
+      form,
+      'transaction_day_central_',
+      'transaction_month_central_',
+      'transaction_year_central_',
+      transactionDate,
+      errors,
+      'transaction date (central)'
+    );
+
+    fillSplitDateFields(
+      form,
+      'transaction_day_bottom_',
+      'transaction_month_bottom_',
+      'transaction_year_bottom_',
+      transactionDate,
+      errors,
+      'transaction date (bottom)'
+    );
   }
 
-  if (data.seller?.company_name || (data.seller?.first_name && data.seller?.last_name)) {
-    const sellerName = data.seller.company_name || `${data.seller.first_name || ''} ${data.seller.last_name || ''}`.trim();
-    drawDebugMarker(page, 100, 380, 'seller_name', font);
-    page.drawText(sellerName, { x: 100, y: 380, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] seller.name = "${sellerName}" at (100, 380)`);
+  if (transactionTime) {
+    fillSplitTimeFields(
+      form,
+      'transaction_hour_',
+      'transaction_minute_',
+      transactionTime,
+      errors,
+      'transaction time'
+    );
   }
 
-  if (data.seller?.address_line1) {
-    drawDebugMarker(page, 100, 360, 'seller_address', font);
-    page.drawText(data.seller.address_line1, { x: 100, y: 360, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] seller.address = "${data.seller.address_line1}" at (100, 360)`);
+  if (transactionLocation) {
+    fillFieldSafely(form, 'transaction_city_central', transactionLocation, 'transaction location (central)', errors, false);
+    fillFieldSafely(form, 'transaction_place_bottom', transactionLocation, 'transaction location (bottom)', errors, false);
+  }
+}
+
+function fillSellerFields(form: any, data: DocumentData, errors: string[]): void {
+  if (!data.seller) {
+    console.warn('[DECL_ACHAT_ACROFORM_WARN] No seller data provided');
+    return;
   }
 
-  if (data.seller?.postal_code && data.seller?.city) {
-    const location = `${data.seller.postal_code} ${data.seller.city}`;
-    drawDebugMarker(page, 100, 340, 'seller_city', font);
-    page.drawText(location, { x: 100, y: 340, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] seller.location = "${location}" at (100, 340)`);
+  const sellerName = data.seller.company_name ||
+    (data.seller.first_name && data.seller.last_name
+      ? `${data.seller.first_name} ${data.seller.last_name}`.trim()
+      : data.seller.full_name || '');
+
+  if (sellerName) {
+    fillFieldSafely(form, 'NOM / PRENOM / RAISON SOCIAL - VENDEUR', sellerName, 'seller name', errors, true);
   }
 
-  if (data.buyer?.company_name || (data.buyer?.first_name && data.buyer?.last_name)) {
-    const buyerName = data.buyer.company_name || `${data.buyer.first_name || ''} ${data.buyer.last_name || ''}`.trim();
-    drawDebugMarker(page, 100, 280, 'buyer_name', font);
-    page.drawText(buyerName, { x: 100, y: 280, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] buyer.name = "${buyerName}" at (100, 280)`);
+  if (data.seller.address_line1) {
+    const parts = parseAddressLine(data.seller.address_line1);
+
+    if (parts.number) {
+      fillFieldSafely(form, 'NUMEROS DE VOIE - VENDEUR', parts.number, 'seller street number', errors, false);
+    }
+    if (parts.extension) {
+      fillFieldSafely(form, 'EXTENSION DE VOIE - VENDEUR', parts.extension, 'seller street extension', errors, false);
+    }
+    if (parts.type) {
+      fillFieldSafely(form, 'TYPE DE VOIE - VENDEUR', parts.type, 'seller street type', errors, false);
+    }
+    if (parts.name) {
+      fillFieldSafely(form, 'NOM DE LA VOIE - VENDEUR', parts.name, 'seller street name', errors, false);
+    }
   }
 
-  if (data.buyer?.address_line1) {
-    drawDebugMarker(page, 100, 260, 'buyer_address', font);
-    page.drawText(data.buyer.address_line1, { x: 100, y: 260, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] buyer.address = "${data.buyer.address_line1}" at (100, 260)`);
+  if (data.seller.postal_code) {
+    const normalized = normalizeForAcroForm(data.seller.postal_code, 'postal');
+    const postalDigits = normalized.padEnd(5, ' ').slice(0, 5);
+
+    for (let i = 0; i < 5; i++) {
+      const digit = postalDigits[i];
+      if (digit && digit !== ' ') {
+        fillFieldSafely(form, `CODE POSTALE ${i + 1}/5 -VENDEUR`, digit, `seller postal code digit ${i + 1}`, errors, false);
+      }
+    }
   }
 
-  if (data.buyer?.postal_code && data.buyer?.city) {
-    const location = `${data.buyer.postal_code} ${data.buyer.city}`;
-    drawDebugMarker(page, 100, 240, 'buyer_city', font);
-    page.drawText(location, { x: 100, y: 240, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] buyer.location = "${location}" at (100, 240)`);
+  if (data.seller.city) {
+    fillFieldSafely(form, 'COMMUNE - VENDEUR', data.seller.city, 'seller city', errors, true);
+  }
+}
+
+function parseAddressLine(addressLine: string): {
+  number: string;
+  extension: string;
+  type: string;
+  name: string;
+} {
+  const result = { number: '', extension: '', type: '', name: '' };
+
+  const parts = addressLine.trim().split(/\s+/);
+  if (parts.length === 0) return result;
+
+  const numberMatch = parts[0].match(/^(\d+)([A-Z]*)?$/i);
+  if (numberMatch) {
+    result.number = numberMatch[1];
+    result.extension = numberMatch[2] || '';
+    parts.shift();
   }
 
-  if (data.transaction?.transaction_date) {
-    const formatted = formatValue(data.transaction.transaction_date, 'date');
-    drawDebugMarker(page, 100, 180, 'date', font);
-    page.drawText(formatted, { x: 100, y: 180, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[DECL_ACHAT] transaction_date = "${formatted}" at (100, 180)`);
+  const streetTypes = ['RUE', 'AVENUE', 'BOULEVARD', 'PLACE', 'ROUTE', 'CHEMIN', 'IMPASSE', 'ALLEE', 'COURS'];
+  const firstWordUpper = parts[0]?.toUpperCase();
+
+  if (streetTypes.includes(firstWordUpper)) {
+    result.type = parts[0];
+    parts.shift();
   }
 
-  console.log('[DECL_ACHAT] Coordinate-based rendering complete');
+  result.name = parts.join(' ');
+
+  return result;
 }
