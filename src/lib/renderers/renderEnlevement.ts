@@ -1,64 +1,156 @@
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import { DocumentData } from '../templateEngine';
-import { normalizeBoxedValue, formatValue } from './utils/fieldHelpers';
-import { renderBoxedField, renderMultilineText } from './utils/drawHelpers';
 
 export async function renderEnlevement(
   pdfDoc: PDFDocument,
   data: DocumentData
 ): Promise<void> {
-  console.log('[ENLEVEMENT] Starting coordinate-based fiche enlèvement rendering');
+  console.log('[ENLEVEMENT] Starting AcroForm-based fiche enlèvement rendering');
 
-  const pages = pdfDoc.getPages();
-  const page = pages[0];
-  const font = await pdfDoc.embedFont('Helvetica');
+  const form = pdfDoc.getForm();
+  let errorCount = 0;
 
-  console.log(`[ENLEVEMENT] PDF has ${pages.length} page(s)`);
+  // Field mapping: DocumentData -> PDF AcroForm field names
+  // Discovered fields:
+  // - Marque
+  // - Immatriculation
+  // - VIN
+  // - Kilometrage
+  // - defauts connu
+  // - Lieu enlevement
+  // - Coordonnees contact
+  // - Date enlevement
 
-  if (data.vehicle?.brand && data.vehicle?.model) {
-    const description = `${data.vehicle.brand} ${data.vehicle.model}`.trim();
-    page.drawText(description, { x: 100, y: 715, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[ENLEVEMENT] vehicle.description = "${description}"`);
+  // 1. Marque (brand and model combined)
+  if (data.vehicle?.brand || data.vehicle?.model) {
+    const brandAndModel = `${data.vehicle.brand || ''} ${data.vehicle.model || ''}`.trim();
+    try {
+      const field = form.getTextField('Marque');
+      field.setText(brandAndModel);
+      console.log(`[ENLEVEMENT] Marque = "${brandAndModel}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[ENLEVEMENT_WARN] Failed to fill Marque:`, error);
+    }
   }
 
+  // 2. Immatriculation (plate number)
   if (data.vehicle?.plate_number) {
-    const normalized = normalizeBoxedValue('plate_number', data.vehicle.plate_number);
-    renderBoxedField(page, normalized, 140, 700, 10, font, 10);
-    console.log(`[ENLEVEMENT] vehicle.plate_number = "${normalized}" (boxed)`);
+    try {
+      const field = form.getTextField('Immatriculation');
+      field.setText(data.vehicle.plate_number);
+      console.log(`[ENLEVEMENT] Immatriculation = "${data.vehicle.plate_number}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[ENLEVEMENT_WARN] Failed to fill Immatriculation:`, error);
+    }
   }
 
+  // 3. VIN (chassis number)
   if (data.vehicle?.vin) {
-    const normalized = normalizeBoxedValue('vin', data.vehicle.vin);
-    renderBoxedField(page, normalized, 155, 685, 10, font, 8);
-    console.log(`[ENLEVEMENT] vehicle.vin = "${normalized}" (boxed)`);
+    try {
+      const field = form.getTextField('VIN');
+      field.setText(data.vehicle.vin.toUpperCase());
+      console.log(`[ENLEVEMENT] VIN = "${data.vehicle.vin.toUpperCase()}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[ENLEVEMENT_WARN] Failed to fill VIN:`, error);
+    }
   }
 
-  if (data.vehicle?.mileage) {
-    const mileageStr = String(data.vehicle.mileage);
-    page.drawText(mileageStr, { x: 125, y: 670, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[ENLEVEMENT] vehicle.mileage = "${mileageStr}"`);
+  // 4. Kilometrage (mileage)
+  if (data.vehicle?.mileage !== undefined && data.vehicle?.mileage !== null) {
+    try {
+      const field = form.getTextField('Kilometrage');
+      field.setText(String(data.vehicle.mileage));
+      console.log(`[ENLEVEMENT] Kilometrage = "${data.vehicle.mileage}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[ENLEVEMENT_WARN] Failed to fill Kilometrage:`, error);
+    }
   }
 
+  // 5. defauts connu (known defects)
   if (data.vehicle?.known_defects) {
-    renderMultilineText(page, data.vehicle.known_defects, 140, 655, 10, font, 50, 3, 12);
-    console.log(`[ENLEVEMENT] vehicle.known_defects = "${data.vehicle.known_defects}" (multiline)`);
+    try {
+      const field = form.getTextField('defauts connu');
+      field.setText(data.vehicle.known_defects);
+      console.log(`[ENLEVEMENT] defauts connu = "${data.vehicle.known_defects}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[ENLEVEMENT_WARN] Failed to fill defauts connu:`, error);
+    }
   }
 
+  // 6. Lieu enlevement (pickup location)
   if (data.transaction?.pickup_location) {
-    page.drawText(data.transaction.pickup_location, { x: 155, y: 525, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[ENLEVEMENT] transaction.pickup_location = "${data.transaction.pickup_location}"`);
+    try {
+      const field = form.getTextField('Lieu enlevement');
+      field.setText(data.transaction.pickup_location);
+      console.log(`[ENLEVEMENT] Lieu enlevement = "${data.transaction.pickup_location}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[ENLEVEMENT_WARN] Failed to fill Lieu enlevement:`, error);
+    }
   }
 
+  // 7. Coordonnees contact (pickup contact)
   if (data.transaction?.pickup_contact) {
-    page.drawText(data.transaction.pickup_contact, { x: 250, y: 510, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[ENLEVEMENT] transaction.pickup_contact = "${data.transaction.pickup_contact}"`);
+    try {
+      const field = form.getTextField('Coordonnees contact');
+      field.setText(data.transaction.pickup_contact);
+      console.log(`[ENLEVEMENT] Coordonnees contact = "${data.transaction.pickup_contact}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[ENLEVEMENT_WARN] Failed to fill Coordonnees contact:`, error);
+    }
   }
 
+  // 8. Date enlevement (pickup date/time)
   if (data.transaction?.pickup_datetime) {
-    const formatted = formatValue(data.transaction.pickup_datetime, 'date');
-    page.drawText(formatted, { x: 230, y: 480, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[ENLEVEMENT] transaction.pickup_datetime = "${formatted}"`);
+    try {
+      const formatted = formatPickupDateTime(data.transaction.pickup_datetime);
+      const field = form.getTextField('Date enlevement');
+      field.setText(formatted);
+      console.log(`[ENLEVEMENT] Date enlevement = "${formatted}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[ENLEVEMENT_WARN] Failed to fill Date enlevement:`, error);
+    }
   }
 
-  console.log('[ENLEVEMENT] Fiche enlèvement rendering completed successfully');
+  // Attempt to flatten the form (may fail in some pdf-lib versions)
+  try {
+    form.flatten();
+    console.log('[ENLEVEMENT] Form flattened successfully');
+  } catch (error) {
+    console.warn('[ENLEVEMENT_WARN] Form flattening failed (non-critical):', error);
+  }
+
+  console.log(`[ENLEVEMENT] Fiche enlèvement rendering completed (${errorCount} field errors)`);
+}
+
+function formatPickupDateTime(dateTime: string): string {
+  try {
+    // Try parsing ISO 8601 format
+    const date = new Date(dateTime);
+
+    if (isNaN(date.getTime())) {
+      // If not a valid date, return as-is
+      return dateTime;
+    }
+
+    // Format as DD/MM/YYYY HH:mm
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  } catch (error) {
+    // If formatting fails, return original
+    console.warn('[ENLEVEMENT_WARN] Date formatting failed, using original value');
+    return dateTime;
+  }
 }
