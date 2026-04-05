@@ -119,7 +119,10 @@ export async function generateAdminDocument(
   const blob = new Blob([pdfBytes], { type: 'application/pdf' });
 
   try {
-    const fileName = `${documentType.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+    const fileName = `${documentType
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]/g, "_")}_${Date.now()}.pdf`;
     const storagePath = `transactions/${transactionId}/${fileName}`;
     console.log(`[ADMIN_DOC_GEN:${correlationId}] Uploading to storage: path="${storagePath}"`);
 
