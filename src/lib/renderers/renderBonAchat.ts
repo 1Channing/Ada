@@ -37,8 +37,13 @@ export async function renderBonAchat(
     form.flatten();
     console.log('[BON_ACHAT_ACROFORM] Form flattened successfully');
   } catch (err) {
-    console.warn('[BON_ACHAT_ACROFORM] Could not flatten form, PDF will have editable fields:', err);
+    console.error('[BON_ACHAT] Flatten FAILED', err);
   }
+
+  form.getFields().forEach(field => {
+    field.enableReadOnly();
+  });
+  console.log('[BON_ACHAT_ACROFORM] All fields set to read-only for consistent rendering');
 
   const warningCount = errors.length;
   console.log(`[BON_ACHAT_ACROFORM] Rendering complete: ${errors.length === 0 ? 'success' : `${warningCount} warnings`}`);
