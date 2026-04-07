@@ -60,6 +60,21 @@ function formatDateSimple(dateString?: string): string {
   return `${day}/${month}/${year}`;
 }
 
+function formatPlateNumber(value: string): string {
+  if (!value) return value;
+
+  const cleaned = value.replace(/[^A-Z0-9]/g, '').toUpperCase();
+
+  if (cleaned.length === 7) {
+    const formatted = `${cleaned.slice(0, 2)}-${cleaned.slice(2, 5)}-${cleaned.slice(5, 7)}`;
+    console.log(`[CESSION_FORMAT] Plate formatted: "${value}" -> "${formatted}"`);
+    return formatted;
+  }
+
+  console.log(`[CESSION_FORMAT] Plate not 7 chars (${cleaned.length}), using cleaned: "${cleaned}"`);
+  return cleaned;
+}
+
 function fillFieldSafely(
   form: PDFForm,
   fieldName: string,
@@ -150,8 +165,9 @@ export async function renderCertificatCession(
     const prefix = `topmostSubform[0].${page}[0]`;
 
     if (data.vehicle?.plate_number) {
-      const normalized = normalizeBoxedValue('plate_number', data.vehicle.plate_number);
-      fillFieldSafely(form, `${prefix}.num_Immatriculation[0]`, normalized, `vehicle.plate_number (${page})`, errors, true);
+      const cleaned = normalizeBoxedValue('plate_number', data.vehicle.plate_number);
+      const formatted = formatPlateNumber(cleaned);
+      fillFieldSafely(form, `${prefix}.num_Immatriculation[0]`, formatted, `vehicle.plate_number (${page})`, errors, true);
       successCount++;
     }
 
