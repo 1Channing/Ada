@@ -1,4 +1,4 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { DocumentData } from '../templateEngine';
 
 export async function renderBonAchat(
@@ -14,6 +14,9 @@ export async function renderBonAchat(
     form.deleteXFA();
   }
 
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  console.log('[BON_ACHAT_ACROFORM] Embedded Helvetica font for consistent rendering');
+
   const fields = form.getFields();
   const errors: string[] = [];
 
@@ -24,8 +27,8 @@ export async function renderBonAchat(
   fillSellerFields(form, data, errors);
 
   try {
-    form.updateFieldAppearances();
-    console.log('[BON_ACHAT_ACROFORM] Field appearances updated for consistent rendering');
+    form.updateFieldAppearances(font);
+    console.log('[BON_ACHAT_ACROFORM] Field appearances updated with embedded font for consistent rendering');
   } catch (err) {
     console.warn('[BON_ACHAT_ACROFORM] Could not update field appearances:', err);
   }
