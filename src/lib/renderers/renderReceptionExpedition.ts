@@ -1,64 +1,100 @@
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import { DocumentData } from '../templateEngine';
-import { normalizeBoxedValue, formatValue } from './utils/fieldHelpers';
-import { renderBoxedField, renderMultilineText } from './utils/drawHelpers';
 
 export async function renderReceptionExpedition(
   pdfDoc: PDFDocument,
   data: DocumentData
 ): Promise<void> {
-  console.log('[RECEPTION_EXP] Starting coordinate-based réception/expédition rendering');
+  console.log('[RECEPTION_EXP] Starting AcroForm-based réception/expédition rendering');
 
-  const pages = pdfDoc.getPages();
-  const page = pages[0];
-  const font = await pdfDoc.embedFont('Helvetica');
+  const form = pdfDoc.getForm();
+  let errorCount = 0;
 
-  console.log(`[RECEPTION_EXP] PDF has ${pages.length} page(s)`);
+  // Field mapping: DocumentData -> PDF AcroForm field names
+  // Discovered fields from PDF:
+  // - Marque et modele
+  // - Immatriculation
+  // - VIN
+  // - Kilometrage
+  // - Defauts constates
+  // Note: This PDF has NO checkboxes, only text fields
 
-  if (data.transaction?.transaction_date) {
-    const formatted = formatValue(data.transaction.transaction_date, 'date');
-    page.drawText(formatted, { x: 180, y: 755, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[RECEPTION_EXP] transaction.transaction_date = "${formatted}"`);
+  // 1. Marque et modele (brand and model combined)
+  if (data.vehicle?.brand || data.vehicle?.model) {
+    const brandAndModel = `${data.vehicle.brand || ''} ${data.vehicle.model || ''}`.trim();
+    try {
+      const field = form.getTextField('Marque et modele');
+      field.setText(brandAndModel);
+      console.log(`[RECEPTION_EXP] Marque et modele = "${brandAndModel}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[RECEPTION_EXP_WARN] Failed to fill Marque et modele:`, error);
+    }
   }
 
-  if (data.vehicle?.brand && data.vehicle?.model) {
-    const description = `${data.vehicle.brand} ${data.vehicle.model}`.trim();
-    page.drawText(description, { x: 100, y: 730, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[RECEPTION_EXP] vehicle.description = "${description}"`);
-  }
-
+  // 2. Immatriculation (plate number)
   if (data.vehicle?.plate_number) {
-    const normalized = normalizeBoxedValue('plate_number', data.vehicle.plate_number);
-    renderBoxedField(page, normalized, 145, 715, 10, font, 10);
-    console.log(`[RECEPTION_EXP] vehicle.plate_number = "${normalized}" (boxed)`);
+    try {
+      const field = form.getTextField('Immatriculation');
+      field.setText(data.vehicle.plate_number);
+      console.log(`[RECEPTION_EXP] Immatriculation = "${data.vehicle.plate_number}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[RECEPTION_EXP_WARN] Failed to fill Immatriculation:`, error);
+    }
   }
 
+  // 3. VIN (chassis number)
   if (data.vehicle?.vin) {
-    const normalized = normalizeBoxedValue('vin', data.vehicle.vin);
-    renderBoxedField(page, normalized, 80, 700, 10, font, 8);
-    console.log(`[RECEPTION_EXP] vehicle.vin = "${normalized}" (boxed)`);
+    try {
+      const field = form.getTextField('VIN');
+      field.setText(data.vehicle.vin.toUpperCase());
+      console.log(`[RECEPTION_EXP] VIN = "${data.vehicle.vin.toUpperCase()}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[RECEPTION_EXP_WARN] Failed to fill VIN:`, error);
+    }
   }
 
-  if (data.vehicle?.mileage) {
-    const mileageStr = String(data.vehicle.mileage);
-    page.drawText(mileageStr, { x: 130, y: 685, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[RECEPTION_EXP] vehicle.mileage = "${mileageStr}"`);
+  // 4. Kilometrage (mileage)
+  if (data.vehicle?.mileage !== undefined && data.vehicle?.mileage !== null) {
+    try {
+      const field = form.getTextField('Kilometrage');
+      field.setText(String(data.vehicle.mileage));
+      console.log(`[RECEPTION_EXP] Kilometrage = "${data.vehicle.mileage}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[RECEPTION_EXP_WARN] Failed to fill Kilometrage:`, error);
+    }
   }
 
+  // 5. Defauts constates (known defects)
   if (data.vehicle?.known_defects) {
-    renderMultilineText(page, data.vehicle.known_defects, 145, 670, 10, font, 50, 3, 12);
-    console.log(`[RECEPTION_EXP] vehicle.known_defects = "${data.vehicle.known_defects}" (multiline)`);
+    try {
+      const field = form.getTextField('Defauts constates');
+      field.setText(data.vehicle.known_defects);
+      console.log(`[RECEPTION_EXP] Defauts constates = "${data.vehicle.known_defects}"`);
+    } catch (error) {
+      errorCount++;
+      console.warn(`[RECEPTION_EXP_WARN] Failed to fill Defauts constates:`, error);
+    }
   }
 
-  if (data.transaction?.destination) {
-    page.drawText(data.transaction.destination, { x: 130, y: 405, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[RECEPTION_EXP] transaction.destination = "${data.transaction.destination}"`);
+  // Note: The PDF template does NOT contain fields for:
+  // - transaction_date (Date de réception)
+  // - destination
+  // - transporter
+  // These appear to be labels only in the template, not fillable fields.
+  // If these fields are needed, the PDF template must be updated in Acrobat
+  // to include AcroForm fields for these values.
+
+  // Attempt to flatten the form (may fail in some pdf-lib versions)
+  try {
+    form.flatten();
+    console.log('[RECEPTION_EXP] Form flattened successfully');
+  } catch (error) {
+    console.warn('[RECEPTION_EXP_WARN] Form flattening failed (non-critical):', error);
   }
 
-  if (data.transaction?.transporter) {
-    page.drawText(data.transaction.transporter, { x: 135, y: 390, size: 10, font, color: rgb(0, 0, 0) });
-    console.log(`[RECEPTION_EXP] transaction.transporter = "${data.transaction.transporter}"`);
-  }
-
-  console.log('[RECEPTION_EXP] Réception/Expédition rendering completed successfully');
+  console.log(`[RECEPTION_EXP] Réception/Expédition rendering completed (${errorCount} field errors)`);
 }
