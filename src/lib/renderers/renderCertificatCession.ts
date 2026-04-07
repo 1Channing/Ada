@@ -59,7 +59,7 @@ function fillFieldSafely(
   errors: string[],
   isRequired: boolean = false
 ): void {
-  if (!value) return;
+  if (!value || value.trim() === '') return;
 
   try {
     const field = form.getField(fieldName);
@@ -234,11 +234,17 @@ export async function renderCertificatCession(
       fillFieldSafely(form, `${prefix}.num_SiretAcheteur[0]`, normalized, `buyer.siren (${page})`, errors);
     }
 
-    if (data.buyer?.birth_date) {
+    const buyerIsCompany = !!data.buyer?.company_name;
+    if (buyerIsCompany) {
+      console.log(`[CESSION] Skipping buyer birth_date (company detected) (${page})`);
+    } else if (data.buyer?.birth_date) {
       const { day, month, year } = splitDate(data.buyer.birth_date);
       fillFieldSafely(form, `${prefix}.num_DateNaissanceAcheteurJ[0]`, day, `buyer.birth_date.day (${page})`, errors);
       fillFieldSafely(form, `${prefix}.num_DateNaissanceAcheteurM[0]`, month, `buyer.birth_date.month (${page})`, errors);
       fillFieldSafely(form, `${prefix}.num_DateNaissanceAcheteurA[0]`, year, `buyer.birth_date.year (${page})`, errors);
+      console.log(`[CESSION] Filled buyer birth_date fields (${page})`);
+    } else {
+      console.log(`[CESSION] No buyer birth_date provided (optional, allowed) (${page})`);
     }
 
     if (data.buyer?.birth_place) {
