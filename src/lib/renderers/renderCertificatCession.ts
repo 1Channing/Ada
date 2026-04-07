@@ -125,10 +125,25 @@ function discoverPDFFields(pdfDoc: PDFDocument): void {
   const fields = form.getFields();
   console.log(`[CESSION_DISCOVER] Found ${fields.length} form fields`);
 
-  // Log ALL field names for discovery
+  // Log ALL fields with their types for complete discovery
   fields.forEach((field, index) => {
     const fieldName = field.getName();
-    console.log(`[CESSION_FIELD] ${index} ${fieldName}`);
+    const fieldType = field.constructor.name;
+    console.log(`[CESSION_FIELD] ${index} ${fieldName} ${fieldType}`);
+
+    // Focused logging for signature-related candidate fields
+    const lowerName = fieldName.toLowerCase();
+    if (
+      lowerName.includes('fait') ||
+      lowerName.includes('lieu') ||
+      lowerName.includes('le') ||
+      lowerName.includes('date') ||
+      lowerName.includes('vendeur') ||
+      lowerName.includes('acheteur') ||
+      lowerName.includes('sign')
+    ) {
+      console.log(`[CESSION_SIGNATURE_CANDIDATE] ${index} ${fieldName} ${fieldType}`);
+    }
   });
 }
 
@@ -297,7 +312,18 @@ export async function renderCertificatCession(
     fillFieldSafely(form, `${prefix}.ckb_ValidationDéclarationA1[0]`, 'yes', `buyer.validation.acquerir (${page})`, errors);
     fillFieldSafely(form, `${prefix}.ckb_ValidationDéclarationA2[0]`, 'yes', `buyer.validation.informe (${page})`, errors);
 
-    // Signature fields for seller (location and date)
+    // DISABLED: Guessed signature field names (PENDING FIELD DISCOVERY)
+    // These field names were NOT verified and must be treated as invalid until proven:
+    // - txt_FaitAVendeur[0]
+    // - txt_LeVendeur[0]
+    // - txt_FaitAAcheteur[0]
+    // - txt_LeAcheteur[0]
+    //
+    // Run field discovery first to find the REAL signature field names.
+    console.log(`[CESSION] SIGNATURE FIELDS DISABLED - awaiting field discovery (${page})`);
+
+    /*
+    // PREVIOUS GUESSED IMPLEMENTATION (DISABLED):
     if (data.transaction?.pickup_location && data.transaction.pickup_location.trim() !== '') {
       fillFieldSafely(form, `${prefix}.txt_FaitAVendeur[0]`, data.transaction.pickup_location, `seller.signature.location (${page})`, errors, false);
       console.log(`[CESSION] Filled seller signature location (${page})`);
@@ -315,7 +341,6 @@ export async function renderCertificatCession(
       console.log(`[CESSION] No transaction_date for seller signature (optional, allowed) (${page})`);
     }
 
-    // Signature fields for buyer (location and date)
     if (data.transaction?.pickup_location && data.transaction.pickup_location.trim() !== '') {
       fillFieldSafely(form, `${prefix}.txt_FaitAAcheteur[0]`, data.transaction.pickup_location, `buyer.signature.location (${page})`, errors, false);
       console.log(`[CESSION] Filled buyer signature location (${page})`);
@@ -332,6 +357,7 @@ export async function renderCertificatCession(
     } else {
       console.log(`[CESSION] No transaction_date for buyer signature (optional, allowed) (${page})`);
     }
+    */
   }
 
   try {
