@@ -24,11 +24,17 @@ export async function renderBonAchat(
   fillSellerFields(form, data, errors);
 
   try {
+    form.updateFieldAppearances();
+    console.log('[BON_ACHAT_ACROFORM] Field appearances updated for consistent rendering');
+  } catch (err) {
+    console.warn('[BON_ACHAT_ACROFORM] Could not update field appearances:', err);
+  }
+
+  try {
     form.flatten();
     console.log('[BON_ACHAT_ACROFORM] Form flattened successfully');
   } catch (err) {
     console.warn('[BON_ACHAT_ACROFORM] Could not flatten form, PDF will have editable fields:', err);
-    errors.push(`Form flattening failed: ${err}`);
   }
 
   const warningCount = errors.length;
