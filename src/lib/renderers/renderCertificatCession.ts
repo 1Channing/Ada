@@ -51,6 +51,15 @@ function splitTime(timeString?: string): { hours: string; minutes: string } {
   return { hours, minutes };
 }
 
+function formatDateSimple(dateString?: string): string {
+  if (!dateString) return '';
+
+  const { day, month, year } = splitDate(dateString);
+  if (!day || !month || !year) return '';
+
+  return `${day}/${month}/${year}`;
+}
+
 function fillFieldSafely(
   form: PDFForm,
   fieldName: string,
@@ -115,6 +124,12 @@ function discoverPDFFields(pdfDoc: PDFDocument): void {
 
   const fields = form.getFields();
   console.log(`[CESSION_DISCOVER] Found ${fields.length} form fields`);
+
+  // Log ALL field names for discovery
+  fields.forEach((field, index) => {
+    const fieldName = field.getName();
+    console.log(`[CESSION_FIELD] ${index} ${fieldName}`);
+  });
 }
 
 export async function renderCertificatCession(
@@ -281,6 +296,42 @@ export async function renderCertificatCession(
 
     fillFieldSafely(form, `${prefix}.ckb_ValidationDéclarationA1[0]`, 'yes', `buyer.validation.acquerir (${page})`, errors);
     fillFieldSafely(form, `${prefix}.ckb_ValidationDéclarationA2[0]`, 'yes', `buyer.validation.informe (${page})`, errors);
+
+    // Signature fields for seller (location and date)
+    if (data.transaction?.pickup_location && data.transaction.pickup_location.trim() !== '') {
+      fillFieldSafely(form, `${prefix}.txt_FaitAVendeur[0]`, data.transaction.pickup_location, `seller.signature.location (${page})`, errors, false);
+      console.log(`[CESSION] Filled seller signature location (${page})`);
+    } else {
+      console.log(`[CESSION] No pickup_location for seller signature (optional, allowed) (${page})`);
+    }
+
+    if (data.transaction?.transaction_date) {
+      const formattedDate = formatDateSimple(data.transaction.transaction_date);
+      if (formattedDate) {
+        fillFieldSafely(form, `${prefix}.txt_LeVendeur[0]`, formattedDate, `seller.signature.date (${page})`, errors, false);
+        console.log(`[CESSION] Filled seller signature date (${page})`);
+      }
+    } else {
+      console.log(`[CESSION] No transaction_date for seller signature (optional, allowed) (${page})`);
+    }
+
+    // Signature fields for buyer (location and date)
+    if (data.transaction?.pickup_location && data.transaction.pickup_location.trim() !== '') {
+      fillFieldSafely(form, `${prefix}.txt_FaitAAcheteur[0]`, data.transaction.pickup_location, `buyer.signature.location (${page})`, errors, false);
+      console.log(`[CESSION] Filled buyer signature location (${page})`);
+    } else {
+      console.log(`[CESSION] No pickup_location for buyer signature (optional, allowed) (${page})`);
+    }
+
+    if (data.transaction?.transaction_date) {
+      const formattedDate = formatDateSimple(data.transaction.transaction_date);
+      if (formattedDate) {
+        fillFieldSafely(form, `${prefix}.txt_LeAcheteur[0]`, formattedDate, `buyer.signature.date (${page})`, errors, false);
+        console.log(`[CESSION] Filled buyer signature date (${page})`);
+      }
+    } else {
+      console.log(`[CESSION] No transaction_date for buyer signature (optional, allowed) (${page})`);
+    }
   }
 
   try {
