@@ -333,6 +333,40 @@ export async function renderCertificatCession(
     }
   }
 
+  // Step 1: Embed font for appearance generation
+  console.log('[CESSION_FLATTEN] Embedding Helvetica font');
+  const font = await pdfDoc.embedFont('Helvetica');
+
+  // Step 2: Generate appearance streams with embedded font
+  console.log('[CESSION_FLATTEN] Updating field appearances');
+  form.updateFieldAppearances(font);
+
+  // Step 3: Force appearance refresh by re-assigning field values
+  console.log('[CESSION_FLATTEN] Forcing appearance regeneration for all fields');
+  const allFields = form.getFields();
+  let refreshedCount = 0;
+  let refreshFailCount = 0;
+
+  allFields.forEach(field => {
+    try {
+      // Check if field has getText and setText methods (text fields)
+      if ('getText' in field && 'setText' in field) {
+        const textField = field as PDFTextField;
+        const currentValue = textField.getText();
+        if (currentValue) {
+          textField.setText(currentValue);
+          refreshedCount++;
+        }
+      }
+    } catch (e) {
+      console.warn(`[CESSION_FLATTEN] Failed to refresh field "${field.getName()}":`, e);
+      refreshFailCount++;
+    }
+  });
+
+  console.log(`[CESSION_FLATTEN] Refreshed ${refreshedCount} fields, ${refreshFailCount} failed`);
+
+  // Step 4: Flatten the form to convert interactive fields to static content
   try {
     console.log('[CESSION_FLATTEN] Flattening form to lock values');
     form.flatten();
@@ -341,6 +375,15 @@ export async function renderCertificatCession(
     const errorMsg = `Failed to flatten form: ${error}`;
     console.error('[CESSION_FLATTEN_ERROR]', errorMsg);
     errors.push(errorMsg);
+  }
+
+  // Step 5: Remove form interactivity completely as final safety measure
+  console.log('[CESSION_FLATTEN] Removing AcroForm catalog entry');
+  try {
+    pdfDoc.catalog.delete('AcroForm' as any);
+    console.log('[CESSION_FLATTEN] AcroForm catalog removed successfully');
+  } catch (error) {
+    console.warn('[CESSION_FLATTEN] Failed to remove AcroForm catalog:', error);
   }
 
   if (errors.length > 0) {
