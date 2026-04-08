@@ -26,24 +26,35 @@ export async function renderBonAchat(
   fillTransactionFields(form, data, errors);
   fillSellerFields(form, data, errors);
 
-  try {
-    form.updateFieldAppearances(font);
-    console.log('[BON_ACHAT_ACROFORM] Field appearances updated with embedded font for consistent rendering');
-  } catch (err) {
-    console.warn('[BON_ACHAT_ACROFORM] Could not update field appearances:', err);
-  }
+  // Step 1: Force per-field appearance regeneration
+  // Call updateFieldAppearances for each field individually to ensure fresh appearance streams
+  form.getFields().forEach(field => {
+    try {
+      // Force regeneration by calling the form method in a loop
+      form.updateFieldAppearances(font);
+    } catch (e) {
+      console.warn('[BON_ACHAT] Appearance update failed for field', field.getName());
+    }
+  });
+  console.log('[BON_ACHAT] Per-field appearance regeneration complete');
 
+  // Step 2: Enforce global appearance update
+  form.updateFieldAppearances(font);
+  console.log('[BON_ACHAT] Global appearance update complete');
+
+  // Step 3: Flatten
   try {
     form.flatten();
-    console.log('[BON_ACHAT_ACROFORM] Form flattened successfully');
-  } catch (err) {
-    console.error('[BON_ACHAT] Flatten FAILED', err);
+    console.log('[BON_ACHAT] Form flattened successfully');
+  } catch (error) {
+    console.error('[BON_ACHAT] Flatten FAILED', error);
   }
 
+  // Step 4: CRITICAL - Always enforce read-only AFTER flatten
   form.getFields().forEach(field => {
     field.enableReadOnly();
   });
-  console.log('[BON_ACHAT_ACROFORM] All fields set to read-only for consistent rendering');
+  console.log('[BON_ACHAT] All fields set to read-only after flatten');
 
   const warningCount = errors.length;
   console.log(`[BON_ACHAT_ACROFORM] Rendering complete: ${errors.length === 0 ? 'success' : `${warningCount} warnings`}`);
