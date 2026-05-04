@@ -82,3 +82,34 @@ export async function loadStudyRunLogs(studyRunId: string): Promise<{
     return null;
   }
 }
+
+export async function loadStudyResultLogs(runId: string, studyId: string): Promise<{
+  logs: StudyRunProgressEvent[];
+  status: string;
+  lastStage?: string;
+  errorMessage?: string;
+} | null> {
+  try {
+    const compositeKey = `${runId}_${studyId}`;
+    const { data, error } = await supabase
+      .from('study_run_logs')
+      .select('logs_json, status, last_stage, error_message')
+      .eq('study_run_id', compositeKey)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    return {
+      logs: data.logs_json as StudyRunProgressEvent[],
+      status: data.status,
+      lastStage: data.last_stage ?? undefined,
+      errorMessage: data.error_message || undefined,
+    };
+  } catch (error) {
+    console.error('[STUDY_RUN_LOGS] Error loading study result logs:', error);
+    return null;
+  }
+}

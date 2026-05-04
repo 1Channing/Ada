@@ -90,7 +90,7 @@ export function StudiesV2Results() {
   const [loading, setLoading] = useState(true);
   const [exportingListingId, setExportingListingId] = useState<string | null>(null);
   const [verifyMarketsResult, setVerifyMarketsResult] = useState<StudyRunResult | null>(null);
-  const [logsModal, setLogsModal] = useState<{ runId: string; label: string } | null>(null);
+  const [logsModal, setLogsModal] = useState<{ runId: string; studyId?: string; label: string } | null>(null);
 
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
 
@@ -784,10 +784,14 @@ export function StudiesV2Results() {
                                 </div>
                               )}
                               <button
-                                onClick={() => setLogsModal({
-                                  runId: todayRun.run.id,
-                                  label: `${result.studies_v2.brand} ${result.studies_v2.model} ${result.studies_v2.year}`,
-                                })}
+                                onClick={() => {
+                                  console.log('[LOG_BUTTON]', { runId: todayRun.run.id, studyId: result.study_id });
+                                  setLogsModal({
+                                    runId: todayRun.run.id,
+                                    studyId: result.study_id,
+                                    label: `${result.studies_v2.brand} ${result.studies_v2.model} ${result.studies_v2.year}`,
+                                  });
+                                }}
                                 className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors mt-0.5"
                                 title="Voir les logs de cette recherche"
                               >
@@ -1115,6 +1119,7 @@ export function StudiesV2Results() {
       {logsModal && (
         <StudyRunLogsModal
           runId={logsModal.runId}
+          studyId={logsModal.studyId}
           studyLabel={logsModal.label}
           onClose={() => setLogsModal(null)}
         />

@@ -27,6 +27,7 @@ import {
 } from '../src/lib/study-core/index';
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
+import { StudyLogger } from './studyLogger';
 
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
@@ -328,6 +329,8 @@ export async function executeStudy({
   console.log(`[WORKER] Processing study ${study.id} in ${scrapeMode.toUpperCase()} mode`);
   console.log(`[DETAIL_SCRAPE] mode=${scrapeMode} detail_enabled=${scrapeMode === 'detailed'}`);
 
+  const logger = new StudyLogger(runId, study.id);
+
   const trimTarget = study.trim_text_target?.trim() || study.trim_text?.trim() || undefined;
   const trimSource = study.trim_text_source?.trim() || study.trim_text?.trim() || undefined;
 
@@ -355,13 +358,23 @@ export async function executeStudy({
     }
   }
 
+  let finalStatus = 'UNKNOWN_ERROR';
+  let lastStage = 'START';
+  let errorMessage: string | undefined;
+
   try {
+    logger.log('START', 'info', `Starting study ${study.id} (${study.brand} ${study.model} ${study.year}) mode=${scrapeMode}`);
+
     await updateHeartbeat(supabase, runId, scheduledJobId);
 
     // Scrape target market
+    lastStage = 'SCRAPE_TARGET';
     const targetResult = await scrapeSearch(targetUrl, scrapeMode);
 
     if (targetResult.error) {
+      const errReason = targetResult.errorReason || 'Unknown error';
+      logger.log('SCRAPE_TARGET', 'error', `Target scrape failed: ${errReason}`);
+
       const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
@@ -370,7 +383,7 @@ export async function executeStudy({
         best_source_price: null,
         price_difference: null,
         target_stats: null,
-        target_error_reason: targetResult.errorReason || 'Unknown error',
+        target_error_reason: errReason,
       }]);
 
       if (insertError) {
@@ -378,19 +391,21 @@ export async function executeStudy({
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
-      return {
-        status: targetResult.error,
-        nullCount: 1,
-        opportunitiesCount: 0,
-      };
+      finalStatus = targetResult.error;
+      return { status: targetResult.error, nullCount: 1, opportunitiesCount: 0 };
     }
 
+    logger.log('SCRAPE_TARGET', 'info', `${targetResult.listings.length} listings extracted from target market (${study.country_target})`);
     await updateHeartbeat(supabase, runId, scheduledJobId);
 
     // Scrape source market
+    lastStage = 'SCRAPE_SOURCE';
     const sourceResult = await scrapeSearch(sourceUrl, scrapeMode);
 
     if (sourceResult.error) {
+      const errReason = sourceResult.errorReason || 'Unknown error';
+      logger.log('SCRAPE_SOURCE', 'error', `Source scrape failed: ${errReason}`);
+
       const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
@@ -399,7 +414,7 @@ export async function executeStudy({
         best_source_price: null,
         price_difference: null,
         target_stats: null,
-        target_error_reason: sourceResult.errorReason || 'Unknown error',
+        target_error_reason: errReason,
       }]);
 
       if (insertError) {
@@ -407,12 +422,11 @@ export async function executeStudy({
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
-      return {
-        status: sourceResult.error,
-        nullCount: 1,
-        opportunitiesCount: 0,
-      };
+      finalStatus = sourceResult.error;
+      return { status: sourceResult.error, nullCount: 1, opportunitiesCount: 0 };
     }
+
+    logger.log('SCRAPE_SOURCE', 'info', `${sourceResult.listings.length} listings extracted from source market (${study.country_source})`);
 
     // Apply unified business logic (PURE functions)
     // NOTE: Trim filtering is now CODE-DRIVEN (not URL-based) as of 2026-01-23
@@ -433,10 +447,14 @@ export async function executeStudy({
       trim_text: trimSource || null,
     };
 
+    lastStage = 'FILTER';
     const filteredTarget = filterListingsByStudy(targetResult.listings, targetCriteria);
     const filteredSource = filterListingsByStudy(sourceResult.listings, sourceCriteria);
+    logger.log('FILTER', 'info', `After filtering: target=${filteredTarget.length} listings, source=${filteredSource.length} listings${trimTarget ? ` (trim="${trimTarget}")` : ''}`);
 
     if (filteredTarget.length === 0) {
+      logger.log('FILTER', 'warning', 'No target listings remain after filtering — returning NULL');
+
       const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
         study_id: study.id,
@@ -453,15 +471,15 @@ export async function executeStudy({
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
-      return {
-        status: 'NULL',
-        nullCount: 1,
-        opportunitiesCount: 0,
-      };
+      finalStatus = 'NULL';
+      return { status: 'NULL', nullCount: 1, opportunitiesCount: 0 };
     }
 
+    lastStage = 'STATS';
     const targetStats = computeTargetMarketStats(filteredTarget);
     const opportunityResult = detectOpportunity(filteredTarget, filteredSource, threshold, 5);
+
+    logger.log('STATS', 'info', `Target market stats: median=${targetStats.median_price.toFixed(0)}€ count=${targetStats.count} range=${targetStats.min_price.toFixed(0)}–${targetStats.max_price.toFixed(0)}€`);
 
     // DIAGNOSTIC: Show top6 prices/titles used for target market stats
     const top6 = filteredTarget
@@ -475,6 +493,13 @@ export async function executeStudy({
     );
 
     const status = opportunityResult.hasOpportunity ? 'OPPORTUNITIES' : 'NULL';
+
+    lastStage = 'RESULT';
+    if (opportunityResult.hasOpportunity) {
+      logger.log('RESULT', 'info', `OPPORTUNITY detected: diff=+${opportunityResult.priceDifference.toFixed(0)}€ (target median=${targetStats.median_price.toFixed(0)}€, best source=${opportunityResult.bestSourcePrice.toFixed(0)}€)`);
+    } else {
+      logger.log('RESULT', 'info', `No opportunity: diff=${opportunityResult.priceDifference.toFixed(0)}€ below threshold=${threshold}€ (target median=${targetStats.median_price.toFixed(0)}€, best source=${opportunityResult.bestSourcePrice.toFixed(0)}€)`);
+    }
 
     console.log(`[WORKER] Study ${study.id} result: ${status} (diff: ${opportunityResult.priceDifference.toFixed(0)}€)`);
     console.log(`[WORKER] Target median: ${targetStats.median_price.toFixed(0)}€, Best source: ${opportunityResult.bestSourcePrice.toFixed(0)}€`);
@@ -620,6 +645,7 @@ export async function executeStudy({
       }
     }
 
+    finalStatus = status;
     return {
       status,
       nullCount: status === 'NULL' ? 1 : 0,
@@ -627,6 +653,9 @@ export async function executeStudy({
     };
   } catch (error: any) {
     console.error(`[WORKER] Error executing study ${study.id}:`, error);
+    lastStage = 'ERROR';
+    errorMessage = error?.message ?? String(error);
+    logger.log('ERROR', 'error', `Execution error: ${errorMessage}`);
 
     const { error: insertError } = await supabase.from('study_run_results').insert([{
       run_id: runId,
@@ -636,18 +665,16 @@ export async function executeStudy({
       best_source_price: null,
       price_difference: null,
       target_stats: null,
-      target_error_reason: `Execution error: ${error.message}`,
+      target_error_reason: `Execution error: ${errorMessage}`,
     }]);
 
     if (insertError) {
       console.error(`[DATABASE_ERROR] Failed to insert error result for ${study.id}:`, insertError);
-      throw new Error(`Database insert failed after execution error: ${insertError.message}`);
     }
 
-    return {
-      status: 'ERROR',
-      nullCount: 1,
-      opportunitiesCount: 0,
-    };
+    finalStatus = 'UNKNOWN_ERROR';
+    return { status: 'ERROR', nullCount: 1, opportunitiesCount: 0 };
+  } finally {
+    await logger.persist(supabase, finalStatus, lastStage, errorMessage);
   }
 }
