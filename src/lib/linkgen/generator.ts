@@ -1,6 +1,12 @@
-import { SEARCH_TEMPLATES } from './templates';
-import { mapBrand, mapModel, mapFuel } from './mappings';
-import type { LinkGenParams, LinkGenResult, LinkGenLogEntry } from './types';
+import { SEARCH_TEMPLATES, SITE_COUNTRIES } from './templates';
+import { mapBrand, mapModel, mapFuel, isSupportedParam } from './mappings';
+import type {
+  LinkGenParams,
+  LinkGenResult,
+  LinkGenLogEntry,
+  LinkGenUrlResult,
+  SiteKey,
+} from './types';
 
 // Normalise a single token: lower-case, trim, collapse spaces to +
 export function normalizeToken(str: string): string {
@@ -50,24 +56,53 @@ function applyTemplate(template: string, vars: Record<string, string>): string {
     }
   }
 
-  // Remove unfilled optional params from query string (&key={...} or |key:{...})
+  // Remove unfilled optional params: &key={...} or ?key={...} or &key=min-{...}
   result = result
-    // Remove &param=... when the value is still a placeholder or empty
-    .replace(/&[^=&|#]+={[^}]+}/g, '')
+    .replace(/&[^=&|#?]+=[^&|#?]*\{[^}]+\}[^&|#?]*/g, '')
+    .replace(/\?[^=&|#]+=[^&|#]*\{[^}]+\}[^&|#]*/g, (match) => {
+      // If this was the first param (starts with ?), convert next & to ? if present
+      return '';
+    })
     // Remove |segment:{...} for Marktplaats unfilled segments
     .replace(/\|[^|#]+:\{[^}]+\}/g, '');
+
+  // Clean up malformed ? (if first ? param was removed, fix the URL)
+  result = result.replace(/\?&/, '?').replace(/\?$/, '');
 
   return result;
 }
 
-export function generateSearchUrl(params: LinkGenParams): LinkGenResult {
+// Resolve yearFrom / yearTo from params (handles legacy `year` field)
+function resolveYearRange(params: LinkGenParams): { yearFrom: string; yearTo: string } {
+  // Legacy: if only `year` is provided, treat as both from and to
+  if (params.year && !params.yearFrom && !params.yearTo) {
+    const y = String(params.year);
+    return { yearFrom: y, yearTo: y };
+  }
+  return {
+    yearFrom: params.yearFrom ? String(params.yearFrom) : '',
+    yearTo: params.yearTo ? String(params.yearTo) : '',
+  };
+}
+
+export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): LinkGenResult {
   const logs: LinkGenLogEntry[] = [];
+  const { yearFrom, yearTo } = resolveYearRange(params);
 
   logs.push({
     level: 'INPUT',
     message: '[LINKGEN_INPUT] Parameters received',
     data: { ...params } as Record<string, unknown>,
   });
+
+  // Warn on unsupported params
+  if (params.minPower !== undefined && !isSupportedParam(params.site, 'minPower')) {
+    logs.push({
+      level: 'WARNING',
+      message: `[LINKGEN_WARNING] minPower ignored for ${params.site} until mapping is implemented`,
+      data: { minPower: params.minPower },
+    });
+  }
 
   // Apply mappings
   const mappedBrand = mapBrand(params.site, params.brand || '');
@@ -82,6 +117,8 @@ export function generateSearchUrl(params: LinkGenParams): LinkGenResult {
       model: `${params.model} → ${mappedModel}`,
       fuel: params.fuel ? `${params.fuel} → ${mappedFuel}` : '(not provided)',
       trim: params.trim || '(not provided)',
+      yearFrom: yearFrom || '(not provided)',
+      yearTo: yearTo || '(not provided)',
     },
   });
 
@@ -93,8 +130,21 @@ export function generateSearchUrl(params: LinkGenParams): LinkGenResult {
     const query = buildMarktplaatsQuery(mappedBrand, mappedModel, params.trim);
 
     const vars: Record<string, string> = { query };
-    if (params.year) vars['year'] = String(params.year);
+    if (yearFrom) vars['yearFrom'] = yearFrom;
+    if (yearTo) vars['yearTo'] = yearTo;
     if (params.mileage) vars['mileage'] = String(params.mileage);
+
+    url = applyTemplate(template, vars);
+  } else if (params.site === 'BILBASEN') {
+    const vars: Record<string, string> = {
+      brand: mappedBrand,
+      model: mappedModel,
+    };
+    if (yearFrom) vars['yearFrom'] = yearFrom;
+    if (yearTo) vars['yearTo'] = yearTo;
+    if (params.mileage) vars['mileage'] = String(params.mileage);
+    // Only inject fuel if mapping produced a non-empty value (GPL maps to '' for Bilbasen)
+    if (mappedFuel && mappedFuel.trim()) vars['fuel'] = mappedFuel;
 
     url = applyTemplate(template, vars);
   } else {
@@ -103,7 +153,8 @@ export function generateSearchUrl(params: LinkGenParams): LinkGenResult {
       brand: mappedBrand,
       model: mappedModel,
     };
-    if (params.year) vars['year'] = String(params.year);
+    if (yearFrom) vars['yearFrom'] = yearFrom;
+    if (yearTo) vars['yearTo'] = yearTo;
     if (params.mileage) vars['mileage'] = String(params.mileage);
     if (mappedFuel) vars['fuel'] = mappedFuel;
     if (params.trim && params.trim.trim()) vars['trim'] = params.trim.trim();
@@ -118,4 +169,26 @@ export function generateSearchUrl(params: LinkGenParams): LinkGenResult {
   });
 
   return { url, site: params.site, debugLogs: logs };
+}
+
+export function generateSearchUrls(params: LinkGenParams): LinkGenUrlResult[] {
+  const sites = params.selectedSites ?? (params.site ? [params.site] : []);
+
+  return sites.map((site) => {
+    const singleParams = { ...params, site };
+    const result = generateSearchUrl(singleParams);
+
+    const warnings = result.debugLogs
+      .filter((l) => l.level === 'WARNING')
+      .map((l) => l.message);
+
+    return {
+      site,
+      country: SITE_COUNTRIES[site],
+      url: result.url,
+      debugLogs: result.debugLogs,
+      warnings,
+      validationStatus: 'not_checked' as const,
+    };
+  });
 }

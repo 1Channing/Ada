@@ -2766,3 +2766,81 @@ export function computeTargetMarketStats(listings: ScrapedListing[]): MarketStat
 
   return stats;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LINKGEN / SCOUT CHECK EXPORTS — lightweight, no pagination, no retry loop
+// These are used exclusively by the Link Generator's Scout Check feature.
+// DO NOT use these for study scraping — use the full pipeline above instead.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Fetch HTML from a single URL via Zyte. One request, one retry max.
+ * Intended for lightweight URL validation only — not for bulk scraping.
+ */
+export async function fetchHtmlLite(targetUrl: string): Promise<string | null> {
+  if (!targetUrl) return null;
+
+  const apiKey =
+    (import.meta.env.VITE_ZYTE_API_KEY as string | undefined) ||
+    (import.meta.env.ZYTE_API_KEY as string | undefined) ||
+    '';
+
+  if (!apiKey) {
+    console.warn('[LINKGEN_VALIDATION] fetchHtmlLite: no Zyte API key configured');
+    return null;
+  }
+
+  const authHeader = `Basic ${btoa(apiKey + ':')}`;
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      if (attempt === 2) await new Promise((r) => setTimeout(r, 1000));
+
+      const response = await fetch('https://api.zyte.com/v1/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: authHeader },
+        body: JSON.stringify({ url: targetUrl, browserHtml: true }),
+      });
+
+      if (!response.ok) {
+        console.warn(`[LINKGEN_VALIDATION] fetchHtmlLite HTTP ${response.status} on attempt ${attempt}`);
+        continue;
+      }
+
+      const json = await response.json();
+      const html: string = json.browserHtml ?? json.httpResponseBody ?? '';
+      if (html) return html;
+    } catch (err) {
+      console.warn(`[LINKGEN_VALIDATION] fetchHtmlLite error on attempt ${attempt}:`, err);
+    }
+  }
+
+  return null;
+}
+
+/** Adapter: parse up to `limit` listings from Leboncoin HTML */
+export function parseLeboncoinSample(html: string, url: string, limit = 5): ScrapedListing[] {
+  try {
+    return parseLeboncoinListings(html, url).slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+/** Adapter: parse up to `limit` listings from Marktplaats HTML */
+export function parseMarktplaasSample(html: string, url: string, limit = 5): ScrapedListing[] {
+  try {
+    return parseMarktplaatsListings(html, url).slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+/** Adapter: parse up to `limit` listings from Bilbasen HTML */
+export function parseBilbasenSample(html: string, url: string, limit = 5): ScrapedListing[] {
+  try {
+    return parseBilbasenListings(html, url).slice(0, limit);
+  } catch {
+    return [];
+  }
+}

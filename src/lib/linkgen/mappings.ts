@@ -40,6 +40,25 @@ const BRAND_MAP: Record<SiteKey, Record<string, string>> = {
     CITROEN: 'CITROEN',
     OPEL: 'OPEL',
   },
+  BILBASEN: {
+    TOYOTA: 'Toyota',
+    BMW: 'BMW',
+    MERCEDES: 'Mercedes-Benz',
+    VOLKSWAGEN: 'Volkswagen',
+    AUDI: 'Audi',
+    PEUGEOT: 'Peugeot',
+    RENAULT: 'Renault',
+    FORD: 'Ford',
+    HONDA: 'Honda',
+    NISSAN: 'Nissan',
+    HYUNDAI: 'Hyundai',
+    KIA: 'Kia',
+    VOLVO: 'Volvo',
+    SKODA: 'Skoda',
+    SEAT: 'Seat',
+    CITROEN: 'Citroen',
+    OPEL: 'Opel',
+  },
 };
 
 // Model mapping: normalise raw model value per site
@@ -75,9 +94,28 @@ const MODEL_MAP: Record<SiteKey, Record<string, string>> = {
     POLO: 'POLO',
     PASSAT: 'PASSAT',
   },
+  BILBASEN: {
+    RAV4: 'RAV4',
+    'RAV 4': 'RAV4',
+    YARIS: 'Yaris',
+    COROLLA: 'Corolla',
+    CAMRY: 'Camry',
+    PRIUS: 'Prius',
+    'C-HR': 'C-HR',
+    CHR: 'C-HR',
+    GOLF: 'Golf',
+    POLO: 'Polo',
+    PASSAT: 'Passat',
+    '3 SERIES': '3',
+    '5 SERIES': '5',
+    'A-CLASS': 'A-Klasse',
+    'C-CLASS': 'C-Klasse',
+    'E-CLASS': 'E-Klasse',
+  },
 };
 
 // Fuel mapping per site
+// HYBRID and PLUG_IN_HYBRID are always distinct values
 const FUEL_MAP: Record<SiteKey, Record<string, string>> = {
   MARKTPLAATS: {
     ESSENCE: 'benzine',
@@ -89,6 +127,7 @@ const FUEL_MAP: Record<SiteKey, Record<string, string>> = {
     PETROL: 'benzine',
     HYBRID: 'hybride',
     ELECTRIC: 'elektrisch',
+    PLUG_IN_HYBRID: 'plug-in-hybride',
   },
   LEBONCOIN: {
     ESSENCE: '1',
@@ -100,8 +139,33 @@ const FUEL_MAP: Record<SiteKey, Record<string, string>> = {
     PETROL: '1',
     HYBRID: '3',
     ELECTRIC: '5',
+    PLUG_IN_HYBRID: '4',
+  },
+  BILBASEN: {
+    ESSENCE: 'Benzin',
+    DIESEL: 'Diesel',
+    HYBRIDE: 'Hybrid',
+    ELECTRIQUE: 'El',
+    GASOLINE: 'Benzin',
+    PETROL: 'Benzin',
+    HYBRID: 'Hybrid',
+    ELECTRIC: 'El',
+    PLUG_IN_HYBRID: 'Plugin-hybrid',
+    GPL: '',
   },
 };
+
+// Parameters not yet supported by each site
+// When a param is listed here, the generator emits a WARNING instead of injecting a bad value
+export const UNSUPPORTED_PARAMS: Record<SiteKey, string[]> = {
+  LEBONCOIN: ['minPower'],
+  MARKTPLAATS: ['minPower'],
+  BILBASEN: ['minPower'],
+};
+
+export function isSupportedParam(site: SiteKey, paramName: string): boolean {
+  return !UNSUPPORTED_PARAMS[site].includes(paramName);
+}
 
 export function mapBrand(site: SiteKey, brand: string): string {
   const key = brand.trim().toUpperCase();
