@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { Link2 } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 
 type LayoutProps = {
@@ -46,6 +47,17 @@ export function Layout({ children }: LayoutProps) {
             }`}
           >
             Administrative
+          </button>
+          <button
+            onClick={() => navigateTo('/link-generator')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              isActive('/link-generator')
+                ? 'bg-blue-600 text-white'
+                : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+            }`}
+          >
+            <Link2 className="w-4 h-4" />
+            Link Generator
           </button>
         </div>
       </nav>

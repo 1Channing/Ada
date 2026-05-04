@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { StudiesV2 } from './pages/StudiesV2';
 import { Administrative } from './pages/Administrative';
 import { AdminHistory } from './pages/AdminHistory';
+import { LinkGenerator } from './pages/LinkGenerator';
 
 const originalPushState = window.history.pushState.bind(window.history);
 window.history.pushState = function(...args) {
@@ -33,6 +34,9 @@ function App() {
     }
     if (path === '/admin/history') {
       return <AdminHistory />;
+    }
+    if (path === '/link-generator') {
+      return <LinkGenerator />;
     }
     return <StudiesV2 />;
   };
