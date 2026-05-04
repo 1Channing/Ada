@@ -304,6 +304,145 @@ function applyTrimBilbasen(url: string, trim: string): string {
   return url + `${sep}free=${encoded}`;
 }
 
+// ─── LOG HELPERS (read-only, no business logic) ──────────────────────────────
+
+function detectMarketplace(country: string): string {
+  if (country === 'NL') return 'MARKTPLAATS';
+  if (country === 'FR') return 'LEBONCOIN';
+  if (country === 'DK') return 'BILBASEN';
+  return country ?? 'UNKNOWN';
+}
+
+function urlHasTrimHint(url: string, trim: string): boolean {
+  if (!trim) return false;
+  return url.toLowerCase().includes(encodeURIComponent(trim).toLowerCase())
+    || url.toLowerCase().includes(trim.toLowerCase().replace(/\s+/g, '+'))
+    || url.toLowerCase().includes(trim.toLowerCase().replace(/\s+/g, '%20'))
+    || url.toLowerCase().includes(trim.toLowerCase().replace(/\s+/g, '-'));
+}
+
+function urlHasYearHint(url: string): boolean {
+  return /year|jaar|an|bj|aargang|yearFrom|yearTo|\d{4}/.test(url);
+}
+
+function urlHasMileageHint(url: string): boolean {
+  return /km|mileage|kilom|mileageMax|kmFrom|kmTo|mileageFrom|kilometrage/.test(url);
+}
+
+function buildUrlLog(
+  label: 'URL_TARGET' | 'URL_SOURCE',
+  originalUrl: string,
+  finalUrl: string,
+  country: string,
+  trim: string | undefined
+): string {
+  const marketplace = detectMarketplace(country);
+  const trimInUrl = trim ? urlHasTrimHint(finalUrl, trim) : false;
+  const yearInUrl = urlHasYearHint(finalUrl);
+  const mileageInUrl = urlHasMileageHint(finalUrl);
+  const urlChanged = originalUrl !== finalUrl;
+
+  const parts = [
+    `marketplace=${marketplace}`,
+    `country=${country}`,
+    urlChanged ? `originalUrl=${originalUrl}` : null,
+    `finalUrl=${finalUrl}`,
+  ];
+
+  if (trim) parts.push(`trim="${trim}" trimInUrl=${trimInUrl}`);
+  parts.push(`yearInUrl=${yearInUrl}`, `mileageInUrl=${mileageInUrl}`);
+
+  return parts.filter(Boolean).join(' ');
+}
+
+function buildListingSamples(listings: ScrapedListing[], max = 3): string {
+  return listings
+    .slice(0, max)
+    .map(l => `€${l.price}|${l.year ?? '?'}|${l.mileage != null ? l.mileage + 'km' : '?'}|${(l.title ?? '').substring(0, 80)}`)
+    .join(', ');
+}
+
+interface FilterDiagnostics {
+  passed: number;
+  rejected: number;
+  byYear: number;
+  byMileage: number;
+  byTrim: number;
+  byBrandModel: number;
+  byFirstPass: number;
+  examples: string[];
+}
+
+function diagnoseFilterRejections(
+  listings: ScrapedListing[],
+  criteria: StudyCriteria
+): FilterDiagnostics {
+  let byYear = 0, byMileage = 0, byTrim = 0, byBrandModel = 0, byFirstPass = 0, passed = 0;
+  const examples: string[] = [];
+
+  for (const l of listings) {
+    const title = (l.title ?? '').substring(0, 60);
+
+    // First-pass: price floor, leasing, damage
+    const priceEur = l.price * (l.currency === 'DKK' ? 0.134 : 1);
+    if (priceEur <= 2000) { byFirstPass++; continue; }
+    const text = `${l.title} ${l.description}`.toLowerCase();
+    const isMonthly = ['/mois','per month','/maand','lease','loa','lld','leasing'].some(k => text.includes(k));
+    if (isMonthly) { byFirstPass++; continue; }
+    const isDamaged = ['accidenté','épave','schade','damaged','salvage','skadet'].some(k => text.includes(k));
+    if (isDamaged) { byFirstPass++; continue; }
+
+    // Year
+    if (l.year && l.year < criteria.year) {
+      byYear++;
+      if (examples.length < 3) examples.push(`year: ${l.year} < ${criteria.year} title="${title}"`);
+      continue;
+    }
+
+    // Mileage
+    if (criteria.max_mileage > 0 && l.mileage && l.mileage > criteria.max_mileage) {
+      byMileage++;
+      if (examples.length < 3) examples.push(`mileage: ${l.mileage}km > ${criteria.max_mileage}km title="${title}"`);
+      continue;
+    }
+
+    // Brand/model
+    const titleLower = (l.title ?? '').toLowerCase();
+    const brandOk = titleLower.includes(criteria.brand.toLowerCase());
+    const modelTokens = criteria.model.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(t => t.length > 0);
+    const modelOk = modelTokens.every(tok => titleLower.includes(tok));
+    if (!brandOk || !modelOk) {
+      byBrandModel++;
+      if (examples.length < 3) examples.push(`brand_model: title="${title}"`);
+      continue;
+    }
+
+    // Trim
+    if (criteria.trim_text) {
+      const trimLower = criteria.trim_text.toLowerCase().trim();
+      const searchText = `${l.title} ${l.description}`.toLowerCase();
+      const trimTokens = trimLower.replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(t => t.length > 0);
+      const trimMatches = trimTokens.every(tok => searchText.includes(tok));
+      if (!trimMatches) {
+        byTrim++;
+        if (examples.length < 3) examples.push(`trim: expected="${criteria.trim_text}" title="${title}"`);
+        continue;
+      }
+    }
+
+    passed++;
+  }
+
+  return {
+    passed,
+    rejected: listings.length - passed,
+    byYear, byMileage, byTrim, byBrandModel, byFirstPass,
+    examples,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Execute a study run
  */
@@ -334,8 +473,10 @@ export async function executeStudy({
   const trimTarget = study.trim_text_target?.trim() || study.trim_text?.trim() || undefined;
   const trimSource = study.trim_text_source?.trim() || study.trim_text?.trim() || undefined;
 
-  let targetUrl = study.market_target_url;
-  let sourceUrl = study.market_source_url;
+  const originalTargetUrl = study.market_target_url;
+  const originalSourceUrl = study.market_source_url;
+  let targetUrl = originalTargetUrl;
+  let sourceUrl = originalSourceUrl;
 
   // Apply trim filters
   if (trimTarget) {
@@ -363,7 +504,24 @@ export async function executeStudy({
   let errorMessage: string | undefined;
 
   try {
-    logger.log('START', 'info', `Starting study ${study.id} (${study.brand} ${study.model} ${study.year}) mode=${scrapeMode}`);
+    logger.log('START', 'info', `Starting study ${study.id} mode=${scrapeMode}`);
+
+    // INPUT log: business criteria for the study
+    logger.log('INPUT', 'info',
+      `brand=${study.brand} model=${study.model} year=${study.year}` +
+      (trimTarget ? ` trimTarget="${trimTarget}"` : '') +
+      (trimSource && trimSource !== trimTarget ? ` trimSource="${trimSource}"` : '') +
+      ` mileageMax=${study.max_mileage || 'none'}` +
+      ` source=${study.country_source} target=${study.country_target}` +
+      ` threshold=${threshold}€`
+    );
+
+    // URL logs: what is actually sent to the scraper
+    lastStage = 'URL_TARGET';
+    logger.log('URL_TARGET', 'info', buildUrlLog('URL_TARGET', originalTargetUrl, targetUrl, study.country_target, trimTarget));
+
+    lastStage = 'URL_SOURCE';
+    logger.log('URL_SOURCE', 'info', buildUrlLog('URL_SOURCE', originalSourceUrl, sourceUrl, study.country_source, trimSource));
 
     await updateHeartbeat(supabase, runId, scheduledJobId);
 
@@ -373,7 +531,10 @@ export async function executeStudy({
 
     if (targetResult.error) {
       const errReason = targetResult.errorReason || 'Unknown error';
-      logger.log('SCRAPE_TARGET', 'error', `Target scrape failed: ${errReason}`);
+      logger.log('SCRAPE_TARGET', 'error',
+        `stage=SCRAPE_TARGET marketplace=${detectMarketplace(study.country_target)}` +
+        ` error="${errReason}" url=${targetUrl}`
+      );
 
       const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
@@ -395,7 +556,19 @@ export async function executeStudy({
       return { status: targetResult.error, nullCount: 1, opportunitiesCount: 0 };
     }
 
-    logger.log('SCRAPE_TARGET', 'info', `${targetResult.listings.length} listings extracted from target market (${study.country_target})`);
+    logger.log('SCRAPE_TARGET', 'info',
+      `marketplace=${detectMarketplace(study.country_target)} raw=${targetResult.listings.length} listings mode=${scrapeMode}`
+    );
+
+    // PARSE log: first 3 listings as samples
+    if (targetResult.listings.length > 0) {
+      logger.log('PARSE_TARGET', 'info',
+        `parsed=${targetResult.listings.length} sample=[${buildListingSamples(targetResult.listings)}]`
+      );
+    } else {
+      logger.log('PARSE_TARGET', 'warning', `parsed=0 — no listings found on target market`);
+    }
+
     await updateHeartbeat(supabase, runId, scheduledJobId);
 
     // Scrape source market
@@ -404,7 +577,10 @@ export async function executeStudy({
 
     if (sourceResult.error) {
       const errReason = sourceResult.errorReason || 'Unknown error';
-      logger.log('SCRAPE_SOURCE', 'error', `Source scrape failed: ${errReason}`);
+      logger.log('SCRAPE_SOURCE', 'error',
+        `stage=SCRAPE_SOURCE marketplace=${detectMarketplace(study.country_source)}` +
+        ` error="${errReason}" url=${sourceUrl}`
+      );
 
       const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
@@ -426,7 +602,17 @@ export async function executeStudy({
       return { status: sourceResult.error, nullCount: 1, opportunitiesCount: 0 };
     }
 
-    logger.log('SCRAPE_SOURCE', 'info', `${sourceResult.listings.length} listings extracted from source market (${study.country_source})`);
+    logger.log('SCRAPE_SOURCE', 'info',
+      `marketplace=${detectMarketplace(study.country_source)} raw=${sourceResult.listings.length} listings mode=${scrapeMode}`
+    );
+
+    if (sourceResult.listings.length > 0) {
+      logger.log('PARSE_SOURCE', 'info',
+        `parsed=${sourceResult.listings.length} sample=[${buildListingSamples(sourceResult.listings)}]`
+      );
+    } else {
+      logger.log('PARSE_SOURCE', 'warning', `parsed=0 — no listings found on source market`);
+    }
 
     // Apply unified business logic (PURE functions)
     // NOTE: Trim filtering is now CODE-DRIVEN (not URL-based) as of 2026-01-23
@@ -447,13 +633,39 @@ export async function executeStudy({
       trim_text: trimSource || null,
     };
 
-    lastStage = 'FILTER';
+    // Filter diagnostic (read-only, never affects business result)
+    lastStage = 'FILTER_TARGET';
+    const targetDiag = diagnoseFilterRejections(targetResult.listings, targetCriteria);
     const filteredTarget = filterListingsByStudy(targetResult.listings, targetCriteria);
+    logger.log('FILTER_TARGET', filteredTarget.length === 0 ? 'warning' : 'info',
+      `input=${targetResult.listings.length} passed=${filteredTarget.length} rejected=${targetDiag.rejected}` +
+      (targetDiag.byTrim > 0 ? ` byTrim=${targetDiag.byTrim}` : '') +
+      (targetDiag.byYear > 0 ? ` byYear=${targetDiag.byYear}` : '') +
+      (targetDiag.byMileage > 0 ? ` byMileage=${targetDiag.byMileage}` : '') +
+      (targetDiag.byBrandModel > 0 ? ` byBrandModel=${targetDiag.byBrandModel}` : '') +
+      (targetDiag.byFirstPass > 0 ? ` byFirstPass=${targetDiag.byFirstPass}` : '')
+    );
+    for (const ex of targetDiag.examples) {
+      logger.log('FILTER_TARGET', 'warning', `rejected ${ex}`);
+    }
+
+    lastStage = 'FILTER_SOURCE';
+    const sourceDiag = diagnoseFilterRejections(sourceResult.listings, sourceCriteria);
     const filteredSource = filterListingsByStudy(sourceResult.listings, sourceCriteria);
-    logger.log('FILTER', 'info', `After filtering: target=${filteredTarget.length} listings, source=${filteredSource.length} listings${trimTarget ? ` (trim="${trimTarget}")` : ''}`);
+    logger.log('FILTER_SOURCE', filteredSource.length === 0 ? 'warning' : 'info',
+      `input=${sourceResult.listings.length} passed=${filteredSource.length} rejected=${sourceDiag.rejected}` +
+      (sourceDiag.byTrim > 0 ? ` byTrim=${sourceDiag.byTrim}` : '') +
+      (sourceDiag.byYear > 0 ? ` byYear=${sourceDiag.byYear}` : '') +
+      (sourceDiag.byMileage > 0 ? ` byMileage=${sourceDiag.byMileage}` : '') +
+      (sourceDiag.byBrandModel > 0 ? ` byBrandModel=${sourceDiag.byBrandModel}` : '') +
+      (sourceDiag.byFirstPass > 0 ? ` byFirstPass=${sourceDiag.byFirstPass}` : '')
+    );
+    for (const ex of sourceDiag.examples) {
+      logger.log('FILTER_SOURCE', 'warning', `rejected ${ex}`);
+    }
 
     if (filteredTarget.length === 0) {
-      logger.log('FILTER', 'warning', 'No target listings remain after filtering — returning NULL');
+      logger.log('FILTER_TARGET', 'warning', 'No target listings remain after filtering — returning NULL');
 
       const { error: insertError } = await supabase.from('study_run_results').insert([{
         run_id: runId,
@@ -475,11 +687,34 @@ export async function executeStudy({
       return { status: 'NULL', nullCount: 1, opportunitiesCount: 0 };
     }
 
-    lastStage = 'STATS';
+    lastStage = 'STATS_TARGET';
     const targetStats = computeTargetMarketStats(filteredTarget);
     const opportunityResult = detectOpportunity(filteredTarget, filteredSource, threshold, 5);
 
-    logger.log('STATS', 'info', `Target market stats: median=${targetStats.median_price.toFixed(0)}€ count=${targetStats.count} range=${targetStats.min_price.toFixed(0)}–${targetStats.max_price.toFixed(0)}€`);
+    // STATS_TARGET log
+    const top6Prices = filteredTarget
+      .slice()
+      .sort((a, b) => a.price - b.price)
+      .slice(0, 6)
+      .map(l => l.price.toFixed(0));
+    logger.log('STATS_TARGET', 'info',
+      `count=${targetStats.count} median=${targetStats.median_price.toFixed(0)}€` +
+      ` avg=${targetStats.average_price.toFixed(0)}€` +
+      ` range=${targetStats.min_price.toFixed(0)}-${targetStats.max_price.toFixed(0)}€` +
+      ` topPrices=[${top6Prices.join(',')}]`
+    );
+
+    // STATS_SOURCE log
+    lastStage = 'STATS_SOURCE';
+    const top3SourcePrices = filteredSource
+      .slice()
+      .sort((a, b) => a.price - b.price)
+      .slice(0, 3)
+      .map(l => l.price.toFixed(0));
+    logger.log('STATS_SOURCE', 'info',
+      `count=${filteredSource.length} bestPrice=${opportunityResult.bestSourcePrice.toFixed(0)}€` +
+      (top3SourcePrices.length > 0 ? ` topPrices=[${top3SourcePrices.join(',')}]` : ' (no source listings)')
+    );
 
     // DIAGNOSTIC: Show top6 prices/titles used for target market stats
     const top6 = filteredTarget
@@ -495,13 +730,21 @@ export async function executeStudy({
     const status = opportunityResult.hasOpportunity ? 'OPPORTUNITIES' : 'NULL';
 
     lastStage = 'RESULT';
+    const diff = opportunityResult.priceDifference;
     if (opportunityResult.hasOpportunity) {
-      logger.log('RESULT', 'info', `OPPORTUNITY detected: diff=+${opportunityResult.priceDifference.toFixed(0)}€ (target median=${targetStats.median_price.toFixed(0)}€, best source=${opportunityResult.bestSourcePrice.toFixed(0)}€)`);
+      logger.log('RESULT', 'info',
+        `status=OPPORTUNITY diff=+${diff.toFixed(0)}€ threshold=${threshold}€` +
+        ` targetMedian=${targetStats.median_price.toFixed(0)}€ bestSource=${opportunityResult.bestSourcePrice.toFixed(0)}€`
+      );
     } else {
-      logger.log('RESULT', 'info', `No opportunity: diff=${opportunityResult.priceDifference.toFixed(0)}€ below threshold=${threshold}€ (target median=${targetStats.median_price.toFixed(0)}€, best source=${opportunityResult.bestSourcePrice.toFixed(0)}€)`);
+      const reason = filteredSource.length === 0 ? 'no_source_listings' : 'below_threshold';
+      logger.log('RESULT', 'info',
+        `status=NULL diff=${diff.toFixed(0)}€ threshold=${threshold}€ reason=${reason}` +
+        ` targetMedian=${targetStats.median_price.toFixed(0)}€ bestSource=${opportunityResult.bestSourcePrice.toFixed(0)}€`
+      );
     }
 
-    console.log(`[WORKER] Study ${study.id} result: ${status} (diff: ${opportunityResult.priceDifference.toFixed(0)}€)`);
+    console.log(`[WORKER] Study ${study.id} result: ${status} (diff: ${diff.toFixed(0)}€)`);
     console.log(`[WORKER] Target median: ${targetStats.median_price.toFixed(0)}€, Best source: ${opportunityResult.bestSourcePrice.toFixed(0)}€`);
 
     const { data: insertedResult, error: insertError } = await supabase.from('study_run_results').insert([{
@@ -653,9 +896,19 @@ export async function executeStudy({
     };
   } catch (error: any) {
     console.error(`[WORKER] Error executing study ${study.id}:`, error);
-    lastStage = 'ERROR';
     errorMessage = error?.message ?? String(error);
-    logger.log('ERROR', 'error', `Execution error: ${errorMessage}`);
+    const failedUrl = lastStage === 'SCRAPE_TARGET' || lastStage === 'URL_TARGET' ? targetUrl
+      : lastStage === 'SCRAPE_SOURCE' || lastStage === 'URL_SOURCE' ? sourceUrl
+      : undefined;
+    const marketplace = lastStage.includes('TARGET') ? detectMarketplace(study.country_target)
+      : lastStage.includes('SOURCE') ? detectMarketplace(study.country_source)
+      : 'UNKNOWN';
+    lastStage = 'ERROR';
+    logger.log('ERROR', 'error',
+      `stage=${lastStage} marketplace=${marketplace}` +
+      (failedUrl ? ` url=${failedUrl}` : '') +
+      ` error="${errorMessage}"`
+    );
 
     const { error: insertError } = await supabase.from('study_run_results').insert([{
       run_id: runId,

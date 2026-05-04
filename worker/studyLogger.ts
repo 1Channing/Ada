@@ -4,10 +4,17 @@ export type LogLevel = 'info' | 'warning' | 'error';
 
 export type LogStage =
   | 'START'
+  | 'INPUT'
+  | 'URL_TARGET'
+  | 'URL_SOURCE'
   | 'SCRAPE_TARGET'
   | 'SCRAPE_SOURCE'
-  | 'FILTER'
-  | 'STATS'
+  | 'PARSE_TARGET'
+  | 'PARSE_SOURCE'
+  | 'FILTER_TARGET'
+  | 'FILTER_SOURCE'
+  | 'STATS_TARGET'
+  | 'STATS_SOURCE'
   | 'RESULT'
   | 'ERROR';
 

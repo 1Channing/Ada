@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, ScrollText, AlertTriangle, CheckCircle, Info, Clock, Loader2 } from 'lucide-react';
+import { X, ScrollText, AlertTriangle, CheckCircle, Info, Clock, Loader2, Copy, Check } from 'lucide-react';
 import { loadStudyRunLogs, loadStudyResultLogs } from '../services/studyRunLogs';
 import type { StudyRunProgressEvent } from '../store/studyRunsStore';
 
@@ -17,21 +17,27 @@ interface LogsData {
   errorMessage?: string;
 }
 
-// Labels for both worker stages (e.g. START, SCRAPE_TARGET) and legacy local stages
 const STAGE_LABELS: Record<string, string> = {
   // Worker stages
   START: 'Démarrage',
-  SCRAPE_TARGET: 'Scraping marché cible',
-  SCRAPE_SOURCE: 'Scraping marché source',
-  FILTER: 'Filtrage',
-  STATS: 'Calcul statistiques',
+  INPUT: 'Critères étude',
+  URL_TARGET: 'URL cible',
+  URL_SOURCE: 'URL source',
+  SCRAPE_TARGET: 'Scraping cible',
+  SCRAPE_SOURCE: 'Scraping source',
+  PARSE_TARGET: 'Parsing cible',
+  PARSE_SOURCE: 'Parsing source',
+  FILTER_TARGET: 'Filtrage cible',
+  FILTER_SOURCE: 'Filtrage source',
+  STATS_TARGET: 'Stats cible',
+  STATS_SOURCE: 'Stats source',
   RESULT: 'Résultat',
   ERROR: 'Erreur',
   // Legacy local stages
   queued: 'En attente',
-  scraping_target: 'Scraping marché cible',
+  scraping_target: 'Scraping cible',
   computing_target_stats: 'Calcul stats cible',
-  scraping_source: 'Scraping marché source',
+  scraping_source: 'Scraping source',
   evaluating_price: 'Évaluation prix',
   fetching_details: 'Récupération détails',
   ai_analysis: 'Analyse IA',
@@ -51,24 +57,21 @@ function formatTime(ts: number | string): string {
 }
 
 function getLevelIcon(level?: string, stage?: string) {
-  if (level === 'error' || stage === 'ERROR' || stage === 'error') {
-    return <AlertTriangle size={13} className="text-red-400 shrink-0 mt-0.5" />;
-  }
-  if (level === 'warning') {
-    return <AlertTriangle size={13} className="text-amber-400 shrink-0 mt-0.5" />;
-  }
-  if (stage === 'RESULT' || stage === 'done') {
-    return <CheckCircle size={13} className="text-emerald-400 shrink-0 mt-0.5" />;
-  }
+  const isErr = level === 'error' || stage === 'ERROR' || stage === 'error';
+  const isWarn = level === 'warning';
+  const isDone = stage === 'RESULT' || stage === 'done';
+  if (isErr) return <AlertTriangle size={13} className="text-red-400 shrink-0 mt-0.5" />;
+  if (isWarn) return <AlertTriangle size={13} className="text-amber-400 shrink-0 mt-0.5" />;
+  if (isDone) return <CheckCircle size={13} className="text-emerald-400 shrink-0 mt-0.5" />;
   return <Info size={13} className="text-zinc-500 shrink-0 mt-0.5" />;
 }
 
 function getLogRowClass(level?: string, stage?: string): string {
-  if (level === 'error' || stage === 'ERROR' || stage === 'error') {
-    return 'bg-red-950/20 border-l-2 border-red-700';
-  }
+  if (level === 'error' || stage === 'ERROR' || stage === 'error') return 'bg-red-950/20 border-l-2 border-red-700';
   if (level === 'warning') return 'bg-amber-950/20 border-l-2 border-amber-700';
   if (stage === 'RESULT' || stage === 'done') return 'bg-emerald-950/20 border-l-2 border-emerald-700';
+  if (stage === 'INPUT') return 'bg-blue-950/20 border-l-2 border-blue-700';
+  if (stage === 'URL_TARGET' || stage === 'URL_SOURCE') return 'bg-zinc-800/40 border-l-2 border-zinc-600';
   return 'border-l-2 border-transparent';
 }
 
@@ -76,6 +79,8 @@ function getLogTextClass(level?: string, stage?: string): string {
   if (level === 'error' || stage === 'ERROR' || stage === 'error') return 'text-red-300';
   if (level === 'warning') return 'text-amber-300';
   if (stage === 'RESULT' || stage === 'done') return 'text-emerald-300';
+  if (stage === 'INPUT') return 'text-blue-300';
+  if (stage === 'URL_TARGET' || stage === 'URL_SOURCE') return 'text-zinc-400';
   return 'text-zinc-300';
 }
 
@@ -99,10 +104,34 @@ function getStatusBadge(status: string) {
   );
 }
 
+function buildCopyText(
+  studyLabel: string,
+  runId: string,
+  studyId: string | undefined,
+  logsData: LogsData
+): string {
+  const lines: string[] = [
+    `Study: ${studyLabel}`,
+    `RunId: ${runId}`,
+    studyId ? `StudyId: ${studyId}` : null,
+    `Status: ${logsData.status}`,
+    logsData.lastStage ? `Last stage: ${stageLabel(logsData.lastStage)}` : null,
+    logsData.errorMessage ? `Error: ${logsData.errorMessage}` : null,
+    `GeneratedAt: ${new Date().toISOString()}`,
+    ``,
+    `Logs:`,
+    ...logsData.logs.map(e =>
+      `[${formatTime(e.timestamp)}] [${e.stage}] ${e.message}`
+    ),
+  ].filter((l): l is string => l !== null);
+  return lines.join('\n');
+}
+
 export function StudyRunLogsModal({ runId, studyId, studyLabel, onClose }: StudyRunLogsModalProps) {
   const [logsData, setLogsData] = useState<LogsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +166,18 @@ export function StudyRunLogsModal({ runId, studyId, studyLabel, onClose }: Study
     return () => { cancelled = true; };
   }, [runId, studyId]);
 
+  async function handleCopy() {
+    if (!logsData) return;
+    const text = buildCopyText(studyLabel, runId, studyId, logsData);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard not available in some contexts — silently ignore
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={onClose}>
       <div
@@ -152,13 +193,26 @@ export function StudyRunLogsModal({ runId, studyId, studyLabel, onClose }: Study
               <p className="text-xs text-zinc-500 mt-0.5">{studyLabel}</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-zinc-800 rounded transition-colors"
-            aria-label="Fermer"
-          >
-            <X size={18} className="text-zinc-400" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopy}
+              disabled={loading || notFound || !logsData}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Copier les logs dans le presse-papiers"
+            >
+              {copied
+                ? <><Check size={13} className="text-emerald-400" /><span className="text-emerald-400">Logs copiés</span></>
+                : <><Copy size={13} /><span>Copier les logs</span></>
+              }
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 hover:bg-zinc-800 rounded transition-colors"
+              aria-label="Fermer"
+            >
+              <X size={18} className="text-zinc-400" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -217,7 +271,7 @@ export function StudyRunLogsModal({ runId, studyId, studyLabel, onClose }: Study
                       <span className="text-zinc-500 shrink-0 hidden sm:inline">
                         [{stageLabel(entry.stage)}]
                       </span>
-                      <span className={`flex-1 leading-relaxed ${getLogTextClass(entry.level, entry.stage)}`}>
+                      <span className={`flex-1 leading-relaxed break-all ${getLogTextClass(entry.level, entry.stage)}`}>
                         {entry.message}
                       </span>
                     </div>
