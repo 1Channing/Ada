@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { History, X, ExternalLink, CheckCircle, XCircle, FileText } from 'lucide-react';
+import { History, X, ExternalLink, CheckCircle, XCircle, FileText, ScrollText } from 'lucide-react';
 import { exportListingToPdf } from '../lib/pdfExporter';
 import { sanitizeUUID } from '../lib/uuid-utils';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { StudyRunLogsModal } from '../components/StudyRunLogsModal';
 
 const MAX_RUNNING_AGE_MS = 60 * 60 * 1000; // 1 hour
 
@@ -89,6 +90,7 @@ export function StudiesV2Results() {
   const [loading, setLoading] = useState(true);
   const [exportingListingId, setExportingListingId] = useState<string | null>(null);
   const [verifyMarketsResult, setVerifyMarketsResult] = useState<StudyRunResult | null>(null);
+  const [logsModal, setLogsModal] = useState<{ runId: string; label: string } | null>(null);
 
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
 
@@ -661,7 +663,14 @@ export function StudiesV2Results() {
 
               {todayRun.results.length === 0 ? (
                 <div className="p-8 text-center text-zinc-400">
-                  No results found for this run.
+                  <p>No results found for this run.</p>
+                  <button
+                    onClick={() => setLogsModal({ runId: todayRun.run.id, label: `Run du ${new Date(todayRun.run.executed_at!).toLocaleString()}` })}
+                    className="inline-flex items-center gap-1.5 mt-3 text-xs text-zinc-500 hover:text-zinc-300 transition-colors border border-zinc-700 hover:border-zinc-500 px-3 py-1.5 rounded"
+                  >
+                    <ScrollText size={12} />
+                    Voir les logs
+                  </button>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -734,45 +743,58 @@ export function StudiesV2Results() {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            {result.status === 'OPPORTUNITIES' && (
+                            <div className="flex flex-col gap-1">
+                              {result.status === 'OPPORTUNITIES' && (
+                                <button
+                                  onClick={() => viewListings(result)}
+                                  className="text-sm text-blue-400 hover:text-blue-300"
+                                >
+                                  View Listings
+                                </button>
+                              )}
+                              {result.status === 'TARGET_BLOCKED' && result.target_error_reason && (
+                                <div className="text-xs text-red-400/80 max-w-xs truncate" title={result.target_error_reason}>
+                                  {result.studies_v2.country_target}: Provider blocked
+                                </div>
+                              )}
+                              {result.status === 'NULL' && result.target_error_reason && (
+                                <div className="space-y-1">
+                                  <div className="text-xs text-zinc-500 max-w-xs truncate" title={result.target_error_reason}>
+                                    {result.target_error_reason}
+                                  </div>
+                                  <button
+                                    onClick={() => setVerifyMarketsResult(result)}
+                                    className="text-xs text-blue-400 hover:text-blue-300 underline"
+                                  >
+                                    Verify markets
+                                  </button>
+                                </div>
+                              )}
+                              {result.status === 'NULL' && !result.target_error_reason && result.price_difference !== null && result.price_difference < todayRun.run.price_diff_threshold_eur && (
+                                <div className="space-y-1">
+                                  <div className="text-xs text-zinc-500">
+                                    Below threshold ({todayRun.run.price_diff_threshold_eur}€)
+                                  </div>
+                                  <button
+                                    onClick={() => setVerifyMarketsResult(result)}
+                                    className="text-xs text-blue-400 hover:text-blue-300 underline"
+                                  >
+                                    Verify markets
+                                  </button>
+                                </div>
+                              )}
                               <button
-                                onClick={() => viewListings(result)}
-                                className="text-sm text-blue-400 hover:text-blue-300"
+                                onClick={() => setLogsModal({
+                                  runId: todayRun.run.id,
+                                  label: `${result.studies_v2.brand} ${result.studies_v2.model} ${result.studies_v2.year}`,
+                                })}
+                                className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors mt-0.5"
+                                title="Voir les logs de cette recherche"
                               >
-                                View Listings
+                                <ScrollText size={11} />
+                                Logs
                               </button>
-                            )}
-                            {result.status === 'TARGET_BLOCKED' && result.target_error_reason && (
-                              <div className="text-xs text-red-400/80 max-w-xs truncate" title={result.target_error_reason}>
-                                {result.studies_v2.country_target}: Provider blocked
-                              </div>
-                            )}
-                            {result.status === 'NULL' && result.target_error_reason && (
-                              <div className="space-y-1">
-                                <div className="text-xs text-zinc-500 max-w-xs truncate" title={result.target_error_reason}>
-                                  {result.target_error_reason}
-                                </div>
-                                <button
-                                  onClick={() => setVerifyMarketsResult(result)}
-                                  className="text-xs text-blue-400 hover:text-blue-300 underline"
-                                >
-                                  Verify markets
-                                </button>
-                              </div>
-                            )}
-                            {result.status === 'NULL' && !result.target_error_reason && result.price_difference !== null && result.price_difference < todayRun.run.price_diff_threshold_eur && (
-                              <div className="space-y-1">
-                                <div className="text-xs text-zinc-500">
-                                  Below threshold ({todayRun.run.price_diff_threshold_eur}€)
-                                </div>
-                                <button
-                                  onClick={() => setVerifyMarketsResult(result)}
-                                  className="text-xs text-blue-400 hover:text-blue-300 underline"
-                                >
-                                  Verify markets
-                                </button>
-                              </div>
-                            )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1088,6 +1110,14 @@ export function StudiesV2Results() {
             </div>
           </div>
         </div>
+      )}
+
+      {logsModal && (
+        <StudyRunLogsModal
+          runId={logsModal.runId}
+          studyLabel={logsModal.label}
+          onClose={() => setLogsModal(null)}
+        />
       )}
     </div>
   );
