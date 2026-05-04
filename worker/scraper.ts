@@ -253,13 +253,23 @@ function applyTrimMarktplaats(url: string, trim: string): string {
   const [base, hash = ''] = url.split('#');
   if (!hash) return url;
 
-  const encoded = trim.toLowerCase();
+  const trimEncoded = trim.toLowerCase().replace(/\s+/g, '+');
   let newHash: string;
 
   if (hash.startsWith('q:')) {
-    newHash = hash.replace(/^q:[^|]*/, `q:${encoded}`);
+    // Extract existing q value (up to | or end of string)
+    const qMatch = hash.match(/^q:([^|]*)/);
+    const existingQ = qMatch ? qMatch[1] : '';
+    // Normalise both sides to spaces for duplicate check
+    const existingNorm = existingQ.replace(/\+/g, ' ').replace(/%20/g, ' ').toLowerCase();
+    const trimNorm = trim.toLowerCase().trim();
+    // Append only if trim is not already present
+    const appendedQ = existingNorm.includes(trimNorm)
+      ? existingQ
+      : `${existingQ}+${trimEncoded}`;
+    newHash = hash.replace(/^q:[^|]*/, `q:${appendedQ}`);
   } else {
-    newHash = `q:${encoded}|` + hash;
+    newHash = `q:${trimEncoded}|` + hash;
   }
 
   return `${base}#${newHash}`;
@@ -315,10 +325,10 @@ function detectMarketplace(country: string): string {
 
 function urlHasTrimHint(url: string, trim: string): boolean {
   if (!trim) return false;
-  return url.toLowerCase().includes(encodeURIComponent(trim).toLowerCase())
-    || url.toLowerCase().includes(trim.toLowerCase().replace(/\s+/g, '+'))
-    || url.toLowerCase().includes(trim.toLowerCase().replace(/\s+/g, '%20'))
-    || url.toLowerCase().includes(trim.toLowerCase().replace(/\s+/g, '-'));
+  // Normalise URL: decode %20, + → space, lower-case
+  const urlNorm = url.toLowerCase().replace(/%20/g, ' ').replace(/\+/g, ' ').replace(/-/g, ' ');
+  const trimNorm = trim.toLowerCase().trim().replace(/\s+/g, ' ');
+  return urlNorm.includes(trimNorm);
 }
 
 function urlHasYearHint(url: string): boolean {
