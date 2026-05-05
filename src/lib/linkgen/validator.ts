@@ -53,14 +53,6 @@ function extractListingCount(
   return { count: sampleLength, method: 'fallback' };
 }
 
-// ─── score → status ───────────────────────────────────────────────────────────
-// >= 80 → valid | 60-79 → partial | < 60 → invalid
-
-function statusFromScore(score: number): ValidationStatus {
-  if (score >= 80) return 'valid';
-  if (score >= 60) return 'partial';
-  return 'invalid';
-}
 
 // ─── build LinkGenDiagnostics from SiteValidationResult ──────────────────────
 
@@ -84,7 +76,22 @@ function buildDiagnosticsFromSiteResult(
     mileageApplied: af.mileage,
     sortApplied: af.sort,
     listingCount: siteResult.listingCount,
-    sampleTitles: siteResult.sampleListings.slice(0, 5).map((l) => l.title.slice(0, 60)),
+    sampleTitles: siteResult.sampleListings.slice(0, 5).map((l) => {
+      const parts = [l.title.slice(0, 50)];
+      if (l.year) parts.push(String(l.year));
+      if (l.mileage) parts.push(`${Math.round(l.mileage / 1000)}k km`);
+      if (l.fuel) parts.push(l.fuel);
+      if (l.price > 0) parts.push(`€${l.price.toLocaleString('fr-FR')}`);
+      return parts.join(' · ');
+    }),
+    parsedSampleListings: siteResult.sampleListings.slice(0, 5).map((l) => ({
+      title: l.title,
+      price: l.price,
+      year: l.year,
+      mileage: l.mileage,
+      fuel: l.fuel,
+    })),
+    parserDetails: siteResult.parserDetails,
   };
 
   const extraIssues: LinkGenIssue[] = [];
@@ -359,8 +366,8 @@ export async function validateWithRetry(
     return { original, updatedResult };
   }
 
-  // Generate up to 2 hypotheses
-  const hypotheses = generateHypotheses(updatedResult, params);
+  // Generate up to 2 hypotheses (async: includes memory lookup for CSV pending)
+  const hypotheses = await generateHypotheses(updatedResult, params);
 
   if (hypotheses.length === 0) {
     return { original, updatedResult };
@@ -386,6 +393,55 @@ export async function validateWithRetry(
     };
     testedHypotheses.push(tested);
 
+    // Promote a CSV pending hypothesis to valid if score >= 80
+    if (
+      hyp.reason === 'csv_pending_mapping_hypothesis' &&
+      hyp.memoryRecordId &&
+      hypResult.score >= 80
+    ) {
+      const now = new Date().toISOString();
+      console.log(`[SCOUT_PROMOTE] pending memory record ${hyp.memoryRecordId} → valid (score=${hypResult.score})`);
+      supabase
+        .from('linkgen_mapping_memory')
+        .update({
+          validation_status: 'valid',
+          validated_url: hyp.url,
+          scout_score: hypResult.score,
+          confidence: Math.round(hypResult.score) / 100,
+          tested_hypotheses: testedHypotheses as unknown as import('../database.types').Json,
+          success_count: 1,
+          last_checked_at: now,
+          updated_at: now,
+        })
+        .eq('id', hyp.memoryRecordId)
+        .then(({ error }) => {
+          if (error) console.warn('[SCOUT_PROMOTE] DB update failed:', error.message);
+        });
+    } else if (
+      hyp.reason === 'csv_pending_mapping_hypothesis' &&
+      hyp.memoryRecordId &&
+      hypResult.score >= 60
+    ) {
+      // partial — fetch succeeded, score insufficient for valid
+      const now = new Date().toISOString();
+      console.log(`[SCOUT_PROMOTE] pending memory record ${hyp.memoryRecordId} → partial (score=${hypResult.score})`);
+      supabase
+        .from('linkgen_mapping_memory')
+        .update({
+          validation_status: 'partial',
+          scout_score: hypResult.score,
+          issues: (hypResult.issues as unknown as import('../database.types').Json) ?? null,
+          failure_count: 1,
+          last_checked_at: now,
+          updated_at: now,
+        })
+        .eq('id', hyp.memoryRecordId)
+        .then(({ error }) => {
+          if (error) console.warn('[SCOUT_PROMOTE] DB update failed:', error.message);
+        });
+    }
+    // else: keep pending (fetch failed or score < 60 without clear reason)
+
     if (hypResult.score >= 80) {
       // This hypothesis is valid — stop early
       break;
@@ -403,6 +459,13 @@ export async function validateWithRetry(
   // Find the best hypothesis result (if best differs from original)
   const bestHyp = testedHypotheses.find((h) => h.url === best.bestUrl);
 
+  // Carry trim_removed_for_broader_market issue to top level if best URL changed
+  const trimRemovedIssue = best.bestUrl !== result.url &&
+    !bestHyp?.reason?.includes('trim') &&
+    params.trim
+    ? [{ type: 'trim_removed_for_broader_market' as const }]
+    : [];
+
   updatedResult = {
     ...updatedResult,
     testedHypotheses,
@@ -413,6 +476,10 @@ export async function validateWithRetry(
     bestVerifiedUrl: best.bestUrl,
     bestVerifiedScore: best.scoreAfter,
     bestVerifiedStatus: best.statusAfter,
+    validationIssues: [
+      ...(updatedResult.validationIssues ?? []),
+      ...trimRemovedIssue,
+    ],
     debugLogs: [
       ...updatedResult.debugLogs,
       {

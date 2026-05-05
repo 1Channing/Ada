@@ -1,4 +1,4 @@
-import { parseLeboncoinSample } from '../../scraperClient';
+import { parseListings } from '../../study-core/parsers/leboncoin';
 import { normalizeForMatch } from '../normalizer';
 import type { LinkGenParams } from '../types';
 import type { SiteValidationResult, SampleListing, AppliedFilters } from './types';
@@ -9,7 +9,24 @@ export function validateLeboncoin(
   params: LinkGenParams,
   listingCount: number
 ): SiteValidationResult {
-  const raw = parseLeboncoinSample(html, url, 10);
+  const htmlLength = html.length;
+
+  // Use production study-core parser (read-only — no modification of study-core logic)
+  const rawAll = parseListings(html, url);
+  const raw = rawAll.slice(0, 10);
+
+  const parsedSampleCount = raw.length;
+  const firstCandidateTitle = raw[0]?.title ?? null;
+  const extractionMethod = '__NEXT_DATA__ JSON';
+
+  console.log('[SCOUT_PARSE] LEBONCOIN', {
+    htmlLength,
+    parserUsed: 'study-core/parsers/leboncoin',
+    rawListingCandidatesCount: rawAll.length,
+    parsedSampleCount,
+    firstCandidateTitle,
+    extractionMethod,
+  });
 
   const structuredFieldsAvailable = raw.some((l) => l.year !== null || l.mileage !== null);
   const fieldsUsed: string[] = ['title'];
@@ -34,8 +51,14 @@ export function validateLeboncoin(
     url: l.listing_url,
   }));
 
-  const { score, appliedFilters, issues } = scoreSample(sampleListings, params, url);
+  const { score, appliedFilters, issues } = scoreSample(sampleListings, params, url, htmlLength);
   const status = statusFromScore(score);
+
+  // parser_failed_on_html: HTML was large enough but we got 0 listings
+  if (parsedSampleCount === 0 && htmlLength > 100_000) {
+    issues.push({ type: 'parser_failed_on_html' });
+    console.warn('[SCOUT_PARSE] parser_failed_on_html — htmlLength=' + htmlLength + ' but 0 listings extracted site=LEBONCOIN');
+  }
 
   return {
     site: 'LEBONCOIN',
@@ -46,11 +69,21 @@ export function validateLeboncoin(
     score,
     status,
     issues,
-    evidence: { structuredFieldsAvailable, fieldsUsed, missingFields },
+    evidence: {
+      structuredFieldsAvailable,
+      fieldsUsed,
+      missingFields,
+    },
+    parserDetails: {
+      htmlLength,
+      parserUsed: 'study-core/parsers/leboncoin',
+      parsedSampleCount,
+      extractionMethod,
+    },
   };
 }
 
-// ─── shared helpers (duplicated in each validator to avoid coupling) ──────────
+// ─── shared helpers ───────────────────────────────────────────────────────────
 
 function inferFuelFromTitle(title: string, description: string): string {
   const text = (title + ' ' + description).toLowerCase();
@@ -71,7 +104,8 @@ function statusFromScore(score: number): 'valid' | 'partial' | 'invalid' {
 function scoreSample(
   sample: SampleListing[],
   params: LinkGenParams,
-  url: string
+  url: string,
+  _htmlLength: number
 ): { score: number; appliedFilters: AppliedFilters; issues: import('../types').LinkGenIssue[] } {
   const normBrand = normalizeForMatch(params.brand ?? '');
   const normModel = normalizeForMatch(params.model ?? '');
@@ -111,16 +145,15 @@ function scoreSample(
     }
   }
 
-  // Sort: check URL
   const sortApplied = url.includes('sort') || url.includes('order=');
 
   let score = 0;
   if (brandHit) score += 20;
   if (modelHit) score += 25;
-  if (!yearFrom || yearHit) score += 15; else score += 0;
-  if (!maxMileage || mileageHit) score += 15; else score += 0;
-  if (!normFuel || fuelHit) score += 15; else score += 0;
-  if (!normTrim || trimHit) score += 10; else score += 0;
+  if (!yearFrom || yearHit) score += 15;
+  if (!maxMileage || mileageHit) score += 15;
+  if (!normFuel || fuelHit) score += 15;
+  if (!normTrim || trimHit) score += 10;
 
   const issues: import('../types').LinkGenIssue[] = [];
   if (!brandHit) issues.push({ type: 'brand_missing' });
@@ -128,6 +161,11 @@ function scoreSample(
   if (normFuel && !fuelHit) issues.push({ type: 'fuel_mismatch' });
   if (yearFrom && !yearHit && sample.some((l) => l.year !== null)) issues.push({ type: 'year_filter_not_applied' });
   if (maxMileage && !mileageHit && sample.some((l) => l.mileage !== null)) issues.push({ type: 'mileage_filter_not_applied' });
+
+  // trim_removed_for_broader_market: trim was requested but none of the listings matched it
+  if (normTrim && !trimHit && sample.length > 0) {
+    issues.push({ type: 'trim_removed_for_broader_market' });
+  }
 
   const appliedFilters: AppliedFilters = {
     brand: brandHit,

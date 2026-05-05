@@ -34,6 +34,8 @@ export interface ScoutHypothesis {
   score: number;
   status: ValidationStatus;
   rankInBatch: number; // 1 = first hypothesis, 2 = second
+  /** If this hypothesis was sourced from a linkgen_mapping_memory pending record, its id for potential promotion */
+  memoryRecordId?: string;
 }
 
 /** Common output format from all siteValidators */
@@ -70,6 +72,12 @@ export interface SiteValidationResult {
     fieldsUsed: string[];
     missingFields: string[];
   };
+  parserDetails?: {
+    htmlLength: number;
+    parserUsed: string;
+    parsedSampleCount: number;
+    extractionMethod: string;
+  };
 }
 
 /** Legacy single-site result — kept for backward compat */
@@ -103,7 +111,9 @@ export interface LinkGenIssue {
     | 'year_filter_not_applied'
     | 'mileage_filter_not_applied'
     | 'sort_not_applied'
-    | 'no_listings';
+    | 'no_listings'
+    | 'parser_failed_on_html'
+    | 'trim_removed_for_broader_market';
 }
 
 export interface LinkGenDiagnostics {
@@ -118,6 +128,20 @@ export interface LinkGenDiagnostics {
   sortApplied: boolean;
   listingCount: number;
   sampleTitles: string[];
+  /** Enriched sample listings with year/mileage/price for UI display */
+  parsedSampleListings?: Array<{
+    title: string;
+    price: number;
+    year: number | null;
+    mileage: number | null;
+    fuel: string;
+  }>;
+  parserDetails?: {
+    htmlLength: number;
+    parserUsed: string;
+    parsedSampleCount: number;
+    extractionMethod: string;
+  };
 }
 
 export interface LinkGenValidationResult {

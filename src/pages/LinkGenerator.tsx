@@ -365,13 +365,31 @@ function UrlCard({
         </div>
       )}
 
-      {/* Issues summary */}
-      {!validating && result.validationIssues && result.validationIssues.filter((i) => i.type !== 'no_zyte_key').length > 0 && (
+      {/* Broader search notice (trim was requested but removed for a better score) */}
+      {!validating && result.validationIssues?.some((i) => i.type === 'trim_removed_for_broader_market') && (
+        <div className="flex items-center gap-2.5 bg-zinc-800/60 border border-zinc-600 rounded-lg px-3 py-2.5">
+          <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+          <p className="text-xs text-zinc-300">
+            <span className="font-semibold">Broader search</span> — the trim filter was not matched in listings. This URL covers the model market, not the exact trim version.
+          </p>
+        </div>
+      )}
+
+      {/* Issues summary (exclude display-only issues that have their own banner) */}
+      {!validating && result.validationIssues && result.validationIssues.filter(
+        (i) => i.type !== 'no_zyte_key' && i.type !== 'trim_removed_for_broader_market'
+      ).length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {result.validationIssues.filter((i) => i.type !== 'no_zyte_key').map((issue, i) => (
+          {result.validationIssues.filter(
+            (i) => i.type !== 'no_zyte_key' && i.type !== 'trim_removed_for_broader_market'
+          ).map((issue, i) => (
             <span
               key={i}
-              className="text-xs bg-zinc-800 text-amber-400 border border-zinc-700 px-2 py-0.5 rounded font-mono"
+              className={`text-xs border px-2 py-0.5 rounded font-mono ${
+                issue.type === 'parser_failed_on_html'
+                  ? 'bg-red-900/20 text-red-400 border-red-700/40'
+                  : 'bg-zinc-800 text-amber-400 border-zinc-700'
+              }`}
             >
               {issue.type}
             </span>
@@ -555,9 +573,55 @@ function UrlCard({
                 ))}
               </div>
 
+              {/* Parser details row */}
+              {result.diagnostics.parserDetails && (
+                <div className="border-t border-zinc-800 pt-3 space-y-1">
+                  <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Parser</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-mono">
+                    {[
+                      ['htmlLength', `${Math.round(result.diagnostics.parserDetails.htmlLength / 1024)}KB`],
+                      ['parser', result.diagnostics.parserDetails.parserUsed.replace('study-core/parsers/', '')],
+                      ['listings parsed', String(result.diagnostics.parserDetails.parsedSampleCount)],
+                      ['method', result.diagnostics.parserDetails.extractionMethod],
+                    ].map(([k, v]) => (
+                      <div key={k} className="flex items-center gap-2">
+                        <span className="text-zinc-500 w-28 shrink-0">{k}</span>
+                        <span className={result.diagnostics!.parserDetails!.parsedSampleCount === 0 && k === 'listings parsed' ? 'text-red-400 font-semibold' : 'text-zinc-400'}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Parsed sample listings */}
+              <div className="border-t border-zinc-800 pt-3 space-y-1.5">
+                <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Parsed sample listings</p>
+                {result.diagnostics.parsedSampleListings && result.diagnostics.parsedSampleListings.length > 0 ? (
+                  result.diagnostics.parsedSampleListings.map((l, i) => (
+                    <div key={i} className="bg-zinc-900 rounded px-3 py-2 space-y-0.5">
+                      <p className="text-xs text-zinc-200 font-medium truncate">{l.title}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {l.year && <span className="text-[10px] font-mono text-zinc-400">{l.year}</span>}
+                        {l.mileage && <span className="text-[10px] font-mono text-zinc-400">{Math.round(l.mileage / 1000)}k km</span>}
+                        {l.fuel && <span className="text-[10px] font-mono text-zinc-500">{l.fuel}</span>}
+                        {l.price > 0 && <span className="text-[10px] font-mono text-zinc-400">€{l.price.toLocaleString('fr-FR')}</span>}
+                      </div>
+                    </div>
+                  ))
+                ) : result.diagnostics.parserDetails ? (
+                  <div className="bg-zinc-900 rounded px-3 py-2.5">
+                    <p className="text-xs text-red-400 font-mono">
+                      {result.diagnostics.parserDetails.htmlLength > 100_000
+                        ? `HTML fetched (${Math.round(result.diagnostics.parserDetails.htmlLength / 1024)}KB) but parser extracted 0 listings.`
+                        : 'No HTML or very small page — fetch may have failed silently.'}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
               {result.diagnostics.sampleTitles.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Sample titles</p>
+                <div className="space-y-1 border-t border-zinc-800 pt-3">
+                  <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Sample titles (enriched)</p>
                   {result.diagnostics.sampleTitles.map((t, i) => (
                     <p key={i} className="text-xs text-zinc-400 font-mono truncate">
                       {i + 1}. {t}
