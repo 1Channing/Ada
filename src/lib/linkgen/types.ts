@@ -44,7 +44,29 @@ export interface LinkGenIssue {
     | 'low_listing_count'
     | 'fetch_failed'
     | 'no_zyte_key'
-    | 'parse_error';
+    | 'parse_error'
+    | 'wrong_domain'
+    | 'fuel_mapping_suspect'
+    | 'model_not_applied'
+    | 'trim_not_applied'
+    | 'year_filter_not_applied'
+    | 'mileage_filter_not_applied'
+    | 'sort_not_applied'
+    | 'no_listings';
+}
+
+export interface LinkGenDiagnostics {
+  expectedDomain: string;
+  actualDomain: string;
+  brandApplied: boolean;
+  modelApplied: boolean;
+  trimApplied: boolean;
+  fuelApplied: boolean;
+  yearApplied: boolean;
+  mileageApplied: boolean;
+  sortApplied: boolean;
+  listingCount: number;
+  sampleTitles: string[];
 }
 
 export interface LinkGenValidationResult {
@@ -60,7 +82,15 @@ export interface LinkGenValidationResult {
   listingCount: number;
   listingCountMethod: 'regex' | 'dom' | 'fallback';
   validationStatus: ValidationStatus;
+  diagnostics?: LinkGenDiagnostics;
   debugLogs: LinkGenLogEntry[];
+}
+
+export interface LinkGenRetryResult {
+  original: LinkGenValidationResult;
+  corrected?: LinkGenValidationResult;
+  correctedUrl?: string;
+  correctionReason?: string;
 }
 
 /** Multi-site result entry — one per site */
@@ -75,4 +105,22 @@ export interface LinkGenUrlResult {
   listingCount?: number;
   listingCountMethod?: 'regex' | 'dom' | 'fallback';
   validationIssues?: LinkGenIssue[];
+  diagnostics?: LinkGenDiagnostics;
+  // Correction result (populated after Scout Check with retry)
+  correctedUrl?: string;
+  correctionReason?: string;
+  validationAfter?: ValidationStatus;
+  validationScoreAfter?: number;
+}
+
+export interface LinkGenCorrectionRecord {
+  site: SiteKey;
+  inputParams: LinkGenParams;
+  originalUrl: string;
+  issues: LinkGenIssue[];
+  correctedUrl?: string;
+  correctionReason?: string;
+  validationBefore: ValidationStatus;
+  validationAfter?: ValidationStatus;
+  createdAt: Date;
 }

@@ -129,17 +129,19 @@ const FUEL_MAP: Record<SiteKey, Record<string, string>> = {
     ELECTRIC: 'elektrisch',
     PLUG_IN_HYBRID: 'plug-in-hybride',
   },
+  // Codes verified live on leboncoin.fr/recherche — do not modify without re-verification
+  // 1=Essence, 2=Diesel, 3=GPL, 4=Electrique, 5=Autre (used for PHEV), 6=Hybride, 7=GNV
   LEBONCOIN: {
     ESSENCE: '1',
-    DIESEL: '2',
-    HYBRIDE: '3',
-    ELECTRIQUE: '5',
-    GPL: '6',
     GASOLINE: '1',
     PETROL: '1',
-    HYBRID: '3',
-    ELECTRIC: '5',
-    PLUG_IN_HYBRID: '4',
+    DIESEL: '2',
+    GPL: '3',
+    ELECTRIQUE: '4',
+    ELECTRIC: '4',
+    PLUG_IN_HYBRID: '5',
+    HYBRIDE: '6',
+    HYBRID: '6',
   },
   BILBASEN: {
     ESSENCE: 'Benzin',

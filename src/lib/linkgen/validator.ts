@@ -5,17 +5,22 @@ import {
   parseBilbasenSample,
 } from '../scraperClient';
 import { normalizeForMatch } from './normalizer';
+import { generateSearchUrl } from './generator';
+import { suggestUrlCorrection } from './correctionStrategies';
+import { EXPECTED_DOMAINS } from './templates';
 import type {
   SiteKey,
   LinkGenParams,
   LinkGenUrlResult,
   LinkGenValidationResult,
+  LinkGenRetryResult,
   LinkGenIssue,
   LinkGenLogEntry,
   ValidationStatus,
+  LinkGenDiagnostics,
 } from './types';
 
-// ─── listing count extraction ────────────────────────────────────────────────
+// ─── listing count extraction ─────────────────────────────────────────────────
 
 const COUNT_PATTERNS: Record<SiteKey, RegExp> = {
   MARKTPLAATS: /(\d[\d\s.]*)\s+advertentie/i,
@@ -24,7 +29,6 @@ const COUNT_PATTERNS: Record<SiteKey, RegExp> = {
 };
 
 function parseCount(raw: string): number {
-  // Remove non-digit chars except space, then parse
   return parseInt(raw.replace(/[^\d]/g, ''), 10) || 0;
 }
 
@@ -33,7 +37,6 @@ function extractListingCount(
   site: SiteKey,
   sampleLength: number
 ): { count: number; method: 'regex' | 'dom' | 'fallback' } {
-  // 1. Try site-specific regex on visible text
   const textOnly = html.replace(/<[^>]+>/g, ' ');
   const match = textOnly.match(COUNT_PATTERNS[site]);
   if (match) {
@@ -41,7 +44,6 @@ function extractListingCount(
     if (count > 0) return { count, method: 'regex' };
   }
 
-  // 2. Try counting DOM listing blocks (article, li with class containing "listing" or "item")
   const domMatches = html.match(
     /<(article|li)[^>]*class="[^"]*(?:listing|Listing|result|Result|item|Item)[^"]*"/g
   );
@@ -49,11 +51,10 @@ function extractListingCount(
     return { count: domMatches.length, method: 'dom' };
   }
 
-  // 3. Fallback: sample length
   return { count: sampleLength, method: 'fallback' };
 }
 
-// ─── scoring ─────────────────────────────────────────────────────────────────
+// ─── scoring ──────────────────────────────────────────────────────────────────
 
 function scoreListings(
   sample: { title: string }[],
@@ -75,7 +76,6 @@ function scoreListings(
 
   for (const listing of sample) {
     const normTitle = normalizeForMatch(listing.title);
-
     if (!brandHit && normBrand && normTitle.includes(normBrand)) brandHit = true;
     if (!modelHit && normModel && normTitle.includes(normModel)) modelHit = true;
     if (!trimHit && normTrim && normTitle.includes(normTrim)) trimHit = true;
@@ -85,11 +85,8 @@ function scoreListings(
   let score = 0;
   if (brandHit) score += 40;
   if (modelHit) score += 30;
-  if (trimHit && normTrim) score += 20;
-  if (fuelHit && normFuel) score += 10;
-
-  // If trim or fuel not provided, redistribute points so max is still meaningful
-  // (brand+model always possible = 70 pts baseline)
+  if (normTrim && trimHit) score += 20;
+  if (normFuel && fuelHit) score += 10;
 
   const issues: LinkGenIssue[] = [];
   if (!brandHit) issues.push({ type: 'brand_missing' });
@@ -109,7 +106,92 @@ function statusFromScore(score: number): ValidationStatus {
   return 'invalid';
 }
 
-// ─── public API ──────────────────────────────────────────────────────────────
+// ─── diagnostics builder ──────────────────────────────────────────────────────
+
+function buildDiagnostics(
+  url: string,
+  site: SiteKey,
+  params: LinkGenParams,
+  detectedFilters: { brand: boolean; model: boolean; trim: boolean; fuel: boolean },
+  listingCount: number,
+  sample: { title: string }[]
+): { diagnostics: LinkGenDiagnostics; extraIssues: LinkGenIssue[] } {
+  let actualDomain = '';
+  try {
+    actualDomain = new URL(url).hostname;
+  } catch {
+    actualDomain = '';
+  }
+  const expectedDomain = EXPECTED_DOMAINS[site];
+
+  const yearApplied =
+    !!(params.yearFrom && url.includes(String(params.yearFrom))) ||
+    !!(params.yearTo && url.includes(String(params.yearTo))) ||
+    !!(params.year && url.includes(String(params.year)));
+
+  const mileageApplied = !!(params.mileage && url.includes(String(params.mileage)));
+
+  const sortApplied =
+    url.includes('sort') ||
+    url.includes('sortBy') ||
+    url.includes('sortby') ||
+    url.includes('sortOrder') ||
+    url.includes('order=');
+
+  // Fuel applied: check if the mapped fuel value appears in the URL
+  const fuelApplied = params.fuel
+    ? (() => {
+        // Check for any numeric or text fuel indicator in the URL
+        const urlLower = url.toLowerCase();
+        return urlLower.includes('fuel=') || urlLower.includes('fueltype=');
+      })()
+    : true;
+
+  const diagnostics: LinkGenDiagnostics = {
+    expectedDomain,
+    actualDomain,
+    brandApplied: detectedFilters.brand,
+    modelApplied: detectedFilters.model,
+    trimApplied: detectedFilters.trim,
+    fuelApplied: detectedFilters.fuel,
+    yearApplied,
+    mileageApplied,
+    sortApplied,
+    listingCount,
+    sampleTitles: sample.slice(0, 5).map((l) => l.title.slice(0, 60)),
+  };
+
+  const extraIssues: LinkGenIssue[] = [];
+
+  if (actualDomain && !actualDomain.includes(expectedDomain)) {
+    extraIssues.push({ type: 'wrong_domain' });
+  }
+  if (!detectedFilters.model && sample.length > 0) {
+    extraIssues.push({ type: 'model_not_applied' });
+  }
+  if (params.trim && !detectedFilters.trim && sample.length > 0) {
+    extraIssues.push({ type: 'trim_not_applied' });
+  }
+  if (params.fuel && !fuelApplied) {
+    extraIssues.push({ type: 'fuel_mapping_suspect' });
+  }
+  if (params.yearFrom && !yearApplied) {
+    extraIssues.push({ type: 'year_filter_not_applied' });
+  }
+  if (params.mileage && !mileageApplied) {
+    extraIssues.push({ type: 'mileage_filter_not_applied' });
+  }
+  if (!sortApplied) {
+    extraIssues.push({ type: 'sort_not_applied' });
+  }
+  if (listingCount === 0) {
+    extraIssues.push({ type: 'no_listings' });
+  }
+
+  return { diagnostics, extraIssues };
+}
+
+// ─── public API ───────────────────────────────────────────────────────────────
 
 export async function validateGeneratedUrl(
   url: string,
@@ -124,7 +206,6 @@ export async function validateGeneratedUrl(
     data: { url, site },
   });
 
-  // Check Zyte key availability before fetching
   const zyteKey =
     (import.meta.env.VITE_ZYTE_API_KEY as string | undefined) ||
     (import.meta.env.ZYTE_API_KEY as string | undefined) ||
@@ -147,7 +228,6 @@ export async function validateGeneratedUrl(
     };
   }
 
-  // Fetch HTML — 1 call, max 1 retry (handled inside fetchHtmlLite)
   const html = await fetchHtmlLite(url);
 
   if (!html) {
@@ -168,7 +248,7 @@ export async function validateGeneratedUrl(
     };
   }
 
-  // Parse sample listings using the correct site parser
+  // Parse sample listings
   let sample: { title: string }[] = [];
   try {
     if (site === 'LEBONCOIN') {
@@ -185,32 +265,36 @@ export async function validateGeneratedUrl(
     });
   }
 
-  // Extract listing count
   const { count: listingCount, method: listingCountMethod } = extractListingCount(
     html,
     site,
     sample.length
   );
 
-  if (listingCount === 0) {
-    // We have a page but no detectable listings
-    logs.push({
-      level: 'VALIDATION',
-      message: '[LINKGEN_VALIDATION] listingCount = 0',
-      data: { listingCountMethod },
-    });
-  }
-
-  // Score sample
   const { score, detectedFilters, issues } = scoreListings(sample, params);
 
-  if (listingCount === 0 && !issues.find((i) => i.type === 'low_listing_count')) {
-    issues.push({ type: 'low_listing_count' });
+  const { diagnostics, extraIssues } = buildDiagnostics(
+    url,
+    site,
+    params,
+    detectedFilters,
+    listingCount,
+    sample
+  );
+
+  // Merge issues, deduplicating by type
+  const allIssueTypes = new Set(issues.map((i) => i.type));
+  for (const ei of extraIssues) {
+    if (!allIssueTypes.has(ei.type)) {
+      issues.push(ei);
+      allIssueTypes.add(ei.type);
+    }
   }
 
-  const validationStatus = listingCount === 0 && sample.length === 0
-    ? 'partial'  // page loaded but nothing parseable — don't call it invalid
-    : statusFromScore(score);
+  const validationStatus =
+    listingCount === 0 && sample.length === 0
+      ? 'partial'
+      : statusFromScore(score);
 
   logs.push({
     level: 'VALIDATION',
@@ -236,8 +320,63 @@ export async function validateGeneratedUrl(
     listingCount,
     listingCountMethod,
     validationStatus,
+    diagnostics,
     debugLogs: logs,
   };
+}
+
+/**
+ * Validate a URL, and if not valid, attempt one correction + re-validation.
+ * Maximum 2 Zyte fetches per URL (1 original + 1 corrected).
+ */
+export async function validateWithRetry(
+  result: LinkGenUrlResult,
+  params: LinkGenParams
+): Promise<LinkGenRetryResult & { updatedResult: LinkGenUrlResult }> {
+  const original = await validateGeneratedUrl(result.url, result.site, params);
+
+  // Merge original validation into the result
+  let updatedResult: LinkGenUrlResult = {
+    ...result,
+    validationStatus: original.validationStatus,
+    validationScore: original.score,
+    listingCount: original.listingCount,
+    listingCountMethod: original.listingCountMethod,
+    validationIssues: original.issues,
+    diagnostics: original.diagnostics,
+    debugLogs: [...result.debugLogs, ...original.debugLogs],
+  };
+
+  if (original.validationStatus === 'valid') {
+    return { original, updatedResult };
+  }
+
+  // Attempt correction
+  const suggestion = suggestUrlCorrection(updatedResult, params);
+
+  if (!suggestion.canRetry || !suggestion.correctedUrl) {
+    return {
+      original,
+      updatedResult: {
+        ...updatedResult,
+        correctionReason: suggestion.reason,
+      },
+    };
+  }
+
+  // Generate corrected URL if not already done by the strategy
+  const correctedUrl = suggestion.correctedUrl;
+  const corrected = await validateGeneratedUrl(correctedUrl, result.site, params);
+
+  updatedResult = {
+    ...updatedResult,
+    correctedUrl,
+    correctionReason: suggestion.reason,
+    validationAfter: corrected.validationStatus,
+    validationScoreAfter: corrected.score,
+  };
+
+  return { original, corrected, correctedUrl, correctionReason: suggestion.reason, updatedResult };
 }
 
 export async function validateAllUrls(
@@ -246,16 +385,8 @@ export async function validateAllUrls(
 ): Promise<LinkGenUrlResult[]> {
   return Promise.all(
     results.map(async (r) => {
-      const validation = await validateGeneratedUrl(r.url, r.site, params);
-      return {
-        ...r,
-        validationStatus: validation.validationStatus,
-        validationScore: validation.score,
-        listingCount: validation.listingCount,
-        listingCountMethod: validation.listingCountMethod,
-        validationIssues: validation.issues,
-        debugLogs: [...r.debugLogs, ...validation.debugLogs],
-      };
+      const { updatedResult } = await validateWithRetry(r, params);
+      return updatedResult;
     })
   );
 }

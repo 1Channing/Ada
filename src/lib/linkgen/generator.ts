@@ -1,4 +1,4 @@
-import { SEARCH_TEMPLATES, SITE_COUNTRIES } from './templates';
+import { SEARCH_TEMPLATES, SITE_COUNTRIES, EXPECTED_DOMAINS } from './templates';
 import { mapBrand, mapModel, mapFuel, isSupportedParam } from './mappings';
 import type {
   LinkGenParams,
@@ -56,25 +56,17 @@ function applyTemplate(template: string, vars: Record<string, string>): string {
     }
   }
 
-  // Remove unfilled optional params: &key={...} or ?key={...} or &key=min-{...}
+  // Remove unfilled optional params: &key={...} or &key=prefix-{...}
   result = result
-    .replace(/&[^=&|#?]+=[^&|#?]*\{[^}]+\}[^&|#?]*/g, '')
-    .replace(/\?[^=&|#]+=[^&|#]*\{[^}]+\}[^&|#]*/g, (match) => {
-      // If this was the first param (starts with ?), convert next & to ? if present
-      return '';
-    })
+    .replace(/&[^=&|#?]+=([^&|#?]*\{[^}]+\}[^&|#?]*)/g, '')
     // Remove |segment:{...} for Marktplaats unfilled segments
     .replace(/\|[^|#]+:\{[^}]+\}/g, '');
-
-  // Clean up malformed ? (if first ? param was removed, fix the URL)
-  result = result.replace(/\?&/, '?').replace(/\?$/, '');
 
   return result;
 }
 
 // Resolve yearFrom / yearTo from params (handles legacy `year` field)
 function resolveYearRange(params: LinkGenParams): { yearFrom: string; yearTo: string } {
-  // Legacy: if only `year` is provided, treat as both from and to
   if (params.year && !params.yearFrom && !params.yearTo) {
     const y = String(params.year);
     return { yearFrom: y, yearTo: y };
@@ -123,18 +115,16 @@ export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): Li
   });
 
   const template = SEARCH_TEMPLATES[params.site];
-
   let url: string;
 
   if (params.site === 'MARKTPLAATS') {
     const query = buildMarktplaatsQuery(mappedBrand, mappedModel, params.trim);
-
     const vars: Record<string, string> = { query };
     if (yearFrom) vars['yearFrom'] = yearFrom;
     if (yearTo) vars['yearTo'] = yearTo;
     if (params.mileage) vars['mileage'] = String(params.mileage);
-
     url = applyTemplate(template, vars);
+
   } else if (params.site === 'BILBASEN') {
     const vars: Record<string, string> = {
       brand: mappedBrand,
@@ -145,10 +135,9 @@ export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): Li
     if (params.mileage) vars['mileage'] = String(params.mileage);
     // Only inject fuel if mapping produced a non-empty value (GPL maps to '' for Bilbasen)
     if (mappedFuel && mappedFuel.trim()) vars['fuel'] = mappedFuel;
-
     url = applyTemplate(template, vars);
-  } else {
-    // LEBONCOIN
+
+  } else if (params.site === 'LEBONCOIN') {
     const vars: Record<string, string> = {
       brand: mappedBrand,
       model: mappedModel,
@@ -158,8 +147,22 @@ export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): Li
     if (params.mileage) vars['mileage'] = String(params.mileage);
     if (mappedFuel) vars['fuel'] = mappedFuel;
     if (params.trim && params.trim.trim()) vars['trim'] = params.trim.trim();
-
     url = applyTemplate(template, vars);
+
+  } else {
+    // Should never reach here — all SiteKey values are handled above
+    const exhaustiveCheck: never = params.site;
+    throw new Error(`[LINKGEN_ROUTE_ERROR] Unknown site: ${exhaustiveCheck}`);
+  }
+
+  // Guard: ensure generated URL belongs to the expected domain
+  const expectedDomain = EXPECTED_DOMAINS[params.site];
+  if (!url.includes(expectedDomain)) {
+    logs.push({
+      level: 'WARNING',
+      message: `[LINKGEN_ROUTE_ERROR] Generated URL does not match expected domain`,
+      data: { site: params.site, expectedDomain, url },
+    });
   }
 
   logs.push({
@@ -182,13 +185,20 @@ export function generateSearchUrls(params: LinkGenParams): LinkGenUrlResult[] {
       .filter((l) => l.level === 'WARNING')
       .map((l) => l.message);
 
+    // Domain guard at the multi-site level
+    const expectedDomain = EXPECTED_DOMAINS[site];
+    const domainOk = result.url.includes(expectedDomain);
+
     return {
       site,
       country: SITE_COUNTRIES[site],
       url: result.url,
       debugLogs: result.debugLogs,
       warnings,
-      validationStatus: 'not_checked' as const,
+      validationStatus: domainOk ? ('not_checked' as const) : ('invalid' as const),
+      ...(domainOk ? {} : {
+        validationIssues: [{ type: 'wrong_domain' as const }],
+      }),
     };
   });
 }
