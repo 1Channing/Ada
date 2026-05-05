@@ -178,11 +178,37 @@ export interface CsvAnalysisResult {
   warnings: string[];
 }
 
+export type CsvRejectionReason =
+  | 'missing_url'
+  | 'missing_brand_and_model'
+  | 'empty_row'
+  | 'parse_error'
+  | 'unknown_headers';
+
+export interface CsvRejection {
+  rowIndex: number;
+  reason: CsvRejectionReason;
+  // up to 3 key=value pairs from the raw row for display
+  preview: string;
+}
+
+export interface CsvImportDiagnostics {
+  filename: string;
+  fileSizeBytes: number;
+  detectedSeparator: ',' | ';';
+  detectedHeaders: string[];
+  rawRowCount: number;
+  validRowCount: number;
+  rejectedRowCount: number;
+  rejections: CsvRejection[]; // max 10
+}
+
 export interface CsvBatchResult {
   analyzed: CsvAnalysisResult[];
   confidenceAvg: number;
   mappingsDetected: number;
   warningCount: number;
+  importDiagnostics: CsvImportDiagnostics;
 }
 
 export type MappingValidationStatus = 'pending' | 'valid' | 'invalid';

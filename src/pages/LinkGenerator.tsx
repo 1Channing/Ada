@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Link2,
   Copy,
@@ -19,12 +19,13 @@ import {
   Save,
   Brain,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import { generateSearchUrls, generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { validateAllUrls } from '../lib/linkgen/validator';
 import {
   parseCSV,
-  normalizeCsvRow,
+  normalizeCsvRows,
   analyzeCsvBatch,
   saveMappingsBatch,
 } from '../lib/linkgen/csvMappingLearner';
@@ -36,7 +37,52 @@ import type {
   LinkGenCorrectionRecord,
   CsvAnalysisResult,
   CsvBatchResult,
+  CsvImportDiagnostics,
 } from '../lib/linkgen/types';
+
+// ─── localStorage persistence ─────────────────────────────────────────────────
+
+const DRAFT_KEY = 'link_generator_draft';
+
+interface DraftState {
+  selectedSites: SiteKey[];
+  brand: string;
+  model: string;
+  yearFrom: string;
+  yearTo: string;
+  mileage: string;
+  minPower: string;
+  fuel: string;
+  trim: string;
+  useMemory: boolean;
+  results: LinkGenUrlResult[];
+  history: Array<{ results: LinkGenUrlResult[]; params: LinkGenParams; timestamp: string; corrections: LinkGenCorrectionRecord[] }>;
+  csvDiagnostics: CsvImportDiagnostics | null;
+  // Lightweight CSV summary — no full analysis payloads (no debugLogs, no full detectedParams)
+  csvSummary: { analyzed: number; mappingsDetected: number; confidenceAvg: number; warningCount: number } | null;
+}
+
+function saveDraft(state: DraftState) {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(state));
+  } catch {
+    // quota exceeded — silently ignore
+  }
+}
+
+function loadDraft(): Partial<DraftState> {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Partial<DraftState>;
+  } catch {
+    return {};
+  }
+}
+
+function clearDraft() {
+  localStorage.removeItem(DRAFT_KEY);
+}
 
 const FUEL_OPTIONS: { label: string; value: string }[] = [
   { label: 'Essence / Petrol', value: 'ESSENCE' },
@@ -305,6 +351,31 @@ function UrlCard({
         </div>
       )}
 
+      {/* Mapping source info */}
+      {!validating && result.mappingSource && (
+        <div className="flex items-center gap-2 text-xs text-zinc-600 font-mono">
+          {result.mappingSource === 'learned' ? (
+            <>
+              <Brain className="w-3 h-3 text-green-600" />
+              <span className="text-green-700">
+                source: learned mapping
+                {result.debugLogs.find((l) => l.data?.confidence) && (
+                  <> · confidence {Math.round(Number(result.debugLogs.find((l) => l.data?.confidence)?.data?.confidence ?? 0) * 100)}%</>
+                )}
+                {result.debugLogs.find((l) => l.data?.source_url) && (
+                  <> · {result.debugLogs.find((l) => l.data?.source_url)?.data?.source_url as string}</>
+                )}
+              </span>
+            </>
+          ) : (
+            <>
+              <Info className="w-3 h-3" />
+              <span>source: default template · no validated mapping found</span>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Diagnostics panel */}
       {!validating && result.diagnostics && (
         <div>
@@ -415,37 +486,81 @@ function UrlCard({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function LinkGenerator() {
-  const [selectedSites, setSelectedSites] = useState<SiteKey[]>(['MARKTPLAATS']);
-  const [brand, setBrand] = useState('');
-  const [model, setModel] = useState('');
-  const [yearFrom, setYearFrom] = useState('');
-  const [yearTo, setYearTo] = useState('');
-  const [mileage, setMileage] = useState('');
-  const [fuel, setFuel] = useState('');
-  const [trim, setTrim] = useState('');
-  const [minPower, setMinPower] = useState('');
-  const [useMemory, setUseMemory] = useState(false);
+  // Load draft on first render
+  const draft = loadDraft();
+
+  const [selectedSites, setSelectedSites] = useState<SiteKey[]>(draft.selectedSites ?? ['MARKTPLAATS']);
+  const [brand, setBrand] = useState(draft.brand ?? '');
+  const [model, setModel] = useState(draft.model ?? '');
+  const [yearFrom, setYearFrom] = useState(draft.yearFrom ?? '');
+  const [yearTo, setYearTo] = useState(draft.yearTo ?? '');
+  const [mileage, setMileage] = useState(draft.mileage ?? '');
+  const [fuel, setFuel] = useState(draft.fuel ?? '');
+  const [trim, setTrim] = useState(draft.trim ?? '');
+  const [minPower, setMinPower] = useState(draft.minPower ?? '');
+  const [useMemory, setUseMemory] = useState(draft.useMemory ?? false);
   const [generating, setGenerating] = useState(false);
 
-  const [results, setResults] = useState<LinkGenUrlResult[]>([]);
+  const [results, setResults] = useState<LinkGenUrlResult[]>(draft.results ?? []);
   const [validating, setValidating] = useState(false);
   const [validatingSet, setValidatingSet] = useState<Set<string>>(new Set());
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>(
+    (draft.history ?? []).map((h) => ({ ...h, timestamp: new Date(h.timestamp) }))
+  );
 
   // CSV Learner state
   const [csvOpen, setCsvOpen] = useState(false);
   const [csvBatchResult, setCsvBatchResult] = useState<CsvBatchResult | null>(null);
+  const [csvDiagnostics, setCsvDiagnostics] = useState<CsvImportDiagnostics | null>(draft.csvDiagnostics ?? null);
   const [csvAnalyzing, setCsvAnalyzing] = useState(false);
   const [csvSaving, setCsvSaving] = useState(false);
   const [csvSaveResult, setCsvSaveResult] = useState<{ saved: number; skipped: number; errors: number } | null>(null);
   const [gptLoadingIdx, setGptLoadingIdx] = useState<number | null>(null);
   const [gptResults, setGptResults] = useState<Record<number, { explanation?: string; confidence?: number; status: string }>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasZyteKey = !!(
     (import.meta.env.VITE_ZYTE_API_KEY as string | undefined) ||
     (import.meta.env.ZYTE_API_KEY as string | undefined)
   );
+
+  // Auto-save draft with 500ms debounce (excludes transient states like validating/analyzing)
+  const persistDraft = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      saveDraft({
+        selectedSites,
+        brand,
+        model,
+        yearFrom,
+        yearTo,
+        mileage,
+        minPower,
+        fuel,
+        trim,
+        useMemory,
+        results,
+        history: history.map((h) => ({ ...h, timestamp: h.timestamp.toISOString() })),
+        csvDiagnostics,
+        csvSummary: csvBatchResult
+          ? {
+              analyzed: csvBatchResult.analyzed.length,
+              mappingsDetected: csvBatchResult.mappingsDetected,
+              confidenceAvg: csvBatchResult.confidenceAvg,
+              warningCount: csvBatchResult.warningCount,
+            }
+          : null,
+      });
+    }, 500);
+  }, [selectedSites, brand, model, yearFrom, yearTo, mileage, minPower, fuel, trim, useMemory, results, history, csvDiagnostics, csvBatchResult]);
+
+  useEffect(() => {
+    persistDraft();
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [persistDraft]);
 
   const toggleSite = (site: SiteKey) =>
     setSelectedSites((prev) =>
@@ -527,22 +642,52 @@ export function LinkGenerator() {
     }
   };
 
+  const handleClear = () => {
+    setSelectedSites(['MARKTPLAATS']);
+    setBrand('');
+    setModel('');
+    setYearFrom('');
+    setYearTo('');
+    setMileage('');
+    setFuel('');
+    setTrim('');
+    setMinPower('');
+    setUseMemory(false);
+    setResults([]);
+    setHistory([]);
+    setCsvBatchResult(null);
+    setCsvDiagnostics(null);
+    setCsvSaveResult(null);
+    setGptResults({});
+    clearDraft();
+  };
+
   const isFormValid =
     brand.trim().length > 0 && model.trim().length > 0 && selectedSites.length > 0;
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-blue-600/10 rounded-lg border border-blue-600/20">
-          <Link2 className="w-5 h-5 text-blue-400" />
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-600/10 rounded-lg border border-blue-600/20">
+            <Link2 className="w-5 h-5 text-blue-400" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold text-zinc-100">Link Generator</h1>
+            <p className="text-sm text-zinc-500">
+              Generate and validate multi-market search URLs for ADA studies
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-semibold text-zinc-100">Link Generator</h1>
-          <p className="text-sm text-zinc-500">
-            Generate and validate multi-market search URLs for ADA studies
-          </p>
-        </div>
+        <button
+          onClick={handleClear}
+          title="Clear form, results and local session data (does not delete memory)"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-500 hover:text-red-400 hover:bg-red-900/10 border border-zinc-800 hover:border-red-900/40 rounded-lg transition-colors"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          Clear
+        </button>
       </div>
 
       {/* Form */}
@@ -903,17 +1048,24 @@ export function LinkGenerator() {
                     const file = e.target.files?.[0];
                     if (!file) return;
                     setCsvBatchResult(null);
+                    setCsvDiagnostics(null);
                     setCsvSaveResult(null);
                     setGptResults({});
                     setCsvAnalyzing(true);
                     try {
                       const text = await file.text();
-                      const rawRows = parseCSV(text);
-                      const normalized = rawRows
-                        .map(normalizeCsvRow)
-                        .filter((r): r is NonNullable<typeof r> => r !== null);
-                      const batchResult = analyzeCsvBatch(normalized);
+                      const parsed = parseCSV(text);
+                      const { rows: normalized, rejections } = normalizeCsvRows(parsed.rows);
+                      const batchResult = analyzeCsvBatch(normalized, {
+                        filename: file.name,
+                        fileSizeBytes: file.size,
+                        detectedSeparator: parsed.separator,
+                        detectedHeaders: parsed.headers,
+                        rawRowCount: parsed.rawRowCount,
+                        rejections,
+                      });
                       setCsvBatchResult(batchResult);
+                      setCsvDiagnostics(batchResult.importDiagnostics);
                     } finally {
                       setCsvAnalyzing(false);
                       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -934,7 +1086,12 @@ export function LinkGenerator() {
                 </button>
               </div>
 
-              {csvBatchResult && (
+              {/* CSV Diagnostics — always shown after upload even if 0 results */}
+              {csvDiagnostics && (
+                <CsvImportDiagnosticsPanel diagnostics={csvDiagnostics} zeroResults={!csvBatchResult || csvBatchResult.analyzed.length === 0} />
+              )}
+
+              {csvBatchResult && csvBatchResult.analyzed.length > 0 && (
                 <div className="space-y-4">
                   <div className="bg-zinc-800/50 rounded-lg p-4 space-y-3">
                     <div className="flex flex-wrap gap-6 text-sm">
@@ -1210,6 +1367,131 @@ function CsvAnalysisRow({
                   </p>
                 </div>
               ) : null}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CSV Import Diagnostics Panel ─────────────────────────────────────────────
+
+const REJECTION_LABELS: Record<string, string> = {
+  missing_url: 'Missing URL',
+  missing_brand_and_model: 'Missing brand and model',
+  empty_row: 'Empty row',
+  parse_error: 'Parse error',
+  unknown_headers: 'Unknown headers',
+};
+
+function CsvImportDiagnosticsPanel({
+  diagnostics,
+  zeroResults,
+}: {
+  diagnostics: CsvImportDiagnostics;
+  zeroResults: boolean;
+}) {
+  const [rejectionsOpen, setRejectionsOpen] = useState(false);
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return (
+    <div className={`rounded-lg border p-4 space-y-3 ${zeroResults ? 'bg-red-950/10 border-red-800/30' : 'bg-zinc-800/30 border-zinc-700/40'}`}>
+      <div className="flex items-center gap-2">
+        <Info className="w-4 h-4 text-zinc-400 shrink-0" />
+        <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">CSV Import Diagnostics</span>
+      </div>
+
+      <div className="flex items-center gap-2 text-xs text-zinc-400">
+        <span className="font-medium text-zinc-200">{diagnostics.filename}</span>
+        <span className="text-zinc-600">·</span>
+        <span>{formatBytes(diagnostics.fileSizeBytes)}</span>
+        <span className="text-zinc-600">·</span>
+        <span>separator: <code className="text-blue-300">{diagnostics.detectedSeparator}</code></span>
+      </div>
+
+      <div>
+        <p className="text-xs text-zinc-500 mb-1.5">Detected headers ({diagnostics.detectedHeaders.length})</p>
+        <div className="flex flex-wrap gap-1.5">
+          {diagnostics.detectedHeaders.map((h) => (
+            <span key={h} className="text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 px-2 py-0.5 rounded font-mono">
+              {h}
+            </span>
+          ))}
+          {diagnostics.detectedHeaders.length === 0 && (
+            <span className="text-xs text-red-400">No headers detected — is the file valid CSV?</span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-4 text-xs">
+        <div>
+          <span className="text-zinc-500">Raw rows</span>
+          <span className="ml-1.5 font-semibold text-zinc-200">{diagnostics.rawRowCount}</span>
+        </div>
+        <div>
+          <span className="text-zinc-500">Valid</span>
+          <span className="ml-1.5 font-semibold text-green-400">{diagnostics.validRowCount}</span>
+        </div>
+        {diagnostics.rejectedRowCount > 0 && (
+          <div>
+            <span className="text-zinc-500">Rejected</span>
+            <span className="ml-1.5 font-semibold text-red-400">{diagnostics.rejectedRowCount}</span>
+          </div>
+        )}
+      </div>
+
+      {zeroResults && (
+        <div className="bg-red-950/20 border border-red-800/30 rounded p-3 space-y-1.5">
+          <p className="text-xs font-semibold text-red-400">0 rows could be analyzed</p>
+          <p className="text-xs text-zinc-400">
+            Make sure your CSV contains a URL column:
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {['url', 'source_search_url', 'source_url', 'target_url', 'link'].map((n) => (
+              <code key={n} className="text-xs bg-zinc-800 text-blue-300 px-1.5 py-0.5 rounded">{n}</code>
+            ))}
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">
+            And at least one of:{' '}
+            {['brand', 'marque', 'model', 'modele'].map((n) => (
+              <code key={n} className="text-blue-300 mr-1">{n}</code>
+            ))}
+          </p>
+        </div>
+      )}
+
+      {diagnostics.rejections.length > 0 && (
+        <div>
+          <button
+            onClick={() => setRejectionsOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            {rejectionsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            Rejected rows ({diagnostics.rejections.length}{diagnostics.rejectedRowCount > 10 ? `, showing first 10 of ${diagnostics.rejectedRowCount}` : ''})
+          </button>
+          {rejectionsOpen && (
+            <div className="mt-2 space-y-1">
+              {diagnostics.rejections.map((r, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  <span className="text-zinc-600 font-mono shrink-0">row {r.rowIndex}</span>
+                  <span className={`shrink-0 px-1.5 py-0 rounded text-[10px] font-medium ${
+                    r.reason === 'missing_url' ? 'bg-red-900/40 text-red-400' :
+                    r.reason === 'empty_row' ? 'bg-zinc-800 text-zinc-500' :
+                    'bg-amber-900/30 text-amber-400'
+                  }`}>
+                    {REJECTION_LABELS[r.reason] ?? r.reason}
+                  </span>
+                  {r.preview && (
+                    <span className="text-zinc-600 font-mono truncate">{r.preview}</span>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>

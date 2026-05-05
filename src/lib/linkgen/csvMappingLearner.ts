@@ -3,6 +3,8 @@ import type {
   CsvLearnerRow,
   CsvAnalysisResult,
   CsvBatchResult,
+  CsvImportDiagnostics,
+  CsvRejection,
   DetectedParams,
   InferredMapping,
 } from './types';
@@ -27,7 +29,6 @@ function parseCSVLine(line: string, sep: ',' | ';'): string[] {
 
     if (inQuotes) {
       if (ch === '"' && next === '"') {
-        // escaped quote
         current += '"';
         i++;
       } else if (ch === '"') {
@@ -50,17 +51,27 @@ function parseCSVLine(line: string, sep: ',' | ';'): string[] {
   return fields;
 }
 
-export function parseCSV(raw: string): Record<string, string>[] {
+export interface ParseCSVResult {
+  rows: Record<string, string>[];
+  separator: ',' | ';';
+  headers: string[];
+  rawRowCount: number;
+}
+
+export function parseCSV(raw: string): ParseCSVResult {
   const lines = raw
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .split('\n')
     .filter((l) => l.trim().length > 0);
 
-  if (lines.length < 2) return [];
+  if (lines.length < 2) {
+    return { rows: [], separator: ',', headers: [], rawRowCount: 0 };
+  }
 
   const sep = detectSeparator(lines[0]);
-  const headers = parseCSVLine(lines[0], sep).map((h) => h.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+  const rawHeaders = parseCSVLine(lines[0], sep);
+  const headers = rawHeaders.map((h) => h.toLowerCase().trim());
 
   const rows: Record<string, string>[] = [];
   for (let i = 1; i < lines.length; i++) {
@@ -72,21 +83,46 @@ export function parseCSV(raw: string): Record<string, string>[] {
     });
     rows.push(row);
   }
-  return rows;
+
+  return { rows, separator: sep, headers, rawRowCount: lines.length - 1 };
 }
 
 // ─── Column name normalisation ────────────────────────────────────────────────
-// Maps various CSV column names from different ADA exports to canonical names
+// Strips accents so "modèle" → "modele", "énergie" → "energie", etc.
 
-const COLUMN_ALIASES: Record<string, keyof CsvLearnerRow> = {
-  // site / marketplace
+function stripAccents(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalizeHeader(h: string): string {
+  return stripAccents(h.toLowerCase().trim().replace(/\s+/g, '_'));
+}
+
+type CsvFieldKey = keyof CsvLearnerRow | 'source_url_alt' | 'target_url_alt';
+
+const COLUMN_ALIASES: Record<string, CsvFieldKey> = {
+  // url (main)
+  url: 'url',
+  search_url: 'url',
+  source_search_url: 'url',
+  source_url: 'url',
+  link: 'url',
+  liens: 'url',
+  lien: 'url',
+  // target url (for double-row expansion)
+  target_search_url: 'target_url_alt',
+  target_url: 'target_url_alt',
+  // site
   site: 'site',
+  marketplace: 'site',
   source_marketplace: 'site',
-  market_source_url: 'site',  // fallback
+  target_marketplace: 'site',
+  market: 'site',
   // country
   country: 'country',
   source_country: 'country',
-  country_source: 'country',
+  target_country: 'country',
+  pays: 'country',
   // brand
   brand: 'brand',
   marque: 'brand',
@@ -94,14 +130,18 @@ const COLUMN_ALIASES: Record<string, keyof CsvLearnerRow> = {
   // model
   model: 'model',
   modele: 'model',
+  modeles: 'model',
   model_pattern: 'model',
   // year
   year: 'year',
   annee: 'year',
+  regdate: 'year',
+  year_from: 'year',
   year_min: 'year',
   yearfrom: 'year',
   // mileage
   mileage: 'mileage',
+  kilometrage: 'mileage',
   max_mileage: 'mileage',
   mileage_max: 'mileage',
   km_max: 'mileage',
@@ -111,63 +151,117 @@ const COLUMN_ALIASES: Record<string, keyof CsvLearnerRow> = {
   energie: 'fuel',
   // trim
   trim: 'trim',
-  version: 'trim',
   finition: 'trim',
-  // url — prefer source_search_url
-  url: 'url',
-  source_search_url: 'url',
-  market_source_url_col: 'url',  // placeholder
+  version: 'trim',
 };
 
-export function normalizeCsvRow(raw: Record<string, string>): CsvLearnerRow | null {
-  const mapped: Partial<CsvLearnerRow> = {};
+function inferSiteFromUrl(url: string): string {
+  try {
+    const domain = new URL(url).hostname.toLowerCase();
+    if (domain.includes('leboncoin')) return 'LEBONCOIN';
+    if (domain.includes('marktplaats')) return 'MARKTPLAATS';
+    if (domain.includes('bilbasen')) return 'BILBASEN';
+  } catch {
+    // ignore
+  }
+  return 'UNKNOWN';
+}
 
-  for (const [rawKey, value] of Object.entries(raw)) {
-    const canonical = COLUMN_ALIASES[rawKey];
-    if (canonical && value) {
-      // Don't overwrite if already set (priority: first match wins per canonical key order)
-      if (!(canonical in mapped)) {
-        (mapped as Record<string, string>)[canonical] = value;
+// Build a short preview string from the raw row for rejection display
+function rowPreview(raw: Record<string, string>): string {
+  return Object.entries(raw)
+    .slice(0, 3)
+    .map(([k, v]) => `${k}=${v.slice(0, 20)}`)
+    .join(' | ');
+}
+
+export interface NormalizeBatchResult {
+  rows: CsvLearnerRow[];
+  rejections: CsvRejection[];
+}
+
+export function normalizeCsvRows(
+  rawRows: Record<string, string>[]
+): NormalizeBatchResult {
+  const rows: CsvLearnerRow[] = [];
+  const rejections: CsvRejection[] = [];
+
+  rawRows.forEach((raw, idx) => {
+    // Check for completely empty row
+    if (Object.values(raw).every((v) => !v)) {
+      rejections.push({ rowIndex: idx + 2, reason: 'empty_row', preview: '' });
+      return;
+    }
+
+    // Map raw keys to canonical fields using normalised aliases
+    const mapped: Partial<Record<CsvFieldKey, string>> = {};
+
+    for (const [rawKey, value] of Object.entries(raw)) {
+      if (!value) continue;
+      const normKey = normalizeHeader(rawKey);
+      const canonical = COLUMN_ALIASES[normKey];
+      if (canonical && !(canonical in mapped)) {
+        mapped[canonical] = value;
       }
     }
-  }
 
-  // Special case: if url not yet resolved, try market_source_url column
-  if (!mapped.url) {
-    const fallback = raw['market_source_url'] ?? raw['market_source'] ?? '';
-    if (fallback) mapped.url = fallback;
-  }
-
-  // Derive site from url domain if not provided
-  if (!mapped.site && mapped.url) {
-    try {
-      const domain = new URL(mapped.url).hostname.toLowerCase();
-      if (domain.includes('leboncoin')) mapped.site = 'LEBONCOIN';
-      else if (domain.includes('marktplaats')) mapped.site = 'MARKTPLAATS';
-      else if (domain.includes('bilbasen')) mapped.site = 'BILBASEN';
-    } catch {
-      // ignore
+    // Special case: if url not yet resolved from primary aliases, try some fallbacks
+    if (!mapped.url) {
+      // try any column whose name contains "url"
+      for (const [rawKey, value] of Object.entries(raw)) {
+        if (value && rawKey.toLowerCase().includes('url') && !(COLUMN_ALIASES[normalizeHeader(rawKey)] === 'target_url_alt')) {
+          mapped.url = value;
+          break;
+        }
+      }
     }
-  }
 
-  // Normalise site to uppercase
-  if (mapped.site) {
-    mapped.site = mapped.site.toUpperCase().trim();
-  }
+    // Reject: no URL found
+    if (!mapped.url) {
+      rejections.push({ rowIndex: idx + 2, reason: 'missing_url', preview: rowPreview(raw) });
+      return;
+    }
 
-  if (!mapped.brand || !mapped.model || !mapped.url) return null;
+    // Reject: neither brand nor model
+    if (!mapped.brand && !mapped.model) {
+      rejections.push({ rowIndex: idx + 2, reason: 'missing_brand_and_model', preview: rowPreview(raw) });
+      return;
+    }
 
-  return {
-    site: mapped.site ?? 'UNKNOWN',
-    country: mapped.country ?? '',
-    brand: mapped.brand,
-    model: mapped.model,
-    year: mapped.year,
-    mileage: mapped.mileage,
-    fuel: mapped.fuel,
-    trim: mapped.trim,
-    url: mapped.url,
-  };
+    // Infer site from URL if not provided
+    if (!mapped.site && mapped.url) {
+      mapped.site = inferSiteFromUrl(mapped.url);
+    }
+    if (mapped.site) {
+      mapped.site = (mapped.site as string).toUpperCase().trim();
+    }
+
+    const baseRow: CsvLearnerRow = {
+      site: (mapped.site as string) ?? 'UNKNOWN',
+      country: (mapped.country as string) ?? '',
+      brand: (mapped.brand as string) ?? '',
+      model: (mapped.model as string) ?? '',
+      year: mapped.year as string | undefined,
+      mileage: mapped.mileage as string | undefined,
+      fuel: mapped.fuel as string | undefined,
+      trim: mapped.trim as string | undefined,
+      url: mapped.url as string,
+    };
+
+    rows.push(baseRow);
+
+    // If target_url also present, create a second row for the target
+    if (mapped.target_url_alt) {
+      const targetSite = inferSiteFromUrl(mapped.target_url_alt as string);
+      rows.push({
+        ...baseRow,
+        site: targetSite !== 'UNKNOWN' ? targetSite : (baseRow.site ?? 'UNKNOWN'),
+        url: mapped.target_url_alt as string,
+      });
+    }
+  });
+
+  return { rows, rejections };
 }
 
 // ─── URL decomposition ────────────────────────────────────────────────────────
@@ -196,14 +290,12 @@ function decomposeUrl(rawUrl: string): DetectedParams | null {
         const v = seg.slice(colonIdx + 1).trim();
         if (k) hashParams[k] = v;
       } else {
-        // standard key=value
         const eqIdx = seg.indexOf('=');
         if (eqIdx > 0) {
           hashParams[seg.slice(0, eqIdx).trim()] = seg.slice(eqIdx + 1).trim();
         }
       }
     }
-    // Also try standard URLSearchParams on the hash
     try {
       const hashSearchParams = new URLSearchParams(hash);
       hashSearchParams.forEach((v, k) => {
@@ -231,7 +323,7 @@ function decomposeUrl(rawUrl: string): DetectedParams | null {
 // ─── Field matching helpers ───────────────────────────────────────────────────
 
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[-_\s+]/g, '').replace(/[^a-z0-9]/g, '');
+  return stripAccents(s).toLowerCase().replace(/[-_\s+]/g, '').replace(/[^a-z0-9]/g, '');
 }
 
 function valueContains(paramValue: string, fieldValue: string): boolean {
@@ -279,6 +371,11 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
   const paramToField: Record<string, string> = {};
   const fieldToParam: Record<string, { paramName: string; rawValue: string }> = {};
 
+  // Warn if brand/model missing — structural analysis only
+  if (!row.brand && !row.model) {
+    warnings.push('[CSV_LEARNER] brand and model both empty — structural analysis only, confidence will be 0');
+  }
+
   const detectedParams = decomposeUrl(row.url);
 
   if (!detectedParams) {
@@ -297,12 +394,9 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
         hashParams: {},
         pathSegments: [],
       },
-      inferredMapping: {
-        paramToField: {},
-        fieldToParam: {},
-      },
+      inferredMapping: { paramToField: {}, fieldToParam: {} },
       confidence: 0,
-      warnings: [`[URL_ANALYSIS] Cannot parse URL: ${row.url}`],
+      warnings: [...warnings, `[URL_ANALYSIS] Cannot parse URL: ${row.url}`],
     };
   }
 
@@ -310,7 +404,6 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
 
   const allQueryAndHash = { ...detectedParams.queryParams, ...detectedParams.hashParams };
 
-  // Fields to match and their expected values
   const fieldsToMatch: Array<{ field: string; value: string; weight: number }> = [
     { field: 'brand', value: row.brand, weight: 2 },
     { field: 'model', value: row.model, weight: 2 },
@@ -326,8 +419,7 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
   for (const { field, value, weight } of fieldsToMatch) {
     totalWeight += weight;
 
-    // Try query params first, then hash, then path
-    let match =
+    const match =
       findParamForField(detectedParams.queryParams, value, 'query') ??
       findParamForField(detectedParams.hashParams, value, 'hash') ??
       findParamInPath(detectedParams.pathSegments, value);
@@ -345,11 +437,13 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
   }
 
   // Detect sort param
-  const sortParamName = Object.keys(allQueryAndHash).find(
-    (k) => k.toLowerCase().includes('sort') || k.toLowerCase().includes('order')
-  ) ?? Object.keys(detectedParams.hashParams).find(
-    (k) => k.toLowerCase().includes('sort') || k.toLowerCase().includes('order')
-  );
+  const sortParamName =
+    Object.keys(allQueryAndHash).find(
+      (k) => k.toLowerCase().includes('sort') || k.toLowerCase().includes('order')
+    ) ??
+    Object.keys(detectedParams.hashParams).find(
+      (k) => k.toLowerCase().includes('sort') || k.toLowerCase().includes('order')
+    );
 
   // Detect year range params
   let yearFromParam: string | undefined;
@@ -366,7 +460,6 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
           yearFromParam = k;
         }
       }
-      // Marktplaats: constructionYearFrom:2020|constructionYearTo:2022
       if (kl.includes('yearfrom') || kl === 'constructionyearfrom') yearFromParam = k;
       if (kl.includes('yearto') || kl === 'constructionyearto') yearToParam = k;
     }
@@ -411,7 +504,19 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
   };
 }
 
-export function analyzeCsvBatch(rows: CsvLearnerRow[]): CsvBatchResult {
+export interface AnalyzeBatchOptions {
+  filename?: string;
+  fileSizeBytes?: number;
+  detectedSeparator?: ',' | ';';
+  detectedHeaders?: string[];
+  rawRowCount?: number;
+  rejections?: CsvRejection[];
+}
+
+export function analyzeCsvBatch(
+  rows: CsvLearnerRow[],
+  options: AnalyzeBatchOptions = {}
+): CsvBatchResult {
   const analyzed: CsvAnalysisResult[] = rows.map((row) => analyzeCsvUrl(row));
 
   const confidenceAvg =
@@ -425,7 +530,18 @@ export function analyzeCsvBatch(rows: CsvLearnerRow[]): CsvBatchResult {
 
   const warningCount = analyzed.reduce((sum, a) => sum + a.warnings.length, 0);
 
-  return { analyzed, confidenceAvg, mappingsDetected, warningCount };
+  const importDiagnostics: CsvImportDiagnostics = {
+    filename: options.filename ?? '',
+    fileSizeBytes: options.fileSizeBytes ?? 0,
+    detectedSeparator: options.detectedSeparator ?? ',',
+    detectedHeaders: options.detectedHeaders ?? [],
+    rawRowCount: options.rawRowCount ?? rows.length,
+    validRowCount: rows.length,
+    rejectedRowCount: options.rejections?.length ?? 0,
+    rejections: (options.rejections ?? []).slice(0, 10),
+  };
+
+  return { analyzed, confidenceAvg, mappingsDetected, warningCount, importDiagnostics };
 }
 
 // ─── Supabase persistence ─────────────────────────────────────────────────────
@@ -435,7 +551,6 @@ export async function saveMappingToMemory(
 ): Promise<{ saved: boolean; reason: string }> {
   console.log(`[MAPPING_MEMORY] Saving mapping for ${analysis.site} ${analysis.brand} ${analysis.model}`);
 
-  // First check if a record already exists
   const { data: existing } = await supabase
     .from('linkgen_mapping_memory')
     .select('id, confidence, failure_count')
@@ -449,7 +564,6 @@ export async function saveMappingToMemory(
 
   if (existing) {
     if (analysis.confidence > existing.confidence) {
-      // Better confidence — update
       const { error } = await supabase
         .from('linkgen_mapping_memory')
         .update({
@@ -469,7 +583,6 @@ export async function saveMappingToMemory(
       }
       return { saved: true, reason: 'updated (higher confidence)' };
     } else {
-      // Lower or equal confidence — increment failure_count, keep existing
       await supabase
         .from('linkgen_mapping_memory')
         .update({ failure_count: (existing.failure_count ?? 0) + 1, updated_at: new Date().toISOString() })
@@ -478,7 +591,6 @@ export async function saveMappingToMemory(
     }
   }
 
-  // New record — insert
   const { error } = await supabase.from('linkgen_mapping_memory').insert({
     site: analysis.site,
     country: analysis.country,
@@ -510,7 +622,6 @@ export async function saveMappingsBatch(
   let skipped = 0;
   let errors = 0;
 
-  // Sequential to avoid upsert conflicts
   for (const analysis of analyses) {
     const result = await saveMappingToMemory(analysis);
     if (result.saved) {
