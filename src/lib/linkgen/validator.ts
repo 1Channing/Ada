@@ -108,6 +108,10 @@ function getZyteKey(): string {
   );
 }
 
+function isFetchBlocker(issues: LinkGenIssue[]): boolean {
+  return issues.some((i) => i.type === 'no_zyte_key' || i.type === 'fetch_failed');
+}
+
 // ─── core validation (1 fetch) ───────────────────────────────────────────────
 
 export async function validateGeneratedUrl(
@@ -117,8 +121,19 @@ export async function validateGeneratedUrl(
 ): Promise<LinkGenValidationResult> {
   const logs: LinkGenLogEntry[] = [];
 
+  // [SCOUT_START] — always first, even if no Zyte key
+  logs.push({
+    level: 'SCOUT',
+    message: '[SCOUT_START] Scout Check initiated',
+    data: { url, site, brand: params.brand, model: params.model },
+  });
+
   if (!getZyteKey()) {
-    logs.push({ level: 'WARNING', message: '[SCOUT_FETCH] skipped: no Zyte key' });
+    logs.push({
+      level: 'WARNING',
+      message: '[SCOUT_FETCH] skipped — no Zyte key configured',
+      data: { hint: 'Set VITE_ZYTE_API_KEY in your .env to enable Scout Check' },
+    });
     return {
       score: 0,
       isRelevant: false,
@@ -131,11 +146,16 @@ export async function validateGeneratedUrl(
     };
   }
 
-  logs.push({ level: 'SCOUT', message: '[SCOUT_FETCH] fetching', data: { url, site } });
+  logs.push({ level: 'SCOUT', message: '[SCOUT_FETCH] fetching real listings page', data: { url, site } });
   const html = await fetchHtmlLite(url);
 
   if (!html) {
-    logs.push({ level: 'SCOUT', message: '[SCOUT_FETCH] failed — no HTML returned', data: { url } });
+    logs.push({
+      level: 'SCOUT',
+      message: '[SCOUT_FETCH] failed — no HTML returned (network error or blocked)',
+      data: { url },
+    });
+    logs.push({ level: 'SCOUT', message: '[SCOUT_DONE] aborted — fetch failure', data: { url, score: 0, status: 'invalid' } });
     return {
       score: 0,
       isRelevant: false,
@@ -150,14 +170,19 @@ export async function validateGeneratedUrl(
 
   const { count: listingCount, method: listingCountMethod } = extractListingCount(html, site, 0);
 
-  logs.push({ level: 'SCOUT', message: '[SCOUT_PARSE] parsing listings', data: { site, listingCount } });
+  logs.push({
+    level: 'SCOUT',
+    message: '[SCOUT_PARSE] parsing listings from HTML',
+    data: { site, listingCount, htmlLength: html.length },
+  });
 
   let siteResult: SiteValidationResult;
   try {
     siteResult = validateSite(site, html, url, params, listingCount);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logs.push({ level: 'SCOUT', message: '[SCOUT_PARSE] parser error', data: { error: msg } });
+    logs.push({ level: 'SCOUT', message: '[SCOUT_PARSE] parser threw an error', data: { error: msg } });
+    logs.push({ level: 'SCOUT', message: '[SCOUT_DONE] aborted — parse error', data: { url, score: 0, status: 'invalid' } });
     return {
       score: 0,
       isRelevant: false,
@@ -173,14 +198,26 @@ export async function validateGeneratedUrl(
   if (!siteResult.evidence.structuredFieldsAvailable) {
     logs.push({
       level: 'SCOUT',
-      message: '[SCOUT_PARSE] structured_fields_missing — scoring from title only',
-      data: { missingFields: siteResult.evidence.missingFields.join(', ') },
+      message: '[SCOUT_PARSE] structured_fields_missing — scoring from title text only',
+      data: {
+        missingFields: siteResult.evidence.missingFields.join(', '),
+        sampleCount: siteResult.sampleListings.length,
+      },
+    });
+  } else {
+    logs.push({
+      level: 'SCOUT',
+      message: '[SCOUT_PARSE] structured fields available',
+      data: {
+        fieldsUsed: siteResult.evidence.fieldsUsed.join(', '),
+        sampleCount: siteResult.sampleListings.length,
+      },
     });
   }
 
   logs.push({
     level: 'SCOUT',
-    message: '[SCOUT_SCORE] scored',
+    message: '[SCOUT_SCORE] scoring complete',
     data: {
       score: siteResult.score,
       status: siteResult.status,
@@ -208,6 +245,18 @@ export async function validateGeneratedUrl(
   const finalStatus = listingCount === 0 && siteResult.sampleListings.length === 0
     ? 'invalid'
     : siteResult.status;
+
+  logs.push({
+    level: 'SCOUT',
+    message: '[SCOUT_DONE] validation complete',
+    data: {
+      url,
+      score: siteResult.score,
+      status: finalStatus,
+      listingCount,
+      issueCount: allIssues.length,
+    },
+  });
 
   return {
     score: siteResult.score,
@@ -299,6 +348,11 @@ export async function validateWithRetry(
     debugLogs: [...result.debugLogs, ...original.debugLogs],
   };
 
+  // If fetch was blocked (no Zyte key or network error), return early — no hypotheses
+  if (isFetchBlocker(original.issues)) {
+    return { original, updatedResult };
+  }
+
   // Early exit if already valid
   if (original.score >= 80) {
     console.log(`[SCOUT_BEST_URL] original valid (score=${original.score}) — no hypothesis needed`);
@@ -319,6 +373,11 @@ export async function validateWithRetry(
 
     // ── Fetch 2 or 3 ──
     const hypResult = await validateGeneratedUrl(hyp.url, result.site, params);
+
+    // If the hypothesis fetch was also blocked, stop hypothesis loop
+    if (isFetchBlocker(hypResult.issues)) {
+      break;
+    }
 
     const tested: ScoutHypothesis = {
       ...hyp,
@@ -358,9 +417,10 @@ export async function validateWithRetry(
       ...updatedResult.debugLogs,
       {
         level: 'SCOUT' as const,
-        message: '[SCOUT_BEST_URL] selection complete',
+        message: '[SCOUT_BEST_URL] best URL selected after hypothesis testing',
         data: {
           bestUrl: best.bestUrl,
+          changedFromOriginal: best.bestUrl !== result.url,
           scoreBefore: best.scoreBefore,
           scoreAfter: best.scoreAfter,
           statusBefore: best.statusBefore,
@@ -373,7 +433,7 @@ export async function validateWithRetry(
 
   return {
     original,
-    corrected: bestHyp ? undefined : undefined, // kept for type compat
+    corrected: bestHyp ? undefined : undefined,
     correctedUrl: best.bestUrl !== result.url ? best.bestUrl : undefined,
     correctionReason: best.correctionReason,
     updatedResult,
@@ -395,11 +455,13 @@ export async function validateAllUrls(
 // ─── Scout validation of a learned mapping ───────────────────────────────────
 // Max 1 Zyte fetch. No retry. No pagination.
 // Only marks valid if score >= 80.
+// Marks partial if 60-79.
 // Never overwrites a better existing scout_score.
+// Never marks invalid / increments failure_count if fetch was blocked (no Zyte key or network).
 
 export async function validateLearnedMapping(
   record: MappingMemoryRecord
-): Promise<{ success: boolean; validationStatus: string; score: number }> {
+): Promise<{ success: boolean; validationStatus: string; score: number; fetchBlocked?: boolean }> {
   const site = record.site as SiteKey;
   const mapping = (record.validated_mapping ?? record.inferred_mapping) as InferredMapping | null;
 
@@ -423,10 +485,16 @@ export async function validateLearnedMapping(
 
   console.log(`[SCOUT_VALIDATE] Result: status=${validationResult.validationStatus} score=${validationResult.score}`);
 
+  // Guard: if fetch was blocked (no Zyte key or network failure) — do NOT write anything
+  if (isFetchBlocker(validationResult.issues)) {
+    console.log(`[SCOUT_VALIDATE] Fetch blocked — not writing to DB, keeping pending`);
+    return { success: false, validationStatus: 'pending', score: 0, fetchBlocked: true };
+  }
+
   // Never overwrite a better existing scout_score
   const existingScoutScore = record.scout_score ?? 0;
   if (validationResult.score < existingScoutScore) {
-    console.log(`[MAPPING_MEMORY_SKIP] new score ${validationResult.score} < existing ${existingScoutScore} — not overwriting`);
+    console.log(`[SCOUT_VALIDATE] new score ${validationResult.score} < existing ${existingScoutScore} — not overwriting`);
     await supabase
       .from('linkgen_mapping_memory')
       .update({
@@ -439,7 +507,7 @@ export async function validateLearnedMapping(
   }
 
   if (validationResult.score >= 80) {
-    console.log(`[MAPPING_MEMORY_SAVE] score=${validationResult.score} — promoting to valid`);
+    console.log(`[SCOUT_VALIDATE] score=${validationResult.score} >= 80 — promoting to valid`);
     await supabase
       .from('linkgen_mapping_memory')
       .update({
@@ -458,14 +526,32 @@ export async function validateLearnedMapping(
     return { success: true, validationStatus: 'valid', score: validationResult.score };
   }
 
-  // Score < 80 — update diagnostics but don't promote
-  console.log(`[MAPPING_MEMORY_SKIP] score=${validationResult.score} < 80 — not promoting, failure_count++`);
+  if (validationResult.score >= 60) {
+    console.log(`[SCOUT_VALIDATE] score=${validationResult.score} 60-79 — marking partial`);
+    await supabase
+      .from('linkgen_mapping_memory')
+      .update({
+        scout_score: validationResult.score,
+        validation_status: 'partial',
+        issues: (validationResult.issues as unknown as import('../database.types').Json) ?? null,
+        failure_count: (record.failure_count ?? 0) + 1,
+        last_checked_at: now,
+        updated_at: now,
+      })
+      .eq('id', record.id);
+
+    return { success: false, validationStatus: 'partial', score: validationResult.score };
+  }
+
+  // Score < 60 — invalid
+  console.log(`[SCOUT_VALIDATE] score=${validationResult.score} < 60 — marking invalid`);
   await supabase
     .from('linkgen_mapping_memory')
     .update({
       scout_score: validationResult.score,
-      failure_count: (record.failure_count ?? 0) + 1,
+      validation_status: 'invalid',
       issues: (validationResult.issues as unknown as import('../database.types').Json) ?? null,
+      failure_count: (record.failure_count ?? 0) + 1,
       last_checked_at: now,
       updated_at: now,
     })
@@ -473,7 +559,7 @@ export async function validateLearnedMapping(
 
   return {
     success: false,
-    validationStatus: validationResult.validationStatus,
+    validationStatus: 'invalid',
     score: validationResult.score,
   };
 }

@@ -276,7 +276,7 @@ export interface CsvBatchResult {
   importDiagnostics: CsvImportDiagnostics;
 }
 
-export type MappingValidationStatus = 'pending' | 'valid' | 'invalid';
+export type MappingValidationStatus = 'pending' | 'valid' | 'partial' | 'invalid';
 
 export interface MappingMemoryRecord {
   id: string;

@@ -22,7 +22,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { generateSearchUrls, generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
-import { validateAllUrls } from '../lib/linkgen/validator';
+import { validateWithRetry } from '../lib/linkgen/validator';
 import {
   parseCSV,
   normalizeCsvRows,
@@ -268,7 +268,8 @@ function UrlCard({
   validating: boolean;
 }) {
   const [debugOpen, setDebugOpen] = useState(false);
-  const [diagOpen, setDiagOpen] = useState(false);
+  // Open diagnostics by default once the Scout has run
+  const [diagOpen, setDiagOpen] = useState(result.validationStatus !== 'not_checked');
   const [hypOpen, setHypOpen] = useState(false);
 
   const site = SITE_OPTIONS.find((s) => s.value === result.site);
@@ -281,6 +282,13 @@ function UrlCard({
     result.validationScore !== undefined &&
     result.validationScoreAfter !== undefined &&
     result.validationScoreAfter !== result.validationScore;
+
+  // Check if Scout logs are present after validation ran
+  const hasScoutLogs = result.debugLogs.some((l) => l.message.startsWith('[SCOUT_'));
+  const scoutRanButNoLogs = hasValidation && !validating && !hasScoutLogs;
+
+  // Detect Zyte unavailability
+  const zyteUnavailable = result.validationIssues?.some((i) => i.type === 'no_zyte_key');
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
@@ -327,10 +335,40 @@ function UrlCard({
         </div>
       </div>
 
+      {/* Not checked yet banner */}
+      {!validating && !hasValidation && (
+        <div className="flex items-center gap-2.5 bg-zinc-800/60 border border-zinc-700 rounded-lg px-3 py-2.5">
+          <Clock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+          <p className="text-xs text-zinc-400">
+            Not checked yet — click <span className="font-semibold text-zinc-200">Scout Check</span> to verify this URL with real listings
+          </p>
+        </div>
+      )}
+
+      {/* Scout unavailable (Zyte key missing) */}
+      {!validating && zyteUnavailable && (
+        <div className="flex items-center gap-2.5 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-300">
+            <span className="font-semibold">Scout unavailable</span> — Zyte API key not configured. Mapping status unchanged.
+          </p>
+        </div>
+      )}
+
+      {/* Scout ran but returned no SCOUT_* logs — indicates validator issue */}
+      {scoutRanButNoLogs && !zyteUnavailable && (
+        <div className="flex items-center gap-2.5 bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2.5">
+          <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+          <p className="text-xs text-red-300">
+            Scout did not run — no validation logs returned. Check console for errors.
+          </p>
+        </div>
+      )}
+
       {/* Issues summary */}
-      {!validating && result.validationIssues && result.validationIssues.length > 0 && (
+      {!validating && result.validationIssues && result.validationIssues.filter((i) => i.type !== 'no_zyte_key').length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {result.validationIssues.map((issue, i) => (
+          {result.validationIssues.filter((i) => i.type !== 'no_zyte_key').map((issue, i) => (
             <span
               key={i}
               className="text-xs bg-zinc-800 text-amber-400 border border-zinc-700 px-2 py-0.5 rounded font-mono"
@@ -711,9 +749,28 @@ export function LinkGenerator() {
     setValidating(true);
     setValidatingSet(new Set(results.map((r) => r.site)));
 
+    // Validate each URL individually so per-site loading state is accurate
+    const validated: LinkGenUrlResult[] = [...results];
+
     try {
-      const validated = await validateAllUrls(results, params);
-      setResults(validated);
+      await Promise.all(
+        results.map(async (r, idx) => {
+          const { updatedResult } = await validateWithRetry(r, params);
+          validated[idx] = updatedResult;
+          // Remove this site from the validating set as it completes
+          setValidatingSet((prev) => {
+            const next = new Set(prev);
+            next.delete(r.site);
+            return next;
+          });
+          // Incrementally update results so each card refreshes as its Scout run finishes
+          setResults((prev) => {
+            const copy = [...prev];
+            copy[idx] = updatedResult;
+            return copy;
+          });
+        })
+      );
 
       // Build correction records for session history
       const corrections: LinkGenCorrectionRecord[] = validated
@@ -986,40 +1043,80 @@ export function LinkGenerator() {
       {/* Results */}
       {results.length > 0 && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">
-              Generated URLs
-              <span className="ml-2 text-zinc-500 normal-case font-normal text-xs">
-                {results.length} market{results.length > 1 ? 's' : ''}
-              </span>
-            </h2>
+          {/* Header row */}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">
+                Generated URLs
+                <span className="ml-2 text-zinc-500 normal-case font-normal text-xs">
+                  {results.length} market{results.length > 1 ? 's' : ''}
+                </span>
+              </h2>
+              {/* Post-validation summary */}
+              {!validating && results.some((r) => r.validationStatus !== 'not_checked') && (() => {
+                const valid = results.filter((r) => (r.bestVerifiedStatus ?? r.validationStatus) === 'valid').length;
+                const partial = results.filter((r) => (r.bestVerifiedStatus ?? r.validationStatus) === 'partial').length;
+                const invalid = results.filter((r) => (r.bestVerifiedStatus ?? r.validationStatus) === 'invalid').length;
+                return (
+                  <p className="text-xs text-zinc-500 mt-0.5 font-mono">
+                    {valid > 0 && <span className="text-green-400">{valid} valid</span>}
+                    {valid > 0 && (partial > 0 || invalid > 0) && <span className="mx-1 text-zinc-600">·</span>}
+                    {partial > 0 && <span className="text-amber-400">{partial} partial</span>}
+                    {partial > 0 && invalid > 0 && <span className="mx-1 text-zinc-600">·</span>}
+                    {invalid > 0 && <span className="text-red-400">{invalid} invalid</span>}
+                  </p>
+                );
+              })()}
+            </div>
 
             <button
               onClick={handleScoutCheck}
-              disabled={!hasZyteKey || validating}
+              disabled={validating}
               title={
                 !hasZyteKey
-                  ? 'Set VITE_ZYTE_API_KEY in your .env to enable Scout Check'
-                  : 'Validate URLs by fetching a sample of real listings (max 1 retry per URL)'
+                  ? 'Zyte API key not configured — Scout will run but may not fetch'
+                  : 'Validate URLs by fetching real listings (max 3 requests per site)'
               }
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-xs font-medium transition-colors ${
-                hasZyteKey && !validating
-                  ? 'bg-zinc-800 border-zinc-700 text-zinc-200 hover:border-blue-500 hover:text-blue-300'
+              className={`shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-lg border text-sm font-semibold transition-all shadow-sm ${
+                !validating
+                  ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-500 hover:border-blue-400'
                   : 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
               }`}
             >
               {validating ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <Shield className="w-3.5 h-3.5" />
+                <Shield className="w-4 h-4" />
               )}
-              {validating
-                ? 'Checking...'
-                : hasZyteKey
-                ? 'Scout Check'
-                : 'Scout Check — Zyte key required'}
+              {validating ? 'Scout running...' : 'Scout Check'}
             </button>
           </div>
+
+          {/* No Zyte key warning */}
+          {!hasZyteKey && (
+            <div className="flex items-center gap-2.5 bg-amber-900/20 border border-amber-700/40 rounded-lg px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <p className="text-xs text-amber-300">
+                <span className="font-semibold">Scout unavailable</span> — Zyte API key not configured.
+                Set <span className="font-mono">VITE_ZYTE_API_KEY</span> in your <span className="font-mono">.env</span> to enable real listing validation.
+              </p>
+            </div>
+          )}
+
+          {/* Global loading banner */}
+          {validating && (
+            <div className="bg-blue-950/40 border border-blue-700/40 rounded-lg px-4 py-3 space-y-2">
+              <div className="flex items-center gap-2.5">
+                <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0" />
+                <p className="text-xs text-blue-300 font-medium">
+                  Scout is running — fetching real listings for each URL (max 3 requests per site)
+                </p>
+              </div>
+              <div className="h-1 bg-blue-900/40 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 rounded-full animate-pulse w-full" />
+              </div>
+            </div>
+          )}
 
           {results.map((r) => (
             <UrlCard
@@ -1342,9 +1439,16 @@ function MappingMemoryExplorer() {
     setRevalidateMsg((m) => ({ ...m, [record.id]: '' }));
     try {
       const result = await validateLearnedMapping(record);
-      const msg = `score ${result.score} → ${result.validationStatus}`;
+      let msg: string;
+      if (result.fetchBlocked) {
+        msg = 'Scout unavailable — Zyte key missing or fetch failed. Status unchanged.';
+      } else {
+        msg = `Scout score: ${result.score} → ${result.validationStatus}`;
+      }
       setRevalidateMsg((m) => ({ ...m, [record.id]: msg }));
-      await loadRecords(); // refresh the row
+      if (!result.fetchBlocked) {
+        await loadRecords(); // refresh the row only if something changed
+      }
     } finally {
       setRevalidatingId(null);
     }
@@ -1359,7 +1463,8 @@ function MappingMemoryExplorer() {
   const statusColor = (s: string) =>
     s === 'valid' ? 'text-green-400 bg-green-900/20 border-green-700/40' :
     s === 'invalid' ? 'text-red-400 bg-red-900/20 border-red-700/40' :
-    'text-amber-400 bg-amber-900/20 border-amber-700/40';
+    s === 'partial' ? 'text-amber-400 bg-amber-900/20 border-amber-700/40' :
+    'text-zinc-400 bg-zinc-800/60 border-zinc-700'; // pending
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
@@ -1449,6 +1554,9 @@ function MappingMemoryExplorer() {
                       <span className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded ${statusColor(record.validation_status)}`}>
                         {record.validation_status}
                       </span>
+                      {record.validation_status === 'pending' && (
+                        <span className="text-[10px] text-zinc-500 italic">CSV only — not Scout validated yet</span>
+                      )}
                       {record.scout_score > 0 && (
                         <span className="text-[10px] font-mono text-zinc-400">score {record.scout_score}</span>
                       )}
@@ -1505,7 +1613,13 @@ function MappingMemoryExplorer() {
                   </div>
                   {/* Revalidate result message */}
                   {revalidateMsg[record.id] && (
-                    <div className="px-4 pb-2 text-[10px] text-blue-400 font-mono">{revalidateMsg[record.id]}</div>
+                    <div className={`px-4 pb-2 text-[10px] font-mono ${
+                      revalidateMsg[record.id].includes('unavailable') || revalidateMsg[record.id].includes('failed')
+                        ? 'text-amber-400'
+                        : revalidateMsg[record.id].includes('valid')
+                        ? 'text-green-400'
+                        : 'text-red-400'
+                    }`}>{revalidateMsg[record.id]}</div>
                   )}
                   {/* Expanded details */}
                   {expandedId === record.id && (
