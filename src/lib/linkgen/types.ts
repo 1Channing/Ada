@@ -111,6 +111,8 @@ export interface LinkGenUrlResult {
   correctionReason?: string;
   validationAfter?: ValidationStatus;
   validationScoreAfter?: number;
+  // Memory-first lookup result
+  mappingSource?: 'learned' | 'default_template';
 }
 
 export interface LinkGenCorrectionRecord {
@@ -123,4 +125,86 @@ export interface LinkGenCorrectionRecord {
   validationBefore: ValidationStatus;
   validationAfter?: ValidationStatus;
   createdAt: Date;
+}
+
+// ─── CSV Mapping Learner ──────────────────────────────────────────────────────
+
+export interface CsvLearnerRow {
+  site: string;
+  country: string;
+  brand: string;
+  model: string;
+  year?: string;
+  mileage?: string;
+  fuel?: string;
+  trim?: string;
+  url: string;
+}
+
+export interface DetectedParams {
+  rawUrl: string;
+  domain: string;
+  queryParams: Record<string, string>;
+  hashParams: Record<string, string>;
+  pathSegments: string[];
+}
+
+export interface InferredMapping {
+  brandParam?: string;
+  modelParam?: string;
+  yearFromParam?: string;
+  yearToParam?: string;
+  mileageParam?: string;
+  fuelParam?: string;
+  trimParam?: string;
+  sortParam?: string;
+  // raw param names mapped to their detected field
+  paramToField: Record<string, string>;
+  // field to its param name + raw value in the URL
+  fieldToParam: Record<string, { paramName: string; rawValue: string }>;
+}
+
+export interface CsvAnalysisResult {
+  site: string;
+  country: string;
+  brand: string;
+  model: string;
+  fuel: string;
+  trim: string;
+  sourceUrl: string;
+  detectedParams: DetectedParams;
+  inferredMapping: InferredMapping;
+  confidence: number;
+  warnings: string[];
+}
+
+export interface CsvBatchResult {
+  analyzed: CsvAnalysisResult[];
+  confidenceAvg: number;
+  mappingsDetected: number;
+  warningCount: number;
+}
+
+export type MappingValidationStatus = 'pending' | 'valid' | 'invalid';
+
+export interface MappingMemoryRecord {
+  id: string;
+  site: string;
+  country: string;
+  brand: string;
+  model: string;
+  fuel: string;
+  trim: string;
+  source_url: string | null;
+  detected_params: DetectedParams | null;
+  inferred_mapping: InferredMapping | null;
+  validated_mapping: InferredMapping | null;
+  confidence: number;
+  validation_status: MappingValidationStatus;
+  issues: LinkGenIssue[] | null;
+  success_count: number;
+  failure_count: number;
+  created_at: string;
+  updated_at: string;
+  last_checked_at: string | null;
 }

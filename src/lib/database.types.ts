@@ -251,6 +251,71 @@ export type Database = {
           details?: Json | null
         }
       }
+      linkgen_mapping_memory: {
+        Row: {
+          id: string
+          site: string
+          country: string
+          brand: string
+          model: string
+          fuel: string
+          trim: string
+          source_url: string | null
+          detected_params: Json | null
+          inferred_mapping: Json | null
+          validated_mapping: Json | null
+          confidence: number
+          validation_status: string
+          issues: Json | null
+          success_count: number
+          failure_count: number
+          created_at: string
+          updated_at: string
+          last_checked_at: string | null
+        }
+        Insert: {
+          id?: string
+          site: string
+          country?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          trim?: string
+          source_url?: string | null
+          detected_params?: Json | null
+          inferred_mapping?: Json | null
+          validated_mapping?: Json | null
+          confidence?: number
+          validation_status?: string
+          issues?: Json | null
+          success_count?: number
+          failure_count?: number
+          created_at?: string
+          updated_at?: string
+          last_checked_at?: string | null
+        }
+        Update: {
+          id?: string
+          site?: string
+          country?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          trim?: string
+          source_url?: string | null
+          detected_params?: Json | null
+          inferred_mapping?: Json | null
+          validated_mapping?: Json | null
+          confidence?: number
+          validation_status?: string
+          issues?: Json | null
+          success_count?: number
+          failure_count?: number
+          created_at?: string
+          updated_at?: string
+          last_checked_at?: string | null
+        }
+      }
     }
     Views: {
       [_ in never]: never

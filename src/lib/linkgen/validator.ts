@@ -8,6 +8,7 @@ import { normalizeForMatch } from './normalizer';
 import { generateSearchUrl } from './generator';
 import { suggestUrlCorrection } from './correctionStrategies';
 import { EXPECTED_DOMAINS } from './templates';
+import { supabase } from '../supabase';
 import type {
   SiteKey,
   LinkGenParams,
@@ -18,6 +19,8 @@ import type {
   LinkGenLogEntry,
   ValidationStatus,
   LinkGenDiagnostics,
+  MappingMemoryRecord,
+  InferredMapping,
 } from './types';
 
 // ─── listing count extraction ─────────────────────────────────────────────────
@@ -389,4 +392,78 @@ export async function validateAllUrls(
       return updatedResult;
     })
   );
+}
+
+// ─── Scout validation of a learned mapping ───────────────────────────────────
+
+/**
+ * Scout-validates a single MappingMemoryRecord.
+ * Max 1 Zyte fetch. No retry. No pagination.
+ * Updates the DB record:
+ *   - if valid AND new score >= existing confidence: set validated_mapping, update confidence, mark 'valid'
+ *   - if invalid or score < existing: only increment failure_count
+ */
+export async function validateLearnedMapping(
+  record: MappingMemoryRecord
+): Promise<{ success: boolean; validationStatus: string; score: number }> {
+  const site = record.site as SiteKey;
+  const mapping = (record.validated_mapping ?? record.inferred_mapping) as InferredMapping | null;
+
+  console.log(`[SCOUT_VALIDATE] Starting validation for ${site} ${record.brand} ${record.model}`);
+
+  if (!mapping || !record.source_url) {
+    console.warn('[SCOUT_VALIDATE] No mapping or source_url — skipping');
+    return { success: false, validationStatus: 'invalid', score: 0 };
+  }
+
+  // Build params from the record for scoring
+  const params: LinkGenParams = {
+    brand: record.brand,
+    model: record.model,
+    fuel: record.fuel || undefined,
+    trim: record.trim || undefined,
+    site,
+  };
+
+  const validationResult = await validateGeneratedUrl(record.source_url, site, params);
+  const now = new Date().toISOString();
+
+  console.log(`[SCOUT_VALIDATE] Result: status=${validationResult.validationStatus} score=${validationResult.score}`);
+
+  if (validationResult.validationStatus === 'valid' && validationResult.score >= (record.confidence * 100)) {
+    // Promote to validated
+    await supabase
+      .from('linkgen_mapping_memory')
+      .update({
+        validated_mapping: mapping as unknown as import('../database.types').Json,
+        confidence: Math.round(validationResult.score) / 100,
+        validation_status: 'valid',
+        issues: (validationResult.issues as unknown as import('../database.types').Json) ?? null,
+        success_count: (record.success_count ?? 0) + 1,
+        last_checked_at: now,
+        updated_at: now,
+      })
+      .eq('id', record.id);
+
+    console.log(`[SCOUT_VALIDATE] Mapping promoted to valid`);
+    return { success: true, validationStatus: 'valid', score: validationResult.score };
+  } else {
+    // Not good enough — increment failure_count only
+    await supabase
+      .from('linkgen_mapping_memory')
+      .update({
+        failure_count: (record.failure_count ?? 0) + 1,
+        issues: (validationResult.issues as unknown as import('../database.types').Json) ?? null,
+        last_checked_at: now,
+        updated_at: now,
+      })
+      .eq('id', record.id);
+
+    console.log(`[SCOUT_VALIDATE] Mapping not promoted — failure_count incremented`);
+    return {
+      success: false,
+      validationStatus: validationResult.validationStatus,
+      score: validationResult.score,
+    };
+  }
 }
