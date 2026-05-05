@@ -30,6 +30,8 @@ import {
   saveMappingsBatch,
 } from '../lib/linkgen/csvMappingLearner';
 import { analyzeUrlWithGPT } from '../lib/linkgen/analyzeUrlWithGpt';
+import { validateLearnedMapping } from '../lib/linkgen/validator';
+import { supabase } from '../lib/supabase';
 import type {
   LinkGenParams,
   LinkGenUrlResult,
@@ -38,6 +40,7 @@ import type {
   CsvAnalysisResult,
   CsvBatchResult,
   CsvImportDiagnostics,
+  MappingMemoryRecord,
 } from '../lib/linkgen/types';
 
 // ─── localStorage persistence ─────────────────────────────────────────────────
@@ -241,6 +244,20 @@ function UrlRow({
   );
 }
 
+// ─── Score chip ───────────────────────────────────────────────────────────────
+
+function ScoreChip({ score, label }: { score: number; label: string }) {
+  const color =
+    score >= 80 ? 'text-green-400 bg-green-900/20 border-green-700/40' :
+    score >= 60 ? 'text-amber-400 bg-amber-900/20 border-amber-700/40' :
+    'text-red-400 bg-red-900/20 border-red-700/40';
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border font-mono ${color}`}>
+      {label} {score}
+    </span>
+  );
+}
+
 // ─── Full URL card (per site) ─────────────────────────────────────────────────
 
 function UrlCard({
@@ -252,10 +269,18 @@ function UrlCard({
 }) {
   const [debugOpen, setDebugOpen] = useState(false);
   const [diagOpen, setDiagOpen] = useState(false);
+  const [hypOpen, setHypOpen] = useState(false);
 
   const site = SITE_OPTIONS.find((s) => s.value === result.site);
   const hasValidation = result.validationStatus !== 'not_checked';
   const hasCorrectedUrl = !!result.correctedUrl;
+  const hasBestUrl = result.bestVerifiedUrl && result.bestVerifiedUrl !== result.url;
+  const hasHypotheses = (result.testedHypotheses?.length ?? 0) > 0;
+  const scoreImproved =
+    hasCorrectedUrl &&
+    result.validationScore !== undefined &&
+    result.validationScoreAfter !== undefined &&
+    result.validationScoreAfter !== result.validationScore;
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
@@ -268,7 +293,7 @@ function UrlCard({
             <p className="text-xs text-zinc-500">{result.country}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {result.mappingSource === 'learned' && (
             <span className="inline-flex items-center gap-1 text-xs bg-green-900/30 text-green-400 border border-green-700/40 px-2 py-0.5 rounded-full">
               <Brain className="w-3 h-3" />
@@ -280,13 +305,24 @@ function UrlCard({
               Template
             </span>
           )}
+          {/* Score before/after — shown together when correction changed the score */}
+          {!validating && scoreImproved && (
+            <div className="flex items-center gap-1.5">
+              <ScoreChip score={result.validationScore!} label="before" />
+              <span className="text-zinc-600 text-xs">→</span>
+              <ScoreChip score={result.validationScoreAfter!} label="after" />
+            </div>
+          )}
+          {!validating && !scoreImproved && result.validationScore !== undefined && (
+            <ScoreChip score={result.validationScore} label="score" />
+          )}
           {validating ? (
             <span className="flex items-center gap-1.5 text-xs text-zinc-400">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               Checking...
             </span>
           ) : hasValidation ? (
-            <StatusBadge status={result.validationStatus} />
+            <StatusBadge status={result.bestVerifiedStatus ?? result.validationStatus} />
           ) : null}
         </div>
       </div>
@@ -315,8 +351,28 @@ function UrlCard({
         listingCountMethod={result.listingCountMethod}
       />
 
-      {/* Corrected URL (if available) */}
-      {hasCorrectedUrl && result.correctedUrl && (
+      {/* Best verified URL (when different from original and better than correctedUrl display) */}
+      {!validating && hasBestUrl && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs text-blue-400">
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span className="font-medium">Best verified URL</span>
+            {result.correctionReason && (
+              <span className="text-zinc-500 italic">— {result.correctionReason}</span>
+            )}
+          </div>
+          <UrlRow
+            url={result.bestVerifiedUrl!}
+            label="Best verified"
+            status={result.bestVerifiedStatus}
+            score={result.bestVerifiedScore}
+            isCorrection
+          />
+        </div>
+      )}
+
+      {/* Corrected URL (if best is same as corrected, show correction label) */}
+      {!hasBestUrl && hasCorrectedUrl && result.correctedUrl && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-xs text-blue-400">
             <RefreshCw className="w-3.5 h-3.5" />
@@ -336,7 +392,7 @@ function UrlCard({
       )}
 
       {/* Correction reason when no retry was possible */}
-      {!hasCorrectedUrl && result.correctionReason && (
+      {!hasCorrectedUrl && !hasBestUrl && result.correctionReason && (
         <p className="text-xs text-zinc-500 italic">
           Correction: {result.correctionReason}
         </p>
@@ -362,9 +418,6 @@ function UrlCard({
                 {result.debugLogs.find((l) => l.data?.confidence) && (
                   <> · confidence {Math.round(Number(result.debugLogs.find((l) => l.data?.confidence)?.data?.confidence ?? 0) * 100)}%</>
                 )}
-                {result.debugLogs.find((l) => l.data?.source_url) && (
-                  <> · {result.debugLogs.find((l) => l.data?.source_url)?.data?.source_url as string}</>
-                )}
               </span>
             </>
           ) : (
@@ -372,6 +425,50 @@ function UrlCard({
               <Info className="w-3 h-3" />
               <span>source: default template · no validated mapping found</span>
             </>
+          )}
+        </div>
+      )}
+
+      {/* Tested hypotheses */}
+      {!validating && hasHypotheses && (
+        <div>
+          <button
+            onClick={() => setHypOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            {hypOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            <RefreshCw className="w-3.5 h-3.5" />
+            Hypotheses tested ({result.testedHypotheses!.length})
+          </button>
+          {hypOpen && (
+            <div className="mt-2 space-y-2">
+              {result.testedHypotheses!.map((h, i) => (
+                <div key={i} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-zinc-600 font-mono text-[10px]">H{h.rankInBatch}</span>
+                    <StatusBadge status={h.status} />
+                    <ScoreChip score={h.score} label="score" />
+                    <span className="text-xs text-zinc-500 italic">{h.reason}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <a
+                      href={h.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-400 hover:text-blue-300 font-mono truncate flex-1 min-w-0"
+                    >
+                      {h.url.slice(0, 90)}{h.url.length > 90 ? '…' : ''}
+                    </a>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(h.url)}
+                      className="shrink-0 text-zinc-600 hover:text-zinc-400"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -457,6 +554,8 @@ function UrlCard({
                   ? 'text-orange-400'
                   : log.level === 'VALIDATION'
                   ? 'text-sky-400'
+                  : log.level === 'SCOUT'
+                  ? 'text-violet-400'
                   : 'text-green-400';
               return (
                 <div key={i} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 space-y-2">
@@ -1198,6 +1297,254 @@ export function LinkGenerator() {
           </div>
         )}
       </div>
+
+      {/* ─── Mapping Memory Explorer ─────────────────────────────────────── */}
+      <MappingMemoryExplorer />
+
+    </div>
+  );
+}
+
+// ─── Mapping Memory Explorer ──────────────────────────────────────────────────
+
+type MemoryFilter = { site: string; status: string; brand: string };
+
+function MappingMemoryExplorer() {
+  const [open, setOpen] = useState(false);
+  const [records, setRecords] = useState<MappingMemoryRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState<MemoryFilter>({ site: '', status: '', brand: '' });
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [revalidatingId, setRevalidatingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [revalidateMsg, setRevalidateMsg] = useState<Record<string, string>>({});
+
+  async function loadRecords() {
+    setLoading(true);
+    try {
+      let q = supabase
+        .from('linkgen_mapping_memory')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(100);
+      if (filter.site) q = q.eq('site', filter.site);
+      if (filter.status) q = q.eq('validation_status', filter.status);
+      if (filter.brand) q = q.ilike('brand', `%${filter.brand}%`);
+      const { data } = await q;
+      setRecords((data ?? []) as unknown as MappingMemoryRecord[]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRevalidate(record: MappingMemoryRecord) {
+    setRevalidatingId(record.id);
+    setRevalidateMsg((m) => ({ ...m, [record.id]: '' }));
+    try {
+      const result = await validateLearnedMapping(record);
+      const msg = `score ${result.score} → ${result.validationStatus}`;
+      setRevalidateMsg((m) => ({ ...m, [record.id]: msg }));
+      await loadRecords(); // refresh the row
+    } finally {
+      setRevalidatingId(null);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    await supabase.from('linkgen_mapping_memory').delete().eq('id', id);
+    setConfirmDeleteId(null);
+    setRecords((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  const statusColor = (s: string) =>
+    s === 'valid' ? 'text-green-400 bg-green-900/20 border-green-700/40' :
+    s === 'invalid' ? 'text-red-400 bg-red-900/20 border-red-700/40' :
+    'text-amber-400 bg-amber-900/20 border-amber-700/40';
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-6 py-4 hover:bg-zinc-800/50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 bg-blue-600/10 rounded-lg border border-blue-600/20">
+            <Brain className="w-4 h-4 text-blue-400" />
+          </div>
+          <div className="text-left">
+            <p className="text-sm font-semibold text-zinc-100">Mapping Memory Explorer</p>
+            <p className="text-xs text-zinc-500">Inspect, revalidate, and delete learned URL mappings</p>
+          </div>
+        </div>
+        {open ? <ChevronDown className="w-4 h-4 text-zinc-500" /> : <ChevronRight className="w-4 h-4 text-zinc-500" />}
+      </button>
+
+      {open && (
+        <div className="px-6 pb-6 border-t border-zinc-800 space-y-4 pt-5">
+          {/* Filters + load */}
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Site</label>
+              <select
+                value={filter.site}
+                onChange={(e) => setFilter((f) => ({ ...f, site: e.target.value }))}
+                className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">All sites</option>
+                <option value="LEBONCOIN">Leboncoin</option>
+                <option value="MARKTPLAATS">Marktplaats</option>
+                <option value="BILBASEN">Bilbasen</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Status</label>
+              <select
+                value={filter.status}
+                onChange={(e) => setFilter((f) => ({ ...f, status: e.target.value }))}
+                className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">All</option>
+                <option value="pending">Pending</option>
+                <option value="valid">Valid</option>
+                <option value="invalid">Invalid</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Brand</label>
+              <input
+                type="text"
+                value={filter.brand}
+                onChange={(e) => setFilter((f) => ({ ...f, brand: e.target.value }))}
+                placeholder="e.g. BMW"
+                className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-blue-500 w-32"
+              />
+            </div>
+            <button
+              onClick={loadRecords}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-xs text-zinc-200 transition-colors disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {loading ? 'Loading...' : 'Load mappings'}
+            </button>
+          </div>
+
+          {/* Table */}
+          {records.length === 0 && !loading && (
+            <p className="text-xs text-zinc-600 italic">No records loaded. Click "Load mappings" to start.</p>
+          )}
+
+          {records.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-zinc-500">{records.length} records</p>
+              {records.map((record) => (
+                <div key={record.id} className="bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden">
+                  {/* Row summary */}
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
+                      <span className="text-[10px] font-mono text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{record.site}</span>
+                      <span className="text-xs text-zinc-200 font-medium">{record.brand} {record.model}</span>
+                      {record.fuel && <span className="text-xs text-zinc-500">{record.fuel}</span>}
+                      {record.trim && <span className="text-xs text-zinc-600 italic">{record.trim}</span>}
+                      <span className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded ${statusColor(record.validation_status)}`}>
+                        {record.validation_status}
+                      </span>
+                      {record.scout_score > 0 && (
+                        <span className="text-[10px] font-mono text-zinc-400">score {record.scout_score}</span>
+                      )}
+                      <span className="text-[10px] text-zinc-600 font-mono">
+                        ✓{record.success_count} ✗{record.failure_count}
+                      </span>
+                      {record.last_checked_at && (
+                        <span className="text-[10px] text-zinc-600 font-mono">
+                          {new Date(record.last_checked_at).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                    {/* Actions */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => setExpandedId(expandedId === record.id ? null : record.id)}
+                        className="text-[10px] px-2 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-zinc-400 transition-colors"
+                      >
+                        {expandedId === record.id ? 'Close' : 'Details'}
+                      </button>
+                      <button
+                        onClick={() => handleRevalidate(record)}
+                        disabled={revalidatingId === record.id}
+                        className="text-[10px] px-2 py-1 bg-zinc-800 hover:bg-blue-900/40 border border-zinc-700 hover:border-blue-700/40 rounded text-zinc-400 hover:text-blue-400 transition-colors disabled:opacity-50"
+                      >
+                        {revalidatingId === record.id ? (
+                          <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Checking...</span>
+                        ) : 'Revalidate'}
+                      </button>
+                      {confirmDeleteId === record.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleDelete(record.id)}
+                            className="text-[10px] px-2 py-1 bg-red-900/40 border border-red-700/40 rounded text-red-400 transition-colors"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="text-[10px] px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-zinc-500 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(record.id)}
+                          className="text-[10px] px-2 py-1 bg-zinc-800 hover:bg-red-900/20 border border-zinc-700 hover:border-red-700/40 rounded text-zinc-500 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {/* Revalidate result message */}
+                  {revalidateMsg[record.id] && (
+                    <div className="px-4 pb-2 text-[10px] text-blue-400 font-mono">{revalidateMsg[record.id]}</div>
+                  )}
+                  {/* Expanded details */}
+                  {expandedId === record.id && (
+                    <div className="px-4 pb-4 border-t border-zinc-800/60 pt-3 space-y-3">
+                      {[
+                        ['source_url', record.source_url],
+                        ['validated_url', record.validated_url],
+                        ['confidence', String(record.confidence)],
+                        ['scout_score', String(record.scout_score)],
+                        ['created_at', record.created_at],
+                        ['updated_at', record.updated_at],
+                      ].map(([k, v]) => v ? (
+                        <div key={k} className="flex items-start gap-3 text-xs font-mono">
+                          <span className="text-zinc-500 w-28 shrink-0">{k}</span>
+                          <span className="text-zinc-300 break-all">{v}</span>
+                        </div>
+                      ) : null)}
+                      {[
+                        ['detected_params', record.detected_params],
+                        ['inferred_mapping', record.inferred_mapping],
+                        ['validated_mapping', record.validated_mapping],
+                        ['issues', record.issues],
+                        ['tested_hypotheses', record.tested_hypotheses],
+                      ].map(([k, v]) => v ? (
+                        <div key={String(k)}>
+                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">{String(k)}</p>
+                          <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                            {JSON.stringify(v, null, 2)}
+                          </pre>
+                        </div>
+                      ) : null)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,12 +1,6 @@
-import {
-  fetchHtmlLite,
-  parseLeboncoinSample,
-  parseMarktplaasSample,
-  parseBilbasenSample,
-} from '../scraperClient';
-import { normalizeForMatch } from './normalizer';
-import { generateSearchUrl } from './generator';
-import { suggestUrlCorrection } from './correctionStrategies';
+import { fetchHtmlLite } from '../scraperClient';
+import { generateHypotheses } from './correctionStrategies';
+import { validateSite } from './siteValidators/index';
 import { EXPECTED_DOMAINS } from './templates';
 import { supabase } from '../supabase';
 import type {
@@ -21,7 +15,9 @@ import type {
   LinkGenDiagnostics,
   MappingMemoryRecord,
   InferredMapping,
+  ScoutHypothesis,
 } from './types';
+import type { SiteValidationResult } from './siteValidators/types';
 
 // ─── listing count extraction ─────────────────────────────────────────────────
 
@@ -57,144 +53,62 @@ function extractListingCount(
   return { count: sampleLength, method: 'fallback' };
 }
 
-// ─── scoring ──────────────────────────────────────────────────────────────────
-
-function scoreListings(
-  sample: { title: string }[],
-  params: LinkGenParams
-): {
-  score: number;
-  detectedFilters: { brand: boolean; model: boolean; trim: boolean; fuel: boolean };
-  issues: LinkGenIssue[];
-} {
-  const normBrand = normalizeForMatch(params.brand ?? '');
-  const normModel = normalizeForMatch(params.model ?? '');
-  const normTrim = params.trim ? normalizeForMatch(params.trim) : null;
-  const normFuel = params.fuel ? normalizeForMatch(params.fuel) : null;
-
-  let brandHit = false;
-  let modelHit = false;
-  let trimHit = false;
-  let fuelHit = false;
-
-  for (const listing of sample) {
-    const normTitle = normalizeForMatch(listing.title);
-    if (!brandHit && normBrand && normTitle.includes(normBrand)) brandHit = true;
-    if (!modelHit && normModel && normTitle.includes(normModel)) modelHit = true;
-    if (!trimHit && normTrim && normTitle.includes(normTrim)) trimHit = true;
-    if (!fuelHit && normFuel && normTitle.includes(normFuel)) fuelHit = true;
-  }
-
-  let score = 0;
-  if (brandHit) score += 40;
-  if (modelHit) score += 30;
-  if (normTrim && trimHit) score += 20;
-  if (normFuel && fuelHit) score += 10;
-
-  const issues: LinkGenIssue[] = [];
-  if (!brandHit) issues.push({ type: 'brand_missing' });
-  if (!modelHit) issues.push({ type: 'model_missing' });
-  if (normFuel && !fuelHit) issues.push({ type: 'fuel_mismatch' });
-
-  return {
-    score,
-    detectedFilters: { brand: brandHit, model: modelHit, trim: trimHit, fuel: fuelHit },
-    issues,
-  };
-}
+// ─── score → status ───────────────────────────────────────────────────────────
+// >= 80 → valid | 60-79 → partial | < 60 → invalid
 
 function statusFromScore(score: number): ValidationStatus {
-  if (score >= 70) return 'valid';
-  if (score >= 40) return 'partial';
+  if (score >= 80) return 'valid';
+  if (score >= 60) return 'partial';
   return 'invalid';
 }
 
-// ─── diagnostics builder ──────────────────────────────────────────────────────
+// ─── build LinkGenDiagnostics from SiteValidationResult ──────────────────────
 
-function buildDiagnostics(
-  url: string,
-  site: SiteKey,
-  params: LinkGenParams,
-  detectedFilters: { brand: boolean; model: boolean; trim: boolean; fuel: boolean },
-  listingCount: number,
-  sample: { title: string }[]
+function buildDiagnosticsFromSiteResult(
+  siteResult: SiteValidationResult
 ): { diagnostics: LinkGenDiagnostics; extraIssues: LinkGenIssue[] } {
   let actualDomain = '';
-  try {
-    actualDomain = new URL(url).hostname;
-  } catch {
-    actualDomain = '';
-  }
-  const expectedDomain = EXPECTED_DOMAINS[site];
+  try { actualDomain = new URL(siteResult.url).hostname; } catch { /* empty */ }
 
-  const yearApplied =
-    !!(params.yearFrom && url.includes(String(params.yearFrom))) ||
-    !!(params.yearTo && url.includes(String(params.yearTo))) ||
-    !!(params.year && url.includes(String(params.year)));
-
-  const mileageApplied = !!(params.mileage && url.includes(String(params.mileage)));
-
-  const sortApplied =
-    url.includes('sort') ||
-    url.includes('sortBy') ||
-    url.includes('sortby') ||
-    url.includes('sortOrder') ||
-    url.includes('order=');
-
-  // Fuel applied: check if the mapped fuel value appears in the URL
-  const fuelApplied = params.fuel
-    ? (() => {
-        // Check for any numeric or text fuel indicator in the URL
-        const urlLower = url.toLowerCase();
-        return urlLower.includes('fuel=') || urlLower.includes('fueltype=');
-      })()
-    : true;
+  const expectedDomain = EXPECTED_DOMAINS[siteResult.site];
+  const af = siteResult.appliedFilters;
 
   const diagnostics: LinkGenDiagnostics = {
     expectedDomain,
     actualDomain,
-    brandApplied: detectedFilters.brand,
-    modelApplied: detectedFilters.model,
-    trimApplied: detectedFilters.trim,
-    fuelApplied: detectedFilters.fuel,
-    yearApplied,
-    mileageApplied,
-    sortApplied,
-    listingCount,
-    sampleTitles: sample.slice(0, 5).map((l) => l.title.slice(0, 60)),
+    brandApplied: af.brand,
+    modelApplied: af.model,
+    trimApplied: af.trim,
+    fuelApplied: af.fuel,
+    yearApplied: af.year,
+    mileageApplied: af.mileage,
+    sortApplied: af.sort,
+    listingCount: siteResult.listingCount,
+    sampleTitles: siteResult.sampleListings.slice(0, 5).map((l) => l.title.slice(0, 60)),
   };
 
   const extraIssues: LinkGenIssue[] = [];
-
   if (actualDomain && !actualDomain.includes(expectedDomain)) {
     extraIssues.push({ type: 'wrong_domain' });
   }
-  if (!detectedFilters.model && sample.length > 0) {
-    extraIssues.push({ type: 'model_not_applied' });
-  }
-  if (params.trim && !detectedFilters.trim && sample.length > 0) {
-    extraIssues.push({ type: 'trim_not_applied' });
-  }
-  if (params.fuel && !fuelApplied) {
-    extraIssues.push({ type: 'fuel_mapping_suspect' });
-  }
-  if (params.yearFrom && !yearApplied) {
-    extraIssues.push({ type: 'year_filter_not_applied' });
-  }
-  if (params.mileage && !mileageApplied) {
-    extraIssues.push({ type: 'mileage_filter_not_applied' });
-  }
-  if (!sortApplied) {
-    extraIssues.push({ type: 'sort_not_applied' });
-  }
-  if (listingCount === 0) {
+  if (siteResult.listingCount === 0) {
     extraIssues.push({ type: 'no_listings' });
   }
 
   return { diagnostics, extraIssues };
 }
 
-// ─── public API ───────────────────────────────────────────────────────────────
+// ─── zyteKey check ────────────────────────────────────────────────────────────
+
+function getZyteKey(): string {
+  return (
+    (import.meta.env.VITE_ZYTE_API_KEY as string | undefined) ||
+    (import.meta.env.ZYTE_API_KEY as string | undefined) ||
+    ''
+  );
+}
+
+// ─── core validation (1 fetch) ───────────────────────────────────────────────
 
 export async function validateGeneratedUrl(
   url: string,
@@ -203,22 +117,8 @@ export async function validateGeneratedUrl(
 ): Promise<LinkGenValidationResult> {
   const logs: LinkGenLogEntry[] = [];
 
-  logs.push({
-    level: 'VALIDATION',
-    message: '[LINKGEN_VALIDATION] Starting Scout Check',
-    data: { url, site },
-  });
-
-  const zyteKey =
-    (import.meta.env.VITE_ZYTE_API_KEY as string | undefined) ||
-    (import.meta.env.ZYTE_API_KEY as string | undefined) ||
-    '';
-
-  if (!zyteKey) {
-    logs.push({
-      level: 'WARNING',
-      message: '[LINKGEN_VALIDATION] validation skipped (no Zyte key)',
-    });
+  if (!getZyteKey()) {
+    logs.push({ level: 'WARNING', message: '[SCOUT_FETCH] skipped: no Zyte key' });
     return {
       score: 0,
       isRelevant: false,
@@ -231,14 +131,11 @@ export async function validateGeneratedUrl(
     };
   }
 
+  logs.push({ level: 'SCOUT', message: '[SCOUT_FETCH] fetching', data: { url, site } });
   const html = await fetchHtmlLite(url);
 
   if (!html) {
-    logs.push({
-      level: 'VALIDATION',
-      message: '[LINKGEN_VALIDATION] fetch failed or returned empty HTML',
-      data: { url },
-    });
+    logs.push({ level: 'SCOUT', message: '[SCOUT_FETCH] failed — no HTML returned', data: { url } });
     return {
       score: 0,
       isRelevant: false,
@@ -251,94 +148,146 @@ export async function validateGeneratedUrl(
     };
   }
 
-  // Parse sample listings
-  let sample: { title: string }[] = [];
+  const { count: listingCount, method: listingCountMethod } = extractListingCount(html, site, 0);
+
+  logs.push({ level: 'SCOUT', message: '[SCOUT_PARSE] parsing listings', data: { site, listingCount } });
+
+  let siteResult: SiteValidationResult;
   try {
-    if (site === 'LEBONCOIN') {
-      sample = parseLeboncoinSample(html, url, 5);
-    } else if (site === 'MARKTPLAATS') {
-      sample = parseMarktplaasSample(html, url, 5);
-    } else if (site === 'BILBASEN') {
-      sample = parseBilbasenSample(html, url, 5);
-    }
-  } catch {
+    siteResult = validateSite(site, html, url, params, listingCount);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logs.push({ level: 'SCOUT', message: '[SCOUT_PARSE] parser error', data: { error: msg } });
+    return {
+      score: 0,
+      isRelevant: false,
+      issues: [{ type: 'parse_error' }],
+      detectedFilters: { brand: false, model: false, trim: false, fuel: false },
+      listingCount,
+      listingCountMethod,
+      validationStatus: 'invalid',
+      debugLogs: logs,
+    };
+  }
+
+  if (!siteResult.evidence.structuredFieldsAvailable) {
     logs.push({
-      level: 'VALIDATION',
-      message: '[LINKGEN_VALIDATION] parser error — using fallback scoring',
+      level: 'SCOUT',
+      message: '[SCOUT_PARSE] structured_fields_missing — scoring from title only',
+      data: { missingFields: siteResult.evidence.missingFields.join(', ') },
     });
   }
 
-  const { count: listingCount, method: listingCountMethod } = extractListingCount(
-    html,
-    site,
-    sample.length
-  );
-
-  const { score, detectedFilters, issues } = scoreListings(sample, params);
-
-  const { diagnostics, extraIssues } = buildDiagnostics(
-    url,
-    site,
-    params,
-    detectedFilters,
-    listingCount,
-    sample
-  );
-
-  // Merge issues, deduplicating by type
-  const allIssueTypes = new Set(issues.map((i) => i.type));
-  for (const ei of extraIssues) {
-    if (!allIssueTypes.has(ei.type)) {
-      issues.push(ei);
-      allIssueTypes.add(ei.type);
-    }
-  }
-
-  const validationStatus =
-    listingCount === 0 && sample.length === 0
-      ? 'partial'
-      : statusFromScore(score);
-
   logs.push({
-    level: 'VALIDATION',
-    message: '[LINKGEN_VALIDATION] Scoring complete',
+    level: 'SCOUT',
+    message: '[SCOUT_SCORE] scored',
     data: {
-      score,
-      validationStatus,
-      listingCount,
-      listingCountMethod,
-      brand: detectedFilters.brand,
-      model: detectedFilters.model,
-      trim: detectedFilters.trim,
-      fuel: detectedFilters.fuel,
-      issues: issues.map((i) => i.type).join(', ') || 'none',
+      score: siteResult.score,
+      status: siteResult.status,
+      brand: siteResult.appliedFilters.brand,
+      model: siteResult.appliedFilters.model,
+      year: siteResult.appliedFilters.year,
+      mileage: siteResult.appliedFilters.mileage,
+      fuel: siteResult.appliedFilters.fuel,
+      trim: siteResult.appliedFilters.trim,
+      sampleCount: siteResult.sampleListings.length,
+      issues: siteResult.issues.map((i) => i.type).join(', ') || 'none',
     },
   });
 
+  const { diagnostics, extraIssues } = buildDiagnosticsFromSiteResult(siteResult);
+
+  // Merge issues (dedup by type)
+  const allIssues = [...siteResult.issues];
+  const seen = new Set(allIssues.map((i) => i.type));
+  for (const ei of extraIssues) {
+    if (!seen.has(ei.type)) { allIssues.push(ei); seen.add(ei.type); }
+  }
+
+  // If no listings at all → override to invalid (empty market)
+  const finalStatus = listingCount === 0 && siteResult.sampleListings.length === 0
+    ? 'invalid'
+    : siteResult.status;
+
   return {
-    score,
-    isRelevant: score >= 70,
-    issues,
-    detectedFilters,
+    score: siteResult.score,
+    isRelevant: siteResult.score >= 80,
+    issues: allIssues,
+    detectedFilters: {
+      brand: siteResult.appliedFilters.brand,
+      model: siteResult.appliedFilters.model,
+      trim: siteResult.appliedFilters.trim,
+      fuel: siteResult.appliedFilters.fuel,
+    },
     listingCount,
     listingCountMethod,
-    validationStatus,
+    validationStatus: finalStatus,
     diagnostics,
     debugLogs: logs,
   };
 }
 
-/**
- * Validate a URL, and if not valid, attempt one correction + re-validation.
- * Maximum 2 Zyte fetches per URL (1 original + 1 corrected).
- */
+// ─── selectBestVerifiedUrl ────────────────────────────────────────────────────
+
+interface BestUrlResult {
+  originalUrl: string;
+  bestUrl: string;
+  scoreBefore: number;
+  scoreAfter: number;
+  statusBefore: ValidationStatus;
+  statusAfter: ValidationStatus;
+  correctionReason: string | undefined;
+  testedHypotheses: ScoutHypothesis[];
+}
+
+function selectBestVerifiedUrl(
+  originalUrl: string,
+  originalScore: number,
+  originalStatus: ValidationStatus,
+  testedHypotheses: ScoutHypothesis[]
+): BestUrlResult {
+  let best = { url: originalUrl, score: originalScore, status: originalStatus, reason: undefined as string | undefined };
+
+  for (const h of testedHypotheses) {
+    if (h.score > best.score) {
+      best = { url: h.url, score: h.score, status: h.status, reason: h.reason };
+    } else if (h.score === best.score && h.url !== best.url) {
+      // Prefer URL with more params (more specific)
+      const bestParams = (best.url.match(/[?&=#|]/g) ?? []).length;
+      const hParams = (h.url.match(/[?&=#|]/g) ?? []).length;
+      if (hParams > bestParams) {
+        best = { url: h.url, score: h.score, status: h.status, reason: h.reason };
+      }
+    }
+  }
+
+  console.log(`[SCOUT_BEST_URL] original=${originalScore} best=${best.score} url=${best.url}`);
+
+  return {
+    originalUrl,
+    bestUrl: best.url,
+    scoreBefore: originalScore,
+    scoreAfter: best.score,
+    statusBefore: originalStatus,
+    statusAfter: best.status,
+    correctionReason: best.reason,
+    testedHypotheses,
+  };
+}
+
+// ─── validateWithRetry — max 3 fetches ───────────────────────────────────────
+// Fetch 1: original
+// Fetch 2: hypothesis 1 (if original not valid)
+// Fetch 3: hypothesis 2 (if hypothesis 1 not valid)
+// Stop as soon as score >= 80
+
 export async function validateWithRetry(
   result: LinkGenUrlResult,
   params: LinkGenParams
 ): Promise<LinkGenRetryResult & { updatedResult: LinkGenUrlResult }> {
+  // ── Fetch 1: original ──
   const original = await validateGeneratedUrl(result.url, result.site, params);
 
-  // Merge original validation into the result
   let updatedResult: LinkGenUrlResult = {
     ...result,
     validationStatus: original.validationStatus,
@@ -350,36 +299,85 @@ export async function validateWithRetry(
     debugLogs: [...result.debugLogs, ...original.debugLogs],
   };
 
-  if (original.validationStatus === 'valid') {
+  // Early exit if already valid
+  if (original.score >= 80) {
+    console.log(`[SCOUT_BEST_URL] original valid (score=${original.score}) — no hypothesis needed`);
     return { original, updatedResult };
   }
 
-  // Attempt correction
-  const suggestion = suggestUrlCorrection(updatedResult, params);
+  // Generate up to 2 hypotheses
+  const hypotheses = generateHypotheses(updatedResult, params);
 
-  if (!suggestion.canRetry || !suggestion.correctedUrl) {
-    return {
-      original,
-      updatedResult: {
-        ...updatedResult,
-        correctionReason: suggestion.reason,
-      },
-    };
+  if (hypotheses.length === 0) {
+    return { original, updatedResult };
   }
 
-  // Generate corrected URL if not already done by the strategy
-  const correctedUrl = suggestion.correctedUrl;
-  const corrected = await validateGeneratedUrl(correctedUrl, result.site, params);
+  const testedHypotheses: ScoutHypothesis[] = [];
+
+  for (const hyp of hypotheses) {
+    console.log(`[SCOUT_CORRECTION] testing hypothesis rank=${hyp.rankInBatch} reason="${hyp.reason}" url=${hyp.url}`);
+
+    // ── Fetch 2 or 3 ──
+    const hypResult = await validateGeneratedUrl(hyp.url, result.site, params);
+
+    const tested: ScoutHypothesis = {
+      ...hyp,
+      score: hypResult.score,
+      status: hypResult.validationStatus,
+    };
+    testedHypotheses.push(tested);
+
+    if (hypResult.score >= 80) {
+      // This hypothesis is valid — stop early
+      break;
+    }
+  }
+
+  // Select best across original + hypotheses
+  const best = selectBestVerifiedUrl(
+    result.url,
+    original.score,
+    original.validationStatus,
+    testedHypotheses
+  );
+
+  // Find the best hypothesis result (if best differs from original)
+  const bestHyp = testedHypotheses.find((h) => h.url === best.bestUrl);
 
   updatedResult = {
     ...updatedResult,
-    correctedUrl,
-    correctionReason: suggestion.reason,
-    validationAfter: corrected.validationStatus,
-    validationScoreAfter: corrected.score,
+    testedHypotheses,
+    correctedUrl: best.bestUrl !== result.url ? best.bestUrl : undefined,
+    correctionReason: best.correctionReason,
+    validationAfter: best.bestUrl !== result.url ? best.statusAfter : undefined,
+    validationScoreAfter: best.bestUrl !== result.url ? best.scoreAfter : undefined,
+    bestVerifiedUrl: best.bestUrl,
+    bestVerifiedScore: best.scoreAfter,
+    bestVerifiedStatus: best.statusAfter,
+    debugLogs: [
+      ...updatedResult.debugLogs,
+      {
+        level: 'SCOUT' as const,
+        message: '[SCOUT_BEST_URL] selection complete',
+        data: {
+          bestUrl: best.bestUrl,
+          scoreBefore: best.scoreBefore,
+          scoreAfter: best.scoreAfter,
+          statusBefore: best.statusBefore,
+          statusAfter: best.statusAfter,
+          hypothesesTested: testedHypotheses.length,
+        },
+      },
+    ],
   };
 
-  return { original, corrected, correctedUrl, correctionReason: suggestion.reason, updatedResult };
+  return {
+    original,
+    corrected: bestHyp ? undefined : undefined, // kept for type compat
+    correctedUrl: best.bestUrl !== result.url ? best.bestUrl : undefined,
+    correctionReason: best.correctionReason,
+    updatedResult,
+  };
 }
 
 export async function validateAllUrls(
@@ -395,14 +393,10 @@ export async function validateAllUrls(
 }
 
 // ─── Scout validation of a learned mapping ───────────────────────────────────
+// Max 1 Zyte fetch. No retry. No pagination.
+// Only marks valid if score >= 80.
+// Never overwrites a better existing scout_score.
 
-/**
- * Scout-validates a single MappingMemoryRecord.
- * Max 1 Zyte fetch. No retry. No pagination.
- * Updates the DB record:
- *   - if valid AND new score >= existing confidence: set validated_mapping, update confidence, mark 'valid'
- *   - if invalid or score < existing: only increment failure_count
- */
 export async function validateLearnedMapping(
   record: MappingMemoryRecord
 ): Promise<{ success: boolean; validationStatus: string; score: number }> {
@@ -416,7 +410,6 @@ export async function validateLearnedMapping(
     return { success: false, validationStatus: 'invalid', score: 0 };
   }
 
-  // Build params from the record for scoring
   const params: LinkGenParams = {
     brand: record.brand,
     model: record.model,
@@ -430,12 +423,29 @@ export async function validateLearnedMapping(
 
   console.log(`[SCOUT_VALIDATE] Result: status=${validationResult.validationStatus} score=${validationResult.score}`);
 
-  if (validationResult.validationStatus === 'valid' && validationResult.score >= (record.confidence * 100)) {
-    // Promote to validated
+  // Never overwrite a better existing scout_score
+  const existingScoutScore = record.scout_score ?? 0;
+  if (validationResult.score < existingScoutScore) {
+    console.log(`[MAPPING_MEMORY_SKIP] new score ${validationResult.score} < existing ${existingScoutScore} — not overwriting`);
+    await supabase
+      .from('linkgen_mapping_memory')
+      .update({
+        failure_count: (record.failure_count ?? 0) + 1,
+        last_checked_at: now,
+        updated_at: now,
+      })
+      .eq('id', record.id);
+    return { success: false, validationStatus: validationResult.validationStatus, score: validationResult.score };
+  }
+
+  if (validationResult.score >= 80) {
+    console.log(`[MAPPING_MEMORY_SAVE] score=${validationResult.score} — promoting to valid`);
     await supabase
       .from('linkgen_mapping_memory')
       .update({
         validated_mapping: mapping as unknown as import('../database.types').Json,
+        validated_url: record.source_url,
+        scout_score: validationResult.score,
         confidence: Math.round(validationResult.score) / 100,
         validation_status: 'valid',
         issues: (validationResult.issues as unknown as import('../database.types').Json) ?? null,
@@ -445,25 +455,25 @@ export async function validateLearnedMapping(
       })
       .eq('id', record.id);
 
-    console.log(`[SCOUT_VALIDATE] Mapping promoted to valid`);
     return { success: true, validationStatus: 'valid', score: validationResult.score };
-  } else {
-    // Not good enough — increment failure_count only
-    await supabase
-      .from('linkgen_mapping_memory')
-      .update({
-        failure_count: (record.failure_count ?? 0) + 1,
-        issues: (validationResult.issues as unknown as import('../database.types').Json) ?? null,
-        last_checked_at: now,
-        updated_at: now,
-      })
-      .eq('id', record.id);
-
-    console.log(`[SCOUT_VALIDATE] Mapping not promoted — failure_count incremented`);
-    return {
-      success: false,
-      validationStatus: validationResult.validationStatus,
-      score: validationResult.score,
-    };
   }
+
+  // Score < 80 — update diagnostics but don't promote
+  console.log(`[MAPPING_MEMORY_SKIP] score=${validationResult.score} < 80 — not promoting, failure_count++`);
+  await supabase
+    .from('linkgen_mapping_memory')
+    .update({
+      scout_score: validationResult.score,
+      failure_count: (record.failure_count ?? 0) + 1,
+      issues: (validationResult.issues as unknown as import('../database.types').Json) ?? null,
+      last_checked_at: now,
+      updated_at: now,
+    })
+    .eq('id', record.id);
+
+  return {
+    success: false,
+    validationStatus: validationResult.validationStatus,
+    score: validationResult.score,
+  };
 }

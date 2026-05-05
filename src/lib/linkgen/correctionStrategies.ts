@@ -4,6 +4,8 @@ import type {
   LinkGenParams,
   LinkGenIssue,
   SiteKey,
+  ScoutHypothesis,
+  ValidationStatus,
 } from './types';
 
 export interface CorrectionSuggestion {
@@ -13,117 +15,163 @@ export interface CorrectionSuggestion {
   reason: string;
 }
 
-/**
- * Given a validated URL result and the original params, suggest one correction.
- * Only the first applicable rule fires — no stacking.
- * Maximum 1 retry is expected by the caller.
- */
+// ─── generateHypotheses ───────────────────────────────────────────────────────
+// Returns at most 2 ordered hypotheses to try after the original fetch fails.
+// Each hypothesis is generated via the existing generateSearchUrl() — no hardcoded URLs.
+
+export function generateHypotheses(
+  result: LinkGenUrlResult,
+  params: LinkGenParams
+): ScoutHypothesis[] {
+  const issues = result.validationIssues ?? [];
+  const issueTypes = new Set(issues.map((i: LinkGenIssue) => i.type));
+  const site = result.site;
+  const candidates: Array<{ url: string; reason: string }> = [];
+
+  if (site === 'LEBONCOIN') {
+    candidates.push(...leboncoinHypotheses(params, issueTypes));
+  } else if (site === 'MARKTPLAATS') {
+    candidates.push(...marktplaatsHypotheses(params, issueTypes));
+  } else if (site === 'BILBASEN') {
+    candidates.push(...bilbasenHypotheses(params, issueTypes));
+  }
+
+  // Deduplicate against original URL and cap at 2
+  const original = result.url;
+  return candidates
+    .filter((c) => c.url !== original)
+    .slice(0, 2)
+    .map((c, i) => ({
+      url: c.url,
+      reason: c.reason,
+      score: 0,           // filled in by validator after fetch
+      status: 'not_checked' as ValidationStatus,
+      rankInBatch: i + 1,
+    }));
+}
+
+function tryGenerate(params: LinkGenParams & { site: SiteKey }): string | null {
+  try {
+    return generateSearchUrl(params).url;
+  } catch {
+    return null;
+  }
+}
+
+// ─── LEBONCOIN ────────────────────────────────────────────────────────────────
+// H1: if fuel suspect → drop fuel
+// H2: if model not applied → drop trim (keep model+year+mileage)
+//     else if trim not applied → drop trim
+//     else → drop fuel + trim (widest fallback)
+
+function leboncoinHypotheses(
+  params: LinkGenParams,
+  issueTypes: Set<string>
+): Array<{ url: string; reason: string }> {
+  const result: Array<{ url: string; reason: string }> = [];
+
+  // H1
+  if (issueTypes.has('fuel_mapping_suspect') && params.fuel) {
+    const url = tryGenerate({ ...params, site: 'LEBONCOIN', fuel: undefined });
+    if (url) result.push({ url, reason: 'LEBONCOIN H1: fuel filter removed (mapping suspect)' });
+  } else if (issueTypes.has('model_not_applied')) {
+    // Move brand+model into trim free-text if model not picked up
+    const url = tryGenerate({
+      ...params,
+      site: 'LEBONCOIN',
+      trim: params.trim ? `${params.model} ${params.trim}` : params.model,
+    });
+    if (url) result.push({ url, reason: 'LEBONCOIN H1: brand+model moved to text query (model param not applied)' });
+  } else {
+    // Generic H1: drop fuel if present
+    if (params.fuel) {
+      const url = tryGenerate({ ...params, site: 'LEBONCOIN', fuel: undefined });
+      if (url) result.push({ url, reason: 'LEBONCOIN H1: fuel removed (generic fallback)' });
+    }
+  }
+
+  // H2
+  if (result.length < 2) {
+    if (params.trim && (issueTypes.has('trim_not_applied') || issueTypes.has('model_not_applied'))) {
+      const url = tryGenerate({ ...params, site: 'LEBONCOIN', trim: undefined, fuel: undefined });
+      if (url) result.push({ url, reason: 'LEBONCOIN H2: trim + fuel removed, keeping model+year+mileage' });
+    } else if (params.fuel || params.trim) {
+      const url = tryGenerate({ ...params, site: 'LEBONCOIN', fuel: undefined, trim: undefined });
+      if (url) result.push({ url, reason: 'LEBONCOIN H2: fuel + trim removed (widest fallback)' });
+    }
+  }
+
+  return result;
+}
+
+// ─── MARKTPLAATS ──────────────────────────────────────────────────────────────
+// H1: full query brand+model+trim (already the default; generate fresh)
+// H2: brand+model only (drop trim)
+
+function marktplaatsHypotheses(
+  params: LinkGenParams,
+  issueTypes: Set<string>
+): Array<{ url: string; reason: string }> {
+  const result: Array<{ url: string; reason: string }> = [];
+
+  if (issueTypes.has('fuel_mapping_suspect') && params.fuel) {
+    const url = tryGenerate({ ...params, site: 'MARKTPLAATS', fuel: undefined });
+    if (url) result.push({ url, reason: 'MARKTPLAATS H1: fuel removed (mapping suspect)' });
+  } else {
+    const url = tryGenerate({ ...params, site: 'MARKTPLAATS' });
+    if (url) result.push({ url, reason: 'MARKTPLAATS H1: regenerated full query brand+model+trim' });
+  }
+
+  if (result.length < 2 && params.trim) {
+    const url = tryGenerate({ ...params, site: 'MARKTPLAATS', trim: undefined });
+    if (url) result.push({ url, reason: 'MARKTPLAATS H2: trim removed from query, brand+model only' });
+  }
+
+  return result;
+}
+
+// ─── BILBASEN ─────────────────────────────────────────────────────────────────
+// H1: if fuel suspect → drop fuel; else regenerate structured brand+model
+// H2: brand+model only (drop fuel + trim)
+
+function bilbasenHypotheses(
+  params: LinkGenParams,
+  issueTypes: Set<string>
+): Array<{ url: string; reason: string }> {
+  const result: Array<{ url: string; reason: string }> = [];
+
+  if (issueTypes.has('fuel_mapping_suspect') && params.fuel) {
+    const url = tryGenerate({ ...params, site: 'BILBASEN', fuel: undefined });
+    if (url) result.push({ url, reason: 'BILBASEN H1: fuel removed (mapping suspect)' });
+  } else {
+    const url = tryGenerate({ ...params, site: 'BILBASEN' });
+    if (url) result.push({ url, reason: 'BILBASEN H1: regenerated structured params brand+model' });
+  }
+
+  if (result.length < 2 && (params.fuel || params.trim)) {
+    const url = tryGenerate({ ...params, site: 'BILBASEN', fuel: undefined, trim: undefined });
+    if (url) result.push({ url, reason: 'BILBASEN H2: fuel + trim removed, brand+model only' });
+  }
+
+  return result;
+}
+
+// ─── Legacy adapter ───────────────────────────────────────────────────────────
+// Kept so existing callers of suggestUrlCorrection don't break.
+// Returns only the first hypothesis as a CorrectionSuggestion.
+
 export function suggestUrlCorrection(
   result: LinkGenUrlResult,
   params: LinkGenParams
 ): CorrectionSuggestion {
-  const issues = result.validationIssues ?? [];
-  const issueTypes = issues.map((i: LinkGenIssue) => i.type);
-  const site = result.site;
-
-  // Rule 1 — wrong_domain: regenerate using the correct site template
-  if (issueTypes.includes('wrong_domain')) {
-    try {
-      const correctedParams = { ...params, site };
-      const generated = generateSearchUrl(correctedParams);
-      return {
-        canRetry: true,
-        correctedParams,
-        correctedUrl: generated.url,
-        reason: 'regenerated with correct site template (domain was wrong)',
-      };
-    } catch {
-      return { canRetry: false, reason: 'wrong_domain: regeneration failed' };
-    }
+  const hypotheses = generateHypotheses(result, params);
+  if (hypotheses.length === 0) {
+    return { canRetry: false, reason: 'no correction strategy available for the detected issues' };
   }
-
-  // Rule 2 — fuel_mapping_suspect: retry without fuel filter
-  if (issueTypes.includes('fuel_mapping_suspect') && params.fuel) {
-    const correctedParams: LinkGenParams & { site: SiteKey } = {
-      ...params,
-      site,
-      fuel: undefined,
-    };
-    try {
-      const generated = generateSearchUrl(correctedParams);
-      return {
-        canRetry: true,
-        correctedParams,
-        correctedUrl: generated.url,
-        reason: 'fuel filter removed — mapping suspect, retrying without fuel constraint',
-      };
-    } catch {
-      return { canRetry: false, reason: 'fuel_mapping_suspect: regeneration failed' };
-    }
-  }
-
-  // Rule 3 — model_not_applied: for sites where the model param is not recognized,
-  // move brand+model into free-text query (only meaningful for Leboncoin/Bilbasen)
-  if (issueTypes.includes('model_not_applied') && site !== 'MARKTPLAATS') {
-    // For Leboncoin: inject model into text= param
-    // For Bilbasen: model goes into the make+model URL but trim it back to raw value
-    const correctedParams: LinkGenParams & { site: SiteKey } = {
-      ...params,
-      site,
-      // Force raw brand+model as trim text so it ends up in the free-text query
-      trim: params.trim
-        ? `${params.model} ${params.trim}`
-        : params.model,
-    };
-    try {
-      const generated = generateSearchUrl(correctedParams);
-      return {
-        canRetry: true,
-        correctedParams,
-        correctedUrl: generated.url,
-        reason: 'model moved into free-text query (site-specific model param not recognized)',
-      };
-    } catch {
-      return { canRetry: false, reason: 'model_not_applied: regeneration failed' };
-    }
-  }
-
-  // Rule 4 — trim_not_applied on Marktplaats: trim is already injected via buildMarktplaatsQuery
-  // This is a false positive — the trim is present in the q= param, not as a separate filter
-  if (issueTypes.includes('trim_not_applied') && site === 'MARKTPLAATS') {
-    return {
-      canRetry: false,
-      reason: 'trim is injected via the Marktplaats q= query string — not a separate filter param',
-    };
-  }
-
-  // Rule 5 — trim_not_applied on other sites: move trim to the most visible text position
-  if (issueTypes.includes('trim_not_applied') && params.trim) {
-    const correctedParams: LinkGenParams & { site: SiteKey } = { ...params, site };
-    try {
-      const generated = generateSearchUrl(correctedParams);
-      return {
-        canRetry: true,
-        correctedParams,
-        correctedUrl: generated.url,
-        reason: 'trim re-applied with regeneration (template may have dropped it)',
-      };
-    } catch {
-      return { canRetry: false, reason: 'trim_not_applied: regeneration failed' };
-    }
-  }
-
-  // Rule 6 — sort_not_applied: sort params are now baked into templates, so this is informational
-  if (issueTypes.includes('sort_not_applied')) {
-    return {
-      canRetry: false,
-      reason: 'sort params are embedded in the template — check site-specific sort behavior',
-    };
-  }
-
-  // No applicable correction rule
+  const first = hypotheses[0];
   return {
-    canRetry: false,
-    reason: 'no correction strategy available for the detected issues',
+    canRetry: true,
+    correctedUrl: first.url,
+    reason: first.reason,
   };
 }

@@ -22,9 +22,54 @@ export interface LinkGenParams {
 }
 
 export interface LinkGenLogEntry {
-  level: 'INPUT' | 'MAPPING' | 'OUTPUT' | 'WARNING' | 'VALIDATION';
+  level: 'INPUT' | 'MAPPING' | 'OUTPUT' | 'WARNING' | 'VALIDATION' | 'SCOUT';
   message: string;
   data?: Record<string, unknown>;
+}
+
+/** One correction hypothesis tested by the Scout during validateWithRetry */
+export interface ScoutHypothesis {
+  url: string;
+  reason: string;
+  score: number;
+  status: ValidationStatus;
+  rankInBatch: number; // 1 = first hypothesis, 2 = second
+}
+
+/** Common output format from all siteValidators */
+export interface AppliedFilters {
+  brand: boolean;
+  model: boolean;
+  year: boolean;
+  mileage: boolean;
+  fuel: boolean;
+  trim: boolean;
+  sort: boolean;
+}
+
+export interface SampleListing {
+  title: string;
+  price: number;
+  year: number | null;
+  mileage: number | null;
+  fuel: string;
+  url: string;
+}
+
+export interface SiteValidationResult {
+  site: SiteKey;
+  url: string;
+  listingCount: number;
+  sampleListings: SampleListing[];
+  appliedFilters: AppliedFilters;
+  score: number;
+  status: ValidationStatus;
+  issues: LinkGenIssue[];
+  evidence: {
+    structuredFieldsAvailable: boolean;
+    fieldsUsed: string[];
+    missingFields: string[];
+  };
 }
 
 /** Legacy single-site result — kept for backward compat */
@@ -34,6 +79,12 @@ export interface LinkGenResult {
   debugLogs: LinkGenLogEntry[];
 }
 
+/**
+ * Scout scoring thresholds:
+ * >= 80 → valid
+ * 60–79 → partial
+ * < 60  → invalid
+ */
 export type ValidationStatus = 'not_checked' | 'valid' | 'partial' | 'invalid';
 
 export interface LinkGenIssue {
@@ -113,6 +164,14 @@ export interface LinkGenUrlResult {
   validationScoreAfter?: number;
   // Memory-first lookup result
   mappingSource?: 'learned' | 'default_template';
+  // Scout multi-hypothesis results (max 2 hypotheses tested)
+  testedHypotheses?: ScoutHypothesis[];
+  // Best URL selected after all hypotheses — may differ from correctedUrl if best was hypothesis 2
+  bestVerifiedUrl?: string;
+  bestVerifiedScore?: number;
+  bestVerifiedStatus?: ValidationStatus;
+  // Reserved for future GPT integration — never populated automatically
+  gptSuggestedHypothesis?: ScoutHypothesis;
 }
 
 export interface LinkGenCorrectionRecord {
@@ -239,4 +298,8 @@ export interface MappingMemoryRecord {
   created_at: string;
   updated_at: string;
   last_checked_at: string | null;
+  // Scout validation columns (added in 20260505 migration)
+  validated_url: string | null;
+  scout_score: number;
+  tested_hypotheses: ScoutHypothesis[] | null;
 }

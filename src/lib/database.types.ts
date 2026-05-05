@@ -272,6 +272,9 @@ export type Database = {
           created_at: string
           updated_at: string
           last_checked_at: string | null
+          validated_url: string | null
+          scout_score: number
+          tested_hypotheses: Json | null
         }
         Insert: {
           id?: string
@@ -293,6 +296,9 @@ export type Database = {
           created_at?: string
           updated_at?: string
           last_checked_at?: string | null
+          validated_url?: string | null
+          scout_score?: number
+          tested_hypotheses?: Json | null
         }
         Update: {
           id?: string
@@ -314,6 +320,9 @@ export type Database = {
           created_at?: string
           updated_at?: string
           last_checked_at?: string | null
+          validated_url?: string | null
+          scout_score?: number
+          tested_hypotheses?: Json | null
         }
       }
     }
