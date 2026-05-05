@@ -1055,7 +1055,8 @@ export function LinkGenerator() {
                     try {
                       const text = await file.text();
                       const parsed = parseCSV(text);
-                      const { rows: normalized, rejections } = normalizeCsvRows(parsed.rows);
+                      const { rows: normalized, rejections, targetUrlCount, sourceUrlCount } =
+                        normalizeCsvRows(parsed.rows, parsed.csvMode);
                       const batchResult = analyzeCsvBatch(normalized, {
                         filename: file.name,
                         fileSizeBytes: file.size,
@@ -1063,6 +1064,9 @@ export function LinkGenerator() {
                         detectedHeaders: parsed.headers,
                         rawRowCount: parsed.rawRowCount,
                         rejections,
+                        csvMode: parsed.csvMode,
+                        targetUrlCount,
+                        sourceUrlCount,
                       });
                       setCsvBatchResult(batchResult);
                       setCsvDiagnostics(batchResult.importDiagnostics);
@@ -1393,6 +1397,8 @@ function CsvImportDiagnosticsPanel({
   zeroResults: boolean;
 }) {
   const [rejectionsOpen, setRejectionsOpen] = useState(false);
+  const [mappingOpen, setMappingOpen] = useState(false);
+  const isAda = diagnostics.csvMode === 'headerless_ada';
 
   function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -1402,11 +1408,23 @@ function CsvImportDiagnosticsPanel({
 
   return (
     <div className={`rounded-lg border p-4 space-y-3 ${zeroResults ? 'bg-red-950/10 border-red-800/30' : 'bg-zinc-800/30 border-zinc-700/40'}`}>
-      <div className="flex items-center gap-2">
-        <Info className="w-4 h-4 text-zinc-400 shrink-0" />
-        <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">CSV Import Diagnostics</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Info className="w-4 h-4 text-zinc-400 shrink-0" />
+          <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">CSV Import Diagnostics</span>
+        </div>
+        {diagnostics.csvMode && (
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border font-mono ${
+            isAda
+              ? 'bg-blue-950/30 border-blue-800/40 text-blue-400'
+              : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+          }`}>
+            {isAda ? 'headerless_ada' : 'headered'}
+          </span>
+        )}
       </div>
 
+      {/* File info */}
       <div className="flex items-center gap-2 text-xs text-zinc-400">
         <span className="font-medium text-zinc-200">{diagnostics.filename}</span>
         <span className="text-zinc-600">·</span>
@@ -1415,29 +1433,80 @@ function CsvImportDiagnosticsPanel({
         <span>separator: <code className="text-blue-300">{diagnostics.detectedSeparator}</code></span>
       </div>
 
-      <div>
-        <p className="text-xs text-zinc-500 mb-1.5">Detected headers ({diagnostics.detectedHeaders.length})</p>
-        <div className="flex flex-wrap gap-1.5">
-          {diagnostics.detectedHeaders.map((h) => (
-            <span key={h} className="text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 px-2 py-0.5 rounded font-mono">
-              {h}
-            </span>
-          ))}
-          {diagnostics.detectedHeaders.length === 0 && (
-            <span className="text-xs text-red-400">No headers detected — is the file valid CSV?</span>
+      {/* ADA positional mapping */}
+      {isAda && diagnostics.adaPositionalMapping && (
+        <div className="bg-blue-950/10 border border-blue-900/30 rounded p-3 space-y-2">
+          <button
+            onClick={() => setMappingOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors w-full"
+          >
+            {mappingOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            <span className="font-medium">ADA positional mapping applied</span>
+          </button>
+          {mappingOpen && (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1">
+              {Object.entries(diagnostics.adaPositionalMapping).map(([idx, field]) => (
+                <div key={idx} className="flex items-center gap-2 text-xs font-mono">
+                  <span className="text-zinc-600 w-4 text-right">{idx}</span>
+                  <span className="text-zinc-500">→</span>
+                  <span className={field.includes('url') ? 'text-blue-300' : field === 'study_id' ? 'text-zinc-500' : 'text-zinc-300'}>
+                    {field}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
-      </div>
+      )}
 
+      {/* Headers (headered mode) */}
+      {!isAda && (
+        <div>
+          <p className="text-xs text-zinc-500 mb-1.5">Detected headers ({diagnostics.detectedHeaders.length})</p>
+          <div className="flex flex-wrap gap-1.5">
+            {diagnostics.detectedHeaders.map((h) => (
+              <span key={h} className="text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 px-2 py-0.5 rounded font-mono">
+                {h}
+              </span>
+            ))}
+            {diagnostics.detectedHeaders.length === 0 && (
+              <span className="text-xs text-red-400">No headers detected — is the file valid CSV?</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Row counts */}
       <div className="flex flex-wrap gap-4 text-xs">
         <div>
           <span className="text-zinc-500">Raw rows</span>
           <span className="ml-1.5 font-semibold text-zinc-200">{diagnostics.rawRowCount}</span>
         </div>
-        <div>
-          <span className="text-zinc-500">Valid</span>
-          <span className="ml-1.5 font-semibold text-green-400">{diagnostics.validRowCount}</span>
-        </div>
+        {isAda ? (
+          <>
+            <div>
+              <span className="text-zinc-500">Generated rows</span>
+              <span className="ml-1.5 font-semibold text-green-400">{diagnostics.generatedRowCount ?? diagnostics.validRowCount}</span>
+            </div>
+            {diagnostics.targetUrlCount !== undefined && (
+              <div>
+                <span className="text-zinc-500">Target URLs</span>
+                <span className="ml-1.5 font-semibold text-blue-400">{diagnostics.targetUrlCount}</span>
+              </div>
+            )}
+            {diagnostics.sourceUrlCount !== undefined && (
+              <div>
+                <span className="text-zinc-500">Source URLs</span>
+                <span className="ml-1.5 font-semibold text-blue-400">{diagnostics.sourceUrlCount}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div>
+            <span className="text-zinc-500">Valid</span>
+            <span className="ml-1.5 font-semibold text-green-400">{diagnostics.validRowCount}</span>
+          </div>
+        )}
         {diagnostics.rejectedRowCount > 0 && (
           <div>
             <span className="text-zinc-500">Rejected</span>
@@ -1446,26 +1515,34 @@ function CsvImportDiagnosticsPanel({
         )}
       </div>
 
+      {/* Zero results alert */}
       {zeroResults && (
         <div className="bg-red-950/20 border border-red-800/30 rounded p-3 space-y-1.5">
           <p className="text-xs font-semibold text-red-400">0 rows could be analyzed</p>
-          <p className="text-xs text-zinc-400">
-            Make sure your CSV contains a URL column:
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {['url', 'source_search_url', 'source_url', 'target_url', 'link'].map((n) => (
-              <code key={n} className="text-xs bg-zinc-800 text-blue-300 px-1.5 py-0.5 rounded">{n}</code>
-            ))}
-          </div>
-          <p className="text-xs text-zinc-400 mt-1">
-            And at least one of:{' '}
-            {['brand', 'marque', 'model', 'modele'].map((n) => (
-              <code key={n} className="text-blue-300 mr-1">{n}</code>
-            ))}
-          </p>
+          {isAda ? (
+            <p className="text-xs text-zinc-400">
+              ADA positional mode active but all rows were rejected. Check that columns 6 and 8 contain valid URLs and columns 1–2 contain brand/model.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs text-zinc-400">Make sure your CSV contains a URL column:</p>
+              <div className="flex flex-wrap gap-1">
+                {['url', 'source_search_url', 'source_url', 'target_url', 'link'].map((n) => (
+                  <code key={n} className="text-xs bg-zinc-800 text-blue-300 px-1.5 py-0.5 rounded">{n}</code>
+                ))}
+              </div>
+              <p className="text-xs text-zinc-400 mt-1">
+                And at least one of:{' '}
+                {['brand', 'marque', 'model', 'modele'].map((n) => (
+                  <code key={n} className="text-blue-300 mr-1">{n}</code>
+                ))}
+              </p>
+            </>
+          )}
         </div>
       )}
 
+      {/* Rejected rows */}
       {diagnostics.rejections.length > 0 && (
         <div>
           <button

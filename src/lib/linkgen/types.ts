@@ -201,6 +201,12 @@ export interface CsvImportDiagnostics {
   validRowCount: number;
   rejectedRowCount: number;
   rejections: CsvRejection[]; // max 10
+  // ADA headerless mode extras
+  csvMode?: 'headered' | 'headerless_ada';
+  adaPositionalMapping?: Record<number, string>;
+  generatedRowCount?: number;
+  targetUrlCount?: number;
+  sourceUrlCount?: number;
 }
 
 export interface CsvBatchResult {

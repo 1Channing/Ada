@@ -9,8 +9,28 @@ import type {
   InferredMapping,
 } from './types';
 
-// ─── Robust CSV parser ────────────────────────────────────────────────────────
-// Handles: quoted fields, commas inside quotes, ; or , separators, CRLF/LF, empty lines
+// ─── ADA positional format ────────────────────────────────────────────────────
+
+export const ADA_POSITIONAL_MAPPING: Record<number, string> = {
+  0: 'study_id',
+  1: 'brand',
+  2: 'model',
+  3: 'year',
+  4: 'mileage',
+  5: 'target_country',
+  6: 'target_url',
+  7: 'source_country',
+  8: 'source_url',
+};
+
+// Header words that indicate a headered CSV (any normalised header matching one of these → headered mode)
+const KNOWN_HEADER_WORDS = new Set([
+  'brand', 'model', 'url', 'site', 'source_search_url', 'source_url',
+  'target_url', 'target_search_url', 'marketplace', 'marque', 'search_url',
+  'link', 'liens', 'lien', 'country', 'pays', 'make', 'fuel', 'carburant',
+]);
+
+// ─── CSV parser helpers ───────────────────────────────────────────────────────
 
 function detectSeparator(firstLine: string): ',' | ';' {
   const commas = (firstLine.match(/,/g) ?? []).length;
@@ -51,11 +71,37 @@ function parseCSVLine(line: string, sep: ',' | ';'): string[] {
   return fields;
 }
 
+// ─── String normalisation ─────────────────────────────────────────────────────
+
+function stripAccents(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalizeHeader(h: string): string {
+  return stripAccents(h.toLowerCase().trim().replace(/\s+/g, '_'));
+}
+
+// ─── CSV mode detection ───────────────────────────────────────────────────────
+
+function detectCsvMode(firstLineFields: string[]): 'headered' | 'headerless_ada' {
+  for (const field of firstLineFields) {
+    const norm = normalizeHeader(field);
+    if (KNOWN_HEADER_WORDS.has(norm)) {
+      return 'headered';
+    }
+  }
+  console.log('[CSV_LEARNER] ADA headerless CSV detected — switching to positional mapping');
+  return 'headerless_ada';
+}
+
+// ─── Main CSV parser ──────────────────────────────────────────────────────────
+
 export interface ParseCSVResult {
   rows: Record<string, string>[];
   separator: ',' | ';';
   headers: string[];
   rawRowCount: number;
+  csvMode: 'headered' | 'headerless_ada';
 }
 
 export function parseCSV(raw: string): ParseCSVResult {
@@ -65,12 +111,35 @@ export function parseCSV(raw: string): ParseCSVResult {
     .split('\n')
     .filter((l) => l.trim().length > 0);
 
-  if (lines.length < 2) {
-    return { rows: [], separator: ',', headers: [], rawRowCount: 0 };
+  if (lines.length === 0) {
+    return { rows: [], separator: ',', headers: [], rawRowCount: 0, csvMode: 'headered' };
   }
 
   const sep = detectSeparator(lines[0]);
-  const rawHeaders = parseCSVLine(lines[0], sep);
+  const firstLineFields = parseCSVLine(lines[0], sep);
+  const csvMode = detectCsvMode(firstLineFields);
+
+  if (csvMode === 'headerless_ada') {
+    // All lines are data — first line is NOT a header
+    const headers = Object.values(ADA_POSITIONAL_MAPPING);
+    const rows: Record<string, string>[] = [];
+
+    for (const line of lines) {
+      const values = parseCSVLine(line, sep);
+      if (values.every((v) => v === '')) continue;
+      const row: Record<string, string> = {};
+      Object.entries(ADA_POSITIONAL_MAPPING).forEach(([idxStr, fieldName]) => {
+        const idx = Number(idxStr);
+        row[fieldName] = (values[idx] ?? '').trim();
+      });
+      rows.push(row);
+    }
+
+    return { rows, separator: sep, headers, rawRowCount: lines.length, csvMode: 'headerless_ada' };
+  }
+
+  // Headered mode: first line is header
+  const rawHeaders = firstLineFields;
   const headers = rawHeaders.map((h) => h.toLowerCase().trim());
 
   const rows: Record<string, string>[] = [];
@@ -84,24 +153,30 @@ export function parseCSV(raw: string): ParseCSVResult {
     rows.push(row);
   }
 
-  return { rows, separator: sep, headers, rawRowCount: lines.length - 1 };
+  return { rows, separator: sep, headers, rawRowCount: lines.length - 1, csvMode: 'headered' };
 }
 
-// ─── Column name normalisation ────────────────────────────────────────────────
-// Strips accents so "modèle" → "modele", "énergie" → "energie", etc.
+// ─── Site detection ───────────────────────────────────────────────────────────
 
-function stripAccents(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+function inferSiteFromUrl(url: string): { site: string; warning?: string } {
+  if (!url) return { site: 'UNKNOWN', warning: 'unknown_site: empty URL' };
+  try {
+    const domain = new URL(url).hostname.toLowerCase();
+    if (domain.includes('leboncoin')) return { site: 'LEBONCOIN' };
+    if (domain.includes('marktplaats')) return { site: 'MARKTPLAATS' };
+    if (domain.includes('bilbasen')) return { site: 'BILBASEN' };
+    return { site: 'UNKNOWN', warning: `unknown_site: unrecognised domain "${domain}"` };
+  } catch {
+    return { site: 'UNKNOWN', warning: `unknown_site: invalid URL "${url.slice(0, 60)}"` };
+  }
 }
 
-function normalizeHeader(h: string): string {
-  return stripAccents(h.toLowerCase().trim().replace(/\s+/g, '_'));
-}
+// ─── Column aliases (headered mode) ──────────────────────────────────────────
 
 type CsvFieldKey = keyof CsvLearnerRow | 'source_url_alt' | 'target_url_alt';
 
 const COLUMN_ALIASES: Record<string, CsvFieldKey> = {
-  // url (main)
+  // url (main — source direction)
   url: 'url',
   search_url: 'url',
   source_search_url: 'url',
@@ -109,7 +184,7 @@ const COLUMN_ALIASES: Record<string, CsvFieldKey> = {
   link: 'url',
   liens: 'url',
   lien: 'url',
-  // target url (for double-row expansion)
+  // target url
   target_search_url: 'target_url_alt',
   target_url: 'target_url_alt',
   // site
@@ -155,19 +230,6 @@ const COLUMN_ALIASES: Record<string, CsvFieldKey> = {
   version: 'trim',
 };
 
-function inferSiteFromUrl(url: string): string {
-  try {
-    const domain = new URL(url).hostname.toLowerCase();
-    if (domain.includes('leboncoin')) return 'LEBONCOIN';
-    if (domain.includes('marktplaats')) return 'MARKTPLAATS';
-    if (domain.includes('bilbasen')) return 'BILBASEN';
-  } catch {
-    // ignore
-  }
-  return 'UNKNOWN';
-}
-
-// Build a short preview string from the raw row for rejection display
 function rowPreview(raw: Record<string, string>): string {
   return Object.entries(raw)
     .slice(0, 3)
@@ -175,25 +237,113 @@ function rowPreview(raw: Record<string, string>): string {
     .join(' | ');
 }
 
+// ─── normalizeCsvRows ─────────────────────────────────────────────────────────
+
 export interface NormalizeBatchResult {
   rows: CsvLearnerRow[];
   rejections: CsvRejection[];
+  targetUrlCount: number;
+  sourceUrlCount: number;
 }
 
 export function normalizeCsvRows(
-  rawRows: Record<string, string>[]
+  rawRows: Record<string, string>[],
+  csvMode: 'headered' | 'headerless_ada' = 'headered'
 ): NormalizeBatchResult {
+  if (csvMode === 'headerless_ada') {
+    return normalizeAdaRows(rawRows);
+  }
+  return normalizeHeaderedRows(rawRows);
+}
+
+function normalizeAdaRows(rawRows: Record<string, string>[]): NormalizeBatchResult {
   const rows: CsvLearnerRow[] = [];
   const rejections: CsvRejection[] = [];
+  let targetUrlCount = 0;
+  let sourceUrlCount = 0;
 
   rawRows.forEach((raw, idx) => {
-    // Check for completely empty row
+    const rowNum = idx + 1; // No header offset in ADA mode — row 1 is the first data line
+
     if (Object.values(raw).every((v) => !v)) {
-      rejections.push({ rowIndex: idx + 2, reason: 'empty_row', preview: '' });
+      rejections.push({ rowIndex: rowNum, reason: 'empty_row', preview: '' });
       return;
     }
 
-    // Map raw keys to canonical fields using normalised aliases
+    const brand = raw['brand'] ?? '';
+    const model = raw['model'] ?? '';
+    const year = raw['year'] || undefined;
+    const mileage = raw['mileage'] || undefined;
+    const targetCountry = raw['target_country'] ?? '';
+    const targetUrl = raw['target_url'] ?? '';
+    const sourceCountry = raw['source_country'] ?? '';
+    const sourceUrl = raw['source_url'] ?? '';
+
+    const hasIdentifier = brand.length > 0 || model.length > 0;
+
+    if (!targetUrl && !sourceUrl) {
+      rejections.push({ rowIndex: rowNum, reason: 'missing_url', preview: rowPreview(raw) });
+      return;
+    }
+
+    const warnings: string[] = [];
+
+    if (targetUrl) {
+      const { site, warning } = inferSiteFromUrl(targetUrl);
+      if (warning) warnings.push(warning);
+      if (hasIdentifier || targetUrl) {
+        targetUrlCount++;
+        rows.push({
+          site,
+          country: targetCountry,
+          brand,
+          model,
+          year,
+          mileage,
+          url: targetUrl,
+        });
+      }
+    }
+
+    if (sourceUrl) {
+      const { site, warning } = inferSiteFromUrl(sourceUrl);
+      if (warning) warnings.push(warning);
+      if (hasIdentifier || sourceUrl) {
+        sourceUrlCount++;
+        rows.push({
+          site,
+          country: sourceCountry,
+          brand,
+          model,
+          year,
+          mileage,
+          url: sourceUrl,
+        });
+      }
+    }
+
+    if (warnings.length > 0) {
+      console.warn(`[CSV_LEARNER] row ${rowNum}:`, warnings.join('; '));
+    }
+  });
+
+  return { rows, rejections, targetUrlCount, sourceUrlCount };
+}
+
+function normalizeHeaderedRows(rawRows: Record<string, string>[]): NormalizeBatchResult {
+  const rows: CsvLearnerRow[] = [];
+  const rejections: CsvRejection[] = [];
+  let targetUrlCount = 0;
+  let sourceUrlCount = 0;
+
+  rawRows.forEach((raw, idx) => {
+    const rowNum = idx + 2; // +2 because row 1 is the header
+
+    if (Object.values(raw).every((v) => !v)) {
+      rejections.push({ rowIndex: rowNum, reason: 'empty_row', preview: '' });
+      return;
+    }
+
     const mapped: Partial<Record<CsvFieldKey, string>> = {};
 
     for (const [rawKey, value] of Object.entries(raw)) {
@@ -205,39 +355,36 @@ export function normalizeCsvRows(
       }
     }
 
-    // Special case: if url not yet resolved from primary aliases, try some fallbacks
+    // Fallback: any column containing "url" that wasn't resolved as target
     if (!mapped.url) {
-      // try any column whose name contains "url"
       for (const [rawKey, value] of Object.entries(raw)) {
-        if (value && rawKey.toLowerCase().includes('url') && !(COLUMN_ALIASES[normalizeHeader(rawKey)] === 'target_url_alt')) {
+        if (value && rawKey.toLowerCase().includes('url') && COLUMN_ALIASES[normalizeHeader(rawKey)] !== 'target_url_alt') {
           mapped.url = value;
           break;
         }
       }
     }
 
-    // Reject: no URL found
     if (!mapped.url) {
-      rejections.push({ rowIndex: idx + 2, reason: 'missing_url', preview: rowPreview(raw) });
+      rejections.push({ rowIndex: rowNum, reason: 'missing_url', preview: rowPreview(raw) });
       return;
     }
 
-    // Reject: neither brand nor model
     if (!mapped.brand && !mapped.model) {
-      rejections.push({ rowIndex: idx + 2, reason: 'missing_brand_and_model', preview: rowPreview(raw) });
+      rejections.push({ rowIndex: rowNum, reason: 'missing_brand_and_model', preview: rowPreview(raw) });
       return;
     }
 
-    // Infer site from URL if not provided
-    if (!mapped.site && mapped.url) {
-      mapped.site = inferSiteFromUrl(mapped.url);
-    }
-    if (mapped.site) {
+    // Infer site
+    if (!mapped.site) {
+      const { site } = inferSiteFromUrl(mapped.url as string);
+      mapped.site = site;
+    } else {
       mapped.site = (mapped.site as string).toUpperCase().trim();
     }
 
     const baseRow: CsvLearnerRow = {
-      site: (mapped.site as string) ?? 'UNKNOWN',
+      site: (mapped.site as string),
       country: (mapped.country as string) ?? '',
       brand: (mapped.brand as string) ?? '',
       model: (mapped.model as string) ?? '',
@@ -248,20 +395,21 @@ export function normalizeCsvRows(
       url: mapped.url as string,
     };
 
+    sourceUrlCount++;
     rows.push(baseRow);
 
-    // If target_url also present, create a second row for the target
     if (mapped.target_url_alt) {
-      const targetSite = inferSiteFromUrl(mapped.target_url_alt as string);
+      const { site } = inferSiteFromUrl(mapped.target_url_alt as string);
+      targetUrlCount++;
       rows.push({
         ...baseRow,
-        site: targetSite !== 'UNKNOWN' ? targetSite : (baseRow.site ?? 'UNKNOWN'),
+        site,
         url: mapped.target_url_alt as string,
       });
     }
   });
 
-  return { rows, rejections };
+  return { rows, rejections, targetUrlCount, sourceUrlCount };
 }
 
 // ─── URL decomposition ────────────────────────────────────────────────────────
@@ -281,7 +429,6 @@ function decomposeUrl(rawUrl: string): DetectedParams | null {
   const hashParams: Record<string, string> = {};
   const hash = parsed.hash.replace(/^#/, '');
   if (hash) {
-    // Marktplaats uses |key:value|key:value format
     const pipeSegments = hash.split('|');
     for (const seg of pipeSegments) {
       const colonIdx = seg.indexOf(':');
@@ -301,9 +448,7 @@ function decomposeUrl(rawUrl: string): DetectedParams | null {
       hashSearchParams.forEach((v, k) => {
         if (!(k in hashParams)) hashParams[k] = v;
       });
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
   }
 
   const pathSegments = parsed.pathname
@@ -320,7 +465,7 @@ function decomposeUrl(rawUrl: string): DetectedParams | null {
   };
 }
 
-// ─── Field matching helpers ───────────────────────────────────────────────────
+// ─── Field matching ───────────────────────────────────────────────────────────
 
 function normalize(s: string): string {
   return stripAccents(s).toLowerCase().replace(/[-_\s+]/g, '').replace(/[^a-z0-9]/g, '');
@@ -352,10 +497,7 @@ function findParamForField(
   return null;
 }
 
-function findParamInPath(
-  segments: string[],
-  fieldValue: string
-): MatchResult | null {
+function findParamInPath(segments: string[], fieldValue: string): MatchResult | null {
   for (const seg of segments) {
     if (valueContains(seg, fieldValue)) {
       return { paramName: '_path', rawValue: seg, source: 'path' };
@@ -364,14 +506,13 @@ function findParamInPath(
   return null;
 }
 
-// ─── Core analysis ────────────────────────────────────────────────────────────
+// ─── Core URL analysis ────────────────────────────────────────────────────────
 
 export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
   const warnings: string[] = [];
   const paramToField: Record<string, string> = {};
   const fieldToParam: Record<string, { paramName: string; rawValue: string }> = {};
 
-  // Warn if brand/model missing — structural analysis only
   if (!row.brand && !row.model) {
     warnings.push('[CSV_LEARNER] brand and model both empty — structural analysis only, confidence will be 0');
   }
@@ -387,13 +528,7 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
       fuel: row.fuel ?? '',
       trim: row.trim ?? '',
       sourceUrl: row.url,
-      detectedParams: {
-        rawUrl: row.url,
-        domain: '',
-        queryParams: {},
-        hashParams: {},
-        pathSegments: [],
-      },
+      detectedParams: { rawUrl: row.url, domain: '', queryParams: {}, hashParams: {}, pathSegments: [] },
       inferredMapping: { paramToField: {}, fieldToParam: {} },
       confidence: 0,
       warnings: [...warnings, `[URL_ANALYSIS] Cannot parse URL: ${row.url}`],
@@ -427,9 +562,7 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
     if (match) {
       matchedWeight += weight;
       fieldToParam[field] = { paramName: match.paramName, rawValue: match.rawValue };
-      if (match.paramName !== '_path') {
-        paramToField[match.paramName] = field;
-      }
+      if (match.paramName !== '_path') paramToField[match.paramName] = field;
       console.log(`[URL_ANALYSIS] ${field} → ${match.paramName}=${match.rawValue}`);
     } else {
       warnings.push(`[URL_ANALYSIS] Expected field "${field}" (value: "${value}") not found in URL params`);
@@ -439,9 +572,6 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
   // Detect sort param
   const sortParamName =
     Object.keys(allQueryAndHash).find(
-      (k) => k.toLowerCase().includes('sort') || k.toLowerCase().includes('order')
-    ) ??
-    Object.keys(detectedParams.hashParams).find(
       (k) => k.toLowerCase().includes('sort') || k.toLowerCase().includes('order')
     );
 
@@ -504,6 +634,8 @@ export function analyzeCsvUrl(row: CsvLearnerRow): CsvAnalysisResult {
   };
 }
 
+// ─── Batch analysis ───────────────────────────────────────────────────────────
+
 export interface AnalyzeBatchOptions {
   filename?: string;
   fileSizeBytes?: number;
@@ -511,6 +643,9 @@ export interface AnalyzeBatchOptions {
   detectedHeaders?: string[];
   rawRowCount?: number;
   rejections?: CsvRejection[];
+  csvMode?: 'headered' | 'headerless_ada';
+  targetUrlCount?: number;
+  sourceUrlCount?: number;
 }
 
 export function analyzeCsvBatch(
@@ -539,6 +674,11 @@ export function analyzeCsvBatch(
     validRowCount: rows.length,
     rejectedRowCount: options.rejections?.length ?? 0,
     rejections: (options.rejections ?? []).slice(0, 10),
+    csvMode: options.csvMode,
+    adaPositionalMapping: options.csvMode === 'headerless_ada' ? ADA_POSITIONAL_MAPPING : undefined,
+    generatedRowCount: rows.length,
+    targetUrlCount: options.targetUrlCount,
+    sourceUrlCount: options.sourceUrlCount,
   };
 
   return { analyzed, confidenceAvg, mappingsDetected, warningCount, importDiagnostics };
