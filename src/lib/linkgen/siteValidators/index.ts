@@ -1,6 +1,4 @@
-import { validateLeboncoin } from './leboncoinValidator';
-import { validateMarktplaats } from './marktplaatsValidator';
-import { validateBilbasen } from './bilbasenValidator';
+import { getSiteAdapter } from '../../study-core/marketplaces';
 import type { SiteKey, LinkGenParams } from '../types';
 import type { SiteValidationResult } from './types';
 
@@ -11,9 +9,7 @@ export function validateSite(
   params: LinkGenParams,
   listingCount: number
 ): SiteValidationResult {
-  if (site === 'LEBONCOIN') return validateLeboncoin(html, url, params, listingCount);
-  if (site === 'MARKTPLAATS') return validateMarktplaats(html, url, params, listingCount);
-  return validateBilbasen(html, url, params, listingCount);
+  return getSiteAdapter(site).scoreSearchResults(html, url, params, listingCount);
 }
 
 export type { SiteValidationResult, SampleListing, AppliedFilters } from './types';

@@ -1,7 +1,7 @@
 import { fetchHtmlLite } from '../scraperClient';
 import { generateHypotheses } from './correctionStrategies';
 import { validateSite } from './siteValidators/index';
-import { EXPECTED_DOMAINS } from './templates';
+import { getSiteAdapter } from '../study-core/marketplaces';
 import { supabase } from '../supabase';
 import type {
   SiteKey,
@@ -62,7 +62,7 @@ function buildDiagnosticsFromSiteResult(
   let actualDomain = '';
   try { actualDomain = new URL(siteResult.url).hostname; } catch { /* empty */ }
 
-  const expectedDomain = EXPECTED_DOMAINS[siteResult.site];
+  const expectedDomain = getSiteAdapter(siteResult.site).domain;
   const af = siteResult.appliedFilters;
 
   const diagnostics: LinkGenDiagnostics = {

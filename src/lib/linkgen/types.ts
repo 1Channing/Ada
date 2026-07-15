@@ -1,4 +1,24 @@
-export type SiteKey = 'LEBONCOIN' | 'MARKTPLAATS' | 'BILBASEN';
+// SiteKey and the site-scoring/validation types below now live in
+// study-core/marketplaces (the site adapter registry) so they can be shared
+// with the worker/Edge Functions without depending on this browser-coupled
+// module. Imported + re-exported here so every existing `from './types'` /
+// `from '../types'` import in linkgen/ keeps working unchanged.
+import type {
+  SiteKey,
+  ValidationStatus,
+  LinkGenIssue,
+  AppliedFilters,
+  SampleListing,
+  SiteValidationResult,
+} from '../study-core/marketplaces/types';
+export type {
+  SiteKey,
+  ValidationStatus,
+  LinkGenIssue,
+  AppliedFilters,
+  SampleListing,
+  SiteValidationResult,
+};
 
 export interface LinkGenParams {
   // Multi-site generation
@@ -38,82 +58,11 @@ export interface ScoutHypothesis {
   memoryRecordId?: string;
 }
 
-/** Common output format from all siteValidators */
-export interface AppliedFilters {
-  brand: boolean;
-  model: boolean;
-  year: boolean;
-  mileage: boolean;
-  fuel: boolean;
-  trim: boolean;
-  sort: boolean;
-}
-
-export interface SampleListing {
-  title: string;
-  price: number;
-  year: number | null;
-  mileage: number | null;
-  fuel: string;
-  url: string;
-}
-
-export interface SiteValidationResult {
-  site: SiteKey;
-  url: string;
-  listingCount: number;
-  sampleListings: SampleListing[];
-  appliedFilters: AppliedFilters;
-  score: number;
-  status: ValidationStatus;
-  issues: LinkGenIssue[];
-  evidence: {
-    structuredFieldsAvailable: boolean;
-    fieldsUsed: string[];
-    missingFields: string[];
-  };
-  parserDetails?: {
-    htmlLength: number;
-    parserUsed: string;
-    parsedSampleCount: number;
-    extractionMethod: string;
-  };
-}
-
 /** Legacy single-site result — kept for backward compat */
 export interface LinkGenResult {
   url: string;
   site: SiteKey;
   debugLogs: LinkGenLogEntry[];
-}
-
-/**
- * Scout scoring thresholds:
- * >= 80 → valid
- * 60–79 → partial
- * < 60  → invalid
- */
-export type ValidationStatus = 'not_checked' | 'valid' | 'partial' | 'invalid';
-
-export interface LinkGenIssue {
-  type:
-    | 'brand_missing'
-    | 'model_missing'
-    | 'fuel_mismatch'
-    | 'low_listing_count'
-    | 'fetch_failed'
-    | 'no_zyte_key'
-    | 'parse_error'
-    | 'wrong_domain'
-    | 'fuel_mapping_suspect'
-    | 'model_not_applied'
-    | 'trim_not_applied'
-    | 'year_filter_not_applied'
-    | 'mileage_filter_not_applied'
-    | 'sort_not_applied'
-    | 'no_listings'
-    | 'parser_failed_on_html'
-    | 'trim_removed_for_broader_market';
 }
 
 export interface LinkGenDiagnostics {
