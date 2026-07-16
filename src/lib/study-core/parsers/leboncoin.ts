@@ -10,6 +10,56 @@
 import type { ScrapedListing } from '../types';
 
 /**
+ * Read one attribute from a Leboncoin ad, tolerant of both shapes seen in
+ * __NEXT_DATA__: an array of `{ key, value, value_label }` objects, or a
+ * keyed object. Returns the raw value plus the human label when present.
+ */
+function readAttr(
+  attributes: any,
+  keys: string[]
+): { value: any; label: string | null } | null {
+  if (!attributes) return null;
+
+  if (Array.isArray(attributes)) {
+    for (const k of keys) {
+      const found = attributes.find((a: any) => a && (a.key === k || a.key_label === k));
+      if (found) {
+        return {
+          value: found.value ?? found.value_label ?? null,
+          label: found.value_label ?? (found.value != null ? String(found.value) : null),
+        };
+      }
+    }
+    return null;
+  }
+
+  for (const k of keys) {
+    const v = (attributes as Record<string, any>)[k];
+    if (v != null) {
+      if (typeof v === 'object') {
+        return { value: v.value ?? v.value_label ?? null, label: v.value_label ?? null };
+      }
+      return { value: v, label: String(v) };
+    }
+  }
+  return null;
+}
+
+function attrNumber(attributes: any, keys: string[]): number | null {
+  const a = readAttr(attributes, keys);
+  if (!a || a.value == null) return null;
+  const n = typeof a.value === 'number' ? a.value : parseInt(String(a.value).replace(/[^\d]/g, ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function attrLabel(attributes: any, keys: string[]): string | null {
+  const a = readAttr(attributes, keys);
+  if (!a) return null;
+  const label = a.label ?? (a.value != null ? String(a.value) : null);
+  return label && label.trim() ? label.trim() : null;
+}
+
+/**
  * Parse Leboncoin search results HTML into listings
  *
  * Leboncoin uses __NEXT_DATA__ JSON embedded in the page
@@ -99,13 +149,24 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       // Try multiple attribute paths
       const attributes = ad.attributes || ad.attrs || ad.properties || {};
 
+      // Normalize the array shape [{key,value,value_label}] to a keyed lookup
+      // so the legacy year/mileage accessors below work regardless of shape.
+      // (readAttr below already tolerates both forms for the newer fields.)
+      const attrMap: Record<string, any> = Array.isArray(attributes)
+        ? Object.fromEntries(
+            attributes
+              .filter((a: any) => a && a.key)
+              .map((a: any) => [a.key, a.value ?? a.value_label])
+          )
+        : attributes;
+
       // Year extraction with multiple fallbacks
       let year = null;
       const yearCandidates = [
-        attributes.regdate,
-        attributes.year,
-        attributes.registration_date,
-        attributes.first_registration,
+        attrMap.regdate,
+        attrMap.year,
+        attrMap.registration_date,
+        attrMap.first_registration,
         ad.year,
         ad.regdate,
       ];
@@ -122,9 +183,9 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       // Mileage extraction with multiple fallbacks
       let mileage = null;
       const mileageCandidates = [
-        attributes.mileage,
-        attributes.kilometrage,
-        attributes.km,
+        attrMap.mileage,
+        attrMap.kilometrage,
+        attrMap.km,
         ad.mileage,
         ad.kilometrage,
       ];
@@ -138,6 +199,14 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
         }
       }
 
+      // Secondary structured attributes (enum fields keep the human label)
+      const gearbox = attrLabel(attributes, ['gearbox', 'boite_vitesse', 'transmission']);
+      const powerDin = attrNumber(attributes, ['horse_power_din', 'horsepower_din', 'puissance_din', 'horse_power']);
+      const doors = attrNumber(attributes, ['doors', 'nb_doors', 'number_of_doors']);
+      const seats = attrNumber(attributes, ['seats', 'nb_seats', 'number_of_seats']);
+      const color = attrLabel(attributes, ['vehicle_color', 'color', 'couleur']);
+      const vehicleType = attrLabel(attributes, ['vehicle_type', 'vehicule_type', 'body_type', 'carrosserie']);
+
       listings.push({
         title: ad.subject || ad.title || ad.name || 'Untitled',
         price,
@@ -148,6 +217,12 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
         listing_url: listingUrl,
         description: ad.body || ad.description || ad.text || '',
         price_type: 'one-off',
+        gearbox,
+        powerDin,
+        doors,
+        seats,
+        color,
+        vehicleType,
       });
     }
   } catch (error) {

@@ -34,6 +34,16 @@ export interface SearchCriteria {
   fuel?: string;
   trim?: string;
   minPower?: string | number;
+  // Secondary filters (Ingestion). Enum fields hold the human label the user
+  // declares (e.g. 'Automatique'); the site's opaque URL code is learned via
+  // the discovery scrape, never hardcoded.
+  gearbox?: string;
+  powerFrom?: string | number;
+  powerTo?: string | number;
+  doors?: string | number;
+  seats?: string | number;
+  color?: string;
+  vehicleType?: string;
 }
 
 export interface LinkGenIssue {
@@ -122,7 +132,9 @@ export interface CandidateSegment {
   location: 'path' | 'query' | 'hash';
   /** Query/hash param name, or a '_path:...' pseudo-name for path segments. */
   paramName: string;
-  guessField?: 'brand' | 'model' | 'fuel' | 'trim' | 'year' | 'mileage';
+  guessField?:
+    | 'brand' | 'model' | 'fuel' | 'trim' | 'year' | 'mileage'
+    | 'gearbox' | 'power' | 'doors' | 'seats' | 'color' | 'vehicleType';
   /** For opaque IDs aligned with a slug (Marktplaats), the slug text they sit next to. */
   slugText?: string;
 }

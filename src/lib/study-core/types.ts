@@ -32,6 +32,18 @@ export interface ScrapedListing {
   listing_url: string;
   description: string;
   price_type: 'one-off' | 'per-month' | 'unknown';
+  // Secondary structured attributes — OPTIONAL and additive. The study
+  // pipeline never reads them; they exist so the Ingestion page can confirm
+  // gearbox / power / doors / seats / color / vehicle-type from real listing
+  // data. Populated where a parser can extract them (Leboncoin today), null
+  // otherwise. Enum fields (gearbox/color/vehicleType) hold the human LABEL,
+  // not the site's opaque URL code.
+  gearbox?: string | null;
+  powerDin?: number | null;
+  doors?: number | null;
+  seats?: number | null;
+  color?: string | null;
+  vehicleType?: string | null;
 }
 
 /**

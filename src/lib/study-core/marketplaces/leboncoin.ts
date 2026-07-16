@@ -410,24 +410,57 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   if (q['fuel'] && FUEL_CODE_TO_LABEL[q['fuel']]) out.fuel = FUEL_CODE_TO_LABEL[q['fuel']];
   if (q['text']) out.trim = q['text'];
 
+  // Numeric secondary filters are readable directly (value === human value).
+  // Enum secondary filters (gearbox/color/vehicle_type) carry an opaque code
+  // we don't reverse — the user declares those, the scrape learns the code.
+  const powerFrom = firstNumber(q['horse_power_din']);
+  if (powerFrom != null) out.powerFrom = String(powerFrom);
+  const doors = firstNumber(q['doors'] ?? q['nb_doors']);
+  if (doors != null) out.doors = String(doors);
+  const seats = firstNumber(q['seats'] ?? q['nb_seats']);
+  if (seats != null) out.seats = String(seats);
+
   return out;
+}
+
+// Maps real Leboncoin query-param names to the business field they encode.
+const LEBONCOIN_PARAM_TO_FIELD: Record<string, NonNullable<CandidateSegment['guessField']>> = {
+  u_car_brand: 'brand',
+  u_car_model: 'model',
+  regdate: 'year',
+  mileage: 'mileage',
+  fuel: 'fuel',
+  text: 'trim',
+  gearbox: 'gearbox',
+  horse_power_din: 'power',
+  vehicle_type: 'vehicleType',
+  doors: 'doors',
+  nb_doors: 'doors',
+  seats: 'seats',
+  nb_seats: 'seats',
+  vehicle_color: 'color',
+  couleur: 'color',
+};
+
+function firstNumber(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const m = raw.match(/\d+/);
+  return m ? parseInt(m[0], 10) : null;
 }
 
 function extractCandidateSegments(url: string): CandidateSegment[] {
   const d = decomposeUrl(url);
   if (!d) return [];
-  const q = d.queryParams;
-  const out: CandidateSegment[] = [];
-  const push = (paramName: string, guessField: CandidateSegment['guessField']) => {
-    if (q[paramName]) out.push({ raw: q[paramName], location: 'query', paramName, guessField });
-  };
-  push('u_car_brand', 'brand');
-  push('u_car_model', 'model');
-  push('regdate', 'year');
-  push('mileage', 'mileage');
-  push('fuel', 'fuel');
-  push('text', 'trim');
-  return out;
+  // Drive off the ACTUAL decomposed params so we capture whatever the user's
+  // URL really contains, including secondary filters.
+  return Object.entries(d.queryParams)
+    .filter(([k]) => k in LEBONCOIN_PARAM_TO_FIELD)
+    .map(([k, v]) => ({
+      raw: v,
+      location: 'query' as const,
+      paramName: k,
+      guessField: LEBONCOIN_PARAM_TO_FIELD[k],
+    }));
 }
 
 function inferFuel(title: string, description: string): string {

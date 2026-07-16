@@ -32,7 +32,12 @@ import { normalizeForMatch } from './marketplaces/normalizer';
 export const INGESTION_MIN_SAMPLE = 5;
 export const INGESTION_CONFIRM_THRESHOLD = 0.9;
 
-export type IngestionField = 'brand' | 'model' | 'fuel' | 'year' | 'mileage' | 'trim';
+export type IngestionField =
+  | 'brand' | 'model' | 'fuel' | 'year' | 'mileage' | 'trim'
+  | 'gearbox' | 'power' | 'doors' | 'seats' | 'color' | 'vehicleType';
+
+/** Secondary fields confirmed against structured listing attributes. */
+const SECONDARY_FIELDS: IngestionField[] = ['gearbox', 'power', 'doors', 'seats', 'color', 'vehicleType'];
 
 export interface FieldConfirmation {
   field: IngestionField;
@@ -274,7 +279,116 @@ export function confirmCriteriaAgainstSample(
     }
   }
 
+  // ─── Secondary structured fields ────────────────────────────────────────────
+  // All confirmed against parsed listing attributes (never the title). Where a
+  // parser doesn't extract the attribute, the denominator falls below the min
+  // and the field is rejected as "insufficient structured data" — honest, not
+  // a false negative on the URL.
+
+  // power — DIN horsepower range (structured ScrapedListing.powerDin)
+  const powerFrom = declared(criteria.powerFrom);
+  const powerTo = declared(criteria.powerTo);
+  if (powerFrom || powerTo) {
+    const label = `${powerFrom ?? '?'}-${powerTo ?? 'max'} ch`;
+    const from = powerFrom ? Number(powerFrom) : null;
+    const to = powerTo ? Number(powerTo) : null;
+    out.push(confirmStructured(
+      'power', label, listings,
+      (l) => (l.powerDin ?? null),
+      (v) => (from == null || v >= from) && (to == null || v <= to),
+      n,
+    ));
+  }
+
+  // doors / seats — exact structured integer
+  const doors = declared(criteria.doors);
+  if (doors) {
+    out.push(confirmStructured(
+      'doors', `${doors} portes`, listings,
+      (l) => (l.doors ?? null),
+      (v) => v === Number(doors),
+      n,
+    ));
+  }
+  const seats = declared(criteria.seats);
+  if (seats) {
+    out.push(confirmStructured(
+      'seats', `${seats} places`, listings,
+      (l) => (l.seats ?? null),
+      (v) => v === Number(seats),
+      n,
+    ));
+  }
+
+  // gearbox / color / vehicleType — structured human LABEL match
+  const gearbox = declared(criteria.gearbox);
+  if (gearbox) out.push(confirmStructuredLabel('gearbox', gearbox, listings, (l) => l.gearbox ?? null, n));
+  const color = declared(criteria.color);
+  if (color) out.push(confirmStructuredLabel('color', color, listings, (l) => l.color ?? null, n));
+  const vehicleType = declared(criteria.vehicleType);
+  if (vehicleType) out.push(confirmStructuredLabel('vehicleType', vehicleType, listings, (l) => l.vehicleType ?? null, n));
+
   return out;
+}
+
+/** Confirm a numeric structured field against a predicate. */
+function confirmStructured(
+  field: IngestionField,
+  declaredLabel: string,
+  listings: ScrapedListing[],
+  read: (l: ScrapedListing) => number | null,
+  predicate: (v: number) => boolean,
+  _fullSize: number,
+): FieldConfirmation {
+  const present = listings.filter((l) => read(l) !== null);
+  if (present.length < INGESTION_MIN_SAMPLE) {
+    return {
+      field, declaredValue: declaredLabel, status: 'rejected', matchCount: 0, sampleSize: present.length,
+      method: 'structured', reason: `données structurées insuffisantes (${present.length} annonces avec la donnée < ${INGESTION_MIN_SAMPLE})`,
+    };
+  }
+  const matchCount = present.filter((l) => predicate(read(l) as number)).length;
+  const rate = matchCount / present.length;
+  if (rate >= INGESTION_CONFIRM_THRESHOLD) {
+    return { field, declaredValue: declaredLabel, status: 'confirmed', matchCount, sampleSize: present.length, method: 'structured' };
+  }
+  return {
+    field, declaredValue: declaredLabel, status: 'rejected', matchCount, sampleSize: present.length, method: 'structured',
+    reason: `${matchCount}/${present.length} annonces correspondent (${pct(matchCount, present.length)} < ${INGESTION_CONFIRM_THRESHOLD * 100}%)`,
+  };
+}
+
+/** Confirm an enum structured field by human-label match (bidirectional includes). */
+function confirmStructuredLabel(
+  field: IngestionField,
+  declaredLabel: string,
+  listings: ScrapedListing[],
+  read: (l: ScrapedListing) => string | null,
+  _fullSize: number,
+): FieldConfirmation {
+  const declaredNorm = normalizeForMatch(declaredLabel);
+  const present = listings.filter((l) => {
+    const v = read(l);
+    return v !== null && v !== undefined && v.trim().length > 0;
+  });
+  if (present.length < INGESTION_MIN_SAMPLE) {
+    return {
+      field, declaredValue: declaredLabel, status: 'rejected', matchCount: 0, sampleSize: present.length,
+      method: 'structured', reason: `données structurées insuffisantes (${present.length} annonces avec la donnée < ${INGESTION_MIN_SAMPLE})`,
+    };
+  }
+  const matchCount = present.filter((l) => {
+    const lNorm = normalizeForMatch(read(l) as string);
+    return lNorm.includes(declaredNorm) || declaredNorm.includes(lNorm);
+  }).length;
+  const rate = matchCount / present.length;
+  if (rate >= INGESTION_CONFIRM_THRESHOLD) {
+    return { field, declaredValue: declaredLabel, status: 'confirmed', matchCount, sampleSize: present.length, method: 'structured' };
+  }
+  return {
+    field, declaredValue: declaredLabel, status: 'rejected', matchCount, sampleSize: present.length, method: 'structured',
+    reason: `${matchCount}/${present.length} annonces = "${declaredLabel}" (${pct(matchCount, present.length)} < ${INGESTION_CONFIRM_THRESHOLD * 100}%)`,
+  };
 }
 
 // ─── Mapping construction (confirmed fields only) ─────────────────────────────
@@ -309,6 +423,14 @@ export function buildIngestionMapping(
   attribute('fuel', (p) => { mapping.fuelParam = p; });
   attribute('trim', (p) => { mapping.trimParam = p; });
   attribute('mileage', (p) => { mapping.mileageParam = p; });
+
+  // Secondary fields: recorded in the generic fieldToParam/paramToField maps
+  // (no dedicated *Param property — URL generation from them is a later step).
+  // For enum fields this is where the opaque code↔confirmed-value pairing lands
+  // (e.g. gearbox param 'gearbox' with rawValue '2', confirmed as Automatique).
+  for (const field of SECONDARY_FIELDS) {
+    attribute(field, () => { /* generic maps only */ });
+  }
 
   // year: 'from'/'to' distinction when the site uses two params (Bilbasen,
   // Marktplaats hash); single range param otherwise (Leboncoin regdate).

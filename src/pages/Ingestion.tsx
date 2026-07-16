@@ -26,7 +26,19 @@ const FIELD_LABELS: Record<string, string> = {
   year: 'Année',
   mileage: 'Kilométrage',
   trim: 'Finition',
+  gearbox: 'Boîte de vitesse',
+  power: 'Puissance DIN',
+  doors: 'Portes',
+  seats: 'Places',
+  color: 'Couleur',
+  vehicleType: 'Type de véhicule',
 };
+
+const GEARBOX_OPTIONS = [
+  { value: '', label: '— non filtré —' },
+  { value: 'Manuelle', label: 'Manuelle' },
+  { value: 'Automatique', label: 'Automatique' },
+];
 
 const MEMORY_ACTION_LABELS: Record<string, { text: string; tone: 'ok' | 'warn' | 'muted' }> = {
   inserted: { text: 'Nouveau mapping enregistré en mémoire (human_verified)', tone: 'ok' },
@@ -44,11 +56,20 @@ interface FormState {
   mileage: string;
   fuel: string;
   trim: string;
+  gearbox: string;
+  powerFrom: string;
+  powerTo: string;
+  doors: string;
+  seats: string;
+  color: string;
+  vehicleType: string;
   submittedBy: string;
 }
 
 const EMPTY_FORM: FormState = {
-  brand: '', model: '', yearFrom: '', yearTo: '', mileage: '', fuel: '', trim: '', submittedBy: '',
+  brand: '', model: '', yearFrom: '', yearTo: '', mileage: '', fuel: '', trim: '',
+  gearbox: '', powerFrom: '', powerTo: '', doors: '', seats: '', color: '', vehicleType: '',
+  submittedBy: '',
 };
 
 export function Ingestion() {
@@ -96,6 +117,13 @@ export function Ingestion() {
       mileage: pre.mileage ? String(pre.mileage) : '',
       fuel: pre.fuel ? String(pre.fuel) : '',
       trim: pre.trim ? String(pre.trim) : '',
+      gearbox: pre.gearbox ? String(pre.gearbox) : '',
+      powerFrom: pre.powerFrom ? String(pre.powerFrom) : '',
+      powerTo: pre.powerTo ? String(pre.powerTo) : '',
+      doors: pre.doors ? String(pre.doors) : '',
+      seats: pre.seats ? String(pre.seats) : '',
+      color: pre.color ? String(pre.color) : '',
+      vehicleType: pre.vehicleType ? String(pre.vehicleType) : '',
     };
 
     setAdapter(found);
@@ -103,6 +131,8 @@ export function Ingestion() {
     setPrefilled(Object.entries({
       brand: next.brand, model: next.model, yearFrom: next.yearFrom,
       yearTo: next.yearTo, mileage: next.mileage, fuel: next.fuel, trim: next.trim,
+      gearbox: next.gearbox, power: next.powerFrom, doors: next.doors,
+      seats: next.seats, color: next.color, vehicleType: next.vehicleType,
     }).filter(([, v]) => v).map(([k]) => k));
     setPhase('form');
   };
@@ -122,6 +152,13 @@ export function Ingestion() {
       mileage: form.mileage.trim() || undefined,
       fuel: form.fuel || undefined,
       trim: form.trim.trim() || undefined,
+      gearbox: form.gearbox || undefined,
+      powerFrom: form.powerFrom.trim() || undefined,
+      powerTo: form.powerTo.trim() || undefined,
+      doors: form.doors.trim() || undefined,
+      seats: form.seats.trim() || undefined,
+      color: form.color.trim() || undefined,
+      vehicleType: form.vehicleType.trim() || undefined,
     };
 
     const detectedParams = decomposeUrl(url.trim());
@@ -267,6 +304,43 @@ export function Ingestion() {
             <div>
               <label className="block text-xs text-zinc-400 mb-1">Finition</label>
               <input value={form.trim} onChange={setField('trim')} placeholder="GR Sport"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Boîte de vitesse</label>
+              <select value={form.gearbox} onChange={setField('gearbox')}
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                {GEARBOX_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Puissance DIN min (ch)</label>
+              <input value={form.powerFrom} onChange={setField('powerFrom')} placeholder="160"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Puissance DIN max (ch)</label>
+              <input value={form.powerTo} onChange={setField('powerTo')} placeholder="—"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Nombre de portes</label>
+              <input value={form.doors} onChange={setField('doors')} placeholder="5"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Nombre de places</label>
+              <input value={form.seats} onChange={setField('seats')} placeholder="5"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Couleur</label>
+              <input value={form.color} onChange={setField('color')} placeholder="Noir"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Type de véhicule</label>
+              <input value={form.vehicleType} onChange={setField('vehicleType')} placeholder="Berline"
                 className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
