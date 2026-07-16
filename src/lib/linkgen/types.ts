@@ -173,13 +173,12 @@ export interface CsvLearnerRow {
   url: string;
 }
 
-export interface DetectedParams {
-  rawUrl: string;
-  domain: string;
-  queryParams: Record<string, string>;
-  hashParams: Record<string, string>;
-  pathSegments: string[];
-}
+// DetectedParams now lives in study-core/marketplaces/urlDecompose.ts
+// (shared by the CSV learner and the Ingestion pipeline) — imported +
+// re-exported here so existing imports keep working (import needed because
+// this file also uses the type below).
+import type { DetectedParams } from '../study-core/marketplaces/urlDecompose';
+export type { DetectedParams };
 
 export interface InferredMapping {
   brandParam?: string;

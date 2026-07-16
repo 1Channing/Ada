@@ -4,6 +4,7 @@ import { StudiesV2 } from './pages/StudiesV2';
 import { Administrative } from './pages/Administrative';
 import { AdminHistory } from './pages/AdminHistory';
 import { LinkGenerator } from './pages/LinkGenerator';
+import { Ingestion } from './pages/Ingestion';
 
 const originalPushState = window.history.pushState.bind(window.history);
 window.history.pushState = function(...args) {
@@ -37,6 +38,9 @@ function App() {
     }
     if (path === '/link-generator') {
       return <LinkGenerator />;
+    }
+    if (path === '/ingestion') {
+      return <Ingestion />;
     }
     return <StudiesV2 />;
   };

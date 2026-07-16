@@ -15,6 +15,7 @@ import { parseListings } from '../parsers/leboncoin';
 import { normalizeForMatch } from './normalizer';
 import { applyTemplate, resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
+import { decomposeUrl } from './urlDecompose';
 import type {
   SiteAdapter,
   SearchCriteria,
@@ -24,6 +25,7 @@ import type {
   AppliedFilters,
   LinkGenIssue,
   ZyteProfileOverrides,
+  CandidateSegment,
 } from './types';
 
 const URL_TEMPLATE =
@@ -363,10 +365,83 @@ function getFetchProfile(_attempt: number): ZyteProfileOverrides {
   return {};
 }
 
+// ─── Ingestion support ────────────────────────────────────────────────────────
+
+// Canonical reverse of FUEL_MAP: codes verified live on leboncoin.fr.
+// Not auto-inverted because several declared labels share a code
+// (ESSENCE/GASOLINE/PETROL → '1'); we pick one canonical label per code.
+const FUEL_CODE_TO_LABEL: Record<string, string> = {
+  '1': 'ESSENCE',
+  '2': 'DIESEL',
+  '3': 'GPL',
+  '4': 'ELECTRIQUE',
+  '5': 'PLUG_IN_HYBRID',
+  '6': 'HYBRIDE',
+  '7': 'GNV',
+};
+
+function reverseLookup(map: Record<string, string>, siteValue: string): string {
+  const target = siteValue.trim().toLowerCase();
+  for (const [canonical, mapped] of Object.entries(map)) {
+    if (mapped.toLowerCase() === target) return canonical;
+  }
+  return siteValue.trim();
+}
+
+function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
+  const d = decomposeUrl(url);
+  if (!d) return {};
+  const q = d.queryParams;
+  const out: Partial<SearchCriteria> = {};
+
+  if (q['u_car_brand']) out.brand = reverseLookup(BRAND_MAP, q['u_car_brand']);
+  if (q['u_car_model']) out.model = reverseLookup(MODEL_MAP, q['u_car_model']);
+  if (q['regdate']) {
+    // Format 'YYYY-YYYY' (also tolerate 'YYYY-max' / 'min-YYYY')
+    const [from, to] = q['regdate'].split('-');
+    if (/^\d{4}$/.test(from ?? '')) out.yearFrom = from;
+    if (/^\d{4}$/.test(to ?? '')) out.yearTo = to;
+  }
+  if (q['mileage']) {
+    // Format 'min-80000' — take the trailing number
+    const m = q['mileage'].match(/(\d+)\s*$/);
+    if (m) out.mileage = m[1];
+  }
+  if (q['fuel'] && FUEL_CODE_TO_LABEL[q['fuel']]) out.fuel = FUEL_CODE_TO_LABEL[q['fuel']];
+  if (q['text']) out.trim = q['text'];
+
+  return out;
+}
+
+function extractCandidateSegments(url: string): CandidateSegment[] {
+  const d = decomposeUrl(url);
+  if (!d) return [];
+  const q = d.queryParams;
+  const out: CandidateSegment[] = [];
+  const push = (paramName: string, guessField: CandidateSegment['guessField']) => {
+    if (q[paramName]) out.push({ raw: q[paramName], location: 'query', paramName, guessField });
+  };
+  push('u_car_brand', 'brand');
+  push('u_car_model', 'model');
+  push('regdate', 'year');
+  push('mileage', 'mileage');
+  push('fuel', 'fuel');
+  push('text', 'trim');
+  return out;
+}
+
+function inferFuel(title: string, description: string): string {
+  // Wraps the Scout-internal detector, normalising 'gpl' to the canonical
+  // cross-site token 'lpg' (the Scout keeps its own output untouched).
+  const raw = inferFuelFromTitle(title, description);
+  return raw === 'gpl' ? 'lpg' : raw;
+}
+
 export const leboncoinAdapter: SiteAdapter = {
   key: 'LEBONCOIN',
   displayName: 'Leboncoin',
   country: 'France',
+  countryCode: 'FR',
   domain: 'leboncoin.fr',
   urlTemplate: URL_TEMPLATE,
 
@@ -384,4 +459,8 @@ export const leboncoinAdapter: SiteAdapter = {
   generateCorrectionHypotheses,
 
   getFetchProfile,
+
+  prefillCriteriaFromUrl,
+  extractCandidateSegments,
+  inferFuel,
 };

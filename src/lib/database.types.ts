@@ -76,6 +76,7 @@ export type Database = {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       search_queries: {
         Row: {
@@ -114,6 +115,7 @@ export type Database = {
           commentaire?: string | null
           created_at?: string
         }
+        Relationships: []
       }
       listings: {
         Row: {
@@ -221,6 +223,7 @@ export type Database = {
           raw_data?: Json | null
           created_at?: string
         }
+        Relationships: []
       }
       job_runs: {
         Row: {
@@ -250,6 +253,7 @@ export type Database = {
           message?: string | null
           details?: Json | null
         }
+        Relationships: []
       }
       linkgen_mapping_memory: {
         Row: {
@@ -275,6 +279,9 @@ export type Database = {
           validated_url: string | null
           scout_score: number
           tested_hypotheses: Json | null
+          source: string
+          human_confirmations: number
+          last_confirmed_at: string | null
         }
         Insert: {
           id?: string
@@ -299,6 +306,9 @@ export type Database = {
           validated_url?: string | null
           scout_score?: number
           tested_hypotheses?: Json | null
+          source?: string
+          human_confirmations?: number
+          last_confirmed_at?: string | null
         }
         Update: {
           id?: string
@@ -323,7 +333,62 @@ export type Database = {
           validated_url?: string | null
           scout_score?: number
           tested_hypotheses?: Json | null
+          source?: string
+          human_confirmations?: number
+          last_confirmed_at?: string | null
         }
+        Relationships: []
+      }
+      linkgen_ingestion_events: {
+        Row: {
+          id: string
+          created_at: string
+          submitted_url: string
+          site: string
+          declared_criteria: Json | null
+          detected_params: Json | null
+          sample_size: number
+          scrape_error: string | null
+          retained: Json | null
+          discarded: Json | null
+          conflicts: Json | null
+          memory_record_id: string | null
+          memory_action: string | null
+          submitted_by: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          submitted_url: string
+          site: string
+          declared_criteria?: Json | null
+          detected_params?: Json | null
+          sample_size?: number
+          scrape_error?: string | null
+          retained?: Json | null
+          discarded?: Json | null
+          conflicts?: Json | null
+          memory_record_id?: string | null
+          memory_action?: string | null
+          submitted_by?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          submitted_url?: string
+          site?: string
+          declared_criteria?: Json | null
+          detected_params?: Json | null
+          sample_size?: number
+          scrape_error?: string | null
+          retained?: Json | null
+          discarded?: Json | null
+          conflicts?: Json | null
+          memory_record_id?: string | null
+          memory_action?: string | null
+          submitted_by?: string | null
+        }
+        Relationships: []
       }
     }
     Views: {

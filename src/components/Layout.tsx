@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Link2 } from 'lucide-react';
+import { Link2, Upload } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 
 type LayoutProps = {
@@ -58,6 +58,17 @@ export function Layout({ children }: LayoutProps) {
           >
             <Link2 className="w-4 h-4" />
             Link Generator
+          </button>
+          <button
+            onClick={() => navigateTo('/ingestion')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              isActive('/ingestion')
+                ? 'bg-blue-600 text-white'
+                : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+            }`}
+          >
+            <Upload className="w-4 h-4" />
+            Ingestion
           </button>
         </div>
       </nav>

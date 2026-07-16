@@ -111,6 +111,23 @@ export interface ZyteProfileOverrides {
 }
 
 /**
+ * A raw URL fragment that MIGHT encode a business field — either a readable
+ * named param (Leboncoin `u_car_brand=TOYOTA`) or an opaque taxonomy ID
+ * (Marktplaats path `1232`). `guessField` is only ever a hypothesis; the
+ * discovery scrape decides whether it gets retained.
+ */
+export interface CandidateSegment {
+  /** The raw value as it appears in the URL (e.g. 'TOYOTA', '1232'). */
+  raw: string;
+  location: 'path' | 'query' | 'hash';
+  /** Query/hash param name, or a '_path:...' pseudo-name for path segments. */
+  paramName: string;
+  guessField?: 'brand' | 'model' | 'fuel' | 'trim' | 'year' | 'mileage';
+  /** For opaque IDs aligned with a slug (Marktplaats), the slug text they sit next to. */
+  slugText?: string;
+}
+
+/**
  * One implementation per marketplace. Methods are pure (no I/O) — fetching
  * HTML is the caller's job, adapters only decide URLs, taxonomy, scoring and
  * correction strategy for their site.
@@ -126,6 +143,8 @@ export interface SiteAdapter {
   readonly key: SiteKey;
   readonly displayName: string;
   readonly country: string;
+  /** ISO-3166 alpha-2, matches the country codes stored in linkgen_mapping_memory / studies_v2. */
+  readonly countryCode: string;
   readonly domain: string;
   /** The site's default search URL template, exposed for memory-based URL reconstruction. */
   readonly urlTemplate: string;
@@ -158,6 +177,29 @@ export interface SiteAdapter {
   getFetchProfile(attempt: number): ZyteProfileOverrides;
   /** Optional per-site override of the shared keyword-based block detector. */
   detectBlocked?(html: string, hasListings: boolean): boolean;
+
+  // ─── Ingestion (URL learning from human-pasted searches) ──────────────────
+
+  /**
+   * Best-effort prefill of the ingestion form from a pasted URL.
+   * Sites with readable params (Leboncoin, Bilbasen) fill most fields;
+   * opaque-ID sites (Marktplaats) return only what is readable (hash
+   * year/mileage filters) and leave taxonomy fields to the user.
+   */
+  prefillCriteriaFromUrl?(url: string): Partial<SearchCriteria>;
+
+  /**
+   * Decompose a pasted URL into candidate field↔segment hypotheses.
+   * Never a certainty — the discovery scrape confirms or discards each one.
+   */
+  extractCandidateSegments?(url: string): CandidateSegment[];
+
+  /**
+   * Language-aware fuel detection from listing text (titles are in the
+   * site's local language). Returns a canonical token
+   * ('petrol'|'diesel'|'hybrid'|'electric'|'lpg') or '' when undetectable.
+   */
+  inferFuel?(title: string, description: string): string;
 }
 
 export interface SiteRegistry {

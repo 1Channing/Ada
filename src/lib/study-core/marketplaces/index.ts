@@ -30,6 +30,7 @@ export function findSiteAdapterByDomain(hostname: string) {
 }
 
 export { siteRegistry, defaultBuildPaginatedUrl, defaultDetectBlocked } from './registry';
+export { decomposeUrl, type DetectedParams } from './urlDecompose';
 export type {
   SiteAdapter,
   SiteKey,
@@ -42,4 +43,5 @@ export type {
   AppliedFilters,
   SampleListing,
   SiteValidationResult,
+  CandidateSegment,
 } from './types';

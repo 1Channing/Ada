@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
-import { executeStudy } from './scraper';
+import { executeStudy, scrapeSearch } from './scraper';
+import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -43,6 +44,58 @@ app.get('/health', (req, res) => {
     },
     selfCheck,
   });
+});
+
+/**
+ * Discovery scrape for the Ingestion page: fetch + parse ONE human-pasted
+ * search URL and return the raw listing sample. No business logic, no DB
+ * writes — confirmation and retention happen client-side on pure study-core
+ * functions. Reuses scrapeSearch (same Zyte retries/profiles as studies).
+ */
+app.post('/ingest-url', async (req, res) => {
+  const authHeaderRaw = req.headers.authorization || req.headers['x-worker-secret'] || '';
+  const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
+  const providedSecret = authHeader.replace('Bearer ', '');
+
+  if (!WORKER_SECRET) {
+    console.warn('[INGEST] ⚠️ WORKER_SECRET not configured - running without auth');
+  } else if (providedSecret !== WORKER_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid or missing WORKER_SECRET' });
+  }
+
+  const { url } = req.body ?? {};
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'Missing required parameter: url' });
+  }
+
+  const adapter = findSiteAdapterByDomain(url);
+  if (!adapter) {
+    return res.status(400).json({ error: 'unsupported_site', message: `No site adapter for URL domain: ${url.slice(0, 120)}` });
+  }
+
+  console.log(`[INGEST] Discovery scrape site=${adapter.key} url=${url.slice(0, 150)}`);
+
+  try {
+    // 'full' mode → up to 3 retries with per-site profile escalation; a
+    // sample we memorise as certain deserves the robust path, not 'fast'.
+    const result = await scrapeSearch(url, 'full');
+
+    res.json({
+      site: adapter.key,
+      country: adapter.country,
+      // Page-1 sample capped at 30 listings; descriptions capped to keep the
+      // payload light (enough for text-based fuel/trim confirmation).
+      listings: result.listings.slice(0, 30).map((l) => ({
+        ...l,
+        description: (l.description || '').slice(0, 500),
+      })),
+      error: result.error ?? null,
+      errorReason: result.errorReason ?? null,
+    });
+  } catch (error: any) {
+    console.error('[INGEST] Discovery scrape failed:', error);
+    res.status(500).json({ error: 'INGEST_FAILED', message: error?.message ?? String(error) });
+  }
 });
 
 app.post('/execute-studies', async (req, res) => {

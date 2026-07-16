@@ -147,9 +147,11 @@ async function scrapeDetailPage(listingUrl: string): Promise<DetailPageData | nu
 }
 
 /**
- * Scrape a marketplace URL and parse listings
+ * Scrape a marketplace URL and parse listings.
+ * Exported for the /ingest-url endpoint (discovery scrape) — same fetch,
+ * retries, profile escalation and parsing as study execution.
  */
-async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed'): Promise<{
+export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed'): Promise<{
   listings: ScrapedListing[];
   error?: string;
   errorReason?: string;

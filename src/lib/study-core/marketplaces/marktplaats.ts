@@ -16,6 +16,7 @@ import { parseListings } from '../parsers/marktplaats';
 import { normalizeForMatch } from './normalizer';
 import { applyTemplate, resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
+import { decomposeUrl } from './urlDecompose';
 import type {
   SiteAdapter,
   SearchCriteria,
@@ -25,6 +26,7 @@ import type {
   AppliedFilters,
   LinkGenIssue,
   ZyteProfileOverrides,
+  CandidateSegment,
 } from './types';
 
 const URL_TEMPLATE =
@@ -347,6 +349,71 @@ function scoreSearchResults(
   };
 }
 
+// ─── Ingestion support ────────────────────────────────────────────────────────
+
+/**
+ * Marktplaats taxonomy fields are opaque internal IDs — the user fills the
+ * form. Only hash-fragment numeric filters are readable and prefilled.
+ */
+function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
+  const d = decomposeUrl(url);
+  if (!d) return {};
+  const h = d.hashParams;
+  const out: Partial<SearchCriteria> = {};
+  if (h['constructionYearFrom'] && /^\d{4}$/.test(h['constructionYearFrom'])) out.yearFrom = h['constructionYearFrom'];
+  if (h['constructionYearTo'] && /^\d{4}$/.test(h['constructionYearTo'])) out.yearTo = h['constructionYearTo'];
+  if (h['mileageTo'] && /^\d+$/.test(h['mileageTo'])) out.mileage = h['mileageTo'];
+  return out;
+}
+
+/**
+ * Path grammar observed on live marktplaats.nl category searches:
+ *   /{brandSlug}/f/{slugToken[+slugToken...]}/{id[+id...]}/
+ * The IDs after the slug segment align positionally with the slug tokens
+ * (first token = model, following tokens = facets such as a fuel GROUP).
+ * All of this is hypothesis only — the discovery scrape decides.
+ */
+function extractCandidateSegments(url: string): CandidateSegment[] {
+  const d = decomposeUrl(url);
+  if (!d) return [];
+  const out: CandidateSegment[] = [];
+
+  const segs = d.pathSegments;
+  const fIdx = segs.indexOf('f');
+  if (fIdx > 0 && segs.length > fIdx + 1) {
+    const brandSlug = segs[fIdx - 1];
+    if (brandSlug && brandSlug !== 'l' && brandSlug !== 'auto-s') {
+      out.push({ raw: brandSlug, location: 'path', paramName: '_path:brand_slug', guessField: 'brand' });
+    }
+
+    const slugTokens = segs[fIdx + 1].split('+').filter(Boolean);
+    const idTokens = (segs[fIdx + 2] ?? '').split('+').filter((t) => /^\d+$/.test(t));
+
+    slugTokens.forEach((tok, i) => {
+      out.push({
+        raw: idTokens[i] ?? tok,
+        location: 'path',
+        paramName: i === 0 ? '_path:model_id' : `_path:facet_id_${i}`,
+        guessField: i === 0 ? 'model' : 'fuel',
+        slugText: tok,
+      });
+    });
+  }
+
+  // Hash-based URLs (#q:...) — readable, same treatment as named params
+  const h = d.hashParams;
+  if (h['q']) out.push({ raw: h['q'], location: 'hash', paramName: 'q' });
+  if (h['constructionYearFrom']) out.push({ raw: h['constructionYearFrom'], location: 'hash', paramName: 'constructionYearFrom', guessField: 'year' });
+  if (h['constructionYearTo']) out.push({ raw: h['constructionYearTo'], location: 'hash', paramName: 'constructionYearTo', guessField: 'year' });
+  if (h['mileageTo']) out.push({ raw: h['mileageTo'], location: 'hash', paramName: 'mileageTo', guessField: 'mileage' });
+
+  return out;
+}
+
+function inferFuel(title: string, description: string): string {
+  return inferFuelFromTitle(title, description);
+}
+
 function getFetchProfile(attempt: number): ZyteProfileOverrides {
   // Ported from study-core/scraping.ts:getZyteRequestProfile — Marktplaats was
   // the only site with escalation; attempt maps 1:1 to the old profileLevel.
@@ -367,6 +434,7 @@ export const marktplaatsAdapter: SiteAdapter = {
   key: 'MARKTPLAATS',
   displayName: 'Marktplaats',
   country: 'Netherlands',
+  countryCode: 'NL',
   domain: 'marktplaats.nl',
   urlTemplate: URL_TEMPLATE,
 
@@ -384,4 +452,8 @@ export const marktplaatsAdapter: SiteAdapter = {
   generateCorrectionHypotheses,
 
   getFetchProfile,
+
+  prefillCriteriaFromUrl,
+  extractCandidateSegments,
+  inferFuel,
 };

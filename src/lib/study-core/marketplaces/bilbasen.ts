@@ -17,6 +17,7 @@ import { parseListings } from '../parsers/bilbasen';
 import { normalizeForMatch } from './normalizer';
 import { applyTemplate, resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
+import { decomposeUrl } from './urlDecompose';
 import type {
   SiteAdapter,
   SearchCriteria,
@@ -26,6 +27,7 @@ import type {
   AppliedFilters,
   LinkGenIssue,
   ZyteProfileOverrides,
+  CandidateSegment,
 } from './types';
 
 const URL_TEMPLATE =
@@ -327,10 +329,81 @@ function getFetchProfile(_attempt: number): ZyteProfileOverrides {
   return {};
 }
 
+// ─── Ingestion support ────────────────────────────────────────────────────────
+
+const FUEL_SITE_TO_LABEL: Record<string, string> = {
+  'benzin': 'ESSENCE',
+  'diesel': 'DIESEL',
+  'el': 'ELECTRIQUE',
+  'hybrid': 'HYBRIDE',
+  'plugin-hybrid': 'PLUG_IN_HYBRID',
+};
+
+function reverseLookup(map: Record<string, string>, siteValue: string): string {
+  const target = siteValue.trim().toLowerCase();
+  for (const [canonical, mapped] of Object.entries(map)) {
+    if (mapped.toLowerCase() === target) return canonical;
+  }
+  return siteValue.trim();
+}
+
+function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
+  const d = decomposeUrl(url);
+  if (!d) return {};
+  const q = d.queryParams;
+  const out: Partial<SearchCriteria> = {};
+
+  if (q['make']) out.brand = reverseLookup(BRAND_MAP, q['make']);
+  if (q['model']) out.model = reverseLookup(MODEL_MAP, q['model']);
+  if (q['yearfrom'] && /^\d{4}$/.test(q['yearfrom'])) out.yearFrom = q['yearfrom'];
+  if (q['yearto'] && /^\d{4}$/.test(q['yearto'])) out.yearTo = q['yearto'];
+  if (q['mileageto'] && /^\d+$/.test(q['mileageto'])) out.mileage = q['mileageto'];
+  if (q['fuel'] && FUEL_SITE_TO_LABEL[q['fuel'].toLowerCase()]) out.fuel = FUEL_SITE_TO_LABEL[q['fuel'].toLowerCase()];
+  if (q['free']) out.trim = q['free'];
+
+  return out;
+}
+
+function extractCandidateSegments(url: string): CandidateSegment[] {
+  const d = decomposeUrl(url);
+  if (!d) return [];
+  const q = d.queryParams;
+  const out: CandidateSegment[] = [];
+  const push = (paramName: string, guessField: CandidateSegment['guessField']) => {
+    if (q[paramName]) out.push({ raw: q[paramName], location: 'query', paramName, guessField });
+  };
+  push('make', 'brand');
+  push('model', 'model');
+  push('yearfrom', 'year');
+  push('yearto', 'year');
+  push('mileageto', 'mileage');
+  push('fuel', 'fuel');
+  push('free', 'trim');
+  return out;
+}
+
+/**
+ * Danish fuel detection with word boundaries. Deliberately NOT reusing the
+ * Scout-internal inferFuelFromTitle: its `text.includes('el')` matches 'el'
+ * inside any word ('model', 'gele'…), which is tolerable for a Scout score
+ * but not for a 100%-certainty ingestion decision.
+ */
+function inferFuel(title: string, description: string): string {
+  const text = ` ${(title + ' ' + description).toLowerCase()} `;
+  if (/\bdiesel\b/.test(text)) return 'diesel';
+  if (/\bplug-?in\b|\bplugin-?hybrid\b|\bphev\b/.test(text)) return 'hybrid';
+  if (/\bhybrid\b/.test(text)) return 'hybrid';
+  if (/\bel\b|\belbil\b|\belektrisk\b|\belectric\b/.test(text)) return 'electric';
+  if (/\bbenzin\b|\bpetrol\b/.test(text)) return 'petrol';
+  if (/\blpg\b|\bautogas\b/.test(text)) return 'lpg';
+  return '';
+}
+
 export const bilbasenAdapter: SiteAdapter = {
   key: 'BILBASEN',
   displayName: 'Bilbasen',
   country: 'Denmark',
+  countryCode: 'DK',
   domain: 'bilbasen.dk',
   urlTemplate: URL_TEMPLATE,
 
@@ -348,4 +421,8 @@ export const bilbasenAdapter: SiteAdapter = {
   generateCorrectionHypotheses,
 
   getFetchProfile,
+
+  prefillCriteriaFromUrl,
+  extractCandidateSegments,
+  inferFuel,
 };
