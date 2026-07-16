@@ -168,7 +168,26 @@ export function Ingestion() {
         body: { url: url.trim() },
       });
 
-      if (error) throw new Error(error.message ?? 'Edge Function error');
+      if (error) {
+        // supabase-js reports a useless generic message on non-2xx; the real
+        // cause (WORKER_URL missing, worker 404/401, worker_unreachable…) is
+        // in the relayed response body. Surface it.
+        let detail = error.message ?? 'Edge Function error';
+        const ctx = (error as { context?: unknown }).context;
+        if (ctx instanceof Response) {
+          const status = ctx.status;
+          try {
+            const body = await ctx.clone().json();
+            detail = `[${status}] ${body?.message || body?.error || JSON.stringify(body)}`;
+          } catch {
+            try {
+              const text = await ctx.clone().text();
+              if (text) detail = `[${status}] ${text}`;
+            } catch { detail = `[${status}] ${detail}`; }
+          }
+        }
+        throw new Error(detail);
+      }
 
       const listings: ScrapedListing[] = data?.listings ?? [];
       const remoteError: string | null = data?.error ?? null;
