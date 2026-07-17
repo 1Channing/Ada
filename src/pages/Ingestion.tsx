@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Upload, CheckCircle2, XCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { findSiteAdapterByDomain, decomposeUrl } from '../lib/study-core/marketplaces';
@@ -7,6 +7,7 @@ import { analyzeIngestion, INGESTION_MIN_SAMPLE, INGESTION_CONFIRM_THRESHOLD } f
 import type { IngestionAnalysis } from '../lib/study-core/ingestion';
 import { persistIngestionResult, loadLearnedEnums } from '../lib/linkgen/ingestion';
 import type { PersistIngestionOutcome } from '../lib/linkgen/ingestion';
+import { loadContributorNames } from '../services/ingestionHistory';
 import type { ScrapedListing } from '../lib/study-core/types';
 
 const FUEL_OPTIONS = [
@@ -79,6 +80,11 @@ export function Ingestion() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [prefilled, setPrefilled] = useState<string[]>([]);
   const [learned, setLearned] = useState<string[]>([]);
+  const [knownNames, setKnownNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    loadContributorNames().then(setKnownNames).catch(() => {});
+  }, []);
   const [phase, setPhase] = useState<'idle' | 'form' | 'scraping' | 'done'>('idle');
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [sample, setSample] = useState<ScrapedListing[]>([]);
@@ -387,8 +393,15 @@ export function Ingestion() {
             </div>
             <div>
               <label className="block text-xs text-zinc-400 mb-1">Votre nom (audit, optionnel)</label>
-              <input value={form.submittedBy} onChange={setField('submittedBy')}
+              <input
+                value={form.submittedBy}
+                onChange={setField('submittedBy')}
+                list="known-contributors"
+                placeholder="Choisir ou saisir…"
                 className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+              <datalist id="known-contributors">
+                {knownNames.map((n) => <option key={n} value={n} />)}
+              </datalist>
             </div>
           </div>
           <button

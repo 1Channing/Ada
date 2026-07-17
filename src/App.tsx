@@ -5,6 +5,7 @@ import { Administrative } from './pages/Administrative';
 import { AdminHistory } from './pages/AdminHistory';
 import { LinkGenerator } from './pages/LinkGenerator';
 import { Ingestion } from './pages/Ingestion';
+import { IngestionHistory } from './pages/IngestionHistory';
 
 const originalPushState = window.history.pushState.bind(window.history);
 window.history.pushState = function(...args) {
@@ -41,6 +42,9 @@ function App() {
     }
     if (path === '/ingestion') {
       return <Ingestion />;
+    }
+    if (path === '/ingestion/history') {
+      return <IngestionHistory />;
     }
     return <StudiesV2 />;
   };
