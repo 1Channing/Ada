@@ -58,6 +58,11 @@ interface DraftState {
   minPower: string;
   fuel: string;
   trim: string;
+  gearbox: string;
+  doors: string;
+  seats: string;
+  color: string;
+  vehicleType: string;
   useMemory: boolean;
   results: LinkGenUrlResult[];
   history: Array<{ results: LinkGenUrlResult[]; params: LinkGenParams; timestamp: string; corrections: LinkGenCorrectionRecord[] }>;
@@ -708,6 +713,11 @@ export function LinkGenerator() {
   const [fuel, setFuel] = useState(draft.fuel ?? '');
   const [trim, setTrim] = useState(draft.trim ?? '');
   const [minPower, setMinPower] = useState(draft.minPower ?? '');
+  const [gearbox, setGearbox] = useState(draft.gearbox ?? '');
+  const [doors, setDoors] = useState(draft.doors ?? '');
+  const [seats, setSeats] = useState(draft.seats ?? '');
+  const [color, setColor] = useState(draft.color ?? '');
+  const [vehicleType, setVehicleType] = useState(draft.vehicleType ?? '');
   const [useMemory, setUseMemory] = useState(draft.useMemory ?? false);
   const [generating, setGenerating] = useState(false);
 
@@ -749,6 +759,11 @@ export function LinkGenerator() {
         minPower,
         fuel,
         trim,
+        gearbox,
+        doors,
+        seats,
+        color,
+        vehicleType,
         useMemory,
         results,
         history: history.map((h) => ({ ...h, timestamp: h.timestamp.toISOString() })),
@@ -763,7 +778,7 @@ export function LinkGenerator() {
           : null,
       });
     }, 500);
-  }, [selectedSites, brand, model, yearFrom, yearTo, mileage, minPower, fuel, trim, useMemory, results, history, csvDiagnostics, csvBatchResult]);
+  }, [selectedSites, brand, model, yearFrom, yearTo, mileage, minPower, fuel, trim, gearbox, doors, seats, color, vehicleType, useMemory, results, history, csvDiagnostics, csvBatchResult]);
 
   useEffect(() => {
     persistDraft();
@@ -795,6 +810,11 @@ export function LinkGenerator() {
     fuel: fuel || undefined,
     trim: trim.trim() || undefined,
     minPower: minPower.trim() || undefined,
+    gearbox: gearbox || undefined,
+    doors: doors.trim() || undefined,
+    seats: seats.trim() || undefined,
+    color: color.trim() || undefined,
+    vehicleType: vehicleType.trim() || undefined,
   });
 
   const handleGenerate = async () => {
@@ -881,6 +901,11 @@ export function LinkGenerator() {
     setFuel('');
     setTrim('');
     setMinPower('');
+    setGearbox('');
+    setDoors('');
+    setSeats('');
+    setColor('');
+    setVehicleType('');
     setUseMemory(false);
     setResults([]);
     setHistory([]);
@@ -1040,7 +1065,7 @@ export function LinkGenerator() {
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
             />
             {minPower && (
-              <p className="mt-1 text-xs text-amber-500">minPower will be ignored — site mapping pending.</p>
+              <p className="mt-1 text-xs text-zinc-500">Appliqué sur les sites qui le supportent (AutoScout) ; ignoré ailleurs.</p>
             )}
           </div>
         </div>
@@ -1071,6 +1096,49 @@ export function LinkGenerator() {
             />
           </div>
         </div>
+
+        {/* Secondary criteria — parity with the Ingestion form. */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Boîte</label>
+            <select
+              value={gearbox}
+              onChange={(e) => setGearbox(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
+            >
+              <option value="">— Optional —</option>
+              <option value="Manuelle">Manuelle</option>
+              <option value="Automatique">Automatique</option>
+              <option value="Semi-automatique">Semi-automatique</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Portes</label>
+            <input type="number" value={doors} onChange={(e) => setDoors(e.target.value)} placeholder="ex: 5" min="0"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Places</label>
+            <input type="number" value={seats} onChange={(e) => setSeats(e.target.value)} placeholder="ex: 5" min="0"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Couleur</label>
+            <input type="text" value={color} onChange={(e) => setColor(e.target.value)} placeholder="ex: Gris"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Type</label>
+            <input type="text" value={vehicleType} onChange={(e) => setVehicleType(e.target.value)} placeholder="ex: Berline"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors" />
+          </div>
+        </div>
+
+        {/* Sort is always price-ascending on every generated URL. */}
+        <p className="text-xs text-zinc-500 flex items-center gap-1.5">
+          <span className="text-emerald-400">↑</span>
+          Tri : <span className="text-zinc-300">prix croissant</span> — appliqué automatiquement à toutes les URLs générées.
+        </p>
 
         {/* Memory toggle */}
         <div className="flex items-center justify-between py-2 px-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">

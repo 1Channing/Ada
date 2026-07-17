@@ -119,6 +119,9 @@ export function canonicalizeFuel(raw: string): FuelToken {
   if (PHEV_TOKENS.test(t)) return 'phev';
   if (MILD_HYBRID_TOKENS.test(t)) return 'mild_hybrid';
   if (/hybrid|hybride|\bhev\b|volledig hybride/.test(t)) return 'hybrid';
+  // Electric + combustion listed together (AutoScout "Elektro/Benzin",
+  // "Électrique/Essence") is a hybrid, not a pure EV. Test before 'electric'.
+  if (/electr|elektr/.test(t) && /essence|benzine|benzin|petrol|gasoline|diesel/.test(t)) return 'hybrid';
   if (/hydrogen|hydrogene|waterstof|\bh2\b/.test(t)) return 'hydrogen';
   if (/\bcng\b|\bgnv\b|gaz naturel|aardgas/.test(t)) return 'cng';
   if (/\bgpl\b|\blpg\b|autogas/.test(t)) return 'lpg';

@@ -38,6 +38,14 @@ export interface LinkGenParams {
   fuel?: string;
   trim?: string;
   minPower?: string | number;
+  // Secondary criteria — parity with the Ingestion form. Consumed by adapters
+  // that support them (AutoScout uses gearbox + power); passed through and
+  // ignored by others until learned-mapping URL reconstruction lands (BACKLOG 2bis).
+  gearbox?: string;
+  doors?: string | number;
+  seats?: string | number;
+  color?: string;
+  vehicleType?: string;
   country?: string;
 }
 

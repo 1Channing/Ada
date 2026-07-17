@@ -512,6 +512,10 @@ export function Ingestion() {
               </datalist>
             </div>
           </div>
+          <p className="text-xs text-zinc-500 flex items-center gap-1.5">
+            <span className="text-emerald-400">↑</span>
+            Tri : <span className="text-zinc-300">prix croissant</span> — l'échantillon est toujours pris sur les moins chères (page 1).
+          </p>
           <button
             onClick={handleVerify}
             disabled={!canVerify || phase === 'scraping'}

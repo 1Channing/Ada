@@ -54,6 +54,20 @@ function extractHp(raw: unknown): number | null {
   return toInt(raw);
 }
 
+// AutoScout24 sometimes exposes the fuel as its URL code (B/D/E/2/3/L/C) in the
+// listing JSON rather than a word. Translate to a human label so downstream
+// canonicalisation reads it right (code "2" = petrol-hybrid, not "unknown").
+const AS24_FUEL_LABEL: Record<string, string> = {
+  B: 'Essence', D: 'Diesel', E: 'Électrique',
+  '2': 'Hybride essence/électrique', '3': 'Hybride diesel/électrique',
+  L: 'GPL', C: 'GNV',
+};
+function normFuel(raw: unknown): string | null {
+  const s = str(raw);
+  if (!s) return null;
+  return AS24_FUEL_LABEL[s.trim().toUpperCase()] ?? s;
+}
+
 function detailRows(listing: any): any[] {
   const d = listing?.vehicleDetails ?? listing?.details ?? [];
   return Array.isArray(d) ? d : [];
@@ -132,7 +146,7 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
     const year = yearFrom(
       tr?.firstRegistration ?? ve?.firstRegistrationDate ?? detailByIcon(rows, ['calendar', 'registration']) ?? ad?.firstRegistrationDate,
     );
-    const fuel = str(ve?.fuelCategory) ?? str(ve?.fuelType) ?? str(tr?.fuelType) ?? detailByIcon(rows, ['gas', 'fuel', 'petrol']);
+    const fuel = normFuel(ve?.fuelCategory ?? ve?.fuelType ?? tr?.fuelType ?? detailByIcon(rows, ['gas', 'fuel', 'petrol']));
     const gearbox = str(ve?.transmissionType) ?? str(tr?.gearBox) ?? detailByIcon(rows, ['transmission', 'gear']);
     const powerDin = extractHp(tr?.powerHp ?? tr?.rawPowerInKw ?? detailByIcon(rows, ['engine', 'speed', 'power']));
     const bodyType = str(ve?.bodyType) ?? str(tr?.bodyType);
