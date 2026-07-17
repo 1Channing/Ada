@@ -1,25 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, Cell, ComposedChart,
+  Line, LineChart, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
+  CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ComposedChart,
 } from 'recharts';
-import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, AlertTriangle, RotateCcw, ExternalLink } from 'lucide-react';
+import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, AlertTriangle, RotateCcw, ExternalLink, Plus, X } from 'lucide-react';
 import {
   loadMarketData, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, isCoarseOnly, fuelLabel,
 } from '../services/marketData';
-import type { MarketData, MarketFilters, Observation, VelocityStat } from '../services/marketData';
+import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
 
 const SERIES = ['#3987e5', '#008300', '#d55181', '#c98500', '#199e70', '#d95926', '#9085e9', '#e66767'];
 const BLUE = SERIES[0];
 const GRID = '#27272a';
 const AXIS = '#a1a1aa';
+// Distinct, well-separated hues for the (up to 3) compared studies.
+const STUDY_COLORS = ['#3987e5', '#d95926', '#199e70'];
 const COUNTRY_COLOR: Record<string, string> = { FR: '#3987e5', NL: '#d95926', DK: '#199e70' };
 const COUNTRY_FLAG: Record<string, string> = { FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰' };
 const FUEL_TOKENS: FuelToken[] = ['petrol', 'diesel', 'hybrid', 'mild_hybrid', 'phev', 'electric', 'hydrogen', 'cng', 'lpg'];
 
-const FILTERS_KEY = 'ada_market_filters';
+const STUDIES_KEY = 'ada_market_studies';
+const LEGACY_FILTERS_KEY = 'ada_market_filters';
+const MAX_STUDIES = 3;
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
@@ -29,81 +33,105 @@ function fmtEur(n: number | null | undefined): string {
 }
 const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12, color: '#e4e4e7' };
 
+function studyLabel(f: MarketFilters, i: number): string {
+  const parts = [
+    f.country ? `${COUNTRY_FLAG[f.country] ?? ''} ${f.country}`.trim() : '',
+    f.brand || '',
+    f.model || '',
+    f.trim || '',
+    f.fuel ? fuelLabel(f.fuel) : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : `Étude ${i + 1}`;
+}
+
+/** Site's reported total depth for a study's coarse segment (latest snapshot). */
+function computeRealDepth(snapshots: Snapshot[], f: MarketFilters): number | null {
+  if (!f.brand || !f.model) return null;
+  const matching = snapshots.filter((s) =>
+    (!f.site || s.site === f.site) && (!f.country || s.country === f.country) &&
+    s.brand === f.brand && s.model === f.model && s.listing_count != null);
+  if (matching.length === 0) return null;
+  return matching.sort((a, b) => b.scraped_at.localeCompare(a.scraped_at))[0].listing_count;
+}
+
+function loadStudies(): MarketFilters[] {
+  try {
+    const raw = sessionStorage.getItem(STUDIES_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length > 0) return arr.slice(0, MAX_STUDIES);
+    }
+    // Migrate the pre-comparison single-filter key.
+    const legacy = sessionStorage.getItem(LEGACY_FILTERS_KEY);
+    if (legacy) return [JSON.parse(legacy)];
+  } catch { /* ignore */ }
+  return [{}];
+}
+
 export function MarketIntelligence() {
   const [data, setData] = useState<MarketData>({ snapshots: [], observations: [] });
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState<MarketFilters>(() => {
-    try { return JSON.parse(sessionStorage.getItem(FILTERS_KEY) || '{}'); } catch { return {}; }
-  });
+  const [studies, setStudies] = useState<MarketFilters[]>(loadStudies);
+  const [activeIdx, setActiveIdx] = useState(0);
   const [priceBand, setPriceBand] = useState<{ from: number; to: number } | null>(null);
 
   const refresh = async () => { setLoading(true); setData(await loadMarketData()); setLoading(false); };
   useEffect(() => { refresh(); }, []);
-  useEffect(() => { try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch { /* ignore */ } }, [filters]);
+  useEffect(() => { try { sessionStorage.setItem(STUDIES_KEY, JSON.stringify(studies)); } catch { /* ignore */ } }, [studies]);
 
-  const set = (patch: Partial<MarketFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPriceBand(null); };
-  const reset = () => { setFilters({}); setPriceBand(null); };
+  const comparing = studies.length > 1;
+  const active = studies[Math.min(activeIdx, studies.length - 1)] ?? {};
 
-  const obs = data.observations;
-  const filtered = useMemo(() => filterObservations(obs, filters), [obs, filters]);
-
-  // Cascading option lists (each respects the other active filters).
-  const opts = {
-    site: useMemo(() => distinctValues(obs, 'site', filters), [obs, filters]),
-    country: useMemo(() => distinctValues(obs, 'country', filters), [obs, filters]),
-    brand: useMemo(() => distinctValues(obs, 'brand', filters), [obs, filters]),
-    model: useMemo(() => distinctValues(obs, 'model', filters), [obs, filters]),
-    trim: useMemo(() => distinctValues(obs, 'trim', filters), [obs, filters]),
-    fuel: useMemo(() => distinctValues(obs, 'fuel', filters), [obs, filters]),
+  const setActive = (patch: Partial<MarketFilters>) => {
+    setStudies((arr) => arr.map((f, i) => (i === activeIdx ? { ...f, ...patch } : f)));
+    setPriceBand(null);
+  };
+  const resetActive = () => { setStudies((arr) => arr.map((f, i) => (i === activeIdx ? {} : f))); setPriceBand(null); };
+  const addStudy = () => {
+    if (studies.length >= MAX_STUDIES) return;
+    setStudies((arr) => [...arr, { ...arr[activeIdx] }]); // clone current as a starting point
+    setActiveIdx(studies.length);
+    setPriceBand(null);
+  };
+  const removeStudy = (i: number) => {
+    if (studies.length <= 1) return;
+    setStudies((arr) => arr.filter((_, k) => k !== i));
+    setActiveIdx((cur) => (cur >= i && cur > 0 ? cur - 1 : cur));
+    setPriceBand(null);
   };
 
-  const stats = useMemo(() => priceStats(filtered), [filtered]);
-  const series = useMemo(() => timeSeries(filtered).map((r) => ({
-    date: fmtDate(r.date), median: r.median, band: [r.p25, r.p75] as [number, number], count: r.count,
-  })), [filtered]);
+  const obs = data.observations;
 
-  // Latest snapshot observations (for the price distribution + listings table).
-  const latestObs = useMemo(() => {
-    if (filtered.length === 0) return [];
-    const latestTs = Math.max(...filtered.map((o) => new Date(o.scraped_at).getTime()));
-    return filtered.filter((o) => Math.abs(new Date(o.scraped_at).getTime() - latestTs) < 60_000);
-  }, [filtered]);
-  const histogram = useMemo(() => priceHistogramFrom(latestObs, 12), [latestObs]);
+  // Cascading option lists for the ACTIVE study (each respects its other filters).
+  const opts = {
+    site: useMemo(() => distinctValues(obs, 'site', active), [obs, active]),
+    country: useMemo(() => distinctValues(obs, 'country', active), [obs, active]),
+    brand: useMemo(() => distinctValues(obs, 'brand', active), [obs, active]),
+    model: useMemo(() => distinctValues(obs, 'model', active), [obs, active]),
+    trim: useMemo(() => distinctValues(obs, 'trim', active), [obs, active]),
+    fuel: useMemo(() => distinctValues(obs, 'fuel', active), [obs, active]),
+  };
 
-  const countryCompare = useMemo(() => {
-    const byCountry = new Map<string, Observation[]>();
-    for (const o of latestObs) { const a = byCountry.get(o.country) ?? []; a.push(o); byCountry.set(o.country, a); }
-    return [...byCountry.entries()].map(([country, list]) => ({ country, median: priceStats(list).median }))
-      .filter((c) => c.median > 0).sort((a, b) => a.median - b.median);
-  }, [latestObs]);
+  // Per-study derived data (used by both single & comparison views).
+  const perStudy = useMemo(() => studies.map((f, i) => {
+    const filtered = filterObservations(obs, f);
+    const latestTs = filtered.length ? Math.max(...filtered.map((o) => new Date(o.scraped_at).getTime())) : 0;
+    const latestObs = filtered.filter((o) => Math.abs(new Date(o.scraped_at).getTime() - latestTs) < 60_000);
+    return {
+      idx: i, filters: f, color: STUDY_COLORS[i] ?? BLUE, label: studyLabel(f, i),
+      filtered, latestObs, stats: priceStats(filtered), series: timeSeries(filtered),
+      realDepth: computeRealDepth(data.snapshots, f),
+    };
+  }), [studies, obs, data.snapshots]);
 
-  const velocity = useMemo(() => velocityFromObservations(filtered).filter((v) => v.soldCount > 0), [filtered]);
-
-  // Real market depth (site's reported total) for the coarse segment, latest.
-  const realDepth = useMemo(() => {
-    if (!filters.brand || !filters.model) return null;
-    const matching = data.snapshots.filter((s) =>
-      (!filters.site || s.site === filters.site) && (!filters.country || s.country === filters.country) &&
-      s.brand === filters.brand && s.model === filters.model && s.listing_count != null);
-    if (matching.length === 0) return null;
-    return matching.sort((a, b) => b.scraped_at.localeCompare(a.scraped_at))[0].listing_count;
-  }, [data, filters]);
-
-  // Listings table (latest snapshot, optionally narrowed to a clicked price bucket).
-  const tableRows = useMemo(() => {
-    let rows = latestObs;
-    if (priceBand) rows = rows.filter((o) => o.price != null && o.price >= priceBand.from && o.price <= priceBand.to);
-    return [...rows].sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 60);
-  }, [latestObs, priceBand]);
-
-  const activeFilterCount = Object.values(filters).filter((v) => v != null && v !== '').length;
+  const activeFilterCount = Object.values(active).filter((v) => v != null && v !== '').length;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-3"><LineIcon className="w-6 h-6 text-blue-500" /> Market Intelligence</h1>
-          <p className="text-zinc-400 mt-1 text-sm">Profondeur, prix et vélocité du marché — filtrable au grain de l'annonce, temps réel.</p>
+          <p className="text-zinc-400 mt-1 text-sm">Profondeur, prix et vélocité du marché — filtrable au grain de l'annonce, jusqu'à 3 études comparées.</p>
         </div>
         <button onClick={refresh} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Rafraîchir
@@ -116,165 +144,425 @@ export function MarketIntelligence() {
         </div>
       ) : (
         <>
-          {/* Filter panel */}
+          {/* Study bar — pick which study you're editing, add/remove up to 3. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {perStudy.map((s) => (
+              <div key={s.idx}
+                className={`inline-flex items-center gap-2 pl-2.5 pr-1.5 py-1.5 rounded-lg border text-sm cursor-pointer transition
+                  ${s.idx === activeIdx ? 'bg-zinc-800 border-zinc-600' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'}`}
+                onClick={() => { setActiveIdx(s.idx); setPriceBand(null); }}>
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                <span className={s.idx === activeIdx ? 'text-zinc-100' : 'text-zinc-400'}>{s.label}</span>
+                <span className="text-[10px] text-zinc-500">{s.stats.count}</span>
+                {studies.length > 1 && (
+                  <button onClick={(e) => { e.stopPropagation(); removeStudy(s.idx); }}
+                    className="p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200" title="Retirer cette étude">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+            {studies.length < MAX_STUDIES && (
+              <button onClick={addStudy}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-zinc-700 hover:border-zinc-500 text-sm text-zinc-400 hover:text-zinc-200">
+                <Plus className="w-4 h-4" /> Ajouter une étude
+              </button>
+            )}
+          </div>
+
+          {/* Filter panel — edits the ACTIVE study. */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-zinc-200 text-sm">Filtres {activeFilterCount > 0 && <span className="text-zinc-500 font-normal">· {activeFilterCount} actif{activeFilterCount > 1 ? 's' : ''}</span>}</h2>
-              <button onClick={reset} disabled={activeFilterCount === 0}
+              <h2 className="font-semibold text-zinc-200 text-sm flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: STUDY_COLORS[activeIdx] ?? BLUE }} />
+                Filtres · {studyLabel(active, activeIdx)}
+                {activeFilterCount > 0 && <span className="text-zinc-500 font-normal">· {activeFilterCount} actif{activeFilterCount > 1 ? 's' : ''}</span>}
+              </h2>
+              <button onClick={resetActive} disabled={activeFilterCount === 0}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40">
                 <RotateCcw className="w-3.5 h-3.5" /> Réinitialiser
               </button>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Select label="Site" value={filters.site ?? ''} options={opts.site} onChange={(v) => set({ site: v || undefined })} />
-              <Select label="Pays" value={filters.country ?? ''} options={opts.country} onChange={(v) => set({ country: v || undefined })} flag />
-              <Select label="Marque" value={filters.brand ?? ''} options={opts.brand} onChange={(v) => set({ brand: v || undefined })} />
-              <Select label="Modèle" value={filters.model ?? ''} options={opts.model} onChange={(v) => set({ model: v || undefined })} />
-              <Select label="Finition" value={filters.trim ?? ''} options={opts.trim} onChange={(v) => set({ trim: v || undefined })} />
-              <SelectFuel label="Carburant" value={filters.fuel ?? ''} options={opts.fuel} onChange={(v) => set({ fuel: (v || undefined) as FuelToken | undefined })} />
-              <NumRange label="Année" from={filters.yearMin ?? undefined} to={filters.yearMax ?? undefined}
-                onFrom={(v) => set({ yearMin: v })} onTo={(v) => set({ yearMax: v })} />
+              <Select label="Site" value={active.site ?? ''} options={opts.site} onChange={(v) => setActive({ site: v || undefined })} />
+              <Select label="Pays" value={active.country ?? ''} options={opts.country} onChange={(v) => setActive({ country: v || undefined })} flag />
+              <Select label="Marque" value={active.brand ?? ''} options={opts.brand} onChange={(v) => setActive({ brand: v || undefined })} />
+              <Select label="Modèle" value={active.model ?? ''} options={opts.model} onChange={(v) => setActive({ model: v || undefined })} />
+              <Select label="Finition" value={active.trim ?? ''} options={opts.trim} onChange={(v) => setActive({ trim: v || undefined })} />
+              <SelectFuel label="Carburant" value={active.fuel ?? ''} options={opts.fuel} onChange={(v) => setActive({ fuel: (v || undefined) as FuelToken | undefined })} />
+              <NumRange label="Année" from={active.yearMin ?? undefined} to={active.yearMax ?? undefined}
+                onFrom={(v) => setActive({ yearMin: v })} onTo={(v) => setActive({ yearMax: v })} />
               <div className="grid grid-cols-2 gap-2">
-                <Num label="Km max" value={filters.mileageMax ?? undefined} onChange={(v) => set({ mileageMax: v })} />
-                <Num label="Puiss. min" value={filters.powerMin ?? undefined} onChange={(v) => set({ powerMin: v })} />
+                <Num label="Km max" value={active.mileageMax ?? undefined} onChange={(v) => setActive({ mileageMax: v })} />
+                <Num label="Puiss. min" value={active.powerMin ?? undefined} onChange={(v) => setActive({ powerMin: v })} />
               </div>
             </div>
           </div>
 
-          {/* KPIs */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <Kpi label="Annonces (filtre)" value={String(stats.count)} />
-            <Kpi label="Profondeur marché" value={realDepth != null ? String(realDepth) : '—'} hint={realDepth != null ? 'total site (marque/modèle)' : 'sélectionne marque+modèle'} />
-            <Kpi label="Médian" value={fmtEur(stats.median)} />
-            <Kpi label="Fourchette p25–p75" value={`${fmtEur(stats.p25)} – ${fmtEur(stats.p75)}`} />
-            <Kpi label="Étalement min–max" value={`${fmtEur(stats.min)} – ${fmtEur(stats.max)}`} />
-          </div>
-
-          {/* Median over time + depth over time */}
-          <div className="grid md:grid-cols-2 gap-6">
-            <ChartCard title="Prix médian dans le temps" subtitle="médian + fourchette p25–p75" icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}>
-              {series.length < 2 ? <NeedMore /> : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <AreaChart data={series} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} />
-                    <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={52} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={((v: number | number[], name: string) => Array.isArray(v) ? [`${fmtEur(v[0])} – ${fmtEur(v[1])}`, 'p25–p75'] : [fmtEur(v), name === 'median' ? 'Médian' : name]) as never} />
-                    <Area type="monotone" dataKey="band" stroke="none" fill={BLUE} fillOpacity={0.14} />
-                    <Line type="monotone" dataKey="median" stroke={BLUE} strokeWidth={2} dot={{ r: 3 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </ChartCard>
-
-            <ChartCard title="Profondeur (annonces observées)" subtitle={isCoarseOnly(filters) ? 'nombre d’annonces vues par scan' : 'échantillon filtré · page 1'} icon={<TrendingUp className="w-4 h-4 text-blue-400" />}>
-              {series.length < 2 ? <NeedMore /> : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} />
-                    <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={40} allowDecimals={false} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, 'Observées']} />
-                    <Line type="monotone" dataKey="count" stroke={SERIES[4]} strokeWidth={2} dot={{ r: 3 }} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              )}
-            </ChartCard>
-          </div>
-
-          {/* Distribution + country comparison */}
-          <div className="grid md:grid-cols-2 gap-6">
-            <ChartCard title="Distribution des prix" subtitle={`dernier scan · ${latestObs.length} annonces${priceBand ? ' · tranche sélectionnée' : ' · clique une barre'}`} icon={<Gauge className="w-4 h-4 text-amber-400" />}>
-              {histogram.length === 0 ? <NeedMore text="Pas d'annonces." /> : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={histogram} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="range" tick={{ fill: AXIS, fontSize: 10 }} stroke={GRID} interval={0} angle={-30} textAnchor="end" height={50} />
-                    <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={32} allowDecimals={false} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, '']} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#ffffff08' }} />
-                    <Bar dataKey="count" radius={[4, 4, 0, 0]} cursor="pointer" onClick={((d: { from?: number; to?: number }) => { if (d?.from != null && d?.to != null) setPriceBand({ from: d.from, to: d.to }); }) as never}>
-                      {histogram.map((b) => <Cell key={b.range} fill={priceBand && b.from >= priceBand.from && b.to <= priceBand.to + 1 ? SERIES[3] : BLUE} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </ChartCard>
-
-            <ChartCard title="Comparaison entre pays" subtitle="prix médian · vue filtrée" icon={<TrendingUp className="w-4 h-4 text-violet-400" />}>
-              {countryCompare.length < 2 ? <NeedMore text="Données sur ≥2 pays nécessaires (filtre marque/modèle)." /> : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={countryCompare} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="country" tick={{ fill: AXIS, fontSize: 12 }} stroke={GRID} tickFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} />
-                    <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={52} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtEur(v as number), 'Médian']} labelFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} cursor={{ fill: '#ffffff08' }} />
-                    <Bar dataKey="median" radius={[4, 4, 0, 0]}>
-                      {countryCompare.map((c) => <Cell key={c.country} fill={COUNTRY_COLOR[c.country] ?? BLUE} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </ChartCard>
-          </div>
-
-          {/* Velocity */}
-          <ChartCard title="Vélocité — proxy de vitesse de vente" subtitle="jours avant qu'une annonce disparaisse (moyenne)" icon={<Gauge className="w-4 h-4 text-rose-400" />}>
-            <div className="flex items-start gap-2 text-xs text-amber-300/80 mb-3">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>Signal indicatif : page 1 (≈30 moins chères) seulement, donc une annonce peut sortir sans être vendue. Nécessite ≥2 scans d'un même segment. S'affinera avec le scan périodique.</span>
-            </div>
-            {velocity.length === 0 ? <NeedMore text="Pas encore assez de scans répétés." /> : (
-              <ResponsiveContainer width="100%" height={Math.max(160, velocity.length * 34)}>
-                <BarChart data={velocity} layout="vertical" margin={{ top: 8, right: 24, bottom: 4, left: 8 }}>
-                  <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v) => `${v} j`} />
-                  <YAxis type="category" dataKey="label" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={200} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(v, _n, p) => [`${v} jours · ${(p?.payload as VelocityStat).soldCount} disparues / ${(p?.payload as VelocityStat).activeCount} actives`, '']} cursor={{ fill: '#ffffff08' }} />
-                  <Bar dataKey="avgDaysToDisappear" radius={[0, 4, 4, 0]}>
-                    {velocity.map((v) => <Cell key={v.segmentId} fill={COUNTRY_COLOR[v.country] ?? SERIES[5]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </ChartCard>
-
-          {/* Listings table */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-zinc-200">Annonces {priceBand && <span className="text-zinc-500 font-normal text-sm">· tranche {Math.round(priceBand.from / 1000)}–{Math.round(priceBand.to / 1000)}k €</span>}</h2>
-              {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-zinc-400 hover:text-zinc-200">✕ tranche</button>}
-            </div>
-            {tableRows.length === 0 ? <p className="text-sm text-zinc-500">Aucune annonce.</p> : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-zinc-500 border-b border-zinc-800">
-                      <th className="py-2 pr-3">Prix</th><th className="py-2 pr-3">Année</th><th className="py-2 pr-3">Km</th>
-                      <th className="py-2 pr-3">Finition</th><th className="py-2 pr-3">Carburant</th><th className="py-2">Annonce</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableRows.map((o, i) => (
-                      <tr key={o.internal_ref + i} className="border-b border-zinc-800/50">
-                        <td className="py-2 pr-3 font-medium text-zinc-100">{fmtEur(o.price)}</td>
-                        <td className="py-2 pr-3 text-zinc-400">{o.year ?? '—'}</td>
-                        <td className="py-2 pr-3 text-zinc-400">{o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'}</td>
-                        <td className="py-2 pr-3 text-zinc-300">{o.trim || '—'}</td>
-                        <td className="py-2 pr-3 text-zinc-300">{fuelLabel(o.fuel)}</td>
-                        <td className="py-2">
-                          {o.listing_url
-                            ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
-                            : <span className="text-zinc-600 text-xs">—</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          {comparing
+            ? <ComparisonView perStudy={perStudy} />
+            : <SingleStudyView study={perStudy[0]} filters={active} priceBand={priceBand} setPriceBand={setPriceBand} />}
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Single-study dashboard (the full, rich view) ───────────────────────────────
+
+interface StudyDerived {
+  idx: number; filters: MarketFilters; color: string; label: string;
+  filtered: Observation[]; latestObs: Observation[];
+  stats: ReturnType<typeof priceStats>; series: ReturnType<typeof timeSeries>;
+  realDepth: number | null;
+}
+
+function SingleStudyView({ study, filters, priceBand, setPriceBand }:
+  { study: StudyDerived; filters: MarketFilters; priceBand: { from: number; to: number } | null; setPriceBand: (b: { from: number; to: number } | null) => void }) {
+  const { filtered, latestObs, stats, realDepth } = study;
+
+  const series = useMemo(() => study.series.map((r) => ({
+    date: fmtDate(r.date), median: r.median, band: [r.p25, r.p75] as [number, number], count: r.count,
+  })), [study.series]);
+  const histogram = useMemo(() => priceHistogramFrom(latestObs, 12), [latestObs]);
+
+  const countryCompare = useMemo(() => {
+    const byCountry = new Map<string, Observation[]>();
+    for (const o of latestObs) { const a = byCountry.get(o.country) ?? []; a.push(o); byCountry.set(o.country, a); }
+    return [...byCountry.entries()].map(([country, list]) => ({ country, median: priceStats(list).median }))
+      .filter((c) => c.median > 0).sort((a, b) => a.median - b.median);
+  }, [latestObs]);
+
+  const velocity = useMemo(() => velocityFromObservations(filtered).filter((v) => v.soldCount > 0), [filtered]);
+
+  const tableRows = useMemo(() => {
+    let rows = latestObs;
+    if (priceBand) rows = rows.filter((o) => o.price != null && o.price >= priceBand.from && o.price <= priceBand.to);
+    return [...rows].sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 60);
+  }, [latestObs, priceBand]);
+
+  return (
+    <>
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Kpi label="Annonces (filtre)" value={String(stats.count)} />
+        <Kpi label="Profondeur marché" value={realDepth != null ? String(realDepth) : '—'} hint={realDepth != null ? 'total site (marque/modèle)' : 'sélectionne marque+modèle'} />
+        <Kpi label="Médian" value={fmtEur(stats.median)} />
+        <Kpi label="Fourchette p25–p75" value={`${fmtEur(stats.p25)} – ${fmtEur(stats.p75)}`} />
+        <Kpi label="Étalement min–max" value={`${fmtEur(stats.min)} – ${fmtEur(stats.max)}`} />
+      </div>
+
+      {/* Median over time + depth over time */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <ChartCard title="Prix médian dans le temps" subtitle="médian + fourchette p25–p75" icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}>
+          {series.length < 2 ? <NeedMore /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={series} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} />
+                <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={52} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                <Tooltip contentStyle={tooltipStyle} formatter={((v: number | number[], name: string) => Array.isArray(v) ? [`${fmtEur(v[0])} – ${fmtEur(v[1])}`, 'p25–p75'] : [fmtEur(v), name === 'median' ? 'Médian' : name]) as never} />
+                <Area type="monotone" dataKey="band" stroke="none" fill={BLUE} fillOpacity={0.14} />
+                <Line type="monotone" dataKey="median" stroke={BLUE} strokeWidth={2} dot={{ r: 3 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Profondeur (annonces observées)" subtitle={isCoarseOnly(filters) ? 'nombre d’annonces vues par scan' : 'échantillon filtré · page 1'} icon={<TrendingUp className="w-4 h-4 text-blue-400" />}>
+          {series.length < 2 ? <NeedMore /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} />
+                <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={40} allowDecimals={false} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, 'Observées']} />
+                <Line type="monotone" dataKey="count" stroke={SERIES[4]} strokeWidth={2} dot={{ r: 3 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+      </div>
+
+      {/* Distribution + country comparison */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <ChartCard title="Distribution des prix" subtitle={`dernier scan · ${latestObs.length} annonces${priceBand ? ' · tranche sélectionnée' : ' · clique une barre'}`} icon={<Gauge className="w-4 h-4 text-amber-400" />}>
+          {histogram.length === 0 ? <NeedMore text="Pas d'annonces." /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={histogram} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="range" tick={{ fill: AXIS, fontSize: 10 }} stroke={GRID} interval={0} angle={-30} textAnchor="end" height={50} />
+                <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={32} allowDecimals={false} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, '']} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#ffffff08' }} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]} cursor="pointer" onClick={((d: { from?: number; to?: number }) => { if (d?.from != null && d?.to != null) setPriceBand({ from: d.from, to: d.to }); }) as never}>
+                  {histogram.map((b) => <Cell key={b.range} fill={priceBand && b.from >= priceBand.from && b.to <= priceBand.to + 1 ? SERIES[3] : BLUE} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Comparaison entre pays" subtitle="prix médian · vue filtrée" icon={<TrendingUp className="w-4 h-4 text-violet-400" />}>
+          {countryCompare.length < 2 ? <NeedMore text="Données sur ≥2 pays nécessaires (filtre marque/modèle)." /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={countryCompare} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="country" tick={{ fill: AXIS, fontSize: 12 }} stroke={GRID} tickFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} />
+                <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={52} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtEur(v as number), 'Médian']} labelFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} cursor={{ fill: '#ffffff08' }} />
+                <Bar dataKey="median" radius={[4, 4, 0, 0]}>
+                  {countryCompare.map((c) => <Cell key={c.country} fill={COUNTRY_COLOR[c.country] ?? BLUE} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+      </div>
+
+      {/* Velocity */}
+      <VelocityCard velocity={velocity} />
+
+      {/* Listings table */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-zinc-200">Annonces {priceBand && <span className="text-zinc-500 font-normal text-sm">· tranche {Math.round(priceBand.from / 1000)}–{Math.round(priceBand.to / 1000)}k €</span>}</h2>
+          {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-zinc-400 hover:text-zinc-200">✕ tranche</button>}
+        </div>
+        <ListingsTable rows={tableRows} />
+      </div>
+    </>
+  );
+}
+
+// ─── Comparison view (2–3 studies side by side) ─────────────────────────────────
+
+function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
+  // Overlaid median-over-time: union of scan dates, one median column per study.
+  const mergedSeries = useMemo(() => {
+    const byTs = new Map<number, Record<string, number | string | null>>();
+    perStudy.forEach((s) => s.series.forEach((r) => {
+      const row = byTs.get(r.ts) ?? { ts: r.ts, date: fmtDate(r.date) };
+      row[`m${s.idx}`] = r.median || null;
+      byTs.set(r.ts, row);
+    }));
+    return [...byTs.values()].sort((a, b) => (a.ts as number) - (b.ts as number));
+  }, [perStudy]);
+  const seriesHasDepth = mergedSeries.length >= 2;
+
+  const medianBars = useMemo(() =>
+    perStudy.map((s) => ({ label: s.label, median: s.stats.median, color: s.color, idx: s.idx })).filter((b) => b.median > 0),
+    [perStudy]);
+
+  const sampleBars = useMemo(() =>
+    perStudy.map((s) => ({ label: s.label, sample: s.latestObs.length, color: s.color, idx: s.idx })),
+    [perStudy]);
+
+  // Velocity across the union of all studies' observations (deduped).
+  const velocity = useMemo(() => {
+    const seen = new Set<string>();
+    const union: Observation[] = [];
+    for (const s of perStudy) for (const o of s.filtered) {
+      const k = `${o.snapshot_id}|${o.internal_ref}`;
+      if (seen.has(k)) continue; seen.add(k); union.push(o);
+    }
+    return velocityFromObservations(union).filter((v) => v.soldCount > 0);
+  }, [perStudy]);
+
+  // Combined latest-scan listings, tagged with their study.
+  const rows = useMemo(() => {
+    const tagged = perStudy.flatMap((s) => s.latestObs.map((o) => ({ o, color: s.color, studyLabel: s.label })));
+    return tagged.sort((a, b) => (a.o.price ?? 0) - (b.o.price ?? 0)).slice(0, 80);
+  }, [perStudy]);
+
+  return (
+    <>
+      {/* Comparison stats table */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 overflow-x-auto">
+        <h2 className="font-semibold text-zinc-200 mb-3">Comparaison des études</h2>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-zinc-500 border-b border-zinc-800">
+              <th className="py-2 pr-3">Étude</th>
+              <th className="py-2 pr-3">Annonces</th>
+              <th className="py-2 pr-3">Profondeur</th>
+              <th className="py-2 pr-3">Médian</th>
+              <th className="py-2 pr-3">p25–p75</th>
+              <th className="py-2 pr-3">min–max</th>
+              <th className="py-2">Δ vs 1<sup>re</sup></th>
+            </tr>
+          </thead>
+          <tbody>
+            {perStudy.map((s) => {
+              const base = perStudy[0].stats.median;
+              const delta = base > 0 && s.stats.median > 0 ? s.stats.median - base : null;
+              return (
+                <tr key={s.idx} className="border-b border-zinc-800/50">
+                  <td className="py-2 pr-3">
+                    <span className="inline-flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />
+                      <span className="text-zinc-200">{s.label}</span>
+                    </span>
+                  </td>
+                  <td className="py-2 pr-3 text-zinc-300">{s.stats.count}</td>
+                  <td className="py-2 pr-3 text-zinc-400">{s.realDepth != null ? s.realDepth : '—'}</td>
+                  <td className="py-2 pr-3 font-medium text-zinc-100">{fmtEur(s.stats.median)}</td>
+                  <td className="py-2 pr-3 text-zinc-400">{fmtEur(s.stats.p25)} – {fmtEur(s.stats.p75)}</td>
+                  <td className="py-2 pr-3 text-zinc-400">{fmtEur(s.stats.min)} – {fmtEur(s.stats.max)}</td>
+                  <td className="py-2">
+                    {s.idx === 0 || delta == null ? <span className="text-zinc-600">—</span>
+                      : <span className={delta < 0 ? 'text-emerald-400' : 'text-rose-400'}>{delta < 0 ? '' : '+'}{fmtEur(delta)}</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Overlaid median over time + grouped medians */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <ChartCard title="Prix médian dans le temps" subtitle="une courbe par étude" icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}>
+          {!seriesHasDepth ? <NeedMore /> : (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={mergedSeries} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} />
+                <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={52} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [fmtEur(v as number), perStudy[Number(String(name).slice(1))]?.label ?? name]} />
+                <Legend wrapperStyle={{ fontSize: 11 }} formatter={(name) => perStudy[Number(String(name).slice(1))]?.label ?? name} />
+                {perStudy.map((s) => (
+                  <Line key={s.idx} type="monotone" dataKey={`m${s.idx}`} stroke={s.color} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Prix médian par étude" subtitle="dernier état · comparaison directe" icon={<TrendingUp className="w-4 h-4 text-blue-400" />}>
+          {medianBars.length === 0 ? <NeedMore text="Pas encore de prix." /> : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={medianBars} layout="vertical" margin={{ top: 8, right: 40, bottom: 4, left: 8 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                <YAxis type="category" dataKey="label" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={170} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtEur(v as number), 'Médian']} cursor={{ fill: '#ffffff08' }} />
+                <Bar dataKey="median" radius={[0, 4, 4, 0]}>
+                  {medianBars.map((b) => <Cell key={b.idx} fill={b.color} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+      </div>
+
+      {/* Sample depth per study + velocity */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <ChartCard title="Échantillon (dernier scan)" subtitle="annonces observées par étude" icon={<Gauge className="w-4 h-4 text-amber-400" />}>
+          <ResponsiveContainer width="100%" height={Math.max(160, sampleBars.length * 48)}>
+            <BarChart data={sampleBars} layout="vertical" margin={{ top: 8, right: 40, bottom: 4, left: 8 }}>
+              <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} allowDecimals={false} />
+              <YAxis type="category" dataKey="label" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={170} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, '']} cursor={{ fill: '#ffffff08' }} />
+              <Bar dataKey="sample" radius={[0, 4, 4, 0]}>
+                {sampleBars.map((b) => <Cell key={b.idx} fill={b.color} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <VelocityCard velocity={velocity} />
+      </div>
+
+      {/* Combined listings, tagged by study */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+        <h2 className="font-semibold text-zinc-200 mb-3">Annonces — toutes études (dernier scan)</h2>
+        {rows.length === 0 ? <p className="text-sm text-zinc-500">Aucune annonce.</p> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-zinc-500 border-b border-zinc-800">
+                  <th className="py-2 pr-3">Étude</th><th className="py-2 pr-3">Prix</th><th className="py-2 pr-3">Année</th>
+                  <th className="py-2 pr-3">Km</th><th className="py-2 pr-3">Finition</th><th className="py-2 pr-3">Carburant</th><th className="py-2">Annonce</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ o, color }, i) => (
+                  <tr key={o.internal_ref + i} className="border-b border-zinc-800/50">
+                    <td className="py-2 pr-3"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: color }} /></td>
+                    <td className="py-2 pr-3 font-medium text-zinc-100">{fmtEur(o.price)}</td>
+                    <td className="py-2 pr-3 text-zinc-400">{o.year ?? '—'}</td>
+                    <td className="py-2 pr-3 text-zinc-400">{o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'}</td>
+                    <td className="py-2 pr-3 text-zinc-300">{o.trim || '—'}</td>
+                    <td className="py-2 pr-3 text-zinc-300">{fuelLabel(o.fuel)}</td>
+                    <td className="py-2">
+                      {o.listing_url
+                        ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                        : <span className="text-zinc-600 text-xs">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function VelocityCard({ velocity }: { velocity: VelocityStat[] }) {
+  return (
+    <ChartCard title="Vélocité — proxy de vitesse de vente" subtitle="jours avant qu'une annonce disparaisse (moyenne)" icon={<Gauge className="w-4 h-4 text-rose-400" />}>
+      <div className="flex items-start gap-2 text-xs text-amber-300/80 mb-3">
+        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+        <span>Signal indicatif : page 1 (≈30 moins chères) seulement, donc une annonce peut sortir sans être vendue. Nécessite ≥2 scans d'un même segment. S'affinera avec le scan périodique.</span>
+      </div>
+      {velocity.length === 0 ? <NeedMore text="Pas encore assez de scans répétés." /> : (
+        <ResponsiveContainer width="100%" height={Math.max(160, velocity.length * 34)}>
+          <BarChart data={velocity} layout="vertical" margin={{ top: 8, right: 24, bottom: 4, left: 8 }}>
+            <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
+            <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v) => `${v} j`} />
+            <YAxis type="category" dataKey="label" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={200} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v, _n, p) => [`${v} jours · ${(p?.payload as VelocityStat).soldCount} disparues / ${(p?.payload as VelocityStat).activeCount} actives`, '']} cursor={{ fill: '#ffffff08' }} />
+            <Bar dataKey="avgDaysToDisappear" radius={[0, 4, 4, 0]}>
+              {velocity.map((v) => <Cell key={v.segmentId} fill={COUNTRY_COLOR[v.country] ?? SERIES[5]} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  );
+}
+
+function ListingsTable({ rows }: { rows: Observation[] }) {
+  if (rows.length === 0) return <p className="text-sm text-zinc-500">Aucune annonce.</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-zinc-500 border-b border-zinc-800">
+            <th className="py-2 pr-3">Prix</th><th className="py-2 pr-3">Année</th><th className="py-2 pr-3">Km</th>
+            <th className="py-2 pr-3">Finition</th><th className="py-2 pr-3">Carburant</th><th className="py-2">Annonce</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((o, i) => (
+            <tr key={o.internal_ref + i} className="border-b border-zinc-800/50">
+              <td className="py-2 pr-3 font-medium text-zinc-100">{fmtEur(o.price)}</td>
+              <td className="py-2 pr-3 text-zinc-400">{o.year ?? '—'}</td>
+              <td className="py-2 pr-3 text-zinc-400">{o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'}</td>
+              <td className="py-2 pr-3 text-zinc-300">{o.trim || '—'}</td>
+              <td className="py-2 pr-3 text-zinc-300">{fuelLabel(o.fuel)}</td>
+              <td className="py-2">
+                {o.listing_url
+                  ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                  : <span className="text-zinc-600 text-xs">—</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
