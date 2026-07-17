@@ -5,6 +5,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { allSiteAdapters } from '../lib/study-core/marketplaces';
 
 export interface IngestionEventRow {
   id: string;
@@ -157,6 +158,11 @@ export async function loadMappingTree(): Promise<TreeNode> {
     return n;
   };
 
+  // Seed EVERY registered site adapter so the map reflects ADA's full coverage,
+  // not just sites that already have learned data. Sites with no mappings yet
+  // stay empty and render as "En attente" (see the pending pass after rollup).
+  for (const adapter of allSiteAdapters()) getSite(adapter.key);
+
   for (const row of rows) {
     const site = getSite(row.site);
     const brandKey = `${row.site}|${row.brand}`;
@@ -233,6 +239,12 @@ export async function loadMappingTree(): Promise<TreeNode> {
     n.weight = Math.max(n.weight, ...n.children.map((c) => c.weight));
   };
   rollup(root);
+
+  // Seeded sites with no learned mapping yet → mark "En attente" (grey) so the
+  // legend reads right (rollup leaves empty nodes at 'group').
+  for (const site of root.children) {
+    if (site.children.length === 0) site.status = 'pending';
+  }
 
   // Stable alphabetical ordering
   const sortRec = (n: TreeNode): void => {
