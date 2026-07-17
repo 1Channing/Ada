@@ -118,6 +118,14 @@ export interface ZyteProfileOverrides {
   geolocation?: string;
   javascript?: boolean;
   actions?: Array<{ action: string; timeout: number }>;
+  /**
+   * Use Zyte's raw-HTML unblocker (`httpResponseBody`) instead of the headless
+   * browser (`browserHtml`). Stronger against Cloudflare and cheaper; suitable
+   * for server-rendered sites whose data is already in the initial HTML
+   * (AutoScout SSRs listings into __NEXT_DATA__). `actions` are ignored in
+   * this mode (no browser).
+   */
+  httpResponseBody?: boolean;
 }
 
 /**

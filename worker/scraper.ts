@@ -61,23 +61,26 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
     return null;
   }
 
-  const requestBody: any = {
-    url,
-    browserHtml: true,
-  };
-
   // Per-site anti-bot profile, declared by the site adapter (geolocation, JS
-  // rendering, settle waits). Replaces the old hardcoded Marktplaats-only
-  // escalation so every site — incl. Cloudflare-protected AutoScout — gets its
-  // own profile without touching this function. `profileLevel` maps 1:1 to the
-  // adapter's `attempt` (Marktplaats escalates at >=2/>=3, as before).
+  // rendering, settle waits, and browser-vs-raw mode). Replaces the old
+  // hardcoded Marktplaats-only escalation so every site — incl. Cloudflare-
+  // protected AutoScout — gets its own profile without touching this function.
+  // `profileLevel` maps 1:1 to the adapter's `attempt`.
   const adapter = findSiteAdapterByDomain(url);
-  if (adapter?.getFetchProfile) {
-    const profile = adapter.getFetchProfile(profileLevel);
-    if (profile.geolocation) requestBody.geolocation = profile.geolocation;
+  const profile = adapter?.getFetchProfile ? adapter.getFetchProfile(profileLevel) : {};
+  const useRawHtml = profile.httpResponseBody === true;
+
+  const requestBody: any = { url };
+  if (useRawHtml) {
+    // Zyte's raw-HTML unblocker (no browser). Best against Cloudflare on SSR
+    // sites. Browser actions are not applicable here.
+    requestBody.httpResponseBody = true;
+  } else {
+    requestBody.browserHtml = true;
     if (profile.javascript) requestBody.javascript = profile.javascript;
     if (profile.actions && profile.actions.length > 0) requestBody.actions = profile.actions;
   }
+  if (profile.geolocation) requestBody.geolocation = profile.geolocation;
 
   // STEP 1 DIAGNOSTIC: Log fetch target for Marktplaats (search URLs only)
   if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s') || url.includes('/lrp/api/'))) {
@@ -102,12 +105,17 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
       return null;
     }
 
-    const data = await response.json() as { browserHtml?: string };
+    const data = await response.json() as { browserHtml?: string; httpResponseBody?: string };
+
+    // httpResponseBody is base64-encoded bytes; browserHtml is a plain string.
+    const html = useRawHtml
+      ? (data.httpResponseBody ? Buffer.from(data.httpResponseBody, 'base64').toString('utf-8') : null)
+      : (data.browserHtml || null);
 
     // STEP 1 DIAGNOSTIC: Log response for Marktplaats (search URLs only)
     if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s') || url.includes('/lrp/api/'))) {
       const contentType = response.headers.get('content-type') || 'unknown';
-      const raw = (data.browserHtml ?? '').trim();
+      const raw = (html ?? '').trim();
       const preview = raw.substring(0, 80).replace(/\s+/g, ' ');
 
       const bodyKind =
@@ -120,7 +128,7 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
       );
     }
 
-    return data.browserHtml || null;
+    return html;
   } catch (error) {
     console.error('[WORKER_SCRAPER] Fetch error:', error);
     return null;
@@ -191,6 +199,7 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
     url.includes('leboncoin.fr') ? 'LEBONCOIN' :
     url.includes('bilbasen.dk') ? 'BILBASEN' :
     url.includes('gaspedaal.nl') ? 'GASPEDAAL' :
+    url.includes('autoscout24.') ? 'AUTOSCOUT' :
     'UNKNOWN';
   console.log(`[SCRAPE_ROUTE] marketplace=${marketplace} scrapeMode=${scrapeMode} url=${url.substring(0, 150)}`);
 
@@ -228,10 +237,17 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
       return { listings, totalCount: extractTotalCount(html) };
     }
 
-    // Check for blocked content
+    // Check for blocked content. Don't give up on the first block: an anti-bot
+    // wall (Cloudflare on AutoScout) may clear on an escalated profile — retry
+    // through the remaining attempts and only report TARGET_BLOCKED once
+    // they're exhausted.
     const blockedCheck = detectBlockedContent(html, false);
     if (blockedCheck.isBlocked) {
-      console.warn(`[WORKER_SCRAPER] ⚠️  Blocked: ${blockedCheck.matchedKeyword}`);
+      console.warn(`[WORKER_SCRAPER] ⚠️  Blocked: ${blockedCheck.matchedKeyword} (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        continue;
+      }
       return {
         listings: [],
         error: 'TARGET_BLOCKED',
