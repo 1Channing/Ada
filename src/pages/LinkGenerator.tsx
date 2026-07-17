@@ -21,6 +21,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
+import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import { generateSearchUrls, generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { validateWithRetry } from '../lib/linkgen/validator';
 import {
@@ -103,11 +104,19 @@ interface SiteOption {
   country: string;
 }
 
-const SITE_OPTIONS: SiteOption[] = [
-  { label: 'Leboncoin', value: 'LEBONCOIN', flag: '🇫🇷', country: 'France' },
-  { label: 'Marktplaats', value: 'MARKTPLAATS', flag: '🇳🇱', country: 'Netherlands' },
-  { label: 'Bilbasen', value: 'BILBASEN', flag: '🇩🇰', country: 'Denmark' },
-];
+const COUNTRY_FLAG: Record<string, string> = {
+  FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
+};
+
+// Driven from the site-adapter registry so every registered marketplace
+// (incl. AutoScout24's per-country instances, and any future site) is
+// selectable here without editing this list — "adding a site = config".
+const SITE_OPTIONS: SiteOption[] = allSiteAdapters().map((a) => ({
+  label: a.displayName,
+  value: a.key,
+  flag: COUNTRY_FLAG[a.countryCode] ?? '🏳️',
+  country: a.country,
+}));
 
 interface HistoryEntry {
   results: LinkGenUrlResult[];
