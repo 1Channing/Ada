@@ -64,6 +64,9 @@ function mergeNames(a: string[], b: string[]): string[] {
   return [...new Set([...a, ...b])].sort((x, y) => x.localeCompare(y));
 }
 
+// Per-tab working-state snapshot (survives the reload-based navigation).
+const INGESTION_SNAPSHOT_KEY = 'ada_ingestion_snapshot';
+
 const MEMORY_ACTION_LABELS: Record<string, { text: string; tone: 'ok' | 'warn' | 'muted' }> = {
   inserted: { text: 'Nouveau mapping enregistré en mémoire (human_verified)', tone: 'ok' },
   reinforced: { text: 'Mapping existant renforcé (confirmation supplémentaire)', tone: 'ok' },
@@ -126,6 +129,41 @@ export function Ingestion() {
   const [sample, setSample] = useState<ScrapedListing[]>([]);
   const [analysis, setAnalysis] = useState<IngestionAnalysis | null>(null);
   const [outcome, setOutcome] = useState<PersistIngestionOutcome | null>(null);
+
+  // Persist the in-progress ingestion to sessionStorage so navigating to the
+  // History tab (which reloads the page) doesn't wipe the current search /
+  // result. sessionStorage is per-tab and purely client-side — zero server
+  // involvement, fully isolated between users and even between a user's tabs.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(INGESTION_SNAPSHOT_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s.url) setUrl(s.url);
+      if (s.form) setForm(s.form);
+      if (s.prefilled) setPrefilled(s.prefilled);
+      if (s.learned) setLearned(s.learned);
+      if (s.sample) setSample(s.sample);
+      if (s.analysis) setAnalysis(s.analysis);
+      if (s.outcome) setOutcome(s.outcome);
+      if (s.scrapeError) setScrapeError(s.scrapeError);
+      if (s.url) {
+        const a = findSiteAdapterByDomain(s.url);
+        if (a) setAdapter(a);
+      }
+      // An in-flight scrape can't survive a page reload — fall back to the form.
+      setPhase(s.phase === 'scraping' ? 'form' : (s.phase ?? 'idle'));
+    } catch { /* ignore corrupt snapshot */ }
+  }, []);
+
+  useEffect(() => {
+    if (phase === 'idle' && !url && !analysis) return; // nothing meaningful yet
+    try {
+      sessionStorage.setItem(INGESTION_SNAPSHOT_KEY, JSON.stringify({
+        url, form, prefilled, learned, phase, scrapeError, sample, analysis, outcome,
+      }));
+    } catch { /* quota / private mode */ }
+  }, [url, form, prefilled, learned, phase, scrapeError, sample, analysis, outcome]);
 
   const setField = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
