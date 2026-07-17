@@ -337,6 +337,36 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
 // ─── Comparison view (2–3 studies side by side) ─────────────────────────────────
 
 function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
+  const [priceBand, setPriceBand] = useState<{ from: number; to: number } | null>(null);
+  const filtersSig = perStudy.map((s) => JSON.stringify(s.filters)).join('|');
+  useEffect(() => { setPriceBand(null); }, [filtersSig]);
+  const inBand = (p: number | null) => p != null && priceBand != null && p >= priceBand.from && p <= priceBand.to;
+
+  // Shared-axis price distribution: common buckets across every study's latest
+  // scan, counted per study (grouped bars) — click a bucket to filter listings.
+  const dist = useMemo(() => {
+    const priced = perStudy.map((s) => s.latestObs.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0));
+    const all = priced.flat();
+    if (all.length === 0) return { rows: [] as Record<string, number | string>[] };
+    const min = Math.min(...all), max = Math.max(...all);
+    const B = 12;
+    if (min === max) {
+      const row: Record<string, number | string> = { range: `${Math.round(min / 1000)}k`, from: min, to: min };
+      perStudy.forEach((_s, i) => { row[`s${i}`] = priced[i].length; });
+      return { rows: [row] };
+    }
+    const width = (max - min) / B;
+    const rows = Array.from({ length: B }, (_, bi) => {
+      const from = min + bi * width, to = min + (bi + 1) * width;
+      const row: Record<string, number | string> = { range: `${Math.round(from / 1000)}–${Math.round(to / 1000)}k`, from, to };
+      perStudy.forEach((_s, i) => {
+        row[`s${i}`] = priced[i].filter((p) => Math.min(B - 1, Math.floor((p - min) / width)) === bi).length;
+      });
+      return row;
+    });
+    return { rows };
+  }, [perStudy]);
+
   // Overlaid median-over-time: union of scan dates, one median column per study.
   const mergedSeries = useMemo(() => {
     const byTs = new Map<number, Record<string, number | string | null>>();
@@ -366,12 +396,6 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
       if (seen.has(k)) continue; seen.add(k); union.push(o);
     }
     return velocityFromObservations(union).filter((v) => v.soldCount > 0);
-  }, [perStudy]);
-
-  // Combined latest-scan listings, tagged with their study.
-  const rows = useMemo(() => {
-    const tagged = perStudy.flatMap((s) => s.latestObs.map((o) => ({ o, color: s.color, studyLabel: s.label })));
-    return tagged.sort((a, b) => (a.o.price ?? 0) - (b.o.price ?? 0)).slice(0, 80);
   }, [perStudy]);
 
   return (
@@ -474,38 +498,73 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
         <VelocityCard velocity={velocity} />
       </div>
 
-      {/* Combined listings, tagged by study */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-        <h2 className="font-semibold text-zinc-200 mb-3">Annonces — toutes études (dernier scan)</h2>
-        {rows.length === 0 ? <p className="text-sm text-zinc-500">Aucune annonce.</p> : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-zinc-500 border-b border-zinc-800">
-                  <th className="py-2 pr-3">Étude</th><th className="py-2 pr-3">Prix</th><th className="py-2 pr-3">Année</th>
-                  <th className="py-2 pr-3">Km</th><th className="py-2 pr-3">Finition</th><th className="py-2 pr-3">Carburant</th><th className="py-2">Annonce</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ o, color }, i) => (
-                  <tr key={o.internal_ref + i} className="border-b border-zinc-800/50">
-                    <td className="py-2 pr-3"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: color }} /></td>
-                    <td className="py-2 pr-3 font-medium text-zinc-100">{fmtEur(o.price)}</td>
-                    <td className="py-2 pr-3 text-zinc-400">{o.year ?? '—'}</td>
-                    <td className="py-2 pr-3 text-zinc-400">{o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'}</td>
-                    <td className="py-2 pr-3 text-zinc-300">{o.trim || '—'}</td>
-                    <td className="py-2 pr-3 text-zinc-300">{fuelLabel(o.fuel)}</td>
-                    <td className="py-2">
-                      {o.listing_url
-                        ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
-                        : <span className="text-zinc-600 text-xs">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* Distribution des prix — comparée, cliquable par tranche */}
+      <ChartCard title="Distribution des prix comparée" subtitle={`dernier scan · barres groupées par étude${priceBand ? ' · tranche sélectionnée' : ' · clique une tranche'}`} icon={<Gauge className="w-4 h-4 text-amber-400" />}>
+        {dist.rows.length === 0 ? <NeedMore text="Pas d'annonces." /> : (
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={dist.rows} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+              <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="range" tick={{ fill: AXIS, fontSize: 10 }} stroke={GRID} interval={0} angle={-30} textAnchor="end" height={50} />
+              <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={32} allowDecimals={false} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [`${v} annonces`, name]} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#ffffff08' }} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {perStudy.map((s, i) => (
+                <Bar key={s.idx} dataKey={`s${i}`} name={s.label} radius={[3, 3, 0, 0]} cursor="pointer"
+                  onClick={((d: { from?: number; to?: number }) => {
+                    if (d?.from == null || d?.to == null) return;
+                    setPriceBand((cur) => (cur && cur.from === d.from && cur.to === d.to ? null : { from: d.from as number, to: d.to as number }));
+                  }) as never}>
+                  {dist.rows.map((r, ri) => (
+                    <Cell key={ri} fill={s.color}
+                      fillOpacity={priceBand && !(Number(r.from) >= priceBand.from && Number(r.to) <= priceBand.to + 1) ? 0.25 : 1} />
+                  ))}
+                </Bar>
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
         )}
+      </ChartCard>
+
+      {/* Annonces par étude — colonnes côte à côte, filtrées par tranche cliquée */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-zinc-200">
+            Annonces par étude
+            {priceBand && <span className="text-zinc-500 font-normal text-sm"> · tranche {Math.round(priceBand.from / 1000)}–{Math.round(priceBand.to / 1000)}k €</span>}
+          </h2>
+          {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-zinc-400 hover:text-zinc-200">✕ tranche</button>}
+        </div>
+        <div className="flex gap-4 overflow-x-auto pb-1">
+          {perStudy.map((s) => {
+            const colRows = [...s.latestObs.filter((o) => !priceBand || inBand(o.price))]
+              .sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 60);
+            return (
+              <div key={s.idx} className="flex-1 min-w-[260px]">
+                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-zinc-800">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                  <span className="text-sm text-zinc-200 truncate">{s.label}</span>
+                  <span className="ml-auto text-xs text-zinc-500 shrink-0">{colRows.length}</span>
+                </div>
+                {colRows.length === 0 ? <p className="text-xs text-zinc-600 py-4 text-center">Aucune annonce.</p> : (
+                  <div className="max-h-[440px] overflow-y-auto pr-1">
+                    {colRows.map((o, i) => (
+                      <div key={o.internal_ref + i} className="py-2 border-b border-zinc-800/40">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="font-medium text-zinc-100">{fmtEur(o.price)}</span>
+                          {o.listing_url
+                            ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline text-xs shrink-0">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                            : <span className="text-zinc-600 text-xs shrink-0">—</span>}
+                        </div>
+                        <div className="text-xs text-zinc-500 mt-0.5">{o.year ?? '—'} · {o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'} · {fuelLabel(o.fuel)}</div>
+                        {(o.trim || o.title) && <div className="text-xs text-zinc-400 truncate mt-0.5">{o.trim || o.title}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </>
   );
