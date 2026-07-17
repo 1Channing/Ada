@@ -89,6 +89,26 @@ function slug(s: string): string {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+// AutoScout's model slug keeps internal separators the user often omits
+// ("CHR" → the site's "c-hr", "RAV4" → "rav-4"). Naive slug() is correct when
+// the user includes the separator (space or hyphen); this table fixes the
+// no-separator forms. Keyed by alphanumeric-only so CHR / C-HR / "C HR" all hit.
+// Gaps get filled empirically as ingestions learn real slugs (BACKLOG 2bis).
+const MODEL_SLUG_BY_ALNUM: Record<string, string> = {
+  chr: 'c-hr',
+  rav4: 'rav-4',
+  landcruiser: 'land-cruiser',
+  cx3: 'cx-3', cx5: 'cx-5', cx30: 'cx-30', cx60: 'cx-60',
+  cclass: 'c-class', eclass: 'e-class', sclass: 's-class',
+  id3: 'id-3', id4: 'id-4', id5: 'id-5',
+};
+
+/** Model → AutoScout URL slug, resolving common no-separator variants first. */
+function modelToSlug(raw: string): string {
+  const alnum = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return MODEL_SLUG_BY_ALNUM[alnum] ?? slug(raw);
+}
+
 function mapFuel(raw: string): string {
   return FUEL_MAP[raw.trim().toUpperCase()] ?? '';
 }
@@ -187,7 +207,7 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
   function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
     const warnings: string[] = [];
     const brandSlug = slug(String(params.brand ?? ''));
-    const modelSlug = slug(String(params.model ?? ''));
+    const modelSlug = params.model ? modelToSlug(String(params.model)) : '';
 
     const segs = ['lst'];
     if (brandSlug) segs.push(brandSlug);
