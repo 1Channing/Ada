@@ -44,6 +44,11 @@ export interface ScrapedListing {
   seats?: number | null;
   color?: string | null;
   vehicleType?: string | null;
+  // Structured brand/fuel labels (seller-declared), when the parser can read
+  // them. More reliable than the title, which often omits the brand
+  // ("Megane E-Tech" with no "Renault") or the energy. Human label, not code.
+  brand?: string | null;
+  fuel?: string | null;
 }
 
 /**

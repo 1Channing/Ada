@@ -82,42 +82,33 @@ export interface IngestionAnalysis {
 
 // ─── Fuel canonicalisation ────────────────────────────────────────────────────
 
-/** Declared form labels → canonical detector tokens. */
-const DECLARED_FUEL_TO_CANONICAL: Record<string, string> = {
-  ESSENCE: 'petrol',
-  GASOLINE: 'petrol',
-  PETROL: 'petrol',
-  DIESEL: 'diesel',
-  HYBRIDE: 'hybrid',
-  HYBRID: 'hybrid',
-  ELECTRIQUE: 'electric',
-  ELECTRIC: 'electric',
-  GPL: 'lpg',
-  LPG: 'lpg',
-  PLUG_IN_HYBRID: 'phev',
-};
+const PHEV_TOKENS = /plug\s?in|phev|hybride rechargeable|plug in hybride|plugin hybrid/;
 
-const PHEV_TOKENS = /\bplug-?in\b|\bphev\b|\bhybride rechargeable\b|\bplug-in-hybride\b|\bplugin-?hybrid\b/;
-
-/** Shared fallback fuel detector (multi-language union) when an adapter has no inferFuel. */
-function fallbackInferFuel(title: string, description: string): string {
-  const text = (title + ' ' + description).toLowerCase();
-  if (text.includes('diesel')) return 'diesel';
-  if (/electr|électr|elektrisch|elektrisk|\belbil\b/.test(text)) return 'electric';
-  if (/hybrid|hybride/.test(text)) return 'hybrid';
-  if (/essence|benzine|benzin|petrol/.test(text)) return 'petrol';
-  if (/\bgpl\b|\blpg\b|autogas/.test(text)) return 'lpg';
+/**
+ * Map ANY fuel text — a declared form label ("ELECTRIQUE"), a structured
+ * attribute label ("Électrique"), or free title text — to a canonical token.
+ * Works cross-language (FR/NL/DA) and understands common engine badges.
+ */
+function canonicalizeFuel(raw: string): string {
+  const t = normalizeForMatch(raw); // accent-stripped, lowercased, separators → space
+  if (!t) return '';
+  if (PHEV_TOKENS.test(t)) return 'phev';
+  if (/diesel|\bhdi\b|\btdi\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|\bd4d\b/.test(t)) return 'diesel';
+  if (/electr|elektr|\belbil\b|\bev\b|zero emission/.test(t)) return 'electric';
+  if (/hybrid|hybride|\bhev\b/.test(t)) return 'hybrid';
+  if (/essence|benzine|benzin|petrol|gasoline|\btsi\b|\btfsi\b|\bvti\b|puretech/.test(t)) return 'petrol';
+  if (/\bgpl\b|\blpg\b|autogas/.test(t)) return 'lpg';
   return '';
 }
 
-function detectListingFuel(l: ScrapedListing, adapter: SiteAdapter): { canonical: string; isPhev: boolean } {
-  const title = l.title ?? '';
-  const description = l.description ?? '';
-  const detect = adapter.inferFuel ?? fallbackInferFuel;
-  const raw = detect(title, description);
-  const canonical = raw === 'gpl' ? 'lpg' : raw;
-  const isPhev = PHEV_TOKENS.test((title + ' ' + description).toLowerCase());
-  return { canonical, isPhev };
+/** Per-listing fuel: prefer the structured attribute, fall back to title/desc. */
+function listingFuelCanonical(l: ScrapedListing, adapter: SiteAdapter): { canonical: string; source: 'structured' | 'text'; raw: string } {
+  const structured = (l.fuel ?? '').trim();
+  if (structured) return { canonical: canonicalizeFuel(structured), source: 'structured', raw: structured };
+  const detect = adapter.inferFuel ?? (() => '');
+  const fromText = detect(l.title ?? '', l.description ?? '');
+  const canonical = fromText ? canonicalizeFuel(fromText) : canonicalizeFuel(`${l.title ?? ''} ${l.description ?? ''}`);
+  return { canonical, source: 'text', raw: canonical || 'indétecté' };
 }
 
 // ─── Field-by-field confirmation ──────────────────────────────────────────────
@@ -203,9 +194,18 @@ export function confirmCriteriaAgainstSample(
     }
   };
 
-  // brand / model — token-aware matching (site model name ≠ title spelling)
+  // brand — prefer the structured brand attribute (titles often omit the make,
+  // e.g. "Megane E-Tech" with no "Renault"); fall back to token matching on
+  // the title. model — token-aware matching (site model name ≠ title spelling).
   const brand = declared(criteria.brand);
-  if (brand) pushMatch('brand', brand, (l) => brandMatchesTitle(l.title ?? '', brand));
+  if (brand) {
+    const structuredBrandCount = listings.filter((l) => (l.brand ?? '').trim().length > 0).length;
+    if (structuredBrandCount >= INGESTION_MIN_SAMPLE) {
+      out.push(confirmStructuredLabel('brand', brand, listings, (l) => l.brand ?? null, n));
+    } else {
+      pushMatch('brand', brand, (l) => brandMatchesTitle(l.title ?? '', brand));
+    }
+  }
   const model = declared(criteria.model);
   if (model) pushMatch('model', model, (l) => modelMatchesTitle(l.title ?? '', model));
   // trim — title + description (same sources as the study pipeline's matchesTrim)
@@ -216,39 +216,40 @@ export function confirmCriteriaAgainstSample(
       normalizeForMatch(`${l.title ?? ''} ${l.description ?? ''}`).includes(trimNorm));
   }
 
-  // fuel — language-aware detector over full sample (a listing whose fuel is
-  // undetectable counts AGAINST confirmation, by design: certainty or nothing)
+  // fuel — prefer the seller-declared structured attribute; fall back to
+  // title/description text only when the parser couldn't read it. A listing
+  // whose fuel can't be established counts AGAINST confirmation (certainty
+  // or nothing).
   const fuel = declared(criteria.fuel);
   if (fuel) {
-    if (insufficientSample) {
+    const declaredCanon = canonicalizeFuel(fuel);
+    const structuredCount = listings.filter((l) => (l.fuel ?? '').trim().length > 0).length;
+    const useStructured = structuredCount >= INGESTION_MIN_SAMPLE;
+    const pool = useStructured ? listings.filter((l) => (l.fuel ?? '').trim().length > 0) : listings;
+    const method: 'structured' | 'text' = useStructured ? 'structured' : 'text';
+
+    if (pool.length < INGESTION_MIN_SAMPLE) {
       out.push({
-        field: 'fuel', declaredValue: fuel, status: 'rejected', matchCount: 0, sampleSize: n,
-        method: 'text', reason: `échantillon insuffisant (${n} annonces < ${INGESTION_MIN_SAMPLE})`,
+        field: 'fuel', declaredValue: fuel, status: 'rejected', matchCount: 0, sampleSize: pool.length,
+        method, reason: `données insuffisantes (${pool.length} annonces exploitables < ${INGESTION_MIN_SAMPLE})`,
       });
     } else {
-      const canonical = DECLARED_FUEL_TO_CANONICAL[fuel.toUpperCase()] ?? normalizeForMatch(fuel);
       let matchCount = 0;
       const seen: Record<string, number> = {};
-      for (const l of listings) {
-        const { canonical: got, isPhev } = detectListingFuel(l, adapter);
-        const label = got || 'indétecté';
-        seen[label] = (seen[label] ?? 0) + 1;
-        if (canonical === 'phev') {
-          // Strict: PHEV only confirmed on explicit plug-in evidence, a plain
-          // 'hybrid' detection is NOT enough (sites separate the two facets).
-          if (isPhev) matchCount++;
-        } else if (got && got === canonical) {
-          matchCount++;
-        }
+      for (const l of pool) {
+        const { canonical, raw } = listingFuelCanonical(l, adapter);
+        seen[raw] = (seen[raw] ?? 0) + 1;
+        // PHEV is strict: a plain 'hybrid' never satisfies a declared plug-in.
+        if (canonical && canonical === declaredCanon) matchCount++;
       }
-      const rate = matchCount / n;
+      const rate = matchCount / pool.length;
       if (rate >= INGESTION_CONFIRM_THRESHOLD) {
-        out.push({ field: 'fuel', declaredValue: fuel, status: 'confirmed', matchCount, sampleSize: n, method: 'text' });
+        out.push({ field: 'fuel', declaredValue: fuel, status: 'confirmed', matchCount, sampleSize: pool.length, method });
       } else {
-        const dist = Object.entries(seen).map(([k, v]) => `${v}/${n} ${k}`).join(', ');
+        const dist = Object.entries(seen).map(([k, v]) => `${v}× ${k}`).join(', ');
         out.push({
-          field: 'fuel', declaredValue: fuel, status: 'rejected', matchCount, sampleSize: n, method: 'text',
-          reason: `échantillon: ${dist} vs déclaré ${fuel} — ${pct(matchCount, n)} < ${INGESTION_CONFIRM_THRESHOLD * 100}%`,
+          field: 'fuel', declaredValue: fuel, status: 'rejected', matchCount, sampleSize: pool.length, method,
+          reason: `${method === 'structured' ? 'structuré' : 'texte'}: ${dist} vs déclaré ${fuel} — ${pct(matchCount, pool.length)} < ${INGESTION_CONFIRM_THRESHOLD * 100}%`,
         });
       }
     }

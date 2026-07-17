@@ -30,14 +30,18 @@ extraits des attributs `__NEXT_DATA__` par le parser Leboncoin (lecteur
 robuste tolérant forme tableau `[{key,value,value_label}]` ET forme objet).
 La page Ingestion les confirme en méthode "structured".
 
+FAIT AUSSI (juillet 2026) : marque + carburant confirmés en STRUCTURÉ sur
+Leboncoin (attributs `brand`/`fuel` de `__NEXT_DATA__`), avec repli texte. Ça
+règle les cas fréquents où le titre omet la marque ("Megane E-Tech" sans
+"Renault") ou l'énergie. `canonicalizeFuel` gère FR/NL/DA + badges moteur
+(TDI/TSI…) et sépare hybride vs hybride rechargeable (PHEV strict).
+
 RESTE À FAIRE : les parsers **Marktplaats et Bilbasen** ne peuplent pas encore
-ces champs (extraction par regex de cards, pas de JSON structuré fiable). Donc
-sur ces deux sites, tout champ secondaire déclaré ressort "jeté — données
-structurées insuffisantes". C'est honnête (on ne confirme pas ce qu'on ne lit
-pas) mais il faudra ajouter leur extraction structurée pour que l'ingestion de
-ces filtres marche hors Leboncoin. Note aussi : le carburant sur Leboncoin est
-encore confirmé par TEXTE (titre) alors que l'attribut structuré existe
-maintenant — on pourrait le basculer en structured pour plus de fiabilité.
+les champs structurés (marque/carburant/boîte/puissance…) — extraction par
+regex de cards, pas de JSON structuré fiable. Donc sur ces deux sites, marque
+et carburant retombent sur le TEXTE du titre (moins fiable) et les champs
+secondaires ressortent "jeté — données structurées insuffisantes". Il faudra
+ajouter leur extraction structurée pour parité avec Leboncoin.
 
 ## 2bis. Génération d'URL depuis les mappings secondaires appris
 
