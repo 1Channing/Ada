@@ -26,6 +26,7 @@ import {
   type StudyCriteria,
 } from '../src/lib/study-core/index';
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
+import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
 import { StudyLogger } from './studyLogger';
 
@@ -65,13 +66,17 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
     browserHtml: true,
   };
 
-  if (profileLevel >= 2 && url.includes('marktplaats.nl')) {
-    requestBody.geolocation = 'NL';
-    requestBody.javascript = true;
-  }
-
-  if (profileLevel >= 3 && url.includes('marktplaats.nl')) {
-    requestBody.actions = [{ action: 'waitForTimeout', timeout: 2.0 }];
+  // Per-site anti-bot profile, declared by the site adapter (geolocation, JS
+  // rendering, settle waits). Replaces the old hardcoded Marktplaats-only
+  // escalation so every site — incl. Cloudflare-protected AutoScout — gets its
+  // own profile without touching this function. `profileLevel` maps 1:1 to the
+  // adapter's `attempt` (Marktplaats escalates at >=2/>=3, as before).
+  const adapter = findSiteAdapterByDomain(url);
+  if (adapter?.getFetchProfile) {
+    const profile = adapter.getFetchProfile(profileLevel);
+    if (profile.geolocation) requestBody.geolocation = profile.geolocation;
+    if (profile.javascript) requestBody.javascript = profile.javascript;
+    if (profile.actions && profile.actions.length > 0) requestBody.actions = profile.actions;
   }
 
   // STEP 1 DIAGNOSTIC: Log fetch target for Marktplaats (search URLs only)

@@ -256,11 +256,15 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
   }
 
   function getFetchProfile(attempt: number): ZyteProfileOverrides {
-    // AS24 is JS-rendered and Cloudflare-protected → always render, geolocate
-    // to the country, and add a settle wait on escalation.
-    const profile: ZyteProfileOverrides = { javascript: true, geolocation: cfg.countryCode };
-    if (attempt >= 1) profile.actions = [{ action: 'waitForTimeout', timeout: 3 }];
-    return profile;
+    // AS24 is JS-rendered and Cloudflare-protected. browserHtml (set by the
+    // caller) drives Zyte's headless browser; we geolocate to the country and
+    // add a settle wait EVERY attempt so Cloudflare's JS challenge resolves
+    // before the HTML is captured (longer on escalation).
+    return {
+      javascript: true,
+      geolocation: cfg.countryCode,
+      actions: [{ action: 'waitForTimeout', timeout: attempt >= 2 ? 8 : 5 }],
+    };
   }
 
   // ─── Ingestion support ──────────────────────────────────────────────────────
