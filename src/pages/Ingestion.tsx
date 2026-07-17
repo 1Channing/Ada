@@ -468,13 +468,19 @@ export function Ingestion() {
                 className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Votre nom (audit, optionnel)</label>
+              <label className={`block text-xs mb-1 ${form.submittedBy.trim() ? 'text-zinc-400' : 'text-amber-400/90'}`}>
+                Votre nom {form.submittedBy.trim() ? '(audit, optionnel)' : '— pense à te sélectionner'}
+              </label>
               <input
                 value={form.submittedBy}
                 onChange={setField('submittedBy')}
                 list="known-contributors"
                 placeholder="Choisir ou saisir…"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className={`w-full bg-zinc-950 rounded-lg px-3 py-2 text-sm focus:outline-none border transition-colors ${
+                  form.submittedBy.trim()
+                    ? 'border-zinc-700 focus:border-blue-500'
+                    : 'border-amber-600/60 ring-1 ring-amber-600/25 focus:border-amber-500'
+                }`} />
               <datalist id="known-contributors">
                 {knownNames.map((n) => <option key={n} value={n} />)}
               </datalist>
