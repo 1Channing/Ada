@@ -78,7 +78,24 @@ publique câblée : path `/lst/{marque}/{modèle}`, `cy`, `fregfrom/to`, `kmto`,
 `fuel` (B/D/E/2/3/L/C), `gear` (A/M/S), `powerfrom`. Parser `__NEXT_DATA__`
 tolérant + parser routé par hostname `autoscout24.*`. Smoke test 24/24.
 
-RESTE À FAIRE :
+BLOCAGE ANTI-BOT CONSTATÉ (juillet 2026, logs Railway) : AutoScout renvoie sa
+page **« Error Pages » (HTTP 200, ~20-28 KB, 0 annonce, 0 €)** aux requêtes
+Zyte, en mode raw (`httpResponseBody`) ET navigateur (`browserHtml`), sur les 4
+tentatives. Diagnostic worker `[AUTOSCOUT_RUNTIME]` : `next_data=false
+ld_json=true cf_challenge=false title="Error Pages"`. Donc PAS Cloudflare, PAS
+notre faux positif — un soft-block/cloaking (anti-bot type DataDome) : le même
+URL rend 50 annonces dans un vrai navigateur mais une page d'erreur pour Zyte.
+La génération d'URL / taxonomie / LinkGen d'AutoScout fonctionnent (ne
+dépendent pas du scraping) ; seule la RÉCOLTE est bloquée.
+Leviers réalistes (aucun n'est un simple tweak de code) :
+  1. Zyte proxies RÉSIDENTIELS / anti-ban premium (réglage compte Zyte, pas code).
+  2. Accepter le consentement CMP (Sourcepoint) via action navigateur Zyte —
+     incertain, l'« Error Pages » ne ressemble pas à un mur de consentement.
+  3. Trouver l'API interne AutoScout (GraphQL/REST) appelée par leur JS.
+  4. Déprioriser la récolte AutoScout, garder LBC/Marktplaats/Bilbasen (qui
+     marchent) et revenir avec une vraie solution anti-bot.
+
+RESTE À FAIRE (quand la récolte passera) :
 - **Calibrer le parser sur un vrai échantillon** : les clés `__NEXT_DATA__`
   (`props.pageProps.listings`, `vehicle.modelVersionInput`, `tracking.*`,
   `vehicleDetails[].iconName`) sont des hypothèses — AS24 est derrière
