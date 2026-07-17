@@ -69,6 +69,33 @@ exposer un échantillon d'attributs bruts dans la réponse `/ingest-url` en mode
 debug, et calibrer les clés (`version`, `vehicle_color`, etc.) sur un vrai
 sample. Quand Channing colle un échantillon ou un log worker, on ajuste.
 
+## 2quater. AutoScout24 — calibration parser + trim, puis mobile.de
+
+FAIT (juillet 2026) : adaptateur **AutoScout24** (classe « lisible », patron
+Leboncoin) enregistré en **6 instances pays** (FR/DE/NL/IT/ES/BE) via factory,
+chacune avec son `countryCode` → alimente la comparaison multi-pays. Taxonomie
+publique câblée : path `/lst/{marque}/{modèle}`, `cy`, `fregfrom/to`, `kmto`,
+`fuel` (B/D/E/2/3/L/C), `gear` (A/M/S), `powerfrom`. Parser `__NEXT_DATA__`
+tolérant + parser routé par hostname `autoscout24.*`. Smoke test 24/24.
+
+RESTE À FAIRE :
+- **Calibrer le parser sur un vrai échantillon** : les clés `__NEXT_DATA__`
+  (`props.pageProps.listings`, `vehicle.modelVersionInput`, `tracking.*`,
+  `vehicleDetails[].iconName`) sont des hypothèses — AS24 est derrière
+  Cloudflare, non atteignable au design. Le parser logge `first listing keys`
+  et `parser_failed_on_html` : au 1er scrape Railway, lire ces logs et ajuster
+  les chemins si besoin. Channing colle un lien AS24 filtré → on cale.
+- **Trim non injecté dans l'URL** : AS24 n'a pas de filtre texte-libre fiable ;
+  la finition est confirmée sur le texte des annonces (warning émis), pas dans
+  l'URL générée. Explorer `body`/équipements si besoin plus tard.
+- **PHEV vs hybride** : `fuel=2` couvre l'hybride essence ; le plug-in strict
+  a un flag séparé chez AS24 (non câblé) — PHEV retombe sur `2` pour l'instant.
+- **mobile.de (2.a, à suivre)** : classe ID opaque (`makeId`/`modelId`
+  numériques), patron Marktplaats — marque/modèle appris à l'ingestion, pas de
+  seed. Carburant (`fuels` PETROL/DIESEL/…), boîte (`transmission`), année
+  (`minFirstRegistrationDate` YYYY-MM-DD), km (`maxMileage`) mappables direct.
+  Option seed via harvest-worker (Zyte atteint mobile.de) si on veut amorcer.
+
 ## 3. Reconstruction d'URL path-based depuis la mémoire (Marktplaats)
 
 L'ingestion mémorise les IDs de taxonomie Marktplaats

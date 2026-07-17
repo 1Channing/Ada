@@ -13,9 +13,10 @@ import * as marktplaats from './marktplaats';
 import * as leboncoin from './leboncoin';
 import * as gaspedaal from './gaspedaal';
 import * as bilbasen from './bilbasen';
+import * as autoscout24 from './autoscout24';
 import * as generic from './generic';
 
-export type MarketplaceParser = 'MARKTPLAATS' | 'LEBONCOIN' | 'GASPEDAAL' | 'BILBASEN' | 'GENERIC';
+export type MarketplaceParser = 'MARKTPLAATS' | 'LEBONCOIN' | 'GASPEDAAL' | 'BILBASEN' | 'AUTOSCOUT' | 'GENERIC';
 
 /**
  * Select parser based on URL hostname (deterministic)
@@ -40,6 +41,12 @@ export function selectParserByHostname(url: string): MarketplaceParser {
 
   if (hostname === 'www.bilbasen.dk' || hostname === 'bilbasen.dk') {
     return 'BILBASEN';
+  }
+
+  // AutoScout24 is one Next.js app served on many country TLDs
+  // (autoscout24.fr/.de/.nl/.it/.es/.be/.com) — all use the same parser.
+  if (hostname.includes('autoscout24.')) {
+    return 'AUTOSCOUT';
   }
 
   return 'GENERIC';
@@ -67,6 +74,8 @@ export function coreParseSearchPage(html: string, url: string): ScrapedListing[]
       return gaspedaal.parseListings(html, url);
     case 'BILBASEN':
       return bilbasen.parseListings(html, url);
+    case 'AUTOSCOUT':
+      return autoscout24.parseListings(html, url);
     case 'GENERIC':
       return generic.parseListings(html, url);
     default:

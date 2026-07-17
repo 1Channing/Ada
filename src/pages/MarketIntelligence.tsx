@@ -17,8 +17,12 @@ const GRID = '#27272a';
 const AXIS = '#a1a1aa';
 // Distinct, well-separated hues for the (up to 3) compared studies.
 const STUDY_COLORS = ['#3987e5', '#d95926', '#199e70'];
-const COUNTRY_COLOR: Record<string, string> = { FR: '#3987e5', NL: '#d95926', DK: '#199e70' };
-const COUNTRY_FLAG: Record<string, string> = { FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰' };
+const COUNTRY_COLOR: Record<string, string> = {
+  FR: '#3987e5', NL: '#d95926', DK: '#199e70', DE: '#c98500', IT: '#d55181', ES: '#9085e9', BE: '#e66767',
+};
+const COUNTRY_FLAG: Record<string, string> = {
+  FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
+};
 const FUEL_TOKENS: FuelToken[] = ['petrol', 'diesel', 'hybrid', 'mild_hybrid', 'phev', 'electric', 'hydrogen', 'cng', 'lpg'];
 
 const STUDIES_KEY = 'ada_market_studies';
