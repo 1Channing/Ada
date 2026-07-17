@@ -339,6 +339,42 @@ export type Database = {
         }
         Relationships: []
       }
+      linkgen_enum_mappings: {
+        Row: {
+          id: string
+          site: string
+          field: string
+          code: string
+          label: string
+          confirmations: number
+          created_at: string
+          updated_at: string
+          last_confirmed_at: string
+        }
+        Insert: {
+          id?: string
+          site: string
+          field: string
+          code: string
+          label: string
+          confirmations?: number
+          created_at?: string
+          updated_at?: string
+          last_confirmed_at?: string
+        }
+        Update: {
+          id?: string
+          site?: string
+          field?: string
+          code?: string
+          label?: string
+          confirmations?: number
+          created_at?: string
+          updated_at?: string
+          last_confirmed_at?: string
+        }
+        Relationships: []
+      }
       linkgen_ingestion_events: {
         Row: {
           id: string

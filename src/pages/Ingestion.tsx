@@ -5,7 +5,7 @@ import { findSiteAdapterByDomain, decomposeUrl } from '../lib/study-core/marketp
 import type { SiteAdapter, SearchCriteria } from '../lib/study-core/marketplaces';
 import { analyzeIngestion, INGESTION_MIN_SAMPLE, INGESTION_CONFIRM_THRESHOLD } from '../lib/study-core/ingestion';
 import type { IngestionAnalysis } from '../lib/study-core/ingestion';
-import { persistIngestionResult } from '../lib/linkgen/ingestion';
+import { persistIngestionResult, loadLearnedEnums } from '../lib/linkgen/ingestion';
 import type { PersistIngestionOutcome } from '../lib/linkgen/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 
@@ -78,6 +78,7 @@ export function Ingestion() {
   const [urlError, setUrlError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [prefilled, setPrefilled] = useState<string[]>([]);
+  const [learned, setLearned] = useState<string[]>([]);
   const [phase, setPhase] = useState<'idle' | 'form' | 'scraping' | 'done'>('idle');
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [sample, setSample] = useState<ScrapedListing[]>([]);
@@ -87,12 +88,13 @@ export function Ingestion() {
   const setField = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const handleAnalyzeUrl = () => {
+  const handleAnalyzeUrl = async () => {
     setUrlError(null);
     setAnalysis(null);
     setOutcome(null);
     setScrapeError(null);
     setSample([]);
+    setLearned([]);
 
     const trimmedUrl = url.trim();
     if (!trimmedUrl) return;
@@ -126,6 +128,23 @@ export function Ingestion() {
       vehicleType: pre.vehicleType ? String(pre.vehicleType) : '',
     };
 
+    // Auto-recognise enum codes we've already learned (gearbox=2 → Automatique)
+    // for fields the readable prefill couldn't fill. Best-effort — a lookup
+    // failure never blocks the form.
+    const learnedFields: string[] = [];
+    try {
+      const segments = found.extractCandidateSegments?.(trimmedUrl) ?? [];
+      const learned = await loadLearnedEnums(found.key, segments);
+      for (const [field, label] of Object.entries(learned)) {
+        if (label && !next[field as keyof FormState]) {
+          (next[field as keyof FormState] as string) = label;
+          learnedFields.push(field);
+        }
+      }
+    } catch (e) {
+      console.warn('[INGESTION] learned-enum prefill failed:', e);
+    }
+
     setAdapter(found);
     setForm(next);
     setPrefilled(Object.entries({
@@ -134,6 +153,7 @@ export function Ingestion() {
       gearbox: next.gearbox, power: next.powerFrom, doors: next.doors,
       seats: next.seats, color: next.color, vehicleType: next.vehicleType,
     }).filter(([, v]) => v).map(([k]) => k));
+    setLearned(learnedFields);
     setPhase('form');
   };
 
@@ -279,6 +299,9 @@ export function Ingestion() {
             {prefilled.length > 0
               ? <> — champs pré-remplis depuis l'URL : <span className="text-emerald-400">{prefilled.join(', ')}</span>. Vérifiez et complétez.</>
               : <> — URL à identifiants opaques : saisissez les critères que vous aviez filtrés.</>}
+            {learned.length > 0 && (
+              <> <br />🧠 reconnus depuis un apprentissage précédent : <span className="text-sky-400">{learned.map((f) => FIELD_LABELS[f] ?? f).join(', ')}</span>.</>
+            )}
           </p>
         )}
       </div>

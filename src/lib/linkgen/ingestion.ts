@@ -241,6 +241,14 @@ export async function persistIngestionResult(
     }
   }
 
+  // Learn opaque enum codes (gearbox/color/vehicleType) → confirmed label,
+  // gated on the core taxonomy being confirmed so we never learn from an
+  // off-target sample. This is what lets a later ingestion auto-recognise the
+  // same code (e.g. gearbox=2 → Automatique) without the user re-declaring it.
+  if (canWriteMemory && analysis) {
+    await learnEnumMappings(site, analysis, criteria);
+  }
+
   // Audit event — always written, including scrape failures and memory errors.
   const retained = (analysis?.confirmations ?? [])
     .filter((c) => c.status === 'confirmed')
@@ -270,4 +278,87 @@ export async function persistIngestionResult(
   }
 
   return outcome;
+}
+
+// ─── Learned enum dictionary (opaque code ↔ confirmed label) ──────────────────
+
+/** Enum fields whose URL value is an opaque code worth learning. */
+const LEARNABLE_ENUM_FIELDS = ['gearbox', 'color', 'vehicleType'] as const;
+type LearnableEnumField = (typeof LEARNABLE_ENUM_FIELDS)[number];
+
+/**
+ * Persist confirmed enum code→label pairs. Reinforces on identical repeat;
+ * on a contradictory label for the same code, keeps the existing one (same
+ * "certain-or-nothing" philosophy as the mapping memory).
+ */
+async function learnEnumMappings(
+  site: string,
+  analysis: IngestionAnalysis,
+  criteria: SearchCriteria
+): Promise<void> {
+  const confirmed = new Set(analysis.confirmedFields);
+  const now = new Date().toISOString();
+
+  for (const field of LEARNABLE_ENUM_FIELDS) {
+    if (!confirmed.has(field)) continue;
+    const seg = analysis.inferredMapping.fieldToParam[field];
+    const label = String((criteria as unknown as Record<string, unknown>)[field] ?? '').trim();
+    if (!seg || !seg.rawValue || !label) continue;
+    const code = seg.rawValue;
+
+    const { data: existing } = await supabase
+      .from('linkgen_enum_mappings')
+      .select('id, label, confirmations')
+      .eq('site', site)
+      .eq('field', field)
+      .eq('code', code)
+      .maybeSingle();
+
+    if (!existing) {
+      await supabase.from('linkgen_enum_mappings').insert({
+        site, field, code, label, confirmations: 1,
+        last_confirmed_at: now, updated_at: now,
+      });
+    } else if (existing.label.toLowerCase() === label.toLowerCase()) {
+      await supabase
+        .from('linkgen_enum_mappings')
+        .update({
+          confirmations: (existing.confirmations ?? 0) + 1,
+          last_confirmed_at: now, updated_at: now,
+        })
+        .eq('id', existing.id);
+    } else {
+      // Contradiction (same code, different label) — keep existing, log only.
+      console.warn(`[INGESTION] enum conflict ${site}/${field}/${code}: kept "${existing.label}", ignored "${label}"`);
+    }
+  }
+}
+
+/**
+ * Look up already-learned enum labels for a pasted URL, so the Ingestion form
+ * can auto-fill fields the user has confirmed before. Returns a partial
+ * criteria patch ({ gearbox: 'Automatique', … }).
+ */
+export async function loadLearnedEnums(
+  site: string,
+  segments: Array<{ paramName: string; raw: string; guessField?: string }>
+): Promise<Partial<Record<LearnableEnumField, string>>> {
+  const out: Partial<Record<LearnableEnumField, string>> = {};
+  const enumSegs = segments.filter(
+    (s) => s.guessField && (LEARNABLE_ENUM_FIELDS as readonly string[]).includes(s.guessField)
+  );
+  if (enumSegs.length === 0) return out;
+
+  for (const seg of enumSegs) {
+    const field = seg.guessField as LearnableEnumField;
+    const { data } = await supabase
+      .from('linkgen_enum_mappings')
+      .select('label')
+      .eq('site', site)
+      .eq('field', field)
+      .eq('code', seg.raw)
+      .maybeSingle();
+    if (data?.label) out[field] = data.label;
+  }
+  return out;
 }
