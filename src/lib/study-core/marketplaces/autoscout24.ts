@@ -64,6 +64,12 @@ interface CountryCfg {
   countryCode: string; // ISO alpha-2 — matches linkgen_mapping_memory / snapshots
   domain: string;
   cy: string;         // AS24 country filter code
+  /**
+   * Locale path segment required by multilingual domains. Belgium (bilingual
+   * NL/FR) serves listings under /fr/lst or /nl/lst — the bare /lst returns an
+   * "Error Pages" template. Monolingual domains (.fr/.de/.nl/.it/.es) omit it.
+   */
+  pathPrefix?: string;
 }
 
 const COUNTRIES: CountryCfg[] = [
@@ -72,7 +78,7 @@ const COUNTRIES: CountryCfg[] = [
   { key: 'AUTOSCOUT_NL', country: 'Pays-Bas', countryCode: 'NL', domain: 'autoscout24.nl', cy: 'NL' },
   { key: 'AUTOSCOUT_IT', country: 'Italie', countryCode: 'IT', domain: 'autoscout24.it', cy: 'I' },
   { key: 'AUTOSCOUT_ES', country: 'Espagne', countryCode: 'ES', domain: 'autoscout24.es', cy: 'E' },
-  { key: 'AUTOSCOUT_BE', country: 'Belgique', countryCode: 'BE', domain: 'autoscout24.be', cy: 'B' },
+  { key: 'AUTOSCOUT_BE', country: 'Belgique', countryCode: 'BE', domain: 'autoscout24.be', cy: 'B', pathPrefix: '/fr' },
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -174,7 +180,7 @@ function scoreSample(sample: SampleListing[], params: SearchCriteria, url: strin
 
 function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
   const URL_TEMPLATE =
-    `https://www.${cfg.domain}/lst/{brand}/{model}` +
+    `https://www.${cfg.domain}${cfg.pathPrefix ?? ''}/lst/{brand}/{model}` +
     `?atype=C&cy=${cfg.cy}&fregfrom={yearFrom}&fregto={yearTo}&kmto={mileage}` +
     `&fuel={fuel}&sort=price&desc=0&ustate=N,U`;
 
@@ -186,7 +192,7 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     const segs = ['lst'];
     if (brandSlug) segs.push(brandSlug);
     if (brandSlug && modelSlug) segs.push(modelSlug);
-    const path = '/' + segs.join('/');
+    const path = (cfg.pathPrefix ?? '') + '/' + segs.join('/');
 
     const qs = new URLSearchParams();
     qs.set('atype', 'C');
