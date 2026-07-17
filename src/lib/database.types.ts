@@ -339,6 +339,126 @@ export type Database = {
         }
         Relationships: []
       }
+      market_snapshots: {
+        Row: {
+          id: string
+          site: string
+          country: string
+          brand: string
+          model: string
+          fuel: string
+          trim: string
+          scraped_at: string
+          listing_count: number | null
+          sample_size: number
+          price_min: number | null
+          price_p25: number | null
+          price_median: number | null
+          price_p75: number | null
+          price_max: number | null
+          price_avg: number | null
+          currency: string
+          source_url: string | null
+          submitted_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          site: string
+          country?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          trim?: string
+          scraped_at?: string
+          listing_count?: number | null
+          sample_size?: number
+          price_min?: number | null
+          price_p25?: number | null
+          price_median?: number | null
+          price_p75?: number | null
+          price_max?: number | null
+          price_avg?: number | null
+          currency?: string
+          source_url?: string | null
+          submitted_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          site?: string
+          country?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          trim?: string
+          scraped_at?: string
+          listing_count?: number | null
+          sample_size?: number
+          price_min?: number | null
+          price_p25?: number | null
+          price_median?: number | null
+          price_p75?: number | null
+          price_max?: number | null
+          price_avg?: number | null
+          currency?: string
+          source_url?: string | null
+          submitted_by?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      market_listing_observations: {
+        Row: {
+          id: string
+          snapshot_id: string
+          site: string
+          brand: string
+          model: string
+          fuel: string
+          trim: string
+          internal_ref: string
+          price: number | null
+          year: number | null
+          mileage: number | null
+          currency: string
+          scraped_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          snapshot_id: string
+          site: string
+          brand?: string
+          model?: string
+          fuel?: string
+          trim?: string
+          internal_ref: string
+          price?: number | null
+          year?: number | null
+          mileage?: number | null
+          currency?: string
+          scraped_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          snapshot_id?: string
+          site?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          trim?: string
+          internal_ref?: string
+          price?: number | null
+          year?: number | null
+          mileage?: number | null
+          currency?: string
+          scraped_at?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       linkgen_enum_mappings: {
         Row: {
           id: string

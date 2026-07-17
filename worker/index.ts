@@ -89,6 +89,7 @@ app.post('/ingest-url', async (req, res) => {
         ...l,
         description: (l.description || '').slice(0, 500),
       })),
+      totalCount: result.totalCount ?? null,
       error: result.error ?? null,
       errorReason: result.errorReason ?? null,
     });

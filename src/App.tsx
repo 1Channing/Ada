@@ -6,6 +6,7 @@ import { AdminHistory } from './pages/AdminHistory';
 import { LinkGenerator } from './pages/LinkGenerator';
 import { Ingestion } from './pages/Ingestion';
 import { IngestionHistory } from './pages/IngestionHistory';
+import { MarketIntelligence } from './pages/MarketIntelligence';
 
 const originalPushState = window.history.pushState.bind(window.history);
 window.history.pushState = function(...args) {
@@ -45,6 +46,9 @@ function App() {
     }
     if (path === '/ingestion/history') {
       return <IngestionHistory />;
+    }
+    if (path === '/market') {
+      return <MarketIntelligence />;
     }
     return <StudiesV2 />;
   };

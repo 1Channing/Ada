@@ -147,12 +147,36 @@ async function scrapeDetailPage(listingUrl: string): Promise<DetailPageData | nu
 }
 
 /**
+ * Extract the total result count the marketplace advertises on the page
+ * ("X annonces" / "X advertenties" / "X resultater"). Best-effort — returns
+ * null when not found. Powers the market-depth metric (the parsed sample is
+ * only page 1, so it undercounts the real depth).
+ */
+function extractTotalCount(html: string): number | null {
+  const text = html.replace(/<[^>]+>/g, ' ');
+  const patterns = [
+    /([\d][\d\s. ]*)\s*(?:annonces?|résultats?|resultats?)/i,   // FR
+    /([\d][\d\s. ]*)\s*(?:advertenties?|resultaten|zoekresultaten)/i, // NL
+    /([\d][\d\s. ]*)\s*(?:resultater|biler|annoncer)/i,          // DA
+  ];
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m) {
+      const n = parseInt(m[1].replace(/[^\d]/g, ''), 10);
+      if (Number.isFinite(n) && n > 0 && n < 5_000_000) return n;
+    }
+  }
+  return null;
+}
+
+/**
  * Scrape a marketplace URL and parse listings.
  * Exported for the /ingest-url endpoint (discovery scrape) — same fetch,
  * retries, profile escalation and parsing as study execution.
  */
 export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed'): Promise<{
   listings: ScrapedListing[];
+  totalCount?: number | null;
   error?: string;
   errorReason?: string;
 }> {
@@ -196,7 +220,7 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
 
     if (listings.length > 0) {
       console.log(`[WORKER_SCRAPER] ✅ Parsed ${listings.length} listings`);
-      return { listings };
+      return { listings, totalCount: extractTotalCount(html) };
     }
 
     // Check for blocked content

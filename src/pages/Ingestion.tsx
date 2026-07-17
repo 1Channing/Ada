@@ -8,6 +8,7 @@ import type { IngestionAnalysis } from '../lib/study-core/ingestion';
 import { persistIngestionResult, loadLearnedEnums } from '../lib/linkgen/ingestion';
 import type { PersistIngestionOutcome } from '../lib/linkgen/ingestion';
 import { loadContributorNames } from '../services/ingestionHistory';
+import { writeMarketSnapshot } from '../services/marketData';
 import type { ScrapedListing } from '../lib/study-core/types';
 
 const FUEL_OPTIONS = [
@@ -327,6 +328,28 @@ export function Ingestion() {
         submittedBy: form.submittedBy.trim() || undefined,
       });
       setOutcome(persistResult);
+
+      // Record a market snapshot only for a confirmed segment (brand + model),
+      // so market intelligence data is attributed to a known vehicle — same
+      // certainty bar as the mapping memory. Best-effort, never blocks the UX.
+      const confirmed = new Set(result.confirmedFields);
+      if (confirmed.has('brand') && confirmed.has('model') && listings.length > 0) {
+        writeMarketSnapshot({
+          segment: {
+            site: adapter.key,
+            country: adapter.countryCode,
+            brand: form.brand.trim().toUpperCase(),
+            model: form.model.trim().toUpperCase(),
+            fuel: confirmed.has('fuel') ? (form.fuel || '').toUpperCase() : '',
+            trim: confirmed.has('trim') ? form.trim.trim() : '',
+          },
+          listings,
+          totalCount: (data?.totalCount ?? null) as number | null,
+          sourceUrl: url.trim(),
+          submittedBy: form.submittedBy.trim() || undefined,
+        }).catch((e) => console.warn('[MARKET] snapshot write failed:', e));
+      }
+
       setPhase('done');
     } catch (err) {
       setScrapeError(err instanceof Error ? err.message : String(err));

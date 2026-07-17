@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Link2, Upload, History } from 'lucide-react';
+import { Link2, Upload, History, LineChart } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 
 type LayoutProps = {
@@ -80,6 +80,17 @@ export function Layout({ children }: LayoutProps) {
           >
             <History className="w-4 h-4" />
             Historique
+          </button>
+          <button
+            onClick={() => navigateTo('/market')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              currentPath === '/market'
+                ? 'bg-blue-600 text-white'
+                : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+            }`}
+          >
+            <LineChart className="w-4 h-4" />
+            Market Intelligence
           </button>
         </div>
       </nav>
