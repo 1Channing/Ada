@@ -112,6 +112,23 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
       ? (data.httpResponseBody ? Buffer.from(data.httpResponseBody, 'base64').toString('utf-8') : null)
       : (data.browserHtml || null);
 
+    // AUTOSCOUT DIAGNOSTIC: reveal what Zyte actually returned so we can tell a
+    // real block from a false positive, and see where the data lives.
+    if (url.includes('autoscout24.')) {
+      const raw = html ?? '';
+      const title = (raw.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? '').slice(0, 90).replace(/\s+/g, ' ');
+      const preview = raw.slice(0, 300).replace(/\s+/g, ' ');
+      const priceHits = (raw.match(/€/g) ?? []).length;
+      console.log(
+        `[AUTOSCOUT_RUNTIME] status=${response.status} mode=${useRawHtml ? 'raw' : 'browser'} len=${raw.length} ` +
+        `next_data=${raw.includes('__NEXT_DATA__')} next_f=${raw.includes('__next_f')} ` +
+        `ld_json=${raw.includes('application/ld+json')} ` +
+        `initial_state=${/window\.__INITIAL|__NUXT__|__APOLLO_STATE__/.test(raw)} ` +
+        `cf_challenge=${/just a moment|cf-browser-verification|challenge-platform|cf_chl/i.test(raw)} ` +
+        `euro_signs=${priceHits} title="${title}" preview="${preview}"`
+      );
+    }
+
     // STEP 1 DIAGNOSTIC: Log response for Marktplaats (search URLs only)
     if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s') || url.includes('/lrp/api/'))) {
       const contentType = response.headers.get('content-type') || 'unknown';

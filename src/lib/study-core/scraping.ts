@@ -41,19 +41,31 @@ export const DEFAULT_SCRAPING_CONFIG: ScrapingConfig = {
 /**
  * Keywords that indicate blocked/captcha pages
  */
+// Unambiguous anti-bot / challenge signatures — these only appear on an actual
+// block or challenge page, so any match means blocked.
 export const BLOCKED_KEYWORDS = [
   'captcha',
   'recaptcha',
   'hcaptcha',
   'access denied',
-  'blocked',
   'bot detection',
   'unusual traffic',
   'not a robot',
-  'security check',
   'verify you are human',
-  'cloudflare',
+  'just a moment',            // Cloudflare challenge <title>
+  'attention required',       // Cloudflare block page
+  'cf-browser-verification',
+  'challenge-platform',
+  'cf_chl_opt',
 ];
+
+// Ambiguous tokens that ALSO appear on legitimate pages: "cloudflare" is a
+// ubiquitous CDN referenced in asset URLs / cf-* attributes on every page it
+// fronts (AutoScout!), and "blocked"/"security check" show up in normal copy.
+// These only signal a block on a SMALL page (a real challenge page is tiny; a
+// real results page is hundreds of KB). This kills the AutoScout false positive.
+const WEAK_BLOCK_KEYWORDS = ['cloudflare', 'blocked', 'security check'];
+const WEAK_BLOCK_MAX_HTML = 50_000;
 
 /**
  * Detect if HTML content indicates a blocked page
@@ -72,28 +84,29 @@ export function detectBlockedContent(
 } {
   const lowerHtml = html.toLowerCase();
 
-  // Check for explicit blocked keywords
+  // Strong signatures → always a block/challenge.
   for (const keyword of BLOCKED_KEYWORDS) {
     if (lowerHtml.includes(keyword)) {
-      return {
-        isBlocked: true,
-        matchedKeyword: keyword,
-        reason: 'keyword_match',
-      };
+      return { isBlocked: true, matchedKeyword: keyword, reason: 'keyword_match' };
     }
   }
 
-  // If no listings found, check for suspicious patterns
-  if (!hasListings) {
-    const suspiciousPatterns = ['robot', 'access denied', 'blocked', 'security', 'verification'];
+  // Ambiguous tokens → only trust them on a small page (a real results page is
+  // large and just references Cloudflare assets; a challenge page is tiny).
+  if (html.length < WEAK_BLOCK_MAX_HTML) {
+    for (const keyword of WEAK_BLOCK_KEYWORDS) {
+      if (lowerHtml.includes(keyword)) {
+        return { isBlocked: true, matchedKeyword: keyword, reason: 'weak_keyword_small_page' };
+      }
+    }
+  }
 
+  // If no listings found on a small page, check for other suspicious patterns.
+  if (!hasListings && html.length < WEAK_BLOCK_MAX_HTML) {
+    const suspiciousPatterns = ['robot', 'access denied', 'verification'];
     for (const pattern of suspiciousPatterns) {
-      if (lowerHtml.includes(pattern) && html.length < 50000) {
-        return {
-          isBlocked: true,
-          matchedKeyword: pattern,
-          reason: 'no_listings_with_suspicious_content',
-        };
+      if (lowerHtml.includes(pattern)) {
+        return { isBlocked: true, matchedKeyword: pattern, reason: 'no_listings_with_suspicious_content' };
       }
     }
   }
