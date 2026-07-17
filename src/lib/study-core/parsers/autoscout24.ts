@@ -77,9 +77,13 @@ function looksLikeListing(o: any): boolean {
   return hasId && hasVehicleish;
 }
 
-// Find the largest array of listing-like objects anywhere in the __NEXT_DATA__
-// tree. AutoScout's exact path (`pageProps.listings`) varies / can be nested,
-// so instead of guessing every shape we scan for the array that holds them.
+// Keys whose subtree holds OFF-TARGET cars (recommendations, similar-vehicle
+// carousels, sponsored/interlinking blocks). The deep search must never descend
+// into these — grabbing them pollutes a study with cars the user didn't search.
+const OFF_TARGET_KEY = /recommend|similar|suggest|sponsor|interlink|\bocs\b/i;
+
+// Last-resort: find the largest array of listing-like objects in the tree,
+// skipping off-target branches. Only used when no explicit results path exists.
 function findListingsArray(root: any): any[] | null {
   let best: any[] | null = null;
   const seen = new Set<any>();
@@ -95,7 +99,11 @@ function findListingsArray(root: any): any[] | null {
       if (hits > 0 && hits >= Math.floor(cur.length / 2) && (!best || cur.length > best.length)) best = cur;
       for (const v of cur) if (v && typeof v === 'object') stack.push(v);
     } else {
-      for (const k in cur) { const v = (cur as any)[k]; if (v && typeof v === 'object') stack.push(v); }
+      for (const k in cur) {
+        if (OFF_TARGET_KEY.test(k)) continue;
+        const v = (cur as any)[k];
+        if (v && typeof v === 'object') stack.push(v);
+      }
     }
   }
   return best;
@@ -135,29 +143,40 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
   }
 
   const pageProps = data?.props?.pageProps ?? {};
-  const candidatePaths = [
-    pageProps.listings,
-    pageProps.searchResults?.listings,
-    pageProps.initialState?.listings,
-    pageProps.listingsData?.listings,
-    pageProps.data?.listings,
-    pageProps.results,
-  ];
+
+  // `pageProps.listings` is the AUTHORITATIVE search-result set. An empty array
+  // means 0 results (e.g. no 2021 Ignis in DE) — we return empty and must NOT
+  // fall back to recommendation / similar-vehicle carousels, which would
+  // pollute the study with off-target cars.
   let ads: any[] = [];
-  for (const p of candidatePaths) {
-    if (Array.isArray(p) && p.length > 0) { ads = p; break; }
+  let source = '';
+  if (Array.isArray(pageProps.listings)) {
+    ads = pageProps.listings;
+    source = 'pageProps.listings';
+  } else {
+    // 'listings' key absent → try other explicit result paths, then a guarded
+    // tree scan (which skips off-target branches).
+    const explicit: [string, any][] = [
+      ['searchResults.listings', pageProps.searchResults?.listings],
+      ['data.listings', pageProps.data?.listings],
+      ['listingsData.listings', pageProps.listingsData?.listings],
+      ['results', pageProps.results],
+    ];
+    for (const [name, p] of explicit) {
+      if (Array.isArray(p)) { ads = p; source = name; break; }
+    }
+    if (ads.length === 0 && source === '') {
+      const found = findListingsArray(pageProps);
+      if (found) { ads = found; source = 'deep-search'; }
+    }
   }
-  // Fallback: scan the whole tree for the listings array (shape-agnostic).
+
   if (ads.length === 0) {
-    ads = findListingsArray(pageProps) ?? findListingsArray(data) ?? [];
-  }
-  if (ads.length === 0) {
-    console.warn('[AUTOSCOUT] ⚠️ No listings array found. pageProps keys:', Object.keys(pageProps).join(', '));
+    console.log(`[AUTOSCOUT] 0 search results (source=${source || 'none'}) — recommendations ignored. pageProps keys:`, Object.keys(pageProps).join(', '));
     return listings;
   }
 
-  // Calibration aid (see BACKLOG parser-diagnostics): report the first ad's keys.
-  console.log(`[AUTOSCOUT] found ${ads.length} listings; first keys:`, Object.keys(ads[0] ?? {}).join(', '));
+  console.log(`[AUTOSCOUT] found ${ads.length} listings via ${source}; first keys:`, Object.keys(ads[0] ?? {}).join(', '));
 
   const host = (() => { try { return new URL(url).origin; } catch { return 'https://www.autoscout24.com'; } })();
 
