@@ -413,6 +413,7 @@ export type Database = {
           id: string
           snapshot_id: string
           site: string
+          country: string
           brand: string
           model: string
           fuel: string
@@ -421,6 +422,9 @@ export type Database = {
           price: number | null
           year: number | null
           mileage: number | null
+          power_din: number | null
+          listing_url: string | null
+          title: string | null
           currency: string
           scraped_at: string
           created_at: string
@@ -429,6 +433,7 @@ export type Database = {
           id?: string
           snapshot_id: string
           site: string
+          country?: string
           brand?: string
           model?: string
           fuel?: string
@@ -437,6 +442,9 @@ export type Database = {
           price?: number | null
           year?: number | null
           mileage?: number | null
+          power_din?: number | null
+          listing_url?: string | null
+          title?: string | null
           currency?: string
           scraped_at?: string
           created_at?: string
@@ -445,6 +453,7 @@ export type Database = {
           id?: string
           snapshot_id?: string
           site?: string
+          country?: string
           brand?: string
           model?: string
           fuel?: string
@@ -453,6 +462,9 @@ export type Database = {
           price?: number | null
           year?: number | null
           mileage?: number | null
+          power_din?: number | null
+          listing_url?: string | null
+          title?: string | null
           currency?: string
           scraped_at?: string
           created_at?: string

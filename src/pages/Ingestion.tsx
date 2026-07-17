@@ -15,10 +15,13 @@ const FUEL_OPTIONS = [
   { value: '', label: '— non filtré —' },
   { value: 'ESSENCE', label: 'Essence' },
   { value: 'DIESEL', label: 'Diesel' },
-  { value: 'HYBRIDE', label: 'Hybride' },
+  { value: 'HYBRIDE', label: 'Hybride (complet)' },
+  { value: 'MILD_HYBRID', label: 'Hybride léger (MHEV)' },
   { value: 'PLUG_IN_HYBRID', label: 'Hybride rechargeable' },
   { value: 'ELECTRIQUE', label: 'Électrique' },
+  { value: 'HYDROGENE', label: 'Hydrogène' },
   { value: 'GPL', label: 'GPL' },
+  { value: 'GNV', label: 'GNV (gaz naturel)' },
 ];
 
 const FIELD_LABELS: Record<string, string> = {

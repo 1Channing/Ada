@@ -1,218 +1,219 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer, Cell, ComposedChart,
 } from 'recharts';
-import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, AlertTriangle } from 'lucide-react';
+import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, AlertTriangle, RotateCcw, ExternalLink } from 'lucide-react';
 import {
-  loadMarketData, computeVelocity, priceHistogram, segmentId, segmentLabel,
+  loadMarketData, filterObservations, distinctValues, priceStats, timeSeries,
+  priceHistogramFrom, velocityFromObservations, isCoarseOnly, fuelLabel,
 } from '../services/marketData';
-import type { MarketData, Snapshot, VelocityStat } from '../services/marketData';
+import type { MarketData, MarketFilters, Observation, VelocityStat } from '../services/marketData';
+import type { FuelToken } from '../lib/study-core/ingestion';
 
-// Validated dark-mode categorical palette (dataviz skill reference), fixed order.
 const SERIES = ['#3987e5', '#008300', '#d55181', '#c98500', '#199e70', '#d95926', '#9085e9', '#e66767'];
 const BLUE = SERIES[0];
 const GRID = '#27272a';
 const AXIS = '#a1a1aa';
-
 const COUNTRY_COLOR: Record<string, string> = { FR: '#3987e5', NL: '#d95926', DK: '#199e70' };
 const COUNTRY_FLAG: Record<string, string> = { FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰' };
+const FUEL_TOKENS: FuelToken[] = ['petrol', 'diesel', 'hybrid', 'mild_hybrid', 'phev', 'electric', 'hydrogen', 'cng', 'lpg'];
+
+const FILTERS_KEY = 'ada_market_filters';
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
 }
 function fmtEur(n: number | null | undefined): string {
-  return n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`;
+  return n == null || n === 0 ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`;
 }
-
-const tooltipStyle = {
-  background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12, color: '#e4e4e7',
-};
+const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12, color: '#e4e4e7' };
 
 export function MarketIntelligence() {
   const [data, setData] = useState<MarketData>({ snapshots: [], observations: [] });
   const [loading, setLoading] = useState(true);
-  const [selectedSeg, setSelectedSeg] = useState<string>('');
+  const [filters, setFilters] = useState<MarketFilters>(() => {
+    try { return JSON.parse(sessionStorage.getItem(FILTERS_KEY) || '{}'); } catch { return {}; }
+  });
+  const [priceBand, setPriceBand] = useState<{ from: number; to: number } | null>(null);
 
-  const refresh = async () => {
-    setLoading(true);
-    const d = await loadMarketData();
-    setData(d);
-    setLoading(false);
-  };
+  const refresh = async () => { setLoading(true); setData(await loadMarketData()); setLoading(false); };
   useEffect(() => { refresh(); }, []);
+  useEffect(() => { try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch { /* ignore */ } }, [filters]);
 
-  // Distinct segments present in the data.
-  const segments = useMemo(() => {
-    const map = new Map<string, { id: string; label: string; site: string; country: string; brand: string; model: string }>();
-    for (const s of data.snapshots) {
-      const id = segmentId(s);
-      if (!map.has(id)) map.set(id, { id, label: segmentLabel(s), site: s.site, country: s.country, brand: s.brand, model: s.model });
-    }
-    return [...map.values()].sort((a, b) => a.label.localeCompare(b.label));
-  }, [data]);
+  const set = (patch: Partial<MarketFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPriceBand(null); };
+  const reset = () => { setFilters({}); setPriceBand(null); };
 
-  useEffect(() => {
-    if (!selectedSeg && segments.length > 0) setSelectedSeg(segments[0].id);
-  }, [segments, selectedSeg]);
+  const obs = data.observations;
+  const filtered = useMemo(() => filterObservations(obs, filters), [obs, filters]);
 
-  const selected = segments.find((s) => s.id === selectedSeg);
+  // Cascading option lists (each respects the other active filters).
+  const opts = {
+    site: useMemo(() => distinctValues(obs, 'site', filters), [obs, filters]),
+    country: useMemo(() => distinctValues(obs, 'country', filters), [obs, filters]),
+    brand: useMemo(() => distinctValues(obs, 'brand', filters), [obs, filters]),
+    model: useMemo(() => distinctValues(obs, 'model', filters), [obs, filters]),
+    trim: useMemo(() => distinctValues(obs, 'trim', filters), [obs, filters]),
+    fuel: useMemo(() => distinctValues(obs, 'fuel', filters), [obs, filters]),
+  };
 
-  // Time series for the selected segment.
-  const segSnaps = useMemo(
-    () => data.snapshots.filter((s) => segmentId(s) === selectedSeg).sort((a, b) => a.scraped_at.localeCompare(b.scraped_at)),
-    [data, selectedSeg]
-  );
-  const depthSeries = segSnaps.map((s) => ({ date: fmtDate(s.scraped_at), count: s.listing_count ?? s.sample_size }));
-  const priceSeries = segSnaps.map((s) => ({
-    date: fmtDate(s.scraped_at),
-    median: s.price_median,
-    band: [s.price_p25, s.price_p75] as [number | null, number | null],
-  }));
+  const stats = useMemo(() => priceStats(filtered), [filtered]);
+  const series = useMemo(() => timeSeries(filtered).map((r) => ({
+    date: fmtDate(r.date), median: r.median, band: [r.p25, r.p75] as [number, number], count: r.count,
+  })), [filtered]);
 
-  // Latest snapshot observations → price distribution.
-  const latestSnap = segSnaps[segSnaps.length - 1] as Snapshot | undefined;
-  const histogram = useMemo(() => {
-    if (!latestSnap) return [];
-    const obs = data.observations.filter((o) => o.snapshot_id === latestSnap.id);
-    return priceHistogram(obs, 10);
-  }, [data, latestSnap]);
+  // Latest snapshot observations (for the price distribution + listings table).
+  const latestObs = useMemo(() => {
+    if (filtered.length === 0) return [];
+    const latestTs = Math.max(...filtered.map((o) => new Date(o.scraped_at).getTime()));
+    return filtered.filter((o) => Math.abs(new Date(o.scraped_at).getTime() - latestTs) < 60_000);
+  }, [filtered]);
+  const histogram = useMemo(() => priceHistogramFrom(latestObs, 12), [latestObs]);
 
-  // Country comparison for the selected brand+model (latest median per country).
   const countryCompare = useMemo(() => {
-    if (!selected) return [];
-    const byCountry = new Map<string, Snapshot>();
-    for (const s of data.snapshots) {
-      if (s.brand !== selected.brand || s.model !== selected.model) continue;
-      const prev = byCountry.get(s.country);
-      if (!prev || s.scraped_at > prev.scraped_at) byCountry.set(s.country, s);
-    }
-    return [...byCountry.entries()]
-      .map(([country, s]) => ({ country, median: s.price_median ?? 0, depth: s.listing_count ?? s.sample_size }))
-      .sort((a, b) => a.median - b.median);
-  }, [data, selected]);
+    const byCountry = new Map<string, Observation[]>();
+    for (const o of latestObs) { const a = byCountry.get(o.country) ?? []; a.push(o); byCountry.set(o.country, a); }
+    return [...byCountry.entries()].map(([country, list]) => ({ country, median: priceStats(list).median }))
+      .filter((c) => c.median > 0).sort((a, b) => a.median - b.median);
+  }, [latestObs]);
 
-  const velocity: VelocityStat[] = useMemo(() => computeVelocity(data).filter((v) => v.soldCount > 0), [data]);
+  const velocity = useMemo(() => velocityFromObservations(filtered).filter((v) => v.soldCount > 0), [filtered]);
 
-  const kpiLatestDepth = latestSnap?.listing_count ?? latestSnap?.sample_size ?? null;
-  const kpiLatestMedian = latestSnap?.price_median ?? null;
+  // Real market depth (site's reported total) for the coarse segment, latest.
+  const realDepth = useMemo(() => {
+    if (!filters.brand || !filters.model) return null;
+    const matching = data.snapshots.filter((s) =>
+      (!filters.site || s.site === filters.site) && (!filters.country || s.country === filters.country) &&
+      s.brand === filters.brand && s.model === filters.model && s.listing_count != null);
+    if (matching.length === 0) return null;
+    return matching.sort((a, b) => b.scraped_at.localeCompare(a.scraped_at))[0].listing_count;
+  }, [data, filters]);
+
+  // Listings table (latest snapshot, optionally narrowed to a clicked price bucket).
+  const tableRows = useMemo(() => {
+    let rows = latestObs;
+    if (priceBand) rows = rows.filter((o) => o.price != null && o.price >= priceBand.from && o.price <= priceBand.to);
+    return [...rows].sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 60);
+  }, [latestObs, priceBand]);
+
+  const activeFilterCount = Object.values(filters).filter((v) => v != null && v !== '').length;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-3">
-            <LineIcon className="w-6 h-6 text-blue-500" />
-            Market Intelligence
-          </h1>
-          <p className="text-zinc-400 mt-1 text-sm">
-            Profondeur, prix et vélocité du marché de l'occasion, construits à partir des ingestions confirmées.
-          </p>
+          <h1 className="text-2xl font-bold flex items-center gap-3"><LineIcon className="w-6 h-6 text-blue-500" /> Market Intelligence</h1>
+          <p className="text-zinc-400 mt-1 text-sm">Profondeur, prix et vélocité du marché — filtrable au grain de l'annonce, temps réel.</p>
         </div>
         <button onClick={refresh} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Rafraîchir
         </button>
       </div>
 
-      {data.snapshots.length === 0 ? (
+      {data.observations.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500">
-          Aucune donnée de marché pour l'instant. Chaque ingestion confirmée (marque + modèle) enregistre
-          un instantané ici — lance quelques ingestions et la donnée apparaîtra.
+          Aucune donnée de marché pour l'instant. Chaque ingestion confirmée enregistre les annonces ici.
         </div>
       ) : (
         <>
-          {/* Segment selector + KPIs */}
+          {/* Filter panel */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm text-zinc-400">Segment :</span>
-              <select
-                value={selectedSeg}
-                onChange={(e) => setSelectedSeg(e.target.value)}
-                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm min-w-[280px]"
-              >
-                {segments.map((s) => (
-                  <option key={s.id} value={s.id}>{COUNTRY_FLAG[s.country] ?? ''} {s.label} · {s.site}</option>
-                ))}
-              </select>
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-zinc-200 text-sm">Filtres {activeFilterCount > 0 && <span className="text-zinc-500 font-normal">· {activeFilterCount} actif{activeFilterCount > 1 ? 's' : ''}</span>}</h2>
+              <button onClick={reset} disabled={activeFilterCount === 0}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40">
+                <RotateCcw className="w-3.5 h-3.5" /> Réinitialiser
+              </button>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Kpi label="Instantanés" value={String(data.snapshots.length)} />
-              <Kpi label="Segments suivis" value={String(segments.length)} />
-              <Kpi label="Profondeur (dernier)" value={kpiLatestDepth != null ? String(kpiLatestDepth) : '—'} />
-              <Kpi label="Médian (dernier)" value={fmtEur(kpiLatestMedian)} />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Select label="Site" value={filters.site ?? ''} options={opts.site} onChange={(v) => set({ site: v || undefined })} />
+              <Select label="Pays" value={filters.country ?? ''} options={opts.country} onChange={(v) => set({ country: v || undefined })} flag />
+              <Select label="Marque" value={filters.brand ?? ''} options={opts.brand} onChange={(v) => set({ brand: v || undefined })} />
+              <Select label="Modèle" value={filters.model ?? ''} options={opts.model} onChange={(v) => set({ model: v || undefined })} />
+              <Select label="Finition" value={filters.trim ?? ''} options={opts.trim} onChange={(v) => set({ trim: v || undefined })} />
+              <SelectFuel label="Carburant" value={filters.fuel ?? ''} options={opts.fuel} onChange={(v) => set({ fuel: (v || undefined) as FuelToken | undefined })} />
+              <NumRange label="Année" from={filters.yearMin ?? undefined} to={filters.yearMax ?? undefined}
+                onFrom={(v) => set({ yearMin: v })} onTo={(v) => set({ yearMax: v })} />
+              <div className="grid grid-cols-2 gap-2">
+                <Num label="Km max" value={filters.mileageMax ?? undefined} onChange={(v) => set({ mileageMax: v })} />
+                <Num label="Puiss. min" value={filters.powerMin ?? undefined} onChange={(v) => set({ powerMin: v })} />
+              </div>
             </div>
           </div>
 
-          {/* Depth + median over time */}
-          <div className="grid md:grid-cols-2 gap-6">
-            <ChartCard title="Profondeur de marché" subtitle={selected?.label} icon={<TrendingUp className="w-4 h-4 text-blue-400" />}>
-              {depthSeries.length < 2
-                ? <NeedMore />
-                : (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <LineChart data={depthSeries} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-                      <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} />
-                      <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={44} />
-                      <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, 'Profondeur']} />
-                      <Line type="monotone" dataKey="count" name="Annonces" stroke={BLUE} strokeWidth={2} dot={{ r: 3 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-            </ChartCard>
+          {/* KPIs */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <Kpi label="Annonces (filtre)" value={String(stats.count)} />
+            <Kpi label="Profondeur marché" value={realDepth != null ? String(realDepth) : '—'} hint={realDepth != null ? 'total site (marque/modèle)' : 'sélectionne marque+modèle'} />
+            <Kpi label="Médian" value={fmtEur(stats.median)} />
+            <Kpi label="Fourchette p25–p75" value={`${fmtEur(stats.p25)} – ${fmtEur(stats.p75)}`} />
+            <Kpi label="Étalement min–max" value={`${fmtEur(stats.min)} – ${fmtEur(stats.max)}`} />
+          </div>
 
+          {/* Median over time + depth over time */}
+          <div className="grid md:grid-cols-2 gap-6">
             <ChartCard title="Prix médian dans le temps" subtitle="médian + fourchette p25–p75" icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}>
-              {priceSeries.length < 2
-                ? <NeedMore />
-                : (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <AreaChart data={priceSeries} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-                      <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} />
-                      <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={56} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                      <Tooltip contentStyle={tooltipStyle} formatter={((v: number | number[], name: string) => Array.isArray(v) ? [`${fmtEur(v[0])} – ${fmtEur(v[1])}`, 'p25–p75'] : [fmtEur(v), name]) as never} />
-                      <Area type="monotone" dataKey="band" stroke="none" fill={BLUE} fillOpacity={0.14} name="p25–p75" />
-                      <Line type="monotone" dataKey="median" stroke={BLUE} strokeWidth={2} dot={{ r: 3 }} name="Médian" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
+              {series.length < 2 ? <NeedMore /> : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart data={series} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} />
+                    <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={52} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={((v: number | number[], name: string) => Array.isArray(v) ? [`${fmtEur(v[0])} – ${fmtEur(v[1])}`, 'p25–p75'] : [fmtEur(v), name === 'median' ? 'Médian' : name]) as never} />
+                    <Area type="monotone" dataKey="band" stroke="none" fill={BLUE} fillOpacity={0.14} />
+                    <Line type="monotone" dataKey="median" stroke={BLUE} strokeWidth={2} dot={{ r: 3 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </ChartCard>
+
+            <ChartCard title="Profondeur (annonces observées)" subtitle={isCoarseOnly(filters) ? 'nombre d’annonces vues par scan' : 'échantillon filtré · page 1'} icon={<TrendingUp className="w-4 h-4 text-blue-400" />}>
+              {series.length < 2 ? <NeedMore /> : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} />
+                    <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={40} allowDecimals={false} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, 'Observées']} />
+                    <Line type="monotone" dataKey="count" stroke={SERIES[4]} strokeWidth={2} dot={{ r: 3 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
           </div>
 
-          {/* Price distribution + country comparison */}
+          {/* Distribution + country comparison */}
           <div className="grid md:grid-cols-2 gap-6">
-            <ChartCard title="Distribution des prix" subtitle={`dernier scan · ${latestSnap?.sample_size ?? 0} annonces`} icon={<Gauge className="w-4 h-4 text-amber-400" />}>
-              {histogram.length === 0
-                ? <NeedMore text="Pas d'annonces dans le dernier instantané." />
-                : (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={histogram} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-                      <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="range" tick={{ fill: AXIS, fontSize: 10 }} stroke={GRID} interval={0} angle={-30} textAnchor="end" height={50} />
-                      <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={32} allowDecimals={false} />
-                      <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, '']} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#ffffff08' }} />
-                      <Bar dataKey="count" fill={BLUE} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
+            <ChartCard title="Distribution des prix" subtitle={`dernier scan · ${latestObs.length} annonces${priceBand ? ' · tranche sélectionnée' : ' · clique une barre'}`} icon={<Gauge className="w-4 h-4 text-amber-400" />}>
+              {histogram.length === 0 ? <NeedMore text="Pas d'annonces." /> : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={histogram} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="range" tick={{ fill: AXIS, fontSize: 10 }} stroke={GRID} interval={0} angle={-30} textAnchor="end" height={50} />
+                    <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={32} allowDecimals={false} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, '']} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#ffffff08' }} />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]} cursor="pointer" onClick={((d: { from?: number; to?: number }) => { if (d?.from != null && d?.to != null) setPriceBand({ from: d.from, to: d.to }); }) as never}>
+                      {histogram.map((b) => <Cell key={b.range} fill={priceBand && b.from >= priceBand.from && b.to <= priceBand.to + 1 ? SERIES[3] : BLUE} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
 
-            <ChartCard title="Comparaison entre pays" subtitle={selected ? `${selected.brand} ${selected.model} · prix médian` : ''} icon={<TrendingUp className="w-4 h-4 text-violet-400" />}>
-              {countryCompare.length < 2
-                ? <NeedMore text="Ingère ce modèle sur ≥2 pays pour comparer." />
-                : (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={countryCompare} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-                      <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="country" tick={{ fill: AXIS, fontSize: 12 }} stroke={GRID} tickFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} />
-                      <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={56} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                      <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtEur(v as number), 'Médian']} labelFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} cursor={{ fill: '#ffffff08' }} />
-                      <Bar dataKey="median" radius={[4, 4, 0, 0]}>
-                        {countryCompare.map((c) => <Cell key={c.country} fill={COUNTRY_COLOR[c.country] ?? BLUE} />)}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
+            <ChartCard title="Comparaison entre pays" subtitle="prix médian · vue filtrée" icon={<TrendingUp className="w-4 h-4 text-violet-400" />}>
+              {countryCompare.length < 2 ? <NeedMore text="Données sur ≥2 pays nécessaires (filtre marque/modèle)." /> : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={countryCompare} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="country" tick={{ fill: AXIS, fontSize: 12 }} stroke={GRID} tickFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} />
+                    <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={52} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtEur(v as number), 'Médian']} labelFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} cursor={{ fill: '#ffffff08' }} />
+                    <Bar dataKey="median" radius={[4, 4, 0, 0]}>
+                      {countryCompare.map((c) => <Cell key={c.country} fill={COUNTRY_COLOR[c.country] ?? BLUE} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
           </div>
 
@@ -220,54 +221,124 @@ export function MarketIntelligence() {
           <ChartCard title="Vélocité — proxy de vitesse de vente" subtitle="jours avant qu'une annonce disparaisse (moyenne)" icon={<Gauge className="w-4 h-4 text-rose-400" />}>
             <div className="flex items-start gap-2 text-xs text-amber-300/80 mb-3">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>
-                Signal indicatif : les ingestions ne scrapent que la page 1 (≈30 moins chères), donc une annonce peut
-                sortir de la page sans être vendue. Nécessite ≥2 instantanés d'un même segment. S'affinera avec le scan périodique.
-              </span>
+              <span>Signal indicatif : page 1 (≈30 moins chères) seulement, donc une annonce peut sortir sans être vendue. Nécessite ≥2 scans d'un même segment. S'affinera avec le scan périodique.</span>
             </div>
-            {velocity.length === 0
-              ? <NeedMore text="Pas encore assez d'instantanés répétés pour estimer la vélocité." />
-              : (
-                <ResponsiveContainer width="100%" height={Math.max(180, velocity.length * 38)}>
-                  <BarChart data={velocity} layout="vertical" margin={{ top: 8, right: 24, bottom: 4, left: 8 }}>
-                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v) => `${v} j`} />
-                    <YAxis type="category" dataKey="label" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={180} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v, _n, p) => [`${v} jours · ${(p?.payload as VelocityStat).soldCount} disparues / ${(p?.payload as VelocityStat).activeCount} actives`, '']} cursor={{ fill: '#ffffff08' }} />
-                    <Bar dataKey="avgDaysToDisappear" radius={[0, 4, 4, 0]}>
-                      {velocity.map((v) => <Cell key={v.segmentId} fill={COUNTRY_COLOR[v.country] ?? SERIES[5]} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
+            {velocity.length === 0 ? <NeedMore text="Pas encore assez de scans répétés." /> : (
+              <ResponsiveContainer width="100%" height={Math.max(160, velocity.length * 34)}>
+                <BarChart data={velocity} layout="vertical" margin={{ top: 8, right: 24, bottom: 4, left: 8 }}>
+                  <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v) => `${v} j`} />
+                  <YAxis type="category" dataKey="label" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={200} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v, _n, p) => [`${v} jours · ${(p?.payload as VelocityStat).soldCount} disparues / ${(p?.payload as VelocityStat).activeCount} actives`, '']} cursor={{ fill: '#ffffff08' }} />
+                  <Bar dataKey="avgDaysToDisappear" radius={[0, 4, 4, 0]}>
+                    {velocity.map((v) => <Cell key={v.segmentId} fill={COUNTRY_COLOR[v.country] ?? SERIES[5]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </ChartCard>
+
+          {/* Listings table */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-zinc-200">Annonces {priceBand && <span className="text-zinc-500 font-normal text-sm">· tranche {Math.round(priceBand.from / 1000)}–{Math.round(priceBand.to / 1000)}k €</span>}</h2>
+              {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-zinc-400 hover:text-zinc-200">✕ tranche</button>}
+            </div>
+            {tableRows.length === 0 ? <p className="text-sm text-zinc-500">Aucune annonce.</p> : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-zinc-500 border-b border-zinc-800">
+                      <th className="py-2 pr-3">Prix</th><th className="py-2 pr-3">Année</th><th className="py-2 pr-3">Km</th>
+                      <th className="py-2 pr-3">Finition</th><th className="py-2 pr-3">Carburant</th><th className="py-2">Annonce</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.map((o, i) => (
+                      <tr key={o.internal_ref + i} className="border-b border-zinc-800/50">
+                        <td className="py-2 pr-3 font-medium text-zinc-100">{fmtEur(o.price)}</td>
+                        <td className="py-2 pr-3 text-zinc-400">{o.year ?? '—'}</td>
+                        <td className="py-2 pr-3 text-zinc-400">{o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'}</td>
+                        <td className="py-2 pr-3 text-zinc-300">{o.trim || '—'}</td>
+                        <td className="py-2 pr-3 text-zinc-300">{fuelLabel(o.fuel)}</td>
+                        <td className="py-2">
+                          {o.listing_url
+                            ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                            : <span className="text-zinc-600 text-xs">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
   );
 }
 
-function Kpi({ label, value }: { label: string; value: string }) {
+function Select({ label, value, options, onChange, flag }: { label: string; value: string; options: string[]; onChange: (v: string) => void; flag?: boolean }) {
   return (
-    <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
-      <div className="text-xl font-bold text-zinc-100">{value}</div>
-      <div className="text-xs text-zinc-500 mt-0.5">{label}</div>
+    <div>
+      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-sm">
+        <option value="">Tous</option>
+        {options.map((o) => <option key={o} value={o}>{flag ? `${COUNTRY_FLAG[o] ?? ''} ${o}` : o}</option>)}
+      </select>
     </div>
   );
 }
-
+function SelectFuel({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
+  const present = FUEL_TOKENS.filter((t) => options.includes(t));
+  return (
+    <div>
+      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-sm">
+        <option value="">Tous</option>
+        {present.map((t) => <option key={t} value={t}>{fuelLabel(t)}</option>)}
+      </select>
+    </div>
+  );
+}
+function NumRange({ label, from, to, onFrom, onTo }: { label: string; from?: number; to?: number; onFrom: (v: number | null) => void; onTo: (v: number | null) => void }) {
+  return (
+    <div>
+      <label className="block text-xs text-zinc-400 mb-1">{label} (min–max)</label>
+      <div className="grid grid-cols-2 gap-2">
+        <input value={from ?? ''} onChange={(e) => onFrom(e.target.value ? Number(e.target.value) : null)} placeholder="min" className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm" />
+        <input value={to ?? ''} onChange={(e) => onTo(e.target.value ? Number(e.target.value) : null)} placeholder="max" className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm" />
+      </div>
+    </div>
+  );
+}
+function Num({ label, value, onChange }: { label: string; value?: number; onChange: (v: number | null) => void }) {
+  return (
+    <div>
+      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
+      <input value={value ?? ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} placeholder="—" className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm" />
+    </div>
+  );
+}
+function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+      <div className="text-lg font-bold text-zinc-100 truncate">{value}</div>
+      <div className="text-xs text-zinc-500 mt-0.5">{label}</div>
+      {hint && <div className="text-[10px] text-zinc-600 mt-0.5">{hint}</div>}
+    </div>
+  );
+}
 function ChartCard({ title, subtitle, icon, children }: { title: string; subtitle?: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-      <div className="flex items-center gap-2 mb-1">
-        {icon}<h2 className="font-semibold text-zinc-200">{title}</h2>
-      </div>
+      <div className="flex items-center gap-2 mb-1">{icon}<h2 className="font-semibold text-zinc-200">{title}</h2></div>
       {subtitle && <p className="text-xs text-zinc-500 mb-3">{subtitle}</p>}
       {children}
     </div>
   );
 }
-
-function NeedMore({ text = 'Au moins 2 instantanés nécessaires — ré-ingère ce segment plus tard.' }: { text?: string }) {
+function NeedMore({ text = 'Au moins 2 scans nécessaires — ré-ingère ce segment plus tard.' }: { text?: string }) {
   return <div className="h-[200px] flex items-center justify-center text-sm text-zinc-600 text-center px-4">{text}</div>;
 }

@@ -10,9 +10,16 @@
 import { supabase } from '../lib/supabase';
 import type { Database } from '../lib/database.types';
 import { generateInternalRef } from '../lib/internalRefGenerator';
+import { canonicalizeFuel, FUEL_LABELS } from '../lib/study-core/ingestion';
+import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 
 type ObsInsert = Database['public']['Tables']['market_listing_observations']['Insert'];
+
+export { FUEL_LABELS };
+export function fuelLabel(token: string): string {
+  return (FUEL_LABELS as Record<string, string>)[token] ?? (token || '—');
+}
 
 const DKK_TO_EUR = 0.134;
 function toEur(price: number, currency: string): number {
@@ -90,14 +97,20 @@ export async function writeMarketSnapshot(params: {
   const observations: ObsInsert[] = priced.map((l) => ({
     snapshot_id: snap.id,
     site: segment.site,
+    country: segment.country,
     brand: segment.brand,
     model: segment.model,
-    fuel: segment.fuel,
-    trim: segment.trim,
+    // Per-listing attributes (vary within a snapshot when the search wasn't
+    // filtered on them) — this is what lets the dashboard slice by trim/fuel.
+    fuel: canonicalizeFuel(l.fuel ?? '') || '',
+    trim: (l.trim ?? '').trim(),
     internal_ref: generateInternalRef({ listing_url: l.listing_url }),
     price: toEur(l.price, l.currency),
     year: l.year,
     mileage: l.mileage,
+    power_din: l.powerDin ?? null,
+    listing_url: l.listing_url,
+    title: (l.title ?? '').slice(0, 200),
     currency: 'EUR',
     scraped_at: scrapedAt,
   }));
@@ -134,15 +147,105 @@ export interface Snapshot {
 export interface Observation {
   snapshot_id: string;
   site: string;
+  country: string;
   brand: string;
   model: string;
-  fuel: string;
-  trim: string;
+  fuel: string;        // per-listing canonical token
+  trim: string;         // per-listing version
   internal_ref: string;
   price: number | null;
   year: number | null;
   mileage: number | null;
+  power_din: number | null;
+  listing_url: string | null;
+  title: string | null;
   scraped_at: string;
+}
+
+export interface MarketFilters {
+  site?: string;
+  country?: string;
+  brand?: string;
+  model?: string;
+  trim?: string;
+  fuel?: FuelToken | '';
+  yearMin?: number | null;
+  yearMax?: number | null;
+  mileageMax?: number | null;
+  powerMin?: number | null;
+}
+
+const EMPTY_FILTERS: MarketFilters = {};
+
+/** True when only site/country/brand/model are set (no per-listing narrowing). */
+export function isCoarseOnly(f: MarketFilters): boolean {
+  return !f.trim && !f.fuel && f.yearMin == null && f.yearMax == null && f.mileageMax == null && f.powerMin == null;
+}
+
+export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_FILTERS): Observation[] {
+  return obs.filter((o) =>
+    (!f.site || o.site === f.site) &&
+    (!f.country || o.country === f.country) &&
+    (!f.brand || o.brand === f.brand) &&
+    (!f.model || o.model === f.model) &&
+    (!f.trim || o.trim === f.trim) &&
+    (!f.fuel || o.fuel === f.fuel) &&
+    (f.yearMin == null || (o.year != null && o.year >= f.yearMin)) &&
+    (f.yearMax == null || (o.year != null && o.year <= f.yearMax)) &&
+    (f.mileageMax == null || (o.mileage != null && o.mileage <= f.mileageMax)) &&
+    (f.powerMin == null || (o.power_din != null && o.power_din >= f.powerMin))
+  );
+}
+
+/** Distinct values for a field among observations, respecting the other filters (cascading). */
+export function distinctValues(obs: Observation[], field: keyof Observation, applied: MarketFilters): string[] {
+  const scoped = filterObservations(obs, { ...applied, [fieldToFilterKey(field)]: undefined } as MarketFilters);
+  const set = new Set<string>();
+  for (const o of scoped) {
+    const v = String(o[field] ?? '').trim();
+    if (v) set.add(v);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+function fieldToFilterKey(field: keyof Observation): keyof MarketFilters {
+  return field as keyof MarketFilters;
+}
+
+/** Median/percentiles of the filtered observation prices. */
+export function priceStats(obs: Observation[]): { count: number; median: number; p25: number; p75: number; min: number; max: number; avg: number } {
+  const prices = obs.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0).sort((a, b) => a - b);
+  if (prices.length === 0) return { count: 0, median: 0, p25: 0, p75: 0, min: 0, max: 0, avg: 0 };
+  return {
+    count: prices.length,
+    median: Math.round(percentile(prices, 0.5)),
+    p25: Math.round(percentile(prices, 0.25)),
+    p75: Math.round(percentile(prices, 0.75)),
+    min: prices[0],
+    max: prices[prices.length - 1],
+    avg: Math.round(prices.reduce((s, p) => s + p, 0) / prices.length),
+  };
+}
+
+/** Group filtered observations by snapshot time → time series of median + count. */
+export function timeSeries(obs: Observation[]): { date: string; median: number; p25: number; p75: number; count: number; ts: number }[] {
+  const bySnap = new Map<string, Observation[]>();
+  for (const o of obs) {
+    const arr = bySnap.get(o.snapshot_id) ?? [];
+    arr.push(o);
+    bySnap.set(o.snapshot_id, arr);
+  }
+  const rows = [...bySnap.values()].map((group) => {
+    const st = priceStats(group);
+    return {
+      ts: new Date(group[0].scraped_at).getTime(),
+      date: group[0].scraped_at,
+      median: st.median,
+      p25: st.p25,
+      p75: st.p75,
+      count: st.count,
+    };
+  });
+  return rows.sort((a, b) => a.ts - b.ts);
 }
 
 export interface MarketData {
@@ -159,6 +262,18 @@ export async function loadMarketData(limit = 5000): Promise<MarketData> {
     snapshots: (snaps ?? []) as unknown as Snapshot[],
     observations: (obs ?? []) as unknown as Observation[],
   };
+}
+
+export function priceHistogramFrom(obs: Observation[], buckets = 12): { range: string; count: number; from: number; to: number }[] {
+  const prices = obs.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0);
+  if (prices.length === 0) return [];
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  if (min === max) return [{ range: `${Math.round(min / 1000)}k`, count: prices.length, from: min, to: min }];
+  const width = (max - min) / buckets;
+  const bins = Array.from({ length: buckets }, (_, i) => ({ from: min + i * width, to: min + (i + 1) * width, count: 0 }));
+  for (const p of prices) bins[Math.min(buckets - 1, Math.floor((p - min) / width))].count += 1;
+  return bins.map((b) => ({ range: `${Math.round(b.from / 1000)}–${Math.round(b.to / 1000)}k`, count: b.count, from: b.from, to: b.to }));
 }
 
 // A segment label used across the dashboard.
@@ -236,6 +351,52 @@ export function computeVelocity(data: MarketData): VelocityStat[] {
       country: countryBySeg.get(seg) ?? '',
       soldCount,
       activeCount,
+      avgDaysToDisappear: soldCount > 0 ? Math.round((sumDays / soldCount) * 10) / 10 : 0,
+    });
+  }
+  return out.sort((a, b) => b.soldCount - a.soldCount);
+}
+
+/**
+ * Velocity over an already-filtered observation set, grouped by segment.
+ * Same first_seen→last_seen logic as computeVelocity but slice-aware, so it
+ * respects the dashboard filters. Needs ≥2 distinct scrape times in a group.
+ */
+export function velocityFromObservations(obs: Observation[]): VelocityStat[] {
+  const groups = new Map<string, Observation[]>();
+  for (const o of obs) {
+    const key = segmentId(o);
+    const arr = groups.get(key) ?? [];
+    arr.push(o);
+    groups.set(key, arr);
+  }
+  const out: VelocityStat[] = [];
+  for (const [seg, list] of groups) {
+    const times = [...new Set(list.map((o) => new Date(o.scraped_at).getTime()))];
+    if (times.length < 2) continue; // need repeated scrapes
+    const latest = Math.max(...times);
+    const lives = new Map<string, { first: number; last: number }>();
+    for (const o of list) {
+      const t = new Date(o.scraped_at).getTime();
+      const cur = lives.get(o.internal_ref);
+      if (!cur) lives.set(o.internal_ref, { first: t, last: t });
+      else { cur.first = Math.min(cur.first, t); cur.last = Math.max(cur.last, t); }
+    }
+    let soldCount = 0, activeCount = 0, sumDays = 0;
+    for (const life of lives.values()) {
+      if (life.last >= latest - 60_000) { activeCount += 1; continue; }
+      soldCount += 1;
+      sumDays += (life.last - life.first) / 86_400_000;
+    }
+    const bits = seg.split('|');
+    const label = [bits[1], bits[2], fuelLabel(bits[3]), bits[4]]
+      .map((x) => (x ?? '').trim()).filter((x) => x && x !== '—').join(' · ');
+    out.push({
+      segmentId: seg,
+      label: label || bits[2],
+      site: bits[0],
+      country: list[0].country,
+      soldCount, activeCount,
       avgDaysToDisappear: soldCount > 0 ? Math.round((sumDays / soldCount) * 10) / 10 : 0,
     });
   }

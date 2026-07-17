@@ -81,23 +81,50 @@ export interface IngestionAnalysis {
 }
 
 // ─── Fuel canonicalisation ────────────────────────────────────────────────────
+// Canonical fuel tokens shared across the app. Covers the full Leboncoin +
+// Marktplaats taxonomies (see the two marketplace energy screens): petrol,
+// diesel, electric, hybrid (full HEV, incl. Marktplaats "Hybride
+// Elektrisch/Benzine|Diesel"), mild_hybrid (half hybride / MHEV), phev
+// (plug-in / hybride rechargeable), hydrogen (waterstof), cng (GNV / aardgas),
+// lpg (GPL). Order matters: hybrid variants are tested before 'electric' so
+// "Hybride Elektrisch" is never mis-read as electric.
 
-const PHEV_TOKENS = /plug\s?in|phev|hybride rechargeable|plug in hybride|plugin hybrid/;
+const PHEV_TOKENS = /plug\s?in|phev|hybride rechargeable|oplaadbare/;
+const MILD_HYBRID_TOKENS = /half hybrid|mild hybrid|micro hybrid|\bmhev\b/;
+
+export type FuelToken =
+  | 'petrol' | 'diesel' | 'electric' | 'hybrid' | 'mild_hybrid'
+  | 'phev' | 'hydrogen' | 'cng' | 'lpg' | '';
+
+export const FUEL_LABELS: Record<Exclude<FuelToken, ''>, string> = {
+  petrol: 'Essence',
+  diesel: 'Diesel',
+  electric: 'Électrique',
+  hybrid: 'Hybride',
+  mild_hybrid: 'Hybride léger',
+  phev: 'Hybride rechargeable',
+  hydrogen: 'Hydrogène',
+  cng: 'GNV',
+  lpg: 'GPL',
+};
 
 /**
- * Map ANY fuel text — a declared form label ("ELECTRIQUE"), a structured
- * attribute label ("Électrique"), or free title text — to a canonical token.
- * Works cross-language (FR/NL/DA) and understands common engine badges.
+ * Map ANY fuel text — a declared form value, a structured attribute label, or
+ * free title text — to a canonical token. Cross-language (FR/NL/DA) + engine
+ * badges (TDI/TSI…).
  */
-function canonicalizeFuel(raw: string): string {
+export function canonicalizeFuel(raw: string): FuelToken {
   const t = normalizeForMatch(raw); // accent-stripped, lowercased, separators → space
   if (!t) return '';
   if (PHEV_TOKENS.test(t)) return 'phev';
-  if (/diesel|\bhdi\b|\btdi\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|\bd4d\b/.test(t)) return 'diesel';
-  if (/electr|elektr|\belbil\b|\bev\b|zero emission/.test(t)) return 'electric';
-  if (/hybrid|hybride|\bhev\b/.test(t)) return 'hybrid';
-  if (/essence|benzine|benzin|petrol|gasoline|\btsi\b|\btfsi\b|\bvti\b|puretech/.test(t)) return 'petrol';
+  if (MILD_HYBRID_TOKENS.test(t)) return 'mild_hybrid';
+  if (/hybrid|hybride|\bhev\b|volledig hybride/.test(t)) return 'hybrid';
+  if (/hydrogen|hydrogene|waterstof|\bh2\b/.test(t)) return 'hydrogen';
+  if (/\bcng\b|\bgnv\b|gaz naturel|aardgas/.test(t)) return 'cng';
   if (/\bgpl\b|\blpg\b|autogas/.test(t)) return 'lpg';
+  if (/electr|elektr|\belbil\b|\bev\b|zero emission/.test(t)) return 'electric';
+  if (/diesel|\bhdi\b|\btdi\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|\bd4d\b/.test(t)) return 'diesel';
+  if (/essence|benzine|benzin|petrol|gasoline|\btsi\b|\btfsi\b|\bvti\b|puretech/.test(t)) return 'petrol';
   return '';
 }
 

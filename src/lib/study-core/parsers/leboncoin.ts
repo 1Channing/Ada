@@ -202,6 +202,7 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       // Secondary structured attributes (enum fields keep the human label)
       const brandLabel = attrLabel(attributes, ['brand', 'u_car_brand', 'make']);
       const fuelLabel = attrLabel(attributes, ['fuel', 'energie', 'carburant', 'energy']);
+      const trimLabel = attrLabel(attributes, ['version', 'finition', 'trim', 'model_variant', 'u_car_version']);
       const gearbox = attrLabel(attributes, ['gearbox', 'boite_vitesse', 'transmission']);
       const powerDin = attrNumber(attributes, ['horse_power_din', 'horsepower_din', 'puissance_din', 'horse_power']);
       const doors = attrNumber(attributes, ['doors', 'nb_doors', 'number_of_doors']);
@@ -215,7 +216,7 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
         currency: 'EUR',
         mileage,
         year,
-        trim: null,
+        trim: trimLabel,
         listing_url: listingUrl,
         description: ad.body || ad.description || ad.text || '',
         price_type: 'one-off',

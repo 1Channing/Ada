@@ -52,6 +52,23 @@ ne sait pas encore réinjecter ces filtres secondaires dans une URL générée
 reconstruction pour exploiter les codes opaques appris (boîte, puissance,
 couleur, type) quand on génère une recherche.
 
+## 2ter. Scraping détail par annonce + amélioration de la lecture (différé, acté)
+
+Décision (juillet 2026) : on NE scrape PAS la page détail de chaque annonce à
+l'ingestion (30× appels Zyte, trop coûteux/lent pour 5 contributeurs). La
+finition par annonce est extraite du STRUCTURÉ de la page de résultats
+(`version`/`finition` dans `__NEXT_DATA__` Leboncoin). À faire plus tard, en
+mode "approfondi" EXPLICITE (pas par défaut), et seulement quand une info
+manque vraiment du structuré : réutiliser `parseDetailPage`/`scrapeDetailPage`
+du worker (déjà fait pour les études).
+
+À AMÉLIORER (demandé) : la lecture/robustesse du scraping. Pistes sans accès
+aux logs prod : ajouter dans le parser un log des clés d'attributs
+TROUVÉES vs ATTENDUES par annonce (pour repérer un renommage de clé Leboncoin),
+exposer un échantillon d'attributs bruts dans la réponse `/ingest-url` en mode
+debug, et calibrer les clés (`version`, `vehicle_color`, etc.) sur un vrai
+sample. Quand Channing colle un échantillon ou un log worker, on ajuste.
+
 ## 3. Reconstruction d'URL path-based depuis la mémoire (Marktplaats)
 
 L'ingestion mémorise les IDs de taxonomie Marktplaats
