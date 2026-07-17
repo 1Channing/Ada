@@ -41,6 +41,29 @@ const GEARBOX_OPTIONS = [
   { value: 'Automatique', label: 'Automatique' },
 ];
 
+// Contributor names remembered on this device, so a typed name is available
+// in the dropdown next time without waiting for a DB round-trip / reload.
+const LOCAL_NAMES_KEY = 'ada_contributor_names';
+function loadLocalNames(): string[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_NAMES_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [];
+  } catch { return []; }
+}
+function saveLocalName(name: string): void {
+  const n = name.trim();
+  if (!n) return;
+  try {
+    const set = new Set(loadLocalNames());
+    set.add(n);
+    localStorage.setItem(LOCAL_NAMES_KEY, JSON.stringify([...set]));
+  } catch { /* ignore quota/privacy-mode errors */ }
+}
+function mergeNames(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b])].sort((x, y) => x.localeCompare(y));
+}
+
 const MEMORY_ACTION_LABELS: Record<string, { text: string; tone: 'ok' | 'warn' | 'muted' }> = {
   inserted: { text: 'Nouveau mapping enregistré en mémoire (human_verified)', tone: 'ok' },
   reinforced: { text: 'Mapping existant renforcé (confirmation supplémentaire)', tone: 'ok' },
@@ -83,8 +106,21 @@ export function Ingestion() {
   const [knownNames, setKnownNames] = useState<string[]>([]);
 
   useEffect(() => {
-    loadContributorNames().then(setKnownNames).catch(() => {});
+    // Seed instantly from this device's remembered names, then merge in the
+    // names contributed by everyone (from the DB).
+    const local = loadLocalNames();
+    setKnownNames(local);
+    loadContributorNames()
+      .then((db) => setKnownNames(mergeNames(local, db)))
+      .catch(() => {});
   }, []);
+
+  const rememberName = (name: string) => {
+    const n = name.trim();
+    if (!n) return;
+    saveLocalName(n);
+    setKnownNames((prev) => (prev.includes(n) ? prev : mergeNames(prev, [n])));
+  };
   const [phase, setPhase] = useState<'idle' | 'form' | 'scraping' | 'done'>('idle');
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [sample, setSample] = useState<ScrapedListing[]>([]);
@@ -169,6 +205,8 @@ export function Ingestion() {
     setScrapeError(null);
     setAnalysis(null);
     setOutcome(null);
+    // Remember a typed name so it's selectable next time (this device + DB).
+    rememberName(form.submittedBy);
 
     const criteria: SearchCriteria = {
       brand: form.brand.trim(),
