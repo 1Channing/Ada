@@ -68,6 +68,39 @@ function normFuel(raw: unknown): string | null {
   return AS24_FUEL_LABEL[s.trim().toUpperCase()] ?? s;
 }
 
+// Does this object look like a car listing? (has an id-ish key AND a price/
+// vehicle-ish key). Used by the deep search below.
+function looksLikeListing(o: any): boolean {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+  const hasId = 'id' in o || 'guid' in o || 'url' in o;
+  const hasVehicleish = 'price' in o || 'prices' in o || 'priceInfo' in o || 'vehicle' in o || 'tracking' in o;
+  return hasId && hasVehicleish;
+}
+
+// Find the largest array of listing-like objects anywhere in the __NEXT_DATA__
+// tree. AutoScout's exact path (`pageProps.listings`) varies / can be nested,
+// so instead of guessing every shape we scan for the array that holds them.
+function findListingsArray(root: any): any[] | null {
+  let best: any[] | null = null;
+  const seen = new Set<any>();
+  const stack: any[] = [root];
+  let guard = 0;
+  while (stack.length && guard < 200_000) {
+    guard++;
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+    seen.add(cur);
+    if (Array.isArray(cur)) {
+      const hits = cur.filter(looksLikeListing).length;
+      if (hits > 0 && hits >= Math.floor(cur.length / 2) && (!best || cur.length > best.length)) best = cur;
+      for (const v of cur) if (v && typeof v === 'object') stack.push(v);
+    } else {
+      for (const k in cur) { const v = (cur as any)[k]; if (v && typeof v === 'object') stack.push(v); }
+    }
+  }
+  return best;
+}
+
 function detailRows(listing: any): any[] {
   const d = listing?.vehicleDetails ?? listing?.details ?? [];
   return Array.isArray(d) ? d : [];
@@ -114,13 +147,17 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
   for (const p of candidatePaths) {
     if (Array.isArray(p) && p.length > 0) { ads = p; break; }
   }
+  // Fallback: scan the whole tree for the listings array (shape-agnostic).
+  if (ads.length === 0) {
+    ads = findListingsArray(pageProps) ?? findListingsArray(data) ?? [];
+  }
   if (ads.length === 0) {
     console.warn('[AUTOSCOUT] ⚠️ No listings array found. pageProps keys:', Object.keys(pageProps).join(', '));
     return listings;
   }
 
   // Calibration aid (see BACKLOG parser-diagnostics): report the first ad's keys.
-  console.log('[AUTOSCOUT] first listing keys:', Object.keys(ads[0] ?? {}).join(', '));
+  console.log(`[AUTOSCOUT] found ${ads.length} listings; first keys:`, Object.keys(ads[0] ?? {}).join(', '));
 
   const host = (() => { try { return new URL(url).origin; } catch { return 'https://www.autoscout24.com'; } })();
 
@@ -130,7 +167,9 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
     const rows = detailRows(ad);
 
     const price = toInt(
-      ad?.price?.priceFormatted ?? ad?.price?.public?.priceRaw ?? ad?.price?.raw ?? tr?.price ?? ad?.priceRaw,
+      ad?.price?.priceFormatted ?? ad?.price?.public?.priceRaw ?? ad?.price?.raw ??
+      ad?.prices?.public?.priceRaw ?? ad?.prices?.[0]?.priceRaw ?? ad?.prices?.[0]?.amount ??
+      ad?.priceInfo?.priceRaw ?? tr?.price ?? ad?.priceRaw,
     );
     if (!price) continue;
 

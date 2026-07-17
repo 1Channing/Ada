@@ -41,30 +41,29 @@ export const DEFAULT_SCRAPING_CONFIG: ScrapingConfig = {
 /**
  * Keywords that indicate blocked/captcha pages
  */
-// Unambiguous anti-bot / challenge signatures — these only appear on an actual
-// block or challenge page, so any match means blocked.
+// Unmistakable challenge signatures that NEVER appear in legitimate content —
+// only on an actual Cloudflare interstitial. Any match = blocked, at any size.
 export const BLOCKED_KEYWORDS = [
-  'captcha',
-  'recaptcha',
-  'hcaptcha',
-  'access denied',
-  'bot detection',
-  'unusual traffic',
-  'not a robot',
-  'verify you are human',
   'just a moment',            // Cloudflare challenge <title>
   'attention required',       // Cloudflare block page
   'cf-browser-verification',
   'challenge-platform',
   'cf_chl_opt',
+  'cf-mitigated',
 ];
 
-// Ambiguous tokens that ALSO appear on legitimate pages: "cloudflare" is a
-// ubiquitous CDN referenced in asset URLs / cf-* attributes on every page it
-// fronts (AutoScout!), and "blocked"/"security check" show up in normal copy.
-// These only signal a block on a SMALL page (a real challenge page is tiny; a
-// real results page is hundreds of KB). This kills the AutoScout false positive.
-const WEAK_BLOCK_KEYWORDS = ['cloudflare', 'blocked', 'security check'];
+// Ambiguous tokens that ALSO appear on legitimate large pages: "captcha"/
+// "recaptcha" (contact-form widgets), "not a robot"/"verify you are human"
+// (widget copy), "cloudflare" (ubiquitous CDN in asset URLs / cf-* attributes,
+// e.g. AutoScout), "blocked"/"security"/"access denied" (normal copy). A REAL
+// block/challenge page is tiny; a real results page is hundreds of KB. So these
+// only signal a block on a SMALL page — which kills the AutoScout false
+// positives ("cloudflare" earlier, "captcha" on the 677 KB Suzuki page).
+const WEAK_BLOCK_KEYWORDS = [
+  'captcha', 'recaptcha', 'hcaptcha', 'bot detection',
+  'unusual traffic', 'not a robot', 'verify you are human',
+  'access denied', 'cloudflare', 'blocked', 'security check',
+];
 const WEAK_BLOCK_MAX_HTML = 50_000;
 
 /**
