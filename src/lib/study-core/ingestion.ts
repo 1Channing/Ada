@@ -122,19 +122,44 @@ function detectListingFuel(l: ScrapedListing, adapter: SiteAdapter): { canonical
 
 // ─── Field-by-field confirmation ──────────────────────────────────────────────
 
-function textMatchRate(
-  listings: ScrapedListing[],
-  needle: string,
-  includeDescription: boolean
-): number {
-  const norm = normalizeForMatch(needle);
-  if (!norm) return 0;
-  return listings.filter((l) => {
-    const haystack = normalizeForMatch(
-      includeDescription ? `${l.title ?? ''} ${l.description ?? ''}` : (l.title ?? '')
-    );
-    return haystack.includes(norm);
-  }).length;
+// ─── Intelligent brand/model matching ────────────────────────────────────────
+// Marketplace taxonomies name a model differently from how the listing titles
+// spell it: Leboncoin's internal model is "Classe CLA" but titles say "CLA".
+// So model matching is token-based with generic words stripped, and short
+// tokens are matched on word boundaries (so "cla" matches "Mercedes CLA
+// Shooting Brake" but not the inside of another word).
+
+const MODEL_NOISE_TOKENS = new Set([
+  'classe', 'class', 'klasse', 'serie', 'series', 'gamme', 'the', 'nouvelle', 'nouveau', 'new',
+]);
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Token present in already-normalized text; whole-word for short tokens (≤3). */
+function tokenInText(normText: string, tok: string): boolean {
+  if (!tok) return false;
+  if (tok.length <= 3) {
+    return new RegExp(`(^|[^a-z0-9])${escapeRegex(tok)}([^a-z0-9]|$)`).test(normText);
+  }
+  return normText.includes(tok);
+}
+
+/** Brand matches if ANY of its tokens appears (handles "Mercedes-Benz" vs title "Mercedes ..."). */
+function brandMatchesTitle(title: string, brand: string): boolean {
+  const normTitle = normalizeForMatch(title);
+  const toks = normalizeForMatch(brand).split(' ').filter(Boolean);
+  return toks.some((t) => t.length >= 2 && tokenInText(normTitle, t));
+}
+
+/** Model matches if ALL its DISTINCTIVE tokens appear (generic words stripped). */
+function modelMatchesTitle(title: string, model: string): boolean {
+  const normTitle = normalizeForMatch(title);
+  const toks = normalizeForMatch(model).split(' ').filter(Boolean);
+  const distinctive = toks.filter((t) => !MODEL_NOISE_TOKENS.has(t));
+  const effective = distinctive.length > 0 ? distinctive : toks;
+  return effective.every((t) => tokenInText(normTitle, t));
 }
 
 function pct(count: number, total: number): string {
@@ -156,7 +181,9 @@ export function confirmCriteriaAgainstSample(
 
   const insufficientSample = n < INGESTION_MIN_SAMPLE;
 
-  const pushText = (field: IngestionField, value: string, includeDescription: boolean) => {
+  // Generic text confirmation with a per-listing predicate (brand/model use
+  // token-aware matchers; trim uses a plain substring over title+description).
+  const pushMatch = (field: IngestionField, value: string, matchFn: (l: ScrapedListing) => boolean) => {
     if (insufficientSample) {
       out.push({
         field, declaredValue: value, status: 'rejected', matchCount: 0, sampleSize: n,
@@ -164,7 +191,7 @@ export function confirmCriteriaAgainstSample(
       });
       return;
     }
-    const matchCount = textMatchRate(listings, value, includeDescription);
+    const matchCount = listings.filter(matchFn).length;
     const rate = matchCount / n;
     if (rate >= INGESTION_CONFIRM_THRESHOLD) {
       out.push({ field, declaredValue: value, status: 'confirmed', matchCount, sampleSize: n, method: 'text' });
@@ -176,14 +203,18 @@ export function confirmCriteriaAgainstSample(
     }
   };
 
-  // brand / model — title text (matches the validated examples' semantics)
+  // brand / model — token-aware matching (site model name ≠ title spelling)
   const brand = declared(criteria.brand);
-  if (brand) pushText('brand', brand, false);
+  if (brand) pushMatch('brand', brand, (l) => brandMatchesTitle(l.title ?? '', brand));
   const model = declared(criteria.model);
-  if (model) pushText('model', model, false);
+  if (model) pushMatch('model', model, (l) => modelMatchesTitle(l.title ?? '', model));
   // trim — title + description (same sources as the study pipeline's matchesTrim)
   const trim = declared(criteria.trim);
-  if (trim) pushText('trim', trim, true);
+  if (trim) {
+    const trimNorm = normalizeForMatch(trim);
+    pushMatch('trim', trim, (l) =>
+      normalizeForMatch(`${l.title ?? ''} ${l.description ?? ''}`).includes(trimNorm));
+  }
 
   // fuel — language-aware detector over full sample (a listing whose fuel is
   // undetectable counts AGAINST confirmation, by design: certainty or nothing)

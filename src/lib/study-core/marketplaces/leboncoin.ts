@@ -388,6 +388,22 @@ function reverseLookup(map: Record<string, string>, siteValue: string): string {
   return siteValue.trim();
 }
 
+/**
+ * Leboncoin's u_car_model is brand-prefixed, e.g. "MERCEDES-BENZ_Classe CLA".
+ * Strip the brand prefix so the form shows the clean model ("Classe CLA")
+ * the way listing titles spell it. Falls back to a known-model reverse
+ * lookup, then to the raw value.
+ */
+function cleanLeboncoinModel(raw: string): string {
+  const reversed = reverseLookup(MODEL_MAP, raw);
+  if (reversed !== raw.trim()) return reversed;
+  const underscoreIdx = raw.indexOf('_');
+  if (underscoreIdx > 0 && underscoreIdx < raw.length - 1) {
+    return raw.slice(underscoreIdx + 1).trim();
+  }
+  return raw.trim();
+}
+
 function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const d = decomposeUrl(url);
   if (!d) return {};
@@ -395,7 +411,7 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const out: Partial<SearchCriteria> = {};
 
   if (q['u_car_brand']) out.brand = reverseLookup(BRAND_MAP, q['u_car_brand']);
-  if (q['u_car_model']) out.model = reverseLookup(MODEL_MAP, q['u_car_model']);
+  if (q['u_car_model']) out.model = cleanLeboncoinModel(q['u_car_model']);
   if (q['regdate']) {
     // Format 'YYYY-YYYY' (also tolerate 'YYYY-max' / 'min-YYYY')
     const [from, to] = q['regdate'].split('-');
