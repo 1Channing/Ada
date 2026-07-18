@@ -29,13 +29,25 @@ function extractNextData(html: string): any | null {
 // sponsored) — never descend into them.
 const OFF_TARGET_KEY = /recommend|similar|suggest|sponsor|interlink|\bocs\b|otheradvert|related/i;
 
-const ID_KEYS = ['id', 'itemid', 'guid', 'listingid', 'adid', 'uuid', 'url', 'vipurl', 'seourl', 'link', 'href'];
-const VEHICLE_KEYS = ['price', 'prices', 'priceinfo', 'pricecents', 'amount', 'vehicle', 'tracking', 'attributes', 'make', 'mileage', 'fuel'];
+// Substrings that signal a car-listing object. A location {name,value} scores 0;
+// a real listing (price + mileage + make + model + fuel + year…) scores high.
+// Requiring 3+ distinct signals finds listings wherever they're nested (incl.
+// Bilbasen's React-Query `dehydratedState`) without matching config/nav arrays.
+const LISTING_SIGNALS = [
+  'price', 'pricecents', 'priceinfo', 'mileage', 'kilometer', 'make', 'model',
+  'fuel', 'year', 'regdate', 'registration', 'brand', 'horsepower', 'transmission',
+  'itemid', 'vipurl', 'variant', 'engine',
+];
 
-function looksLikeListing(o: any): boolean {
-  if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+function listingScore(o: any): number {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return 0;
   const keys = Object.keys(o).map((k) => k.toLowerCase());
-  return keys.some((k) => ID_KEYS.includes(k)) && keys.some((k) => VEHICLE_KEYS.includes(k));
+  let hits = 0;
+  for (const s of LISTING_SIGNALS) if (keys.some((k) => k.includes(s))) hits++;
+  return hits;
+}
+function looksLikeListing(o: any): boolean {
+  return listingScore(o) >= 3;
 }
 
 function findListingsArray(root: any): any[] | null {
@@ -81,7 +93,8 @@ function readField(listing: any, directKeys: string[], attrKeys: string[]): stri
   // Attribute arrays — Marktplaats SPLITS car specs across `attributes` AND
   // `extendedAttributes`, so merge them all (reading only one missed fuel/
   // transmission/power).
-  const attrs = [listing.attributes, listing.extendedAttributes, listing.specs, listing.vehicleDetails, listing.traits]
+  const attrs = [listing.attributes, listing.extendedAttributes, listing.specs, listing.vehicleDetails,
+    listing.traits, listing.properties, listing.parameters, listing.details]
     .filter(Array.isArray).flat();
   if (attrs.length) {
     const wanted = attrKeys.map((k) => k.toLowerCase());
@@ -116,6 +129,34 @@ function largestObjectArray(root: any): any[] | null {
     }
   }
   return best;
+}
+
+/**
+ * Diagnostic: every object-array in the tree whose first element carries at
+ * least one listing signal, ranked by that element's score. When findListings
+ * comes up empty (e.g. listings buried in a React-Query `dehydratedState` blob
+ * under unexpected key names), this reveals the real shape from one log line.
+ */
+function candidateArrays(root: any, topN: number): Array<{ len: number; score: number; keys: string }> {
+  const found: Array<{ len: number; score: number; keys: string }> = [];
+  const seen = new Set<any>();
+  const stack: any[] = [root];
+  let guard = 0;
+  while (stack.length && guard < 300_000) {
+    guard++;
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+    seen.add(cur);
+    if (Array.isArray(cur)) {
+      const first = cur.find((x) => x && typeof x === 'object' && !Array.isArray(x));
+      const score = listingScore(first);
+      if (score >= 1) found.push({ len: cur.length, score, keys: Object.keys(first).slice(0, 18).join(',') });
+      for (const v of cur) if (v && typeof v === 'object') stack.push(v);
+    } else {
+      for (const k in cur) { const v = (cur as any)[k]; if (v && typeof v === 'object') stack.push(v); }
+    }
+  }
+  return found.sort((a, b) => b.score - a.score || b.len - a.len).slice(0, topN);
 }
 
 function toInt(raw: string | null): number | null {
@@ -165,6 +206,9 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
       console.warn(`[NEXTDATA] ${cfg.siteLabel}: largest object-array len=${big.length}; first keys: ${Object.keys(big[0] ?? {}).join(', ')}`);
       try { console.warn(`[NEXTDATA] ${cfg.siteLabel}: that item: ${JSON.stringify(big[0]).slice(0, 900)}`); } catch { /* ignore */ }
     }
+    for (const c of candidateArrays(data, 5)) {
+      console.warn(`[NEXTDATA] ${cfg.siteLabel}: candidate array len=${c.len} score=${c.score} keys=[${c.keys}]`);
+    }
     return [];
   }
   console.log(`[NEXTDATA] ${cfg.siteLabel}: found ${ads.length} listings; keys: ${Object.keys(ads[0] ?? {}).join(', ')}`);
@@ -186,7 +230,7 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
     const price = cfg.currency === 'DKK' ? Math.round(priceRaw * DKK_TO_EUR) : priceRaw;
 
     // URL
-    let listingUrl = str(readField(ad, ['url', 'vipUrl', 'seoUrl', 'link', 'href', 'absoluteUrl', 'canonicalUrl'], [])) ?? '';
+    let listingUrl = str(readField(ad, ['url', 'vipUrl', 'seoUrl', 'link', 'href', 'absoluteUrl', 'canonicalUrl', 'uri', 'detailUrl', 'permalink', 'detailPageUrl'], [])) ?? '';
     if (listingUrl.startsWith('/')) listingUrl = cfg.host + listingUrl;
     if (!listingUrl) continue;
 
