@@ -187,6 +187,33 @@ function str(v: string | null): string | null {
   return t || null;
 }
 
+/**
+ * Bilbasen wraps the price in an object whose key names we can't predict
+ * (`{formattedValue}`, `{displayValue}`, nested `{price:{amount}}`, …), so
+ * instead of guessing, dive into the `price` field and return the first
+ * plausible whole-currency amount (500 … 50M — filters out doors/year noise,
+ * "199.900 kr" strings included). Scoped to the price field only, so it can't
+ * pick up a leasing rate elsewhere in the listing.
+ */
+function deepFindPrice(v: any, depth = 0): number | null {
+  if (v == null || depth > 5) return null;
+  if (typeof v === 'number') return v > 500 && v < 50_000_000 ? Math.round(v) : null;
+  if (typeof v === 'string') {
+    const n = toInt(v);
+    return n && n > 500 && n < 50_000_000 ? n : null;
+  }
+  if (typeof v === 'object' && !Array.isArray(v)) {
+    for (const k of ['value', 'amount', 'raw', 'rawValue', 'price', 'priceValue', 'number', 'formattedValue', 'displayValue', 'formatted']) {
+      if (k in v) { const r = deepFindPrice(v[k], depth + 1); if (r) return r; }
+    }
+    for (const k of Object.keys(v)) {
+      if (/month|lease|leasing|financ|rate|ydelse|udbetaling/i.test(k)) continue;
+      const r = deepFindPrice(v[k], depth + 1); if (r) return r;
+    }
+  }
+  return null;
+}
+
 export interface NextDataConfig {
   host: string;
   currency: Currency; // native currency of the site (DKK converted to EUR)
@@ -214,18 +241,28 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
   console.log(`[NEXTDATA] ${cfg.siteLabel}: found ${ads.length} listings; keys: ${Object.keys(ads[0] ?? {}).join(', ')}`);
   try {
     const a0: any = ads[0];
-    const attrDump = [a0?.attributes, a0?.extendedAttributes].filter(Array.isArray).flat().slice(0, 24)
-      .map((a: any) => `${a?.key ?? a?.name ?? '?'}=${a?.value ?? a?.formattedValue ?? '?'}`).join(' | ');
+    const attrDump = [a0?.attributes, a0?.extendedAttributes, a0?.properties, a0?.details, a0?.parameters, a0?.features]
+      .filter(Array.isArray).flat().slice(0, 30)
+      .map((a: any) => {
+        if (a == null || typeof a !== 'object') return String(a);
+        const k = a.key ?? a.name ?? a.label ?? a.type ?? a.iconName ?? a.title ?? '?';
+        const v = a.value ?? a.formattedValue ?? a.formatted ?? a.text ?? a.data ?? '?';
+        return `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`;
+      }).join(' | ');
     console.log(`[NEXTDATA] ${cfg.siteLabel}: attrs → ${attrDump || '(none)'}`);
+    // One raw listing so unknown field shapes (price object, spec arrays) are visible.
+    console.log(`[NEXTDATA] ${cfg.siteLabel}: raw[0] → ${JSON.stringify(a0).slice(0, 1500)}`);
   } catch { /* ignore */ }
 
   const out: ScrapedListing[] = [];
   for (const ad of ads) {
-    // Price — direct, priceInfo.priceCents (cents), or attribute.
+    // Price — direct key, priceInfo.priceCents (cents), attribute, or a deep
+    // dive into an opaque `price` object (Bilbasen).
     let priceRaw =
       toInt(readField(ad, ['price', 'priceCents', 'priceRaw', 'amount', 'currentPrice', 'salesPrice', 'consumerPrice'], ['price', 'prijs', 'pris'])) ?? null;
     const cents = ad?.priceInfo?.priceCents ?? ad?.price?.priceCents;
     if (cents != null && Number(cents) > 0) priceRaw = Math.round(Number(cents) / 100);
+    if (!priceRaw && ad?.price != null) priceRaw = deepFindPrice(ad.price);
     if (!priceRaw) continue;
     const price = cfg.currency === 'DKK' ? Math.round(priceRaw * DKK_TO_EUR) : priceRaw;
 
