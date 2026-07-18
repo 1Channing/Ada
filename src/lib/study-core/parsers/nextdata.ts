@@ -250,8 +250,13 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
         return `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`;
       }).join(' | ');
     console.log(`[NEXTDATA] ${cfg.siteLabel}: attrs → ${attrDump || '(none)'}`);
-    // One raw listing so unknown field shapes (price object, spec arrays) are visible.
-    console.log(`[NEXTDATA] ${cfg.siteLabel}: raw[0] → ${JSON.stringify(a0).slice(0, 1500)}`);
+    // Dump the spec arrays directly (skip the huge `media` array that ate the
+    // budget before) so unknown item shapes are visible in one line.
+    const specDump = JSON.stringify({
+      properties: a0?.properties, details: a0?.details, features: a0?.features,
+      price: a0?.price, variant: a0?.variant,
+    });
+    console.log(`[NEXTDATA] ${cfg.siteLabel}: specs → ${specDump.slice(0, 1500)}`);
   } catch { /* ignore */ }
 
   const out: ScrapedListing[] = [];
