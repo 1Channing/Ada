@@ -78,19 +78,44 @@ function readField(listing: any, directKeys: string[], attrKeys: string[]): stri
       return String(v);
     }
   }
-  // Marktplaats-style attributes array
-  const attrs = listing.attributes ?? listing.extendedAttributes ?? listing.specs ?? listing.vehicleDetails;
-  if (Array.isArray(attrs)) {
+  // Attribute arrays — Marktplaats SPLITS car specs across `attributes` AND
+  // `extendedAttributes`, so merge them all (reading only one missed fuel/
+  // transmission/power).
+  const attrs = [listing.attributes, listing.extendedAttributes, listing.specs, listing.vehicleDetails, listing.traits]
+    .filter(Array.isArray).flat();
+  if (attrs.length) {
     const wanted = attrKeys.map((k) => k.toLowerCase());
     for (const a of attrs) {
       const key = String(a?.key ?? a?.name ?? a?.label ?? a?.type ?? a?.iconName ?? '').toLowerCase();
-      if (wanted.some((w) => key.includes(w))) {
-        const v = a?.value ?? a?.formattedValue ?? a?.formatted ?? a?.data ?? a?.label;
+      if (key && wanted.some((w) => key.includes(w))) {
+        const v = a?.value ?? a?.formattedValue ?? a?.formatted ?? a?.data;
         if (v != null && String(v).trim()) return String(v);
       }
     }
   }
   return null;
+}
+
+/** Largest array of objects anywhere in the tree — diagnostic for shape discovery. */
+function largestObjectArray(root: any): any[] | null {
+  let best: any[] | null = null;
+  const seen = new Set<any>();
+  const stack: any[] = [root];
+  let guard = 0;
+  while (stack.length && guard < 300_000) {
+    guard++;
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+    seen.add(cur);
+    if (Array.isArray(cur)) {
+      const objs = cur.filter((x) => x && typeof x === 'object' && !Array.isArray(x)).length;
+      if (objs >= 2 && (!best || cur.length > best.length)) best = cur;
+      for (const v of cur) if (v && typeof v === 'object') stack.push(v);
+    } else {
+      for (const k in cur) { const v = (cur as any)[k]; if (v && typeof v === 'object') stack.push(v); }
+    }
+  }
+  return best;
 }
 
 function toInt(raw: string | null): number | null {
@@ -134,12 +159,20 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
   const pageProps = data?.props?.pageProps ?? {};
   const ads = findListingsArray(pageProps) ?? findListingsArray(data);
   if (!ads || ads.length === 0) {
-    console.warn(`[NEXTDATA] ${cfg.siteLabel}: __NEXT_DATA__ present but no listings array found`);
+    console.warn(`[NEXTDATA] ${cfg.siteLabel}: no listings via looksLikeListing. pageProps keys: ${Object.keys(pageProps).join(', ')}`);
+    const big = largestObjectArray(data);
+    if (big) {
+      console.warn(`[NEXTDATA] ${cfg.siteLabel}: largest object-array len=${big.length}; first keys: ${Object.keys(big[0] ?? {}).join(', ')}`);
+      try { console.warn(`[NEXTDATA] ${cfg.siteLabel}: that item: ${JSON.stringify(big[0]).slice(0, 900)}`); } catch { /* ignore */ }
+    }
     return [];
   }
-  console.log(`[NEXTDATA] ${cfg.siteLabel}: found ${ads.length} listings; first keys:`, Object.keys(ads[0] ?? {}).join(', '));
+  console.log(`[NEXTDATA] ${cfg.siteLabel}: found ${ads.length} listings; keys: ${Object.keys(ads[0] ?? {}).join(', ')}`);
   try {
-    console.log(`[NEXTDATA] ${cfg.siteLabel}: first listing sample:`, JSON.stringify(ads[0]).slice(0, 600));
+    const a0: any = ads[0];
+    const attrDump = [a0?.attributes, a0?.extendedAttributes].filter(Array.isArray).flat().slice(0, 24)
+      .map((a: any) => `${a?.key ?? a?.name ?? '?'}=${a?.value ?? a?.formattedValue ?? '?'}`).join(' | ');
+    console.log(`[NEXTDATA] ${cfg.siteLabel}: attrs → ${attrDump || '(none)'}`);
   } catch { /* ignore */ }
 
   const out: ScrapedListing[] = [];
