@@ -38,6 +38,8 @@ export interface PersistIngestionInput {
   scrapeError?: string | null;
   detectedParams: DetectedParams | null;
   submittedBy?: string;
+  /** Worker scrape health report (mode, retries, field coverage, block reason). */
+  scrapeDiagnostics?: unknown;
 }
 
 export type MemoryAction =
@@ -107,7 +109,7 @@ function mergeMappings(
 export async function persistIngestionResult(
   input: PersistIngestionInput
 ): Promise<PersistIngestionOutcome> {
-  const { url, site, country, criteria, analysis, sampleSize, scrapeError, detectedParams, submittedBy } = input;
+  const { url, site, country, criteria, analysis, sampleSize, scrapeError, detectedParams, submittedBy, scrapeDiagnostics } = input;
   const now = new Date().toISOString();
 
   const outcome: PersistIngestionOutcome = {
@@ -264,6 +266,7 @@ export async function persistIngestionResult(
     detected_params: detectedParams as unknown as Json,
     sample_size: sampleSize,
     scrape_error: scrapeError ?? null,
+    scrape_diagnostics: (scrapeDiagnostics ?? null) as unknown as Json,
     retained: retained as unknown as Json,
     discarded: discarded as unknown as Json,
     conflicts: outcome.conflicts.length > 0 ? (outcome.conflicts as unknown as Json) : null,

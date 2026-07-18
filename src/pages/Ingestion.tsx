@@ -131,6 +131,7 @@ export function Ingestion() {
   const [phase, setPhase] = useState<'idle' | 'form' | 'scraping' | 'done'>('idle');
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [sample, setSample] = useState<ScrapedListing[]>([]);
+  const [diagnostics, setDiagnostics] = useState<Record<string, any> | null>(null);
   const [analysis, setAnalysis] = useState<IngestionAnalysis | null>(null);
   const [outcome, setOutcome] = useState<PersistIngestionOutcome | null>(null);
 
@@ -178,6 +179,7 @@ export function Ingestion() {
     setOutcome(null);
     setScrapeError(null);
     setSample([]);
+    setDiagnostics(null);
     setLearned([]);
 
     const trimmedUrl = url.trim();
@@ -297,7 +299,9 @@ export function Ingestion() {
 
       const listings: ScrapedListing[] = data?.listings ?? [];
       const remoteError: string | null = data?.error ?? null;
+      const diag = (data?.diagnostics ?? null) as Record<string, any> | null;
       setSample(listings);
+      setDiagnostics(diag);
 
       if (remoteError && listings.length === 0) {
         setScrapeError(`${remoteError}${data?.errorReason ? ` — ${data.errorReason}` : ''}`);
@@ -311,6 +315,7 @@ export function Ingestion() {
           scrapeError: remoteError,
           detectedParams,
           submittedBy: form.submittedBy.trim() || undefined,
+          scrapeDiagnostics: diag,
         });
         setOutcome(persistResult);
         setPhase('done');
@@ -329,6 +334,7 @@ export function Ingestion() {
         sampleSize: listings.length,
         detectedParams,
         submittedBy: form.submittedBy.trim() || undefined,
+        scrapeDiagnostics: diag,
       });
       setOutcome(persistResult);
 
@@ -539,6 +545,39 @@ export function Ingestion() {
         </div>
       )}
 
+      {/* Scrape diagnostics (observability) */}
+      {diagnostics && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-3">
+          <h2 className="font-semibold text-zinc-200 text-sm">Diagnostic de scraping</h2>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <DiagChip label="Mode" value={diagnostics.mode === 'raw' ? 'raw (éco)' : diagnostics.mode ?? '—'} tone={diagnostics.mode === 'raw' ? 'good' : 'neutral'} />
+            <DiagChip label="Tentatives" value={String(diagnostics.attempts ?? '—')} tone={(diagnostics.attempts ?? 1) > 1 ? 'warn' : 'good'} />
+            <DiagChip label="Annonces" value={String(diagnostics.listingCount ?? 0)} />
+            <DiagChip label="Total site" value={diagnostics.totalCount != null ? String(diagnostics.totalCount) : '—'} />
+            <DiagChip label="HTML" value={diagnostics.htmlLength ? `${Math.round(diagnostics.htmlLength / 1000)} Ko` : '—'} />
+            {diagnostics.fromCache && <DiagChip label="Cache" value="réutilisé" tone="good" />}
+            {diagnostics.emptyResults && <DiagChip label="Résultat" value="0 (recherche vide)" tone="warn" />}
+            {diagnostics.blocked && <DiagChip label="Bloqué" value={diagnostics.blockReason ?? 'oui'} tone="bad" />}
+          </div>
+          {diagnostics.fieldsPresent && Object.keys(diagnostics.fieldsPresent).length > 0 && (
+            <div>
+              <div className="text-xs text-zinc-500 mb-1.5">Couverture d'extraction (part des annonces avec le champ)</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1.5">
+                {Object.entries(diagnostics.fieldsPresent as Record<string, number>).map(([field, frac]) => (
+                  <div key={field} className="flex items-center gap-2">
+                    <span className="text-xs text-zinc-400 w-16 shrink-0">{field}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${Math.round(frac * 100)}%`, background: frac >= 0.9 ? '#10b981' : frac >= 0.5 ? '#c98500' : '#ef4444' }} />
+                    </div>
+                    <span className="text-[10px] text-zinc-500 w-8 text-right">{Math.round(frac * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Results */}
       {analysis && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
@@ -625,5 +664,18 @@ export function Ingestion() {
         </div>
       )}
     </div>
+  );
+}
+
+function DiagChip({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'good' | 'warn' | 'bad' | 'neutral' }) {
+  const toneCls = tone === 'good' ? 'text-emerald-300 border-emerald-700/50'
+    : tone === 'warn' ? 'text-amber-300 border-amber-700/50'
+    : tone === 'bad' ? 'text-red-300 border-red-700/50'
+    : 'text-zinc-300 border-zinc-700';
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-zinc-950 ${toneCls}`}>
+      <span className="text-zinc-500">{label}</span>
+      <span className="font-medium">{value}</span>
+    </span>
   );
 }

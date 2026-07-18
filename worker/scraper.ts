@@ -55,10 +55,12 @@ function toEur(price: number, currency: string): number {
 /**
  * Fetch HTML from Zyte API with retries
  */
-async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<string | null> {
+interface FetchResult { html: string | null; mode: 'raw' | 'browser'; status: number | null; }
+
+async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<FetchResult> {
   if (!ZYTE_API_KEY) {
     console.error('[WORKER_SCRAPER] ZYTE_API_KEY not configured');
-    return null;
+    return { html: null, mode: 'browser', status: null };
   }
 
   // Per-site anti-bot profile, declared by the site adapter (geolocation, JS
@@ -69,6 +71,7 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
   const adapter = findSiteAdapterByDomain(url);
   const profile = adapter?.getFetchProfile ? adapter.getFetchProfile(profileLevel) : {};
   const useRawHtml = profile.httpResponseBody === true;
+  const mode: 'raw' | 'browser' = useRawHtml ? 'raw' : 'browser';
 
   const requestBody: any = { url };
   if (useRawHtml) {
@@ -102,7 +105,7 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
 
     if (!response.ok) {
       console.error(`[WORKER_SCRAPER] Zyte API error: ${response.status}`);
-      return null;
+      return { html: null, mode, status: response.status };
     }
 
     const data = await response.json() as { browserHtml?: string; httpResponseBody?: string };
@@ -145,10 +148,10 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
       );
     }
 
-    return html;
+    return { html, mode, status: response.status };
   } catch (error) {
     console.error('[WORKER_SCRAPER] Fetch error:', error);
-    return null;
+    return { html: null, mode, status: null };
   }
 }
 
@@ -158,7 +161,7 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<str
 async function scrapeDetailPage(listingUrl: string): Promise<DetailPageData | null> {
   console.log(`[DETAIL_SCRAPE] Fetching listing detail ${listingUrl}`);
 
-  const html = await fetchHtmlWithZyte(listingUrl, 1);
+  const { html } = await fetchHtmlWithZyte(listingUrl, 1);
 
   if (!html) {
     console.warn(`[DETAIL_SCRAPE] Failed to fetch ${listingUrl}`);
@@ -199,91 +202,154 @@ function extractTotalCount(html: string): number | null {
   return null;
 }
 
+/** Per-run scrape health report — surfaced in /ingest-url and persisted so we
+ *  can see harvest health (mode used, retries, extraction coverage) without
+ *  digging through Railway logs. */
+export interface ScrapeDiagnostics {
+  site: string;
+  mode: 'raw' | 'browser' | null;
+  attempts: number;
+  htmlLength: number;
+  listingCount: number;
+  totalCount: number | null;
+  blocked: boolean;
+  blockReason: string | null;
+  emptyResults: boolean;     // full page, 0 results (genuine, not an error)
+  fromCache: boolean;
+  fieldsPresent: Record<string, number>; // 0..1 fraction of listings carrying each field
+}
+
+export interface ScrapeSearchResult {
+  listings: ScrapedListing[];
+  totalCount?: number | null;
+  error?: string;
+  errorReason?: string;
+  diagnostics: ScrapeDiagnostics;
+}
+
+// Short-TTL in-memory dedup cache: two contributors ingesting the same URL
+// within minutes (or repeated study scans) hit the cache instead of paying
+// Zyte again. Lost on restart — fine.
+const SCRAPE_CACHE = new Map<string, { at: number; result: ScrapeSearchResult }>();
+const SCRAPE_CACHE_TTL_MS = 5 * 60 * 1000;
+// A full results page that yields 0 listings is a genuine empty search, not a
+// parse failure — don't waste Zyte retries on it.
+const FULL_PAGE_MIN_BYTES = 100_000;
+
+function fieldCoverage(listings: ScrapedListing[]): Record<string, number> {
+  const n = listings.length;
+  if (n === 0) return {};
+  const f = (pred: (l: ScrapedListing) => boolean) => Math.round((listings.filter(pred).length / n) * 100) / 100;
+  return {
+    price: f((l) => typeof l.price === 'number' && l.price > 0),
+    year: f((l) => l.year != null),
+    mileage: f((l) => l.mileage != null),
+    fuel: f((l) => !!l.fuel),
+    brand: f((l) => !!l.brand),
+    trim: f((l) => !!l.trim),
+    powerDin: f((l) => l.powerDin != null),
+    gearbox: f((l) => !!l.gearbox),
+  };
+}
+
+function marketplaceOf(url: string): string {
+  return url.includes('marktplaats.nl') ? 'MARKTPLAATS'
+    : url.includes('leboncoin.fr') ? 'LEBONCOIN'
+    : url.includes('bilbasen.dk') ? 'BILBASEN'
+    : url.includes('gaspedaal.nl') ? 'GASPEDAAL'
+    : url.includes('autoscout24.') ? 'AUTOSCOUT'
+    : 'UNKNOWN';
+}
+
 /**
  * Scrape a marketplace URL and parse listings.
  * Exported for the /ingest-url endpoint (discovery scrape) — same fetch,
  * retries, profile escalation and parsing as study execution.
  */
-export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed'): Promise<{
-  listings: ScrapedListing[];
-  totalCount?: number | null;
-  error?: string;
-  errorReason?: string;
-}> {
-  // DIAGNOSTIC: Log routing decision for each marketplace
-  const marketplace =
-    url.includes('marktplaats.nl') ? 'MARKTPLAATS' :
-    url.includes('leboncoin.fr') ? 'LEBONCOIN' :
-    url.includes('bilbasen.dk') ? 'BILBASEN' :
-    url.includes('gaspedaal.nl') ? 'GASPEDAAL' :
-    url.includes('autoscout24.') ? 'AUTOSCOUT' :
-    'UNKNOWN';
+export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed'): Promise<ScrapeSearchResult> {
+  const marketplace = marketplaceOf(url);
   console.log(`[SCRAPE_ROUTE] marketplace=${marketplace} scrapeMode=${scrapeMode} url=${url.substring(0, 150)}`);
 
+  // Dedup cache — serve a recent identical scrape instead of re-paying Zyte.
+  const cached = SCRAPE_CACHE.get(url);
+  if (cached && Date.now() - cached.at < SCRAPE_CACHE_TTL_MS) {
+    console.log(`[SCRAPE_CACHE] hit (age=${Math.round((Date.now() - cached.at) / 1000)}s) url=${url.slice(0, 120)}`);
+    return { ...cached.result, diagnostics: { ...cached.result.diagnostics, fromCache: true } };
+  }
+
   const MAX_RETRIES = scrapeMode === 'fast' ? 1 : 3;
+  let lastMode: 'raw' | 'browser' | null = null;
+  let lastLen = 0;
+
+  const finalize = (r: Omit<ScrapeSearchResult, 'diagnostics'>, d: Partial<ScrapeDiagnostics>, cache: boolean): ScrapeSearchResult => {
+    const result: ScrapeSearchResult = {
+      ...r,
+      diagnostics: {
+        site: marketplace, mode: lastMode, attempts: d.attempts ?? 0, htmlLength: d.htmlLength ?? lastLen,
+        listingCount: r.listings.length, totalCount: r.totalCount ?? null,
+        blocked: d.blocked ?? false, blockReason: d.blockReason ?? null,
+        emptyResults: d.emptyResults ?? false, fromCache: false,
+        fieldsPresent: fieldCoverage(r.listings),
+      },
+    };
+    if (cache) SCRAPE_CACHE.set(url, { at: Date.now(), result });
+    return result;
+  };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const profileLevel = attempt + 1;
-
     console.log(`[WORKER_SCRAPER] Fetching ${url} (attempt ${attempt + 1}/${MAX_RETRIES + 1}, profile ${profileLevel})`);
 
-    const html = await fetchHtmlWithZyte(url, profileLevel);
+    const { html, mode } = await fetchHtmlWithZyte(url, profileLevel);
+    lastMode = mode;
 
     if (!html) {
       if (attempt === MAX_RETRIES) {
-        return {
-          listings: [],
-          error: 'SCRAPER_FAILED',
-          errorReason: 'Failed to fetch HTML after retries',
-        };
+        return finalize({ listings: [], error: 'SCRAPER_FAILED', errorReason: 'Failed to fetch HTML after retries' }, { attempts: attempt + 1, htmlLength: 0 }, false);
       }
-      await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
       continue;
     }
+    lastLen = html.length;
 
-    // Parse using PURE parser (deterministic)
     const listings = coreParseSearchPage(html, url);
-
-    // DIAGNOSTIC: Log parsing result for Marktplaats (search URLs only)
     if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s') || url.includes('/lrp/api/'))) {
       console.log(`[MARKTPLAATS_PARSED] count=${listings.length} attempt=${attempt + 1}`);
     }
 
     if (listings.length > 0) {
-      console.log(`[WORKER_SCRAPER] ✅ Parsed ${listings.length} listings`);
-      return { listings, totalCount: extractTotalCount(html) };
+      console.log(`[WORKER_SCRAPER] ✅ Parsed ${listings.length} listings (mode=${mode})`);
+      return finalize({ listings, totalCount: extractTotalCount(html) }, { attempts: attempt + 1, htmlLength: html.length }, true);
     }
 
-    // Check for blocked content. Don't give up on the first block: an anti-bot
-    // wall (Cloudflare on AutoScout) may clear on an escalated profile — retry
-    // through the remaining attempts and only report TARGET_BLOCKED once
-    // they're exhausted.
+    // Blocked? Don't give up on the first block — escalate through the profiles
+    // and only report TARGET_BLOCKED once exhausted.
     const blockedCheck = detectBlockedContent(html, false);
     if (blockedCheck.isBlocked) {
       console.warn(`[WORKER_SCRAPER] ⚠️  Blocked: ${blockedCheck.matchedKeyword} (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
       if (attempt < MAX_RETRIES) {
-        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
         continue;
       }
-      return {
-        listings: [],
-        error: 'TARGET_BLOCKED',
-        errorReason: `Blocked: ${blockedCheck.matchedKeyword}`,
-      };
+      return finalize({ listings: [], error: 'TARGET_BLOCKED', errorReason: `Blocked: ${blockedCheck.matchedKeyword}` },
+        { attempts: attempt + 1, htmlLength: html.length, blocked: true, blockReason: blockedCheck.matchedKeyword }, false);
     }
 
-    // If no listings and not blocked, retry
+    // Full page, 0 listings, not blocked → genuine empty search. Return now
+    // (no wasted retries) and cache it.
+    if (html.length >= FULL_PAGE_MIN_BYTES) {
+      console.log(`[WORKER_SCRAPER] 0 listings on a full page (${html.length}b, mode=${mode}) — genuine empty result, no retry`);
+      return finalize({ listings: [], totalCount: extractTotalCount(html) }, { attempts: attempt + 1, htmlLength: html.length, emptyResults: true }, true);
+    }
+
+    // Small page, no listings, not blocked → retry (likely a soft failure).
     if (attempt < MAX_RETRIES) {
-      console.log(`[WORKER_SCRAPER] No listings found, retrying...`);
-      await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      console.log(`[WORKER_SCRAPER] No listings on a small page (${html.length}b), retrying...`);
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
     }
   }
 
-  return {
-    listings: [],
-    error: 'NO_LISTINGS',
-    errorReason: 'No listings found after retries',
-  };
+  return finalize({ listings: [], error: 'NO_LISTINGS', errorReason: 'No listings found after retries' }, { attempts: MAX_RETRIES + 1 }, false);
 }
 
 /**

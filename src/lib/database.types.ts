@@ -523,6 +523,7 @@ export type Database = {
           memory_record_id: string | null
           memory_action: string | null
           submitted_by: string | null
+          scrape_diagnostics: Json | null
         }
         Insert: {
           id?: string
@@ -539,6 +540,7 @@ export type Database = {
           memory_record_id?: string | null
           memory_action?: string | null
           submitted_by?: string | null
+          scrape_diagnostics?: Json | null
         }
         Update: {
           id?: string
@@ -555,6 +557,7 @@ export type Database = {
           memory_record_id?: string | null
           memory_action?: string | null
           submitted_by?: string | null
+          scrape_diagnostics?: Json | null
         }
         Relationships: []
       }

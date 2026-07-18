@@ -92,6 +92,7 @@ app.post('/ingest-url', async (req, res) => {
       totalCount: result.totalCount ?? null,
       error: result.error ?? null,
       errorReason: result.errorReason ?? null,
+      diagnostics: result.diagnostics ?? null,
     });
   } catch (error: any) {
     console.error('[INGEST] Discovery scrape failed:', error);
