@@ -15,7 +15,7 @@
 
 import { parseListings } from '../parsers/bilbasen';
 import { normalizeForMatch } from './normalizer';
-import { applyTemplate, resolveYearRange } from './urlTemplate';
+import { resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
 import { decomposeUrl } from './urlDecompose';
 import type {
@@ -107,26 +107,39 @@ function mapFuel(raw: string): string {
   return FUEL_MAP[raw.trim().toUpperCase()] ?? raw.trim();
 }
 
+/** Bilbasen path slug: lowercase, spaces/underscores → '-' (native URL form). */
+function pathSlug(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9.-]/g, '');
+}
+
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
 
-  const mappedBrand = mapBrand(params.brand || '');
-  const mappedModel = mapModel(params.model || '');
-  const mappedFuel = params.fuel ? mapFuel(params.fuel) : null;
-  const { yearFrom, yearTo } = resolveYearRange(params);
+  // Brand/model go in the PATH — campaign #6 (Tiguan) proved the site silently
+  // IGNORES ?make=&model= query params ("Diesel - 5864 brugte", mixed brands).
+  // The native form /brugt/bil/{brand}/{model} is the site's own filter
+  // (human-confirmed with /brugt/bil/skoda/elroq).
+  const brandSlug = pathSlug(mapBrand(params.brand || ''));
+  const modelSlug = pathSlug(mapModel(params.model || ''));
+  const segs = ['https://www.bilbasen.dk/brugt/bil'];
+  if (brandSlug) segs.push(brandSlug);
+  if (brandSlug && modelSlug) segs.push(modelSlug);
 
-  const vars: Record<string, string> = { brand: mappedBrand, model: mappedModel };
-  if (yearFrom) vars['yearFrom'] = yearFrom;
-  if (yearTo) vars['yearTo'] = yearTo;
-  if (params.mileage) vars['mileage'] = String(params.mileage);
+  const qs = new URLSearchParams();
+  const { yearFrom, yearTo } = resolveYearRange(params);
+  if (yearFrom) qs.set('yearfrom', yearFrom);
+  if (yearTo) qs.set('yearto', yearTo);
+  if (params.mileage) qs.set('mileageto', String(params.mileage));
   // Only inject fuel if mapping produced a non-empty value (GPL maps to '' for Bilbasen)
-  if (mappedFuel && mappedFuel.trim()) vars['fuel'] = mappedFuel;
+  const mappedFuel = params.fuel ? mapFuel(params.fuel) : null;
+  if (mappedFuel && mappedFuel.trim()) qs.set('fuel', mappedFuel);
   // Native param `hpfrom` — human-confirmed (ingestion 89/89 with hpfrom=250).
   const power = params.powerFrom ?? params.minPower;
-  if (power !== undefined && String(power).trim()) vars['powerFrom'] = String(power);
+  if (power !== undefined && String(power).trim()) qs.set('hpfrom', String(power));
+  qs.set('sortby', 'price');
+  qs.set('sortorder', 'asc');
 
-  const url = applyTemplate(URL_TEMPLATE, vars);
-  return { url, warnings };
+  return { url: `${segs.join('/')}?${qs.toString()}`, warnings };
 }
 
 // H1: fuel suspect → drop fuel; else regenerate structured
