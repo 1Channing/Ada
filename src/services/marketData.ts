@@ -7,7 +7,7 @@
  * (Bilbasen is DKK). No study/arbitrage logic here — pure market recording.
  */
 
-import { supabase } from '../lib/supabase';
+import { sharedSupabase as supabase } from '../lib/supabaseShared';
 import type { Database } from '../lib/database.types';
 import { generateInternalRef } from '../lib/internalRefGenerator';
 import { canonicalizeFuel, FUEL_LABELS } from '../lib/study-core/ingestion';

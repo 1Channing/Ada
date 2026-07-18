@@ -20,7 +20,7 @@
  *   URL generation.
  */
 
-import { supabase } from '../supabase';
+import { sharedSupabase as supabase } from '../supabaseShared';
 import type { Json } from '../database.types';
 import type { SearchCriteria } from '../study-core/marketplaces/types';
 import type { DetectedParams } from '../study-core/marketplaces/urlDecompose';

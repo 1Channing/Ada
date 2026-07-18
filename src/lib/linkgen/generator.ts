@@ -1,6 +1,6 @@
 import { getSiteAdapter } from '../study-core/marketplaces';
 import { resolveYearRange } from '../study-core/marketplaces/urlTemplate';
-import { supabase } from '../supabase';
+import { sharedSupabase as supabase } from '../supabaseShared';
 import type {
   LinkGenParams,
   LinkGenResult,

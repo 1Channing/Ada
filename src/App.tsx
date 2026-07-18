@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
-import { resumeRunningCampaignIfAny } from './services/campaignRunner';
+import { startCampaignWatcher } from './services/campaignRunner';
 import { StudiesV2 } from './pages/StudiesV2';
 import { Administrative } from './pages/Administrative';
 import { AdminHistory } from './pages/AdminHistory';
@@ -18,10 +18,10 @@ window.history.pushState = function(...args) {
 function App() {
   const [path, setPath] = useState(window.location.pathname);
 
-  // A campaign left 'running' by a full page reload resumes on app startup,
-  // whatever page we land on — the loop lives outside React.
+  // Campaigns run in the worker; the watcher mirrors the DB state into the
+  // store so any page shows live progress (and picks up overnight runs).
   useEffect(() => {
-    void resumeRunningCampaignIfAny();
+    startCampaignWatcher();
   }, []);
 
   useEffect(() => {

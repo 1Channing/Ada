@@ -3,6 +3,8 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { executeStudy, scrapeSearch } from './scraper';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
+import { setSharedSupabase } from '../src/lib/supabaseShared';
+import { startWorkerCampaign, resumeWorkerCampaigns } from './campaign';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -276,6 +278,33 @@ app.post('/execute-studies', async (req, res) => {
   }
 });
 
+/**
+ * Server-side mapping campaign: plans + runs the whole loop in THIS process,
+ * so it keeps going with every browser closed. Stop = the frontend flips the
+ * campaign row to status='stopping' (read between items).
+ */
+app.post('/campaign/start', async (req, res) => {
+  const authHeaderRaw = req.headers.authorization || req.headers['x-worker-secret'] || '';
+  const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
+  const providedSecret = authHeader.replace('Bearer ', '');
+  if (WORKER_SECRET && providedSecret !== WORKER_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid or missing WORKER_SECRET' });
+  }
+
+  const { sites, total, reinforceShare, variantShare, label } = req.body ?? {};
+  if (!Array.isArray(sites) || sites.length === 0 || !total) {
+    return res.status(400).json({ error: 'Missing required parameters: sites[], total' });
+  }
+
+  try {
+    const result = await startWorkerCampaign({ sites, total, reinforceShare, variantShare, label });
+    return res.status(result.started ? 200 : 409).json(result);
+  } catch (e: any) {
+    console.error('[CAMPAIGN_WORKER] start failed:', e?.message ?? e);
+    return res.status(500).json({ started: false, reason: e?.message ?? 'internal error' });
+  }
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[WORKER] ===== MC Export Worker Service Started =====`);
   console.log(`[WORKER] Node version: ${process.version}`);
@@ -290,5 +319,15 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`[WORKER] Health endpoint: GET /`);
   console.log(`[WORKER] Health endpoint: GET /health`);
   console.log(`[WORKER] Execute endpoint: POST /execute-studies`);
+  console.log(`[WORKER] Campaign endpoint: POST /campaign/start`);
   console.log(`[WORKER] Ready to process scheduled study runs`);
+
+  // Shared client for the campaign engine (generator/persist/marketData).
+  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+    setSharedSupabase(createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) as any);
+    // Pick interrupted campaigns back up after a restart/deploy.
+    void resumeWorkerCampaigns();
+  } else {
+    console.warn('[CAMPAIGN_WORKER] Supabase env missing — campaigns disabled');
+  }
 });

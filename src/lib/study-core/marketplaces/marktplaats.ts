@@ -14,7 +14,7 @@
 
 import { parseListings } from '../parsers/marktplaats';
 import { normalizeForMatch } from './normalizer';
-import { applyTemplate, resolveYearRange } from './urlTemplate';
+import { resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
 import { decomposeUrl } from './urlDecompose';
 import type {
@@ -143,14 +143,28 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const mappedModel = mapModel(params.model || '');
   const { yearFrom, yearTo } = resolveYearRange(params);
 
-  const query = buildQuery(mappedBrand, mappedModel, params.trim);
-  const vars: Record<string, string> = { query };
-  if (yearFrom) vars['yearFrom'] = yearFrom;
-  if (yearTo) vars['yearTo'] = yearTo;
-  if (params.mileage) vars['mileage'] = String(params.mileage);
+  // Brand goes in the PATH (site's own category filter — guaranteed) whenever
+  // we know its slug; only model+trim stay in the free-text search. Putting
+  // "seat leon" wholesale in #q: returned mixed-brand samples (4% brand match)
+  // — the site's category page can't make that mistake.
+  const brandSlug = BRAND_MAP[(params.brand ?? '').trim().toUpperCase()] ?? null;
+  const query = brandSlug
+    ? buildQuery('', mappedModel, params.trim)
+    : buildQuery(mappedBrand, mappedModel, params.trim);
+  if (!brandSlug && params.brand) {
+    warnings.push(`[LINKGEN_WARNING] MARKTPLAATS: marque "${params.brand}" sans slug connu — recherche texte (fiabilité moindre)`);
+  }
 
-  const url = applyTemplate(URL_TEMPLATE, vars);
-  return { url, warnings };
+  const hashParts = [`q:${query}`];
+  if (yearFrom) hashParts.push(`constructionYearFrom:${yearFrom}`);
+  if (yearTo) hashParts.push(`constructionYearTo:${yearTo}`);
+  if (params.mileage) hashParts.push(`mileageTo:${params.mileage}`);
+  hashParts.push('sortBy:PRICE', 'sortOrder:INCREASING');
+
+  const base = brandSlug
+    ? `https://www.marktplaats.nl/l/auto-s/${brandSlug}/`
+    : 'https://www.marktplaats.nl/l/auto-s/';
+  return { url: `${base}#${hashParts.join('|')}`, warnings };
 }
 
 // H1: fuel suspect → drop fuel; else regenerate

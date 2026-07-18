@@ -9,11 +9,11 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Rocket, Square, Loader2, CheckCircle2, XCircle, AlertTriangle, ExternalLink, Wrench } from 'lucide-react';
+import { Rocket, Square, Loader2, CheckCircle2, XCircle, AlertTriangle, ExternalLink, Wrench, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
-import { startCampaign, stopCampaign } from '../services/campaignRunner';
-import { useCampaignStore, EMPTY_COUNTS } from '../store/campaignStore';
+import { startCampaign, stopCampaign, markItemResolved } from '../services/campaignRunner';
+import { useCampaignStore } from '../store/campaignStore';
 import type { CampaignItemResult, CampaignOutcome } from '../store/campaignStore';
 
 const OUTCOME_LABELS: Record<CampaignOutcome, string> = {
@@ -46,47 +46,27 @@ export function CampaignPanel() {
 
   const running = state.status === 'running' || state.status === 'planning' || state.status === 'stopping';
 
-  // When idle with no in-memory items, surface the LAST campaign's report from DB.
+  // Auto-resolution: a gap whose site×brand×model is NOW validated in memory
+  // (e.g. fixed via a manual re-ingestion) displays as resolved on its own.
+  const [validatedKeys, setValidatedKeys] = useState<Set<string>>(new Set());
   useEffect(() => {
-    if (running || state.items.length > 0) return;
     (async () => {
-      const { data: last } = await supabase
-        .from('linkgen_campaigns')
-        .select('id, status, total, done_count')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!last) return;
-      const { data: items } = await supabase
-        .from('linkgen_campaign_items')
-        .select('seq, site, brand, model, criteria, url, kind, outcome, confirmed_fields, rejected, detail, sample_size')
-        .eq('campaign_id', last.id)
-        .order('seq');
-      if (!items || items.length === 0) return;
-      const mapped: CampaignItemResult[] = items.map((r) => ({
-        seq: r.seq, site: r.site, brand: r.brand, model: r.model,
-        fuel: (r.criteria as { fuel?: string } | null)?.fuel ?? undefined,
-        trim: (r.criteria as { trim?: string } | null)?.trim ?? undefined,
-        kind: (r.kind as CampaignItemResult['kind']) ?? 'exploration',
-        url: r.url, outcome: (r.outcome ?? 'technical') as CampaignOutcome,
-        confirmedFields: r.confirmed_fields ?? [],
-        rejected: (r.rejected as CampaignItemResult['rejected']) ?? [],
-        detail: r.detail ?? '', sampleSize: r.sample_size,
-      }));
-      const counts = { ...EMPTY_COUNTS };
-      for (const m of mapped) counts[m.outcome]++;
-      // A resume (resumeRunningCampaignIfAny) may have taken over meanwhile —
-      // never clobber a live run with this historical snapshot.
-      const cur = useCampaignStore.getState();
-      if (cur.status !== 'idle' || cur.items.length > 0) return;
-      useCampaignStore.setState({
-        campaignId: last.id,
-        status: last.status === 'running' ? 'idle' : (last.status as 'stopped' | 'done'),
-        total: last.total, done: mapped.length, counts, items: mapped,
-      });
+      const { data } = await supabase
+        .from('linkgen_mapping_memory')
+        .select('site, brand, model')
+        .eq('validation_status', 'valid')
+        .limit(10000);
+      const keys = new Set<string>();
+      for (const r of data ?? []) {
+        keys.add(`${r.site}|${String(r.brand ?? '').trim().toUpperCase()}|${String(r.model ?? '').trim().toUpperCase()}`);
+      }
+      setValidatedKeys(keys);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [state.done, state.status]); // refresh as the campaign progresses / after corrections
+
+  const isResolved = (item: CampaignItemResult): boolean =>
+    Boolean(item.resolvedAt) ||
+    validatedKeys.has(`${item.site}|${item.brand.trim().toUpperCase()}|${item.model.trim().toUpperCase()}`);
 
   const gaps = useMemo(
     () => state.items.filter((i) => i.outcome === 'taxonomy_gap' || i.outcome === 'enum_gap'),
@@ -138,7 +118,8 @@ export function CampaignPanel() {
         Projette les critères déjà validés (marques, modèles, carburants, finitions — liés à leur marque)
         sur les sites où ils ne le sont pas encore. Chaque étude passe par le pipeline d'ingestion normal :
         ce qui se confirme enrichit la mémoire (réutilisable immédiatement), ce qui échoue devient la liste
-        de ce qu'il faut aller chercher à la main. La campagne continue si vous changez de page.
+        de ce qu'il faut aller chercher à la main. La campagne tourne côté serveur : elle continue même
+        navigateur fermé — lancez le soir, le rapport vous attend au réveil.
       </p>
 
       {/* Config */}
@@ -266,47 +247,78 @@ export function CampaignPanel() {
       )}
 
       {/* Gap report — "ce qu'on ne sait pas" */}
-      {gaps.length > 0 && (
-        <div className="space-y-3 pt-2 border-t border-zinc-800">
-          <h3 className="text-xs font-semibold text-zinc-300">
-            Rapport d'inconnues — {gaps.length} élément(s) à traiter manuellement
-          </h3>
-          {Object.entries(gapsBySite).map(([site, items]) => (
-            <div key={site}>
-              <div className="text-xs font-medium text-zinc-400 mb-1">{site} ({items.length})</div>
-              <div className="space-y-1">
-                {items.map((item) => (
-                  <div key={item.seq} className="flex items-center gap-2 text-xs bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5">
-                    <span className={`shrink-0 px-1.5 rounded text-[10px] font-medium ${OUTCOME_STYLE[item.outcome]}`}>
-                      {OUTCOME_LABELS[item.outcome]}
-                    </span>
-                    <span className="text-zinc-300 shrink-0">{item.brand} {item.model}</span>
-                    <span className="text-zinc-500 truncate flex-1">{item.detail}</span>
-                    {item.url && (
-                      <>
-                        <a
-                          href={item.url} target="_blank" rel="noreferrer"
-                          className="text-zinc-500 hover:text-zinc-300 shrink-0" title="Ouvrir l'URL testée"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                        <button
-                          onClick={() => openInIngestion(item.url!)}
-                          className="flex items-center gap-1 text-violet-400 hover:text-violet-300 shrink-0"
-                          title="Corriger en Ingestion (URL pré-remplie)"
-                        >
-                          <Wrench className="w-3.5 h-3.5" />
-                          Corriger
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
+      {gaps.length > 0 && (() => {
+        const open = gaps.filter((g) => !isResolved(g));
+        const resolved = gaps.filter((g) => isResolved(g));
+        return (
+          <div className="space-y-3 pt-2 border-t border-zinc-800">
+            <h3 className="text-xs font-semibold text-zinc-300">
+              Rapport d'inconnues — {open.length} à traiter
+              {resolved.length > 0 && <span className="text-emerald-400"> · {resolved.length} résolue(s)</span>}
+            </h3>
+            {Object.entries(gapsBySite).map(([site, items]) => (
+              <div key={site}>
+                <div className="text-xs font-medium text-zinc-400 mb-1">{site} ({items.filter((i) => !isResolved(i)).length})</div>
+                <div className="space-y-1">
+                  {items.map((item) => {
+                    const done = isResolved(item);
+                    return (
+                      <div
+                        key={item.seq}
+                        className={`flex items-center gap-2 text-xs bg-zinc-950 border rounded px-2 py-1.5 ${
+                          done ? 'border-emerald-900/50 opacity-70' : 'border-zinc-800'
+                        }`}
+                      >
+                        {done ? (
+                          <span className="shrink-0 px-1.5 rounded text-[10px] font-medium bg-emerald-900/40 text-emerald-400">
+                            résolue
+                          </span>
+                        ) : (
+                          <span className={`shrink-0 px-1.5 rounded text-[10px] font-medium ${OUTCOME_STYLE[item.outcome]}`}>
+                            {OUTCOME_LABELS[item.outcome]}
+                          </span>
+                        )}
+                        <span className={`shrink-0 ${done ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                          {item.brand} {item.model}
+                        </span>
+                        <span className="text-zinc-500 truncate flex-1">{item.detail}</span>
+                        {!done && item.url && (
+                          <>
+                            <a
+                              href={item.url} target="_blank" rel="noreferrer"
+                              className="text-zinc-500 hover:text-zinc-300 shrink-0" title="Ouvrir l'URL testée"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                            <button
+                              onClick={() => openInIngestion(item.url!)}
+                              className="flex items-center gap-1 text-violet-400 hover:text-violet-300 shrink-0"
+                              title="Corriger en Ingestion (URL pré-remplie)"
+                            >
+                              <Wrench className="w-3.5 h-3.5" />
+                              Corriger
+                            </button>
+                          </>
+                        )}
+                        {!done && state.campaignId && (
+                          <button
+                            onClick={() => void markItemResolved(state.campaignId!, item.seq)}
+                            className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 shrink-0"
+                            title="Marquer comme corrigée (déjà traitée ailleurs)"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            Corrigé
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }

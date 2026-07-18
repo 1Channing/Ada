@@ -1,24 +1,13 @@
 import { create } from 'zustand';
-import type { CampaignPlanItem } from '../lib/linkgen/campaignPlanner';
+import type { CampaignItemResult as EngineItemResult } from '../lib/linkgen/campaignEngine';
 
-export type CampaignOutcome =
-  | 'confirmed' | 'taxonomy_gap' | 'enum_gap' | 'no_url' | 'insufficient' | 'technical';
-
-export interface CampaignItemResult {
-  seq: number;
-  site: string;
-  brand: string;
-  model: string;
-  fuel?: string;
-  trim?: string;
-  kind: CampaignPlanItem['kind'];
-  url: string | null;
-  outcome: CampaignOutcome;
-  confirmedFields: string[];
-  rejected: Array<{ field: string; declared: string; reason: string }>;
-  detail: string;
-  sampleSize: number;
-}
+// Single source of truth for these types is the shared engine — the store
+// re-exports them so UI code keeps importing from here.
+export type { CampaignOutcome } from '../lib/linkgen/campaignEngine';
+export type CampaignItemResult = EngineItemResult & {
+  /** Set when the gap was manually marked fixed (Marquer corrigé). */
+  resolvedAt?: string | null;
+};
 
 export type CampaignStatus = 'idle' | 'planning' | 'running' | 'stopping' | 'stopped' | 'done' | 'error';
 
@@ -45,14 +34,14 @@ interface CampaignState {
   /** All finished item results of the campaign being viewed (live or loaded). */
   items: CampaignItemResult[];
   error: string | null;
-  /** Set by the stop button; the runner checks it between (and during) items. */
+  /** UI hint while a stop request is propagating to the worker. */
   stopRequested: boolean;
 }
 
 /**
- * Module-level singleton — the campaign loop lives OUTSIDE React, so page /
- * tab navigation inside ADA never interrupts it. Only closing the browser
- * stops a run (items already persisted in DB survive even that).
+ * View-model of the campaign DB state. The loop itself runs in the Railway
+ * worker (browser closed included); the watcher (services/campaignRunner)
+ * keeps this store mirroring the campaign row + items.
  */
 export const useCampaignStore = create<CampaignState>(() => ({
   campaignId: null,

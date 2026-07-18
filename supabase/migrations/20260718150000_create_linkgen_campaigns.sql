@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS linkgen_campaign_items (
   detail text,                                   -- human-readable verdict (e.g. '41× electric vs déclaré HYBRIDE')
   sample_size integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
-  finished_at timestamptz
+  finished_at timestamptz,
+  resolved_at timestamptz                        -- gap manually marked fixed
 );
 
 CREATE INDEX IF NOT EXISTS idx_campaign_items_campaign
