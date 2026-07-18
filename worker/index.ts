@@ -83,11 +83,11 @@ app.post('/ingest-url', async (req, res) => {
     res.json({
       site: adapter.key,
       country: adapter.country,
-      // Page-1 sample capped at 30 listings; descriptions capped to keep the
-      // payload light (enough for text-based fuel/trim confirmation).
-      listings: result.listings.slice(0, 30).map((l) => ({
+      // Sample capped at 100 listings (up to ~5 pages in full mode); descriptions
+      // trimmed to keep the payload light (enough for text-based confirmation).
+      listings: result.listings.slice(0, 100).map((l) => ({
         ...l,
-        description: (l.description || '').slice(0, 500),
+        description: (l.description || '').slice(0, 300),
       })),
       totalCount: result.totalCount ?? null,
       error: result.error ?? null,

@@ -29,7 +29,10 @@ import type { ScrapedListing } from './types';
 import type { SearchCriteria, SiteAdapter, CandidateSegment } from './marketplaces/types';
 import { normalizeForMatch } from './marketplaces/normalizer';
 
-export const INGESTION_MIN_SAMPLE = 5;
+// Minimum priced sample to confirm a mapping. Kept low (3) so RARE vehicles —
+// often where the best arbitrage margins hide — still get captured. The ≥90%
+// coherence rule stays, so at 3 listings all 3 must match: strict but inclusive.
+export const INGESTION_MIN_SAMPLE = 3;
 export const INGESTION_CONFIRM_THRESHOLD = 0.9;
 
 export type IngestionField =

@@ -238,6 +238,23 @@ const SCRAPE_CACHE_TTL_MS = 5 * 60 * 1000;
 // A full results page that yields 0 listings is a genuine empty search, not a
 // parse failure — don't waste Zyte retries on it.
 const FULL_PAGE_MIN_BYTES = 100_000;
+// Depth: in 'full'/'detailed' mode, page beyond page 1 up to this many
+// listings (≈ a study's worth), bounded by a page cap. 'fast' stays page 1.
+const MAX_LISTINGS = 100;
+const MAX_PAGES = 5;
+
+/** Drop duplicate listings (same URL, or same title+price when URL is absent). */
+function dedupeListings(list: ScrapedListing[]): ScrapedListing[] {
+  const seen = new Set<string>();
+  const out: ScrapedListing[] = [];
+  for (const l of list) {
+    const key = (l.listing_url || `${l.title}|${l.price}`).trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(l);
+  }
+  return out;
+}
 
 function fieldCoverage(listings: ScrapedListing[]): Record<string, number> {
   const n = listings.length;
@@ -321,8 +338,32 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
     }
 
     if (listings.length > 0) {
-      console.log(`[WORKER_SCRAPER] ✅ Parsed ${listings.length} listings (mode=${mode})`);
-      return finalize({ listings, totalCount: extractTotalCount(html) }, { attempts: attempt + 1, htmlLength: html.length }, true);
+      const totalCount = extractTotalCount(html);
+      let all = dedupeListings(listings);
+
+      // Depth: fetch further pages (cheap mode, bounded) when more results
+      // exist and we're not in 'fast' mode. Small searches (all results on
+      // page 1) never paginate — no wasted requests.
+      const moreAvailable = totalCount == null ? all.length >= 15 : totalCount > all.length;
+      let pages = 1;
+      if (scrapeMode !== 'fast' && moreAvailable && all.length < MAX_LISTINGS) {
+        const adapter = findSiteAdapterByDomain(url);
+        for (let page = 2; page <= MAX_PAGES && all.length < MAX_LISTINGS; page++) {
+          const pageUrl = adapter ? adapter.buildPaginatedUrl(url, page) : url;
+          if (pageUrl === url) break; // no pagination scheme for this site
+          const { html: pageHtml } = await fetchHtmlWithZyte(pageUrl, 1);
+          if (!pageHtml) break;
+          const pageListings = coreParseSearchPage(pageHtml, pageUrl);
+          if (pageListings.length === 0) break;
+          const before = all.length;
+          all = dedupeListings([...all, ...pageListings]);
+          pages++;
+          if (all.length === before) break; // page brought no new unique listings
+        }
+      }
+      all = all.slice(0, MAX_LISTINGS);
+      console.log(`[WORKER_SCRAPER] ✅ Parsed ${all.length} listings (mode=${mode}, pages=${pages})`);
+      return finalize({ listings: all, totalCount }, { attempts: attempt + 1, htmlLength: html.length }, true);
     }
 
     // Blocked? Don't give up on the first block — escalate through the profiles
