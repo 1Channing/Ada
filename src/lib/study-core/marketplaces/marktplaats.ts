@@ -355,11 +355,39 @@ function scoreSearchResults(
  * Marktplaats taxonomy fields are opaque internal IDs — the user fills the
  * form. Only hash-fragment numeric filters are readable and prefilled.
  */
+/** slug → canonical (e.g. 'volkswagen' → 'VOLKSWAGEN', 'c-hr' → 'C-HR'). */
+function reverseLookup(map: Record<string, string>, slug: string): string {
+  const t = slug.trim().toLowerCase();
+  for (const [canonical, mapped] of Object.entries(map)) {
+    if (mapped.toLowerCase() === t) return canonical;
+  }
+  return slug.trim();
+}
+
+/**
+ * Brand/model sit in the PATH — /{brandSlug}/f/{modelSlug[+facet…]}/{ids}/ —
+ * so a pasted native Marktplaats URL must pre-fill them from there (query/hash
+ * only carry year+mileage). Mirrors extractCandidateSegments' path grammar.
+ */
+function pathBrandModel(segs: string[]): { brand?: string; model?: string } {
+  const fIdx = segs.indexOf('f');
+  if (fIdx <= 0) return {};
+  const out: { brand?: string; model?: string } = {};
+  const brandSlug = segs[fIdx - 1];
+  if (brandSlug && brandSlug !== 'l' && brandSlug !== 'auto-s') out.brand = brandSlug;
+  const modelSlug = (segs[fIdx + 1] ?? '').split('+').filter(Boolean)[0];
+  if (modelSlug) out.model = modelSlug;
+  return out;
+}
+
 function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const d = decomposeUrl(url);
   if (!d) return {};
   const h = d.hashParams;
   const out: Partial<SearchCriteria> = {};
+  const path = pathBrandModel(d.pathSegments);
+  if (path.brand) out.brand = reverseLookup(BRAND_MAP, path.brand);
+  if (path.model) out.model = reverseLookup(MODEL_MAP, path.model);
   if (h['constructionYearFrom'] && /^\d{4}$/.test(h['constructionYearFrom'])) out.yearFrom = h['constructionYearFrom'];
   if (h['constructionYearTo'] && /^\d{4}$/.test(h['constructionYearTo'])) out.yearTo = h['constructionYearTo'];
   if (h['mileageTo'] && /^\d+$/.test(h['mileageTo'])) out.mileage = h['mileageTo'];
