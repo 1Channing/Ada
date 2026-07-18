@@ -226,27 +226,38 @@ export interface KnownDimensions {
   countries: string[];
   brands: string[];
   modelsByBrand: Record<string, string[]>;
+  /** Canonical fuel tokens confirmed per `BRAND|MODEL`, plus a flat fallback. */
+  fuelsByBrandModel: Record<string, string[]>;
+  allFuels: string[];
 }
 
 export async function loadKnownDimensions(): Promise<KnownDimensions> {
   const { data } = await supabase
     .from('linkgen_mapping_memory')
-    .select('site, country, brand, model')
+    .select('site, country, brand, model, fuel')
     .limit(10000);
 
   const sites = new Set<string>();
   const countries = new Set<string>();
   const brands = new Set<string>();
   const modelsByBrand: Record<string, Set<string>> = {};
+  const fuelsByBrandModel: Record<string, Set<string>> = {};
+  const allFuels = new Set<string>();
 
-  for (const r of (data ?? []) as Array<{ site: string | null; country: string | null; brand: string | null; model: string | null }>) {
+  for (const r of (data ?? []) as Array<{ site: string | null; country: string | null; brand: string | null; model: string | null; fuel: string | null }>) {
     if (r.site) sites.add(r.site);
     if (r.country) countries.add(r.country.toUpperCase());
     const b = (r.brand ?? '').trim().toUpperCase();
-    if (b) {
-      brands.add(b);
-      const m = (r.model ?? '').trim().toUpperCase();
-      if (m) (modelsByBrand[b] ??= new Set()).add(m);
+    if (!b) continue;
+    brands.add(b);
+    const m = (r.model ?? '').trim().toUpperCase();
+    if (m) (modelsByBrand[b] ??= new Set()).add(m);
+    // Fuel is stored as the declared label ('HYBRIDE') — canonicalise it to the
+    // token ('hybrid') that observations and the filter use.
+    const fuel = canonicalizeFuel(r.fuel ?? '');
+    if (fuel && m) {
+      (fuelsByBrandModel[`${b}|${m}`] ??= new Set()).add(fuel);
+      allFuels.add(fuel);
     }
   }
 
@@ -256,13 +267,14 @@ export async function loadKnownDimensions(): Promise<KnownDimensions> {
     if (a.countryCode) countries.add(a.countryCode.toUpperCase());
   }
 
+  const sortStr = (a: string, b: string) => a.localeCompare(b);
   return {
-    sites: [...sites].sort((a, b) => a.localeCompare(b)),
-    countries: [...countries].sort((a, b) => a.localeCompare(b)),
-    brands: [...brands].sort((a, b) => a.localeCompare(b)),
-    modelsByBrand: Object.fromEntries(
-      Object.entries(modelsByBrand).map(([b, s]) => [b, [...s].sort((x, y) => x.localeCompare(y))]),
-    ),
+    sites: [...sites].sort(sortStr),
+    countries: [...countries].sort(sortStr),
+    brands: [...brands].sort(sortStr),
+    modelsByBrand: Object.fromEntries(Object.entries(modelsByBrand).map(([b, s]) => [b, [...s].sort(sortStr)])),
+    fuelsByBrandModel: Object.fromEntries(Object.entries(fuelsByBrandModel).map(([k, s]) => [k, [...s]])),
+    allFuels: [...allFuels],
   };
 }
 

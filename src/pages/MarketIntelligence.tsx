@@ -79,7 +79,7 @@ export function MarketIntelligence() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [priceBand, setPriceBand] = useState<{ from: number; to: number } | null>(null);
 
-  const [known, setKnown] = useState<KnownDimensions>({ sites: [], countries: [], brands: [], modelsByBrand: {} });
+  const [known, setKnown] = useState<KnownDimensions>({ sites: [], countries: [], brands: [], modelsByBrand: {}, fuelsByBrandModel: {}, allFuels: [] });
 
   const refresh = async () => {
     setLoading(true);
@@ -126,7 +126,11 @@ export function MarketIntelligence() {
       return sortedUnion(distinctValues(obs, 'model', active), mapped);
     }, [obs, active, known]),
     trim: useMemo(() => distinctValues(obs, 'trim', active), [obs, active]),
-    fuel: useMemo(() => distinctValues(obs, 'fuel', active), [obs, active]),
+    fuel: useMemo(() => {
+      const key = active.brand && active.model ? `${active.brand}|${active.model}` : '';
+      const mapped = key ? (known.fuelsByBrandModel[key] ?? []) : known.allFuels;
+      return sortedUnion(distinctValues(obs, 'fuel', active), mapped);
+    }, [obs, active, known]),
   };
 
   // Per-study derived data (used by both single & comparison views).
