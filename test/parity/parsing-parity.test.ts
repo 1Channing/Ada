@@ -91,9 +91,10 @@ allPassed = await runTest('Bilbasen - Parse 2 listings with context extraction',
   const listings = coreParseSearchPage(html, 'https://www.bilbasen.dk/brugt/bil?fuel=0&yearfrom=2024&make=toyota&model=yaris%20cross');
 
   assertEqual(listings.length, 2, 'Should extract 2 listings');
-  assertEqual(listings[0].currency, 'DKK', 'Currency should be DKK');
-  // DKK prices are converted to EUR during extraction (125000 * 0.13 = 16250)
-  assert(listings[0].price >= 16000 && listings[0].price <= 17000, `First listing price should be ~16250 EUR, got ${listings[0].price}`);
+  // DKK prices are converted to EUR at extraction and stored AS EUR (so nothing
+  // downstream re-converts). 125000 DKK * 0.134 = 16750 EUR.
+  assertEqual(listings[0].currency, 'EUR', 'Currency should be EUR (price already converted)');
+  assert(listings[0].price >= 16000 && listings[0].price <= 17500, `First listing price should be ~16750 EUR, got ${listings[0].price}`);
   assert(listings[0].title.includes('Toyota'), 'Title should include Toyota');
   assert(listings[0].listing_url.includes('bilbasen.dk'), 'URL should be normalized');
   assert(listings[0].year === 2024, 'Year should be 2024');

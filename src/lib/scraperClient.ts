@@ -2168,8 +2168,10 @@ function parseBilbasenListings(html: string, searchUrl: string): ScrapedListing[
 
     const listing = {
       title,
+      // Price already DKK→EUR converted by extractPrice — store AS EUR so
+      // nothing downstream re-converts (see parsers/bilbasen.ts).
       price,
-      currency: 'DKK' as Currency,
+      currency: 'EUR' as Currency,
       mileage: mileage || null,
       year: year || null,
       trim: null,

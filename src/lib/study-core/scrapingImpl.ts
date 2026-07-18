@@ -55,7 +55,7 @@ export const DEFAULT_SCRAPER_CONFIG: Omit<CoreScraperConfig, 'zyteApiKey'> = {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-const DKK_TO_EUR = 0.13;
+const DKK_TO_EUR = 0.134; // in sync with parsers/shared.ts, business-logic.ts, marketData.ts
 
 /**
  * Extract EUR price from text
@@ -561,8 +561,10 @@ function parseBilbasenListings(html: string): ScrapedListing[] {
 
     listings.push({
       title,
+      // Price is already DKK→EUR converted by extractPrice — store AS EUR so
+      // nothing downstream re-converts (see parsers/bilbasen.ts).
       price,
-      currency: 'DKK',
+      currency: 'EUR',
       mileage: mileage || null,
       year: year || null,
       trim: null,

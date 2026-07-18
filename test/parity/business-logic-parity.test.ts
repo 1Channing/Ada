@@ -191,7 +191,7 @@ runTest('Currency conversion - EUR to EUR', () => {
 
 runTest('Currency conversion - DKK to EUR', () => {
   const result = toEur(100000, 'DKK');
-  assertEqual(result, 13000, 'DKK should convert at 0.13 rate');
+  assertEqual(result, 13400, 'DKK should convert at 0.134 rate');
 });
 
 runTest('Brand/model matching - Valid match', () => {

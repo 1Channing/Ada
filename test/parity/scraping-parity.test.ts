@@ -221,8 +221,9 @@ async function main() {
     const result = await coreScrapeSearch('https://www.bilbasen.dk/test', 'fast', config);
 
     assertEqual(result.listings.length, 2, 'Should extract 2 listings');
-    assertEqual(result.listings[0].currency, 'DKK', 'Currency should be DKK');
-    // Price is converted from DKK to EUR during extraction (125000 * 0.13 = 16250)
+    // Price is DKK→EUR converted at extraction and stored AS EUR so nothing
+    // downstream re-converts (125000 * 0.134 = 16750).
+    assertEqual(result.listings[0].currency, 'EUR', 'Currency should be EUR (price already converted)');
     assert(result.listings[0].price > 15000 && result.listings[0].price < 20000, `Price should be converted to EUR range (got ${result.listings[0].price})`);
   });
 

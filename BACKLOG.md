@@ -129,7 +129,15 @@ chaque ID par différence d'ensembles — à concevoir quand il y aura du volume
   figée, logging de la voie empruntée).
 - TTL / revalidation automatique des mappings `valid` (rejoint le futur
   `market_scan_runs`).
-- Taux DKK→EUR incohérent (0.134 worker vs 0.13 study-core) — à unifier
-  pendant le nettoyage étape 1.
+- Taux DKK→EUR : RÉSOLU (juillet 2026). Le parser actif Bilbasen
+  (`parsers/bilbasen.ts` + `shared.ts`) renvoyait un prix DÉJÀ en EUR mais
+  étiqueté `currency:'DKK'` → chaque `toEur()` en aval re-convertissait (prix
+  danois ÷ ~7,5). Corrigé : le prix est stocké en EUR (`currency:'EUR'`),
+  conversion unique à l'extraction, taux unifié à 0.134 (shared.ts,
+  business-logic.ts, marketData.ts). Les TROIS copies du parser Bilbasen ont
+  été corrigées à l'identique (currency 'EUR' + taux 0.134) : `parsers/bilbasen.ts`
+  (active), `scrapingImpl.ts` et `scraperClient.ts` (legacy). Reste la dette des
+  copies dupliquées elles-mêmes (à unifier/supprimer lors du nettoyage, hors
+  périmètre DKK).
 - `generated_urls` (2b) : à spécifier soigneusement avec Channing avant
   implémentation — pièce centrale, ne pas bâcler.

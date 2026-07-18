@@ -44,7 +44,7 @@ import type {
 
 const FX_RATES: Record<Currency, number> = {
   EUR: 1,
-  DKK: 0.13, // Updated conversion rate
+  DKK: 0.134, // kept in sync with parsers/shared.ts and services/marketData.ts
   UNKNOWN: 1,
 };
 

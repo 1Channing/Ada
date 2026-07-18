@@ -66,8 +66,11 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
 
     listings.push({
       title,
+      // `extractPrice` already converts DKK → EUR (Bilbasen prices are in kr),
+      // so the stored value IS EUR. Label it EUR — labelling it 'DKK' made every
+      // downstream toEur() re-convert, dividing Danish prices by ~7.5×.
       price,
-      currency: 'DKK',
+      currency: 'EUR',
       mileage: mileage || null,
       year: year || null,
       trim: null,

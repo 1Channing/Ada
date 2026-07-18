@@ -8,7 +8,9 @@
  * Deterministic outputs only.
  */
 
-const DKK_TO_EUR = 0.13;
+// DKK → EUR. Single conversion point for the active Bilbasen parser: the
+// listing is stored in EUR (currency 'EUR'), so nothing downstream re-converts.
+const DKK_TO_EUR = 0.134;
 
 /**
  * Extract EUR price from text
