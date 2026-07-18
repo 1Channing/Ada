@@ -194,6 +194,70 @@ function reconstructUrlFromMapping(
   }
 }
 
+// ─── Learned secondary params (BACKLOG 2bis) ─────────────────────────────────
+//
+// A confirmed ingestion stores EVERY confirmed field↔param pair in
+// fieldToParam (e.g. Bilbasen power → hpfrom), and opaque enum codes in
+// linkgen_enum_mappings (e.g. Bilbasen fuel code '3' ↔ ELECTRIQUE). Re-inject
+// them when regenerating a URL so a validated mapping is immediately reusable
+// for any criterion — numeric fields carry the user's value, enum fields carry
+// the learned site code (never guessed: no learned code → param untouched).
+
+const LEARNED_ENUM_FIELDS = ['fuel', 'gearbox', 'color', 'vehicleType'] as const;
+
+function numericParamValue(field: string, params: LinkGenParams): string | undefined {
+  const raw =
+    field === 'power' ? params.minPower :
+    field === 'doors' ? params.doors :
+    field === 'seats' ? params.seats :
+    undefined;
+  const s = raw != null ? String(raw).trim() : '';
+  return /^\d+$/.test(s) ? s : undefined;
+}
+
+async function applyLearnedSecondaryParams(
+  url: string,
+  site: SiteKey,
+  mapping: InferredMapping,
+  params: LinkGenParams,
+  logs: LinkGenLogEntry[]
+): Promise<string> {
+  const fieldToParam = mapping.fieldToParam ?? {};
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return url; }
+
+  for (const [field, seg] of Object.entries(fieldToParam)) {
+    if (!seg?.paramName || seg.paramName.startsWith('_path')) continue; // path/hash IDs: template's job
+    if (parsed.hash.includes(`${seg.paramName}:`)) continue; // hash-param sites (Marktplaats)
+
+    // Numeric criteria: transparent values, inject directly.
+    const numeric = numericParamValue(field, params);
+    if (numeric !== undefined) {
+      parsed.searchParams.set(seg.paramName, numeric);
+      logs.push({ level: 'MAPPING', message: `[MAPPING_MEMORY] Learned param ${seg.paramName}=${numeric} (${field})`, data: {} });
+      continue;
+    }
+
+    // Enum criteria: only inject a HUMAN-CONFIRMED site code.
+    if ((LEARNED_ENUM_FIELDS as readonly string[]).includes(field)) {
+      const label = String((params as unknown as Record<string, unknown>)[field] ?? '').trim();
+      if (!label) continue;
+      const { data } = await supabase
+        .from('linkgen_enum_mappings')
+        .select('code')
+        .eq('site', site)
+        .eq('field', field)
+        .ilike('label', label)
+        .maybeSingle();
+      if (data?.code) {
+        parsed.searchParams.set(seg.paramName, data.code);
+        logs.push({ level: 'MAPPING', message: `[MAPPING_MEMORY] Learned enum ${seg.paramName}=${data.code} (${field}=${label})`, data: {} });
+      }
+    }
+  }
+  return parsed.toString();
+}
+
 /**
  * Memory-first async variant of generateSearchUrls.
  * For each site, looks up linkgen_mapping_memory for a validated mapping
@@ -245,16 +309,17 @@ export async function generateSearchUrlsWithMemory(
         const reconstructed = reconstructUrlFromMapping(mapping, detectedParams, params, site);
 
         if (reconstructed) {
+          const finalUrl = await applyLearnedSecondaryParams(reconstructed, site, mapping, params, logs);
           logs.push({
             level: 'OUTPUT',
             message: '[MAPPING_MEMORY] URL reconstructed from learned mapping',
-            data: { url: reconstructed },
+            data: { url: finalUrl },
           });
 
           results.push({
             site,
             country: adapter.country,
-            url: reconstructed,
+            url: finalUrl,
             debugLogs: logs,
             warnings: [],
             validationStatus: 'not_checked',
@@ -281,15 +346,24 @@ export async function generateSearchUrlsWithMemory(
     const singleParams = { ...params, site };
     const fallbackResult = generateSearchUrl(singleParams);
 
+    // Even on template fallback, a memory record's learned secondary params
+    // (power/doors/seats + enum codes) still apply on top of the template URL.
+    let fallbackUrl = fallbackResult.url;
+    if (memoryRecord) {
+      const record = memoryRecord as unknown as MappingMemoryRecord;
+      const mapping = (record.validated_mapping ?? record.inferred_mapping) as InferredMapping | null;
+      if (mapping) fallbackUrl = await applyLearnedSecondaryParams(fallbackUrl, site, mapping, params, logs);
+    }
+
     results.push({
       site,
       country: adapter.country,
-      url: fallbackResult.url,
+      url: fallbackUrl,
       debugLogs: [...logs, ...fallbackResult.debugLogs],
       warnings: fallbackResult.debugLogs
         .filter((l) => l.level === 'WARNING')
         .map((l) => l.message),
-      validationStatus: fallbackResult.url.includes(adapter.domain)
+      validationStatus: fallbackUrl.includes(adapter.domain)
         ? 'not_checked'
         : 'invalid',
       mappingSource: 'default_template',

@@ -285,8 +285,13 @@ export async function persistIngestionResult(
 
 // ─── Learned enum dictionary (opaque code ↔ confirmed label) ──────────────────
 
-/** Enum fields whose URL value is an opaque code worth learning. */
-const LEARNABLE_ENUM_FIELDS = ['gearbox', 'color', 'vehicleType'] as const;
+/**
+ * Enum fields whose URL value is an opaque code worth learning. `fuel` is
+ * included because sites use numeric codes in native URLs (Bilbasen fuel=3 =
+ * electric) that the adapters' static text maps (fuel=El) can't decode —
+ * a confirmed ingestion is what pins code↔label per site.
+ */
+const LEARNABLE_ENUM_FIELDS = ['fuel', 'gearbox', 'color', 'vehicleType'] as const;
 type LearnableEnumField = (typeof LEARNABLE_ENUM_FIELDS)[number];
 
 /**

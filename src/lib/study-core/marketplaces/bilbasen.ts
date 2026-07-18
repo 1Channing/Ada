@@ -38,6 +38,7 @@ const URL_TEMPLATE =
   '&yearto={yearTo}' +
   '&mileageto={mileage}' +
   '&fuel={fuel}' +
+  '&hpfrom={powerFrom}' +
   '&sortby=price&sortorder=asc';
 
 const BRAND_MAP: Record<string, string> = {
@@ -92,7 +93,7 @@ const FUEL_MAP: Record<string, string> = {
   GPL: '',
 };
 
-const UNSUPPORTED_PARAMS = ['minPower'];
+const UNSUPPORTED_PARAMS: string[] = [];
 
 function mapBrand(raw: string): string {
   return BRAND_MAP[raw.trim().toUpperCase()] ?? raw.trim();
@@ -108,9 +109,6 @@ function mapFuel(raw: string): string {
 
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
-  if (params.minPower !== undefined && UNSUPPORTED_PARAMS.includes('minPower')) {
-    warnings.push('[LINKGEN_WARNING] minPower ignored for BILBASEN until mapping is implemented');
-  }
 
   const mappedBrand = mapBrand(params.brand || '');
   const mappedModel = mapModel(params.model || '');
@@ -123,6 +121,9 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (params.mileage) vars['mileage'] = String(params.mileage);
   // Only inject fuel if mapping produced a non-empty value (GPL maps to '' for Bilbasen)
   if (mappedFuel && mappedFuel.trim()) vars['fuel'] = mappedFuel;
+  // Native param `hpfrom` — human-confirmed (ingestion 89/89 with hpfrom=250).
+  const power = params.powerFrom ?? params.minPower;
+  if (power !== undefined && String(power).trim()) vars['powerFrom'] = String(power);
 
   const url = applyTemplate(URL_TEMPLATE, vars);
   return { url, warnings };
@@ -337,6 +338,10 @@ const FUEL_SITE_TO_LABEL: Record<string, string> = {
   'el': 'ELECTRIQUE',
   'hybrid': 'HYBRIDE',
   'plugin-hybrid': 'PLUG_IN_HYBRID',
+  // Native numeric codes. ONLY human-confirmed codes belong here ('3' proven
+  // electric via ingestion 89/89) — unknown codes go through the learned enum
+  // dictionary (linkgen_enum_mappings), never guessed.
+  '3': 'ELECTRIQUE',
 };
 
 function reverseLookup(map: Record<string, string>, siteValue: string): string {
@@ -374,6 +379,7 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   if (q['yearto'] && /^\d{4}$/.test(q['yearto'])) out.yearTo = q['yearto'];
   if (q['mileageto'] && /^\d+$/.test(q['mileageto'])) out.mileage = q['mileageto'];
   if (q['fuel'] && FUEL_SITE_TO_LABEL[q['fuel'].toLowerCase()]) out.fuel = FUEL_SITE_TO_LABEL[q['fuel'].toLowerCase()];
+  if (q['hpfrom'] && /^\d+$/.test(q['hpfrom'])) out.powerFrom = q['hpfrom'];
   if (q['free']) out.trim = q['free'];
 
   return out;
@@ -397,6 +403,7 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
   push('yearto', 'year');
   push('mileageto', 'mileage');
   push('fuel', 'fuel');
+  push('hpfrom', 'power');
   push('free', 'trim');
   return out;
 }
