@@ -347,14 +347,29 @@ function reverseLookup(map: Record<string, string>, siteValue: string): string {
   return siteValue.trim();
 }
 
+/**
+ * Bilbasen exposes brand/model two ways: ADA-generated URLs put them in the
+ * query (`?make=&model=`), but the native search URLs users paste carry them
+ * in the PATH — `/brugt/bil/{brand}/{model}[/...]`. Pull them from the path so
+ * re-pasting a native URL still pre-fills the form.
+ */
+function pathBrandModel(segs: string[]): { brand?: string; model?: string } {
+  const i = segs.findIndex((s) => s.toLowerCase() === 'bil');
+  if (i >= 0 && segs[i + 1]) return { brand: segs[i + 1], model: segs[i + 2] };
+  return {};
+}
+
 function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const d = decomposeUrl(url);
   if (!d) return {};
   const q = d.queryParams;
   const out: Partial<SearchCriteria> = {};
 
-  if (q['make']) out.brand = reverseLookup(BRAND_MAP, q['make']);
-  if (q['model']) out.model = reverseLookup(MODEL_MAP, q['model']);
+  const path = pathBrandModel(d.pathSegments);
+  const rawMake = q['make'] ?? path.brand;
+  const rawModel = q['model'] ?? path.model;
+  if (rawMake) out.brand = reverseLookup(BRAND_MAP, rawMake);
+  if (rawModel) out.model = reverseLookup(MODEL_MAP, rawModel);
   if (q['yearfrom'] && /^\d{4}$/.test(q['yearfrom'])) out.yearFrom = q['yearfrom'];
   if (q['yearto'] && /^\d{4}$/.test(q['yearto'])) out.yearTo = q['yearto'];
   if (q['mileageto'] && /^\d+$/.test(q['mileageto'])) out.mileage = q['mileageto'];
@@ -372,6 +387,10 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
   const push = (paramName: string, guessField: CandidateSegment['guessField']) => {
     if (q[paramName]) out.push({ raw: q[paramName], location: 'query', paramName, guessField });
   };
+  // Native-path brand/model (when not already in query).
+  const path = pathBrandModel(d.pathSegments);
+  if (!q['make'] && path.brand) out.push({ raw: path.brand, location: 'path', paramName: 'make', guessField: 'brand' });
+  if (!q['model'] && path.model) out.push({ raw: path.model, location: 'path', paramName: 'model', guessField: 'model' });
   push('make', 'brand');
   push('model', 'model');
   push('yearfrom', 'year');
