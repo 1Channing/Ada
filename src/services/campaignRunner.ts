@@ -111,14 +111,32 @@ function mapItems(rows: Array<Record<string, unknown>>): Array<CampaignItemResul
   }));
 }
 
+/** A 'running'/'stopping' row whose heartbeat died > 10 min ago is orphaned —
+ *  no loop will ever finalise it. Close it out so the UI never hangs. (10 min
+ *  because one item can legitimately take several minutes: Zyte retries +
+ *  pagination; the heartbeat only beats between items.) */
+const ORPHAN_AFTER_MS = 10 * 60 * 1000;
+
 async function syncOnce(): Promise<void> {
-  const { data: camp } = await supabase
+  const { data: campRow } = await supabase
     .from('linkgen_campaigns')
-    .select('id, status, total, done_count')
+    .select('id, status, total, done_count, last_heartbeat')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (!camp) return;
+  if (!campRow) return;
+  let camp = campRow;
+
+  if (camp.status === 'running' || camp.status === 'stopping') {
+    const hb = camp.last_heartbeat ? Date.parse(camp.last_heartbeat) : 0;
+    if (Date.now() - hb > ORPHAN_AFTER_MS) {
+      console.warn(`[CAMPAIGN] campagne orpheline ${camp.id} (heartbeat mort) → stopped`);
+      await supabase.from('linkgen_campaigns')
+        .update({ status: 'stopped', finished_at: new Date().toISOString() })
+        .eq('id', camp.id);
+      camp = { ...camp, status: 'stopped' };
+    }
+  }
 
   const st = useCampaignStore.getState();
   // Don't fight a start in progress (edge call hasn't returned its id yet).

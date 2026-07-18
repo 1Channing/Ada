@@ -70,33 +70,58 @@ export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<{ 
   return { started: true, campaignId: row.id };
 }
 
-/** Boot-time resume: pick up the latest 'running' campaign with a stale heartbeat. */
+/**
+ * Boot-time housekeeping:
+ *  - campaigns stuck in 'stopping' with no live loop → finalise to 'stopped'
+ *    (the stop was requested; honour it) so the UI never hangs on
+ *    « arrêt en cours… » forever;
+ *  - latest 'running' campaign with a stale heartbeat → resume it;
+ *  - 'running' campaigns with NO stored plan (pre-worker era) → finalise
+ *    'stopped', they cannot be resumed.
+ */
 export async function resumeWorkerCampaigns(): Promise<void> {
   try {
-    const { data: camp } = await supabase
+    const { data: rows } = await supabase
       .from('linkgen_campaigns')
       .select('id, status, total, config, last_heartbeat')
-      .eq('status', 'running')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const plan = (camp?.config as { plan?: unknown } | null)?.plan;
-    if (!camp || !Array.isArray(plan) || plan.length === 0) return;
-
-    const hb = camp.last_heartbeat ? Date.parse(camp.last_heartbeat) : 0;
-    if (Date.now() - hb < HEARTBEAT_STALE_MS) return; // someone else is driving
-
-    const { data: items } = await supabase
-      .from('linkgen_campaign_items')
-      .select('seq')
-      .eq('campaign_id', camp.id);
-    const maxSeq = (items ?? []).reduce((m, r) => Math.max(m, (r as { seq: number }).seq), 0);
-    if (maxSeq >= plan.length) {
-      await supabase.from('linkgen_campaigns').update({ status: 'done', finished_at: new Date().toISOString() }).eq('id', camp.id);
+      .in('status', ['running', 'stopping'])
+      .order('created_at', { ascending: false });
+    if (!rows || rows.length === 0) {
+      console.log('[CAMPAIGN_WORKER] boot: aucune campagne à reprendre');
       return;
     }
-    console.log(`[CAMPAIGN_WORKER] reprise id=${camp.id} à l'étude ${maxSeq + 1}/${plan.length}`);
-    void runLoop(camp.id, plan as CampaignPlanItem[], maxSeq);
+
+    let resumed = false;
+    for (const camp of rows) {
+      const hb = camp.last_heartbeat ? Date.parse(camp.last_heartbeat) : 0;
+      const fresh = Date.now() - hb < HEARTBEAT_STALE_MS;
+      const plan = (camp.config as { plan?: unknown } | null)?.plan;
+      const resumable = Array.isArray(plan) && plan.length > 0;
+
+      if (camp.status === 'stopping' || !resumable) {
+        if (fresh) continue; // a live loop will finalise it itself
+        await supabase.from('linkgen_campaigns')
+          .update({ status: 'stopped', finished_at: new Date().toISOString() })
+          .eq('id', camp.id);
+        console.log(`[CAMPAIGN_WORKER] boot: campagne orpheline ${camp.id} (${camp.status}${resumable ? '' : ', sans plan'}) → stopped`);
+        continue;
+      }
+
+      // status 'running' + plan present
+      if (fresh || resumed) continue; // driven elsewhere / one loop max
+      const { data: items } = await supabase
+        .from('linkgen_campaign_items')
+        .select('seq')
+        .eq('campaign_id', camp.id);
+      const maxSeq = (items ?? []).reduce((m, r) => Math.max(m, (r as { seq: number }).seq), 0);
+      if (maxSeq >= (plan as unknown[]).length) {
+        await supabase.from('linkgen_campaigns').update({ status: 'done', finished_at: new Date().toISOString() }).eq('id', camp.id);
+        continue;
+      }
+      console.log(`[CAMPAIGN_WORKER] reprise id=${camp.id} à l'étude ${maxSeq + 1}/${(plan as unknown[]).length}`);
+      resumed = true;
+      void runLoop(camp.id, plan as CampaignPlanItem[], maxSeq);
+    }
   } catch (e) {
     console.warn('[CAMPAIGN_WORKER] resume check failed:', e instanceof Error ? e.message : e);
   }
