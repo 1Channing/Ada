@@ -90,19 +90,40 @@ function readField(listing: any, directKeys: string[], attrKeys: string[]): stri
       return String(v);
     }
   }
-  // Attribute arrays — Marktplaats SPLITS car specs across `attributes` AND
-  // `extendedAttributes`, so merge them all (reading only one missed fuel/
-  // transmission/power).
-  const attrs = [listing.attributes, listing.extendedAttributes, listing.specs, listing.vehicleDetails,
-    listing.traits, listing.properties, listing.parameters, listing.details]
-    .filter(Array.isArray).flat();
+  // Attribute collections come in two shapes:
+  //  • ARRAY of {key,value}       — Marktplaats (split across attributes AND
+  //    extendedAttributes, so merge them all).
+  //  • OBJECT map {key: {…}}      — Bilbasen `properties`
+  //    ({ fueltype: {displayTextShort:'El'}, mileage: {…}, … }).
+  const sources = [listing.attributes, listing.extendedAttributes, listing.specs, listing.vehicleDetails,
+    listing.traits, listing.properties, listing.parameters, listing.details];
+  const attrs: Array<{ key: string; value: any }> = [];
+  for (const src of sources) {
+    if (Array.isArray(src)) {
+      for (const a of src) {
+        const key = String(a?.key ?? a?.name ?? a?.label ?? a?.type ?? a?.iconName ?? a?.title ?? '');
+        const value = a?.value ?? a?.formattedValue ?? a?.formatted ?? a?.data ?? a?.text ?? a?.displayText;
+        if (key) attrs.push({ key, value });
+      }
+    } else if (src && typeof src === 'object') {
+      for (const [key, raw] of Object.entries(src)) {
+        const value = (raw && typeof raw === 'object')
+          ? ((raw as any).displayTextShort ?? (raw as any).displayTextLong ?? (raw as any).value ?? (raw as any).text ?? (raw as any).label)
+          : raw;
+        attrs.push({ key, value });
+      }
+    }
+  }
   if (attrs.length) {
     const wanted = attrKeys.map((k) => k.toLowerCase());
-    for (const a of attrs) {
-      const key = String(a?.key ?? a?.name ?? a?.label ?? a?.type ?? a?.iconName ?? '').toLowerCase();
-      if (key && wanted.some((w) => key.includes(w))) {
-        const v = a?.value ?? a?.formattedValue ?? a?.formatted ?? a?.data;
-        if (v != null && String(v).trim()) return String(v);
+    // Exact key match wins (avoids e.g. mileage 'km' matching Bilbasen's 'kmt'
+    // acceleration field); fall back to substring only if nothing matched exactly.
+    for (const pass of ['exact', 'includes'] as const) {
+      for (const a of attrs) {
+        const key = a.key.toLowerCase();
+        if (!key) continue;
+        const hit = pass === 'exact' ? wanted.includes(key) : wanted.some((w) => key.includes(w));
+        if (hit && a.value != null && String(a.value).trim()) return String(a.value);
       }
     }
   }
@@ -282,7 +303,7 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
     const title = str(readField(ad, ['title', 'subject', 'name', 'heading', 'subtitle', 'headline'], []))
       ?? ([make, model, version].filter(Boolean).join(' ') || 'Listing');
 
-    const year = toYear(readField(ad, ['year', 'constructionYear', 'registrationYear', 'modelYear', 'firstRegistration', 'regDate'], ['constructionYear', 'bouwjaar', 'year', 'årgang', 'aargang']));
+    const year = toYear(readField(ad, ['year', 'constructionYear', 'registrationYear', 'modelYear', 'firstRegistration', 'regDate'], ['firstregistrationdate', 'registration', 'constructionYear', 'bouwjaar', 'year', 'årgang', 'aargang']));
     const mileage = toInt(readField(ad, ['mileage', 'mileageInKm', 'km', 'odometer', 'kilometers'], ['mileage', 'kilometerstand', 'km', 'kilometer']));
     const fuel = str(readField(ad, ['fuel', 'fuelType', 'fuelCategory'], ['fuel', 'brandstof', 'brændstof', 'braendstof', 'fueltype']));
     const gearbox = str(readField(ad, ['transmission', 'gearbox', 'transmissionType'], ['transmission', 'transmissie', 'gearbox', 'gear', 'geartype']));
