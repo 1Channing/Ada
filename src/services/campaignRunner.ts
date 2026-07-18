@@ -145,11 +145,26 @@ async function syncOnce(): Promise<void> {
   const syncKey = `${camp.id}|${camp.status}|${camp.done_count}`;
   if (syncKey === lastSyncKey && st.campaignId === camp.id) return; // nothing new
 
-  const { data: itemRows } = await supabase
+  let { data: itemRows, error: itemsError } = await supabase
     .from('linkgen_campaign_items')
     .select('seq, site, brand, model, criteria, url, kind, outcome, confirmed_fields, rejected, detail, sample_size, resolved_at')
     .eq('campaign_id', camp.id)
     .order('seq');
+  if (itemsError) {
+    // Most likely the resolved_at migration hasn't run yet — retry without it
+    // rather than blanking the live view.
+    console.warn('[CAMPAIGN] items select failed, retrying without resolved_at:', itemsError.message);
+    const retry = await supabase
+      .from('linkgen_campaign_items')
+      .select('seq, site, brand, model, criteria, url, kind, outcome, confirmed_fields, rejected, detail, sample_size')
+      .eq('campaign_id', camp.id)
+      .order('seq');
+    itemRows = retry.data as typeof itemRows;
+    if (retry.error) {
+      console.warn('[CAMPAIGN] items select failed:', retry.error.message);
+      return; // keep the last known display, never zero it out
+    }
+  }
   const items = mapItems((itemRows ?? []) as unknown as Array<Record<string, unknown>>);
   const counts = { ...EMPTY_COUNTS };
   for (const it of items) counts[it.outcome]++;

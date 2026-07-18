@@ -219,13 +219,18 @@ export function CampaignPanel() {
             <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-500">{state.counts.insufficient} insuffisants</span>
             <span className="px-2 py-0.5 rounded bg-blue-900/30 text-blue-400">{state.counts.technical} techniques</span>
           </div>
-          {state.current && (
+          {state.current ? (
             <div className="text-xs text-zinc-400 flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-violet-400" />
               #{state.current.seq} — {state.current.site} · {state.current.brand} {state.current.model}
               <span className="text-zinc-600">({state.current.reason})</span>
             </div>
-          )}
+          ) : (state.status === 'running' && state.done < state.total && (
+            <div className="text-xs text-zinc-400 flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin text-violet-400" />
+              étude #{state.done + 1}/{state.total} en cours côté serveur…
+            </div>
+          ))}
           {feed.length > 0 && (
             <div className="space-y-1 max-h-48 overflow-y-auto">
               {feed.map((item) => (
