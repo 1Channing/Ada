@@ -5,10 +5,10 @@ import {
 } from 'recharts';
 import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, AlertTriangle, RotateCcw, ExternalLink, Plus, X } from 'lucide-react';
 import {
-  loadMarketData, filterObservations, distinctValues, priceStats, timeSeries,
+  loadMarketData, loadKnownDimensions, sortedUnion, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, isCoarseOnly, fuelLabel,
 } from '../services/marketData';
-import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat } from '../services/marketData';
+import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
 
 const SERIES = ['#3987e5', '#008300', '#d55181', '#c98500', '#199e70', '#d95926', '#9085e9', '#e66767'];
@@ -79,7 +79,13 @@ export function MarketIntelligence() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [priceBand, setPriceBand] = useState<{ from: number; to: number } | null>(null);
 
-  const refresh = async () => { setLoading(true); setData(await loadMarketData()); setLoading(false); };
+  const [known, setKnown] = useState<KnownDimensions>({ sites: [], countries: [], brands: [], modelsByBrand: {} });
+
+  const refresh = async () => {
+    setLoading(true);
+    const [d, k] = await Promise.all([loadMarketData(), loadKnownDimensions()]);
+    setData(d); setKnown(k); setLoading(false);
+  };
   useEffect(() => { refresh(); }, []);
   useEffect(() => { try { sessionStorage.setItem(STUDIES_KEY, JSON.stringify(studies)); } catch { /* ignore */ } }, [studies]);
 
@@ -106,12 +112,19 @@ export function MarketIntelligence() {
 
   const obs = data.observations;
 
-  // Cascading option lists for the ACTIVE study (each respects its other filters).
+  // Cascading option lists for the ACTIVE study. Site/country/brand/model are
+  // the UNION of what has observations AND what ADA knows (mapped segments +
+  // covered sites/countries), so a mapped-but-not-yet-scanned segment stays
+  // selectable (charts then show the "awaiting data" state). Trim/fuel stay
+  // observation-only (not reliably in the mapping memory). All alphabetical.
   const opts = {
-    site: useMemo(() => distinctValues(obs, 'site', active), [obs, active]),
-    country: useMemo(() => distinctValues(obs, 'country', active), [obs, active]),
-    brand: useMemo(() => distinctValues(obs, 'brand', active), [obs, active]),
-    model: useMemo(() => distinctValues(obs, 'model', active), [obs, active]),
+    site: useMemo(() => sortedUnion(distinctValues(obs, 'site', active), known.sites), [obs, active, known]),
+    country: useMemo(() => sortedUnion(distinctValues(obs, 'country', active), known.countries), [obs, active, known]),
+    brand: useMemo(() => sortedUnion(distinctValues(obs, 'brand', active), known.brands), [obs, active, known]),
+    model: useMemo(() => {
+      const mapped = active.brand ? (known.modelsByBrand[active.brand] ?? []) : Object.values(known.modelsByBrand).flat();
+      return sortedUnion(distinctValues(obs, 'model', active), mapped);
+    }, [obs, active, known]),
     trim: useMemo(() => distinctValues(obs, 'trim', active), [obs, active]),
     fuel: useMemo(() => distinctValues(obs, 'fuel', active), [obs, active]),
   };

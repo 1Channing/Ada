@@ -13,6 +13,7 @@ import { generateInternalRef } from '../lib/internalRefGenerator';
 import { canonicalizeFuel, FUEL_LABELS } from '../lib/study-core/ingestion';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
+import { allSiteAdapters } from '../lib/study-core/marketplaces';
 
 type ObsInsert = Database['public']['Tables']['market_listing_observations']['Insert'];
 
@@ -209,6 +210,65 @@ export function distinctValues(obs: Observation[], field: keyof Observation, app
 }
 function fieldToFilterKey(field: keyof Observation): keyof MarketFilters {
   return field as keyof MarketFilters;
+}
+
+/**
+ * The full universe ADA knows about — not just what has observations yet.
+ * Sites/countries come from the registered adapters (everything we cover);
+ * brands/models come from the LEARNED mappings (linkgen_mapping_memory). This
+ * is what wires the mapping to the Market Intelligence dropdowns, so a segment
+ * you've mapped is selectable even before its observations land (the charts
+ * then show the "awaiting data" state). Values are uppercased to match the
+ * observation convention so a selection filters correctly.
+ */
+export interface KnownDimensions {
+  sites: string[];
+  countries: string[];
+  brands: string[];
+  modelsByBrand: Record<string, string[]>;
+}
+
+export async function loadKnownDimensions(): Promise<KnownDimensions> {
+  const { data } = await supabase
+    .from('linkgen_mapping_memory')
+    .select('site, country, brand, model')
+    .limit(10000);
+
+  const sites = new Set<string>();
+  const countries = new Set<string>();
+  const brands = new Set<string>();
+  const modelsByBrand: Record<string, Set<string>> = {};
+
+  for (const r of (data ?? []) as Array<{ site: string | null; country: string | null; brand: string | null; model: string | null }>) {
+    if (r.site) sites.add(r.site);
+    if (r.country) countries.add(r.country.toUpperCase());
+    const b = (r.brand ?? '').trim().toUpperCase();
+    if (b) {
+      brands.add(b);
+      const m = (r.model ?? '').trim().toUpperCase();
+      if (m) (modelsByBrand[b] ??= new Set()).add(m);
+    }
+  }
+
+  // Registered adapters = full site + country coverage, even with zero mappings.
+  for (const a of allSiteAdapters()) {
+    sites.add(a.key);
+    if (a.countryCode) countries.add(a.countryCode.toUpperCase());
+  }
+
+  return {
+    sites: [...sites].sort((a, b) => a.localeCompare(b)),
+    countries: [...countries].sort((a, b) => a.localeCompare(b)),
+    brands: [...brands].sort((a, b) => a.localeCompare(b)),
+    modelsByBrand: Object.fromEntries(
+      Object.entries(modelsByBrand).map(([b, s]) => [b, [...s].sort((x, y) => x.localeCompare(y))]),
+    ),
+  };
+}
+
+/** Union of two string lists, deduped and alphabetically sorted. */
+export function sortedUnion(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b])].sort((x, y) => x.localeCompare(y));
 }
 
 /** Median/percentiles of the filtered observation prices. */
