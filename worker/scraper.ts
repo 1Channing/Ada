@@ -191,6 +191,9 @@ function extractTotalCount(html: string): number | null {
     /([\d][\d\s. ]*)\s*(?:annonces?|résultats?|resultats?)/i,   // FR
     /([\d][\d\s. ]*)\s*(?:advertenties?|resultaten|zoekresultaten)/i, // NL
     /([\d][\d\s. ]*)\s*(?:resultater|biler|annoncer)/i,          // DA
+    /([\d][\d\s. ]*)\s*(?:angebote?|ergebnisse?|treffer)/i,
+    /([\d][\d\s. ]*)\s*(?:risultati|annunci|offerte?)/i,
+    /([\d][\d\s. ]*)\s*(?:resultados?|anuncios?|ofertas?)/i,
   ];
   for (const p of patterns) {
     const m = text.match(p);
