@@ -115,20 +115,24 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<Fet
       ? (data.httpResponseBody ? Buffer.from(data.httpResponseBody, 'base64').toString('utf-8') : null)
       : (data.browserHtml || null);
 
-    // AUTOSCOUT DIAGNOSTIC: reveal what Zyte actually returned so we can tell a
-    // real block from a false positive, and see where the data lives.
-    if (url.includes('autoscout24.')) {
+    // STRUCTURE DIAGNOSTIC: for any known marketplace, reveal what Zyte returned
+    // and WHERE the data lives (which JSON blob / card markup). This is what let
+    // us calibrate AutoScout without guessing — now generalised so Marktplaats /
+    // Bilbasen (and future sites) self-report their structure on the next scrape.
+    const diagSite = marketplaceOf(url);
+    if (diagSite !== 'UNKNOWN') {
       const raw = html ?? '';
       const title = (raw.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? '').slice(0, 90).replace(/\s+/g, ' ');
       const preview = raw.slice(0, 300).replace(/\s+/g, ' ');
-      const priceHits = (raw.match(/€/g) ?? []).length;
       console.log(
-        `[AUTOSCOUT_RUNTIME] status=${response.status} mode=${useRawHtml ? 'raw' : 'browser'} len=${raw.length} ` +
+        `[SCRAPE_RUNTIME] site=${diagSite} status=${response.status} mode=${useRawHtml ? 'raw' : 'browser'} len=${raw.length} ` +
         `next_data=${raw.includes('__NEXT_DATA__')} next_f=${raw.includes('__next_f')} ` +
         `ld_json=${raw.includes('application/ld+json')} ` +
-        `initial_state=${/window\.__INITIAL|__NUXT__|__APOLLO_STATE__/.test(raw)} ` +
+        `initial_state=${/window\.__INITIAL|__NUXT__|__APOLLO_STATE__|__PRELOADED_STATE__/.test(raw)} ` +
+        `hz_cards=${raw.includes('hz-Listing')} brugt_bil=${raw.includes('/brugt/bil')} ` +
         `cf_challenge=${/just a moment|cf-browser-verification|challenge-platform|cf_chl/i.test(raw)} ` +
-        `euro_signs=${priceHits} title="${title}" preview="${preview}"`
+        `euro=${(raw.match(/€/g) ?? []).length} kr=${(raw.match(/\bkr\b/gi) ?? []).length} ` +
+        `title="${title}" preview="${preview}"`
       );
     }
 
