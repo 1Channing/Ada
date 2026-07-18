@@ -31,6 +31,7 @@ import {
   saveMappingsBatch,
 } from '../lib/linkgen/csvMappingLearner';
 import { analyzeUrlWithGPT } from '../lib/linkgen/analyzeUrlWithGpt';
+import { CampaignPanel } from '../components/CampaignPanel';
 import { validateLearnedMapping } from '../lib/linkgen/validator';
 import { supabase } from '../lib/supabase';
 import type {
@@ -1538,6 +1539,9 @@ export function LinkGenerator() {
 
       {/* ─── Mapping Memory Explorer ─────────────────────────────────────── */}
       <MappingMemoryExplorer />
+
+      {/* ─── Campagnes de mapping (exploration de masse) ─────────────────── */}
+      <CampaignPanel />
 
     </div>
   );

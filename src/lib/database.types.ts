@@ -471,6 +471,105 @@ export type Database = {
         }
         Relationships: []
       }
+      linkgen_campaigns: {
+        Row: {
+          id: string
+          label: string
+          status: string
+          total: number
+          done_count: number
+          confirmed_count: number
+          gap_count: number
+          technical_count: number
+          config: Json | null
+          created_at: string
+          finished_at: string | null
+        }
+        Insert: {
+          id?: string
+          label?: string
+          status?: string
+          total?: number
+          done_count?: number
+          confirmed_count?: number
+          gap_count?: number
+          technical_count?: number
+          config?: Json | null
+          created_at?: string
+          finished_at?: string | null
+        }
+        Update: {
+          id?: string
+          label?: string
+          status?: string
+          total?: number
+          done_count?: number
+          confirmed_count?: number
+          gap_count?: number
+          technical_count?: number
+          config?: Json | null
+          created_at?: string
+          finished_at?: string | null
+        }
+        Relationships: []
+      }
+      linkgen_campaign_items: {
+        Row: {
+          id: string
+          campaign_id: string
+          seq: number
+          site: string
+          brand: string
+          model: string
+          criteria: Json | null
+          url: string | null
+          kind: string
+          outcome: string | null
+          confirmed_fields: string[] | null
+          rejected: Json | null
+          detail: string | null
+          sample_size: number
+          created_at: string
+          finished_at: string | null
+        }
+        Insert: {
+          id?: string
+          campaign_id: string
+          seq: number
+          site: string
+          brand: string
+          model: string
+          criteria?: Json | null
+          url?: string | null
+          kind?: string
+          outcome?: string | null
+          confirmed_fields?: string[] | null
+          rejected?: Json | null
+          detail?: string | null
+          sample_size?: number
+          created_at?: string
+          finished_at?: string | null
+        }
+        Update: {
+          id?: string
+          campaign_id?: string
+          seq?: number
+          site?: string
+          brand?: string
+          model?: string
+          criteria?: Json | null
+          url?: string | null
+          kind?: string
+          outcome?: string | null
+          confirmed_fields?: string[] | null
+          rejected?: Json | null
+          detail?: string | null
+          sample_size?: number
+          created_at?: string
+          finished_at?: string | null
+        }
+        Relationships: []
+      }
       linkgen_enum_mappings: {
         Row: {
           id: string

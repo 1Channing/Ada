@@ -129,6 +129,17 @@ export function Ingestion() {
     saveLocalName(n);
     setKnownNames((prev) => (prev.includes(n) ? prev : mergeNames(prev, [n])));
   };
+
+  // Deep-link support: /ingestion?url=… (campaign gap report's "Corriger"
+  // button) pre-fills and analyses the URL immediately.
+  useEffect(() => {
+    const fromQuery = new URLSearchParams(window.location.search).get('url');
+    if (fromQuery) {
+      setUrl(fromQuery);
+      void handleAnalyzeUrl(fromQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [phase, setPhase] = useState<'idle' | 'form' | 'scraping' | 'done'>('idle');
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [sample, setSample] = useState<ScrapedListing[]>([]);
@@ -174,7 +185,7 @@ export function Ingestion() {
   const setField = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const handleAnalyzeUrl = async () => {
+  const handleAnalyzeUrl = async (overrideUrl?: string) => {
     setUrlError(null);
     setAnalysis(null);
     setOutcome(null);
@@ -183,7 +194,7 @@ export function Ingestion() {
     setDiagnostics(null);
     setLearned([]);
 
-    const trimmedUrl = url.trim();
+    const trimmedUrl = (overrideUrl ?? url).trim();
     if (!trimmedUrl) return;
 
     const found = findSiteAdapterByDomain(trimmedUrl);
@@ -408,7 +419,7 @@ export function Ingestion() {
             className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
           />
           <button
-            onClick={handleAnalyzeUrl}
+            onClick={() => handleAnalyzeUrl()}
             disabled={!url.trim()}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg font-medium text-sm"
           >
