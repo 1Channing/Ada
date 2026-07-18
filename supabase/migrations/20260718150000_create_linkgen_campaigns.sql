@@ -27,9 +27,10 @@ CREATE TABLE IF NOT EXISTS linkgen_campaigns (
   confirmed_count integer NOT NULL DEFAULT 0,
   gap_count integer NOT NULL DEFAULT 0,          -- taxonomy_gap + enum_gap
   technical_count integer NOT NULL DEFAULT 0,
-  config jsonb,                                  -- sites, reinforceShare, variantShare…
+  config jsonb,                                  -- sites, reinforceShare, variantShare, plan (resume)
   created_at timestamptz NOT NULL DEFAULT now(),
-  finished_at timestamptz
+  finished_at timestamptz,
+  last_heartbeat timestamptz                     -- refreshed each item; stale = resumable
 );
 
 CREATE TABLE IF NOT EXISTS linkgen_campaign_items (

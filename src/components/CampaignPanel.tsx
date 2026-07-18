@@ -75,6 +75,10 @@ export function CampaignPanel() {
       }));
       const counts = { ...EMPTY_COUNTS };
       for (const m of mapped) counts[m.outcome]++;
+      // A resume (resumeRunningCampaignIfAny) may have taken over meanwhile —
+      // never clobber a live run with this historical snapshot.
+      const cur = useCampaignStore.getState();
+      if (cur.status !== 'idle' || cur.items.length > 0) return;
       useCampaignStore.setState({
         campaignId: last.id,
         status: last.status === 'running' ? 'idle' : (last.status as 'stopped' | 'done'),

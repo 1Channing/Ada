@@ -484,6 +484,7 @@ export type Database = {
           config: Json | null
           created_at: string
           finished_at: string | null
+          last_heartbeat: string | null
         }
         Insert: {
           id?: string
@@ -497,6 +498,7 @@ export type Database = {
           config?: Json | null
           created_at?: string
           finished_at?: string | null
+          last_heartbeat?: string | null
         }
         Update: {
           id?: string
@@ -510,6 +512,7 @@ export type Database = {
           config?: Json | null
           created_at?: string
           finished_at?: string | null
+          last_heartbeat?: string | null
         }
         Relationships: []
       }

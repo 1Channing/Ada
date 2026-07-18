@@ -140,7 +140,15 @@ export async function startCampaign(opts: StartCampaignOptions): Promise<{ start
       label: opts.label ?? `Campagne ${new Date().toLocaleString('fr-FR')}`,
       status: 'running',
       total: plan.length,
-      config: { sites: opts.sites, total: opts.total, reinforceShare: opts.reinforceShare, variantShare: opts.variantShare },
+      // The FULL plan is stored so a page reload can resume the run exactly
+      // where it stopped (resumeRunningCampaignIfAny). JSON round-trip strips
+      // undefined values and satisfies the Json column type.
+      config: JSON.parse(JSON.stringify({
+        sites: opts.sites, total: opts.total,
+        reinforceShare: opts.reinforceShare, variantShare: opts.variantShare,
+        plan,
+      })),
+      last_heartbeat: new Date().toISOString(),
     })
     .select('id')
     .single();
@@ -152,17 +160,81 @@ export async function startCampaign(opts: StartCampaignOptions): Promise<{ start
   useCampaignStore.setState({ status: 'running', total: plan.length, campaignId: row.id });
 
   // Detached loop — deliberately not awaited.
-  void runLoop(row.id, plan);
+  void runLoop(row.id, plan, 0);
   return { started: true };
+}
+
+/**
+ * Resume a campaign left in status 'running' — a full page reload (History
+ * tab, F5…) kills the in-browser loop, but the plan lives in the campaign
+ * row, so the app picks the run back up on startup, live tracking included.
+ * Heartbeat guard: if another tab refreshed it < 2 min ago, that tab is
+ * still driving — don't double-run.
+ */
+let resumeAttempted = false;
+export async function resumeRunningCampaignIfAny(): Promise<void> {
+  if (resumeAttempted) return;
+  resumeAttempted = true;
+  if (useCampaignStore.getState().status !== 'idle') return;
+  useCampaignStore.setState({ status: 'planning' }); // reserve against races
+
+  const release = () => useCampaignStore.setState({ status: 'idle' });
+  const { data: camp } = await supabase
+    .from('linkgen_campaigns')
+    .select('id, status, total, config, last_heartbeat')
+    .eq('status', 'running')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const plan = (camp?.config as { plan?: unknown } | null)?.plan;
+  if (!camp || !Array.isArray(plan) || plan.length === 0) { release(); return; }
+
+  const hb = camp.last_heartbeat ? Date.parse(camp.last_heartbeat) : 0;
+  if (Date.now() - hb < 120_000) { release(); return; } // another tab is on it
+
+  const { data: items } = await supabase
+    .from('linkgen_campaign_items')
+    .select('seq, site, brand, model, criteria, url, kind, outcome, confirmed_fields, rejected, detail, sample_size')
+    .eq('campaign_id', camp.id)
+    .order('seq');
+  const doneItems: CampaignItemResult[] = (items ?? []).map((r) => ({
+    seq: r.seq, site: r.site, brand: r.brand, model: r.model,
+    fuel: (r.criteria as { fuel?: string } | null)?.fuel ?? undefined,
+    trim: (r.criteria as { trim?: string } | null)?.trim ?? undefined,
+    kind: (r.kind as CampaignItemResult['kind']) ?? 'exploration',
+    url: r.url, outcome: (r.outcome ?? 'technical') as CampaignOutcome,
+    confirmedFields: r.confirmed_fields ?? [],
+    rejected: (r.rejected as CampaignItemResult['rejected']) ?? [],
+    detail: r.detail ?? '', sampleSize: r.sample_size,
+  }));
+  const counts = { ...EMPTY_COUNTS };
+  for (const it of doneItems) counts[it.outcome]++;
+  const maxSeq = doneItems.reduce((m, it) => Math.max(m, it.seq), 0);
+  if (maxSeq >= plan.length) {
+    // Everything ran but the final status write was lost — close it out.
+    await supabase.from('linkgen_campaigns').update({ status: 'done', finished_at: new Date().toISOString() }).eq('id', camp.id);
+    release();
+    return;
+  }
+
+  useCampaignStore.setState({
+    campaignId: camp.id, status: 'running', total: plan.length,
+    done: doneItems.length, counts, items: doneItems,
+    stopRequested: false, error: null, current: null,
+  });
+  console.log(`[CAMPAIGN] reprise de la campagne ${camp.id} à l'étude ${maxSeq + 1}/${plan.length}`);
+  void runLoop(camp.id, plan as ReturnType<typeof planCampaign>, maxSeq);
 }
 
 // ─── The loop ────────────────────────────────────────────────────────────────
 
-async function runLoop(campaignId: string, plan: ReturnType<typeof planCampaign>): Promise<void> {
-  for (let i = 0; i < plan.length; i++) {
+async function runLoop(campaignId: string, plan: ReturnType<typeof planCampaign>, startIndex: number): Promise<void> {
+  for (let i = startIndex; i < plan.length; i++) {
     if (useCampaignStore.getState().stopRequested) break;
     const p = plan[i];
     useCampaignStore.setState({ current: { seq: i + 1, site: p.site, brand: p.brand, model: p.model, reason: p.reason } });
+    // Heartbeat BEFORE the (long) scrape, so a parallel tab won't double-run.
+    await supabase.from('linkgen_campaigns').update({ last_heartbeat: new Date().toISOString() }).eq('id', campaignId);
 
     const result = await runOneItem(i + 1, p);
 
@@ -194,6 +266,7 @@ async function runLoop(campaignId: string, plan: ReturnType<typeof planCampaign>
       confirmed_count: stNow.counts.confirmed,
       gap_count: stNow.counts.taxonomy_gap + stNow.counts.enum_gap,
       technical_count: stNow.counts.technical + stNow.counts.insufficient + stNow.counts.no_url,
+      last_heartbeat: new Date().toISOString(),
     }).eq('id', campaignId);
 
     if (i < plan.length - 1) await pause(PAUSE_BETWEEN_ITEMS_MS);
