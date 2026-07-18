@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Rocket, Square, Loader2, CheckCircle2, XCircle, AlertTriangle, ExternalLink, Wrench, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { allSiteAdapters } from '../lib/study-core/marketplaces';
+import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
 import { startCampaign, stopCampaign, markItemResolved } from '../services/campaignRunner';
 import { useCampaignStore } from '../store/campaignStore';
 import type { CampaignItemResult, CampaignOutcome } from '../store/campaignStore';
@@ -35,6 +35,39 @@ const OUTCOME_STYLE: Record<CampaignOutcome, string> = {
 };
 
 const SECONDS_PER_ITEM = 18; // scrape + persist + pause, empirically
+
+/**
+ * The filters ACTUALLY in the tested URL — decoded by the site adapter
+ * (ground truth), merged with the planned variants. Empty → explicit
+ * 'sans filtre', so a gap is never ambiguous about what was tested.
+ */
+function testedFilterChips(item: CampaignItemResult): string[] {
+  const chips: string[] = [];
+  const push = (v: unknown, fmt?: (s: string) => string) => {
+    const s = v == null ? '' : String(v).trim();
+    if (s && !chips.includes(fmt ? fmt(s) : s)) chips.push(fmt ? fmt(s) : s);
+  };
+  if (item.url) {
+    try {
+      const pre = findSiteAdapterByDomain(item.url)?.prefillCriteriaFromUrl?.(item.url) ?? {};
+      push(pre.fuel);
+      push(pre.gearbox);
+      if (pre.yearFrom || pre.yearTo) {
+        const from = String(pre.yearFrom ?? '');
+        const to = String(pre.yearTo ?? '');
+        push(from === to ? from : `${from || '…'}–${to || '…'}`);
+      }
+      push(pre.mileage, (s) => `≤${s} km`);
+      push(pre.powerFrom, (s) => `≥${s} ch`);
+      push(pre.trim);
+    } catch { /* URL shape not decodable — fall back to planned variants */ }
+  }
+  // Planned variants (may not appear in the URL when the site can't express them).
+  push(item.fuel);
+  push(item.trim);
+  push(item.year);
+  return chips;
+}
 
 export function CampaignPanel() {
   const state = useCampaignStore();
@@ -292,17 +325,16 @@ export function CampaignPanel() {
                           <span className={`shrink-0 ${done ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
                             {item.brand} {item.model}
                           </span>
-                          {/* Critères réellement testés — un variant carburant/année
-                              inattendu se voit immédiatement ici. */}
-                          {item.fuel && (
-                            <span className="shrink-0 px-1.5 rounded text-[10px] bg-blue-900/30 text-blue-300">{item.fuel}</span>
-                          )}
-                          {item.trim && (
-                            <span className="shrink-0 px-1.5 rounded text-[10px] bg-blue-900/30 text-blue-300">{item.trim}</span>
-                          )}
-                          {item.year && (
-                            <span className="shrink-0 px-1.5 rounded text-[10px] bg-blue-900/30 text-blue-300">{item.year}</span>
-                          )}
+                          {/* Filtres réellement présents dans l'URL testée (décodés
+                              par l'adaptateur) — jamais ambigu : 'sans filtre' si nus. */}
+                          {(() => {
+                            const chips = testedFilterChips(item);
+                            return chips.length > 0 ? chips.map((c) => (
+                              <span key={c} className="shrink-0 px-1.5 rounded text-[10px] bg-blue-900/30 text-blue-300">{c}</span>
+                            )) : (
+                              <span className="shrink-0 px-1.5 rounded text-[10px] bg-zinc-800 text-zinc-500">sans filtre</span>
+                            );
+                          })()}
                           <span className="text-zinc-500 truncate flex-1">{item.detail}</span>
                           {!done && item.url && (
                             <button
