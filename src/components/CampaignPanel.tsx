@@ -42,7 +42,6 @@ export function CampaignPanel() {
   const [sites, setSites] = useState<string[]>(() => allSiteAdapters().map((a) => a.key));
   const [reinforcePct, setReinforcePct] = useState(15);
   const [variantPct, setVariantPct] = useState(40);
-  const [yearPct, setYearPct] = useState(40);
   const [startError, setStartError] = useState<string | null>(null);
 
   const running = state.status === 'running' || state.status === 'planning' || state.status === 'stopping';
@@ -90,7 +89,6 @@ export function CampaignPanel() {
       sites, total,
       reinforceShare: reinforcePct / 100,
       variantShare: variantPct / 100,
-      yearShare: yearPct / 100,
     });
     if (!res.started) setStartError(res.reason ?? 'Lancement impossible');
   };
@@ -152,14 +150,11 @@ export function CampaignPanel() {
                 className="w-full mt-1 accent-violet-500"
               />
             </label>
-            <label className="block">
-              <span className="text-xs text-zinc-400">Études sur une année précise (2020 → {new Date().getFullYear()}, min = max) : {yearPct}%</span>
-              <input
-                type="range" min={0} max={100} step={10} value={yearPct}
-                onChange={(e) => setYearPct(Number(e.target.value))}
-                className="w-full mt-1 accent-violet-500"
-              />
-            </label>
+            <p className="text-[11px] text-zinc-500">
+              Chaque étude cible <span className="text-zinc-300">une année précise</span> (min = max,
+              tirée entre 2020 et {new Date().getFullYear()}) — obligatoire, sinon la recherche est
+              trop vaste et les médianes mélangent tous les âges.
+            </p>
           </div>
           <div>
             <span className="text-xs text-zinc-400 block mb-1.5">Sites cibles</span>

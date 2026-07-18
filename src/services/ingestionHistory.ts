@@ -267,12 +267,22 @@ export async function loadMappingTree(): Promise<TreeNode> {
     if (facetGroup.children.length > 0) siteNode.children.push(facetGroup);
   }
 
-  // Roll statuses/weights up
+  // Roll statuses/weights up. adaOnly rolls up too: the tree opens at
+  // site/brand level, so Ada's work must be visible there — a parent whose
+  // ENTIRE learned descendance is Ada-only renders violet as well.
   const rollup = (n: TreeNode): void => {
     if (n.children.length === 0) return;
     n.children.forEach(rollup);
     if (n.status === 'group') n.status = bestStatus(n.children);
     n.weight = Math.max(n.weight, ...n.children.map((c) => c.weight));
+    if (n.kind !== 'root' && n.kind !== 'site' && !n.adaOnly) {
+      // A model carrying its OWN human-learned row keeps its status colour
+      // even when all its variants are Ada's.
+      const ownHumanRow = n.kind === 'model' && n.meta && !n.adaOnly;
+      if (!ownHumanRow) {
+        n.adaOnly = n.children.length > 0 && n.children.every((c) => c.adaOnly === true);
+      }
+    }
   };
   rollup(root);
 

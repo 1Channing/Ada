@@ -50,12 +50,6 @@ export interface CampaignPlanOptions {
   reinforceShare?: number;
   /** 0..1 share of items carrying a fuel or trim variant (when known). Default 0.4. */
   variantShare?: number;
-  /**
-   * 0..1 share of items pinning ONE registration year (yearFrom = yearTo),
-   * drawn from [YEAR_PIN_MIN..current year] — gives Market Intelligence
-   * year-resolved medians instead of all-ages mixes. Default 0.4.
-   */
-  yearShare?: number;
   rng?: () => number;
 }
 
@@ -76,7 +70,6 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   const total = Math.max(1, Math.floor(opts.total));
   const reinforceShare = opts.reinforceShare ?? 0.15;
   const variantShare = opts.variantShare ?? 0.4;
-  const yearShare = opts.yearShare ?? 0.4;
   const yearMax = new Date().getFullYear();
 
   // All known brand|model combos (from any site's validated memory).
@@ -137,13 +130,11 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
         else { item.trim = value; item.reason += ` (finition ${value})`; }
       }
     }
-    // Independent roll: pin ONE registration year (2020..now) so the market
-    // data is year-resolved — an all-ages median mixes 2008s with 2023s.
-    if (rng() < yearShare) {
-      const year = YEAR_PIN_MIN + Math.floor(rng() * (yearMax - YEAR_PIN_MIN + 1));
-      item.year = year;
-      item.reason += ` (année ${year})`;
-    }
+    // MANDATORY year pin (2020..now): an unbounded search is too wide — the
+    // sample mixes 2008s with 2023s and the market data is unusable by year.
+    const year = YEAR_PIN_MIN + Math.floor(rng() * (yearMax - YEAR_PIN_MIN + 1));
+    item.year = year;
+    item.reason += ` (année ${year})`;
     items.push(item);
   };
 

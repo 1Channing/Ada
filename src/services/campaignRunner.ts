@@ -24,7 +24,6 @@ export interface StartCampaignOptions {
   total: number;
   reinforceShare?: number;
   variantShare?: number;
-  yearShare?: number;
   label?: string;
 }
 
