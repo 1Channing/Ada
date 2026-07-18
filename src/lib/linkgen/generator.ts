@@ -229,6 +229,9 @@ async function applyLearnedSecondaryParams(
   for (const [field, seg] of Object.entries(fieldToParam)) {
     if (!seg?.paramName || seg.paramName.startsWith('_path')) continue; // path/hash IDs: template's job
     if (parsed.hash.includes(`${seg.paramName}:`)) continue; // hash-param sites (Marktplaats)
+    // minPower is a LOWER bound — never inject it into an upper-bound param
+    // (powerto/hpto) a confirmed mapping may have attributed to 'power'.
+    if (field === 'power' && /to$|max/i.test(seg.paramName)) continue;
 
     // Numeric criteria: transparent values, inject directly.
     const numeric = numericParamValue(field, params);

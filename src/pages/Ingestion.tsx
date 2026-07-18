@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { findSiteAdapterByDomain, decomposeUrl } from '../lib/study-core/marketplaces';
 import type { SiteAdapter, SearchCriteria } from '../lib/study-core/marketplaces';
 import { analyzeIngestion, INGESTION_MIN_SAMPLE, INGESTION_CONFIRM_THRESHOLD } from '../lib/study-core/ingestion';
+import { collectCandidateSegments, prefillFromSegments } from '../lib/study-core/marketplaces/paramDictionary';
 import type { IngestionAnalysis } from '../lib/study-core/ingestion';
 import { persistIngestionResult, loadLearnedEnums } from '../lib/linkgen/ingestion';
 import type { PersistIngestionOutcome } from '../lib/linkgen/ingestion';
@@ -214,12 +215,22 @@ export function Ingestion() {
       vehicleType: pre.vehicleType ? String(pre.vehicleType) : '',
     };
 
+    // Generic numeric prefill: any unclaimed URL param the dictionary
+    // recognises (hpfrom, doorcount…) carries a transparent value — fill the
+    // fields the adapter's own prefill left empty.
+    const allSegments = collectCandidateSegments(found, trimmedUrl);
+    const generic = prefillFromSegments(allSegments);
+    for (const [field, value] of Object.entries(generic)) {
+      const key = field as keyof FormState;
+      if (value && key in next && !next[key]) (next[key] as string) = value;
+    }
+
     // Auto-recognise enum codes we've already learned (gearbox=2 → Automatique)
     // for fields the readable prefill couldn't fill. Best-effort — a lookup
     // failure never blocks the form.
     const learnedFields: string[] = [];
     try {
-      const segments = found.extractCandidateSegments?.(trimmedUrl) ?? [];
+      const segments = allSegments;
       const learned = await loadLearnedEnums(found.key, segments);
       for (const [field, label] of Object.entries(learned)) {
         if (label && !next[field as keyof FormState]) {

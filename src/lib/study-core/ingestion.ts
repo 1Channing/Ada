@@ -28,6 +28,7 @@
 import type { ScrapedListing } from './types';
 import type { SearchCriteria, SiteAdapter, CandidateSegment } from './marketplaces/types';
 import { normalizeForMatch } from './marketplaces/normalizer';
+import { collectCandidateSegments } from './marketplaces/paramDictionary';
 
 // Minimum priced sample to confirm a mapping. Kept low (3) so RARE vehicles —
 // often where the best arbitrage margins hide — still get captured. The ≥90%
@@ -556,7 +557,10 @@ export function analyzeIngestion(
   adapter: SiteAdapter
 ): IngestionAnalysis {
   const confirmations = confirmCriteriaAgainstSample(criteria, listings, adapter);
-  const segments = adapter.extractCandidateSegments?.(url) ?? [];
+  // Adapter-declared segments + generic dictionary guesses for unclaimed
+  // params — so ANY site's filter params are learnable, not just the ones an
+  // adapter was hand-wired for.
+  const segments = collectCandidateSegments(adapter, url);
   const rejectedFields = confirmations.filter((c) => c.status === 'rejected');
   const confirmedFields = confirmations
     .filter((c) => c.status === 'confirmed')

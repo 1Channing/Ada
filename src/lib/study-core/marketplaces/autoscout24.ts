@@ -228,6 +228,7 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     if (mappedGear) qs.set('gear', mappedGear);
     const power = params.minPower ?? params.powerFrom;
     if (power) { qs.set('powerfrom', String(power)); qs.set('powertype', 'hp'); }
+    if (params.powerTo) { qs.set('powerto', String(params.powerTo)); qs.set('powertype', 'hp'); }
     qs.set('sort', 'price');
     qs.set('desc', '0');
     qs.set('ustate', 'N,U');
@@ -319,6 +320,8 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     if (q['gear'] && GEAR_CODE_TO_LABEL[q['gear']]) out.gearbox = GEAR_CODE_TO_LABEL[q['gear']];
     const power = firstNumber(q['powerfrom']);
     if (power != null) out.powerFrom = String(power);
+    const powerTo = firstNumber(q['powerto']);
+    if (powerTo != null) out.powerTo = String(powerTo);
 
     return out;
   }
