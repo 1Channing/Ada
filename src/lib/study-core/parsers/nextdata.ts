@@ -1,0 +1,195 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * GENERIC __NEXT_DATA__ STRUCTURED PARSER
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * PURE. Many marketplaces (Marktplaats, Bilbasen, AutoScout, Leboncoin) are
+ * Next.js apps that server-render their listings into a `__NEXT_DATA__` JSON
+ * blob. Rather than scrape fragile HTML cards, we parse that JSON: deep-search
+ * the listings array (shape-agnostic, skipping recommendation carousels) and
+ * read each field tolerantly — from a direct key OR a Marktplaats-style
+ * `attributes: [{key,value}]` array.
+ *
+ * Field key names differ per site, so extraction tries many candidates and
+ * logs the first listing's keys for calibration. Callers fall back to their
+ * legacy parser when this yields nothing.
+ */
+
+import type { ScrapedListing, Currency } from '../types';
+
+const DKK_TO_EUR = 0.134; // in sync with parsers/shared.ts, business-logic.ts, marketData.ts
+
+function extractNextData(html: string): any | null {
+  const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+}
+
+// Branches whose subtree holds OFF-TARGET cars (recommendations, similar,
+// sponsored) — never descend into them.
+const OFF_TARGET_KEY = /recommend|similar|suggest|sponsor|interlink|\bocs\b|otheradvert|related/i;
+
+const ID_KEYS = ['id', 'itemid', 'guid', 'listingid', 'adid', 'uuid', 'url', 'vipurl', 'seourl', 'link', 'href'];
+const VEHICLE_KEYS = ['price', 'prices', 'priceinfo', 'pricecents', 'amount', 'vehicle', 'tracking', 'attributes', 'make', 'mileage', 'fuel'];
+
+function looksLikeListing(o: any): boolean {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+  const keys = Object.keys(o).map((k) => k.toLowerCase());
+  return keys.some((k) => ID_KEYS.includes(k)) && keys.some((k) => VEHICLE_KEYS.includes(k));
+}
+
+function findListingsArray(root: any): any[] | null {
+  let best: any[] | null = null;
+  const seen = new Set<any>();
+  const stack: any[] = [root];
+  let guard = 0;
+  while (stack.length && guard < 300_000) {
+    guard++;
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+    seen.add(cur);
+    if (Array.isArray(cur)) {
+      const hits = cur.filter(looksLikeListing).length;
+      if (hits > 0 && hits >= Math.floor(cur.length / 2) && (!best || cur.length > best.length)) best = cur;
+      for (const v of cur) if (v && typeof v === 'object') stack.push(v);
+    } else {
+      for (const k in cur) {
+        if (OFF_TARGET_KEY.test(k)) continue;
+        const v = (cur as any)[k];
+        if (v && typeof v === 'object') stack.push(v);
+      }
+    }
+  }
+  return best;
+}
+
+/** Read a value from direct keys (case-insensitive) or an attributes[] array. */
+function readField(listing: any, directKeys: string[], attrKeys: string[]): string | null {
+  const lower = directKeys.map((k) => k.toLowerCase());
+  for (const k of Object.keys(listing)) {
+    if (lower.includes(k.toLowerCase())) {
+      const v = listing[k];
+      if (v == null) continue;
+      if (typeof v === 'object') {
+        const inner = v.value ?? v.label ?? v.name ?? v.formattedValue ?? v.priceRaw ?? v.amount;
+        if (inner != null) return String(inner);
+        continue;
+      }
+      return String(v);
+    }
+  }
+  // Marktplaats-style attributes array
+  const attrs = listing.attributes ?? listing.extendedAttributes ?? listing.specs ?? listing.vehicleDetails;
+  if (Array.isArray(attrs)) {
+    const wanted = attrKeys.map((k) => k.toLowerCase());
+    for (const a of attrs) {
+      const key = String(a?.key ?? a?.name ?? a?.label ?? a?.type ?? a?.iconName ?? '').toLowerCase();
+      if (wanted.some((w) => key.includes(w))) {
+        const v = a?.value ?? a?.formattedValue ?? a?.formatted ?? a?.data ?? a?.label;
+        if (v != null && String(v).trim()) return String(v);
+      }
+    }
+  }
+  return null;
+}
+
+function toInt(raw: string | null): number | null {
+  if (raw == null) return null;
+  const digits = String(raw).replace(/[^\d]/g, '');
+  if (!digits) return null;
+  const n = parseInt(digits, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+function toYear(raw: string | null): number | null {
+  if (!raw) return null;
+  const m = String(raw).match(/(19|20)\d{2}/);
+  if (!m) return null;
+  const y = parseInt(m[0], 10);
+  return y >= 1980 && y <= new Date().getFullYear() + 1 ? y : null;
+}
+function toHp(raw: string | null): number | null {
+  if (!raw) return null;
+  const s = String(raw);
+  const hp = s.match(/(\d+)\s*(?:hp|pk|ch|cv|ps|hk)\b/i);
+  if (hp) return parseInt(hp[1], 10);
+  const kw = s.match(/(\d+)\s*kw/i);
+  if (kw) return Math.round(parseInt(kw[1], 10) * 1.35962);
+  return toInt(raw);
+}
+function str(v: string | null): string | null {
+  const t = (v ?? '').trim();
+  return t || null;
+}
+
+export interface NextDataConfig {
+  host: string;
+  currency: Currency; // native currency of the site (DKK converted to EUR)
+  siteLabel: string;
+}
+
+export function parseNextDataListings(html: string, cfg: NextDataConfig): ScrapedListing[] {
+  const data = extractNextData(html);
+  if (!data) return [];
+
+  const pageProps = data?.props?.pageProps ?? {};
+  const ads = findListingsArray(pageProps) ?? findListingsArray(data);
+  if (!ads || ads.length === 0) {
+    console.warn(`[NEXTDATA] ${cfg.siteLabel}: __NEXT_DATA__ present but no listings array found`);
+    return [];
+  }
+  console.log(`[NEXTDATA] ${cfg.siteLabel}: found ${ads.length} listings; first keys:`, Object.keys(ads[0] ?? {}).join(', '));
+  try {
+    console.log(`[NEXTDATA] ${cfg.siteLabel}: first listing sample:`, JSON.stringify(ads[0]).slice(0, 600));
+  } catch { /* ignore */ }
+
+  const out: ScrapedListing[] = [];
+  for (const ad of ads) {
+    // Price — direct, priceInfo.priceCents (cents), or attribute.
+    let priceRaw =
+      toInt(readField(ad, ['price', 'priceCents', 'priceRaw', 'amount', 'currentPrice', 'salesPrice', 'consumerPrice'], ['price', 'prijs', 'pris'])) ?? null;
+    const cents = ad?.priceInfo?.priceCents ?? ad?.price?.priceCents;
+    if (cents != null && Number(cents) > 0) priceRaw = Math.round(Number(cents) / 100);
+    if (!priceRaw) continue;
+    const price = cfg.currency === 'DKK' ? Math.round(priceRaw * DKK_TO_EUR) : priceRaw;
+
+    // URL
+    let listingUrl = str(readField(ad, ['url', 'vipUrl', 'seoUrl', 'link', 'href', 'absoluteUrl', 'canonicalUrl'], [])) ?? '';
+    if (listingUrl.startsWith('/')) listingUrl = cfg.host + listingUrl;
+    if (!listingUrl) continue;
+
+    const make = str(readField(ad, ['make', 'brand', 'makeName', 'manufacturer'], ['merk', 'make', 'brand', 'mærke', 'maerke']));
+    const model = str(readField(ad, ['model', 'modelName'], ['model']));
+    const version = str(readField(ad, ['version', 'trim', 'variant', 'modelVariant', 'equipmentLevel', 'modelVersionInput'], ['uitvoering', 'version', 'variant', 'udstyrsvariant']));
+    const title = str(readField(ad, ['title', 'subject', 'name', 'heading', 'subtitle', 'headline'], []))
+      ?? ([make, model, version].filter(Boolean).join(' ') || 'Listing');
+
+    const year = toYear(readField(ad, ['year', 'constructionYear', 'registrationYear', 'modelYear', 'firstRegistration', 'regDate'], ['constructionYear', 'bouwjaar', 'year', 'årgang', 'aargang']));
+    const mileage = toInt(readField(ad, ['mileage', 'mileageInKm', 'km', 'odometer', 'kilometers'], ['mileage', 'kilometerstand', 'km', 'kilometer']));
+    const fuel = str(readField(ad, ['fuel', 'fuelType', 'fuelCategory'], ['fuel', 'brandstof', 'brændstof', 'braendstof', 'fueltype']));
+    const gearbox = str(readField(ad, ['transmission', 'gearbox', 'transmissionType'], ['transmission', 'transmissie', 'gearbox', 'gear', 'geartype']));
+    const powerDin = toHp(readField(ad, ['power', 'horsePower', 'hp', 'powerHp', 'enginePower', 'rawPowerInKw'], ['vermogen', 'power', 'horsepower', 'hestekræfter', 'hk', 'effekt']));
+
+    out.push({
+      title: title.slice(0, 200),
+      price,
+      currency: 'EUR',
+      mileage,
+      year,
+      trim: version,
+      listing_url: listingUrl,
+      description: (str(readField(ad, ['description', 'teaser', 'body'], [])) ?? '').slice(0, 300),
+      price_type: 'one-off',
+      brand: make,
+      fuel,
+      gearbox,
+      powerDin,
+      doors: null,
+      seats: null,
+      color: str(readField(ad, ['color', 'colour', 'exteriorColor', 'bodyColor'], ['kleur', 'color', 'farve'])),
+      vehicleType: str(readField(ad, ['bodyType', 'body', 'category', 'carType'], ['carrosserie', 'bodytype', 'karrosseri'])),
+    });
+  }
+
+  console.log(`[NEXTDATA] ${cfg.siteLabel}: extracted ${out.length} priced listings`);
+  return out;
+}

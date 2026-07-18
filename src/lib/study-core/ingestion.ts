@@ -128,7 +128,7 @@ export function canonicalizeFuel(raw: string): FuelToken {
   if (/hydrogen|hydrogene|waterstof|\bh2\b/.test(t)) return 'hydrogen';
   if (/\bcng\b|\bgnv\b|gaz naturel|aardgas/.test(t)) return 'cng';
   if (/\bgpl\b|\blpg\b|autogas/.test(t)) return 'lpg';
-  if (/electr|elektr|\belbil\b|\bev\b|zero emission/.test(t)) return 'electric';
+  if (/electr|elektr|elektrisk|\bel\b|\belbil\b|\bev\b|zero emission/.test(t)) return 'electric';
   if (/diesel|\bhdi\b|\btdi\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|\bd4d\b/.test(t)) return 'diesel';
   if (/essence|benzine|benzin|petrol|gasoline|\btsi\b|\btfsi\b|\bvti\b|puretech/.test(t)) return 'petrol';
   return '';

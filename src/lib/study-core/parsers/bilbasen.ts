@@ -9,6 +9,7 @@
 
 import type { ScrapedListing } from '../types';
 import { extractPrice, extractTitle, extractYear, extractMileage } from './shared';
+import { parseNextDataListings } from './nextdata';
 
 /**
  * Parse Bilbasen search results HTML into listings
@@ -21,6 +22,12 @@ import { extractPrice, extractTitle, extractYear, extractMileage } from './share
  * @returns Array of scraped listings
  */
 export function parseListings(html: string, url: string): ScrapedListing[] {
+  // Preferred: structured __NEXT_DATA__ (Bilbasen SSRs listings there). The
+  // legacy context-window regex below produced garbage titles → brand/model
+  // confirmed at ~6%. Prices are DKK, converted to EUR by the shared parser.
+  const structured = parseNextDataListings(html, { host: 'https://www.bilbasen.dk', currency: 'DKK', siteLabel: 'BILBASEN' });
+  if (structured.length > 0) return structured;
+
   const listings: ScrapedListing[] = [];
 
   const anchorRegex = /<a\s+[^>]*href=["']([^"']*\/brugt\/bil\/[^"']*)["'][^>]*>/gi;
