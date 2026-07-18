@@ -35,9 +35,12 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  let url: unknown;
+  // Forward the WHOLE body: {url, async} to start a scrape job, {jobId} to
+  // poll it — the async job flow is what makes long full-mode scrapes immune
+  // to proxy timeouts (Railway 502 while the worker was still scraping).
+  let body: Record<string, unknown>;
   try {
-    ({ url } = await req.json());
+    body = await req.json();
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
       status: 400,
@@ -45,8 +48,10 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  if (!url || typeof url !== 'string') {
-    return new Response(JSON.stringify({ error: 'Missing required parameter: url' }), {
+  const url = body?.url;
+  const jobId = body?.jobId;
+  if ((!url || typeof url !== 'string') && (!jobId || typeof jobId !== 'string')) {
+    return new Response(JSON.stringify({ error: 'Missing required parameter: url or jobId' }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -59,11 +64,11 @@ Deno.serve(async (req: Request) => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${WORKER_SECRET}`,
       },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify(body),
     });
 
-    const body = await workerResp.text();
-    return new Response(body, {
+    const respText = await workerResp.text();
+    return new Response(respText, {
       status: workerResp.status,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

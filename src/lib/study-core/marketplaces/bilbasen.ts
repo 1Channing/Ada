@@ -45,7 +45,9 @@ const BRAND_MAP: Record<string, string> = {
   TOYOTA: 'Toyota',
   BMW: 'BMW',
   MERCEDES: 'Mercedes-Benz',
-  VOLKSWAGEN: 'Volkswagen',
+  // Native path slug is 'vw' (human URL /brugt/bil/vw/ms-tiguan-serie), and
+  // reverseLookup maps a pasted 'vw' back to VOLKSWAGEN for the prefill.
+  VOLKSWAGEN: 'VW',
   AUDI: 'Audi',
   PEUGEOT: 'Peugeot',
   RENAULT: 'Renault',

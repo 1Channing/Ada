@@ -54,6 +54,17 @@ app.get('/health', (req, res) => {
  * writes — confirmation and retention happen client-side on pure study-core
  * functions. Reuses scrapeSearch (same Zyte retries/profiles as studies).
  */
+// Async ingest jobs: a 'full' scrape (browser mode + pagination) can outlive
+// the HTTP proxy timeout (Railway 502 while the scrape kept running and the
+// result was thrown away). The scrape now runs detached; the client gets a
+// jobId immediately and polls until done. In-memory store, 15-min TTL.
+type IngestJob = { status: 'running' | 'done' | 'error'; payload?: unknown; message?: string; at: number };
+const INGEST_JOBS = new Map<string, IngestJob>();
+function purgeOldIngestJobs() {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  for (const [id, j] of INGEST_JOBS) if (j.at < cutoff) INGEST_JOBS.delete(id);
+}
+
 app.post('/ingest-url', async (req, res) => {
   const authHeaderRaw = req.headers.authorization || req.headers['x-worker-secret'] || '';
   const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
@@ -65,7 +76,18 @@ app.post('/ingest-url', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: Invalid or missing WORKER_SECRET' });
   }
 
-  const { url } = req.body ?? {};
+  const { url, jobId, async: wantAsync } = req.body ?? {};
+
+  // Poll branch: return the job's current state.
+  if (jobId && typeof jobId === 'string') {
+    purgeOldIngestJobs();
+    const job = INGEST_JOBS.get(jobId);
+    if (!job) return res.status(404).json({ error: 'unknown_job', message: 'Job inconnu ou expiré (worker redémarré ?)' });
+    if (job.status === 'running') return res.json({ jobStatus: 'running' });
+    if (job.status === 'error') return res.json({ jobStatus: 'error', error: 'INGEST_FAILED', message: job.message });
+    return res.json({ jobStatus: 'done', ...(job.payload as Record<string, unknown>) });
+  }
+
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'Missing required parameter: url' });
   }
@@ -75,14 +97,13 @@ app.post('/ingest-url', async (req, res) => {
     return res.status(400).json({ error: 'unsupported_site', message: `No site adapter for URL domain: ${url.slice(0, 120)}` });
   }
 
-  console.log(`[INGEST] Discovery scrape site=${adapter.key} url=${url.slice(0, 150)}`);
+  console.log(`[INGEST] Discovery scrape site=${adapter.key} async=${!!wantAsync} url=${url.slice(0, 150)}`);
 
-  try {
+  const runScrape = async () => {
     // 'full' mode → up to 3 retries with per-site profile escalation; a
     // sample we memorise as certain deserves the robust path, not 'fast'.
     const result = await scrapeSearch(url, 'full');
-
-    res.json({
+    return {
       site: adapter.key,
       country: adapter.country,
       // Sample capped at 100 listings (up to ~5 pages in full mode); descriptions
@@ -95,7 +116,26 @@ app.post('/ingest-url', async (req, res) => {
       error: result.error ?? null,
       errorReason: result.errorReason ?? null,
       diagnostics: result.diagnostics ?? null,
-    });
+    };
+  };
+
+  if (wantAsync) {
+    purgeOldIngestJobs();
+    const id = `ing_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    INGEST_JOBS.set(id, { status: 'running', at: Date.now() });
+    void runScrape().then(
+      (payload) => INGEST_JOBS.set(id, { status: 'done', payload, at: Date.now() }),
+      (e) => {
+        console.error('[INGEST] Discovery scrape failed:', e);
+        INGEST_JOBS.set(id, { status: 'error', message: e?.message ?? String(e), at: Date.now() });
+      }
+    );
+    return res.json({ jobId: id, jobStatus: 'running' });
+  }
+
+  // Legacy synchronous path (kept for older frontends).
+  try {
+    res.json(await runScrape());
   } catch (error: any) {
     console.error('[INGEST] Discovery scrape failed:', error);
     res.status(500).json({ error: 'INGEST_FAILED', message: error?.message ?? String(error) });

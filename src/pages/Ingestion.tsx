@@ -293,10 +293,34 @@ export function Ingestion() {
 
     const detectedParams = decomposeUrl(url.trim());
 
+    // Long full-mode scrapes (browser + pagination) outlive HTTP proxy
+    // timeouts, so the worker runs them as a JOB: start → poll until done.
+    const invokeWithDetail = async (body: Record<string, unknown>) => {
+      const { data, error } = await supabase.functions.invoke('ingest-url', { body });
+      return { data, error };
+    };
+    const runIngestJob = async (): Promise<{ data: any; error: any }> => {
+      const start = await invokeWithDetail({ url: url.trim(), async: true });
+      if (start.error) return start;
+      const jobId = start.data?.jobId;
+      // Older worker without job support answers synchronously — use as-is.
+      if (!jobId) return start;
+      const DEADLINE = Date.now() + 12 * 60 * 1000;
+      while (Date.now() < DEADLINE) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const poll = await invokeWithDetail({ jobId });
+        if (poll.error) return poll;
+        if (poll.data?.jobStatus === 'running') continue;
+        if (poll.data?.jobStatus === 'error') {
+          return { data: null, error: new Error(poll.data?.message ?? 'scrape en échec côté worker') };
+        }
+        return poll; // done — payload has the same shape as the sync response
+      }
+      return { data: null, error: new Error('Délai dépassé (12 min) — le scrape tourne peut-être encore côté worker') };
+    };
+
     try {
-      const { data, error } = await supabase.functions.invoke('ingest-url', {
-        body: { url: url.trim() },
-      });
+      const { data, error } = await runIngestJob();
 
       if (error) {
         // supabase-js reports a useless generic message on non-2xx; the real
