@@ -191,6 +191,24 @@ function tokenInText(normText: string, tok: string): boolean {
   return normText.includes(tok);
 }
 
+/**
+ * Model token match, tolerant to the manufacturer habit of GLUING the engine/
+ * power onto the model name: "CLA250+", "A180", "GLC300", BMW "320d". A plain
+ * whole-word check on "cla" fails against "cla250" (0/69 on a genuine CLA
+ * pre-filtered by the URL). So beyond a whole-word hit, also accept the model
+ * immediately followed by a digit — the integrated-power form. Kept to tokens
+ * of ≥2 chars so a single-letter model can't match half the market.
+ */
+function modelTokenInText(normText: string, tok: string): boolean {
+  if (!tok) return false;
+  if (tokenInText(normText, tok)) return true;
+  // Integrated-power form. 2+ char models accept any trailing digit
+  // ("cla250", "glc300"). A 1-char model (Mercedes A/B/C/E/S classe) requires
+  // 2+ digits ("a180", "c220") so a bare "a" can't grab Audi "a4".
+  const digits = tok.length >= 2 ? '[0-9]' : '[0-9]{2}';
+  return new RegExp(`(^|[^a-z0-9])${escapeRegex(tok)}${digits}`).test(normText);
+}
+
 /** Brand matches if ANY of its tokens appears (handles "Mercedes-Benz" vs title "Mercedes ..."). */
 function brandMatchesTitle(title: string, brand: string): boolean {
   const normTitle = normalizeForMatch(title);
@@ -204,7 +222,7 @@ function modelMatchesTitle(title: string, model: string): boolean {
   const toks = normalizeForMatch(model).split(' ').filter(Boolean);
   const distinctive = toks.filter((t) => !MODEL_NOISE_TOKENS.has(t));
   const effective = distinctive.length > 0 ? distinctive : toks;
-  return effective.every((t) => tokenInText(normTitle, t));
+  return effective.every((t) => modelTokenInText(normTitle, t));
 }
 
 function pct(count: number, total: number): string {
