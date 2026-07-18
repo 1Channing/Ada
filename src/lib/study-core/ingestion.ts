@@ -134,6 +134,26 @@ export function canonicalizeFuel(raw: string): FuelToken {
   return '';
 }
 
+/**
+ * Canonicalise a gearbox label across languages + site codes to a token
+ * ('automatic'|'manual'|'semi'|''). AutoScout DE returns "Automatik", FR
+ * "Automatique", NL "Automaat", and some sites a code (A/M/S) — a raw text
+ * match failed to confirm them. Order: 'semi' before 'automatic' (semi-auto
+ * contains "automat").
+ */
+export type GearboxToken = 'automatic' | 'manual' | 'semi' | '';
+export function canonicalizeGearbox(raw: string): GearboxToken {
+  const t = normalizeForMatch(raw);
+  if (!t) return '';
+  if (t === 'a') return 'automatic';
+  if (t === 'm') return 'manual';
+  if (t === 's') return 'semi';
+  if (/semi|halbautomat|semiautomat/.test(t)) return 'semi';
+  if (/automat|automaat|\bdsg\b|\bcvt\b|e ?cvt|tiptronic|s ?tronic|\bdct\b|\bedc\b|steptronic|powershift|\bat\b/.test(t)) return 'automatic';
+  if (/manuel|manual|manuale|schaltgetriebe|handgeschakeld|\bmt\b|mecanique/.test(t)) return 'manual';
+  return '';
+}
+
 /** Per-listing fuel: prefer the structured attribute, fall back to title/desc. */
 function listingFuelCanonical(l: ScrapedListing, adapter: SiteAdapter): { canonical: string; source: 'structured' | 'text'; raw: string } {
   const structured = (l.fuel ?? '').trim();
@@ -387,7 +407,7 @@ export function confirmCriteriaAgainstSample(
 
   // gearbox / color / vehicleType — structured human LABEL match
   const gearbox = declared(criteria.gearbox);
-  if (gearbox) out.push(confirmStructuredLabel('gearbox', gearbox, listings, (l) => l.gearbox ?? null, n));
+  if (gearbox) out.push(confirmStructuredLabel('gearbox', gearbox, listings, (l) => l.gearbox ?? null, n, canonicalizeGearbox));
   const color = declared(criteria.color);
   if (color) out.push(confirmStructuredLabel('color', color, listings, (l) => l.color ?? null, n));
   const vehicleType = declared(criteria.vehicleType);
@@ -430,8 +450,13 @@ function confirmStructuredLabel(
   listings: ScrapedListing[],
   read: (l: ScrapedListing) => string | null,
   _fullSize: number,
+  canon?: (s: string) => string,
 ): FieldConfirmation {
   const declaredNorm = normalizeForMatch(declaredLabel);
+  // When a canonicaliser is given (e.g. gearbox), compare canonical tokens so
+  // cross-language values match ("Automatik" DE == "Automatique" FR). Falls
+  // back to text-includes when the declared value canonicalises to nothing.
+  const declaredCanon = canon ? canon(declaredLabel) : '';
   const present = listings.filter((l) => {
     const v = read(l);
     return v !== null && v !== undefined && v.trim().length > 0;
@@ -443,7 +468,12 @@ function confirmStructuredLabel(
     };
   }
   const matchCount = present.filter((l) => {
-    const lNorm = normalizeForMatch(read(l) as string);
+    const raw = read(l) as string;
+    if (canon && declaredCanon) {
+      const lc = canon(raw);
+      return lc !== '' && lc === declaredCanon;
+    }
+    const lNorm = normalizeForMatch(raw);
     return lNorm.includes(declaredNorm) || declaredNorm.includes(lNorm);
   }).length;
   const rate = matchCount / present.length;

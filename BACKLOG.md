@@ -104,6 +104,19 @@ RESTE À FAIRE (quand la récolte passera) :
   (`minFirstRegistrationDate` YYYY-MM-DD), km (`maxMileage`) mappables direct.
   Option seed via harvest-worker (Zyte atteint mobile.de) si on veut amorcer.
 
+## 2quinquies. Canonicalisation multilingue des champs enum secondaires
+
+FAIT (juillet 2026) : `canonicalizeGearbox` (automatic/manual/semi) gère
+Automatik(DE)/Automatique(FR)/Automaat(NL)/Automatic(EN) + codes (A/M/S) +
+boîtes (DSG/CVT/DCT…). La confirmation boîte matche désormais en token canonique
+(fini le « 0/58 jeté » sur AutoScout DE).
+
+RESTE : **couleur** et **type de véhicule** subissent le même écart de langue
+sur les sites étrangers (Schwarz≠Noir, Limousine≠Berline). Ajouter des
+canonicaliseurs équivalents (tables couleur FR/DE/NL/IT/ES, carrosserie) et les
+passer à `confirmStructuredLabel` comme pour la boîte. Non bloquant (ces champs
+sont optionnels), mais à faire pour la parité multilingue complète.
+
 ## 3. Reconstruction d'URL path-based depuis la mémoire (Marktplaats)
 
 L'ingestion mémorise les IDs de taxonomie Marktplaats
