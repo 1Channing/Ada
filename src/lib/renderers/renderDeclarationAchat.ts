@@ -2,11 +2,11 @@ import { PDFDocument } from 'pdf-lib';
 import { DocumentData } from '../templateEngine';
 import {
   fillFieldSafely,
-  fillSplitField,
   fillSplitDateFields,
   fillSplitTimeFields,
   normalizeForAcroForm
 } from './utils/acroformHelpers';
+import { parseAddressLine } from './utils/fieldHelpers';
 
 export async function renderDeclarationAchat(
   pdfDoc: PDFDocument,
@@ -170,33 +170,3 @@ function fillSellerFields(form: any, data: DocumentData, errors: string[]): void
   }
 }
 
-function parseAddressLine(addressLine: string): {
-  number: string;
-  extension: string;
-  type: string;
-  name: string;
-} {
-  const result = { number: '', extension: '', type: '', name: '' };
-
-  const parts = addressLine.trim().split(/\s+/);
-  if (parts.length === 0) return result;
-
-  const numberMatch = parts[0].match(/^(\d+)([A-Z]*)?$/i);
-  if (numberMatch) {
-    result.number = numberMatch[1];
-    result.extension = numberMatch[2] || '';
-    parts.shift();
-  }
-
-  const streetTypes = ['RUE', 'AVENUE', 'BOULEVARD', 'PLACE', 'ROUTE', 'CHEMIN', 'IMPASSE', 'ALLEE', 'COURS'];
-  const firstWordUpper = parts[0]?.toUpperCase();
-
-  if (streetTypes.includes(firstWordUpper)) {
-    result.type = parts[0];
-    parts.shift();
-  }
-
-  result.name = parts.join(' ');
-
-  return result;
-}

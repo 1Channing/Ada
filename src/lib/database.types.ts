@@ -471,6 +471,245 @@ export type Database = {
         }
         Relationships: []
       }
+      contacts: {
+        Row: {
+          id: string
+          created_at: string
+          type: string | null
+          company_name: string | null
+          first_name: string | null
+          last_name: string | null
+          birth_date: string | null
+          birth_place: string | null
+          siren: string | null
+          address_line1: string | null
+          address_line2: string | null
+          postal_code: string | null
+          city: string | null
+          country: string | null
+          phone: string | null
+          email: string | null
+          notes: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          type?: string | null
+          company_name?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          birth_date?: string | null
+          birth_place?: string | null
+          siren?: string | null
+          address_line1?: string | null
+          address_line2?: string | null
+          postal_code?: string | null
+          city?: string | null
+          country?: string | null
+          phone?: string | null
+          email?: string | null
+          notes?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          type?: string | null
+          company_name?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          birth_date?: string | null
+          birth_place?: string | null
+          siren?: string | null
+          address_line1?: string | null
+          address_line2?: string | null
+          postal_code?: string | null
+          city?: string | null
+          country?: string | null
+          phone?: string | null
+          email?: string | null
+          notes?: string | null
+        }
+        Relationships: []
+      }
+      vehicles_admin: {
+        Row: {
+          id: string
+          created_at: string
+          plate_number: string | null
+          vin: string | null
+          brand: string | null
+          model: string | null
+          commercial_name: string | null
+          type_variant_version: string | null
+          national_type: string | null
+          first_registration_date: string | null
+          mileage: number | null
+          registration_certificate_present: boolean | null
+          registration_certificate_number: string | null
+          known_defects: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          plate_number?: string | null
+          vin?: string | null
+          brand?: string | null
+          model?: string | null
+          commercial_name?: string | null
+          type_variant_version?: string | null
+          national_type?: string | null
+          first_registration_date?: string | null
+          mileage?: number | null
+          registration_certificate_present?: boolean | null
+          registration_certificate_number?: string | null
+          known_defects?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          plate_number?: string | null
+          vin?: string | null
+          brand?: string | null
+          model?: string | null
+          commercial_name?: string | null
+          type_variant_version?: string | null
+          national_type?: string | null
+          first_registration_date?: string | null
+          mileage?: number | null
+          registration_certificate_present?: boolean | null
+          registration_certificate_number?: string | null
+          known_defects?: string | null
+        }
+        Relationships: []
+      }
+      transactions_admin: {
+        Row: {
+          id: string
+          created_at: string
+          transaction_type: string | null
+          vehicle_id: string | null
+          seller_contact_id: string | null
+          seller_contact_id_2: string | null
+          buyer_contact_id: string | null
+          buyer_contact_id_2: string | null
+          transaction_price: number | null
+          transaction_date: string | null
+          transaction_time: string | null
+          pickup_location: string | null
+          pickup_contact: string | null
+          pickup_datetime: string | null
+          destination: string | null
+          transporter: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          transaction_type?: string | null
+          vehicle_id?: string | null
+          seller_contact_id?: string | null
+          seller_contact_id_2?: string | null
+          buyer_contact_id?: string | null
+          buyer_contact_id_2?: string | null
+          transaction_price?: number | null
+          transaction_date?: string | null
+          transaction_time?: string | null
+          pickup_location?: string | null
+          pickup_contact?: string | null
+          pickup_datetime?: string | null
+          destination?: string | null
+          transporter?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          transaction_type?: string | null
+          vehicle_id?: string | null
+          seller_contact_id?: string | null
+          seller_contact_id_2?: string | null
+          buyer_contact_id?: string | null
+          buyer_contact_id_2?: string | null
+          transaction_price?: number | null
+          transaction_date?: string | null
+          transaction_time?: string | null
+          pickup_location?: string | null
+          pickup_contact?: string | null
+          pickup_datetime?: string | null
+          destination?: string | null
+          transporter?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_admin_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_admin_seller_contact_id_fkey"
+            columns: ["seller_contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_admin_seller_contact_id_2_fkey"
+            columns: ["seller_contact_id_2"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_admin_buyer_contact_id_fkey"
+            columns: ["buyer_contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_admin_buyer_contact_id_2_fkey"
+            columns: ["buyer_contact_id_2"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      documents_admin_history: {
+        Row: {
+          id: string
+          created_at: string
+          transaction_id: string | null
+          document_type: string | null
+          pdf_url: string | null
+          storage_path: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          transaction_id?: string | null
+          document_type?: string | null
+          pdf_url?: string | null
+          storage_path?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          transaction_id?: string | null
+          document_type?: string | null
+          pdf_url?: string | null
+          storage_path?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_admin_history_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions_admin"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       market_opportunity_acks: {
         Row: {
           id: string

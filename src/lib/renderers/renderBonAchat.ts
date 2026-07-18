@@ -158,9 +158,17 @@ function fillSellerFields(form: any, data: DocumentData, errors: string[]): void
     try {
       const sellerName = data.seller.company_name ||
         `${data.seller.first_name || ''} ${data.seller.last_name || ''}`.trim();
+      // Le champ s'appelle « Vendeur x Adresse » : il attend le nom ET
+      // l'adresse — n'y mettre que le nom perdait l'adresse du vendeur.
+      const addressBits = [
+        data.seller.address_line1,
+        data.seller.address_line2,
+        [data.seller.postal_code, data.seller.city].filter(Boolean).join(' '),
+      ].filter((s) => s && String(s).trim());
+      const sellerFull = [sellerName, ...addressBits].join(', ');
       const field = form.getTextField('Vendeur x Adresse');
-      field.setText(sellerName);
-      console.log(`[BON_ACHAT_ACROFORM] Filled Vendeur x Adresse: "${sellerName}"`);
+      field.setText(sellerFull);
+      console.log(`[BON_ACHAT_ACROFORM] Filled Vendeur x Adresse: "${sellerFull}"`);
     } catch (err) {
       errors.push(`Failed to fill Vendeur x Adresse: ${err}`);
     }

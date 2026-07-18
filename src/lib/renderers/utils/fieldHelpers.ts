@@ -67,3 +67,57 @@ export function formatValue(value: string, format?: string): string {
 
   return value;
 }
+
+/**
+ * Découpe une ligne d'adresse française en cases CERFA :
+ * n° de voie / extension (BIS, TER…) / type de voie / nom de voie.
+ * Partagé par le Certificat de cession et la Déclaration d'achat — le CERFA a
+ * une case par élément, y verser la ligne entière mettait tout au mauvais
+ * endroit. En cas d'adresse atypique, tout reste dans `name` (comportement sûr).
+ */
+export function parseAddressLine(addressLine: string): {
+  number: string;
+  extension: string;
+  type: string;
+  name: string;
+} {
+  const result = { number: '', extension: '', type: '', name: '' };
+
+  const parts = addressLine.trim().split(/\s+/);
+  if (parts.length === 0) return result;
+
+  const numberMatch = parts[0]?.match(/^(\d+)([A-Z]*)?$/i);
+  if (numberMatch) {
+    result.number = numberMatch[1];
+    result.extension = (numberMatch[2] || '').toUpperCase();
+    parts.shift();
+  }
+
+  // Extension en mot séparé : « 12 BIS RUE … »
+  const EXTENSIONS = ['BIS', 'TER', 'QUATER'];
+  if (!result.extension && EXTENSIONS.includes(parts[0]?.toUpperCase() ?? '')) {
+    result.extension = parts.shift()!.toUpperCase();
+  }
+
+  const TYPE_ALIASES: Record<string, string> = {
+    AV: 'AVENUE', 'AV.': 'AVENUE',
+    BD: 'BOULEVARD', 'BD.': 'BOULEVARD', BLVD: 'BOULEVARD',
+    PL: 'PLACE', 'PL.': 'PLACE',
+    RTE: 'ROUTE', CHE: 'CHEMIN', IMP: 'IMPASSE', ALL: 'ALLEE',
+  };
+  const STREET_TYPES = [
+    'RUE', 'AVENUE', 'BOULEVARD', 'PLACE', 'ROUTE', 'CHEMIN', 'IMPASSE',
+    'ALLEE', 'ALLÉE', 'COURS', 'QUAI', 'SQUARE', 'PASSAGE', 'VOIE',
+    'SENTIER', 'RESIDENCE', 'RÉSIDENCE', 'LOTISSEMENT', 'HAMEAU', 'LIEU-DIT',
+  ];
+  const firstUpper = parts[0]?.toUpperCase() ?? '';
+  if (TYPE_ALIASES[firstUpper]) {
+    result.type = TYPE_ALIASES[firstUpper];
+    parts.shift();
+  } else if (STREET_TYPES.includes(firstUpper)) {
+    result.type = parts.shift()!;
+  }
+
+  result.name = parts.join(' ');
+  return result;
+}

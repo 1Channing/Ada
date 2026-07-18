@@ -1,5 +1,6 @@
 import { PDFDocument, PDFForm, PDFTextField, PDFCheckBox, PDFRadioGroup } from 'pdf-lib';
-import { DocumentData } from './templateEngine';
+import { DocumentData } from '../templateEngine';
+import { parseAddressLine } from './utils/fieldHelpers';
 
 function normalizeBoxedValue(fieldName: string, value: string): string {
   const raw = value;
@@ -51,14 +52,6 @@ function splitTime(timeString?: string): { hours: string; minutes: string } {
   return { hours, minutes };
 }
 
-function formatDateSimple(dateString?: string): string {
-  if (!dateString) return '';
-
-  const { day, month, year } = splitDate(dateString);
-  if (!day || !month || !year) return '';
-
-  return `${day}/${month}/${year}`;
-}
 
 function formatPlateNumber(value: string): string {
   if (!value) return value;
@@ -222,7 +215,13 @@ export async function renderCertificatCession(
     }
 
     if (data.seller?.address_line1) {
-      fillFieldSafely(form, `${prefix}.txt_NomVoie[0]`, data.seller.address_line1, `seller.address_line1 (${page})`, errors);
+      // Le CERFA a une case par élément (n°, extension, type, nom de voie) —
+      // la ligne entière dans « nom de voie » mettait tout au mauvais endroit.
+      const addr = parseAddressLine(data.seller.address_line1);
+      fillFieldSafely(form, `${prefix}.num_VoieAdresse[0]`, addr.number, `seller.address.number (${page})`, errors);
+      fillFieldSafely(form, `${prefix}.txt_ExtensionAdresse[0]`, addr.extension, `seller.address.extension (${page})`, errors);
+      fillFieldSafely(form, `${prefix}.txt_TypeVoieAdresse[0]`, addr.type, `seller.address.type (${page})`, errors);
+      fillFieldSafely(form, `${prefix}.txt_NomVoie[0]`, addr.name || data.seller.address_line1, `seller.address.name (${page})`, errors);
     }
 
     if (data.seller?.city) {
@@ -277,7 +276,11 @@ export async function renderCertificatCession(
     }
 
     if (data.buyer?.address_line1) {
-      fillFieldSafely(form, `${prefix}.txt_NomVoieAdresseAcheteur[0]`, data.buyer.address_line1, `buyer.address_line1 (${page})`, errors);
+      const addr = parseAddressLine(data.buyer.address_line1);
+      fillFieldSafely(form, `${prefix}.num_VoieAdresseAcheteur[0]`, addr.number, `buyer.address.number (${page})`, errors);
+      fillFieldSafely(form, `${prefix}.txt_ExtensionAdresseAcheteur[0]`, addr.extension, `buyer.address.extension (${page})`, errors);
+      fillFieldSafely(form, `${prefix}.txt_TypeVoieAdresseAcheteur[0]`, addr.type, `buyer.address.type (${page})`, errors);
+      fillFieldSafely(form, `${prefix}.txt_NomVoieAdresseAcheteur[0]`, addr.name || data.buyer.address_line1, `buyer.address.name (${page})`, errors);
     }
 
     if (data.buyer?.city) {

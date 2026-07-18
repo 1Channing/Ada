@@ -5,48 +5,53 @@ import { renderBonAchat } from './renderers/renderBonAchat';
 import { renderEnlevement } from './renderers/renderEnlevement';
 import { renderReceptionExpedition } from './renderers/renderReceptionExpedition';
 
+// DB rows are `T | null`; renderers use truthiness guards, so null is as
+// harmless as undefined here — accepting both removes a whole class of
+// null-vs-undefined friction between Supabase and the generator.
+type Maybe<T> = T | null | undefined;
+
 export type ContactData = {
-  company_name?: string;
-  first_name?: string;
-  last_name?: string;
-  birth_date?: string;
-  birth_place?: string;
-  address_line1?: string;
-  address_line2?: string;
-  postal_code?: string;
-  city?: string;
-  country?: string;
-  siren?: string;
-  full_name?: string;
-  address?: string;
+  company_name?: Maybe<string>;
+  first_name?: Maybe<string>;
+  last_name?: Maybe<string>;
+  birth_date?: Maybe<string>;
+  birth_place?: Maybe<string>;
+  address_line1?: Maybe<string>;
+  address_line2?: Maybe<string>;
+  postal_code?: Maybe<string>;
+  city?: Maybe<string>;
+  country?: Maybe<string>;
+  siren?: Maybe<string>;
+  full_name?: Maybe<string>;
+  address?: Maybe<string>;
 };
 
 export type DocumentData = {
   vehicle: {
-    plate_number?: string;
-    vin?: string;
-    brand?: string;
-    model?: string;
-    commercial_name?: string;
-    type_variant_version?: string;
-    national_type?: string;
-    first_registration_date?: string;
-    mileage?: number;
-    registration_certificate_present?: boolean;
-    registration_certificate_number?: string;
-    known_defects?: string;
-    description?: string;
+    plate_number?: Maybe<string>;
+    vin?: Maybe<string>;
+    brand?: Maybe<string>;
+    model?: Maybe<string>;
+    commercial_name?: Maybe<string>;
+    type_variant_version?: Maybe<string>;
+    national_type?: Maybe<string>;
+    first_registration_date?: Maybe<string>;
+    mileage?: Maybe<number>;
+    registration_certificate_present?: Maybe<boolean>;
+    registration_certificate_number?: Maybe<string>;
+    known_defects?: Maybe<string>;
+    description?: Maybe<string>;
   };
   transaction: {
-    transaction_type?: string;
-    transaction_date?: string;
-    transaction_time?: string;
-    transaction_price?: number;
-    pickup_location?: string;
-    pickup_contact?: string;
-    pickup_datetime?: string;
-    destination?: string;
-    transporter?: string;
+    transaction_type?: Maybe<string>;
+    transaction_date?: Maybe<string>;
+    transaction_time?: Maybe<string>;
+    transaction_price?: Maybe<number>;
+    pickup_location?: Maybe<string>;
+    pickup_contact?: Maybe<string>;
+    pickup_datetime?: Maybe<string>;
+    destination?: Maybe<string>;
+    transporter?: Maybe<string>;
   };
   seller?: ContactData;
   seller2?: ContactData;
@@ -98,12 +103,14 @@ export async function generatePDFFromTemplate(
       break;
 
     case 'Fiche enlèvement':
-      templatePath = 'pdf-templates/ENLÈVEMENT_VÉHICULE-12.pdf';
+      // ASCII-only filename: the accented original was stored NFD on disk while
+      // the code asked for NFC — random 404s depending on the static host.
+      templatePath = 'pdf-templates/enlevement_vehicule.pdf';
       renderer = renderEnlevement;
       break;
 
     case 'Réception / Expédition':
-      templatePath = 'pdf-templates/Réception___Expédition.pdf';
+      templatePath = 'pdf-templates/reception_expedition.pdf';
       renderer = renderReceptionExpedition;
       break;
 

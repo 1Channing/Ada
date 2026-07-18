@@ -1,10 +1,101 @@
 import { supabase } from './supabase';
 import { generatePDFFromTemplate, DocumentData } from './templateEngine';
 
+export interface AdminDocResult {
+  blob: Blob;
+  /** Champs pertinents pour CE document restés vides — à compléter dans le formulaire. */
+  missing: string[];
+}
+
+type FieldSpec = [label: string, get: (d: DocumentData) => unknown];
+
+const contactIdentity = (c?: DocumentData['seller']) =>
+  c ? (c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim()) : '';
+
+/**
+ * Champs attendus PAR document — sert au rapport de complétude affiché à
+ * l'opérateur (« il manque X, Y ») AVANT impression, au lieu de découvrir les
+ * trous en ouvrant le PDF.
+ */
+const DOC_FIELD_SPECS: Record<string, FieldSpec[]> = {
+  'Certificat de cession': [
+    ['Immatriculation', (d) => d.vehicle.plate_number],
+    ['VIN', (d) => d.vehicle.vin],
+    ['Marque', (d) => d.vehicle.brand],
+    ['1re immatriculation', (d) => d.vehicle.first_registration_date],
+    ['Kilométrage', (d) => d.vehicle.mileage],
+    ['Type variante version', (d) => d.vehicle.type_variant_version],
+    ['Genre national', (d) => d.vehicle.national_type],
+    ['Dénomination commerciale', (d) => d.vehicle.commercial_name],
+    ['N° formule carte grise', (d) => d.vehicle.registration_certificate_number],
+    ['Identité vendeur', (d) => contactIdentity(d.seller)],
+    ['Adresse vendeur', (d) => d.seller?.address_line1],
+    ['CP vendeur', (d) => d.seller?.postal_code],
+    ['Ville vendeur', (d) => d.seller?.city],
+    ['Identité acheteur', (d) => contactIdentity(d.buyer)],
+    ['Adresse acheteur', (d) => d.buyer?.address_line1],
+    ['CP acheteur', (d) => d.buyer?.postal_code],
+    ['Ville acheteur', (d) => d.buyer?.city],
+    ['Date de vente', (d) => d.transaction.transaction_date],
+    ['Heure de vente', (d) => d.transaction.transaction_time],
+    ['Lieu (signature)', (d) => d.transaction.pickup_location],
+  ],
+  "Déclaration d'achat": [
+    ['Immatriculation', (d) => d.vehicle.plate_number],
+    ['VIN', (d) => d.vehicle.vin],
+    ['Marque', (d) => d.vehicle.brand],
+    ['Modèle', (d) => d.vehicle.model],
+    ['Identité vendeur', (d) => contactIdentity(d.seller)],
+    ['Adresse vendeur', (d) => d.seller?.address_line1],
+    ['CP vendeur', (d) => d.seller?.postal_code],
+    ['Ville vendeur', (d) => d.seller?.city],
+    ['Date transaction', (d) => d.transaction.transaction_date],
+    ['Heure transaction', (d) => d.transaction.transaction_time],
+  ],
+  "Bon d'achat": [
+    ['Marque', (d) => d.vehicle.brand],
+    ['Modèle', (d) => d.vehicle.model],
+    ['Immatriculation', (d) => d.vehicle.plate_number],
+    ['VIN', (d) => d.vehicle.vin],
+    ['1re immatriculation', (d) => d.vehicle.first_registration_date],
+    ['Kilométrage', (d) => d.vehicle.mileage],
+    ['Prix', (d) => d.transaction.transaction_price],
+    ['Vendeur', (d) => contactIdentity(d.seller)],
+    ['Date transaction', (d) => d.transaction.transaction_date],
+  ],
+  'Fiche enlèvement': [
+    ['Marque', (d) => d.vehicle.brand],
+    ['Immatriculation', (d) => d.vehicle.plate_number],
+    ['VIN', (d) => d.vehicle.vin],
+    ['Kilométrage', (d) => d.vehicle.mileage],
+    ['Défauts connus', (d) => d.vehicle.known_defects],
+    ["Lieu d'enlèvement", (d) => d.transaction.pickup_location],
+    ['Contact enlèvement', (d) => d.transaction.pickup_contact],
+    ["Date d'enlèvement", (d) => d.transaction.pickup_datetime],
+  ],
+  'Réception / Expédition': [
+    ['Marque', (d) => d.vehicle.brand],
+    ['Modèle', (d) => d.vehicle.model],
+    ['Immatriculation', (d) => d.vehicle.plate_number],
+    ['VIN', (d) => d.vehicle.vin],
+    ['Kilométrage', (d) => d.vehicle.mileage],
+  ],
+};
+
+function computeMissing(documentType: string, data: DocumentData): string[] {
+  const specs = DOC_FIELD_SPECS[documentType] ?? [];
+  return specs
+    .filter(([, get]) => {
+      const v = get(data);
+      return v == null || String(v).trim() === '';
+    })
+    .map(([label]) => label);
+}
+
 export async function generateAdminDocument(
   documentType: string,
   transactionId: string
-): Promise<Blob> {
+): Promise<AdminDocResult> {
   const correlationId = `adminDocGen_${transactionId}_${Date.now()}`;
   console.log(`[ADMIN_DOC_GEN:${correlationId}] Starting document generation: template="${documentType}"`);
 
@@ -131,7 +222,7 @@ export async function generateAdminDocument(
       .upload(storagePath, blob);
 
     if (uploadError) {
-      const uploadErrorMessage = `Storage upload failed: ${uploadError.message}${uploadError.cause ? ` (${uploadError.cause})` : ''}`;
+      const uploadErrorMessage = `Storage upload failed: ${uploadError.message}`;
       console.error(`[ADMIN_DOC_GEN:${correlationId}]`, uploadErrorMessage, uploadError);
       throw new Error(uploadErrorMessage);
     }
@@ -162,7 +253,12 @@ export async function generateAdminDocument(
     console.warn(`[ADMIN_DOC_GEN:${correlationId}] Upload/history failed but returning PDF blob:`, error);
   }
 
-  return blob;
+  const missing = computeMissing(documentType, documentData);
+  if (missing.length > 0) {
+    console.warn(`[ADMIN_DOC_GEN:${correlationId}] Champs vides pour "${documentType}": ${missing.join(', ')}`);
+  }
+
+  return { blob, missing };
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {

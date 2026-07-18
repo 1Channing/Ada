@@ -1,26 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Search, Plus, Save, X, UserPlus, FileText, Download, History, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { generateAdminDocument, downloadBlob } from '../lib/adminDocGenerator';
+import { generateAdminDocument } from '../lib/adminDocGenerator';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
 
+// DB columns are nullable — mirror that so typed Supabase rows fit directly.
 type Contact = {
   id: string;
-  type?: string;
-  company_name?: string;
-  first_name?: string;
-  last_name?: string;
-  birth_date?: string;
-  birth_place?: string;
-  siren?: string;
-  address_line1?: string;
-  address_line2?: string;
-  postal_code?: string;
-  city?: string;
-  country?: string;
-  phone?: string;
-  email?: string;
-  notes?: string;
+  type?: string | null;
+  company_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  birth_date?: string | null;
+  birth_place?: string | null;
+  siren?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+  country?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
 };
 
 type VehicleForm = {
@@ -172,6 +173,7 @@ export function Administrative() {
 
   const [lastSavedTransactionId, setLastSavedTransactionId] = useState<string | null>(null);
   const [generatingDoc, setGeneratingDoc] = useState<string | null>(null);
+  const [docPreview, setDocPreview] = useState<{ url: string; docType: string; fileName: string; missing: string[] } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
@@ -900,7 +902,7 @@ export function Administrative() {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
 
       console.log('[ADMIN_GEN] Generating', documentType, 'for current plate=', plateNumber);
-      const blob = await generateAdminDocument(
+      const { blob, missing } = await generateAdminDocument(
         documentType as any,
         transactionId
       );
@@ -908,15 +910,21 @@ export function Administrative() {
       const docTypeSlug = documentType.toLowerCase().replace(/[^a-z0-9]+/g, '_');
       const fileName = `${docTypeSlug}_${sanitizedPlate}_${timestamp}.pdf`;
 
-      downloadBlob(blob, fileName);
-      console.log('[ADMIN_GEN] Fresh PDF created, filename=', fileName);
-
-      setSaveMessage({
-        type: 'success',
-        text: `${documentType} generated with current vehicle data!`
+      // Aperçu + rapport de complétude : l'opérateur voit le PDF et la liste
+      // des champs vides AVANT d'imprimer, au lieu de découvrir les trous après.
+      setDocPreview((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url);
+        return { url: URL.createObjectURL(blob), docType: documentType, fileName, missing };
       });
 
-      setTimeout(() => setSaveMessage(null), 3000);
+      setSaveMessage({
+        type: missing.length > 0 ? 'info' : 'success',
+        text: missing.length > 0
+          ? `${documentType} généré — ${missing.length} champ(s) vide(s), voir l'aperçu ci-dessous.`
+          : `${documentType} généré — toutes les données étaient présentes.`
+      });
+
+      setTimeout(() => setSaveMessage(null), 6000);
     } catch (error) {
       const errorMsg = getErrorMessage(error);
       console.error('[ADMIN_GEN] Generation failed:', errorMsg);
@@ -1694,6 +1702,55 @@ export function Administrative() {
             </button>
           </div>
         </section>
+
+        {/* Aperçu + rapport de complétude du dernier document généré */}
+        {docPreview && (
+          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-zinc-200">
+                Aperçu — {docPreview.docType}
+              </h2>
+              <div className="flex items-center gap-3">
+                <a
+                  href={docPreview.url}
+                  download={docPreview.fileName}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
+                >
+                  <Download size={14} /> Télécharger
+                </a>
+                <button
+                  onClick={() => {
+                    URL.revokeObjectURL(docPreview.url);
+                    setDocPreview(null);
+                  }}
+                  className="text-xs text-zinc-500 hover:text-zinc-300"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+            {docPreview.missing.length > 0 ? (
+              <div className="text-xs space-y-1.5">
+                <p className="text-amber-400 font-medium">
+                  {docPreview.missing.length} champ(s) vide(s) sur ce document — complétez le formulaire puis régénérez :
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {docPreview.missing.map((m) => (
+                    <span key={m} className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-300">{m}</span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-emerald-400">Toutes les données attendues étaient présentes.</p>
+            )}
+            <iframe
+              src={docPreview.url}
+              title={`Aperçu ${docPreview.docType}`}
+              className="w-full rounded-lg border border-zinc-800 bg-white"
+              style={{ height: 560 }}
+            />
+          </section>
+        )}
       </div>
     </div>
   );
