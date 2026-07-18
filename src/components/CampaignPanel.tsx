@@ -42,6 +42,7 @@ export function CampaignPanel() {
   const [sites, setSites] = useState<string[]>(() => allSiteAdapters().map((a) => a.key));
   const [reinforcePct, setReinforcePct] = useState(15);
   const [variantPct, setVariantPct] = useState(40);
+  const [yearPct, setYearPct] = useState(40);
   const [startError, setStartError] = useState<string | null>(null);
 
   const running = state.status === 'running' || state.status === 'planning' || state.status === 'stopping';
@@ -89,6 +90,7 @@ export function CampaignPanel() {
       sites, total,
       reinforceShare: reinforcePct / 100,
       variantShare: variantPct / 100,
+      yearShare: yearPct / 100,
     });
     if (!res.started) setStartError(res.reason ?? 'Lancement impossible');
   };
@@ -147,6 +149,14 @@ export function CampaignPanel() {
               <input
                 type="range" min={0} max={100} step={10} value={variantPct}
                 onChange={(e) => setVariantPct(Number(e.target.value))}
+                className="w-full mt-1 accent-violet-500"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-zinc-400">Études sur une année précise (2020 → {new Date().getFullYear()}, min = max) : {yearPct}%</span>
+              <input
+                type="range" min={0} max={100} step={10} value={yearPct}
+                onChange={(e) => setYearPct(Number(e.target.value))}
                 className="w-full mt-1 accent-violet-500"
               />
             </label>
@@ -241,7 +251,7 @@ export function CampaignPanel() {
                   </span>
                   <span className="text-zinc-400 truncate">
                     {item.site} · {item.brand} {item.model}
-                    {item.fuel ? ` · ${item.fuel}` : ''}{item.trim ? ` · ${item.trim}` : ''}
+                    {item.fuel ? ` · ${item.fuel}` : ''}{item.trim ? ` · ${item.trim}` : ''}{item.year ? ` · ${item.year}` : ''}
                   </span>
                   <span className="text-zinc-600 truncate hidden md:inline">{item.detail}</span>
                 </div>
@@ -270,31 +280,36 @@ export function CampaignPanel() {
                     return (
                       <div
                         key={item.seq}
-                        className={`flex items-center gap-2 text-xs bg-zinc-950 border rounded px-2 py-1.5 ${
+                        className={`text-xs bg-zinc-950 border rounded px-2 py-1.5 space-y-1 ${
                           done ? 'border-emerald-900/50 opacity-70' : 'border-zinc-800'
                         }`}
                       >
-                        {done ? (
-                          <span className="shrink-0 px-1.5 rounded text-[10px] font-medium bg-emerald-900/40 text-emerald-400">
-                            résolue
+                        <div className="flex items-center gap-2">
+                          {done ? (
+                            <span className="shrink-0 px-1.5 rounded text-[10px] font-medium bg-emerald-900/40 text-emerald-400">
+                              résolue
+                            </span>
+                          ) : (
+                            <span className={`shrink-0 px-1.5 rounded text-[10px] font-medium ${OUTCOME_STYLE[item.outcome]}`}>
+                              {OUTCOME_LABELS[item.outcome]}
+                            </span>
+                          )}
+                          <span className={`shrink-0 ${done ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                            {item.brand} {item.model}
                           </span>
-                        ) : (
-                          <span className={`shrink-0 px-1.5 rounded text-[10px] font-medium ${OUTCOME_STYLE[item.outcome]}`}>
-                            {OUTCOME_LABELS[item.outcome]}
-                          </span>
-                        )}
-                        <span className={`shrink-0 ${done ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
-                          {item.brand} {item.model}
-                        </span>
-                        <span className="text-zinc-500 truncate flex-1">{item.detail}</span>
-                        {!done && item.url && (
-                          <>
-                            <a
-                              href={item.url} target="_blank" rel="noreferrer"
-                              className="text-zinc-500 hover:text-zinc-300 shrink-0" title="Ouvrir l'URL testée"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </a>
+                          {/* Critères réellement testés — un variant carburant/année
+                              inattendu se voit immédiatement ici. */}
+                          {item.fuel && (
+                            <span className="shrink-0 px-1.5 rounded text-[10px] bg-blue-900/30 text-blue-300">{item.fuel}</span>
+                          )}
+                          {item.trim && (
+                            <span className="shrink-0 px-1.5 rounded text-[10px] bg-blue-900/30 text-blue-300">{item.trim}</span>
+                          )}
+                          {item.year && (
+                            <span className="shrink-0 px-1.5 rounded text-[10px] bg-blue-900/30 text-blue-300">{item.year}</span>
+                          )}
+                          <span className="text-zinc-500 truncate flex-1">{item.detail}</span>
+                          {!done && item.url && (
                             <button
                               onClick={() => openInIngestion(item.url!)}
                               className="flex items-center gap-1 text-violet-400 hover:text-violet-300 shrink-0"
@@ -303,17 +318,27 @@ export function CampaignPanel() {
                               <Wrench className="w-3.5 h-3.5" />
                               Corriger
                             </button>
-                          </>
-                        )}
-                        {!done && state.campaignId && (
-                          <button
-                            onClick={() => void markItemResolved(state.campaignId!, item.seq)}
-                            className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 shrink-0"
-                            title="Marquer comme corrigée (déjà traitée ailleurs)"
+                          )}
+                          {!done && state.campaignId && (
+                            <button
+                              onClick={() => void markItemResolved(state.campaignId!, item.seq)}
+                              className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 shrink-0"
+                              title="Marquer comme corrigée (déjà traitée ailleurs)"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              Corrigé
+                            </button>
+                          )}
+                        </div>
+                        {item.url && (
+                          <a
+                            href={item.url} target="_blank" rel="noreferrer"
+                            className="flex items-center gap-1 font-mono text-[10px] text-zinc-600 hover:text-zinc-400 truncate"
+                            title={item.url}
                           >
-                            <Check className="w-3.5 h-3.5" />
-                            Corrigé
-                          </button>
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{item.url.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                          </a>
                         )}
                       </div>
                     );

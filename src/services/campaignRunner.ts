@@ -24,6 +24,7 @@ export interface StartCampaignOptions {
   total: number;
   reinforceShare?: number;
   variantShare?: number;
+  yearShare?: number;
   label?: string;
 }
 
@@ -100,6 +101,7 @@ function mapItems(rows: Array<Record<string, unknown>>): Array<CampaignItemResul
     model: r.model as string,
     fuel: (r.criteria as { fuel?: string } | null)?.fuel ?? undefined,
     trim: (r.criteria as { trim?: string } | null)?.trim ?? undefined,
+    year: (r.criteria as { year?: number } | null)?.year ?? undefined,
     kind: ((r.kind as string) ?? 'exploration') as CampaignItemResult['kind'],
     url: (r.url as string | null) ?? null,
     outcome: ((r.outcome as string) ?? 'technical') as CampaignOutcome,

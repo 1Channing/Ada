@@ -36,6 +36,7 @@ export interface CampaignItemResult {
   model: string;
   fuel?: string;
   trim?: string;
+  year?: number;
   kind: CampaignPlanItem['kind'];
   url: string | null;
   outcome: CampaignOutcome;
@@ -93,7 +94,7 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
  */
 export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scrape: ScrapeFn): Promise<CampaignItemResult> {
   const base: Omit<CampaignItemResult, 'url' | 'outcome' | 'confirmedFields' | 'rejected' | 'detail' | 'sampleSize'> = {
-    seq, site: p.site, brand: p.brand, model: p.model, fuel: p.fuel, trim: p.trim, kind: p.kind,
+    seq, site: p.site, brand: p.brand, model: p.model, fuel: p.fuel, trim: p.trim, year: p.year, kind: p.kind,
   };
 
   const criteria: SearchCriteria = {
@@ -101,6 +102,9 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     model: p.model,
     fuel: p.fuel || undefined,
     trim: p.trim || undefined,
+    // Year pin: from = to = the same year, so the sample is year-resolved.
+    yearFrom: p.year ? String(p.year) : undefined,
+    yearTo: p.year ? String(p.year) : undefined,
   };
 
   // URL at ITEM time (memory-first) — learnings from earlier items apply here.
@@ -110,6 +114,8 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
       selectedSites: [p.site as SiteKey],
       brand: p.brand, model: p.model,
       fuel: p.fuel || undefined, trim: p.trim || undefined,
+      yearFrom: p.year ? String(p.year) : undefined,
+      yearTo: p.year ? String(p.year) : undefined,
     });
     url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
   } catch { url = null; }
@@ -245,7 +251,7 @@ export async function insertCampaignItemRow(campaignId: string, r: CampaignItemR
     site: r.site,
     brand: r.brand,
     model: r.model,
-    criteria: { fuel: r.fuel ?? null, trim: r.trim ?? null },
+    criteria: { fuel: r.fuel ?? null, trim: r.trim ?? null, year: r.year ?? null },
     url: r.url,
     kind: r.kind,
     outcome: r.outcome,

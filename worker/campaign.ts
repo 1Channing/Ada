@@ -157,7 +157,7 @@ async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex:
       await supabase.from('linkgen_campaigns').update({ last_heartbeat: new Date().toISOString() }).eq('id', campaignId);
 
       const p = plan[i];
-      console.log(`[CAMPAIGN_WORKER] #${i + 1}/${plan.length} ${p.site} · ${p.brand} ${p.model}${p.fuel ? ' · ' + p.fuel : ''}${p.trim ? ' · ' + p.trim : ''}`);
+      console.log(`[CAMPAIGN_WORKER] #${i + 1}/${plan.length} ${p.site} · ${p.brand} ${p.model}${p.fuel ? ' · ' + p.fuel : ''}${p.trim ? ' · ' + p.trim : ''}${p.year ? ' · ' + p.year : ''}`);
       let result: CampaignItemResult;
       try {
         result = await executeCampaignItem(i + 1, p, scrape);
