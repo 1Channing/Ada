@@ -205,6 +205,42 @@ function reconstructUrlFromMapping(
 
 const LEARNED_ENUM_FIELDS = ['fuel', 'gearbox', 'color', 'vehicleType'] as const;
 
+/**
+ * A reused validated_url embeds the ORIGINAL ingestion's year/mileage values —
+ * variables by design. Override them with the current request's values (or
+ * remove them when the request doesn't filter), in the query string AND in a
+ * Marktplaats-style `#key:value|…` hash.
+ */
+function overrideVariableParams(url: string, mapping: InferredMapping, params: LinkGenParams): string {
+  const { yearFrom, yearTo } = resolveYearRange(params);
+  const overrides: Array<[string | undefined, string]> = [
+    [mapping.yearFromParam ?? mapping.fieldToParam?.year?.paramName, yearFrom],
+    [mapping.yearToParam ?? mapping.fieldToParam?.yearTo?.paramName, yearTo],
+    [mapping.mileageParam ?? mapping.fieldToParam?.mileage?.paramName, params.mileage ? String(params.mileage) : ''],
+  ];
+  try {
+    const u = new URL(url);
+    let hash = u.hash.replace(/^#/, '');
+    const hashStyle = hash.includes(':'); // Marktplaats `#q:…|mileageTo:…`
+    for (const [param, value] of overrides) {
+      if (!param || param.startsWith('_path')) continue;
+      if (hashStyle) {
+        const parts = hash.split('|').filter((seg) => seg && !seg.startsWith(`${param}:`));
+        if (value) parts.push(`${param}:${value}`);
+        hash = parts.join('|');
+      } else if (value) {
+        u.searchParams.set(param, value);
+      } else {
+        u.searchParams.delete(param);
+      }
+    }
+    u.hash = hash ? `#${hash}` : '';
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 function numericParamValue(field: string, params: LinkGenParams): string | undefined {
   const raw =
     field === 'power' ? params.minPower :
@@ -279,8 +315,10 @@ export async function generateSearchUrlsWithMemory(
     const logs: LinkGenLogEntry[] = [];
     const adapter = getSiteAdapter(site);
 
-    // Look up validated mapping in memory
-    const { data: memoryRecord } = await supabase
+    // Look up validated mappings in memory — several rows can exist for the
+    // same brand+model (fuel/trim variants); prefer the one matching the
+    // requested fuel/trim, then the neutral (no fuel/trim) one.
+    const { data: memoryRows } = await supabase
       .from('linkgen_mapping_memory')
       .select('*')
       .eq('site', site)
@@ -289,8 +327,16 @@ export async function generateSearchUrlsWithMemory(
       .eq('validation_status', 'valid')
       .gte('confidence', 0.75)
       .order('confidence', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(5);
+    const wantFuel = (params.fuel ?? '').trim().toUpperCase();
+    const wantTrim = (params.trim ?? '').trim().toUpperCase();
+    const rowFuel = (r: Record<string, unknown>) => String(r.fuel ?? '').trim().toUpperCase();
+    const rowTrim = (r: Record<string, unknown>) => String(r.trim ?? '').trim().toUpperCase();
+    const candidates = (memoryRows ?? []) as unknown as Array<Record<string, unknown>>;
+    const memoryRecord =
+      candidates.find((r) => rowFuel(r) === wantFuel && rowTrim(r) === wantTrim) ??
+      candidates.find((r) => rowFuel(r) === '' && rowTrim(r) === '') ??
+      candidates[0] ?? null;
 
     if (memoryRecord) {
       const record = memoryRecord as unknown as MappingMemoryRecord;
@@ -307,6 +353,35 @@ export async function generateSearchUrlsWithMemory(
           source_url: record.source_url ?? '',
         },
       });
+
+      // BEST source: the human-validated URL itself — it carries site-specific
+      // path facets (Marktplaats model IDs) no template can rebuild. Usable
+      // only when its fuel/trim scope matches the request; year/mileage are
+      // variables and get overridden below.
+      const recFuel = rowFuel(memoryRecord as Record<string, unknown>);
+      const recTrim = rowTrim(memoryRecord as Record<string, unknown>);
+      const validatedUrl = (record as unknown as { validated_url?: string | null }).validated_url ?? null;
+      const scopeMatches = (recFuel === wantFuel || (recFuel === '' && wantFuel === '')) &&
+        (recTrim === wantTrim || (recTrim === '' && wantTrim === ''));
+      if (validatedUrl && scopeMatches && mapping) {
+        let url = overrideVariableParams(validatedUrl, mapping, params);
+        url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
+        logs.push({
+          level: 'OUTPUT',
+          message: '[MAPPING_MEMORY] Reusing human-validated URL (variables overridden)',
+          data: { url },
+        });
+        results.push({
+          site,
+          country: adapter.country,
+          url,
+          debugLogs: logs,
+          warnings: [],
+          validationStatus: 'not_checked',
+          mappingSource: 'learned',
+        });
+        continue;
+      }
 
       if (mapping) {
         const reconstructed = reconstructUrlFromMapping(mapping, detectedParams, params, site);

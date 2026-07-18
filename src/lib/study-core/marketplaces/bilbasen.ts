@@ -78,6 +78,19 @@ const MODEL_MAP: Record<string, string> = {
   'A-CLASS': 'A-Klasse',
   'C-CLASS': 'C-Klasse',
   'E-CLASS': 'E-Klasse',
+  // French Mercedes naming (Leboncoin-learned models) → Danish native
+  'CLASSE A': 'A-Klasse',
+  'CLASSE B': 'B-Klasse',
+  'CLASSE C': 'C-Klasse',
+  'CLASSE E': 'E-Klasse',
+  'CLASSE S': 'S-Klasse',
+  'CLASSE V': 'V-Klasse',
+  'CLASSE CLA': 'CLA',
+  'CLASSE CLS': 'CLS',
+  'CLASSE GLA': 'GLA',
+  'CLASSE GLB': 'GLB',
+  'CLASSE GLC': 'GLC',
+  'CLASSE GLE': 'GLE',
 };
 
 const FUEL_MAP: Record<string, string> = {
