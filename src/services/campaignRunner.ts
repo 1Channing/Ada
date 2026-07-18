@@ -28,7 +28,12 @@ import type { CampaignItemResult, CampaignOutcome } from '../store/campaignStore
 import type { ScrapedListing } from '../lib/study-core/types';
 
 const PAUSE_BETWEEN_ITEMS_MS = 3000;
-const CAMPAIGN_SUBMITTER = 'Campagne auto';
+/**
+ * Campaign ingestions are signed 'Ada' — she appears in the contributor
+ * leaderboard (links ingested / mappings written) like any human operator,
+ * and the mapping tree shows what she learned on her own in violet.
+ */
+const CAMPAIGN_SUBMITTER = 'Ada';
 
 // ─── Knowledge loading ────────────────────────────────────────────────────────
 

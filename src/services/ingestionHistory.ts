@@ -85,6 +85,8 @@ export interface TreeNode {
   weight: number;
   children: TreeNode[];
   meta?: Record<string, string | number>;
+  /** True when ONLY Ada (campaign runs) confirmed this mapping — rendered violet. */
+  adaOnly?: boolean;
 }
 
 interface MemoryRow {
@@ -131,17 +133,39 @@ function bestStatus(children: TreeNode[]): MappingStatus {
  * learned (gearbox/color/…).
  */
 export async function loadMappingTree(): Promise<TreeNode> {
-  const [{ data: memData }, { data: enumData }] = await Promise.all([
+  const [{ data: memData }, { data: enumData }, { data: eventData }] = await Promise.all([
     supabase
       .from('linkgen_mapping_memory')
       .select('site, country, brand, model, fuel, trim, validation_status, source, human_confirmations, confidence, last_confirmed_at'),
     supabase
       .from('linkgen_enum_mappings')
       .select('site, field, label, confirmations'),
+    // Attribution: which mappings were written by Ada (campaigns) vs humans.
+    supabase
+      .from('linkgen_ingestion_events')
+      .select('site, submitted_by, declared_criteria, memory_action')
+      .not('memory_action', 'is', null)
+      .limit(5000),
   ]);
 
   const rows = (memData ?? []) as unknown as MemoryRow[];
   const enums = (enumData ?? []) as unknown as EnumRow[];
+
+  // Keys (model + variant grain) confirmed by Ada vs by at least one human.
+  // A node is "Ada seule" when Ada wrote it and no human ever did.
+  const adaKeys = new Set<string>();
+  const humanKeys = new Set<string>();
+  const U = (s: unknown) => String(s ?? '').trim().toUpperCase();
+  for (const e of (eventData ?? []) as Array<{ site: string; submitted_by: string | null; declared_criteria: unknown; memory_action: string | null }>) {
+    if (!e.memory_action || !WROTE_ACTIONS.has(e.memory_action)) continue;
+    const c = (e.declared_criteria ?? {}) as Record<string, unknown>;
+    const modelKey = `${e.site}|${U(c.brand)}|${U(c.model)}`;
+    const variantKey = `${modelKey}|${U(c.fuel)}|${U(c.trim)}`;
+    const target = (e.submitted_by ?? '').trim() === 'Ada' ? adaKeys : humanKeys;
+    target.add(modelKey);
+    target.add(variantKey);
+  }
+  const isAdaOnly = (key: string) => adaKeys.has(key) && !humanKeys.has(key);
 
   const root: TreeNode = { id: 'root', label: 'ADA', kind: 'root', status: 'group', weight: 0, children: [] };
   const siteMap = new Map<string, TreeNode>();
@@ -183,7 +207,10 @@ export async function loadMappingTree(): Promise<TreeNode> {
     const variantBits = [row.fuel, row.trim].map((s) => (s ?? '').trim()).filter(Boolean);
     const status = statusOf(row);
     const weight = Math.max(1, row.human_confirmations ?? 0);
+    const attributionKey = (fuel: string, trim: string) =>
+      `${row.site}|${U(row.brand)}|${U(row.model)}|${U(fuel)}|${U(trim)}`;
     if (variantBits.length > 0) {
+      const adaOnly = isAdaOnly(attributionKey(row.fuel ?? '', row.trim ?? ''));
       model.children.push({
         id: `variant:${modelKey}|${variantBits.join('+')}`,
         label: variantBits.join(' · '),
@@ -191,18 +218,27 @@ export async function loadMappingTree(): Promise<TreeNode> {
         status,
         weight,
         children: [],
+        adaOnly,
         meta: {
           confirmations: row.human_confirmations ?? 0,
           confidence: row.confidence ?? 0,
           statut: row.validation_status ?? '',
           source: row.source ?? '',
+          ...(adaOnly ? { appris_par: 'Ada (campagne)' } : {}),
         },
       });
     } else {
       // No variant → the model node itself carries the status/weight
       model.status = STATUS_RANK[status] > STATUS_RANK[model.status] ? status : model.status;
       model.weight = Math.max(model.weight, weight);
-      model.meta = { confirmations: row.human_confirmations ?? 0, statut: row.validation_status ?? '', source: row.source ?? '' };
+      const adaOnly = isAdaOnly(`${row.site}|${U(row.brand)}|${U(row.model)}`);
+      if (adaOnly) model.adaOnly = true;
+      model.meta = {
+        confirmations: row.human_confirmations ?? 0,
+        statut: row.validation_status ?? '',
+        source: row.source ?? '',
+        ...(adaOnly ? { appris_par: 'Ada (campagne)' } : {}),
+      };
     }
   }
 

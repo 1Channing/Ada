@@ -19,6 +19,10 @@ const STATUS_LABEL: Record<MappingStatus, string> = {
   group: 'Regroupement',
 };
 
+// Mappings confirmed by Ada's campaigns with no human confirmation yet.
+const ADA_COLOR = '#a78bfa'; // violet-400
+const ADA_LABEL = 'Appris par Ada seule';
+
 const RING = 120;
 
 interface Positioned {
@@ -135,6 +139,10 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
             {STATUS_LABEL[s]}
           </span>
         ))}
+        <span className="inline-flex items-center gap-1 text-zinc-400">
+          <span className="w-2.5 h-2.5 rounded-full" style={{ background: ADA_COLOR }} />
+          {ADA_LABEL}
+        </span>
         <span className="text-zinc-600 ml-auto">Clique un nœud pour déplier / replier</span>
       </div>
 
@@ -167,7 +175,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
               >
                 <circle
                   r={r}
-                  fill={STATUS_COLOR[p.node.status]}
+                  fill={p.node.adaOnly ? ADA_COLOR : STATUS_COLOR[p.node.status]}
                   stroke={p.hasChildren && !p.expanded ? '#e4e4e7' : '#18181b'}
                   strokeWidth={p.hasChildren && !p.expanded ? 1.5 : 1}
                 />
@@ -192,7 +200,9 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
         {hovered && (
           <div className="pointer-events-none absolute top-2 left-2 bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-200 shadow-lg">
             <div className="font-medium">{hovered.node.label}</div>
-            <div className="text-zinc-500">{STATUS_LABEL[hovered.node.status]}</div>
+            <div className="text-zinc-500">
+              {hovered.node.adaOnly ? ADA_LABEL : STATUS_LABEL[hovered.node.status]}
+            </div>
             {hovered.node.meta && Object.entries(hovered.node.meta).map(([k, v]) => (
               <div key={k} className="text-zinc-400">{k}: {String(v)}</div>
             ))}
