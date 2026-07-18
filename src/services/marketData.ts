@@ -498,3 +498,114 @@ export function priceHistogram(observations: Observation[], buckets = 10): { ran
     from: b.from,
   }));
 }
+
+// ─── Cross-country opportunity alerts ─────────────────────────────────────────
+//
+// "Objectif omniprésence" : every campaign/ingestion scrape already records
+// per-listing observations; this layer mines them for NEW MARKETS — a model
+// whose cheap end (median of the 5 cheapest, sorted-ascending page 1 is
+// exactly what we scrape) differs by ≥ threshold between two countries.
+// Deliberately COARSE (brand+model+fuel), unlike market studies: the goal is
+// spotting a market to work, not picking listings.
+
+export interface MarketOpportunity {
+  brand: string;
+  model: string;
+  fuel: string;        // canonical token ('electric'…)
+  lowCountry: string;
+  lowSite: string;
+  lowMedian: number;   // EUR — median of the 5 cheapest
+  lowCount: number;
+  highCountry: string;
+  highSite: string;
+  highMedian: number;
+  highCount: number;
+  deltaEur: number;
+}
+
+const OPP_WINDOW_DAYS = 30;
+const OPP_MIN_PRICE_EUR = 1000; // wrecks/leasing noise guard
+
+export function opportunityKey(o: MarketOpportunity): string {
+  return [o.brand, o.model, o.fuel, o.lowCountry, o.highCountry].join('|');
+}
+
+export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5): Promise<MarketOpportunity[]> {
+  const cutoff = new Date(Date.now() - OPP_WINDOW_DAYS * 86_400_000).toISOString();
+  const { data } = await supabase
+    .from('market_listing_observations')
+    .select('site, country, brand, model, fuel, price, scraped_at')
+    .gte('scraped_at', cutoff)
+    .limit(20000);
+
+  type Side = { prices: number[]; sites: Map<string, number> };
+  const groups = new Map<string, Map<string, Side>>();
+  for (const r of (data ?? []) as Array<{ site: string; country: string; brand: string; model: string; fuel: string; price: number | null }>) {
+    const price = typeof r.price === 'number' ? r.price : 0;
+    if (price < OPP_MIN_PRICE_EUR) continue;
+    const brand = (r.brand ?? '').trim().toUpperCase();
+    const model = (r.model ?? '').trim().toUpperCase();
+    const fuel = (r.fuel ?? '').trim().toLowerCase();
+    const country = (r.country ?? '').trim().toUpperCase();
+    if (!brand || !model || !fuel || !country) continue; // same-fuel comparisons only
+    const gKey = `${brand}|${model}|${fuel}`;
+    const byCountry = groups.get(gKey) ?? new Map<string, Side>();
+    const side: Side = byCountry.get(country) ?? { prices: [], sites: new Map<string, number>() };
+    side.prices.push(price);
+    side.sites.set(r.site, (side.sites.get(r.site) ?? 0) + 1);
+    byCountry.set(country, side);
+    groups.set(gKey, byCountry);
+  }
+
+  const out: MarketOpportunity[] = [];
+  for (const [gKey, byCountry] of groups) {
+    const [brand, model, fuel] = gKey.split('|');
+    const sides: Array<{ country: string; median: number; count: number; site: string }> = [];
+    for (const [country, side] of byCountry) {
+      if (side.prices.length < minPerCountry) continue;
+      const cheap = side.prices.sort((a, b) => a - b).slice(0, 5);
+      const median = cheap[Math.floor(cheap.length / 2)];
+      const site = [...side.sites.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      sides.push({ country, median, count: side.prices.length, site });
+    }
+    if (sides.length < 2) continue;
+    sides.sort((a, b) => a.median - b.median);
+    const low = sides[0];
+    const high = sides[sides.length - 1];
+    const delta = Math.round(high.median - low.median);
+    if (delta < minDelta) continue;
+    out.push({
+      brand, model, fuel,
+      lowCountry: low.country, lowSite: low.site, lowMedian: Math.round(low.median), lowCount: low.count,
+      highCountry: high.country, highSite: high.site, highMedian: Math.round(high.median), highCount: high.count,
+      deltaEur: delta,
+    });
+  }
+
+  // Priority ordering (no displayed score): bigger gap × more available
+  // listings first — a €5,200 gap on 40 cars outranks €6,000 on 2.
+  out.sort((a, b) =>
+    b.deltaEur * Math.min(b.lowCount, b.highCount) - a.deltaEur * Math.min(a.lowCount, a.highCount));
+  return out;
+}
+
+/** key → acked delta (EUR). An alert stays hidden while |Δnow − Δacked| < 1000. */
+export async function loadOpportunityAcks(): Promise<Map<string, number>> {
+  const { data } = await supabase
+    .from('market_opportunity_acks')
+    .select('brand, model, fuel, low_country, high_country, delta_eur')
+    .limit(2000);
+  const map = new Map<string, number>();
+  for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+    map.set([r.brand, r.model, r.fuel, r.low_country, r.high_country].join('|'), Number(r.delta_eur));
+  }
+  return map;
+}
+
+export async function ackOpportunity(o: MarketOpportunity, by: string): Promise<void> {
+  await supabase.from('market_opportunity_acks').insert({
+    brand: o.brand, model: o.model, fuel: o.fuel,
+    low_country: o.lowCountry, high_country: o.highCountry,
+    delta_eur: o.deltaEur, acked_by: by,
+  });
+}

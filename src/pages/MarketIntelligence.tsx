@@ -10,6 +10,7 @@ import {
 } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
+import { OpportunityAlerts } from '../components/OpportunityAlerts';
 
 const SERIES = ['#3987e5', '#008300', '#d55181', '#c98500', '#199e70', '#d95926', '#9085e9', '#e66767'];
 const BLUE = SERIES[0];
@@ -158,6 +159,9 @@ export function MarketIntelligence() {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Rafraîchir
         </button>
       </div>
+
+      {/* Radar d'opportunités inter-pays — alimenté par chaque scrape (campagnes incluses) */}
+      <OpportunityAlerts onInspect={(o) => setActive({ brand: o.brand, model: o.model, fuel: o.fuel as FuelToken })} />
 
       {data.observations.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500">

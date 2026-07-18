@@ -471,6 +471,81 @@ export type Database = {
         }
         Relationships: []
       }
+      market_opportunity_acks: {
+        Row: {
+          id: string
+          brand: string
+          model: string
+          fuel: string
+          low_country: string
+          high_country: string
+          delta_eur: number
+          acked_by: string
+          acked_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand: string
+          model: string
+          fuel?: string
+          low_country: string
+          high_country: string
+          delta_eur: number
+          acked_by?: string
+          acked_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          low_country?: string
+          high_country?: string
+          delta_eur?: number
+          acked_by?: string
+          acked_at?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      studies_v2: {
+        Row: {
+          id: string
+          brand: string
+          model: string
+          year: number | null
+          max_mileage: number | null
+          country_target: string
+          market_target_url: string
+          country_source: string
+          market_source_url: string
+        }
+        Insert: {
+          id: string
+          brand: string
+          model: string
+          year?: number | null
+          max_mileage?: number | null
+          country_target: string
+          market_target_url: string
+          country_source: string
+          market_source_url: string
+        }
+        Update: {
+          id?: string
+          brand?: string
+          model?: string
+          year?: number | null
+          max_mileage?: number | null
+          country_target?: string
+          market_target_url?: string
+          country_source?: string
+          market_source_url?: string
+        }
+        Relationships: []
+      }
       linkgen_campaigns: {
         Row: {
           id: string
