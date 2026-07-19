@@ -81,8 +81,8 @@ export function ResolutionCenter() {
   const [toolNote, setToolNote] = useState<string | null>(null);
   const [toolBusy, setToolBusy] = useState(false);
 
-  const reload = async () => {
-    setLoading(true);
+  const reload = async (quiet = false) => {
+    if (!quiet) setLoading(true);
     const { items, loadError } = await loadAllGaps();
     setGaps(items);
     setError(loadError ? `Chargement impossible : ${loadError}` : null);
@@ -91,7 +91,15 @@ export function ResolutionCenter() {
     setLoading(false);
   };
 
-  useEffect(() => { if (open) void reload(); }, [open]);
+  // Live pendant une campagne : les dossiers boîte noire et les guérisons
+  // rétroactives arrivent en continu — rafraîchir tant que le panneau est
+  // ouvert, pas seulement à l'ouverture.
+  useEffect(() => {
+    if (!open) return;
+    void reload();
+    const t = setInterval(() => { void reload(true); }, 30_000);
+    return () => clearInterval(t);
+  }, [open]);
 
   const openGaps = useMemo(() => gaps.filter((g) => !g.resolvedAt), [gaps]);
   const shown = showResolved ? gaps : openGaps;
