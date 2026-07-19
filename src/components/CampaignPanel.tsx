@@ -9,10 +9,11 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Rocket, Square, Loader2, CheckCircle2, XCircle, AlertTriangle, ExternalLink, Wrench, Check } from 'lucide-react';
+import { Rocket, Square, Loader2, CheckCircle2, XCircle, AlertTriangle, ExternalLink, Wrench, Check, Ban } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
 import { startCampaign, stopCampaign, markItemResolved } from '../services/campaignRunner';
+import { validateEmptyMarketForCampaignItem } from '../services/resolutionCenter';
 import { useCampaignStore } from '../store/campaignStore';
 import type { CampaignItemResult, CampaignOutcome } from '../store/campaignStore';
 import { ResolutionCenter } from './ResolutionCenter';
@@ -170,6 +171,30 @@ export function CampaignPanel() {
   const openInIngestion = (url: string) => {
     window.history.pushState({}, '', `/ingestion?url=${encodeURIComponent(url)}`);
     window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  // « Marché vide » directement depuis le rapport de campagne : apprend le
+  // mapping sans échantillon (assertion humaine) puis clôt l'inconnue —
+  // même mécanique que le centre de résolution.
+  const handleEmptyMarket = async (item: CampaignItemResult) => {
+    if (!state.campaignId) return;
+    const ok = window.confirm(
+      `Déclarer « marché vide » pour ${item.brand} ${item.model}` +
+      `${item.fuel ? ' · ' + item.fuel : ''}${item.year ? ' · ' + item.year : ''} sur ${item.site} ?\n\n` +
+      `⚠️ Uniquement si l'URL cible bien ce modèle et que le marché n'a VRAIMENT rien.\n` +
+      `Si les voitures existent sous un autre nom sur le site (ex. ë-C4 pour une C4 électrique),\n` +
+      `utilisez plutôt « Corriger » pour apprendre la bonne URL.`
+    );
+    if (!ok) return;
+    const res = await validateEmptyMarketForCampaignItem(state.campaignId, item.seq, {
+      site: item.site, brand: item.brand, model: item.model,
+      criteria: { fuel: item.fuel ?? null, trim: item.trim ?? null, year: item.year ?? null },
+      url: item.url,
+    });
+    if (!res.ok) { window.alert(`Échec : ${res.error ?? 'inconnu'}`); return; }
+    useCampaignStore.setState((st) => ({
+      items: st.items.map((i) => (i.seq === item.seq ? { ...i, resolvedAt: new Date().toISOString() } : i)),
+    }));
   };
 
   const feed = state.items.slice(-12).reverse();
@@ -497,6 +522,16 @@ export function CampaignPanel() {
                             >
                               <Check className="w-3.5 h-3.5" />
                               Corrigé
+                            </button>
+                          )}
+                          {!done && state.campaignId && (
+                            <button
+                              onClick={() => void handleEmptyMarket(item)}
+                              className="flex items-center gap-1 text-sky-400 hover:text-sky-300 shrink-0"
+                              title="Le marché est vide mais l'URL cible bien ce modèle — apprendre le mapping sans échantillon. ⚠️ À ne PAS utiliser si les voitures existent sous un autre nom (ex. ë-C4) : là c'est Corriger."
+                            >
+                              <Ban className="w-3.5 h-3.5" />
+                              Marché vide
                             </button>
                           )}
                         </div>

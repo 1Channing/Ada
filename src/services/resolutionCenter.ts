@@ -147,6 +147,37 @@ export async function reopenGapItem(id: string): Promise<{ ok: boolean; error?: 
  * ingestion would — validated_url included — then closes the gap.
  */
 export async function validateEmptyMarket(item: GapItem): Promise<{ ok: boolean; error?: string }> {
+  const core = await learnEmptyMarketMapping(item);
+  if (!core.ok) return core;
+
+  // Le mapping vient d'être validé : les autres lacunes ouvertes du même
+  // combo (autres années/campagnes) sont réparées par la même connaissance.
+  await healOpenGaps(item.site, item.brand, item.model).catch(() => 0);
+
+  return resolveGapItem(item.id, 'empty_market');
+}
+
+/** Variante pour le rapport d'inconnues du panneau campagne (item repéré par campagne+seq, pas par id). */
+export async function validateEmptyMarketForCampaignItem(
+  campaignId: string,
+  seq: number,
+  info: Pick<GapItem, 'site' | 'brand' | 'model' | 'criteria' | 'url'>
+): Promise<{ ok: boolean; error?: string }> {
+  const core = await learnEmptyMarketMapping(info);
+  if (!core.ok) return core;
+  await healOpenGaps(info.site, info.brand, info.model).catch(() => 0);
+  const { error } = await supabase
+    .from('linkgen_campaign_items')
+    .update({ resolved_at: new Date().toISOString(), resolution: 'empty_market' })
+    .eq('campaign_id', campaignId)
+    .eq('seq', seq);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+/** Cœur partagé : écrire/renforcer la ligne mémoire « URL valide, marché vide ». */
+async function learnEmptyMarketMapping(
+  item: Pick<GapItem, 'site' | 'brand' | 'model' | 'criteria' | 'url'>
+): Promise<{ ok: boolean; error?: string }> {
   const brand = item.brand.trim().toUpperCase();
   const model = item.model.trim().toUpperCase();
   if (!brand || !model) return { ok: false, error: 'marque/modèle manquants sur cette lacune' };
@@ -207,9 +238,5 @@ export async function validateEmptyMarket(item: GapItem): Promise<{ ok: boolean;
     if (error) return { ok: false, error: error.message };
   }
 
-  // Le mapping vient d'être validé : les autres lacunes ouvertes du même
-  // combo (autres années/campagnes) sont réparées par la même connaissance.
-  await healOpenGaps(item.site, brand, model).catch(() => 0);
-
-  return resolveGapItem(item.id, 'empty_market');
+  return { ok: true };
 }
