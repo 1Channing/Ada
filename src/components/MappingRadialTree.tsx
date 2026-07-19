@@ -68,7 +68,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
   const applyZoom = (factor: number, clientX?: number, clientY?: number) => {
     const el = containerRef.current;
     setZoom((z) => {
-      const nz = Math.min(4, Math.max(0.5, z * factor));
+      const nz = Math.min(8, Math.max(0.5, z * factor));
       if (el && nz !== z) {
         const rect = el.getBoundingClientRect();
         pendingAnchorRef.current = {
@@ -282,7 +282,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
             // leaves it room to breathe — dense rings stay clean dots and the
             // labels reappear as the zoom spreads them apart (hover always
             // shows the name). Sites (depth 1) are few and always labelled.
-            const showLabel = isRoot || p.depth === 1 || p.arc >= fontSize + 6;
+            const showLabel = isRoot || p.depth === 1 || p.arc >= fontSize;
             return (
               <g
                 key={p.node.id}
