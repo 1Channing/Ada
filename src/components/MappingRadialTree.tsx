@@ -66,6 +66,38 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
+  // Click-and-drag panning (the wheel being taken by zoom). A real drag
+  // (> 4 px) must NOT count as a node click — didDragRef suppresses the
+  // expand/collapse toggle that would otherwise fire on pointer release.
+  const [panning, setPanning] = useState(false);
+  const dragRef = useRef<{ x: number; y: number; sl: number; st: number; moved: boolean } | null>(null);
+  const didDragRef = useRef(false);
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const el = containerRef.current;
+    if (!el) return;
+    dragRef.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop, moved: false };
+    didDragRef.current = false;
+    setPanning(true);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    const el = containerRef.current;
+    if (!d || !el) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) > 4) { d.moved = true; didDragRef.current = true; }
+    if (d.moved) {
+      el.scrollLeft = d.sl - dx;
+      el.scrollTop = d.st - dy;
+    }
+  };
+  const onPointerUp = () => {
+    dragRef.current = null;
+    setPanning(false);
+  };
+
   const toggle = (id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -161,10 +193,18 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: ADA_COLOR }} />
           {ADA_LABEL}
         </span>
-        <span className="text-zinc-600 ml-auto">Molette = espacer les nœuds · clic = déplier / replier</span>
+        <span className="text-zinc-600 ml-auto">Molette = espacer · glisser = se déplacer · clic = déplier / replier</span>
       </div>
 
-      <div ref={containerRef} className="relative overflow-auto rounded-xl border border-zinc-800 bg-zinc-950" style={{ maxHeight: 620 }}>
+      <div
+        ref={containerRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+        className={`relative overflow-auto rounded-xl border border-zinc-800 bg-zinc-950 select-none ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
+        style={{ maxHeight: 620 }}
+      >
         <svg
           viewBox={`${-size / 2} ${-size / 2} ${size} ${size}`}
           width={size}
@@ -186,7 +226,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
               <g
                 key={p.node.id}
                 transform={`translate(${p.x} ${p.y})`}
-                onClick={() => p.hasChildren && toggle(p.node.id)}
+                onClick={() => { if (didDragRef.current) return; if (p.hasChildren) toggle(p.node.id); }}
                 onMouseEnter={() => setHovered(p)}
                 onMouseLeave={() => setHovered(null)}
                 style={{ cursor: p.hasChildren ? 'pointer' : 'default' }}
