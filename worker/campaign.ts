@@ -23,8 +23,13 @@ import { scrapeSearch } from './scraper';
 const PAUSE_BETWEEN_ITEMS_MS = 3000;
 const HEARTBEAT_STALE_MS = 120_000;
 
-/** deep = up to 10 pages (~300 listings) instead of 5/100 — opt-in per campaign. */
-const mkScrape = (deep: boolean): ScrapeFn => async (url) => {
+/**
+ * deep = up to 10 pages (~300 listings) instead of 5/100 — opt-in per campaign.
+ * stopFlag: when the operator hits stop MID-item, the very next Zyte call
+ * (retry, probe, next page) refuses to start instead of finishing a long item.
+ */
+const mkScrape = (deep: boolean, stopFlag: { stop: boolean }): ScrapeFn => async (url) => {
+  if (stopFlag.stop) return { listings: [], error: 'CAMPAIGN_STOPPED' };
   try {
     const r = await scrapeSearch(url, deep ? 'deep' : 'full');
     // Diagnostics feed the error dossiers (boîte noire) — full action context.
@@ -154,7 +159,23 @@ async function readStatus(campaignId: string): Promise<string> {
 
 async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex: number, deepScan = false): Promise<void> {
   loopBusy = true;
-  const scrape = mkScrape(deepScan);
+  // A deep item (Cloudflare retries with backoffs, 404 probes, 10-page
+  // pagination) can legitimately run for MINUTES. Reading the stop signal only
+  // between items made « Arrêt immédiat » feel dead, and a heartbeat that only
+  // beat between items let the frontend's orphan check kill live campaigns.
+  // This side-channel polls every 8s: it flips stopFlag (the next Zyte call
+  // aborts the item) and keeps the heartbeat fresh DURING long items.
+  const stopFlag = { stop: false };
+  const signalTimer = setInterval(() => {
+    void (async () => {
+      try {
+        const status = await readStatus(campaignId);
+        if (status === 'stopping' || status === 'stopped') stopFlag.stop = true;
+        else await supabase.from('linkgen_campaigns').update({ last_heartbeat: new Date().toISOString() }).eq('id', campaignId);
+      } catch { /* transient read failure — next tick retries */ }
+    })();
+  }, 8000);
+  const scrape = mkScrape(deepScan, stopFlag);
   const counts: Record<CampaignOutcome, number> = {
     confirmed: 0, taxonomy_gap: 0, enum_gap: 0, no_url: 0, insufficient: 0, technical: 0,
   };
@@ -174,7 +195,7 @@ async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex:
     for (let i = startIndex; i < plan.length; i++) {
       // Stop signal + heartbeat BEFORE the (long) scrape.
       const status = await readStatus(campaignId);
-      if (status === 'stopping' || status === 'stopped') { stopped = true; break; }
+      if (stopFlag.stop || status === 'stopping' || status === 'stopped') { stopped = true; break; }
       await supabase.from('linkgen_campaigns').update({ last_heartbeat: new Date().toISOString() }).eq('id', campaignId);
 
       const p = plan[i];
@@ -190,6 +211,10 @@ async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex:
         };
       }
 
+      // Item interrupted mid-flight by the stop: honour it, don't record a
+      // truncated result (the segment stays intact for a future run).
+      if (result.detail.includes('CAMPAIGN_STOPPED')) { stopped = true; break; }
+
       counts[result.outcome]++;
       doneCount++;
       await insertCampaignItemRow(campaignId, result).catch((e) => console.warn('[CAMPAIGN_WORKER] item insert failed:', e?.message ?? e));
@@ -204,6 +229,7 @@ async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex:
       if (i < plan.length - 1) await new Promise((r) => setTimeout(r, PAUSE_BETWEEN_ITEMS_MS));
     }
   } finally {
+    clearInterval(signalTimer);
     loopBusy = false;
     await supabase.from('linkgen_campaigns').update({
       status: stopped ? 'stopped' : 'done',

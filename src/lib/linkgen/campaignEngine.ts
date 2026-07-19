@@ -163,6 +163,11 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   const { listings, error, diagnostics } = await scrape(url);
 
   if (error && listings.length === 0) {
+    // Stop hit mid-item: no audit event, no dossier — the campaign loop
+    // discards this truncated result and halts.
+    if (error === 'CAMPAIGN_STOPPED') {
+      return { ...base, url, outcome: 'technical', confirmedFields: [], rejected: [], detail: 'CAMPAIGN_STOPPED', sampleSize: 0 };
+    }
     await persistIngestionResult({
       url, site: adapter.key, country: adapter.countryCode, criteria,
       analysis: null, sampleSize: 0, scrapeError: error,

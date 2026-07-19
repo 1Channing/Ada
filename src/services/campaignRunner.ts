@@ -65,19 +65,21 @@ export async function startCampaign(opts: StartCampaignOptions): Promise<{ start
   }
 }
 
-/** Immediate stop: the worker checks the row between items. */
+/**
+ * Immediate stop. The worker polls the row every 8s EVEN during a long item
+ * (the next Zyte call aborts). We flip EVERY 'running' row to 'stopping' —
+ * guessing "the right" id left campaigns unkillable whenever the store's id
+ * was stale or the row had already flipped: an emergency stop must stop.
+ */
 export async function stopCampaign(): Promise<void> {
-  const st = useCampaignStore.getState();
   useCampaignStore.setState({ status: 'stopping', stopRequested: true });
-  let id = st.campaignId;
-  if (!id) {
-    const { data } = await supabase
-      .from('linkgen_campaigns').select('id').eq('status', 'running')
-      .order('created_at', { ascending: false }).limit(1).maybeSingle();
-    id = data?.id ?? null;
-  }
-  if (id) {
-    await supabase.from('linkgen_campaigns').update({ status: 'stopping' }).eq('id', id).eq('status', 'running');
+  const { error } = await supabase
+    .from('linkgen_campaigns')
+    .update({ status: 'stopping' })
+    .eq('status', 'running');
+  if (error) {
+    console.warn('[CAMPAIGN] stop update failed:', error.message);
+    useCampaignStore.setState({ error: `Arrêt non transmis : ${error.message}` });
   }
   pollNow();
 }
