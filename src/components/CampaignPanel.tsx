@@ -407,10 +407,23 @@ export function CampaignPanel() {
                   <span className={`shrink-0 px-1.5 rounded text-[10px] font-medium ${OUTCOME_STYLE[item.outcome]}`}>
                     {OUTCOME_LABELS[item.outcome]}
                   </span>
-                  <span className="text-zinc-400 truncate">
-                    {item.site} · {item.brand} {item.model}
-                    {item.fuel ? ` · ${item.fuel}` : ''}{item.trim ? ` · ${item.trim}` : ''}{item.year ? ` · ${item.year}` : ''}
-                  </span>
+                  {/* Vérifiable d'un clic : la ligne ouvre l'URL réellement
+                      scrapée — indispensable pour juger un « marché vide ». */}
+                  {item.url ? (
+                    <a
+                      href={item.url} target="_blank" rel="noreferrer"
+                      className="text-zinc-400 hover:text-violet-300 hover:underline truncate"
+                      title={`Ouvrir la recherche scrapée :\n${item.url}`}
+                    >
+                      {item.site} · {item.brand} {item.model}
+                      {item.fuel ? ` · ${item.fuel}` : ''}{item.trim ? ` · ${item.trim}` : ''}{item.year ? ` · ${item.year}` : ''}
+                    </a>
+                  ) : (
+                    <span className="text-zinc-400 truncate">
+                      {item.site} · {item.brand} {item.model}
+                      {item.fuel ? ` · ${item.fuel}` : ''}{item.trim ? ` · ${item.trim}` : ''}{item.year ? ` · ${item.year}` : ''}
+                    </span>
+                  )}
                   <span className="text-zinc-600 truncate hidden md:inline">{item.detail}</span>
                 </div>
               ))}
