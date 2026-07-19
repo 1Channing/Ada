@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { TreeNode, MappingStatus } from '../services/ingestionHistory';
 
 const STATUS_COLOR: Record<MappingStatus, string> = {
@@ -54,12 +54,42 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
   // everything grows and labels stay glued together.
   const [zoom, setZoom] = useState(1);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Cursor-anchored zoom. The re-layout grows the SVG from its corner, which
+  // made zooming drift towards the top-left: we capture the point under the
+  // cursor BEFORE the zoom, then (after React re-renders with the new size)
+  // scroll so that same world point sits back under the cursor. Node
+  // positions scale exactly by newZoom/oldZoom (radius ∝ zoom), the root
+  // staying at the SVG centre. +/− buttons anchor to the viewport centre.
+  const sizeRef = useRef(0);
+  const pendingAnchorRef = useRef<{ offsetX: number; offsetY: number; scrollLeft: number; scrollTop: number; oldSize: number; ratio: number } | null>(null);
+  const applyZoom = (factor: number, clientX?: number, clientY?: number) => {
+    const el = containerRef.current;
+    setZoom((z) => {
+      const nz = Math.min(4, Math.max(0.5, z * factor));
+      if (el && nz !== z) {
+        const rect = el.getBoundingClientRect();
+        pendingAnchorRef.current = {
+          offsetX: clientX != null ? clientX - rect.left : el.clientWidth / 2,
+          offsetY: clientY != null ? clientY - rect.top : el.clientHeight / 2,
+          scrollLeft: el.scrollLeft,
+          scrollTop: el.scrollTop,
+          oldSize: sizeRef.current,
+          ratio: nz / z,
+        };
+      }
+      return nz;
+    });
+  };
+  const applyZoomRef = useRef(applyZoom);
+  applyZoomRef.current = applyZoom;
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      setZoom((z) => Math.min(4, Math.max(0.5, z * (e.deltaY < 0 ? 1.12 : 0.9))));
+      applyZoomRef.current(e.deltaY < 0 ? 1.12 : 0.9, e.clientX, e.clientY);
     };
     // React's onWheel is passive — preventDefault needs a non-passive listener.
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -166,6 +196,21 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
 
   const pad = 140;
   const size = (maxRadius + pad) * 2;
+  sizeRef.current = size;
+
+  // After the re-layout, put the captured world point back under the cursor.
+  useLayoutEffect(() => {
+    const a = pendingAnchorRef.current;
+    const el = containerRef.current;
+    if (!a || !el) return;
+    pendingAnchorRef.current = null;
+    // World coords of the anchored point (origin = tree centre), then its new
+    // position after the radial scale, then the scroll that re-aligns it.
+    const wx = a.scrollLeft + a.offsetX - a.oldSize / 2;
+    const wy = a.scrollTop + a.offsetY - a.oldSize / 2;
+    el.scrollLeft = Math.max(0, wx * a.ratio + size / 2 - a.offsetX);
+    el.scrollTop = Math.max(0, wy * a.ratio + size / 2 - a.offsetY);
+  }, [size, zoom]);
 
   return (
     <div className="space-y-3">
@@ -179,9 +224,9 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
           className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
         >Tout replier</button>
         <span className="text-zinc-600">·</span>
-        <button onClick={() => setZoom((z) => Math.max(0.5, z * 0.9))} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">−</button>
+        <button onClick={() => applyZoom(0.9)} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">−</button>
         <span className="text-zinc-500 tabular-nums">{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom((z) => Math.min(4, z * 1.12))} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">+</button>
+        <button onClick={() => applyZoom(1.12)} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">+</button>
         <span className="text-zinc-600">·</span>
         {(['valid', 'partial', 'csv', 'pending'] as MappingStatus[]).map((s) => (
           <span key={s} className="inline-flex items-center gap-1 text-zinc-400">
