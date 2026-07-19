@@ -15,6 +15,7 @@
 
 import { supabase } from '../lib/supabase';
 import type { CampaignItemResult, CampaignOutcome } from '../lib/linkgen/campaignEngine';
+import type { CampaignFilters } from '../lib/linkgen/campaignPlanner';
 import { useCampaignStore, EMPTY_COUNTS } from '../store/campaignStore';
 
 const POLL_MS = 5000;
@@ -24,6 +25,8 @@ export interface StartCampaignOptions {
   total: number;
   reinforceShare?: number;
   variantShare?: number;
+  /** Modular targeting: brands / models / fuels / year window. */
+  filters?: CampaignFilters;
   label?: string;
 }
 

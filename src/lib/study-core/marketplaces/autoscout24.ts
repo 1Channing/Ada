@@ -103,8 +103,24 @@ const MODEL_SLUG_BY_ALNUM: Record<string, string> = {
   id3: 'id-3', id4: 'id-4', id5: 'id-5',
 };
 
+/**
+ * French Mercedes naming → AS24's canonical slugs. AS24 shares one model
+ * taxonomy across its TLDs, keyed on the German names: 'CLASSE E' must become
+ * 'e-klasse' (the naive 'classe-e' 404'd — NO_LISTINGS on .de in campaign
+ * logs); letter-code models ('CLASSE CLA', 'CLASSE GLC') are just the code.
+ */
+function mercedesClassSlug(raw: string): string | null {
+  const up = raw.trim().toUpperCase();
+  const m = up.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? up.match(/^([A-Z])-CLASS$/);
+  if (!m) return null;
+  const code = m[1].toLowerCase();
+  return code.length === 1 ? `${code}-klasse` : code;
+}
+
 /** Model → AutoScout URL slug, resolving common no-separator variants first. */
 function modelToSlug(raw: string): string {
+  const mercedes = mercedesClassSlug(raw);
+  if (mercedes) return mercedes;
   const alnum = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
   return MODEL_SLUG_BY_ALNUM[alnum] ?? slug(raw);
 }

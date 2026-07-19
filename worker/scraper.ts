@@ -476,13 +476,12 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
       console.warn(`[WORKER_SCRAPER] ⚠️  Blocked: ${blockedCheck.matchedKeyword} (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
       if (attempt < MAX_RETRIES) {
         const flipped = flipBeLocale(activeUrl);
-        if (flipped) {
-          console.log(`[WORKER_SCRAPER] BE locale flip on retry: ${flipped}`);
-          activeUrl = flipped;
-        } else if (activeUrl.includes('autoscout24.')) {
-          activeUrl = withNocache(activeUrl);
-          console.log(`[WORKER_SCRAPER] cache-buster on retry: ${activeUrl}`);
-        }
+        if (flipped) activeUrl = flipped;
+        // Cache-buster on EVERY blocked AS24 retry (flip included: BE served
+        // byte-identical error pages on both locales, so the flip alone
+        // doesn't dodge the cached block).
+        if (activeUrl.includes('autoscout24.')) activeUrl = withNocache(activeUrl);
+        if (activeUrl !== url) console.log(`[WORKER_SCRAPER] retry variant: ${activeUrl}`);
         // Longer pause than a soft failure: a CF block that just fired rarely
         // clears within a second from the same exit.
         await new Promise((resolve) => setTimeout(resolve, 2500 * (attempt + 1)));

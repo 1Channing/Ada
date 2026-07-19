@@ -239,10 +239,14 @@ export interface KnownDimensions {
 }
 
 export async function loadKnownDimensions(): Promise<KnownDimensions> {
-  const { data } = await supabase
-    .from('linkgen_mapping_memory')
-    .select('site, country, brand, model, fuel')
-    .limit(10000);
+  const data = await fetchAllPages<{ site: string | null; country: string | null; brand: string | null; model: string | null; fuel: string | null }>(
+    (from, to) => supabase
+      .from('linkgen_mapping_memory')
+      .select('site, country, brand, model, fuel')
+      .order('created_at', { ascending: false })
+      .range(from, to),
+    20_000,
+  );
 
   const sites = new Set<string>();
   const countries = new Set<string>();
@@ -251,7 +255,7 @@ export async function loadKnownDimensions(): Promise<KnownDimensions> {
   const fuelsByBrandModel: Record<string, Set<string>> = {};
   const allFuels = new Set<string>();
 
-  for (const r of (data ?? []) as Array<{ site: string | null; country: string | null; brand: string | null; model: string | null; fuel: string | null }>) {
+  for (const r of data) {
     if (r.site) sites.add(r.site);
     if (r.country) countries.add(r.country.toUpperCase());
     const b = (r.brand ?? '').trim().toUpperCase();
@@ -332,15 +336,46 @@ export interface MarketData {
   observations: Observation[];
 }
 
-export async function loadMarketData(limit = 5000): Promise<MarketData> {
-  const [{ data: snaps }, { data: obs }] = await Promise.all([
-    supabase.from('market_snapshots').select('*').order('scraped_at', { ascending: true }).limit(limit),
-    supabase.from('market_listing_observations').select('*').order('scraped_at', { ascending: true }).limit(limit * 30),
+/**
+ * Paginated full read. PostgREST silently caps ANY request at ~1000 rows —
+ * `.limit(5000)` still returns 1000 — and with an ASCENDING sort that meant
+ * the dashboard only ever saw the 1000 OLDEST observations: every new
+ * country/segment (ES, DE…) was invisible even though its snapshots were
+ * recorded. Reads now page with .range() until exhausted; observations are
+ * read NEWEST-first so if the safety cap ever hits, it's old data that drops
+ * out, never fresh scans.
+ */
+async function fetchAllPages<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+  maxRows: number,
+): Promise<T[]> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  for (let from = 0; from < maxRows; from += PAGE) {
+    const { data, error } = await build(from, Math.min(from + PAGE, maxRows) - 1);
+    if (error) {
+      console.warn('[MARKET_DATA] paged read failed:', error.message);
+      break;
+    }
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+export async function loadMarketData(maxObservations = 60_000): Promise<MarketData> {
+  const [snapshots, observations] = await Promise.all([
+    fetchAllPages<Snapshot>(
+      (from, to) => supabase.from('market_snapshots').select('*').order('scraped_at', { ascending: false }).range(from, to),
+      20_000,
+    ),
+    fetchAllPages<Observation>(
+      (from, to) => supabase.from('market_listing_observations').select('*').order('scraped_at', { ascending: false }).range(from, to),
+      maxObservations,
+    ),
   ]);
-  return {
-    snapshots: (snaps ?? []) as unknown as Snapshot[],
-    observations: (obs ?? []) as unknown as Observation[],
-  };
+  return { snapshots, observations };
 }
 
 export function priceHistogramFrom(obs: Observation[], buckets = 12): { range: string; count: number; from: number; to: number }[] {
@@ -539,15 +574,20 @@ export function opportunityKey(o: MarketOpportunity): string {
 
 export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5): Promise<MarketOpportunity[]> {
   const cutoff = new Date(Date.now() - OPP_WINDOW_DAYS * 86_400_000).toISOString();
-  const { data } = await supabase
-    .from('market_listing_observations')
-    .select('site, country, brand, model, fuel, price, scraped_at')
-    .gte('scraped_at', cutoff)
-    .limit(20000);
+  // Paginated: a flat .limit() is silently capped at ~1000 rows by PostgREST.
+  const data = await fetchAllPages<{ site: string; country: string; brand: string; model: string; fuel: string; price: number | null }>(
+    (from, to) => supabase
+      .from('market_listing_observations')
+      .select('site, country, brand, model, fuel, price, scraped_at')
+      .gte('scraped_at', cutoff)
+      .order('scraped_at', { ascending: false })
+      .range(from, to),
+    40_000,
+  );
 
   type Side = { prices: number[]; sites: Map<string, number> };
   const groups = new Map<string, Map<string, Side>>();
-  for (const r of (data ?? []) as Array<{ site: string; country: string; brand: string; model: string; fuel: string; price: number | null }>) {
+  for (const r of data) {
     const price = typeof r.price === 'number' ? r.price : 0;
     if (price < OPP_MIN_PRICE_EUR) continue;
     const brand = (r.brand ?? '').trim().toUpperCase();

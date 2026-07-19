@@ -41,6 +41,24 @@ export interface CampaignPlanItem {
   reason: string;
 }
 
+/**
+ * Optional targeting — "tout doit être modulable" : narrow a campaign to
+ * specific brands, models, fuels or a year window, in any combination, on any
+ * site subset. Examples: hybrids only across every site; one brand across all
+ * countries; one model on one site for 2022-2024.
+ */
+export interface CampaignFilters {
+  /** Restrict to these brands (uppercase-insensitive). Empty/absent = all. */
+  brands?: string[];
+  /** Restrict to these models (uppercase-insensitive). Empty/absent = all. */
+  models?: string[];
+  /** Force these declared fuel labels (e.g. 'HYBRIDE') — every item carries one. */
+  fuels?: string[];
+  /** Year-pin window override (clamped to [YEAR_PIN_MIN, current year]). */
+  yearMin?: number;
+  yearMax?: number;
+}
+
 export interface CampaignPlanOptions {
   /** Target site keys (adapter keys). */
   sites: string[];
@@ -50,6 +68,7 @@ export interface CampaignPlanOptions {
   reinforceShare?: number;
   /** 0..1 share of items carrying a fuel or trim variant (when known). Default 0.4. */
   variantShare?: number;
+  filters?: CampaignFilters;
   rng?: () => number;
 }
 
@@ -70,12 +89,26 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   const total = Math.max(1, Math.floor(opts.total));
   const reinforceShare = opts.reinforceShare ?? 0.15;
   const variantShare = opts.variantShare ?? 0.4;
-  const yearMax = new Date().getFullYear();
+  const nowYear = new Date().getFullYear();
 
-  // All known brand|model combos (from any site's validated memory).
+  // Targeting filters (normalised uppercase; empty lists = no restriction).
+  const f = opts.filters ?? {};
+  const U = (s: string) => s.trim().toUpperCase();
+  const brandSet = new Set((f.brands ?? []).map(U).filter(Boolean));
+  const modelSet = new Set((f.models ?? []).map(U).filter(Boolean));
+  const forcedFuels = (f.fuels ?? []).map(U).filter(Boolean);
+  const pinMin = Math.max(YEAR_PIN_MIN, Math.min(f.yearMin ?? YEAR_PIN_MIN, nowYear));
+  const pinMax = Math.max(pinMin, Math.min(f.yearMax ?? nowYear, nowYear));
+
+  // All known brand|model combos (from any site's validated memory),
+  // narrowed by the brand/model targeting when provided.
   const combos: Array<{ brand: string; model: string }> = [];
   for (const brand of k.brands) {
-    for (const model of k.modelsByBrand[brand] ?? []) combos.push({ brand, model });
+    if (brandSet.size > 0 && !brandSet.has(U(brand))) continue;
+    for (const model of k.modelsByBrand[brand] ?? []) {
+      if (modelSet.size > 0 && !modelSet.has(U(model))) continue;
+      combos.push({ brand, model });
+    }
   }
   if (combos.length === 0 || opts.sites.length === 0) return [];
 
@@ -116,12 +149,17 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
         ? `${base.brand} ${base.model} jamais validé sur ${base.site}`
         : `renforcement ${base.brand} ${base.model} sur ${base.site}`,
     };
-    // Variant: attach a fuel or trim KNOWN FOR THIS EXACT brand|model.
-    if (rng() < variantShare) {
+    if (forcedFuels.length > 0) {
+      // Fuel targeting: EVERY item carries one of the requested fuels — this is
+      // how "améliorer nos data sur les hybrides uniquement" works.
+      item.fuel = forcedFuels[Math.floor(rng() * forcedFuels.length)];
+      item.reason += ` (ciblage ${item.fuel})`;
+    } else if (rng() < variantShare) {
+      // Variant: attach a fuel or trim KNOWN FOR THIS EXACT brand|model.
       const fuels = k.fuelsByBrandModel[key] ?? [];
       const trims = k.trimsByBrandModel[key] ?? [];
       const pool: Array<['fuel' | 'trim', string]> = [
-        ...fuels.map((f): ['fuel' | 'trim', string] => ['fuel', f]),
+        ...fuels.map((f2): ['fuel' | 'trim', string] => ['fuel', f2]),
         ...trims.map((t): ['fuel' | 'trim', string] => ['trim', t]),
       ];
       if (pool.length > 0) {
@@ -130,9 +168,10 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
         else { item.trim = value; item.reason += ` (finition ${value})`; }
       }
     }
-    // MANDATORY year pin (2020..now): an unbounded search is too wide — the
-    // sample mixes 2008s with 2023s and the market data is unusable by year.
-    const year = YEAR_PIN_MIN + Math.floor(rng() * (yearMax - YEAR_PIN_MIN + 1));
+    // MANDATORY year pin: an unbounded search is too wide — the sample mixes
+    // 2008s with 2023s and the market data is unusable by year. Window is
+    // [2020..now] by default, narrowable via filters.
+    const year = pinMin + Math.floor(rng() * (pinMax - pinMin + 1));
     item.year = year;
     item.reason += ` (année ${year})`;
     items.push(item);

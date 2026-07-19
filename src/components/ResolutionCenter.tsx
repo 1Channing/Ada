@@ -50,7 +50,9 @@ export function ResolutionCenter() {
 
   const reload = async () => {
     setLoading(true);
-    setGaps(await loadAllGaps());
+    const { items, loadError } = await loadAllGaps();
+    setGaps(items);
+    setError(loadError ? `Chargement impossible : ${loadError}` : null);
     setLoading(false);
   };
 

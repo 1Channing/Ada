@@ -70,6 +70,8 @@ function testedFilterChips(item: CampaignItemResult): string[] {
   return chips;
 }
 
+const FUEL_TARGETS = ['ESSENCE', 'DIESEL', 'HYBRIDE', 'ELECTRIQUE'];
+
 export function CampaignPanel() {
   const state = useCampaignStore();
   const [total, setTotal] = useState(200);
@@ -77,6 +79,32 @@ export function CampaignPanel() {
   const [reinforcePct, setReinforcePct] = useState(15);
   const [variantPct, setVariantPct] = useState(40);
   const [startError, setStartError] = useState<string | null>(null);
+
+  // Modular targeting — everything optional, combinable: brands, models,
+  // fuels, year window (e.g. hybrides only across all sites; one brand
+  // across every country).
+  const [filterBrands, setFilterBrands] = useState<string[]>([]);
+  const [filterFuels, setFilterFuels] = useState<string[]>([]);
+  const [filterModels, setFilterModels] = useState('');
+  const [yearMin, setYearMin] = useState<string>('');
+  const [yearMax, setYearMax] = useState<string>('');
+  const [knownBrands, setKnownBrands] = useState<string[]>([]);
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('linkgen_mapping_memory')
+        .select('brand')
+        .eq('validation_status', 'valid')
+        .limit(1000);
+      const set = new Set<string>();
+      for (const r of data ?? []) {
+        const b = String((r as { brand: string | null }).brand ?? '').trim().toUpperCase();
+        if (b) set.add(b);
+      }
+      setKnownBrands([...set].sort((a, b) => a.localeCompare(b)));
+    })();
+  }, []);
+  const toggleIn = (arr: string[], v: string) => arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 
   const running = state.status === 'running' || state.status === 'planning' || state.status === 'stopping';
 
@@ -119,10 +147,19 @@ export function CampaignPanel() {
 
   const handleStart = async () => {
     setStartError(null);
+    const models = filterModels.split(',').map((s) => s.trim()).filter(Boolean);
+    const filters = {
+      ...(filterBrands.length > 0 ? { brands: filterBrands } : {}),
+      ...(models.length > 0 ? { models } : {}),
+      ...(filterFuels.length > 0 ? { fuels: filterFuels } : {}),
+      ...(yearMin.trim() ? { yearMin: Number(yearMin) } : {}),
+      ...(yearMax.trim() ? { yearMax: Number(yearMax) } : {}),
+    };
     const res = await startCampaign({
       sites, total,
       reinforceShare: reinforcePct / 100,
       variantShare: variantPct / 100,
+      ...(Object.keys(filters).length > 0 ? { filters } : {}),
     });
     if (!res.started) setStartError(res.reason ?? 'Lancement impossible');
   };
@@ -190,22 +227,102 @@ export function CampaignPanel() {
               trop vaste et les médianes mélangent tous les âges.
             </p>
           </div>
-          <div>
-            <span className="text-xs text-zinc-400 block mb-1.5">Sites cibles</span>
-            <div className="flex flex-wrap gap-1.5">
-              {allSiteAdapters().map((a) => (
-                <button
-                  key={a.key}
-                  onClick={() => toggleSite(a.key)}
-                  className={`px-2 py-1 rounded text-xs border transition-colors ${
-                    sites.includes(a.key)
-                      ? 'bg-violet-900/40 border-violet-700 text-violet-300'
-                      : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  {a.displayName}
-                </button>
-              ))}
+          <div className="space-y-3">
+            <div>
+              <span className="text-xs text-zinc-400 block mb-1.5">Sites cibles</span>
+              <div className="flex flex-wrap gap-1.5">
+                {allSiteAdapters().map((a) => (
+                  <button
+                    key={a.key}
+                    onClick={() => toggleSite(a.key)}
+                    className={`px-2 py-1 rounded text-xs border transition-colors ${
+                      sites.includes(a.key)
+                        ? 'bg-violet-900/40 border-violet-700 text-violet-300'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {a.displayName}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Ciblage modulable : marques × carburants × modèles × années,
+                combinables librement. Vide = pas de restriction. */}
+            <div>
+              <span className="text-xs text-zinc-400 block mb-1.5">
+                Ciblage carburant {filterFuels.length > 0 && <span className="text-violet-300">· {filterFuels.length} forcé(s)</span>}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {FUEL_TARGETS.map((fu) => (
+                  <button
+                    key={fu}
+                    onClick={() => setFilterFuels((prev) => toggleIn(prev, fu))}
+                    className={`px-2 py-1 rounded text-xs border transition-colors ${
+                      filterFuels.includes(fu)
+                        ? 'bg-sky-900/40 border-sky-700 text-sky-300'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {fu}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {knownBrands.length > 0 && (
+              <div>
+                <span className="text-xs text-zinc-400 block mb-1.5">
+                  Ciblage marques {filterBrands.length > 0 ? <span className="text-violet-300">· {filterBrands.length} sélectionnée(s)</span> : '(toutes)'}
+                </span>
+                <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                  {knownBrands.map((b) => (
+                    <button
+                      key={b}
+                      onClick={() => setFilterBrands((prev) => toggleIn(prev, b))}
+                      className={`px-2 py-0.5 rounded text-[11px] border transition-colors ${
+                        filterBrands.includes(b)
+                          ? 'bg-emerald-900/40 border-emerald-700 text-emerald-300'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="text-xs text-zinc-400">Modèles (optionnel, séparés par des virgules)</span>
+                <input
+                  value={filterModels}
+                  onChange={(e) => setFilterModels(e.target.value)}
+                  placeholder="GOLF, RAV4…"
+                  className="w-full mt-1 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-xs text-zinc-200"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="text-xs text-zinc-400">Année min</span>
+                  <input
+                    type="number" min={2020} max={new Date().getFullYear()} value={yearMin}
+                    onChange={(e) => setYearMin(e.target.value)}
+                    placeholder="2020"
+                    className="w-full mt-1 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-xs text-zinc-200"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-zinc-400">Année max</span>
+                  <input
+                    type="number" min={2020} max={new Date().getFullYear()} value={yearMax}
+                    onChange={(e) => setYearMax(e.target.value)}
+                    placeholder={String(new Date().getFullYear())}
+                    className="w-full mt-1 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-xs text-zinc-200"
+                  />
+                </label>
+              </div>
             </div>
           </div>
         </div>

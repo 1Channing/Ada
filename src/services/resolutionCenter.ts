@@ -45,16 +45,28 @@ export interface GapItem {
 /** Everything that is NOT a confirmation is a recorded unknown. */
 const GAP_OUTCOMES = ['taxonomy_gap', 'enum_gap', 'no_url', 'insufficient', 'technical'];
 
-export async function loadAllGaps(limit = 400): Promise<GapItem[]> {
-  const { data, error } = await supabase
+export async function loadAllGaps(limit = 400): Promise<{ items: GapItem[]; loadError: string | null }> {
+  let { data, error } = await supabase
     .from('linkgen_campaign_items')
     .select('id, campaign_id, created_at, seq, site, brand, model, criteria, url, outcome, detail, resolved_at, resolution')
     .in('outcome', GAP_OUTCOMES)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) {
-    console.warn('[RESOLUTION] loadAllGaps failed:', error.message);
-    return [];
+    // Most likely the `resolution` migration hasn't run yet — degrade to the
+    // pre-migration shape instead of showing an EMPTY (hence misleading
+    // "tout est traité") center.
+    console.warn('[RESOLUTION] loadAllGaps failed, retrying without resolution:', error.message);
+    const retry = await supabase
+      .from('linkgen_campaign_items')
+      .select('id, campaign_id, created_at, seq, site, brand, model, criteria, url, outcome, detail, resolved_at')
+      .in('outcome', GAP_OUTCOMES)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    data = retry.data as typeof data;
+    if (retry.error) {
+      return { items: [], loadError: retry.error.message };
+    }
   }
   const rows = (data ?? []) as Array<Record<string, unknown>>;
 
@@ -70,22 +82,25 @@ export async function loadAllGaps(limit = 400): Promise<GapItem[]> {
     }
   }
 
-  return rows.map((r) => ({
-    id: String(r.id),
-    campaignId: String(r.campaign_id),
-    campaignLabel: labels.get(String(r.campaign_id)) ?? '',
-    createdAt: String(r.created_at ?? ''),
-    seq: Number(r.seq ?? 0),
-    site: String(r.site ?? ''),
-    brand: String(r.brand ?? ''),
-    model: String(r.model ?? ''),
-    criteria: (r.criteria as Record<string, unknown> | null) ?? null,
-    url: (r.url as string | null) ?? null,
-    outcome: String(r.outcome ?? ''),
-    detail: String(r.detail ?? ''),
-    resolvedAt: (r.resolved_at as string | null) ?? null,
-    resolution: (r.resolution as string | null) ?? null,
-  }));
+  return {
+    loadError: null,
+    items: rows.map((r) => ({
+      id: String(r.id),
+      campaignId: String(r.campaign_id),
+      campaignLabel: labels.get(String(r.campaign_id)) ?? '',
+      createdAt: String(r.created_at ?? ''),
+      seq: Number(r.seq ?? 0),
+      site: String(r.site ?? ''),
+      brand: String(r.brand ?? ''),
+      model: String(r.model ?? ''),
+      criteria: (r.criteria as Record<string, unknown> | null) ?? null,
+      url: (r.url as string | null) ?? null,
+      outcome: String(r.outcome ?? ''),
+      detail: String(r.detail ?? ''),
+      resolvedAt: (r.resolved_at as string | null) ?? null,
+      resolution: (r.resolution as string | null) ?? null,
+    })),
+  };
 }
 
 /** Count of unresolved gaps — the badge on the resolution-center button. */

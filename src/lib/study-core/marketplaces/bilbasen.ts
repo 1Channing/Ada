@@ -44,7 +44,10 @@ const URL_TEMPLATE =
 const BRAND_MAP: Record<string, string> = {
   TOYOTA: 'Toyota',
   BMW: 'BMW',
-  MERCEDES: 'Mercedes-Benz',
+  // Path /brugt/bil/mercedes-benz/... silently falls back to the ALL-CARS page
+  // (campaign scrape titled "Køb brugte biler" returned Fiat 500e's for a CLA
+  // query → confirmed=[]). The site's brand slug is plain 'mercedes'.
+  MERCEDES: 'Mercedes',
   // Native path slug is 'vw' (human URL /brugt/bil/vw/ms-tiguan-serie), and
   // reverseLookup maps a pasted 'vw' back to VOLKSWAGEN for the prefill.
   VOLKSWAGEN: 'VW',
