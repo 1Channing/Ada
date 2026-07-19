@@ -7,12 +7,42 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Inbox, Loader2, ExternalLink, Wrench, Check, Ban, EyeOff, RotateCcw } from 'lucide-react';
+import { Inbox, Loader2, ExternalLink, Wrench, Check, Ban, EyeOff, RotateCcw, RefreshCw, FileText } from 'lucide-react';
 import {
   loadAllGaps, resolveGapItem, reopenGapItem, validateEmptyMarket,
   RESOLUTION_LABELS,
 } from '../services/resolutionCenter';
 import type { GapItem } from '../services/resolutionCenter';
+import { loadUnreviewedDossiers, markDossiersReviewed, buildDailyDigest } from '../services/errorDossiers';
+import type { ErrorDossier } from '../services/errorDossiers';
+import { startCampaign } from '../services/campaignRunner';
+import type { CampaignPlanItem } from '../lib/linkgen/campaignPlanner';
+
+/**
+ * Dedupe the open gaps into UNIQUE plan segments: 377 gap rows often share
+ * the same site×brand×model×fuel×year — one re-test study covers them all,
+ * and a confirmed result retro-heals every matching open gap.
+ */
+function buildRetestPlan(items: GapItem[]): CampaignPlanItem[] {
+  const seen = new Set<string>();
+  const plan: CampaignPlanItem[] = [];
+  for (const g of items) {
+    const c = (g.criteria ?? {}) as Record<string, unknown>;
+    const fuel = c.fuel ? String(c.fuel) : undefined;
+    const trim = c.trim ? String(c.trim) : undefined;
+    const rawYear = c.year ?? c.yearFrom;
+    const year = rawYear != null && /^\d{4}$/.test(String(rawYear)) ? Number(rawYear) : undefined;
+    if (!g.site || !g.brand || !g.model) continue;
+    const key = [g.site, g.brand.toUpperCase(), g.model.toUpperCase(), (fuel ?? '').toUpperCase(), trim ?? '', year ?? ''].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    plan.push({
+      site: g.site, brand: g.brand, model: g.model, fuel, trim, year,
+      kind: 'reinforcement', reason: 're-test centre de résolution',
+    });
+  }
+  return plan;
+}
 
 const OUTCOME_LABELS: Record<string, string> = {
   taxonomy_gap: 'lacune taxonomie',
@@ -47,12 +77,17 @@ export function ResolutionCenter() {
   const [showResolved, setShowResolved] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dossiers, setDossiers] = useState<ErrorDossier[]>([]);
+  const [toolNote, setToolNote] = useState<string | null>(null);
+  const [toolBusy, setToolBusy] = useState(false);
 
   const reload = async () => {
     setLoading(true);
     const { items, loadError } = await loadAllGaps();
     setGaps(items);
     setError(loadError ? `Chargement impossible : ${loadError}` : null);
+    const { items: dossierRows } = await loadUnreviewedDossiers();
+    setDossiers(dossierRows);
     setLoading(false);
   };
 
@@ -78,6 +113,50 @@ export function ResolutionCenter() {
   const openInIngestion = (url: string) => {
     window.history.pushState({}, '', `/ingestion?url=${encodeURIComponent(url)}`);
     window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  // Re-passer TOUTES les inconnues ouvertes dans le moteur actuel (slugs
+  // corrigés, sondes 404, API Marktplaats, saut de domaine CF) : chaque
+  // segment confirmé rétro-guérit ses lacunes automatiquement.
+  const retestPlan = useMemo(() => buildRetestPlan(openGaps), [openGaps]);
+  const handleRetest = async () => {
+    if (retestPlan.length === 0) return;
+    const ok = window.confirm(
+      `Lancer une campagne de re-test sur ${retestPlan.length} segment(s) unique(s) (${openGaps.length} inconnues ouvertes) ?\n` +
+      'Les segments confirmés fermeront leurs inconnues automatiquement.'
+    );
+    if (!ok) return;
+    setToolBusy(true);
+    setToolNote(null);
+    const res = await startCampaign({
+      sites: [...new Set(retestPlan.map((p) => p.site))],
+      total: retestPlan.length,
+      plan: retestPlan,
+      label: `Re-test résolution (${retestPlan.length})`,
+    });
+    setToolBusy(false);
+    setToolNote(res.started
+      ? 'Re-test lancé — suivi dans Campagnes ; les inconnues résolues se fermeront toutes seules.'
+      : `Lancement impossible : ${res.reason ?? 'inconnu'}`);
+  };
+
+  // Boîte noire : le rapport quotidien à coller en session de dev.
+  const handleCopyDigest = async () => {
+    const digest = buildDailyDigest(dossiers);
+    try {
+      await navigator.clipboard.writeText(digest);
+      setToolNote(`Rapport copié (${dossiers.length} dossier(s)) — collez-le dans la session de dev, puis marquez revus.`);
+    } catch {
+      setToolNote('Copie refusée par le navigateur — sélectionnez le texte de la console.');
+      console.log(digest);
+    }
+  };
+  const handleMarkReviewed = async () => {
+    setToolBusy(true);
+    await markDossiersReviewed(dossiers.map((d) => d.id));
+    setToolBusy(false);
+    setToolNote('Dossiers marqués revus.');
+    await reload();
   };
 
   return (
@@ -114,6 +193,41 @@ export function ResolutionCenter() {
               />
               afficher les résolues
             </label>
+          </div>
+
+          {/* Outils : re-test en masse + boîte noire (revue quotidienne) */}
+          <div className="flex items-center gap-2 flex-wrap text-xs bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
+            <button
+              onClick={() => void handleRetest()}
+              disabled={toolBusy || retestPlan.length === 0}
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-violet-900/40 border border-violet-800 text-violet-300 hover:bg-violet-900/60 disabled:opacity-40"
+              title="Re-passer toutes les inconnues ouvertes dans le moteur corrigé"
+            >
+              {toolBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Re-tester les inconnues ({retestPlan.length} segments)
+            </button>
+            <span className="text-zinc-700">·</span>
+            <span className="flex items-center gap-1.5 text-zinc-400">
+              <FileText className="w-3.5 h-3.5" />
+              Boîte noire : <b className="text-zinc-200">{dossiers.length}</b> dossier(s) non revu(s)
+            </span>
+            <button
+              onClick={() => void handleCopyDigest()}
+              disabled={dossiers.length === 0}
+              className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
+              title="Copier le rapport du jour (à coller en session de dev)"
+            >
+              Copier le rapport du jour
+            </button>
+            <button
+              onClick={() => void handleMarkReviewed()}
+              disabled={toolBusy || dossiers.length === 0}
+              className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 disabled:opacity-40"
+              title="À faire une fois le rapport traité"
+            >
+              Marquer revus
+            </button>
+            {toolNote && <span className="text-emerald-400">{toolNote}</span>}
           </div>
 
           {error && <p className="text-xs text-red-400">{error}</p>}

@@ -14,6 +14,7 @@
  */
 
 import { sharedSupabase as supabase } from '../supabaseShared';
+import type { Json } from '../database.types';
 import { getSiteAdapter, decomposeUrl } from '../study-core/marketplaces';
 import type { SearchCriteria } from '../study-core/marketplaces';
 import { analyzeIngestion, INGESTION_MIN_SAMPLE } from '../study-core/ingestion';
@@ -44,9 +45,28 @@ export interface CampaignItemResult {
   rejected: Array<{ field: string; declared: string; reason: string }>;
   detail: string;
   sampleSize: number;
+  /** Boîte noire: full action context recorded on any non-confirmed outcome. */
+  dossier?: Record<string, unknown> | null;
 }
 
-export type ScrapeFn = (url: string) => Promise<{ listings: ScrapedListing[]; error: string | null }>;
+export type ScrapeFn = (url: string) => Promise<{
+  listings: ScrapedListing[];
+  error: string | null;
+  /** Scrape diagnostics (attempts, mode, block reason…) — worker fills it. */
+  diagnostics?: Record<string, unknown> | null;
+}>;
+
+/** Compact listing sample for the error dossier — enough to judge, small enough to store. */
+function dossierSample(listings: ScrapedListing[]): Array<Record<string, unknown>> {
+  return listings.slice(0, 8).map((l) => ({
+    title: l.title,
+    price: l.price,
+    year: l.year,
+    fuel: (l as { fuel?: string | null }).fuel ?? null,
+    gearbox: (l as { gearbox?: string | null }).gearbox ?? null,
+    trim: l.trim ?? null,
+  }));
+}
 
 /** Validated memory → pools (brand/model/fuel/trim per brand+model) + per-site coverage. */
 export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
@@ -109,6 +129,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
 
   // URL at ITEM time (memory-first) — learnings from earlier items apply here.
   let url: string | null = null;
+  let urlSource = 'template';
   try {
     const gen = await generateSearchUrlsWithMemory({
       selectedSites: [p.site as SiteKey],
@@ -118,13 +139,28 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
       yearTo: p.year ? String(p.year) : undefined,
     });
     url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
+    urlSource = (gen[0] as { mappingSource?: string } | undefined)?.mappingSource ?? 'template';
   } catch { url = null; }
+
+  // Boîte noire — the FULL action context, not just the error line: what we
+  // asked, the URL and where it came from, how the scrape went, what came
+  // back, what the analysis concluded. Reviewed daily until nothing is left.
+  const mkDossier = (stage: string, extra: Record<string, unknown>): Record<string, unknown> => ({
+    stage,
+    criteria: { brand: p.brand, model: p.model, fuel: p.fuel ?? null, trim: p.trim ?? null, year: p.year ?? null },
+    url, urlSource, ...extra,
+  });
+
   if (!url) {
-    return { ...base, url: null, outcome: 'no_url', confirmedFields: [], rejected: [], detail: 'URL non générable pour ce site', sampleSize: 0 };
+    return {
+      ...base, url: null, outcome: 'no_url', confirmedFields: [], rejected: [],
+      detail: 'URL non générable pour ce site', sampleSize: 0,
+      dossier: mkDossier('url', {}),
+    };
   }
 
   const adapter = getSiteAdapter(p.site as SiteKey);
-  const { listings, error } = await scrape(url);
+  const { listings, error, diagnostics } = await scrape(url);
 
   if (error && listings.length === 0) {
     await persistIngestionResult({
@@ -139,10 +175,12 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     // (which retro-heals the matching open gaps) and the item flips to
     // confirmed — the slug fixed itself, no human needed.
     if (error === 'PAGE_NOT_FOUND') {
+      const probeReasons: string[] = [];
       if (adapter.generateCorrectionHypotheses) {
         const probes = (adapter.generateCorrectionHypotheses(criteria, new Set(['page_not_found'])) ?? [])
           .filter((h) => h.url && h.url !== url)
           .slice(0, 2);
+        probeReasons.push(...probes.map((h) => h.reason));
         for (const h of probes) {
           console.log(`[CAMPAIGN_PROBE] ${p.site} ${p.brand} ${p.model} → ${h.reason}`);
           const alt = await scrape(h.url);
@@ -181,12 +219,24 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
           };
         }
       }
-      return { ...base, url, outcome: 'taxonomy_gap', confirmedFields: [], rejected: [], detail: 'page introuvable — slug marque/modèle à corriger (sondes épuisées)', sampleSize: 0 };
+      return {
+        ...base, url, outcome: 'taxonomy_gap', confirmedFields: [], rejected: [],
+        detail: 'page introuvable — slug marque/modèle à corriger (sondes épuisées)', sampleSize: 0,
+        dossier: mkDossier('scrape', { scrape: diagnostics ?? null, probesTried: probeReasons }),
+      };
     }
-    return { ...base, url, outcome: 'technical', confirmedFields: [], rejected: [], detail: `scrape en échec: ${error}`, sampleSize: 0 };
+    return {
+      ...base, url, outcome: 'technical', confirmedFields: [], rejected: [],
+      detail: `scrape en échec: ${error}`, sampleSize: 0,
+      dossier: mkDossier('scrape', { scrape: diagnostics ?? null }),
+    };
   }
   if (listings.length < INGESTION_MIN_SAMPLE) {
-    return { ...base, url, outcome: 'insufficient', confirmedFields: [], rejected: [], detail: `échantillon ${listings.length} < ${INGESTION_MIN_SAMPLE}`, sampleSize: listings.length };
+    return {
+      ...base, url, outcome: 'insufficient', confirmedFields: [], rejected: [],
+      detail: `échantillon ${listings.length} < ${INGESTION_MIN_SAMPLE}`, sampleSize: listings.length,
+      dossier: mkDossier('scrape', { scrape: diagnostics ?? null, sample: dossierSample(listings) }),
+    };
   }
 
   const analysis = analyzeIngestion(url, criteria, listings, adapter);
@@ -298,7 +348,21 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     ...base, url, outcome,
     confirmedFields: [...analysis.confirmedFields],
     rejected, detail, sampleSize: listings.length,
+    dossier: outcome === 'confirmed' ? null : mkDossier('analysis', {
+      scrape: diagnostics ?? null,
+      sample: dossierSample(listings),
+      analysis: compactAnalysis(analysis),
+    }),
   };
+}
+
+/** Confirmation table, one compact row per field — the heart of the daily review. */
+function compactAnalysis(a: unknown): Array<Record<string, unknown>> {
+  const confs = (a as { confirmations?: Array<Record<string, unknown>> })?.confirmations ?? [];
+  return confs.map((c) => ({
+    field: c.field, declared: c.declaredValue, status: c.status,
+    matches: c.matchCount, sample: c.sampleSize, method: c.method, reason: c.reason ?? null,
+  }));
 }
 
 /** Insert one finished item row (shared write shape). */
@@ -319,4 +383,24 @@ export async function insertCampaignItemRow(campaignId: string, r: CampaignItemR
     sample_size: r.sampleSize,
     finished_at: new Date().toISOString(),
   });
+
+  // Boîte noire — never blocks the campaign (pre-migration DBs just skip it).
+  if (r.dossier && r.outcome !== 'confirmed') {
+    let country = '';
+    try { country = getSiteAdapter(r.site as SiteKey).countryCode; } catch { /* site inconnu */ }
+    const { error } = await supabase.from('linkgen_error_dossiers').insert({
+      campaign_id: campaignId,
+      seq: r.seq,
+      site: r.site,
+      country,
+      brand: r.brand,
+      model: r.model,
+      outcome: r.outcome,
+      detail: r.detail,
+      url: r.url,
+      url_source: String((r.dossier as { urlSource?: unknown }).urlSource ?? ''),
+      dossier: r.dossier as unknown as Json,
+    });
+    if (error) console.warn('[BLACKBOX] dossier non enregistré:', error.message);
+  }
 }

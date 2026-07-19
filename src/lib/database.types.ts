@@ -758,6 +758,60 @@ export type Database = {
           },
         ]
       }
+      linkgen_error_dossiers: {
+        Row: {
+          id: string
+          created_at: string
+          campaign_id: string | null
+          seq: number
+          site: string
+          country: string
+          brand: string
+          model: string
+          outcome: string
+          detail: string
+          url: string | null
+          url_source: string
+          dossier: Json
+          reviewed: boolean
+          reviewed_at: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          campaign_id?: string | null
+          seq?: number
+          site?: string
+          country?: string
+          brand?: string
+          model?: string
+          outcome?: string
+          detail?: string
+          url?: string | null
+          url_source?: string
+          dossier?: Json
+          reviewed?: boolean
+          reviewed_at?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          campaign_id?: string | null
+          seq?: number
+          site?: string
+          country?: string
+          brand?: string
+          model?: string
+          outcome?: string
+          detail?: string
+          url?: string | null
+          url_source?: string
+          dossier?: Json
+          reviewed?: boolean
+          reviewed_at?: string | null
+        }
+        Relationships: []
+      }
       ada_feedback: {
         Row: {
           id: string

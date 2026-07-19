@@ -27,7 +27,12 @@ const HEARTBEAT_STALE_MS = 120_000;
 const mkScrape = (deep: boolean): ScrapeFn => async (url) => {
   try {
     const r = await scrapeSearch(url, deep ? 'deep' : 'full');
-    return { listings: r.listings ?? [], error: r.error ?? null };
+    // Diagnostics feed the error dossiers (boîte noire) — full action context.
+    return {
+      listings: r.listings ?? [],
+      error: r.error ?? null,
+      diagnostics: (r.diagnostics ?? null) as unknown as Record<string, unknown> | null,
+    };
   } catch (e) {
     return { listings: [], error: e instanceof Error ? e.message : String(e) };
   }
