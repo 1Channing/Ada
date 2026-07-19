@@ -184,6 +184,18 @@ function generateCorrectionHypotheses(
     if (code) {
       const { url } = buildSearchUrl({ ...params, model: `${code}-klasse` });
       if (url) result.push({ url, reason: `BILBASEN H0: slug Mercedes '${code}-klasse'` });
+    } else {
+      // Familles « -Serie » : le facet modèle Bilbasen regroupe les variantes
+      // d'une lignée (GOLF → 'ms-golf-serie', prouvé par les logs ; le site
+      // affiche « C4-Serie », qui couvre aussi les ë-C4). Deux sondes, la
+      // forme préfixée d'abord (précédent Golf).
+      const s = String(params.model ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      if (s && !s.includes('-serie')) {
+        for (const cand of [`ms-${s}-serie`, `${s}-serie`]) {
+          const { url } = buildSearchUrl({ ...params, model: cand });
+          if (url) result.push({ url, reason: `BILBASEN H0: slug famille '${cand}'` });
+        }
+      }
     }
   }
 
