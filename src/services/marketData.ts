@@ -558,10 +558,13 @@ export interface MarketOpportunity {
   lowSite: string;
   lowMedian: number;   // EUR — median of the 5 cheapest
   lowCount: number;
+  /** Year span of the 5 cheapest ('2021–2023', '2022', or '' when unknown). */
+  lowYears: string;
   highCountry: string;
   highSite: string;
   highMedian: number;
   highCount: number;
+  highYears: string;
   deltaEur: number;
 }
 
@@ -575,17 +578,17 @@ export function opportunityKey(o: MarketOpportunity): string {
 export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5): Promise<MarketOpportunity[]> {
   const cutoff = new Date(Date.now() - OPP_WINDOW_DAYS * 86_400_000).toISOString();
   // Paginated: a flat .limit() is silently capped at ~1000 rows by PostgREST.
-  const data = await fetchAllPages<{ site: string; country: string; brand: string; model: string; fuel: string; price: number | null }>(
+  const data = await fetchAllPages<{ site: string; country: string; brand: string; model: string; fuel: string; price: number | null; year: number | null }>(
     (from, to) => supabase
       .from('market_listing_observations')
-      .select('site, country, brand, model, fuel, price, scraped_at')
+      .select('site, country, brand, model, fuel, price, year, scraped_at')
       .gte('scraped_at', cutoff)
       .order('scraped_at', { ascending: false })
       .range(from, to),
     40_000,
   );
 
-  type Side = { prices: number[]; sites: Map<string, number> };
+  type Side = { entries: Array<{ price: number; year: number | null }>; sites: Map<string, number> };
   const groups = new Map<string, Map<string, Side>>();
   for (const r of data) {
     const price = typeof r.price === 'number' ? r.price : 0;
@@ -597,23 +600,31 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
     if (!brand || !model || !fuel || !country) continue; // same-fuel comparisons only
     const gKey = `${brand}|${model}|${fuel}`;
     const byCountry = groups.get(gKey) ?? new Map<string, Side>();
-    const side: Side = byCountry.get(country) ?? { prices: [], sites: new Map<string, number>() };
-    side.prices.push(price);
+    const side: Side = byCountry.get(country) ?? { entries: [], sites: new Map<string, number>() };
+    side.entries.push({ price, year: typeof r.year === 'number' ? r.year : null });
     side.sites.set(r.site, (side.sites.get(r.site) ?? 0) + 1);
     byCountry.set(country, side);
     groups.set(gKey, byCountry);
   }
 
+  // Year span of a cheap-end sample: '2021–2023', '2022', or '' when unknown.
+  const yearSpan = (entries: Array<{ year: number | null }>): string => {
+    const ys = entries.map((e) => e.year).filter((y): y is number => y != null);
+    if (ys.length === 0) return '';
+    const lo = Math.min(...ys), hi = Math.max(...ys);
+    return lo === hi ? String(lo) : `${lo}–${hi}`;
+  };
+
   const out: MarketOpportunity[] = [];
   for (const [gKey, byCountry] of groups) {
     const [brand, model, fuel] = gKey.split('|');
-    const sides: Array<{ country: string; median: number; count: number; site: string }> = [];
+    const sides: Array<{ country: string; median: number; count: number; site: string; years: string }> = [];
     for (const [country, side] of byCountry) {
-      if (side.prices.length < minPerCountry) continue;
-      const cheap = side.prices.sort((a, b) => a - b).slice(0, 5);
-      const median = cheap[Math.floor(cheap.length / 2)];
+      if (side.entries.length < minPerCountry) continue;
+      const cheap = side.entries.sort((a, b) => a.price - b.price).slice(0, 5);
+      const median = cheap[Math.floor(cheap.length / 2)].price;
       const site = [...side.sites.entries()].sort((a, b) => b[1] - a[1])[0][0];
-      sides.push({ country, median, count: side.prices.length, site });
+      sides.push({ country, median, count: side.entries.length, site, years: yearSpan(cheap) });
     }
     if (sides.length < 2) continue;
     sides.sort((a, b) => a.median - b.median);
@@ -623,8 +634,8 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
     if (delta < minDelta) continue;
     out.push({
       brand, model, fuel,
-      lowCountry: low.country, lowSite: low.site, lowMedian: Math.round(low.median), lowCount: low.count,
-      highCountry: high.country, highSite: high.site, highMedian: Math.round(high.median), highCount: high.count,
+      lowCountry: low.country, lowSite: low.site, lowMedian: Math.round(low.median), lowCount: low.count, lowYears: low.years,
+      highCountry: high.country, highSite: high.site, highMedian: Math.round(high.median), highCount: high.count, highYears: high.years,
       deltaEur: delta,
     });
   }

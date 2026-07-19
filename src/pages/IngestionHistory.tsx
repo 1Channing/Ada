@@ -40,6 +40,8 @@ export function IngestionHistory() {
   const [live, setLive] = useState(false);
   const [siteFilter, setSiteFilter] = useState<string>('');
   const [contributorFilter, setContributorFilter] = useState<string>('');
+  // Journal pagination — 10 rows per page, the page was endless otherwise.
+  const [page, setPage] = useState(0);
   const [flashId, setFlashId] = useState<string | null>(null);
   const treeReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -106,6 +108,15 @@ export function IngestionHistory() {
     (!siteFilter || e.site === siteFilter) &&
     (!contributorFilter || (e.submitted_by ?? '') === contributorFilter)
   ), [events, siteFilter, contributorFilter]);
+
+  const PAGE_SIZE = 10;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = useMemo(
+    () => filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE),
+    [filtered, safePage]
+  );
+  useEffect(() => { setPage(0); }, [siteFilter, contributorFilter]);
 
   const totalEvents = stats?.totalEvents ?? events.length;
   const totalWritten = stats?.totalWritten ?? 0;
@@ -200,7 +211,7 @@ export function IngestionHistory() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((e) => {
+              {pageRows.map((e) => {
                 const badge = ACTION_BADGE[e.memory_action ?? 'none'] ?? ACTION_BADGE.none;
                 return (
                   <tr key={e.id} className={`border-b border-zinc-800/50 transition-colors ${flashId === e.id ? 'bg-emerald-900/20' : ''}`}>
@@ -246,6 +257,29 @@ export function IngestionHistory() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination — 10 lignes / page */}
+        {pageCount > 1 && (
+          <div className="flex items-center justify-between text-xs text-zinc-500 pt-1">
+            <span>{filtered.length} ingestion(s) · page {safePage + 1}/{pageCount}</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={safePage === 0}
+                className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40"
+              >
+                ← Précédent
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                disabled={safePage >= pageCount - 1}
+                className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40"
+              >
+                Suivant →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

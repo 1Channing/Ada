@@ -18,8 +18,10 @@ const GRID = '#27272a';
 const AXIS = '#a1a1aa';
 // Distinct, well-separated hues for the (up to 3) compared studies.
 const STUDY_COLORS = ['#3987e5', '#d95926', '#199e70'];
+// One LOGICAL colour per country, stable everywhere (charts, legends):
+// FR bleu, DK blanc, DE or, IT vert, ES rouge, NL orange, BE violet.
 const COUNTRY_COLOR: Record<string, string> = {
-  FR: '#3987e5', NL: '#d95926', DK: '#199e70', DE: '#c98500', IT: '#d55181', ES: '#9085e9', BE: '#e66767',
+  FR: '#3b82f6', DK: '#f4f4f5', DE: '#eab308', IT: '#22c55e', ES: '#ef4444', NL: '#f97316', BE: '#a855f7',
 };
 const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
@@ -135,12 +137,18 @@ export function MarketIntelligence() {
   };
 
   // Per-study derived data (used by both single & comparison views).
+  // Colour: the study's COUNTRY colour when it has one (FR bleu, DK blanc…) —
+  // instantly readable in a low-vs-high comparison — falling back to the index
+  // palette (and never letting two studies share a colour).
   const perStudy = useMemo(() => studies.map((f, i) => {
+    const countryColor = f.country ? COUNTRY_COLOR[f.country] : undefined;
+    const firstWithCountry = studies.findIndex((x) => x.country === f.country);
+    const color = countryColor && firstWithCountry === i ? countryColor : STUDY_COLORS[i] ?? BLUE;
     const filtered = filterObservations(obs, f);
     const latestTs = filtered.length ? Math.max(...filtered.map((o) => new Date(o.scraped_at).getTime())) : 0;
     const latestObs = filtered.filter((o) => Math.abs(new Date(o.scraped_at).getTime() - latestTs) < 60_000);
     return {
-      idx: i, filters: f, color: STUDY_COLORS[i] ?? BLUE, label: studyLabel(f, i),
+      idx: i, filters: f, color, label: studyLabel(f, i),
       filtered, latestObs, stats: priceStats(filtered), series: timeSeries(filtered),
       realDepth: computeRealDepth(data.snapshots, f),
     };
@@ -160,8 +168,18 @@ export function MarketIntelligence() {
         </button>
       </div>
 
-      {/* Radar d'opportunités inter-pays — alimenté par chaque scrape (campagnes incluses) */}
-      <OpportunityAlerts onInspect={(o) => setActive({ brand: o.brand, model: o.model, fuel: o.fuel as FuelToken })} />
+      {/* Radar d'opportunités inter-pays — alimenté par chaque scrape (campagnes incluses).
+          Inspecter = ouvrir DIRECTEMENT les deux marchés de l'écart en études
+          comparées (pays bas vs pays haut), prêtes à lire côte à côte. */}
+      <OpportunityAlerts onInspect={(o) => {
+        const base = { brand: o.brand, model: o.model, fuel: o.fuel as FuelToken };
+        setStudies([
+          { ...base, country: o.lowCountry },
+          { ...base, country: o.highCountry },
+        ]);
+        setActiveIdx(0);
+        setPriceBand(null);
+      }} />
 
       {data.observations.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500">
@@ -534,7 +552,9 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
               <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [`${v} annonces`, name]} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#ffffff08' }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {perStudy.map((s, i) => (
-                <Bar key={s.idx} dataKey={`s${i}`} name={s.label} radius={[3, 3, 0, 0]} cursor="pointer"
+                // fill sur la Bar (pas seulement les Cells) : c'est lui que la
+                // légende utilise — sans lui, carrés noirs.
+                <Bar key={s.idx} dataKey={`s${i}`} name={s.label} fill={s.color} radius={[3, 3, 0, 0]} cursor="pointer"
                   onClick={((d: { from?: number; to?: number }) => {
                     if (d?.from == null || d?.to == null) return;
                     setPriceBand((cur) => (cur && cur.from === d.from && cur.to === d.to ? null : { from: d.from as number, to: d.to as number }));

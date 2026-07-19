@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Bell, Search, ClipboardCheck, FlaskConical, Loader2 } from 'lucide-react';
+import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import {
   loadMarketOpportunities, loadOpportunityAcks, ackOpportunity, opportunityKey, fuelLabel,
@@ -44,6 +44,8 @@ function defaultName(): string {
   } catch { return ''; }
 }
 
+const PAGE_SIZE = 10;
+
 export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportunity) => void }) {
   const [threshold, setThreshold] = useState(5000);
   const [opps, setOpps] = useState<MarketOpportunity[]>([]);
@@ -51,6 +53,9 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The list can get huge — collapsible panel + progressive reveal.
+  const [collapsed, setCollapsed] = useState(false);
+  const [shown, setShown] = useState(PAGE_SIZE);
 
   const refresh = async (th: number) => {
     setLoading(true);
@@ -112,77 +117,102 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
   if (loading && opps.length === 0) return null;
   if (visible.length === 0 && ackedCount === 0) return null;
 
+  const rows = visible.slice(0, shown);
+
   return (
     <div className="bg-zinc-900 border border-amber-900/40 rounded-xl p-5 space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
+        <button
+          onClick={() => setCollapsed((v) => !v)}
+          className="text-sm font-semibold text-zinc-200 flex items-center gap-2 hover:text-white"
+          title={collapsed ? 'Déplier' : 'Réduire'}
+        >
+          {collapsed ? <ChevronRight className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
           <Bell className="w-4 h-4 text-amber-400" />
           Opportunités à contrôler — {visible.length} écart(s) inter-pays
           {ackedCount > 0 && <span className="text-zinc-500 font-normal">· {ackedCount} contrôlée(s)</span>}
-        </h2>
-        <label className="text-xs text-zinc-500 flex items-center gap-2">
-          Seuil
-          <select
-            value={threshold}
-            onChange={(e) => setThreshold(Number(e.target.value))}
-            className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs"
-          >
-            <option value={3000}>3 000 €</option>
-            <option value={5000}>5 000 €</option>
-            <option value={8000}>8 000 €</option>
-          </select>
-        </label>
-      </div>
-      <p className="text-xs text-zinc-500">
-        Médiane des 5 annonces les moins chères par pays (30 derniers jours, même carburant,
-        prix &lt; 1 000 € exclus), triées par écart × volume. Chaque scrape — campagnes comprises — enrichit ce radar.
-      </p>
-      {notice && <p className="text-xs text-emerald-400">{notice}</p>}
-
-      <div className="space-y-1.5">
-        {visible.map((o) => {
-          const key = opportunityKey(o);
-          return (
-            <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
-              <span className="font-medium text-zinc-200">{o.brand} {o.model}</span>
-              <span className="text-xs text-zinc-400">{fuelLabel(o.fuel)}</span>
-              <span className="text-xs text-zinc-400">
-                {COUNTRY_FLAG[o.lowCountry] ?? o.lowCountry} {eur(o.lowMedian)} ({o.lowCount})
-                <span className="text-zinc-600"> vs </span>
-                {COUNTRY_FLAG[o.highCountry] ?? o.highCountry} {eur(o.highMedian)} ({o.highCount})
-              </span>
-              <span className="font-semibold text-amber-400">écart {eur(o.deltaEur)}</span>
-              <span className="flex-1" />
-              <button
-                onClick={() => onInspect(o)}
-                className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
-                title="Filtrer le dashboard sur ce segment"
-              >
-                <Search className="w-3.5 h-3.5" /> Inspecter
-              </button>
-              <button
-                onClick={() => void handleCreateStudy(o)}
-                disabled={busyKey === key}
-                className="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 disabled:opacity-50"
-                title={`Créer une étude ${o.lowCountry} → ${o.highCountry} pré-remplie`}
-              >
-                {busyKey === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
-                Créer l'étude
-              </button>
-              <button
-                onClick={() => void handleAck(o)}
-                className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
-                title="Marquer contrôlée — réapparaît si l'écart bouge de ±1 000 €"
-              >
-                <ClipboardCheck className="w-3.5 h-3.5" /> Contrôlée
-              </button>
-            </div>
-          );
-        })}
-        {visible.length === 0 && (
-          <p className="text-xs text-zinc-500">Toutes les opportunités actuelles ont été contrôlées.</p>
+        </button>
+        {!collapsed && (
+          <label className="text-xs text-zinc-500 flex items-center gap-2">
+            Seuil
+            <select
+              value={threshold}
+              onChange={(e) => { setThreshold(Number(e.target.value)); setShown(PAGE_SIZE); }}
+              className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs"
+            >
+              <option value={3000}>3 000 €</option>
+              <option value={5000}>5 000 €</option>
+              <option value={8000}>8 000 €</option>
+            </select>
+          </label>
         )}
       </div>
+
+      {!collapsed && (
+        <>
+          <p className="text-xs text-zinc-500">
+            Médiane des 5 annonces les moins chères par pays (30 derniers jours, même carburant,
+            prix &lt; 1 000 € exclus), triées par écart × volume — les années affichées sont celles de ces
+            5 annonces. « Inspecter » ouvre la comparaison des deux marchés en dessous.
+          </p>
+          {notice && <p className="text-xs text-emerald-400">{notice}</p>}
+
+          <div className="space-y-1.5">
+            {rows.map((o) => {
+              const key = opportunityKey(o);
+              return (
+                <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
+                  <span className="font-medium text-zinc-200">{o.brand} {o.model}</span>
+                  <span className="text-xs text-zinc-400">{fuelLabel(o.fuel)}</span>
+                  <span className="text-xs text-zinc-400">
+                    {COUNTRY_FLAG[o.lowCountry] ?? o.lowCountry} {eur(o.lowMedian)}
+                    <span className="text-zinc-500"> ({o.lowCount}{o.lowYears ? ` · ${o.lowYears}` : ''})</span>
+                    <span className="text-zinc-600"> vs </span>
+                    {COUNTRY_FLAG[o.highCountry] ?? o.highCountry} {eur(o.highMedian)}
+                    <span className="text-zinc-500"> ({o.highCount}{o.highYears ? ` · ${o.highYears}` : ''})</span>
+                  </span>
+                  <span className="font-semibold text-amber-400">écart {eur(o.deltaEur)}</span>
+                  <span className="flex-1" />
+                  <button
+                    onClick={() => onInspect(o)}
+                    className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+                    title="Ouvrir les deux marchés en études comparées, juste en dessous"
+                  >
+                    <Search className="w-3.5 h-3.5" /> Inspecter
+                  </button>
+                  <button
+                    onClick={() => void handleCreateStudy(o)}
+                    disabled={busyKey === key}
+                    className="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 disabled:opacity-50"
+                    title={`Créer une étude ${o.lowCountry} → ${o.highCountry} pré-remplie`}
+                  >
+                    {busyKey === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
+                    Créer l'étude
+                  </button>
+                  <button
+                    onClick={() => void handleAck(o)}
+                    className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
+                    title="Marquer contrôlée — réapparaît si l'écart bouge de ±1 000 €"
+                  >
+                    <ClipboardCheck className="w-3.5 h-3.5" /> Contrôlée
+                  </button>
+                </div>
+              );
+            })}
+            {visible.length === 0 && (
+              <p className="text-xs text-zinc-500">Toutes les opportunités actuelles ont été contrôlées.</p>
+            )}
+            {visible.length > shown && (
+              <button
+                onClick={() => setShown((n) => n + PAGE_SIZE)}
+                className="w-full text-xs text-zinc-400 hover:text-zinc-200 py-1.5 rounded-lg border border-dashed border-zinc-800 hover:border-zinc-600"
+              >
+                Afficher plus ({visible.length - shown} restantes)
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
