@@ -206,14 +206,43 @@ function modelTokenInText(normText: string, tok: string): boolean {
   // ("cla250", "glc300"). A 1-char model (Mercedes A/B/C/E/S classe) requires
   // 2+ digits ("a180", "c220") so a bare "a" can't grab Audi "a4".
   const digits = tok.length >= 2 ? '[0-9]' : '[0-9]{2}';
-  return new RegExp(`(^|[^a-z0-9])${escapeRegex(tok)}${digits}`).test(normText);
+  if (new RegExp(`(^|[^a-z0-9])${escapeRegex(tok)}${digits}`).test(normText)) return true;
+  // Split form: sites write the letter/digit boundary with a space where the
+  // criterion glues it — AutoScout "RAV 4" vs "RAV4", Mercedes "A 180" vs
+  // "A180" (5/16 on a genuine RAV4 page came from exactly this). Boundaries on
+  // both sides so "a 45" can never satisfy "a4".
+  const parts = tok.match(/^([a-z]+)([0-9]+)$/);
+  if (parts) {
+    return new RegExp(`(^|[^a-z0-9])${escapeRegex(parts[1])} ${parts[2]}([^a-z0-9]|$)`).test(normText);
+  }
+  return false;
 }
 
-/** Brand matches if ANY of its tokens appears (handles "Mercedes-Benz" vs title "Mercedes ..."). */
+// A brand and its aliases are ONE brand: the criterion may say "VW" while the
+// site's structured attribute says "Volkswagen" (0/85 on a genuine Golf page
+// came from exactly this). First entry of each group = canonical form.
+const BRAND_ALIAS_GROUPS: string[][] = [
+  ['volkswagen', 'vw'],
+  ['mercedes', 'mercedes benz'],
+];
+
+/** All normalized spellings of a brand (itself + alias-group members). */
+function brandVariants(raw: string): string[] {
+  const n = normalizeForMatch(raw);
+  const grp = BRAND_ALIAS_GROUPS.find((g) => g.includes(n));
+  return grp ?? [n];
+}
+
+/** Canonical label for structured comparison ("VW" and "Volkswagen" → same). */
+function canonBrandLabel(raw: string): string {
+  return brandVariants(raw)[0];
+}
+
+/** Brand matches if ANY token of ANY of its alias spellings appears. */
 function brandMatchesTitle(title: string, brand: string): boolean {
   const normTitle = normalizeForMatch(title);
-  const toks = normalizeForMatch(brand).split(' ').filter(Boolean);
-  return toks.some((t) => t.length >= 2 && tokenInText(normTitle, t));
+  return brandVariants(brand).some((variant) =>
+    variant.split(' ').filter(Boolean).some((t) => t.length >= 2 && tokenInText(normTitle, t)));
 }
 
 /** Model matches if ALL its DISTINCTIVE tokens appear (generic words stripped). */
@@ -222,7 +251,9 @@ function modelMatchesTitle(title: string, model: string): boolean {
   const toks = normalizeForMatch(model).split(' ').filter(Boolean);
   const distinctive = toks.filter((t) => !MODEL_NOISE_TOKENS.has(t));
   const effective = distinctive.length > 0 ? distinctive : toks;
-  return effective.every((t) => modelTokenInText(normTitle, t));
+  if (effective.every((t) => modelTokenInText(normTitle, t))) return true;
+  // Compact form of a multi-token model: criterion "RAV 4" vs title "RAV4".
+  return effective.length > 1 && modelTokenInText(normTitle, effective.join(''));
 }
 
 function pct(count: number, total: number): string {
@@ -273,7 +304,11 @@ export function confirmCriteriaAgainstSample(
   if (brand) {
     const structuredBrandCount = listings.filter((l) => (l.brand ?? '').trim().length > 0).length;
     if (structuredBrandCount >= INGESTION_MIN_SAMPLE) {
-      out.push(confirmStructuredLabel('brand', brand, listings, (l) => l.brand ?? null, n));
+      // Compare canonical alias forms so "VW" == "Volkswagen"; the report keeps
+      // the user's original spelling via declaredValue below.
+      const c = confirmStructuredLabel('brand', canonBrandLabel(brand), listings,
+        (l) => (l.brand ? canonBrandLabel(l.brand) : null), n);
+      out.push({ ...c, declaredValue: brand });
     } else {
       pushMatch('brand', brand, (l) => brandMatchesTitle(l.title ?? '', brand));
     }

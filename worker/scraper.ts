@@ -399,11 +399,21 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
     return result;
   };
 
+  // AS24 BE serves the same search under two locale paths (/fr/, /nl/). A
+  // Cloudflare error page is cached per-URL, so when one locale is poisoned,
+  // flipping to the other on retry dodges the cached block entirely.
+  let activeUrl = url;
+  const flipBeLocale = (u: string): string | null => {
+    if (u.includes('autoscout24.be/fr/')) return u.replace('autoscout24.be/fr/', 'autoscout24.be/nl/');
+    if (u.includes('autoscout24.be/nl/')) return u.replace('autoscout24.be/nl/', 'autoscout24.be/fr/');
+    return null;
+  };
+
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const profileLevel = attempt + 1;
-    console.log(`[WORKER_SCRAPER] Fetching ${url} (attempt ${attempt + 1}/${MAX_RETRIES + 1}, profile ${profileLevel})`);
+    console.log(`[WORKER_SCRAPER] Fetching ${activeUrl} (attempt ${attempt + 1}/${MAX_RETRIES + 1}, profile ${profileLevel})`);
 
-    const { html, mode } = await fetchHtmlWithZyte(url, profileLevel);
+    const { html, mode } = await fetchHtmlWithZyte(activeUrl, profileLevel);
     lastMode = mode;
 
     if (!html) {
@@ -415,7 +425,7 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
     }
     lastLen = html.length;
 
-    const listings = coreParseSearchPage(html, url);
+    const listings = coreParseSearchPage(html, activeUrl);
     if (url.includes('marktplaats.nl') && (url.includes('/l/auto-s') || url.includes('/lrp/api/'))) {
       console.log(`[MARKTPLAATS_PARSED] count=${listings.length} attempt=${attempt + 1}`);
     }
@@ -430,10 +440,10 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
       const moreAvailable = totalCount == null ? all.length >= 15 : totalCount > all.length;
       let pages = 1;
       if (scrapeMode !== 'fast' && moreAvailable && all.length < MAX_LISTINGS) {
-        const adapter = findSiteAdapterByDomain(url);
+        const adapter = findSiteAdapterByDomain(activeUrl);
         for (let page = 2; page <= MAX_PAGES && all.length < MAX_LISTINGS; page++) {
-          const pageUrl = adapter ? adapter.buildPaginatedUrl(url, page) : url;
-          if (pageUrl === url) break; // no pagination scheme for this site
+          const pageUrl = adapter ? adapter.buildPaginatedUrl(activeUrl, page) : activeUrl;
+          if (pageUrl === activeUrl) break; // no pagination scheme for this site
           const { html: pageHtml } = await fetchHtmlWithZyte(pageUrl, 1);
           if (!pageHtml) break;
           const pageListings = coreParseSearchPage(pageHtml, pageUrl);
@@ -455,7 +465,14 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
     if (blockedCheck.isBlocked) {
       console.warn(`[WORKER_SCRAPER] ⚠️  Blocked: ${blockedCheck.matchedKeyword} (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
       if (attempt < MAX_RETRIES) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        const flipped = flipBeLocale(activeUrl);
+        if (flipped) {
+          console.log(`[WORKER_SCRAPER] BE locale flip on retry: ${flipped}`);
+          activeUrl = flipped;
+        }
+        // Longer pause than a soft failure: a CF block that just fired rarely
+        // clears within a second from the same exit.
+        await new Promise((resolve) => setTimeout(resolve, 2500 * (attempt + 1)));
         continue;
       }
       return finalize({ listings: [], error: 'TARGET_BLOCKED', errorReason: `Blocked: ${blockedCheck.matchedKeyword}` },

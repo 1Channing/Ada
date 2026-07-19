@@ -288,11 +288,21 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     // (httpResponseBody) — its anti-ban stack defeats Cloudflare and the SSR
     // HTML already carries the data (no browser needed, faster/cheaper). If the
     // raw path keeps coming back blocked, escalate to a full headless browser
-    // with a long settle wait for the JS challenge to resolve.
+    // with a long settle wait for the JS challenge to resolve. On the FINAL
+    // attempt, also exit from a neighbouring country: Cloudflare decisions are
+    // per-PoP, and a block that persists across retries from one region often
+    // clears from another (the cy= param pins the search country regardless).
     if (attempt <= 2) {
       return { httpResponseBody: true, geolocation: cfg.countryCode };
     }
-    return { geolocation: cfg.countryCode, actions: [{ action: 'waitForTimeout', timeout: 8 }] };
+    if (attempt === 3) {
+      return { geolocation: cfg.countryCode, actions: [{ action: 'waitForTimeout', timeout: 8 }] };
+    }
+    const GEO_FALLBACK: Record<string, string> = { BE: 'NL', NL: 'DE', FR: 'BE', DE: 'AT', IT: 'FR', ES: 'FR' };
+    return {
+      geolocation: GEO_FALLBACK[cfg.countryCode] ?? cfg.countryCode,
+      actions: [{ action: 'waitForTimeout', timeout: 8 }],
+    };
   }
 
   // ─── Ingestion support ──────────────────────────────────────────────────────
@@ -356,8 +366,12 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     domain: cfg.domain,
     urlTemplate: URL_TEMPLATE,
 
-    mapBrand: (raw) => raw.trim(),   // AS24 slug = the name; slugged at buildSearchUrl
-    mapModel: (raw) => raw.trim(),
+    // Real URL slugs — these feed the {brand}/{model} PATH segments when a URL
+    // is rebuilt from a learned mapping. Raw values 404'd there:
+    // "YARIS CROSS" → /lst/TOYOTA/YARIS%20CROSS is a dead page; the site wants
+    // /lst/toyota/yaris-cross (and "RAV4" wants rav-4).
+    mapBrand: (raw) => slug(raw),
+    mapModel: (raw) => modelToSlug(raw),
     mapFuel,
     supportsParam: (param) => !UNSUPPORTED_PARAMS.includes(param),
 
