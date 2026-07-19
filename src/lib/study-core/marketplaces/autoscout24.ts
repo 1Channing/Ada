@@ -279,6 +279,21 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
   function generateCorrectionHypotheses(params: SearchCriteria, issueTypes: Set<string>):
     Array<{ url: string; reason: string }> {
     const result: Array<{ url: string; reason: string }> = [];
+
+    // Mercedes model slugs are LOCALIZED per TLD — daily-report evidence:
+    // /mercedes-benz/e-klasse on .it silently served the brand-wide page
+    // (A 180s inside an E-class study). German-style TLDs keep '<code>-klasse';
+    // latin TLDs use 'classe-<code>' (ES: 'clase-').
+    const localizedMercedes = (() => {
+      const raw = String(params.model ?? '').trim().toUpperCase();
+      const m = raw.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? raw.match(/^([A-Z])-CLASS$/);
+      const code = m?.[1]?.toLowerCase();
+      if (!code) return null;
+      if (cfg.countryCode === 'ES') return `clase-${code}`;
+      if (['FR', 'IT', 'BE'].includes(cfg.countryCode)) return `classe-${code}`;
+      return null; // .de/.nl: '<code>-klasse' is already the default
+    })();
+
     // H0 — not-found probe: the PATH slug is wrong (AS24 served its 404
     // template). Try alternate spellings of the model slug: AS24 groups some
     // Mercedes-style models as '<code>-klasse', others as the bare code, and
@@ -287,6 +302,7 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     if (issueTypes.has('page_not_found') && params.model) {
       const current = params.model ? modelToSlug(String(params.model)) : '';
       const alts: string[] = [];
+      if (localizedMercedes && localizedMercedes !== current) alts.push(localizedMercedes);
       if (/^[a-z]{2,3}$/.test(current)) alts.push(`${current}-klasse`);
       const mKlasse = current.match(/^([a-z]{2,3})-klasse$/);
       if (mKlasse) alts.push(mKlasse[1]);
@@ -297,6 +313,17 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
         result.push({ url, reason: `AUTOSCOUT H0: slug modèle '${alt}' (page introuvable avec '${current}')` });
       }
       return result;
+    }
+
+    // H0bis — model rejected on a page WITH listings: an unknown slug makes
+    // AS24 fall back to the brand-wide page silently. Probe the localized
+    // Mercedes slug before widening anything.
+    if (issueTypes.has('model_missing') && localizedMercedes) {
+      const current = params.model ? modelToSlug(String(params.model)) : '';
+      if (localizedMercedes !== current) {
+        const { url } = buildSearchUrl(params, { modelSlug: localizedMercedes });
+        result.push({ url, reason: `AUTOSCOUT H0bis: slug Mercedes localisé ${cfg.countryCode} '${localizedMercedes}'` });
+      }
     }
     // H1: fuel mapping suspect → drop fuel.
     if (issueTypes.has('fuel_mismatch') && params.fuel) {

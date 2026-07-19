@@ -394,7 +394,13 @@ export async function generateSearchUrlsWithMemory(
         (recTrim === wantTrim || recTrim === '');
       if (validatedUrl && scopeMatches && mapping) {
         let url = overrideVariableParams(validatedUrl, mapping, params);
-        if (recTrim === '' && wantTrim) url = injectTrimIntoUrl(url, params.trim ?? '');
+        // AS24: even a trim-scoped learned URL can predate kwd= (daily report:
+        // GR SPORT study reused a kwd-less URL → 6% trim match). Setting kwd is
+        // idempotent, so guarantee it. Marktplaats keeps the trim-less-row-only
+        // rule: replacing q: on a trim-scoped learned URL would lose its text.
+        if (wantTrim && (recTrim === '' || url.includes('autoscout24.'))) {
+          url = injectTrimIntoUrl(url, params.trim ?? '');
+        }
         url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
         logs.push({
           level: 'OUTPUT',

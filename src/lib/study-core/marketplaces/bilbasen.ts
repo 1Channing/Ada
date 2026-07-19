@@ -173,6 +173,20 @@ function generateCorrectionHypotheses(
 ): Array<{ url: string; reason: string }> {
   const result: Array<{ url: string; reason: string }> = [];
 
+  // H0 — Mercedes model slug probe: /mercedes/cla silently served the
+  // brand-wide page (EQAs inside a CLA study — daily report 19/07). Bilbasen
+  // likely uses the Danish '<code>-klasse' form; a wrong slug never 404s,
+  // it falls back to the whole brand, so only a probe can settle it.
+  if (issueTypes.has('model_missing')) {
+    const raw = String(params.model ?? '').trim().toUpperCase();
+    const m = raw.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? raw.match(/^([A-Z])-CLASS$/);
+    const code = m?.[1]?.toLowerCase();
+    if (code) {
+      const { url } = buildSearchUrl({ ...params, model: `${code}-klasse` });
+      if (url) result.push({ url, reason: `BILBASEN H0: slug Mercedes '${code}-klasse'` });
+    }
+  }
+
   if (issueTypes.has('fuel_mapping_suspect') && params.fuel) {
     const { url } = buildSearchUrl({ ...params, fuel: undefined });
     if (url) result.push({ url, reason: 'BILBASEN H1: fuel removed (mapping suspect)' });

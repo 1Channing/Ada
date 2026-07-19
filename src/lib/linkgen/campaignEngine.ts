@@ -17,7 +17,7 @@ import { sharedSupabase as supabase } from '../supabaseShared';
 import type { Json } from '../database.types';
 import { getSiteAdapter, decomposeUrl } from '../study-core/marketplaces';
 import type { SearchCriteria } from '../study-core/marketplaces';
-import { analyzeIngestion, INGESTION_MIN_SAMPLE } from '../study-core/ingestion';
+import { analyzeIngestion, INGESTION_MIN_SAMPLE, canonicalizeFuel, refineFuelToken } from '../study-core/ingestion';
 import { persistIngestionResult } from './ingestion';
 import { generateSearchUrlsWithMemory } from './generator';
 import type { SiteKey } from './types';
@@ -237,23 +237,49 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     };
   }
   if (listings.length < INGESTION_MIN_SAMPLE) {
+    // A FULL results page with zero listings is a genuinely empty market
+    // (server applied the filters and says none) — name it so the daily
+    // review reads it as a « Marché vide » candidate, not a mystery.
+    const emptyMarket = listings.length === 0 && (diagnostics as { emptyResults?: boolean } | null)?.emptyResults === true;
     return {
       ...base, url, outcome: 'insufficient', confirmedFields: [], rejected: [],
-      detail: `échantillon ${listings.length} < ${INGESTION_MIN_SAMPLE}`, sampleSize: listings.length,
+      detail: emptyMarket
+        ? 'marché réellement vide — 0 annonce sur page complète (filtres appliqués)'
+        : `échantillon ${listings.length} < ${INGESTION_MIN_SAMPLE}`,
+      sampleSize: listings.length,
       dossier: mkDossier('scrape', { scrape: diagnostics ?? null, sample: dossierSample(listings) }),
     };
   }
 
-  const analysis = analyzeIngestion(url, criteria, listings, adapter);
+  // Marktplaats has NO fuel filter expressible in the URL (neither the hash
+  // nor lrp/api carries one), so a fuel-scoped study always analysed a mixed
+  // sample and rejected its own fuel. The per-listing STRUCTURED fuel is
+  // reliable — apply the filter ourselves, exactly like the site's checkbox
+  // would (hybrid family grouped as in the MI), before analysis + snapshot.
+  let sampleListings = listings;
+  if (p.site === 'MARKTPLAATS' && criteria.fuel) {
+    const want = canonicalizeFuel(criteria.fuel);
+    if (want) {
+      const filtered = listings.filter((l) => {
+        const tok = refineFuelToken(canonicalizeFuel(l.fuel ?? ''), `${l.title ?? ''} ${l.description ?? ''}`);
+        return tok === want || (want === 'hybrid' && (tok === 'phev' || tok === 'mild_hybrid'));
+      });
+      // Too few after filtering → keep the mixed sample and let the analysis
+      // say honestly that the fuel doesn't confirm.
+      if (filtered.length >= INGESTION_MIN_SAMPLE) sampleListings = filtered;
+    }
+  }
+
+  const analysis = analyzeIngestion(url, criteria, sampleListings, adapter);
 
   await persistIngestionResult({
     url, site: adapter.key, country: adapter.countryCode, criteria,
-    analysis, sampleSize: listings.length,
+    analysis, sampleSize: sampleListings.length,
     detectedParams: decomposeUrl(url), submittedBy: CAMPAIGN_SUBMITTER,
   }).catch(() => undefined);
 
   const confirmed = new Set(analysis.confirmedFields);
-  if (confirmed.has('brand') && confirmed.has('model') && listings.length > 0) {
+  if (confirmed.has('brand') && confirmed.has('model') && sampleListings.length > 0) {
     const snap = await writeMarketSnapshot({
       segment: {
         site: adapter.key, country: adapter.countryCode,
@@ -261,7 +287,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
         fuel: confirmed.has('fuel') ? (p.fuel ?? '').toUpperCase() : '',
         trim: confirmed.has('trim') ? (p.trim ?? '') : '',
       },
-      listings,
+      listings: sampleListings,
       totalCount: null,
       sourceUrl: url,
       submittedBy: CAMPAIGN_SUBMITTER,
@@ -272,7 +298,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   } else {
     // The Market Intelligence feed is gated on brand+model being confirmed in
     // the sample — surface WHY a scrape with listings produced no market data.
-    console.warn(`[CAMPAIGN_MARKET] snapshot skipped for ${adapter.countryCode} ${p.brand} ${p.model} — confirmed=[${[...confirmed].join(',')}] listings=${listings.length}`);
+    console.warn(`[CAMPAIGN_MARKET] snapshot skipped for ${adapter.countryCode} ${p.brand} ${p.model} — confirmed=[${[...confirmed].join(',')}] listings=${sampleListings.length}`);
   }
 
   const rejected = analysis.rejectedFields.map((c) => ({
@@ -352,10 +378,10 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   return {
     ...base, url, outcome,
     confirmedFields: [...analysis.confirmedFields],
-    rejected, detail, sampleSize: listings.length,
+    rejected, detail, sampleSize: sampleListings.length,
     dossier: outcome === 'confirmed' ? null : mkDossier('analysis', {
       scrape: diagnostics ?? null,
-      sample: dossierSample(listings),
+      sample: dossierSample(sampleListings),
       analysis: compactAnalysis(analysis),
     }),
   };
