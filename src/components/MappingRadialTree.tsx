@@ -35,6 +35,8 @@ interface Positioned {
   hasChildren: boolean;
   expanded: boolean;
   parentId: string | null;
+  /** Arc length (px) of the angular slot this node owns on its ring. */
+  arc: number;
 }
 
 function nodeRadius(weight: number): number {
@@ -159,6 +161,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
       const radius = depth * RING * zoom;
       maxRadius = Math.max(maxRadius, radius);
 
+      const startLeaf = leafIndex;
       let angle: number;
       if (!showChildren) {
         angle = ((leafIndex + 0.5) / totalLeaves) * Math.PI * 2;
@@ -167,6 +170,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
         const childAngles = n.children.map((c) => assign(c, depth + 1, n.id));
         angle = (Math.min(...childAngles) + Math.max(...childAngles)) / 2;
       }
+      const leaves = Math.max(1, leafIndex - startLeaf);
 
       const p: Positioned = {
         node: n,
@@ -178,6 +182,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
         parentId,
         x: Math.cos(angle - Math.PI / 2) * radius,
         y: Math.sin(angle - Math.PI / 2) * radius,
+        arc: (leaves / totalLeaves) * Math.PI * 2 * radius,
       };
       positioned.push(p);
       byId.set(n.id, p);
@@ -211,6 +216,11 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
     el.scrollLeft = Math.max(0, wx * a.ratio + size / 2 - a.offsetX);
     el.scrollTop = Math.max(0, wy * a.ratio + size / 2 - a.offsetY);
   }, [size, zoom]);
+
+  // Zoomed out, the rings tighten: shrink the dots and fade the spokes so
+  // the overview stays legible instead of a solid tangle.
+  const dotScale = Math.min(1, Math.max(0.5, zoom));
+  const linkOpacity = Math.min(1, 0.3 + zoom * 0.7);
 
   return (
     <div className="space-y-3">
@@ -260,13 +270,19 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
             <line
               key={i}
               x1={l.from.x} y1={l.from.y} x2={l.to.x} y2={l.to.y}
-              stroke="#3f3f46" strokeWidth={1}
+              stroke="#3f3f46" strokeWidth={1} opacity={linkOpacity}
             />
           ))}
           {positioned.map((p) => {
             const rightHalf = Math.cos(p.angle - Math.PI / 2) >= 0;
             const isRoot = p.depth === 0;
-            const r = isRoot ? 7 : nodeRadius(p.node.weight);
+            const r = (isRoot ? 7 : nodeRadius(p.node.weight)) * (isRoot ? 1 : dotScale);
+            const fontSize = isRoot ? 13 : Math.max(8, 12 - p.depth);
+            // Level of detail: a label only renders when its angular slot
+            // leaves it room to breathe — dense rings stay clean dots and the
+            // labels reappear as the zoom spreads them apart (hover always
+            // shows the name). Sites (depth 1) are few and always labelled.
+            const showLabel = isRoot || p.depth === 1 || p.arc >= fontSize + 6;
             return (
               <g
                 key={p.node.id}
@@ -282,19 +298,19 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
                   stroke={p.hasChildren && !p.expanded ? '#e4e4e7' : '#18181b'}
                   strokeWidth={p.hasChildren && !p.expanded ? 1.5 : 1}
                 />
-                {/* Labels at every depth — the variant ring (fuel/finition,
-                    depth 4) was left unlabelled and looked like anonymous dots. */}
-                <text
-                  x={rightHalf ? r + 4 : -(r + 4)}
-                  y={4}
-                  textAnchor={rightHalf ? 'start' : 'end'}
-                  fontSize={isRoot ? 13 : Math.max(8, 12 - p.depth)}
-                  fill={isRoot ? '#f4f4f5' : p.depth >= 4 ? '#8b8b93' : '#a1a1aa'}
-                  fontWeight={p.depth <= 1 ? 600 : 400}
-                >
-                  {p.node.label}
-                  {p.hasChildren && !p.expanded ? ` (${p.node.children.length})` : ''}
-                </text>
+                {showLabel && (
+                  <text
+                    x={rightHalf ? r + 4 : -(r + 4)}
+                    y={4}
+                    textAnchor={rightHalf ? 'start' : 'end'}
+                    fontSize={fontSize}
+                    fill={isRoot ? '#f4f4f5' : p.depth >= 4 ? '#8b8b93' : '#a1a1aa'}
+                    fontWeight={p.depth <= 1 ? 600 : 400}
+                  >
+                    {p.node.label}
+                    {p.hasChildren && !p.expanded ? ` (${p.node.children.length})` : ''}
+                  </text>
+                )}
               </g>
             );
           })}
