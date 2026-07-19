@@ -93,7 +93,10 @@ export async function writeMarketSnapshot(params: {
     .select('id')
     .single();
 
-  if (snapErr || !snap) return { ok: false, error: snapErr?.message ?? 'insert failed' };
+  if (snapErr || !snap) {
+    console.warn(`[MARKET_SNAPSHOT] snapshot insert failed for ${segment.country} ${segment.brand} ${segment.model}: ${snapErr?.message ?? 'insert failed'}`);
+    return { ok: false, error: snapErr?.message ?? 'insert failed' };
+  }
 
   const observations: ObsInsert[] = priced.map((l) => ({
     snapshot_id: snap.id,
@@ -120,7 +123,11 @@ export async function writeMarketSnapshot(params: {
     .from('market_listing_observations')
     .insert(observations);
 
-  if (obsErr) return { ok: false, error: obsErr.message };
+  if (obsErr) {
+    console.warn(`[MARKET_SNAPSHOT] observations insert failed for ${segment.country} ${segment.brand} ${segment.model} (${observations.length} rows): ${obsErr.message}`);
+    return { ok: false, error: obsErr.message };
+  }
+  console.log(`[MARKET_SNAPSHOT] ✅ recorded ${segment.country} ${segment.brand} ${segment.model} · ${priced.length} annonces (site=${segment.site})`);
   return { ok: true };
 }
 

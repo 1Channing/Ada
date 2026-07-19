@@ -148,7 +148,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
 
   const confirmed = new Set(analysis.confirmedFields);
   if (confirmed.has('brand') && confirmed.has('model') && listings.length > 0) {
-    await writeMarketSnapshot({
+    const snap = await writeMarketSnapshot({
       segment: {
         site: adapter.key, country: adapter.countryCode,
         brand: p.brand.toUpperCase(), model: p.model.toUpperCase(),
@@ -159,7 +159,14 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
       totalCount: null,
       sourceUrl: url,
       submittedBy: CAMPAIGN_SUBMITTER,
-    }).catch(() => undefined);
+    }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+    if (!snap.ok) {
+      console.warn(`[CAMPAIGN_MARKET] snapshot NOT recorded for ${adapter.countryCode} ${p.brand} ${p.model}: ${snap.error}`);
+    }
+  } else {
+    // The Market Intelligence feed is gated on brand+model being confirmed in
+    // the sample — surface WHY a scrape with listings produced no market data.
+    console.warn(`[CAMPAIGN_MARKET] snapshot skipped for ${adapter.countryCode} ${p.brand} ${p.model} — confirmed=[${[...confirmed].join(',')}] listings=${listings.length}`);
   }
 
   const rejected = analysis.rejectedFields.map((c) => ({
