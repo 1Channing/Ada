@@ -300,7 +300,13 @@ export function Ingestion() {
       return { data, error };
     };
     const runIngestJob = async (): Promise<{ data: any; error: any }> => {
-      const start = await invokeWithDetail({ url: url.trim(), async: true });
+      // criteria + submittedBy → the WORKER runs the whole pipeline (analysis,
+      // memory/journal retention, market snapshot) server-side: once the job
+      // is accepted, closing the browser loses nothing — like a campaign.
+      const start = await invokeWithDetail({
+        url: url.trim(), async: true,
+        criteria, submittedBy: form.submittedBy.trim() || undefined,
+      });
       if (start.error) return start;
       const jobId = start.data?.jobId;
       // Older worker without job support answers synchronously — use as-is.
@@ -349,46 +355,57 @@ export function Ingestion() {
       setSample(listings);
       setDiagnostics(diag);
 
+      // The worker already ran the whole pipeline server-side (persisted:true)
+      // — the frontend only DISPLAYS; writing again would double every count.
+      const serverPersisted = data?.persisted === true;
+
       if (remoteError && listings.length === 0) {
         setScrapeError(`${remoteError}${data?.errorReason ? ` — ${data.errorReason}` : ''}`);
-        const persistResult = await persistIngestionResult({
-          url: url.trim(),
-          site: adapter.key,
-          country: adapter.countryCode,
-          criteria,
-          analysis: null,
-          sampleSize: 0,
-          scrapeError: remoteError,
-          detectedParams,
-          submittedBy: form.submittedBy.trim() || undefined,
-          scrapeDiagnostics: diag,
-        });
+        const persistResult = serverPersisted
+          ? (data?.persistOutcome ?? null)
+          : await persistIngestionResult({
+              url: url.trim(),
+              site: adapter.key,
+              country: adapter.countryCode,
+              criteria,
+              analysis: null,
+              sampleSize: 0,
+              scrapeError: remoteError,
+              detectedParams,
+              submittedBy: form.submittedBy.trim() || undefined,
+              scrapeDiagnostics: diag,
+            });
         setOutcome(persistResult);
         setPhase('done');
         return;
       }
 
+      // analyzeIngestion is pure — re-running it locally on the same sample
+      // reproduces exactly what the worker persisted, for display.
       const result = analyzeIngestion(url.trim(), criteria, listings, adapter);
       setAnalysis(result);
 
-      const persistResult = await persistIngestionResult({
-        url: url.trim(),
-        site: adapter.key,
-        country: adapter.countryCode,
-        criteria,
-        analysis: result,
-        sampleSize: listings.length,
-        detectedParams,
-        submittedBy: form.submittedBy.trim() || undefined,
-        scrapeDiagnostics: diag,
-      });
+      const persistResult = serverPersisted
+        ? (data?.persistOutcome ?? null)
+        : await persistIngestionResult({
+            url: url.trim(),
+            site: adapter.key,
+            country: adapter.countryCode,
+            criteria,
+            analysis: result,
+            sampleSize: listings.length,
+            detectedParams,
+            submittedBy: form.submittedBy.trim() || undefined,
+            scrapeDiagnostics: diag,
+          });
       setOutcome(persistResult);
 
       // Record a market snapshot only for a confirmed segment (brand + model),
       // so market intelligence data is attributed to a known vehicle — same
       // certainty bar as the mapping memory. Best-effort, never blocks the UX.
+      // (Server-persisted jobs already wrote it worker-side.)
       const confirmed = new Set(result.confirmedFields);
-      if (confirmed.has('brand') && confirmed.has('model') && listings.length > 0) {
+      if (!serverPersisted && confirmed.has('brand') && confirmed.has('model') && listings.length > 0) {
         writeMarketSnapshot({
           segment: {
             site: adapter.key,
@@ -576,6 +593,12 @@ export function Ingestion() {
             {phase === 'scraping' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             {phase === 'scraping' ? 'Scraping de découverte en cours…' : 'Vérifier par scraping'}
           </button>
+          {phase === 'scraping' && (
+            <p className="text-xs text-zinc-500">
+              L'ingestion tourne côté serveur — vous pouvez fermer le navigateur, le résultat
+              sera enregistré et visible dans l'Historique.
+            </p>
+          )}
         </div>
       )}
 

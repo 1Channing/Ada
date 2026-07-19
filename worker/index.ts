@@ -2,7 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { executeStudy, scrapeSearch } from './scraper';
-import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
+import { findSiteAdapterByDomain, decomposeUrl } from '../src/lib/study-core/marketplaces';
+import type { SearchCriteria } from '../src/lib/study-core/marketplaces';
+import { analyzeIngestion } from '../src/lib/study-core/ingestion';
+import { persistIngestionResult } from '../src/lib/linkgen/ingestion';
+import { writeMarketSnapshot } from '../src/services/marketData';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
 import { startWorkerCampaign, resumeWorkerCampaigns } from './campaign';
 
@@ -76,7 +80,14 @@ app.post('/ingest-url', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: Invalid or missing WORKER_SECRET' });
   }
 
-  const { url, jobId, async: wantAsync } = req.body ?? {};
+  const { url, jobId, async: wantAsync, criteria: rawCriteria, submittedBy: rawSubmitter } = req.body ?? {};
+  // Server-side pipeline: when the frontend sends the declared criteria, the
+  // WORKER runs the whole ingestion (analysis + memory/journal retention +
+  // market snapshot) — exactly like a 1-item campaign. The browser can close
+  // the moment the job is accepted: nothing is lost.
+  const criteria = (rawCriteria && typeof rawCriteria === 'object' ? rawCriteria : null) as SearchCriteria | null;
+  const submittedBy = typeof rawSubmitter === 'string' && rawSubmitter.trim() ? rawSubmitter.trim() : undefined;
+  const serverPipeline = !!(criteria && String(criteria.brand ?? '').trim() && String(criteria.model ?? '').trim());
 
   // Poll branch: return the job's current state.
   if (jobId && typeof jobId === 'string') {
@@ -97,13 +108,13 @@ app.post('/ingest-url', async (req, res) => {
     return res.status(400).json({ error: 'unsupported_site', message: `No site adapter for URL domain: ${url.slice(0, 120)}` });
   }
 
-  console.log(`[INGEST] Discovery scrape site=${adapter.key} async=${!!wantAsync} url=${url.slice(0, 150)}`);
+  console.log(`[INGEST] Discovery scrape site=${adapter.key} async=${!!wantAsync} serverPipeline=${serverPipeline} url=${url.slice(0, 150)}`);
 
   const runScrape = async () => {
     // 'full' mode → up to 3 retries with per-site profile escalation; a
     // sample we memorise as certain deserves the robust path, not 'fast'.
     const result = await scrapeSearch(url, 'full');
-    return {
+    const payload: Record<string, unknown> = {
       site: adapter.key,
       country: adapter.country,
       // Sample capped at 100 listings (up to ~5 pages in full mode); descriptions
@@ -117,6 +128,56 @@ app.post('/ingest-url', async (req, res) => {
       errorReason: result.errorReason ?? null,
       diagnostics: result.diagnostics ?? null,
     };
+
+    // Full pipeline server-side — the retention happens HERE, browser or not.
+    // The frontend sees persisted:true and skips its own writes (no doubles).
+    if (serverPipeline && criteria) {
+      try {
+        const detectedParams = decomposeUrl(url);
+        const diag = result.diagnostics as unknown as Record<string, unknown> | null;
+        if (result.error && result.listings.length === 0) {
+          const outcome = await persistIngestionResult({
+            url, site: adapter.key, country: adapter.countryCode, criteria,
+            analysis: null, sampleSize: 0, scrapeError: result.error,
+            detectedParams, submittedBy, scrapeDiagnostics: diag,
+          });
+          payload.persisted = true;
+          payload.persistOutcome = outcome;
+        } else {
+          const analysis = analyzeIngestion(url, criteria, result.listings, adapter);
+          const outcome = await persistIngestionResult({
+            url, site: adapter.key, country: adapter.countryCode, criteria,
+            analysis, sampleSize: result.listings.length,
+            detectedParams, submittedBy, scrapeDiagnostics: diag,
+          });
+          const confirmed = new Set(analysis.confirmedFields);
+          if (confirmed.has('brand') && confirmed.has('model') && result.listings.length > 0) {
+            await writeMarketSnapshot({
+              segment: {
+                site: adapter.key, country: adapter.countryCode,
+                brand: String(criteria.brand ?? '').trim().toUpperCase(),
+                model: String(criteria.model ?? '').trim().toUpperCase(),
+                fuel: confirmed.has('fuel') ? String(criteria.fuel ?? '').toUpperCase() : '',
+                trim: confirmed.has('trim') ? String(criteria.trim ?? '').trim() : '',
+              },
+              listings: result.listings,
+              totalCount: result.totalCount ?? null,
+              sourceUrl: url,
+              submittedBy,
+            }).catch((e) => console.warn('[INGEST] snapshot write failed:', e?.message ?? e));
+          }
+          payload.persisted = true;
+          payload.persistOutcome = outcome;
+          console.log(`[INGEST] ✅ pipeline serveur: ${analysis.confirmedFields.length} champ(s) confirmé(s), memory=${outcome.memoryAction}`);
+        }
+      } catch (e) {
+        // Retention failed server-side — leave persisted unset so an open
+        // frontend can still do it client-side (belt and braces).
+        console.warn('[INGEST] pipeline serveur échoué (le front peut persister):', e instanceof Error ? e.message : e);
+      }
+    }
+
+    return payload;
   };
 
   if (wantAsync) {
