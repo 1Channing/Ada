@@ -3,6 +3,24 @@
 Décisions actées en discussion d'architecture (juillet 2026). Chaque entrée
 note pourquoi elle a été différée et ce qui la débloquera.
 
+## PRINCIPE DIRECTEUR — travail CHIRURGICAL sur les données de mapping
+
+Acté par Channing (19/07/2026) : la qualité des données qui entrent en
+mapping/market data est **notre valeur ajoutée** — chaque correction se fait
+au scalpel, jamais à la hache. Concrètement :
+- Ne jamais jeter ni écraser une donnée captée : on la stocke fidèlement et
+  on corrige la LECTURE (canonicalisation, filtres) plutôt que de filtrer à
+  l'écriture.
+- Une donnée douteuse est étiquetée douteuse (confirmation champ-par-champ),
+  pas supprimée ; une réparation rétroactive est scopée par un motif précis
+  et réversible.
+- Chaque canonicaliseur (carburant, boîte, couleur…) couvre les langues des
+  sites qu'on scrape — un libellé non reconnu doit remonter en lacune,
+  jamais retomber silencieusement dans une mauvaise catégorie (cf. bug
+  « Electro/Gasolina » → électrique du 19/07).
+- Les mappings ne s'écrivent en mémoire que confirmés par échantillon ou par
+  un humain ; l'auto-correction propose, la donnée dispose.
+
 ## 0. REFONTE COMPLÈTE DE L'INTERFACE ADA (acté 19/07/2026, à garder en tête)
 
 Demande de Channing : revoir l'interface complète d'ADA — enchaînement propre

@@ -157,9 +157,12 @@ function firstNumber(raw: string | undefined): number | null {
 
 function inferFuel(title: string, description: string): string {
   const t = (title + ' ' + description).toLowerCase();
-  if (/\bdiesel\b|gasoil|tdi|hdi|dci|cdi|crdi/.test(t)) return 'diesel';
-  if (/plug.?in|hybride rechargeable|phev/.test(t)) return 'phev';
-  if (/hybrid|hybride|ibrida|híbrido|hibrido/.test(t)) return 'hybrid';
+  if (/\bdiesel\b|gasoil|\bgasóleo\b|\bgasoleo\b|\bgasolio\b|tdi|hdi|dci|cdi|crdi/.test(t)) return 'diesel';
+  if (/plug.?in|hybride rechargeable|phev|\be[\s-]?hybrid|enchufable|ricaricabile|\bgte\b/.test(t)) return 'phev';
+  if (/hybrid|hybride|hibrid|ibrid|íbrid/.test(t)) return 'hybrid';
+  // Électrique + thermique ensemble ("Electro/Gasolina", "Elettrica/Benzina",
+  // "Elektro/Benzin") = hybride, pas un VE — à tester AVANT 'electric'.
+  if (/electr|elektr|elettric/.test(t) && /essence|benzin|benzina|gasolina|gasolio|petrol|diesel/.test(t)) return 'hybrid';
   if (/electr|élektr|elektr|elettric|eléctric|electrico/.test(t)) return 'electric';
   if (/\bgpl\b|\blpg\b|autogas/.test(t)) return 'lpg';
   if (/\bcng\b|\bgnv\b|erdgas|metano/.test(t)) return 'cng';

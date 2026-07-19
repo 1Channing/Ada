@@ -218,6 +218,19 @@ export function isCoarseOnly(f: MarketFilters): boolean {
 const normText = (s: string | null | undefined) => (s ?? '').toLowerCase();
 
 /**
+ * Fuel filter is HIERARCHICAL: « Hybride » is the family (full hybrid +
+ * rechargeable + léger), because ads split unpredictably between the three —
+ * a strict equality hid the Spanish Golfs stored as 'phev' from a Hybride
+ * study. Picking the precise variant ('phev', 'mild_hybrid') stays exact.
+ */
+export function fuelFilterMatches(obsFuel: string, wanted: string): boolean {
+  if (!wanted) return true;
+  if (obsFuel === wanted) return true;
+  if (wanted === 'hybrid') return obsFuel === 'phev' || obsFuel === 'mild_hybrid';
+  return false;
+}
+
+/**
  * Trim is a CONTAINS match over the listing's version AND its title: sites
  * write finitions their own way ("60 Sportline 150 kW 63 kWh" vs "Sportline"),
  * an exact-equality filter returned 0 for everything. Typing "sportline"
@@ -232,7 +245,7 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
     (!f.brand || o.brand === f.brand) &&
     (!f.model || o.model === f.model) &&
     (!trimNeedle || normText(o.trim).includes(trimNeedle) || normText(o.title).includes(trimNeedle)) &&
-    (!f.fuel || o.fuel === f.fuel) &&
+    fuelFilterMatches(o.fuel, f.fuel ?? '') &&
     (!gearboxNeedle || normText(o.gearbox).includes(gearboxNeedle)) &&
     (f.yearMin == null || (o.year != null && o.year >= f.yearMin)) &&
     (f.yearMax == null || (o.year != null && o.year <= f.yearMax)) &&

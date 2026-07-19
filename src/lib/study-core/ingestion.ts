@@ -93,7 +93,8 @@ export interface IngestionAnalysis {
 // lpg (GPL). Order matters: hybrid variants are tested before 'electric' so
 // "Hybride Elektrisch" is never mis-read as electric.
 
-const PHEV_TOKENS = /plug\s?in|phev|hybride rechargeable|oplaadbare|\be[\s-]?hybrid/;
+// ES « híbrido enchufable », IT « ibrida ricaricabile », VW badge « GTE ».
+const PHEV_TOKENS = /plug\s?in|phev|hybride rechargeable|oplaadbare|\be[\s-]?hybrid|enchufable|ricaricabile|\bgte\b/;
 const MILD_HYBRID_TOKENS = /half hybrid|mild hybrid|micro hybrid|\bmhev\b/;
 
 /**
@@ -135,16 +136,21 @@ export function canonicalizeFuel(raw: string): FuelToken {
   if (!t) return '';
   if (PHEV_TOKENS.test(t)) return 'phev';
   if (MILD_HYBRID_TOKENS.test(t)) return 'mild_hybrid';
-  if (/hybrid|hybride|\bhev\b|volledig hybride/.test(t)) return 'hybrid';
+  // hibrid = ES « híbrido » accent-strippé ; ibrid = IT « ibrida/ibrido ».
+  if (/hybrid|hybride|hibrid|ibrid|\bhev\b|volledig hybride/.test(t)) return 'hybrid';
   // Electric + combustion listed together (AutoScout "Elektro/Benzin",
-  // "Électrique/Essence") is a hybrid, not a pure EV. Test before 'electric'.
-  if (/electr|elektr/.test(t) && /essence|benzine|benzin|petrol|gasoline|diesel/.test(t)) return 'hybrid';
+  // "Électrique/Essence", ES "Electro/Gasolina", IT "Elettrica/Benzina") is a
+  // hybrid, not a pure EV. Test before 'electric' — the ES combo fell through
+  // to 'electric' and hid Spanish hybrids from the Hybride filter.
+  if (/electr|elektr|elettr/.test(t) && /essence|benzine|benzin|petrol|gasoline|gasolina|gasolio|diesel/.test(t)) return 'hybrid';
   if (/hydrogen|hydrogene|waterstof|\bh2\b/.test(t)) return 'hydrogen';
-  if (/\bcng\b|\bgnv\b|gaz naturel|aardgas/.test(t)) return 'cng';
-  if (/\bgpl\b|\blpg\b|autogas/.test(t)) return 'lpg';
-  if (/electr|elektr|elektrisk|\bel\b|\belbil\b|\bev\b|zero emission/.test(t)) return 'electric';
-  if (/diesel|\bhdi\b|\btdi\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|\bd4d\b/.test(t)) return 'diesel';
-  if (/essence|benzine|benzin|petrol|gasoline|\btsi\b|\btfsi\b|\bvti\b|puretech/.test(t)) return 'petrol';
+  if (/\bcng\b|\bgnv\b|gaz naturel|aardgas|metano/.test(t)) return 'cng';
+  if (/\bgpl\b|\blpg\b|\bglp\b|autogas/.test(t)) return 'lpg';
+  if (/electr|elektr|elettr|elektrisk|\bel\b|\belbil\b|\bev\b|zero emission/.test(t)) return 'electric';
+  // gasoil (FR), gasóleo (ES), gasolio (IT) — word-bounded so « gasolina »
+  // (essence ES) ne matche jamais la branche diesel.
+  if (/diesel|gasoil|\bgasoleo\b|\bgasolio\b|\bhdi\b|\btdi\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|\bd4d\b/.test(t)) return 'diesel';
+  if (/essence|benzine|benzin|petrol|gasoline|gasolina|\btsi\b|\btfsi\b|\bvti\b|puretech/.test(t)) return 'petrol';
   return '';
 }
 

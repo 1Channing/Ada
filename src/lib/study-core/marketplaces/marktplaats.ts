@@ -211,8 +211,10 @@ function generateCorrectionHypotheses(
 function inferFuelFromTitle(title: string, description: string): string {
   const text = (title + ' ' + description).toLowerCase();
   if (text.includes('diesel')) return 'diesel';
-  if (text.includes('electr')) return 'electric';
+  // Hybride AVANT électrique : « Hybride Elektrisch/Benzine » doit rester
+  // hybride ; et le néerlandais s'écrit « elektrisch » (k), pas « electr ».
   if (text.includes('hybrid')) return 'hybrid';
+  if (text.includes('electr') || text.includes('elektr')) return 'electric';
   if (text.includes('benzine') || text.includes('petrol')) return 'petrol';
   if (text.includes('lpg')) return 'lpg';
   return '';
