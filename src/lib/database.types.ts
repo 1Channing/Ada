@@ -588,6 +588,10 @@ export type Database = {
           created_at: string
           transaction_type: string | null
           reference?: string | null
+          status?: string
+          closed_at?: string | null
+          notes?: string | null
+          commercial?: string | null
           vehicle_id: string | null
           seller_contact_id: string | null
           seller_contact_id_2: string | null
@@ -607,6 +611,10 @@ export type Database = {
           created_at?: string
           transaction_type?: string | null
           reference?: string | null
+          status?: string
+          closed_at?: string | null
+          notes?: string | null
+          commercial?: string | null
           vehicle_id?: string | null
           seller_contact_id?: string | null
           seller_contact_id_2?: string | null
@@ -626,6 +634,10 @@ export type Database = {
           created_at?: string
           transaction_type?: string | null
           reference?: string | null
+          status?: string
+          closed_at?: string | null
+          notes?: string | null
+          commercial?: string | null
           vehicle_id?: string | null
           seller_contact_id?: string | null
           seller_contact_id_2?: string | null

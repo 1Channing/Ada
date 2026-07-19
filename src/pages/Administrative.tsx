@@ -56,6 +56,8 @@ type ContactForm = {
 type TransactionForm = {
   transaction_price: string;
   reference: string;
+  commercial: string;
+  notes: string;
   transaction_date: string;
   transaction_time: string;
   pickup_location: string;
@@ -64,6 +66,25 @@ type TransactionForm = {
   destination: string;
   transporter: string;
 };
+
+// A deal row for the list view (transaction + joined vehicle/parties).
+type DealRow = {
+  id: string;
+  transaction_type: string | null;
+  status: string | null;
+  reference: string | null;
+  commercial: string | null;
+  transaction_price: number | null;
+  transaction_date: string | null;
+  created_at: string;
+  closed_at: string | null;
+  vehicle: { brand: string | null; model: string | null; plate_number: string | null } | null;
+  seller: { company_name: string | null; first_name: string | null; last_name: string | null } | null;
+  buyer: { company_name: string | null; first_name: string | null; last_name: string | null } | null;
+};
+
+const contactLabel = (c?: { company_name?: string | null; first_name?: string | null; last_name?: string | null } | null): string =>
+  c ? (c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || '—') : '—';
 
 // MC Export's own identity — auto-placed as buyer (when MC buys) or seller
 // (when MC sells) so its side is never retyped. Reconciled to a single DB
@@ -166,6 +187,8 @@ export function Administrative() {
   const [transactionForm, setTransactionForm] = useState<TransactionForm>({
     transaction_price: '',
     reference: '',
+    commercial: '',
+    notes: '',
     transaction_date: '',
     transaction_time: '',
     pickup_location: '',
@@ -207,6 +230,15 @@ export function Administrative() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
 
+  // Deals list workflow: land on the list, open a deal into the editor.
+  const [mode, setMode] = useState<'list' | 'editor'>('list');
+  const [deals, setDeals] = useState<DealRow[]>([]);
+  const [dealsLoading, setDealsLoading] = useState(false);
+  const [dealStatus, setDealStatus] = useState<'en_cours' | 'cloturee'>('en_cours');
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const [quick, setQuick] = useState({ direction: 'purchase' as 'purchase' | 'sale', clientName: '', clientContactId: '', price: '', reference: '', commercial: '' });
+  const [quickSaving, setQuickSaving] = useState(false);
+
   useEffect(() => {
     const draft = loadDraft();
     if (draft) {
@@ -216,7 +248,7 @@ export function Administrative() {
       setSellerForm2(draft.sellerForm2);
       setBuyerForm(draft.buyerForm);
       setBuyerForm2(draft.buyerForm2);
-      setTransactionForm({ reference: '', ...draft.transactionForm });
+      setTransactionForm({ reference: '', commercial: '', notes: '', ...draft.transactionForm });
       setShowSecondSeller(draft.showSecondSeller);
       setShowSecondBuyer(draft.showSecondBuyer);
       setLastSavedTransactionId(draft.lastSavedTransactionId);
@@ -420,6 +452,140 @@ export function Administrative() {
     }
   };
 
+  // ─── Deals list ───────────────────────────────────────────────────────────
+  const loadDeals = async () => {
+    setDealsLoading(true);
+    const { data } = await supabase
+      .from('transactions_admin')
+      .select(`
+        id, transaction_type, status, reference, commercial, transaction_price,
+        transaction_date, created_at, closed_at,
+        vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(brand, model, plate_number),
+        seller:contacts!transactions_admin_seller_contact_id_fkey(company_name, first_name, last_name),
+        buyer:contacts!transactions_admin_buyer_contact_id_fkey(company_name, first_name, last_name)
+      `)
+      .order('created_at', { ascending: false })
+      .limit(500);
+    setDeals((data ?? []) as unknown as DealRow[]);
+    setDealsLoading(false);
+  };
+
+  useEffect(() => { loadDeals(); }, []);
+
+  // Distinct salespeople already used — populates the commercial datalist.
+  const commercialNames = Array.from(
+    new Set(deals.map((d) => (d.commercial ?? '').trim()).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b));
+
+  const backToList = () => {
+    setMode('list');
+    setLastSavedTransactionId(null);
+    loadDeals();
+  };
+
+  const closeDeal = async (id: string, close: boolean) => {
+    await supabase
+      .from('transactions_admin')
+      .update({ status: close ? 'cloturee' : 'en_cours', closed_at: close ? new Date().toISOString() : null })
+      .eq('id', id);
+    if (id === lastSavedTransactionId) setDealStatus(close ? 'cloturee' : 'en_cours');
+    await loadDeals();
+  };
+
+  // Load a full deal into the editor forms.
+  const openDeal = async (id: string) => {
+    const { data: tx } = await supabase
+      .from('transactions_admin')
+      .select(`
+        *,
+        vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(*),
+        seller:contacts!transactions_admin_seller_contact_id_fkey(*),
+        seller2:contacts!transactions_admin_seller_contact_id_2_fkey(*),
+        buyer:contacts!transactions_admin_buyer_contact_id_fkey(*),
+        buyer2:contacts!transactions_admin_buyer_contact_id_2_fkey(*)
+      `)
+      .eq('id', id)
+      .single();
+    if (!tx) return;
+
+    setTransactionType((tx.transaction_type as 'purchase' | 'sale') ?? 'purchase');
+    setDealStatus((tx.status as 'en_cours' | 'cloturee') ?? 'en_cours');
+
+    const v = tx.vehicle as Record<string, unknown> | null;
+    setVehicleForm({
+      plate_number: (v?.plate_number as string) ?? '', vin: (v?.vin as string) ?? '',
+      brand: (v?.brand as string) ?? '', model: (v?.model as string) ?? '',
+      commercial_name: (v?.commercial_name as string) ?? '', type_variant_version: (v?.type_variant_version as string) ?? '',
+      national_type: (v?.national_type as string) ?? '', first_registration_date: (v?.first_registration_date as string) ?? '',
+      mileage: v?.mileage != null ? String(v.mileage) : '',
+      registration_certificate_present: Boolean(v?.registration_certificate_present),
+      registration_certificate_number: (v?.registration_certificate_number as string) ?? '',
+      known_defects: (v?.known_defects as string) ?? '',
+    });
+
+    const seat = (c: Record<string, unknown> | null, setForm: (f: ContactForm) => void, setSel: (c: Contact | null) => void) => {
+      if (c) { setForm(contactToForm(c as Contact)); setSel(c as Contact); }
+      else { setForm(EMPTY_CONTACT); setSel(null); }
+    };
+    seat(tx.seller as Record<string, unknown> | null, setSellerForm, setSelectedSellerContact);
+    seat(tx.buyer as Record<string, unknown> | null, setBuyerForm, setSelectedBuyerContact);
+    seat(tx.seller2 as Record<string, unknown> | null, setSellerForm2, setSelectedSeller2Contact);
+    seat(tx.buyer2 as Record<string, unknown> | null, setBuyerForm2, setSelectedBuyer2Contact);
+    setShowSecondSeller(Boolean(tx.seller2));
+    setShowSecondBuyer(Boolean(tx.buyer2));
+
+    setTransactionForm({
+      transaction_price: tx.transaction_price != null ? String(tx.transaction_price) : '',
+      reference: tx.reference ?? '', commercial: tx.commercial ?? '', notes: tx.notes ?? '',
+      transaction_date: tx.transaction_date ?? '', transaction_time: tx.transaction_time ?? '',
+      pickup_location: tx.pickup_location ?? '', pickup_contact: tx.pickup_contact ?? '',
+      pickup_datetime: tx.pickup_datetime ?? '', destination: tx.destination ?? '', transporter: tx.transporter ?? '',
+    });
+
+    setLastSavedTransactionId(id);
+    setIsDirty(false);
+    setMode('editor');
+    window.scrollTo(0, 0);
+  };
+
+  // Quick create: minimal deal (direction, client, price, ref, commercial),
+  // MC on its side, then straight into the editor to finish.
+  const handleQuickCreate = async () => {
+    if (!mcExport) return;
+    setQuickSaving(true);
+    try {
+      // Resolve the client contact (existing or a light new one from a name).
+      let clientId = quick.clientContactId || null;
+      if (!clientId && quick.clientName.trim()) {
+        const { data: c } = await supabase
+          .from('contacts')
+          .insert({ type: quick.direction === 'purchase' ? 'seller' : 'buyer', company_name: quick.clientName.trim(), country: 'FR' })
+          .select().single();
+        clientId = c?.id ?? null;
+      }
+      // purchase: MC=buyer, client=seller · sale: MC=seller, client=buyer
+      const sellerId = quick.direction === 'purchase' ? clientId : mcExport.id;
+      const buyerId = quick.direction === 'purchase' ? mcExport.id : clientId;
+      const { data: tx, error } = await supabase
+        .from('transactions_admin')
+        .insert({
+          transaction_type: quick.direction, status: 'en_cours',
+          seller_contact_id: sellerId, buyer_contact_id: buyerId,
+          transaction_price: quick.price ? parseFloat(quick.price) : null,
+          reference: quick.reference || null, commercial: quick.commercial || null,
+        })
+        .select('id').single();
+      if (error || !tx) throw error ?? new Error('insert failed');
+      setShowQuickCreate(false);
+      setQuick({ direction: 'purchase', clientName: '', clientContactId: '', price: '', reference: '', commercial: '' });
+      await openDeal(tx.id);
+    } catch (e) {
+      setSaveMessage({ type: 'error', text: `Création impossible : ${getErrorMessage(e)}` });
+    } finally {
+      setQuickSaving(false);
+    }
+  };
+
   const selectContact = (contact: Contact, type: 'seller' | 'seller2' | 'buyer' | 'buyer2') => {
     const form: ContactForm = {
       company_name: contact.company_name || '',
@@ -533,6 +699,8 @@ export function Administrative() {
     setTransactionForm({
       transaction_price: '',
       reference: '',
+      commercial: '',
+      notes: '',
       transaction_date: '',
       transaction_time: '',
       pickup_location: '',
@@ -762,6 +930,8 @@ export function Administrative() {
           buyer_contact_id_2: buyerContactId2,
           transaction_price: transactionForm.transaction_price ? parseFloat(transactionForm.transaction_price) : null,
           reference: transactionForm.reference || null,
+          commercial: transactionForm.commercial || null,
+          notes: transactionForm.notes || null,
           transaction_date: transactionForm.transaction_date || null,
           transaction_time: transactionForm.transaction_time || null,
           pickup_location: transactionForm.pickup_location || null,
@@ -820,25 +990,34 @@ export function Administrative() {
       if (fetchError) throw fetchError;
       if (!existingTransaction) throw new Error('Transaction not found');
 
-      const { error: vehicleError } = await supabase
-        .from('vehicles_admin')
-        .update({
-          plate_number: vehicleForm.plate_number,
-          vin: vehicleForm.vin,
-          brand: vehicleForm.brand,
-          model: vehicleForm.model,
-          commercial_name: vehicleForm.commercial_name,
-          type_variant_version: vehicleForm.type_variant_version,
-          national_type: vehicleForm.national_type,
-          first_registration_date: vehicleForm.first_registration_date || null,
-          mileage: vehicleForm.mileage ? parseInt(vehicleForm.mileage) : null,
-          registration_certificate_present: vehicleForm.registration_certificate_present,
-          registration_certificate_number: vehicleForm.registration_certificate_number,
-          known_defects: vehicleForm.known_defects,
-        })
-        .eq('id', existingTransaction.vehicle_id);
+      const vehiclePayload = {
+        plate_number: vehicleForm.plate_number,
+        vin: vehicleForm.vin,
+        brand: vehicleForm.brand,
+        model: vehicleForm.model,
+        commercial_name: vehicleForm.commercial_name,
+        type_variant_version: vehicleForm.type_variant_version,
+        national_type: vehicleForm.national_type,
+        first_registration_date: vehicleForm.first_registration_date || null,
+        mileage: vehicleForm.mileage ? parseInt(vehicleForm.mileage) : null,
+        registration_certificate_present: vehicleForm.registration_certificate_present,
+        registration_certificate_number: vehicleForm.registration_certificate_number,
+        known_defects: vehicleForm.known_defects,
+      };
 
-      if (vehicleError) throw vehicleError;
+      // A quick-created deal has no vehicle yet — create one and link it.
+      let linkedVehicleId = existingTransaction.vehicle_id as string | null;
+      if (!linkedVehicleId) {
+        const { data: newVehicle, error: newVehErr } = await supabase
+          .from('vehicles_admin').insert(vehiclePayload).select('id').single();
+        if (newVehErr) throw newVehErr;
+        linkedVehicleId = newVehicle.id;
+        await supabase.from('transactions_admin').update({ vehicle_id: linkedVehicleId }).eq('id', lastSavedTransactionId);
+      } else {
+        const { error: vehicleError } = await supabase
+          .from('vehicles_admin').update(vehiclePayload).eq('id', linkedVehicleId);
+        if (vehicleError) throw vehicleError;
+      }
 
       let sellerContactId1: string | null = null;
       let sellerContactId2: string | null = null;
@@ -923,6 +1102,8 @@ export function Administrative() {
           buyer_contact_id_2: buyerContactId2,
           transaction_price: transactionForm.transaction_price ? parseFloat(transactionForm.transaction_price) : null,
           reference: transactionForm.reference || null,
+          commercial: transactionForm.commercial || null,
+          notes: transactionForm.notes || null,
           transaction_date: transactionForm.transaction_date || null,
           transaction_time: transactionForm.transaction_time || null,
           pickup_location: transactionForm.pickup_location || null,
@@ -1276,10 +1457,167 @@ export function Administrative() {
     </div>
   );
 
+  // ─── Deals list view ──────────────────────────────────────────────────────
+  const dealClient = (d: DealRow) =>
+    d.transaction_type === 'purchase' ? contactLabel(d.seller) : contactLabel(d.buyer);
+  const eur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
+
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const enCours = deals.filter((d) => d.status !== 'cloturee');
+  const clotureeMois = deals.filter((d) => d.status === 'cloturee' && d.closed_at && new Date(d.closed_at).getTime() >= startOfMonth);
+  const anterieures = deals.filter((d) => d.status === 'cloturee' && (!d.closed_at || new Date(d.closed_at).getTime() < startOfMonth));
+
+  const renderDealRow = (d: DealRow) => {
+    const veh = d.vehicle ? [d.vehicle.brand, d.vehicle.model].filter(Boolean).join(' ') || d.vehicle.plate_number || '—' : '—';
+    const closed = d.status === 'cloturee';
+    return (
+      <tr key={d.id} className="border-t border-zinc-800 hover:bg-zinc-800/40">
+        <td className="px-3 py-2.5">
+          <button onClick={() => openDeal(d.id)} className="text-blue-400 hover:text-blue-300 font-medium">
+            {d.reference || '—'}
+          </button>
+        </td>
+        <td className="px-3 py-2.5 text-zinc-400">
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${d.transaction_type === 'purchase' ? 'bg-emerald-900/30 text-emerald-300' : 'bg-violet-900/30 text-violet-300'}`}>
+            {d.transaction_type === 'purchase' ? 'Achat' : 'Vente'}
+          </span>
+        </td>
+        <td className="px-3 py-2.5 text-zinc-200 truncate max-w-[180px]">{dealClient(d)}</td>
+        <td className="px-3 py-2.5 text-zinc-400 truncate max-w-[160px]">{veh}</td>
+        <td className="px-3 py-2.5 text-zinc-300">{eur(d.transaction_price)}</td>
+        <td className="px-3 py-2.5 text-zinc-400">{d.commercial || '—'}</td>
+        <td className="px-3 py-2.5 text-zinc-500 text-xs">{(d.transaction_date || d.created_at || '').slice(0, 10)}</td>
+        <td className="px-3 py-2.5 text-right">
+          <div className="flex items-center justify-end gap-2">
+            <button onClick={() => openDeal(d.id)} className="text-xs text-zinc-300 hover:text-white">Ouvrir</button>
+            <button
+              onClick={() => closeDeal(d.id, !closed)}
+              className={`text-xs ${closed ? 'text-amber-400 hover:text-amber-300' : 'text-emerald-400 hover:text-emerald-300'}`}
+            >
+              {closed ? 'Rouvrir' : 'Clôturer'}
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
+  const renderDealsTable = (title: string, rows: DealRow[], accent: string) => (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-zinc-800">
+        <span className={`w-2 h-2 rounded-full ${accent}`} />
+        <h2 className="text-sm font-semibold text-zinc-200">{title}</h2>
+        <span className="text-xs text-zinc-500">· {rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-zinc-600">Aucune vente.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-500">
+                <th className="px-3 py-2 font-medium">Réf.</th>
+                <th className="px-3 py-2 font-medium">Sens</th>
+                <th className="px-3 py-2 font-medium">Client</th>
+                <th className="px-3 py-2 font-medium">Véhicule</th>
+                <th className="px-3 py-2 font-medium">Prix</th>
+                <th className="px-3 py-2 font-medium">Commercial</th>
+                <th className="px-3 py-2 font-medium">Date</th>
+                <th className="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody>{rows.map(renderDealRow)}</tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+
+  const renderDealsList = () => (
+    <div className="space-y-6">
+      {dealsLoading && <p className="text-sm text-zinc-500">Chargement…</p>}
+      {renderDealsTable('Ventes en cours', enCours, 'bg-blue-400')}
+      {renderDealsTable('Clôturées ce mois', clotureeMois, 'bg-emerald-400')}
+      {renderDealsTable('Mois précédents', anterieures, 'bg-zinc-500')}
+    </div>
+  );
+
+  const renderQuickCreate = () => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowQuickCreate(false)}>
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-full max-w-lg space-y-4" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-semibold text-zinc-100">Nouvelle vente</h2>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setQuick((q) => ({ ...q, direction: 'purchase' }))}
+            className={`px-3 py-2 rounded-lg text-sm border ${quick.direction === 'purchase' ? 'bg-blue-600/20 border-blue-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}
+          >MC Export achète</button>
+          <button
+            onClick={() => setQuick((q) => ({ ...q, direction: 'sale' }))}
+            className={`px-3 py-2 rounded-lg text-sm border ${quick.direction === 'sale' ? 'bg-blue-600/20 border-blue-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}
+          >MC Export vend</button>
+        </div>
+        <div>
+          <label className="block text-xs text-zinc-400 mb-1">{quick.direction === 'purchase' ? 'Vendeur (client)' : 'Acheteur (client)'}</label>
+          <select
+            value={quick.clientContactId}
+            onChange={(e) => setQuick((q) => ({ ...q, clientContactId: e.target.value, clientName: '' }))}
+            className="w-full mb-2 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm"
+          >
+            <option value="">— nouveau contact (saisir le nom) —</option>
+            {contacts.filter((c) => c.id !== mcExport?.id).map((c) => (
+              <option key={c.id} value={c.id}>{c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim()}</option>
+            ))}
+          </select>
+          {!quick.clientContactId && (
+            <input
+              value={quick.clientName}
+              onChange={(e) => setQuick((q) => ({ ...q, clientName: e.target.value }))}
+              placeholder="Nom du client / société"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm"
+            />
+          )}
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Prix (€)</label>
+            <input value={quick.price} onChange={(e) => setQuick((q) => ({ ...q, price: e.target.value }))} type="number" className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Référence</label>
+            <input value={quick.reference} onChange={(e) => setQuick((q) => ({ ...q, reference: e.target.value }))} placeholder="I63" className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Commercial</label>
+            <input value={quick.commercial} onChange={(e) => setQuick((q) => ({ ...q, commercial: e.target.value }))} list="commercial-list" className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm" />
+            <datalist id="commercial-list">{commercialNames.map((n) => <option key={n} value={n} />)}</datalist>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <button onClick={() => setShowQuickCreate(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200">Annuler</button>
+          <button
+            onClick={handleQuickCreate}
+            disabled={quickSaving || (!quick.clientContactId && !quick.clientName.trim())}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white"
+          >
+            {quickSaving ? 'Création…' : 'Créer et ouvrir'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">Administratif</h1>
+        <div className="flex items-center gap-3">
+          {mode === 'editor' && (
+            <button onClick={backToList} className="text-zinc-400 hover:text-white text-sm flex items-center gap-1">
+              ← Ventes
+            </button>
+          )}
+          <h1 className="text-3xl font-bold">{mode === 'list' ? 'Ventes' : 'Fiche vente'}</h1>
+        </div>
 
         <div className="flex items-center gap-3">
           <button
@@ -1291,19 +1629,26 @@ export function Administrative() {
             <UserPlus size={18} />
             Contacts
           </button>
+          {mode === 'list' ? (
+            <button
+              onClick={() => { setShowQuickCreate(true); setQuick({ direction: 'purchase', clientName: '', clientContactId: '', price: '', reference: '', commercial: '' }); }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors font-medium"
+            >
+              <Plus size={18} />
+              Nouvelle vente
+            </button>
+          ) : (
+            <button
+              onClick={handleClearForm}
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors font-medium"
+            >
+              <Trash2 size={18} />
+              Vider
+            </button>
+          )}
           <button
-            onClick={handleClearForm}
+            onClick={() => { window.history.pushState({}, '', '/admin/history'); }}
             className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors font-medium"
-          >
-            <Trash2 size={18} />
-            Vider
-          </button>
-          <button
-            onClick={() => {
-              console.log('[ADMIN_UI] Navigating to history');
-              window.history.pushState({}, '', '/admin/history');
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
           >
             <History size={18} />
             Historique
@@ -1364,6 +1709,52 @@ export function Administrative() {
           {saveMessage.text}
         </div>
       )}
+
+      {mode === 'list' && renderDealsList()}
+      {showQuickCreate && renderQuickCreate()}
+
+      {mode === 'editor' && (
+      <>
+      {/* Bandeau suivi de la vente : réf, statut, commercial, notes */}
+      <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-8 space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className={`text-xs px-2 py-1 rounded-full font-medium ${dealStatus === 'cloturee' ? 'bg-emerald-900/40 text-emerald-300' : 'bg-blue-900/40 text-blue-300'}`}>
+            {dealStatus === 'cloturee' ? 'Clôturée' : 'En cours'}
+          </span>
+          {transactionForm.reference && <span className="text-sm text-zinc-300 font-medium">Réf. {transactionForm.reference}</span>}
+          <span className="flex-1" />
+          {lastSavedTransactionId && (
+            <button
+              onClick={() => closeDeal(lastSavedTransactionId, dealStatus !== 'cloturee')}
+              className={`text-sm px-3 py-1.5 rounded-lg ${dealStatus === 'cloturee' ? 'bg-zinc-800 hover:bg-zinc-700 text-amber-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+            >
+              {dealStatus === 'cloturee' ? 'Rouvrir la vente' : 'Clôturer la vente'}
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1 text-zinc-300">Commercial</label>
+            <input
+              value={transactionForm.commercial}
+              onChange={(e) => updateTransactionForm({ commercial: e.target.value })}
+              list="commercial-list-editor"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            />
+            <datalist id="commercial-list-editor">{commercialNames.map((n) => <option key={n} value={n} />)}</datalist>
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium mb-1 text-zinc-300">Notes</label>
+            <textarea
+              value={transactionForm.notes}
+              onChange={(e) => updateTransactionForm({ notes: e.target.value })}
+              rows={2}
+              placeholder="Notes internes sur la vente…"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+      </section>
 
       <div className="space-y-8">
         <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
@@ -1828,6 +2219,8 @@ export function Administrative() {
           </section>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
