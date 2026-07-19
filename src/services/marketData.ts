@@ -10,7 +10,7 @@
 import { sharedSupabase as supabase } from '../lib/supabaseShared';
 import type { Database } from '../lib/database.types';
 import { generateInternalRef } from '../lib/internalRefGenerator';
-import { canonicalizeFuel, FUEL_LABELS } from '../lib/study-core/ingestion';
+import { canonicalizeFuel, refineFuelToken, FUEL_LABELS } from '../lib/study-core/ingestion';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
@@ -106,7 +106,9 @@ export async function writeMarketSnapshot(params: {
     model: segment.model,
     // Per-listing attributes (vary within a snapshot when the search wasn't
     // filtered on them) — this is what lets the dashboard slice by trim/fuel.
-    fuel: canonicalizeFuel(l.fuel ?? '') || '',
+    // PHEV refinement: cards label plug-ins as plain "Hybride"; the ad text
+    // ("Plug-In", "eHybrid"…) upgrades the token so 'phev' data exists at all.
+    fuel: refineFuelToken(canonicalizeFuel(l.fuel ?? ''), `${l.title ?? ''} ${l.description ?? ''} ${l.trim ?? ''}`) || '',
     trim: (l.trim ?? '').trim(),
     internal_ref: generateInternalRef({ listing_url: l.listing_url }),
     price: toEur(l.price, l.currency),
@@ -554,17 +556,16 @@ export interface MarketOpportunity {
   brand: string;
   model: string;
   fuel: string;        // canonical token ('electric'…)
+  /** Comparison year — both sides compare THE SAME vintage, never 1998 vs 2022. */
+  year: number;
   lowCountry: string;
   lowSite: string;
   lowMedian: number;   // EUR — median of the 5 cheapest
   lowCount: number;
-  /** Year span of the 5 cheapest ('2021–2023', '2022', or '' when unknown). */
-  lowYears: string;
   highCountry: string;
   highSite: string;
   highMedian: number;
   highCount: number;
-  highYears: string;
   deltaEur: number;
 }
 
@@ -572,7 +573,7 @@ const OPP_WINDOW_DAYS = 30;
 const OPP_MIN_PRICE_EUR = 1000; // wrecks/leasing noise guard
 
 export function opportunityKey(o: MarketOpportunity): string {
-  return [o.brand, o.model, o.fuel, o.lowCountry, o.highCountry].join('|');
+  return [o.brand, o.model, o.fuel, o.year, o.lowCountry, o.highCountry].join('|');
 }
 
 export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5): Promise<MarketOpportunity[]> {
@@ -588,7 +589,10 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
     40_000,
   );
 
-  type Side = { entries: Array<{ price: number; year: number | null }>; sites: Map<string, number> };
+  // Group at brand|model|fuel|YEAR grain: an alert must compare the SAME
+  // vintage on both sides (a 1998 911 vs a 2022 911 is an age difference, not
+  // an arbitrage). Listings without a year can't be placed — excluded.
+  type Side = { prices: number[]; sites: Map<string, number> };
   const groups = new Map<string, Map<string, Side>>();
   for (const r of data) {
     const price = typeof r.price === 'number' ? r.price : 0;
@@ -597,34 +601,27 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
     const model = (r.model ?? '').trim().toUpperCase();
     const fuel = (r.fuel ?? '').trim().toLowerCase();
     const country = (r.country ?? '').trim().toUpperCase();
-    if (!brand || !model || !fuel || !country) continue; // same-fuel comparisons only
-    const gKey = `${brand}|${model}|${fuel}`;
+    const year = typeof r.year === 'number' ? r.year : null;
+    if (!brand || !model || !fuel || !country || year == null) continue;
+    const gKey = `${brand}|${model}|${fuel}|${year}`;
     const byCountry = groups.get(gKey) ?? new Map<string, Side>();
-    const side: Side = byCountry.get(country) ?? { entries: [], sites: new Map<string, number>() };
-    side.entries.push({ price, year: typeof r.year === 'number' ? r.year : null });
+    const side: Side = byCountry.get(country) ?? { prices: [], sites: new Map<string, number>() };
+    side.prices.push(price);
     side.sites.set(r.site, (side.sites.get(r.site) ?? 0) + 1);
     byCountry.set(country, side);
     groups.set(gKey, byCountry);
   }
 
-  // Year span of a cheap-end sample: '2021–2023', '2022', or '' when unknown.
-  const yearSpan = (entries: Array<{ year: number | null }>): string => {
-    const ys = entries.map((e) => e.year).filter((y): y is number => y != null);
-    if (ys.length === 0) return '';
-    const lo = Math.min(...ys), hi = Math.max(...ys);
-    return lo === hi ? String(lo) : `${lo}–${hi}`;
-  };
-
   const out: MarketOpportunity[] = [];
   for (const [gKey, byCountry] of groups) {
-    const [brand, model, fuel] = gKey.split('|');
-    const sides: Array<{ country: string; median: number; count: number; site: string; years: string }> = [];
+    const [brand, model, fuel, yearStr] = gKey.split('|');
+    const sides: Array<{ country: string; median: number; count: number; site: string }> = [];
     for (const [country, side] of byCountry) {
-      if (side.entries.length < minPerCountry) continue;
-      const cheap = side.entries.sort((a, b) => a.price - b.price).slice(0, 5);
-      const median = cheap[Math.floor(cheap.length / 2)].price;
+      if (side.prices.length < minPerCountry) continue;
+      const cheap = side.prices.sort((a, b) => a - b).slice(0, 5);
+      const median = cheap[Math.floor(cheap.length / 2)];
       const site = [...side.sites.entries()].sort((a, b) => b[1] - a[1])[0][0];
-      sides.push({ country, median, count: side.entries.length, site, years: yearSpan(cheap) });
+      sides.push({ country, median, count: side.prices.length, site });
     }
     if (sides.length < 2) continue;
     sides.sort((a, b) => a.median - b.median);
@@ -633,9 +630,9 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
     const delta = Math.round(high.median - low.median);
     if (delta < minDelta) continue;
     out.push({
-      brand, model, fuel,
-      lowCountry: low.country, lowSite: low.site, lowMedian: Math.round(low.median), lowCount: low.count, lowYears: low.years,
-      highCountry: high.country, highSite: high.site, highMedian: Math.round(high.median), highCount: high.count, highYears: high.years,
+      brand, model, fuel, year: Number(yearStr),
+      lowCountry: low.country, lowSite: low.site, lowMedian: Math.round(low.median), lowCount: low.count,
+      highCountry: high.country, highSite: high.site, highMedian: Math.round(high.median), highCount: high.count,
       deltaEur: delta,
     });
   }
@@ -651,18 +648,19 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
 export async function loadOpportunityAcks(): Promise<Map<string, number>> {
   const { data } = await supabase
     .from('market_opportunity_acks')
-    .select('brand, model, fuel, low_country, high_country, delta_eur')
+    .select('brand, model, fuel, year, low_country, high_country, delta_eur')
     .limit(2000);
   const map = new Map<string, number>();
   for (const r of (data ?? []) as Array<Record<string, unknown>>) {
-    map.set([r.brand, r.model, r.fuel, r.low_country, r.high_country].join('|'), Number(r.delta_eur));
+    // Year is part of the key: a control on the 2022s never hides the 2019s.
+    map.set([r.brand, r.model, r.fuel, r.year, r.low_country, r.high_country].join('|'), Number(r.delta_eur));
   }
   return map;
 }
 
 export async function ackOpportunity(o: MarketOpportunity, by: string): Promise<void> {
   await supabase.from('market_opportunity_acks').insert({
-    brand: o.brand, model: o.model, fuel: o.fuel,
+    brand: o.brand, model: o.model, fuel: o.fuel, year: o.year,
     low_country: o.lowCountry, high_country: o.highCountry,
     delta_eur: o.deltaEur, acked_by: by,
   });

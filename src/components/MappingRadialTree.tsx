@@ -42,12 +42,9 @@ function nodeRadius(weight: number): number {
 }
 
 export function MappingRadialTree({ root }: { root: TreeNode }) {
-  // Default: root + sites expanded, deeper levels collapsed.
-  const defaultExpanded = useMemo(() => {
-    const s = new Set<string>([root.id]);
-    root.children.forEach((c) => s.add(c.id));
-    return s;
-  }, [root]);
+  // Default: EVERYTHING expanded — the full site → marque → modèle → finition
+  // map at a glance ("Tout replier" remains one click away).
+  const defaultExpanded = useMemo(() => new Set<string>(collectAllIds(root)), [root]);
 
   const [expanded, setExpanded] = useState<Set<string>>(defaultExpanded);
   const [hovered, setHovered] = useState<Positioned | null>(null);
@@ -179,19 +176,19 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
                   stroke={p.hasChildren && !p.expanded ? '#e4e4e7' : '#18181b'}
                   strokeWidth={p.hasChildren && !p.expanded ? 1.5 : 1}
                 />
-                {p.depth <= 3 && (
-                  <text
-                    x={rightHalf ? r + 4 : -(r + 4)}
-                    y={4}
-                    textAnchor={rightHalf ? 'start' : 'end'}
-                    fontSize={isRoot ? 13 : Math.max(9, 12 - p.depth)}
-                    fill={isRoot ? '#f4f4f5' : '#a1a1aa'}
-                    fontWeight={p.depth <= 1 ? 600 : 400}
-                  >
-                    {p.node.label}
-                    {p.hasChildren && !p.expanded ? ` (${p.node.children.length})` : ''}
-                  </text>
-                )}
+                {/* Labels at every depth — the variant ring (fuel/finition,
+                    depth 4) was left unlabelled and looked like anonymous dots. */}
+                <text
+                  x={rightHalf ? r + 4 : -(r + 4)}
+                  y={4}
+                  textAnchor={rightHalf ? 'start' : 'end'}
+                  fontSize={isRoot ? 13 : Math.max(8, 12 - p.depth)}
+                  fill={isRoot ? '#f4f4f5' : p.depth >= 4 ? '#8b8b93' : '#a1a1aa'}
+                  fontWeight={p.depth <= 1 ? 600 : 400}
+                >
+                  {p.node.label}
+                  {p.hasChildren && !p.expanded ? ` (${p.node.children.length})` : ''}
+                </text>
               </g>
             );
           })}

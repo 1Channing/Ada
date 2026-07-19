@@ -86,19 +86,20 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
       const gen = await generateSearchUrlsWithMemory({
         selectedSites: [o.lowSite as SiteKey, o.highSite as SiteKey],
         brand: o.brand, model: o.model, fuel: criteriaFuel,
+        yearFrom: String(o.year), yearTo: String(o.year),
       });
       const sourceUrl = gen.find((g) => g.site === o.lowSite)?.url ?? '';
       const targetUrl = gen.find((g) => g.site === o.highSite)?.url ?? '';
       if (!sourceUrl || !targetUrl) throw new Error('URL non générable pour un des deux sites');
 
-      const id = `ADA-${o.brand}-${o.model}-${o.lowCountry}-${o.highCountry}-${Date.now().toString(36)}`
+      const id = `ADA-${o.brand}-${o.model}-${o.year}-${o.lowCountry}-${o.highCountry}-${Date.now().toString(36)}`
         .replace(/[^A-Za-z0-9-]+/g, '-').toUpperCase();
       // Source = pays le moins cher (achat), target = pays le plus cher (revente).
       const { error } = await supabase.from('studies_v2').insert({
         id,
         brand: o.brand,
         model: o.model,
-        year: null,
+        year: o.year,
         max_mileage: null,
         country_source: o.lowCountry,
         market_source_url: sourceUrl,
@@ -151,9 +152,9 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
       {!collapsed && (
         <>
           <p className="text-xs text-zinc-500">
-            Médiane des 5 annonces les moins chères par pays (30 derniers jours, même carburant,
-            prix &lt; 1 000 € exclus), triées par écart × volume — les années affichées sont celles de ces
-            5 annonces. « Inspecter » ouvre la comparaison des deux marchés en dessous.
+            Médiane des 5 annonces les moins chères par pays — <span className="text-zinc-400">même carburant
+            ET même année des deux côtés</span> (30 derniers jours, prix &lt; 1 000 € exclus), triées par
+            écart × volume. « Inspecter » ouvre la comparaison des deux marchés en dessous.
           </p>
           {notice && <p className="text-xs text-emerald-400">{notice}</p>}
 
@@ -163,13 +164,14 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
               return (
                 <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
                   <span className="font-medium text-zinc-200">{o.brand} {o.model}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-300">{o.year}</span>
                   <span className="text-xs text-zinc-400">{fuelLabel(o.fuel)}</span>
                   <span className="text-xs text-zinc-400">
                     {COUNTRY_FLAG[o.lowCountry] ?? o.lowCountry} {eur(o.lowMedian)}
-                    <span className="text-zinc-500"> ({o.lowCount}{o.lowYears ? ` · ${o.lowYears}` : ''})</span>
+                    <span className="text-zinc-500"> ({o.lowCount})</span>
                     <span className="text-zinc-600"> vs </span>
                     {COUNTRY_FLAG[o.highCountry] ?? o.highCountry} {eur(o.highMedian)}
-                    <span className="text-zinc-500"> ({o.highCount}{o.highYears ? ` · ${o.highYears}` : ''})</span>
+                    <span className="text-zinc-500"> ({o.highCount})</span>
                   </span>
                   <span className="font-semibold text-amber-400">écart {eur(o.deltaEur)}</span>
                   <span className="flex-1" />

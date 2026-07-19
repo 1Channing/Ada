@@ -172,7 +172,7 @@ export function MarketIntelligence() {
           Inspecter = ouvrir DIRECTEMENT les deux marchés de l'écart en études
           comparées (pays bas vs pays haut), prêtes à lire côte à côte. */}
       <OpportunityAlerts onInspect={(o) => {
-        const base = { brand: o.brand, model: o.model, fuel: o.fuel as FuelToken };
+        const base = { brand: o.brand, model: o.model, fuel: o.fuel as FuelToken, yearMin: o.year, yearMax: o.year };
         setStudies([
           { ...base, country: o.lowCountry },
           { ...base, country: o.highCountry },

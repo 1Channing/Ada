@@ -746,6 +746,7 @@ export type Database = {
           brand: string
           model: string
           fuel: string
+          year?: number | null
           low_country: string
           high_country: string
           delta_eur: number
@@ -758,6 +759,7 @@ export type Database = {
           brand: string
           model: string
           fuel?: string
+          year?: number | null
           low_country: string
           high_country: string
           delta_eur: number
@@ -770,6 +772,7 @@ export type Database = {
           brand?: string
           model?: string
           fuel?: string
+          year?: number | null
           low_country?: string
           high_country?: string
           delta_eur?: number

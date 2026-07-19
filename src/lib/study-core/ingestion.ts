@@ -93,8 +93,21 @@ export interface IngestionAnalysis {
 // lpg (GPL). Order matters: hybrid variants are tested before 'electric' so
 // "Hybride Elektrisch" is never mis-read as electric.
 
-const PHEV_TOKENS = /plug\s?in|phev|hybride rechargeable|oplaadbare/;
+const PHEV_TOKENS = /plug\s?in|phev|hybride rechargeable|oplaadbare|\be[\s-]?hybrid/;
 const MILD_HYBRID_TOKENS = /half hybrid|mild hybrid|micro hybrid|\bmhev\b/;
+
+/**
+ * Marketplace cards rarely distinguish a PLUG-IN from a full hybrid: Marktplaats
+ * and AutoScout both label everything "Hybride"/"Elektro/Benzine", so NO
+ * per-listing observation ever canonicalised to 'phev' — the dashboard showed
+ * zero rechargeable data for whole countries. The signal lives in the TITLE
+ * ("Plug-In Hybrid", "eHybrid", "PHEV", "P400e"…): when the structured fuel
+ * says hybrid (or nothing) but the ad text says plug-in, upgrade the token.
+ */
+export function refineFuelToken(structured: FuelToken, adText: string): FuelToken {
+  if (structured !== 'hybrid' && structured !== '') return structured;
+  return PHEV_TOKENS.test(normalizeForMatch(adText)) ? 'phev' : structured;
+}
 
 export type FuelToken =
   | 'petrol' | 'diesel' | 'electric' | 'hybrid' | 'mild_hybrid'

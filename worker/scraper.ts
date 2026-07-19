@@ -28,7 +28,7 @@ import {
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
-import { canonicalizeFuel } from '../src/lib/study-core/ingestion';
+import { canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { StudyLogger } from './studyLogger';
 
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
@@ -115,7 +115,7 @@ async function recordStudyMarketSnapshot(
     const observations = priced.map((l) => ({
       snapshot_id: snap.id, site: segment.site, country: segment.country,
       brand: segment.brand, model: segment.model,
-      fuel: canonicalizeFuel((l as any).fuel ?? '') || '',
+      fuel: refineFuelToken(canonicalizeFuel((l as any).fuel ?? ''), `${l.title ?? ''} ${(l as any).description ?? ''} ${l.trim ?? ''}`) || '',
       trim: (l.trim ?? '').trim(),
       internal_ref: generateInternalRef({ listing_url: l.listing_url }),
       price: Math.round(toEur(l.price, l.currency)),
