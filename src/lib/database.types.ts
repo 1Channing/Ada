@@ -592,6 +592,9 @@ export type Database = {
           closed_at?: string | null
           notes?: string | null
           commercial?: string | null
+          purchase_price?: number | null
+          sale_price?: number | null
+          fees?: number | null
           vehicle_id: string | null
           seller_contact_id: string | null
           seller_contact_id_2: string | null
@@ -615,6 +618,9 @@ export type Database = {
           closed_at?: string | null
           notes?: string | null
           commercial?: string | null
+          purchase_price?: number | null
+          sale_price?: number | null
+          fees?: number | null
           vehicle_id?: string | null
           seller_contact_id?: string | null
           seller_contact_id_2?: string | null
@@ -638,6 +644,9 @@ export type Database = {
           closed_at?: string | null
           notes?: string | null
           commercial?: string | null
+          purchase_price?: number | null
+          sale_price?: number | null
+          fees?: number | null
           vehicle_id?: string | null
           seller_contact_id?: string | null
           seller_contact_id_2?: string | null

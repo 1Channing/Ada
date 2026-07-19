@@ -55,6 +55,9 @@ type ContactForm = {
 
 type TransactionForm = {
   transaction_price: string;
+  purchase_price: string;
+  sale_price: string;
+  fees: string;
   reference: string;
   commercial: string;
   notes: string;
@@ -75,6 +78,9 @@ type DealRow = {
   reference: string | null;
   commercial: string | null;
   transaction_price: number | null;
+  purchase_price: number | null;
+  sale_price: number | null;
+  fees: number | null;
   transaction_date: string | null;
   created_at: string;
   closed_at: string | null;
@@ -186,6 +192,9 @@ export function Administrative() {
 
   const [transactionForm, setTransactionForm] = useState<TransactionForm>({
     transaction_price: '',
+    purchase_price: '',
+    sale_price: '',
+    fees: '',
     reference: '',
     commercial: '',
     notes: '',
@@ -248,7 +257,7 @@ export function Administrative() {
       setSellerForm2(draft.sellerForm2);
       setBuyerForm(draft.buyerForm);
       setBuyerForm2(draft.buyerForm2);
-      setTransactionForm({ reference: '', commercial: '', notes: '', ...draft.transactionForm });
+      setTransactionForm({ reference: '', commercial: '', notes: '', purchase_price: '', sale_price: '', fees: '', ...draft.transactionForm });
       setShowSecondSeller(draft.showSecondSeller);
       setShowSecondBuyer(draft.showSecondBuyer);
       setLastSavedTransactionId(draft.lastSavedTransactionId);
@@ -459,7 +468,7 @@ export function Administrative() {
       .from('transactions_admin')
       .select(`
         id, transaction_type, status, reference, commercial, transaction_price,
-        transaction_date, created_at, closed_at,
+        purchase_price, sale_price, fees, transaction_date, created_at, closed_at,
         vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(brand, model, plate_number),
         seller:contacts!transactions_admin_seller_contact_id_fkey(company_name, first_name, last_name),
         buyer:contacts!transactions_admin_buyer_contact_id_fkey(company_name, first_name, last_name)
@@ -490,6 +499,29 @@ export function Administrative() {
       .eq('id', id);
     if (id === lastSavedTransactionId) setDealStatus(close ? 'cloturee' : 'en_cours');
     await loadDeals();
+  };
+
+  const deleteDeal = async (id: string) => {
+    if (!window.confirm('Supprimer définitivement cette vente ? (le véhicule associé est supprimé, les contacts sont conservés)')) return;
+    // Fetch the vehicle to clean it up too; contacts are shared, kept.
+    const { data: tx } = await supabase.from('transactions_admin').select('vehicle_id').eq('id', id).maybeSingle();
+    await supabase.from('transactions_admin').delete().eq('id', id); // cascades documents_admin_history
+    if (tx?.vehicle_id) await supabase.from('vehicles_admin').delete().eq('id', tx.vehicle_id);
+    if (id === lastSavedTransactionId) backToList();
+    else await loadDeals();
+  };
+
+  // Add a contact from the settings panel (light: name + address).
+  const [newContact, setNewContact] = useState<ContactForm>(EMPTY_CONTACT);
+  const [addingContact, setAddingContact] = useState(false);
+  const addContact = async () => {
+    if (!newContact.company_name && !newContact.first_name && !newContact.last_name) return;
+    setAddingContact(true);
+    try {
+      await supabase.from('contacts').insert({ type: 'client', ...newContact });
+      setNewContact(EMPTY_CONTACT);
+      await loadContacts();
+    } finally { setAddingContact(false); }
   };
 
   // Load a full deal into the editor forms.
@@ -536,6 +568,9 @@ export function Administrative() {
 
     setTransactionForm({
       transaction_price: tx.transaction_price != null ? String(tx.transaction_price) : '',
+      purchase_price: tx.purchase_price != null ? String(tx.purchase_price) : '',
+      sale_price: tx.sale_price != null ? String(tx.sale_price) : '',
+      fees: tx.fees != null ? String(tx.fees) : '',
       reference: tx.reference ?? '', commercial: tx.commercial ?? '', notes: tx.notes ?? '',
       transaction_date: tx.transaction_date ?? '', transaction_time: tx.transaction_time ?? '',
       pickup_location: tx.pickup_location ?? '', pickup_contact: tx.pickup_contact ?? '',
@@ -698,6 +733,9 @@ export function Administrative() {
     });
     setTransactionForm({
       transaction_price: '',
+      purchase_price: '',
+      sale_price: '',
+      fees: '',
       reference: '',
       commercial: '',
       notes: '',
@@ -932,6 +970,9 @@ export function Administrative() {
           reference: transactionForm.reference || null,
           commercial: transactionForm.commercial || null,
           notes: transactionForm.notes || null,
+          purchase_price: transactionForm.purchase_price ? parseFloat(transactionForm.purchase_price) : null,
+          sale_price: transactionForm.sale_price ? parseFloat(transactionForm.sale_price) : null,
+          fees: transactionForm.fees ? parseFloat(transactionForm.fees) : null,
           transaction_date: transactionForm.transaction_date || null,
           transaction_time: transactionForm.transaction_time || null,
           pickup_location: transactionForm.pickup_location || null,
@@ -1104,6 +1145,9 @@ export function Administrative() {
           reference: transactionForm.reference || null,
           commercial: transactionForm.commercial || null,
           notes: transactionForm.notes || null,
+          purchase_price: transactionForm.purchase_price ? parseFloat(transactionForm.purchase_price) : null,
+          sale_price: transactionForm.sale_price ? parseFloat(transactionForm.sale_price) : null,
+          fees: transactionForm.fees ? parseFloat(transactionForm.fees) : null,
           transaction_date: transactionForm.transaction_date || null,
           transaction_time: transactionForm.transaction_time || null,
           pickup_location: transactionForm.pickup_location || null,
@@ -1465,8 +1509,27 @@ export function Administrative() {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const enCours = deals.filter((d) => d.status !== 'cloturee');
-  const clotureeMois = deals.filter((d) => d.status === 'cloturee' && d.closed_at && new Date(d.closed_at).getTime() >= startOfMonth);
-  const anterieures = deals.filter((d) => d.status === 'cloturee' && (!d.closed_at || new Date(d.closed_at).getTime() < startOfMonth));
+  const cloturees = deals.filter((d) => d.status === 'cloturee');
+
+  const dealMargin = (d: DealRow) => (d.sale_price ?? 0) - (d.purchase_price ?? 0) - (d.fees ?? 0);
+  const sum = (arr: DealRow[], f: (d: DealRow) => number) => arr.reduce((s, d) => s + (f(d) || 0), 0);
+
+  // KPIs
+  const caEnCours = sum(enCours, (d) => d.sale_price ?? 0);
+  const margeEnCours = sum(enCours, dealMargin);
+  const closedThisMonth = cloturees.filter((d) => d.closed_at && new Date(d.closed_at).getTime() >= startOfMonth);
+  const caMois = sum(closedThisMonth, (d) => d.sale_price ?? 0);
+  const margeMois = sum(closedThisMonth, dealMargin);
+
+  // Closed deals grouped by month label (Décembre 2026…), most recent first.
+  const monthFmt = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' });
+  const historique = new Map<string, DealRow[]>();
+  for (const d of cloturees) {
+    const dt = d.closed_at ? new Date(d.closed_at) : new Date(d.created_at);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+    (historique.get(key) ?? historique.set(key, []).get(key)!).push(d);
+  }
+  const historiqueMonths = [...historique.entries()].sort((a, b) => b[0].localeCompare(a[0]));
 
   const renderDealRow = (d: DealRow) => {
     const veh = d.vehicle ? [d.vehicle.brand, d.vehicle.model].filter(Boolean).join(' ') || d.vehicle.plate_number || '—' : '—';
@@ -1497,6 +1560,13 @@ export function Administrative() {
             >
               {closed ? 'Rouvrir' : 'Clôturer'}
             </button>
+            <button
+              onClick={() => deleteDeal(d.id)}
+              className="text-xs text-zinc-600 hover:text-red-400"
+              title="Supprimer la vente"
+            >
+              Suppr.
+            </button>
           </div>
         </td>
       </tr>
@@ -1505,11 +1575,13 @@ export function Administrative() {
 
   const renderDealsTable = (title: string, rows: DealRow[], accent: string) => (
     <section className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-      <div className="flex items-center gap-2 px-5 py-3 border-b border-zinc-800">
-        <span className={`w-2 h-2 rounded-full ${accent}`} />
-        <h2 className="text-sm font-semibold text-zinc-200">{title}</h2>
-        <span className="text-xs text-zinc-500">· {rows.length}</span>
-      </div>
+      {title && (
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-zinc-800">
+          <span className={`w-2 h-2 rounded-full ${accent}`} />
+          <h2 className="text-sm font-semibold text-zinc-200">{title}</h2>
+          <span className="text-xs text-zinc-500">· {rows.length}</span>
+        </div>
+      )}
       {rows.length === 0 ? (
         <p className="px-5 py-4 text-sm text-zinc-600">Aucune vente.</p>
       ) : (
@@ -1534,12 +1606,48 @@ export function Administrative() {
     </section>
   );
 
+  const kpi = (label: string, value: string, sub?: string, accent = 'text-zinc-100') => (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-4">
+      <p className="text-[11px] uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={`mt-1 text-2xl font-semibold ${accent}`}>{value}</p>
+      {sub && <p className="mt-0.5 text-xs text-zinc-500">{sub}</p>}
+    </div>
+  );
+
   const renderDealsList = () => (
     <div className="space-y-6">
+      {/* Tableau de bord */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpi("Chiffre d'affaires en cours", eur(caEnCours), `${enCours.length} vente${enCours.length > 1 ? 's' : ''} en cours`, 'text-blue-300')}
+        {kpi('Marge en cours (est.)', eur(margeEnCours), 'vente − achat − frais')}
+        {kpi("CA du mois", eur(caMois), `${closedThisMonth.length} vente${closedThisMonth.length > 1 ? 's' : ''} clôturée${closedThisMonth.length > 1 ? 's' : ''}`, 'text-emerald-300')}
+        {kpi('Marge du mois', eur(margeMois), monthFmt.format(now))}
+      </div>
+
       {dealsLoading && <p className="text-sm text-zinc-500">Chargement…</p>}
+
       {renderDealsTable('Ventes en cours', enCours, 'bg-blue-400')}
-      {renderDealsTable('Clôturées ce mois', clotureeMois, 'bg-emerald-400')}
-      {renderDealsTable('Mois précédents', anterieures, 'bg-zinc-500')}
+
+      {/* Historique mensuel */}
+      {historiqueMonths.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-xs uppercase tracking-wide text-zinc-500 pt-2">Historique</h2>
+          {historiqueMonths.map(([key, rows]) => {
+            const [y, m] = key.split('-').map(Number);
+            const label = monthFmt.format(new Date(y, m - 1, 1));
+            const caMonth = sum(rows, (d) => d.sale_price ?? 0);
+            return (
+              <div key={key} className="space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-sm font-medium text-zinc-300 capitalize">{label}</span>
+                  <span className="text-xs text-zinc-500">CA {eur(caMonth)} · {rows.length} vente{rows.length > 1 ? 's' : ''}</span>
+                </div>
+                {renderDealsTable('', rows, 'bg-zinc-500')}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 
@@ -1665,6 +1773,65 @@ export function Administrative() {
             </div>
             <span className="text-sm text-zinc-500">{contacts.length} contact(s)</span>
           </div>
+
+          {/* Ajout d'un contact */}
+          <div className="mb-5 p-4 bg-zinc-800/40 border border-zinc-800 rounded-lg space-y-3">
+            <p className="text-sm font-medium text-zinc-300">Ajouter un contact</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <input
+                value={newContact.company_name}
+                onChange={(e) => setNewContact((c) => ({ ...c, company_name: e.target.value }))}
+                placeholder="Société"
+                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+              />
+              <input
+                value={newContact.first_name}
+                onChange={(e) => setNewContact((c) => ({ ...c, first_name: e.target.value }))}
+                placeholder="Prénom"
+                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+              />
+              <input
+                value={newContact.last_name}
+                onChange={(e) => setNewContact((c) => ({ ...c, last_name: e.target.value }))}
+                placeholder="Nom"
+                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+              />
+              <input
+                value={newContact.address_line1}
+                onChange={(e) => setNewContact((c) => ({ ...c, address_line1: e.target.value }))}
+                placeholder="Adresse"
+                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm md:col-span-3"
+              />
+              <input
+                value={newContact.postal_code}
+                onChange={(e) => setNewContact((c) => ({ ...c, postal_code: e.target.value }))}
+                placeholder="Code postal"
+                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+              />
+              <input
+                value={newContact.city}
+                onChange={(e) => setNewContact((c) => ({ ...c, city: e.target.value }))}
+                placeholder="Ville"
+                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+              />
+              <input
+                value={newContact.siren}
+                onChange={(e) => setNewContact((c) => ({ ...c, siren: e.target.value }))}
+                placeholder="SIREN (optionnel)"
+                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={addContact}
+                disabled={addingContact || (!newContact.company_name && !newContact.first_name && !newContact.last_name)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg text-sm font-medium"
+              >
+                <Plus size={16} /> {addingContact ? 'Ajout…' : 'Ajouter'}
+              </button>
+            </div>
+          </div>
+
           <div className="max-h-96 overflow-y-auto divide-y divide-zinc-800">
             {contacts.length === 0 && <p className="text-sm text-zinc-500 py-4">Aucun contact pour l'instant.</p>}
             {contacts.map((c) => {
@@ -1921,10 +2088,10 @@ export function Administrative() {
             </button>
           </div>
 
-          {/* Prix + Référence — le cœur de la vente */}
+          {/* Prix du document + Référence */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Prix (€)</label>
+              <label className="block text-sm font-medium mb-1 text-zinc-300">Prix du document (€)</label>
               <input
                 type="number"
                 step="0.01"
@@ -1933,6 +2100,7 @@ export function Administrative() {
                 placeholder="9 500"
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
+              <p className="mt-1 text-xs text-zinc-500">Montant reporté sur les documents (cession, bon d'achat…).</p>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1 text-zinc-300">Référence <span className="text-zinc-500 font-normal">(votre code, ex. I63, TGE789)</span></label>
@@ -1945,6 +2113,61 @@ export function Administrative() {
               />
             </div>
           </div>
+
+          {/* Tarifs — achat / vente / frais / marge */}
+          {(() => {
+            const p = parseFloat(transactionForm.purchase_price) || 0;
+            const s = parseFloat(transactionForm.sale_price) || 0;
+            const f = parseFloat(transactionForm.fees) || 0;
+            const marge = s - p - f;
+            const hasAny = transactionForm.purchase_price || transactionForm.sale_price || transactionForm.fees;
+            return (
+              <div className="mt-6 pt-5 border-t border-zinc-800">
+                <h3 className="text-sm font-semibold text-zinc-300 mb-3">Tarifs</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-zinc-300">Prix d'achat (€)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={transactionForm.purchase_price}
+                      onChange={(e) => updateTransactionForm({ purchase_price: e.target.value })}
+                      placeholder="8 000"
+                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-zinc-300">Prix de vente (€)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={transactionForm.sale_price}
+                      onChange={(e) => updateTransactionForm({ sale_price: e.target.value })}
+                      placeholder="9 500"
+                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-zinc-300">Frais (€)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={transactionForm.fees}
+                      onChange={(e) => updateTransactionForm({ fees: e.target.value })}
+                      placeholder="300"
+                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+                {hasAny && (
+                  <div className={`mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${marge >= 0 ? 'bg-emerald-900/30 text-emerald-300' : 'bg-red-900/30 text-red-300'}`}>
+                    Marge : {marge.toLocaleString('fr-FR')} €
+                    <span className="text-xs font-normal text-zinc-400">(vente − achat − frais)</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </section>
 
         {/* ─── Vendeur ─────────────────────────────────────────────── */}
