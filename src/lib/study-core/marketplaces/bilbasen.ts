@@ -72,7 +72,12 @@ const MODEL_MAP: Record<string, string> = {
   PRIUS: 'Prius',
   'C-HR': 'C-HR',
   CHR: 'C-HR',
-  GOLF: 'Golf',
+  // Bilbasen groups the Golf under a SERIES page: /brugt/bil/vw/golf is an
+  // invalid slug the site silently falls back from (brand-wide "VW - 384
+  // brugte" mixing ID.4s → model 0/100 in campaigns). Human-confirmed slug:
+  // /brugt/bil/vw/ms-golf-serie ("VW Golf-Serie" page). reverseLookup maps it
+  // back to GOLF for URL prefill.
+  GOLF: 'ms-golf-serie',
   POLO: 'Polo',
   PASSAT: 'Passat',
   '3 SERIES': '3',

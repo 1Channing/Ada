@@ -15,6 +15,7 @@ import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/mark
 import { startCampaign, stopCampaign, markItemResolved } from '../services/campaignRunner';
 import { useCampaignStore } from '../store/campaignStore';
 import type { CampaignItemResult, CampaignOutcome } from '../store/campaignStore';
+import { ResolutionCenter } from './ResolutionCenter';
 
 const OUTCOME_LABELS: Record<CampaignOutcome, string> = {
   confirmed: 'confirmé',
@@ -376,6 +377,9 @@ export function CampaignPanel() {
           </div>
         );
       })()}
+
+      {/* Centre de résolution — toutes les inconnues, toutes campagnes */}
+      <ResolutionCenter />
     </div>
   );
 }

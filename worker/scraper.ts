@@ -408,6 +408,16 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
     if (u.includes('autoscout24.be/nl/')) return u.replace('autoscout24.be/nl/', 'autoscout24.be/fr/');
     return null;
   };
+  // Cloudflare caches its error page per exact URL: retries on the SAME URL
+  // returned byte-identical blocks (21670b raw ×2, 29390b browser ×2 on AS24
+  // IT). A throwaway query param changes the cache key so each retry gets a
+  // fresh edge decision. AS24 ignores unknown params; never persisted — the
+  // caller's original `url` is what memory/ingestion record.
+  const withNocache = (u: string): string => {
+    const nonce = `adanc=${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+    if (/[?&]adanc=/.test(u)) return u.replace(/([?&])adanc=[^&]*/, `$1${nonce}`);
+    return u + (u.includes('?') ? '&' : '?') + nonce;
+  };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const profileLevel = attempt + 1;
@@ -469,6 +479,9 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
         if (flipped) {
           console.log(`[WORKER_SCRAPER] BE locale flip on retry: ${flipped}`);
           activeUrl = flipped;
+        } else if (activeUrl.includes('autoscout24.')) {
+          activeUrl = withNocache(activeUrl);
+          console.log(`[WORKER_SCRAPER] cache-buster on retry: ${activeUrl}`);
         }
         // Longer pause than a soft failure: a CF block that just fired rarely
         // clears within a second from the same exit.

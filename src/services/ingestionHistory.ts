@@ -56,6 +56,57 @@ export function computeContributors(events: IngestionEventRow[]): Contributor[] 
   return [...map.values()].sort((a, b) => b.written - a.written || b.total - a.total);
 }
 
+export interface GlobalIngestionStats {
+  totalEvents: number;
+  totalWritten: number;
+  contributors: Contributor[];
+}
+
+/**
+ * Leaderboard + KPI totals over the WHOLE events table, not just the journal
+ * window. Computing them from the latest 500 events made colleagues' scores
+ * SHRINK whenever an Ada campaign flooded the recent window (their older
+ * events fell out of the 500), and pinned "liens ingérés" at 500. Aggregates
+ * are paginated over a 2-column projection so the payload stays small.
+ */
+export async function loadGlobalStats(): Promise<GlobalIngestionStats> {
+  const map = new Map<string, Contributor>();
+  let totalEvents = 0;
+  let totalWritten = 0;
+
+  const PAGE = 1000;
+  for (let from = 0; from < 100_000; from += PAGE) {
+    const { data, error } = await supabase
+      .from('linkgen_ingestion_events')
+      .select('submitted_by, memory_action')
+      .order('created_at', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) {
+      console.warn('[HISTORY] loadGlobalStats page failed:', error.message);
+      break;
+    }
+    const rows = (data ?? []) as Array<{ submitted_by: string | null; memory_action: string | null }>;
+    for (const r of rows) {
+      totalEvents += 1;
+      const wrote = Boolean(r.memory_action && WROTE_ACTIONS.has(r.memory_action));
+      if (wrote) totalWritten += 1;
+      const name = (r.submitted_by ?? '').trim();
+      if (!name) continue;
+      const c = map.get(name) ?? { name, total: 0, written: 0 };
+      c.total += 1;
+      if (wrote) c.written += 1;
+      map.set(name, c);
+    }
+    if (rows.length < PAGE) break;
+  }
+
+  return {
+    totalEvents,
+    totalWritten,
+    contributors: [...map.values()].sort((a, b) => b.written - a.written || b.total - a.total),
+  };
+}
+
 /** Just the distinct known names (for the Ingestion form dropdown). */
 export async function loadContributorNames(): Promise<string[]> {
   const { data, error } = await supabase

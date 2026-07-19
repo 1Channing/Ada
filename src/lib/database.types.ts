@@ -879,6 +879,7 @@ export type Database = {
           created_at: string
           finished_at: string | null
           resolved_at: string | null
+          resolution?: string | null
         }
         Insert: {
           id?: string
@@ -898,6 +899,7 @@ export type Database = {
           created_at?: string
           finished_at?: string | null
           resolved_at?: string | null
+          resolution?: string | null
         }
         Update: {
           id?: string
@@ -917,6 +919,7 @@ export type Database = {
           created_at?: string
           finished_at?: string | null
           resolved_at?: string | null
+          resolution?: string | null
         }
         Relationships: []
       }

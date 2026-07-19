@@ -3,11 +3,11 @@ import { History, Trophy, RefreshCw, CheckCircle2, XCircle, Radio } from 'lucide
 import { supabase } from '../lib/supabase';
 import {
   loadIngestionEvents,
-  computeContributors,
+  loadGlobalStats,
   loadMappingTree,
   countMappings,
 } from '../services/ingestionHistory';
-import type { IngestionEventRow, Contributor, TreeNode } from '../services/ingestionHistory';
+import type { IngestionEventRow, Contributor, TreeNode, GlobalIngestionStats } from '../services/ingestionHistory';
 import { MappingRadialTree } from '../components/MappingRadialTree';
 
 const SITE_FLAG: Record<string, string> = { LEBONCOIN: '🇫🇷', MARKTPLAATS: '🇳🇱', BILBASEN: '🇩🇰' };
@@ -34,6 +34,7 @@ function vehicleOf(e: IngestionEventRow): string {
 
 export function IngestionHistory() {
   const [events, setEvents] = useState<IngestionEventRow[]>([]);
+  const [stats, setStats] = useState<GlobalIngestionStats | null>(null);
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(false);
@@ -44,9 +45,12 @@ export function IngestionHistory() {
 
   const refresh = async () => {
     setLoading(true);
-    const [evs, t] = await Promise.all([loadIngestionEvents(), loadMappingTree()]);
+    // Journal = the latest 500 events; KPIs + leaderboard = whole-table stats,
+    // so campaign floods can never shrink a colleague's score.
+    const [evs, t, st] = await Promise.all([loadIngestionEvents(), loadMappingTree(), loadGlobalStats()]);
     setEvents(evs);
     setTree(t);
+    setStats(st);
     setLoading(false);
   };
 
@@ -62,6 +66,24 @@ export function IngestionHistory() {
         (payload) => {
           const row = payload.new as unknown as IngestionEventRow;
           setEvents((prev) => [row, ...prev].slice(0, 500));
+          // Keep the global stats live without a full recount.
+          setStats((prev) => {
+            if (!prev) return prev;
+            const wrote = Boolean(row.memory_action && ['inserted', 'reinforced', 'upgraded_from_csv'].includes(row.memory_action));
+            const name = (row.submitted_by ?? '').trim();
+            const contributors = prev.contributors.map((c) => ({ ...c }));
+            if (name) {
+              const c = contributors.find((x) => x.name === name);
+              if (c) { c.total += 1; if (wrote) c.written += 1; }
+              else contributors.push({ name, total: 1, written: wrote ? 1 : 0 });
+              contributors.sort((a, b) => b.written - a.written || b.total - a.total);
+            }
+            return {
+              totalEvents: prev.totalEvents + 1,
+              totalWritten: prev.totalWritten + (wrote ? 1 : 0),
+              contributors,
+            };
+          });
           setFlashId(row.id);
           setTimeout(() => setFlashId((id) => (id === row.id ? null : id)), 2500);
           // A new event may have created a mapping — refresh the tree (throttled).
@@ -77,7 +99,7 @@ export function IngestionHistory() {
     };
   }, []);
 
-  const contributors = useMemo(() => computeContributors(events), [events]);
+  const contributors = useMemo(() => stats?.contributors ?? [], [stats]);
   const treeStats = useMemo(() => (tree ? countMappings(tree) : { models: 0, variants: 0, valid: 0 }), [tree]);
 
   const filtered = useMemo(() => events.filter((e) =>
@@ -85,7 +107,8 @@ export function IngestionHistory() {
     (!contributorFilter || (e.submitted_by ?? '') === contributorFilter)
   ), [events, siteFilter, contributorFilter]);
 
-  const totalWritten = events.filter((e) => e.memory_action && ['inserted', 'reinforced', 'upgraded_from_csv'].includes(e.memory_action)).length;
+  const totalEvents = stats?.totalEvents ?? events.length;
+  const totalWritten = stats?.totalWritten ?? 0;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -112,7 +135,7 @@ export function IngestionHistory() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Kpi label="Liens ingérés" value={events.length} />
+        <Kpi label="Liens ingérés" value={totalEvents} />
         <Kpi label="Mappings écrits / renforcés" value={totalWritten} />
         <Kpi label="Modèles couverts" value={treeStats.models} />
         <Kpi label="Contributeurs" value={contributors.length} />
