@@ -505,7 +505,11 @@ export function Administrative() {
     if (!window.confirm('Supprimer définitivement cette vente ? (le véhicule associé est supprimé, les contacts sont conservés)')) return;
     // Fetch the vehicle to clean it up too; contacts are shared, kept.
     const { data: tx } = await supabase.from('transactions_admin').select('vehicle_id').eq('id', id).maybeSingle();
-    await supabase.from('transactions_admin').delete().eq('id', id); // cascades documents_admin_history
+    const { error } = await supabase.from('transactions_admin').delete().eq('id', id); // cascades documents_admin_history
+    if (error) {
+      setSaveMessage({ type: 'error', text: `Suppression impossible : ${error.message}` });
+      return;
+    }
     if (tx?.vehicle_id) await supabase.from('vehicles_admin').delete().eq('id', tx.vehicle_id);
     if (id === lastSavedTransactionId) backToList();
     else await loadDeals();
