@@ -11,6 +11,50 @@ import type { StudyRunProgressEvent, StudyStage, StudyRunStatus } from '../store
 import type { StudyCriteria } from '../lib/study-core/types';
 import { persistStudyRunLogsSafe } from './studyRunLogs';
 import { generateInternalRef } from '../lib/internalRefGenerator';
+import { writeMarketSnapshot } from './marketData';
+import { findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
+import type { ScrapedListing as StudyCoreScrapedListing } from '../lib/study-core/types';
+
+/**
+ * Feed the Market Intelligence tables from a study scrape.
+ *
+ * Studies used to write only to study_run_results / study_source_listings,
+ * which the Market Intelligence never reads — so a mapped segment (e.g. ES
+ * DACIA SANDERO) showed "0 annonces" even after several studies. Every study
+ * scrape (target AND source market) now also records a market snapshot + its
+ * per-listing observations, exactly the way campaigns do, so the same segment
+ * becomes exploitable in the dashboard. Best-effort: never blocks or breaks a
+ * study run.
+ */
+async function recordStudyMarketSnapshot(
+  url: string,
+  country: string | null | undefined,
+  brand: string | null | undefined,
+  model: string | null | undefined,
+  listings: StudyCoreScrapedListing[],
+): Promise<void> {
+  try {
+    if (!listings.length) return;
+    let site = '';
+    try { site = findSiteAdapterByDomain(new URL(url).hostname)?.key ?? ''; } catch { /* keep '' */ }
+    await writeMarketSnapshot({
+      segment: {
+        site: site || 'unknown',
+        country: (country ?? '').toUpperCase(),
+        brand: (brand ?? '').toUpperCase(),
+        model: (model ?? '').toUpperCase(),
+        fuel: '',
+        trim: '',
+      },
+      listings,
+      totalCount: listings.length,
+      sourceUrl: url,
+      submittedBy: 'Étude',
+    });
+  } catch {
+    /* market recording is best-effort — a study must never fail because of it */
+  }
+}
 
 /**
  * Applies trim/finition filter to Leboncoin URL.
@@ -355,6 +399,9 @@ export async function runStudyInBackground(
       console.log(`  ... and ${filteredTargetListings.length - 10} more`);
     }
 
+    // Feed Market Intelligence with the target market picture (best-effort).
+    await recordStudyMarketSnapshot(targetUrl, study.country_target, study.brand, study.model, filteredTargetListings);
+
     if (filteredTargetListings.length === 0) {
       console.log(`[RUN] No valid target listings found`);
       status = 'NO_TARGET_RESULTS';
@@ -460,6 +507,9 @@ export async function runStudyInBackground(
     };
 
     const filteredSourceListings = filterListingsByStudy(sourceListings, sourceCriteria);
+
+    // Feed Market Intelligence with the source market picture (best-effort).
+    await recordStudyMarketSnapshot(sourceUrl, study.country_source, study.brand, study.model, filteredSourceListings);
 
     lastStage = 'evaluating_price';
     emitProgress(

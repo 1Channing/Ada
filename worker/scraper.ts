@@ -28,6 +28,7 @@ import {
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
+import { canonicalizeFuel } from '../src/lib/study-core/ingestion';
 import { StudyLogger } from './studyLogger';
 
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
@@ -50,6 +51,84 @@ const FX_RATES: Record<string, number> = {
  */
 function toEur(price: number, currency: string): number {
   return price * (FX_RATES[currency] ?? 1.0);
+}
+
+function percentileAsc(sortedAsc: number[], p: number): number {
+  if (sortedAsc.length === 0) return 0;
+  if (sortedAsc.length === 1) return sortedAsc[0];
+  const idx = (sortedAsc.length - 1) * p;
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  if (lo === hi) return sortedAsc[lo];
+  return sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (idx - lo);
+}
+
+function siteKeyForUrl(url: string): string {
+  try { return findSiteAdapterByDomain(new URL(url).hostname)?.key ?? 'unknown'; }
+  catch { return 'unknown'; }
+}
+
+/**
+ * Feed the Market Intelligence tables from a study scrape.
+ *
+ * Studies persist to study_run_results / study_source_listings, which the
+ * Market Intelligence dashboard never reads — so mapped segments showed "0
+ * annonces". Each study scrape (target AND source market) now also records a
+ * market snapshot + its per-listing observations, so the same segment becomes
+ * exploitable in the dashboard. Mirrors
+ * src/services/marketData.ts:writeMarketSnapshot but uses the worker's
+ * service-role client. Best-effort: a study must never fail because of it.
+ */
+async function recordStudyMarketSnapshot(
+  supabase: SupabaseClient,
+  segment: { site: string; country: string; brand: string; model: string },
+  listings: ScrapedListing[],
+  sourceUrl: string,
+): Promise<void> {
+  try {
+    if (!segment.brand || !segment.model || !segment.country) return;
+    const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0);
+    if (priced.length === 0) return;
+
+    const scrapedAt = new Date().toISOString();
+    const pricesEur = priced.map((l) => Math.round(toEur(l.price, l.currency))).sort((a, b) => a - b);
+    const avg = Math.round(pricesEur.reduce((s, p) => s + p, 0) / pricesEur.length);
+
+    const { data: snap, error: snapErr } = await supabase
+      .from('market_snapshots')
+      .insert({
+        site: segment.site, country: segment.country,
+        brand: segment.brand, model: segment.model, fuel: '', trim: '',
+        scraped_at: scrapedAt, listing_count: listings.length, sample_size: priced.length,
+        price_min: pricesEur[0],
+        price_p25: Math.round(percentileAsc(pricesEur, 0.25)),
+        price_median: Math.round(percentileAsc(pricesEur, 0.5)),
+        price_p75: Math.round(percentileAsc(pricesEur, 0.75)),
+        price_max: pricesEur[pricesEur.length - 1],
+        price_avg: avg, currency: 'EUR', source_url: sourceUrl, submitted_by: 'Étude',
+      })
+      .select('id').single();
+    if (snapErr || !snap) {
+      console.warn('[WORKER] market snapshot insert failed (non-blocking):', snapErr?.message);
+      return;
+    }
+
+    const observations = priced.map((l) => ({
+      snapshot_id: snap.id, site: segment.site, country: segment.country,
+      brand: segment.brand, model: segment.model,
+      fuel: canonicalizeFuel((l as any).fuel ?? '') || '',
+      trim: (l.trim ?? '').trim(),
+      internal_ref: generateInternalRef({ listing_url: l.listing_url }),
+      price: Math.round(toEur(l.price, l.currency)),
+      year: l.year, mileage: l.mileage, power_din: (l as any).powerDin ?? null,
+      listing_url: l.listing_url, title: (l.title ?? '').slice(0, 200),
+      currency: 'EUR', scraped_at: scrapedAt,
+    }));
+    const { error: obsErr } = await supabase.from('market_listing_observations').insert(observations);
+    if (obsErr) console.warn('[WORKER] market observations insert failed (non-blocking):', obsErr.message);
+    else console.log(`[WORKER] 📈 Market snapshot recorded: ${segment.country} ${segment.brand} ${segment.model} · ${priced.length} annonces`);
+  } catch (e: any) {
+    console.warn('[WORKER] recordStudyMarketSnapshot failed (non-blocking):', e?.message ?? e);
+  }
 }
 
 /**
@@ -837,6 +916,14 @@ export async function executeStudy({
       logger.log('FILTER_TARGET', 'warning', `rejected ${ex}`);
     }
 
+    // Feed Market Intelligence with the target market picture (best-effort).
+    await recordStudyMarketSnapshot(supabase, {
+      site: siteKeyForUrl(targetUrl),
+      country: String(study.country_target ?? '').toUpperCase(),
+      brand: String(study.brand ?? '').toUpperCase(),
+      model: String(study.model ?? '').toUpperCase(),
+    }, filteredTarget, targetUrl);
+
     lastStage = 'FILTER_SOURCE';
     const sourceDiag = diagnoseFilterRejections(sourceResult.listings, sourceCriteria);
     const filteredSource = filterListingsByStudy(sourceResult.listings, sourceCriteria);
@@ -851,6 +938,14 @@ export async function executeStudy({
     for (const ex of sourceDiag.examples) {
       logger.log('FILTER_SOURCE', 'warning', `rejected ${ex}`);
     }
+
+    // Feed Market Intelligence with the source market picture (best-effort).
+    await recordStudyMarketSnapshot(supabase, {
+      site: siteKeyForUrl(sourceUrl),
+      country: String(study.country_source ?? '').toUpperCase(),
+      brand: String(study.brand ?? '').toUpperCase(),
+      model: String(study.model ?? '').toUpperCase(),
+    }, filteredSource, sourceUrl);
 
     if (filteredTarget.length === 0) {
       logger.log('FILTER_TARGET', 'warning', 'No target listings remain after filtering — returning NULL');
