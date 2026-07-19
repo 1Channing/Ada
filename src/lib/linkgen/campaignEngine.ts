@@ -132,6 +132,12 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
       analysis: null, sampleSize: 0, scrapeError: error,
       detectedParams: decomposeUrl(url), submittedBy: CAMPAIGN_SUBMITTER,
     }).catch(() => undefined);
+    // A not-found page means the URL PATH is wrong (bad brand/model slug) —
+    // that's a mapping problem, not a technical one: route it to the taxonomy
+    // bucket so the resolution center presents it as correctable.
+    if (error === 'PAGE_NOT_FOUND') {
+      return { ...base, url, outcome: 'taxonomy_gap', confirmedFields: [], rejected: [], detail: 'page introuvable — slug marque/modèle à corriger', sampleSize: 0 };
+    }
     return { ...base, url, outcome: 'technical', confirmedFields: [], rejected: [], detail: `scrape en échec: ${error}`, sampleSize: 0 };
   }
   if (listings.length < INGESTION_MIN_SAMPLE) {

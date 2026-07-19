@@ -418,6 +418,22 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
   // Cloudflare error page is cached per-URL, so when one locale is poisoned,
   // flipping to the other on retry dodges the cached block entirely.
   let activeUrl = url;
+  let hostSwapped = false;
+  // AS24 shares one search engine across its TLDs and the cy= param pins the
+  // listing country — autoscout24.fr serves the SAME Dutch search that
+  // Cloudflare refuses on .nl. When same-host retries keep hitting the block,
+  // jump to a sibling domain (logs: .fr/.de fine while .nl/.it blocked).
+  const AS24_SIBLING: Record<string, string> = { nl: 'fr', it: 'fr', es: 'fr', be: 'fr', de: 'fr', fr: 'de' };
+  const swapAs24Host = (u: string): string | null => {
+    const m = u.match(/https:\/\/www\.autoscout24\.([a-z]{2})\//);
+    if (!m) return null;
+    const alt = AS24_SIBLING[m[1]];
+    if (!alt) return null;
+    let out = u.replace(`www.autoscout24.${m[1]}`, `www.autoscout24.${alt}`);
+    // .be carries a /fr/ or /nl/ locale prefix the other TLDs reject.
+    if (m[1] === 'be') out = out.replace(/(autoscout24\.[a-z]{2})\/(?:fr|nl)\/lst\//, '$1/lst/');
+    return out;
+  };
   const flipBeLocale = (u: string): string | null => {
     if (u.includes('autoscout24.be/fr/')) return u.replace('autoscout24.be/fr/', 'autoscout24.be/nl/');
     if (u.includes('autoscout24.be/nl/')) return u.replace('autoscout24.be/nl/', 'autoscout24.be/fr/');
@@ -492,6 +508,12 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
       if (attempt < MAX_RETRIES) {
         const flipped = flipBeLocale(activeUrl);
         if (flipped) activeUrl = flipped;
+        // Same-host retry already failed once → jump to a sibling AS24 domain
+        // (cy= keeps the listing country; parser identical across TLDs).
+        if (attempt >= 1 && !hostSwapped) {
+          const sibling = swapAs24Host(activeUrl);
+          if (sibling) { activeUrl = sibling; hostSwapped = true; }
+        }
         // Cache-buster on EVERY blocked AS24 retry (flip included: BE served
         // byte-identical error pages on both locales, so the flip alone
         // doesn't dodge the cached block).
@@ -504,6 +526,25 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
       }
       return finalize({ listings: [], error: 'TARGET_BLOCKED', errorReason: `Blocked: ${blockedCheck.matchedKeyword}` },
         { attempts: attempt + 1, htmlLength: html.length, blocked: true, blockReason: blockedCheck.matchedKeyword }, false);
+    }
+
+    // AS24 serves its own not-found template for a bad brand/model slug
+    // (data-theme="as24" + noindex + /error-pages/ favicons — e.g. "Wir
+    // können die gesuchte Seite nicht finden" on /lst/mercedes/glc). The
+    // path itself is wrong, so retrying the same URL can never help: fail
+    // fast so the campaign records a taxonomy gap instead of burning the
+    // remaining Zyte attempts on a "technical" mystery.
+    if (
+      activeUrl.includes('autoscout24.') &&
+      html.includes('data-theme="as24"') &&
+      html.includes('/error-pages/') &&
+      html.includes('noindex')
+    ) {
+      console.warn(`[WORKER_SCRAPER] AS24 not-found template (${html.length}b) — bad path slug, no retry`);
+      return finalize(
+        { listings: [], error: 'PAGE_NOT_FOUND', errorReason: 'AS24: page introuvable (slug marque/modèle invalide)' },
+        { attempts: attempt + 1, htmlLength: html.length }, false
+      );
     }
 
     // Full page, 0 listings, not blocked → genuine empty search. Return now

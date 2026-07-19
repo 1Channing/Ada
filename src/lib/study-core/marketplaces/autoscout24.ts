@@ -89,6 +89,21 @@ function slug(s: string): string {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+// Brand slugs that differ from the naive slug of our canonical name. AS24's
+// brand segment is its FULL brand name: /lst/mercedes/glc served the "Wir
+// können die gesuchte Seite nicht finden" 404 template in campaign logs — the
+// site wants /lst/mercedes-benz/…. Keyed on canonical uppercase forms.
+const BRAND_SLUG: Record<string, string> = {
+  MERCEDES: 'mercedes-benz',
+  'MERCEDES BENZ': 'mercedes-benz',
+  'MERCEDES-BENZ': 'mercedes-benz',
+  VW: 'volkswagen',
+};
+
+function brandToSlug(raw: string): string {
+  return BRAND_SLUG[raw.trim().toUpperCase()] ?? slug(raw);
+}
+
 // AutoScout's model slug keeps internal separators the user often omits
 // ("CHR" → the site's "c-hr", "RAV4" → "rav-4"). Naive slug() is correct when
 // the user includes the separator (space or hyphen); this table fixes the
@@ -222,7 +237,7 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
 
   function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
     const warnings: string[] = [];
-    const brandSlug = slug(String(params.brand ?? ''));
+    const brandSlug = brandToSlug(String(params.brand ?? ''));
     const modelSlug = params.model ? modelToSlug(String(params.model)) : '';
 
     const segs = ['lst'];
@@ -391,7 +406,7 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     // is rebuilt from a learned mapping. Raw values 404'd there:
     // "YARIS CROSS" → /lst/TOYOTA/YARIS%20CROSS is a dead page; the site wants
     // /lst/toyota/yaris-cross (and "RAV4" wants rav-4).
-    mapBrand: (raw) => slug(raw),
+    mapBrand: (raw) => brandToSlug(raw),
     mapModel: (raw) => modelToSlug(raw),
     mapFuel,
     supportsParam: (param) => !UNSUPPORTED_PARAMS.includes(param),

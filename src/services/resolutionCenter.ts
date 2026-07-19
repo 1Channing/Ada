@@ -52,14 +52,17 @@ export async function loadAllGaps(limit = 400): Promise<{ items: GapItem[]; load
     .in('outcome', GAP_OUTCOMES)
     .order('created_at', { ascending: false })
     .limit(limit);
+  let loadError: string | null = null;
   if (error) {
-    // Most likely the `resolution` migration hasn't run yet — degrade to the
-    // pre-migration shape instead of showing an EMPTY (hence misleading
-    // "tout est traité") center.
-    console.warn('[RESOLUTION] loadAllGaps failed, retrying without resolution:', error.message);
+    // The resolved_at/resolution migration hasn't run yet — degrade to the
+    // pre-migration shape (BASE columns only, neither resolved_at nor
+    // resolution) instead of showing an EMPTY (hence misleading "tout est
+    // traité") center. The error stays surfaced so the missing SQL is visible.
+    console.warn('[RESOLUTION] loadAllGaps failed, retrying with base columns:', error.message);
+    loadError = error.message;
     const retry = await supabase
       .from('linkgen_campaign_items')
-      .select('id, campaign_id, created_at, seq, site, brand, model, criteria, url, outcome, detail, resolved_at')
+      .select('id, campaign_id, created_at, seq, site, brand, model, criteria, url, outcome, detail')
       .in('outcome', GAP_OUTCOMES)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -83,7 +86,7 @@ export async function loadAllGaps(limit = 400): Promise<{ items: GapItem[]; load
   }
 
   return {
-    loadError: null,
+    loadError,
     items: rows.map((r) => ({
       id: String(r.id),
       campaignId: String(r.campaign_id),
@@ -105,12 +108,18 @@ export async function loadAllGaps(limit = 400): Promise<{ items: GapItem[]; load
 
 /** Count of unresolved gaps — the badge on the resolution-center button. */
 export async function countOpenGaps(): Promise<number> {
-  const { count } = await supabase
+  const { count, error } = await supabase
     .from('linkgen_campaign_items')
     .select('id', { count: 'exact', head: true })
     .in('outcome', GAP_OUTCOMES)
     .is('resolved_at', null);
-  return count ?? 0;
+  if (!error) return count ?? 0;
+  // Pre-migration DB (no resolved_at column): every gap counts as open.
+  const retry = await supabase
+    .from('linkgen_campaign_items')
+    .select('id', { count: 'exact', head: true })
+    .in('outcome', GAP_OUTCOMES);
+  return retry.count ?? 0;
 }
 
 export async function resolveGapItem(id: string, resolution: GapResolution): Promise<{ ok: boolean; error?: string }> {

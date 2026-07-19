@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { Link2, Upload, History, LineChart } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
+import { FeedbackCenter } from './FeedbackCenter';
 
 type LayoutProps = {
   children: ReactNode;
@@ -95,8 +96,9 @@ export function Layout({ children }: LayoutProps) {
             Market Intelligence
           </button>
 
-          {/* Notifications (re-scan mensuel) — à droite, menus à gauche. */}
-          <div className="ml-auto">
+          {/* À droite (menus à gauche) : signalements équipe + notifications re-scan. */}
+          <div className="ml-auto flex items-center gap-1">
+            <FeedbackCenter />
             <NotificationCenter />
           </div>
         </div>

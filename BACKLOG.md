@@ -3,6 +3,32 @@
 Décisions actées en discussion d'architecture (juillet 2026). Chaque entrée
 note pourquoi elle a été différée et ce qui la débloquera.
 
+## 0. REFONTE COMPLÈTE DE L'INTERFACE ADA (acté 19/07/2026, à garder en tête)
+
+Demande de Channing : revoir l'interface complète d'ADA — enchaînement propre
+des pages, UI à jour et cohérente, navigation fluide entre Studies / Admin /
+Link Generator / Ingestion / Historique / Market Intelligence. À traiter comme
+un chantier dédié (design system, routing propre au lieu du
+`window.location.reload()`, hiérarchie visuelle, densité des panneaux).
+**À garder en tête pendant tout développement d'ici là** : chaque nouvel écran
+doit rester simple à re-brancher dans la future structure (composants
+autonomes, pas de dépendance au layout actuel). Les signalements déposés via
+le bouton « Signaler » (table `ada_feedback`) nourrissent ce chantier —
+les dépiler en priorité à chaque session de dev.
+
+## 0bis. Marktplaats : le hash (#q:…|constructionYear…) n'atteint JAMAIS le serveur
+
+Découverte majeure (logs campagne 19/07/2026) : une recherche RAV4 2024 a
+renvoyé des Aygo 2017 — le fragment `#q:…|constructionYearFrom:…` est
+client-side only. Le HTML servi (et son `__NEXT_DATA__`, même en mode browser
+Zyte : le script SSR n'est pas réécrit par l'hydratation) contient la page
+marque NON filtrée. Toutes les données Marktplaats de campagne étaient donc
+non filtrées — heureusement bloquées par la confirmation (`snapshot skipped`).
+Plan proposé (à valider) : passer par l'API JSON interne `lrp/api/search`
+avec de VRAIS paramètres serveur (query, attributeRanges constructionYear,
+l1/l2CategoryId lus du `__NEXT_DATA__` de la page marque), et apprendre les
+IDs dans le dictionnaire enum. Voir discussion « plan auto-correction ».
+
 ## 1. Vocabulaire de détection carburant (prioritaire dès les premières ingestions)
 
 La confirmation carburant de la page Ingestion échouera souvent au début :

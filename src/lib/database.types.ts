@@ -758,6 +758,45 @@ export type Database = {
           },
         ]
       }
+      ada_feedback: {
+        Row: {
+          id: string
+          created_at: string
+          author: string
+          kind: string
+          message: string
+          page: string
+          screenshot: string | null
+          status: string
+          resolved_at: string | null
+          resolved_by: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          author?: string
+          kind?: string
+          message?: string
+          page?: string
+          screenshot?: string | null
+          status?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          author?: string
+          kind?: string
+          message?: string
+          page?: string
+          screenshot?: string | null
+          status?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+        }
+        Relationships: []
+      }
       market_rescan_optouts: {
         Row: {
           id: string

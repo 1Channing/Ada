@@ -122,7 +122,7 @@ export function ResolutionCenter() {
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement des inconnues…
             </p>
           )}
-          {!loading && shown.length === 0 && (
+          {!loading && shown.length === 0 && !error && (
             <p className="text-xs text-emerald-400">Aucune inconnue ouverte — tout est traité.</p>
           )}
 

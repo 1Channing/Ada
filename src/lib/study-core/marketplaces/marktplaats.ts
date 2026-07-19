@@ -419,6 +419,9 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const path = pathBrandModel(d.pathSegments);
   if (path.brand) out.brand = reverseLookup(BRAND_MAP, path.brand);
   if (path.model) out.model = reverseLookup(MODEL_MAP, path.model);
+  // The free text (#q:) feeds the site's "Variant" box — when the model is
+  // already pinned by a path facet, that text is a FINITION, not a model.
+  if (h['q'] && path.model) out.trim = h['q'].replace(/\+/g, ' ').trim();
   if (h['constructionYearFrom'] && /^\d{4}$/.test(h['constructionYearFrom'])) out.yearFrom = h['constructionYearFrom'];
   if (h['constructionYearTo'] && /^\d{4}$/.test(h['constructionYearTo'])) out.yearTo = h['constructionYearTo'];
   if (h['mileageTo'] && /^\d+$/.test(h['mileageTo'])) out.mileage = h['mileageTo'];

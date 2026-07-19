@@ -241,6 +241,32 @@ function overrideVariableParams(url: string, mapping: InferredMapping, params: L
   }
 }
 
+/**
+ * Free-text slot = the FINITION (site rule: on Marktplaats the free text
+ * feeds the "Variant" box; the model belongs to the model facet carried by
+ * the validated URL's path). AS24's equivalent is the kwd= parameter.
+ */
+function injectTrimIntoUrl(url: string, trim: string): string {
+  const t = trim.trim();
+  if (!t) return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('marktplaats.nl')) {
+      const norm = t.toLowerCase().replace(/\s+/g, '+').replace(/[^a-z0-9+\-]/g, '');
+      if (!norm) return url;
+      const parts = u.hash.replace(/^#/, '').split('|').filter((seg) => seg && !seg.startsWith('q:'));
+      parts.unshift(`q:${norm}`);
+      u.hash = `#${parts.join('|')}`;
+      return u.toString();
+    }
+    if (u.hostname.includes('autoscout24.')) {
+      u.searchParams.set('kwd', t);
+      return u.toString();
+    }
+  } catch { /* URL invalide — on garde l'originale */ }
+  return url;
+}
+
 function numericParamValue(field: string, params: LinkGenParams): string | undefined {
   const raw =
     field === 'power' ? params.minPower :
@@ -361,10 +387,14 @@ export async function generateSearchUrlsWithMemory(
       const recFuel = rowFuel(memoryRecord as Record<string, unknown>);
       const recTrim = rowTrim(memoryRecord as Record<string, unknown>);
       const validatedUrl = (record as unknown as { validated_url?: string | null }).validated_url ?? null;
+      // A trim-less learned URL still pins brand+model via its path facets —
+      // it can serve a trim request too: the trim goes into the site's
+      // free-text slot below (Marktplaats `q:` = the Variant box, AS24 kwd=).
       const scopeMatches = (recFuel === wantFuel || (recFuel === '' && wantFuel === '')) &&
-        (recTrim === wantTrim || (recTrim === '' && wantTrim === ''));
+        (recTrim === wantTrim || recTrim === '');
       if (validatedUrl && scopeMatches && mapping) {
         let url = overrideVariableParams(validatedUrl, mapping, params);
+        if (recTrim === '' && wantTrim) url = injectTrimIntoUrl(url, params.trim ?? '');
         url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
         logs.push({
           level: 'OUTPUT',
