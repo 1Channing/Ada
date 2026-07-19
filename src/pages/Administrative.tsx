@@ -55,6 +55,7 @@ type ContactForm = {
 
 type TransactionForm = {
   transaction_price: string;
+  reference: string;
   transaction_date: string;
   transaction_time: string;
   pickup_location: string;
@@ -62,6 +63,31 @@ type TransactionForm = {
   pickup_datetime: string;
   destination: string;
   transporter: string;
+};
+
+// MC Export's own identity — auto-placed as buyer (when MC buys) or seller
+// (when MC sells) so its side is never retyped. Reconciled to a single DB
+// contact on load (by SIREN) so documents reuse it without duplicates.
+const MC_EXPORT_SIREN = '93033811600013';
+const MC_EXPORT_FORM: ContactForm = {
+  company_name: 'MC-EXPORT',
+  first_name: '',
+  last_name: '',
+  birth_date: '',
+  birth_place: '',
+  address_line1: '88 B AVENUE JEAN BOUTTON',
+  address_line2: '',
+  postal_code: '49130',
+  city: 'Les ponts de cé',
+  country: 'FR',
+  siren: MC_EXPORT_SIREN,
+};
+
+// direction 'purchase' = MC Export achète (MC = acheteur, le client est vendeur)
+// direction 'sale'     = MC Export vend   (MC = vendeur, le client est acheteur)
+const DOCS_BY_DIRECTION: Record<'purchase' | 'sale', string[]> = {
+  purchase: ['Certificat de cession', "Bon d'achat", 'Fiche enlèvement', "Déclaration d'achat"],
+  sale: ['Certificat de cession', 'Réception / Expédition'],
 };
 
 export function Administrative() {
@@ -139,6 +165,7 @@ export function Administrative() {
 
   const [transactionForm, setTransactionForm] = useState<TransactionForm>({
     transaction_price: '',
+    reference: '',
     transaction_date: '',
     transaction_time: '',
     pickup_location: '',
@@ -175,6 +202,10 @@ export function Administrative() {
   const [generatingDoc, setGeneratingDoc] = useState<string | null>(null);
   const [docPreview, setDocPreview] = useState<{ url: string; docType: string; fileName: string; missing: string[] } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  // MC Export's single reconciled contact + the contacts-management panel.
+  const [mcExport, setMcExport] = useState<Contact | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
 
   useEffect(() => {
     const draft = loadDraft();
@@ -185,7 +216,7 @@ export function Administrative() {
       setSellerForm2(draft.sellerForm2);
       setBuyerForm(draft.buyerForm);
       setBuyerForm2(draft.buyerForm2);
-      setTransactionForm(draft.transactionForm);
+      setTransactionForm({ reference: '', ...draft.transactionForm });
       setShowSecondSeller(draft.showSecondSeller);
       setShowSecondBuyer(draft.showSecondBuyer);
       setLastSavedTransactionId(draft.lastSavedTransactionId);
@@ -209,6 +240,65 @@ export function Administrative() {
       setContacts(data);
     }
   };
+
+  const contactToForm = (c: Contact): ContactForm => ({
+    company_name: c.company_name || '',
+    first_name: c.first_name || '',
+    last_name: c.last_name || '',
+    birth_date: c.birth_date || '',
+    birth_place: c.birth_place || '',
+    address_line1: c.address_line1 || '',
+    address_line2: c.address_line2 || '',
+    postal_code: c.postal_code || '',
+    city: c.city || '',
+    country: c.country || 'FR',
+    siren: c.siren || '',
+  });
+
+  // Reconcile MC Export to a SINGLE contact (find by SIREN, else create) so
+  // documents reuse it and the contacts list never fills with duplicates.
+  useEffect(() => {
+    (async () => {
+      const { data: found } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('siren', MC_EXPORT_SIREN)
+        .limit(1)
+        .maybeSingle();
+      if (found) { setMcExport(found as Contact); return; }
+      const { data: created } = await supabase
+        .from('contacts')
+        .insert({ type: 'company', ...MC_EXPORT_FORM })
+        .select()
+        .single();
+      if (created) { setMcExport(created as Contact); loadContacts(); }
+    })();
+  }, []);
+
+  // Place MC Export on its side (buyer when MC buys, seller when MC sells).
+  // Selecting it (not just filling the form) makes save reuse its contact id.
+  const placeMcOnSide = (direction: 'purchase' | 'sale', mc: Contact) => {
+    const form = contactToForm(mc);
+    if (direction === 'purchase') {
+      setBuyerForm(form); setSelectedBuyerContact(mc);
+    } else {
+      setSellerForm(form); setSelectedSellerContact(mc);
+    }
+  };
+
+  const EMPTY_CONTACT: ContactForm = {
+    company_name: '', first_name: '', last_name: '', birth_date: '', birth_place: '',
+    address_line1: '', address_line2: '', postal_code: '', city: '', country: 'FR', siren: '',
+  };
+
+  // Once MC Export is known, seed it onto the current side (unless a draft
+  // already placed a real contact there).
+  useEffect(() => {
+    if (!mcExport) return;
+    const mcSideSelected = transactionType === 'purchase' ? selectedBuyerContact : selectedSellerContact;
+    if (!mcSideSelected) placeMcOnSide(transactionType, mcExport);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mcExport]);
 
   const filterContacts = (query: string) => {
     if (!query.trim()) return contacts;
@@ -309,7 +399,25 @@ export function Administrative() {
 
   const updateTransactionType = (type: 'purchase' | 'sale') => {
     setTransactionType(type);
+    // Reset both parties, then re-seat MC Export on its new side; the client
+    // side starts empty for a fresh selection.
+    setSellerForm(EMPTY_CONTACT); setSelectedSellerContact(null);
+    setBuyerForm(EMPTY_CONTACT); setSelectedBuyerContact(null);
+    setSellerForm2(EMPTY_CONTACT); setSelectedSeller2Contact(null); setShowSecondSeller(false);
+    setBuyerForm2(EMPTY_CONTACT); setSelectedBuyer2Contact(null); setShowSecondBuyer(false);
+    if (mcExport) placeMcOnSide(type, mcExport);
     markDirty();
+  };
+
+  const deleteContact = async (id: string) => {
+    if (id === mcExport?.id) return; // never delete MC Export itself
+    setDeletingContactId(id);
+    try {
+      await supabase.from('contacts').delete().eq('id', id);
+      await loadContacts();
+    } finally {
+      setDeletingContactId(null);
+    }
   };
 
   const selectContact = (contact: Contact, type: 'seller' | 'seller2' | 'buyer' | 'buyer2') => {
@@ -424,6 +532,7 @@ export function Administrative() {
     });
     setTransactionForm({
       transaction_price: '',
+      reference: '',
       transaction_date: '',
       transaction_time: '',
       pickup_location: '',
@@ -652,6 +761,7 @@ export function Administrative() {
           buyer_contact_id: buyerContactId1,
           buyer_contact_id_2: buyerContactId2,
           transaction_price: transactionForm.transaction_price ? parseFloat(transactionForm.transaction_price) : null,
+          reference: transactionForm.reference || null,
           transaction_date: transactionForm.transaction_date || null,
           transaction_time: transactionForm.transaction_time || null,
           pickup_location: transactionForm.pickup_location || null,
@@ -812,6 +922,7 @@ export function Administrative() {
           buyer_contact_id: buyerContactId1,
           buyer_contact_id_2: buyerContactId2,
           transaction_price: transactionForm.transaction_price ? parseFloat(transactionForm.transaction_price) : null,
+          reference: transactionForm.reference || null,
           transaction_date: transactionForm.transaction_date || null,
           transaction_time: transactionForm.transaction_time || null,
           pickup_location: transactionForm.pickup_location || null,
@@ -1149,32 +1260,98 @@ export function Administrative() {
     );
   };
 
+  // Read-only card for MC Export's own side — it's us, never retyped.
+  const renderMcCard = (role: 'acheteur' | 'vendeur') => (
+    <div className="rounded-lg border border-blue-700/40 bg-blue-900/15 p-4">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-blue-200">{MC_EXPORT_FORM.company_name}</span>
+        <span className="text-[11px] uppercase tracking-wide text-blue-400/80">{role} · vous</span>
+      </div>
+      <div className="mt-1 text-sm text-zinc-400 space-y-0.5">
+        <div>{MC_EXPORT_FORM.address_line1}</div>
+        <div>{MC_EXPORT_FORM.postal_code} {MC_EXPORT_FORM.city} · {MC_EXPORT_FORM.country}</div>
+        <div className="text-zinc-500">SIREN {MC_EXPORT_FORM.siren}</div>
+      </div>
+      <p className="mt-2 text-[11px] text-zinc-500">Pré-rempli automatiquement dans les documents.</p>
+    </div>
+  );
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">Administrative</h1>
+        <h1 className="text-3xl font-bold">Administratif</h1>
 
         <div className="flex items-center gap-3">
           <button
+            onClick={() => setSettingsOpen((v) => !v)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium ${
+              settingsOpen ? 'bg-zinc-700 text-white' : 'bg-zinc-800 hover:bg-zinc-700'
+            }`}
+          >
+            <UserPlus size={18} />
+            Contacts
+          </button>
+          <button
             onClick={handleClearForm}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors font-medium"
           >
             <Trash2 size={18} />
-            Clear Form
+            Vider
           </button>
-
           <button
             onClick={() => {
               console.log('[ADMIN_UI] Navigating to history');
               window.history.pushState({}, '', '/admin/history');
             }}
-            className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
           >
             <History size={18} />
-            History
+            Historique
           </button>
         </div>
       </div>
+
+      {settingsOpen && (
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-semibold text-zinc-100">Contacts enregistrés</h2>
+              <p className="text-sm text-zinc-500">Faites le propre : supprimez les doublons. MC Export ne peut pas être supprimé.</p>
+            </div>
+            <span className="text-sm text-zinc-500">{contacts.length} contact(s)</span>
+          </div>
+          <div className="max-h-96 overflow-y-auto divide-y divide-zinc-800">
+            {contacts.length === 0 && <p className="text-sm text-zinc-500 py-4">Aucun contact pour l'instant.</p>}
+            {contacts.map((c) => {
+              const isMc = c.id === mcExport?.id || c.siren === MC_EXPORT_SIREN;
+              const name = c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || '(sans nom)';
+              const loc = [c.postal_code, c.city].filter(Boolean).join(' ');
+              return (
+                <div key={c.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-sm text-zinc-200 truncate flex items-center gap-2">
+                      {name}
+                      {isMc && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-300">MC Export</span>}
+                    </div>
+                    <div className="text-xs text-zinc-500 truncate">
+                      {[c.address_line1, loc, c.siren && `SIREN ${c.siren}`].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  {!isMc && (
+                    <button
+                      onClick={() => deleteContact(c.id)}
+                      disabled={deletingContactId === c.id}
+                      className="shrink-0 flex items-center gap-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                    >
+                      <Trash2 size={14} /> Supprimer
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {saveMessage && (
         <div className={`mb-6 px-4 py-3 rounded-lg ${
@@ -1319,203 +1496,166 @@ export function Administrative() {
         </section>
 
         <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-zinc-100">Transaction Mode</h2>
+          <h2 className="text-xl font-semibold mb-1 text-zinc-100">La vente</h2>
+          <p className="text-sm text-zinc-500 mb-4">Choisissez le sens : MC Export est placé automatiquement du bon côté.</p>
 
-          <div className="flex gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button
               onClick={() => updateTransactionType('purchase')}
-              className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors ${
+              className={`text-left px-5 py-4 rounded-xl border transition-colors ${
                 transactionType === 'purchase'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                  ? 'bg-blue-600/20 border-blue-500 text-white'
+                  : 'bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600'
               }`}
             >
-              Purchase
+              <div className="font-semibold flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${transactionType === 'purchase' ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                MC Export achète
+              </div>
+              <div className="text-xs mt-1 text-zinc-500">Le client est le vendeur · Cession, Bon d'achat, Enlèvement, Déclaration d'achat</div>
             </button>
             <button
               onClick={() => updateTransactionType('sale')}
-              className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors ${
+              className={`text-left px-5 py-4 rounded-xl border transition-colors ${
                 transactionType === 'sale'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                  ? 'bg-blue-600/20 border-blue-500 text-white'
+                  : 'bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600'
               }`}
             >
-              Sale
+              <div className="font-semibold flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${transactionType === 'sale' ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                MC Export vend
+              </div>
+              <div className="text-xs mt-1 text-zinc-500">Le client est l'acheteur · Cession, Réception / Expédition</div>
             </button>
           </div>
-        </section>
 
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-zinc-100">Seller</h2>
-
-          {renderContactSearch(
-            showSellerSearch,
-            setShowSellerSearch,
-            (contact) => selectContact(contact, 'seller'),
-            'Search Existing Contact'
-          )}
-
-          {renderContactFields(
-            sellerForm,
-            setSellerForm,
-            selectedSellerContact,
-            'Seller',
-            savingSellerContact,
-            setSavingSellerContact,
-            'seller'
-          )}
-
-          <div className="mt-4">
-            {!showSecondSeller ? (
-              <button
-                onClick={() => toggleShowSecondSeller(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
-              >
-                <Plus size={16} />
-                Add Second Owner
-              </button>
-            ) : (
-              <div className="border-t border-zinc-800 pt-4 mt-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-medium text-zinc-200">Second Seller</h3>
-                  <button
-                    onClick={() => {
-                      toggleShowSecondSeller(false);
-                      setSelectedSeller2Contact(null);
-                      setSellerForm2({
-                        company_name: '',
-                        first_name: '',
-                        last_name: '',
-                        birth_date: '',
-                        birth_place: '',
-                        address_line1: '',
-                        address_line2: '',
-                        postal_code: '',
-                        city: '',
-                        country: 'FR',
-                        siren: '',
-                      });
-                    }}
-                    className="p-1 hover:bg-zinc-800 rounded transition-colors"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-
-                {renderContactSearch(
-                  showSeller2Search,
-                  setShowSeller2Search,
-                  (contact) => selectContact(contact, 'seller2'),
-                  'Search Existing Contact'
-                )}
-
-                {renderContactFields(
-                  sellerForm2,
-                  setSellerForm2,
-                  selectedSeller2Contact,
-                  'Second Seller',
-                  savingSeller2Contact,
-                  setSavingSeller2Contact,
-                  'seller'
-                )}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-zinc-100">Buyer</h2>
-
-          {renderContactSearch(
-            showBuyerSearch,
-            setShowBuyerSearch,
-            (contact) => selectContact(contact, 'buyer'),
-            'Search Existing Contact'
-          )}
-
-          {renderContactFields(
-            buyerForm,
-            setBuyerForm,
-            selectedBuyerContact,
-            'Buyer',
-            savingBuyerContact,
-            setSavingBuyerContact,
-            'buyer'
-          )}
-
-          <div className="mt-4">
-            {!showSecondBuyer ? (
-              <button
-                onClick={() => toggleShowSecondBuyer(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
-              >
-                <Plus size={16} />
-                Add Second Owner
-              </button>
-            ) : (
-              <div className="border-t border-zinc-800 pt-4 mt-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-medium text-zinc-200">Second Buyer</h3>
-                  <button
-                    onClick={() => {
-                      toggleShowSecondBuyer(false);
-                      setSelectedBuyer2Contact(null);
-                      setBuyerForm2({
-                        company_name: '',
-                        first_name: '',
-                        last_name: '',
-                        birth_date: '',
-                        birth_place: '',
-                        address_line1: '',
-                        address_line2: '',
-                        postal_code: '',
-                        city: '',
-                        country: 'FR',
-                        siren: '',
-                      });
-                    }}
-                    className="p-1 hover:bg-zinc-800 rounded transition-colors"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-
-                {renderContactSearch(
-                  showBuyer2Search,
-                  setShowBuyer2Search,
-                  (contact) => selectContact(contact, 'buyer2'),
-                  'Search Existing Contact'
-                )}
-
-                {renderContactFields(
-                  buyerForm2,
-                  setBuyerForm2,
-                  selectedBuyer2Contact,
-                  'Second Buyer',
-                  savingBuyer2Contact,
-                  setSavingBuyer2Contact,
-                  'buyer'
-                )}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-zinc-100">Transaction Info</h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Prix + Référence — le cœur de la vente */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Transaction Price</label>
+              <label className="block text-sm font-medium mb-1 text-zinc-300">Prix (€)</label>
               <input
                 type="number"
                 step="0.01"
                 value={transactionForm.transaction_price}
                 onChange={(e) => updateTransactionForm({ transaction_price: e.target.value })}
+                placeholder="9 500"
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 text-zinc-300">Référence <span className="text-zinc-500 font-normal">(votre code, ex. I63, TGE789)</span></label>
+              <input
+                type="text"
+                value={transactionForm.reference}
+                onChange={(e) => updateTransactionForm({ reference: e.target.value })}
+                placeholder="I63"
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+        </section>
 
+        {/* ─── Vendeur ─────────────────────────────────────────────── */}
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-4 text-zinc-100">
+            {transactionType === 'sale' ? 'Vendeur — MC Export (vous)' : 'Vendeur (le client)'}
+          </h2>
+
+          {transactionType === 'sale' ? (
+            renderMcCard('vendeur')
+          ) : (
+            <>
+              {renderContactSearch(
+                showSellerSearch,
+                setShowSellerSearch,
+                (contact) => selectContact(contact, 'seller'),
+                'Rechercher un contact existant'
+              )}
+              {renderContactFields(
+                sellerForm, setSellerForm, selectedSellerContact,
+                'Vendeur', savingSellerContact, setSavingSellerContact, 'seller'
+              )}
+              <div className="mt-4">
+                {!showSecondSeller ? (
+                  <button
+                    onClick={() => toggleShowSecondSeller(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
+                  >
+                    <Plus size={16} /> Ajouter un co-vendeur
+                  </button>
+                ) : (
+                  <div className="border-t border-zinc-800 pt-4 mt-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-medium text-zinc-200">Co-vendeur</h3>
+                      <button
+                        onClick={() => { toggleShowSecondSeller(false); setSelectedSeller2Contact(null); setSellerForm2(EMPTY_CONTACT); }}
+                        className="p-1 hover:bg-zinc-800 rounded transition-colors"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+                    {renderContactSearch(showSeller2Search, setShowSeller2Search, (contact) => selectContact(contact, 'seller2'), 'Rechercher un contact existant')}
+                    {renderContactFields(sellerForm2, setSellerForm2, selectedSeller2Contact, 'Co-vendeur', savingSeller2Contact, setSavingSeller2Contact, 'seller')}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+
+        {/* ─── Acheteur ────────────────────────────────────────────── */}
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-4 text-zinc-100">
+            {transactionType === 'purchase' ? 'Acheteur — MC Export (vous)' : 'Acheteur (le client)'}
+          </h2>
+
+          {transactionType === 'purchase' ? (
+            renderMcCard('acheteur')
+          ) : (
+            <>
+              {renderContactSearch(
+                showBuyerSearch,
+                setShowBuyerSearch,
+                (contact) => selectContact(contact, 'buyer'),
+                'Rechercher un contact existant'
+              )}
+              {renderContactFields(
+                buyerForm, setBuyerForm, selectedBuyerContact,
+                'Acheteur', savingBuyerContact, setSavingBuyerContact, 'buyer'
+              )}
+              <div className="mt-4">
+                {!showSecondBuyer ? (
+                  <button
+                    onClick={() => toggleShowSecondBuyer(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
+                  >
+                    <Plus size={16} /> Ajouter un co-acheteur
+                  </button>
+                ) : (
+                  <div className="border-t border-zinc-800 pt-4 mt-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-medium text-zinc-200">Co-acheteur</h3>
+                      <button
+                        onClick={() => { toggleShowSecondBuyer(false); setSelectedBuyer2Contact(null); setBuyerForm2(EMPTY_CONTACT); }}
+                        className="p-1 hover:bg-zinc-800 rounded transition-colors"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+                    {renderContactSearch(showBuyer2Search, setShowBuyer2Search, (contact) => selectContact(contact, 'buyer2'), 'Rechercher un contact existant')}
+                    {renderContactFields(buyerForm2, setBuyerForm2, selectedBuyer2Contact, 'Co-acheteur', savingBuyer2Contact, setSavingBuyer2Contact, 'buyer')}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-4 text-zinc-100">Date de la transaction</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1 text-zinc-300">Transaction Date</label>
               <input
@@ -1605,101 +1745,37 @@ export function Administrative() {
         )}
 
         <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center gap-3 mb-1">
             <FileText className="text-blue-500" size={24} />
-            <h2 className="text-xl font-semibold text-zinc-100">Generate Documents</h2>
+            <h2 className="text-xl font-semibold text-zinc-100">Documents</h2>
           </div>
+          <p className="text-sm text-zinc-500 mb-6">
+            {transactionType === 'purchase'
+              ? 'MC Export achète — documents côté achat (MC Export pré-rempli en acheteur).'
+              : 'MC Export vend — documents côté vente (MC Export pré-rempli en vendeur).'}
+          </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <button
-              onClick={() => handleGenerateDocument('Certificat de cession')}
-              disabled={generatingDoc !== null}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-            >
-              {generatingDoc === 'Certificat de cession' ? (
-                <>
-                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Download size={18} />
-                  Certificat de cession
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={() => handleGenerateDocument('Déclaration d\'achat')}
-              disabled={generatingDoc !== null}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-            >
-              {generatingDoc === 'Déclaration d\'achat' ? (
-                <>
-                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Download size={18} />
-                  Déclaration d'achat
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={() => handleGenerateDocument('Bon d\'achat')}
-              disabled={generatingDoc !== null}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-            >
-              {generatingDoc === 'Bon d\'achat' ? (
-                <>
-                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Download size={18} />
-                  Bon d'achat
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={() => handleGenerateDocument('Fiche enlèvement')}
-              disabled={generatingDoc !== null}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-            >
-              {generatingDoc === 'Fiche enlèvement' ? (
-                <>
-                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Download size={18} />
-                  Fiche enlèvement
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={() => handleGenerateDocument('Réception / Expédition')}
-              disabled={generatingDoc !== null}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
-            >
-              {generatingDoc === 'Réception / Expédition' ? (
-                <>
-                  <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Download size={18} />
-                  Réception / Expédition
-                </>
-              )}
-            </button>
+            {DOCS_BY_DIRECTION[transactionType].map((doc) => (
+              <button
+                key={doc}
+                onClick={() => handleGenerateDocument(doc)}
+                disabled={generatingDoc !== null}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+              >
+                {generatingDoc === doc ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                    Génération…
+                  </>
+                ) : (
+                  <>
+                    <Download size={18} />
+                    {doc}
+                  </>
+                )}
+              </button>
+            ))}
           </div>
         </section>
 
