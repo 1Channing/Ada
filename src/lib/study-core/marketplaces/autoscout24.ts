@@ -235,10 +235,10 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     `?atype=C&cy=${cfg.cy}&fregfrom={yearFrom}&fregto={yearTo}&kmto={mileage}` +
     `&fuel={fuel}&sort=price&desc=0&ustate=N,U`;
 
-  function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
+  function buildSearchUrl(params: SearchCriteria, overrides?: { modelSlug?: string }): BuildUrlResult {
     const warnings: string[] = [];
     const brandSlug = brandToSlug(String(params.brand ?? ''));
-    const modelSlug = params.model ? modelToSlug(String(params.model)) : '';
+    const modelSlug = overrides?.modelSlug ?? (params.model ? modelToSlug(String(params.model)) : '');
 
     const segs = ['lst'];
     if (brandSlug) segs.push(brandSlug);
@@ -276,6 +276,25 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
   function generateCorrectionHypotheses(params: SearchCriteria, issueTypes: Set<string>):
     Array<{ url: string; reason: string }> {
     const result: Array<{ url: string; reason: string }> = [];
+    // H0 — not-found probe: the PATH slug is wrong (AS24 served its 404
+    // template). Try alternate spellings of the model slug: AS24 groups some
+    // Mercedes-style models as '<code>-klasse', others as the bare code, and
+    // our no-separator table may disagree with the site. The campaign engine
+    // scrapes each candidate (max 2) and learns the winner into memory.
+    if (issueTypes.has('page_not_found') && params.model) {
+      const current = params.model ? modelToSlug(String(params.model)) : '';
+      const alts: string[] = [];
+      if (/^[a-z]{2,3}$/.test(current)) alts.push(`${current}-klasse`);
+      const mKlasse = current.match(/^([a-z]{2,3})-klasse$/);
+      if (mKlasse) alts.push(mKlasse[1]);
+      const naive = slug(String(params.model));
+      if (naive && naive !== current && !alts.includes(naive)) alts.push(naive);
+      for (const alt of alts.slice(0, 2)) {
+        const { url } = buildSearchUrl(params, { modelSlug: alt });
+        result.push({ url, reason: `AUTOSCOUT H0: slug modèle '${alt}' (page introuvable avec '${current}')` });
+      }
+      return result;
+    }
     // H1: fuel mapping suspect → drop fuel.
     if (issueTypes.has('fuel_mismatch') && params.fuel) {
       const { url } = buildSearchUrl({ ...params, fuel: undefined });

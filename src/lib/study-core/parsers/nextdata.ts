@@ -20,6 +20,12 @@ import type { ScrapedListing, Currency } from '../types';
 const DKK_TO_EUR = 0.134; // in sync with parsers/shared.ts, business-logic.ts, marketData.ts
 
 function extractNextData(html: string): any | null {
+  // A raw JSON body (e.g. Marktplaats' internal /lrp/api/search response) is
+  // parsed directly — same shape-agnostic deep search, no script tag needed.
+  const t = html.trim();
+  if (t.startsWith('{') || t.startsWith('[')) {
+    try { return JSON.parse(t); } catch { /* pas du JSON pur — voir le script tag */ }
+  }
   const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
   if (!m) return null;
   try { return JSON.parse(m[1]); } catch { return null; }

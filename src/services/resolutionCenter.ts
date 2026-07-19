@@ -14,6 +14,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { healOpenGaps } from '../lib/linkgen/gapHealing';
 import { getSiteAdapter } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/study-core/marketplaces';
 
@@ -205,6 +206,10 @@ export async function validateEmptyMarket(item: GapItem): Promise<{ ok: boolean;
       });
     if (error) return { ok: false, error: error.message };
   }
+
+  // Le mapping vient d'être validé : les autres lacunes ouvertes du même
+  // combo (autres années/campagnes) sont réparées par la même connaissance.
+  await healOpenGaps(item.site, brand, model).catch(() => 0);
 
   return resolveGapItem(item.id, 'empty_market');
 }

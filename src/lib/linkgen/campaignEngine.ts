@@ -133,10 +133,55 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
       detectedParams: decomposeUrl(url), submittedBy: CAMPAIGN_SUBMITTER,
     }).catch(() => undefined);
     // A not-found page means the URL PATH is wrong (bad brand/model slug) —
-    // that's a mapping problem, not a technical one: route it to the taxonomy
-    // bucket so the resolution center presents it as correctable.
+    // that's a mapping problem, not a technical one. Before recording the
+    // taxonomy gap, PROBE the adapter's alternate slugs (max 2 scrapes): a
+    // candidate whose sample confirms brand+model is learned into memory
+    // (which retro-heals the matching open gaps) and the item flips to
+    // confirmed — the slug fixed itself, no human needed.
     if (error === 'PAGE_NOT_FOUND') {
-      return { ...base, url, outcome: 'taxonomy_gap', confirmedFields: [], rejected: [], detail: 'page introuvable — slug marque/modèle à corriger', sampleSize: 0 };
+      if (adapter.generateCorrectionHypotheses) {
+        const probes = (adapter.generateCorrectionHypotheses(criteria, new Set(['page_not_found'])) ?? [])
+          .filter((h) => h.url && h.url !== url)
+          .slice(0, 2);
+        for (const h of probes) {
+          console.log(`[CAMPAIGN_PROBE] ${p.site} ${p.brand} ${p.model} → ${h.reason}`);
+          const alt = await scrape(h.url);
+          if (alt.error || alt.listings.length < INGESTION_MIN_SAMPLE) continue;
+          const altAnalysis = analyzeIngestion(h.url, criteria, alt.listings, adapter);
+          const altConfirmed = new Set(altAnalysis.confirmedFields);
+          if (!altConfirmed.has('brand') || !altConfirmed.has('model')) continue;
+
+          // persistIngestionResult writes the memory row (validated_url =
+          // the winning slug URL) and retro-heals the open gaps of the combo.
+          await persistIngestionResult({
+            url: h.url, site: adapter.key, country: adapter.countryCode, criteria,
+            analysis: altAnalysis, sampleSize: alt.listings.length,
+            detectedParams: decomposeUrl(h.url), submittedBy: CAMPAIGN_SUBMITTER,
+          }).catch(() => undefined);
+          await writeMarketSnapshot({
+            segment: {
+              site: adapter.key, country: adapter.countryCode,
+              brand: p.brand.toUpperCase(), model: p.model.toUpperCase(),
+              fuel: altConfirmed.has('fuel') ? (p.fuel ?? '').toUpperCase() : '',
+              trim: altConfirmed.has('trim') ? (p.trim ?? '') : '',
+            },
+            listings: alt.listings, totalCount: null, sourceUrl: h.url, submittedBy: CAMPAIGN_SUBMITTER,
+          }).catch(() => undefined);
+
+          const altRejected = altAnalysis.rejectedFields.map((c) => ({
+            field: c.field, declared: c.declaredValue, reason: c.reason ?? '',
+          }));
+          return {
+            ...base, url: h.url,
+            outcome: altRejected.length > 0 ? 'enum_gap' : 'confirmed',
+            confirmedFields: [...altAnalysis.confirmedFields],
+            rejected: altRejected,
+            detail: `slug auto-corrigé (${h.reason})`,
+            sampleSize: alt.listings.length,
+          };
+        }
+      }
+      return { ...base, url, outcome: 'taxonomy_gap', confirmedFields: [], rejected: [], detail: 'page introuvable — slug marque/modèle à corriger (sondes épuisées)', sampleSize: 0 };
     }
     return { ...base, url, outcome: 'technical', confirmedFields: [], rejected: [], detail: `scrape en échec: ${error}`, sampleSize: 0 };
   }

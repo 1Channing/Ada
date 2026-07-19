@@ -21,6 +21,7 @@
  */
 
 import { sharedSupabase as supabase } from '../supabaseShared';
+import { healOpenGaps } from './gapHealing';
 import type { Json } from '../database.types';
 import type { SearchCriteria } from '../study-core/marketplaces/types';
 import type { DetectedParams } from '../study-core/marketplaces/urlDecompose';
@@ -241,6 +242,12 @@ export async function persistIngestionResult(
         }
       }
     }
+  }
+
+  // Retro-healing: a mapping just written/reinforced as valid closes the open
+  // taxonomy/no-url gaps of the same combo in the resolution center.
+  if (['inserted', 'reinforced', 'upgraded_from_csv'].includes(outcome.memoryAction)) {
+    await healOpenGaps(site, String(criteria.brand ?? ''), String(criteria.model ?? '')).catch(() => 0);
   }
 
   // Learn opaque enum codes (gearbox/color/vehicleType) → confirmed label,

@@ -157,7 +157,9 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<Fet
   // `profileLevel` maps 1:1 to the adapter's `attempt`.
   const adapter = findSiteAdapterByDomain(url);
   const profile = adapter?.getFetchProfile ? adapter.getFetchProfile(profileLevel) : {};
-  const useRawHtml = profile.httpResponseBody === true;
+  // JSON API endpoints (Marktplaats lrp/api) must be fetched raw: a browser
+  // render would wrap the JSON body in an HTML shell.
+  const useRawHtml = profile.httpResponseBody === true || url.includes('/lrp/api/');
   const mode: 'raw' | 'browser' = useRawHtml ? 'raw' : 'browser';
 
   const requestBody: any = { url };
@@ -374,6 +376,152 @@ function marketplaceOf(url: string): string {
     : 'UNKNOWN';
 }
 
+// ─── Marktplaats server-side search (lrp/api) ────────────────────────────────
+// The #hash fragment (q, constructionYear…) NEVER reaches the server: the SSR
+// page and its __NEXT_DATA__ (even browser-rendered — hydration doesn't
+// rewrite the script tag) is the UNFILTERED brand page. Campaign logs proved
+// it: a RAV4-2024 search returned 2017 Aygos. Real filtering lives in the
+// internal JSON API the SPA itself calls. We learn the brand's l2CategoryId
+// once from its page (cached per process), then page through the API with
+// TRUE server params (query = the Variant box, constructionYear, mileage).
+// Any doubt (unreadable body, missing category) falls back to the legacy
+// HTML path — where the confirmation layer keeps guarding against
+// unfiltered samples, exactly as before.
+
+const MARKTPLAATS_L1_CARS = '91'; // "Auto's"
+const MP_L2_CACHE = new Map<string, string>();
+
+function parseMarktplaatsHash(url: string): Record<string, string> {
+  const h = url.split('#')[1] ?? '';
+  const out: Record<string, string> = {};
+  for (const seg of h.split('|')) {
+    const i = seg.indexOf(':');
+    if (i > 0) out[seg.slice(0, i)] = decodeURIComponent(seg.slice(i + 1));
+  }
+  return out;
+}
+
+function marktplaatsBrandSlug(url: string): string | null {
+  const m = url.match(/marktplaats\.nl\/l\/auto-s\/([^/#?]+)/);
+  return m ? m[1] : null;
+}
+
+/** l2CategoryId of the brand page: explicit l2Category, else the dominant listing categoryId. */
+function extractMarktplaatsL2(html: string): string | null {
+  const m = html.match(/"l2Category"\s*:\s*\{[^{}]*?"id"\s*:\s*(\d+)/);
+  if (m) return m[1];
+  const counts = new Map<string, number>();
+  for (const c of html.matchAll(/"categoryId"\s*:\s*(\d+)/g)) {
+    counts.set(c[1], (counts.get(c[1]) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const [id, n] of counts) if (n > bestN) { best = id; bestN = n; }
+  return bestN >= 3 ? best : null;
+}
+
+function buildLrpUrl(l2: string | null, h: Record<string, string>, offset: number): string {
+  const api = new URL('https://www.marktplaats.nl/lrp/api/search');
+  api.searchParams.set('l1CategoryId', MARKTPLAATS_L1_CARS);
+  if (l2) api.searchParams.set('l2CategoryId', l2);
+  if (h['q']) api.searchParams.set('query', h['q'].replace(/\+/g, ' '));
+  const yf = h['constructionYearFrom'];
+  const yt = h['constructionYearTo'];
+  if (yf || yt) api.searchParams.append('attributeRanges[]', `constructionYear:${yf || '1900'}:${yt || '2100'}`);
+  if (h['mileageTo']) api.searchParams.append('attributeRanges[]', `mileage:0:${h['mileageTo']}`);
+  api.searchParams.set('sortBy', h['sortBy'] || 'PRICE');
+  api.searchParams.set('sortOrder', h['sortOrder'] || 'INCREASING');
+  api.searchParams.set('limit', '30');
+  api.searchParams.set('offset', String(offset));
+  return api.toString();
+}
+
+async function scrapeMarktplaatsViaApi(
+  url: string,
+  maxPages: number,
+  maxListings: number
+): Promise<ScrapeSearchResult | null> {
+  const h = parseMarktplaatsHash(url);
+  const hasFilters = !!(h['q'] || h['constructionYearFrom'] || h['constructionYearTo'] || h['mileageTo']);
+  if (!hasFilters) return null; // plain brand page — the HTML path serves it fine
+
+  const brandSlug = marktplaatsBrandSlug(url);
+  let l2: string | null = brandSlug ? MP_L2_CACHE.get(brandSlug) ?? null : null;
+  let attempts = 0;
+
+  if (brandSlug && !l2) {
+    // One HTML fetch of the brand page to learn its l2CategoryId.
+    const { html } = await fetchHtmlWithZyte(url, 1);
+    attempts++;
+    l2 = html ? extractMarktplaatsL2(html) : null;
+    if (!l2) {
+      console.warn('[MARKTPLAATS_LRP] l2CategoryId introuvable sur la page marque — repli HTML');
+      return null;
+    }
+    MP_L2_CACHE.set(brandSlug, l2);
+    console.log(`[MARKTPLAATS_LRP] l2CategoryId appris: ${brandSlug} → ${l2}`);
+  }
+
+  let all: ScrapedListing[] = [];
+  let totalCount: number | null = null;
+  let pages = 0;
+  for (let page = 0; page < maxPages && all.length < maxListings; page++) {
+    const apiUrl = buildLrpUrl(l2, h, page * 30);
+    const { html: body } = await fetchHtmlWithZyte(apiUrl, 1);
+    attempts++;
+    if (!body || !body.trim().startsWith('{')) {
+      if (page === 0) {
+        console.warn('[MARKTPLAATS_LRP] réponse API illisible — repli HTML');
+        return null;
+      }
+      break;
+    }
+    if (totalCount == null) {
+      const t = body.match(/"totalResultCount"\s*:\s*(\d+)/);
+      if (t) totalCount = parseInt(t[1], 10);
+    }
+    const pageListings = coreParseSearchPage(body, url);
+    pages++;
+    if (pageListings.length === 0) break;
+    const before = all.length;
+    all = dedupeListings([...all, ...pageListings]);
+    if (all.length === before) break;
+    if (totalCount != null && all.length >= totalCount) break;
+  }
+
+  all = all.slice(0, maxListings);
+  if (all.length === 0) {
+    if (totalCount === 0) {
+      // Genuine empty market — the SERVER applied the filters and says zero.
+      console.log('[MARKTPLAATS_LRP] 0 résultat serveur — marché réellement vide');
+      const result: ScrapeSearchResult = {
+        listings: [], totalCount: 0,
+        diagnostics: {
+          site: 'MARKTPLAATS', mode: 'raw', attempts, htmlLength: 0, listingCount: 0,
+          totalCount: 0, blocked: false, blockReason: null, emptyResults: true,
+          fromCache: false, fieldsPresent: {},
+        },
+      };
+      SCRAPE_CACHE.set(url, { at: Date.now(), result });
+      return result;
+    }
+    console.warn(`[MARKTPLAATS_LRP] 0 annonce parsée (total=${totalCount ?? '?'}) — repli HTML`);
+    return null;
+  }
+
+  console.log(`[MARKTPLAATS_LRP] ✅ ${all.length} annonces FILTRÉES SERVEUR (total=${totalCount ?? '?'}, pages=${pages}, l2=${l2 ?? '—'})`);
+  const result: ScrapeSearchResult = {
+    listings: all, totalCount,
+    diagnostics: {
+      site: 'MARKTPLAATS', mode: 'raw', attempts, htmlLength: 0, listingCount: all.length,
+      totalCount, blocked: false, blockReason: null, emptyResults: false,
+      fromCache: false, fieldsPresent: fieldCoverage(all),
+    },
+  };
+  SCRAPE_CACHE.set(url, { at: Date.now(), result });
+  return result;
+}
+
 /**
  * Scrape a marketplace URL and parse listings.
  * Exported for the /ingest-url endpoint (discovery scrape) — same fetch,
@@ -396,6 +544,18 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
   // costs up to 2x the Zyte calls of a 'full' scrape.
   const maxPages = scrapeMode === 'deep' ? DEEP_MAX_PAGES : MAX_PAGES;
   const maxListings = scrapeMode === 'deep' ? DEEP_MAX_LISTINGS : MAX_LISTINGS;
+
+  // Filtered Marktplaats searches go through the server-side JSON API (the
+  // hash never reaches the server) — falls back to the HTML path on any doubt.
+  if (marketplace === 'MARKTPLAATS' && url.includes('#')) {
+    try {
+      const viaApi = await scrapeMarktplaatsViaApi(url, scrapeMode === 'fast' ? 1 : maxPages, maxListings);
+      if (viaApi) return viaApi;
+    } catch (e) {
+      console.warn('[MARKTPLAATS_LRP] erreur — repli HTML:', e);
+    }
+  }
+
   let lastMode: 'raw' | 'browser' | null = null;
   let lastLen = 0;
 
