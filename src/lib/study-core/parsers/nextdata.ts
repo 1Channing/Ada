@@ -323,10 +323,14 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
       fuel,
       gearbox,
       powerDin,
-      doors: null,
-      seats: null,
+      doors: toInt(readField(ad, ['doors', 'doorCount', 'numberOfDoors'], ['doors', 'deuren', 'døre', 'dore'])),
+      seats: toInt(readField(ad, ['seats', 'seatCount', 'numberOfSeats'], ['seats', 'zitplaatsen', 'sæder', 'saeder'])),
       color: str(readField(ad, ['color', 'colour', 'exteriorColor', 'bodyColor'], ['kleur', 'color', 'farve'])),
       vehicleType: str(readField(ad, ['bodyType', 'body', 'category', 'carType'], ['carrosserie', 'bodytype', 'karrosseri'])),
+      // Data quality: pro vs private (VAT) and the price NATURE — Bilbasen's
+      // "WithoutTax"/engros prices must be excluded from medians downstream.
+      sellerType: str(readField(ad, ['sellerType', 'sellerKind'], [])) ?? str((ad as { seller?: { type?: unknown } })?.seller?.type),
+      priceType: str((ad as { price?: { priceType?: unknown } })?.price?.priceType) ?? str(readField(ad, ['priceType'], [])),
     });
   }
 

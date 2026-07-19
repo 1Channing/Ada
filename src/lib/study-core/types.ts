@@ -49,6 +49,11 @@ export interface ScrapedListing {
   // ("Megane E-Tech" with no "Renault") or the energy. Human label, not code.
   brand?: string | null;
   fuel?: string | null;
+  // Data-quality attributes: professional vs private seller (VAT implications)
+  // and the price nature — Bilbasen serves "WithoutTax"/engros prices that
+  // must never enter a median. Raw site labels, interpreted downstream.
+  sellerType?: string | null;
+  priceType?: string | null;
 }
 
 /**

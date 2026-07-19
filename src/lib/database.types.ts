@@ -423,6 +423,12 @@ export type Database = {
           year: number | null
           mileage: number | null
           power_din: number | null
+          gearbox?: string | null
+          doors?: number | null
+          seats?: number | null
+          color?: string | null
+          seller_type?: string | null
+          price_type?: string | null
           listing_url: string | null
           title: string | null
           currency: string
@@ -443,6 +449,12 @@ export type Database = {
           year?: number | null
           mileage?: number | null
           power_din?: number | null
+          gearbox?: string | null
+          doors?: number | null
+          seats?: number | null
+          color?: string | null
+          seller_type?: string | null
+          price_type?: string | null
           listing_url?: string | null
           title?: string | null
           currency?: string
@@ -463,6 +475,12 @@ export type Database = {
           year?: number | null
           mileage?: number | null
           power_din?: number | null
+          gearbox?: string | null
+          doors?: number | null
+          seats?: number | null
+          color?: string | null
+          seller_type?: string | null
+          price_type?: string | null
           listing_url?: string | null
           title?: string | null
           currency?: string
@@ -739,6 +757,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      market_rescan_optouts: {
+        Row: {
+          id: string
+          site: string
+          country: string
+          brand: string
+          model: string
+          fuel: string
+          trim: string
+          opted_out_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          site: string
+          country?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          trim?: string
+          opted_out_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          site?: string
+          country?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          trim?: string
+          opted_out_by?: string | null
+          created_at?: string
+        }
+        Relationships: []
       }
       market_opportunity_acks: {
         Row: {

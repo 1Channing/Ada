@@ -3,10 +3,10 @@ import {
   Line, LineChart, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ComposedChart,
 } from 'recharts';
-import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, AlertTriangle, RotateCcw, ExternalLink, Plus, X } from 'lucide-react';
+import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X } from 'lucide-react';
 import {
   loadMarketData, loadKnownDimensions, sortedUnion, filterObservations, distinctValues, priceStats, timeSeries,
-  priceHistogramFrom, velocityFromObservations, isCoarseOnly, fuelLabel,
+  priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
 } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
@@ -134,6 +134,7 @@ export function MarketIntelligence() {
       const mapped = key ? (known.fuelsByBrandModel[key] ?? []) : known.allFuels;
       return sortedUnion(distinctValues(obs, 'fuel', active), mapped);
     }, [obs, active, known]),
+    gearbox: useMemo(() => distinctValues(obs, 'gearbox' as keyof Observation, active), [obs, active]),
   };
 
   // Per-study derived data (used by both single & comparison views).
@@ -231,8 +232,12 @@ export function MarketIntelligence() {
               <Select label="Pays" value={active.country ?? ''} options={opts.country} onChange={(v) => setActive({ country: v || undefined })} flag />
               <Select label="Marque" value={active.brand ?? ''} options={opts.brand} onChange={(v) => setActive({ brand: v || undefined })} />
               <Select label="Modèle" value={active.model ?? ''} options={opts.model} onChange={(v) => setActive({ model: v || undefined })} />
-              <Select label="Finition" value={active.trim ?? ''} options={opts.trim} onChange={(v) => setActive({ trim: v || undefined })} />
+              {/* Finition en texte libre « contient » (finition OU titre) —
+                  « Sportline » matche « 60 Sportline 150 kW 63 kWh ». */}
+              <TextFilter label="Finition (contient)" value={active.trim ?? ''} suggestions={opts.trim}
+                placeholder="Sportline, GR Sport…" onChange={(v) => setActive({ trim: v || undefined })} />
               <SelectFuel label="Carburant" value={active.fuel ?? ''} options={opts.fuel} onChange={(v) => setActive({ fuel: (v || undefined) as FuelToken | undefined })} />
+              <Select label="Boîte" value={active.gearbox ?? ''} options={opts.gearbox} onChange={(v) => setActive({ gearbox: v || undefined })} />
               <NumRange label="Année" from={active.yearMin ?? undefined} to={active.yearMax ?? undefined}
                 onFrom={(v) => setActive({ yearMin: v })} onTo={(v) => setActive({ yearMax: v })} />
               <div className="grid grid-cols-2 gap-2">
@@ -277,6 +282,7 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
   }, [latestObs]);
 
   const velocity = useMemo(() => velocityFromObservations(filtered).filter((v) => v.soldCount > 0), [filtered]);
+  const velocityCoverage = useMemo(() => velocityCoverageDays(filtered), [filtered]);
 
   const tableRows = useMemo(() => {
     let rows = latestObs;
@@ -363,7 +369,7 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
       </div>
 
       {/* Velocity */}
-      <VelocityCard velocity={velocity} />
+      <VelocityCard velocity={velocity} coverageDays={velocityCoverage} />
 
       {/* Listings table */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
@@ -431,14 +437,17 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
     [perStudy]);
 
   // Velocity across the union of all studies' observations (deduped).
-  const velocity = useMemo(() => {
+  const { velocity, velocityCoverage } = useMemo(() => {
     const seen = new Set<string>();
     const union: Observation[] = [];
     for (const s of perStudy) for (const o of s.filtered) {
       const k = `${o.snapshot_id}|${o.internal_ref}`;
       if (seen.has(k)) continue; seen.add(k); union.push(o);
     }
-    return velocityFromObservations(union).filter((v) => v.soldCount > 0);
+    return {
+      velocity: velocityFromObservations(union).filter((v) => v.soldCount > 0),
+      velocityCoverage: velocityCoverageDays(union),
+    };
   }, [perStudy]);
 
   return (
@@ -538,7 +547,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
           </ResponsiveContainer>
         </ChartCard>
 
-        <VelocityCard velocity={velocity} />
+        <VelocityCard velocity={velocity} coverageDays={velocityCoverage} />
       </div>
 
       {/* Distribution des prix — comparée, cliquable par tranche */}
@@ -600,7 +609,10 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                             ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline text-xs shrink-0">Ouvrir <ExternalLink className="w-3 h-3" /></a>
                             : <span className="text-zinc-600 text-xs shrink-0">—</span>}
                         </div>
-                        <div className="text-xs text-zinc-500 mt-0.5">{o.year ?? '—'} · {o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'} · {fuelLabel(o.fuel)}</div>
+                        <div className="text-xs text-zinc-500 mt-0.5">
+                          {o.year ?? '—'} · {o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'} · {fuelLabel(o.fuel)}
+                          {o.power_din != null ? ` · ${o.power_din} ch` : ''}{o.gearbox ? ` · ${o.gearbox}` : ''}
+                        </div>
                         {(o.trim || o.title) && <div className="text-xs text-zinc-400 truncate mt-0.5">{o.trim || o.title}</div>}
                       </div>
                     ))}
@@ -615,25 +627,52 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
   );
 }
 
-function VelocityCard({ velocity }: { velocity: VelocityStat[] }) {
+function VelocityCard({ velocity, coverageDays }: { velocity: VelocityStat[]; coverageDays: number }) {
+  const [showAll, setShowAll] = useState(false);
+  const sorted = [...velocity].sort((a, b) => b.soldCount - a.soldCount);
+  const rows = showAll ? sorted : sorted.slice(0, 10);
+  const maxDays = Math.max(1, ...rows.map((v) => v.avgDaysToDisappear));
+
   return (
-    <ChartCard title="Vélocité — proxy de vitesse de vente" subtitle="jours avant qu'une annonce disparaisse (moyenne)" icon={<Gauge className="w-4 h-4 text-rose-400" />}>
-      <div className="flex items-start gap-2 text-xs text-amber-300/80 mb-3">
-        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-        <span>Signal indicatif : page 1 (≈30 moins chères) seulement, donc une annonce peut sortir sans être vendue. Nécessite ≥2 scans d'un même segment. S'affinera avec le scan périodique.</span>
-      </div>
-      {velocity.length === 0 ? <NeedMore text="Pas encore assez de scans répétés." /> : (
-        <ResponsiveContainer width="100%" height={Math.max(160, velocity.length * 34)}>
-          <BarChart data={velocity} layout="vertical" margin={{ top: 8, right: 24, bottom: 4, left: 8 }}>
-            <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
-            <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v) => `${v} j`} />
-            <YAxis type="category" dataKey="label" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={200} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v, _n, p) => [`${v} jours · ${(p?.payload as VelocityStat).soldCount} disparues / ${(p?.payload as VelocityStat).activeCount} actives`, '']} cursor={{ fill: '#ffffff08' }} />
-            <Bar dataKey="avgDaysToDisappear" radius={[0, 4, 4, 0]}>
-              {velocity.map((v) => <Cell key={v.segmentId} fill={COUNTRY_COLOR[v.country] ?? SERIES[5]} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+    <ChartCard
+      title="Vélocité — proxy de vitesse de vente"
+      subtitle={`fenêtre d'observation ≥ ${VELOCITY_MIN_DAYS} j par segment · page 1 seulement (une annonce peut sortir sans être vendue)`}
+      icon={<Gauge className="w-4 h-4 text-rose-400" />}
+    >
+      {velocity.length === 0 ? (
+        coverageDays > 0 ? (
+          <div className="h-[140px] flex flex-col items-center justify-center gap-2 text-sm text-zinc-500">
+            <div className="w-48 bg-zinc-800 rounded-full h-2 overflow-hidden">
+              <div className="bg-rose-500/70 h-2" style={{ width: `${Math.min(100, Math.round((coverageDays / VELOCITY_MIN_DAYS) * 100))}%` }} />
+            </div>
+            <span>Collecte en cours — {Math.min(coverageDays, VELOCITY_MIN_DAYS)} j / {VELOCITY_MIN_DAYS}</span>
+            <span className="text-xs text-zinc-600">La vélocité s'affiche dès {VELOCITY_MIN_DAYS} jours de scans répétés sur un segment.</span>
+          </div>
+        ) : (
+          <NeedMore text="Pas encore de scans répétés sur ce filtre." />
+        )
+      ) : (
+        <div className="space-y-1.5">
+          {rows.map((v) => (
+            <div key={v.segmentId} className="flex items-center gap-3 text-xs">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COUNTRY_COLOR[v.country] ?? SERIES[5] }} />
+              <span className="text-zinc-300 truncate w-44 shrink-0" title={v.label}>{v.label}</span>
+              <div className="flex-1 bg-zinc-800/60 rounded-full h-2 overflow-hidden">
+                <div
+                  className="h-2 rounded-full"
+                  style={{ width: `${Math.round((v.avgDaysToDisappear / maxDays) * 100)}%`, background: COUNTRY_COLOR[v.country] ?? SERIES[5] }}
+                />
+              </div>
+              <span className="text-zinc-200 font-medium w-12 text-right shrink-0">{v.avgDaysToDisappear} j</span>
+              <span className="text-zinc-600 w-28 text-right shrink-0">{v.soldCount} disparues · {v.activeCount} actives</span>
+            </div>
+          ))}
+          {sorted.length > 10 && (
+            <button onClick={() => setShowAll((s) => !s)} className="text-xs text-zinc-500 hover:text-zinc-300 pt-1">
+              {showAll ? 'Réduire' : `Voir les ${sorted.length - 10} autres`}
+            </button>
+          )}
+        </div>
       )}
     </ChartCard>
   );
@@ -647,6 +686,7 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
         <thead>
           <tr className="text-left text-zinc-500 border-b border-zinc-800">
             <th className="py-2 pr-3">Prix</th><th className="py-2 pr-3">Année</th><th className="py-2 pr-3">Km</th>
+            <th className="py-2 pr-3">Puissance</th><th className="py-2 pr-3">Boîte</th>
             <th className="py-2 pr-3">Finition</th><th className="py-2 pr-3">Carburant</th><th className="py-2">Annonce</th>
           </tr>
         </thead>
@@ -656,6 +696,8 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
               <td className="py-2 pr-3 font-medium text-zinc-100">{fmtEur(o.price)}</td>
               <td className="py-2 pr-3 text-zinc-400">{o.year ?? '—'}</td>
               <td className="py-2 pr-3 text-zinc-400">{o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'}</td>
+              <td className="py-2 pr-3 text-zinc-400">{o.power_din != null ? `${o.power_din} ch` : '—'}</td>
+              <td className="py-2 pr-3 text-zinc-400">{o.gearbox || '—'}</td>
               <td className="py-2 pr-3 text-zinc-300">{o.trim || '—'}</td>
               <td className="py-2 pr-3 text-zinc-300">{fuelLabel(o.fuel)}</td>
               <td className="py-2">
@@ -667,6 +709,27 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** Free-text filter with datalist suggestions — CONTAINS semantics downstream. */
+function TextFilter({ label, value, suggestions, placeholder, onChange }:
+  { label: string; value: string; suggestions: string[]; placeholder?: string; onChange: (v: string) => void }) {
+  const listId = `textfilter-${label.replace(/[^a-z0-9]/gi, '')}`;
+  return (
+    <div>
+      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        list={listId}
+        placeholder={placeholder ?? '—'}
+        className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-sm"
+      />
+      <datalist id={listId}>
+        {suggestions.slice(0, 60).map((s) => <option key={s} value={s} />)}
+      </datalist>
     </div>
   );
 }

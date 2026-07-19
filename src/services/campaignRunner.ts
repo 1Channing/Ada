@@ -15,7 +15,7 @@
 
 import { supabase } from '../lib/supabase';
 import type { CampaignItemResult, CampaignOutcome } from '../lib/linkgen/campaignEngine';
-import type { CampaignFilters } from '../lib/linkgen/campaignPlanner';
+import type { CampaignFilters, CampaignPlanItem } from '../lib/linkgen/campaignPlanner';
 import { useCampaignStore, EMPTY_COUNTS } from '../store/campaignStore';
 
 const POLL_MS = 5000;
@@ -27,6 +27,10 @@ export interface StartCampaignOptions {
   variantShare?: number;
   /** Modular targeting: brands / models / fuels / year window. */
   filters?: CampaignFilters;
+  /** 10-page deep pagination (~2× Zyte calls). Off by default. */
+  deepScan?: boolean;
+  /** Explicit plan (monthly re-scan: the exact segments the operator ticked). */
+  plan?: CampaignPlanItem[];
   label?: string;
 }
 

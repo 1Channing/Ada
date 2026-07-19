@@ -227,6 +227,10 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       seats: toInt(detailByIcon(rows, ['seat'])),
       color: null,
       vehicleType: bodyType,
+      // Pro vs private seller (VAT implications downstream).
+      sellerType: str((ad as { seller?: { type?: unknown; companyName?: unknown } })?.seller?.type)
+        ?? ((ad as { seller?: { companyName?: unknown } })?.seller?.companyName ? 'Dealer' : null),
+      priceType: str((ad as { price?: { priceType?: unknown } })?.price?.priceType),
     });
   }
 

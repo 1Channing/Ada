@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { Link2, Upload, History, LineChart } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
+import { NotificationCenter } from './NotificationCenter';
 
 type LayoutProps = {
   children: ReactNode;
@@ -22,7 +23,8 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="fixed top-4 right-4 text-xs text-zinc-600 font-mono z-10 bg-zinc-900/50 px-2 py-1 rounded-md">
+      {/* Sous la nav pour ne pas chevaucher la cloche de notifications. */}
+      <div className="fixed top-20 right-4 text-xs text-zinc-600 font-mono z-10 bg-zinc-900/50 px-2 py-1 rounded-md">
         Active users: {activeCount ?? '—'}
       </div>
 
@@ -92,6 +94,11 @@ export function Layout({ children }: LayoutProps) {
             <LineChart className="w-4 h-4" />
             Market Intelligence
           </button>
+
+          {/* Notifications (re-scan mensuel) — à droite, menus à gauche. */}
+          <div className="ml-auto">
+            <NotificationCenter />
+          </div>
         </div>
       </nav>
 

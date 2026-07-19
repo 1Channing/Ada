@@ -23,9 +23,10 @@ import { scrapeSearch } from './scraper';
 const PAUSE_BETWEEN_ITEMS_MS = 3000;
 const HEARTBEAT_STALE_MS = 120_000;
 
-const scrape: ScrapeFn = async (url) => {
+/** deep = up to 10 pages (~300 listings) instead of 5/100 — opt-in per campaign. */
+const mkScrape = (deep: boolean): ScrapeFn => async (url) => {
   try {
-    const r = await scrapeSearch(url, 'full');
+    const r = await scrapeSearch(url, deep ? 'deep' : 'full');
     return { listings: r.listings ?? [], error: r.error ?? null };
   } catch (e) {
     return { listings: [], error: e instanceof Error ? e.message : String(e) };
@@ -37,13 +38,25 @@ let loopBusy = false;
 
 export interface WorkerCampaignStart extends Omit<CampaignPlanOptions, 'rng'> {
   label?: string;
+  /** 10-page pagination instead of 5 (more depth, ~2× Zyte calls). */
+  deepScan?: boolean;
+  /**
+   * Explicit plan override — the monthly re-scan sends the EXACT stale
+   * segments the operator ticked; the planner is bypassed entirely.
+   */
+  plan?: CampaignPlanItem[];
 }
 
 export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<{ started: boolean; campaignId?: string; reason?: string }> {
   if (loopBusy) return { started: false, reason: 'campaign_already_running' };
 
-  const knowledge = await loadCampaignKnowledge();
-  const plan = planCampaign(knowledge, opts);
+  let plan: CampaignPlanItem[];
+  if (Array.isArray(opts.plan) && opts.plan.length > 0) {
+    plan = opts.plan;
+  } else {
+    const knowledge = await loadCampaignKnowledge();
+    plan = planCampaign(knowledge, opts);
+  }
   if (plan.length === 0) {
     return { started: false, reason: 'no_plan — la mémoire ne contient pas encore de mapping validé' };
   }
@@ -57,6 +70,7 @@ export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<{ 
       config: JSON.parse(JSON.stringify({
         sites: opts.sites, total: opts.total,
         reinforceShare: opts.reinforceShare, variantShare: opts.variantShare,
+        filters: opts.filters, deepScan: opts.deepScan === true,
         plan, runner: 'worker',
       })),
       last_heartbeat: new Date().toISOString(),
@@ -65,8 +79,8 @@ export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<{ 
     .single();
   if (error || !row) return { started: false, reason: error?.message ?? 'insert failed' };
 
-  console.log(`[CAMPAIGN_WORKER] start id=${row.id} total=${plan.length} sites=${opts.sites.join(',')}`);
-  void runLoop(row.id, plan, 0);
+  console.log(`[CAMPAIGN_WORKER] start id=${row.id} total=${plan.length} deep=${opts.deepScan === true} sites=${opts.sites.join(',')}`);
+  void runLoop(row.id, plan, 0, opts.deepScan === true);
   return { started: true, campaignId: row.id };
 }
 
@@ -120,7 +134,8 @@ export async function resumeWorkerCampaigns(): Promise<void> {
       }
       console.log(`[CAMPAIGN_WORKER] reprise id=${camp.id} à l'étude ${maxSeq + 1}/${(plan as unknown[]).length}`);
       resumed = true;
-      void runLoop(camp.id, plan as CampaignPlanItem[], maxSeq);
+      const deep = (camp.config as { deepScan?: boolean } | null)?.deepScan === true;
+      void runLoop(camp.id, plan as CampaignPlanItem[], maxSeq, deep);
     }
   } catch (e) {
     console.warn('[CAMPAIGN_WORKER] resume check failed:', e instanceof Error ? e.message : e);
@@ -132,8 +147,9 @@ async function readStatus(campaignId: string): Promise<string> {
   return data?.status ?? 'running';
 }
 
-async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex: number): Promise<void> {
+async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex: number, deepScan = false): Promise<void> {
   loopBusy = true;
+  const scrape = mkScrape(deepScan);
   const counts: Record<CampaignOutcome, number> = {
     confirmed: 0, taxonomy_gap: 0, enum_gap: 0, no_url: 0, insufficient: 0, technical: 0,
   };

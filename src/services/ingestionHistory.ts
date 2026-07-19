@@ -254,30 +254,54 @@ export async function loadMappingTree(): Promise<TreeNode> {
       modelMap.set(modelKey, model);
       brand.children.push(model);
     }
-    // Variant leaf = fuel/trim combination (only when present)
-    const variantBits = [row.fuel, row.trim].map((s) => (s ?? '').trim()).filter(Boolean);
+    // Hierarchy: Modèle → Carburant → Finition. Fuel and trim are SEPARATE
+    // levels so the tree reads "quelles finitions pour quel carburant" — a
+    // trim with no known fuel hangs directly under the model, a fuel with no
+    // trim stays a leaf.
+    const fuelVal = (row.fuel ?? '').trim();
+    const trimVal = (row.trim ?? '').trim();
     const status = statusOf(row);
     const weight = Math.max(1, row.human_confirmations ?? 0);
     const attributionKey = (fuel: string, trim: string) =>
       `${row.site}|${U(row.brand)}|${U(row.model)}|${U(fuel)}|${U(trim)}`;
-    if (variantBits.length > 0) {
+    if (fuelVal || trimVal) {
       const adaOnly = isAdaOnly(attributionKey(row.fuel ?? '', row.trim ?? ''));
-      model.children.push({
-        id: `variant:${modelKey}|${variantBits.join('+')}`,
-        label: variantBits.join(' · '),
-        kind: 'variant',
-        status,
-        weight,
-        children: [],
-        adaOnly,
-        meta: {
-          confirmations: row.human_confirmations ?? 0,
-          confidence: row.confidence ?? 0,
-          statut: row.validation_status ?? '',
-          source: row.source ?? '',
-          ...(adaOnly ? { appris_par: 'Ada (campagne)' } : {}),
-        },
-      });
+      const leafMeta = {
+        confirmations: row.human_confirmations ?? 0,
+        confidence: row.confidence ?? 0,
+        statut: row.validation_status ?? '',
+        source: row.source ?? '',
+        ...(adaOnly ? { appris_par: 'Ada (campagne)' } : {}),
+      };
+      let parent = model;
+      if (fuelVal) {
+        const fuelId = `fuel:${modelKey}|${fuelVal}`;
+        let fuelNode = parent.children.find((c) => c.id === fuelId);
+        if (!fuelNode) {
+          fuelNode = { id: fuelId, label: fuelVal, kind: 'variant', status: 'group', weight: 0, children: [] };
+          parent.children.push(fuelNode);
+        }
+        if (!trimVal) {
+          // Fuel-only row: the fuel node itself carries the leaf data.
+          fuelNode.status = STATUS_RANK[status] > STATUS_RANK[fuelNode.status] ? status : fuelNode.status;
+          fuelNode.weight = Math.max(fuelNode.weight, weight);
+          if (adaOnly && fuelNode.children.length === 0) fuelNode.adaOnly = true;
+          fuelNode.meta = leafMeta;
+        }
+        parent = fuelNode;
+      }
+      if (trimVal) {
+        parent.children.push({
+          id: `variant:${modelKey}|${fuelVal}|${trimVal}`,
+          label: trimVal,
+          kind: 'variant',
+          status,
+          weight,
+          children: [],
+          adaOnly,
+          meta: leafMeta,
+        });
+      }
     } else {
       // No variant → the model node itself carries the status/weight
       model.status = STATUS_RANK[status] > STATUS_RANK[model.status] ? status : model.status;

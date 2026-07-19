@@ -88,6 +88,8 @@ export function CampaignPanel() {
   const [filterModels, setFilterModels] = useState('');
   const [yearMin, setYearMin] = useState<string>('');
   const [yearMax, setYearMax] = useState<string>('');
+  // Deep pagination (10 pages / ~300 annonces) — off by default: ~2× Zyte cost.
+  const [deepScan, setDeepScan] = useState(false);
   const [knownBrands, setKnownBrands] = useState<string[]>([]);
   useEffect(() => {
     (async () => {
@@ -160,6 +162,7 @@ export function CampaignPanel() {
       reinforceShare: reinforcePct / 100,
       variantShare: variantPct / 100,
       ...(Object.keys(filters).length > 0 ? { filters } : {}),
+      ...(deepScan ? { deepScan: true } : {}),
     });
     if (!res.started) setStartError(res.reason ?? 'Lancement impossible');
   };
@@ -226,6 +229,15 @@ export function CampaignPanel() {
               tirée entre 2020 et {new Date().getFullYear()}) — obligatoire, sinon la recherche est
               trop vaste et les médianes mélangent tous les âges.
             </p>
+            <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deepScan}
+                onChange={(e) => setDeepScan(e.target.checked)}
+                className="accent-violet-500"
+              />
+              Scan profond — 10 pages (~300 annonces) au lieu de 5 <span className="text-zinc-600">· ~2× d'appels Zyte</span>
+            </label>
           </div>
           <div className="space-y-3">
             <div>

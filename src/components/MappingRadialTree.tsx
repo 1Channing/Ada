@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TreeNode, MappingStatus } from '../services/ingestionHistory';
 
 const STATUS_COLOR: Record<MappingStatus, string> = {
@@ -49,6 +49,23 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
   const [expanded, setExpanded] = useState<Set<string>>(defaultExpanded);
   const [hovered, setHovered] = useState<Positioned | null>(null);
 
+  // STRUCTURAL zoom: the wheel scales the ring SPACING (nodes spread apart),
+  // while dot sizes and text stay constant — not a CSS magnifier where
+  // everything grows and labels stay glued together.
+  const [zoom, setZoom] = useState(1);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setZoom((z) => Math.min(4, Math.max(0.5, z * (e.deltaY < 0 ? 1.12 : 0.9))));
+    };
+    // React's onWheel is passive — preventDefault needs a non-passive listener.
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
   const toggle = (id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -77,7 +94,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
       const hasChildren = n.children.length > 0;
       const isExpanded = expanded.has(n.id);
       const showChildren = isExpanded && hasChildren;
-      const radius = depth * RING;
+      const radius = depth * RING * zoom;
       maxRadius = Math.max(maxRadius, radius);
 
       let angle: number;
@@ -113,7 +130,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
       }
     }
     return { positioned, links, maxRadius };
-  }, [root, expanded]);
+  }, [root, expanded, zoom]);
 
   const pad = 140;
   const size = (maxRadius + pad) * 2;
@@ -130,6 +147,10 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
           className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
         >Tout replier</button>
         <span className="text-zinc-600">·</span>
+        <button onClick={() => setZoom((z) => Math.max(0.5, z * 0.9))} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">−</button>
+        <span className="text-zinc-500 tabular-nums">{Math.round(zoom * 100)}%</span>
+        <button onClick={() => setZoom((z) => Math.min(4, z * 1.12))} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">+</button>
+        <span className="text-zinc-600">·</span>
         {(['valid', 'partial', 'csv', 'pending'] as MappingStatus[]).map((s) => (
           <span key={s} className="inline-flex items-center gap-1 text-zinc-400">
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: STATUS_COLOR[s] }} />
@@ -140,10 +161,10 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: ADA_COLOR }} />
           {ADA_LABEL}
         </span>
-        <span className="text-zinc-600 ml-auto">Clique un nœud pour déplier / replier</span>
+        <span className="text-zinc-600 ml-auto">Molette = espacer les nœuds · clic = déplier / replier</span>
       </div>
 
-      <div className="relative overflow-auto rounded-xl border border-zinc-800 bg-zinc-950" style={{ maxHeight: 620 }}>
+      <div ref={containerRef} className="relative overflow-auto rounded-xl border border-zinc-800 bg-zinc-950" style={{ maxHeight: 620 }}>
         <svg
           viewBox={`${-size / 2} ${-size / 2} ${size} ${size}`}
           width={size}

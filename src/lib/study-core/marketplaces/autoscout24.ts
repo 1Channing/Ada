@@ -248,8 +248,11 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     qs.set('sort', 'price');
     qs.set('desc', '0');
     qs.set('ustate', 'N,U');
+    // Free-text keyword filter — human-proven on autoscout24.es
+    // (?kwd=Sportline narrows the Elroq list to Sportlines). Carries the
+    // finition into the URL; the ingestion still confirms it via listing text.
     if (params.trim && params.trim.trim()) {
-      warnings.push('[LINKGEN_WARNING] AutoScout24 has no reliable free-text trim filter; trim confirmed via listing text, not URL');
+      qs.set('kwd', params.trim.trim());
     }
 
     return { url: `https://www.${cfg.domain}${path}?${qs.toString()}`, warnings };
@@ -348,6 +351,8 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     if (power != null) out.powerFrom = String(power);
     const powerTo = firstNumber(q['powerto']);
     if (powerTo != null) out.powerTo = String(powerTo);
+    // kwd= free-text keyword ≈ finition (human-proven: kwd=Sportline on .es).
+    if ((q['kwd'] ?? '').trim()) out.trim = q['kwd'].trim();
 
     return out;
   }

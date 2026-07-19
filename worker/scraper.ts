@@ -86,7 +86,9 @@ async function recordStudyMarketSnapshot(
 ): Promise<void> {
   try {
     if (!segment.brand || !segment.model || !segment.country) return;
-    const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0);
+    // Non-retail guard: "WithoutTax"/engros prices never enter a median.
+    const isRetail = (l: ScrapedListing) => !/withouttax|without tax|engros|wholesale|excl/.test(((l as { priceType?: string | null }).priceType ?? '').toLowerCase());
+    const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetail(l));
     if (priced.length === 0) return;
 
     const scrapedAt = new Date().toISOString();
@@ -120,6 +122,12 @@ async function recordStudyMarketSnapshot(
       internal_ref: generateInternalRef({ listing_url: l.listing_url }),
       price: Math.round(toEur(l.price, l.currency)),
       year: l.year, mileage: l.mileage, power_din: (l as any).powerDin ?? null,
+      gearbox: ((l as any).gearbox ?? '').trim() || null,
+      doors: (l as any).doors ?? null,
+      seats: (l as any).seats ?? null,
+      color: ((l as any).color ?? '').trim() || null,
+      seller_type: ((l as any).sellerType ?? '').trim() || null,
+      price_type: ((l as any).priceType ?? '').trim() || null,
       listing_url: l.listing_url, title: (l.title ?? '').slice(0, 200),
       currency: 'EUR', scraped_at: scrapedAt,
     }));
@@ -325,6 +333,8 @@ const FULL_PAGE_MIN_BYTES = 100_000;
 // listings (≈ a study's worth), bounded by a page cap. 'fast' stays page 1.
 const MAX_LISTINGS = 100;
 const MAX_PAGES = 5;
+const DEEP_MAX_LISTINGS = 300;
+const DEEP_MAX_PAGES = 10;
 
 /** Drop duplicate listings (same URL, or same title+price when URL is absent). */
 function dedupeListings(list: ScrapedListing[]): ScrapedListing[] {
@@ -369,7 +379,7 @@ function marketplaceOf(url: string): string {
  * Exported for the /ingest-url endpoint (discovery scrape) — same fetch,
  * retries, profile escalation and parsing as study execution.
  */
-export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed'): Promise<ScrapeSearchResult> {
+export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed' | 'deep'): Promise<ScrapeSearchResult> {
   const marketplace = marketplaceOf(url);
   console.log(`[SCRAPE_ROUTE] marketplace=${marketplace} scrapeMode=${scrapeMode} url=${url.substring(0, 150)}`);
 
@@ -381,6 +391,11 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
   }
 
   const MAX_RETRIES = scrapeMode === 'fast' ? 1 : 3;
+  // 'deep' pushes pagination further (finition-level data lives beyond the
+  // cheapest 100): 10 pages / ~300 listings instead of 5 / 100. Opt-in — it
+  // costs up to 2x the Zyte calls of a 'full' scrape.
+  const maxPages = scrapeMode === 'deep' ? DEEP_MAX_PAGES : MAX_PAGES;
+  const maxListings = scrapeMode === 'deep' ? DEEP_MAX_LISTINGS : MAX_LISTINGS;
   let lastMode: 'raw' | 'browser' | null = null;
   let lastLen = 0;
 
@@ -449,9 +464,9 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
       // page 1) never paginate — no wasted requests.
       const moreAvailable = totalCount == null ? all.length >= 15 : totalCount > all.length;
       let pages = 1;
-      if (scrapeMode !== 'fast' && moreAvailable && all.length < MAX_LISTINGS) {
+      if (scrapeMode !== 'fast' && moreAvailable && all.length < maxListings) {
         const adapter = findSiteAdapterByDomain(activeUrl);
-        for (let page = 2; page <= MAX_PAGES && all.length < MAX_LISTINGS; page++) {
+        for (let page = 2; page <= maxPages && all.length < maxListings; page++) {
           const pageUrl = adapter ? adapter.buildPaginatedUrl(activeUrl, page) : activeUrl;
           if (pageUrl === activeUrl) break; // no pagination scheme for this site
           const { html: pageHtml } = await fetchHtmlWithZyte(pageUrl, 1);
@@ -464,7 +479,7 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
           if (all.length === before) break; // page brought no new unique listings
         }
       }
-      all = all.slice(0, MAX_LISTINGS);
+      all = all.slice(0, maxListings);
       console.log(`[WORKER_SCRAPER] ✅ Parsed ${all.length} listings (mode=${mode}, pages=${pages})`);
       return finalize({ listings: all, totalCount }, { attempts: attempt + 1, htmlLength: html.length }, true);
     }

@@ -53,6 +53,16 @@ export interface MarketSegmentKey {
  * segment. Prices normalised to EUR. Silent best-effort (never blocks the
  * ingestion UX).
  */
+/**
+ * Non-retail price guard: Bilbasen serves "WithoutTax"/engros (wholesale,
+ * ex-VAT) prices — a CLA at 2 375 kr in production logs — that must never
+ * enter a median or an opportunity. Unknown/absent price types stay in.
+ */
+function isRetailPrice(l: ScrapedListing): boolean {
+  const t = (l.priceType ?? '').toLowerCase();
+  return !/withouttax|without tax|engros|wholesale|excl/.test(t);
+}
+
 export async function writeMarketSnapshot(params: {
   segment: MarketSegmentKey;
   listings: ScrapedListing[];
@@ -61,7 +71,7 @@ export async function writeMarketSnapshot(params: {
   submittedBy?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const { segment, listings, totalCount, sourceUrl, submittedBy } = params;
-  const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0);
+  const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetailPrice(l));
   if (priced.length === 0) return { ok: false, error: 'no priced listings' };
 
   const scrapedAt = new Date().toISOString();
@@ -115,6 +125,12 @@ export async function writeMarketSnapshot(params: {
     year: l.year,
     mileage: l.mileage,
     power_din: l.powerDin ?? null,
+    gearbox: (l.gearbox ?? '').trim() || null,
+    doors: l.doors ?? null,
+    seats: l.seats ?? null,
+    color: (l.color ?? '').trim() || null,
+    seller_type: (l.sellerType ?? '').trim() || null,
+    price_type: (l.priceType ?? '').trim() || null,
     listing_url: l.listing_url,
     title: (l.title ?? '').slice(0, 200),
     currency: 'EUR',
@@ -167,6 +183,12 @@ export interface Observation {
   year: number | null;
   mileage: number | null;
   power_din: number | null;
+  gearbox?: string | null;
+  doors?: number | null;
+  seats?: number | null;
+  color?: string | null;
+  seller_type?: string | null;
+  price_type?: string | null;
   listing_url: string | null;
   title: string | null;
   scraped_at: string;
@@ -179,6 +201,7 @@ export interface MarketFilters {
   model?: string;
   trim?: string;
   fuel?: FuelToken | '';
+  gearbox?: string;
   yearMin?: number | null;
   yearMax?: number | null;
   mileageMax?: number | null;
@@ -189,17 +212,28 @@ const EMPTY_FILTERS: MarketFilters = {};
 
 /** True when only site/country/brand/model are set (no per-listing narrowing). */
 export function isCoarseOnly(f: MarketFilters): boolean {
-  return !f.trim && !f.fuel && f.yearMin == null && f.yearMax == null && f.mileageMax == null && f.powerMin == null;
+  return !f.trim && !f.fuel && !f.gearbox && f.yearMin == null && f.yearMax == null && f.mileageMax == null && f.powerMin == null;
 }
 
+const normText = (s: string | null | undefined) => (s ?? '').toLowerCase();
+
+/**
+ * Trim is a CONTAINS match over the listing's version AND its title: sites
+ * write finitions their own way ("60 Sportline 150 kW 63 kWh" vs "Sportline"),
+ * an exact-equality filter returned 0 for everything. Typing "sportline"
+ * matches any ad that carries it anywhere in its text.
+ */
 export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_FILTERS): Observation[] {
+  const trimNeedle = normText(f.trim).trim();
+  const gearboxNeedle = normText(f.gearbox).trim();
   return obs.filter((o) =>
     (!f.site || o.site === f.site) &&
     (!f.country || o.country === f.country) &&
     (!f.brand || o.brand === f.brand) &&
     (!f.model || o.model === f.model) &&
-    (!f.trim || o.trim === f.trim) &&
+    (!trimNeedle || normText(o.trim).includes(trimNeedle) || normText(o.title).includes(trimNeedle)) &&
     (!f.fuel || o.fuel === f.fuel) &&
+    (!gearboxNeedle || normText(o.gearbox).includes(gearboxNeedle)) &&
     (f.yearMin == null || (o.year != null && o.year >= f.yearMin)) &&
     (f.yearMax == null || (o.year != null && o.year <= f.yearMax)) &&
     (f.mileageMax == null || (o.mileage != null && o.mileage <= f.mileageMax)) &&
@@ -473,10 +507,33 @@ export function computeVelocity(data: MarketData): VelocityStat[] {
   return out.sort((a, b) => b.soldCount - a.soldCount);
 }
 
+/** Minimum observation window before velocity means anything. */
+export const VELOCITY_MIN_DAYS = 14;
+
+/**
+ * Longest observation window (days) across segments of a filtered slice —
+ * powers the "collecte en cours — Xj/14" state before velocity unlocks.
+ */
+export function velocityCoverageDays(obs: Observation[]): number {
+  const groups = new Map<string, number[]>();
+  for (const o of obs) {
+    const key = segmentId(o);
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(new Date(o.scraped_at).getTime());
+  }
+  let best = 0;
+  for (const times of groups.values()) {
+    if (times.length < 2) continue;
+    best = Math.max(best, (Math.max(...times) - Math.min(...times)) / 86_400_000);
+  }
+  return Math.floor(best);
+}
+
 /**
  * Velocity over an already-filtered observation set, grouped by segment.
  * Same first_seen→last_seen logic as computeVelocity but slice-aware, so it
- * respects the dashboard filters. Needs ≥2 distinct scrape times in a group.
+ * respects the dashboard filters. A segment only qualifies once its window
+ * spans ≥ VELOCITY_MIN_DAYS: two scans hours apart produced absurd
+ * "sold in 0.2 days" readings.
  */
 export function velocityFromObservations(obs: Observation[]): VelocityStat[] {
   const groups = new Map<string, Observation[]>();
@@ -490,6 +547,7 @@ export function velocityFromObservations(obs: Observation[]): VelocityStat[] {
   for (const [seg, list] of groups) {
     const times = [...new Set(list.map((o) => new Date(o.scraped_at).getTime()))];
     if (times.length < 2) continue; // need repeated scrapes
+    if ((Math.max(...times) - Math.min(...times)) < VELOCITY_MIN_DAYS * 86_400_000) continue;
     const latest = Math.max(...times);
     const lives = new Map<string, { first: number; last: number }>();
     for (const o of list) {
