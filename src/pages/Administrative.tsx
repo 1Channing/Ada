@@ -117,6 +117,17 @@ const DOCS_BY_DIRECTION: Record<'purchase' | 'sale', string[]> = {
   sale: ['Certificat de cession', 'Réception / Expédition'],
 };
 
+const EMPTY_CONTACT_FORM: ContactForm = {
+  company_name: '', first_name: '', last_name: '', birth_date: '', birth_place: '',
+  address_line1: '', address_line2: '', postal_code: '', city: '', country: 'FR', siren: '',
+};
+
+// Un dossier = une voiture = deux contreparties externes qui ne changent pas
+// quand on bascule d'un côté à l'autre : le fournisseur (MC Export lui achète)
+// et le client (MC Export lui vend). MC Export est toujours au milieu.
+type Party = { form: ContactForm; selected: Contact | null };
+const emptyParty = (): Party => ({ form: { ...EMPTY_CONTACT_FORM }, selected: null });
+
 export function Administrative() {
   const [transactionType, setTransactionType] = useState<'purchase' | 'sale'>('purchase');
   const [vehicleForm, setVehicleForm] = useState<VehicleForm>({
@@ -222,6 +233,12 @@ export function Administrative() {
   const [selectedBuyerContact, setSelectedBuyerContact] = useState<Contact | null>(null);
   const [selectedBuyer2Contact, setSelectedBuyer2Contact] = useState<Contact | null>(null);
 
+  // Les deux contreparties externes du dossier, conservées quand on bascule
+  // achat↔vente : fournisseur (MC achète) et client (MC vend). Le côté actif
+  // est édité via sellerForm/buyerForm ; l'autre reste stocké ici.
+  const [supplier, setSupplier] = useState<Party>(emptyParty());
+  const [client, setClient] = useState<Party>(emptyParty());
+
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
@@ -245,7 +262,13 @@ export function Administrative() {
   const [dealsLoading, setDealsLoading] = useState(false);
   const [dealStatus, setDealStatus] = useState<'en_cours' | 'cloturee'>('en_cours');
   const [showQuickCreate, setShowQuickCreate] = useState(false);
-  const [quick, setQuick] = useState({ direction: 'purchase' as 'purchase' | 'sale', clientName: '', clientContactId: '', price: '', reference: '', commercial: '' });
+  // A deal is one car with two counterparties: a supplier (MC buys from) and a
+  // client (MC sells to). Quick-create captures both + the reference.
+  const [quick, setQuick] = useState({
+    supplierName: '', supplierContactId: '',
+    clientName: '', clientContactId: '',
+    reference: '', commercial: '',
+  });
   const [quickSaving, setQuickSaving] = useState(false);
 
   useEffect(() => {
@@ -438,16 +461,84 @@ export function Administrative() {
     markDirty();
   };
 
+  // The external contreparty of the ACTIVE side: purchase → the seller is the
+  // supplier, sale → the buyer is the client. MC Export sits on the other side.
+  const currentExternalParty = (): Party =>
+    transactionType === 'purchase'
+      ? { form: sellerForm, selected: selectedSellerContact }
+      : { form: buyerForm, selected: selectedBuyerContact };
+
+  // Seat seller/buyer forms for a direction from the two persistent parties
+  // (supplier / client) + MC Export, without losing either counterparty.
+  const seatDirection = (
+    type: 'purchase' | 'sale', sup: Party, cli: Party, mc: Contact | null,
+  ) => {
+    if (type === 'purchase') {
+      setSellerForm(sup.form); setSelectedSellerContact(sup.selected);
+      if (mc) { setBuyerForm(contactToForm(mc)); setSelectedBuyerContact(mc); }
+      else { setBuyerForm({ ...EMPTY_CONTACT_FORM }); setSelectedBuyerContact(null); }
+    } else {
+      if (mc) { setSellerForm(contactToForm(mc)); setSelectedSellerContact(mc); }
+      else { setSellerForm({ ...EMPTY_CONTACT_FORM }); setSelectedSellerContact(null); }
+      setBuyerForm(cli.form); setSelectedBuyerContact(cli.selected);
+    }
+  };
+
+  // Switch which side of the SAME deal is active (achat ↔ vente). Both external
+  // counterparties are kept: we snapshot the current external edits into its
+  // slot, then re-seat the target side. One dossier serves both directions.
   const updateTransactionType = (type: 'purchase' | 'sale') => {
+    if (type === transactionType) return;
+    const ext = currentExternalParty();
+    let sup = supplier, cli = client;
+    if (transactionType === 'purchase') { sup = ext; setSupplier(ext); }
+    else { cli = ext; setClient(ext); }
     setTransactionType(type);
-    // Reset both parties, then re-seat MC Export on its new side; the client
-    // side starts empty for a fresh selection.
-    setSellerForm(EMPTY_CONTACT); setSelectedSellerContact(null);
-    setBuyerForm(EMPTY_CONTACT); setSelectedBuyerContact(null);
+    seatDirection(type, sup, cli, mcExport);
+    // Co-parties are per-side extras; reset them on switch.
     setSellerForm2(EMPTY_CONTACT); setSelectedSeller2Contact(null); setShowSecondSeller(false);
     setBuyerForm2(EMPTY_CONTACT); setSelectedBuyer2Contact(null); setShowSecondBuyer(false);
-    if (mcExport) placeMcOnSide(type, mcExport);
     markDirty();
+  };
+
+  // Persist form edits back onto the chosen contact (or create it) so the
+  // document always reflects exactly what the operator sees on screen. Selecting
+  // an existing contact then editing its address used to be silently dropped.
+  const persistContactSlot = async (
+    selected: Contact | null, form: ContactForm, type: string,
+  ): Promise<string | null> => {
+    const hasName = form.first_name || form.last_name || form.company_name;
+    const clean = Object.fromEntries(
+      Object.entries(form).map(([k, v]) => [k, v === '' ? null : v]),
+    );
+    if (selected) {
+      await supabase.from('contacts').update(clean).eq('id', selected.id);
+      return selected.id;
+    }
+    if (hasName) {
+      const { data, error } = await supabase
+        .from('contacts').insert({ type, ...clean }).select('id').single();
+      if (error) throw error;
+      return data.id;
+    }
+    return null;
+  };
+
+  // Resolve the two external parties + active-direction seller/buyer for save.
+  // Captures the currently-edited external side into its slot first.
+  const resolveDealContacts = async (): Promise<{
+    supplierId: string | null; clientId: string | null;
+    sellerId: string | null; buyerId: string | null;
+  }> => {
+    const ext = currentExternalParty();
+    const sup = transactionType === 'purchase' ? ext : supplier;
+    const cli = transactionType === 'sale' ? ext : client;
+    const supplierId = await persistContactSlot(sup.selected, sup.form, 'seller');
+    const clientId = await persistContactSlot(cli.selected, cli.form, 'buyer');
+    const mcId = mcExport?.id ?? null;
+    const sellerId = transactionType === 'purchase' ? supplierId : mcId;
+    const buyerId = transactionType === 'purchase' ? mcId : clientId;
+    return { supplierId, clientId, sellerId, buyerId };
   };
 
   const deleteContact = async (id: string) => {
@@ -538,14 +629,26 @@ export function Administrative() {
         seller:contacts!transactions_admin_seller_contact_id_fkey(*),
         seller2:contacts!transactions_admin_seller_contact_id_2_fkey(*),
         buyer:contacts!transactions_admin_buyer_contact_id_fkey(*),
-        buyer2:contacts!transactions_admin_buyer_contact_id_2_fkey(*)
+        buyer2:contacts!transactions_admin_buyer_contact_id_2_fkey(*),
+        supplier:contacts!transactions_admin_supplier_contact_id_fkey(*),
+        client:contacts!transactions_admin_client_contact_id_fkey(*)
       `)
       .eq('id', id)
       .single();
     if (!tx) return;
 
-    setTransactionType((tx.transaction_type as 'purchase' | 'sale') ?? 'purchase');
+    const dir = (tx.transaction_type as 'purchase' | 'sale') ?? 'purchase';
+    setTransactionType(dir);
     setDealStatus((tx.status as 'en_cours' | 'cloturee') ?? 'en_cours');
+
+    // The two persistent counterparties. Legacy deals (no columns) fall back to
+    // whichever external party the active direction carried.
+    const supplierC = (tx.supplier as Contact | null)
+      ?? (dir === 'purchase' ? (tx.seller as Contact | null) : null);
+    const clientC = (tx.client as Contact | null)
+      ?? (dir === 'sale' ? (tx.buyer as Contact | null) : null);
+    setSupplier(supplierC ? { form: contactToForm(supplierC), selected: supplierC } : emptyParty());
+    setClient(clientC ? { form: contactToForm(clientC), selected: clientC } : emptyParty());
 
     const v = tx.vehicle as Record<string, unknown> | null;
     setVehicleForm({
@@ -587,36 +690,39 @@ export function Administrative() {
     window.scrollTo(0, 0);
   };
 
-  // Quick create: minimal deal (direction, client, price, ref, commercial),
-  // MC on its side, then straight into the editor to finish.
+  // Quick create: one car = a supplier (MC buys from) + a client (MC sells to)
+  // + a reference. The deal opens on the achat side; the vente side is ready to
+  // switch to. No need to create two dossiers for the same car.
   const handleQuickCreate = async () => {
     if (!mcExport) return;
     setQuickSaving(true);
     try {
-      // Resolve the client contact (existing or a light new one from a name).
-      let clientId = quick.clientContactId || null;
-      if (!clientId && quick.clientName.trim()) {
-        const { data: c } = await supabase
-          .from('contacts')
-          .insert({ type: quick.direction === 'purchase' ? 'seller' : 'buyer', company_name: quick.clientName.trim(), country: 'FR' })
-          .select().single();
-        clientId = c?.id ?? null;
-      }
-      // purchase: MC=buyer, client=seller · sale: MC=seller, client=buyer
-      const sellerId = quick.direction === 'purchase' ? clientId : mcExport.id;
-      const buyerId = quick.direction === 'purchase' ? mcExport.id : clientId;
+      const resolveParty = async (contactId: string, name: string, type: string): Promise<string | null> => {
+        if (contactId) return contactId;
+        if (name.trim()) {
+          const { data: c } = await supabase
+            .from('contacts')
+            .insert({ type, company_name: name.trim(), country: 'FR' })
+            .select('id').single();
+          return c?.id ?? null;
+        }
+        return null;
+      };
+      const supplierId = await resolveParty(quick.supplierContactId, quick.supplierName, 'seller');
+      const clientId = await resolveParty(quick.clientContactId, quick.clientName, 'buyer');
+      // Active side = achat by default: seller = supplier, buyer = MC Export.
       const { data: tx, error } = await supabase
         .from('transactions_admin')
         .insert({
-          transaction_type: quick.direction, status: 'en_cours',
-          seller_contact_id: sellerId, buyer_contact_id: buyerId,
-          transaction_price: quick.price ? parseFloat(quick.price) : null,
+          transaction_type: 'purchase', status: 'en_cours',
+          supplier_contact_id: supplierId, client_contact_id: clientId,
+          seller_contact_id: supplierId, buyer_contact_id: mcExport.id,
           reference: quick.reference || null, commercial: quick.commercial || null,
         })
         .select('id').single();
       if (error || !tx) throw error ?? new Error('insert failed');
       setShowQuickCreate(false);
-      setQuick({ direction: 'purchase', clientName: '', clientContactId: '', price: '', reference: '', commercial: '' });
+      setQuick({ supplierName: '', supplierContactId: '', clientName: '', clientContactId: '', reference: '', commercial: '' });
       await openDeal(tx.id);
     } catch (e) {
       setSaveMessage({ type: 'error', text: `Création impossible : ${getErrorMessage(e)}` });
@@ -888,77 +994,20 @@ export function Administrative() {
 
       if (vehicleError) throw vehicleError;
 
-      let sellerContactId1: string | null = null;
+      // Both external counterparties + active-direction seller/buyer, with
+      // current form edits persisted onto the contacts (WYSIWYG in the docs).
+      const { supplierId, clientId, sellerId, buyerId } = await resolveDealContacts();
+
+      // Co-parties (rare) stay attached to the active-direction slots.
       let sellerContactId2: string | null = null;
-      let buyerContactId1: string | null = null;
       let buyerContactId2: string | null = null;
-
-      if (selectedSellerContact) {
-        sellerContactId1 = selectedSellerContact.id;
-      } else if (sellerForm.first_name || sellerForm.last_name || sellerForm.company_name) {
-        const { data: newSeller, error: sellerError } = await supabase
-          .from('contacts')
-          .insert({
-            type: transactionType === 'purchase' ? 'seller' : 'buyer',
-            ...sellerForm,
-          })
-          .select()
-          .single();
-
-        if (sellerError) throw sellerError;
-        sellerContactId1 = newSeller.id;
-      }
-
       if (showSecondSeller) {
-        if (selectedSeller2Contact) {
-          sellerContactId2 = selectedSeller2Contact.id;
-        } else if (sellerForm2.first_name || sellerForm2.last_name || sellerForm2.company_name) {
-          const { data: newSeller2, error: seller2Error } = await supabase
-            .from('contacts')
-            .insert({
-              type: transactionType === 'purchase' ? 'seller' : 'buyer',
-              ...sellerForm2,
-            })
-            .select()
-            .single();
-
-          if (seller2Error) throw seller2Error;
-          sellerContactId2 = newSeller2.id;
-        }
+        sellerContactId2 = await persistContactSlot(
+          selectedSeller2Contact, sellerForm2, transactionType === 'purchase' ? 'seller' : 'buyer');
       }
-
-      if (selectedBuyerContact) {
-        buyerContactId1 = selectedBuyerContact.id;
-      } else if (buyerForm.first_name || buyerForm.last_name || buyerForm.company_name) {
-        const { data: newBuyer, error: buyerError } = await supabase
-          .from('contacts')
-          .insert({
-            type: transactionType === 'sale' ? 'buyer' : 'seller',
-            ...buyerForm,
-          })
-          .select()
-          .single();
-
-        if (buyerError) throw buyerError;
-        buyerContactId1 = newBuyer.id;
-      }
-
       if (showSecondBuyer) {
-        if (selectedBuyer2Contact) {
-          buyerContactId2 = selectedBuyer2Contact.id;
-        } else if (buyerForm2.first_name || buyerForm2.last_name || buyerForm2.company_name) {
-          const { data: newBuyer2, error: buyer2Error } = await supabase
-            .from('contacts')
-            .insert({
-              type: transactionType === 'sale' ? 'buyer' : 'seller',
-              ...buyerForm2,
-            })
-            .select()
-            .single();
-
-          if (buyer2Error) throw buyer2Error;
-          buyerContactId2 = newBuyer2.id;
-        }
+        buyerContactId2 = await persistContactSlot(
+          selectedBuyer2Contact, buyerForm2, transactionType === 'sale' ? 'buyer' : 'seller');
       }
 
       const { data: transactionData, error: transactionError } = await supabase
@@ -966,10 +1015,12 @@ export function Administrative() {
         .insert({
           transaction_type: transactionType,
           vehicle_id: vehicleData.id,
-          seller_contact_id: sellerContactId1,
+          seller_contact_id: sellerId,
           seller_contact_id_2: sellerContactId2,
-          buyer_contact_id: buyerContactId1,
+          buyer_contact_id: buyerId,
           buyer_contact_id_2: buyerContactId2,
+          supplier_contact_id: supplierId,
+          client_contact_id: clientId,
           transaction_price: transactionForm.transaction_price ? parseFloat(transactionForm.transaction_price) : null,
           reference: transactionForm.reference || null,
           commercial: transactionForm.commercial || null,
@@ -1064,87 +1115,31 @@ export function Administrative() {
         if (vehicleError) throw vehicleError;
       }
 
-      let sellerContactId1: string | null = null;
+      // Both external counterparties + active-direction seller/buyer, with
+      // current form edits persisted onto the contacts (WYSIWYG in the docs).
+      const { supplierId, clientId, sellerId, buyerId } = await resolveDealContacts();
+
       let sellerContactId2: string | null = null;
-      let buyerContactId1: string | null = null;
       let buyerContactId2: string | null = null;
-
-      if (selectedSellerContact) {
-        sellerContactId1 = selectedSellerContact.id;
-      } else if (sellerForm.first_name || sellerForm.last_name || sellerForm.company_name) {
-        const { data: newSeller, error: sellerError } = await supabase
-          .from('contacts')
-          .insert({
-            type: transactionType === 'purchase' ? 'seller' : 'buyer',
-            ...sellerForm,
-          })
-          .select()
-          .single();
-
-        if (sellerError) throw sellerError;
-        sellerContactId1 = newSeller.id;
-      }
-
       if (showSecondSeller) {
-        if (selectedSeller2Contact) {
-          sellerContactId2 = selectedSeller2Contact.id;
-        } else if (sellerForm2.first_name || sellerForm2.last_name || sellerForm2.company_name) {
-          const { data: newSeller2, error: seller2Error } = await supabase
-            .from('contacts')
-            .insert({
-              type: transactionType === 'purchase' ? 'seller' : 'buyer',
-              ...sellerForm2,
-            })
-            .select()
-            .single();
-
-          if (seller2Error) throw seller2Error;
-          sellerContactId2 = newSeller2.id;
-        }
+        sellerContactId2 = await persistContactSlot(
+          selectedSeller2Contact, sellerForm2, transactionType === 'purchase' ? 'seller' : 'buyer');
       }
-
-      if (selectedBuyerContact) {
-        buyerContactId1 = selectedBuyerContact.id;
-      } else if (buyerForm.first_name || buyerForm.last_name || buyerForm.company_name) {
-        const { data: newBuyer, error: buyerError } = await supabase
-          .from('contacts')
-          .insert({
-            type: transactionType === 'sale' ? 'buyer' : 'seller',
-            ...buyerForm,
-          })
-          .select()
-          .single();
-
-        if (buyerError) throw buyerError;
-        buyerContactId1 = newBuyer.id;
-      }
-
       if (showSecondBuyer) {
-        if (selectedBuyer2Contact) {
-          buyerContactId2 = selectedBuyer2Contact.id;
-        } else if (buyerForm2.first_name || buyerForm2.last_name || buyerForm2.company_name) {
-          const { data: newBuyer2, error: buyer2Error } = await supabase
-            .from('contacts')
-            .insert({
-              type: transactionType === 'sale' ? 'buyer' : 'seller',
-              ...buyerForm2,
-            })
-            .select()
-            .single();
-
-          if (buyer2Error) throw buyer2Error;
-          buyerContactId2 = newBuyer2.id;
-        }
+        buyerContactId2 = await persistContactSlot(
+          selectedBuyer2Contact, buyerForm2, transactionType === 'sale' ? 'buyer' : 'seller');
       }
 
       const { error: transactionError } = await supabase
         .from('transactions_admin')
         .update({
           transaction_type: transactionType,
-          seller_contact_id: sellerContactId1,
+          seller_contact_id: sellerId,
           seller_contact_id_2: sellerContactId2,
-          buyer_contact_id: buyerContactId1,
+          buyer_contact_id: buyerId,
           buyer_contact_id_2: buyerContactId2,
+          supplier_contact_id: supplierId,
+          client_contact_id: clientId,
           transaction_price: transactionForm.transaction_price ? parseFloat(transactionForm.transaction_price) : null,
           reference: transactionForm.reference || null,
           commercial: transactionForm.commercial || null,
@@ -1655,46 +1650,53 @@ export function Administrative() {
     </div>
   );
 
+  const quickPartyPicker = (
+    label: string, hint: string, contactId: string, name: string,
+    onPick: (id: string) => void, onName: (n: string) => void,
+  ) => (
+    <div>
+      <label className="block text-xs text-zinc-400 mb-1">{label} <span className="text-zinc-600">· {hint}</span></label>
+      <select
+        value={contactId}
+        onChange={(e) => { onPick(e.target.value); onName(''); }}
+        className="w-full mb-2 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm"
+      >
+        <option value="">— nouveau contact (saisir le nom) —</option>
+        {contacts.filter((c) => c.id !== mcExport?.id).map((c) => (
+          <option key={c.id} value={c.id}>{c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim()}</option>
+        ))}
+      </select>
+      {!contactId && (
+        <input
+          value={name}
+          onChange={(e) => onName(e.target.value)}
+          placeholder="Nom / société"
+          className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm"
+        />
+      )}
+    </div>
+  );
+
   const renderQuickCreate = () => (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowQuickCreate(false)}>
       <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-full max-w-lg space-y-4" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-lg font-semibold text-zinc-100">Nouvelle vente</h2>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => setQuick((q) => ({ ...q, direction: 'purchase' }))}
-            className={`px-3 py-2 rounded-lg text-sm border ${quick.direction === 'purchase' ? 'bg-blue-600/20 border-blue-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}
-          >MC Export achète</button>
-          <button
-            onClick={() => setQuick((q) => ({ ...q, direction: 'sale' }))}
-            className={`px-3 py-2 rounded-lg text-sm border ${quick.direction === 'sale' ? 'bg-blue-600/20 border-blue-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}
-          >MC Export vend</button>
-        </div>
         <div>
-          <label className="block text-xs text-zinc-400 mb-1">{quick.direction === 'purchase' ? 'Vendeur (client)' : 'Acheteur (client)'}</label>
-          <select
-            value={quick.clientContactId}
-            onChange={(e) => setQuick((q) => ({ ...q, clientContactId: e.target.value, clientName: '' }))}
-            className="w-full mb-2 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm"
-          >
-            <option value="">— nouveau contact (saisir le nom) —</option>
-            {contacts.filter((c) => c.id !== mcExport?.id).map((c) => (
-              <option key={c.id} value={c.id}>{c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim()}</option>
-            ))}
-          </select>
-          {!quick.clientContactId && (
-            <input
-              value={quick.clientName}
-              onChange={(e) => setQuick((q) => ({ ...q, clientName: e.target.value }))}
-              placeholder="Nom du client / société"
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm"
-            />
-          )}
+          <h2 className="text-lg font-semibold text-zinc-100">Nouveau dossier</h2>
+          <p className="text-xs text-zinc-500 mt-0.5">Une voiture, deux contreparties. MC Export achète au fournisseur puis revend au client — un seul dossier pour les deux côtés.</p>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Prix (€)</label>
-            <input value={quick.price} onChange={(e) => setQuick((q) => ({ ...q, price: e.target.value }))} type="number" className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm" />
-          </div>
+        {quickPartyPicker(
+          'Fournisseur (vendeur)', 'MC Export lui achète',
+          quick.supplierContactId, quick.supplierName,
+          (id) => setQuick((q) => ({ ...q, supplierContactId: id })),
+          (n) => setQuick((q) => ({ ...q, supplierName: n })),
+        )}
+        {quickPartyPicker(
+          'Client (acheteur)', 'MC Export lui revend',
+          quick.clientContactId, quick.clientName,
+          (id) => setQuick((q) => ({ ...q, clientContactId: id })),
+          (n) => setQuick((q) => ({ ...q, clientName: n })),
+        )}
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-zinc-400 mb-1">Référence</label>
             <input value={quick.reference} onChange={(e) => setQuick((q) => ({ ...q, reference: e.target.value }))} placeholder="I63" className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm" />
@@ -1709,7 +1711,7 @@ export function Administrative() {
           <button onClick={() => setShowQuickCreate(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200">Annuler</button>
           <button
             onClick={handleQuickCreate}
-            disabled={quickSaving || (!quick.clientContactId && !quick.clientName.trim())}
+            disabled={quickSaving || (!quick.supplierContactId && !quick.supplierName.trim() && !quick.clientContactId && !quick.clientName.trim() && !quick.reference.trim())}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white"
           >
             {quickSaving ? 'Création…' : 'Créer et ouvrir'}
@@ -1743,7 +1745,7 @@ export function Administrative() {
           </button>
           {mode === 'list' ? (
             <button
-              onClick={() => { setShowQuickCreate(true); setQuick({ direction: 'purchase', clientName: '', clientContactId: '', price: '', reference: '', commercial: '' }); }}
+              onClick={() => { setShowQuickCreate(true); setQuick({ supplierName: '', supplierContactId: '', clientName: '', clientContactId: '', reference: '', commercial: '' }); }}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors font-medium"
             >
               <Plus size={18} />
@@ -2058,8 +2060,8 @@ export function Administrative() {
         </section>
 
         <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-1 text-zinc-100">La vente</h2>
-          <p className="text-sm text-zinc-500 mb-4">Choisissez le sens : MC Export est placé automatiquement du bon côté.</p>
+          <h2 className="text-xl font-semibold mb-1 text-zinc-100">Le dossier</h2>
+          <p className="text-sm text-zinc-500 mb-4">Une voiture, deux côtés. Basculez entre l'achat (au fournisseur) et la vente (au client) — les deux contreparties sont conservées et les documents suivent.</p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button
@@ -2072,9 +2074,9 @@ export function Administrative() {
             >
               <div className="font-semibold flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${transactionType === 'purchase' ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                MC Export achète
+                Côté achat — MC Export achète
               </div>
-              <div className="text-xs mt-1 text-zinc-500">Le client est le vendeur · Cession, Bon d'achat, Enlèvement, Déclaration d'achat</div>
+              <div className="text-xs mt-1 text-zinc-500">Au fournisseur{supplier.selected || supplier.form.company_name ? ` · ${supplier.selected ? contactLabel(supplier.selected) : supplier.form.company_name}` : ''} · Cession, Bon d'achat, Enlèvement, Déclaration d'achat</div>
             </button>
             <button
               onClick={() => updateTransactionType('sale')}
@@ -2086,9 +2088,9 @@ export function Administrative() {
             >
               <div className="font-semibold flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${transactionType === 'sale' ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                MC Export vend
+                Côté vente — MC Export vend
               </div>
-              <div className="text-xs mt-1 text-zinc-500">Le client est l'acheteur · Cession, Réception / Expédition</div>
+              <div className="text-xs mt-1 text-zinc-500">Au client{client.selected || client.form.company_name ? ` · ${client.selected ? contactLabel(client.selected) : client.form.company_name}` : ''} · Cession, Réception / Expédition</div>
             </button>
           </div>
 
@@ -2177,7 +2179,7 @@ export function Administrative() {
         {/* ─── Vendeur ─────────────────────────────────────────────── */}
         <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
           <h2 className="text-xl font-semibold mb-4 text-zinc-100">
-            {transactionType === 'sale' ? 'Vendeur — MC Export (vous)' : 'Vendeur (le client)'}
+            {transactionType === 'sale' ? 'Vendeur — MC Export (vous)' : 'Vendeur — le fournisseur (vous lui achetez)'}
           </h2>
 
           {transactionType === 'sale' ? (
@@ -2225,7 +2227,7 @@ export function Administrative() {
         {/* ─── Acheteur ────────────────────────────────────────────── */}
         <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
           <h2 className="text-xl font-semibold mb-4 text-zinc-100">
-            {transactionType === 'purchase' ? 'Acheteur — MC Export (vous)' : 'Acheteur (le client)'}
+            {transactionType === 'purchase' ? 'Acheteur — MC Export (vous)' : 'Acheteur — le client (vous lui vendez)'}
           </h2>
 
           {transactionType === 'purchase' ? (

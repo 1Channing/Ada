@@ -600,6 +600,8 @@ export type Database = {
           seller_contact_id_2: string | null
           buyer_contact_id: string | null
           buyer_contact_id_2: string | null
+          supplier_contact_id?: string | null
+          client_contact_id?: string | null
           transaction_price: number | null
           transaction_date: string | null
           transaction_time: string | null
@@ -626,6 +628,8 @@ export type Database = {
           seller_contact_id_2?: string | null
           buyer_contact_id?: string | null
           buyer_contact_id_2?: string | null
+          supplier_contact_id?: string | null
+          client_contact_id?: string | null
           transaction_price?: number | null
           transaction_date?: string | null
           transaction_time?: string | null
@@ -652,6 +656,8 @@ export type Database = {
           seller_contact_id_2?: string | null
           buyer_contact_id?: string | null
           buyer_contact_id_2?: string | null
+          supplier_contact_id?: string | null
+          client_contact_id?: string | null
           transaction_price?: number | null
           transaction_date?: string | null
           transaction_time?: string | null

@@ -93,9 +93,14 @@ export function parseAddressLine(addressLine: string): {
     parts.shift();
   }
 
-  // Extension en mot séparé : « 12 BIS RUE … »
+  // Extension en mot séparé : « 12 BIS RUE … » ou lettre isolée « 88 B AVENUE … ».
   const EXTENSIONS = ['BIS', 'TER', 'QUATER'];
-  if (!result.extension && EXTENSIONS.includes(parts[0]?.toUpperCase() ?? '')) {
+  const nextWord = parts[0]?.toUpperCase() ?? '';
+  if (!result.extension && EXTENSIONS.includes(nextWord)) {
+    result.extension = parts.shift()!.toUpperCase();
+  } else if (!result.extension && result.number && /^[A-Z]$/.test(nextWord) && parts.length > 1) {
+    // Lettre unique juste après le numéro et suivie d'autre chose (le type/nom
+    // de voie) : c'est une extension (88 B av. …), pas le début du nom de voie.
     result.extension = parts.shift()!.toUpperCase();
   }
 
