@@ -48,6 +48,10 @@ const BRAND_MAP: Record<string, string> = {
   // (campaign scrape titled "Køb brugte biler" returned Fiat 500e's for a CLA
   // query → confirmed=[]). The site's brand slug is plain 'mercedes'.
   MERCEDES: 'Mercedes',
+  // Graphies alternatives vues dans les critères (dossiers 20/07 : slug
+  // 'mercedes-benz' → page toutes-marques, "brand (MERCEDES-BENZ) : 0/60").
+  'MERCEDES-BENZ': 'Mercedes',
+  'MERCEDES BENZ': 'Mercedes',
   // Native path slug is 'vw' (human URL /brugt/bil/vw/ms-tiguan-serie), and
   // reverseLookup maps a pasted 'vw' back to VOLKSWAGEN for the prefill.
   VOLKSWAGEN: 'VW',
@@ -69,6 +73,8 @@ const BRAND_MAP: Record<string, string> = {
 const MODEL_MAP: Record<string, string> = {
   RAV4: 'RAV4',
   'RAV 4': 'RAV4',
+  // Graphie AS24 : /toyota/rav-4?fuel=6 servait des pages Yaris (dossiers 20/07).
+  'RAV-4': 'RAV4',
   YARIS: 'Yaris',
   COROLLA: 'Corolla',
   CAMRY: 'Camry',

@@ -41,6 +41,8 @@ const BRAND_MAP: Record<string, string> = {
   TOYOTA: 'toyota',
   BMW: 'bmw',
   MERCEDES: 'mercedes-benz',
+  'MERCEDES-BENZ': 'mercedes-benz',
+  'MERCEDES BENZ': 'mercedes-benz',
   VOLKSWAGEN: 'volkswagen',
   AUDI: 'audi',
   PEUGEOT: 'peugeot',

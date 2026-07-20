@@ -113,6 +113,13 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
  * triggered automatically and signed 'Ada'.
  */
 export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scrape: ScrapeFn): Promise<CampaignItemResult> {
+  // Finitions-poubelles héritées de vieilles lacunes ('de', 'e'…) : en dessous
+  // de 3 caractères ce n'est jamais une finition réelle, et ça polluait les
+  // URLs (kwd=de sur les études CLASSE E). On étudie sans finition plutôt que
+  // d'injecter du bruit — et on ne réécrit jamais ce déchet en mémoire.
+  const rawTrim = (p.trim ?? '').trim();
+  if (rawTrim && rawTrim.length < 3) p = { ...p, trim: '' };
+
   const base: Omit<CampaignItemResult, 'url' | 'outcome' | 'confirmedFields' | 'rejected' | 'detail' | 'sampleSize'> = {
     seq, site: p.site, brand: p.brand, model: p.model, fuel: p.fuel, trim: p.trim, year: p.year, kind: p.kind,
   };

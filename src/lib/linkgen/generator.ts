@@ -247,6 +247,35 @@ function overrideVariableParams(url: string, mapping: InferredMapping, params: L
  * /rav-4/re_2021/… reused for a 2025 study served 2021 cars (year 0/55).
  * Strip the segment and pin the year with the known fregfrom/fregto params.
  */
+/**
+ * Une URL apprise peut manquer les paramètres d'ANNÉE (mapping incomplet au
+ * moment de l'apprentissage) — or l'ancrage année est obligatoire pour la
+ * donnée marché. Rapport 20/07 : ~10 dossiers « year 0/85 » sur des URLs
+ * apprises sans fregfrom/yearfrom/regdate. On impose les paramètres natifs
+ * connus par site ; Marktplaats (hash) est déjà couvert par
+ * overrideVariableParams.
+ */
+export function enforceYearParams(url: string, params: LinkGenParams): string {
+  const { yearFrom, yearTo } = resolveYearRange(params);
+  if (!yearFrom && !yearTo) return url;
+  try {
+    const u = new URL(url);
+    const h = u.hostname;
+    if (h.includes('autoscout24.')) {
+      if (yearFrom) u.searchParams.set('fregfrom', yearFrom);
+      if (yearTo) u.searchParams.set('fregto', yearTo);
+    } else if (h.includes('bilbasen.dk')) {
+      if (yearFrom) u.searchParams.set('yearfrom', yearFrom);
+      if (yearTo) u.searchParams.set('yearto', yearTo);
+    } else if (h.includes('leboncoin.fr')) {
+      u.searchParams.set('regdate', `${yearFrom || yearTo}-${yearTo || yearFrom}`);
+    } else {
+      return url;
+    }
+    return u.toString();
+  } catch { return url; }
+}
+
 export function overrideAs24PathYear(url: string, params: LinkGenParams): string {
   if (!url.includes('autoscout24.') || !/\/re_\d{4}/.test(url)) return url;
   try {
@@ -426,7 +455,10 @@ export async function generateSearchUrlsWithMemory(
       // variables and get overridden below.
       const recFuel = rowFuel(memoryRecord as Record<string, unknown>);
       const recTrim = rowTrim(memoryRecord as Record<string, unknown>);
-      const validatedUrl = (record as unknown as { validated_url?: string | null }).validated_url ?? null;
+      // Une URL apprise portant un placeholder brut ('{query}') est une ligne
+      // mémoire polluée (écho de template) — jamais réutilisable telle quelle.
+      const validatedUrlRaw = (record as unknown as { validated_url?: string | null }).validated_url ?? null;
+      const validatedUrl = validatedUrlRaw && !validatedUrlRaw.includes('{') ? validatedUrlRaw : null;
       // A trim-less learned URL still pins brand+model via its path facets —
       // it can serve a trim request too: the trim goes into the site's
       // free-text slot below (Marktplaats `q:` = the Variant box, AS24 kwd=).
@@ -436,6 +468,7 @@ export async function generateSearchUrlsWithMemory(
         let url = overrideVariableParams(validatedUrl, mapping, params);
         url = overrideAs24PathYear(url, params);
         url = fixBilbasenQueryForm(url);
+        url = enforceYearParams(url, params);
         // AS24: even a trim-scoped learned URL can predate kwd= (daily report:
         // GR SPORT study reused a kwd-less URL → 6% trim match). Setting kwd is
         // idempotent, so guarantee it. Marktplaats keeps the trim-less-row-only
