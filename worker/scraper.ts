@@ -406,6 +406,12 @@ function marktplaatsBrandSlug(url: string): string | null {
   return m ? m[1] : null;
 }
 
+/** IDs de facette du path `/f/{slug}/{id[+id…]}/` — le vrai filtre modèle du site. */
+function marktplaatsFacetIds(url: string): string[] {
+  const m = url.match(/\/f\/[^/#?]+\/([0-9+]+)/);
+  return m ? m[1].split('+').filter((t) => /^\d+$/.test(t)) : [];
+}
+
 /** l2CategoryId of the brand page: explicit l2Category, else the dominant listing categoryId. */
 function extractMarktplaatsL2(html: string): string | null {
   const m = html.match(/"l2Category"\s*:\s*\{[^{}]*?"id"\s*:\s*(\d+)/);
@@ -420,10 +426,13 @@ function extractMarktplaatsL2(html: string): string | null {
   return bestN >= 3 ? best : null;
 }
 
-function buildLrpUrl(l2: string | null, h: Record<string, string>, offset: number): string {
+function buildLrpUrl(l2: string | null, h: Record<string, string>, offset: number, facetIds: string[] = []): string {
   const api = new URL('https://www.marktplaats.nl/lrp/api/search');
   api.searchParams.set('l1CategoryId', MARKTPLAATS_L1_CARS);
   if (l2) api.searchParams.set('l2CategoryId', l2);
+  // Facette modèle du path (/f/{slug}/{id}/) — le filtre modèle exact du
+  // site ; le q du hash reste alors la FINITION.
+  for (const id of facetIds) api.searchParams.append('attributesById[]', id);
   if (h['q']) api.searchParams.set('query', h['q'].replace(/\+/g, ' '));
   const yf = h['constructionYearFrom'];
   const yt = h['constructionYearTo'];
@@ -442,7 +451,8 @@ async function scrapeMarktplaatsViaApi(
   maxListings: number
 ): Promise<ScrapeSearchResult | null> {
   const h = parseMarktplaatsHash(url);
-  const hasFilters = !!(h['q'] || h['constructionYearFrom'] || h['constructionYearTo'] || h['mileageTo']);
+  const facetIds = marktplaatsFacetIds(url);
+  const hasFilters = !!(h['q'] || h['constructionYearFrom'] || h['constructionYearTo'] || h['mileageTo'] || facetIds.length > 0);
   if (!hasFilters) return null; // plain brand page — the HTML path serves it fine
 
   const brandSlug = marktplaatsBrandSlug(url);
@@ -466,7 +476,7 @@ async function scrapeMarktplaatsViaApi(
   let totalCount: number | null = null;
   let pages = 0;
   for (let page = 0; page < maxPages && all.length < maxListings; page++) {
-    const apiUrl = buildLrpUrl(l2, h, page * 30);
+    const apiUrl = buildLrpUrl(l2, h, page * 30, facetIds);
     const { html: body } = await fetchHtmlWithZyte(apiUrl, 1);
     attempts++;
     if (!body || !body.trim().startsWith('{')) {

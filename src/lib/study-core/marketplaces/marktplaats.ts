@@ -106,6 +106,17 @@ const FUEL_MAP: Record<string, string> = {
   PLUG_IN_HYBRID: 'plug-in-hybride',
 };
 
+/**
+ * Facettes modèle VÉRIFIÉES (path `/f/{slug}/{id}/`) — le vrai filtre modèle
+ * du site, la barre de recherche (#q:) restant réservée à la FINITION.
+ * Chaque entrée vient d'une URL réelle contrôlée par un humain ; les autres
+ * modèles s'apprennent via l'ingestion (validated_url) et retombent sur #q:
+ * en attendant.
+ */
+const MODEL_FACET: Record<string, { slug: string; id: string }> = {
+  'YARIS CROSS': { slug: 'yaris-cross', id: '13882' }, // vérifié Channing 20/07/2026
+};
+
 const UNSUPPORTED_PARAMS = ['minPower'];
 
 function mapBrand(raw: string): string {
@@ -165,6 +176,26 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // "seat leon" wholesale in #q: returned mixed-brand samples (4% brand match)
   // — the site's category page can't make that mistake.
   const brandSlug = BRAND_MAP[(params.brand ?? '').trim().toUpperCase()] ?? null;
+
+  // Model facet KNOWN → the model lives in the PATH (/f/{slug}/{id}/), the
+  // search bar carries only the finition. This is the site's real model
+  // filter — #q: is its "Variant" box.
+  const facet = MODEL_FACET[(params.model ?? '').trim().toUpperCase()];
+  if (brandSlug && facet) {
+    const hashParts: string[] = [];
+    const trimText = params.trim?.trim() ? normalizeToken(params.trim) : '';
+    if (trimText) hashParts.push(`q:${trimText}`);
+    const yr = resolveYearRange(params);
+    if (yr.yearFrom) hashParts.push(`constructionYearFrom:${yr.yearFrom}`);
+    if (yr.yearTo) hashParts.push(`constructionYearTo:${yr.yearTo}`);
+    if (params.mileage) hashParts.push(`mileageTo:${params.mileage}`);
+    hashParts.push('sortBy:PRICE', 'sortOrder:INCREASING');
+    return {
+      url: `https://www.marktplaats.nl/l/auto-s/${brandSlug}/f/${facet.slug}/${facet.id}/#${hashParts.join('|')}`,
+      warnings,
+    };
+  }
+
   const query = brandSlug
     ? buildQuery('', mappedModel, params.trim)
     : buildQuery(mappedBrand, mappedModel, params.trim);
