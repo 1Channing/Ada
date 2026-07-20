@@ -101,6 +101,29 @@ function mapFuel(raw: string): string {
   return FUEL_MAP[raw.trim().toUpperCase()] ?? raw.trim();
 }
 
+/**
+ * Leboncoin's u_car_model accepts a COMMA-SEPARATED list of enum values and
+ * matches ANY of them. The site's enums are inconsistent ('RAV 4' display
+ * form, 'TOYOTA_RAV4' brand-prefixed, mixed-case learned forms) and a wrong
+ * single token silently serves the UNFILTERED brand page (campaign logs:
+ * TOYOTA_bZ4X → brand-wide results, COROLLA → 0 annonce). Proven working
+ * form in the same campaign: 'C-HR,TOYOTA_C-HR' → 100/100 confirmées. We
+ * send every plausible spelling — wrong ones match nothing, the right one
+ * filters.
+ */
+function modelParamCandidates(brandMapped: string, modelMapped: string): string {
+  const display = modelMapped.trim();
+  const compact = display.replace(/\s+/g, '');
+  const brand = brandMapped.trim();
+  const out: string[] = [];
+  for (const v of [display, compact, `${brand}_${compact}`, `${brand}_${display}`]) {
+    if (v && v !== brand && !out.includes(v)) out.push(v);
+  }
+  // Espaces encodés (%20) comme le fait le site, virgules littérales (le
+  // séparateur de liste doit rester brut).
+  return out.map((v) => encodeURIComponent(v)).join(',');
+}
+
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
   if (params.minPower !== undefined && UNSUPPORTED_PARAMS.includes('minPower')) {
@@ -112,7 +135,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const mappedFuel = params.fuel ? mapFuel(params.fuel) : null;
   const { yearFrom, yearTo } = resolveYearRange(params);
 
-  const vars: Record<string, string> = { brand: mappedBrand, model: mappedModel };
+  const vars: Record<string, string> = { brand: mappedBrand, model: modelParamCandidates(mappedBrand, mappedModel) };
   if (yearFrom) vars['yearFrom'] = yearFrom;
   if (yearTo) vars['yearTo'] = yearTo;
   if (params.mileage) vars['mileage'] = String(params.mileage);
@@ -394,14 +417,17 @@ function reverseLookup(map: Record<string, string>, siteValue: string): string {
  * the way listing titles spell it. Falls back to a known-model reverse
  * lookup, then to the raw value.
  */
-function cleanLeboncoinModel(raw: string): string {
+function cleanLeboncoinModel(rawParam: string): string {
+  // u_car_model peut porter une LISTE ('RAV 4,TOYOTA_RAV4') — la première
+  // valeur (forme d'affichage) représente le modèle.
+  const raw = (rawParam.split(',')[0] ?? rawParam).trim();
   const reversed = reverseLookup(MODEL_MAP, raw);
-  if (reversed !== raw.trim()) return reversed;
+  if (reversed !== raw) return reversed;
   const underscoreIdx = raw.indexOf('_');
   if (underscoreIdx > 0 && underscoreIdx < raw.length - 1) {
     return raw.slice(underscoreIdx + 1).trim();
   }
-  return raw.trim();
+  return raw;
 }
 
 function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
