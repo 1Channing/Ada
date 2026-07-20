@@ -218,6 +218,32 @@ export function isCoarseOnly(f: MarketFilters): boolean {
 const normText = (s: string | null | undefined) => (s ?? '').toLowerCase();
 
 /**
+ * Clé canonique marque/modèle : chaque site écrit le même véhicule à sa façon
+ * ('RAV4' Leboncoin, 'RAV-4' slug AS24, 'RAV 4' Marktplaats, 'C-HR'/'CHR') —
+ * la clé (MAJ + alphanumérique) les regroupe, l'affichage garde UNE variante
+ * représentative (la plus fréquente dans les données).
+ */
+export function canonKey(v: string): string {
+  return (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+const BRAND_KEY_ALIASES: Record<string, string> = { VW: 'VOLKSWAGEN', MERCEDESBENZ: 'MERCEDES' };
+export function brandKey(v: string): string {
+  const k = canonKey(v);
+  return BRAND_KEY_ALIASES[k] ?? k;
+}
+
+/** Union dédupliquée par clé canonique — la variante du 1er argument gagne. */
+export function canonUnion(primary: string[], secondary: string[], keyFn: (v: string) => string): string[] {
+  const seen = new Map<string, string>();
+  for (const v of [...primary, ...secondary]) {
+    const k = keyFn(v);
+    if (!k || seen.has(k)) continue;
+    seen.set(k, v);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * Fuel filter is HIERARCHICAL: « Hybride » is the family (full hybrid +
  * rechargeable + léger), because ads split unpredictably between the three —
  * a strict equality hid the Spanish Golfs stored as 'phev' from a Hybride
@@ -242,8 +268,8 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
   return obs.filter((o) =>
     (!f.site || o.site === f.site) &&
     (!f.country || o.country === f.country) &&
-    (!f.brand || o.brand === f.brand) &&
-    (!f.model || o.model === f.model) &&
+    (!f.brand || brandKey(o.brand) === brandKey(f.brand)) &&
+    (!f.model || canonKey(o.model) === canonKey(f.model)) &&
     (!trimNeedle || normText(o.trim).includes(trimNeedle) || normText(o.title).includes(trimNeedle)) &&
     fuelFilterMatches(o.fuel, f.fuel ?? '') &&
     (!gearboxNeedle || normText(o.gearbox).includes(gearboxNeedle)) &&
@@ -257,6 +283,24 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
 /** Distinct values for a field among observations, respecting the other filters (cascading). */
 export function distinctValues(obs: Observation[], field: keyof Observation, applied: MarketFilters): string[] {
   const scoped = filterObservations(obs, { ...applied, [fieldToFilterKey(field)]: undefined } as MarketFilters);
+
+  // Brand/model: one entry per CANONICAL key, represented by the variant the
+  // data uses most ('RAV4' + 'RAV-4' + 'RAV 4' → a single dropdown line).
+  if (field === 'brand' || field === 'model') {
+    const keyFn = field === 'brand' ? brandKey : canonKey;
+    const byKey = new Map<string, Map<string, number>>();
+    for (const o of scoped) {
+      const raw = String(o[field] ?? '').trim();
+      if (!raw) continue;
+      const k = keyFn(raw);
+      const variants = byKey.get(k) ?? byKey.set(k, new Map()).get(k)!;
+      variants.set(raw, (variants.get(raw) ?? 0) + 1);
+    }
+    return [...byKey.values()]
+      .map((variants) => [...variants.entries()].sort((a, b) => b[1] - a[1])[0][0])
+      .sort((a, b) => a.localeCompare(b));
+  }
+
   const set = new Set<string>();
   for (const o of scoped) {
     const v = String(o[field] ?? '').trim();
@@ -299,25 +343,33 @@ export async function loadKnownDimensions(): Promise<KnownDimensions> {
 
   const sites = new Set<string>();
   const countries = new Set<string>();
-  const brands = new Set<string>();
-  const modelsByBrand: Record<string, Set<string>> = {};
-  const fuelsByBrandModel: Record<string, Set<string>> = {};
+  // Brand/model deduped by CANONICAL key, most frequent raw variant wins.
+  const brandVariants = new Map<string, Map<string, number>>();
+  const modelVariants = new Map<string, Map<string, Map<string, number>>>(); // brandKey → modelKey → raw → n
+  const fuelsByBrandModel: Record<string, Set<string>> = {}; // `${brandKey}|${modelKey}`
   const allFuels = new Set<string>();
+
+  const bump = (m: Map<string, number>, raw: string) => m.set(raw, (m.get(raw) ?? 0) + 1);
 
   for (const r of data) {
     if (r.site) sites.add(r.site);
     if (r.country) countries.add(r.country.toUpperCase());
     const b = (r.brand ?? '').trim().toUpperCase();
     if (!b) continue;
-    brands.add(b);
+    const bk = brandKey(b);
+    bump(brandVariants.get(bk) ?? brandVariants.set(bk, new Map()).get(bk)!, b);
     const m = (r.model ?? '').trim().toUpperCase();
-    if (m) (modelsByBrand[b] ??= new Set()).add(m);
-    // Fuel is stored as the declared label ('HYBRIDE') — canonicalise it to the
-    // token ('hybrid') that observations and the filter use.
-    const fuel = canonicalizeFuel(r.fuel ?? '');
-    if (fuel && m) {
-      (fuelsByBrandModel[`${b}|${m}`] ??= new Set()).add(fuel);
-      allFuels.add(fuel);
+    if (m) {
+      const mk = canonKey(m);
+      const byModel = modelVariants.get(bk) ?? modelVariants.set(bk, new Map()).get(bk)!;
+      bump(byModel.get(mk) ?? byModel.set(mk, new Map()).get(mk)!, m);
+      // Fuel is stored as the declared label ('HYBRIDE') — canonicalise it to
+      // the token ('hybrid') that observations and the filter use.
+      const fuel = canonicalizeFuel(r.fuel ?? '');
+      if (fuel) {
+        (fuelsByBrandModel[`${bk}|${mk}`] ??= new Set()).add(fuel);
+        allFuels.add(fuel);
+      }
     }
   }
 
@@ -328,11 +380,15 @@ export async function loadKnownDimensions(): Promise<KnownDimensions> {
   }
 
   const sortStr = (a: string, b: string) => a.localeCompare(b);
+  const rep = (variants: Map<string, number>) => [...variants.entries()].sort((a, b) => b[1] - a[1])[0][0];
   return {
     sites: [...sites].sort(sortStr),
     countries: [...countries].sort(sortStr),
-    brands: [...brands].sort(sortStr),
-    modelsByBrand: Object.fromEntries(Object.entries(modelsByBrand).map(([b, s]) => [b, [...s].sort(sortStr)])),
+    brands: [...brandVariants.values()].map(rep).sort(sortStr),
+    // Keyed by brandKey — callers look up with brandKey(selectedBrand).
+    modelsByBrand: Object.fromEntries(
+      [...modelVariants.entries()].map(([bk, byModel]) => [bk, [...byModel.values()].map(rep).sort(sortStr)])
+    ),
     fuelsByBrandModel: Object.fromEntries(Object.entries(fuelsByBrandModel).map(([k, s]) => [k, [...s]])),
     allFuels: [...allFuels],
   };
@@ -665,6 +721,10 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
   // an arbitrage). Listings without a year can't be placed — excluded.
   type Side = { prices: number[]; sites: Map<string, number> };
   const groups = new Map<string, Map<string, Side>>();
+  // Canonical grouping keys: 'RAV4' (FR) and 'RAV-4' (AS24 slug) are the SAME
+  // car — grouping on raw text split them into incomparable segments and the
+  // radar missed real cross-country gaps. Display keeps the first raw form.
+  const labels = new Map<string, { brand: string; model: string }>();
   for (const r of data) {
     const price = typeof r.price === 'number' ? r.price : 0;
     if (price < OPP_MIN_PRICE_EUR) continue;
@@ -674,7 +734,8 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
     const country = (r.country ?? '').trim().toUpperCase();
     const year = typeof r.year === 'number' ? r.year : null;
     if (!brand || !model || !fuel || !country || year == null) continue;
-    const gKey = `${brand}|${model}|${fuel}|${year}`;
+    const gKey = `${brandKey(brand)}|${canonKey(model)}|${fuel}|${year}`;
+    if (!labels.has(gKey)) labels.set(gKey, { brand, model });
     const byCountry = groups.get(gKey) ?? new Map<string, Side>();
     const side: Side = byCountry.get(country) ?? { prices: [], sites: new Map<string, number>() };
     side.prices.push(price);
@@ -685,7 +746,8 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
 
   const out: MarketOpportunity[] = [];
   for (const [gKey, byCountry] of groups) {
-    const [brand, model, fuel, yearStr] = gKey.split('|');
+    const [, , fuel, yearStr] = gKey.split('|');
+    const { brand, model } = labels.get(gKey)!;
     const sides: Array<{ country: string; median: number; count: number; site: string }> = [];
     for (const [country, side] of byCountry) {
       if (side.prices.length < minPerCountry) continue;

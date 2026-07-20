@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X } from 'lucide-react';
 import {
-  loadMarketData, loadKnownDimensions, sortedUnion, filterObservations, distinctValues, priceStats, timeSeries,
+  loadMarketData, loadKnownDimensions, sortedUnion, canonUnion, canonKey, brandKey, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
 } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
@@ -123,14 +123,16 @@ export function MarketIntelligence() {
   const opts = {
     site: useMemo(() => sortedUnion(distinctValues(obs, 'site', active), known.sites), [obs, active, known]),
     country: useMemo(() => sortedUnion(distinctValues(obs, 'country', active), known.countries), [obs, active, known]),
-    brand: useMemo(() => sortedUnion(distinctValues(obs, 'brand', active), known.brands), [obs, active, known]),
+    // Marque/modèle : une seule entrée par véhicule, quelle que soit la graphie
+    // des sites ('RAV4'/'RAV-4'/'RAV 4') — la variante des observations gagne.
+    brand: useMemo(() => canonUnion(distinctValues(obs, 'brand', active), known.brands, brandKey), [obs, active, known]),
     model: useMemo(() => {
-      const mapped = active.brand ? (known.modelsByBrand[active.brand] ?? []) : Object.values(known.modelsByBrand).flat();
-      return sortedUnion(distinctValues(obs, 'model', active), mapped);
+      const mapped = active.brand ? (known.modelsByBrand[brandKey(active.brand)] ?? []) : Object.values(known.modelsByBrand).flat();
+      return canonUnion(distinctValues(obs, 'model', active), mapped, canonKey);
     }, [obs, active, known]),
     trim: useMemo(() => distinctValues(obs, 'trim', active), [obs, active]),
     fuel: useMemo(() => {
-      const key = active.brand && active.model ? `${active.brand}|${active.model}` : '';
+      const key = active.brand && active.model ? `${brandKey(active.brand)}|${canonKey(active.model)}` : '';
       const mapped = key ? (known.fuelsByBrandModel[key] ?? []) : known.allFuels;
       return sortedUnion(distinctValues(obs, 'fuel', active), mapped);
     }, [obs, active, known]),
