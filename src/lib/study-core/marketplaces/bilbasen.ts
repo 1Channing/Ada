@@ -103,16 +103,22 @@ const MODEL_MAP: Record<string, string> = {
   'CLASSE GLE': 'GLE',
 };
 
+// Codes fuel NUMÉRIQUES — les labels texte ('Hybrid', 'El', 'Benzin') sont
+// IGNORÉS en silence par le site (rapport 20/07 : fuel=Hybrid sur Aygo X →
+// 49× Benzin / 49× Hybrid mélangés). Vérifiés : '6' = Hybrid (URL live
+// Channing 20/07), '3' = El (ingestion 89/89). '1'/'2' suivent la séquence
+// classique Benzin/Diesel — à confirmer par échantillon : un code faux donne
+// un échantillon hors-sujet que l'analyse REJETTE, jamais un silence.
 const FUEL_MAP: Record<string, string> = {
-  ESSENCE: 'Benzin',
-  DIESEL: 'Diesel',
-  HYBRIDE: 'Hybrid',
-  ELECTRIQUE: 'El',
-  GASOLINE: 'Benzin',
-  PETROL: 'Benzin',
-  HYBRID: 'Hybrid',
-  ELECTRIC: 'El',
-  PLUG_IN_HYBRID: 'Plugin-hybrid',
+  ESSENCE: '1',
+  GASOLINE: '1',
+  PETROL: '1',
+  DIESEL: '2',
+  ELECTRIQUE: '3',
+  ELECTRIC: '3',
+  HYBRIDE: '6',
+  HYBRID: '6',
+  PLUG_IN_HYBRID: '',
   GPL: '',
 };
 
@@ -130,9 +136,15 @@ function mapFuel(raw: string): string {
   return FUEL_MAP[raw.trim().toUpperCase()] ?? raw.trim();
 }
 
-/** Bilbasen path slug: lowercase, spaces/underscores → '-' (native URL form). */
+/**
+ * Bilbasen path slug — VÉRIFIÉ sur URL live (Channing 20/07) :
+ * /brugt/bil/toyota/yaris_cross → minuscules, ESPACES → '_' (les tirets des
+ * vrais noms restent). L'ancienne règle (espaces → '-') produisait
+ * 'yaris-cross', slug invalide que le site remplaçait EN SILENCE par la page
+ * marque entière (des Aygo dans une étude Yaris Cross).
+ */
 function pathSlug(raw: string): string {
-  return raw.trim().toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9.-]/g, '');
+  return raw.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9._-]/g, '');
 }
 
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
@@ -159,6 +171,11 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // Native param `hpfrom` — human-confirmed (ingestion 89/89 with hpfrom=250).
   const power = params.powerFrom ?? params.minPower;
   if (power !== undefined && String(power).trim()) qs.set('hpfrom', String(power));
+  // Miroir de l'usage réel (URL live Channing 20/07) : pas d'offres leasing
+  // (mensualités qui polluent les prix), engros inclus (le garde-fou
+  // isRetailPrice les écarte déjà des médianes à l'écriture).
+  qs.set('includeengroscvr', 'true');
+  qs.set('includeleasing', 'false');
   qs.set('sortby', 'price');
   qs.set('sortorder', 'asc');
 
@@ -183,8 +200,12 @@ function generateCorrectionHypotheses(
     const code = (raw.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? raw.match(/^([A-Z])-CLASS$/))?.[1]?.toLowerCase()
       ?? (isMercedes && /^[A-Z]{1,3}$/.test(raw) ? raw.toLowerCase() : null);
     if (code) {
-      const { url } = buildSearchUrl({ ...params, model: `${code}-klasse` });
-      if (url) result.push({ url, reason: `BILBASEN H0: slug Mercedes '${code}-klasse'` });
+      // Variante tiret ET underscore — la règle underscore est prouvée pour
+      // les espaces, pas pour les noms composés Mercedes.
+      for (const cand of [`${code}-klasse`, `${code}_klasse`]) {
+        const { url } = buildSearchUrl({ ...params, model: cand });
+        if (url) result.push({ url, reason: `BILBASEN H0: slug Mercedes '${cand}'` });
+      }
     } else {
       // Familles « -Serie » : le facet modèle Bilbasen regroupe les variantes
       // d'une lignée (GOLF → 'ms-golf-serie', prouvé par les logs ; le site
@@ -402,9 +423,14 @@ const FUEL_SITE_TO_LABEL: Record<string, string> = {
   'hybrid': 'HYBRIDE',
   'plugin-hybrid': 'PLUG_IN_HYBRID',
   // Native numeric codes. ONLY human-confirmed codes belong here ('3' proven
-  // electric via ingestion 89/89) — unknown codes go through the learned enum
-  // dictionary (linkgen_enum_mappings), never guessed.
+  // electric via ingestion 89/89, '6' proven hybrid via live URL 20/07) —
+  // unknown codes go through the learned enum dictionary
+  // (linkgen_enum_mappings), never guessed. '1'/'2' = séquence classique,
+  // à confirmer par échantillon.
+  '1': 'ESSENCE',
+  '2': 'DIESEL',
   '3': 'ELECTRIQUE',
+  '6': 'HYBRIDE',
 };
 
 function reverseLookup(map: Record<string, string>, siteValue: string): string {
