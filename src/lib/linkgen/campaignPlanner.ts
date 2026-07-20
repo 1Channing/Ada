@@ -112,48 +112,70 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   }
   if (combos.length === 0 || opts.sites.length === 0) return [];
 
-  // Split site×combo space into exploration (not validated there) vs reinforcement.
-  const exploration: Array<{ site: string; brand: string; model: string }> = [];
-  const reinforcement: Array<{ site: string; brand: string; model: string }> = [];
+  // The ATOMIC study space is site × combo × YEAR (× forced fuel): the year
+  // pin is mandatory (an unbounded search mixes 2008s with 2023s), so each
+  // year IS a distinct study. Planning at site×combo grain with a random year
+  // collapsed "Yaris Cross hybride 2020-2026 sur 4 sites" into 4 studies.
+  const years: number[] = [];
+  for (let y = pinMin; y <= pinMax; y++) years.push(y);
+  const fuelChoices: Array<string | null> = forcedFuels.length > 0 ? forcedFuels : [null];
+
+  type Atom = { site: string; brand: string; model: string; year: number; fuel: string | null };
+  const exploration: Atom[] = [];
+  const reinforcement: Atom[] = [];
   for (const site of opts.sites) {
     const covered = k.coveredBySite[site] ?? new Set<string>();
     for (const c of combos) {
-      (covered.has(`${c.brand}|${c.model}`) ? reinforcement : exploration)
-        .push({ site, ...c });
+      const bucket = covered.has(`${c.brand}|${c.model}`) ? reinforcement : exploration;
+      for (const year of years) {
+        for (const fuel of fuelChoices) bucket.push({ site, ...c, year, fuel });
+      }
     }
   }
 
-  const explorationTarget = Math.round(total * (1 - reinforceShare));
-  const pickedExp = shuffle(exploration, rng).slice(0, explorationTarget);
-  const pickedReinf = shuffle(reinforcement, rng).slice(0, total - pickedExp.length);
-  // Backfill from exploration if reinforcement pool ran dry (or vice versa).
-  if (pickedExp.length + pickedReinf.length < total) {
-    const short = total - pickedExp.length - pickedReinf.length;
-    const seen = new Set(pickedExp.map((p) => `${p.site}|${p.brand}|${p.model}`));
-    const extra = shuffle(exploration, rng)
-      .filter((p) => !seen.has(`${p.site}|${p.brand}|${p.model}`))
-      .slice(0, short);
-    pickedExp.push(...extra);
+  // Narrow campaign whose FULL space fits the budget → exhaustive enumeration
+  // (all 28 studies, deterministic). Sampling only when the space overflows.
+  let picked: Array<{ atom: Atom; kind: CampaignPlanItem['kind'] }>;
+  if (exploration.length + reinforcement.length <= total) {
+    picked = [
+      ...exploration.map((atom) => ({ atom, kind: 'exploration' as const })),
+      ...reinforcement.map((atom) => ({ atom, kind: 'reinforcement' as const })),
+    ];
+  } else {
+    const atomKey = (a: Atom) => `${a.site}|${a.brand}|${a.model}|${a.year}|${a.fuel ?? ''}`;
+    const explorationTarget = Math.round(total * (1 - reinforceShare));
+    const pickedExp = shuffle(exploration, rng).slice(0, explorationTarget);
+    const pickedReinf = shuffle(reinforcement, rng).slice(0, total - pickedExp.length);
+    // Backfill from exploration if reinforcement pool ran dry (or vice versa).
+    if (pickedExp.length + pickedReinf.length < total) {
+      const short = total - pickedExp.length - pickedReinf.length;
+      const seen = new Set(pickedExp.map(atomKey));
+      const extra = shuffle(exploration, rng)
+        .filter((a) => !seen.has(atomKey(a)))
+        .slice(0, short);
+      pickedExp.push(...extra);
+    }
+    picked = [
+      ...pickedExp.map((atom) => ({ atom, kind: 'exploration' as const })),
+      ...pickedReinf.map((atom) => ({ atom, kind: 'reinforcement' as const })),
+    ];
   }
 
   const items: CampaignPlanItem[] = [];
-  const push = (
-    base: { site: string; brand: string; model: string },
-    kind: CampaignPlanItem['kind']
-  ) => {
-    const key = `${base.brand}|${base.model}`;
+  for (const { atom, kind } of picked) {
+    const key = `${atom.brand}|${atom.model}`;
     const item: CampaignPlanItem = {
-      ...base,
+      site: atom.site, brand: atom.brand, model: atom.model,
       kind,
       reason: kind === 'exploration'
-        ? `${base.brand} ${base.model} jamais validé sur ${base.site}`
-        : `renforcement ${base.brand} ${base.model} sur ${base.site}`,
+        ? `${atom.brand} ${atom.model} jamais validé sur ${atom.site}`
+        : `renforcement ${atom.brand} ${atom.model} sur ${atom.site}`,
     };
-    if (forcedFuels.length > 0) {
+    if (atom.fuel) {
       // Fuel targeting: EVERY item carries one of the requested fuels — this is
       // how "améliorer nos data sur les hybrides uniquement" works.
-      item.fuel = forcedFuels[Math.floor(rng() * forcedFuels.length)];
-      item.reason += ` (ciblage ${item.fuel})`;
+      item.fuel = atom.fuel;
+      item.reason += ` (ciblage ${atom.fuel})`;
     } else if (rng() < variantShare) {
       // Variant: attach a fuel or trim KNOWN FOR THIS EXACT brand|model.
       const fuels = k.fuelsByBrandModel[key] ?? [];
@@ -168,17 +190,10 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
         else { item.trim = value; item.reason += ` (finition ${value})`; }
       }
     }
-    // MANDATORY year pin: an unbounded search is too wide — the sample mixes
-    // 2008s with 2023s and the market data is unusable by year. Window is
-    // [2020..now] by default, narrowable via filters.
-    const year = pinMin + Math.floor(rng() * (pinMax - pinMin + 1));
-    item.year = year;
-    item.reason += ` (année ${year})`;
+    item.year = atom.year;
+    item.reason += ` (année ${atom.year})`;
     items.push(item);
-  };
-
-  for (const p of pickedExp) push(p, 'exploration');
-  for (const p of pickedReinf) push(p, 'reinforcement');
+  }
 
   return shuffle(items, rng);
 }
