@@ -179,8 +179,9 @@ function generateCorrectionHypotheses(
   // it falls back to the whole brand, so only a probe can settle it.
   if (issueTypes.has('model_missing')) {
     const raw = String(params.model ?? '').trim().toUpperCase();
-    const m = raw.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? raw.match(/^([A-Z])-CLASS$/);
-    const code = m?.[1]?.toLowerCase();
+    const isMercedes = String(params.brand ?? '').trim().toUpperCase().includes('MERCEDES');
+    const code = (raw.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? raw.match(/^([A-Z])-CLASS$/))?.[1]?.toLowerCase()
+      ?? (isMercedes && /^[A-Z]{1,3}$/.test(raw) ? raw.toLowerCase() : null);
     if (code) {
       const { url } = buildSearchUrl({ ...params, model: `${code}-klasse` });
       if (url) result.push({ url, reason: `BILBASEN H0: slug Mercedes '${code}-klasse'` });

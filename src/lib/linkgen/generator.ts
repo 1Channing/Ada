@@ -242,6 +242,24 @@ function overrideVariableParams(url: string, mapping: InferredMapping, params: L
 }
 
 /**
+ * AS24 learned URLs can carry the YEAR in the PATH (SEO segment re_YYYY) —
+ * out of reach of the query-param overrides. Daily report 20/07: a learned
+ * /rav-4/re_2021/… reused for a 2025 study served 2021 cars (year 0/55).
+ * Strip the segment and pin the year with the known fregfrom/fregto params.
+ */
+export function overrideAs24PathYear(url: string, params: LinkGenParams): string {
+  if (!url.includes('autoscout24.') || !/\/re_\d{4}/.test(url)) return url;
+  try {
+    const u = new URL(url);
+    u.pathname = u.pathname.replace(/\/re_\d{4}(?=\/|$)/, '');
+    const { yearFrom, yearTo } = resolveYearRange(params);
+    if (yearFrom) u.searchParams.set('fregfrom', yearFrom);
+    if (yearTo) u.searchParams.set('fregto', yearTo);
+    return u.toString();
+  } catch { return url; }
+}
+
+/**
  * Free-text slot = the FINITION (site rule: on Marktplaats the free text
  * feeds the "Variant" box; the model belongs to the model facet carried by
  * the validated URL's path). AS24's equivalent is the kwd= parameter.
@@ -394,6 +412,7 @@ export async function generateSearchUrlsWithMemory(
         (recTrim === wantTrim || recTrim === '');
       if (validatedUrl && scopeMatches && mapping) {
         let url = overrideVariableParams(validatedUrl, mapping, params);
+        url = overrideAs24PathYear(url, params);
         // AS24: even a trim-scoped learned URL can predate kwd= (daily report:
         // GR SPORT study reused a kwd-less URL → 6% trim match). Setting kwd is
         // idempotent, so guarantee it. Marktplaats keeps the trim-less-row-only

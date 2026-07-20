@@ -286,8 +286,11 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     // latin TLDs use 'classe-<code>' (ES: 'clase-').
     const localizedMercedes = (() => {
       const raw = String(params.model ?? '').trim().toUpperCase();
-      const m = raw.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? raw.match(/^([A-Z])-CLASS$/);
-      const code = m?.[1]?.toLowerCase();
+      const isMercedes = String(params.brand ?? '').trim().toUpperCase().includes('MERCEDES');
+      // 'CLASSE CLA' / 'E-CLASS' / bare 'CLA'/'GLC' (daily report 20/07: the
+      // bare forms had NO probe and served the brand-wide page on FR/ES/BE).
+      const code = (raw.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? raw.match(/^([A-Z])-CLASS$/))?.[1]?.toLowerCase()
+        ?? (isMercedes && /^[A-Z]{1,3}$/.test(raw) ? raw.toLowerCase() : null);
       if (!code) return null;
       if (cfg.countryCode === 'ES') return `clase-${code}`;
       if (['FR', 'IT', 'BE'].includes(cfg.countryCode)) return `classe-${code}`;

@@ -361,21 +361,34 @@ export function confirmCriteriaAgainstSample(
       });
     } else {
       let matchCount = 0;
+      let voting = 0;
+      let unreadable = 0;
       const seen: Record<string, number> = {};
       for (const l of pool) {
         const { canonical, raw } = listingFuelCanonical(l, adapter);
         seen[raw] = (seen[raw] ?? 0) + 1;
-        // PHEV is strict: a plain 'hybrid' never satisfies a declared plug-in.
-        if (canonical && canonical === declaredCanon) matchCount++;
+        // Un carburant ILLISIBLE (« o », libellé inconnu du canonicaliseur)
+        // n'est pas une preuve CONTRE : il s'abstient. Seuls les carburants
+        // reconnus votent — rapport 20/07 : 43× hybride + 10× « o » rejetait
+        // à 81 % un segment en réalité confirmé à 100 %. Un carburant reconnu
+        // mais DIFFÉRENT vote bien contre (PHEV strict : un simple 'hybrid'
+        // ne satisfait jamais un plug-in déclaré).
+        if (!canonical) { unreadable++; continue; }
+        voting++;
+        if (canonical === declaredCanon) matchCount++;
       }
-      const rate = matchCount / pool.length;
-      if (rate >= INGESTION_CONFIRM_THRESHOLD) {
-        out.push({ field: 'fuel', declaredValue: fuel, status: 'confirmed', matchCount, sampleSize: pool.length, method });
+      if (voting < INGESTION_MIN_SAMPLE) {
+        out.push({
+          field: 'fuel', declaredValue: fuel, status: 'rejected', matchCount: 0, sampleSize: voting,
+          method, reason: `données insuffisantes (${voting} carburant(s) lisible(s) < ${INGESTION_MIN_SAMPLE}${unreadable ? ` ; ${unreadable} illisible(s)` : ''})`,
+        });
+      } else if (matchCount / voting >= INGESTION_CONFIRM_THRESHOLD) {
+        out.push({ field: 'fuel', declaredValue: fuel, status: 'confirmed', matchCount, sampleSize: voting, method });
       } else {
         const dist = Object.entries(seen).map(([k, v]) => `${v}× ${k}`).join(', ');
         out.push({
-          field: 'fuel', declaredValue: fuel, status: 'rejected', matchCount, sampleSize: pool.length, method,
-          reason: `${method === 'structured' ? 'structuré' : 'texte'}: ${dist} vs déclaré ${fuel} — ${pct(matchCount, pool.length)} < ${INGESTION_CONFIRM_THRESHOLD * 100}%`,
+          field: 'fuel', declaredValue: fuel, status: 'rejected', matchCount, sampleSize: voting, method,
+          reason: `${method === 'structured' ? 'structuré' : 'texte'}: ${dist} vs déclaré ${fuel} — ${pct(matchCount, voting)} < ${INGESTION_CONFIRM_THRESHOLD * 100}%${unreadable ? ` (${unreadable} illisible(s) hors vote)` : ''}`,
         });
       }
     }
