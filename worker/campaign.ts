@@ -190,6 +190,18 @@ async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex:
   }
   let doneCount = startIndex;
   let stopped = false;
+  // Cloudflare blocks are transient and session-scoped: logs showed all 4
+  // attempts (locale flip, sibling host, cache-buster, browser) refused at
+  // one moment. Items blocked in the main pass get ONE more chance at the
+  // END of the campaign, after a cool-down — by then the edge decision and
+  // Zyte's exit pool have moved on.
+  const blockedForRepass: Array<{ p: CampaignPlanItem; seq: number }> = [];
+  const waitWithStop = async (ms: number) => {
+    const until = Date.now() + ms;
+    while (Date.now() < until && !stopFlag.stop) {
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  };
 
   try {
     for (let i = startIndex; i < plan.length; i++) {
@@ -217,6 +229,9 @@ async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex:
 
       counts[result.outcome]++;
       doneCount++;
+      if (result.outcome === 'technical' && result.detail.includes('TARGET_BLOCKED')) {
+        blockedForRepass.push({ p, seq: result.seq });
+      }
       await insertCampaignItemRow(campaignId, result).catch((e) => console.warn('[CAMPAIGN_WORKER] item insert failed:', e?.message ?? e));
       await supabase.from('linkgen_campaigns').update({
         done_count: doneCount,
@@ -227,6 +242,43 @@ async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex:
       }).eq('id', campaignId);
 
       if (i < plan.length - 1) await new Promise((r) => setTimeout(r, PAUSE_BETWEEN_ITEMS_MS));
+    }
+
+    // ── Second-chance pass over Cloudflare-blocked items ──────────────────
+    if (!stopped && blockedForRepass.length > 0) {
+      const repass = blockedForRepass.slice(0, 40); // bounded Zyte budget
+      console.log(`[CAMPAIGN_WORKER] 2e passe anti-blocage: ${repass.length} étude(s) bloquée(s) re-tentée(s) après refroidissement`);
+      await waitWithStop(120_000);
+      for (const { p, seq } of repass) {
+        if (stopFlag.stop) { stopped = true; break; }
+        let retry: CampaignItemResult;
+        try {
+          retry = await executeCampaignItem(seq, p, scrape);
+        } catch { continue; }
+        if (retry.detail.includes('CAMPAIGN_STOPPED')) { stopped = true; break; }
+        if (retry.outcome === 'technical') continue; // toujours bloquée — la ligne d'origine reste
+        // Récupérée : la ligne d'origine est REMPLACÉE (même campagne+seq)
+        // et les compteurs suivent — le blocage n'était qu'un incident.
+        counts.technical--;
+        counts[retry.outcome]++;
+        console.log(`[CAMPAIGN_WORKER] 2e passe ✅ #${seq} ${p.site} ${p.brand} ${p.model} → ${retry.outcome}`);
+        await supabase.from('linkgen_campaign_items').update({
+          url: retry.url,
+          outcome: retry.outcome,
+          confirmed_fields: retry.confirmedFields,
+          rejected: retry.rejected,
+          detail: `${retry.detail} (récupérée en 2e passe anti-blocage)`,
+          sample_size: retry.sampleSize,
+          finished_at: new Date().toISOString(),
+        }).eq('campaign_id', campaignId).eq('seq', seq);
+        await supabase.from('linkgen_campaigns').update({
+          confirmed_count: counts.confirmed,
+          gap_count: counts.taxonomy_gap + counts.enum_gap,
+          technical_count: counts.technical + counts.insufficient + counts.no_url,
+          last_heartbeat: new Date().toISOString(),
+        }).eq('id', campaignId);
+        await new Promise((r) => setTimeout(r, PAUSE_BETWEEN_ITEMS_MS));
+      }
     }
   } finally {
     clearInterval(signalTimer);

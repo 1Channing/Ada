@@ -679,9 +679,11 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
         // doesn't dodge the cached block).
         if (activeUrl.includes('autoscout24.')) activeUrl = withNocache(activeUrl);
         if (activeUrl !== url) console.log(`[WORKER_SCRAPER] retry variant: ${activeUrl}`);
-        // Longer pause than a soft failure: a CF block that just fired rarely
-        // clears within a second from the same exit.
-        await new Promise((resolve) => setTimeout(resolve, 2500 * (attempt + 1)));
+        // A CF block that just fired rarely clears within seconds from the
+        // same exit — logs showed 4/4 blocked with 2.5-10s pauses. 8/16/24s
+        // gives the edge decision (and Zyte's session rotation) room to move;
+        // campaigns run unattended, patience is free.
+        await new Promise((resolve) => setTimeout(resolve, 8000 * (attempt + 1)));
         continue;
       }
       return finalize({ listings: [], error: 'TARGET_BLOCKED', errorReason: `Blocked: ${blockedCheck.matchedKeyword}` },
