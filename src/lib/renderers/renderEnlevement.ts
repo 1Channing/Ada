@@ -1,5 +1,6 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { DocumentData } from '../templateEngine';
+import { finalizeAcroForm } from './pdfFormUtils';
 
 export async function renderEnlevement(
   pdfDoc: PDFDocument,
@@ -119,12 +120,14 @@ export async function renderEnlevement(
     }
   }
 
-  // Attempt to flatten the form (may fail in some pdf-lib versions)
-  try {
-    form.flatten();
+  // Aplatissement fiable : apparences régénérées, widgets réparés, texte
+  // gravé dans la page — sinon chaque lecteur PDF redessine les champs à sa
+  // façon (décalages vus sur certaines machines, signalement 20/07).
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  if (finalizeAcroForm(pdfDoc, form, font)) {
     console.log('[ENLEVEMENT] Form flattened successfully');
-  } catch (error) {
-    console.warn('[ENLEVEMENT_WARN] Form flattening failed (non-critical):', error);
+  } else {
+    console.warn('[ENLEVEMENT_WARN] Form flattening failed — champs laissés vivants');
   }
 
   console.log(`[ENLEVEMENT] Fiche enlèvement rendering completed (${errorCount} field errors)`);

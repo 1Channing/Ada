@@ -1,5 +1,6 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { DocumentData } from '../templateEngine';
+import { finalizeAcroForm } from './pdfFormUtils';
 
 export async function renderReceptionExpedition(
   pdfDoc: PDFDocument,
@@ -88,12 +89,14 @@ export async function renderReceptionExpedition(
   // If these fields are needed, the PDF template must be updated in Acrobat
   // to include AcroForm fields for these values.
 
-  // Attempt to flatten the form (may fail in some pdf-lib versions)
-  try {
-    form.flatten();
+  // Aplatissement fiable : apparences régénérées, widgets réparés, texte
+  // gravé dans la page — sinon chaque lecteur PDF redessine les champs à sa
+  // façon (décalages vus sur certaines machines, signalement 20/07).
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  if (finalizeAcroForm(pdfDoc, form, font)) {
     console.log('[RECEPTION_EXP] Form flattened successfully');
-  } catch (error) {
-    console.warn('[RECEPTION_EXP_WARN] Form flattening failed (non-critical):', error);
+  } else {
+    console.warn('[RECEPTION_EXP_WARN] Form flattening failed — champs laissés vivants');
   }
 
   console.log(`[RECEPTION_EXP] Réception/Expédition rendering completed (${errorCount} field errors)`);

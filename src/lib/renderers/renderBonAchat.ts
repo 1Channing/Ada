@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { DocumentData } from '../templateEngine';
+import { finalizeAcroForm } from './pdfFormUtils';
 
 export async function renderBonAchat(
   pdfDoc: PDFDocument,
@@ -26,35 +27,17 @@ export async function renderBonAchat(
   fillTransactionFields(form, data, errors);
   fillSellerFields(form, data, errors);
 
-  // Step 1: Force per-field appearance regeneration
-  // Call updateFieldAppearances for each field individually to ensure fresh appearance streams
-  form.getFields().forEach(field => {
-    try {
-      // Force regeneration by calling the form method in a loop
-      form.updateFieldAppearances(font);
-    } catch (e) {
-      console.warn('[BON_ACHAT] Appearance update failed for field', field.getName());
-    }
-  });
-  console.log('[BON_ACHAT] Per-field appearance regeneration complete');
-
-  // Step 2: Enforce global appearance update
-  form.updateFieldAppearances(font);
-  console.log('[BON_ACHAT] Global appearance update complete');
-
-  // Step 3: Flatten
-  try {
-    form.flatten();
+  // Aplatissement fiable : apparences régénérées (une-ligne, taille fixe),
+  // widgets réparés (les /P du template sont cassés → le flatten échouait en
+  // silence), texte gravé dans la page. Sans cela, chaque lecteur PDF
+  // redessinait les champs vivants à sa façon — alignés sur une machine,
+  // décalés sur une autre (signalement Antoine, 20/07).
+  if (finalizeAcroForm(pdfDoc, form, font)) {
     console.log('[BON_ACHAT] Form flattened successfully');
-  } catch (error) {
-    console.error('[BON_ACHAT] Flatten FAILED', error);
+  } else {
+    console.warn('[BON_ACHAT_WARN] Form flattening failed — champs laissés vivants');
+    form.getFields().forEach(field => field.enableReadOnly());
   }
-
-  // Step 4: CRITICAL - Always enforce read-only AFTER flatten
-  form.getFields().forEach(field => {
-    field.enableReadOnly();
-  });
-  console.log('[BON_ACHAT] All fields set to read-only after flatten');
 
   const warningCount = errors.length;
   console.log(`[BON_ACHAT_ACROFORM] Rendering complete: ${errors.length === 0 ? 'success' : `${warningCount} warnings`}`);
