@@ -21,7 +21,7 @@ import { analyzeIngestion, INGESTION_MIN_SAMPLE, canonicalizeFuel, refineFuelTok
 import { persistIngestionResult } from './ingestion';
 import { generateSearchUrlsWithMemory } from './generator';
 import type { SiteKey } from './types';
-import { writeMarketSnapshot } from '../../services/marketData';
+import { writeMarketSnapshot, canonKey, brandKey } from '../../services/marketData';
 import type { CampaignKnowledge, CampaignPlanItem } from './campaignPlanner';
 import type { ScrapedListing } from '../study-core/types';
 
@@ -76,23 +76,61 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     .eq('validation_status', 'valid')
     .limit(10000);
 
+  // ── Identité canonique — plusieurs graphies d'un même modèle circulent en
+  // mémoire ('YARIS CROSS'/'YARIS-CROSS', 'MERCEDES'/'MERCEDES-BENZ', 'RAV4'/
+  // 'RAV-4') et chaque graphie casse ailleurs (slug bilbasen 'yaris-cross' →
+  // page marque entière, campagne du 21/07). On regroupe par clé canonique et
+  // on élit UNE graphie de référence : la plus fréquente ; à égalité, celle
+  // sans tiret (les espaces se traduisent proprement par site), puis la plus
+  // courte. La couverture par site est elle aussi comptée en canonique.
+  type MemRow = { site: string | null; brand: string; model: string; fuel: string; trim: string };
+  const rows: MemRow[] = [];
+  for (const r of (data ?? []) as Array<Record<string, string | null>>) {
+    const brand = (r.brand ?? '').trim().toUpperCase();
+    const model = (r.model ?? '').trim().toUpperCase();
+    if (!brand || !model) continue;
+    rows.push({
+      site: r.site, brand, model,
+      fuel: (r.fuel ?? '').trim().toUpperCase(), trim: (r.trim ?? '').trim(),
+    });
+  }
+
+  const elect = (counts: Map<string, number>): string => {
+    return [...counts.entries()].sort((a, b) =>
+      b[1] - a[1]
+      || Number(a[0].includes('-')) - Number(b[0].includes('-'))
+      || a[0].length - b[0].length
+      || a[0].localeCompare(b[0]))[0][0];
+  };
+  const bump = (m: Map<string, Map<string, number>>, key: string, label: string) => {
+    const c = m.get(key) ?? new Map<string, number>();
+    m.set(key, c);
+    c.set(label, (c.get(label) ?? 0) + 1);
+  };
+
+  const brandCounts = new Map<string, Map<string, number>>();
+  const modelCounts = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    bump(brandCounts, brandKey(r.brand), r.brand);
+    bump(modelCounts, `${brandKey(r.brand)}|${canonKey(r.model)}`, r.model);
+  }
+  const brandLabel = new Map([...brandCounts].map(([k, c]) => [k, elect(c)]));
+  const modelLabel = new Map([...modelCounts].map(([k, c]) => [k, elect(c)]));
+
   const brands = new Set<string>();
   const modelsByBrand: Record<string, Set<string>> = {};
   const fuelsByBrandModel: Record<string, Set<string>> = {};
   const trimsByBrandModel: Record<string, Set<string>> = {};
   const coveredBySite: Record<string, Set<string>> = {};
 
-  for (const r of (data ?? []) as Array<Record<string, string | null>>) {
-    const brand = (r.brand ?? '').trim().toUpperCase();
-    const model = (r.model ?? '').trim().toUpperCase();
-    if (!brand || !model) continue;
+  for (const r of rows) {
+    const brand = brandLabel.get(brandKey(r.brand)) ?? r.brand;
+    const model = modelLabel.get(`${brandKey(r.brand)}|${canonKey(r.model)}`) ?? r.model;
     brands.add(brand);
     (modelsByBrand[brand] ??= new Set()).add(model);
     const key = `${brand}|${model}`;
-    const fuel = (r.fuel ?? '').trim().toUpperCase();
-    if (fuel) (fuelsByBrandModel[key] ??= new Set()).add(fuel);
-    const trim = (r.trim ?? '').trim();
-    if (trim) (trimsByBrandModel[key] ??= new Set()).add(trim);
+    if (r.fuel) (fuelsByBrandModel[key] ??= new Set()).add(r.fuel);
+    if (r.trim) (trimsByBrandModel[key] ??= new Set()).add(r.trim);
     if (r.site) (coveredBySite[r.site] ??= new Set()).add(key);
   }
 
@@ -167,6 +205,64 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   }
 
   const adapter = getSiteAdapter(p.site as SiteKey);
+
+  // Sondes d'URLs alternatives (slugs / mmmv) partagées entre « page
+  // introuvable » et « repli silencieux » : un candidat dont la page applique
+  // réellement le filtre modèle ET dont l'échantillon confirme marque+modèle
+  // est appris en mémoire (rétro-guérison incluse) — l'étude repart confirmée.
+  const probeAlternates = async (
+    issueTypes: Set<string>,
+    probeReasons: string[],
+  ): Promise<CampaignItemResult | null> => {
+    if (!adapter.generateCorrectionHypotheses) return null;
+    const probes = (adapter.generateCorrectionHypotheses(criteria, issueTypes) ?? [])
+      .filter((h) => h.url && h.url !== url)
+      .filter((h, i, arr) => arr.findIndex((x) => x.url === h.url) === i)
+      .slice(0, 2);
+    probeReasons.push(...probes.map((h) => h.reason));
+    for (const h of probes) {
+      console.log(`[CAMPAIGN_PROBE] ${p.site} ${p.brand} ${p.model} → ${h.reason}`);
+      const alt = await scrape(h.url);
+      // La page candidate n'applique pas non plus le filtre modèle → suivante.
+      const altVerdict = (alt.diagnostics as { silentFallback?: { modelApplied: boolean } } | null)?.silentFallback;
+      if (altVerdict && altVerdict.modelApplied === false) continue;
+      if (alt.error || alt.listings.length < INGESTION_MIN_SAMPLE) continue;
+      const altAnalysis = analyzeIngestion(h.url, criteria, alt.listings, adapter);
+      const altConfirmed = new Set(altAnalysis.confirmedFields);
+      if (!altConfirmed.has('brand') || !altConfirmed.has('model')) continue;
+
+      // persistIngestionResult writes the memory row (validated_url =
+      // the winning URL) and retro-heals the open gaps of the combo.
+      await persistIngestionResult({
+        url: h.url, site: adapter.key, country: adapter.countryCode, criteria,
+        analysis: altAnalysis, sampleSize: alt.listings.length,
+        detectedParams: decomposeUrl(h.url), submittedBy: CAMPAIGN_SUBMITTER,
+      }).catch(() => undefined);
+      await writeMarketSnapshot({
+        segment: {
+          site: adapter.key, country: adapter.countryCode,
+          brand: p.brand.toUpperCase(), model: p.model.toUpperCase(),
+          fuel: altConfirmed.has('fuel') ? (p.fuel ?? '').toUpperCase() : '',
+          trim: altConfirmed.has('trim') ? (p.trim ?? '') : '',
+        },
+        listings: alt.listings, totalCount: null, sourceUrl: h.url, submittedBy: CAMPAIGN_SUBMITTER,
+      }).catch(() => undefined);
+
+      const altRejected = altAnalysis.rejectedFields.map((c) => ({
+        field: c.field, declared: c.declaredValue, reason: c.reason ?? '',
+      }));
+      return {
+        ...base, url: h.url,
+        outcome: altRejected.length > 0 ? 'enum_gap' : 'confirmed',
+        confirmedFields: [...altAnalysis.confirmedFields],
+        rejected: altRejected,
+        detail: `slug auto-corrigé (${h.reason})`,
+        sampleSize: alt.listings.length,
+      };
+    }
+    return null;
+  };
+
   const { listings, error, diagnostics } = await scrape(url);
 
   if (error && listings.length === 0) {
@@ -188,49 +284,8 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     // confirmed — the slug fixed itself, no human needed.
     if (error === 'PAGE_NOT_FOUND') {
       const probeReasons: string[] = [];
-      if (adapter.generateCorrectionHypotheses) {
-        const probes = (adapter.generateCorrectionHypotheses(criteria, new Set(['page_not_found'])) ?? [])
-          .filter((h) => h.url && h.url !== url)
-          .slice(0, 2);
-        probeReasons.push(...probes.map((h) => h.reason));
-        for (const h of probes) {
-          console.log(`[CAMPAIGN_PROBE] ${p.site} ${p.brand} ${p.model} → ${h.reason}`);
-          const alt = await scrape(h.url);
-          if (alt.error || alt.listings.length < INGESTION_MIN_SAMPLE) continue;
-          const altAnalysis = analyzeIngestion(h.url, criteria, alt.listings, adapter);
-          const altConfirmed = new Set(altAnalysis.confirmedFields);
-          if (!altConfirmed.has('brand') || !altConfirmed.has('model')) continue;
-
-          // persistIngestionResult writes the memory row (validated_url =
-          // the winning slug URL) and retro-heals the open gaps of the combo.
-          await persistIngestionResult({
-            url: h.url, site: adapter.key, country: adapter.countryCode, criteria,
-            analysis: altAnalysis, sampleSize: alt.listings.length,
-            detectedParams: decomposeUrl(h.url), submittedBy: CAMPAIGN_SUBMITTER,
-          }).catch(() => undefined);
-          await writeMarketSnapshot({
-            segment: {
-              site: adapter.key, country: adapter.countryCode,
-              brand: p.brand.toUpperCase(), model: p.model.toUpperCase(),
-              fuel: altConfirmed.has('fuel') ? (p.fuel ?? '').toUpperCase() : '',
-              trim: altConfirmed.has('trim') ? (p.trim ?? '') : '',
-            },
-            listings: alt.listings, totalCount: null, sourceUrl: h.url, submittedBy: CAMPAIGN_SUBMITTER,
-          }).catch(() => undefined);
-
-          const altRejected = altAnalysis.rejectedFields.map((c) => ({
-            field: c.field, declared: c.declaredValue, reason: c.reason ?? '',
-          }));
-          return {
-            ...base, url: h.url,
-            outcome: altRejected.length > 0 ? 'enum_gap' : 'confirmed',
-            confirmedFields: [...altAnalysis.confirmedFields],
-            rejected: altRejected,
-            detail: `slug auto-corrigé (${h.reason})`,
-            sampleSize: alt.listings.length,
-          };
-        }
-      }
+      const won = await probeAlternates(new Set(['page_not_found']), probeReasons);
+      if (won) return won;
       return {
         ...base, url, outcome: 'taxonomy_gap', confirmedFields: [], rejected: [],
         detail: 'page introuvable — slug marque/modèle à corriger (sondes épuisées)', sampleSize: 0,
@@ -255,6 +310,26 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
         : `échantillon ${listings.length} < ${INGESTION_MIN_SAMPLE}`,
       sampleSize: listings.length,
       dossier: mkDossier('scrape', { scrape: diagnostics ?? null, sample: dossierSample(listings) }),
+    };
+  }
+
+  // Repli silencieux : le site a servi une page SANS appliquer le filtre
+  // modèle (slug inconnu → page marque entière, verdict lu dans les
+  // métadonnées de la page). L'échantillon ne décrit PAS le modèle étudié :
+  // on n'en ingère RIEN (protection des données), on sonde les URLs
+  // alternatives (mmmv/slug régénéré) — sinon lacune avec le diagnostic exact.
+  const sfVerdict = (diagnostics as { silentFallback?: { modelApplied: boolean; evidence: string } } | null)?.silentFallback;
+  if (criteria.model && sfVerdict && sfVerdict.modelApplied === false) {
+    const probeReasons: string[] = [];
+    const won = await probeAlternates(new Set(['model_missing']), probeReasons);
+    if (won) return won;
+    return {
+      ...base, url, outcome: 'taxonomy_gap', confirmedFields: [], rejected: [],
+      detail: `slug modèle non reconnu par le site — page marque entière servie (${sfVerdict.evidence})`,
+      sampleSize: listings.length,
+      dossier: mkDossier('filter', {
+        scrape: diagnostics ?? null, probesTried: probeReasons, sample: dossierSample(listings),
+      }),
     };
   }
 

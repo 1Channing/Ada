@@ -67,6 +67,18 @@ export interface LinkGenIssue {
     | 'trim_removed_for_broader_market';
 }
 
+/**
+ * Verdict DÉTERMINISTE « le site a-t-il vraiment appliqué le filtre modèle ? »,
+ * lu dans les métadonnées de la page elle-même (pas deviné depuis les titres).
+ * Preuve AS24 (21/07) : un slug modèle inconnu garde l'URL, pose
+ * `pageQuery.unknownParameter` et sert la page marque ENTIÈRE en silence —
+ * 85 annonces mélangées qui passaient pour une « lacune taxonomie ».
+ */
+export interface SilentFallbackVerdict {
+  modelApplied: boolean;
+  evidence: string;
+}
+
 export interface AppliedFilters {
   brand: boolean;
   model: boolean;
@@ -197,6 +209,12 @@ export interface SiteAdapter {
   getFetchProfile(attempt: number): ZyteProfileOverrides;
   /** Optional per-site override of the shared keyword-based block detector. */
   detectBlocked?(html: string, hasListings: boolean): boolean;
+  /**
+   * Optional deterministic read of the page's own metadata: did the site
+   * apply the model filter, or silently fall back to a wider page? Returns
+   * null when the page carries no readable verdict (blocked, autre format).
+   */
+  detectSilentFallback?(html: string): SilentFallbackVerdict | null;
 
   // ─── Ingestion (URL learning from human-pasted searches) ──────────────────
 

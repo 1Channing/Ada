@@ -119,17 +119,41 @@ const MODEL_SLUG_BY_ALNUM: Record<string, string> = {
 };
 
 /**
- * French Mercedes naming → AS24's canonical slugs. AS24 shares one model
- * taxonomy across its TLDs, keyed on the German names: 'CLASSE E' must become
- * 'e-klasse' (the naive 'classe-e' 404'd — NO_LISTINGS on .de in campaign
- * logs); letter-code models ('CLASSE CLA', 'CLASSE GLC') are just the code.
+ * Les « Classes » Mercedes ne sont PAS des modèles chez AS24 : ce sont des
+ * LIGNES de modèles (modelLines), et le vrai filtre du site est le paramètre
+ * `mmmv=marque|modèle|ligne|` — les slugs de chemin ne sont que du sucre SEO,
+ * et un slug inconnu retombe EN SILENCE sur la page marque entière
+ * (pageQuery.unknownParameter posé, 85 Citan/Sprinter dans une étude GLC).
+ *
+ * IDs relevés dans la taxonomie embarquée des pages AS24 (21/07/2026) et
+ * VÉRIFIÉS par scrape live sur .it/.fr/.es/.de : `/lst?mmmv=47||61|` titre
+ * « Classe E (tout) » avec organiques 100 % Classe E sur les quatre domaines
+ * — les IDs sont globaux, les libellés seuls sont localisés.
  */
+const MERCEDES_MAKE_ID = 47;
+const MERCEDES_LINE_ID: Record<string, number> = {
+  A: 54, B: 55, C: 56, CE: 57, CL: 58, CLK: 59, CLS: 60, E: 61, G: 62,
+  GL: 63, ML: 64, R: 65, S: 66, SL: 67, SLK: 68, V: 69, GLK: 83, CLA: 96,
+  GLA: 102, GLE: 114, GLC: 116, GLS: 122, SLC: 123, X: 142, EQ: 148,
+  GLB: 149, CLE: 164,
+};
+
+/** Code de classe Mercedes depuis nos graphies ('CLASSE E', 'E-CLASS', 'GLC'…). */
+function mercedesClassCode(brand: string | undefined, model: string): string | null {
+  const up = model.trim().toUpperCase();
+  const m = up.match(/^(?:CLASSE|CLASE|CLASS)\s+([A-Z]{1,3})$/) ?? up.match(/^([A-Z]{1,3})[- ]?(?:CLASS|KLASSE)$/);
+  if (m) return m[1];
+  const isMercedes = String(brand ?? '').trim().toUpperCase().includes('MERCEDES');
+  if (isMercedes && /^[A-Z]{1,3}$/.test(up)) return up;
+  return null;
+}
+
+/** Ancien mapping slug (gardé pour les sondes : certains TLD acceptent le slug). */
 function mercedesClassSlug(raw: string): string | null {
-  const up = raw.trim().toUpperCase();
-  const m = up.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? up.match(/^([A-Z])-CLASS$/);
-  if (!m) return null;
-  const code = m[1].toLowerCase();
-  return code.length === 1 ? `${code}-klasse` : code;
+  const code = mercedesClassCode('MERCEDES', raw);
+  if (!code) return null;
+  const lower = code.toLowerCase();
+  return code.length === 1 ? `${lower}-klasse` : lower;
 }
 
 /** Model → AutoScout URL slug, resolving common no-separator variants first. */
@@ -243,12 +267,21 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     const brandSlug = brandToSlug(String(params.brand ?? ''));
     const modelSlug = overrides?.modelSlug ?? (params.model ? modelToSlug(String(params.model)) : '');
 
+    // Classe Mercedes → URL mmmv (le filtre RÉEL du site, IDs globaux
+    // vérifiés) : /lst SANS segment marque/modèle — un chemin /mercedes-benz
+    // combiné au mmmv fait l'UNION des deux (31 539 résultats au lieu de 40).
+    const mercCode = !overrides?.modelSlug && params.model
+      ? mercedesClassCode(params.brand ? String(params.brand) : undefined, String(params.model))
+      : null;
+    const mercLineId = mercCode ? MERCEDES_LINE_ID[mercCode] : undefined;
+
     const segs = ['lst'];
-    if (brandSlug) segs.push(brandSlug);
-    if (brandSlug && modelSlug) segs.push(modelSlug);
+    if (brandSlug && !mercLineId) segs.push(brandSlug);
+    if (brandSlug && modelSlug && !mercLineId) segs.push(modelSlug);
     const path = (cfg.pathPrefix ?? '') + '/' + segs.join('/');
 
     const qs = new URLSearchParams();
+    if (mercLineId) qs.set('mmmv', `${MERCEDES_MAKE_ID}||${mercLineId}|`);
     qs.set('atype', 'C');
     qs.set('cy', cfg.cy);
     const { yearFrom, yearTo } = resolveYearRange(params);
@@ -318,6 +351,14 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
       return result;
     }
 
+    // H0ter — model rejected sur page avec annonces : l'URL courante vient
+    // peut-être d'une vieille mémoire (slug) alors que le template actuel
+    // produit mieux (mmmv pour les classes Mercedes). Regénérer et sonder.
+    if (issueTypes.has('model_missing')) {
+      const regenerated = buildSearchUrl(params).url;
+      result.push({ url: regenerated, reason: 'AUTOSCOUT H0ter: URL régénérée depuis le template actuel' });
+    }
+
     // H0bis — model rejected on a page WITH listings: an unknown slug makes
     // AS24 fall back to the brand-wide page silently. Probe the localized
     // Mercedes slug before widening anything.
@@ -339,6 +380,30 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
       result.push({ url, reason: 'AUTOSCOUT H2: widened to brand-only (model not applied)' });
     }
     return result;
+  }
+
+  /**
+   * Verdict déterministe « filtre modèle appliqué ? » lu dans le
+   * __NEXT_DATA__ de la page : `pageQuery.unknownParameter` posé = un segment
+   * du chemin n'a pas été reconnu → la page servie est la marque ENTIÈRE.
+   * Vérifié live 21/07 : /mercedes-benz/glc sur .it → unknownParameter:"glc",
+   * mmmv "47|||", titre « 1282 Offerte per Mercedes-Benz » (sans modèle).
+   */
+  function detectSilentFallback(html: string): { modelApplied: boolean; evidence: string } | null {
+    const m = html.match(/__NEXT_DATA__[^>]*>([\s\S]*?)<\/script>/);
+    if (!m) return null;
+    try {
+      const pq = JSON.parse(m[1])?.props?.pageProps?.pageQuery as Record<string, unknown> | undefined;
+      if (!pq || typeof pq !== 'object') return null;
+      const unknown = pq['unknownParameter'];
+      const mmmv = String(pq['mmmv'] ?? '');
+      if (unknown) {
+        return { modelApplied: false, evidence: `unknownParameter="${String(unknown)}" (mmmv=${mmmv || 'vide'})` };
+      }
+      return { modelApplied: true, evidence: `mmmv=${mmmv || 'vide'}` };
+    } catch {
+      return null;
+    }
   }
 
   function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {
@@ -408,6 +473,13 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     }
 
     const q = d.queryParams;
+    // URL mmmv (classes Mercedes) : marque + ligne se relisent depuis les IDs.
+    const mmmv = (q['mmmv'] ?? '').match(/^(\d+)\|\|(\d+)\|$/);
+    if (mmmv && Number(mmmv[1]) === MERCEDES_MAKE_ID) {
+      out.brand = 'MERCEDES';
+      const code = Object.entries(MERCEDES_LINE_ID).find(([, id]) => id === Number(mmmv[2]))?.[0];
+      if (code) out.model = `CLASSE ${code}`;
+    }
     if (/^\d{4}$/.test(q['fregfrom'] ?? '')) out.yearFrom = q['fregfrom'];
     if (/^\d{4}$/.test(q['fregto'] ?? '')) out.yearTo = q['fregto'];
     const km = firstNumber(q['kmto']);
@@ -470,6 +542,7 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
 
     scoreSearchResults,
     generateCorrectionHypotheses,
+    detectSilentFallback,
 
     getFetchProfile,
 

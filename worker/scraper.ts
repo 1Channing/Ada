@@ -313,6 +313,9 @@ export interface ScrapeDiagnostics {
   emptyResults: boolean;     // full page, 0 results (genuine, not an error)
   fromCache: boolean;
   fieldsPresent: Record<string, number>; // 0..1 fraction of listings carrying each field
+  /** Verdict déterministe de l'adaptateur : le site a-t-il appliqué le filtre
+   *  modèle, ou servi une page plus large en silence ? null = illisible. */
+  silentFallback?: { modelApplied: boolean; evidence: string } | null;
 }
 
 export interface ScrapeSearchResult {
@@ -578,6 +581,7 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
         blocked: d.blocked ?? false, blockReason: d.blockReason ?? null,
         emptyResults: d.emptyResults ?? false, fromCache: false,
         fieldsPresent: fieldCoverage(r.listings),
+        silentFallback: d.silentFallback ?? null,
       },
     };
     if (cache) SCRAPE_CACHE.set(url, { at: Date.now(), result });
@@ -667,7 +671,15 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
       }
       all = all.slice(0, maxListings);
       console.log(`[WORKER_SCRAPER] ✅ Parsed ${all.length} listings (mode=${mode}, pages=${pages})`);
-      return finalize({ listings: all, totalCount }, { attempts: attempt + 1, htmlLength: html.length }, true);
+      // Verdict déterministe « filtre modèle appliqué ? » depuis la page
+      // elle-même — le moteur de campagne s'en sert pour distinguer un vrai
+      // échantillon d'une page marque servie en silence (slug inconnu).
+      const sfAdapter = findSiteAdapterByDomain(activeUrl);
+      const silentFallback = sfAdapter?.detectSilentFallback?.(html) ?? null;
+      if (silentFallback && !silentFallback.modelApplied) {
+        console.warn(`[WORKER_SCRAPER] ⚠️ filtre modèle NON appliqué par le site — ${silentFallback.evidence}`);
+      }
+      return finalize({ listings: all, totalCount }, { attempts: attempt + 1, htmlLength: html.length, silentFallback }, true);
     }
 
     // Blocked? Don't give up on the first block — escalate through the profiles
