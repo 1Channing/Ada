@@ -177,6 +177,19 @@ facette ambigus (jamais d'attribution partielle non justifiable). Plusieurs
 ingestions du même modèle avec des filtres différents permettraient d'isoler
 chaque ID par différence d'ensembles — à concevoir quand il y aura du volume.
 
+## RITUEL RÉCURRENT — dépiler les logs techniques (`worker_logs`)
+
+Acté par Channing (21/07/2026) : en plus de la revue quotidienne de la boîte
+noire (`linkgen_error_dossiers`), **vérifier de temps en temps les logs
+techniques du worker** (`worker_logs` : warn/error console, rétention 14 j).
+Réflexe à avoir à chaque session de dev — et systématiquement quand un
+comportement étrange est signalé (campagne qui coince, blocages Cloudflare
+en série, worker qui redémarre). Accès direct via `ADA_SUPABASE_URL` +
+`ADA_SUPABASE_ANON_KEY` (variables de l'environnement Claude Code) ; au
+21/07, l'accès réseau de l'environnement restait à ouvrir vers
+`*.supabase.co` — à re-vérifier à la prochaine session ("vérifie l'accès
+aux logs").
+
 ## 4bis. API de correction assistée par LLM (validée sur le principe, 21/07)
 
 Brancher l'API Anthropic dans la boucle d'auto-correction, en respectant le
