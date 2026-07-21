@@ -190,6 +190,30 @@ en série, worker qui redémarre). Accès direct via `ADA_SUPABASE_URL` +
 `*.supabase.co` — à re-vérifier à la prochaine session ("vérifie l'accès
 aux logs").
 
+## 4ter. MI différés (validés sur le principe 21/07, « pas d'urgence »)
+
+- **Carte de couverture** : onglet MI, grille modèle × pays colorée par
+  fraîcheur du dernier snapshot, bouton « campagne sur les trous » qui
+  pré-remplit le formulaire existant. Zéro nouvelle table.
+- **Tendances** : sparkline médiane 8 semaines dans les cartes modèle du MI
+  (flèche + % variation), courbe complète dans le panneau détail.
+
+## 4quater. Référentiel constructeur (intervalles / motorisations / finitions)
+
+Décision Channing (21/07) : s'appuyer sur une BASE EXTERNE FIABLE (pas
+d'inférence depuis nos observations — l'indisponibilité pluriannuelle d'un
+modèle existant rendrait l'absence d'annonces trompeuse). Usage : le
+planificateur saute les années hors commercialisation (ex. VW Tayron avant
+2024) ; les motorisations/finitions servent de dictionnaire pivot pour
+croiser les noms de finitions entre pays. Candidats identifiés (bases
+téléchargeables à importer en tables de référence Supabase, plutôt qu'une
+API payée à l'appel) : car2db.com, teoalida.com (base Europe), auto-data.net
+(API générations+années), databases.one. AVANT achat : obtenir un
+échantillon et le valider sur nos cas réels (Tayron 2024+, Yaris Cross
+2021+, ë-C4). Finitions PAR PAYS = niveau JATO/Autovista (enterprise, cher) —
+le croisement pays se fera plutôt : référentiel EU générique + nos
+observations par pays.
+
 ## 4bis. API de correction assistée par LLM (validée sur le principe, 21/07)
 
 Brancher l'API Anthropic dans la boucle d'auto-correction, en respectant le
