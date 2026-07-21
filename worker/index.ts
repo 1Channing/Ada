@@ -9,6 +9,7 @@ import { persistIngestionResult } from '../src/lib/linkgen/ingestion';
 import { writeMarketSnapshot } from '../src/services/marketData';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
 import { startWorkerCampaign, resumeWorkerCampaigns } from './campaign';
+import { initWorkerLogCapture } from './logStore';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -425,7 +426,10 @@ app.listen(PORT, "0.0.0.0", () => {
 
   // Shared client for the campaign engine (generator/persist/marketData).
   if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
-    setSharedSupabase(createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) as any);
+    const client = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    // Journal technique : les warn/error partent aussi dans worker_logs.
+    initWorkerLogCapture(client);
+    setSharedSupabase(client as any);
     // Pick interrupted campaigns back up after a restart/deploy.
     void resumeWorkerCampaigns();
   } else {

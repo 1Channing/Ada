@@ -177,6 +177,22 @@ facette ambigus (jamais d'attribution partielle non justifiable). Plusieurs
 ingestions du même modèle avec des filtres différents permettraient d'isoler
 chaque ID par différence d'ensembles — à concevoir quand il y aura du volume.
 
+## 4bis. API de correction assistée par LLM (validée sur le principe, 21/07)
+
+Brancher l'API Anthropic dans la boucle d'auto-correction, en respectant le
+principe directeur (le LLM PROPOSE, le scrape DÉCIDE — jamais d'écriture
+directe de mapping par le modèle) :
+
+- **Étage 1 — hypothèses "H3"** : face à un dossier d'échec en campagne, un
+  modèle rapide et peu coûteux (Haiku) propose slug/paramètre/graphie ; la
+  proposition entre dans la même file de vérification que H1/H2 (1 scrape max,
+  écriture en mémoire uniquement si le scrape confirme).
+- **Étage 2 — analyse du digest quotidien** : un modèle plus capable analyse
+  la boîte noire et produit une liste d'actions proposées (dont brouillons de
+  correctifs de code — revue et déploiement restent humains).
+- Prérequis : clé API Anthropic + budget dans les variables Railway ;
+  s'appuie sur `worker_logs` + `linkgen_error_dossiers` comme matière.
+
 ## 5. Rappels de chantiers déjà actés ailleurs
 
 - `parseDetailPage` à intégrer au contrat SiteAdapter (différé lors du
