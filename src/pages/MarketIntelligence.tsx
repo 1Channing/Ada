@@ -10,6 +10,8 @@ import {
 } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
+import { getRefWindowsCached, findRefWindow } from '../services/vehicleRef';
+import type { RefWindowMap, RefWindow } from '../services/vehicleRef';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
 
 const SERIES = ['#3987e5', '#008300', '#d55181', '#c98500', '#199e70', '#d95926', '#9085e9', '#e66767'];
@@ -114,6 +116,19 @@ export function MarketIntelligence() {
   };
 
   const obs = data.observations;
+
+  // Fenêtre de commercialisation (référentiel constructeur) du modèle actif —
+  // affichée discrètement sous les filtres. Chargée une fois, cache module.
+  const [refWindows, setRefWindows] = useState<RefWindowMap | null>(null);
+  useEffect(() => {
+    getRefWindowsCached().then(setRefWindows).catch(() => setRefWindows(null));
+  }, []);
+  const refWin: RefWindow | null = useMemo(
+    () => (refWindows && active.brand && active.model
+      ? findRefWindow(refWindows, active.brand, active.model)
+      : null),
+    [refWindows, active.brand, active.model],
+  );
 
   // Cascading option lists for the ACTIVE study. Site/country/brand/model are
   // the UNION of what has observations AND what ADA knows (mapped segments +
@@ -247,6 +262,12 @@ export function MarketIntelligence() {
                 <Num label="Puiss. min" value={active.powerMin ?? undefined} onChange={(v) => setActive({ powerMin: v })} />
               </div>
             </div>
+            {refWin && (
+              <div className="mt-2 text-[11px] text-zinc-500">
+                Commercialisé {refWin.yearFrom} – {refWin.yearTo ?? 'aujourd’hui'}
+                <span className="text-zinc-600"> · référentiel constructeur</span>
+              </div>
+            )}
           </div>
 
           {comparing

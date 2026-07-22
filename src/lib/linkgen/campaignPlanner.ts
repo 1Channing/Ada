@@ -15,7 +15,12 @@
  *  - Exploration (site×brand×model not in memory) is prioritised; a share of
  *    reinforcement re-tests known combos to strengthen confidence.
  *  - Pure: RNG injected, no I/O — the caller loads knowledge and persists.
+ *  - Fenêtres de commercialisation (référentiel) : une année hors fenêtre
+ *    n'engendre JAMAIS d'étude ; un modèle inconnu du référentiel n'est
+ *    JAMAIS filtré (fail-open — le référentiel est fiable à ~98 %, pas 100).
  */
+
+import { refComboKey } from '../../services/vehicleRef';
 
 export interface CampaignKnowledge {
   brands: string[];
@@ -26,7 +31,24 @@ export interface CampaignKnowledge {
   trimsByBrandModel: Record<string, string[]>;
   /** Validated `BRAND|MODEL` combos per site key. */
   coveredBySite: Record<string, Set<string>>;
+  /**
+   * Fenêtres de commercialisation (référentiel constructeur, source of truth
+   * ~98 %), clé `refComboKey(brand, model)`. Absence de clé = FAIL-OPEN :
+   * aucune année n'est filtrée pour ce modèle.
+   */
+  refWindows?: Record<string, { from: number; to: number | null }>;
+  /**
+   * Modèles du référentiel JAMAIS étudiés (aucune mémoire) dont la fenêtre
+   * touche la période d'arbitrage — candidats d'expansion automatique des
+   * campagnes, injectés en exploration avec une part plafonnée.
+   */
+  refCombos?: Array<{ brand: string; model: string }>;
 }
+
+/** Part maximale de l'exploration allouée aux modèles « expansion référentiel »
+ *  — les combos issus de notre mémoire restent prioritaires (on maintient ce
+ *  qui fonctionne), l'expansion remplit le reste. */
+export const REF_EXPANSION_SHARE = 0.3;
 
 export interface CampaignPlanItem {
   site: string;
@@ -102,13 +124,19 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
 
   // All known brand|model combos (from any site's validated memory),
   // narrowed by the brand/model targeting when provided.
-  const combos: Array<{ brand: string; model: string }> = [];
+  const combos: Array<{ brand: string; model: string; fromRef?: boolean }> = [];
   for (const brand of k.brands) {
     if (brandSet.size > 0 && !brandSet.has(U(brand))) continue;
     for (const model of k.modelsByBrand[brand] ?? []) {
       if (modelSet.size > 0 && !modelSet.has(U(model))) continue;
       combos.push({ brand, model });
     }
+  }
+  // Expansion référentiel : modèles jamais étudiés, mêmes filtres de ciblage.
+  for (const c of k.refCombos ?? []) {
+    if (brandSet.size > 0 && !brandSet.has(U(c.brand))) continue;
+    if (modelSet.size > 0 && !modelSet.has(U(c.model))) continue;
+    combos.push({ brand: c.brand, model: c.model, fromRef: true });
   }
   if (combos.length === 0 || opts.sites.length === 0) return [];
 
@@ -120,14 +148,24 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   for (let y = pinMin; y <= pinMax; y++) years.push(y);
   const fuelChoices: Array<string | null> = forcedFuels.length > 0 ? forcedFuels : [null];
 
-  type Atom = { site: string; brand: string; model: string; year: number; fuel: string | null };
+  type Atom = { site: string; brand: string; model: string; year: number; fuel: string | null; fromRef?: boolean };
   const exploration: Atom[] = [];
+  const explorationRef: Atom[] = [];
   const reinforcement: Atom[] = [];
   for (const site of opts.sites) {
     const covered = k.coveredBySite[site] ?? new Set<string>();
     for (const c of combos) {
-      const bucket = covered.has(`${c.brand}|${c.model}`) ? reinforcement : exploration;
-      for (const year of years) {
+      // Fenêtre de commercialisation (référentiel) : les années hors fenêtre
+      // ne deviennent jamais des études — marge +1 en sortie (immat tardives).
+      // Modèle inconnu du référentiel → AUCUN filtrage (fail-open).
+      const win = k.refWindows?.[refComboKey(c.brand, c.model)];
+      const comboYears = win
+        ? years.filter((y) => y >= win.from && (win.to === null || y <= win.to + 1))
+        : years;
+      if (comboYears.length === 0) continue; // fenêtre entièrement hors période
+      const bucket = c.fromRef ? explorationRef
+        : covered.has(`${c.brand}|${c.model}`) ? reinforcement : exploration;
+      for (const year of comboYears) {
         for (const fuel of fuelChoices) bucket.push({ site, ...c, year, fuel });
       }
     }
@@ -136,21 +174,30 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   // Narrow campaign whose FULL space fits the budget → exhaustive enumeration
   // (all 28 studies, deterministic). Sampling only when the space overflows.
   let picked: Array<{ atom: Atom; kind: CampaignPlanItem['kind'] }>;
-  if (exploration.length + reinforcement.length <= total) {
+  if (exploration.length + explorationRef.length + reinforcement.length <= total) {
     picked = [
       ...exploration.map((atom) => ({ atom, kind: 'exploration' as const })),
+      ...explorationRef.map((atom) => ({ atom, kind: 'exploration' as const })),
       ...reinforcement.map((atom) => ({ atom, kind: 'reinforcement' as const })),
     ];
   } else {
     const atomKey = (a: Atom) => `${a.site}|${a.brand}|${a.model}|${a.year}|${a.fuel ?? ''}`;
     const explorationTarget = Math.round(total * (1 - reinforceShare));
-    const pickedExp = shuffle(exploration, rng).slice(0, explorationTarget);
+    // L'expansion référentiel est PLAFONNÉE : la mémoire d'abord (on maintient
+    // ce qui fonctionne), les modèles jamais étudiés remplissent au plus
+    // REF_EXPANSION_SHARE de l'exploration — et tout le reliquat si la
+    // mémoire ne suffit pas à remplir la campagne.
+    const refTarget = Math.min(Math.round(explorationTarget * REF_EXPANSION_SHARE), explorationRef.length);
+    const pickedExpMem = shuffle(exploration, rng).slice(0, explorationTarget - refTarget);
+    const pickedExpRef = shuffle(explorationRef, rng)
+      .slice(0, Math.max(refTarget, explorationTarget - pickedExpMem.length));
+    const pickedExp = [...pickedExpMem, ...pickedExpRef].slice(0, explorationTarget);
     const pickedReinf = shuffle(reinforcement, rng).slice(0, total - pickedExp.length);
-    // Backfill from exploration if reinforcement pool ran dry (or vice versa).
+    // Backfill from exploration pools if reinforcement ran dry.
     if (pickedExp.length + pickedReinf.length < total) {
       const short = total - pickedExp.length - pickedReinf.length;
       const seen = new Set(pickedExp.map(atomKey));
-      const extra = shuffle(exploration, rng)
+      const extra = shuffle([...exploration, ...explorationRef], rng)
         .filter((a) => !seen.has(atomKey(a)))
         .slice(0, short);
       pickedExp.push(...extra);
@@ -167,9 +214,11 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
     const item: CampaignPlanItem = {
       site: atom.site, brand: atom.brand, model: atom.model,
       kind,
-      reason: kind === 'exploration'
-        ? `${atom.brand} ${atom.model} jamais validé sur ${atom.site}`
-        : `renforcement ${atom.brand} ${atom.model} sur ${atom.site}`,
+      reason: atom.fromRef
+        ? `${atom.brand} ${atom.model} — nouveau modèle (référentiel), jamais étudié`
+        : kind === 'exploration'
+          ? `${atom.brand} ${atom.model} jamais validé sur ${atom.site}`
+          : `renforcement ${atom.brand} ${atom.model} sur ${atom.site}`,
     };
     if (atom.fuel) {
       // Fuel targeting: EVERY item carries one of the requested fuels — this is

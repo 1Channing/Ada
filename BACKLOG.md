@@ -198,6 +198,27 @@ aux logs").
 - **Tendances** : sparkline médiane 8 semaines dans les cartes modèle du MI
   (flèche + % variation), courbe complète dans le panneau détail.
 
+## 4quater-FAIT (22/07). Référentiel fenêtres de commercialisation — LIVRÉ
+
+Base Teoalida « Cars sold in Europe » achetée et importée (3 939 générations,
+211 marques, + verrous manuels Yaris Cross/Ignis/TGE). **Source of truth
+~98 %** (acté Channing) → contrat FAIL-OPEN partout : un modèle absent du
+référentiel n'est jamais filtré. Planificateur : années hors fenêtre
+écartées + EXPANSION automatique (modèles jamais étudiés, part plafonnée à
+30 % de l'exploration — la mémoire reste prioritaire). Marchés vides hors
+fenêtre auto-expliqués. MI : fenêtre affichée sous les filtres.
+Réimport annuel : scripts/teoalida/import_teoalida.py (mises à jour
+gratuites 1 an — signaler à Teoalida les manques observés, journal des
+« hors référentiel » à surveiller en revue quotidienne).
+
+RESTE (chantier finitions) : traduction des finitions entre pays — exige la
+base « European Car Database » Teoalida (niveau versions, colonnes Engine
+version/subversion, source ADAC, finitions réelles M Sportpaket/Executive…)
+NON achetée à ce stade. Une fois achetée : dictionnaire pivot (ADAC) ×
+graphies observées par pays × clustering LLM (lot 4bis), et dans le MI
+l'équivalent français affiché discrètement à côté de la finition étrangère
+sélectionnée.
+
 ## 4quater. Référentiel constructeur (intervalles / motorisations / finitions)
 
 Décision Channing (21/07) : s'appuyer sur une BASE EXTERNE FIABLE (pas

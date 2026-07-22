@@ -22,6 +22,8 @@ import { persistIngestionResult } from './ingestion';
 import { generateSearchUrlsWithMemory } from './generator';
 import type { SiteKey } from './types';
 import { writeMarketSnapshot, canonKey, brandKey } from '../../services/marketData';
+import { loadRefWindows, getRefWindowsCached, refComboKey, findRefWindow, yearInRefWindow } from '../../services/vehicleRef';
+import { YEAR_PIN_MIN } from './campaignPlanner';
 import type { CampaignKnowledge, CampaignPlanItem } from './campaignPlanner';
 import type { ScrapedListing } from '../study-core/types';
 
@@ -137,12 +139,35 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
   const toRec = (rec: Record<string, Set<string>>): Record<string, string[]> =>
     Object.fromEntries(Object.entries(rec).map(([k, s]) => [k, [...s]]));
 
+  // ── Référentiel constructeur (source of truth ~98 %) : fenêtres de
+  // commercialisation par modèle + candidats d'EXPANSION (modèles jamais
+  // étudiés dont la fenêtre touche la période d'arbitrage). Table absente ou
+  // vide → Map vide → comportement strictement identique à avant (fail-open).
+  const refWindows: Record<string, { from: number; to: number | null }> = {};
+  const refCombos: Array<{ brand: string; model: string }> = [];
+  try {
+    const refMap = await loadRefWindows();
+    const knownKeys = new Set<string>();
+    for (const b of brands) {
+      for (const m of modelsByBrand[b] ?? []) knownKeys.add(refComboKey(b, m));
+    }
+    for (const [key, w] of refMap) {
+      refWindows[key] = { from: w.yearFrom, to: w.yearTo };
+      const active = w.yearTo === null || w.yearTo + 1 >= YEAR_PIN_MIN;
+      if (active && !knownKeys.has(key) && w.brandLabel && w.modelLabel) {
+        refCombos.push({ brand: w.brandLabel.toUpperCase(), model: w.modelLabel.toUpperCase() });
+      }
+    }
+  } catch { /* référentiel indisponible — la campagne tourne comme avant */ }
+
   return {
     brands: [...brands].sort(),
     modelsByBrand: toRec(modelsByBrand),
     fuelsByBrandModel: toRec(fuelsByBrandModel),
     trimsByBrandModel: toRec(trimsByBrandModel),
     coveredBySite: Object.fromEntries(Object.entries(coveredBySite).map(([k, s]) => [k, s])),
+    refWindows,
+    refCombos,
   };
 }
 
@@ -303,10 +328,21 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     // (server applied the filters and says none) — name it so the daily
     // review reads it as a « Marché vide » candidate, not a mystery.
     const emptyMarket = listings.length === 0 && (diagnostics as { emptyResults?: boolean } | null)?.emptyResults === true;
+    // Un vide sur une année HORS fenêtre de commercialisation s'explique tout
+    // seul (référentiel ~98 %) — la revue quotidienne n'a plus à l'élucider.
+    let emptyDetail = 'marché réellement vide — 0 annonce sur page complète (filtres appliqués)';
+    if (emptyMarket && p.year) {
+      try {
+        const win = findRefWindow(await getRefWindowsCached(), p.brand, p.model);
+        if (win && !yearInRefWindow(win, p.year)) {
+          emptyDetail = `hors commercialisation — ${p.model} : ${win.yearFrom}–${win.yearTo ?? 'auj.'} (référentiel), vide attendu en ${p.year}`;
+        }
+      } catch { /* référentiel indisponible — libellé générique */ }
+    }
     return {
       ...base, url, outcome: 'insufficient', confirmedFields: [], rejected: [],
       detail: emptyMarket
-        ? 'marché réellement vide — 0 annonce sur page complète (filtres appliqués)'
+        ? emptyDetail
         : `échantillon ${listings.length} < ${INGESTION_MIN_SAMPLE}`,
       sampleSize: listings.length,
       dossier: mkDossier('scrape', { scrape: diagnostics ?? null, sample: dossierSample(listings) }),
