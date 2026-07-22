@@ -21,7 +21,7 @@ import { analyzeIngestion, INGESTION_MIN_SAMPLE, canonicalizeFuel, refineFuelTok
 import { persistIngestionResult } from './ingestion';
 import { generateSearchUrlsWithMemory } from './generator';
 import type { SiteKey } from './types';
-import { writeMarketSnapshot, canonKey, brandKey } from '../../services/marketData';
+import { writeMarketSnapshot, brandKey } from '../../services/marketData';
 import { loadRefWindows, getRefWindowsCached, refComboKey, findRefWindow, yearInRefWindow } from '../../services/vehicleRef';
 import { YEAR_PIN_MIN } from './campaignPlanner';
 import type { CampaignKnowledge, CampaignPlanItem } from './campaignPlanner';
@@ -110,11 +110,14 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     c.set(label, (c.get(label) ?? 0) + 1);
   };
 
+  // Clé modèle = refModelKey (canonKey + famille Mercedes + numéraux romains) :
+  // 'CLASSE GLC' et 'GLC' sont LE MÊME modèle — la campagne du 22/07 les a
+  // étudiés en double avec la clé canonique simple.
   const brandCounts = new Map<string, Map<string, number>>();
   const modelCounts = new Map<string, Map<string, number>>();
   for (const r of rows) {
     bump(brandCounts, brandKey(r.brand), r.brand);
-    bump(modelCounts, `${brandKey(r.brand)}|${canonKey(r.model)}`, r.model);
+    bump(modelCounts, refComboKey(r.brand, r.model), r.model);
   }
   const brandLabel = new Map([...brandCounts].map(([k, c]) => [k, elect(c)]));
   const modelLabel = new Map([...modelCounts].map(([k, c]) => [k, elect(c)]));
@@ -127,7 +130,7 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
 
   for (const r of rows) {
     const brand = brandLabel.get(brandKey(r.brand)) ?? r.brand;
-    const model = modelLabel.get(`${brandKey(r.brand)}|${canonKey(r.model)}`) ?? r.model;
+    const model = modelLabel.get(refComboKey(r.brand, r.model)) ?? r.model;
     brands.add(brand);
     (modelsByBrand[brand] ??= new Set()).add(model);
     const key = `${brand}|${model}`;
