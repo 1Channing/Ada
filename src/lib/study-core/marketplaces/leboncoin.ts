@@ -110,14 +110,26 @@ function mapFuel(raw: string): string {
  * form in the same campaign: 'C-HR,TOYOTA_C-HR' → 100/100 confirmées. We
  * send every plausible spelling — wrong ones match nothing, the right one
  * filters.
+ *
+ * La correspondance est SENSIBLE À LA CASSE : 'HYUNDAI_KONA' → 0 annonce
+ * alors que 'HYUNDAI_Kona' (Titre) filtre (URL humaine vérifiée, 23/07).
+ * RAV4/C-HR marchaient par chance — leurs enums sont naturellement en
+ * majuscules. On ajoute donc les variantes Titre de chaque candidat.
  */
+function titleCase(s: string): string {
+  return s.replace(/[A-Za-z]+/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
+}
+
 function modelParamCandidates(brandMapped: string, modelMapped: string): string {
   const display = modelMapped.trim();
   const compact = display.replace(/\s+/g, '');
   const brand = brandMapped.trim();
   const out: string[] = [];
-  for (const v of [display, compact, `${brand}_${compact}`, `${brand}_${display}`]) {
-    if (v && v !== brand && !out.includes(v)) out.push(v);
+  for (const base of [display, compact]) {
+    if (!base) continue;
+    for (const v of [base, titleCase(base), `${brand}_${base}`, `${brand}_${titleCase(base)}`]) {
+      if (v && v !== brand && !out.includes(v)) out.push(v);
+    }
   }
   // Espaces encodés (%20) comme le fait le site, virgules littérales (le
   // séparateur de liste doit rester brut).
