@@ -119,6 +119,18 @@ const MODEL_FACET: Record<string, { slug: string; id: string }> = {
   'YARIS CROSS': { slug: 'yaris-cross', id: '13882' }, // vérifié Channing 20/07/2026
 };
 
+/**
+ * Facettes CARBURANT — même grammaire de chemin que le modèle, composables
+ * (`/f/{slug+slug}/{id+id}/`). Sans facette connue, le carburant reste
+ * post-filtré par le moteur (échantillon structuré) — même pipeline, le
+ * filtre passe juste côté serveur dès que l'ID est prouvé par une URL
+ * humaine. elektrisch=11756 vérifié Channing 23/07 (Puma électrique : le
+ * hash seul laissait passer les thermiques).
+ */
+const FUEL_FACET: Record<string, { slug: string; id: string }> = {
+  ELECTRIQUE: { slug: 'elektrisch', id: '11756' },
+};
+
 const UNSUPPORTED_PARAMS = ['minPower'];
 
 function mapBrand(raw: string): string {
@@ -179,40 +191,37 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // — the site's category page can't make that mistake.
   const brandSlug = BRAND_MAP[(params.brand ?? '').trim().toUpperCase()] ?? null;
 
-  // Model facet KNOWN → the model lives in the PATH (/f/{slug}/{id}/), the
-  // search bar carries only the finition. This is the site's real model
-  // filter — #q: is its "Variant" box.
-  const facet = MODEL_FACET[(params.model ?? '').trim().toUpperCase()];
-  if (brandSlug && facet) {
-    const hashParts: string[] = [];
-    const trimText = params.trim?.trim() ? normalizeToken(params.trim) : '';
-    if (trimText) hashParts.push(`q:${trimText}`);
-    const yr = resolveYearRange(params);
-    if (yr.yearFrom) hashParts.push(`constructionYearFrom:${yr.yearFrom}`);
-    if (yr.yearTo) hashParts.push(`constructionYearTo:${yr.yearTo}`);
-    if (params.mileage) hashParts.push(`mileageTo:${params.mileage}`);
-    hashParts.push('sortBy:PRICE', 'sortOrder:INCREASING');
-    return {
-      url: `https://www.marktplaats.nl/l/auto-s/${brandSlug}/f/${facet.slug}/${facet.id}/#${hashParts.join('|')}`,
-      warnings,
-    };
-  }
+  // ── Pipeline UNIQUE (grammaire du site) : tout critère dont la facette de
+  // chemin est connue va dans /f/{slug+slug}/{id+id}/ (composable — modèle,
+  // carburant…) ; le #q: ne porte QUE ce qui n'a pas de facette : le modèle
+  // en texte (comme la recherche du site) quand sa facette est inconnue, la
+  // finition sinon. Un carburant sans facette reste post-filtré par le
+  // moteur — même chemin, le filtre passe côté serveur dès l'ID appris.
+  const modelFacet = MODEL_FACET[(params.model ?? '').trim().toUpperCase()];
+  const fuelFacet = params.fuel ? FUEL_FACET[params.fuel.trim().toUpperCase()] : undefined;
+  const facets = [modelFacet, fuelFacet].filter((f): f is { slug: string; id: string } => Boolean(f));
 
-  const query = brandSlug
-    ? buildQuery('', mappedModel, params.trim)
-    : buildQuery(mappedBrand, mappedModel, params.trim);
+  const qText = modelFacet
+    ? (params.trim?.trim() ? normalizeToken(params.trim) : '')
+    : brandSlug
+      ? buildQuery('', mappedModel, params.trim)
+      : buildQuery(mappedBrand, mappedModel, params.trim);
   if (!brandSlug && params.brand) {
     warnings.push(`[LINKGEN_WARNING] MARKTPLAATS: marque "${params.brand}" sans slug connu — recherche texte (fiabilité moindre)`);
   }
 
-  const hashParts = [`q:${query}`];
+  const hashParts: string[] = [];
+  if (qText) hashParts.push(`q:${qText}`);
   if (yearFrom) hashParts.push(`constructionYearFrom:${yearFrom}`);
   if (yearTo) hashParts.push(`constructionYearTo:${yearTo}`);
   if (params.mileage) hashParts.push(`mileageTo:${params.mileage}`);
   hashParts.push('sortBy:PRICE', 'sortOrder:INCREASING');
 
+  const facetPath = brandSlug && facets.length > 0
+    ? `f/${facets.map((f) => f.slug).join('+')}/${facets.map((f) => f.id).join('+')}/`
+    : '';
   const base = brandSlug
-    ? `https://www.marktplaats.nl/l/auto-s/${brandSlug}/`
+    ? `https://www.marktplaats.nl/l/auto-s/${brandSlug}/${facetPath}`
     : 'https://www.marktplaats.nl/l/auto-s/';
   return { url: `${base}#${hashParts.join('|')}`, warnings };
 }
@@ -430,19 +439,27 @@ function reverseLookup(map: Record<string, string>, slug: string): string {
   return slug.trim();
 }
 
+// Slugs de facette CARBURANT connus du site — pour classer les segments du
+// chemin par NATURE et non par position (une URL /f/elektrisch/11756/ n'a
+// pas de facette modèle : 'elektrisch' n'est pas un modèle).
+const KNOWN_FUEL_SLUGS = new Set(Object.values(FUEL_MAP));
+
 /**
- * Brand/model sit in the PATH — /{brandSlug}/f/{modelSlug[+facet…]}/{ids}/ —
+ * Brand + facettes sit in the PATH — /{brandSlug}/f/{slug[+slug…]}/{ids}/ —
  * so a pasted native Marktplaats URL must pre-fill them from there (query/hash
- * only carry year+mileage). Mirrors extractCandidateSegments' path grammar.
+ * only carry year+mileage). Chaque slug est classé par nature : carburant
+ * connu → fuel, sinon → modèle. Mirrors extractCandidateSegments' grammar.
  */
-function pathBrandModel(segs: string[]): { brand?: string; model?: string } {
+function pathBrandModel(segs: string[]): { brand?: string; model?: string; fuelSlug?: string } {
   const fIdx = segs.indexOf('f');
   if (fIdx <= 0) return {};
-  const out: { brand?: string; model?: string } = {};
+  const out: { brand?: string; model?: string; fuelSlug?: string } = {};
   const brandSlug = segs[fIdx - 1];
   if (brandSlug && brandSlug !== 'l' && brandSlug !== 'auto-s') out.brand = brandSlug;
-  const modelSlug = (segs[fIdx + 1] ?? '').split('+').filter(Boolean)[0];
-  if (modelSlug) out.model = modelSlug;
+  for (const tok of (segs[fIdx + 1] ?? '').split('+').filter(Boolean)) {
+    if (KNOWN_FUEL_SLUGS.has(tok)) out.fuelSlug ??= tok;
+    else out.model ??= tok;
+  }
   return out;
 }
 
@@ -454,9 +471,12 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const path = pathBrandModel(d.pathSegments);
   if (path.brand) out.brand = reverseLookup(BRAND_MAP, path.brand);
   if (path.model) out.model = reverseLookup(MODEL_MAP, path.model);
+  if (path.fuelSlug) out.fuel = reverseLookup(FUEL_MAP, path.fuelSlug);
   // The free text (#q:) feeds the site's "Variant" box — when the model is
-  // already pinned by a path facet, that text is a FINITION, not a model.
+  // already pinned by a path facet, that text is a FINITION ; sans facette
+  // modèle, c'est le MODÈLE en recherche texte (grammaire du site).
   if (h['q'] && path.model) out.trim = h['q'].replace(/\+/g, ' ').trim();
+  else if (h['q'] && !path.model) out.model = h['q'].replace(/\+/g, ' ').trim();
   if (h['constructionYearFrom'] && /^\d{4}$/.test(h['constructionYearFrom'])) out.yearFrom = h['constructionYearFrom'];
   if (h['constructionYearTo'] && /^\d{4}$/.test(h['constructionYearTo'])) out.yearTo = h['constructionYearTo'];
   if (h['mileageTo'] && /^\d+$/.test(h['mileageTo'])) out.mileage = h['mileageTo'];
@@ -487,11 +507,14 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
     const idTokens = (segs[fIdx + 2] ?? '').split('+').filter((t) => /^\d+$/.test(t));
 
     slugTokens.forEach((tok, i) => {
+      // Nature du slug, pas position : 'elektrisch' seul est une facette
+      // CARBURANT (URL humaine Puma 23/07), pas un modèle.
+      const isFuel = KNOWN_FUEL_SLUGS.has(tok);
       out.push({
         raw: idTokens[i] ?? tok,
         location: 'path',
-        paramName: i === 0 ? '_path:model_id' : `_path:facet_id_${i}`,
-        guessField: i === 0 ? 'model' : 'fuel',
+        paramName: isFuel ? `_path:fuel_id_${i}` : '_path:model_id',
+        guessField: isFuel ? 'fuel' : 'model',
         slugText: tok,
       });
     });
