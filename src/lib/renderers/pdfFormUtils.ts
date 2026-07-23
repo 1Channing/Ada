@@ -19,12 +19,48 @@ import { PDFDict, PDFDocument, PDFFont, PDFForm, PDFName, PDFRef, PDFTextField }
  * boîte et réduit la taille de police, d'où des valeurs plus basses et plus
  * petites que leur libellé. En une-ligne avec taille fixe, le texte est
  * centré verticalement — aligné avec le libellé, sur toutes les machines.
+ * Exception : une valeur contenant un saut de ligne volontaire (le Vendeur
+ * nom + adresse) reste multiline.
  */
 export function normalizeTextFields(form: PDFForm, fontSize = 11): void {
   for (const field of form.getFields()) {
     if (!(field instanceof PDFTextField)) continue;
-    try { field.disableMultiline(); } catch { /* champ figé — tant pis */ }
+    try {
+      if ((field.getText() ?? '').includes('\n')) field.enableMultiline();
+      else field.disableMultiline();
+    } catch { /* champ figé — tant pis */ }
     try { field.setFontSize(fontSize); } catch { /* idem */ }
+  }
+}
+
+/**
+ * Rétrécit la police d'un champ dont le texte DÉBORDE de sa boîte, au lieu de
+ * le couper (signalement Antoine 21/07 : VIN et Vendeur tronqués en fin de
+ * ligne). Largeur mesurée avec la vraie police ; hauteur contrainte pour les
+ * champs multilignes. Jamais en dessous de 6 pt.
+ */
+export function fitTextFields(form: PDFForm, font: PDFFont, baseSize = 11, minSize = 6): void {
+  for (const field of form.getFields()) {
+    if (!(field instanceof PDFTextField)) continue;
+    const text = field.getText() ?? '';
+    if (!text) continue;
+    const widget = field.acroField.getWidgets()[0];
+    if (!widget) continue;
+    try {
+      const rect = widget.getRectangle();
+      const lines = text.split('\n');
+      const maxLineWidth = Math.max(...lines.map((l) => font.widthOfTextAtSize(l, baseSize)));
+      let size = baseSize;
+      if (maxLineWidth > rect.width - 4) {
+        size = baseSize * ((rect.width - 4) / maxLineWidth);
+      }
+      if (lines.length > 1) {
+        const needed = lines.length * baseSize * 1.2;
+        if (needed > rect.height - 2) size = Math.min(size, baseSize * ((rect.height - 2) / needed));
+      }
+      size = Math.max(minSize, Math.floor(size * 2) / 2);
+      if (size < baseSize) field.setFontSize(size);
+    } catch { /* mesure impossible — taille de base conservée */ }
   }
 }
 
@@ -102,6 +138,7 @@ function purgeWidgetAnnotations(pdfDoc: PDFDocument): void {
  */
 export function finalizeAcroForm(pdfDoc: PDFDocument, form: PDFForm, font: PDFFont): boolean {
   try { normalizeTextFields(form); } catch { /* on garde les réglages template */ }
+  try { fitTextFields(form, font); } catch { /* débordements coupés comme avant */ }
   try { form.updateFieldAppearances(font); } catch { /* apparence template conservée */ }
   try { repairWidgetPageRefs(pdfDoc, form); } catch { /* on tente le flatten quand même */ }
   try {

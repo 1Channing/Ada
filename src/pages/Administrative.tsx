@@ -2341,6 +2341,22 @@ export function Administrative() {
             <h2 className="text-xl font-semibold mb-4 text-zinc-100">Delivery</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Lieu de la vente → « Fait à » du certificat de cession. Même
+                  champ de données que le lieu de signature côté achat
+                  (pickup_location), qui n'était saisissable QUE côté achat —
+                  une vente laissait le « Fait à » vide (signalement 21/07). */}
+              <div className="col-span-2">
+                <label className="block text-sm font-medium mb-1 text-zinc-300">
+                  Lieu de la vente <span className="text-zinc-500">(« Fait à » du certificat de cession)</span>
+                </label>
+                <input
+                  type="text"
+                  value={transactionForm.pickup_location}
+                  onChange={(e) => updateTransactionForm({ pickup_location: e.target.value })}
+                  placeholder="ANGERS"
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium mb-1 text-zinc-300">Destination</label>
                 <input

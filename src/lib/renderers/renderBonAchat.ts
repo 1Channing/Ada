@@ -148,10 +148,22 @@ function fillSellerFields(form: any, data: DocumentData, errors: string[]): void
         data.seller.address_line2,
         [data.seller.postal_code, data.seller.city].filter(Boolean).join(' '),
       ].filter((s) => s && String(s).trim());
-      const sellerFull = [sellerName, ...addressBits].join(', ');
+      // Nom sur la 1ère ligne, adresse sur la 2ème (signalement Antoine
+      // 21/07 : tout sur une ligne débordait et se faisait couper). La boîte
+      // du template ne fait qu'une ligne de haut — on l'étend vers le bas
+      // (espace blanc dispo avant le paragraphe suivant) avant l'aplatissement.
+      const sellerFull = addressBits.length > 0
+        ? `${sellerName}\n${addressBits.join(', ')}`
+        : sellerName;
       const field = form.getTextField('Vendeur x Adresse');
       field.setText(sellerFull);
-      console.log(`[BON_ACHAT_ACROFORM] Filled Vendeur x Adresse: "${sellerFull}"`);
+      const widget = field.acroField.getWidgets()[0];
+      if (widget && sellerFull.includes('\n')) {
+        const r = widget.getRectangle();
+        const extra = 15; // ~une ligne à 11 pt
+        widget.setRectangle({ x: r.x, y: r.y - extra, width: r.width, height: r.height + extra });
+      }
+      console.log(`[BON_ACHAT_ACROFORM] Filled Vendeur x Adresse: "${sellerFull.replace(/\n/g, ' ⏎ ')}"`);
     } catch (err) {
       errors.push(`Failed to fill Vendeur x Adresse: ${err}`);
     }
