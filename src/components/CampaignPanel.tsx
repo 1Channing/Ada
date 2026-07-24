@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Rocket, Square, Loader2, CheckCircle2, XCircle, AlertTriangle, ExternalLink, Wrench, Check, Ban } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { brandKey } from '../services/marketData';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
 import { startCampaign, stopCampaign, markItemResolved } from '../services/campaignRunner';
 import { validateEmptyMarketForCampaignItem } from '../services/resolutionCenter';
@@ -99,12 +100,19 @@ export function CampaignPanel() {
         .select('brand')
         .eq('validation_status', 'valid')
         .limit(1000);
-      const set = new Set<string>();
+      // UNE puce par marque canonique : 'VW' et 'VOLKSWAGEN' sont la même
+      // marque (signalement 23/07 — deux puces à cocher). Affichage = la
+      // graphie la plus longue (la plus lisible) ; le filtre du planificateur
+      // compare en canonique, n'importe quelle graphie cochée matche tout.
+      const byKey = new Map<string, string>();
       for (const r of data ?? []) {
         const b = String((r as { brand: string | null }).brand ?? '').trim().toUpperCase();
-        if (b) set.add(b);
+        if (!b) continue;
+        const k = brandKey(b);
+        const cur = byKey.get(k);
+        if (!cur || b.length > cur.length) byKey.set(k, b);
       }
-      setKnownBrands([...set].sort((a, b) => a.localeCompare(b)));
+      setKnownBrands([...byKey.values()].sort((a, b) => a.localeCompare(b)));
     })();
   }, []);
   const toggleIn = (arr: string[], v: string) => arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];

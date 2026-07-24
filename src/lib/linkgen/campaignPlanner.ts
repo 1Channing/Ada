@@ -20,7 +20,8 @@
  *    JAMAIS filtré (fail-open — le référentiel est fiable à ~98 %, pas 100).
  */
 
-import { refComboKey } from '../../services/vehicleRef';
+import { refComboKey, refModelKey } from '../../services/vehicleRef';
+import { brandKey, canonKey } from '../../services/marketData';
 
 export interface CampaignKnowledge {
   brands: string[];
@@ -113,11 +114,18 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   const variantShare = opts.variantShare ?? 0.4;
   const nowYear = new Date().getFullYear();
 
-  // Targeting filters (normalised uppercase; empty lists = no restriction).
+  // Targeting filters — comparaison CANONIQUE, pas littérale : cocher
+  // « VOLKSWAGEN » doit matcher des combos étiquetés « VW », « GLC » doit
+  // matcher « CLASSE GLC » (mêmes clés que le savoir et le référentiel).
   const f = opts.filters ?? {};
   const U = (s: string) => s.trim().toUpperCase();
-  const brandSet = new Set((f.brands ?? []).map(U).filter(Boolean));
-  const modelSet = new Set((f.models ?? []).map(U).filter(Boolean));
+  const brandSet = new Set((f.brands ?? []).map((b) => brandKey(b)).filter(Boolean));
+  const modelSet = new Set(
+    (f.models ?? []).flatMap((m) => [canonKey(m), refModelKey('MERCEDES', m)]).filter(Boolean),
+  );
+  const brandMatches = (b: string) => brandSet.size === 0 || brandSet.has(brandKey(b));
+  const modelMatches = (b: string, m: string) =>
+    modelSet.size === 0 || modelSet.has(canonKey(m)) || modelSet.has(refModelKey(b, m));
   const forcedFuels = (f.fuels ?? []).map(U).filter(Boolean);
   const pinMin = Math.max(YEAR_PIN_MIN, Math.min(f.yearMin ?? YEAR_PIN_MIN, nowYear));
   const pinMax = Math.max(pinMin, Math.min(f.yearMax ?? nowYear, nowYear));
@@ -126,16 +134,16 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   // narrowed by the brand/model targeting when provided.
   const combos: Array<{ brand: string; model: string; fromRef?: boolean }> = [];
   for (const brand of k.brands) {
-    if (brandSet.size > 0 && !brandSet.has(U(brand))) continue;
+    if (!brandMatches(brand)) continue;
     for (const model of k.modelsByBrand[brand] ?? []) {
-      if (modelSet.size > 0 && !modelSet.has(U(model))) continue;
+      if (!modelMatches(brand, model)) continue;
       combos.push({ brand, model });
     }
   }
   // Expansion référentiel : modèles jamais étudiés, mêmes filtres de ciblage.
   for (const c of k.refCombos ?? []) {
-    if (brandSet.size > 0 && !brandSet.has(U(c.brand))) continue;
-    if (modelSet.size > 0 && !modelSet.has(U(c.model))) continue;
+    if (!brandMatches(c.brand)) continue;
+    if (!modelMatches(c.brand, c.model)) continue;
     combos.push({ brand: c.brand, model: c.model, fromRef: true });
   }
   if (combos.length === 0 || opts.sites.length === 0) return [];
