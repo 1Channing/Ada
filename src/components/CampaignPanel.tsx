@@ -236,7 +236,7 @@ export function CampaignPanel() {
             <label className="block">
               <span className="text-xs text-zinc-400">Nombre d'études : <span className="text-zinc-200 font-semibold">{total}</span> (~{estMinutes} min, {total} appels Zyte)</span>
               <input
-                type="range" min={10} max={500} step={10} value={total}
+                type="range" min={10} max={1000} step={10} value={total}
                 onChange={(e) => setTotal(Number(e.target.value))}
                 className="w-full mt-1 accent-violet-500"
               />
