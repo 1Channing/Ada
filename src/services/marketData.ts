@@ -262,10 +262,35 @@ export function fuelFilterMatches(obsFuel: string, wanted: string): boolean {
  * an exact-equality filter returned 0 for everything. Typing "sportline"
  * matches any ad that carries it anywhere in its text.
  */
+/**
+ * Dédoublonnage LECTURE des annonces clonées : certaines agences repostent la
+ * MÊME voiture dans plusieurs villes (4× « CLA 250e, 24 990 €, 41 764 km » —
+ * signalement Channing 23/07), ce qui gonfle artificiellement stock et stats.
+ * Conforme au principe directeur : tout est stocké fidèlement, on corrige la
+ * lecture. Empreinte = même site, même véhicule (modèle/année/prix/km exact/
+ * puissance/boîte/titre) le MÊME JOUR — le même véhicule revu un autre jour
+ * reste distinct (c'est le signal de vélocité), la première occurrence gagne.
+ */
+export function dedupeClonedListings(obs: Observation[]): Observation[] {
+  const seen = new Set<string>();
+  const out: Observation[] = [];
+  for (const o of obs) {
+    const day = String(o.scraped_at ?? '').slice(0, 10);
+    const key = [
+      o.site, brandKey(o.brand), canonKey(o.model), o.year ?? '', o.price ?? '',
+      o.mileage ?? '', o.power_din ?? '', normText(o.gearbox), normText(o.title), day,
+    ].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(o);
+  }
+  return out;
+}
+
 export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_FILTERS): Observation[] {
   const trimNeedle = normText(f.trim).trim();
   const gearboxNeedle = normText(f.gearbox).trim();
-  return obs.filter((o) =>
+  return dedupeClonedListings(obs).filter((o) =>
     (!f.site || o.site === f.site) &&
     (!f.country || o.country === f.country) &&
     (!f.brand || brandKey(o.brand) === brandKey(f.brand)) &&
