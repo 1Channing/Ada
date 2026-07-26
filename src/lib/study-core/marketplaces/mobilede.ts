@@ -112,9 +112,23 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
       if (MAKE_ID[key] && MAKE_ID[key] !== p.code) continue;
       LEARNED_MAKE_ID[key] = p.code;
       LEARNED_MAKE_LABEL[p.code] = label;
+      // Alias premier mot : le planificateur dit MERCEDES là où mobile.de
+      // écrit « Mercedes-Benz ». Jamais d'écrasement d'une clé existante.
+      const first = canon(label.split(/[\s-]+/)[0] ?? '');
+      if (first && first !== key && !MAKE_ID[first] && !LEARNED_MAKE_ID[first]) {
+        LEARNED_MAKE_ID[first] = p.code;
+      }
     } else if (field === 'ms:model' && /^\d{3,6};\d{1,6}$/.test(p.code)) {
       const [makeId, modelId] = p.code.split(';');
       LEARNED_MODEL_ID[`${makeId}|${canon(label)}`] = { id: modelId, label };
+      // Alias sans le contenu parenthésé : mobile.de groupe des variantes
+      // (« Aygo (X) », « Proace (Verso) ») que le planificateur demande nues
+      // ('AYGO'). Jamais d'écrasement d'une entrée existante.
+      const bare = canon(label.replace(/\([^)]*\)/g, ' '));
+      if (bare && bare !== canon(label)) {
+        const aliasKey = `${makeId}|${bare}`;
+        if (!LEARNED_MODEL_ID[aliasKey]) LEARNED_MODEL_ID[aliasKey] = { id: modelId, label };
+      }
     }
   }
 }
