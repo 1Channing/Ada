@@ -376,6 +376,7 @@ function marketplaceOf(url: string): string {
     : url.includes('bilbasen.dk') ? 'BILBASEN'
     : url.includes('gaspedaal.nl') ? 'GASPEDAAL'
     : url.includes('autoscout24.') ? 'AUTOSCOUT'
+    : url.includes('mobile.de') ? 'MOBILE_DE'
     : 'UNKNOWN';
 }
 

@@ -134,12 +134,45 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
 }
 
 /**
+ * Sondes taxonomie [MOBILEDE_OBS] — évidence pour tuer la saisie manuelle.
+ * La campagne du 26/07 a prouvé que la page de résultats fait ~644 Ko : si le
+ * référentiel marques/modèles du formulaire y est embarqué, le contexte autour
+ * d'une marque exotique (Leapmotor — quasi impossible ailleurs que dans le
+ * dropdown) révèle la forme exacte {label, id}, et les chemins d'API embarqués
+ * révèlent l'endpoint modèles. On bâtira la moisson automatique sur cette
+ * preuve — on ne devine rien. Borné à 3 pages par vie du process.
+ */
+let refProbeCount = 0;
+function probeRefData(html: string): void {
+  if (refProbeCount >= 3) return;
+  refProbeCount++;
+  try {
+    const idx = html.indexOf('Leapmotor');
+    if (idx >= 0) {
+      console.warn(`[MOBILEDE_OBS] ctx "Leapmotor": …${html.slice(Math.max(0, idx - 200), idx + 200).replace(/\s+/g, ' ')}…`);
+    } else {
+      console.warn('[MOBILEDE_OBS] "Leapmotor" absent du HTML — référentiel marques non embarqué dans la page');
+    }
+    const midx = html.indexOf('"models"');
+    if (midx >= 0) console.warn(`[MOBILEDE_OBS] ctx "models": …${html.slice(Math.max(0, midx - 150), midx + 350).replace(/\s+/g, ' ')}…`);
+    const apis = [...new Set(
+      [...html.matchAll(/["'](\/[a-z0-9/._-]{3,80}(?:api|refdata|reference-data|models|makes)[a-z0-9/._?=&;-]{0,80})["']/gi)].map((m) => m[1]),
+    )].slice(0, 6);
+    if (apis.length) console.warn(`[MOBILEDE_OBS] chemins API embarqués: ${apis.join(' | ')}`);
+  } catch { /* sonde silencieuse */ }
+}
+
+/**
  * Parse : tentative générique NEXT_DATA (diagnostics intégrés → worker_logs).
- * Si mobile.de n'est pas un site Next, la sonde [MOBILEDE_OBS] logge les blobs
- * JSON embarqués pour bâtir le vrai parseur sur preuve au prochain rapport.
+ * `verbose` : la structure est en cours de calibration — les lignes de forme
+ * ([NEXTDATA] keys/attrs/1er item brut/fuels bruts) partent en WARN pour être
+ * capturées dans worker_logs. La campagne du 26/07 a montré 100 annonces
+ * extraites mais un carburant illisible (52× « petrol » sur une page d'Elroq,
+ * impossible) : la prochaine page scrapée fournira le champ fautif.
  */
 function parseListings(html: string, _url: string): ScrapedListing[] {
-  const viaNext = parseNextDataListings(html, { host: 'mobile.de', currency: 'EUR', siteLabel: 'MOBILE_DE' });
+  probeRefData(html);
+  const viaNext = parseNextDataListings(html, { host: 'mobile.de', currency: 'EUR', siteLabel: 'MOBILE_DE', verbose: true });
   if (viaNext.length > 0) return viaNext;
   try {
     const blobs = [...html.matchAll(/window\.__(?:INITIAL_STATE|PRELOADED_STATE|APP_STATE)__\s*=\s*\{/g)].map((m) => m[0]);

@@ -245,6 +245,12 @@ export interface NextDataConfig {
   host: string;
   currency: Currency; // native currency of the site (DKK converted to EUR)
   siteLabel: string;
+  /**
+   * Calibration: emit the shape diagnostics at WARN level so they reach
+   * worker_logs (only warn/error are captured). Set by adapters whose page
+   * structure is still being learned (mobile.de); cheap no-op elsewhere.
+   */
+  verbose?: boolean;
 }
 
 export function parseNextDataListings(html: string, cfg: NextDataConfig): ScrapedListing[] {
@@ -265,7 +271,11 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
     }
     return [];
   }
-  console.log(`[NEXTDATA] ${cfg.siteLabel}: found ${ads.length} listings; keys: ${Object.keys(ads[0] ?? {}).join(', ')}`);
+  const diag = cfg.verbose ? console.warn : console.log;
+  diag(`[NEXTDATA] ${cfg.siteLabel}: found ${ads.length} listings; keys: ${Object.keys(ads[0] ?? {}).join(', ')}`);
+  if (cfg.verbose) {
+    try { console.warn(`[NEXTDATA] ${cfg.siteLabel}: 1er item brut: ${JSON.stringify(ads[0]).slice(0, 1200)}`); } catch { /* ignore */ }
+  }
   try {
     const a0: any = ads[0];
     const attrDump = [a0?.attributes, a0?.extendedAttributes, a0?.properties, a0?.details, a0?.parameters, a0?.features]
@@ -276,14 +286,14 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
         const v = a.value ?? a.formattedValue ?? a.formatted ?? a.text ?? a.data ?? '?';
         return `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`;
       }).join(' | ');
-    console.log(`[NEXTDATA] ${cfg.siteLabel}: attrs → ${attrDump || '(none)'}`);
+    diag(`[NEXTDATA] ${cfg.siteLabel}: attrs → ${attrDump || '(none)'}`);
     // Dump the spec arrays directly (skip the huge `media` array that ate the
     // budget before) so unknown item shapes are visible in one line.
     const specDump = JSON.stringify({
       properties: a0?.properties, details: a0?.details, features: a0?.features,
       price: a0?.price, variant: a0?.variant,
     });
-    console.log(`[NEXTDATA] ${cfg.siteLabel}: specs → ${specDump.slice(0, 1500)}`);
+    diag(`[NEXTDATA] ${cfg.siteLabel}: specs → ${specDump.slice(0, 1500)}`);
   } catch { /* ignore */ }
 
   const out: ScrapedListing[] = [];
@@ -340,6 +350,14 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
     });
   }
 
-  console.log(`[NEXTDATA] ${cfg.siteLabel}: extracted ${out.length} priced listings`);
+  diag(`[NEXTDATA] ${cfg.siteLabel}: extracted ${out.length} priced listings`);
+  // Calibration: the raw fuel strings AS EXTRACTED, with counts — this is the
+  // exact evidence needed when fuel confirmation votes look impossible
+  // (e.g. "petrol" on an electric-only model page = wrong source field).
+  if (cfg.verbose && out.length) {
+    const counts = new Map<string, number>();
+    for (const l of out) { const f = l.fuel ?? '∅'; counts.set(f, (counts.get(f) ?? 0) + 1); }
+    console.warn(`[NEXTDATA] ${cfg.siteLabel}: fuels bruts → ${[...counts.entries()].map(([f, n]) => `"${f}"×${n}`).join(', ')}`);
+  }
   return out;
 }
