@@ -81,8 +81,10 @@ function findListingsArray(root: any): any[] | null {
   return best;
 }
 
-/** Read a value from direct keys (case-insensitive) or an attributes[] array. */
-function readField(listing: any, directKeys: string[], attrKeys: string[]): string | null {
+/** Read a value from direct keys (case-insensitive) or an attributes[] array.
+ *  Exported for site parsers built on the same tolerant reading (mobile.de
+ *  flight stream). */
+export function readField(listing: any, directKeys: string[], attrKeys: string[]): string | null {
   const lower = directKeys.map((k) => k.toLowerCase());
   for (const k of Object.keys(listing)) {
     if (lower.includes(k.toLowerCase())) {
@@ -102,7 +104,8 @@ function readField(listing: any, directKeys: string[], attrKeys: string[]): stri
   //  • OBJECT map {key: {…}}      — Bilbasen `properties`
   //    ({ fueltype: {displayTextShort:'El'}, mileage: {…}, … }).
   const sources = [listing.attributes, listing.extendedAttributes, listing.specs, listing.vehicleDetails,
-    listing.traits, listing.properties, listing.parameters, listing.details];
+    listing.traits, listing.properties, listing.parameters, listing.details,
+    listing.attr /* mobile.de flight: attr = {ft, ml, fr, pw, tr, ecol, …} */];
   const attrs: Array<{ key: string; value: any }> = [];
   for (const src of sources) {
     if (Array.isArray(src)) {
@@ -186,21 +189,21 @@ function candidateArrays(root: any, topN: number): Array<{ len: number; score: n
   return found.sort((a, b) => b.score - a.score || b.len - a.len).slice(0, topN);
 }
 
-function toInt(raw: string | null): number | null {
+export function toInt(raw: string | null): number | null {
   if (raw == null) return null;
   const digits = String(raw).replace(/[^\d]/g, '');
   if (!digits) return null;
   const n = parseInt(digits, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
-function toYear(raw: string | null): number | null {
+export function toYear(raw: string | null): number | null {
   if (!raw) return null;
   const m = String(raw).match(/(19|20)\d{2}/);
   if (!m) return null;
   const y = parseInt(m[0], 10);
   return y >= 1980 && y <= new Date().getFullYear() + 1 ? y : null;
 }
-function toHp(raw: string | null): number | null {
+export function toHp(raw: string | null): number | null {
   if (!raw) return null;
   const s = String(raw);
   const hp = s.match(/(\d+)\s*(?:hp|pk|ch|cv|ps|hk)\b/i);
@@ -222,7 +225,7 @@ function str(v: string | null): string | null {
  * "199.900 kr" strings included). Scoped to the price field only, so it can't
  * pick up a leasing rate elsewhere in the listing.
  */
-function deepFindPrice(v: any, depth = 0): number | null {
+export function deepFindPrice(v: any, depth = 0): number | null {
   if (v == null || depth > 5) return null;
   if (typeof v === 'number') return v > 500 && v < 50_000_000 ? Math.round(v) : null;
   if (typeof v === 'string') {

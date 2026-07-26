@@ -27,7 +27,7 @@ import type {
 import { resolveYearRange } from './urlTemplate';
 import { decomposeUrl } from './urlDecompose';
 import { defaultBuildPaginatedUrl } from './registry';
-import { parseNextDataListings } from '../parsers/nextdata';
+import { parseNextDataListings, readField, deepFindPrice, toInt, toYear, toHp } from '../parsers/nextdata';
 import { parseListings as genericParseListings } from '../parsers/generic';
 
 /** Valeur site → clé interne (miroir des autres adaptateurs). */
@@ -257,6 +257,103 @@ function probeRefData(html: string): void {
 }
 
 /**
+ * Parseur FLIGHT — la vraie source structurée, prouvée par sonde v2 (21h07) :
+ * mobile.de est un site Next.js App Router qui streame son état dans des
+ * chunks `self.__next_f.push([1,"…"])` (chaînes JS échappées). Concaténés et
+ * dépliés, ils contiennent :
+ *   "searchResults":{"numResultsTotal":…,"listings":[{…,"attr":{
+ *     "fr":"05/2025","pw":"130 kW (177 Ch DIN)","ft":"Hybride (essence/
+ *     électrique)","ml":"20 900 km","tr":"Boîte automatique","ecol":"Noir",
+ *     "door":"4/5","loc":"…"}}]}
+ * Les clés attr sont PROUVÉES ; titre/prix/URL sont lus avec des candidats
+ * tolérants + une sonde qui logge la 1ʳᵉ annonce complète pour affiner. Si
+ * la moisson n'atteint pas un minimum exploitable, on rend [] et la chaîne
+ * retombe sur le générique — jamais pire qu'avant.
+ */
+function decodeFlightChunks(html: string): string {
+  const parts: string[] = [];
+  for (const m of html.matchAll(/__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)) {
+    try { parts.push(JSON.parse(`"${m[1]}"`)); } catch { /* chunk illisible — ignoré */ }
+  }
+  return parts.join('');
+}
+
+/** Équilibrage d'accolades conscient des chaînes (le texte est du JSON réel). */
+function balancedJsonObject(text: string, openBrace: number): string | null {
+  let depth = 0;
+  let inStr = false;
+  for (let i = openBrace; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) return text.slice(openBrace, i + 1); }
+  }
+  return null;
+}
+
+let flightProbeCount = 0;
+function parseFlightListings(html: string): ScrapedListing[] {
+  const text = decodeFlightChunks(html);
+  if (!text) return [];
+  const at = text.indexOf('"searchResults":{');
+  if (at < 0) return [];
+  const objTxt = balancedJsonObject(text, text.indexOf('{', at + '"searchResults"'.length));
+  if (!objTxt) return [];
+  let sr: { numResultsTotal?: number; listings?: unknown[] };
+  try { sr = JSON.parse(objTxt); } catch { return []; }
+  const ads = Array.isArray(sr.listings) ? sr.listings : [];
+  if (!ads.length) return [];
+  if (flightProbeCount < 2) {
+    flightProbeCount++;
+    try {
+      console.warn(`[MOBILEDE_OBS] flight: total=${sr.numResultsTotal ?? '?'} listings=${ads.length} ; 1ʳᵉ annonce: ${JSON.stringify(ads[0]).slice(0, 1200)}`);
+    } catch { /* sonde silencieuse */ }
+  }
+  const out: ScrapedListing[] = [];
+  for (const ad of ads as Array<Record<string, unknown>>) {
+    if (!ad || typeof ad !== 'object') continue;
+    const price = deepFindPrice((ad as { price?: unknown }).price ?? (ad as { prices?: unknown }).prices ?? (ad as { priceInfo?: unknown }).priceInfo ?? null)
+      ?? toInt(readField(ad, ['price', 'grossPrice', 'priceLabel', 'formattedPrice'], ['price', 'prc', 'p']));
+    const title = readField(ad, ['title', 'name', 'headline', 'adTitle', 'heading'], []);
+    if (!price || !title) continue;
+    let url = readField(ad, ['relativeUrl', 'url', 'detailPageUrl', 'vipUrl', 'href', 'link'], []) ?? '';
+    if (url.startsWith('/')) url = `mobile.de${url}`;
+    out.push({
+      title: title.slice(0, 200),
+      price,
+      currency: 'EUR',
+      mileage: toInt(readField(ad, ['mileage'], ['ml'])),
+      year: toYear(readField(ad, ['firstRegistration', 'year'], ['fr'])),
+      trim: null,
+      listing_url: url || 'mobile.de',
+      description: '',
+      price_type: 'one-off',
+      brand: readField(ad, ['make', 'makeName', 'brand'], []),
+      fuel: readField(ad, ['fuel', 'fuelType'], ['ft']),
+      gearbox: readField(ad, ['transmission', 'gearbox'], ['tr']),
+      powerDin: toHp(readField(ad, ['power'], ['pw'])),
+      doors: toInt((readField(ad, ['doors'], ['door']) ?? '').split('/')[0] || null),
+      seats: toInt(readField(ad, ['seats'], ['sc'])),
+      color: readField(ad, ['color', 'exteriorColor'], ['ecol']),
+      vehicleType: readField(ad, ['category', 'bodyType'], ['c']),
+      sellerType: null,
+      priceType: null,
+    });
+  }
+  // Seuil d'exploitabilité : sous 3 annonces complètes (titre+prix) on
+  // préfère le repli générique — la sonde 1ʳᵉ-annonce révélera les clés.
+  if (out.length < Math.min(3, ads.length)) {
+    console.warn(`[MOBILEDE_OBS] flight: ${ads.length} annonces trouvées mais ${out.length} exploitables (titre/prix manquants) — repli`);
+    return [];
+  }
+  console.warn(`[MOBILEDE_OBS] flight: ${out.length}/${ads.length} annonces structurées extraites (total site: ${sr.numResultsTotal ?? '?'})`);
+  return out;
+}
+
+/**
  * Chaîne de parse par PREUVE (état 26/07 : pas de __NEXT_DATA__, un unique
  * <script type="application/json"> de ~1,4 Mo dont l'état est du JSON échappé
  * DANS une chaîne du JSON externe) :
@@ -315,6 +412,8 @@ function parseListings(html: string, url: string): ScrapedListing[] {
   probeRefData(html);
   const viaNext = parseNextDataListings(html, { host: 'mobile.de', currency: 'EUR', siteLabel: 'MOBILE_DE', verbose: true });
   if (viaNext.length > 0) return viaNext;
+  const viaFlight = parseFlightListings(html);
+  if (viaFlight.length > 0) return viaFlight;
   const viaState = parseFromJsonState(html);
   if (viaState.length > 0) return viaState;
   // Repli générique — comportement des campagnes du 26/07 (100 annonces,
