@@ -1,4 +1,4 @@
-import { detectBlockedContent } from '../scraping';
+import { detectBlockedContent } from '../blockDetection';
 import type { SiteAdapter, SiteKey, SiteRegistry } from './types';
 
 class SiteRegistryImpl implements SiteRegistry {

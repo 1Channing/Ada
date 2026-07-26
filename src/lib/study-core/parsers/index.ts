@@ -9,6 +9,7 @@
  */
 
 import type { ScrapedListing } from '../types';
+import { findSiteAdapterByDomain } from '../marketplaces';
 import * as marktplaats from './marktplaats';
 import * as leboncoin from './leboncoin';
 import * as gaspedaal from './gaspedaal';
@@ -63,6 +64,17 @@ export function selectParserByHostname(url: string): MarketplaceParser {
  * @returns Array of scraped listings
  */
 export function coreParseSearchPage(html: string, url: string): ScrapedListing[] {
+  // UN SEUL routage : le registre d'adaptateurs d'abord. Les 4 parseurs
+  // historiques du switch ci-dessous sont exactement les fonctions que les
+  // adaptateurs déclarent (comportement identique), et tout NOUVEAU site
+  // enregistré (mobile.de…) est routé automatiquement — fini le silence où
+  // il tombait sur GENERIC pendant que son vrai parseur n'était jamais
+  // appelé (campagne du 26/07 : carburant fantaisiste sniffé par GENERIC).
+  // Le switch reste en filet pour les hôtes sans adaptateur (gaspedaal,
+  // autoscout24.com hors TLD pays).
+  const adapter = findSiteAdapterByDomain(extractHostname(url));
+  if (adapter?.parseSearchResults) return adapter.parseSearchResults(html, url);
+
   const parserType = selectParserByHostname(url);
 
   switch (parserType) {
