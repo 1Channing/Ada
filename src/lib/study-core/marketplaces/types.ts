@@ -224,6 +224,20 @@ export interface SiteAdapter {
    * tripwire). Only declare markers proven on a real empty page.
    */
   detectEmptyState?(html: string): boolean;
+  /**
+   * Optional PURE harvest of the site's embedded reference data (mobile.de
+   * ships its complete make list {"label":"Skoda","value":"22900"} inside the
+   * results page). Returns learned enum entries (field e.g. 'ms:make', opaque
+   * code, human label) — persistence is the caller's job. Must self-validate
+   * against proven seeds and return [] rather than guess.
+   */
+  harvestTaxonomy?(html: string): Array<{ field: string; code: string; label: string }>;
+  /**
+   * Optional injection of PERSISTED learned enum values back into the adapter
+   * (loaded from linkgen_enum_mappings at campaign/ingestion start), so
+   * buildSearchUrl/prefill can use codes learned in earlier runs.
+   */
+  learnEnumValues?(field: string, pairs: Array<{ code: string; label: string }>): void;
 
   // ─── Ingestion (URL learning from human-pasted searches) ──────────────────
 

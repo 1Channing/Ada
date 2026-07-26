@@ -321,6 +321,10 @@ export interface ScrapeDiagnostics {
   /** Verdict déterministe de l'adaptateur : le site a-t-il appliqué le filtre
    *  modèle, ou servi une page plus large en silence ? null = illisible. */
   silentFallback?: { modelApplied: boolean; evidence: string } | null;
+  /** Référentiel embarqué moissonné par l'adaptateur (mobile.de : marques
+   *  {label,id}) — persisté puis RETIRÉ des diagnostics par l'appelant
+   *  (dossiers légers). */
+  taxonomyHarvest?: Array<{ field: string; code: string; label: string }> | null;
 }
 
 export interface ScrapeSearchResult {
@@ -588,6 +592,7 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
         emptyResults: d.emptyResults ?? false, emptyConfirmed: d.emptyConfirmed ?? null, fromCache: false,
         fieldsPresent: fieldCoverage(r.listings),
         silentFallback: d.silentFallback ?? null,
+        taxonomyHarvest: d.taxonomyHarvest ?? null,
       },
     };
     if (cache) SCRAPE_CACHE.set(url, { at: Date.now(), result });
@@ -696,7 +701,8 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
       if (silentFallback && !silentFallback.modelApplied) {
         console.warn(`[WORKER_SCRAPER] ⚠️ filtre modèle NON appliqué par le site — ${silentFallback.evidence}`);
       }
-      return finalize({ listings: all, totalCount }, { attempts: attempt + 1, htmlLength: html.length, silentFallback }, true);
+      const taxonomyHarvest = sfAdapter?.harvestTaxonomy?.(html) ?? null;
+      return finalize({ listings: all, totalCount }, { attempts: attempt + 1, htmlLength: html.length, silentFallback, taxonomyHarvest }, true);
     }
 
     // Blocked? Don't give up on the first block — escalate through the profiles
@@ -760,7 +766,10 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
         console.warn(`[WORKER_SCRAPER] ⚠️ page pleine à 0 annonce SANS le marqueur vide du site (${marketplaceOf(activeUrl)}, ${html.length}b) — parseur à vérifier: ${activeUrl.slice(0, 120)}`);
       }
       console.log(`[WORKER_SCRAPER] 0 listings on a full page (${html.length}b, mode=${mode}) — genuine empty result, no retry`);
-      return finalize({ listings: [], totalCount: extractTotalCount(html) }, { attempts: attempt + 1, htmlLength: html.length, emptyResults: true, emptyConfirmed }, true);
+      // Le référentiel embarqué (dropdown marques) est présent même sur une
+      // page à 0 résultat — moisson identique au chemin succès.
+      const taxonomyHarvest = esAdapter?.harvestTaxonomy?.(html) ?? null;
+      return finalize({ listings: [], totalCount: extractTotalCount(html) }, { attempts: attempt + 1, htmlLength: html.length, emptyResults: true, emptyConfirmed, taxonomyHarvest }, true);
     }
 
     // Small page, no listings, not blocked → retry (likely a soft failure).

@@ -94,7 +94,93 @@ const norm = (s: string) => s.trim().toUpperCase();
 const canon = (s: string) => norm(s).replace(/[^A-Z0-9]/g, '');
 const comboKey = (brand: string, model: string) => `${canon(brand)}|${canon(model)}`;
 
-function mapBrand(raw: string): string { return MAKE_ID[canon(raw)] ?? raw.trim(); }
+// ─── Taxonomie APPRISE (moissonnée des pages + persistée en dictionnaire) ────
+// Les graines humaines MAKE_ID/MODEL_ID restent prioritaires (prouvées par
+// URL) ; l'appris comble le reste. ms:make → code=makeId, label=marque.
+// ms:model → code=`makeId;modelId`, label=modèle.
+const LEARNED_MAKE_ID: Record<string, string> = {};           // canon(marque) → makeId
+const LEARNED_MAKE_LABEL: Record<string, string> = {};        // makeId → label affichable
+const LEARNED_MODEL_ID: Record<string, { id: string; label: string }> = {}; // `${makeId}|${canon(modèle)}` → {modelId, label}
+
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  for (const p of pairs) {
+    const label = p.label.trim();
+    if (!label) continue;
+    if (field === 'ms:make' && /^\d{3,6}$/.test(p.code)) {
+      const key = canon(label);
+      // Une graine humaine contradictoire gagne toujours (prouvée par URL).
+      if (MAKE_ID[key] && MAKE_ID[key] !== p.code) continue;
+      LEARNED_MAKE_ID[key] = p.code;
+      LEARNED_MAKE_LABEL[p.code] = label;
+    } else if (field === 'ms:model' && /^\d{3,6};\d{1,6}$/.test(p.code)) {
+      const [makeId, modelId] = p.code.split(';');
+      LEARNED_MODEL_ID[`${makeId}|${canon(label)}`] = { id: modelId, label };
+    }
+  }
+}
+
+function makeIdFor(brand: string): string | undefined {
+  const key = canon(brand);
+  return MAKE_ID[key] ?? LEARNED_MAKE_ID[key];
+}
+function modelIdFor(makeId: string, brand: string, model: string): string | undefined {
+  return MODEL_ID[comboKey(brand, model)]?.id ?? LEARNED_MODEL_ID[`${makeId}|${canon(model)}`]?.id;
+}
+
+/**
+ * Moisson PURE du référentiel marques embarqué — preuve worker_logs 26/07 :
+ * la page contient (en JSON parfois ÉCHAPPÉ dans une chaîne) le tableau
+ * complet `{"label":"Leapmotor","value":"32303"}, …`. On ancre sur
+ * « Leapmotor » (introuvable ailleurs que dans ce tableau), on remonte au
+ * crochet ouvrant, on équilibre jusqu'au fermant, on déplie l'échappement et
+ * on parse. GARDE-FOU données : moisson acceptée uniquement si ≥3 de nos 4
+ * graines humaines y figurent avec l'ID EXACT — sinon [] (jamais de devinette).
+ */
+function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
+  try {
+    const anchor = html.indexOf('Leapmotor');
+    if (anchor < 0) return [];
+    // Jusqu'à 4 candidats de crochet ouvrant en remontant (un '[' imbriqué
+    // plus proche peut précéder l'ancre) — le premier qui parse ET passe le
+    // garde-fou gagne.
+    let from = anchor;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const start = html.lastIndexOf('[', from);
+      if (start < 0 || anchor - start > 400_000) return [];
+      let depth = 0;
+      let end = -1;
+      const cap = Math.min(html.length, start + 800_000);
+      for (let i = start; i < cap; i++) {
+        const ch = html[i];
+        if (ch === '[') depth++;
+        else if (ch === ']') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end > anchor) {
+        let seg = html.slice(start, end + 1);
+        if (seg.includes('\\"')) seg = seg.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+        try {
+          const arr = JSON.parse(seg) as Array<{ label?: unknown; value?: unknown }>;
+          if (Array.isArray(arr)) {
+            const entries = arr
+              .filter((o) => o && typeof o.label === 'string' && /^\d{3,6}$/.test(String(o.value ?? '')) && !/^\d+$/.test(o.label))
+              .map((o) => ({ field: 'ms:make', code: String(o.value), label: String(o.label).trim() }));
+            const seedHits = Object.entries(MAKE_ID)
+              .filter(([key, id]) => entries.some((e) => e.code === id && canon(e.label) === key)).length;
+            if (seedHits >= 3) {
+              console.warn(`[MOBILEDE_OBS] moisson marques: ${entries.length} entrées (graines validées ${seedHits}/4)`);
+              return entries;
+            }
+            console.warn(`[MOBILEDE_OBS] moisson marques REJETÉE — graines ${seedHits}/4 seulement (${entries.length} entrées candidates)`);
+          }
+        } catch { /* candidat suivant */ }
+      }
+      from = start - 1;
+    }
+  } catch { /* moisson silencieuse — jamais bloquante */ }
+  return [];
+}
+
+function mapBrand(raw: string): string { return makeIdFor(raw) ?? raw.trim(); }
 function mapModel(raw: string): string { return raw.trim(); }
 function mapFuel(raw: string): string { return FUEL_PARAM[norm(raw)]?.value ?? ''; }
 
@@ -103,8 +189,8 @@ function hpToKw(hp: number): number { return Math.round(hp / 1.35962); }
 
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
-  const makeId = MAKE_ID[canon(params.brand ?? '')];
-  const modelId = params.model ? MODEL_ID[comboKey(params.brand ?? '', String(params.model))]?.id : undefined;
+  const makeId = makeIdFor(params.brand ?? '');
+  const modelId = params.model && makeId ? modelIdFor(makeId, params.brand ?? '', String(params.model)) : undefined;
 
   // Sans ID connu, on ne fabrique PAS une URL tous-modèles mensongère : l'étude
   // sort en no_url et le centre de résolution dit quoi apprendre (coller une
@@ -287,12 +373,18 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const out: Partial<SearchCriteria> = {};
   const ms = (q['ms'] ?? '').split(';');
   if (ms[0]) {
-    const brand = reverseLookup(MAKE_ID, ms[0]);
-    if (brand !== ms[0]) out.brand = brand;
+    // Graines humaines puis marques apprises (moisson persistée).
+    const seeded = reverseLookup(MAKE_ID, ms[0]);
+    if (seeded !== ms[0]) out.brand = seeded;
+    else if (LEARNED_MAKE_LABEL[ms[0]]) out.brand = LEARNED_MAKE_LABEL[ms[0]];
     if (ms[1]) {
       const hit = Object.entries(MODEL_ID).find(([k, v]) =>
         v.id === ms[1] && (!out.brand || k.startsWith(`${canon(out.brand)}|`)));
       if (hit) { out.brand = out.brand ?? hit[0].split('|')[0]; out.model = hit[1].label; }
+      else {
+        const learned = Object.entries(LEARNED_MODEL_ID).find(([k, v]) => v.id === ms[1] && k.startsWith(`${ms[0]}|`));
+        if (learned) out.model = learned[1].label;
+      }
     }
   }
   const fr = (q['fr'] ?? '').split(':');
@@ -348,6 +440,9 @@ export const mobiledeAdapter: SiteAdapter = {
 
   getFetchProfile,
   detectBlocked,
+
+  harvestTaxonomy,
+  learnEnumValues,
 
   prefillCriteriaFromUrl,
   extractCandidateSegments,

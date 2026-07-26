@@ -19,6 +19,7 @@ import { getSiteAdapter, decomposeUrl } from '../study-core/marketplaces';
 import type { SearchCriteria } from '../study-core/marketplaces';
 import { analyzeIngestion, INGESTION_MIN_SAMPLE, canonicalizeFuel, refineFuelToken, modelMatchesTitle } from '../study-core/ingestion';
 import { persistIngestionResult } from './ingestion';
+import { persistTaxonomyHarvest, loadLearnedTaxonomy } from './taxonomy';
 import { generateSearchUrlsWithMemory } from './generator';
 import type { SiteKey } from './types';
 import { writeMarketSnapshot, brandKey } from '../../services/marketData';
@@ -72,6 +73,10 @@ function dossierSample(listings: ScrapedListing[]): Array<Record<string, unknown
 
 /** Validated memory → pools (brand/model/fuel/trim per brand+model) + per-site coverage. */
 export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
+  // Codes moissonnés lors des runs précédents (marques mobile.de…) →
+  // réinjectés dans les adaptateurs AVANT toute génération d'URL.
+  await loadLearnedTaxonomy().catch((e) =>
+    console.warn(`[TAXONOMY] réinjection au démarrage échouée: ${e instanceof Error ? e.message : e}`));
   const { data } = await supabase
     .from('linkgen_mapping_memory')
     .select('site, brand, model, fuel, trim, validation_status')
@@ -292,6 +297,30 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   };
 
   const { listings, error, diagnostics } = await scrape(url);
+
+  // Référentiel embarqué moissonné par l'adaptateur (mobile.de : liste
+  // complète des marques {label,id} dans chaque page) : persisté dans le
+  // dictionnaire enum + appris immédiatement en mémoire de process, puis
+  // RETIRÉ des diagnostics pour garder les dossiers légers.
+  const taxo = (diagnostics as { taxonomyHarvest?: Array<{ field: string; code: string; label: string }> | null } | null)?.taxonomyHarvest;
+  if (taxo?.length) {
+    try {
+      await persistTaxonomyHarvest(p.site, taxo);
+      const adapter = getSiteAdapter(p.site);
+      if (adapter?.learnEnumValues) {
+        const byField = new Map<string, Array<{ code: string; label: string }>>();
+        for (const e of taxo) {
+          const list = byField.get(e.field) ?? [];
+          list.push({ code: e.code, label: e.label });
+          byField.set(e.field, list);
+        }
+        for (const [field, pairs] of byField) adapter.learnEnumValues(field, pairs);
+      }
+    } catch (e) {
+      console.warn(`[TAXONOMY] persistance moisson échouée (${p.site}): ${e instanceof Error ? e.message : e}`);
+    }
+    if (diagnostics) delete (diagnostics as Record<string, unknown>).taxonomyHarvest;
+  }
 
   if (error && listings.length === 0) {
     // Stop hit mid-item: no audit event, no dossier — the campaign loop

@@ -6,6 +6,7 @@ import { findSiteAdapterByDomain, decomposeUrl } from '../src/lib/study-core/mar
 import type { SearchCriteria } from '../src/lib/study-core/marketplaces';
 import { analyzeIngestion } from '../src/lib/study-core/ingestion';
 import { persistIngestionResult } from '../src/lib/linkgen/ingestion';
+import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 import { writeMarketSnapshot } from '../src/services/marketData';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
 import { startWorkerCampaign, resumeWorkerCampaigns } from './campaign';
@@ -115,6 +116,23 @@ app.post('/ingest-url', async (req, res) => {
     // 'full' mode → up to 3 retries with per-site profile escalation; a
     // sample we memorise as certain deserves the robust path, not 'fast'.
     const result = await scrapeSearch(url, 'full');
+    // Référentiel embarqué moissonné (mobile.de : marques {label,id}) —
+    // persisté puis retiré des diagnostics (payload/journal légers).
+    const taxo = result.diagnostics?.taxonomyHarvest;
+    if (taxo?.length) {
+      await persistTaxonomyHarvest(adapter.key, taxo)
+        .catch((e) => console.warn(`[TAXONOMY] persistance (ingest) échouée: ${e instanceof Error ? e.message : e}`));
+      if (adapter.learnEnumValues) {
+        const byField = new Map<string, Array<{ code: string; label: string }>>();
+        for (const e of taxo) {
+          const list = byField.get(e.field) ?? [];
+          list.push({ code: e.code, label: e.label });
+          byField.set(e.field, list);
+        }
+        for (const [field, pairs] of byField) adapter.learnEnumValues(field, pairs);
+      }
+      delete (result.diagnostics as Record<string, unknown>).taxonomyHarvest;
+    }
     const payload: Record<string, unknown> = {
       site: adapter.key,
       country: adapter.country,
