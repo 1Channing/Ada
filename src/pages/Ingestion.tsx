@@ -7,6 +7,7 @@ import { analyzeIngestion, INGESTION_MIN_SAMPLE, INGESTION_CONFIRM_THRESHOLD } f
 import { collectCandidateSegments, prefillFromSegments } from '../lib/study-core/marketplaces/paramDictionary';
 import type { IngestionAnalysis } from '../lib/study-core/ingestion';
 import { persistIngestionResult, loadLearnedEnums } from '../lib/linkgen/ingestion';
+import { ensureLearnedTaxonomy } from '../lib/linkgen/taxonomy';
 import type { PersistIngestionOutcome } from '../lib/linkgen/ingestion';
 import { loadContributorNames } from '../services/ingestionHistory';
 import { writeMarketSnapshot } from '../services/marketData';
@@ -187,6 +188,9 @@ export function Ingestion() {
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const handleAnalyzeUrl = async (overrideUrl?: string) => {
+    // Marques/modèles moissonnés → adaptateurs (prefill) : sans ce chargement
+    // le navigateur ignore la taxonomie apprise (ms=25200 restait sans marque).
+    await ensureLearnedTaxonomy().catch(() => { /* graines seules */ });
     setUrlError(null);
     setAnalysis(null);
     setOutcome(null);

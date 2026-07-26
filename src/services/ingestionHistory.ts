@@ -355,9 +355,8 @@ export async function loadMappingTree(): Promise<TreeNode> {
 
     for (const e of list) {
       if (e.field.endsWith(':make')) {
-        // Marque seule : reste dans le dictionnaire (les campagnes s'en
-        // servent) — pas de nœud tant qu'aucun modèle ne s'y rattache,
-        // sinon 178 points vides noieraient la carte.
+        // Marque seule : rangée après la boucle dans le groupe replié
+        // « Marques connues » si aucun modèle ne s'y rattache.
         continue;
       } else if (e.field.endsWith(':model')) {
         const makeCode = e.code.split(';')[0] ?? '';
@@ -385,6 +384,30 @@ export async function loadMappingTree(): Promise<TreeNode> {
           meta: { confirmations: e.confirmations ?? 0 },
         });
       }
+    }
+    // Marques connues sans modèle rattaché : visibles mais regroupées dans un
+    // nœud REPLIÉ par défaut (id `catalog:` — voir MappingRadialTree), pour
+    // montrer la couverture sans noyer la carte sous 178 points.
+    const orphanMakes = [...makeLabelByCode.values()]
+      .filter((label) => !brandMap.has(`${site}|${U(label)}`))
+      .sort((a, b) => a.localeCompare(b));
+    if (orphanMakes.length > 0) {
+      siteNode.children.push({
+        id: `catalog:${site}`,
+        label: `Marques connues (${orphanMakes.length})`,
+        kind: 'brand',
+        status: 'valid',
+        weight: 1,
+        children: orphanMakes.map((label) => ({
+          id: `catalogmake:${site}|${label}`,
+          label,
+          kind: 'brand',
+          status: 'valid',
+          weight: 1,
+          children: [],
+          meta: { source: 'taxonomie du site' },
+        })),
+      });
     }
     if (facetGroup.children.length > 0) siteNode.children.push(facetGroup);
   }

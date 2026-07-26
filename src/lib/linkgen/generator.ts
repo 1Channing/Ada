@@ -1,6 +1,7 @@
 import { getSiteAdapter } from '../study-core/marketplaces';
 import { resolveYearRange } from '../study-core/marketplaces/urlTemplate';
 import { sharedSupabase as supabase } from '../supabaseShared';
+import { ensureLearnedTaxonomy } from './taxonomy';
 import type {
   LinkGenParams,
   LinkGenResult,
@@ -269,9 +270,32 @@ export function enforceYearParams(url: string, params: LinkGenParams): string {
       if (yearTo) u.searchParams.set('yearto', yearTo);
     } else if (h.includes('leboncoin.fr')) {
       u.searchParams.set('regdate', `${yearFrom || yearTo}-${yearTo || yearFrom}`);
+    } else if (h.includes('mobile.de')) {
+      // Format composite natif fr=min:max — overrideVariableParams réinjecte
+      // la valeur simple apprise (fr=2022) que le site lit « à partir de
+      // 2022 » : campagne 21h55, années 12/34 (35 %) sur une étude 2022.
+      u.searchParams.set('fr', `${yearFrom ?? ''}:${yearTo ?? ''}`);
     } else {
       return url;
     }
+    return u.toString();
+  } catch { return url; }
+}
+
+/**
+ * mobile.de : le kilométrage est aussi composite (ml=min:max, borne max seule
+ * = `ml=:80000`, URL humaine 26/07). La réinjection générique pose ml=80000,
+ * que le site lirait comme MINIMUM 80 000 km — l'inverse exact du besoin, et
+ * un biais marché silencieux. On remet la forme native.
+ */
+export function fixMobiledeMileageForm(url: string, params: LinkGenParams): string {
+  if (!url.includes('mobile.de')) return url;
+  try {
+    const u = new URL(url);
+    const wanted = params.mileage ? String(params.mileage) : '';
+    const current = u.searchParams.get('ml') ?? '';
+    if (wanted) u.searchParams.set('ml', `:${wanted}`);
+    else if (/^\d+$/.test(current)) u.searchParams.set('ml', `:${current}`);
     return u.toString();
   } catch { return url; }
 }
@@ -403,6 +427,9 @@ async function applyLearnedSecondaryParams(
 export async function generateSearchUrlsWithMemory(
   params: LinkGenParams
 ): Promise<LinkGenUrlResult[]> {
+  // Codes taxonomie moissonnés (marques/modèles mobile.de) → adaptateurs,
+  // une fois par session : sans ça le FRONT ne connaît que les graines.
+  await ensureLearnedTaxonomy().catch(() => { /* dictionnaire indisponible — graines seules */ });
   const sites = params.selectedSites ?? (params.site ? [params.site] : []);
   const results: LinkGenUrlResult[] = [];
 
@@ -469,6 +496,7 @@ export async function generateSearchUrlsWithMemory(
         url = overrideAs24PathYear(url, params);
         url = fixBilbasenQueryForm(url);
         url = enforceYearParams(url, params);
+        url = fixMobiledeMileageForm(url, params);
         // AS24: even a trim-scoped learned URL can predate kwd= (daily report:
         // GR SPORT study reused a kwd-less URL → 6% trim match). Setting kwd is
         // idempotent, so guarantee it. Marktplaats keeps the trim-less-row-only
@@ -504,6 +532,7 @@ export async function generateSearchUrlsWithMemory(
           // boîte noire du 26/07 : C-HR servi en Aygo) et des URLs sans année.
           let normalized = fixBilbasenQueryForm(reconstructed);
           normalized = enforceYearParams(normalized, params);
+          normalized = fixMobiledeMileageForm(normalized, params);
           const finalUrl = await applyLearnedSecondaryParams(normalized, site, mapping, params, logs);
           logs.push({
             level: 'OUTPUT',

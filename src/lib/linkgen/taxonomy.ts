@@ -51,12 +51,27 @@ export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntr
   return fresh.length;
 }
 
+let taxonomyLoaded = false;
+
+/**
+ * Variante « une fois par session » pour le FRONT (prefill d'ingestion,
+ * génération d'URL) : sans elle, le navigateur ne connaît que les graines
+ * humaines et ignore les 178 marques + modèles moissonnés (constat 26/07 :
+ * prefill sans marque sur ms=25xxx). Le worker, lui, recharge à chaque
+ * campagne via loadLearnedTaxonomy.
+ */
+export async function ensureLearnedTaxonomy(): Promise<void> {
+  if (taxonomyLoaded) return;
+  await loadLearnedTaxonomy();
+}
+
 /**
  * Recharge le dictionnaire persistant dans les adaptateurs qui savent
  * apprendre (learnEnumValues). Appelé au chargement de la connaissance de
  * campagne et au boot ingestion — idempotent, silencieux si table vide.
  */
 export async function loadLearnedTaxonomy(): Promise<void> {
+  taxonomyLoaded = true;
   for (const adapter of allSiteAdapters()) {
     if (!adapter.learnEnumValues) continue;
     const { data, error } = await supabase

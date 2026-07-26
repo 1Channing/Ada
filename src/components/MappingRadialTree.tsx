@@ -45,8 +45,13 @@ function nodeRadius(weight: number): number {
 
 export function MappingRadialTree({ root }: { root: TreeNode }) {
   // Default: EVERYTHING expanded — the full site → marque → modèle → finition
-  // map at a glance ("Tout replier" remains one click away).
-  const defaultExpanded = useMemo(() => new Set<string>(collectAllIds(root)), [root]);
+  // map at a glance ("Tout replier" remains one click away). Exception : les
+  // groupes `catalog:` (marques taxonomie sans modèle, 178 pour mobile.de)
+  // démarrent repliés — un clic les déploie.
+  const defaultExpanded = useMemo(
+    () => new Set<string>(collectAllIds(root).filter((id) => !id.startsWith('catalog:'))),
+    [root],
+  );
 
   const [expanded, setExpanded] = useState<Set<string>>(defaultExpanded);
   const [hovered, setHovered] = useState<Positioned | null>(null);
