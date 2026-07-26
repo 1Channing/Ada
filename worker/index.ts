@@ -119,9 +119,10 @@ app.post('/ingest-url', async (req, res) => {
     // Référentiel embarqué moissonné (mobile.de : marques {label,id}) —
     // persisté puis retiré des diagnostics (payload/journal légers).
     const taxo = result.diagnostics?.taxonomyHarvest;
+    let taxonomyLearned = 0;
     if (taxo?.length) {
-      await persistTaxonomyHarvest(adapter.key, taxo)
-        .catch((e) => console.warn(`[TAXONOMY] persistance (ingest) échouée: ${e instanceof Error ? e.message : e}`));
+      taxonomyLearned = await persistTaxonomyHarvest(adapter.key, taxo)
+        .catch((e) => { console.warn(`[TAXONOMY] persistance (ingest) échouée: ${e instanceof Error ? e.message : e}`); return 0; });
       if (adapter.learnEnumValues) {
         const byField = new Map<string, Array<{ code: string; label: string }>>();
         for (const e of taxo) {
@@ -146,6 +147,10 @@ app.post('/ingest-url', async (req, res) => {
       error: result.error ?? null,
       errorReason: result.errorReason ?? null,
       diagnostics: result.diagnostics ?? null,
+      // Taxonomie embarquée apprise pendant CE scrape (nouveaux codes) — le
+      // front l'affiche, précieux en ingestion « découverte » sans modèle.
+      taxonomyLearned,
+      taxonomyHarvested: taxo?.length ?? 0,
     };
 
     // Full pipeline server-side — the retention happens HERE, browser or not.

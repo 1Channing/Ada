@@ -157,6 +157,7 @@ interface MemoryRow {
 interface EnumRow {
   site: string;
   field: string;
+  code: string;
   label: string;
   confirmations: number | null;
 }
@@ -190,7 +191,7 @@ export async function loadMappingTree(): Promise<TreeNode> {
       .select('site, country, brand, model, fuel, trim, validation_status, source, human_confirmations, confidence, last_confirmed_at'),
     supabase
       .from('linkgen_enum_mappings')
-      .select('site, field, label, confirmations'),
+      .select('site, field, code, label, confirmations'),
     // Attribution: which mappings were written by Ada (campaigns) vs humans.
     supabase
       .from('linkgen_ingestion_events')
@@ -317,7 +318,13 @@ export async function loadMappingTree(): Promise<TreeNode> {
     }
   }
 
-  // Facettes apprises (enum dictionary) as a per-site branch
+  // Dictionnaire enum : deux natures distinctes.
+  //  • TAXONOMIE (champs `…:make` / `…:model`, ex. mobile.de ms:make) →
+  //    rendue dans la MÊME hiérarchie Site → Marque → Modèle que les autres
+  //    sites (fusion avec les nœuds issus de la mémoire), libellés humains
+  //    sans préfixe technique. Affichage pur — campagnes et MI lisent la
+  //    table directement, rien ne change pour eux.
+  //  • FACETTES (boîte/couleur/carburant…) → branche « Facettes apprises ».
   const enumBySite = new Map<string, EnumRow[]>();
   for (const e of enums) {
     const arr = enumBySite.get(e.site) ?? [];
@@ -328,16 +335,56 @@ export async function loadMappingTree(): Promise<TreeNode> {
   for (const [site, list] of enumBySite) {
     const siteNode = getSite(site);
     const facetGroup: TreeNode = { id: `facets:${site}`, label: 'Facettes apprises', kind: 'facet', status: 'group', weight: 0, children: [] };
+
+    // 1er passage : marques de la taxonomie (code → libellé), pour rattacher
+    // ensuite chaque modèle (code `makeId;modelId`) à sa marque.
+    const makeLabelByCode = new Map<string, string>();
     for (const e of list) {
-      facetGroup.children.push({
-        id: `facet:${site}|${e.field}|${e.label}`,
-        label: `${FACET_LABEL[e.field] ?? e.field} : ${e.label}`,
-        kind: 'facet',
-        status: 'valid',
-        weight: Math.max(1, e.confirmations ?? 0),
-        children: [],
-        meta: { confirmations: e.confirmations ?? 0 },
-      });
+      if (e.field.endsWith(':make')) makeLabelByCode.set(e.code, e.label);
+    }
+    const taxoBrandNode = (label: string): TreeNode => {
+      const key = `${site}|${U(label)}`;
+      let brand = brandMap.get(key);
+      if (!brand) {
+        brand = { id: `brand:${key}`, label, kind: 'brand', status: 'group', weight: 0, children: [] };
+        brandMap.set(key, brand);
+        siteNode.children.push(brand);
+      }
+      return brand;
+    };
+
+    for (const e of list) {
+      if (e.field.endsWith(':make')) {
+        // Marque seule : reste dans le dictionnaire (les campagnes s'en
+        // servent) — pas de nœud tant qu'aucun modèle ne s'y rattache,
+        // sinon 178 points vides noieraient la carte.
+        continue;
+      } else if (e.field.endsWith(':model')) {
+        const makeCode = e.code.split(';')[0] ?? '';
+        const makeLabel = makeLabelByCode.get(makeCode) ?? '(marque ?)';
+        const brand = taxoBrandNode(makeLabel);
+        const modelKey = `${site}|${U(makeLabel)}|${U(e.label)}`;
+        let model = modelMap.get(modelKey);
+        if (!model) {
+          model = {
+            id: `model:${modelKey}`, label: e.label, kind: 'model', status: 'valid',
+            weight: Math.max(1, e.confirmations ?? 0), children: [],
+            meta: { confirmations: e.confirmations ?? 0, source: 'taxonomie du site' },
+          };
+          modelMap.set(modelKey, model);
+          brand.children.push(model);
+        }
+      } else {
+        facetGroup.children.push({
+          id: `facet:${site}|${e.field}|${e.label}`,
+          label: `${FACET_LABEL[e.field] ?? e.field} : ${e.label}`,
+          kind: 'facet',
+          status: 'valid',
+          weight: Math.max(1, e.confirmations ?? 0),
+          children: [],
+          meta: { confirmations: e.confirmations ?? 0 },
+        });
+      }
     }
     if (facetGroup.children.length > 0) siteNode.children.push(facetGroup);
   }

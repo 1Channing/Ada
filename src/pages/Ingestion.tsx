@@ -146,6 +146,7 @@ export function Ingestion() {
   const [diagnostics, setDiagnostics] = useState<Record<string, any> | null>(null);
   const [analysis, setAnalysis] = useState<IngestionAnalysis | null>(null);
   const [outcome, setOutcome] = useState<PersistIngestionOutcome | null>(null);
+  const [discoveryNote, setDiscoveryNote] = useState<string | null>(null);
 
   // Persist the in-progress ingestion to sessionStorage so navigating to the
   // History tab (which reloads the page) doesn't wipe the current search /
@@ -267,10 +268,15 @@ export function Ingestion() {
 
   const handleVerify = async () => {
     if (!adapter) return;
+    // Mode DÉCOUVERTE (modèle vide) : on scrape pour apprendre la taxonomie
+    // embarquée (mobile.de : marques/modèles des annonces) — AUCUNE écriture
+    // mémoire/snapshot, rien de certain à mémoriser au grain marque+modèle.
+    const discovery = !form.model.trim();
     setPhase('scraping');
     setScrapeError(null);
     setAnalysis(null);
     setOutcome(null);
+    setDiscoveryNote(null);
     // Remember a typed name so it's selectable next time (this device + DB).
     rememberName(form.submittedBy);
 
@@ -361,6 +367,7 @@ export function Ingestion() {
 
       if (remoteError && listings.length === 0) {
         setScrapeError(`${remoteError}${data?.errorReason ? ` — ${data.errorReason}` : ''}`);
+        if (discovery) { setPhase('done'); return; }
         const persistResult = serverPersisted
           ? (data?.persistOutcome ?? null)
           : await persistIngestionResult({
@@ -376,6 +383,22 @@ export function Ingestion() {
               scrapeDiagnostics: diag,
             });
         setOutcome(persistResult);
+        setPhase('done');
+        return;
+      }
+
+      // Découverte : pas d'analyse ni de rétention — la taxonomie a été
+      // apprise côté worker pendant le scrape, on affiche le bilan et le
+      // sample, c'est tout.
+      if (discovery) {
+        const learned = Number(data?.taxonomyLearned ?? 0);
+        const harvested = Number(data?.taxonomyHarvested ?? 0);
+        setDiscoveryNote(
+          `Découverte : ${listings.length} annonce(s) scrapée(s) — taxonomie embarquée : ` +
+          (harvested > 0
+            ? `${harvested} code(s) lu(s), ${learned} nouveau(x) appris dans le dictionnaire (visibles sur la cartographie).`
+            : 'aucun référentiel lu sur cette page.'),
+        );
         setPhase('done');
         return;
       }
@@ -429,8 +452,11 @@ export function Ingestion() {
     }
   };
 
+  // Modèle OPTIONNEL : vide = ingestion « découverte » (scrape + apprentissage
+  // de la taxonomie embarquée, sans écriture mémoire) — utile pour apprendre
+  // toute une gamme d'un coup via une URL marque entière (mobile.de).
   const canVerify = phase === 'form' || phase === 'done'
-    ? form.brand.trim().length > 0 && form.model.trim().length > 0
+    ? form.brand.trim().length > 0
     : false;
 
   return (
@@ -494,7 +520,7 @@ export function Ingestion() {
                 className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Modèle *</label>
+              <label className="block text-xs text-zinc-400 mb-1">Modèle <span className="text-zinc-500">(vide = découverte : apprend la gamme, sans mémorisation)</span></label>
               <input value={form.model} onChange={setField('model')}
                 className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
@@ -599,6 +625,18 @@ export function Ingestion() {
               sera enregistré et visible dans l'Historique.
             </p>
           )}
+        </div>
+      )}
+
+      {/* Découverte taxonomie (ingestion sans modèle) */}
+      {discoveryNote && (
+        <div className="bg-emerald-950/40 border border-emerald-800 rounded-xl p-4 text-sm text-emerald-300 flex items-start gap-2">
+          <Upload className="w-4 h-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">Ingestion de découverte (sans modèle)</p>
+            <p className="text-emerald-400/80">{discoveryNote}</p>
+            <p className="text-emerald-400/60 mt-1">Aucune écriture en mémoire de mapping — seul le dictionnaire de taxonomie a été enrichi.</p>
+          </div>
         </div>
       )}
 
