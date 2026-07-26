@@ -28,6 +28,7 @@ import { resolveYearRange } from './urlTemplate';
 import { decomposeUrl } from './urlDecompose';
 import { defaultBuildPaginatedUrl } from './registry';
 import { parseNextDataListings } from '../parsers/nextdata';
+import { parseListings as genericParseListings } from '../parsers/generic';
 
 /** Valeur site → clé interne (miroir des autres adaptateurs). */
 function reverseLookup(map: Record<string, string>, siteValue: string): string {
@@ -153,13 +154,67 @@ function probeRefData(html: string): void {
     } else {
       console.warn('[MOBILEDE_OBS] "Leapmotor" absent du HTML — référentiel marques non embarqué dans la page');
     }
-    const midx = html.indexOf('"models"');
-    if (midx >= 0) console.warn(`[MOBILEDE_OBS] ctx "models": …${html.slice(Math.max(0, midx - 150), midx + 350).replace(/\s+/g, ' ')}…`);
+    // Le blob d'état vu le 26/07 est du JSON ÉCHAPPÉ (\"label\":\"Leapmotor\")
+    // dans l'unique <script type="application/json"> : on sonde les deux
+    // graphies pour localiser modèles et annonces dans l'état.
+    for (const needle of ['"models"', '\\"models\\"', '\\"searchResults\\"', '\\"items\\"', '\\"ads\\"', '\\"listings\\"']) {
+      const at = html.indexOf(needle);
+      if (at >= 0) console.warn(`[MOBILEDE_OBS] ctx ${needle}: …${html.slice(Math.max(0, at - 120), at + 380).replace(/\s+/g, ' ')}…`);
+    }
+    const tag = html.match(/<script([^>]*type="application\/json"[^>]*)>([\s\S]{0,260})/i);
+    if (tag) console.warn(`[MOBILEDE_OBS] script json — attrs:${tag[1].slice(0, 160)} début: ${tag[2].replace(/\s+/g, ' ')}`);
     const apis = [...new Set(
       [...html.matchAll(/["'](\/[a-z0-9/._-]{3,80}(?:api|refdata|reference-data|models|makes)[a-z0-9/._?=&;-]{0,80})["']/gi)].map((m) => m[1]),
     )].slice(0, 6);
     if (apis.length) console.warn(`[MOBILEDE_OBS] chemins API embarqués: ${apis.join(' | ')}`);
   } catch { /* sonde silencieuse */ }
+}
+
+/**
+ * Chaîne de parse par PREUVE (état 26/07 : pas de __NEXT_DATA__, un unique
+ * <script type="application/json"> de ~1,4 Mo dont l'état est du JSON échappé
+ * DANS une chaîne du JSON externe) :
+ *   1. blob application/json parsé tel quel (recherche profonde nextdata) ;
+ *   2. chaînes internes qui SONT du JSON (≥ 1 000 caractères) dépliées puis
+ *      re-cherchées — c'est là que vivent marques/modèles/annonces ;
+ *   3. repli parseur générique (heuristique HTML) : c'est lui qui extrayait
+ *      les 100 annonces des campagnes précédentes — les études continuent de
+ *      fonctionner pendant la calibration du parseur structuré.
+ */
+function parseFromJsonState(html: string): ScrapedListing[] {
+  const cfg = { host: 'mobile.de', currency: 'EUR' as const, siteLabel: 'MOBILE_DE', verbose: true };
+  const scripts = [...html.matchAll(/<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/gi)];
+  for (const m of scripts) {
+    const direct = parseNextDataListings(m[1], cfg);
+    if (direct.length > 0) {
+      console.warn(`[MOBILEDE_OBS] annonces trouvées dans le blob application/json direct: ${direct.length}`);
+      return direct;
+    }
+    try {
+      const outer = JSON.parse(m[1]);
+      const innerJsonStrings: string[] = [];
+      const walk = (v: unknown, depth: number): void => {
+        if (depth > 6 || innerJsonStrings.length >= 8) return;
+        if (typeof v === 'string') {
+          const t = v.trim();
+          if (t.length >= 1000 && (t.startsWith('{') || t.startsWith('['))) innerJsonStrings.push(t);
+        } else if (Array.isArray(v)) {
+          for (const x of v) walk(x, depth + 1);
+        } else if (v && typeof v === 'object') {
+          for (const x of Object.values(v)) walk(x, depth + 1);
+        }
+      };
+      walk(outer, 0);
+      for (const s of innerJsonStrings) {
+        const viaInner = parseNextDataListings(s, cfg);
+        if (viaInner.length > 0) {
+          console.warn(`[MOBILEDE_OBS] annonces trouvées dans le JSON ÉCHAPPÉ interne: ${viaInner.length}`);
+          return viaInner;
+        }
+      }
+    } catch { /* blob non-JSON — on continue */ }
+  }
+  return [];
 }
 
 /**
@@ -170,16 +225,18 @@ function probeRefData(html: string): void {
  * extraites mais un carburant illisible (52× « petrol » sur une page d'Elroq,
  * impossible) : la prochaine page scrapée fournira le champ fautif.
  */
-function parseListings(html: string, _url: string): ScrapedListing[] {
+function parseListings(html: string, url: string): ScrapedListing[] {
   probeRefData(html);
   const viaNext = parseNextDataListings(html, { host: 'mobile.de', currency: 'EUR', siteLabel: 'MOBILE_DE', verbose: true });
   if (viaNext.length > 0) return viaNext;
-  try {
-    const blobs = [...html.matchAll(/window\.__(?:INITIAL_STATE|PRELOADED_STATE|APP_STATE)__\s*=\s*\{/g)].map((m) => m[0]);
-    const scripts = [...html.matchAll(/<script[^>]*type="application\/(?:json|ld\+json)"[^>]*>/g)].length;
-    console.warn(`[MOBILEDE_OBS] parse vide — blobs: ${blobs.join(' | ') || 'aucun'} ; scripts json: ${scripts} ; taille: ${html.length}`);
-  } catch { /* sonde silencieuse */ }
-  return [];
+  const viaState = parseFromJsonState(html);
+  if (viaState.length > 0) return viaState;
+  // Repli générique — comportement des campagnes du 26/07 (100 annonces,
+  // marque/modèle/année confirmées ; carburant sniffé, gardé par la
+  // confirmation). Le [MOBILEDE_OBS] garde la trace pour la calibration.
+  const viaGeneric = genericParseListings(html, url);
+  console.warn(`[MOBILEDE_OBS] parse structuré vide — repli générique: ${viaGeneric.length} annonces ; taille: ${html.length}`);
+  return viaGeneric;
 }
 
 function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {

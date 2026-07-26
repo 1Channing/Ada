@@ -144,12 +144,23 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
     const links: Array<{ from: Positioned; to: Positioned }> = [];
     const byId = new Map<string, Positioned>();
 
-    const countLeaves = (n: TreeNode): number => {
+    // Un site quasi vide (mobile.de naissant : 3 mappings, à côté d'AutoScout
+    // et ses centaines de feuilles) recevait une tranche angulaire ~nulle :
+    // deux sites voisins se superposaient, libellés illisibles. Chaque site
+    // (profondeur 1) occupe désormais AU MOINS l'équivalent de 6 feuilles —
+    // la géométrie reste proportionnelle partout ailleurs.
+    const MIN_SITE_LEAVES = 6;
+    const rawLeaves = (n: TreeNode): number => {
       const showChildren = expanded.has(n.id) && n.children.length > 0;
       if (!showChildren) return 1;
-      return n.children.reduce((s, c) => s + countLeaves(c), 0);
+      return n.children.reduce((s, c) => s + rawLeaves(c), 0);
     };
-    const totalLeaves = Math.max(1, countLeaves(root));
+    const countLeaves = (n: TreeNode, depth: number): number => {
+      const showChildren = expanded.has(n.id) && n.children.length > 0;
+      const raw = !showChildren ? 1 : n.children.reduce((s, c) => s + countLeaves(c, depth + 1), 0);
+      return depth === 1 ? Math.max(MIN_SITE_LEAVES, raw) : raw;
+    };
+    const totalLeaves = Math.max(1, countLeaves(root, 0));
 
     let leafIndex = 0;
     let maxRadius = 0;
@@ -164,10 +175,15 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
       const startLeaf = leafIndex;
       let angle: number;
       if (!showChildren) {
-        angle = ((leafIndex + 0.5) / totalLeaves) * Math.PI * 2;
-        leafIndex += 1;
+        const w = depth === 1 ? MIN_SITE_LEAVES : 1;
+        angle = ((leafIndex + w / 2) / totalLeaves) * Math.PI * 2;
+        leafIndex += w;
       } else {
+        // Site plus fin que la tranche minimale : enfants centrés dedans.
+        const pad = depth === 1 ? Math.max(0, MIN_SITE_LEAVES - rawLeaves(n)) / 2 : 0;
+        leafIndex += pad;
         const childAngles = n.children.map((c) => assign(c, depth + 1, n.id));
+        leafIndex += pad;
         angle = (Math.min(...childAngles) + Math.max(...childAngles)) / 2;
       }
       const leaves = Math.max(1, leafIndex - startLeaf);
