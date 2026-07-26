@@ -112,68 +112,68 @@ export function NotificationCenter() {
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`relative p-2 rounded-lg transition-colors ${open ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
+        className={`relative p-2 rounded-lg transition-colors ${open ? 'bg-white/20 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
         title={`Segments sans scan depuis ${RESCAN_AFTER_DAYS} j`}
       >
         <Bell className="w-5 h-5" />
         {segments.length > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-zinc-950 text-[10px] font-bold flex items-center justify-center">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-slate-900 text-[10px] font-bold flex items-center justify-center">
             {segments.length > 99 ? '99+' : segments.length}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-[520px] max-w-[92vw] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-4 space-y-3">
+        <div className="absolute right-0 top-11 z-50 w-[520px] max-w-[92vw] bg-white border border-slate-300 rounded-xl shadow-2xl p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-zinc-200">
+            <h3 className="text-sm font-semibold text-slate-800">
               Re-scan mensuel — {segments.length} segment(s) à plus de {RESCAN_AFTER_DAYS} j
             </h3>
-            <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-200">
+            <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-slate-200 text-slate-500 hover:text-slate-800">
               <X className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-slate-500">
             Rien ne se relance tout seul : cochez les marchés qui vous intéressent puis validez le
             re-scan (campagne côté serveur), ou ignorez définitivement ceux qui ne vous intéressent pas.
           </p>
 
           {/* Facet filters */}
           <div className="grid grid-cols-4 gap-2">
-            <select value={fCountry} onChange={(e) => setFCountry(e.target.value)} className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs">
+            <select value={fCountry} onChange={(e) => setFCountry(e.target.value)} className="bg-white border border-slate-300 rounded px-2 py-1 text-xs">
               <option value="">Pays</option>
               {facets.countries.map((c) => <option key={c} value={c}>{COUNTRY_FLAG[c] ?? ''} {c}</option>)}
             </select>
-            <select value={fBrand} onChange={(e) => setFBrand(e.target.value)} className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs">
+            <select value={fBrand} onChange={(e) => setFBrand(e.target.value)} className="bg-white border border-slate-300 rounded px-2 py-1 text-xs">
               <option value="">Marque</option>
               {facets.brands.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
-            <select value={fFuel} onChange={(e) => setFFuel(e.target.value)} className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs">
+            <select value={fFuel} onChange={(e) => setFFuel(e.target.value)} className="bg-white border border-slate-300 rounded px-2 py-1 text-xs">
               <option value="">Carburant</option>
               {facets.fuels.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
-            <select value={fYear} onChange={(e) => setFYear(e.target.value)} className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs">
+            <select value={fYear} onChange={(e) => setFYear(e.target.value)} className="bg-white border border-slate-300 rounded px-2 py-1 text-xs">
               <option value="">Année</option>
               {facets.years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
             </select>
           </div>
 
-          {notice && <p className="text-xs text-emerald-400">{notice}</p>}
+          {notice && <p className="text-xs text-emerald-600">{notice}</p>}
           {loading ? (
-            <p className="text-xs text-zinc-500 flex items-center gap-2 py-4">
+            <p className="text-xs text-slate-500 flex items-center gap-2 py-4">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyse des derniers scans…
             </p>
           ) : segments.length === 0 ? (
-            <p className="text-xs text-emerald-400 py-4">Tout est à jour — aucun segment en retard de scan.</p>
+            <p className="text-xs text-emerald-600 py-4">Tout est à jour — aucun segment en retard de scan.</p>
           ) : (
             <>
-              <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer border-b border-zinc-800 pb-2">
+              <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer border-b border-slate-200 pb-2">
                 <input type="checkbox" checked={allShownSelected} onChange={toggleAllShown} className="accent-amber-500" />
                 Tout {allShownSelected ? 'décocher' : 'cocher'} ({shown.length} affiché(s))
               </label>
               <div className="max-h-72 overflow-y-auto space-y-1">
                 {shown.map((s) => (
-                  <label key={s.key} className="flex items-center gap-2 text-xs bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 cursor-pointer hover:border-zinc-600">
+                  <label key={s.key} className="flex items-center gap-2 text-xs bg-white border border-slate-200 rounded px-2 py-1.5 cursor-pointer hover:border-slate-300">
                     <input
                       type="checkbox"
                       checked={selected.has(s.key)}
@@ -181,14 +181,14 @@ export function NotificationCenter() {
                       className="accent-amber-500 shrink-0"
                     />
                     <span className="shrink-0">{COUNTRY_FLAG[s.country] ?? s.country}</span>
-                    <span className="text-zinc-200 font-medium shrink-0">{s.brand} {s.model}</span>
-                    {s.year != null && <span className="shrink-0 px-1 rounded bg-blue-900/30 text-blue-300 text-[10px]">{s.year}</span>}
-                    {s.fuel && <span className="shrink-0 text-zinc-400">{s.fuel}</span>}
-                    {s.trim && <span className="shrink-0 text-zinc-500 truncate max-w-[80px]">{s.trim}</span>}
-                    <span className="ml-auto text-zinc-600 shrink-0">{s.daysSince} j · {s.site}</span>
+                    <span className="text-slate-800 font-medium shrink-0">{s.brand} {s.model}</span>
+                    {s.year != null && <span className="shrink-0 px-1 rounded bg-blue-50 text-blue-700 text-[10px]">{s.year}</span>}
+                    {s.fuel && <span className="shrink-0 text-slate-600">{s.fuel}</span>}
+                    {s.trim && <span className="shrink-0 text-slate-500 truncate max-w-[80px]">{s.trim}</span>}
+                    <span className="ml-auto text-slate-400 shrink-0">{s.daysSince} j · {s.site}</span>
                   </label>
                 ))}
-                {shown.length === 0 && <p className="text-xs text-zinc-600 py-2">Aucun segment pour ces filtres.</p>}
+                {shown.length === 0 && <p className="text-xs text-slate-400 py-2">Aucun segment pour ces filtres.</p>}
               </div>
               <div className="flex items-center gap-2 pt-1">
                 <button
@@ -202,7 +202,7 @@ export function NotificationCenter() {
                 <button
                   onClick={() => void handleIgnore()}
                   disabled={busy || selectedSegments.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-300 text-xs"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 disabled:opacity-40 text-slate-700 text-xs"
                   title="Ces marchés ne m'intéressent pas — ne plus jamais les proposer"
                 >
                   <EyeOff className="w-3.5 h-3.5" />

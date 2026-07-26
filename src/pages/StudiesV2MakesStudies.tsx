@@ -213,8 +213,8 @@ export function StudiesV2MakesStudies() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-zinc-100">Makes Studies</h2>
-          <p className="text-sm text-zinc-400 mt-1">
+          <h2 className="text-2xl font-bold text-slate-900">Makes Studies</h2>
+          <p className="text-sm text-slate-600 mt-1">
             Import studies from CSV. Upload will replace all existing studies.
           </p>
         </div>
@@ -236,14 +236,14 @@ export function StudiesV2MakesStudies() {
         <div
           className={`p-4 rounded-lg flex items-start gap-3 ${
             message.type === 'success'
-              ? 'bg-emerald-900/30 border border-emerald-700/50'
-              : 'bg-red-900/30 border border-red-700/50'
+              ? 'bg-emerald-50 border border-emerald-300'
+              : 'bg-red-50 border border-red-300'
           }`}
         >
           {message.type === 'success' ? (
-            <CheckCircle size={20} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+            <CheckCircle size={20} className="text-emerald-600 flex-shrink-0 mt-0.5" />
           ) : (
-            <AlertCircle size={20} className="text-red-400 flex-shrink-0 mt-0.5" />
+            <AlertCircle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
           )}
           <div>
             <p className={message.type === 'success' ? 'text-emerald-100' : 'text-red-100'}>
@@ -253,61 +253,61 @@ export function StudiesV2MakesStudies() {
         </div>
       )}
 
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800">
-        <div className="p-4 border-b border-zinc-800">
-          <h3 className="font-semibold text-zinc-100">
+      <div className="bg-white rounded-lg border border-slate-200">
+        <div className="p-4 border-b border-slate-200">
+          <h3 className="font-semibold text-slate-900">
             Current Studies ({studies.length})
           </h3>
-          <p className="text-xs text-zinc-500 mt-1">
+          <p className="text-xs text-slate-500 mt-1">
             Expected CSV format: ID, BRAND, MODEL, YEAR, MAX_MILEAGE, COUNTRY_TARGET, MARKET_TARGET_URL, COUNTRY_SOURCE, MARKET_SOURCE_URL
           </p>
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-zinc-400">Loading studies...</div>
+          <div className="p-8 text-center text-slate-600">Loading studies...</div>
         ) : studies.length === 0 ? (
-          <div className="p-8 text-center text-zinc-400">
+          <div className="p-8 text-center text-slate-600">
             No studies imported yet. Upload a CSV file to get started.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-zinc-800/50">
+              <thead className="bg-slate-100">
                 <tr>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">ID</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Brand</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Model</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Year</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Max Mileage</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Target</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Source</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">ID</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Brand</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Model</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Year</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Max Mileage</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Target</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Source</th>
                 </tr>
               </thead>
               <tbody>
                 {studies.map((study) => (
-                  <tr key={study.id} className="border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors">
+                  <tr key={study.id} className="border-b border-slate-200 hover:bg-slate-100 transition-colors">
                     <td className="px-4 py-3">
-                      <div className="text-xs font-mono text-zinc-300">{study.id}</div>
+                      <div className="text-xs font-mono text-slate-700">{study.id}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-zinc-100">{study.brand}</div>
+                      <div className="font-medium text-slate-900">{study.brand}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-zinc-300">{study.model}</div>
+                      <div className="text-slate-700">{study.model}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm text-zinc-300">{study.year}</div>
+                      <div className="text-sm text-slate-700">{study.year}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm text-zinc-400">
+                      <div className="text-sm text-slate-600">
                         {study.max_mileage === 0 ? '∞' : `${study.max_mileage.toLocaleString()} km`}
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-blue-400">{study.country_target}</div>
+                      <div className="text-sm font-medium text-blue-600">{study.country_target}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-emerald-400">{study.country_source}</div>
+                      <div className="text-sm font-medium text-emerald-600">{study.country_source}</div>
                     </td>
                   </tr>
                 ))}

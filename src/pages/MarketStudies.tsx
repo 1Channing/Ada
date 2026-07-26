@@ -281,8 +281,8 @@ export function MarketStudies() {
       <div className="mb-8">
         <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-zinc-100">Market Studies</h1>
-            <p className="text-zinc-400 mt-1">Configuration: Define model patterns to monitor across markets</p>
+            <h1 className="text-3xl font-bold text-slate-900">Market Studies</h1>
+            <p className="text-slate-600 mt-1">Configuration: Define model patterns to monitor across markets</p>
           </div>
           <button
             onClick={() => setShowForm(true)}
@@ -295,18 +295,18 @@ export function MarketStudies() {
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <label className="text-sm text-zinc-400 font-medium">Source Country:</label>
+            <label className="text-sm text-slate-600 font-medium">Source Country:</label>
             <select
               value={countryFilter}
               onChange={(e) => setCountryFilter(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-zinc-100 text-sm"
+              className="bg-slate-200 border border-slate-300 rounded px-3 py-1.5 text-slate-900 text-sm"
             >
               <option value="ALL">All Countries</option>
               <option value="FR">France (FR)</option>
               <option value="NL">Netherlands (NL)</option>
               <option value="DK">Denmark (DK)</option>
             </select>
-            <span className="text-sm text-zinc-500">{studies.length} studies</span>
+            <span className="text-sm text-slate-500">{studies.length} studies</span>
           </div>
           <button
             onClick={exportToCSV}
@@ -319,63 +319,63 @@ export function MarketStudies() {
       </div>
 
       {showForm && (
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6 mb-6">
-          <h2 className="text-xl font-semibold text-zinc-100 mb-4">
+        <div className="bg-white rounded-lg border border-slate-200 p-6 mb-6">
+          <h2 className="text-xl font-semibold text-slate-900 mb-4">
             {editingId ? 'Edit Market Study' : 'New Market Study'}
           </h2>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Study Name</label>
+              <label className="text-sm text-slate-600 mb-1 block">Study Name</label>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="e.g. Toyota RAV4 2017 FR→DK"
               />
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Brand</label>
+              <label className="text-sm text-slate-600 mb-1 block">Brand</label>
               <input
                 type="text"
                 value={formData.brand}
                 onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="e.g. Toyota"
               />
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Model Pattern</label>
+              <label className="text-sm text-slate-600 mb-1 block">Model Pattern</label>
               <input
                 type="text"
                 value={formData.model_pattern}
                 onChange={(e) => setFormData({ ...formData, model_pattern: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="e.g. RAV4"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Year Min</label>
+                <label className="text-sm text-slate-600 mb-1 block">Year Min</label>
                 <input
                   type="number"
                   value={formData.year_min || ''}
                   onChange={(e) => setFormData({ ...formData, year_min: e.target.value ? Number(e.target.value) : undefined })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                  className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                   placeholder="2015"
                 />
               </div>
               <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Year Max</label>
+                <label className="text-sm text-slate-600 mb-1 block">Year Max</label>
                 <input
                   type="number"
                   value={formData.year_max || ''}
                   onChange={(e) => setFormData({ ...formData, year_max: e.target.value ? Number(e.target.value) : undefined })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                  className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                   placeholder="2020"
                 />
               </div>
@@ -383,99 +383,99 @@ export function MarketStudies() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Mileage Min (km)</label>
+                <label className="text-sm text-slate-600 mb-1 block">Mileage Min (km)</label>
                 <input
                   type="number"
                   value={formData.mileage_min || ''}
                   onChange={(e) => setFormData({ ...formData, mileage_min: e.target.value ? Number(e.target.value) : undefined })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                  className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                   placeholder="0"
                 />
               </div>
               <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Mileage Max (km)</label>
+                <label className="text-sm text-slate-600 mb-1 block">Mileage Max (km)</label>
                 <input
                   type="number"
                   value={formData.mileage_max || ''}
                   onChange={(e) => setFormData({ ...formData, mileage_max: e.target.value ? Number(e.target.value) : undefined })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                  className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                   placeholder="150000"
                 />
               </div>
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Source Country</label>
+              <label className="text-sm text-slate-600 mb-1 block">Source Country</label>
               <input
                 type="text"
                 value={formData.source_country}
                 onChange={(e) => setFormData({ ...formData, source_country: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="FR"
               />
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Source Marketplace</label>
+              <label className="text-sm text-slate-600 mb-1 block">Source Marketplace</label>
               <input
                 type="text"
                 value={formData.source_marketplace}
                 onChange={(e) => setFormData({ ...formData, source_marketplace: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="leboncoin"
               />
             </div>
 
             <div className="col-span-2">
-              <label className="text-sm text-zinc-400 mb-1 block">Source Search URL</label>
+              <label className="text-sm text-slate-600 mb-1 block">Source Search URL</label>
               <input
                 type="text"
                 value={formData.source_search_url}
                 onChange={(e) => setFormData({ ...formData, source_search_url: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="https://..."
               />
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Target Country</label>
+              <label className="text-sm text-slate-600 mb-1 block">Target Country</label>
               <input
                 type="text"
                 value={formData.target_country}
                 onChange={(e) => setFormData({ ...formData, target_country: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="DK"
               />
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Target Marketplace</label>
+              <label className="text-sm text-slate-600 mb-1 block">Target Marketplace</label>
               <input
                 type="text"
                 value={formData.target_marketplace}
                 onChange={(e) => setFormData({ ...formData, target_marketplace: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="bilbasen"
               />
             </div>
 
             <div className="col-span-2">
-              <label className="text-sm text-zinc-400 mb-1 block">Target Search URL (optional)</label>
+              <label className="text-sm text-slate-600 mb-1 block">Target Search URL (optional)</label>
               <input
                 type="text"
                 value={formData.target_search_url || ''}
                 onChange={(e) => setFormData({ ...formData, target_search_url: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="https://..."
               />
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Pricing Strategy</label>
+              <label className="text-sm text-slate-600 mb-1 block">Pricing Strategy</label>
               <select
                 value={formData.pricing_strategy}
                 onChange={(e) => setFormData({ ...formData, pricing_strategy: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
               >
                 <option value="mean_5_lowest">Mean of 5 Lowest</option>
                 <option value="median_minus_5pct">Median - 5%</option>
@@ -485,11 +485,11 @@ export function MarketStudies() {
             </div>
 
             <div className="col-span-2">
-              <label className="text-sm text-zinc-400 mb-1 block">Notes (optional)</label>
+              <label className="text-sm text-slate-600 mb-1 block">Notes (optional)</label>
               <textarea
                 value={formData.notes || ''}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
                 placeholder="Internal notes about this study..."
                 rows={2}
               />
@@ -506,7 +506,7 @@ export function MarketStudies() {
             </button>
             <button
               onClick={cancelForm}
-              className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-slate-300 hover:bg-slate-400 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
             >
               <X size={18} />
               Cancel
@@ -516,48 +516,48 @@ export function MarketStudies() {
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-zinc-400">Loading studies...</div>
+        <div className="text-center py-12 text-slate-600">Loading studies...</div>
       ) : studies.length === 0 ? (
-        <div className="text-center py-12 text-zinc-400">No market studies yet. Create one to get started.</div>
+        <div className="text-center py-12 text-slate-600">No market studies yet. Create one to get started.</div>
       ) : (
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden">
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
           <table className="w-full">
-            <thead className="bg-zinc-800 border-b border-zinc-700">
+            <thead className="bg-slate-200 border-b border-slate-300">
               <tr>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Brand</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Model</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Year</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Source Country</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Target</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Mileage Range</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Marketplace</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Actions</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Brand</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Model</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Year</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Source Country</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Target</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Mileage Range</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Marketplace</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody>
               {studies.map((study) => (
-                <tr key={study.id} className="border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors">
+                <tr key={study.id} className="border-b border-slate-200 hover:bg-slate-100 transition-colors">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-zinc-100">{study.brand}</div>
+                    <div className="font-medium text-slate-900">{study.brand}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-zinc-300">{study.model_pattern}</div>
+                    <div className="text-slate-700">{study.model_pattern}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-sm text-zinc-300">
+                    <div className="text-sm text-slate-700">
                       {study.year_min || '?'} - {study.year_max || '?'}
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-sm font-medium text-emerald-400">{study.source_country}</div>
-                    <div className="text-xs text-zinc-500">{study.source_marketplace}</div>
+                    <div className="text-sm font-medium text-emerald-600">{study.source_country}</div>
+                    <div className="text-xs text-slate-500">{study.source_marketplace}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-sm text-blue-400">{study.target_country}</div>
-                    <div className="text-xs text-zinc-500">{study.target_marketplace}</div>
+                    <div className="text-sm text-blue-600">{study.target_country}</div>
+                    <div className="text-xs text-slate-500">{study.target_marketplace}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-xs text-zinc-400">
+                    <div className="text-xs text-slate-600">
                       {(() => {
                         const min = study.mileage_min || 0;
                         const max = study.mileage_max || 0;
@@ -570,23 +570,23 @@ export function MarketStudies() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-sm text-zinc-300">{study.source_marketplace}</div>
+                    <div className="text-sm text-slate-700">{study.source_marketplace}</div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => editStudy(study)}
-                        className="p-1.5 hover:bg-zinc-700 rounded transition-colors"
+                        className="p-1.5 hover:bg-slate-300 rounded transition-colors"
                         title="Edit"
                       >
-                        <Edit2 size={16} className="text-zinc-400" />
+                        <Edit2 size={16} className="text-slate-600" />
                       </button>
                       <button
                         onClick={() => deleteStudy(study.id)}
                         className="p-1.5 hover:bg-red-700 rounded transition-colors"
                         title="Delete"
                       >
-                        <Trash2 size={16} className="text-red-400" />
+                        <Trash2 size={16} className="text-red-600" />
                       </button>
                     </div>
                   </td>

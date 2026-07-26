@@ -136,14 +136,14 @@ interface HistoryEntry {
 function StatusBadge({ status }: { status: LinkGenUrlResult['validationStatus'] }) {
   if (status === 'not_checked') {
     return (
-      <span className="inline-flex items-center gap-1 text-xs bg-zinc-800 text-zinc-400 border border-zinc-700 px-2 py-0.5 rounded-full">
+      <span className="inline-flex items-center gap-1 text-xs bg-slate-200 text-slate-600 border border-slate-300 px-2 py-0.5 rounded-full">
         Generated
       </span>
     );
   }
   if (status === 'valid') {
     return (
-      <span className="inline-flex items-center gap-1 text-xs bg-green-900/40 text-green-400 border border-green-700/40 px-2 py-0.5 rounded-full">
+      <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-600 border border-green-300 px-2 py-0.5 rounded-full">
         <Check className="w-3 h-3" />
         Valid
       </span>
@@ -151,14 +151,14 @@ function StatusBadge({ status }: { status: LinkGenUrlResult['validationStatus'] 
   }
   if (status === 'partial') {
     return (
-      <span className="inline-flex items-center gap-1 text-xs bg-amber-900/40 text-amber-400 border border-amber-700/40 px-2 py-0.5 rounded-full">
+      <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 border border-amber-300 px-2 py-0.5 rounded-full">
         <AlertTriangle className="w-3 h-3" />
         Partial
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-xs bg-red-900/40 text-red-400 border border-red-700/40 px-2 py-0.5 rounded-full">
+    <span className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 border border-red-300 px-2 py-0.5 rounded-full">
       <XCircle className="w-3 h-3" />
       Invalid
     </span>
@@ -197,14 +197,14 @@ function UrlRow({
     <div
       className={`rounded-lg border p-3 space-y-2 ${
         isCorrection
-          ? 'border-blue-800/50 bg-blue-950/20'
-          : 'border-zinc-800 bg-zinc-950'
+          ? 'border-blue-300 bg-blue-50'
+          : 'border-slate-200 bg-white'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
         <span
           className={`text-xs font-medium ${
-            isCorrection ? 'text-blue-400' : 'text-zinc-500'
+            isCorrection ? 'text-blue-600' : 'text-slate-500'
           }`}
         >
           {label}
@@ -215,36 +215,36 @@ function UrlRow({
             <span
               className={`text-xs font-semibold tabular-nums ${
                 score >= 70
-                  ? 'text-green-400'
+                  ? 'text-green-600'
                   : score >= 40
-                  ? 'text-amber-400'
-                  : 'text-red-400'
+                  ? 'text-amber-600'
+                  : 'text-red-600'
               }`}
             >
               {score}/100
             </span>
           )}
           {listingCount !== undefined && (
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-slate-500">
               {listingCount} listings
               {listingCountMethod && (
-                <span className="text-zinc-700"> ({listingCountMethod})</span>
+                <span className="text-slate-300"> ({listingCountMethod})</span>
               )}
             </span>
           )}
         </div>
       </div>
 
-      <code className="block text-xs text-blue-300 break-all leading-relaxed font-mono">
+      <code className="block text-xs text-blue-700 break-all leading-relaxed font-mono">
         {url}
       </code>
 
       <div className="flex items-center gap-2">
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-xs text-zinc-300 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-200 hover:bg-slate-300 border border-slate-300 rounded text-xs text-slate-700 transition-colors"
         >
-          {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+          {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
           {copied ? 'Copied!' : 'Copy'}
         </button>
         <button
@@ -263,9 +263,9 @@ function UrlRow({
 
 function ScoreChip({ score, label }: { score: number; label: string }) {
   const color =
-    score >= 80 ? 'text-green-400 bg-green-900/20 border-green-700/40' :
-    score >= 60 ? 'text-amber-400 bg-amber-900/20 border-amber-700/40' :
-    'text-red-400 bg-red-900/20 border-red-700/40';
+    score >= 80 ? 'text-green-600 bg-green-50 border-green-300' :
+    score >= 60 ? 'text-amber-600 bg-amber-50 border-amber-300' :
+    'text-red-600 bg-red-50 border-red-300';
   return (
     <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border font-mono ${color}`}>
       {label} {score}
@@ -306,25 +306,25 @@ function UrlCard({
   const zyteUnavailable = result.validationIssues?.some((i) => i.type === 'no_zyte_key');
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
       {/* Site header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span className="text-lg">{site?.flag}</span>
           <div>
-            <p className="text-sm font-semibold text-zinc-100">{site?.label}</p>
-            <p className="text-xs text-zinc-500">{result.country}</p>
+            <p className="text-sm font-semibold text-slate-900">{site?.label}</p>
+            <p className="text-xs text-slate-500">{result.country}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {result.mappingSource === 'learned' && (
-            <span className="inline-flex items-center gap-1 text-xs bg-green-900/30 text-green-400 border border-green-700/40 px-2 py-0.5 rounded-full">
+            <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-600 border border-green-300 px-2 py-0.5 rounded-full">
               <Brain className="w-3 h-3" />
               Learned
             </span>
           )}
           {result.mappingSource === 'default_template' && (
-            <span className="inline-flex items-center gap-1 text-xs bg-zinc-800 text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded-full">
+            <span className="inline-flex items-center gap-1 text-xs bg-slate-200 text-slate-500 border border-slate-300 px-2 py-0.5 rounded-full">
               Template
             </span>
           )}
@@ -332,7 +332,7 @@ function UrlCard({
           {!validating && scoreImproved && (
             <div className="flex items-center gap-1.5">
               <ScoreChip score={result.validationScore!} label="before" />
-              <span className="text-zinc-600 text-xs">→</span>
+              <span className="text-slate-400 text-xs">→</span>
               <ScoreChip score={result.validationScoreAfter!} label="after" />
             </div>
           )}
@@ -340,7 +340,7 @@ function UrlCard({
             <ScoreChip score={result.validationScore} label="score" />
           )}
           {validating ? (
-            <span className="flex items-center gap-1.5 text-xs text-zinc-400">
+            <span className="flex items-center gap-1.5 text-xs text-slate-600">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               Checking...
             </span>
@@ -352,19 +352,19 @@ function UrlCard({
 
       {/* Not checked yet banner */}
       {!validating && !hasValidation && (
-        <div className="flex items-center gap-2.5 bg-zinc-800/60 border border-zinc-700 rounded-lg px-3 py-2.5">
-          <Clock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-          <p className="text-xs text-zinc-400">
-            Not checked yet — click <span className="font-semibold text-zinc-200">Scout Check</span> to verify this URL with real listings
+        <div className="flex items-center gap-2.5 bg-slate-100 border border-slate-300 rounded-lg px-3 py-2.5">
+          <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+          <p className="text-xs text-slate-600">
+            Not checked yet — click <span className="font-semibold text-slate-800">Scout Check</span> to verify this URL with real listings
           </p>
         </div>
       )}
 
       {/* Scout unavailable (Zyte key missing) */}
       {!validating && zyteUnavailable && (
-        <div className="flex items-center gap-2.5 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <p className="text-xs text-amber-300">
+        <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <p className="text-xs text-amber-700">
             <span className="font-semibold">Scout unavailable</span> — Zyte API key not configured. Mapping status unchanged.
           </p>
         </div>
@@ -372,9 +372,9 @@ function UrlCard({
 
       {/* Scout ran but returned no SCOUT_* logs — indicates validator issue */}
       {scoutRanButNoLogs && !zyteUnavailable && (
-        <div className="flex items-center gap-2.5 bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2.5">
-          <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-          <p className="text-xs text-red-300">
+        <div className="flex items-center gap-2.5 bg-red-50 border border-red-300 rounded-lg px-3 py-2.5">
+          <XCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+          <p className="text-xs text-red-700">
             Scout did not run — no validation logs returned. Check console for errors.
           </p>
         </div>
@@ -382,9 +382,9 @@ function UrlCard({
 
       {/* Broader search notice (trim was requested but removed for a better score) */}
       {!validating && result.validationIssues?.some((i) => i.type === 'trim_removed_for_broader_market') && (
-        <div className="flex items-center gap-2.5 bg-zinc-800/60 border border-zinc-600 rounded-lg px-3 py-2.5">
-          <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-          <p className="text-xs text-zinc-300">
+        <div className="flex items-center gap-2.5 bg-slate-100 border border-slate-300 rounded-lg px-3 py-2.5">
+          <Info className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+          <p className="text-xs text-slate-700">
             <span className="font-semibold">Broader search</span> — the trim filter was not matched in listings. This URL covers the model market, not the exact trim version.
           </p>
         </div>
@@ -402,8 +402,8 @@ function UrlCard({
               key={i}
               className={`text-xs border px-2 py-0.5 rounded font-mono ${
                 issue.type === 'parser_failed_on_html'
-                  ? 'bg-red-900/20 text-red-400 border-red-700/40'
-                  : 'bg-zinc-800 text-amber-400 border-zinc-700'
+                  ? 'bg-red-50 text-red-600 border-red-300'
+                  : 'bg-slate-200 text-amber-600 border-slate-300'
               }`}
             >
               {issue.type}
@@ -425,11 +425,11 @@ function UrlCard({
       {/* Best verified URL (when different from original and better than correctedUrl display) */}
       {!validating && hasBestUrl && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2 text-xs text-blue-400">
+          <div className="flex items-center gap-2 text-xs text-blue-600">
             <RefreshCw className="w-3.5 h-3.5" />
             <span className="font-medium">Best verified URL</span>
             {result.correctionReason && (
-              <span className="text-zinc-500 italic">— {result.correctionReason}</span>
+              <span className="text-slate-500 italic">— {result.correctionReason}</span>
             )}
           </div>
           <UrlRow
@@ -445,11 +445,11 @@ function UrlCard({
       {/* Corrected URL (if best is same as corrected, show correction label) */}
       {!hasBestUrl && hasCorrectedUrl && result.correctedUrl && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2 text-xs text-blue-400">
+          <div className="flex items-center gap-2 text-xs text-blue-600">
             <RefreshCw className="w-3.5 h-3.5" />
             <span className="font-medium">Correction applied</span>
             {result.correctionReason && (
-              <span className="text-zinc-500 italic">— {result.correctionReason}</span>
+              <span className="text-slate-500 italic">— {result.correctionReason}</span>
             )}
           </div>
           <UrlRow
@@ -464,7 +464,7 @@ function UrlCard({
 
       {/* Correction reason when no retry was possible */}
       {!hasCorrectedUrl && !hasBestUrl && result.correctionReason && (
-        <p className="text-xs text-zinc-500 italic">
+        <p className="text-xs text-slate-500 italic">
           Correction: {result.correctionReason}
         </p>
       )}
@@ -480,7 +480,7 @@ function UrlCard({
 
       {/* Mapping source info */}
       {!validating && result.mappingSource && (
-        <div className="flex items-center gap-2 text-xs text-zinc-600 font-mono">
+        <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
           {result.mappingSource === 'learned' ? (
             <>
               <Brain className="w-3 h-3 text-green-600" />
@@ -505,7 +505,7 @@ function UrlCard({
         <div>
           <button
             onClick={() => setHypOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
           >
             {hypOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             <RefreshCw className="w-3.5 h-3.5" />
@@ -514,25 +514,25 @@ function UrlCard({
           {hypOpen && (
             <div className="mt-2 space-y-2">
               {result.testedHypotheses!.map((h, i) => (
-                <div key={i} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 space-y-1.5">
+                <div key={i} className="bg-white border border-slate-200 rounded-lg p-3 space-y-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-zinc-600 font-mono text-[10px]">H{h.rankInBatch}</span>
+                    <span className="text-slate-400 font-mono text-[10px]">H{h.rankInBatch}</span>
                     <StatusBadge status={h.status} />
                     <ScoreChip score={h.score} label="score" />
-                    <span className="text-xs text-zinc-500 italic">{h.reason}</span>
+                    <span className="text-xs text-slate-500 italic">{h.reason}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <a
                       href={h.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-blue-400 hover:text-blue-300 font-mono truncate flex-1 min-w-0"
+                      className="text-xs text-blue-600 hover:text-blue-700 font-mono truncate flex-1 min-w-0"
                     >
                       {h.url.slice(0, 90)}{h.url.length > 90 ? '…' : ''}
                     </a>
                     <button
                       onClick={() => navigator.clipboard.writeText(h.url)}
-                      className="shrink-0 text-zinc-600 hover:text-zinc-400"
+                      className="shrink-0 text-slate-400 hover:text-slate-600"
                     >
                       <Copy className="w-3 h-3" />
                     </button>
@@ -549,7 +549,7 @@ function UrlCard({
         <div>
           <button
             onClick={() => setDiagOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
           >
             {diagOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             <Info className="w-3.5 h-3.5" />
@@ -557,7 +557,7 @@ function UrlCard({
           </button>
 
           {diagOpen && (
-            <div className="mt-3 bg-zinc-950 border border-zinc-800 rounded-lg p-3 space-y-3">
+            <div className="mt-3 bg-white border border-slate-200 rounded-lg p-3 space-y-3">
               <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-mono">
                 {[
                   ['expectedDomain', result.diagnostics.expectedDomain],
@@ -572,14 +572,14 @@ function UrlCard({
                   ['listings', String(result.diagnostics.listingCount)],
                 ].map(([k, v]) => (
                   <div key={k} className="flex items-center gap-2">
-                    <span className="text-zinc-500 w-28 shrink-0">{k}</span>
+                    <span className="text-slate-500 w-28 shrink-0">{k}</span>
                     <span
                       className={
                         v === 'NO'
-                          ? 'text-red-400 font-semibold'
+                          ? 'text-red-600 font-semibold'
                           : v === 'yes'
-                          ? 'text-green-400'
-                          : 'text-zinc-400'
+                          ? 'text-green-600'
+                          : 'text-slate-600'
                       }
                     >
                       {v}
@@ -590,8 +590,8 @@ function UrlCard({
 
               {/* Parser details row */}
               {result.diagnostics.parserDetails && (
-                <div className="border-t border-zinc-800 pt-3 space-y-1">
-                  <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Parser</p>
+                <div className="border-t border-slate-200 pt-3 space-y-1">
+                  <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Parser</p>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-mono">
                     {[
                       ['htmlLength', `${Math.round(result.diagnostics.parserDetails.htmlLength / 1024)}KB`],
@@ -600,8 +600,8 @@ function UrlCard({
                       ['method', result.diagnostics.parserDetails.extractionMethod],
                     ].map(([k, v]) => (
                       <div key={k} className="flex items-center gap-2">
-                        <span className="text-zinc-500 w-28 shrink-0">{k}</span>
-                        <span className={result.diagnostics!.parserDetails!.parsedSampleCount === 0 && k === 'listings parsed' ? 'text-red-400 font-semibold' : 'text-zinc-400'}>{v}</span>
+                        <span className="text-slate-500 w-28 shrink-0">{k}</span>
+                        <span className={result.diagnostics!.parserDetails!.parsedSampleCount === 0 && k === 'listings parsed' ? 'text-red-600 font-semibold' : 'text-slate-600'}>{v}</span>
                       </div>
                     ))}
                   </div>
@@ -609,23 +609,23 @@ function UrlCard({
               )}
 
               {/* Parsed sample listings */}
-              <div className="border-t border-zinc-800 pt-3 space-y-1.5">
-                <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Parsed sample listings</p>
+              <div className="border-t border-slate-200 pt-3 space-y-1.5">
+                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Parsed sample listings</p>
                 {result.diagnostics.parsedSampleListings && result.diagnostics.parsedSampleListings.length > 0 ? (
                   result.diagnostics.parsedSampleListings.map((l, i) => (
-                    <div key={i} className="bg-zinc-900 rounded px-3 py-2 space-y-0.5">
-                      <p className="text-xs text-zinc-200 font-medium truncate">{l.title}</p>
+                    <div key={i} className="bg-white rounded px-3 py-2 space-y-0.5">
+                      <p className="text-xs text-slate-800 font-medium truncate">{l.title}</p>
                       <div className="flex items-center gap-2 flex-wrap">
-                        {l.year && <span className="text-[10px] font-mono text-zinc-400">{l.year}</span>}
-                        {l.mileage && <span className="text-[10px] font-mono text-zinc-400">{Math.round(l.mileage / 1000)}k km</span>}
-                        {l.fuel && <span className="text-[10px] font-mono text-zinc-500">{l.fuel}</span>}
-                        {l.price > 0 && <span className="text-[10px] font-mono text-zinc-400">€{l.price.toLocaleString('fr-FR')}</span>}
+                        {l.year && <span className="text-[10px] font-mono text-slate-600">{l.year}</span>}
+                        {l.mileage && <span className="text-[10px] font-mono text-slate-600">{Math.round(l.mileage / 1000)}k km</span>}
+                        {l.fuel && <span className="text-[10px] font-mono text-slate-500">{l.fuel}</span>}
+                        {l.price > 0 && <span className="text-[10px] font-mono text-slate-600">€{l.price.toLocaleString('fr-FR')}</span>}
                       </div>
                     </div>
                   ))
                 ) : result.diagnostics.parserDetails ? (
-                  <div className="bg-zinc-900 rounded px-3 py-2.5">
-                    <p className="text-xs text-red-400 font-mono">
+                  <div className="bg-white rounded px-3 py-2.5">
+                    <p className="text-xs text-red-600 font-mono">
                       {result.diagnostics.parserDetails.htmlLength > 100_000
                         ? `HTML fetched (${Math.round(result.diagnostics.parserDetails.htmlLength / 1024)}KB) but parser extracted 0 listings.`
                         : 'No HTML or very small page — fetch may have failed silently.'}
@@ -635,10 +635,10 @@ function UrlCard({
               </div>
 
               {result.diagnostics.sampleTitles.length > 0 && (
-                <div className="space-y-1 border-t border-zinc-800 pt-3">
-                  <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Sample titles (enriched)</p>
+                <div className="space-y-1 border-t border-slate-200 pt-3">
+                  <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Sample titles (enriched)</p>
                   {result.diagnostics.sampleTitles.map((t, i) => (
-                    <p key={i} className="text-xs text-zinc-400 font-mono truncate">
+                    <p key={i} className="text-xs text-slate-600 font-mono truncate">
                       {i + 1}. {t}
                     </p>
                   ))}
@@ -653,7 +653,7 @@ function UrlCard({
       <div>
         <button
           onClick={() => setDebugOpen((v) => !v)}
-          className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
         >
           {debugOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           Debug logs ({result.debugLogs.length})
@@ -664,26 +664,26 @@ function UrlCard({
             {result.debugLogs.map((log, i) => {
               const color =
                 log.level === 'INPUT'
-                  ? 'text-amber-400'
+                  ? 'text-amber-600'
                   : log.level === 'MAPPING'
-                  ? 'text-cyan-400'
+                  ? 'text-cyan-600'
                   : log.level === 'WARNING'
-                  ? 'text-orange-400'
+                  ? 'text-orange-600'
                   : log.level === 'VALIDATION'
-                  ? 'text-sky-400'
+                  ? 'text-sky-600'
                   : log.level === 'SCOUT'
-                  ? 'text-violet-400'
-                  : 'text-green-400';
+                  ? 'text-violet-600'
+                  : 'text-green-600';
               return (
-                <div key={i} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 space-y-2">
+                <div key={i} className="bg-white border border-slate-200 rounded-lg p-3 space-y-2">
                   <p className={`text-xs font-mono font-semibold ${color}`}>{log.message}</p>
                   {log.data && (
                     <table className="w-full text-xs font-mono">
                       <tbody>
                         {Object.entries(log.data).map(([k, v]) => (
                           <tr key={k}>
-                            <td className="text-zinc-500 pr-4 py-0.5 align-top whitespace-nowrap">{k}</td>
-                            <td className="text-zinc-300 py-0.5 break-all">{String(v)}</td>
+                            <td className="text-slate-500 pr-4 py-0.5 align-top whitespace-nowrap">{k}</td>
+                            <td className="text-slate-700 py-0.5 break-all">{String(v)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -925,12 +925,12 @@ export function LinkGenerator() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-600/10 rounded-lg border border-blue-600/20">
-            <Link2 className="w-5 h-5 text-blue-400" />
+          <div className="p-2 bg-blue-100 rounded-lg border border-blue-600/20">
+            <Link2 className="w-5 h-5 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-zinc-100">Link Generator</h1>
-            <p className="text-sm text-zinc-500">
+            <h1 className="text-xl font-semibold text-slate-900">Link Generator</h1>
+            <p className="text-sm text-slate-500">
               Generate and validate multi-market search URLs for ADA studies
             </p>
           </div>
@@ -938,7 +938,7 @@ export function LinkGenerator() {
         <button
           onClick={handleClear}
           title="Clear form, results and local session data (does not delete memory)"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-500 hover:text-red-400 hover:bg-red-900/10 border border-zinc-800 hover:border-red-900/40 rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 border border-slate-200 hover:border-red-300 rounded-lg transition-colors"
         >
           <Trash2 className="w-3.5 h-3.5" />
           Clear
@@ -946,18 +946,18 @@ export function LinkGenerator() {
       </div>
 
       {/* Form */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-6">
+      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-6">
 
         {/* Site selection */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Markets</label>
+            <label className="text-xs font-medium text-slate-600 uppercase tracking-wider">Markets</label>
             <div className="flex gap-2">
-              <button onClick={selectAll} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+              <button onClick={selectAll} className="text-xs text-blue-600 hover:text-blue-700 transition-colors">
                 Select all
               </button>
-              <span className="text-zinc-700">·</span>
-              <button onClick={clearAll} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+              <span className="text-slate-300">·</span>
+              <button onClick={clearAll} className="text-xs text-slate-500 hover:text-slate-700 transition-colors">
                 Clear
               </button>
             </div>
@@ -972,7 +972,7 @@ export function LinkGenerator() {
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
                     active
                       ? 'bg-blue-600 border-blue-500 text-white'
-                      : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-600 hover:text-zinc-100'
+                      : 'bg-slate-200 border-slate-300 text-slate-700 hover:border-slate-300 hover:text-slate-900'
                   }`}
                 >
                   <span>{opt.flag}</span>
@@ -989,27 +989,27 @@ export function LinkGenerator() {
         {/* Brand & Model */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">
-              Brand <span className="text-red-400">*</span>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">
+              Brand <span className="text-red-600">*</span>
             </label>
             <input
               type="text"
               value={brand}
               onChange={(e) => setBrand(e.target.value)}
               placeholder="ex: TOYOTA"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">
-              Model <span className="text-red-400">*</span>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">
+              Model <span className="text-red-600">*</span>
             </label>
             <input
               type="text"
               value={model}
               onChange={(e) => setModel(e.target.value)}
               placeholder="ex: RAV4"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
         </div>
@@ -1017,7 +1017,7 @@ export function LinkGenerator() {
         {/* Year range */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Year From</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Year From</label>
             <input
               type="number"
               value={yearFrom}
@@ -1025,11 +1025,11 @@ export function LinkGenerator() {
               placeholder="ex: 2020"
               min="1990"
               max="2030"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Year To</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Year To</label>
             <input
               type="number"
               value={yearTo}
@@ -1037,7 +1037,7 @@ export function LinkGenerator() {
               placeholder="ex: 2023"
               min="1990"
               max="2030"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
         </div>
@@ -1045,28 +1045,28 @@ export function LinkGenerator() {
         {/* Mileage & Min Power */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Max Mileage (km)</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Max Mileage (km)</label>
             <input
               type="number"
               value={mileage}
               onChange={(e) => setMileage(e.target.value)}
               placeholder="ex: 100000"
               min="0"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Min Power (CV)</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Min Power (CV)</label>
             <input
               type="number"
               value={minPower}
               onChange={(e) => setMinPower(e.target.value)}
               placeholder="ex: 150"
               min="0"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
             />
             {minPower && (
-              <p className="mt-1 text-xs text-zinc-500">Appliqué sur les sites qui le supportent (AutoScout) ; ignoré ailleurs.</p>
+              <p className="mt-1 text-xs text-slate-500">Appliqué sur les sites qui le supportent (AutoScout) ; ignoré ailleurs.</p>
             )}
           </div>
         </div>
@@ -1074,11 +1074,11 @@ export function LinkGenerator() {
         {/* Fuel & Trim */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Fuel</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Fuel</label>
             <select
               value={fuel}
               onChange={(e) => setFuel(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
             >
               <option value="">— Optional —</option>
               {FUEL_OPTIONS.map((f) => (
@@ -1087,13 +1087,13 @@ export function LinkGenerator() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Trim / Version</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Trim / Version</label>
             <input
               type="text"
               value={trim}
               onChange={(e) => setTrim(e.target.value)}
               placeholder="ex: GR SPORT"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
         </div>
@@ -1101,11 +1101,11 @@ export function LinkGenerator() {
         {/* Secondary criteria — parity with the Ingestion form. */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Boîte</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Boîte</label>
             <select
               value={gearbox}
               onChange={(e) => setGearbox(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
             >
               <option value="">— Optional —</option>
               <option value="Manuelle">Manuelle</option>
@@ -1114,43 +1114,43 @@ export function LinkGenerator() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Portes</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Portes</label>
             <input type="number" value={doors} onChange={(e) => setDoors(e.target.value)} placeholder="ex: 5" min="0"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors" />
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Places</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Places</label>
             <input type="number" value={seats} onChange={(e) => setSeats(e.target.value)} placeholder="ex: 5" min="0"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors" />
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Couleur</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Couleur</label>
             <input type="text" value={color} onChange={(e) => setColor(e.target.value)} placeholder="ex: Gris"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors" />
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Type</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2 uppercase tracking-wider">Type</label>
             <input type="text" value={vehicleType} onChange={(e) => setVehicleType(e.target.value)} placeholder="ex: Berline"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors" />
+              className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors" />
           </div>
         </div>
 
         {/* Sort is always price-ascending on every generated URL. */}
-        <p className="text-xs text-zinc-500 flex items-center gap-1.5">
-          <span className="text-emerald-400">↑</span>
-          Tri : <span className="text-zinc-300">prix croissant</span> — appliqué automatiquement à toutes les URLs générées.
+        <p className="text-xs text-slate-500 flex items-center gap-1.5">
+          <span className="text-emerald-600">↑</span>
+          Tri : <span className="text-slate-700">prix croissant</span> — appliqué automatiquement à toutes les URLs générées.
         </p>
 
         {/* Memory toggle */}
-        <div className="flex items-center justify-between py-2 px-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
+        <div className="flex items-center justify-between py-2 px-3 bg-slate-100 rounded-lg border border-slate-300">
           <div className="flex items-center gap-2">
-            <Brain className="w-3.5 h-3.5 text-green-400" />
-            <span className="text-xs text-zinc-300">Use learned mappings (memory-first)</span>
+            <Brain className="w-3.5 h-3.5 text-green-600" />
+            <span className="text-xs text-slate-700">Use learned mappings (memory-first)</span>
           </div>
           <button
             onClick={() => setUseMemory((v) => !v)}
             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-              useMemory ? 'bg-green-600' : 'bg-zinc-600'
+              useMemory ? 'bg-green-600' : 'bg-slate-400'
             }`}
           >
             <span
@@ -1168,7 +1168,7 @@ export function LinkGenerator() {
           className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-medium text-sm transition-colors ${
             isFormValid && !generating
               ? 'bg-blue-600 hover:bg-blue-500 text-white'
-              : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+              : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           }`}
         >
           {generating ? (
@@ -1188,9 +1188,9 @@ export function LinkGenerator() {
           {/* Header row */}
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">
+              <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
                 Generated URLs
-                <span className="ml-2 text-zinc-500 normal-case font-normal text-xs">
+                <span className="ml-2 text-slate-500 normal-case font-normal text-xs">
                   {results.length} market{results.length > 1 ? 's' : ''}
                 </span>
               </h2>
@@ -1200,12 +1200,12 @@ export function LinkGenerator() {
                 const partial = results.filter((r) => (r.bestVerifiedStatus ?? r.validationStatus) === 'partial').length;
                 const invalid = results.filter((r) => (r.bestVerifiedStatus ?? r.validationStatus) === 'invalid').length;
                 return (
-                  <p className="text-xs text-zinc-500 mt-0.5 font-mono">
-                    {valid > 0 && <span className="text-green-400">{valid} valid</span>}
-                    {valid > 0 && (partial > 0 || invalid > 0) && <span className="mx-1 text-zinc-600">·</span>}
-                    {partial > 0 && <span className="text-amber-400">{partial} partial</span>}
-                    {partial > 0 && invalid > 0 && <span className="mx-1 text-zinc-600">·</span>}
-                    {invalid > 0 && <span className="text-red-400">{invalid} invalid</span>}
+                  <p className="text-xs text-slate-500 mt-0.5 font-mono">
+                    {valid > 0 && <span className="text-green-600">{valid} valid</span>}
+                    {valid > 0 && (partial > 0 || invalid > 0) && <span className="mx-1 text-slate-400">·</span>}
+                    {partial > 0 && <span className="text-amber-600">{partial} partial</span>}
+                    {partial > 0 && invalid > 0 && <span className="mx-1 text-slate-400">·</span>}
+                    {invalid > 0 && <span className="text-red-600">{invalid} invalid</span>}
                   </p>
                 );
               })()}
@@ -1222,7 +1222,7 @@ export function LinkGenerator() {
               className={`shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-lg border text-sm font-semibold transition-all shadow-sm ${
                 !validating
                   ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-500 hover:border-blue-400'
-                  : 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                  : 'bg-white border-slate-200 text-slate-400 cursor-not-allowed'
               }`}
             >
               {validating ? (
@@ -1236,9 +1236,9 @@ export function LinkGenerator() {
 
           {/* No Zyte key warning */}
           {!hasZyteKey && (
-            <div className="flex items-center gap-2.5 bg-amber-900/20 border border-amber-700/40 rounded-lg px-4 py-3">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-              <p className="text-xs text-amber-300">
+            <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-300 rounded-lg px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <p className="text-xs text-amber-700">
                 <span className="font-semibold">Scout unavailable</span> — Zyte API key not configured.
                 Set <span className="font-mono">VITE_ZYTE_API_KEY</span> in your <span className="font-mono">.env</span> to enable real listing validation.
               </p>
@@ -1247,14 +1247,14 @@ export function LinkGenerator() {
 
           {/* Global loading banner */}
           {validating && (
-            <div className="bg-blue-950/40 border border-blue-700/40 rounded-lg px-4 py-3 space-y-2">
+            <div className="bg-blue-50 border border-blue-300 rounded-lg px-4 py-3 space-y-2">
               <div className="flex items-center gap-2.5">
-                <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0" />
-                <p className="text-xs text-blue-300 font-medium">
+                <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+                <p className="text-xs text-blue-700 font-medium">
                   Scout is running — fetching real listings for each URL (max 3 requests per site)
                 </p>
               </div>
-              <div className="h-1 bg-blue-900/40 rounded-full overflow-hidden">
+              <div className="h-1 bg-blue-50 rounded-full overflow-hidden">
                 <div className="h-full bg-blue-500 rounded-full animate-pulse w-full" />
               </div>
             </div>
@@ -1272,23 +1272,23 @@ export function LinkGenerator() {
 
       {/* Session history */}
       {history.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
           <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-zinc-500" />
-            <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Session History</span>
+            <Clock className="w-4 h-4 text-slate-500" />
+            <span className="text-xs font-medium text-slate-600 uppercase tracking-wider">Session History</span>
           </div>
           <div className="space-y-4">
             {history.map((entry, i) => (
-              <div key={i} className="py-3 border-b border-zinc-800 last:border-0 space-y-2">
+              <div key={i} className="py-3 border-b border-slate-200 last:border-0 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-zinc-300 font-medium">
+                  <span className="text-xs text-slate-700 font-medium">
                     {entry.params.brand} {entry.params.model}
                     {entry.params.trim ? ` · ${entry.params.trim}` : ''}
                   </span>
-                  <span className="text-zinc-700 text-xs">
+                  <span className="text-slate-300 text-xs">
                     {entry.results.map((r) => SITE_OPTIONS.find((s) => s.value === r.site)?.flag).join(' ')}
                   </span>
-                  <span className="text-zinc-600 text-xs ml-auto">
+                  <span className="text-slate-400 text-xs ml-auto">
                     {entry.timestamp.toLocaleTimeString()}
                   </span>
                 </div>
@@ -1297,24 +1297,24 @@ export function LinkGenerator() {
                   const site = SITE_OPTIONS.find((s) => s.value === r.site);
                   return (
                     <div key={r.site} className="flex items-center gap-2 pl-1">
-                      <span className="text-xs text-zinc-500 w-28 shrink-0">
+                      <span className="text-xs text-slate-500 w-28 shrink-0">
                         {site?.flag} {site?.label}
                       </span>
-                      <code className="text-xs text-zinc-600 font-mono truncate flex-1">{r.url}</code>
+                      <code className="text-xs text-slate-400 font-mono truncate flex-1">{r.url}</code>
                       {r.validationStatus !== 'not_checked' && (
                         <StatusBadge status={r.validationStatus} />
                       )}
                       <div className="flex gap-1 shrink-0">
                         <button
                           onClick={() => navigator.clipboard.writeText(r.correctedUrl ?? r.url)}
-                          className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition-colors"
+                          className="p-1.5 bg-slate-200 hover:bg-slate-300 rounded text-slate-600 transition-colors"
                           title={r.correctedUrl ? 'Copy corrected URL' : 'Copy URL'}
                         >
                           <Copy className="w-3 h-3" />
                         </button>
                         <button
                           onClick={() => window.open(r.correctedUrl ?? r.url, '_blank', 'noopener,noreferrer')}
-                          className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition-colors"
+                          className="p-1.5 bg-slate-200 hover:bg-slate-300 rounded text-slate-600 transition-colors"
                           title="Open"
                         >
                           <ExternalLink className="w-3 h-3" />
@@ -1330,7 +1330,7 @@ export function LinkGenerator() {
                     {entry.corrections
                       .filter((c) => c.correctedUrl)
                       .map((c, j) => (
-                        <p key={j} className="text-xs text-blue-400/70 italic">
+                        <p key={j} className="text-xs text-blue-600/70 italic">
                           {SITE_OPTIONS.find((s) => s.value === c.site)?.label}: {c.correctionReason}
                         </p>
                       ))}
@@ -1408,39 +1408,39 @@ function MappingMemoryExplorer() {
   }
 
   const statusColor = (s: string) =>
-    s === 'valid' ? 'text-green-400 bg-green-900/20 border-green-700/40' :
-    s === 'invalid' ? 'text-red-400 bg-red-900/20 border-red-700/40' :
-    s === 'partial' ? 'text-amber-400 bg-amber-900/20 border-amber-700/40' :
-    'text-zinc-400 bg-zinc-800/60 border-zinc-700'; // pending
+    s === 'valid' ? 'text-green-600 bg-green-50 border-green-300' :
+    s === 'invalid' ? 'text-red-600 bg-red-50 border-red-300' :
+    s === 'partial' ? 'text-amber-600 bg-amber-50 border-amber-300' :
+    'text-slate-600 bg-slate-100 border-slate-300'; // pending
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-6 py-4 hover:bg-zinc-800/50 transition-colors"
+        className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-100 transition-colors"
       >
         <div className="flex items-center gap-3">
-          <div className="p-1.5 bg-blue-600/10 rounded-lg border border-blue-600/20">
-            <Brain className="w-4 h-4 text-blue-400" />
+          <div className="p-1.5 bg-blue-100 rounded-lg border border-blue-600/20">
+            <Brain className="w-4 h-4 text-blue-600" />
           </div>
           <div className="text-left">
-            <p className="text-sm font-semibold text-zinc-100">Mapping Memory Explorer</p>
-            <p className="text-xs text-zinc-500">Inspect, revalidate, and delete learned URL mappings</p>
+            <p className="text-sm font-semibold text-slate-900">Mapping Memory Explorer</p>
+            <p className="text-xs text-slate-500">Inspect, revalidate, and delete learned URL mappings</p>
           </div>
         </div>
-        {open ? <ChevronDown className="w-4 h-4 text-zinc-500" /> : <ChevronRight className="w-4 h-4 text-zinc-500" />}
+        {open ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
       </button>
 
       {open && (
-        <div className="px-6 pb-6 border-t border-zinc-800 space-y-4 pt-5">
+        <div className="px-6 pb-6 border-t border-slate-200 space-y-4 pt-5">
           {/* Filters + load */}
           <div className="flex flex-wrap gap-3 items-end">
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Site</label>
+              <label className="text-[10px] text-slate-500 uppercase tracking-wider">Site</label>
               <select
                 value={filter.site}
                 onChange={(e) => setFilter((f) => ({ ...f, site: e.target.value }))}
-                className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                className="bg-slate-200 border border-slate-300 rounded text-xs text-slate-800 px-2 py-1.5 focus:outline-none focus:border-blue-500"
               >
                 <option value="">All sites</option>
                 <option value="LEBONCOIN">Leboncoin</option>
@@ -1449,11 +1449,11 @@ function MappingMemoryExplorer() {
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Status</label>
+              <label className="text-[10px] text-slate-500 uppercase tracking-wider">Status</label>
               <select
                 value={filter.status}
                 onChange={(e) => setFilter((f) => ({ ...f, status: e.target.value }))}
-                className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                className="bg-slate-200 border border-slate-300 rounded text-xs text-slate-800 px-2 py-1.5 focus:outline-none focus:border-blue-500"
               >
                 <option value="">All</option>
                 <option value="pending">Pending</option>
@@ -1462,19 +1462,19 @@ function MappingMemoryExplorer() {
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Brand</label>
+              <label className="text-[10px] text-slate-500 uppercase tracking-wider">Brand</label>
               <input
                 type="text"
                 value={filter.brand}
                 onChange={(e) => setFilter((f) => ({ ...f, brand: e.target.value }))}
                 placeholder="e.g. BMW"
-                className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-blue-500 w-32"
+                className="bg-slate-200 border border-slate-300 rounded text-xs text-slate-800 px-2 py-1.5 focus:outline-none focus:border-blue-500 w-32"
               />
             </div>
             <button
               onClick={loadRecords}
               disabled={loading}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-xs text-zinc-200 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 border border-slate-300 rounded text-xs text-slate-800 transition-colors disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
               {loading ? 'Loading...' : 'Load mappings'}
@@ -1483,35 +1483,35 @@ function MappingMemoryExplorer() {
 
           {/* Table */}
           {records.length === 0 && !loading && (
-            <p className="text-xs text-zinc-600 italic">No records loaded. Click "Load mappings" to start.</p>
+            <p className="text-xs text-slate-400 italic">No records loaded. Click "Load mappings" to start.</p>
           )}
 
           {records.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs text-zinc-500">{records.length} records</p>
+              <p className="text-xs text-slate-500">{records.length} records</p>
               {records.map((record) => (
-                <div key={record.id} className="bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden">
+                <div key={record.id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
                   {/* Row summary */}
                   <div className="flex items-center gap-3 px-4 py-3">
                     <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
-                      <span className="text-[10px] font-mono text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{record.site}</span>
-                      <span className="text-xs text-zinc-200 font-medium">{record.brand} {record.model}</span>
-                      {record.fuel && <span className="text-xs text-zinc-500">{record.fuel}</span>}
-                      {record.trim && <span className="text-xs text-zinc-600 italic">{record.trim}</span>}
+                      <span className="text-[10px] font-mono text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">{record.site}</span>
+                      <span className="text-xs text-slate-800 font-medium">{record.brand} {record.model}</span>
+                      {record.fuel && <span className="text-xs text-slate-500">{record.fuel}</span>}
+                      {record.trim && <span className="text-xs text-slate-400 italic">{record.trim}</span>}
                       <span className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded ${statusColor(record.validation_status)}`}>
                         {record.validation_status}
                       </span>
                       {record.validation_status === 'pending' && (
-                        <span className="text-[10px] text-zinc-500 italic">CSV only — not Scout validated yet</span>
+                        <span className="text-[10px] text-slate-500 italic">CSV only — not Scout validated yet</span>
                       )}
                       {record.scout_score > 0 && (
-                        <span className="text-[10px] font-mono text-zinc-400">score {record.scout_score}</span>
+                        <span className="text-[10px] font-mono text-slate-600">score {record.scout_score}</span>
                       )}
-                      <span className="text-[10px] text-zinc-600 font-mono">
+                      <span className="text-[10px] text-slate-400 font-mono">
                         ✓{record.success_count} ✗{record.failure_count}
                       </span>
                       {record.last_checked_at && (
-                        <span className="text-[10px] text-zinc-600 font-mono">
+                        <span className="text-[10px] text-slate-400 font-mono">
                           {new Date(record.last_checked_at).toLocaleDateString()}
                         </span>
                       )}
@@ -1520,14 +1520,14 @@ function MappingMemoryExplorer() {
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         onClick={() => setExpandedId(expandedId === record.id ? null : record.id)}
-                        className="text-[10px] px-2 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-zinc-400 transition-colors"
+                        className="text-[10px] px-2 py-1 bg-slate-200 hover:bg-slate-300 border border-slate-300 rounded text-slate-600 transition-colors"
                       >
                         {expandedId === record.id ? 'Close' : 'Details'}
                       </button>
                       <button
                         onClick={() => handleRevalidate(record)}
                         disabled={revalidatingId === record.id}
-                        className="text-[10px] px-2 py-1 bg-zinc-800 hover:bg-blue-900/40 border border-zinc-700 hover:border-blue-700/40 rounded text-zinc-400 hover:text-blue-400 transition-colors disabled:opacity-50"
+                        className="text-[10px] px-2 py-1 bg-slate-200 hover:bg-blue-50 border border-slate-300 hover:border-blue-300 rounded text-slate-600 hover:text-blue-600 transition-colors disabled:opacity-50"
                       >
                         {revalidatingId === record.id ? (
                           <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Checking...</span>
@@ -1537,13 +1537,13 @@ function MappingMemoryExplorer() {
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => handleDelete(record.id)}
-                            className="text-[10px] px-2 py-1 bg-red-900/40 border border-red-700/40 rounded text-red-400 transition-colors"
+                            className="text-[10px] px-2 py-1 bg-red-50 border border-red-300 rounded text-red-600 transition-colors"
                           >
                             Confirm
                           </button>
                           <button
                             onClick={() => setConfirmDeleteId(null)}
-                            className="text-[10px] px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-zinc-500 transition-colors"
+                            className="text-[10px] px-2 py-1 bg-slate-200 border border-slate-300 rounded text-slate-500 transition-colors"
                           >
                             Cancel
                           </button>
@@ -1551,7 +1551,7 @@ function MappingMemoryExplorer() {
                       ) : (
                         <button
                           onClick={() => setConfirmDeleteId(record.id)}
-                          className="text-[10px] px-2 py-1 bg-zinc-800 hover:bg-red-900/20 border border-zinc-700 hover:border-red-700/40 rounded text-zinc-500 hover:text-red-400 transition-colors"
+                          className="text-[10px] px-2 py-1 bg-slate-200 hover:bg-red-50 border border-slate-300 hover:border-red-300 rounded text-slate-500 hover:text-red-600 transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -1562,15 +1562,15 @@ function MappingMemoryExplorer() {
                   {revalidateMsg[record.id] && (
                     <div className={`px-4 pb-2 text-[10px] font-mono ${
                       revalidateMsg[record.id].includes('unavailable') || revalidateMsg[record.id].includes('failed')
-                        ? 'text-amber-400'
+                        ? 'text-amber-600'
                         : revalidateMsg[record.id].includes('valid')
-                        ? 'text-green-400'
-                        : 'text-red-400'
+                        ? 'text-green-600'
+                        : 'text-red-600'
                     }`}>{revalidateMsg[record.id]}</div>
                   )}
                   {/* Expanded details */}
                   {expandedId === record.id && (
-                    <div className="px-4 pb-4 border-t border-zinc-800/60 pt-3 space-y-3">
+                    <div className="px-4 pb-4 border-t border-slate-200 pt-3 space-y-3">
                       {[
                         ['source_url', record.source_url],
                         ['validated_url', record.validated_url],
@@ -1580,8 +1580,8 @@ function MappingMemoryExplorer() {
                         ['updated_at', record.updated_at],
                       ].map(([k, v]) => v ? (
                         <div key={k} className="flex items-start gap-3 text-xs font-mono">
-                          <span className="text-zinc-500 w-28 shrink-0">{k}</span>
-                          <span className="text-zinc-300 break-all">{v}</span>
+                          <span className="text-slate-500 w-28 shrink-0">{k}</span>
+                          <span className="text-slate-700 break-all">{v}</span>
                         </div>
                       ) : null)}
                       {[
@@ -1592,8 +1592,8 @@ function MappingMemoryExplorer() {
                         ['tested_hypotheses', record.tested_hypotheses],
                       ].map(([k, v]) => v ? (
                         <div key={String(k)}>
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">{String(k)}</p>
-                          <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">{String(k)}</p>
+                          <pre className="text-[10px] font-mono text-slate-600 bg-white border border-slate-200 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
                             {JSON.stringify(v, null, 2)}
                           </pre>
                         </div>
@@ -1627,26 +1627,26 @@ function CsvAnalysisRow({
   const [open, setOpen] = useState(false);
   const confidenceColor =
     analysis.confidence >= 0.7
-      ? 'text-green-400 bg-green-900/30 border-green-700/40'
+      ? 'text-green-600 bg-green-50 border-green-300'
       : analysis.confidence >= 0.4
-      ? 'text-amber-400 bg-amber-900/30 border-amber-700/40'
-      : 'text-red-400 bg-red-900/30 border-red-700/40';
+      ? 'text-amber-600 bg-amber-50 border-amber-300'
+      : 'text-red-600 bg-red-50 border-red-300';
 
   return (
-    <div className="bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden">
+    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-900/50 transition-colors text-left"
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/70 transition-colors text-left"
       >
         {open ? (
-          <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+          <ChevronDown className="w-3.5 h-3.5 text-slate-500 shrink-0" />
         ) : (
-          <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+          <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />
         )}
-        <span className="text-xs text-zinc-300 flex-1 min-w-0">
+        <span className="text-xs text-slate-700 flex-1 min-w-0">
           <span className="font-medium">{analysis.brand} {analysis.model}</span>
-          {analysis.trim && <span className="text-zinc-500 ml-1">· {analysis.trim}</span>}
-          <span className="text-zinc-600 ml-2 font-mono text-[10px]">{analysis.site}</span>
+          {analysis.trim && <span className="text-slate-500 ml-1">· {analysis.trim}</span>}
+          <span className="text-slate-400 ml-2 font-mono text-[10px]">{analysis.site}</span>
         </span>
         <span className={`text-xs font-semibold border px-2 py-0.5 rounded-full shrink-0 ${confidenceColor}`}>
           {Math.round(analysis.confidence * 100)}%
@@ -1654,10 +1654,10 @@ function CsvAnalysisRow({
       </button>
 
       {open && (
-        <div className="px-4 pb-4 space-y-3 border-t border-zinc-800/50">
+        <div className="px-4 pb-4 space-y-3 border-t border-slate-200">
           <div className="pt-3">
-            <p className="text-xs text-zinc-500 mb-1">Source URL</p>
-            <code className="block text-xs text-blue-300 break-all font-mono leading-relaxed">
+            <p className="text-xs text-slate-500 mb-1">Source URL</p>
+            <code className="block text-xs text-blue-700 break-all font-mono leading-relaxed">
               {analysis.sourceUrl}
             </code>
           </div>
@@ -1665,15 +1665,15 @@ function CsvAnalysisRow({
           <div className="grid grid-cols-2 gap-4">
             {Object.keys(analysis.detectedParams.queryParams).length > 0 && (
               <div>
-                <p className="text-xs text-zinc-500 mb-1">Query params</p>
+                <p className="text-xs text-slate-500 mb-1">Query params</p>
                 <div className="space-y-0.5">
                   {Object.entries(analysis.detectedParams.queryParams).map(([k, v]) => (
                     <div key={k} className="flex items-center gap-1 text-xs font-mono">
-                      <span className={analysis.inferredMapping.paramToField[k] ? 'text-green-400' : 'text-zinc-500'}>
+                      <span className={analysis.inferredMapping.paramToField[k] ? 'text-green-600' : 'text-slate-500'}>
                         {k}
                       </span>
-                      <span className="text-zinc-700">=</span>
-                      <span className="text-zinc-400 truncate max-w-[8rem]">{v.slice(0, 30)}</span>
+                      <span className="text-slate-300">=</span>
+                      <span className="text-slate-600 truncate max-w-[8rem]">{v.slice(0, 30)}</span>
                       {analysis.inferredMapping.paramToField[k] && (
                         <span className="text-green-600 text-[10px]">
                           ({analysis.inferredMapping.paramToField[k]})
@@ -1686,15 +1686,15 @@ function CsvAnalysisRow({
             )}
             {Object.keys(analysis.detectedParams.hashParams).length > 0 && (
               <div>
-                <p className="text-xs text-zinc-500 mb-1">Hash params</p>
+                <p className="text-xs text-slate-500 mb-1">Hash params</p>
                 <div className="space-y-0.5">
                   {Object.entries(analysis.detectedParams.hashParams).map(([k, v]) => (
                     <div key={k} className="flex items-center gap-1 text-xs font-mono">
-                      <span className={analysis.inferredMapping.paramToField[k] ? 'text-green-400' : 'text-zinc-500'}>
+                      <span className={analysis.inferredMapping.paramToField[k] ? 'text-green-600' : 'text-slate-500'}>
                         {k}
                       </span>
-                      <span className="text-zinc-700">:</span>
-                      <span className="text-zinc-400 truncate max-w-[8rem]">{v.slice(0, 30)}</span>
+                      <span className="text-slate-300">:</span>
+                      <span className="text-slate-600 truncate max-w-[8rem]">{v.slice(0, 30)}</span>
                       {analysis.inferredMapping.paramToField[k] && (
                         <span className="text-green-600 text-[10px]">
                           ({analysis.inferredMapping.paramToField[k]})
@@ -1709,7 +1709,7 @@ function CsvAnalysisRow({
 
           {/* Inferred mapping summary */}
           {(analysis.inferredMapping.brandParam || analysis.inferredMapping.modelParam) && (
-            <div className="bg-green-950/20 border border-green-800/30 rounded p-2 space-y-0.5">
+            <div className="bg-green-50 border border-green-300 rounded p-2 space-y-0.5">
               <p className="text-xs text-green-500 font-medium mb-1">Inferred mapping</p>
               {[
                 ['brand', analysis.inferredMapping.brandParam],
@@ -1723,7 +1723,7 @@ function CsvAnalysisRow({
               ]
                 .filter(([, v]) => v)
                 .map(([field, param]) => (
-                  <div key={field} className="text-xs font-mono text-green-400/70">
+                  <div key={field} className="text-xs font-mono text-green-600/70">
                     {field} → {param}
                   </div>
                 ))}
@@ -1736,7 +1736,7 @@ function CsvAnalysisRow({
                 <p key={i} className="text-xs text-amber-500 font-mono">{w}</p>
               ))}
               {analysis.warnings.length > 5 && (
-                <p className="text-xs text-zinc-600">+{analysis.warnings.length - 5} more warnings</p>
+                <p className="text-xs text-slate-400">+{analysis.warnings.length - 5} more warnings</p>
               )}
             </div>
           )}
@@ -1747,32 +1747,32 @@ function CsvAnalysisRow({
                 <button
                   onClick={onAskGpt}
                   disabled={gptLoading}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-xs text-zinc-200 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 border border-slate-300 rounded text-xs text-slate-800 transition-colors disabled:opacity-50"
                 >
                   {gptLoading ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
                   )}
                   {gptLoading ? 'Asking GPT...' : 'Ask GPT (low confidence)'}
                 </button>
               ) : gptResult.status === 'not_available' ? (
-                <p className="text-xs text-zinc-600 italic">
+                <p className="text-xs text-slate-400 italic">
                   GPT not configured server-side (OPENAI_API_KEY missing)
                 </p>
               ) : gptResult.status === 'ok' ? (
-                <div className="bg-amber-950/20 border border-amber-800/30 rounded-lg p-3 space-y-1.5">
+                <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="text-xs font-medium text-amber-400">GPT suggestion</span>
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                    <span className="text-xs font-medium text-amber-600">GPT suggestion</span>
                     {gptResult.confidence !== undefined && (
-                      <span className="text-xs text-zinc-500 ml-auto">
+                      <span className="text-xs text-slate-500 ml-auto">
                         confidence: {Math.round(gptResult.confidence * 100)}%
                       </span>
                     )}
                   </div>
                   {gptResult.explanation && (
-                    <p className="text-xs text-zinc-400 italic">{gptResult.explanation}</p>
+                    <p className="text-xs text-slate-600 italic">{gptResult.explanation}</p>
                   )}
                   <p className="text-xs text-amber-700">
                     GPT proposes — Scout must verify before this mapping becomes active.
@@ -1815,17 +1815,17 @@ function CsvImportDiagnosticsPanel({
   }
 
   return (
-    <div className={`rounded-lg border p-4 space-y-3 ${zeroResults ? 'bg-red-950/10 border-red-800/30' : 'bg-zinc-800/30 border-zinc-700/40'}`}>
+    <div className={`rounded-lg border p-4 space-y-3 ${zeroResults ? 'bg-red-50 border-red-300' : 'bg-slate-100 border-slate-300'}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Info className="w-4 h-4 text-zinc-400 shrink-0" />
-          <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">CSV Import Diagnostics</span>
+          <Info className="w-4 h-4 text-slate-600 shrink-0" />
+          <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">CSV Import Diagnostics</span>
         </div>
         {diagnostics.csvMode && (
           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border font-mono ${
             isAda
-              ? 'bg-blue-950/30 border-blue-800/40 text-blue-400'
-              : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+              ? 'bg-blue-50 border-blue-300 text-blue-600'
+              : 'bg-slate-200 border-slate-300 text-slate-600'
           }`}>
             {isAda ? 'headerless_ada' : 'headered'}
           </span>
@@ -1833,20 +1833,20 @@ function CsvImportDiagnosticsPanel({
       </div>
 
       {/* File info */}
-      <div className="flex items-center gap-2 text-xs text-zinc-400">
-        <span className="font-medium text-zinc-200">{diagnostics.filename}</span>
-        <span className="text-zinc-600">·</span>
+      <div className="flex items-center gap-2 text-xs text-slate-600">
+        <span className="font-medium text-slate-800">{diagnostics.filename}</span>
+        <span className="text-slate-400">·</span>
         <span>{formatBytes(diagnostics.fileSizeBytes)}</span>
-        <span className="text-zinc-600">·</span>
-        <span>separator: <code className="text-blue-300">{diagnostics.detectedSeparator}</code></span>
+        <span className="text-slate-400">·</span>
+        <span>separator: <code className="text-blue-700">{diagnostics.detectedSeparator}</code></span>
       </div>
 
       {/* ADA positional mapping */}
       {isAda && diagnostics.adaPositionalMapping && (
-        <div className="bg-blue-950/10 border border-blue-900/30 rounded p-3 space-y-2">
+        <div className="bg-blue-50 border border-blue-300 rounded p-3 space-y-2">
           <button
             onClick={() => setMappingOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors w-full"
+            className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 transition-colors w-full"
           >
             {mappingOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             <span className="font-medium">ADA positional mapping applied</span>
@@ -1855,9 +1855,9 @@ function CsvImportDiagnosticsPanel({
             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1">
               {Object.entries(diagnostics.adaPositionalMapping).map(([idx, field]) => (
                 <div key={idx} className="flex items-center gap-2 text-xs font-mono">
-                  <span className="text-zinc-600 w-4 text-right">{idx}</span>
-                  <span className="text-zinc-500">→</span>
-                  <span className={field.includes('url') ? 'text-blue-300' : field === 'study_id' ? 'text-zinc-500' : 'text-zinc-300'}>
+                  <span className="text-slate-400 w-4 text-right">{idx}</span>
+                  <span className="text-slate-500">→</span>
+                  <span className={field.includes('url') ? 'text-blue-700' : field === 'study_id' ? 'text-slate-500' : 'text-slate-700'}>
                     {field}
                   </span>
                 </div>
@@ -1870,15 +1870,15 @@ function CsvImportDiagnosticsPanel({
       {/* Headers (headered mode) */}
       {!isAda && (
         <div>
-          <p className="text-xs text-zinc-500 mb-1.5">Detected headers ({diagnostics.detectedHeaders.length})</p>
+          <p className="text-xs text-slate-500 mb-1.5">Detected headers ({diagnostics.detectedHeaders.length})</p>
           <div className="flex flex-wrap gap-1.5">
             {diagnostics.detectedHeaders.map((h) => (
-              <span key={h} className="text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 px-2 py-0.5 rounded font-mono">
+              <span key={h} className="text-xs bg-slate-200 border border-slate-300 text-slate-700 px-2 py-0.5 rounded font-mono">
                 {h}
               </span>
             ))}
             {diagnostics.detectedHeaders.length === 0 && (
-              <span className="text-xs text-red-400">No headers detected — is the file valid CSV?</span>
+              <span className="text-xs text-red-600">No headers detected — is the file valid CSV?</span>
             )}
           </div>
         </div>
@@ -1887,62 +1887,62 @@ function CsvImportDiagnosticsPanel({
       {/* Row counts */}
       <div className="flex flex-wrap gap-4 text-xs">
         <div>
-          <span className="text-zinc-500">Raw rows</span>
-          <span className="ml-1.5 font-semibold text-zinc-200">{diagnostics.rawRowCount}</span>
+          <span className="text-slate-500">Raw rows</span>
+          <span className="ml-1.5 font-semibold text-slate-800">{diagnostics.rawRowCount}</span>
         </div>
         {isAda ? (
           <>
             <div>
-              <span className="text-zinc-500">Generated rows</span>
-              <span className="ml-1.5 font-semibold text-green-400">{diagnostics.generatedRowCount ?? diagnostics.validRowCount}</span>
+              <span className="text-slate-500">Generated rows</span>
+              <span className="ml-1.5 font-semibold text-green-600">{diagnostics.generatedRowCount ?? diagnostics.validRowCount}</span>
             </div>
             {diagnostics.targetUrlCount !== undefined && (
               <div>
-                <span className="text-zinc-500">Target URLs</span>
-                <span className="ml-1.5 font-semibold text-blue-400">{diagnostics.targetUrlCount}</span>
+                <span className="text-slate-500">Target URLs</span>
+                <span className="ml-1.5 font-semibold text-blue-600">{diagnostics.targetUrlCount}</span>
               </div>
             )}
             {diagnostics.sourceUrlCount !== undefined && (
               <div>
-                <span className="text-zinc-500">Source URLs</span>
-                <span className="ml-1.5 font-semibold text-blue-400">{diagnostics.sourceUrlCount}</span>
+                <span className="text-slate-500">Source URLs</span>
+                <span className="ml-1.5 font-semibold text-blue-600">{diagnostics.sourceUrlCount}</span>
               </div>
             )}
           </>
         ) : (
           <div>
-            <span className="text-zinc-500">Valid</span>
-            <span className="ml-1.5 font-semibold text-green-400">{diagnostics.validRowCount}</span>
+            <span className="text-slate-500">Valid</span>
+            <span className="ml-1.5 font-semibold text-green-600">{diagnostics.validRowCount}</span>
           </div>
         )}
         {diagnostics.rejectedRowCount > 0 && (
           <div>
-            <span className="text-zinc-500">Rejected</span>
-            <span className="ml-1.5 font-semibold text-red-400">{diagnostics.rejectedRowCount}</span>
+            <span className="text-slate-500">Rejected</span>
+            <span className="ml-1.5 font-semibold text-red-600">{diagnostics.rejectedRowCount}</span>
           </div>
         )}
       </div>
 
       {/* Zero results alert */}
       {zeroResults && (
-        <div className="bg-red-950/20 border border-red-800/30 rounded p-3 space-y-1.5">
-          <p className="text-xs font-semibold text-red-400">0 rows could be analyzed</p>
+        <div className="bg-red-50 border border-red-300 rounded p-3 space-y-1.5">
+          <p className="text-xs font-semibold text-red-600">0 rows could be analyzed</p>
           {isAda ? (
-            <p className="text-xs text-zinc-400">
+            <p className="text-xs text-slate-600">
               ADA positional mode active but all rows were rejected. Check that columns 6 and 8 contain valid URLs and columns 1–2 contain brand/model.
             </p>
           ) : (
             <>
-              <p className="text-xs text-zinc-400">Make sure your CSV contains a URL column:</p>
+              <p className="text-xs text-slate-600">Make sure your CSV contains a URL column:</p>
               <div className="flex flex-wrap gap-1">
                 {['url', 'source_search_url', 'source_url', 'target_url', 'link'].map((n) => (
-                  <code key={n} className="text-xs bg-zinc-800 text-blue-300 px-1.5 py-0.5 rounded">{n}</code>
+                  <code key={n} className="text-xs bg-slate-200 text-blue-700 px-1.5 py-0.5 rounded">{n}</code>
                 ))}
               </div>
-              <p className="text-xs text-zinc-400 mt-1">
+              <p className="text-xs text-slate-600 mt-1">
                 And at least one of:{' '}
                 {['brand', 'marque', 'model', 'modele'].map((n) => (
-                  <code key={n} className="text-blue-300 mr-1">{n}</code>
+                  <code key={n} className="text-blue-700 mr-1">{n}</code>
                 ))}
               </p>
             </>
@@ -1955,7 +1955,7 @@ function CsvImportDiagnosticsPanel({
         <div>
           <button
             onClick={() => setRejectionsOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
           >
             {rejectionsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             Rejected rows ({diagnostics.rejections.length}{diagnostics.rejectedRowCount > 10 ? `, showing first 10 of ${diagnostics.rejectedRowCount}` : ''})
@@ -1964,16 +1964,16 @@ function CsvImportDiagnosticsPanel({
             <div className="mt-2 space-y-1">
               {diagnostics.rejections.map((r, i) => (
                 <div key={i} className="flex items-start gap-2 text-xs">
-                  <span className="text-zinc-600 font-mono shrink-0">row {r.rowIndex}</span>
+                  <span className="text-slate-400 font-mono shrink-0">row {r.rowIndex}</span>
                   <span className={`shrink-0 px-1.5 py-0 rounded text-[10px] font-medium ${
-                    r.reason === 'missing_url' ? 'bg-red-900/40 text-red-400' :
-                    r.reason === 'empty_row' ? 'bg-zinc-800 text-zinc-500' :
-                    'bg-amber-900/30 text-amber-400'
+                    r.reason === 'missing_url' ? 'bg-red-50 text-red-600' :
+                    r.reason === 'empty_row' ? 'bg-slate-200 text-slate-500' :
+                    'bg-amber-50 text-amber-600'
                   }`}>
                     {REJECTION_LABELS[r.reason] ?? r.reason}
                   </span>
                   {r.preview && (
-                    <span className="text-zinc-600 font-mono truncate">{r.preview}</span>
+                    <span className="text-slate-400 font-mono truncate">{r.preview}</span>
                   )}
                 </div>
               ))}

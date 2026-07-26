@@ -22,13 +22,13 @@ export function StudiesV2() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-zinc-100">Ada</h1>
-        <p className="text-zinc-400 mt-2">
+        <h1 className="text-3xl font-bold text-slate-900">Ada</h1>
+        <p className="text-slate-600 mt-2">
           Automated sourcing analysis for target and source markets
         </p>
       </div>
 
-      <div className="border-b border-zinc-800">
+      <div className="border-b border-slate-200">
         <nav className="flex gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -38,8 +38,8 @@ export function StudiesV2() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-3 flex items-center gap-2 border-b-2 transition-colors ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-400'
-                    : 'border-transparent text-zinc-400 hover:text-zinc-300'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-slate-600 hover:text-slate-700'
                 }`}
               >
                 <Icon size={18} />

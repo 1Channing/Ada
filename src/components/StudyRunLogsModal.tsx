@@ -60,45 +60,45 @@ function getLevelIcon(level?: string, stage?: string) {
   const isErr = level === 'error' || stage === 'ERROR' || stage === 'error';
   const isWarn = level === 'warning';
   const isDone = stage === 'RESULT' || stage === 'done';
-  if (isErr) return <AlertTriangle size={13} className="text-red-400 shrink-0 mt-0.5" />;
-  if (isWarn) return <AlertTriangle size={13} className="text-amber-400 shrink-0 mt-0.5" />;
-  if (isDone) return <CheckCircle size={13} className="text-emerald-400 shrink-0 mt-0.5" />;
-  return <Info size={13} className="text-zinc-500 shrink-0 mt-0.5" />;
+  if (isErr) return <AlertTriangle size={13} className="text-red-600 shrink-0 mt-0.5" />;
+  if (isWarn) return <AlertTriangle size={13} className="text-amber-600 shrink-0 mt-0.5" />;
+  if (isDone) return <CheckCircle size={13} className="text-emerald-600 shrink-0 mt-0.5" />;
+  return <Info size={13} className="text-slate-500 shrink-0 mt-0.5" />;
 }
 
 function getLogRowClass(level?: string, stage?: string): string {
-  if (level === 'error' || stage === 'ERROR' || stage === 'error') return 'bg-red-950/20 border-l-2 border-red-700';
-  if (level === 'warning') return 'bg-amber-950/20 border-l-2 border-amber-700';
-  if (stage === 'RESULT' || stage === 'done') return 'bg-emerald-950/20 border-l-2 border-emerald-700';
-  if (stage === 'INPUT') return 'bg-blue-950/20 border-l-2 border-blue-700';
-  if (stage === 'URL_TARGET' || stage === 'URL_SOURCE') return 'bg-zinc-800/40 border-l-2 border-zinc-600';
+  if (level === 'error' || stage === 'ERROR' || stage === 'error') return 'bg-red-50 border-l-2 border-red-300';
+  if (level === 'warning') return 'bg-amber-50 border-l-2 border-amber-300';
+  if (stage === 'RESULT' || stage === 'done') return 'bg-emerald-50 border-l-2 border-emerald-300';
+  if (stage === 'INPUT') return 'bg-blue-50 border-l-2 border-blue-300';
+  if (stage === 'URL_TARGET' || stage === 'URL_SOURCE') return 'bg-slate-100 border-l-2 border-slate-300';
   return 'border-l-2 border-transparent';
 }
 
 function getLogTextClass(level?: string, stage?: string): string {
-  if (level === 'error' || stage === 'ERROR' || stage === 'error') return 'text-red-300';
-  if (level === 'warning') return 'text-amber-300';
-  if (stage === 'RESULT' || stage === 'done') return 'text-emerald-300';
-  if (stage === 'INPUT') return 'text-blue-300';
-  if (stage === 'URL_TARGET' || stage === 'URL_SOURCE') return 'text-zinc-400';
-  return 'text-zinc-300';
+  if (level === 'error' || stage === 'ERROR' || stage === 'error') return 'text-red-700';
+  if (level === 'warning') return 'text-amber-700';
+  if (stage === 'RESULT' || stage === 'done') return 'text-emerald-700';
+  if (stage === 'INPUT') return 'text-blue-700';
+  if (stage === 'URL_TARGET' || stage === 'URL_SOURCE') return 'text-slate-600';
+  return 'text-slate-700';
 }
 
 function getStatusBadge(status: string) {
   const classes: Record<string, string> = {
-    OPPORTUNITIES: 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/50',
-    SUCCESS: 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/50',
-    NULL: 'bg-zinc-800 text-zinc-400 border border-zinc-700',
-    NO_TARGET_RESULTS: 'bg-zinc-800 text-zinc-400 border border-zinc-700',
-    NO_SOURCE_RESULTS: 'bg-zinc-800 text-zinc-400 border border-zinc-700',
-    TARGET_BLOCKED: 'bg-red-900/40 text-red-400 border border-red-700/50',
-    SOURCE_BLOCKED: 'bg-red-900/40 text-red-400 border border-red-700/50',
-    SCRAPER_ERROR: 'bg-red-900/40 text-red-400 border border-red-700/50',
-    UNKNOWN_ERROR: 'bg-red-900/40 text-red-400 border border-red-700/50',
-    ERROR: 'bg-red-900/40 text-red-400 border border-red-700/50',
+    OPPORTUNITIES: 'bg-emerald-50 text-emerald-600 border border-emerald-300',
+    SUCCESS: 'bg-emerald-50 text-emerald-600 border border-emerald-300',
+    NULL: 'bg-slate-200 text-slate-600 border border-slate-300',
+    NO_TARGET_RESULTS: 'bg-slate-200 text-slate-600 border border-slate-300',
+    NO_SOURCE_RESULTS: 'bg-slate-200 text-slate-600 border border-slate-300',
+    TARGET_BLOCKED: 'bg-red-50 text-red-600 border border-red-300',
+    SOURCE_BLOCKED: 'bg-red-50 text-red-600 border border-red-300',
+    SCRAPER_ERROR: 'bg-red-50 text-red-600 border border-red-300',
+    UNKNOWN_ERROR: 'bg-red-50 text-red-600 border border-red-300',
+    ERROR: 'bg-red-50 text-red-600 border border-red-300',
   };
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${classes[status] ?? 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>
+    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${classes[status] ?? 'bg-slate-200 text-slate-600 border border-slate-300'}`}>
       {status}
     </span>
   );
@@ -181,36 +181,36 @@ export function StudyRunLogsModal({ runId, studyId, studyLabel, onClose }: Study
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={onClose}>
       <div
-        className="bg-zinc-900 rounded-lg border border-zinc-700 w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl"
+        className="bg-white rounded-lg border border-slate-300 w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+        <div className="flex items-center justify-between p-4 border-b border-slate-200">
           <div className="flex items-center gap-2">
-            <ScrollText size={18} className="text-zinc-400" />
+            <ScrollText size={18} className="text-slate-600" />
             <div>
-              <h3 className="font-semibold text-zinc-100 text-sm">Logs de recherche</h3>
-              <p className="text-xs text-zinc-500 mt-0.5">{studyLabel}</p>
+              <h3 className="font-semibold text-slate-900 text-sm">Logs de recherche</h3>
+              <p className="text-xs text-slate-500 mt-0.5">{studyLabel}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopy}
               disabled={loading || notFound || !logsData}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded border border-slate-300 text-slate-600 hover:text-slate-800 hover:border-slate-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               title="Copier les logs dans le presse-papiers"
             >
               {copied
-                ? <><Check size={13} className="text-emerald-400" /><span className="text-emerald-400">Logs copiés</span></>
+                ? <><Check size={13} className="text-emerald-600" /><span className="text-emerald-600">Logs copiés</span></>
                 : <><Copy size={13} /><span>Copier les logs</span></>
               }
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 hover:bg-zinc-800 rounded transition-colors"
+              className="p-1.5 hover:bg-slate-200 rounded transition-colors"
               aria-label="Fermer"
             >
-              <X size={18} className="text-zinc-400" />
+              <X size={18} className="text-slate-600" />
             </button>
           </div>
         </div>
@@ -219,47 +219,47 @@ export function StudyRunLogsModal({ runId, studyId, studyLabel, onClose }: Study
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <Loader2 size={28} className="text-zinc-500 animate-spin" />
-              <p className="text-sm text-zinc-500">Chargement des logs...</p>
+              <Loader2 size={28} className="text-slate-500 animate-spin" />
+              <p className="text-sm text-slate-500">Chargement des logs...</p>
             </div>
           ) : notFound ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <ScrollText size={32} className="text-zinc-600" />
-              <p className="text-sm text-zinc-400 font-medium">Aucun log disponible pour cette étude</p>
-              <p className="text-xs text-zinc-600 text-center max-w-xs">
+              <ScrollText size={32} className="text-slate-400" />
+              <p className="text-sm text-slate-600 font-medium">Aucun log disponible pour cette étude</p>
+              <p className="text-xs text-slate-400 text-center max-w-xs">
                 Les logs ne sont pas encore persistés pour cette recherche, ou ils ont été nettoyés.
               </p>
             </div>
           ) : logsData && (
             <>
               {/* Summary bar */}
-              <div className="px-4 py-3 border-b border-zinc-800 bg-zinc-800/30 flex flex-wrap items-center gap-3">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-100 flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-zinc-500">Statut final :</span>
+                  <span className="text-xs text-slate-500">Statut final :</span>
                   {getStatusBadge(logsData.status)}
                 </div>
                 {logsData.lastStage && (
                   <div className="flex items-center gap-1.5">
-                    <Clock size={12} className="text-zinc-500" />
-                    <span className="text-xs text-zinc-500">Dernière étape :</span>
-                    <span className="text-xs text-zinc-300">{stageLabel(logsData.lastStage)}</span>
+                    <Clock size={12} className="text-slate-500" />
+                    <span className="text-xs text-slate-500">Dernière étape :</span>
+                    <span className="text-xs text-slate-700">{stageLabel(logsData.lastStage)}</span>
                   </div>
                 )}
-                <div className="ml-auto text-xs text-zinc-600">{logsData.logs.length} entrées</div>
+                <div className="ml-auto text-xs text-slate-400">{logsData.logs.length} entrées</div>
               </div>
 
               {/* Error message */}
               {logsData.errorMessage && (
-                <div className="mx-4 mt-3 p-3 bg-red-950/30 border border-red-800/50 rounded-lg flex items-start gap-2">
-                  <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-300">{logsData.errorMessage}</p>
+                <div className="mx-4 mt-3 p-3 bg-red-50 border border-red-300 rounded-lg flex items-start gap-2">
+                  <AlertTriangle size={14} className="text-red-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-700">{logsData.errorMessage}</p>
                 </div>
               )}
 
               {/* Log entries */}
               <div className="p-4 space-y-0.5 font-mono text-xs">
                 {logsData.logs.length === 0 ? (
-                  <p className="text-zinc-600 text-center py-8">Aucune entrée de log.</p>
+                  <p className="text-slate-400 text-center py-8">Aucune entrée de log.</p>
                 ) : (
                   logsData.logs.map((entry, idx) => (
                     <div
@@ -267,8 +267,8 @@ export function StudyRunLogsModal({ runId, studyId, studyLabel, onClose }: Study
                       className={`flex items-start gap-2 px-2 py-1 rounded ${getLogRowClass(entry.level, entry.stage)}`}
                     >
                       {getLevelIcon(entry.level, entry.stage)}
-                      <span className="text-zinc-600 shrink-0">{formatTime(entry.timestamp)}</span>
-                      <span className="text-zinc-500 shrink-0 hidden sm:inline">
+                      <span className="text-slate-400 shrink-0">{formatTime(entry.timestamp)}</span>
+                      <span className="text-slate-500 shrink-0 hidden sm:inline">
                         [{stageLabel(entry.stage)}]
                       </span>
                       <span className={`flex-1 leading-relaxed break-all ${getLogTextClass(entry.level, entry.stage)}`}>

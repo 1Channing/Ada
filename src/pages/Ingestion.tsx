@@ -470,7 +470,7 @@ export function Ingestion() {
           <Upload className="w-6 h-6 text-blue-500" />
           Ingestion
         </h1>
-        <p className="text-zinc-400 mt-1 text-sm">
+        <p className="text-slate-600 mt-1 text-sm">
           Collez une URL de recherche filtrée manuellement sur un marketplace. ADA scrape la page,
           confirme empiriquement chaque critère (min {INGESTION_MIN_SAMPLE} annonces, ≥{INGESTION_CONFIRM_THRESHOLD * 100}% de cohérence)
           et ne mémorise que les correspondances certaines.
@@ -478,8 +478,8 @@ export function Ingestion() {
       </div>
 
       {/* URL bar */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-3">
-        <label className="block text-sm font-medium text-zinc-300">URL de recherche marketplace</label>
+      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+        <label className="block text-sm font-medium text-slate-700">URL de recherche marketplace</label>
         <div className="flex gap-2">
           <input
             type="url"
@@ -487,7 +487,7 @@ export function Ingestion() {
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleAnalyzeUrl(); }}
             placeholder="https://www.marktplaats.nl/toyota/f/yaris+hybride/1232+13838/"
-            className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+            className="flex-1 bg-white border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
           />
           <button
             onClick={() => handleAnalyzeUrl()}
@@ -498,16 +498,16 @@ export function Ingestion() {
           </button>
         </div>
         {urlError && (
-          <p className="text-sm text-red-400 flex items-center gap-2"><XCircle className="w-4 h-4" />{urlError}</p>
+          <p className="text-sm text-red-600 flex items-center gap-2"><XCircle className="w-4 h-4" />{urlError}</p>
         )}
         {adapter && phase !== 'idle' && (
-          <p className="text-sm text-zinc-400">
-            Site détecté : <span className="text-zinc-100 font-medium">{adapter.displayName}</span> ({adapter.country})
+          <p className="text-sm text-slate-600">
+            Site détecté : <span className="text-slate-900 font-medium">{adapter.displayName}</span> ({adapter.country})
             {prefilled.length > 0
-              ? <> — champs pré-remplis depuis l'URL : <span className="text-emerald-400">{prefilled.join(', ')}</span>. Vérifiez et complétez.</>
+              ? <> — champs pré-remplis depuis l'URL : <span className="text-emerald-600">{prefilled.join(', ')}</span>. Vérifiez et complétez.</>
               : <> — URL à identifiants opaques : saisissez les critères que vous aviez filtrés.</>}
             {learned.length > 0 && (
-              <> <br />🧠 reconnus depuis un apprentissage précédent : <span className="text-sky-400">{learned.map((f) => FIELD_LABELS[f] ?? f).join(', ')}</span>.</>
+              <> <br />🧠 reconnus depuis un apprentissage précédent : <span className="text-sky-600">{learned.map((f) => FIELD_LABELS[f] ?? f).join(', ')}</span>.</>
             )}
           </p>
         )}
@@ -515,85 +515,85 @@ export function Ingestion() {
 
       {/* Declared criteria form */}
       {adapter && phase !== 'idle' && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
-          <h2 className="font-semibold text-zinc-200">Critères déclarés (ce que vous aviez filtré sur le site)</h2>
+        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+          <h2 className="font-semibold text-slate-800">Critères déclarés (ce que vous aviez filtré sur le site)</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Marque *</label>
+              <label className="block text-xs text-slate-600 mb-1">Marque *</label>
               <input value={form.brand} onChange={setField('brand')}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Modèle <span className="text-zinc-500">(vide = découverte : apprend la gamme, sans mémorisation)</span></label>
+              <label className="block text-xs text-slate-600 mb-1">Modèle <span className="text-slate-500">(vide = découverte : apprend la gamme, sans mémorisation)</span></label>
               <input value={form.model} onChange={setField('model')}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Année min</label>
+              <label className="block text-xs text-slate-600 mb-1">Année min</label>
               <input value={form.yearFrom} onChange={setField('yearFrom')} placeholder="2021"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Année max</label>
+              <label className="block text-xs text-slate-600 mb-1">Année max</label>
               <input value={form.yearTo} onChange={setField('yearTo')} placeholder="2023"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Km max</label>
+              <label className="block text-xs text-slate-600 mb-1">Km max</label>
               <input value={form.mileage} onChange={setField('mileage')} placeholder="80000"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Carburant</label>
+              <label className="block text-xs text-slate-600 mb-1">Carburant</label>
               <select value={form.fuel} onChange={setField('fuel')}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
                 {FUEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Finition</label>
+              <label className="block text-xs text-slate-600 mb-1">Finition</label>
               <input value={form.trim} onChange={setField('trim')} placeholder="GR Sport"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Boîte de vitesse</label>
+              <label className="block text-xs text-slate-600 mb-1">Boîte de vitesse</label>
               <select value={form.gearbox} onChange={setField('gearbox')}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
                 {GEARBOX_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Puissance DIN min (ch)</label>
+              <label className="block text-xs text-slate-600 mb-1">Puissance DIN min (ch)</label>
               <input value={form.powerFrom} onChange={setField('powerFrom')} placeholder="160"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Puissance DIN max (ch)</label>
+              <label className="block text-xs text-slate-600 mb-1">Puissance DIN max (ch)</label>
               <input value={form.powerTo} onChange={setField('powerTo')} placeholder="—"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Nombre de portes</label>
+              <label className="block text-xs text-slate-600 mb-1">Nombre de portes</label>
               <input value={form.doors} onChange={setField('doors')} placeholder="5"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Nombre de places</label>
+              <label className="block text-xs text-slate-600 mb-1">Nombre de places</label>
               <input value={form.seats} onChange={setField('seats')} placeholder="5"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Couleur</label>
+              <label className="block text-xs text-slate-600 mb-1">Couleur</label>
               <input value={form.color} onChange={setField('color')} placeholder="Noir"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Type de véhicule</label>
+              <label className="block text-xs text-slate-600 mb-1">Type de véhicule</label>
               <input value={form.vehicleType} onChange={setField('vehicleType')} placeholder="Berline"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className={`block text-xs mb-1 ${form.submittedBy.trim() ? 'text-zinc-400' : 'text-amber-400/90'}`}>
+              <label className={`block text-xs mb-1 ${form.submittedBy.trim() ? 'text-slate-600' : 'text-amber-600/90'}`}>
                 Votre nom {form.submittedBy.trim() ? '(audit, optionnel)' : '— pense à te sélectionner'}
               </label>
               <input
@@ -601,9 +601,9 @@ export function Ingestion() {
                 onChange={setField('submittedBy')}
                 list="known-contributors"
                 placeholder="Choisir ou saisir…"
-                className={`w-full bg-zinc-950 rounded-lg px-3 py-2 text-sm focus:outline-none border transition-colors ${
+                className={`w-full bg-white rounded-lg px-3 py-2 text-sm focus:outline-none border transition-colors ${
                   form.submittedBy.trim()
-                    ? 'border-zinc-700 focus:border-blue-500'
+                    ? 'border-slate-300 focus:border-blue-500'
                     : 'border-amber-600/60 ring-1 ring-amber-600/25 focus:border-amber-500'
                 }`} />
               <datalist id="known-contributors">
@@ -611,9 +611,9 @@ export function Ingestion() {
               </datalist>
             </div>
           </div>
-          <p className="text-xs text-zinc-500 flex items-center gap-1.5">
-            <span className="text-emerald-400">↑</span>
-            Tri : <span className="text-zinc-300">prix croissant</span> — l'échantillon est toujours pris sur les moins chères (page 1).
+          <p className="text-xs text-slate-500 flex items-center gap-1.5">
+            <span className="text-emerald-600">↑</span>
+            Tri : <span className="text-slate-700">prix croissant</span> — l'échantillon est toujours pris sur les moins chères (page 1).
           </p>
           <button
             onClick={handleVerify}
@@ -624,7 +624,7 @@ export function Ingestion() {
             {phase === 'scraping' ? 'Scraping de découverte en cours…' : 'Vérifier par scraping'}
           </button>
           {phase === 'scraping' && (
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-slate-500">
               L'ingestion tourne côté serveur — vous pouvez fermer le navigateur, le résultat
               sera enregistré et visible dans l'Historique.
             </p>
@@ -634,32 +634,32 @@ export function Ingestion() {
 
       {/* Découverte taxonomie (ingestion sans modèle) */}
       {discoveryNote && (
-        <div className="bg-emerald-950/40 border border-emerald-800 rounded-xl p-4 text-sm text-emerald-300 flex items-start gap-2">
+        <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-4 text-sm text-emerald-700 flex items-start gap-2">
           <Upload className="w-4 h-4 mt-0.5 shrink-0" />
           <div>
             <p className="font-medium">Ingestion de découverte (sans modèle)</p>
-            <p className="text-emerald-400/80">{discoveryNote}</p>
-            <p className="text-emerald-400/60 mt-1">Aucune écriture en mémoire de mapping — seul le dictionnaire de taxonomie a été enrichi.</p>
+            <p className="text-emerald-600/80">{discoveryNote}</p>
+            <p className="text-emerald-600/60 mt-1">Aucune écriture en mémoire de mapping — seul le dictionnaire de taxonomie a été enrichi.</p>
           </div>
         </div>
       )}
 
       {/* Scrape error */}
       {scrapeError && (
-        <div className="bg-red-950/40 border border-red-800 rounded-xl p-4 text-sm text-red-300 flex items-start gap-2">
+        <div className="bg-red-50 border border-red-300 rounded-xl p-4 text-sm text-red-700 flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <div>
             <p className="font-medium">Scraping de découverte échoué — rien n'a été mémorisé.</p>
-            <p className="text-red-400/80">{scrapeError}</p>
-            <p className="text-red-400/60 mt-1">La tentative a été journalisée pour audit.</p>
+            <p className="text-red-600/80">{scrapeError}</p>
+            <p className="text-red-600/60 mt-1">La tentative a été journalisée pour audit.</p>
           </div>
         </div>
       )}
 
       {/* Scrape diagnostics (observability) */}
       {diagnostics && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-3">
-          <h2 className="font-semibold text-zinc-200 text-sm">Diagnostic de scraping</h2>
+        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+          <h2 className="font-semibold text-slate-800 text-sm">Diagnostic de scraping</h2>
           <div className="flex flex-wrap gap-2 text-xs">
             <DiagChip label="Mode" value={diagnostics.mode === 'raw' ? 'raw (éco)' : diagnostics.mode ?? '—'} tone={diagnostics.mode === 'raw' ? 'good' : 'neutral'} />
             <DiagChip label="Tentatives" value={String(diagnostics.attempts ?? '—')} tone={(diagnostics.attempts ?? 1) > 1 ? 'warn' : 'good'} />
@@ -672,15 +672,15 @@ export function Ingestion() {
           </div>
           {diagnostics.fieldsPresent && Object.keys(diagnostics.fieldsPresent).length > 0 && (
             <div>
-              <div className="text-xs text-zinc-500 mb-1.5">Couverture d'extraction (part des annonces avec le champ)</div>
+              <div className="text-xs text-slate-500 mb-1.5">Couverture d'extraction (part des annonces avec le champ)</div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1.5">
                 {Object.entries(diagnostics.fieldsPresent as Record<string, number>).map(([field, frac]) => (
                   <div key={field} className="flex items-center gap-2">
-                    <span className="text-xs text-zinc-400 w-16 shrink-0">{field}</span>
-                    <div className="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                    <span className="text-xs text-slate-600 w-16 shrink-0">{field}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: `${Math.round(frac * 100)}%`, background: frac >= 0.9 ? '#10b981' : frac >= 0.5 ? '#c98500' : '#ef4444' }} />
                     </div>
-                    <span className="text-[10px] text-zinc-500 w-8 text-right">{Math.round(frac * 100)}%</span>
+                    <span className="text-[10px] text-slate-500 w-8 text-right">{Math.round(frac * 100)}%</span>
                   </div>
                 ))}
               </div>
@@ -691,14 +691,14 @@ export function Ingestion() {
 
       {/* Results */}
       {analysis && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
-          <h2 className="font-semibold text-zinc-200">
+        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+          <h2 className="font-semibold text-slate-800">
             Confirmation champ par champ — échantillon de {sample.length} annonces
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-zinc-500 border-b border-zinc-800">
+                <tr className="text-left text-slate-500 border-b border-slate-200">
                   <th className="py-2 pr-4">Champ</th>
                   <th className="py-2 pr-4">Déclaré</th>
                   <th className="py-2 pr-4">Méthode</th>
@@ -709,33 +709,33 @@ export function Ingestion() {
               </thead>
               <tbody>
                 {analysis.confirmations.map((c) => (
-                  <tr key={c.field} className="border-b border-zinc-800/50">
+                  <tr key={c.field} className="border-b border-slate-200">
                     <td className="py-2 pr-4 font-medium">{FIELD_LABELS[c.field] ?? c.field}</td>
-                    <td className="py-2 pr-4 text-zinc-300">{c.declaredValue}</td>
-                    <td className="py-2 pr-4 text-zinc-400">{c.method === 'structured' ? 'donnée structurée' : 'texte'}</td>
-                    <td className="py-2 pr-4 text-zinc-300">{c.matchCount}/{c.sampleSize}</td>
+                    <td className="py-2 pr-4 text-slate-700">{c.declaredValue}</td>
+                    <td className="py-2 pr-4 text-slate-600">{c.method === 'structured' ? 'donnée structurée' : 'texte'}</td>
+                    <td className="py-2 pr-4 text-slate-700">{c.matchCount}/{c.sampleSize}</td>
                     <td className="py-2 pr-4">
                       {c.status === 'confirmed'
-                        ? <span className="inline-flex items-center gap-1 text-emerald-400"><CheckCircle2 className="w-4 h-4" />retenu</span>
-                        : <span className="inline-flex items-center gap-1 text-red-400"><XCircle className="w-4 h-4" />jeté</span>}
+                        ? <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-4 h-4" />retenu</span>
+                        : <span className="inline-flex items-center gap-1 text-red-600"><XCircle className="w-4 h-4" />jeté</span>}
                     </td>
-                    <td className="py-2 text-zinc-500 text-xs">{c.reason ?? '—'}</td>
+                    <td className="py-2 text-slate-500 text-xs">{c.reason ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          <div className="text-sm text-zinc-400">
+          <div className="text-sm text-slate-600">
             URL validée réutilisable telle quelle :{' '}
             {analysis.validatedUrl
-              ? <span className="text-emerald-400">oui</span>
-              : <span className="text-amber-400">non (au moins un champ jeté — seuls les fragments confirmés sont mémorisés)</span>}
+              ? <span className="text-emerald-600">oui</span>
+              : <span className="text-amber-600">non (au moins un champ jeté — seuls les fragments confirmés sont mémorisés)</span>}
           </div>
 
           {sample.length > 0 && (
-            <details className="text-sm text-zinc-500">
-              <summary className="cursor-pointer hover:text-zinc-300">Aperçu de l'échantillon ({Math.min(sample.length, 5)} premières annonces)</summary>
+            <details className="text-sm text-slate-500">
+              <summary className="cursor-pointer hover:text-slate-700">Aperçu de l'échantillon ({Math.min(sample.length, 5)} premières annonces)</summary>
               <ul className="mt-2 space-y-1">
                 {sample.slice(0, 5).map((l, i) => (
                   <li key={i} className="truncate">
@@ -752,10 +752,10 @@ export function Ingestion() {
       {outcome && (
         <div className={`border rounded-xl p-4 text-sm flex items-start gap-2 ${
           MEMORY_ACTION_LABELS[outcome.memoryAction]?.tone === 'ok'
-            ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
+            ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
             : MEMORY_ACTION_LABELS[outcome.memoryAction]?.tone === 'warn'
-              ? 'bg-amber-950/40 border-amber-800 text-amber-300'
-              : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+              ? 'bg-amber-50 border-amber-300 text-amber-700'
+              : 'bg-white border-slate-200 text-slate-600'
         }`}>
           {MEMORY_ACTION_LABELS[outcome.memoryAction]?.tone === 'warn'
             ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -769,8 +769,8 @@ export function Ingestion() {
                 ))}
               </ul>
             )}
-            {outcome.memoryError && <p className="text-xs text-red-400 mt-1">Erreur d'écriture mémoire : {outcome.memoryError}</p>}
-            {outcome.eventError && <p className="text-xs text-red-400 mt-1">Erreur d'écriture audit : {outcome.eventError}</p>}
+            {outcome.memoryError && <p className="text-xs text-red-600 mt-1">Erreur d'écriture mémoire : {outcome.memoryError}</p>}
+            {outcome.eventError && <p className="text-xs text-red-600 mt-1">Erreur d'écriture audit : {outcome.eventError}</p>}
           </div>
         </div>
       )}
@@ -779,13 +779,13 @@ export function Ingestion() {
 }
 
 function DiagChip({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'good' | 'warn' | 'bad' | 'neutral' }) {
-  const toneCls = tone === 'good' ? 'text-emerald-300 border-emerald-700/50'
-    : tone === 'warn' ? 'text-amber-300 border-amber-700/50'
-    : tone === 'bad' ? 'text-red-300 border-red-700/50'
-    : 'text-zinc-300 border-zinc-700';
+  const toneCls = tone === 'good' ? 'text-emerald-700 border-emerald-300'
+    : tone === 'warn' ? 'text-amber-700 border-amber-300'
+    : tone === 'bad' ? 'text-red-700 border-red-300'
+    : 'text-slate-700 border-slate-300';
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-zinc-950 ${toneCls}`}>
-      <span className="text-zinc-500">{label}</span>
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-white ${toneCls}`}>
+      <span className="text-slate-500">{label}</span>
       <span className="font-medium">{value}</span>
     </span>
   );

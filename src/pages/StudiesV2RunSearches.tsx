@@ -721,36 +721,36 @@ export function StudiesV2RunSearches() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-zinc-100">Run Searches</h2>
-        <p className="text-sm text-zinc-400 mt-1">
+        <h2 className="text-2xl font-bold text-slate-900">Run Searches</h2>
+        <p className="text-sm text-slate-600 mt-1">
           Run instant searches or schedule them for later
         </p>
       </div>
 
       {progress && (
-        <div className="p-4 bg-blue-900/30 border border-blue-700/50 rounded-lg">
+        <div className="p-4 bg-blue-50 border border-blue-300 rounded-lg">
           <p className="text-blue-100">{progress}</p>
           {runProgress.isRunning && runProgress.stage && (
-            <p className="text-blue-200 text-sm mt-2">
+            <p className="text-blue-800 text-sm mt-2">
               Stage: {runProgress.stage}
             </p>
           )}
         </div>
       )}
 
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4 space-y-4">
-        <div className="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800">
+      <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4">
+        <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
           <div>
-            <span className="text-sm font-medium text-zinc-400">Execution Mode:</span>
+            <span className="text-sm font-medium text-slate-600">Execution Mode:</span>
             <span className={`ml-2 px-2 py-1 rounded text-xs font-medium ${
               SCRAPER_MODE === 'api'
-                ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700'
-                : 'bg-orange-900/50 text-orange-300 border border-orange-700'
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-300'
+                : 'bg-orange-50 text-orange-700 border border-orange-300'
             }`}>
               {SCRAPER_MODE === 'api' ? 'REMOTE (via Worker)' : 'LOCAL (browser)'}
             </span>
           </div>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-slate-500">
             {SCRAPER_MODE === 'api'
               ? 'Studies execute on backend Worker'
               : 'Studies execute in browser (dev mode)'}
@@ -758,17 +758,17 @@ export function StudiesV2RunSearches() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-zinc-300 mb-2">
+          <label className="block text-sm font-medium text-slate-700 mb-2">
             Scrape Mode
           </label>
-          <div className="inline-flex rounded-lg border border-zinc-700 bg-zinc-800 p-1">
+          <div className="inline-flex rounded-lg border border-slate-300 bg-slate-200 p-1">
             <button
               type="button"
               onClick={() => setScrapeMode('fast')}
               className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                 scrapeMode === 'fast'
                   ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  : 'text-slate-600 hover:text-slate-800'
               }`}
             >
               FAST
@@ -779,7 +779,7 @@ export function StudiesV2RunSearches() {
               className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                 scrapeMode === 'detailed'
                   ? 'bg-amber-600 text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  : 'text-slate-600 hover:text-slate-800'
               }`}
             >
               DETAILED
@@ -790,13 +790,13 @@ export function StudiesV2RunSearches() {
               className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                 scrapeMode === 'full'
                   ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  : 'text-slate-600 hover:text-slate-800'
               }`}
             >
               FULL
             </button>
           </div>
-          <p className="text-xs text-zinc-500 mt-2">
+          <p className="text-xs text-slate-500 mt-2">
             {scrapeMode === 'fast'
               ? 'FAST: Search scraping only. No detail scraping. ~1-2 min per study.'
               : scrapeMode === 'detailed'
@@ -806,7 +806,7 @@ export function StudiesV2RunSearches() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-zinc-300 mb-2">
+          <label className="block text-sm font-medium text-slate-700 mb-2">
             Minimum price difference (EUR)
           </label>
           <div className="flex items-center gap-4">
@@ -817,7 +817,7 @@ export function StudiesV2RunSearches() {
               step="500"
               value={priceDiffThreshold}
               onChange={(e) => setPriceDiffThreshold(Number(e.target.value))}
-              className="flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
+              className="flex-1 h-2 bg-slate-300 rounded-lg appearance-none cursor-pointer"
             />
             <input
               type="number"
@@ -825,23 +825,23 @@ export function StudiesV2RunSearches() {
               step="500"
               value={priceDiffThreshold}
               onChange={(e) => setPriceDiffThreshold(Number(e.target.value))}
-              className="w-32 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 text-center"
+              className="w-32 px-3 py-2 bg-slate-200 border border-slate-300 rounded-lg text-slate-900 text-center"
             />
-            <span className="text-zinc-400">EUR</span>
+            <span className="text-slate-600">EUR</span>
           </div>
-          <p className="text-xs text-zinc-500 mt-2">
+          <p className="text-xs text-slate-500 mt-2">
             Studies with price difference below this threshold will be marked as NULL
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6">
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
           <div className="flex items-center gap-3 mb-4">
-            <Play size={24} className="text-emerald-400" />
+            <Play size={24} className="text-emerald-600" />
             <div>
-              <h3 className="font-semibold text-zinc-100">Instant Search</h3>
-              <p className="text-xs text-zinc-400">Run selected studies immediately</p>
+              <h3 className="font-semibold text-slate-900">Instant Search</h3>
+              <p className="text-xs text-slate-600">Run selected studies immediately</p>
             </div>
           </div>
 
@@ -849,7 +849,7 @@ export function StudiesV2RunSearches() {
             <button
               onClick={runInstantSearch}
               disabled={running || selectedStudies.size === 0}
-              className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white rounded-lg font-medium transition-colors"
+              className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:text-slate-600 text-white rounded-lg font-medium transition-colors"
             >
               {runProgress.isRunning
                 ? `Running... (${runProgress.currentIndex}/${runProgress.total})`
@@ -867,23 +867,23 @@ export function StudiesV2RunSearches() {
             )}
 
             {runProgress.isRunning && runProgress.stage && (
-              <div className="text-xs text-zinc-400 bg-zinc-800 px-3 py-2 rounded border border-zinc-700">
-                <div className="font-medium text-zinc-300 mb-1">
+              <div className="text-xs text-slate-600 bg-slate-200 px-3 py-2 rounded border border-slate-300">
+                <div className="font-medium text-slate-700 mb-1">
                   Processing study {runProgress.currentIndex}/{runProgress.total}
-                  {runProgress.currentStudyId && <span className="text-zinc-500"> • {runProgress.currentStudyId}</span>}
+                  {runProgress.currentStudyId && <span className="text-slate-500"> • {runProgress.currentStudyId}</span>}
                 </div>
-                <div className="text-emerald-400">{runProgress.stage}</div>
+                <div className="text-emerald-600">{runProgress.stage}</div>
               </div>
             )}
           </div>
         </div>
 
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6">
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
           <div className="flex items-center gap-3 mb-4">
-            <Calendar size={24} className="text-blue-400" />
+            <Calendar size={24} className="text-blue-600" />
             <div>
-              <h3 className="font-semibold text-zinc-100">Schedule Search</h3>
-              <p className="text-xs text-zinc-400">Schedule for a specific date and time</p>
+              <h3 className="font-semibold text-slate-900">Schedule Search</h3>
+              <p className="text-xs text-slate-600">Schedule for a specific date and time</p>
             </div>
           </div>
 
@@ -892,47 +892,47 @@ export function StudiesV2RunSearches() {
               type="date"
               value={scheduledDate}
               onChange={(e) => setScheduledDate(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+              className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
             />
             <input
               type="time"
               value={scheduledTime}
               onChange={(e) => setScheduledTime(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+              className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
             />
             <button
               onClick={scheduleSearch}
               disabled={running || selectedStudies.size === 0}
-              className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white rounded-lg font-medium transition-colors"
+              className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-600 text-white rounded-lg font-medium transition-colors"
             >
               Schedule ({selectedStudies.size} selected)
             </button>
 
             {nextScheduledJob && !reschedulingJob && (
-              <div className="mt-3 pt-3 border-t border-zinc-700">
+              <div className="mt-3 pt-3 border-t border-slate-300">
                 <div className="flex items-start gap-2 text-xs">
-                  <Clock size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                  <Clock size={14} className="text-blue-600 mt-0.5 flex-shrink-0" />
                   <div className="flex-1">
-                    <div className="text-zinc-400 mb-1">Next scheduled run:</div>
-                    <div className="text-zinc-200 font-medium">
+                    <div className="text-slate-600 mb-1">Next scheduled run:</div>
+                    <div className="text-slate-800 font-medium">
                       {new Date(nextScheduledJob.scheduled_at).toLocaleString('en-US', {
                         dateStyle: 'short',
                         timeStyle: 'short',
                       })}
                     </div>
-                    <div className="text-zinc-500 mt-1">
+                    <div className="text-slate-500 mt-1">
                       {(nextScheduledJob.payload as ScheduledStudyPayload).studyIds.length} studies
                     </div>
                     <div className="flex gap-2 mt-3">
                       <button
                         onClick={() => startReschedule(nextScheduledJob)}
-                        className="flex-1 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-600/50 text-blue-300 rounded text-xs font-medium transition-colors"
+                        className="flex-1 px-3 py-1.5 bg-blue-100 hover:bg-blue-100 border border-blue-600/50 text-blue-700 rounded text-xs font-medium transition-colors"
                       >
                         Reschedule
                       </button>
                       <button
                         onClick={() => cancelScheduledJob(nextScheduledJob.id)}
-                        className="flex-1 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-300 rounded text-xs font-medium transition-colors"
+                        className="flex-1 px-3 py-1.5 bg-red-100 hover:bg-red-100 border border-red-600/50 text-red-700 rounded text-xs font-medium transition-colors"
                       >
                         Cancel
                       </button>
@@ -943,20 +943,20 @@ export function StudiesV2RunSearches() {
             )}
 
             {reschedulingJob && (
-              <div className="mt-3 pt-3 border-t border-zinc-700">
-                <div className="text-xs text-zinc-400 mb-2">Reschedule job:</div>
+              <div className="mt-3 pt-3 border-t border-slate-300">
+                <div className="text-xs text-slate-600 mb-2">Reschedule job:</div>
                 <div className="space-y-2">
                   <input
                     type="date"
                     value={rescheduleDate}
                     onChange={(e) => setRescheduleDate(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-100 text-xs"
+                    className="w-full bg-slate-200 border border-slate-300 rounded px-2 py-1.5 text-slate-900 text-xs"
                   />
                   <input
                     type="time"
                     value={rescheduleTime}
                     onChange={(e) => setRescheduleTime(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-100 text-xs"
+                    className="w-full bg-slate-200 border border-slate-300 rounded px-2 py-1.5 text-slate-900 text-xs"
                   />
                   <div className="flex gap-2">
                     <button
@@ -967,7 +967,7 @@ export function StudiesV2RunSearches() {
                     </button>
                     <button
                       onClick={cancelReschedule}
-                      className="flex-1 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-xs font-medium transition-colors"
+                      className="flex-1 px-3 py-1.5 bg-slate-300 hover:bg-slate-400 text-slate-700 rounded text-xs font-medium transition-colors"
                     >
                       Cancel
                     </button>
@@ -979,12 +979,12 @@ export function StudiesV2RunSearches() {
         </div>
       </div>
 
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800">
-        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-          <h3 className="font-semibold text-zinc-100">Select Studies</h3>
+      <div className="bg-white rounded-lg border border-slate-200">
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 className="font-semibold text-slate-900">Select Studies</h3>
           <button
             onClick={toggleSelectAll}
-            className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-2"
+            className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-2"
           >
             {selectedStudies.size === studies.length ? <CheckSquare size={16} /> : <Square size={16} />}
             {selectedStudies.size === studies.length ? 'Deselect All' : 'Select All'}
@@ -992,56 +992,56 @@ export function StudiesV2RunSearches() {
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-zinc-400">Loading studies...</div>
+          <div className="p-8 text-center text-slate-600">Loading studies...</div>
         ) : studies.length === 0 ? (
-          <div className="p-8 text-center text-zinc-400">
+          <div className="p-8 text-center text-slate-600">
             No studies available. Please import studies first.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-zinc-800/50">
+              <thead className="bg-slate-100">
                 <tr>
                   <th className="w-12 px-4 py-3"></th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Brand</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Model</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Year</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Target</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Source</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Target Trim</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Source Trim</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Brand</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Model</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Year</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Target</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Source</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Target Trim</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Source Trim</th>
                 </tr>
               </thead>
               <tbody>
                 {studies.map((study) => (
                   <tr
                     key={study.id}
-                    className="border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors"
+                    className="border-b border-slate-200 hover:bg-slate-100 transition-colors"
                   >
                     <td className="px-4 py-3 cursor-pointer" onClick={() => toggleStudy(study.id)}>
                       <div className="flex items-center justify-center">
                         {selectedStudies.has(study.id) ? (
-                          <CheckSquare size={18} className="text-emerald-400" />
+                          <CheckSquare size={18} className="text-emerald-600" />
                         ) : (
-                          <Square size={18} className="text-zinc-600" />
+                          <Square size={18} className="text-slate-400" />
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-3 cursor-pointer" onClick={() => toggleStudy(study.id)}>
-                      <div className="font-medium text-zinc-100">{study.brand}</div>
+                      <div className="font-medium text-slate-900">{study.brand}</div>
                     </td>
                     <td className="px-4 py-3 cursor-pointer" onClick={() => toggleStudy(study.id)}>
-                      <div className="text-zinc-300">{study.model}</div>
+                      <div className="text-slate-700">{study.model}</div>
                     </td>
                     <td className="px-4 py-3 cursor-pointer" onClick={() => toggleStudy(study.id)}>
-                      <div className="text-sm text-zinc-300">{study.year}</div>
+                      <div className="text-sm text-slate-700">{study.year}</div>
                     </td>
                     <td className="px-4 py-3 cursor-pointer" onClick={() => toggleStudy(study.id)}>
-                      <div className="text-sm font-medium text-blue-400">{study.country_target}</div>
+                      <div className="text-sm font-medium text-blue-600">{study.country_target}</div>
                     </td>
                     <td className="px-4 py-3 cursor-pointer" onClick={() => toggleStudy(study.id)}>
-                      <div className="text-sm font-medium text-emerald-400">{study.country_source}</div>
+                      <div className="text-sm font-medium text-emerald-600">{study.country_source}</div>
                     </td>
                     <td className="px-4 py-3">
                       <StudyStatusBadge status={studyStatuses[study.id] || 'idle'} />
@@ -1058,7 +1058,7 @@ export function StudiesV2RunSearches() {
                           }
                         }}
                         placeholder="GR Sport..."
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 placeholder-zinc-500 focus:border-blue-500 focus:outline-none"
+                        className="w-full bg-slate-200 border border-slate-300 rounded px-2 py-1 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
                       />
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -1073,7 +1073,7 @@ export function StudiesV2RunSearches() {
                           }
                         }}
                         placeholder="GR, Trail..."
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 placeholder-zinc-500 focus:border-blue-500 focus:outline-none"
+                        className="w-full bg-slate-200 border border-slate-300 rounded px-2 py-1 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
                       />
                     </td>
                   </tr>

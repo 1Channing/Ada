@@ -107,33 +107,33 @@ export function Dashboard() {
   }
 
   function getScoreBadgeColor(score: number | null): string {
-    if (!score) return 'bg-zinc-700 text-zinc-400';
-    if (score >= 10) return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
-    if (score >= 6) return 'bg-green-500/20 text-green-400 border border-green-500/30';
-    if (score >= 3) return 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
-    return 'bg-red-500/20 text-red-400 border border-red-500/30';
+    if (!score) return 'bg-slate-300 text-slate-600';
+    if (score >= 10) return 'bg-emerald-100 text-emerald-600 border border-emerald-500/30';
+    if (score >= 6) return 'bg-green-100 text-green-600 border border-green-500/30';
+    if (score >= 3) return 'bg-amber-100 text-amber-600 border border-amber-500/30';
+    return 'bg-red-100 text-red-600 border border-red-500/30';
   }
 
   function getRiskIcon(riskLevel: string | null) {
     if (!riskLevel) return null;
-    if (riskLevel === 'low') return <CheckCircle size={16} className="text-green-400" />;
-    if (riskLevel === 'medium') return <AlertCircle size={16} className="text-amber-400" />;
-    return <AlertTriangle size={16} className="text-red-400" />;
+    if (riskLevel === 'low') return <CheckCircle size={16} className="text-green-600" />;
+    if (riskLevel === 'medium') return <AlertCircle size={16} className="text-amber-600" />;
+    return <AlertTriangle size={16} className="text-red-600" />;
   }
 
   function getDaysOnlineBadge(days: number | null) {
     if (days === null || days === undefined) return null;
-    if (days < 2) return <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">Fresh</span>;
-    if (days >= 30) return <span className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">Stale</span>;
-    return <span className="text-xs px-2 py-0.5 rounded bg-zinc-700 text-zinc-400">{days}d</span>;
+    if (days < 2) return <span className="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-600">Fresh</span>;
+    if (days >= 30) return <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-600">Stale</span>;
+    return <span className="text-xs px-2 py-0.5 rounded bg-slate-300 text-slate-600">{days}d</span>;
   }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-zinc-100">Deals of the Day</h1>
-          <p className="text-zinc-400 mt-1">Top export opportunities based on margin potential</p>
+          <h1 className="text-3xl font-bold text-slate-900">Deals of the Day</h1>
+          <p className="text-slate-600 mt-1">Top export opportunities based on margin potential</p>
         </div>
         <button
           onClick={() => loadListings()}
@@ -143,73 +143,73 @@ export function Dashboard() {
         </button>
       </div>
 
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4 mb-6">
+      <div className="bg-white rounded-lg border border-slate-200 p-4 mb-6">
         <div className="grid grid-cols-4 gap-4 mb-4">
           <div>
-            <label className="text-xs text-zinc-400 mb-1 block">Min Score</label>
+            <label className="text-xs text-slate-600 mb-1 block">Min Score</label>
             <input
               type="number"
               value={filters.minScore}
               onChange={(e) => setFilters({ ...filters, minScore: Number(e.target.value) })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100"
+              className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-900"
               min="0"
               max="15"
             />
           </div>
 
           <div>
-            <label className="text-xs text-zinc-400 mb-1 block">Max Score</label>
+            <label className="text-xs text-slate-600 mb-1 block">Max Score</label>
             <input
               type="number"
               value={filters.maxScore}
               onChange={(e) => setFilters({ ...filters, maxScore: Number(e.target.value) })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100"
+              className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-900"
               min="0"
               max="15"
             />
           </div>
 
           <div>
-            <label className="text-xs text-zinc-400 mb-1 block">Source Country</label>
+            <label className="text-xs text-slate-600 mb-1 block">Source Country</label>
             <input
               type="text"
               value={filters.sourceCountry}
               onChange={(e) => setFilters({ ...filters, sourceCountry: e.target.value })}
               placeholder="e.g. FR, NL"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100"
+              className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-900"
             />
           </div>
 
           <div>
-            <label className="text-xs text-zinc-400 mb-1 block">Target Country</label>
+            <label className="text-xs text-slate-600 mb-1 block">Target Country</label>
             <input
               type="text"
               value={filters.targetCountry}
               onChange={(e) => setFilters({ ...filters, targetCountry: e.target.value })}
               placeholder="e.g. DK, IT"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100"
+              className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-900"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-4 gap-4">
           <div>
-            <label className="text-xs text-zinc-400 mb-1 block">Brand</label>
+            <label className="text-xs text-slate-600 mb-1 block">Brand</label>
             <input
               type="text"
               value={filters.brand}
               onChange={(e) => setFilters({ ...filters, brand: e.target.value })}
               placeholder="e.g. Toyota"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100"
+              className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-900"
             />
           </div>
 
           <div>
-            <label className="text-xs text-zinc-400 mb-1 block">Risk Level</label>
+            <label className="text-xs text-slate-600 mb-1 block">Risk Level</label>
             <select
               value={filters.riskLevel}
               onChange={(e) => setFilters({ ...filters, riskLevel: e.target.value })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100"
+              className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-900"
             >
               <option value="">All</option>
               <option value="low">Low</option>
@@ -219,34 +219,34 @@ export function Dashboard() {
           </div>
 
           <div className="flex items-end gap-4">
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
                 type="checkbox"
                 checked={filters.onlyRunning}
                 onChange={(e) => setFilters({ ...filters, onlyRunning: e.target.checked })}
-                className="rounded bg-zinc-800 border-zinc-700"
+                className="rounded bg-slate-200 border-slate-300"
               />
               Running only
             </label>
 
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
                 type="checkbox"
                 checked={filters.hideAccident}
                 onChange={(e) => setFilters({ ...filters, hideAccident: e.target.checked })}
-                className="rounded bg-zinc-800 border-zinc-700"
+                className="rounded bg-slate-200 border-slate-300"
               />
               Hide accident
             </label>
           </div>
 
           <div className="flex items-end">
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
                 type="checkbox"
                 checked={filters.onlyValidated}
                 onChange={(e) => setFilters({ ...filters, onlyValidated: e.target.checked })}
-                className="rounded bg-zinc-800 border-zinc-700"
+                className="rounded bg-slate-200 border-slate-300"
               />
               Top validated only
             </label>
@@ -255,50 +255,50 @@ export function Dashboard() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-zinc-400">Loading listings...</div>
+        <div className="text-center py-12 text-slate-600">Loading listings...</div>
       ) : listings.length === 0 ? (
-        <div className="text-center py-12 text-zinc-400">No listings found with current filters</div>
+        <div className="text-center py-12 text-slate-600">No listings found with current filters</div>
       ) : (
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden">
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
           <table className="w-full">
-            <thead className="bg-zinc-800 border-b border-zinc-700">
+            <thead className="bg-slate-200 border-b border-slate-300">
               <tr>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Score</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Vehicle</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Price / Target / Margin</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Route</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Days / Risk</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Status</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase">Actions</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Score</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Vehicle</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Price / Target / Margin</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Route</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Days / Risk</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Status</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody>
               {listings.map((listing) => (
-                <tr key={listing.id} className="border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors">
+                <tr key={listing.id} className="border-b border-slate-200 hover:bg-slate-100 transition-colors">
                   <td className="px-4 py-3">
                     <div className={`inline-block px-3 py-1 rounded-lg font-bold text-sm ${getScoreBadgeColor(listing.score_mc)}`}>
                       {listing.score_mc?.toFixed(1) || 'N/A'}
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="font-semibold text-zinc-100">{listing.brand} {listing.model}</div>
-                    <div className="text-xs text-zinc-500">
+                    <div className="font-semibold text-slate-900">{listing.brand} {listing.model}</div>
+                    <div className="text-xs text-slate-500">
                       {listing.year || '?'} • {listing.km ? `${listing.km.toLocaleString()} km` : 'N/A km'}
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="text-sm">
-                      <div className="text-zinc-100">€{listing.price_eur.toLocaleString()}</div>
-                      <div className="text-zinc-500 text-xs">
+                      <div className="text-slate-900">€{listing.price_eur.toLocaleString()}</div>
+                      <div className="text-slate-500 text-xs">
                         Target: €{listing.target_export_price_eur?.toLocaleString() || 'N/A'}
                       </div>
-                      <div className={`text-xs font-medium ${(listing.estimated_margin_eur || 0) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      <div className={`text-xs font-medium ${(listing.estimated_margin_eur || 0) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                         Margin: €{listing.estimated_margin_eur?.toLocaleString() || 'N/A'}
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-sm text-zinc-300">
+                    <div className="text-sm text-slate-700">
                       {listing.source_country} → {listing.target_country}
                     </div>
                   </td>
@@ -309,7 +309,7 @@ export function Dashboard() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-xs px-2 py-1 rounded bg-zinc-800 text-zinc-300 inline-block">
+                    <div className="text-xs px-2 py-1 rounded bg-slate-200 text-slate-700 inline-block">
                       {listing.status}
                     </div>
                   </td>
@@ -319,38 +319,38 @@ export function Dashboard() {
                         href={listing.url_annonce}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1.5 hover:bg-zinc-700 rounded transition-colors"
+                        className="p-1.5 hover:bg-slate-300 rounded transition-colors"
                         title="Open listing"
                       >
-                        <ExternalLink size={16} className="text-zinc-400" />
+                        <ExternalLink size={16} className="text-slate-600" />
                       </a>
                       <button
                         onClick={() => updateListingStatus(listing.id, 'seen')}
-                        className="p-1.5 hover:bg-zinc-700 rounded transition-colors"
+                        className="p-1.5 hover:bg-slate-300 rounded transition-colors"
                         title="Mark as seen"
                       >
-                        <Eye size={16} className="text-zinc-400" />
+                        <Eye size={16} className="text-slate-600" />
                       </button>
                       <button
                         onClick={() => updateListingStatus(listing.id, 'contacted')}
-                        className="p-1.5 hover:bg-zinc-700 rounded transition-colors"
+                        className="p-1.5 hover:bg-slate-300 rounded transition-colors"
                         title="Mark as contacted"
                       >
-                        <Phone size={16} className="text-zinc-400" />
+                        <Phone size={16} className="text-slate-600" />
                       </button>
                       <button
                         onClick={() => updateListingStatus(listing.id, 'bought')}
                         className="p-1.5 hover:bg-emerald-700 rounded transition-colors"
                         title="Mark as bought"
                       >
-                        <ShoppingCart size={16} className="text-emerald-400" />
+                        <ShoppingCart size={16} className="text-emerald-600" />
                       </button>
                       <button
                         onClick={() => updateListingStatus(listing.id, 'rejected')}
                         className="p-1.5 hover:bg-red-700 rounded transition-colors"
                         title="Mark as rejected"
                       >
-                        <X size={16} className="text-red-400" />
+                        <X size={16} className="text-red-600" />
                       </button>
                     </div>
                   </td>

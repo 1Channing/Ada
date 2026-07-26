@@ -53,11 +53,11 @@ const OUTCOME_LABELS: Record<string, string> = {
 };
 
 const OUTCOME_STYLE: Record<string, string> = {
-  taxonomy_gap: 'bg-red-900/40 text-red-400',
-  enum_gap: 'bg-amber-900/40 text-amber-400',
-  no_url: 'bg-zinc-800 text-zinc-400',
-  insufficient: 'bg-zinc-800 text-zinc-500',
-  technical: 'bg-blue-900/30 text-blue-400',
+  taxonomy_gap: 'bg-red-50 text-red-600',
+  enum_gap: 'bg-amber-50 text-amber-600',
+  no_url: 'bg-slate-200 text-slate-600',
+  insufficient: 'bg-slate-200 text-slate-500',
+  technical: 'bg-blue-50 text-blue-600',
 };
 
 function variantChips(item: GapItem): string[] {
@@ -168,31 +168,31 @@ export function ResolutionCenter() {
   };
 
   return (
-    <div className="pt-2 border-t border-zinc-800">
+    <div className="pt-2 border-t border-slate-200">
       <button
         onClick={() => setOpen((v) => !v)}
         className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
           open
-            ? 'bg-violet-900/40 border-violet-700 text-violet-300'
-            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+            ? 'bg-violet-50 border-violet-300 text-violet-700'
+            : 'bg-white border-slate-200 text-slate-600 hover:text-slate-800'
         }`}
       >
         <Inbox className="w-3.5 h-3.5" />
         Centre de résolution
         {open && !loading && (
-          <span className="px-1.5 rounded-full bg-zinc-800 text-zinc-300">{openGaps.length} ouverte(s)</span>
+          <span className="px-1.5 rounded-full bg-slate-200 text-slate-700">{openGaps.length} ouverte(s)</span>
         )}
       </button>
 
       {open && (
         <div className="mt-3 space-y-3">
-          <div className="flex items-center gap-3 text-xs text-zinc-500">
+          <div className="flex items-center gap-3 text-xs text-slate-500">
             <span>
               Toutes les inconnues enregistrées, toutes campagnes confondues — rien ne se perd, tout se
               corrige : réparer, déclarer le marché vide (URL valide, mapping appris), ou ignorer en
               connaissance de cause.
             </span>
-            <label className="flex items-center gap-1.5 shrink-0 cursor-pointer text-zinc-400">
+            <label className="flex items-center gap-1.5 shrink-0 cursor-pointer text-slate-600">
               <input
                 type="checkbox"
                 checked={showResolved}
@@ -204,25 +204,25 @@ export function ResolutionCenter() {
           </div>
 
           {/* Outils : re-test en masse + boîte noire (revue quotidienne) */}
-          <div className="flex items-center gap-2 flex-wrap text-xs bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 flex-wrap text-xs bg-white border border-slate-200 rounded-lg px-3 py-2">
             <button
               onClick={() => void handleRetest()}
               disabled={toolBusy || retestPlan.length === 0}
-              className="flex items-center gap-1.5 px-2 py-1 rounded bg-violet-900/40 border border-violet-800 text-violet-300 hover:bg-violet-900/60 disabled:opacity-40"
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-violet-50 border border-violet-300 text-violet-700 hover:bg-violet-50 disabled:opacity-40"
               title="Re-passer toutes les inconnues ouvertes dans le moteur corrigé"
             >
               {toolBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
               Re-tester les inconnues ({retestPlan.length} segments)
             </button>
-            <span className="text-zinc-700">·</span>
-            <span className="flex items-center gap-1.5 text-zinc-400">
+            <span className="text-slate-300">·</span>
+            <span className="flex items-center gap-1.5 text-slate-600">
               <FileText className="w-3.5 h-3.5" />
-              Boîte noire : <b className="text-zinc-200">{dossiers.length}</b> dossier(s) non revu(s)
+              Boîte noire : <b className="text-slate-800">{dossiers.length}</b> dossier(s) non revu(s)
             </span>
             <button
               onClick={() => void handleCopyDigest()}
               disabled={dossiers.length === 0}
-              className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
+              className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 disabled:opacity-40"
               title="Copier le rapport du jour (à coller en session de dev)"
             >
               Copier le rapport du jour
@@ -230,27 +230,27 @@ export function ResolutionCenter() {
             <button
               onClick={() => void handleMarkReviewed()}
               disabled={toolBusy || dossiers.length === 0}
-              className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 disabled:opacity-40"
+              className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-600 disabled:opacity-40"
               title="À faire une fois le rapport traité"
             >
               Marquer revus
             </button>
-            {toolNote && <span className="text-emerald-400">{toolNote}</span>}
+            {toolNote && <span className="text-emerald-600">{toolNote}</span>}
           </div>
 
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {error && <p className="text-xs text-red-600">{error}</p>}
           {loading && (
-            <p className="text-xs text-zinc-500 flex items-center gap-2">
+            <p className="text-xs text-slate-500 flex items-center gap-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement des inconnues…
             </p>
           )}
           {!loading && shown.length === 0 && !error && (
-            <p className="text-xs text-emerald-400">Aucune inconnue ouverte — tout est traité.</p>
+            <p className="text-xs text-emerald-600">Aucune inconnue ouverte — tout est traité.</p>
           )}
 
           {Object.entries(bySite).map(([site, items]) => (
             <div key={site}>
-              <div className="text-xs font-medium text-zinc-400 mb-1">
+              <div className="text-xs font-medium text-slate-600 mb-1">
                 {site} ({items.filter((i) => !i.resolvedAt).length})
               </div>
               <div className="space-y-1">
@@ -260,36 +260,36 @@ export function ResolutionCenter() {
                   return (
                     <div
                       key={item.id}
-                      className={`text-xs bg-zinc-950 border rounded px-2 py-1.5 space-y-1 ${
-                        done ? 'border-emerald-900/50 opacity-70' : 'border-zinc-800'
+                      className={`text-xs bg-white border rounded px-2 py-1.5 space-y-1 ${
+                        done ? 'border-emerald-300 opacity-70' : 'border-slate-200'
                       }`}
                     >
                       <div className="flex items-center gap-2 flex-wrap">
                         {done ? (
-                          <span className="shrink-0 px-1.5 rounded text-[10px] font-medium bg-emerald-900/40 text-emerald-400">
+                          <span className="shrink-0 px-1.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-600">
                             {RESOLUTION_LABELS[item.resolution ?? ''] ?? 'résolue'}
                           </span>
                         ) : (
-                          <span className={`shrink-0 px-1.5 rounded text-[10px] font-medium ${OUTCOME_STYLE[item.outcome] ?? 'bg-zinc-800 text-zinc-400'}`}>
+                          <span className={`shrink-0 px-1.5 rounded text-[10px] font-medium ${OUTCOME_STYLE[item.outcome] ?? 'bg-slate-200 text-slate-600'}`}>
                             {OUTCOME_LABELS[item.outcome] ?? item.outcome}
                           </span>
                         )}
-                        <span className={`shrink-0 ${done ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                        <span className={`shrink-0 ${done ? 'text-slate-500 line-through' : 'text-slate-700'}`}>
                           {item.brand} {item.model}
                         </span>
                         {variantChips(item).map((c) => (
-                          <span key={c} className="shrink-0 px-1.5 rounded text-[10px] bg-blue-900/30 text-blue-300">{c}</span>
+                          <span key={c} className="shrink-0 px-1.5 rounded text-[10px] bg-blue-50 text-blue-700">{c}</span>
                         ))}
-                        <span className="text-zinc-500 truncate flex-1 min-w-[8rem]">{item.detail}</span>
-                        <span className="text-zinc-700 shrink-0 hidden lg:inline" title={item.campaignLabel}>
+                        <span className="text-slate-500 truncate flex-1 min-w-[8rem]">{item.detail}</span>
+                        <span className="text-slate-300 shrink-0 hidden lg:inline" title={item.campaignLabel}>
                           {item.createdAt.slice(0, 10)}
                         </span>
                         {busy ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-400 shrink-0" />
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-600 shrink-0" />
                         ) : done ? (
                           <button
                             onClick={() => void act(item, () => reopenGapItem(item.id))}
-                            className="flex items-center gap-1 text-zinc-500 hover:text-zinc-300 shrink-0"
+                            className="flex items-center gap-1 text-slate-500 hover:text-slate-700 shrink-0"
                             title="Rouvrir cette inconnue"
                           >
                             <RotateCcw className="w-3.5 h-3.5" /> Rouvrir
@@ -299,7 +299,7 @@ export function ResolutionCenter() {
                             {item.url && (
                               <button
                                 onClick={() => openInIngestion(item.url!)}
-                                className="flex items-center gap-1 text-violet-400 hover:text-violet-300 shrink-0"
+                                className="flex items-center gap-1 text-violet-600 hover:text-violet-700 shrink-0"
                                 title="Corriger en Ingestion (URL pré-remplie)"
                               >
                                 <Wrench className="w-3.5 h-3.5" /> Corriger
@@ -307,21 +307,21 @@ export function ResolutionCenter() {
                             )}
                             <button
                               onClick={() => void act(item, () => resolveGapItem(item.id, 'corrected'))}
-                              className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 shrink-0"
+                              className="flex items-center gap-1 text-emerald-600 hover:text-emerald-700 shrink-0"
                               title="Déjà corrigée ailleurs"
                             >
                               <Check className="w-3.5 h-3.5" /> Corrigé
                             </button>
                             <button
                               onClick={() => void act(item, () => validateEmptyMarket(item))}
-                              className="flex items-center gap-1 text-sky-400 hover:text-sky-300 shrink-0"
+                              className="flex items-center gap-1 text-sky-600 hover:text-sky-700 shrink-0"
                               title="Le marché est vide mais l'URL cible bien ce modèle — apprendre le mapping sans échantillon"
                             >
                               <Ban className="w-3.5 h-3.5" /> Marché vide
                             </button>
                             <button
                               onClick={() => void act(item, () => resolveGapItem(item.id, 'ignored'))}
-                              className="flex items-center gap-1 text-zinc-500 hover:text-zinc-300 shrink-0"
+                              className="flex items-center gap-1 text-slate-500 hover:text-slate-700 shrink-0"
                               title="Ignorer (non pertinent)"
                             >
                               <EyeOff className="w-3.5 h-3.5" /> Ignorer
@@ -332,7 +332,7 @@ export function ResolutionCenter() {
                       {item.url && (
                         <a
                           href={item.url} target="_blank" rel="noreferrer"
-                          className="flex items-center gap-1 font-mono text-[10px] text-zinc-600 hover:text-zinc-400 truncate"
+                          className="flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 truncate"
                           title={item.url}
                         >
                           <ExternalLink className="w-3 h-3 shrink-0" />

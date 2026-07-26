@@ -265,11 +265,11 @@ export function StudiesV2Negotiations() {
   function getStatusBadge(status: string) {
     switch (status) {
       case 'APPROVED':
-        return <span className="px-2 py-1 rounded text-xs font-medium bg-emerald-900/30 text-emerald-400">In Negotiation</span>;
+        return <span className="px-2 py-1 rounded text-xs font-medium bg-emerald-50 text-emerald-600">In Negotiation</span>;
       case 'COMPLETED':
-        return <span className="px-2 py-1 rounded text-xs font-medium bg-blue-900/30 text-blue-400">Completed</span>;
+        return <span className="px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-600">Completed</span>;
       default:
-        return <span className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300">{status}</span>;
+        return <span className="px-2 py-1 rounded text-xs font-medium bg-slate-300 text-slate-700">{status}</span>;
     }
   }
 
@@ -277,8 +277,8 @@ export function StudiesV2Negotiations() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-zinc-100">Negotiations</h2>
-          <p className="text-sm text-zinc-400 mt-1">
+          <h2 className="text-2xl font-bold text-slate-900">Negotiations</h2>
+          <p className="text-sm text-slate-600 mt-1">
             Track and manage approved listings in negotiation
           </p>
         </div>
@@ -288,8 +288,8 @@ export function StudiesV2Negotiations() {
             onClick={() => setAssigneeFilter('all')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               assigneeFilter === 'all'
-                ? 'bg-zinc-600 text-white'
-                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                ? 'bg-slate-400 text-white'
+                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
             }`}
           >
             All
@@ -299,7 +299,7 @@ export function StudiesV2Negotiations() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               assigneeFilter === 'channing'
                 ? 'bg-emerald-600 text-white'
-                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
             }`}
           >
             Channing
@@ -309,7 +309,7 @@ export function StudiesV2Negotiations() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               assigneeFilter === 'antoine'
                 ? 'bg-blue-600 text-white'
-                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
             }`}
           >
             Antoine
@@ -317,9 +317,9 @@ export function StudiesV2Negotiations() {
         </div>
       </div>
 
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800">
-        <div className="p-4 border-b border-zinc-800">
-          <h3 className="font-semibold text-zinc-100">
+      <div className="bg-white rounded-lg border border-slate-200">
+        <div className="p-4 border-b border-slate-200">
+          <h3 className="font-semibold text-slate-900">
             {assigneeFilter === 'all' && `All Negotiations (${listings.length})`}
             {assigneeFilter === 'channing' && `Channing's Negotiations (${listings.length})`}
             {assigneeFilter === 'antoine' && `Antoine's Negotiations (${listings.length})`}
@@ -327,66 +327,66 @@ export function StudiesV2Negotiations() {
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-zinc-400">Loading negotiations...</div>
+          <div className="p-8 text-center text-slate-600">Loading negotiations...</div>
         ) : listings.length === 0 ? (
-          <div className="p-8 text-center text-zinc-400">
+          <div className="p-8 text-center text-slate-600">
             {assigneeFilter === 'all' && 'No approved listings yet. Approve listings from the Results tab.'}
             {assigneeFilter === 'channing' && 'No listings assigned to Channing yet.'}
             {assigneeFilter === 'antoine' && 'No listings assigned to Antoine yet.'}
           </div>
         ) : (
-          <div className="divide-y divide-zinc-800">
+          <div className="divide-y divide-slate-200">
             {listings.map((listing) => (
-              <div key={listing.id} className="p-4 hover:bg-zinc-800/30 transition-colors">
+              <div key={listing.id} className="p-4 hover:bg-slate-100 transition-colors">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 space-y-3">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-medium text-zinc-100">{listing.title}</h4>
+                        <h4 className="font-medium text-slate-900">{listing.title}</h4>
                         {getStatusBadge(listing.status)}
                         {listing.assigned_to && (
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-900/30 text-blue-400">
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-600">
                             {listing.assigned_to === 'channing' ? 'Channing' : 'Antoine'}
                           </span>
                         )}
                       </div>
-                      <div className="text-sm text-zinc-400">
-                        <span className="font-medium text-blue-400">
+                      <div className="text-sm text-slate-600">
+                        <span className="font-medium text-blue-600">
                           {listing.study_run_results.studies_v2.brand} {listing.study_run_results.studies_v2.model}
                         </span>
                         {' • '}
                         <span>{listing.study_run_results.studies_v2.year}</span>
                         {' • '}
-                        <span className="text-emerald-400">{listing.study_run_results.studies_v2.country_source}</span>
+                        <span className="text-emerald-600">{listing.study_run_results.studies_v2.country_source}</span>
                         {' → '}
-                        <span className="text-blue-400">{listing.study_run_results.studies_v2.country_target}</span>
+                        <span className="text-blue-600">{listing.study_run_results.studies_v2.country_target}</span>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                       <div>
-                        <div className="text-xs text-zinc-500 mb-1">Source Price</div>
-                        <div className="font-bold text-emerald-400">{listing.price.toLocaleString()}€</div>
+                        <div className="text-xs text-slate-500 mb-1">Source Price</div>
+                        <div className="font-bold text-emerald-600">{listing.price.toLocaleString()}€</div>
                       </div>
                       <div>
-                        <div className="text-xs text-zinc-500 mb-1">Target Median</div>
-                        <div className="font-medium text-zinc-300">
+                        <div className="text-xs text-slate-500 mb-1">Target Median</div>
+                        <div className="font-medium text-slate-700">
                           {listing.study_run_results.target_market_price
                             ? `${listing.study_run_results.target_market_price.toLocaleString()}€`
                             : 'N/A'}
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs text-zinc-500 mb-1">Opportunity</div>
-                        <div className="font-medium text-emerald-400">
+                        <div className="text-xs text-slate-500 mb-1">Opportunity</div>
+                        <div className="font-medium text-emerald-600">
                           {listing.study_run_results.price_difference
                             ? `+${listing.study_run_results.price_difference.toLocaleString()}€`
                             : 'N/A'}
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs text-zinc-500 mb-1">Details</div>
-                        <div className="text-zinc-300">
+                        <div className="text-xs text-slate-500 mb-1">Details</div>
+                        <div className="text-slate-700">
                           {listing.year && <span>{listing.year} • </span>}
                           {listing.mileage && <span>{listing.mileage.toLocaleString()} km</span>}
                         </div>
@@ -394,32 +394,32 @@ export function StudiesV2Negotiations() {
                     </div>
 
                     {(listing.defects_summary || listing.entretien || (listing.options && listing.options.length > 0)) && (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-2 border-t border-zinc-800">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-2 border-t border-slate-200">
                         {listing.defects_summary && (
                           <div>
-                            <div className="text-zinc-500 font-semibold uppercase mb-1">Defects</div>
-                            <div className="text-zinc-400">{listing.defects_summary}</div>
+                            <div className="text-slate-500 font-semibold uppercase mb-1">Defects</div>
+                            <div className="text-slate-600">{listing.defects_summary}</div>
                           </div>
                         )}
                         {(listing.entretien && listing.entretien.trim()) && (
                           <div>
-                            <div className="text-zinc-500 font-semibold uppercase mb-1">Entretien</div>
-                            <div className="text-zinc-400">{listing.entretien}</div>
+                            <div className="text-slate-500 font-semibold uppercase mb-1">Entretien</div>
+                            <div className="text-slate-600">{listing.entretien}</div>
                           </div>
                         )}
                         {listing.options && Array.isArray(listing.options) && listing.options.length > 0 && (
                           <div>
-                            <div className="text-zinc-500 font-semibold uppercase mb-1">Options</div>
-                            <div className="text-zinc-400">{listing.options.join(', ')}</div>
+                            <div className="text-slate-500 font-semibold uppercase mb-1">Options</div>
+                            <div className="text-slate-600">{listing.options.join(', ')}</div>
                           </div>
                         )}
                       </div>
                     )}
 
-                    <div className="pt-3 border-t border-zinc-800">
+                    <div className="pt-3 border-t border-slate-200">
                       <div className="flex items-center gap-2 mb-2">
-                        <MessageSquare size={16} className="text-zinc-500" />
-                        <h5 className="text-sm font-semibold text-zinc-300">Call Notes</h5>
+                        <MessageSquare size={16} className="text-slate-500" />
+                        <h5 className="text-sm font-semibold text-slate-700">Call Notes</h5>
                       </div>
 
                       {notes[listing.id] && notes[listing.id].length > 0 && (
@@ -428,10 +428,10 @@ export function StudiesV2Negotiations() {
                             const date = new Date(note.created_at);
                             const formatted = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                             return (
-                              <div key={note.id} className="text-xs text-zinc-400 bg-zinc-800/50 p-2 rounded">
-                                <span className="text-zinc-500">{formatted}</span>
+                              <div key={note.id} className="text-xs text-slate-600 bg-slate-100 p-2 rounded">
+                                <span className="text-slate-500">{formatted}</span>
                                 {' — '}
-                                <span className="text-blue-400 font-medium">
+                                <span className="text-blue-600 font-medium">
                                   {note.author === 'channing' ? 'Channing' : 'Antoine'}:
                                 </span>
                                 {' '}
@@ -453,7 +453,7 @@ export function StudiesV2Negotiations() {
                             }));
                             setLastSelectedAuthor(author);
                           }}
-                          className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300"
+                          className="px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs text-slate-700"
                         >
                           <option value="channing">Channing</option>
                           <option value="antoine">Antoine</option>
@@ -467,7 +467,7 @@ export function StudiesV2Negotiations() {
                             }))
                           }
                           placeholder="Add a note..."
-                          className="flex-1 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 resize-none"
+                          className="flex-1 px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs text-slate-700 resize-none"
                           rows={2}
                         />
                         <button
@@ -480,38 +480,38 @@ export function StudiesV2Negotiations() {
                     </div>
 
                     {showSoldForm[listing.id] && (
-                      <div className="pt-3 border-t border-zinc-800">
+                      <div className="pt-3 border-t border-slate-200">
                         <div className="flex items-center gap-2 mb-3">
                           <DollarSign size={16} className="text-emerald-500" />
-                          <h5 className="text-sm font-semibold text-zinc-300">Mark as Sold</h5>
+                          <h5 className="text-sm font-semibold text-slate-700">Mark as Sold</h5>
                         </div>
                         <div className="grid grid-cols-3 gap-3">
                           <div>
-                            <label className="text-xs text-zinc-500 mb-1 block">Buy Price (€)</label>
+                            <label className="text-xs text-slate-500 mb-1 block">Buy Price (€)</label>
                             <input
                               type="number"
                               value={saleFormData[listing.id]?.buyPrice || ''}
                               onChange={(e) => updateSaleFormData(listing.id, 'buyPrice', e.target.value)}
                               placeholder="10000"
-                              className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-300"
+                              className="w-full px-2 py-1 bg-slate-200 border border-slate-300 rounded text-sm text-slate-700"
                             />
                           </div>
                           <div>
-                            <label className="text-xs text-zinc-500 mb-1 block">Sale Price (€)</label>
+                            <label className="text-xs text-slate-500 mb-1 block">Sale Price (€)</label>
                             <input
                               type="number"
                               value={saleFormData[listing.id]?.salePrice || ''}
                               onChange={(e) => updateSaleFormData(listing.id, 'salePrice', e.target.value)}
                               placeholder="15000"
-                              className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-300"
+                              className="w-full px-2 py-1 bg-slate-200 border border-slate-300 rounded text-sm text-slate-700"
                             />
                           </div>
                           <div>
-                            <label className="text-xs text-zinc-500 mb-1 block">Sold By</label>
+                            <label className="text-xs text-slate-500 mb-1 block">Sold By</label>
                             <select
                               value={saleFormData[listing.id]?.soldBy || 'channing'}
                               onChange={(e) => updateSaleFormData(listing.id, 'soldBy', e.target.value as Author)}
-                              className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-300"
+                              className="w-full px-2 py-1 bg-slate-200 border border-slate-300 rounded text-sm text-slate-700"
                             >
                               <option value="channing">Channing</option>
                               <option value="antoine">Antoine</option>
@@ -527,7 +527,7 @@ export function StudiesV2Negotiations() {
                           </button>
                           <button
                             onClick={() => toggleSoldForm(listing.id)}
-                            className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded text-sm transition-colors"
+                            className="px-4 py-2 bg-slate-300 hover:bg-slate-400 text-white rounded text-sm transition-colors"
                           >
                             Cancel
                           </button>
@@ -559,7 +559,7 @@ export function StudiesV2Negotiations() {
                           </button>
                           <button
                             onClick={() => updateListingStatus(listing.id, 'COMPLETED')}
-                            className="px-3 py-2 bg-zinc-600 hover:bg-zinc-700 text-white rounded text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
+                            className="px-3 py-2 bg-slate-400 hover:bg-slate-300 text-white rounded text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
                           >
                             <CheckCircle size={14} />
                             Mark Completed
@@ -570,7 +570,7 @@ export function StudiesV2Negotiations() {
                       {listing.status === 'COMPLETED' && (
                         <button
                           onClick={() => updateListingStatus(listing.id, 'APPROVED')}
-                          className="px-3 py-2 bg-zinc-600 hover:bg-zinc-700 text-white rounded text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
+                          className="px-3 py-2 bg-slate-400 hover:bg-slate-300 text-white rounded text-sm flex items-center gap-2 transition-colors whitespace-nowrap"
                         >
                           <RefreshCw size={14} />
                           Reopen
@@ -580,7 +580,7 @@ export function StudiesV2Negotiations() {
 
                     <button
                       onClick={() => deleteListing(listing.id)}
-                      className="p-2 hover:bg-red-900/30 text-zinc-500 hover:text-red-400 rounded transition-colors"
+                      className="p-2 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded transition-colors"
                       title="Delete from negotiations"
                     >
                       <X size={16} />

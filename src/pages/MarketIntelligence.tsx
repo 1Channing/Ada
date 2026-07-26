@@ -16,14 +16,14 @@ import { OpportunityAlerts } from '../components/OpportunityAlerts';
 
 const SERIES = ['#3987e5', '#008300', '#d55181', '#c98500', '#199e70', '#d95926', '#9085e9', '#e66767'];
 const BLUE = SERIES[0];
-const GRID = '#27272a';
-const AXIS = '#a1a1aa';
+const GRID = '#e2e8f0';
+const AXIS = '#64748b';
 // Distinct, well-separated hues for the (up to 3) compared studies.
 const STUDY_COLORS = ['#3987e5', '#d95926', '#199e70'];
 // One LOGICAL colour per country, stable everywhere (charts, legends):
 // FR bleu, DK blanc, DE or, IT vert, ES rouge, NL orange, BE violet.
 const COUNTRY_COLOR: Record<string, string> = {
-  FR: '#3b82f6', DK: '#f4f4f5', DE: '#eab308', IT: '#22c55e', ES: '#ef4444', NL: '#f97316', BE: '#a855f7',
+  FR: '#2C5F9E', DK: '#0F766E', DE: '#CA8A04', IT: '#22c55e', ES: '#ef4444', NL: '#f97316', BE: '#a855f7',
 };
 const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
@@ -40,7 +40,7 @@ function fmtDate(iso: string): string {
 function fmtEur(n: number | null | undefined): string {
   return n == null || n === 0 ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`;
 }
-const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12, color: '#e4e4e7' };
+const tooltipStyle = { background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 12, color: '#0f172a', boxShadow: '0 8px 24px rgba(15,23,42,.12)' };
 
 function studyLabel(f: MarketFilters, i: number): string {
   const parts = [
@@ -179,9 +179,9 @@ export function MarketIntelligence() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-3"><LineIcon className="w-6 h-6 text-blue-500" /> Market Intelligence</h1>
-          <p className="text-zinc-400 mt-1 text-sm">Profondeur, prix et vélocité du marché — filtrable au grain de l'annonce, jusqu'à 3 études comparées.</p>
+          <p className="text-slate-600 mt-1 text-sm">Profondeur, prix et vélocité du marché — filtrable au grain de l'annonce, jusqu'à 3 études comparées.</p>
         </div>
-        <button onClick={refresh} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">
+        <button onClick={refresh} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-sm">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Rafraîchir
         </button>
       </div>
@@ -200,7 +200,7 @@ export function MarketIntelligence() {
       }} />
 
       {data.observations.length === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500">
+        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500">
           Aucune donnée de marché pour l'instant. Chaque ingestion confirmée enregistre les annonces ici.
         </div>
       ) : (
@@ -210,14 +210,14 @@ export function MarketIntelligence() {
             {perStudy.map((s) => (
               <div key={s.idx}
                 className={`inline-flex items-center gap-2 pl-2.5 pr-1.5 py-1.5 rounded-lg border text-sm cursor-pointer transition
-                  ${s.idx === activeIdx ? 'bg-zinc-800 border-zinc-600' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'}`}
+                  ${s.idx === activeIdx ? 'bg-slate-200 border-slate-300' : 'bg-white border-slate-200 hover:border-slate-300'}`}
                 onClick={() => { setActiveIdx(s.idx); setPriceBand(null); }}>
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
-                <span className={s.idx === activeIdx ? 'text-zinc-100' : 'text-zinc-400'}>{s.label}</span>
-                <span className="text-[10px] text-zinc-500">{s.stats.count}</span>
+                <span className={s.idx === activeIdx ? 'text-slate-900' : 'text-slate-600'}>{s.label}</span>
+                <span className="text-[10px] text-slate-500">{s.stats.count}</span>
                 {studies.length > 1 && (
                   <button onClick={(e) => { e.stopPropagation(); removeStudy(s.idx); }}
-                    className="p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200" title="Retirer cette étude">
+                    className="p-0.5 rounded hover:bg-slate-300 text-slate-500 hover:text-slate-800" title="Retirer cette étude">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 )}
@@ -225,22 +225,22 @@ export function MarketIntelligence() {
             ))}
             {studies.length < MAX_STUDIES && (
               <button onClick={addStudy}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-zinc-700 hover:border-zinc-500 text-sm text-zinc-400 hover:text-zinc-200">
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-slate-300 hover:border-slate-400 text-sm text-slate-600 hover:text-slate-800">
                 <Plus className="w-4 h-4" /> Ajouter une étude
               </button>
             )}
           </div>
 
           {/* Filter panel — edits the ACTIVE study. */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
+          <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-zinc-200 text-sm flex items-center gap-2">
+              <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: STUDY_COLORS[activeIdx] ?? BLUE }} />
                 Filtres · {studyLabel(active, activeIdx)}
-                {activeFilterCount > 0 && <span className="text-zinc-500 font-normal">· {activeFilterCount} actif{activeFilterCount > 1 ? 's' : ''}</span>}
+                {activeFilterCount > 0 && <span className="text-slate-500 font-normal">· {activeFilterCount} actif{activeFilterCount > 1 ? 's' : ''}</span>}
               </h2>
               <button onClick={resetActive} disabled={activeFilterCount === 0}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40">
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-slate-200 hover:bg-slate-300 disabled:opacity-40">
                 <RotateCcw className="w-3.5 h-3.5" /> Réinitialiser
               </button>
             </div>
@@ -263,9 +263,9 @@ export function MarketIntelligence() {
               </div>
             </div>
             {refWin && (
-              <div className="mt-2 text-[11px] text-zinc-500">
+              <div className="mt-2 text-[11px] text-slate-500">
                 Commercialisé {refWin.yearFrom} – {refWin.yearTo ?? 'aujourd’hui'}
-                <span className="text-zinc-600"> · référentiel constructeur</span>
+                <span className="text-slate-400"> · référentiel constructeur</span>
               </div>
             )}
           </div>
@@ -326,7 +326,7 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
 
       {/* Median over time + depth over time */}
       <div className="grid md:grid-cols-2 gap-6">
-        <ChartCard title="Prix médian dans le temps" subtitle="médian + fourchette p25–p75" icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}>
+        <ChartCard title="Prix médian dans le temps" subtitle="médian + fourchette p25–p75" icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}>
           {series.length < 2 ? <NeedMore /> : (
             <ResponsiveContainer width="100%" height={240}>
               <AreaChart data={series} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
@@ -341,7 +341,7 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
           )}
         </ChartCard>
 
-        <ChartCard title="Profondeur (annonces observées)" subtitle={isCoarseOnly(filters) ? 'nombre d’annonces vues par scan' : 'échantillon filtré · page 1'} icon={<TrendingUp className="w-4 h-4 text-blue-400" />}>
+        <ChartCard title="Profondeur (annonces observées)" subtitle={isCoarseOnly(filters) ? 'nombre d’annonces vues par scan' : 'échantillon filtré · page 1'} icon={<TrendingUp className="w-4 h-4 text-blue-600" />}>
           {series.length < 2 ? <NeedMore /> : (
             <ResponsiveContainer width="100%" height={240}>
               <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
@@ -358,14 +358,14 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
 
       {/* Distribution + country comparison */}
       <div className="grid md:grid-cols-2 gap-6">
-        <ChartCard title="Distribution des prix" subtitle={`dernier scan · ${latestObs.length} annonces${priceBand ? ' · tranche sélectionnée' : ' · clique une barre'}`} icon={<Gauge className="w-4 h-4 text-amber-400" />}>
+        <ChartCard title="Distribution des prix" subtitle={`dernier scan · ${latestObs.length} annonces${priceBand ? ' · tranche sélectionnée' : ' · clique une barre'}`} icon={<Gauge className="w-4 h-4 text-amber-600" />}>
           {histogram.length === 0 ? <NeedMore text="Pas d'annonces." /> : (
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={histogram} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
                 <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="range" tick={{ fill: AXIS, fontSize: 10 }} stroke={GRID} interval={0} angle={-30} textAnchor="end" height={50} />
                 <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={32} allowDecimals={false} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, '']} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#ffffff08' }} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, '']} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#0f172a0a' }} />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]} cursor="pointer" onClick={((d: { from?: number; to?: number }) => { if (d?.from != null && d?.to != null) setPriceBand({ from: d.from, to: d.to }); }) as never}>
                   {histogram.map((b) => <Cell key={b.range} fill={priceBand && b.from >= priceBand.from && b.to <= priceBand.to + 1 ? SERIES[3] : BLUE} />)}
                 </Bar>
@@ -374,14 +374,14 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
           )}
         </ChartCard>
 
-        <ChartCard title="Comparaison entre pays" subtitle="prix médian · vue filtrée" icon={<TrendingUp className="w-4 h-4 text-violet-400" />}>
+        <ChartCard title="Comparaison entre pays" subtitle="prix médian · vue filtrée" icon={<TrendingUp className="w-4 h-4 text-violet-600" />}>
           {countryCompare.length < 2 ? <NeedMore text="Données sur ≥2 pays nécessaires (filtre marque/modèle)." /> : (
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={countryCompare} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
                 <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="country" tick={{ fill: AXIS, fontSize: 12 }} stroke={GRID} tickFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} />
                 <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={52} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtEur(v as number), 'Médian']} labelFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} cursor={{ fill: '#ffffff08' }} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtEur(v as number), 'Médian']} labelFormatter={(c) => `${COUNTRY_FLAG[c] ?? ''} ${c}`} cursor={{ fill: '#0f172a0a' }} />
                 <Bar dataKey="median" radius={[4, 4, 0, 0]}>
                   {countryCompare.map((c) => <Cell key={c.country} fill={COUNTRY_COLOR[c.country] ?? BLUE} />)}
                 </Bar>
@@ -395,10 +395,10 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
       <VelocityCard velocity={velocity} coverageDays={velocityCoverage} />
 
       {/* Listings table */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-zinc-200">Annonces {priceBand && <span className="text-zinc-500 font-normal text-sm">· tranche {Math.round(priceBand.from / 1000)}–{Math.round(priceBand.to / 1000)}k €</span>}</h2>
-          {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-zinc-400 hover:text-zinc-200">✕ tranche</button>}
+          <h2 className="font-semibold text-slate-800">Annonces {priceBand && <span className="text-slate-500 font-normal text-sm">· tranche {Math.round(priceBand.from / 1000)}–{Math.round(priceBand.to / 1000)}k €</span>}</h2>
+          {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-slate-600 hover:text-slate-800">✕ tranche</button>}
         </div>
         <ListingsTable rows={tableRows} />
       </div>
@@ -476,11 +476,11 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
   return (
     <>
       {/* Comparison stats table */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 overflow-x-auto">
-        <h2 className="font-semibold text-zinc-200 mb-3">Comparaison des études</h2>
+      <div className="bg-white border border-slate-200 rounded-xl p-5 overflow-x-auto">
+        <h2 className="font-semibold text-slate-800 mb-3">Comparaison des études</h2>
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-zinc-500 border-b border-zinc-800">
+            <tr className="text-left text-slate-500 border-b border-slate-200">
               <th className="py-2 pr-3">Étude</th>
               <th className="py-2 pr-3">Annonces</th>
               <th className="py-2 pr-3">Profondeur</th>
@@ -495,21 +495,21 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
               const base = perStudy[0].stats.median;
               const delta = base > 0 && s.stats.median > 0 ? s.stats.median - base : null;
               return (
-                <tr key={s.idx} className="border-b border-zinc-800/50">
+                <tr key={s.idx} className="border-b border-slate-200">
                   <td className="py-2 pr-3">
                     <span className="inline-flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />
-                      <span className="text-zinc-200">{s.label}</span>
+                      <span className="text-slate-800">{s.label}</span>
                     </span>
                   </td>
-                  <td className="py-2 pr-3 text-zinc-300">{s.stats.count}</td>
-                  <td className="py-2 pr-3 text-zinc-400">{s.realDepth != null ? s.realDepth : '—'}</td>
-                  <td className="py-2 pr-3 font-medium text-zinc-100">{fmtEur(s.stats.median)}</td>
-                  <td className="py-2 pr-3 text-zinc-400">{fmtEur(s.stats.p25)} – {fmtEur(s.stats.p75)}</td>
-                  <td className="py-2 pr-3 text-zinc-400">{fmtEur(s.stats.min)} – {fmtEur(s.stats.max)}</td>
+                  <td className="py-2 pr-3 text-slate-700">{s.stats.count}</td>
+                  <td className="py-2 pr-3 text-slate-600">{s.realDepth != null ? s.realDepth : '—'}</td>
+                  <td className="py-2 pr-3 font-medium text-slate-900">{fmtEur(s.stats.median)}</td>
+                  <td className="py-2 pr-3 text-slate-600">{fmtEur(s.stats.p25)} – {fmtEur(s.stats.p75)}</td>
+                  <td className="py-2 pr-3 text-slate-600">{fmtEur(s.stats.min)} – {fmtEur(s.stats.max)}</td>
                   <td className="py-2">
-                    {s.idx === 0 || delta == null ? <span className="text-zinc-600">—</span>
-                      : <span className={delta < 0 ? 'text-emerald-400' : 'text-rose-400'}>{delta < 0 ? '' : '+'}{fmtEur(delta)}</span>}
+                    {s.idx === 0 || delta == null ? <span className="text-slate-400">—</span>
+                      : <span className={delta < 0 ? 'text-emerald-600' : 'text-rose-600'}>{delta < 0 ? '' : '+'}{fmtEur(delta)}</span>}
                   </td>
                 </tr>
               );
@@ -520,7 +520,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
 
       {/* Overlaid median over time + grouped medians */}
       <div className="grid md:grid-cols-2 gap-6">
-        <ChartCard title="Prix médian dans le temps" subtitle="une courbe par étude" icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}>
+        <ChartCard title="Prix médian dans le temps" subtitle="une courbe par étude" icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}>
           {!seriesHasDepth ? <NeedMore /> : (
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={mergedSeries} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
@@ -537,14 +537,14 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
           )}
         </ChartCard>
 
-        <ChartCard title="Prix médian par étude" subtitle="dernier état · comparaison directe" icon={<TrendingUp className="w-4 h-4 text-blue-400" />}>
+        <ChartCard title="Prix médian par étude" subtitle="dernier état · comparaison directe" icon={<TrendingUp className="w-4 h-4 text-blue-600" />}>
           {medianBars.length === 0 ? <NeedMore text="Pas encore de prix." /> : (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={medianBars} layout="vertical" margin={{ top: 8, right: 40, bottom: 4, left: 8 }}>
                 <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
                 <YAxis type="category" dataKey="label" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={170} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtEur(v as number), 'Médian']} cursor={{ fill: '#ffffff08' }} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtEur(v as number), 'Médian']} cursor={{ fill: '#0f172a0a' }} />
                 <Bar dataKey="median" radius={[0, 4, 4, 0]}>
                   {medianBars.map((b) => <Cell key={b.idx} fill={b.color} />)}
                 </Bar>
@@ -556,13 +556,13 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
 
       {/* Sample depth per study + velocity */}
       <div className="grid md:grid-cols-2 gap-6">
-        <ChartCard title="Échantillon (dernier scan)" subtitle="annonces observées par étude" icon={<Gauge className="w-4 h-4 text-amber-400" />}>
+        <ChartCard title="Échantillon (dernier scan)" subtitle="annonces observées par étude" icon={<Gauge className="w-4 h-4 text-amber-600" />}>
           <ResponsiveContainer width="100%" height={Math.max(160, sampleBars.length * 48)}>
             <BarChart data={sampleBars} layout="vertical" margin={{ top: 8, right: 40, bottom: 4, left: 8 }}>
               <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
               <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} allowDecimals={false} />
               <YAxis type="category" dataKey="label" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={170} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, '']} cursor={{ fill: '#ffffff08' }} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} annonces`, '']} cursor={{ fill: '#0f172a0a' }} />
               <Bar dataKey="sample" radius={[0, 4, 4, 0]}>
                 {sampleBars.map((b) => <Cell key={b.idx} fill={b.color} />)}
               </Bar>
@@ -574,14 +574,14 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
       </div>
 
       {/* Distribution des prix — comparée, cliquable par tranche */}
-      <ChartCard title="Distribution des prix comparée" subtitle={`dernier scan · barres groupées par étude${priceBand ? ' · tranche sélectionnée' : ' · clique une tranche'}`} icon={<Gauge className="w-4 h-4 text-amber-400" />}>
+      <ChartCard title="Distribution des prix comparée" subtitle={`dernier scan · barres groupées par étude${priceBand ? ' · tranche sélectionnée' : ' · clique une tranche'}`} icon={<Gauge className="w-4 h-4 text-amber-600" />}>
         {dist.rows.length === 0 ? <NeedMore text="Pas d'annonces." /> : (
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={dist.rows} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
               <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="range" tick={{ fill: AXIS, fontSize: 10 }} stroke={GRID} interval={0} angle={-30} textAnchor="end" height={50} />
               <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={32} allowDecimals={false} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [`${v} annonces`, name]} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#ffffff08' }} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [`${v} annonces`, name]} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#0f172a0a' }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {perStudy.map((s, i) => (
                 // fill sur la Bar (pas seulement les Cells) : c'est lui que la
@@ -603,13 +603,13 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
       </ChartCard>
 
       {/* Annonces par étude — colonnes côte à côte, filtrées par tranche cliquée */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-zinc-200">
+          <h2 className="font-semibold text-slate-800">
             Annonces par étude
-            {priceBand && <span className="text-zinc-500 font-normal text-sm"> · tranche {Math.round(priceBand.from / 1000)}–{Math.round(priceBand.to / 1000)}k €</span>}
+            {priceBand && <span className="text-slate-500 font-normal text-sm"> · tranche {Math.round(priceBand.from / 1000)}–{Math.round(priceBand.to / 1000)}k €</span>}
           </h2>
-          {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-zinc-400 hover:text-zinc-200">✕ tranche</button>}
+          {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-slate-600 hover:text-slate-800">✕ tranche</button>}
         </div>
         <div className="flex gap-4 overflow-x-auto pb-1">
           {perStudy.map((s) => {
@@ -617,26 +617,26 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
               .sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 60);
             return (
               <div key={s.idx} className="flex-1 min-w-[260px]">
-                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-zinc-800">
+                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-200">
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
-                  <span className="text-sm text-zinc-200 truncate">{s.label}</span>
-                  <span className="ml-auto text-xs text-zinc-500 shrink-0">{colRows.length}</span>
+                  <span className="text-sm text-slate-800 truncate">{s.label}</span>
+                  <span className="ml-auto text-xs text-slate-500 shrink-0">{colRows.length}</span>
                 </div>
-                {colRows.length === 0 ? <p className="text-xs text-zinc-600 py-4 text-center">Aucune annonce.</p> : (
+                {colRows.length === 0 ? <p className="text-xs text-slate-400 py-4 text-center">Aucune annonce.</p> : (
                   <div className="max-h-[440px] overflow-y-auto pr-1">
                     {colRows.map((o, i) => (
-                      <div key={o.internal_ref + i} className="py-2 border-b border-zinc-800/40">
+                      <div key={o.internal_ref + i} className="py-2 border-b border-slate-200">
                         <div className="flex items-baseline justify-between gap-2">
-                          <span className="font-medium text-zinc-100">{fmtEur(o.price)}</span>
+                          <span className="font-medium text-slate-900">{fmtEur(o.price)}</span>
                           {o.listing_url
-                            ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline text-xs shrink-0">Ouvrir <ExternalLink className="w-3 h-3" /></a>
-                            : <span className="text-zinc-600 text-xs shrink-0">—</span>}
+                            ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs shrink-0">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                            : <span className="text-slate-400 text-xs shrink-0">—</span>}
                         </div>
-                        <div className="text-xs text-zinc-500 mt-0.5">
+                        <div className="text-xs text-slate-500 mt-0.5">
                           {o.year ?? '—'} · {o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'} · {fuelLabel(o.fuel)}
                           {o.power_din != null ? ` · ${o.power_din} ch` : ''}{o.gearbox ? ` · ${o.gearbox}` : ''}
                         </div>
-                        {(o.trim || o.title) && <div className="text-xs text-zinc-400 truncate mt-0.5">{o.trim || o.title}</div>}
+                        {(o.trim || o.title) && <div className="text-xs text-slate-600 truncate mt-0.5">{o.trim || o.title}</div>}
                       </div>
                     ))}
                   </div>
@@ -660,16 +660,16 @@ function VelocityCard({ velocity, coverageDays }: { velocity: VelocityStat[]; co
     <ChartCard
       title="Vélocité — proxy de vitesse de vente"
       subtitle={`fenêtre d'observation ≥ ${VELOCITY_MIN_DAYS} j par segment · page 1 seulement (une annonce peut sortir sans être vendue)`}
-      icon={<Gauge className="w-4 h-4 text-rose-400" />}
+      icon={<Gauge className="w-4 h-4 text-rose-600" />}
     >
       {velocity.length === 0 ? (
         coverageDays > 0 ? (
-          <div className="h-[140px] flex flex-col items-center justify-center gap-2 text-sm text-zinc-500">
-            <div className="w-48 bg-zinc-800 rounded-full h-2 overflow-hidden">
-              <div className="bg-rose-500/70 h-2" style={{ width: `${Math.min(100, Math.round((coverageDays / VELOCITY_MIN_DAYS) * 100))}%` }} />
+          <div className="h-[140px] flex flex-col items-center justify-center gap-2 text-sm text-slate-500">
+            <div className="w-48 bg-slate-200 rounded-full h-2 overflow-hidden">
+              <div className="bg-rose-100 h-2" style={{ width: `${Math.min(100, Math.round((coverageDays / VELOCITY_MIN_DAYS) * 100))}%` }} />
             </div>
             <span>Collecte en cours — {Math.min(coverageDays, VELOCITY_MIN_DAYS)} j / {VELOCITY_MIN_DAYS}</span>
-            <span className="text-xs text-zinc-600">La vélocité s'affiche dès {VELOCITY_MIN_DAYS} jours de scans répétés sur un segment.</span>
+            <span className="text-xs text-slate-400">La vélocité s'affiche dès {VELOCITY_MIN_DAYS} jours de scans répétés sur un segment.</span>
           </div>
         ) : (
           <NeedMore text="Pas encore de scans répétés sur ce filtre." />
@@ -679,19 +679,19 @@ function VelocityCard({ velocity, coverageDays }: { velocity: VelocityStat[]; co
           {rows.map((v) => (
             <div key={v.segmentId} className="flex items-center gap-3 text-xs">
               <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COUNTRY_COLOR[v.country] ?? SERIES[5] }} />
-              <span className="text-zinc-300 truncate w-44 shrink-0" title={v.label}>{v.label}</span>
-              <div className="flex-1 bg-zinc-800/60 rounded-full h-2 overflow-hidden">
+              <span className="text-slate-700 truncate w-44 shrink-0" title={v.label}>{v.label}</span>
+              <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
                 <div
                   className="h-2 rounded-full"
                   style={{ width: `${Math.round((v.avgDaysToDisappear / maxDays) * 100)}%`, background: COUNTRY_COLOR[v.country] ?? SERIES[5] }}
                 />
               </div>
-              <span className="text-zinc-200 font-medium w-12 text-right shrink-0">{v.avgDaysToDisappear} j</span>
-              <span className="text-zinc-600 w-28 text-right shrink-0">{v.soldCount} disparues · {v.activeCount} actives</span>
+              <span className="text-slate-800 font-medium w-12 text-right shrink-0">{v.avgDaysToDisappear} j</span>
+              <span className="text-slate-400 w-28 text-right shrink-0">{v.soldCount} disparues · {v.activeCount} actives</span>
             </div>
           ))}
           {sorted.length > 10 && (
-            <button onClick={() => setShowAll((s) => !s)} className="text-xs text-zinc-500 hover:text-zinc-300 pt-1">
+            <button onClick={() => setShowAll((s) => !s)} className="text-xs text-slate-500 hover:text-slate-700 pt-1">
               {showAll ? 'Réduire' : `Voir les ${sorted.length - 10} autres`}
             </button>
           )}
@@ -702,12 +702,12 @@ function VelocityCard({ velocity, coverageDays }: { velocity: VelocityStat[]; co
 }
 
 function ListingsTable({ rows }: { rows: Observation[] }) {
-  if (rows.length === 0) return <p className="text-sm text-zinc-500">Aucune annonce.</p>;
+  if (rows.length === 0) return <p className="text-sm text-slate-500">Aucune annonce.</p>;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-zinc-500 border-b border-zinc-800">
+          <tr className="text-left text-slate-500 border-b border-slate-200">
             <th className="py-2 pr-3">Prix</th><th className="py-2 pr-3">Année</th><th className="py-2 pr-3">Km</th>
             <th className="py-2 pr-3">Puissance</th><th className="py-2 pr-3">Boîte</th>
             <th className="py-2 pr-3">Finition</th><th className="py-2 pr-3">Carburant</th><th className="py-2">Annonce</th>
@@ -715,18 +715,18 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
         </thead>
         <tbody>
           {rows.map((o, i) => (
-            <tr key={o.internal_ref + i} className="border-b border-zinc-800/50">
-              <td className="py-2 pr-3 font-medium text-zinc-100">{fmtEur(o.price)}</td>
-              <td className="py-2 pr-3 text-zinc-400">{o.year ?? '—'}</td>
-              <td className="py-2 pr-3 text-zinc-400">{o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'}</td>
-              <td className="py-2 pr-3 text-zinc-400">{o.power_din != null ? `${o.power_din} ch` : '—'}</td>
-              <td className="py-2 pr-3 text-zinc-400">{o.gearbox || '—'}</td>
-              <td className="py-2 pr-3 text-zinc-300">{o.trim || '—'}</td>
-              <td className="py-2 pr-3 text-zinc-300">{fuelLabel(o.fuel)}</td>
+            <tr key={o.internal_ref + i} className="border-b border-slate-200">
+              <td className="py-2 pr-3 font-medium text-slate-900">{fmtEur(o.price)}</td>
+              <td className="py-2 pr-3 text-slate-600">{o.year ?? '—'}</td>
+              <td className="py-2 pr-3 text-slate-600">{o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'}</td>
+              <td className="py-2 pr-3 text-slate-600">{o.power_din != null ? `${o.power_din} ch` : '—'}</td>
+              <td className="py-2 pr-3 text-slate-600">{o.gearbox || '—'}</td>
+              <td className="py-2 pr-3 text-slate-700">{o.trim || '—'}</td>
+              <td className="py-2 pr-3 text-slate-700">{fuelLabel(o.fuel)}</td>
               <td className="py-2">
                 {o.listing_url
-                  ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
-                  : <span className="text-zinc-600 text-xs">—</span>}
+                  ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                  : <span className="text-slate-400 text-xs">—</span>}
               </td>
             </tr>
           ))}
@@ -742,13 +742,13 @@ function TextFilter({ label, value, suggestions, placeholder, onChange }:
   const listId = `textfilter-${label.replace(/[^a-z0-9]/gi, '')}`;
   return (
     <div>
-      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
+      <label className="block text-xs text-slate-600 mb-1">{label}</label>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         list={listId}
         placeholder={placeholder ?? '—'}
-        className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-sm"
+        className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm"
       />
       <datalist id={listId}>
         {suggestions.slice(0, 60).map((s) => <option key={s} value={s} />)}
@@ -760,8 +760,8 @@ function TextFilter({ label, value, suggestions, placeholder, onChange }:
 function Select({ label, value, options, onChange, flag }: { label: string; value: string; options: string[]; onChange: (v: string) => void; flag?: boolean }) {
   return (
     <div>
-      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-sm">
+      <label className="block text-xs text-slate-600 mb-1">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm">
         <option value="">Tous</option>
         {options.map((o) => <option key={o} value={o}>{flag ? `${COUNTRY_FLAG[o] ?? ''} ${o}` : o}</option>)}
       </select>
@@ -772,8 +772,8 @@ function SelectFuel({ label, value, options, onChange }: { label: string; value:
   const present = FUEL_TOKENS.filter((t) => options.includes(t));
   return (
     <div>
-      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-sm">
+      <label className="block text-xs text-slate-600 mb-1">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm">
         <option value="">Tous</option>
         {present.map((t) => <option key={t} value={t}>{fuelLabel(t)}</option>)}
       </select>
@@ -783,10 +783,10 @@ function SelectFuel({ label, value, options, onChange }: { label: string; value:
 function NumRange({ label, from, to, onFrom, onTo }: { label: string; from?: number; to?: number; onFrom: (v: number | null) => void; onTo: (v: number | null) => void }) {
   return (
     <div>
-      <label className="block text-xs text-zinc-400 mb-1">{label} (min–max)</label>
+      <label className="block text-xs text-slate-600 mb-1">{label} (min–max)</label>
       <div className="grid grid-cols-2 gap-2">
-        <input value={from ?? ''} onChange={(e) => onFrom(e.target.value ? Number(e.target.value) : null)} placeholder="min" className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm" />
-        <input value={to ?? ''} onChange={(e) => onTo(e.target.value ? Number(e.target.value) : null)} placeholder="max" className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm" />
+        <input value={from ?? ''} onChange={(e) => onFrom(e.target.value ? Number(e.target.value) : null)} placeholder="min" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+        <input value={to ?? ''} onChange={(e) => onTo(e.target.value ? Number(e.target.value) : null)} placeholder="max" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
       </div>
     </div>
   );
@@ -794,29 +794,29 @@ function NumRange({ label, from, to, onFrom, onTo }: { label: string; from?: num
 function Num({ label, value, onChange }: { label: string; value?: number; onChange: (v: number | null) => void }) {
   return (
     <div>
-      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
-      <input value={value ?? ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} placeholder="—" className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm" />
+      <label className="block text-xs text-slate-600 mb-1">{label}</label>
+      <input value={value ?? ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} placeholder="—" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
     </div>
   );
 }
 function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
-      <div className="text-lg font-bold text-zinc-100 truncate">{value}</div>
-      <div className="text-xs text-zinc-500 mt-0.5">{label}</div>
-      {hint && <div className="text-[10px] text-zinc-600 mt-0.5">{hint}</div>}
+    <div className="bg-white border border-slate-200 rounded-xl p-3">
+      <div className="text-lg font-bold text-slate-900 truncate">{value}</div>
+      <div className="text-xs text-slate-500 mt-0.5">{label}</div>
+      {hint && <div className="text-[10px] text-slate-400 mt-0.5">{hint}</div>}
     </div>
   );
 }
 function ChartCard({ title, subtitle, icon, children }: { title: string; subtitle?: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-      <div className="flex items-center gap-2 mb-1">{icon}<h2 className="font-semibold text-zinc-200">{title}</h2></div>
-      {subtitle && <p className="text-xs text-zinc-500 mb-3">{subtitle}</p>}
+    <div className="bg-white border border-slate-200 rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-1">{icon}<h2 className="font-semibold text-slate-800">{title}</h2></div>
+      {subtitle && <p className="text-xs text-slate-500 mb-3">{subtitle}</p>}
       {children}
     </div>
   );
 }
 function NeedMore({ text = 'Au moins 2 scans nécessaires — ré-ingère ce segment plus tard.' }: { text?: string }) {
-  return <div className="h-[200px] flex items-center justify-center text-sm text-zinc-600 text-center px-4">{text}</div>;
+  return <div className="h-[200px] flex items-center justify-center text-sm text-slate-400 text-center px-4">{text}</div>;
 }

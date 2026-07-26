@@ -161,16 +161,16 @@ export function JSONImport({ onClose, onSuccess }: JSONImportProps) {
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-8 z-50">
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800 max-w-4xl w-full max-h-[90vh] overflow-auto">
-        <div className="p-6 border-b border-zinc-800">
+      <div className="bg-white rounded-lg border border-slate-200 max-w-4xl w-full max-h-[90vh] overflow-auto">
+        <div className="p-6 border-b border-slate-200">
           <div className="flex justify-between items-start">
             <div>
-              <h2 className="text-xl font-bold text-zinc-100">Import JSON Listings</h2>
-              <p className="text-sm text-zinc-400 mt-1">
+              <h2 className="text-xl font-bold text-slate-900">Import JSON Listings</h2>
+              <p className="text-sm text-slate-600 mt-1">
                 Paste JSON array of listings for testing
               </p>
             </div>
-            <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
+            <button onClick={onClose} className="text-slate-600 hover:text-slate-800">
               <X size={24} />
             </button>
           </div>
@@ -179,56 +179,56 @@ export function JSONImport({ onClose, onSuccess }: JSONImportProps) {
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Source Country</label>
+              <label className="text-sm text-slate-600 mb-1 block">Source Country</label>
               <input
                 type="text"
                 value={config.sourceCountry}
                 onChange={(e) => setConfig({ ...config, sourceCountry: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
               />
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Target Country</label>
+              <label className="text-sm text-slate-600 mb-1 block">Target Country</label>
               <input
                 type="text"
                 value={config.targetCountry}
                 onChange={(e) => setConfig({ ...config, targetCountry: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
               />
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Source Site</label>
+              <label className="text-sm text-slate-600 mb-1 block">Source Site</label>
               <input
                 type="text"
                 value={config.sourceSite}
                 onChange={(e) => setConfig({ ...config, sourceSite: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
               />
             </div>
 
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Target Export Price (€)</label>
+              <label className="text-sm text-slate-600 mb-1 block">Target Export Price (€)</label>
               <input
                 type="number"
                 value={config.targetExportPrice}
                 onChange={(e) =>
                   setConfig({ ...config, targetExportPrice: Number(e.target.value) })
                 }
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900"
               />
             </div>
           </div>
 
           <div>
-            <label className="text-sm text-zinc-400 mb-1 block">
+            <label className="text-sm text-slate-600 mb-1 block">
               JSON Listings (array of objects)
             </label>
             <textarea
               value={jsonInput}
               onChange={(e) => setJsonInput(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100 font-mono text-xs"
+              className="w-full bg-slate-200 border border-slate-300 rounded px-3 py-2 text-slate-900 font-mono text-xs"
               rows={15}
               placeholder={`[\n  {\n    "url_annonce": "https://...",\n    "price_eur": 12000,\n    "brand": "Toyota",\n    "model": "RAV4",\n    "year": 2017,\n    "km": 85000\n  }\n]`}
             />
@@ -238,16 +238,16 @@ export function JSONImport({ onClose, onSuccess }: JSONImportProps) {
             <div
               className={`p-4 rounded-lg ${
                 result.errors.length === 0
-                  ? 'bg-emerald-500/10 border border-emerald-500/30'
-                  : 'bg-amber-500/10 border border-amber-500/30'
+                  ? 'bg-emerald-100 border border-emerald-500/30'
+                  : 'bg-amber-100 border border-amber-500/30'
               }`}
             >
-              <div className="font-medium text-zinc-100 mb-2">
+              <div className="font-medium text-slate-900 mb-2">
                 Import completed: {result.success} successful
                 {result.errors.length > 0 && `, ${result.errors.length} errors`}
               </div>
               {result.errors.length > 0 && (
-                <div className="text-xs text-zinc-400 space-y-1 max-h-40 overflow-auto">
+                <div className="text-xs text-slate-600 space-y-1 max-h-40 overflow-auto">
                   {result.errors.map((err, idx) => (
                     <div key={idx}>• {err}</div>
                   ))}
@@ -267,7 +267,7 @@ export function JSONImport({ onClose, onSuccess }: JSONImportProps) {
             </button>
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg font-medium transition-colors"
+              className="px-4 py-2 bg-slate-300 hover:bg-slate-400 text-white rounded-lg font-medium transition-colors"
             >
               Cancel
             </button>

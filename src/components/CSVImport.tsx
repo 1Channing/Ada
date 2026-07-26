@@ -138,26 +138,26 @@ export function CSVImport({ onClose, onSuccess }: CSVImportProps) {
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-8 z-50">
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800 max-w-2xl w-full">
-        <div className="p-6 border-b border-zinc-800">
+      <div className="bg-white rounded-lg border border-slate-200 max-w-2xl w-full">
+        <div className="p-6 border-b border-slate-200">
           <div className="flex justify-between items-start">
             <div>
-              <h2 className="text-xl font-bold text-zinc-100">Import Market Studies CSV</h2>
-              <p className="text-sm text-zinc-400 mt-1">
+              <h2 className="text-xl font-bold text-slate-900">Import Market Studies CSV</h2>
+              <p className="text-sm text-slate-600 mt-1">
                 Upload the market_studies.csv file from MC Export
               </p>
             </div>
-            <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
+            <button onClick={onClose} className="text-slate-600 hover:text-slate-800">
               <X size={24} />
             </button>
           </div>
         </div>
 
         <div className="p-6">
-          <div className="border-2 border-dashed border-zinc-700 rounded-lg p-8 text-center">
-            <Upload size={48} className="mx-auto text-zinc-500 mb-4" />
+          <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
+            <Upload size={48} className="mx-auto text-slate-500 mb-4" />
             <label className="cursor-pointer">
-              <span className="text-emerald-400 hover:text-emerald-300 font-medium">
+              <span className="text-emerald-600 hover:text-emerald-700 font-medium">
                 Choose CSV file
               </span>
               <input
@@ -168,7 +168,7 @@ export function CSVImport({ onClose, onSuccess }: CSVImportProps) {
                 className="hidden"
               />
             </label>
-            <p className="text-xs text-zinc-500 mt-2">
+            <p className="text-xs text-slate-500 mt-2">
               Expected format: id, brand, model, year, source_country, etc.
             </p>
           </div>
@@ -176,24 +176,24 @@ export function CSVImport({ onClose, onSuccess }: CSVImportProps) {
           {importing && (
             <div className="mt-4 text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400 mx-auto"></div>
-              <p className="text-zinc-400 mt-2">Importing studies...</p>
+              <p className="text-slate-600 mt-2">Importing studies...</p>
             </div>
           )}
 
           {result && (
             <div className="mt-4 space-y-3">
               {(result.inserted > 0 || result.updated > 0) && (
-                <div className="flex items-start gap-3 p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
-                  <CheckCircle size={20} className="text-emerald-400 mt-0.5" />
+                <div className="flex items-start gap-3 p-4 rounded-lg bg-emerald-100 border border-emerald-500/30">
+                  <CheckCircle size={20} className="text-emerald-600 mt-0.5" />
                   <div>
-                    <div className="font-medium text-emerald-400">
+                    <div className="font-medium text-emerald-600">
                       Import Complete
                     </div>
-                    <div className="text-sm text-zinc-300 mt-1">
+                    <div className="text-sm text-slate-700 mt-1">
                       {result.inserted} inserted, {result.updated} updated
                     </div>
                     {result.skipped > 0 && (
-                      <div className="text-xs text-zinc-400 mt-1">
+                      <div className="text-xs text-slate-600 mt-1">
                         {result.skipped} incomplete rows skipped
                       </div>
                     )}
@@ -202,18 +202,18 @@ export function CSVImport({ onClose, onSuccess }: CSVImportProps) {
               )}
 
               {result.errors.length > 0 && (
-                <div className="flex items-start gap-3 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                  <AlertCircle size={20} className="text-amber-400 mt-0.5" />
+                <div className="flex items-start gap-3 p-4 rounded-lg bg-amber-100 border border-amber-500/30">
+                  <AlertCircle size={20} className="text-amber-600 mt-0.5" />
                   <div className="flex-1">
-                    <div className="font-medium text-amber-400 mb-2">
+                    <div className="font-medium text-amber-600 mb-2">
                       {result.errors.length} errors occurred
                     </div>
-                    <div className="text-xs text-zinc-400 space-y-1 max-h-40 overflow-auto">
+                    <div className="text-xs text-slate-600 space-y-1 max-h-40 overflow-auto">
                       {result.errors.map((err, idx) => (
                         <div key={idx}>• {err}</div>
                       ))}
                       {result.errors.length >= 20 && (
-                        <div className="text-amber-400">... and more</div>
+                        <div className="text-amber-600">... and more</div>
                       )}
                     </div>
                   </div>

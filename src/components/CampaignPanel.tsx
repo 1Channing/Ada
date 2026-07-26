@@ -29,12 +29,12 @@ const OUTCOME_LABELS: Record<CampaignOutcome, string> = {
 };
 
 const OUTCOME_STYLE: Record<CampaignOutcome, string> = {
-  confirmed: 'bg-emerald-900/40 text-emerald-400',
-  taxonomy_gap: 'bg-red-900/40 text-red-400',
-  enum_gap: 'bg-amber-900/40 text-amber-400',
-  no_url: 'bg-zinc-800 text-zinc-400',
-  insufficient: 'bg-zinc-800 text-zinc-500',
-  technical: 'bg-blue-900/30 text-blue-400',
+  confirmed: 'bg-emerald-50 text-emerald-600',
+  taxonomy_gap: 'bg-red-50 text-red-600',
+  enum_gap: 'bg-amber-50 text-amber-600',
+  no_url: 'bg-slate-200 text-slate-600',
+  insufficient: 'bg-slate-200 text-slate-500',
+  technical: 'bg-blue-50 text-blue-600',
 };
 
 const SECONDS_PER_ITEM = 18; // scrape + persist + pause, empirically
@@ -208,20 +208,20 @@ export function CampaignPanel() {
   const feed = state.items.slice(-12).reverse();
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
-          <Rocket className="w-4 h-4 text-violet-400" />
+        <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+          <Rocket className="w-4 h-4 text-violet-600" />
           Campagnes de mapping — exploration de masse
         </h2>
         {running && (
-          <span className="flex items-center gap-1.5 text-xs text-violet-400">
+          <span className="flex items-center gap-1.5 text-xs text-violet-600">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             {state.status === 'stopping' ? 'arrêt en cours…' : `${state.done}/${state.total}`}
           </span>
         )}
       </div>
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-slate-500">
         Projette les critères déjà validés (marques, modèles, carburants, finitions — liés à leur marque)
         sur les sites où ils ne le sont pas encore. Chaque étude passe par le pipeline d'ingestion normal :
         ce qui se confirme enrichit la mémoire (réutilisable immédiatement), ce qui échoue devient la liste
@@ -234,7 +234,7 @@ export function CampaignPanel() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-3">
             <label className="block">
-              <span className="text-xs text-zinc-400">Nombre d'études : <span className="text-zinc-200 font-semibold">{total}</span> (~{estMinutes} min, {total} appels Zyte)</span>
+              <span className="text-xs text-slate-600">Nombre d'études : <span className="text-slate-800 font-semibold">{total}</span> (~{estMinutes} min, {total} appels Zyte)</span>
               <input
                 type="range" min={10} max={1000} step={10} value={total}
                 onChange={(e) => setTotal(Number(e.target.value))}
@@ -242,7 +242,7 @@ export function CampaignPanel() {
               />
             </label>
             <label className="block">
-              <span className="text-xs text-zinc-400">Renforcement (re-test de combos déjà validés) : {reinforcePct}%</span>
+              <span className="text-xs text-slate-600">Renforcement (re-test de combos déjà validés) : {reinforcePct}%</span>
               <input
                 type="range" min={0} max={50} step={5} value={reinforcePct}
                 onChange={(e) => setReinforcePct(Number(e.target.value))}
@@ -250,31 +250,31 @@ export function CampaignPanel() {
               />
             </label>
             <label className="block">
-              <span className="text-xs text-zinc-400">Variantes carburant / finition (liées à leur marque+modèle) : {variantPct}%</span>
+              <span className="text-xs text-slate-600">Variantes carburant / finition (liées à leur marque+modèle) : {variantPct}%</span>
               <input
                 type="range" min={0} max={100} step={10} value={variantPct}
                 onChange={(e) => setVariantPct(Number(e.target.value))}
                 className="w-full mt-1 accent-violet-500"
               />
             </label>
-            <p className="text-[11px] text-zinc-500">
-              Chaque étude cible <span className="text-zinc-300">une année précise</span> (min = max,
+            <p className="text-[11px] text-slate-500">
+              Chaque étude cible <span className="text-slate-700">une année précise</span> (min = max,
               tirée entre 2020 et {new Date().getFullYear()}) — obligatoire, sinon la recherche est
               trop vaste et les médianes mélangent tous les âges.
             </p>
-            <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+            <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
               <input
                 type="checkbox"
                 checked={deepScan}
                 onChange={(e) => setDeepScan(e.target.checked)}
                 className="accent-violet-500"
               />
-              Scan profond — 10 pages (~300 annonces) au lieu de 5 <span className="text-zinc-600">· ~2× d'appels Zyte</span>
+              Scan profond — 10 pages (~300 annonces) au lieu de 5 <span className="text-slate-400">· ~2× d'appels Zyte</span>
             </label>
           </div>
           <div className="space-y-3">
             <div>
-              <span className="text-xs text-zinc-400 block mb-1.5">Sites cibles</span>
+              <span className="text-xs text-slate-600 block mb-1.5">Sites cibles</span>
               <div className="flex flex-wrap gap-1.5">
                 {allSiteAdapters().map((a) => (
                   <button
@@ -282,8 +282,8 @@ export function CampaignPanel() {
                     onClick={() => toggleSite(a.key)}
                     className={`px-2 py-1 rounded text-xs border transition-colors ${
                       sites.includes(a.key)
-                        ? 'bg-violet-900/40 border-violet-700 text-violet-300'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                        ? 'bg-violet-50 border-violet-300 text-violet-700'
+                        : 'bg-white border-slate-200 text-slate-500 hover:text-slate-700'
                     }`}
                   >
                     {a.displayName}
@@ -295,8 +295,8 @@ export function CampaignPanel() {
             {/* Ciblage modulable : marques × carburants × modèles × années,
                 combinables librement. Vide = pas de restriction. */}
             <div>
-              <span className="text-xs text-zinc-400 block mb-1.5">
-                Ciblage carburant {filterFuels.length > 0 && <span className="text-violet-300">· {filterFuels.length} forcé(s)</span>}
+              <span className="text-xs text-slate-600 block mb-1.5">
+                Ciblage carburant {filterFuels.length > 0 && <span className="text-violet-700">· {filterFuels.length} forcé(s)</span>}
               </span>
               <div className="flex flex-wrap gap-1.5">
                 {FUEL_TARGETS.map((fu) => (
@@ -305,8 +305,8 @@ export function CampaignPanel() {
                     onClick={() => setFilterFuels((prev) => toggleIn(prev, fu))}
                     className={`px-2 py-1 rounded text-xs border transition-colors ${
                       filterFuels.includes(fu)
-                        ? 'bg-sky-900/40 border-sky-700 text-sky-300'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                        ? 'bg-sky-50 border-sky-300 text-sky-700'
+                        : 'bg-white border-slate-200 text-slate-500 hover:text-slate-700'
                     }`}
                   >
                     {fu}
@@ -317,8 +317,8 @@ export function CampaignPanel() {
 
             {knownBrands.length > 0 && (
               <div>
-                <span className="text-xs text-zinc-400 block mb-1.5">
-                  Ciblage marques {filterBrands.length > 0 ? <span className="text-violet-300">· {filterBrands.length} sélectionnée(s)</span> : '(toutes)'}
+                <span className="text-xs text-slate-600 block mb-1.5">
+                  Ciblage marques {filterBrands.length > 0 ? <span className="text-violet-700">· {filterBrands.length} sélectionnée(s)</span> : '(toutes)'}
                 </span>
                 <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
                   {knownBrands.map((b) => (
@@ -327,8 +327,8 @@ export function CampaignPanel() {
                       onClick={() => setFilterBrands((prev) => toggleIn(prev, b))}
                       className={`px-2 py-0.5 rounded text-[11px] border transition-colors ${
                         filterBrands.includes(b)
-                          ? 'bg-emerald-900/40 border-emerald-700 text-emerald-300'
-                          : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                          : 'bg-white border-slate-200 text-slate-500 hover:text-slate-700'
                       }`}
                     >
                       {b}
@@ -340,31 +340,31 @@ export function CampaignPanel() {
 
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
-                <span className="text-xs text-zinc-400">Modèles (optionnel, séparés par des virgules)</span>
+                <span className="text-xs text-slate-600">Modèles (optionnel, séparés par des virgules)</span>
                 <input
                   value={filterModels}
                   onChange={(e) => setFilterModels(e.target.value)}
                   placeholder="GOLF, RAV4…"
-                  className="w-full mt-1 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-xs text-zinc-200"
+                  className="w-full mt-1 px-2 py-1 rounded bg-white border border-slate-200 text-xs text-slate-800"
                 />
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
-                  <span className="text-xs text-zinc-400">Année min</span>
+                  <span className="text-xs text-slate-600">Année min</span>
                   <input
                     type="number" min={2020} max={new Date().getFullYear()} value={yearMin}
                     onChange={(e) => setYearMin(e.target.value)}
                     placeholder="2020"
-                    className="w-full mt-1 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-xs text-zinc-200"
+                    className="w-full mt-1 px-2 py-1 rounded bg-white border border-slate-200 text-xs text-slate-800"
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs text-zinc-400">Année max</span>
+                  <span className="text-xs text-slate-600">Année max</span>
                   <input
                     type="number" min={2020} max={new Date().getFullYear()} value={yearMax}
                     onChange={(e) => setYearMax(e.target.value)}
                     placeholder={String(new Date().getFullYear())}
-                    className="w-full mt-1 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-xs text-zinc-200"
+                    className="w-full mt-1 px-2 py-1 rounded bg-white border border-slate-200 text-xs text-slate-800"
                   />
                 </label>
               </div>
@@ -393,42 +393,42 @@ export function CampaignPanel() {
             Arrêt immédiat
           </button>
         )}
-        {startError && <span className="text-xs text-red-400">{startError}</span>}
-        {state.error && <span className="text-xs text-red-400">{state.error}</span>}
+        {startError && <span className="text-xs text-red-600">{startError}</span>}
+        {state.error && <span className="text-xs text-red-600">{state.error}</span>}
       </div>
 
       {/* Live progress */}
       {(running || state.items.length > 0) && (
         <div className="space-y-3">
-          <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+          <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
             <div
               className="bg-violet-500 h-2 transition-all"
               style={{ width: `${state.total ? Math.round((state.done / state.total) * 100) : 0}%` }}
             />
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
-            <span className="px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-400">
+            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-600">
               <CheckCircle2 className="w-3 h-3 inline mr-1" />{state.counts.confirmed} confirmés
             </span>
-            <span className="px-2 py-0.5 rounded bg-red-900/40 text-red-400">
+            <span className="px-2 py-0.5 rounded bg-red-50 text-red-600">
               <XCircle className="w-3 h-3 inline mr-1" />{state.counts.taxonomy_gap} lacunes taxonomie
             </span>
-            <span className="px-2 py-0.5 rounded bg-amber-900/40 text-amber-400">
+            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-600">
               <AlertTriangle className="w-3 h-3 inline mr-1" />{state.counts.enum_gap} lacunes critère
             </span>
-            <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">{state.counts.no_url} URL impossibles</span>
-            <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-500">{state.counts.insufficient} insuffisants</span>
-            <span className="px-2 py-0.5 rounded bg-blue-900/30 text-blue-400">{state.counts.technical} techniques</span>
+            <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-600">{state.counts.no_url} URL impossibles</span>
+            <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-500">{state.counts.insufficient} insuffisants</span>
+            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-600">{state.counts.technical} techniques</span>
           </div>
           {state.current ? (
-            <div className="text-xs text-zinc-400 flex items-center gap-2">
-              <Loader2 className="w-3 h-3 animate-spin text-violet-400" />
+            <div className="text-xs text-slate-600 flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin text-violet-600" />
               #{state.current.seq} — {state.current.site} · {state.current.brand} {state.current.model}
-              <span className="text-zinc-600">({state.current.reason})</span>
+              <span className="text-slate-400">({state.current.reason})</span>
             </div>
           ) : (state.status === 'running' && state.done < state.total && (
-            <div className="text-xs text-zinc-400 flex items-center gap-2">
-              <Loader2 className="w-3 h-3 animate-spin text-violet-400" />
+            <div className="text-xs text-slate-600 flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin text-violet-600" />
               étude #{state.done + 1}/{state.total} en cours côté serveur…
             </div>
           ))}
@@ -436,7 +436,7 @@ export function CampaignPanel() {
             <div className="space-y-1 max-h-48 overflow-y-auto">
               {feed.map((item) => (
                 <div key={item.seq} className="flex items-center gap-2 text-xs">
-                  <span className="text-zinc-600 font-mono w-8 shrink-0">#{item.seq}</span>
+                  <span className="text-slate-400 font-mono w-8 shrink-0">#{item.seq}</span>
                   <span className={`shrink-0 px-1.5 rounded text-[10px] font-medium ${OUTCOME_STYLE[item.outcome]}`}>
                     {OUTCOME_LABELS[item.outcome]}
                   </span>
@@ -445,19 +445,19 @@ export function CampaignPanel() {
                   {item.url ? (
                     <a
                       href={item.url} target="_blank" rel="noreferrer"
-                      className="text-zinc-400 hover:text-violet-300 hover:underline truncate"
+                      className="text-slate-600 hover:text-violet-700 hover:underline truncate"
                       title={`Ouvrir la recherche scrapée :\n${item.url}`}
                     >
                       {item.site} · {item.brand} {item.model}
                       {item.fuel ? ` · ${item.fuel}` : ''}{item.trim ? ` · ${item.trim}` : ''}{item.year ? ` · ${item.year}` : ''}
                     </a>
                   ) : (
-                    <span className="text-zinc-400 truncate">
+                    <span className="text-slate-600 truncate">
                       {item.site} · {item.brand} {item.model}
                       {item.fuel ? ` · ${item.fuel}` : ''}{item.trim ? ` · ${item.trim}` : ''}{item.year ? ` · ${item.year}` : ''}
                     </span>
                   )}
-                  <span className="text-zinc-600 truncate hidden md:inline">{item.detail}</span>
+                  <span className="text-slate-400 truncate hidden md:inline">{item.detail}</span>
                 </div>
               ))}
             </div>
@@ -470,27 +470,27 @@ export function CampaignPanel() {
         const open = gaps.filter((g) => !isResolved(g));
         const resolved = gaps.filter((g) => isResolved(g));
         return (
-          <div className="space-y-3 pt-2 border-t border-zinc-800">
-            <h3 className="text-xs font-semibold text-zinc-300">
+          <div className="space-y-3 pt-2 border-t border-slate-200">
+            <h3 className="text-xs font-semibold text-slate-700">
               Rapport d'inconnues — {open.length} à traiter
-              {resolved.length > 0 && <span className="text-emerald-400"> · {resolved.length} résolue(s)</span>}
+              {resolved.length > 0 && <span className="text-emerald-600"> · {resolved.length} résolue(s)</span>}
             </h3>
             {Object.entries(gapsBySite).map(([site, items]) => (
               <div key={site}>
-                <div className="text-xs font-medium text-zinc-400 mb-1">{site} ({items.filter((i) => !isResolved(i)).length})</div>
+                <div className="text-xs font-medium text-slate-600 mb-1">{site} ({items.filter((i) => !isResolved(i)).length})</div>
                 <div className="space-y-1">
                   {items.map((item) => {
                     const done = isResolved(item);
                     return (
                       <div
                         key={item.seq}
-                        className={`text-xs bg-zinc-950 border rounded px-2 py-1.5 space-y-1 ${
-                          done ? 'border-emerald-900/50 opacity-70' : 'border-zinc-800'
+                        className={`text-xs bg-white border rounded px-2 py-1.5 space-y-1 ${
+                          done ? 'border-emerald-300 opacity-70' : 'border-slate-200'
                         }`}
                       >
                         <div className="flex items-center gap-2">
                           {done ? (
-                            <span className="shrink-0 px-1.5 rounded text-[10px] font-medium bg-emerald-900/40 text-emerald-400">
+                            <span className="shrink-0 px-1.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-600">
                               résolue
                             </span>
                           ) : (
@@ -498,7 +498,7 @@ export function CampaignPanel() {
                               {OUTCOME_LABELS[item.outcome]}
                             </span>
                           )}
-                          <span className={`shrink-0 ${done ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                          <span className={`shrink-0 ${done ? 'text-slate-500 line-through' : 'text-slate-700'}`}>
                             {item.brand} {item.model}
                           </span>
                           {/* Filtres réellement présents dans l'URL testée (décodés
@@ -506,16 +506,16 @@ export function CampaignPanel() {
                           {(() => {
                             const chips = testedFilterChips(item);
                             return chips.length > 0 ? chips.map((c) => (
-                              <span key={c} className="shrink-0 px-1.5 rounded text-[10px] bg-blue-900/30 text-blue-300">{c}</span>
+                              <span key={c} className="shrink-0 px-1.5 rounded text-[10px] bg-blue-50 text-blue-700">{c}</span>
                             )) : (
-                              <span className="shrink-0 px-1.5 rounded text-[10px] bg-zinc-800 text-zinc-500">sans filtre</span>
+                              <span className="shrink-0 px-1.5 rounded text-[10px] bg-slate-200 text-slate-500">sans filtre</span>
                             );
                           })()}
-                          <span className="text-zinc-500 truncate flex-1">{item.detail}</span>
+                          <span className="text-slate-500 truncate flex-1">{item.detail}</span>
                           {!done && item.url && (
                             <button
                               onClick={() => openInIngestion(item.url!)}
-                              className="flex items-center gap-1 text-violet-400 hover:text-violet-300 shrink-0"
+                              className="flex items-center gap-1 text-violet-600 hover:text-violet-700 shrink-0"
                               title="Corriger en Ingestion (URL pré-remplie)"
                             >
                               <Wrench className="w-3.5 h-3.5" />
@@ -525,7 +525,7 @@ export function CampaignPanel() {
                           {!done && state.campaignId && (
                             <button
                               onClick={() => void markItemResolved(state.campaignId!, item.seq)}
-                              className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 shrink-0"
+                              className="flex items-center gap-1 text-emerald-600 hover:text-emerald-700 shrink-0"
                               title="Marquer comme corrigée (déjà traitée ailleurs)"
                             >
                               <Check className="w-3.5 h-3.5" />
@@ -535,7 +535,7 @@ export function CampaignPanel() {
                           {!done && state.campaignId && (
                             <button
                               onClick={() => void handleEmptyMarket(item)}
-                              className="flex items-center gap-1 text-sky-400 hover:text-sky-300 shrink-0"
+                              className="flex items-center gap-1 text-sky-600 hover:text-sky-700 shrink-0"
                               title="Le marché est vide mais l'URL cible bien ce modèle — apprendre le mapping sans échantillon. ⚠️ À ne PAS utiliser si les voitures existent sous un autre nom (ex. ë-C4) : là c'est Corriger."
                             >
                               <Ban className="w-3.5 h-3.5" />
@@ -546,7 +546,7 @@ export function CampaignPanel() {
                         {item.url && (
                           <a
                             href={item.url} target="_blank" rel="noreferrer"
-                            className="flex items-center gap-1 font-mono text-[10px] text-zinc-600 hover:text-zinc-400 truncate"
+                            className="flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 truncate"
                             title={item.url}
                           >
                             <ExternalLink className="w-3 h-3 shrink-0" />

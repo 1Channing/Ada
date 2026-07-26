@@ -1292,21 +1292,21 @@ export function Administrative() {
         </button>
 
         {show && (
-          <div className="mt-2 border border-zinc-700 rounded-lg bg-zinc-900 p-4">
+          <div className="mt-2 border border-slate-300 rounded-lg bg-white p-4">
             <div className="flex items-center gap-2 mb-3">
               <input
                 type="text"
                 placeholder="Search by name, company, or SIREN..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm focus:outline-none focus:border-blue-500"
+                className="flex-1 px-3 py-2 bg-slate-200 border border-slate-300 rounded text-sm focus:outline-none focus:border-blue-500"
               />
               <button
                 onClick={() => {
                   setShow(false);
                   setSearchQuery('');
                 }}
-                className="p-2 hover:bg-zinc-800 rounded transition-colors"
+                className="p-2 hover:bg-slate-200 rounded transition-colors"
               >
                 <X size={16} />
               </button>
@@ -1314,18 +1314,18 @@ export function Administrative() {
 
             <div className="max-h-64 overflow-y-auto space-y-2">
               {filteredContacts.length === 0 ? (
-                <p className="text-sm text-zinc-500 text-center py-4">No contacts found</p>
+                <p className="text-sm text-slate-500 text-center py-4">No contacts found</p>
               ) : (
                 filteredContacts.map((contact) => (
                   <button
                     key={contact.id}
                     onClick={() => onSelect(contact)}
-                    className="w-full text-left px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded transition-colors"
+                    className="w-full text-left px-3 py-2 bg-slate-200 hover:bg-slate-300 rounded transition-colors"
                   >
                     <div className="text-sm font-medium">
                       {contact.company_name || `${contact.first_name} ${contact.last_name}`}
                     </div>
-                    <div className="text-xs text-zinc-400 mt-0.5">
+                    <div className="text-xs text-slate-600 mt-0.5">
                       {contact.siren && <span>SIREN: {contact.siren}</span>}
                       {contact.siren && contact.city && <span className="mx-2">•</span>}
                       {contact.city && <span>{contact.city}</span>}
@@ -1352,7 +1352,7 @@ export function Administrative() {
     return (
       <div className="space-y-4">
         {selectedContact && (
-          <div className="px-3 py-2 bg-blue-900/30 border border-blue-700/50 rounded text-sm">
+          <div className="px-3 py-2 bg-blue-50 border border-blue-300 rounded text-sm">
             Using existing contact: <span className="font-medium">
               {selectedContact.company_name || `${selectedContact.first_name} ${selectedContact.last_name}`}
             </span>
@@ -1362,112 +1362,112 @@ export function Administrative() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         <div>
-          <label className="block text-sm font-medium mb-1 text-zinc-300">Company Name</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">Company Name</label>
           <input
             type="text"
             value={form.company_name}
             onChange={(e) => setForm({ ...form, company_name: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1 text-zinc-300">SIREN</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">SIREN</label>
           <input
             type="text"
             value={form.siren}
             onChange={(e) => setForm({ ...form, siren: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1 text-zinc-300">First Name</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">First Name</label>
           <input
             type="text"
             value={form.first_name}
             onChange={(e) => setForm({ ...form, first_name: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1 text-zinc-300">Last Name</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">Last Name</label>
           <input
             type="text"
             value={form.last_name}
             onChange={(e) => setForm({ ...form, last_name: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1 text-zinc-300">Birth Date</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">Birth Date</label>
           <input
             type="date"
             value={form.birth_date}
             onChange={(e) => setForm({ ...form, birth_date: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1 text-zinc-300">Birth Place</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">Birth Place</label>
           <input
             type="text"
             value={form.birth_place}
             onChange={(e) => setForm({ ...form, birth_place: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div className="col-span-2">
-          <label className="block text-sm font-medium mb-1 text-zinc-300">Address Line 1</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">Address Line 1</label>
           <input
             type="text"
             value={form.address_line1}
             onChange={(e) => setForm({ ...form, address_line1: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div className="col-span-2">
-          <label className="block text-sm font-medium mb-1 text-zinc-300">Address Line 2</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">Address Line 2</label>
           <input
             type="text"
             value={form.address_line2}
             onChange={(e) => setForm({ ...form, address_line2: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1 text-zinc-300">Postal Code</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">Postal Code</label>
           <input
             type="text"
             value={form.postal_code}
             onChange={(e) => setForm({ ...form, postal_code: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1 text-zinc-300">City</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">City</label>
           <input
             type="text"
             value={form.city}
             onChange={(e) => setForm({ ...form, city: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1 text-zinc-300">Country</label>
+          <label className="block text-sm font-medium mb-1 text-slate-700">Country</label>
           <input
             type="text"
             value={form.country}
             onChange={(e) => setForm({ ...form, country: e.target.value })}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>
         </div>
@@ -1475,7 +1475,7 @@ export function Administrative() {
         <button
           onClick={() => saveContactAs(form, selectedContact, setSavingState, role)}
           disabled={savingState}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded-lg transition-colors text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-500 rounded-lg transition-colors text-sm font-medium"
         >
           <UserPlus size={16} />
           {savingState ? 'Saving...' : selectedContact ? 'Update Contact' : 'Save as Contact'}
@@ -1486,17 +1486,17 @@ export function Administrative() {
 
   // Read-only card for MC Export's own side — it's us, never retyped.
   const renderMcCard = (role: 'acheteur' | 'vendeur') => (
-    <div className="rounded-lg border border-blue-700/40 bg-blue-900/15 p-4">
+    <div className="rounded-lg border border-blue-300 bg-blue-50 p-4">
       <div className="flex items-center justify-between">
-        <span className="font-semibold text-blue-200">{MC_EXPORT_FORM.company_name}</span>
-        <span className="text-[11px] uppercase tracking-wide text-blue-400/80">{role} · vous</span>
+        <span className="font-semibold text-blue-800">{MC_EXPORT_FORM.company_name}</span>
+        <span className="text-[11px] uppercase tracking-wide text-blue-600/80">{role} · vous</span>
       </div>
-      <div className="mt-1 text-sm text-zinc-400 space-y-0.5">
+      <div className="mt-1 text-sm text-slate-600 space-y-0.5">
         <div>{MC_EXPORT_FORM.address_line1}</div>
         <div>{MC_EXPORT_FORM.postal_code} {MC_EXPORT_FORM.city} · {MC_EXPORT_FORM.country}</div>
-        <div className="text-zinc-500">SIREN {MC_EXPORT_FORM.siren}</div>
+        <div className="text-slate-500">SIREN {MC_EXPORT_FORM.siren}</div>
       </div>
-      <p className="mt-2 text-[11px] text-zinc-500">Pré-rempli automatiquement dans les documents.</p>
+      <p className="mt-2 text-[11px] text-slate-500">Pré-rempli automatiquement dans les documents.</p>
     </div>
   );
 
@@ -1534,34 +1534,34 @@ export function Administrative() {
     const veh = d.vehicle ? [d.vehicle.brand, d.vehicle.model].filter(Boolean).join(' ') || d.vehicle.plate_number || '—' : '—';
     const closed = d.status === 'cloturee';
     return (
-      <tr key={d.id} className="border-t border-zinc-800 hover:bg-zinc-800/40">
+      <tr key={d.id} className="border-t border-slate-200 hover:bg-slate-100">
         <td className="px-3 py-2.5">
-          <button onClick={() => openDeal(d.id)} className="text-blue-400 hover:text-blue-300 font-medium">
+          <button onClick={() => openDeal(d.id)} className="text-blue-600 hover:text-blue-700 font-medium">
             {d.reference || '—'}
           </button>
         </td>
-        <td className="px-3 py-2.5 text-zinc-400">
-          <span className={`text-[10px] px-1.5 py-0.5 rounded ${d.transaction_type === 'purchase' ? 'bg-emerald-900/30 text-emerald-300' : 'bg-violet-900/30 text-violet-300'}`}>
+        <td className="px-3 py-2.5 text-slate-600">
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${d.transaction_type === 'purchase' ? 'bg-emerald-50 text-emerald-700' : 'bg-violet-50 text-violet-700'}`}>
             {d.transaction_type === 'purchase' ? 'Achat' : 'Vente'}
           </span>
         </td>
-        <td className="px-3 py-2.5 text-zinc-200 truncate max-w-[180px]">{dealClient(d)}</td>
-        <td className="px-3 py-2.5 text-zinc-400 truncate max-w-[160px]">{veh}</td>
-        <td className="px-3 py-2.5 text-zinc-300">{eur(d.transaction_price)}</td>
-        <td className="px-3 py-2.5 text-zinc-400">{d.commercial || '—'}</td>
-        <td className="px-3 py-2.5 text-zinc-500 text-xs">{(d.transaction_date || d.created_at || '').slice(0, 10)}</td>
+        <td className="px-3 py-2.5 text-slate-800 truncate max-w-[180px]">{dealClient(d)}</td>
+        <td className="px-3 py-2.5 text-slate-600 truncate max-w-[160px]">{veh}</td>
+        <td className="px-3 py-2.5 text-slate-700">{eur(d.transaction_price)}</td>
+        <td className="px-3 py-2.5 text-slate-600">{d.commercial || '—'}</td>
+        <td className="px-3 py-2.5 text-slate-500 text-xs">{(d.transaction_date || d.created_at || '').slice(0, 10)}</td>
         <td className="px-3 py-2.5 text-right">
           <div className="flex items-center justify-end gap-2">
-            <button onClick={() => openDeal(d.id)} className="text-xs text-zinc-300 hover:text-white">Ouvrir</button>
+            <button onClick={() => openDeal(d.id)} className="text-xs text-slate-700 hover:text-slate-900">Ouvrir</button>
             <button
               onClick={() => closeDeal(d.id, !closed)}
-              className={`text-xs ${closed ? 'text-amber-400 hover:text-amber-300' : 'text-emerald-400 hover:text-emerald-300'}`}
+              className={`text-xs ${closed ? 'text-amber-600 hover:text-amber-700' : 'text-emerald-600 hover:text-emerald-700'}`}
             >
               {closed ? 'Rouvrir' : 'Clôturer'}
             </button>
             <button
               onClick={() => deleteDeal(d.id)}
-              className="text-xs text-zinc-600 hover:text-red-400"
+              className="text-xs text-slate-400 hover:text-red-600"
               title="Supprimer la vente"
             >
               Suppr.
@@ -1573,21 +1573,21 @@ export function Administrative() {
   };
 
   const renderDealsTable = (title: string, rows: DealRow[], accent: string) => (
-    <section className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+    <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       {title && (
-        <div className="flex items-center gap-2 px-5 py-3 border-b border-zinc-800">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-200">
           <span className={`w-2 h-2 rounded-full ${accent}`} />
-          <h2 className="text-sm font-semibold text-zinc-200">{title}</h2>
-          <span className="text-xs text-zinc-500">· {rows.length}</span>
+          <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+          <span className="text-xs text-slate-500">· {rows.length}</span>
         </div>
       )}
       {rows.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-zinc-600">Aucune vente.</p>
+        <p className="px-5 py-4 text-sm text-slate-400">Aucune vente.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-500">
+              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500">
                 <th className="px-3 py-2 font-medium">Réf.</th>
                 <th className="px-3 py-2 font-medium">Sens</th>
                 <th className="px-3 py-2 font-medium">Client</th>
@@ -1605,11 +1605,11 @@ export function Administrative() {
     </section>
   );
 
-  const kpi = (label: string, value: string, sub?: string, accent = 'text-zinc-100') => (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-4">
-      <p className="text-[11px] uppercase tracking-wide text-zinc-500">{label}</p>
+  const kpi = (label: string, value: string, sub?: string, accent = 'text-slate-900') => (
+    <div className="bg-white border border-slate-200 rounded-xl px-5 py-4">
+      <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
       <p className={`mt-1 text-2xl font-semibold ${accent}`}>{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-zinc-500">{sub}</p>}
+      {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
     </div>
   );
 
@@ -1617,20 +1617,20 @@ export function Administrative() {
     <div className="space-y-6">
       {/* Tableau de bord */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {kpi("Chiffre d'affaires en cours", eur(caEnCours), `${enCours.length} vente${enCours.length > 1 ? 's' : ''} en cours`, 'text-blue-300')}
+        {kpi("Chiffre d'affaires en cours", eur(caEnCours), `${enCours.length} vente${enCours.length > 1 ? 's' : ''} en cours`, 'text-blue-700')}
         {kpi('Marge en cours (est.)', eur(margeEnCours), 'vente − achat − frais')}
-        {kpi("CA du mois", eur(caMois), `${closedThisMonth.length} vente${closedThisMonth.length > 1 ? 's' : ''} clôturée${closedThisMonth.length > 1 ? 's' : ''}`, 'text-emerald-300')}
+        {kpi("CA du mois", eur(caMois), `${closedThisMonth.length} vente${closedThisMonth.length > 1 ? 's' : ''} clôturée${closedThisMonth.length > 1 ? 's' : ''}`, 'text-emerald-700')}
         {kpi('Marge du mois', eur(margeMois), monthFmt.format(now))}
       </div>
 
-      {dealsLoading && <p className="text-sm text-zinc-500">Chargement…</p>}
+      {dealsLoading && <p className="text-sm text-slate-500">Chargement…</p>}
 
       {renderDealsTable('Ventes en cours', enCours, 'bg-blue-400')}
 
       {/* Historique mensuel */}
       {historiqueMonths.length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-xs uppercase tracking-wide text-zinc-500 pt-2">Historique</h2>
+          <h2 className="text-xs uppercase tracking-wide text-slate-500 pt-2">Historique</h2>
           {historiqueMonths.map(([key, rows]) => {
             const [y, m] = key.split('-').map(Number);
             const label = monthFmt.format(new Date(y, m - 1, 1));
@@ -1638,10 +1638,10 @@ export function Administrative() {
             return (
               <div key={key} className="space-y-2">
                 <div className="flex items-center justify-between px-1">
-                  <span className="text-sm font-medium text-zinc-300 capitalize">{label}</span>
-                  <span className="text-xs text-zinc-500">CA {eur(caMonth)} · {rows.length} vente{rows.length > 1 ? 's' : ''}</span>
+                  <span className="text-sm font-medium text-slate-700 capitalize">{label}</span>
+                  <span className="text-xs text-slate-500">CA {eur(caMonth)} · {rows.length} vente{rows.length > 1 ? 's' : ''}</span>
                 </div>
-                {renderDealsTable('', rows, 'bg-zinc-500')}
+                {renderDealsTable('', rows, 'bg-slate-400')}
               </div>
             );
           })}
@@ -1655,11 +1655,11 @@ export function Administrative() {
     onPick: (id: string) => void, onName: (n: string) => void,
   ) => (
     <div>
-      <label className="block text-xs text-zinc-400 mb-1">{label} <span className="text-zinc-600">· {hint}</span></label>
+      <label className="block text-xs text-slate-600 mb-1">{label} <span className="text-slate-400">· {hint}</span></label>
       <select
         value={contactId}
         onChange={(e) => { onPick(e.target.value); onName(''); }}
-        className="w-full mb-2 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm"
+        className="w-full mb-2 px-3 py-2 bg-slate-200 border border-slate-300 rounded text-sm"
       >
         <option value="">— nouveau contact (saisir le nom) —</option>
         {contacts.filter((c) => c.id !== mcExport?.id).map((c) => (
@@ -1671,7 +1671,7 @@ export function Administrative() {
           value={name}
           onChange={(e) => onName(e.target.value)}
           placeholder="Nom / société"
-          className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm"
+          className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded text-sm"
         />
       )}
     </div>
@@ -1679,10 +1679,10 @@ export function Administrative() {
 
   const renderQuickCreate = () => (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowQuickCreate(false)}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-full max-w-lg space-y-4" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white border border-slate-300 rounded-xl p-6 w-full max-w-lg space-y-4" onClick={(e) => e.stopPropagation()}>
         <div>
-          <h2 className="text-lg font-semibold text-zinc-100">Nouveau dossier</h2>
-          <p className="text-xs text-zinc-500 mt-0.5">Une voiture, deux contreparties. MC Export achète au fournisseur puis revend au client — un seul dossier pour les deux côtés.</p>
+          <h2 className="text-lg font-semibold text-slate-900">Nouveau dossier</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Une voiture, deux contreparties. MC Export achète au fournisseur puis revend au client — un seul dossier pour les deux côtés.</p>
         </div>
         {quickPartyPicker(
           'Fournisseur (vendeur)', 'MC Export lui achète',
@@ -1698,17 +1698,17 @@ export function Administrative() {
         )}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-zinc-400 mb-1">Référence</label>
-            <input value={quick.reference} onChange={(e) => setQuick((q) => ({ ...q, reference: e.target.value }))} placeholder="I63" className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm" />
+            <label className="block text-xs text-slate-600 mb-1">Référence</label>
+            <input value={quick.reference} onChange={(e) => setQuick((q) => ({ ...q, reference: e.target.value }))} placeholder="I63" className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded text-sm" />
           </div>
           <div>
-            <label className="block text-xs text-zinc-400 mb-1">Commercial</label>
-            <input value={quick.commercial} onChange={(e) => setQuick((q) => ({ ...q, commercial: e.target.value }))} list="commercial-list" className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm" />
+            <label className="block text-xs text-slate-600 mb-1">Commercial</label>
+            <input value={quick.commercial} onChange={(e) => setQuick((q) => ({ ...q, commercial: e.target.value }))} list="commercial-list" className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded text-sm" />
             <datalist id="commercial-list">{commercialNames.map((n) => <option key={n} value={n} />)}</datalist>
           </div>
         </div>
         <div className="flex items-center justify-end gap-3 pt-2">
-          <button onClick={() => setShowQuickCreate(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200">Annuler</button>
+          <button onClick={() => setShowQuickCreate(false)} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">Annuler</button>
           <button
             onClick={handleQuickCreate}
             disabled={quickSaving || (!quick.supplierContactId && !quick.supplierName.trim() && !quick.clientContactId && !quick.clientName.trim() && !quick.reference.trim())}
@@ -1726,7 +1726,7 @@ export function Administrative() {
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
           {mode === 'editor' && (
-            <button onClick={backToList} className="text-zinc-400 hover:text-white text-sm flex items-center gap-1">
+            <button onClick={backToList} className="text-slate-600 hover:text-slate-900 text-sm flex items-center gap-1">
               ← Ventes
             </button>
           )}
@@ -1737,7 +1737,7 @@ export function Administrative() {
           <button
             onClick={() => setSettingsOpen((v) => !v)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium ${
-              settingsOpen ? 'bg-zinc-700 text-white' : 'bg-zinc-800 hover:bg-zinc-700'
+              settingsOpen ? 'bg-slate-300 text-white' : 'bg-slate-200 hover:bg-slate-300'
             }`}
           >
             <UserPlus size={18} />
@@ -1754,7 +1754,7 @@ export function Administrative() {
           ) : (
             <button
               onClick={handleClearForm}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors font-medium"
+              className="flex items-center gap-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors font-medium"
             >
               <Trash2 size={18} />
               Vider
@@ -1762,7 +1762,7 @@ export function Administrative() {
           )}
           <button
             onClick={() => { window.history.pushState({}, '', '/admin/history'); }}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors font-medium"
           >
             <History size={18} />
             Historique
@@ -1771,60 +1771,60 @@ export function Administrative() {
       </div>
 
       {settingsOpen && (
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-8">
+        <section className="bg-white border border-slate-200 rounded-xl p-6 mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-semibold text-zinc-100">Contacts enregistrés</h2>
-              <p className="text-sm text-zinc-500">Faites le propre : supprimez les doublons. MC Export ne peut pas être supprimé.</p>
+              <h2 className="text-xl font-semibold text-slate-900">Contacts enregistrés</h2>
+              <p className="text-sm text-slate-500">Faites le propre : supprimez les doublons. MC Export ne peut pas être supprimé.</p>
             </div>
-            <span className="text-sm text-zinc-500">{contacts.length} contact(s)</span>
+            <span className="text-sm text-slate-500">{contacts.length} contact(s)</span>
           </div>
 
           {/* Ajout d'un contact */}
-          <div className="mb-5 p-4 bg-zinc-800/40 border border-zinc-800 rounded-lg space-y-3">
-            <p className="text-sm font-medium text-zinc-300">Ajouter un contact</p>
+          <div className="mb-5 p-4 bg-slate-100 border border-slate-200 rounded-lg space-y-3">
+            <p className="text-sm font-medium text-slate-700">Ajouter un contact</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <input
                 value={newContact.company_name}
                 onChange={(e) => setNewContact((c) => ({ ...c, company_name: e.target.value }))}
                 placeholder="Société"
-                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+                className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
               />
               <input
                 value={newContact.first_name}
                 onChange={(e) => setNewContact((c) => ({ ...c, first_name: e.target.value }))}
                 placeholder="Prénom"
-                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+                className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
               />
               <input
                 value={newContact.last_name}
                 onChange={(e) => setNewContact((c) => ({ ...c, last_name: e.target.value }))}
                 placeholder="Nom"
-                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+                className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
               />
               <input
                 value={newContact.address_line1}
                 onChange={(e) => setNewContact((c) => ({ ...c, address_line1: e.target.value }))}
                 placeholder="Adresse"
-                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm md:col-span-3"
+                className="px-3 py-2 bg-white border border-slate-300 rounded text-sm md:col-span-3"
               />
               <input
                 value={newContact.postal_code}
                 onChange={(e) => setNewContact((c) => ({ ...c, postal_code: e.target.value }))}
                 placeholder="Code postal"
-                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+                className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
               />
               <input
                 value={newContact.city}
                 onChange={(e) => setNewContact((c) => ({ ...c, city: e.target.value }))}
                 placeholder="Ville"
-                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+                className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
               />
               <input
                 value={newContact.siren}
                 onChange={(e) => setNewContact((c) => ({ ...c, siren: e.target.value }))}
                 placeholder="SIREN (optionnel)"
-                className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm"
+                className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
               />
             </div>
             <div className="flex justify-end">
@@ -1838,8 +1838,8 @@ export function Administrative() {
             </div>
           </div>
 
-          <div className="max-h-96 overflow-y-auto divide-y divide-zinc-800">
-            {contacts.length === 0 && <p className="text-sm text-zinc-500 py-4">Aucun contact pour l'instant.</p>}
+          <div className="max-h-96 overflow-y-auto divide-y divide-slate-200">
+            {contacts.length === 0 && <p className="text-sm text-slate-500 py-4">Aucun contact pour l'instant.</p>}
             {contacts.map((c) => {
               const isMc = c.id === mcExport?.id || c.siren === MC_EXPORT_SIREN;
               const name = c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || '(sans nom)';
@@ -1847,11 +1847,11 @@ export function Administrative() {
               return (
                 <div key={c.id} className="flex items-center justify-between gap-3 py-2.5">
                   <div className="min-w-0">
-                    <div className="text-sm text-zinc-200 truncate flex items-center gap-2">
+                    <div className="text-sm text-slate-800 truncate flex items-center gap-2">
                       {name}
-                      {isMc && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-300">MC Export</span>}
+                      {isMc && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">MC Export</span>}
                     </div>
-                    <div className="text-xs text-zinc-500 truncate">
+                    <div className="text-xs text-slate-500 truncate">
                       {[c.address_line1, loc, c.siren && `SIREN ${c.siren}`].filter(Boolean).join(' · ')}
                     </div>
                   </div>
@@ -1859,7 +1859,7 @@ export function Administrative() {
                     <button
                       onClick={() => deleteContact(c.id)}
                       disabled={deletingContactId === c.id}
-                      className="shrink-0 flex items-center gap-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                      className="shrink-0 flex items-center gap-1 text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
                     >
                       <Trash2 size={14} /> Supprimer
                     </button>
@@ -1874,10 +1874,10 @@ export function Administrative() {
       {saveMessage && (
         <div className={`mb-6 px-4 py-3 rounded-lg ${
           saveMessage.type === 'success'
-            ? 'bg-green-900/30 border border-green-700/50 text-green-200'
+            ? 'bg-green-50 border border-green-300 text-green-800'
             : saveMessage.type === 'info'
-            ? 'bg-blue-900/30 border border-blue-700/50 text-blue-200'
-            : 'bg-red-900/30 border border-red-700/50 text-red-200'
+            ? 'bg-blue-50 border border-blue-300 text-blue-800'
+            : 'bg-red-50 border border-red-300 text-red-800'
         }`}>
           {saveMessage.text}
         </div>
@@ -1889,17 +1889,17 @@ export function Administrative() {
       {mode === 'editor' && (
       <>
       {/* Bandeau suivi de la vente : réf, statut, commercial, notes */}
-      <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-8 space-y-4">
+      <section className="bg-white border border-slate-200 rounded-xl p-5 mb-8 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
-          <span className={`text-xs px-2 py-1 rounded-full font-medium ${dealStatus === 'cloturee' ? 'bg-emerald-900/40 text-emerald-300' : 'bg-blue-900/40 text-blue-300'}`}>
+          <span className={`text-xs px-2 py-1 rounded-full font-medium ${dealStatus === 'cloturee' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>
             {dealStatus === 'cloturee' ? 'Clôturée' : 'En cours'}
           </span>
-          {transactionForm.reference && <span className="text-sm text-zinc-300 font-medium">Réf. {transactionForm.reference}</span>}
+          {transactionForm.reference && <span className="text-sm text-slate-700 font-medium">Réf. {transactionForm.reference}</span>}
           <span className="flex-1" />
           {lastSavedTransactionId && (
             <button
               onClick={() => closeDeal(lastSavedTransactionId, dealStatus !== 'cloturee')}
-              className={`text-sm px-3 py-1.5 rounded-lg ${dealStatus === 'cloturee' ? 'bg-zinc-800 hover:bg-zinc-700 text-amber-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+              className={`text-sm px-3 py-1.5 rounded-lg ${dealStatus === 'cloturee' ? 'bg-slate-200 hover:bg-slate-300 text-amber-700' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
             >
               {dealStatus === 'cloturee' ? 'Rouvrir la vente' : 'Clôturer la vente'}
             </button>
@@ -1907,120 +1907,120 @@ export function Administrative() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-1 text-zinc-300">Commercial</label>
+            <label className="block text-sm font-medium mb-1 text-slate-700">Commercial</label>
             <input
               value={transactionForm.commercial}
               onChange={(e) => updateTransactionForm({ commercial: e.target.value })}
               list="commercial-list-editor"
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
             />
             <datalist id="commercial-list-editor">{commercialNames.map((n) => <option key={n} value={n} />)}</datalist>
           </div>
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium mb-1 text-zinc-300">Notes</label>
+            <label className="block text-sm font-medium mb-1 text-slate-700">Notes</label>
             <textarea
               value={transactionForm.notes}
               onChange={(e) => updateTransactionForm({ notes: e.target.value })}
               rows={2}
               placeholder="Notes internes sur la vente…"
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
             />
           </div>
         </div>
       </section>
 
       <div className="space-y-8">
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-zinc-100">Vehicle Information</h2>
+        <section className="bg-white border border-slate-200 rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-4 text-slate-900">Vehicle Information</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Plate Number</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Plate Number</label>
               <input
                 type="text"
                 value={vehicleForm.plate_number}
                 onChange={(e) => updateVehicleForm({ plate_number: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">VIN</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">VIN</label>
               <input
                 type="text"
                 value={vehicleForm.vin}
                 onChange={(e) => updateVehicleForm({ vin: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Brand</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Brand</label>
               <input
                 type="text"
                 value={vehicleForm.brand}
                 onChange={(e) => updateVehicleForm({ brand: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Model</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Model</label>
               <input
                 type="text"
                 value={vehicleForm.model}
                 onChange={(e) => updateVehicleForm({ model: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Commercial Name</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Commercial Name</label>
               <input
                 type="text"
                 value={vehicleForm.commercial_name}
                 onChange={(e) => updateVehicleForm({ commercial_name: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Type / Variant / Version</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Type / Variant / Version</label>
               <input
                 type="text"
                 value={vehicleForm.type_variant_version}
                 onChange={(e) => updateVehicleForm({ type_variant_version: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">National Type</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">National Type</label>
               <input
                 type="text"
                 value={vehicleForm.national_type}
                 onChange={(e) => updateVehicleForm({ national_type: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">First Registration Date</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">First Registration Date</label>
               <input
                 type="date"
                 value={vehicleForm.first_registration_date}
                 onChange={(e) => updateVehicleForm({ first_registration_date: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Mileage</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Mileage</label>
               <input
                 type="number"
                 value={vehicleForm.mileage}
                 onChange={(e) => updateVehicleForm({ mileage: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
@@ -2030,92 +2030,92 @@ export function Administrative() {
                 id="registration-cert"
                 checked={vehicleForm.registration_certificate_present}
                 onChange={(e) => updateVehicleForm({ registration_certificate_present: e.target.checked })}
-                className="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-blue-600 focus:ring-blue-500"
+                className="w-4 h-4 rounded border-slate-300 bg-slate-200 text-blue-600 focus:ring-blue-500"
               />
-              <label htmlFor="registration-cert" className="text-sm font-medium text-zinc-300">
+              <label htmlFor="registration-cert" className="text-sm font-medium text-slate-700">
                 Registration Certificate Present
               </label>
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Registration Certificate Number</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Registration Certificate Number</label>
               <input
                 type="text"
                 value={vehicleForm.registration_certificate_number}
                 onChange={(e) => updateVehicleForm({ registration_certificate_number: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div className="col-span-2">
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Known Defects</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Known Defects</label>
               <textarea
                 value={vehicleForm.known_defects}
                 onChange={(e) => updateVehicleForm({ known_defects: e.target.value })}
                 rows={3}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
           </div>
         </section>
 
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-1 text-zinc-100">Le dossier</h2>
-          <p className="text-sm text-zinc-500 mb-4">Une voiture, deux côtés. Basculez entre l'achat (au fournisseur) et la vente (au client) — les deux contreparties sont conservées et les documents suivent.</p>
+        <section className="bg-white border border-slate-200 rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-1 text-slate-900">Le dossier</h2>
+          <p className="text-sm text-slate-500 mb-4">Une voiture, deux côtés. Basculez entre l'achat (au fournisseur) et la vente (au client) — les deux contreparties sont conservées et les documents suivent.</p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button
               onClick={() => updateTransactionType('purchase')}
               className={`text-left px-5 py-4 rounded-xl border transition-colors ${
                 transactionType === 'purchase'
-                  ? 'bg-blue-600/20 border-blue-500 text-white'
-                  : 'bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                  ? 'bg-blue-100 border-blue-500 text-white'
+                  : 'bg-slate-100 border-slate-300 text-slate-600 hover:border-slate-300'
               }`}
             >
               <div className="font-semibold flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${transactionType === 'purchase' ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                <span className={`w-2 h-2 rounded-full ${transactionType === 'purchase' ? 'bg-blue-400' : 'bg-slate-400'}`} />
                 Côté achat — MC Export achète
               </div>
-              <div className="text-xs mt-1 text-zinc-500">Au fournisseur{supplier.selected || supplier.form.company_name ? ` · ${supplier.selected ? contactLabel(supplier.selected) : supplier.form.company_name}` : ''} · Cession, Bon d'achat, Enlèvement, Déclaration d'achat</div>
+              <div className="text-xs mt-1 text-slate-500">Au fournisseur{supplier.selected || supplier.form.company_name ? ` · ${supplier.selected ? contactLabel(supplier.selected) : supplier.form.company_name}` : ''} · Cession, Bon d'achat, Enlèvement, Déclaration d'achat</div>
             </button>
             <button
               onClick={() => updateTransactionType('sale')}
               className={`text-left px-5 py-4 rounded-xl border transition-colors ${
                 transactionType === 'sale'
-                  ? 'bg-blue-600/20 border-blue-500 text-white'
-                  : 'bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                  ? 'bg-blue-100 border-blue-500 text-white'
+                  : 'bg-slate-100 border-slate-300 text-slate-600 hover:border-slate-300'
               }`}
             >
               <div className="font-semibold flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${transactionType === 'sale' ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                <span className={`w-2 h-2 rounded-full ${transactionType === 'sale' ? 'bg-blue-400' : 'bg-slate-400'}`} />
                 Côté vente — MC Export vend
               </div>
-              <div className="text-xs mt-1 text-zinc-500">Au client{client.selected || client.form.company_name ? ` · ${client.selected ? contactLabel(client.selected) : client.form.company_name}` : ''} · Cession, Réception / Expédition</div>
+              <div className="text-xs mt-1 text-slate-500">Au client{client.selected || client.form.company_name ? ` · ${client.selected ? contactLabel(client.selected) : client.form.company_name}` : ''} · Cession, Réception / Expédition</div>
             </button>
           </div>
 
           {/* Prix du document + Référence */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Prix du document (€)</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Prix du document (€)</label>
               <input
                 type="number"
                 step="0.01"
                 value={transactionForm.transaction_price}
                 onChange={(e) => updateTransactionForm({ transaction_price: e.target.value })}
                 placeholder="9 500"
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
-              <p className="mt-1 text-xs text-zinc-500">Montant reporté sur les documents (cession, bon d'achat…).</p>
+              <p className="mt-1 text-xs text-slate-500">Montant reporté sur les documents (cession, bon d'achat…).</p>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Référence <span className="text-zinc-500 font-normal">(votre code, ex. I63, TGE789)</span></label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Référence <span className="text-slate-500 font-normal">(votre code, ex. I63, TGE789)</span></label>
               <input
                 type="text"
                 value={transactionForm.reference}
                 onChange={(e) => updateTransactionForm({ reference: e.target.value })}
                 placeholder="I63"
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
           </div>
@@ -2128,47 +2128,47 @@ export function Administrative() {
             const marge = s - p - f;
             const hasAny = transactionForm.purchase_price || transactionForm.sale_price || transactionForm.fees;
             return (
-              <div className="mt-6 pt-5 border-t border-zinc-800">
-                <h3 className="text-sm font-semibold text-zinc-300 mb-3">Tarifs</h3>
+              <div className="mt-6 pt-5 border-t border-slate-200">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Tarifs</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1 text-zinc-300">Prix d'achat (€)</label>
+                    <label className="block text-sm font-medium mb-1 text-slate-700">Prix d'achat (€)</label>
                     <input
                       type="number"
                       step="0.01"
                       value={transactionForm.purchase_price}
                       onChange={(e) => updateTransactionForm({ purchase_price: e.target.value })}
                       placeholder="8 000"
-                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1 text-zinc-300">Prix de vente (€)</label>
+                    <label className="block text-sm font-medium mb-1 text-slate-700">Prix de vente (€)</label>
                     <input
                       type="number"
                       step="0.01"
                       value={transactionForm.sale_price}
                       onChange={(e) => updateTransactionForm({ sale_price: e.target.value })}
                       placeholder="9 500"
-                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1 text-zinc-300">Frais (€)</label>
+                    <label className="block text-sm font-medium mb-1 text-slate-700">Frais (€)</label>
                     <input
                       type="number"
                       step="0.01"
                       value={transactionForm.fees}
                       onChange={(e) => updateTransactionForm({ fees: e.target.value })}
                       placeholder="300"
-                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
                     />
                   </div>
                 </div>
                 {hasAny && (
-                  <div className={`mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${marge >= 0 ? 'bg-emerald-900/30 text-emerald-300' : 'bg-red-900/30 text-red-300'}`}>
+                  <div className={`mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${marge >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
                     Marge : {marge.toLocaleString('fr-FR')} €
-                    <span className="text-xs font-normal text-zinc-400">(vente − achat − frais)</span>
+                    <span className="text-xs font-normal text-slate-600">(vente − achat − frais)</span>
                   </div>
                 )}
               </div>
@@ -2177,8 +2177,8 @@ export function Administrative() {
         </section>
 
         {/* ─── Vendeur ─────────────────────────────────────────────── */}
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-zinc-100">
+        <section className="bg-white border border-slate-200 rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-4 text-slate-900">
             {transactionType === 'sale' ? 'Vendeur — MC Export (vous)' : 'Vendeur — le fournisseur (vous lui achetez)'}
           </h2>
 
@@ -2200,17 +2200,17 @@ export function Administrative() {
                 {!showSecondSeller ? (
                   <button
                     onClick={() => toggleShowSecondSeller(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors text-sm"
                   >
                     <Plus size={16} /> Ajouter un co-vendeur
                   </button>
                 ) : (
-                  <div className="border-t border-zinc-800 pt-4 mt-4">
+                  <div className="border-t border-slate-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-medium text-zinc-200">Co-vendeur</h3>
+                      <h3 className="text-lg font-medium text-slate-800">Co-vendeur</h3>
                       <button
                         onClick={() => { toggleShowSecondSeller(false); setSelectedSeller2Contact(null); setSellerForm2(EMPTY_CONTACT); }}
-                        className="p-1 hover:bg-zinc-800 rounded transition-colors"
+                        className="p-1 hover:bg-slate-200 rounded transition-colors"
                       >
                         <X size={18} />
                       </button>
@@ -2225,8 +2225,8 @@ export function Administrative() {
         </section>
 
         {/* ─── Acheteur ────────────────────────────────────────────── */}
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-zinc-100">
+        <section className="bg-white border border-slate-200 rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-4 text-slate-900">
             {transactionType === 'purchase' ? 'Acheteur — MC Export (vous)' : 'Acheteur — le client (vous lui vendez)'}
           </h2>
 
@@ -2248,17 +2248,17 @@ export function Administrative() {
                 {!showSecondBuyer ? (
                   <button
                     onClick={() => toggleShowSecondBuyer(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors text-sm"
                   >
                     <Plus size={16} /> Ajouter un co-acheteur
                   </button>
                 ) : (
-                  <div className="border-t border-zinc-800 pt-4 mt-4">
+                  <div className="border-t border-slate-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-medium text-zinc-200">Co-acheteur</h3>
+                      <h3 className="text-lg font-medium text-slate-800">Co-acheteur</h3>
                       <button
                         onClick={() => { toggleShowSecondBuyer(false); setSelectedBuyer2Contact(null); setBuyerForm2(EMPTY_CONTACT); }}
-                        className="p-1 hover:bg-zinc-800 rounded transition-colors"
+                        className="p-1 hover:bg-slate-200 rounded transition-colors"
                       >
                         <X size={18} />
                       </button>
@@ -2272,64 +2272,64 @@ export function Administrative() {
           )}
         </section>
 
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-zinc-100">Date de la transaction</h2>
+        <section className="bg-white border border-slate-200 rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-4 text-slate-900">Date de la transaction</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Transaction Date</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Transaction Date</label>
               <input
                 type="date"
                 value={transactionForm.transaction_date}
                 onChange={(e) => updateTransactionForm({ transaction_date: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-zinc-300">Transaction Time</label>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Transaction Time</label>
               <input
                 type="time"
                 value={transactionForm.transaction_time}
                 onChange={(e) => updateTransactionForm({ transaction_time: e.target.value })}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
             </div>
           </div>
         </section>
 
         {transactionType === 'purchase' && (
-          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-            <h2 className="text-xl font-semibold mb-4 text-zinc-100">Pickup</h2>
+          <section className="bg-white border border-slate-200 rounded-xl p-6">
+            <h2 className="text-xl font-semibold mb-4 text-slate-900">Pickup</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1 text-zinc-300">Pickup Location</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Pickup Location</label>
                 <input
                   type="text"
                   value={transactionForm.pickup_location}
                   onChange={(e) => updateTransactionForm({ pickup_location: e.target.value })}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-zinc-300">Pickup Contact</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Pickup Contact</label>
                 <input
                   type="text"
                   value={transactionForm.pickup_contact}
                   onChange={(e) => updateTransactionForm({ pickup_contact: e.target.value })}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div className="col-span-2">
-                <label className="block text-sm font-medium mb-1 text-zinc-300">Pickup Date & Time</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Pickup Date & Time</label>
                 <input
                   type="datetime-local"
                   value={transactionForm.pickup_datetime}
                   onChange={(e) => updateTransactionForm({ pickup_datetime: e.target.value })}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
@@ -2337,8 +2337,8 @@ export function Administrative() {
         )}
 
         {transactionType === 'sale' && (
-          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-            <h2 className="text-xl font-semibold mb-4 text-zinc-100">Delivery</h2>
+          <section className="bg-white border border-slate-200 rounded-xl p-6">
+            <h2 className="text-xl font-semibold mb-4 text-slate-900">Delivery</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Lieu de la vente → « Fait à » du certificat de cession. Même
@@ -2346,46 +2346,46 @@ export function Administrative() {
                   (pickup_location), qui n'était saisissable QUE côté achat —
                   une vente laissait le « Fait à » vide (signalement 21/07). */}
               <div className="col-span-2">
-                <label className="block text-sm font-medium mb-1 text-zinc-300">
-                  Lieu de la vente <span className="text-zinc-500">(« Fait à » du certificat de cession)</span>
+                <label className="block text-sm font-medium mb-1 text-slate-700">
+                  Lieu de la vente <span className="text-slate-500">(« Fait à » du certificat de cession)</span>
                 </label>
                 <input
                   type="text"
                   value={transactionForm.pickup_location}
                   onChange={(e) => updateTransactionForm({ pickup_location: e.target.value })}
                   placeholder="ANGERS"
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1 text-zinc-300">Destination</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Destination</label>
                 <input
                   type="text"
                   value={transactionForm.destination}
                   onChange={(e) => updateTransactionForm({ destination: e.target.value })}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-zinc-300">Transporter</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Transporter</label>
                 <input
                   type="text"
                   value={transactionForm.transporter}
                   onChange={(e) => updateTransactionForm({ transporter: e.target.value })}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
           </section>
         )}
 
-        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+        <section className="bg-white border border-slate-200 rounded-xl p-6">
           <div className="flex items-center gap-3 mb-1">
             <FileText className="text-blue-500" size={24} />
-            <h2 className="text-xl font-semibold text-zinc-100">Documents</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Documents</h2>
           </div>
-          <p className="text-sm text-zinc-500 mb-6">
+          <p className="text-sm text-slate-500 mb-6">
             {transactionType === 'purchase'
               ? 'MC Export achète — documents côté achat (MC Export pré-rempli en acheteur).'
               : 'MC Export vend — documents côté vente (MC Export pré-rempli en vendeur).'}
@@ -2397,11 +2397,11 @@ export function Administrative() {
                 key={doc}
                 onClick={() => handleGenerateDocument(doc)}
                 disabled={generatingDoc !== null}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-zinc-700"
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-200 hover:bg-slate-300 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg transition-colors font-medium border border-slate-300"
               >
                 {generatingDoc === doc ? (
                   <>
-                    <div className="animate-spin h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full"></div>
+                    <div className="animate-spin h-4 w-4 border-2 border-slate-400 border-t-transparent rounded-full"></div>
                     Génération…
                   </>
                 ) : (
@@ -2417,9 +2417,9 @@ export function Administrative() {
 
         {/* Aperçu + rapport de complétude du dernier document généré */}
         {docPreview && (
-          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-3">
+          <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-zinc-200">
+              <h2 className="text-sm font-semibold text-slate-800">
                 Aperçu — {docPreview.docType}
               </h2>
               <div className="flex items-center gap-3">
@@ -2435,7 +2435,7 @@ export function Administrative() {
                     URL.revokeObjectURL(docPreview.url);
                     setDocPreview(null);
                   }}
-                  className="text-xs text-zinc-500 hover:text-zinc-300"
+                  className="text-xs text-slate-500 hover:text-slate-700"
                 >
                   Fermer
                 </button>
@@ -2443,22 +2443,22 @@ export function Administrative() {
             </div>
             {docPreview.missing.length > 0 ? (
               <div className="text-xs space-y-1.5">
-                <p className="text-amber-400 font-medium">
+                <p className="text-amber-600 font-medium">
                   {docPreview.missing.length} champ(s) vide(s) sur ce document — complétez le formulaire puis régénérez :
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {docPreview.missing.map((m) => (
-                    <span key={m} className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-300">{m}</span>
+                    <span key={m} className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">{m}</span>
                   ))}
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-emerald-400">Toutes les données attendues étaient présentes.</p>
+              <p className="text-xs text-emerald-600">Toutes les données attendues étaient présentes.</p>
             )}
             <iframe
               src={docPreview.url}
               title={`Aperçu ${docPreview.docType}`}
-              className="w-full rounded-lg border border-zinc-800 bg-white"
+              className="w-full rounded-lg border border-slate-200 bg-white"
               style={{ height: 560 }}
             />
           </section>

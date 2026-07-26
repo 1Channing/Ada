@@ -120,33 +120,33 @@ export function StudiesV2Sales() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-zinc-100">Sales</h2>
-          <p className="text-sm text-zinc-400 mt-1">
+          <h2 className="text-2xl font-bold text-slate-900">Sales</h2>
+          <p className="text-sm text-slate-600 mt-1">
             Track completed vehicle sales and margins
           </p>
         </div>
       </div>
 
       {!loading && sales.length > 0 && (
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6">
-          <h3 className="text-sm font-semibold text-zinc-400 uppercase mb-4">Summary</h3>
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
+          <h3 className="text-sm font-semibold text-slate-600 uppercase mb-4">Summary</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <div className="text-xs text-zinc-500 mb-1">Total Buy Price</div>
-              <div className="text-2xl font-bold text-zinc-100">
+              <div className="text-xs text-slate-500 mb-1">Total Buy Price</div>
+              <div className="text-2xl font-bold text-slate-900">
                 {calculateTotals().totalBuyPrice.toLocaleString()}€
               </div>
             </div>
             <div>
-              <div className="text-xs text-zinc-500 mb-1">Total Sale Price</div>
-              <div className="text-2xl font-bold text-zinc-100">
+              <div className="text-xs text-slate-500 mb-1">Total Sale Price</div>
+              <div className="text-2xl font-bold text-slate-900">
                 {calculateTotals().totalSalePrice.toLocaleString()}€
               </div>
             </div>
             <div>
-              <div className="text-xs text-zinc-500 mb-1">Total Margin</div>
+              <div className="text-xs text-slate-500 mb-1">Total Margin</div>
               <div className={`text-2xl font-bold flex items-center gap-2 ${
-                calculateTotals().totalMargin >= 0 ? 'text-emerald-400' : 'text-red-400'
+                calculateTotals().totalMargin >= 0 ? 'text-emerald-600' : 'text-red-600'
               }`}>
                 {calculateTotals().totalMargin >= 0 ? (
                   <TrendingUp size={20} />
@@ -161,75 +161,75 @@ export function StudiesV2Sales() {
         </div>
       )}
 
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800">
-        <div className="p-4 border-b border-zinc-800">
-          <h3 className="font-semibold text-zinc-100">
+      <div className="bg-white rounded-lg border border-slate-200">
+        <div className="p-4 border-b border-slate-200">
+          <h3 className="font-semibold text-slate-900">
             All Sales ({sales.length})
           </h3>
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-zinc-400">Loading sales...</div>
+          <div className="p-8 text-center text-slate-600">Loading sales...</div>
         ) : sales.length === 0 ? (
-          <div className="p-8 text-center text-zinc-400">
+          <div className="p-8 text-center text-slate-600">
             No sales yet. Mark vehicles as sold from the Negotiations tab.
           </div>
         ) : (
-          <div className="divide-y divide-zinc-800">
+          <div className="divide-y divide-slate-200">
             {sales.map((sale) => {
               const margin = calculateMargin(sale.buy_price, sale.sale_price);
               const marginPercent = (margin / sale.buy_price) * 100;
               const isProfit = margin > 0;
 
               return (
-                <div key={sale.id} className="p-4 hover:bg-zinc-800/30 transition-colors">
+                <div key={sale.id} className="p-4 hover:bg-slate-100 transition-colors">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 space-y-3">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-medium text-zinc-100">{sale.listing.title}</h4>
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-emerald-900/30 text-emerald-400">
+                          <h4 className="font-medium text-slate-900">{sale.listing.title}</h4>
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-emerald-50 text-emerald-600">
                             {sale.sold_by === 'channing' ? 'Channing' : 'Antoine'}
                           </span>
                         </div>
-                        <div className="text-sm text-zinc-400">
-                          <span className="font-medium text-blue-400">
+                        <div className="text-sm text-slate-600">
+                          <span className="font-medium text-blue-600">
                             {sale.listing.study_run_results.studies_v2.brand}{' '}
                             {sale.listing.study_run_results.studies_v2.model}
                           </span>
                           {' • '}
                           <span>{sale.listing.study_run_results.studies_v2.year}</span>
                           {' • '}
-                          <span className="text-emerald-400">
+                          <span className="text-emerald-600">
                             {sale.listing.study_run_results.studies_v2.country_source}
                           </span>
                           {' → '}
-                          <span className="text-blue-400">
+                          <span className="text-blue-600">
                             {sale.listing.study_run_results.studies_v2.country_target}
                           </span>
                           {' • '}
-                          <span className="text-zinc-500">Sold {formatDate(sale.sold_at)}</span>
+                          <span className="text-slate-500">Sold {formatDate(sale.sold_at)}</span>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                         <div>
-                          <div className="text-xs text-zinc-500 mb-1">Buy Price</div>
-                          <div className="font-bold text-zinc-300">
+                          <div className="text-xs text-slate-500 mb-1">Buy Price</div>
+                          <div className="font-bold text-slate-700">
                             {sale.buy_price.toLocaleString()}€
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs text-zinc-500 mb-1">Sale Price</div>
-                          <div className="font-bold text-zinc-300">
+                          <div className="text-xs text-slate-500 mb-1">Sale Price</div>
+                          <div className="font-bold text-slate-700">
                             {sale.sale_price.toLocaleString()}€
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs text-zinc-500 mb-1">Margin</div>
+                          <div className="text-xs text-slate-500 mb-1">Margin</div>
                           <div
                             className={`font-bold flex items-center gap-1 ${
-                              isProfit ? 'text-emerald-400' : 'text-red-400'
+                              isProfit ? 'text-emerald-600' : 'text-red-600'
                             }`}
                           >
                             {isProfit ? (
@@ -245,8 +245,8 @@ export function StudiesV2Sales() {
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs text-zinc-500 mb-1">Details</div>
-                          <div className="text-zinc-300">
+                          <div className="text-xs text-slate-500 mb-1">Details</div>
+                          <div className="text-slate-700">
                             {sale.listing.year && <span>{sale.listing.year} • </span>}
                             {sale.listing.mileage && (
                               <span>{sale.listing.mileage.toLocaleString()} km</span>
@@ -269,7 +269,7 @@ export function StudiesV2Sales() {
 
                       <button
                         onClick={() => removeSale(sale.id, sale.listing.id)}
-                        className="p-2 hover:bg-red-900/30 text-zinc-500 hover:text-red-400 rounded transition-colors"
+                        className="p-2 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded transition-colors"
                         title="Remove sale"
                       >
                         <X size={16} />

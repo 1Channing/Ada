@@ -181,37 +181,37 @@ export function AdminHistory() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold">Document History</h1>
-          <p className="text-zinc-400 text-sm mt-1">Last 30 days of generated documents</p>
+          <p className="text-slate-600 text-sm mt-1">Last 30 days of generated documents</p>
         </div>
 
         <button
           onClick={() => window.history.pushState({}, '', '/admin')}
-          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm font-medium"
+          className="px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors text-sm font-medium"
         >
           Back to Administrative
         </button>
       </div>
 
-      <div className="mb-6 bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+      <div className="mb-6 bg-white border border-slate-200 rounded-xl p-4">
         <div className="flex items-center gap-3 mb-3">
-          <Search size={20} className="text-zinc-400" />
-          <h3 className="font-medium text-zinc-300">Search Documents</h3>
+          <Search size={20} className="text-slate-600" />
+          <h3 className="font-medium text-slate-700">Search Documents</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-zinc-400 mb-1">Document Type</label>
+            <label className="block text-sm text-slate-600 mb-1">Document Type</label>
             <div className="relative">
               <input
                 type="text"
                 value={searchDocType}
                 onChange={(e) => setSearchDocType(e.target.value)}
                 placeholder="e.g. Certificat, Bon d'achat..."
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 pr-8"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 pr-8"
               />
               {searchDocType && (
                 <button
                   onClick={() => setSearchDocType('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
                 >
                   <X size={16} />
                 </button>
@@ -219,19 +219,19 @@ export function AdminHistory() {
             </div>
           </div>
           <div>
-            <label className="block text-sm text-zinc-400 mb-1">Vehicle Plate</label>
+            <label className="block text-sm text-slate-600 mb-1">Vehicle Plate</label>
             <div className="relative">
               <input
                 type="text"
                 value={searchPlate}
                 onChange={(e) => setSearchPlate(e.target.value)}
                 placeholder="e.g. AB-123-CD"
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 pr-8"
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 pr-8"
               />
               {searchPlate && (
                 <button
                   onClick={() => setSearchPlate('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
                 >
                   <X size={16} />
                 </button>
@@ -240,54 +240,54 @@ export function AdminHistory() {
           </div>
         </div>
         {(searchDocType || searchPlate) && (
-          <div className="mt-3 text-sm text-zinc-400">
+          <div className="mt-3 text-sm text-slate-600">
             Showing {filteredDocuments.length} of {documents.length} documents
           </div>
         )}
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-zinc-400">Loading documents...</div>
+        <div className="text-center py-12 text-slate-600">Loading documents...</div>
       ) : documents.length === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-12 text-center">
-          <FileText size={48} className="mx-auto mb-4 text-zinc-600" />
-          <p className="text-zinc-400">No documents found in the last 30 days</p>
+        <div className="bg-white border border-slate-200 rounded-xl p-12 text-center">
+          <FileText size={48} className="mx-auto mb-4 text-slate-400" />
+          <p className="text-slate-600">No documents found in the last 30 days</p>
         </div>
       ) : filteredDocuments.length === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-12 text-center">
-          <Search size={48} className="mx-auto mb-4 text-zinc-600" />
-          <p className="text-zinc-400">No documents match your search criteria</p>
+        <div className="bg-white border border-slate-200 rounded-xl p-12 text-center">
+          <Search size={48} className="mx-auto mb-4 text-slate-400" />
+          <p className="text-slate-600">No documents match your search criteria</p>
           <button
             onClick={() => {
               setSearchDocType('');
               setSearchPlate('');
             }}
-            className="mt-4 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
+            className="mt-4 px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg text-sm transition-colors"
           >
             Clear Filters
           </button>
         </div>
       ) : (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-zinc-800 border-b border-zinc-700">
+              <thead className="bg-slate-200 border-b border-slate-300">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-zinc-300">Document Type</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-zinc-300">Vehicle Plate</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-zinc-300">Vehicle</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-zinc-300">Transaction Date</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-zinc-300">Seller</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-zinc-300">Buyer</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-zinc-300">Created</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-zinc-300">Download</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">Document Type</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">Vehicle Plate</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">Vehicle</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">Transaction Date</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">Seller</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">Buyer</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">Created</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-slate-700">Download</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800">
+              <tbody className="divide-y divide-slate-200">
                 {filteredDocuments.map((doc) => (
-                  <tr key={doc.id} className="hover:bg-zinc-800/50 transition-colors">
+                  <tr key={doc.id} className="hover:bg-slate-100 transition-colors">
                     <td className="px-4 py-3 text-sm">
-                      <span className="px-2 py-1 bg-zinc-800 rounded text-xs font-medium">
+                      <span className="px-2 py-1 bg-slate-200 rounded text-xs font-medium">
                         {doc.document_type}
                       </span>
                     </td>
@@ -306,7 +306,7 @@ export function AdminHistory() {
                     <td className="px-4 py-3 text-sm">
                       {formatContactName(doc.transaction.buyer_contact)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-zinc-400">
+                    <td className="px-4 py-3 text-sm text-slate-600">
                       {formatDate(doc.created_at)}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -326,7 +326,7 @@ export function AdminHistory() {
         </div>
       )}
 
-      <div className="mt-6 text-sm text-zinc-500 text-center">
+      <div className="mt-6 text-sm text-slate-500 text-center">
         Documents are automatically deleted after 30 days
       </div>
     </div>

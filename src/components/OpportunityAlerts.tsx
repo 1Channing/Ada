@@ -121,25 +121,25 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
   const rows = visible.slice(0, shown);
 
   return (
-    <div className="bg-zinc-900 border border-amber-900/40 rounded-xl p-5 space-y-3">
+    <div className="bg-white border border-amber-300 rounded-xl p-5 space-y-3">
       <div className="flex items-center justify-between">
         <button
           onClick={() => setCollapsed((v) => !v)}
-          className="text-sm font-semibold text-zinc-200 flex items-center gap-2 hover:text-white"
+          className="text-sm font-semibold text-slate-800 flex items-center gap-2 hover:text-blue-700"
           title={collapsed ? 'Déplier' : 'Réduire'}
         >
-          {collapsed ? <ChevronRight className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
-          <Bell className="w-4 h-4 text-amber-400" />
+          {collapsed ? <ChevronRight className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+          <Bell className="w-4 h-4 text-amber-600" />
           Opportunités à contrôler — {visible.length} écart(s) inter-pays
-          {ackedCount > 0 && <span className="text-zinc-500 font-normal">· {ackedCount} contrôlée(s)</span>}
+          {ackedCount > 0 && <span className="text-slate-500 font-normal">· {ackedCount} contrôlée(s)</span>}
         </button>
         {!collapsed && (
-          <label className="text-xs text-zinc-500 flex items-center gap-2">
+          <label className="text-xs text-slate-500 flex items-center gap-2">
             Seuil
             <select
               value={threshold}
               onChange={(e) => { setThreshold(Number(e.target.value)); setShown(PAGE_SIZE); }}
-              className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs"
+              className="bg-white border border-slate-300 rounded px-2 py-1 text-xs"
             >
               <option value={3000}>3 000 €</option>
               <option value={5000}>5 000 €</option>
@@ -151,33 +151,33 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
 
       {!collapsed && (
         <>
-          <p className="text-xs text-zinc-500">
-            Médiane des 5 annonces les moins chères par pays — <span className="text-zinc-400">même carburant
+          <p className="text-xs text-slate-500">
+            Médiane des 5 annonces les moins chères par pays — <span className="text-slate-600">même carburant
             ET même année des deux côtés</span> (30 derniers jours, prix &lt; 1 000 € exclus), triées par
             écart × volume. « Inspecter » ouvre la comparaison des deux marchés en dessous.
           </p>
-          {notice && <p className="text-xs text-emerald-400">{notice}</p>}
+          {notice && <p className="text-xs text-emerald-600">{notice}</p>}
 
           <div className="space-y-1.5">
             {rows.map((o) => {
               const key = opportunityKey(o);
               return (
-                <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
-                  <span className="font-medium text-zinc-200">{o.brand} {o.model}</span>
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-300">{o.year}</span>
-                  <span className="text-xs text-zinc-400">{fuelLabel(o.fuel)}</span>
-                  <span className="text-xs text-zinc-400">
+                <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm bg-white border border-slate-200 rounded-lg px-3 py-2">
+                  <span className="font-medium text-slate-800">{o.brand} {o.model}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{o.year}</span>
+                  <span className="text-xs text-slate-600">{fuelLabel(o.fuel)}</span>
+                  <span className="text-xs text-slate-600">
                     {COUNTRY_FLAG[o.lowCountry] ?? o.lowCountry} {eur(o.lowMedian)}
-                    <span className="text-zinc-500"> ({o.lowCount})</span>
-                    <span className="text-zinc-600"> vs </span>
+                    <span className="text-slate-500"> ({o.lowCount})</span>
+                    <span className="text-slate-400"> vs </span>
                     {COUNTRY_FLAG[o.highCountry] ?? o.highCountry} {eur(o.highMedian)}
-                    <span className="text-zinc-500"> ({o.highCount})</span>
+                    <span className="text-slate-500"> ({o.highCount})</span>
                   </span>
-                  <span className="font-semibold text-amber-400">écart {eur(o.deltaEur)}</span>
+                  <span className="font-semibold text-amber-600">écart {eur(o.deltaEur)}</span>
                   <span className="flex-1" />
                   <button
                     onClick={() => onInspect(o)}
-                    className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
                     title="Ouvrir les deux marchés en études comparées, juste en dessous"
                   >
                     <Search className="w-3.5 h-3.5" /> Inspecter
@@ -185,7 +185,7 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
                   <button
                     onClick={() => void handleCreateStudy(o)}
                     disabled={busyKey === key}
-                    className="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 disabled:opacity-50"
+                    className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-700 disabled:opacity-50"
                     title={`Créer une étude ${o.lowCountry} → ${o.highCountry} pré-remplie`}
                   >
                     {busyKey === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
@@ -193,7 +193,7 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
                   </button>
                   <button
                     onClick={() => void handleAck(o)}
-                    className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
+                    className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700"
                     title="Marquer contrôlée — réapparaît si l'écart bouge de ±1 000 €"
                   >
                     <ClipboardCheck className="w-3.5 h-3.5" /> Contrôlée
@@ -202,12 +202,12 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
               );
             })}
             {visible.length === 0 && (
-              <p className="text-xs text-zinc-500">Toutes les opportunités actuelles ont été contrôlées.</p>
+              <p className="text-xs text-slate-500">Toutes les opportunités actuelles ont été contrôlées.</p>
             )}
             {visible.length > shown && (
               <button
                 onClick={() => setShown((n) => n + PAGE_SIZE)}
-                className="w-full text-xs text-zinc-400 hover:text-zinc-200 py-1.5 rounded-lg border border-dashed border-zinc-800 hover:border-zinc-600"
+                className="w-full text-xs text-slate-600 hover:text-slate-800 py-1.5 rounded-lg border border-dashed border-slate-200 hover:border-slate-300"
               >
                 Afficher plus ({visible.length - shown} restantes)
               </button>
