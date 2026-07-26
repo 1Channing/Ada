@@ -8,11 +8,13 @@ import { siteRegistry } from './registry';
 import { leboncoinAdapter } from './leboncoin';
 import { marktplaatsAdapter } from './marktplaats';
 import { bilbasenAdapter } from './bilbasen';
+import { mobiledeAdapter } from './mobilede';
 import { autoscout24Adapters } from './autoscout24';
 
 siteRegistry.register(leboncoinAdapter);
 siteRegistry.register(marktplaatsAdapter);
 siteRegistry.register(bilbasenAdapter);
+siteRegistry.register(mobiledeAdapter);
 // AutoScout24: one instance per country (FR/DE/NL/IT/ES/BE), same taxonomy.
 for (const adapter of autoscout24Adapters) siteRegistry.register(adapter);
 
