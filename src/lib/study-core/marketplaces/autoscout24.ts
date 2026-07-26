@@ -138,6 +138,23 @@ const MERCEDES_LINE_ID: Record<string, number> = {
   GLB: 149, CLE: 164,
 };
 
+/**
+ * BMW : mêmes lignes de modèles que Mercedes, IDs relevés dans la taxonomie
+ * embarquée (.de, make 13) et VÉRIFIÉS par scrape live le 26/07 :
+ * /lst?mmmv=13||38| sur .es → 96 offres, organiques 100 % Série 3 (330/320/
+ * 318). La boîte noire montrait '3-series' en unknownParameter sur .es.
+ */
+const BMW_MAKE_ID = 13;
+const BMW_LINE_ID: Record<string, number> = {
+  '1': 37, '2': 98, '3': 38, '4': 97, '5': 39, '6': 40, '7': 41, '8': 42,
+  M: 43, X: 44, Z: 45,
+};
+
+const LINE_BRANDS: Record<string, { makeId: number; lines: Record<string, number>; label: (code: string) => string }> = {
+  MERCEDES: { makeId: MERCEDES_MAKE_ID, lines: MERCEDES_LINE_ID, label: (c) => `CLASSE ${c}` },
+  BMW: { makeId: BMW_MAKE_ID, lines: BMW_LINE_ID, label: (c) => `SERIE ${c}` },
+};
+
 /** Code de classe Mercedes depuis nos graphies ('CLASSE E', 'E-CLASS', 'GLC'…). */
 function mercedesClassCode(brand: string | undefined, model: string): string | null {
   const up = model.trim().toUpperCase();
@@ -145,6 +162,33 @@ function mercedesClassCode(brand: string | undefined, model: string): string | n
   if (m) return m[1];
   const isMercedes = String(brand ?? '').trim().toUpperCase().includes('MERCEDES');
   if (isMercedes && /^[A-Z]{1,3}$/.test(up)) return up;
+  return null;
+}
+
+/** Code de série BMW ('SERIE 3', '3-Series', '3er', '3er-Reihe', '3' nu). */
+function bmwSeriesCode(brand: string | undefined, model: string): string | null {
+  const up = model.trim().toUpperCase();
+  const m = up.match(/^(?:SERIE|SÉRIE|SERIES)\s+(\w{1,2})$/) ?? up.match(/^(\w{1,2})[- ]?SERIES?$/)
+    ?? up.match(/^(\d)[- ]?ER(?:[- ]?REIHE)?$/);
+  if (m) return m[1];
+  const isBmw = String(brand ?? '').trim().toUpperCase().replace(/[^A-Z]/g, '') === 'BMW';
+  if (isBmw && /^[0-9MXZ]$/.test(up)) return up;
+  return null;
+}
+
+/** Ligne mmmv (marque à « classes/séries ») pour un critère marque+modèle. */
+function lineForCriteria(brand: string | undefined, model: string): { makeId: number; lineId: number } | null {
+  const b = String(brand ?? '').trim().toUpperCase();
+  if (b.includes('MERCEDES')) {
+    const code = mercedesClassCode(brand, model);
+    const id = code ? MERCEDES_LINE_ID[code] : undefined;
+    return id ? { makeId: MERCEDES_MAKE_ID, lineId: id } : null;
+  }
+  if (b.replace(/[^A-Z]/g, '') === 'BMW') {
+    const code = bmwSeriesCode(brand, model);
+    const id = code ? BMW_LINE_ID[code] : undefined;
+    return id ? { makeId: BMW_MAKE_ID, lineId: id } : null;
+  }
   return null;
 }
 
@@ -267,21 +311,20 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     const brandSlug = brandToSlug(String(params.brand ?? ''));
     const modelSlug = overrides?.modelSlug ?? (params.model ? modelToSlug(String(params.model)) : '');
 
-    // Classe Mercedes → URL mmmv (le filtre RÉEL du site, IDs globaux
-    // vérifiés) : /lst SANS segment marque/modèle — un chemin /mercedes-benz
+    // Classe Mercedes / Série BMW → URL mmmv (le filtre RÉEL du site, IDs
+    // globaux vérifiés) : /lst SANS segment marque/modèle — un chemin marque
     // combiné au mmmv fait l'UNION des deux (31 539 résultats au lieu de 40).
-    const mercCode = !overrides?.modelSlug && params.model
-      ? mercedesClassCode(params.brand ? String(params.brand) : undefined, String(params.model))
+    const line = !overrides?.modelSlug && params.model
+      ? lineForCriteria(params.brand ? String(params.brand) : undefined, String(params.model))
       : null;
-    const mercLineId = mercCode ? MERCEDES_LINE_ID[mercCode] : undefined;
 
     const segs = ['lst'];
-    if (brandSlug && !mercLineId) segs.push(brandSlug);
-    if (brandSlug && modelSlug && !mercLineId) segs.push(modelSlug);
+    if (brandSlug && !line) segs.push(brandSlug);
+    if (brandSlug && modelSlug && !line) segs.push(modelSlug);
     const path = (cfg.pathPrefix ?? '') + '/' + segs.join('/');
 
     const qs = new URLSearchParams();
-    if (mercLineId) qs.set('mmmv', `${MERCEDES_MAKE_ID}||${mercLineId}|`);
+    if (line) qs.set('mmmv', `${line.makeId}||${line.lineId}|`);
     qs.set('atype', 'C');
     qs.set('cy', cfg.cy);
     const { yearFrom, yearTo } = resolveYearRange(params);
@@ -473,12 +516,15 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     }
 
     const q = d.queryParams;
-    // URL mmmv (classes Mercedes) : marque + ligne se relisent depuis les IDs.
+    // URL mmmv (classes/séries) : marque + ligne se relisent depuis les IDs.
     const mmmv = (q['mmmv'] ?? '').match(/^(\d+)\|\|(\d+)\|$/);
-    if (mmmv && Number(mmmv[1]) === MERCEDES_MAKE_ID) {
-      out.brand = 'MERCEDES';
-      const code = Object.entries(MERCEDES_LINE_ID).find(([, id]) => id === Number(mmmv[2]))?.[0];
-      if (code) out.model = `CLASSE ${code}`;
+    if (mmmv) {
+      for (const [brandName, cfg2] of Object.entries(LINE_BRANDS)) {
+        if (cfg2.makeId !== Number(mmmv[1])) continue;
+        const code = Object.entries(cfg2.lines).find(([, id]) => id === Number(mmmv[2]))?.[0];
+        if (code) { out.brand = brandName; out.model = cfg2.label(code); }
+        break;
+      }
     }
     if (/^\d{4}$/.test(q['fregfrom'] ?? '')) out.yearFrom = q['fregfrom'];
     if (/^\d{4}$/.test(q['fregto'] ?? '')) out.yearTo = q['fregto'];

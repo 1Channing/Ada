@@ -35,9 +35,15 @@ SOURCE = 'teoalida_eu_2026_07'
 
 BRAND_KEY_ALIASES = {'VW': 'VOLKSWAGEN', 'MERCEDESBENZ': 'MERCEDES'}
 ROMAN_RE = re.compile(r'\s+(?:I{1,3}|IV|V|VI{0,3}|IX|X{1,2})$', re.I)
+PAREN_RE = re.compile(r'\s*\([^)]*\)\s*$')
 MERC_CLASS_RE = [
     re.compile(r'^([A-Z]{1,3})[- ]?(?:CLASS|KLASSE)$', re.I),
     re.compile(r'^(?:CLASSE|CLASE|CLASS)\s+([A-Z]{1,3})$', re.I),
+]
+SERIES_RE = [
+    re.compile(r'^(?:SERIE|SÉRIE|SERIES)\s+(\w{1,3})$', re.I),
+    re.compile(r'^(\w{1,3})[- ]?SERIES?$', re.I),
+    re.compile(r'^(\d)[- ]?ER(?:[- ]?REIHE)?$', re.I),
 ]
 
 
@@ -52,15 +58,30 @@ def brand_key(v: str) -> str:
     return BRAND_KEY_ALIASES.get(k, k)
 
 
-def ref_model_key(brand: str, model: str) -> str:
+def clean_model_label(model: str) -> str:
+    """Libellé exploitable par les sites : sans numéral romain de génération
+    ('Master I' → 'Master') ni parenthèse de code ('Hunter (UAZ-469)' →
+    'Hunter') — la boîte noire du 26/07 montrait ces suffixes transformés en
+    slugs invalides (master-i → 404)."""
     m = str(model or '').strip()
+    m = PAREN_RE.sub('', m)
     m = ROMAN_RE.sub('', m)
+    return m.strip()
+
+
+def ref_model_key(brand: str, model: str) -> str:
+    m = clean_model_label(model)
     if brand_key(brand) == 'MERCEDES':
         for rx in MERC_CLASS_RE:
             g = rx.match(m)
             if g:
                 m = g.group(1)
                 break
+    for rx in SERIES_RE:
+        g = rx.match(m)
+        if g:
+            m = g.group(1)
+            break
     return canon_key(m)
 
 
@@ -107,8 +128,8 @@ def main(path: str) -> None:
             continue
         y_from, y_to = yrs
         # Groupes/alias : « C-Class, CLC-class », « Bravo, Brava », noms en slash.
-        for name in re.split(r'[,/]', str(model)):
-            name = name.strip()
+        for raw_name in re.split(r'[,/]', str(model)):
+            name = clean_model_label(raw_name)
             if not name:
                 continue
             kept.append({

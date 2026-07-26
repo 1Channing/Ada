@@ -498,7 +498,13 @@ export async function generateSearchUrlsWithMemory(
         const reconstructed = reconstructUrlFromMapping(mapping, detectedParams, params, site);
 
         if (reconstructed) {
-          const finalUrl = await applyLearnedSecondaryParams(reconstructed, site, mapping, params, logs);
+          // Même normalisation que la branche « URL validée » : la
+          // reconstruction ressortait les vieilles formes ?make=&model= de
+          // Bilbasen (paramètres IGNORÉS par le site → page marque entière,
+          // boîte noire du 26/07 : C-HR servi en Aygo) et des URLs sans année.
+          let normalized = fixBilbasenQueryForm(reconstructed);
+          normalized = enforceYearParams(normalized, params);
+          const finalUrl = await applyLearnedSecondaryParams(normalized, site, mapping, params, logs);
           logs.push({
             level: 'OUTPUT',
             message: '[MAPPING_MEMORY] URL reconstructed from learned mapping',

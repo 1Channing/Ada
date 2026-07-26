@@ -17,7 +17,7 @@ import { sharedSupabase as supabase } from '../supabaseShared';
 import type { Json } from '../database.types';
 import { getSiteAdapter, decomposeUrl } from '../study-core/marketplaces';
 import type { SearchCriteria } from '../study-core/marketplaces';
-import { analyzeIngestion, INGESTION_MIN_SAMPLE, canonicalizeFuel, refineFuelToken } from '../study-core/ingestion';
+import { analyzeIngestion, INGESTION_MIN_SAMPLE, canonicalizeFuel, refineFuelToken, modelMatchesTitle } from '../study-core/ingestion';
 import { persistIngestionResult } from './ingestion';
 import { generateSearchUrlsWithMemory } from './generator';
 import type { SiteKey } from './types';
@@ -372,16 +372,32 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     };
   }
 
+  // Post-filtre MODÈLE pour les sites à recherche TEXTE (Marktplaats q:,
+  // Leboncoin) : le texte ramène des cousins — IONIQ 5 dans une étude
+  // IONIQ 6, des Volvo « Polestar Engineered » dans une étude Polestar 2
+  // (boîte noire 26/07 : études rejetées à 40-79 % au lieu d'être sauvées).
+  // Même principe que le post-filtre carburant : on applique nous-mêmes le
+  // filtre depuis le texte des annonces, uniquement s'il reste un échantillon
+  // suffisant — sinon l'analyse dira honnêtement que le modèle ne confirme pas.
+  let listingsForStudy = listings;
+  if ((p.site === 'MARKTPLAATS' || p.site === 'LEBONCOIN') && criteria.model) {
+    const wanted = String(criteria.model);
+    const filtered = listingsForStudy.filter((l) => modelMatchesTitle(l.title ?? '', wanted));
+    if (filtered.length >= INGESTION_MIN_SAMPLE && filtered.length < listingsForStudy.length) {
+      listingsForStudy = filtered;
+    }
+  }
+
   // Marktplaats has NO fuel filter expressible in the URL (neither the hash
   // nor lrp/api carries one), so a fuel-scoped study always analysed a mixed
   // sample and rejected its own fuel. The per-listing STRUCTURED fuel is
   // reliable — apply the filter ourselves, exactly like the site's checkbox
   // would (hybrid family grouped as in the MI), before analysis + snapshot.
-  let sampleListings = listings;
+  let sampleListings = listingsForStudy;
   if (p.site === 'MARKTPLAATS' && criteria.fuel) {
     const want = canonicalizeFuel(criteria.fuel);
     if (want) {
-      const filtered = listings.filter((l) => {
+      const filtered = listingsForStudy.filter((l) => {
         const tok = refineFuelToken(canonicalizeFuel(l.fuel ?? ''), `${l.title ?? ''} ${l.description ?? ''}`);
         return tok === want || (want === 'hybrid' && (tok === 'phev' || tok === 'mild_hybrid'));
       });

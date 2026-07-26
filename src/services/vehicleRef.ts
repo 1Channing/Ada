@@ -31,6 +31,13 @@ export function refModelKey(brand: string, model: string): string {
       ?? m.match(/^(?:CLASSE|CLASE|CLASS)\s+([A-Z]{1,3})$/i);
     if (cm) m = cm[1];
   }
+  // Séries (BMW & co) : '3-Series' (Teoalida) ≡ 'SERIE 3' ≡ '3er(-Reihe)' →
+  // code nu — la boîte noire du 26/07 montrait '3-SERIES' envoyé tel quel
+  // comme slug (inconnu de tous les sites).
+  const sm = m.match(/^(?:SERIE|SÉRIE|SERIES)\s+(\w{1,3})$/i)
+    ?? m.match(/^(\w{1,3})[- ]?SERIES?$/i)
+    ?? m.match(/^(\d)[- ]?ER(?:[- ]?REIHE)?$/i);
+  if (sm) m = sm[1];
   return canonKey(m);
 }
 

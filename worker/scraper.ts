@@ -676,6 +676,17 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
       // échantillon d'une page marque servie en silence (slug inconnu).
       const sfAdapter = findSiteAdapterByDomain(activeUrl);
       const silentFallback = sfAdapter?.detectSilentFallback?.(html) ?? null;
+      // SONDE D'OBSERVATION Bilbasen (temporaire, boîte noire 26/07) : le site
+      // sert la page MARQUE entière sur slug modèle inconnu, sans aveu connu.
+      // Son NEXT_DATA porte un `initialSearchRequest` — on en logge la vraie
+      // structure (warn → worker_logs) pour bâtir le détecteur sur preuve.
+      if (activeUrl.includes('bilbasen.dk')) {
+        try {
+          const nd = html.match(/__NEXT_DATA__[^>]*>([\s\S]*?)<\/script>/);
+          const isr = nd ? JSON.parse(nd[1])?.props?.pageProps?.initialSearchRequest : null;
+          if (isr) console.warn(`[BILBASEN_ISR] ${activeUrl.slice(0, 90)} → ${JSON.stringify(isr).slice(0, 350)}`);
+        } catch { /* sonde silencieuse */ }
+      }
       if (silentFallback && !silentFallback.modelApplied) {
         console.warn(`[WORKER_SCRAPER] ⚠️ filtre modèle NON appliqué par le site — ${silentFallback.evidence}`);
       }

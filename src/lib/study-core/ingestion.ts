@@ -264,8 +264,10 @@ function brandMatchesTitle(title: string, brand: string): boolean {
     variant.split(' ').filter(Boolean).some((t) => t.length >= 2 && tokenInText(normTitle, t)));
 }
 
-/** Model matches if ALL its DISTINCTIVE tokens appear (generic words stripped). */
-function modelMatchesTitle(title: string, model: string): boolean {
+/** Model matches if ALL its DISTINCTIVE tokens appear (generic words stripped).
+ *  Exporté : le moteur de campagne s'en sert pour post-filtrer les résultats
+ *  des recherches TEXTE (Marktplaats q:, Leboncoin) avant analyse. */
+export function modelMatchesTitle(title: string, model: string): boolean {
   const normTitle = normalizeForMatch(title);
   const toks = normalizeForMatch(model).split(' ').filter(Boolean);
   const distinctive = toks.filter((t) => !MODEL_NOISE_TOKENS.has(t));
