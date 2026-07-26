@@ -153,6 +153,25 @@ function pathSlug(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9._-]/g, '');
 }
 
+/**
+ * Slug des Classes Mercedes chez Bilbasen : `ms-{code}-klasse` — PROUVÉ par
+ * URL humaine (Channing 26/07) : /brugt/bil/mercedes/ms-cla-klasse. Même
+ * famille préfixée que 'ms-golf-serie' (VW). Les codes non vérifiés héritent
+ * du schéma ; le détecteur de repli silencieux (clé Model dans
+ * initialSearchRequest) tranche et les sondes corrigent si un code dévie.
+ */
+function mercedesModelSlug(brand: string | undefined, model: string): string | null {
+  // Un modèle déjà en forme slug (tout minuscule — candidats de sonde H0,
+  // 'e-klasse'/'ms-x-klasse') passe tel quel par pathSlug, sans re-mapping.
+  const t = model.trim();
+  if (/[a-z]/.test(t) && !/[A-Z]/.test(t)) return null;
+  const up = t.toUpperCase();
+  const isMercedes = String(brand ?? '').trim().toUpperCase().includes('MERCEDES');
+  const code = (up.match(/^(?:CLASSE|CLASE|CLASS)\s+([A-Z]{1,3})$/) ?? up.match(/^([A-Z]{1,3})[- ]?(?:CLASS|KLASSE)$/))?.[1]
+    ?? (isMercedes && /^[A-Z]{1,3}$/.test(up) ? up : null);
+  return code ? `ms-${code.toLowerCase()}-klasse` : null;
+}
+
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
 
@@ -161,7 +180,8 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // The native form /brugt/bil/{brand}/{model} is the site's own filter
   // (human-confirmed with /brugt/bil/skoda/elroq).
   const brandSlug = pathSlug(mapBrand(params.brand || ''));
-  const modelSlug = pathSlug(mapModel(params.model || ''));
+  const mercSlug = params.model ? mercedesModelSlug(params.brand, String(params.model)) : null;
+  const modelSlug = mercSlug ?? pathSlug(mapModel(params.model || ''));
   const segs = ['https://www.bilbasen.dk/brugt/bil'];
   if (brandSlug) segs.push(brandSlug);
   if (brandSlug && modelSlug) segs.push(modelSlug);
@@ -206,8 +226,8 @@ function generateCorrectionHypotheses(
     const code = (raw.match(/^CLASSE\s+([A-Z]{1,3})$/) ?? raw.match(/^([A-Z])-CLASS$/))?.[1]?.toLowerCase()
       ?? (isMercedes && /^[A-Z]{1,3}$/.test(raw) ? raw.toLowerCase() : null);
     if (code) {
-      // Variante tiret ET underscore — la règle underscore est prouvée pour
-      // les espaces, pas pour les noms composés Mercedes.
+      // Le primaire est désormais 'ms-{code}-klasse' (prouvé CLA 26/07) —
+      // les sondes essaient les anciennes formes si un code dévie du schéma.
       for (const cand of [`${code}-klasse`, `${code}_klasse`]) {
         const { url } = buildSearchUrl({ ...params, model: cand });
         if (url) result.push({ url, reason: `BILBASEN H0: slug Mercedes '${cand}'` });
@@ -469,9 +489,22 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const rawMake = q['make'] ?? path.brand;
   const rawModel = q['model'] ?? path.model;
   if (rawMake) out.brand = reverseLookup(BRAND_MAP, rawMake);
-  if (rawModel) out.model = reverseLookup(MODEL_MAP, rawModel);
+  if (rawModel) {
+    // Slugs de famille : 'ms-cla-klasse' → CLASSE CLA (URL humaine 26/07),
+    // 'ms-golf-serie' → GOLF.
+    const klasse = rawModel.match(/^ms-([a-z0-9]+)-klasse$/i);
+    const serie = rawModel.match(/^(?:ms-)?([a-z0-9-]+)-serie$/i);
+    out.model = klasse ? `CLASSE ${klasse[1].toUpperCase()}`
+      : serie ? serie[1].toUpperCase().replace(/-/g, ' ')
+      : reverseLookup(MODEL_MAP, rawModel);
+  }
   if (q['yearfrom'] && /^\d{4}$/.test(q['yearfrom'])) out.yearFrom = q['yearfrom'];
   if (q['yearto'] && /^\d{4}$/.test(q['yearto'])) out.yearTo = q['yearto'];
+  // Variante mensuelle du site (URL humaine : regfrom=2023-01&regto=2023-12).
+  const regFrom = (q['regfrom'] ?? '').match(/^(\d{4})/);
+  const regTo = (q['regto'] ?? '').match(/^(\d{4})/);
+  if (!out.yearFrom && regFrom) out.yearFrom = regFrom[1];
+  if (!out.yearTo && regTo) out.yearTo = regTo[1];
   if (q['mileageto'] && /^\d+$/.test(q['mileageto'])) out.mileage = q['mileageto'];
   if (q['fuel'] && FUEL_SITE_TO_LABEL[q['fuel'].toLowerCase()]) out.fuel = FUEL_SITE_TO_LABEL[q['fuel'].toLowerCase()];
   if (q['hpfrom'] && /^\d+$/.test(q['hpfrom'])) out.powerFrom = q['hpfrom'];
