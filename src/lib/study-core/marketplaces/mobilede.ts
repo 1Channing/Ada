@@ -39,33 +39,42 @@ const URL_TEMPLATE =
   'https://www.mobile.de/fr/voiture/recherche.html?isSearchRequest=true&s=Car&vc=Car' +
   '&ms={makeId};{modelId}&fr={yearFrom}:{yearTo}&ml=:{mileage}&ft={fuel}';
 
-// IDs marque — graine humaine (URL Channing 26/07). S'enrichit par ingestion.
+// IDs marque — graines humaines (URLs Channing 26/07). S'enrichit par ingestion.
 const MAKE_ID: Record<string, string> = {
-  SKODA: '22900',
+  SKODA: '22900',   // Elroq (capture)
+  BMW: '3500',      // iX1 (capture)
+  TOYOTA: '24100',  // Yaris Cross (capture)
+  HYUNDAI: '11600', // Tucson (capture)
 };
 
-// IDs modèle par `MARQUE|MODÈLE` canonique simple (MAJ, espaces conservés).
-const MODEL_ID: Record<string, string> = {
-  'SKODA|ELROQ': '26',
+// IDs modèle par `MARQUE|MODÈLE` canonique (alphanumérique MAJ), avec le
+// libellé d'affichage pour le prefill inverse.
+const MODEL_ID: Record<string, { id: string; label: string }> = {
+  'SKODA|ELROQ': { id: '26', label: 'ELROQ' },
+  'BMW|IX1': { id: '337', label: 'IX1' },
+  'TOYOTA|YARISCROSS': { id: '78', label: 'YARIS CROSS' },
+  'HYUNDAI|TUCSON': { id: '27', label: 'TUCSON' },
 };
 
 /**
- * Enums carburant : ELECTRICITY est PROUVÉ (URL humaine) ; les autres sont
- * les tokens historiques de l'API publique mobile.de — hypothèses raisonnables
- * qu'un mauvais token transforme en page 0 annonce (jamais en pollution), et
- * que la boîte noire remontera si l'un dévie.
+ * Carburants : deux paramètres distincts chez mobile.de (prouvé par URLs
+ * humaines 26/07) — `ft=` porte ELECTRICITY (Elroq/iX1) et HYBRID (Yaris
+ * Cross « Hybride essence/électrique »), tandis que le PHEV passe par
+ * `fe=HYBRID_PLUGIN` (Tucson « Hybride rechargeable »). PETROL/DIESEL/LPG :
+ * tokens de l'ancienne API publique, hypothèses — un mauvais token donne une
+ * page 0 annonce, jamais de pollution, et la boîte noire le remonterait.
  */
-const FUEL_MAP: Record<string, string> = {
-  ELECTRIQUE: 'ELECTRICITY',
-  ELECTRIC: 'ELECTRICITY',
-  ESSENCE: 'PETROL',
-  PETROL: 'PETROL',
-  GASOLINE: 'PETROL',
-  DIESEL: 'DIESEL',
-  HYBRIDE: 'HYBRID',
-  HYBRID: 'HYBRID',
-  PLUG_IN_HYBRID: 'PLUGIN_HYBRID',
-  GPL: 'LPG',
+const FUEL_PARAM: Record<string, { param: 'ft' | 'fe'; value: string }> = {
+  ELECTRIQUE: { param: 'ft', value: 'ELECTRICITY' },
+  ELECTRIC: { param: 'ft', value: 'ELECTRICITY' },
+  HYBRIDE: { param: 'ft', value: 'HYBRID' },
+  HYBRID: { param: 'ft', value: 'HYBRID' },
+  PLUG_IN_HYBRID: { param: 'fe', value: 'HYBRID_PLUGIN' },
+  ESSENCE: { param: 'ft', value: 'PETROL' },
+  PETROL: { param: 'ft', value: 'PETROL' },
+  GASOLINE: { param: 'ft', value: 'PETROL' },
+  DIESEL: { param: 'ft', value: 'DIESEL' },
+  GPL: { param: 'ft', value: 'LPG' },
 };
 
 const FUEL_SITE_TO_LABEL: Record<string, string> = {
@@ -73,26 +82,28 @@ const FUEL_SITE_TO_LABEL: Record<string, string> = {
   PETROL: 'ESSENCE',
   DIESEL: 'DIESEL',
   HYBRID: 'HYBRIDE',
-  PLUGIN_HYBRID: 'PLUG_IN_HYBRID',
+  HYBRID_PLUGIN: 'PLUG_IN_HYBRID',
   LPG: 'GPL',
 };
 
 const UNSUPPORTED_PARAMS: string[] = [];
 
 const norm = (s: string) => s.trim().toUpperCase();
-const comboKey = (brand: string, model: string) => `${norm(brand)}|${norm(model)}`;
+// Clé alphanumérique : 'YARIS CROSS' ≡ 'YARIS-CROSS' ≡ 'Yaris Cross'.
+const canon = (s: string) => norm(s).replace(/[^A-Z0-9]/g, '');
+const comboKey = (brand: string, model: string) => `${canon(brand)}|${canon(model)}`;
 
-function mapBrand(raw: string): string { return MAKE_ID[norm(raw)] ?? raw.trim(); }
+function mapBrand(raw: string): string { return MAKE_ID[canon(raw)] ?? raw.trim(); }
 function mapModel(raw: string): string { return raw.trim(); }
-function mapFuel(raw: string): string { return FUEL_MAP[norm(raw)] ?? ''; }
+function mapFuel(raw: string): string { return FUEL_PARAM[norm(raw)]?.value ?? ''; }
 
 /** ch DIN → kW (le paramètre pw est en kW : 184 kW = 250 Ch, capture 26/07). */
 function hpToKw(hp: number): number { return Math.round(hp / 1.35962); }
 
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
-  const makeId = MAKE_ID[norm(params.brand ?? '')];
-  const modelId = params.model ? MODEL_ID[comboKey(params.brand ?? '', String(params.model))] : undefined;
+  const makeId = MAKE_ID[canon(params.brand ?? '')];
+  const modelId = params.model ? MODEL_ID[comboKey(params.brand ?? '', String(params.model))]?.id : undefined;
 
   // Sans ID connu, on ne fabrique PAS une URL tous-modèles mensongère : l'étude
   // sort en no_url et le centre de résolution dit quoi apprendre (coller une
@@ -110,11 +121,14 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const { yearFrom, yearTo } = resolveYearRange(params);
   if (yearFrom || yearTo) qs.set('fr', `${yearFrom ?? ''}:${yearTo ?? ''}`);
   if (params.mileage) qs.set('ml', `:${params.mileage}`);
-  const fuel = params.fuel ? mapFuel(params.fuel) : '';
-  if (fuel) qs.set('ft', fuel);
+  const fuel = params.fuel ? FUEL_PARAM[norm(params.fuel)] : undefined;
+  if (fuel) qs.set(fuel.param, fuel.value);
   else if (params.fuel) warnings.push(`[LINKGEN_WARNING] MOBILE_DE: carburant "${params.fuel}" sans enum connu — filtre omis`);
   const power = params.powerFrom ?? params.minPower;
   if (power !== undefined && String(power).trim()) qs.set('pw', String(hpToKw(Number(power))));
+  // Tri prix croissant — prouvé (URL humaine : od=up&sb=p ↔ « Prix (croissant) »).
+  qs.set('sb', 'p');
+  qs.set('od', 'up');
 
   return { url: `https://www.mobile.de/fr/voiture/recherche.html?${qs.toString()}`, warnings };
 }
@@ -186,9 +200,9 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     const brand = reverseLookup(MAKE_ID, ms[0]);
     if (brand !== ms[0]) out.brand = brand;
     if (ms[1]) {
-      const hit = Object.entries(MODEL_ID).find(([, id]) => id === ms[1] && (!out.brand || comboKey(out.brand, '').startsWith(norm(out.brand))));
-      const combo = hit?.[0]?.split('|');
-      if (combo?.[1] && (!out.brand || combo[0] === norm(out.brand))) { out.brand = combo[0]; out.model = combo[1]; }
+      const hit = Object.entries(MODEL_ID).find(([k, v]) =>
+        v.id === ms[1] && (!out.brand || k.startsWith(`${canon(out.brand)}|`)));
+      if (hit) { out.brand = out.brand ?? hit[0].split('|')[0]; out.model = hit[1].label; }
     }
   }
   const fr = (q['fr'] ?? '').split(':');
@@ -196,7 +210,10 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   if (/^\d{4}$/.test(fr[1] ?? '')) out.yearTo = fr[1];
   const ml = (q['ml'] ?? '').split(':');
   if (/^\d+$/.test(ml[1] ?? '')) out.mileage = ml[1];
+  // Deux paramètres carburant : ft= (électrique/hybride/thermique) et
+  // fe=HYBRID_PLUGIN (hybride rechargeable — URL humaine Tucson 26/07).
   if (q['ft'] && FUEL_SITE_TO_LABEL[q['ft'].toUpperCase()]) out.fuel = FUEL_SITE_TO_LABEL[q['ft'].toUpperCase()];
+  if (q['fe'] && FUEL_SITE_TO_LABEL[q['fe'].toUpperCase()]) out.fuel = FUEL_SITE_TO_LABEL[q['fe'].toUpperCase()];
   if (/^\d+$/.test(q['pw'] ?? '')) out.powerFrom = String(Math.round(Number(q['pw']) * 1.35962));
   return out;
 }
@@ -211,6 +228,7 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
   if (ms[0]) out.push({ raw: ms[0], location: 'query', paramName: 'ms:make', guessField: 'brand' });
   if (ms[1]) out.push({ raw: ms[1], location: 'query', paramName: 'ms:model', guessField: 'model' });
   if (q['ft']) out.push({ raw: q['ft'], location: 'query', paramName: 'ft', guessField: 'fuel' });
+  if (q['fe']) out.push({ raw: q['fe'], location: 'query', paramName: 'fe', guessField: 'fuel' });
   if (q['fr']) out.push({ raw: q['fr'], location: 'query', paramName: 'fr', guessField: 'year' });
   if (q['ml']) out.push({ raw: q['ml'], location: 'query', paramName: 'ml', guessField: 'mileage' });
   if (q['pw']) out.push({ raw: q['pw'], location: 'query', paramName: 'pw', guessField: 'power' });
