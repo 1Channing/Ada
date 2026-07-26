@@ -311,6 +311,11 @@ export interface ScrapeDiagnostics {
   blocked: boolean;
   blockReason: string | null;
   emptyResults: boolean;     // full page, 0 results (genuine, not an error)
+  /** Lecture du marqueur vide EXPLICITE du site (adaptateur) : true = le site
+   *  dit lui-même « aucun résultat » (vide prouvé) ; false = marqueur absent
+   *  sur une page pleine à 0 annonce (parseur suspect) ; null = site sans
+   *  marqueur connu. */
+  emptyConfirmed?: boolean | null;
   fromCache: boolean;
   fieldsPresent: Record<string, number>; // 0..1 fraction of listings carrying each field
   /** Verdict déterministe de l'adaptateur : le site a-t-il appliqué le filtre
@@ -580,7 +585,7 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
         site: marketplace, mode: lastMode, attempts: d.attempts ?? 0, htmlLength: d.htmlLength ?? lastLen,
         listingCount: r.listings.length, totalCount: r.totalCount ?? null,
         blocked: d.blocked ?? false, blockReason: d.blockReason ?? null,
-        emptyResults: d.emptyResults ?? false, fromCache: false,
+        emptyResults: d.emptyResults ?? false, emptyConfirmed: d.emptyConfirmed ?? null, fromCache: false,
         fieldsPresent: fieldCoverage(r.listings),
         silentFallback: d.silentFallback ?? null,
       },
@@ -744,10 +749,18 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
     }
 
     // Full page, 0 listings, not blocked → genuine empty search. Return now
-    // (no wasted retries) and cache it.
+    // (no wasted retries) and cache it. Where the adapter knows the site's
+    // explicit empty-state marker, read it: marker present = empty PROVEN by
+    // the site itself; marker absent = the page probably holds listings the
+    // parser no longer reads (structure change) — tripwire to worker_logs.
     if (html.length >= FULL_PAGE_MIN_BYTES) {
+      const esAdapter = findSiteAdapterByDomain(activeUrl);
+      const emptyConfirmed = esAdapter?.detectEmptyState ? esAdapter.detectEmptyState(html) : null;
+      if (emptyConfirmed === false) {
+        console.warn(`[WORKER_SCRAPER] ⚠️ page pleine à 0 annonce SANS le marqueur vide du site (${marketplaceOf(activeUrl)}, ${html.length}b) — parseur à vérifier: ${activeUrl.slice(0, 120)}`);
+      }
       console.log(`[WORKER_SCRAPER] 0 listings on a full page (${html.length}b, mode=${mode}) — genuine empty result, no retry`);
-      return finalize({ listings: [], totalCount: extractTotalCount(html) }, { attempts: attempt + 1, htmlLength: html.length, emptyResults: true }, true);
+      return finalize({ listings: [], totalCount: extractTotalCount(html) }, { attempts: attempt + 1, htmlLength: html.length, emptyResults: true, emptyConfirmed }, true);
     }
 
     // Small page, no listings, not blocked → retry (likely a soft failure).

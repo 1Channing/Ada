@@ -79,7 +79,7 @@ function fmtScrape(scrape: unknown): string {
     s.mode ? `mode=${s.mode}` : '',
     s.htmlLength != null ? `taille=${s.htmlLength}o` : '',
     s.blocked ? `bloqué=${s.blockReason ?? 'oui'}` : '',
-    s.emptyResults ? 'résultat-vide' : '',
+    s.emptyResults ? (s.emptyConfirmed === true ? 'vide-confirmé-par-le-site' : s.emptyConfirmed === false ? 'vide-SUSPECT-marqueur-absent' : 'résultat-vide') : '',
     s.listingCount != null ? `annonces=${s.listingCount}` : '',
   ].filter(Boolean);
   return parts.join(' · ') || '—';

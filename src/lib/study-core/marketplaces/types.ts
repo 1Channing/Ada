@@ -215,6 +215,15 @@ export interface SiteAdapter {
    * null when the page carries no readable verdict (blocked, autre format).
    */
   detectSilentFallback?(html: string): SilentFallbackVerdict | null;
+  /**
+   * Optional deterministic read of the site's own EXPLICIT empty-state marker
+   * (e.g. Leboncoin « Désolés, nous n'avons pas ça sous la main ! »). On a
+   * full page with 0 parsed listings: true = the site itself says the search
+   * is empty (genuine empty market, proven); false = marker ABSENT — the page
+   * likely holds listings the parser no longer reads (structure change
+   * tripwire). Only declare markers proven on a real empty page.
+   */
+  detectEmptyState?(html: string): boolean;
 
   // ─── Ingestion (URL learning from human-pasted searches) ──────────────────
 

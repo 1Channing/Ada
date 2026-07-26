@@ -517,6 +517,16 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
     }));
 }
 
+/**
+ * Marqueur EXPLICITE de recherche vide, prouvé sur page réelle (Formentor
+ * électrique 2025, capture Channing 26/07) : « Désolés, nous n'avons pas ça
+ * sous la main ! ». On matche sans l'apostrophe (typographique ’ vs droite ')
+ * ni l'accent d'ouverture pour être insensible à la variante servie.
+ */
+function detectEmptyState(html: string): boolean {
+  return html.includes('avons pas ça sous la main');
+}
+
 function inferFuel(title: string, description: string): string {
   // Wraps the Scout-internal detector, normalising 'gpl' to the canonical
   // cross-site token 'lpg' (the Scout keeps its own output untouched).
@@ -546,6 +556,7 @@ export const leboncoinAdapter: SiteAdapter = {
   generateCorrectionHypotheses,
 
   getFetchProfile,
+  detectEmptyState,
 
   prefillCriteriaFromUrl,
   extractCandidateSegments,

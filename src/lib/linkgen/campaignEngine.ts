@@ -330,10 +330,18 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     // A FULL results page with zero listings is a genuinely empty market
     // (server applied the filters and says none) — name it so the daily
     // review reads it as a « Marché vide » candidate, not a mystery.
-    const emptyMarket = listings.length === 0 && (diagnostics as { emptyResults?: boolean } | null)?.emptyResults === true;
+    const emptyDiag = diagnostics as { emptyResults?: boolean; emptyConfirmed?: boolean | null } | null;
+    const emptyMarket = listings.length === 0 && emptyDiag?.emptyResults === true;
     // Un vide sur une année HORS fenêtre de commercialisation s'explique tout
     // seul (référentiel ~98 %) — la revue quotidienne n'a plus à l'élucider.
-    let emptyDetail = 'marché réellement vide — 0 annonce sur page complète (filtres appliqués)';
+    // Le marqueur vide EXPLICITE du site (« Désolés, nous n'avons pas ça sous
+    // la main ! » Leboncoin) transforme l'heuristique en preuve — ou en alerte
+    // parseur quand il MANQUE sur une page pleine.
+    let emptyDetail = emptyDiag?.emptyConfirmed === true
+      ? 'marché réellement vide — le site affiche lui-même « aucun résultat »'
+      : emptyDiag?.emptyConfirmed === false
+        ? 'vide SUSPECT — 0 annonce parsée mais le site n’affiche pas son message « aucun résultat » (parseur à vérifier)'
+        : 'marché réellement vide — 0 annonce sur page complète (filtres appliqués)';
     if (emptyMarket && p.year) {
       try {
         const win = findRefWindow(await getRefWindowsCached(), p.brand, p.model);
