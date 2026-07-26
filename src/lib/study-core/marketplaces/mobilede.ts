@@ -387,7 +387,17 @@ function parseFlightListings(html: string): ScrapedListing[] {
     } catch { /* sonde silencieuse */ }
   }
   const out: ScrapedListing[] = [];
+  // mobile.de liste aussi des annonces hors Allemagne — attr.cn (prouvé :
+  // "DE" sur les dumps) donne le pays de l'annonce. Une étude MOBILE_DE
+  // décrit le MARCHÉ ALLEMAND : on écarte les autres pays (compteur loggé).
+  // cn absent = on garde (fail-open, jamais de filtrage aveugle).
+  const foreign = new Map<string, number>();
   for (const ad of ads) {
+    const cn = String((ad as { attr?: { cn?: unknown } }).attr?.cn ?? '').trim().toUpperCase();
+    if (cn && cn !== 'DE') {
+      foreign.set(cn, (foreign.get(cn) ?? 0) + 1);
+      continue;
+    }
     // Clés PROUVÉES par le dump 1ʳᵉ-annonce (21h19) : p="23 610 €",
     // shortTitle="Mercedes-Benz eVito", subTitle="112 Kasten KLIMA…",
     // st="Concessionnaire", attr.{fr,yc,pw,ft,ml,tr,ecol,door,sc,c},
@@ -427,10 +437,16 @@ function parseFlightListings(html: string): ScrapedListing[] {
       priceType: null,
     });
   }
+  if (foreign.size > 0) {
+    const detail = [...foreign.entries()].map(([c, n]) => `${c}×${n}`).join(', ');
+    console.warn(`[MOBILEDE_OBS] ${[...foreign.values()].reduce((a, b) => a + b, 0)} annonce(s) hors Allemagne écartée(s) (${detail})`);
+  }
   // Seuil d'exploitabilité : sous 3 annonces complètes (titre+prix) on
   // préfère le repli générique — la sonde révélera les clés manquantes.
-  if (out.length < Math.min(3, ads.length)) {
-    console.warn(`[MOBILEDE_OBS] flight: ${ads.length} annonces trouvées mais ${out.length} exploitables (titre/prix manquants) — repli`);
+  // (Les hors-DE écartées ne comptent pas contre le seuil.)
+  const kept = ads.length - [...foreign.values()].reduce((a, b) => a + b, 0);
+  if (out.length < Math.min(3, kept)) {
+    console.warn(`[MOBILEDE_OBS] flight: ${kept} annonces trouvées mais ${out.length} exploitables (titre/prix manquants) — repli`);
     return [];
   }
   console.warn(`[MOBILEDE_OBS] flight: ${out.length}/${ads.length} annonces structurées extraites (total site: ${total ?? '?'})`);
