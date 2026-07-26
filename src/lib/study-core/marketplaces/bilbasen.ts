@@ -520,6 +520,32 @@ function inferFuel(title: string, description: string): string {
   return '';
 }
 
+/**
+ * Verdict déterministe « filtre modèle appliqué ? » — preuve par la sonde
+ * [BILBASEN_ISR] (campagne du 26/07) : le NEXT_DATA de chaque page porte
+ * `initialSearchRequest.selectedFilters`. Page modèle valide (/vw/id.3) →
+ * clé `Model` présente ({values:["ID.3"]}) ; slug inconnu (/mercedes/glc,
+ * /mercedes/vito…) → Make/FuelType/ModelYear présents mais AUCUNE clé
+ * `Model` : le site a jeté le filtre en silence et sert la marque entière.
+ */
+function detectSilentFallback(html: string): { modelApplied: boolean; evidence: string } | null {
+  const m = html.match(/__NEXT_DATA__[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try {
+    const sf = JSON.parse(m[1])?.props?.pageProps?.initialSearchRequest?.selectedFilters as
+      Record<string, unknown> | undefined;
+    if (!sf || typeof sf !== 'object') return null;
+    const model = sf['Model'] as { values?: Array<{ values?: string[] }> } | undefined;
+    if (!model) {
+      return { modelApplied: false, evidence: `selectedFilters sans clé Model (${Object.keys(sf).join(',')})` };
+    }
+    const applied = model.values?.flatMap((v) => v.values ?? []).join('+') ?? '?';
+    return { modelApplied: true, evidence: `Model=${applied}` };
+  } catch {
+    return null;
+  }
+}
+
 export const bilbasenAdapter: SiteAdapter = {
   key: 'BILBASEN',
   displayName: 'Bilbasen',
@@ -540,6 +566,7 @@ export const bilbasenAdapter: SiteAdapter = {
 
   scoreSearchResults,
   generateCorrectionHypotheses,
+  detectSilentFallback,
 
   getFetchProfile,
 
