@@ -137,6 +137,48 @@ function modelIdFor(makeId: string, brand: string, model: string): string | unde
  * graines humaines y figurent avec l'ID EXACT — sinon [] (jamais de devinette).
  */
 function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
+  const makes = harvestMakes(html);
+  const models = harvestModelsFromAds(html, makes);
+  return [...makes, ...models];
+}
+
+/**
+ * Modèles depuis les ANNONCES du flight — preuve dump 1ʳᵉ-annonce (21h19) :
+ * chaque annonce porte makeId:17200, modelId:344 et make/model
+ * {id, localized}. Chaque page scrapée apprend donc les modèles qu'elle
+ * affiche (une page marque entière apprend toute la gamme d'un coup).
+ * Garde-fou : makeId doit être une marque CONNUE (graine, apprise ou
+ * moissonnée sur cette même page) — jamais de code orphelin.
+ */
+function harvestModelsFromAds(html: string, makesJustHarvested: Array<{ code: string }>): Array<{ field: string; code: string; label: string }> {
+  const out: Array<{ field: string; code: string; label: string }> = [];
+  try {
+    const { ads } = extractFlightAds(html);
+    if (!ads.length) return out;
+    const knownMakes = new Set<string>([
+      ...Object.values(MAKE_ID),
+      ...Object.keys(LEARNED_MAKE_LABEL),
+      ...makesJustHarvested.map((m) => m.code),
+    ]);
+    const seen = new Set<string>();
+    for (const ad of ads) {
+      const a = ad as { makeId?: unknown; modelId?: unknown; make?: { id?: unknown }; model?: { id?: unknown; localized?: unknown } };
+      const makeId = String(a.makeId ?? a.make?.id ?? '');
+      const modelId = String(a.modelId ?? a.model?.id ?? '');
+      const label = typeof a.model?.localized === 'string' ? a.model.localized.trim() : '';
+      if (!/^\d{3,6}$/.test(makeId) || !/^\d{1,6}$/.test(modelId) || !label) continue;
+      if (!knownMakes.has(makeId)) continue;
+      const code = `${makeId};${modelId}`;
+      if (seen.has(code)) continue;
+      seen.add(code);
+      out.push({ field: 'ms:model', code, label });
+    }
+    if (out.length) console.warn(`[MOBILEDE_OBS] moisson modèles: ${out.length} combo(s) appris des annonces (ex. ${out[0].code}=${out[0].label})`);
+  } catch { /* moisson silencieuse */ }
+  return out;
+}
+
+function harvestMakes(html: string): Array<{ field: string; code: string; label: string }> {
   try {
     const anchor = html.indexOf('Leapmotor');
     if (anchor < 0) return [];
@@ -294,30 +336,55 @@ function balancedJsonObject(text: string, openBrace: number): string | null {
   return null;
 }
 
+/** Extraction partagée parse/moisson, avec micro-cache par identité de html
+ *  (le même HTML est lu deux fois par scrape : annonces puis taxonomie). */
+let lastFlight: { html: string; total: number | null; ads: Array<Record<string, unknown>> } | null = null;
+function extractFlightAds(html: string): { total: number | null; ads: Array<Record<string, unknown>> } {
+  if (lastFlight && lastFlight.html === html) return lastFlight;
+  const empty = { total: null, ads: [] as Array<Record<string, unknown>> };
+  const text = decodeFlightChunks(html);
+  if (!text) return empty;
+  const at = text.indexOf('"searchResults":{');
+  if (at < 0) return empty;
+  const objTxt = balancedJsonObject(text, text.indexOf('{', at + '"searchResults"'.length));
+  if (!objTxt) return empty;
+  let sr: { numResultsTotal?: number; listings?: unknown[] };
+  try { sr = JSON.parse(objTxt); } catch { return empty; }
+  const ads = (Array.isArray(sr.listings) ? sr.listings : []).filter(
+    (a): a is Record<string, unknown> => !!a && typeof a === 'object');
+  lastFlight = { html, total: sr.numResultsTotal ?? null, ads };
+  return lastFlight;
+}
+
 let flightProbeCount = 0;
 function parseFlightListings(html: string): ScrapedListing[] {
-  const text = decodeFlightChunks(html);
-  if (!text) return [];
-  const at = text.indexOf('"searchResults":{');
-  if (at < 0) return [];
-  const objTxt = balancedJsonObject(text, text.indexOf('{', at + '"searchResults"'.length));
-  if (!objTxt) return [];
-  let sr: { numResultsTotal?: number; listings?: unknown[] };
-  try { sr = JSON.parse(objTxt); } catch { return []; }
-  const ads = Array.isArray(sr.listings) ? sr.listings : [];
+  const { total, ads } = extractFlightAds(html);
   if (!ads.length) return [];
   if (flightProbeCount < 2) {
     flightProbeCount++;
     try {
-      console.warn(`[MOBILEDE_OBS] flight: total=${sr.numResultsTotal ?? '?'} listings=${ads.length} ; 1ʳᵉ annonce: ${JSON.stringify(ads[0]).slice(0, 1200)}`);
+      // Clés restantes à verrouiller (URL/id de l'annonce) : liste complète
+      // des clés + valeurs des clés id/url-esques — le dump 1800c tronquait.
+      const keys = Object.keys(ads[0]).join(',');
+      const idish = Object.entries(ads[0])
+        .filter(([k, v]) => /id|url|link|href/i.test(k) && (typeof v === 'string' || typeof v === 'number'))
+        .map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(' | ');
+      console.warn(`[MOBILEDE_OBS] flight: total=${total ?? '?'} listings=${ads.length} ; clés: ${keys} ; id/url: ${idish || 'aucune'}`);
     } catch { /* sonde silencieuse */ }
   }
   const out: ScrapedListing[] = [];
-  for (const ad of ads as Array<Record<string, unknown>>) {
-    if (!ad || typeof ad !== 'object') continue;
-    const price = deepFindPrice((ad as { price?: unknown }).price ?? (ad as { prices?: unknown }).prices ?? (ad as { priceInfo?: unknown }).priceInfo ?? null)
-      ?? toInt(readField(ad, ['price', 'grossPrice', 'priceLabel', 'formattedPrice'], ['price', 'prc', 'p']));
-    const title = readField(ad, ['title', 'name', 'headline', 'adTitle', 'heading'], []);
+  for (const ad of ads) {
+    // Clés PROUVÉES par le dump 1ʳᵉ-annonce (21h19) : p="23 610 €",
+    // shortTitle="Mercedes-Benz eVito", subTitle="112 Kasten KLIMA…",
+    // st="Concessionnaire", attr.{fr,yc,pw,ft,ml,tr,ecol,door,sc,c},
+    // make={id,localized}. ('p' retiré des clés attr : en passe substring il
+    // matchait attr.pw → prix fantôme.)
+    const price = toInt(readField(ad, ['p', 'price', 'grossPrice'], []))
+      ?? deepFindPrice((ad as { price?: unknown }).price ?? (ad as { prices?: unknown }).prices ?? (ad as { priceInfo?: unknown }).priceInfo ?? null);
+    const shortTitle = readField(ad, ['shortTitle'], []);
+    const subTitle = readField(ad, ['subTitle'], []);
+    const title = [shortTitle, subTitle].filter(Boolean).join(' ')
+      || readField(ad, ['title', 'name', 'headline', 'adTitle', 'heading'], []);
     if (!price || !title) continue;
     let url = readField(ad, ['relativeUrl', 'url', 'detailPageUrl', 'vipUrl', 'href', 'link'], []) ?? '';
     if (url.startsWith('/')) url = `mobile.de${url}`;
@@ -326,9 +393,12 @@ function parseFlightListings(html: string): ScrapedListing[] {
       price,
       currency: 'EUR',
       mileage: toInt(readField(ad, ['mileage'], ['ml'])),
-      year: toYear(readField(ad, ['firstRegistration', 'year'], ['fr'])),
+      year: toYear(readField(ad, ['firstRegistration', 'year'], ['fr', 'yc'])),
       trim: null,
-      listing_url: url || 'mobile.de',
+      // '' (et non un placeholder commun) : la dédupe worker retombe alors
+      // sur titre|prix — un placeholder identique écrasait 24 annonces en 1
+      // (campagne 21h21, « échantillon 1 < 3 » sur 890 Elroq réelles).
+      listing_url: url,
       description: '',
       price_type: 'one-off',
       brand: readField(ad, ['make', 'makeName', 'brand'], []),
@@ -339,17 +409,17 @@ function parseFlightListings(html: string): ScrapedListing[] {
       seats: toInt(readField(ad, ['seats'], ['sc'])),
       color: readField(ad, ['color', 'exteriorColor'], ['ecol']),
       vehicleType: readField(ad, ['category', 'bodyType'], ['c']),
-      sellerType: null,
+      sellerType: readField(ad, ['sellerType', 'st'], []),
       priceType: null,
     });
   }
   // Seuil d'exploitabilité : sous 3 annonces complètes (titre+prix) on
-  // préfère le repli générique — la sonde 1ʳᵉ-annonce révélera les clés.
+  // préfère le repli générique — la sonde révélera les clés manquantes.
   if (out.length < Math.min(3, ads.length)) {
     console.warn(`[MOBILEDE_OBS] flight: ${ads.length} annonces trouvées mais ${out.length} exploitables (titre/prix manquants) — repli`);
     return [];
   }
-  console.warn(`[MOBILEDE_OBS] flight: ${out.length}/${ads.length} annonces structurées extraites (total site: ${sr.numResultsTotal ?? '?'})`);
+  console.warn(`[MOBILEDE_OBS] flight: ${out.length}/${ads.length} annonces structurées extraites (total site: ${total ?? '?'})`);
   return out;
 }
 

@@ -91,7 +91,8 @@ export function readField(listing: any, directKeys: string[], attrKeys: string[]
       const v = listing[k];
       if (v == null) continue;
       if (typeof v === 'object') {
-        const inner = v.value ?? v.label ?? v.name ?? v.formattedValue ?? v.priceRaw ?? v.amount;
+        // `localized` : forme mobile.de make/model {"id":"17200","localized":"Mercedes-Benz"}
+        const inner = v.value ?? v.label ?? v.name ?? v.localized ?? v.formattedValue ?? v.priceRaw ?? v.amount;
         if (inner != null) return String(inner);
         continue;
       }
