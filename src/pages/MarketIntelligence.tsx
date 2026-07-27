@@ -628,7 +628,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                       <div key={o.internal_ref + i} className="py-2 border-b border-slate-200">
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-medium text-slate-900">{fmtEur(o.price)}</span>
-                          {o.listing_url
+                          {o.listing_url?.startsWith('http')
                             ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs shrink-0">Ouvrir <ExternalLink className="w-3 h-3" /></a>
                             : <span className="text-slate-400 text-xs shrink-0">—</span>}
                         </div>
@@ -724,7 +724,7 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
               <td className="py-2 pr-3 text-slate-700">{o.trim || '—'}</td>
               <td className="py-2 pr-3 text-slate-700">{fuelLabel(o.fuel)}</td>
               <td className="py-2">
-                {o.listing_url
+                {o.listing_url?.startsWith('http')
                   ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
                   : <span className="text-slate-400 text-xs">—</span>}
               </td>

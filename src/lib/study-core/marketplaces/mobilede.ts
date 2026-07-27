@@ -370,6 +370,35 @@ function extractFlightAds(html: string): { total: number | null; ads: Array<Reco
   return lastFlight;
 }
 
+/**
+ * URL cliquable de l'annonce (liens MI). Trois sources, par ordre de preuve :
+ *   1. une clé url-esque directe de l'annonce (jamais observée à ce jour) ;
+ *   2. l'objet `links` de l'annonce — UNIQUEMENT une valeur qui contient
+ *      l'id de l'annonce ou « details » (l'équivalent AS24 porte des liens
+ *      VENDEUR type infoPage/imprint : les prendre aveuglément enverrait
+ *      vers la page du concessionnaire) ;
+ *   3. repli : `suchen.mobile.de/fahrzeuge/details.html?id={id}` — l'id
+ *      numérique est PROUVÉ par la sonde (27/07 : id=458109097), la forme
+ *      d'URL est celle, stable, des annonces mobile.de.
+ * '' si rien : la dédupe worker retombe alors sur titre|prix.
+ */
+function listingUrlOf(ad: Record<string, unknown>): string {
+  const abs = (u: string) => (u.startsWith('/') ? `https://suchen.mobile.de${u}` : u);
+  const direct = readField(ad, ['relativeUrl', 'url', 'detailPageUrl', 'vipUrl', 'href'], []) ?? '';
+  if (direct.startsWith('http') || direct.startsWith('/')) return abs(direct);
+  const rawId = (ad as { id?: unknown }).id;
+  const id = typeof rawId === 'number' ? String(rawId)
+    : typeof rawId === 'string' && /^\d+$/.test(rawId) ? rawId : '';
+  const links = (ad as { links?: unknown }).links;
+  if (links && typeof links === 'object') {
+    for (const v of Object.values(links as Record<string, unknown>)) {
+      if (typeof v !== 'string' || !(v.startsWith('http') || v.startsWith('/'))) continue;
+      if ((id && v.includes(id)) || v.includes('details')) return abs(v);
+    }
+  }
+  return id ? `https://suchen.mobile.de/fahrzeuge/details.html?id=${id}` : '';
+}
+
 let flightProbeCount = 0;
 function parseFlightListings(html: string): ScrapedListing[] {
   const { total, ads } = extractFlightAds(html);
@@ -383,7 +412,10 @@ function parseFlightListings(html: string): ScrapedListing[] {
       const idish = Object.entries(ads[0])
         .filter(([k, v]) => /id|url|link|href/i.test(k) && (typeof v === 'string' || typeof v === 'number'))
         .map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(' | ');
-      console.warn(`[MOBILEDE_OBS] flight: total=${total ?? '?'} listings=${ads.length} ; clés: ${keys} ; id/url: ${idish || 'aucune'}`);
+      // Forme exacte de l'objet links (preuve pour l'URL d'annonce).
+      let linksDump = '';
+      try { linksDump = JSON.stringify((ads[0] as { links?: unknown }).links ?? null).slice(0, 300); } catch { /* sonde */ }
+      console.warn(`[MOBILEDE_OBS] flight: total=${total ?? '?'} listings=${ads.length} ; clés: ${keys} ; id/url: ${idish || 'aucune'} ; links: ${linksDump}`);
     } catch { /* sonde silencieuse */ }
   }
   const out: ScrapedListing[] = [];
@@ -410,8 +442,7 @@ function parseFlightListings(html: string): ScrapedListing[] {
     const title = [shortTitle, subTitle].filter(Boolean).join(' ')
       || readField(ad, ['title', 'name', 'headline', 'adTitle', 'heading'], []);
     if (!price || !title) continue;
-    let url = readField(ad, ['relativeUrl', 'url', 'detailPageUrl', 'vipUrl', 'href', 'link'], []) ?? '';
-    if (url.startsWith('/')) url = `mobile.de${url}`;
+    const url = listingUrlOf(ad);
     out.push({
       title: title.slice(0, 200),
       price,
