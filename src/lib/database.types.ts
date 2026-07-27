@@ -10,9 +10,9 @@ export type Database = {
   public: {
     Tables: {
       profiles: {
-        Row: { id: string; display_name: string; created_at: string }
-        Insert: { id: string; display_name: string; created_at?: string }
-        Update: { id?: string; display_name?: string; created_at?: string }
+        Row: { id: string; display_name: string; is_admin?: boolean; created_at: string }
+        Insert: { id: string; display_name: string; is_admin?: boolean; created_at?: string }
+        Update: { id?: string; display_name?: string; is_admin?: boolean; created_at?: string }
         Relationships: []
       }
       daily_searches: {
@@ -124,6 +124,12 @@ export type Database = {
         Row: { key: string; value: Json; updated_at: string }
         Insert: { key: string; value?: Json; updated_at?: string }
         Update: { key?: string; value?: Json; updated_at?: string }
+        Relationships: []
+      }
+      app_usage_events: {
+        Row: { id: string; at: string; path: string; visitor: string | null }
+        Insert: { id?: string; at?: string; path: string; visitor?: string | null }
+        Update: { id?: string; at?: string; path?: string; visitor?: string | null }
         Relationships: []
       }
       market_studies: {

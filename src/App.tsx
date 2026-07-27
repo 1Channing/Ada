@@ -10,6 +10,7 @@ import { MarketIntelligence } from './pages/MarketIntelligence';
 import { Workflow } from './pages/Workflow';
 import { Ventes } from './pages/Ventes';
 import { Veille } from './pages/Veille';
+import { Telemetrie } from './pages/Telemetrie';
 import { Login } from './pages/Login';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
 
@@ -82,6 +83,9 @@ function App() {
     }
     if (path === '/veille') {
       return <Veille />;
+    }
+    if (path === '/telemetrie') {
+      return <Telemetrie />;
     }
     // Accueil : poste de pilotage (ventes, campagne, nouvelles annonces, veille).
     return <Home />;

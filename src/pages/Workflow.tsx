@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, BookmarkPlus, X, MoreVertical, AlertTriangle } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, BookmarkPlus, X, MoreVertical, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { StudiesV2Results } from './StudiesV2Results';
 import {
   DailySearch, DailyHit, UrlGap, listDailySearches, saveDailySearch, deleteDailySearch,
@@ -302,6 +302,14 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
             <p className="font-semibold text-slate-900 truncate">
               {s.label || `${s.brand} ${s.model}`.trim()}
             </p>
+            {gaps === null && (
+              <span title="Vérification de la couverture URL…" className="w-3 h-3 rounded-full border-2 border-slate-300 border-t-brand-ocean animate-spin shrink-0" />
+            )}
+            {gaps && gaps.length === 0 && (
+              <span title="Couverture complète : URL générable sur tous les sites des deux pays" className="shrink-0">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              </span>
+            )}
             {gaps && gaps.length > 0 && (
               <button
                 title="Couverture incomplète — voir le détail"

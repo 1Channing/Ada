@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { useAuth } from './auth';
 
 /**
  * Journal d'usage — quelles pages servent vraiment au quotidien (demande
@@ -12,6 +13,11 @@ const DEVICE_KEY = 'ada_device_id';
 const NAMES_KEY = 'ada_contributor_names';
 
 function visitorLabel(): string {
+  // Depuis les comptes : le prénom du profil connecté fait foi.
+  try {
+    const name = useAuth.getState().displayName;
+    if (name.trim()) return name.trim();
+  } catch { /* store pas prêt — replis historiques */ }
   try {
     const names = JSON.parse(localStorage.getItem(NAMES_KEY) ?? '[]');
     if (Array.isArray(names) && typeof names[0] === 'string' && names[0].trim()) {

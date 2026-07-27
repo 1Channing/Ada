@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, LogOut } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, LogOut, Activity } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
 import { FeedbackCenter } from './FeedbackCenter';
@@ -97,6 +97,7 @@ export function Layout({ children }: LayoutProps) {
             </span>
             <FeedbackCenter />
             <NotificationCenter />
+            <AdminTelemetryButton />
             <UserChip />
           </div>
         </div>
@@ -108,6 +109,22 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
     </div>
+  );
+}
+
+/** Admin uniquement : accès à la télémétrie d'usage. */
+function AdminTelemetryButton() {
+  const { isAdmin } = useAuth();
+  if (!isAdmin) return null;
+  const active = window.location.pathname === '/telemetrie';
+  return (
+    <button
+      title="Télémétrie (admin)"
+      onClick={() => { window.history.pushState({}, '', '/telemetrie'); window.location.reload(); }}
+      className={`p-1.5 rounded-lg transition-colors ${active ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
+    >
+      <Activity className="w-4 h-4" />
+    </button>
   );
 }
 

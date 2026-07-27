@@ -13,8 +13,9 @@ interface AuthState {
   userId: string | null;
   email: string | null;
   displayName: string;
+  isAdmin: boolean;
   setSession: (userId: string | null, email: string | null) => void;
-  setDisplayName: (name: string) => void;
+  setProfile: (name: string, isAdmin: boolean) => void;
   setReady: () => void;
 }
 
@@ -23,14 +24,15 @@ export const useAuth = create<AuthState>((set) => ({
   userId: null,
   email: null,
   displayName: '',
+  isAdmin: false,
   setSession: (userId, email) => set({ userId, email }),
-  setDisplayName: (displayName) => set({ displayName }),
+  setProfile: (displayName, isAdmin) => set({ displayName, isAdmin }),
   setReady: () => set({ ready: true }),
 }));
 
 async function loadProfile(userId: string): Promise<void> {
-  const { data } = await supabase.from('profiles').select('display_name').eq('id', userId).maybeSingle();
-  useAuth.getState().setDisplayName(data?.display_name ?? '');
+  const { data } = await supabase.from('profiles').select('display_name, is_admin').eq('id', userId).maybeSingle();
+  useAuth.getState().setProfile(data?.display_name ?? '', data?.is_admin === true);
 }
 
 let started = false;
@@ -48,7 +50,7 @@ export function startAuthWatcher(): void {
     const u = session?.user ?? null;
     useAuth.getState().setSession(u?.id ?? null, u?.email ?? null);
     if (u) void loadProfile(u.id);
-    else useAuth.getState().setDisplayName('');
+    else useAuth.getState().setProfile('', false);
   });
 }
 
@@ -82,7 +84,7 @@ export async function ensureProfile(): Promise<void> {
   if (!name) return;
   await supabase.from('profiles').upsert({ id: userId, display_name: name });
   localStorage.removeItem('ada_pending_display_name');
-  useAuth.getState().setDisplayName(name);
+  useAuth.getState().setProfile(name, useAuth.getState().isAdmin);
 }
 
 export async function signOut(): Promise<void> {
