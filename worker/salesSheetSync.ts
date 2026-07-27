@@ -77,9 +77,9 @@ async function sheetsGet(token: string, path: string): Promise<unknown> {
 interface SheetSale {
   ref: string; facture: string; vehicule: string; vin: string; ville: string;
   prixAchat: number | null; prixVente: number | null; commissions: number | null;
-  fraisHt: number | null; modePaiement: string; dateAchat: string | null;
-  dateLivraison: string | null; convoyeur: string; client: string;
-  paiement: boolean; livre: boolean;
+  commissionHt: number | null; fraisHt: number | null; modePaiement: string;
+  dateAchat: string | null; dateLivraison: string | null; convoyeur: string;
+  client: string; seller: string; paiement: boolean; livre: boolean;
 }
 
 const truthy = (v: string) => /^(true|vrai|oui|1|x)$/i.test((v ?? '').trim());
@@ -92,42 +92,82 @@ const frDate = (v: string) => {
   return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
 };
 
-export function parseTab(values: string[][]): SheetSale[] {
-  const headerIdx = values.findIndex((r) => r.some((c) => (c ?? '').trim().toUpperCase() === 'REF'));
-  if (headerIdx < 0) return [];
-  const header = values[headerIdx].map((c) => (c ?? '').trim().toUpperCase());
-  const col = (...names: string[]) => header.findIndex((h) => names.includes(h));
-  // « FACTURE » en double : la colonne dont les valeurs commencent par FAC
-  // est le n° de facture, l'autre est la case à cocher.
-  const factureCols = header.map((h, i) => (h === 'FACTURE' ? i : -1)).filter((i) => i >= 0);
-  const dataRows = values.slice(headerIdx + 1);
-  const factureNoCol = factureCols.find((i) => dataRows.some((r) => /^FAC/i.test((r[i] ?? '').trim()))) ?? -1;
+/** Marge : décimales conservées (1428,43 €), contrairement aux prix ronds. */
+const numDec = (v: string) => {
+  const n = Number(String(v ?? '').replace(/[€\s]/g, '').replace(',', '.'));
+  return Number.isFinite(n) && n !== 0 ? Math.round(n * 100) / 100 : null;
+};
 
-  const c = {
-    ref: col('REF'), vehicule: col('VEHICULE', 'VÉHICULE'), vin: col('VIN'),
-    ville: col('VILLE'), prixAchat: col('PRIX ACHAT'), prixVente: col('PRIX VENTE'),
-    commissions: col('COMMISSIONS'), fraisHt: col('FRAIS HT'),
-    mode: col('MODE DE PAIMENT', 'MODE DE PAIEMENT'), dateAchat: col('DATE ACHAT'),
-    dateLivraison: col('DATE LIVRAISON'), convoyeur: col('CONVOYEUR'),
-    client: col('CLIENT', 'NOTES'), paiement: col('PAIEMENT'), livre: col('LIVRÉ', 'LIVRE'),
-  };
-  const get = (r: string[], i: number) => (i >= 0 ? String(r[i] ?? '').trim() : '');
+/**
+ * Un onglet contient PLUSIEURS blocs vendeurs (prouvé JUILLET 2026 : bloc
+ * « ANTOINE » puis, plus bas, bloc « CHANNING » avec son propre en-tête).
+ * Chaque ligne REF est rattachée au bloc courant ; le COMMERCIAL du dossier
+ * est le TITRE du bloc (une ligne texte sans chiffre au-dessus de l'en-tête),
+ * jamais le convoyeur.
+ */
+export function parseTab(values: string[][]): SheetSale[] {
   const out: SheetSale[] = [];
-  for (const r of dataRows) {
-    const ref = get(r, c.ref).toUpperCase();
-    // Une vraie REF porte lettres ET chiffres (YC793, BM191…) — écarte les
-    // en-têtes répétés (« REF ») et les lignes à REF pas encore attribuée
-    // (« YC », import du 27/07) : elles arriveront une fois complétées.
+  let cols: Record<string, number> | null = null;
+  let factureNoCol = -1;
+  let factureCols: number[] = [];
+  let seller = '';
+  let pendingTitle = '';
+  const get = (r: string[], i: number) => (i >= 0 ? String(r[i] ?? '').trim() : '');
+
+  for (const row of values) {
+    const cells = row.map((v) => String(v ?? '').trim());
+    const isHeader = cells.some((v) => v.toUpperCase() === 'REF');
+    if (isHeader) {
+      const header = cells.map((v) => v.toUpperCase());
+      const col = (...names: string[]) => header.findIndex((h) => names.includes(h));
+      cols = {
+        ref: col('REF'), vehicule: col('VEHICULE', 'VÉHICULE'), vin: col('VIN'),
+        ville: col('VILLE'), prixAchat: col('PRIX ACHAT'), prixVente: col('PRIX VENTE'),
+        commissions: col('COMMISSIONS'), commissionHt: col('COMMISSIONS HT', 'COMMISSION HT'),
+        fraisHt: col('FRAIS HT'),
+        mode: col('MODE DE PAIMENT', 'MODE DE PAIEMENT'), dateAchat: col('DATE ACHAT'),
+        dateLivraison: col('DATE LIVRAISON'), convoyeur: col('CONVOYEUR'),
+        client: col('CLIENT', 'NOTES'), paiement: col('PAIEMENT'), livre: col('LIVRÉ', 'LIVRE'),
+      };
+      factureCols = header.map((h, i) => (h === 'FACTURE' ? i : -1)).filter((i) => i >= 0);
+      factureNoCol = -1; // désambiguïsé sur les premières lignes du bloc
+      seller = pendingTitle;
+      if (!seller) {
+        // Bandeau posé en zone de texte flottante (pas une cellule) — l'API
+        // ne le voit pas. Le nom doit être TAPÉ dans une cellule au-dessus
+        // de l'en-tête du bloc (comme « ANTOINE » en A1).
+        console.warn('[SHEET_SYNC] bloc sans titre vendeur détecté — commercial laissé vide (écrire le prénom dans une cellule au-dessus de l\'en-tête)');
+      }
+      pendingTitle = '';
+      continue;
+    }
+    // Ligne titre de bloc (« ANTOINE », « CHANNING ») : du texte, aucun
+    // chiffre, une seule cellule remplie — mémorisée pour le prochain en-tête.
+    const filled = cells.filter(Boolean);
+    if (filled.length === 1 && /^[A-ZÀ-Ü' -]{2,25}$/i.test(filled[0]) && !/\d/.test(filled[0])) {
+      pendingTitle = filled[0].toUpperCase();
+      continue;
+    }
+    if (!cols) continue;
+    const ref = get(cells, cols.ref).toUpperCase();
+    // Une vraie REF porte lettres ET chiffres (YC793) — écarte en-têtes
+    // répétés (« REF ») et lignes à REF pas encore attribuée (« YC »).
     if (!ref || ref.length < 2 || !/[A-Z]/.test(ref) || !/\d/.test(ref)) continue;
+    if (factureNoCol < 0 && factureCols.length > 0) {
+      factureNoCol = factureCols.find((i) => /^FAC/i.test(get(cells, i))) ?? -1;
+    }
     out.push({
-      ref, facture: factureNoCol >= 0 ? get(r, factureNoCol) : '',
-      vehicule: get(r, c.vehicule), vin: get(r, c.vin), ville: get(r, c.ville),
-      prixAchat: num(get(r, c.prixAchat)), prixVente: num(get(r, c.prixVente)),
-      commissions: num(get(r, c.commissions)), fraisHt: num(get(r, c.fraisHt)),
-      modePaiement: get(r, c.mode), dateAchat: frDate(get(r, c.dateAchat)),
-      dateLivraison: frDate(get(r, c.dateLivraison)),
-      convoyeur: get(r, c.convoyeur), client: get(r, c.client),
-      paiement: truthy(get(r, c.paiement)), livre: truthy(get(r, c.livre)),
+      ref, facture: factureNoCol >= 0 ? get(cells, factureNoCol) : '',
+      vehicule: get(cells, cols.vehicule), vin: get(cells, cols.vin), ville: get(cells, cols.ville),
+      prixAchat: num(get(cells, cols.prixAchat)), prixVente: num(get(cells, cols.prixVente)),
+      commissions: num(get(cells, cols.commissions)),
+      commissionHt: numDec(get(cells, cols.commissionHt)),
+      fraisHt: num(get(cells, cols.fraisHt)),
+      modePaiement: get(cells, cols.mode), dateAchat: frDate(get(cells, cols.dateAchat)),
+      dateLivraison: frDate(get(cells, cols.dateLivraison)),
+      convoyeur: get(cells, cols.convoyeur), client: get(cells, cols.client),
+      seller,
+      paiement: truthy(get(cells, cols.paiement)), livre: truthy(get(cells, cols.livre)),
     });
   }
   return out;
@@ -165,26 +205,53 @@ async function syncOnce(creds: string): Promise<void> {
   const { data: existing } = await supabase.from('transactions_admin').select('reference').not('reference', 'is', null).limit(10000);
   const known = new Set(((existing ?? []) as Array<{ reference: string | null }>).map((r) => (r.reference ?? '').trim().toUpperCase()).filter(Boolean));
 
-  let inserted = 0, skipped = 0;
+  // Contacts ADA pour l'attribution automatique du client acheteur. Clé =
+  // mots triés et canonisés : « AUTOGROEP OOSTENDORP » ↔ « OOSTENDORP
+  // AUTOGROEP », « WILAR BV » ↔ « Wilar B.V. » — l'ordre et la ponctuation
+  // ne comptent pas.
+  const canonName = (v: string) => String(v ?? '')
+    .normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join('');
+  const { data: contactRows } = await supabase.from('contacts')
+    .select('id, company_name, first_name, last_name').limit(5000);
+  const contactByKey = new Map<string, string>();
+  for (const ct of (contactRows ?? []) as Array<{ id: string; company_name: string | null; first_name: string | null; last_name: string | null }>) {
+    for (const label of [ct.company_name, `${ct.first_name ?? ''} ${ct.last_name ?? ''}`]) {
+      const key = canonName(label ?? '');
+      if (key && !contactByKey.has(key)) contactByKey.set(key, ct.id);
+    }
+  }
+
+  let inserted = 0, skipped = 0, matched = 0;
   for (const tab of tabs) {
     const res = (await sheetsGet(token, `${cfg.spreadsheetId}/values/${encodeURIComponent(`'${tab}'!A1:AH1050`)}`)) as { values?: string[][] };
     for (const s of parseTab(res.values ?? [])) {
       if (known.has(s.ref)) { skipped++; continue; }
       const closed = s.paiement && s.livre;
+      const buyerId = contactByKey.get(canonName(s.client)) ?? null;
+      if (buyerId) matched++;
       const { error } = await supabase.from('transactions_admin').insert({
         transaction_type: 'sale',
         reference: s.ref,
         status: closed ? 'cloturee' : 'en_cours',
         closed_at: closed && s.dateLivraison ? `${s.dateLivraison}T12:00:00Z` : null,
         purchase_price: s.prixAchat, sale_price: s.prixVente, fees: s.fraisHt,
-        commercial: s.convoyeur || null,
+        // Marge du dossier = COMMISSIONS HT du tableur (règle Channing 27/07).
+        commission_ht: s.commissionHt,
+        // Le commercial est le TITRE du bloc (ANTOINE, CHANNING…), jamais le
+        // convoyeur — celui-ci reste tracé dans les notes.
+        commercial: s.seller || null,
+        buyer_contact_id: buyerId,
         transaction_date: s.dateAchat,
         notes: [
           `[Tableur ${tab}]`,
           s.vehicule && `Véhicule : ${s.vehicule}`, s.vin && `VIN (fin) : ${s.vin}`,
-          s.ville && `Ville : ${s.ville}`, s.client && `Client : ${s.client}`,
+          s.ville && `Ville : ${s.ville}`,
+          s.client && `Client : ${s.client}${buyerId ? '' : ' (contact ADA introuvable)'}`,
+          s.convoyeur && `Convoyeur : ${s.convoyeur}`,
           s.facture && `Facture : ${s.facture}`, s.modePaiement && `Paiement : ${s.modePaiement}`,
           s.commissions != null && `Commission : ${s.commissions} €`,
+          s.commissionHt != null && `Commission HT (marge) : ${s.commissionHt} €`,
         ].filter(Boolean).join('\n'),
       });
       if (error) { console.warn(`[SHEET_SYNC] insert ${s.ref} impossible: ${error.message}`); continue; }
@@ -193,6 +260,6 @@ async function syncOnce(creds: string): Promise<void> {
     }
   }
   if (inserted > 0 || skipped === 0) {
-    console.warn(`[SHEET_SYNC] ${tabs.length} onglet(s) ≥ ${since} : ${inserted} vente(s) créée(s), ${skipped} déjà connues (REF)`);
+    console.warn(`[SHEET_SYNC] ${tabs.length} onglet(s) ≥ ${since} : ${inserted} vente(s) créée(s) (${matched} clients rattachés), ${skipped} déjà connues (REF)`);
   }
 }

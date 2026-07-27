@@ -755,6 +755,7 @@ export type Database = {
           destination: string | null
           transporter: string | null
           owner_user_id?: string | null
+          commission_ht?: number | null
         }
         Insert: {
           id?: string
@@ -784,6 +785,7 @@ export type Database = {
           destination?: string | null
           transporter?: string | null
           owner_user_id?: string | null
+          commission_ht?: number | null
         }
         Update: {
           id?: string
@@ -813,6 +815,7 @@ export type Database = {
           destination?: string | null
           transporter?: string | null
           owner_user_id?: string | null
+          commission_ht?: number | null
         }
         Relationships: [
           {
