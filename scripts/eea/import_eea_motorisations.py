@@ -38,6 +38,11 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 SOURCE = 'eea_co2cars_2026_07'
+# Aligné sur MIN_MODEL_TOTAL (src/services/vehicleMotorisations.ts) : sous ce
+# volume total le service ne rend AUCUN verdict (fail-open), donc les lignes
+# de ces modèles ne servent à rien — les écarter divise le SQL par ~6 sans
+# aucune perte fonctionnelle (98,4 % des immatriculations restent couvertes).
+MIN_MODEL_TOTAL = 1000
 TABLES = {
     2020: 'co2cars_2020Fv22', 2021: 'co2cars_2021Fv24', 2022: 'co2cars_2022Fv26',
     2023: 'co2cars_2023Fv28', 2024: 'co2cars_2024Pv29', 2025: 'co2cars_2025Pv31',
@@ -194,13 +199,19 @@ def main() -> None:
 
     print(f'immat. gardées {kept:,} · rejetées {dropped:,} · combos {len(agg):,}')
 
+    model_total: Counter = Counter()
+    for (bk, mk, _f), years in agg.items():
+        model_total[(bk, mk)] += sum(years.values())
+
     out = root / 'supabase' / 'data' / 'vehicle_ref_motorisations.sql'
     out.parent.mkdir(parents=True, exist_ok=True)
     rows_sql = []
     for (bk, mk, f), years in sorted(agg.items()):
-        yjson = json.dumps({str(y): n for y, n in sorted(years.items())})
+        if model_total[(bk, mk)] < MIN_MODEL_TOTAL:
+            continue
+        yjson = json.dumps({str(y): n for y, n in sorted(years.items())}, separators=(',', ':'))
         total = sum(years.values())
-        rows_sql.append(f"('{bk}','{mk}','{f}','{yjson}'::jsonb,{total},'{SOURCE}')")
+        rows_sql.append(f"('{bk}','{mk}','{f}','{yjson}',{total},'{SOURCE}')")
     with open(out, 'w') as fh:
         fh.write('-- Référentiel motorisations — EEA CO2 cars 2020-2025 (immatriculations UE)\n')
         fh.write(f'-- Généré par scripts/eea/import_eea_motorisations.py · source {SOURCE}\n')
