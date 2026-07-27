@@ -2,6 +2,6 @@
 alter table public.profiles
   add column if not exists is_admin boolean not null default false;
 
--- Channing = administrateur.
+-- Channing = administrateur (compte créé avec l'email pro).
 update public.profiles set is_admin = true
-where id in (select id from auth.users where email = 'c.cloirec4@gmail.com');
+where id in (select id from auth.users where email = 'channing@mc-export.com');
