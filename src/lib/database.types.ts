@@ -129,6 +129,30 @@ export type Database = {
         Update: { key?: string; value?: Json; updated_at?: string }
         Relationships: []
       }
+      country_fiscal_profiles: {
+        Row: {
+          country: string; country_name: string; bloc: string; ada_market: boolean
+          registration_cost: string; registration_cost_level: string
+          ev_favorable: boolean | null; ev_incentives: string; malus: string
+          bonus_history: Json; sources: Json; verified: boolean
+          updated_by: string; updated_at: string
+        }
+        Insert: {
+          country: string; country_name?: string; bloc?: string; ada_market?: boolean
+          registration_cost?: string; registration_cost_level?: string
+          ev_favorable?: boolean | null; ev_incentives?: string; malus?: string
+          bonus_history?: Json; sources?: Json; verified?: boolean
+          updated_by?: string; updated_at?: string
+        }
+        Update: {
+          country?: string; country_name?: string; bloc?: string; ada_market?: boolean
+          registration_cost?: string; registration_cost_level?: string
+          ev_favorable?: boolean | null; ev_incentives?: string; malus?: string
+          bonus_history?: Json; sources?: Json; verified?: boolean
+          updated_by?: string; updated_at?: string
+        }
+        Relationships: []
+      }
       app_usage_events: {
         Row: { id: string; at: string; path: string; visitor: string | null }
         Insert: { id?: string; at?: string; path: string; visitor?: string | null }
