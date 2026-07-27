@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, ShieldAlert } from 'lucide-react';
+import { Activity, ShieldAlert, Wifi } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
+import { useActiveUsers } from '../hooks/useActiveUsersCount';
 
 /**
  * Télémétrie d'usage (ADMIN) — qui utilise quoi, quand : pages visitées,
@@ -23,6 +24,7 @@ const pageLabel = (p: string) => PAGE_LABELS[p] ?? p;
 
 export function Telemetrie() {
   const { isAdmin } = useAuth();
+  const { count: liveCount, names: liveNames } = useActiveUsers();
   const [events, setEvents] = useState<Ev[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -79,6 +81,25 @@ export function Telemetrie() {
         <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2"><Activity className="w-7 h-7 text-blue-600" /> Télémétrie</h1>
         <p className="text-slate-600 mt-2">Usage réel d'ADA sur les {DAYS} derniers jours — ce qui sert, ce qui dort.</p>
       </div>
+
+      {/* Présence temps réel : qui est sur ADA en ce moment. */}
+      <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Wifi className="w-4 h-4 text-emerald-500" />
+          <span className="font-semibold text-slate-900">Connectés maintenant</span>
+          <span className="text-xs font-semibold text-white bg-emerald-500 rounded-full px-2 py-0.5">{liveCount ?? '…'}</span>
+          <div className="flex items-center gap-1.5 flex-wrap ml-2">
+            {liveNames.length === 0
+              ? <span className="text-sm text-slate-400">personne d'identifié</span>
+              : liveNames.map((n) => (
+                <span key={n} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                  {n}
+                </span>
+              ))}
+          </div>
+        </div>
+      </section>
 
       {loading ? <p className="text-sm text-slate-400 py-10 text-center">Chargement…</p> : (
         <>

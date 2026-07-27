@@ -24,6 +24,7 @@ export interface DailySearch {
   trim: string;
   /** Finition ÉQUIVALENTE côté pays cible (les noms diffèrent par pays). */
   trim_target: string;
+  mileage_max: number | null;
   price_gap_min: number;
   price_gap_max: number;
   run_hour: number;

@@ -46,6 +46,7 @@ interface SearchRow {
   brand: string; model: string;
   year_min: number | null; year_max: number | null;
   fuel: string; trim: string; trim_target: string;
+  mileage_max: number | null;
   price_gap_min: number; price_gap_max: number;
   run_hour: number; active: boolean; last_run_at: string | null;
 }
@@ -113,6 +114,7 @@ async function scrapeCountry(
         fuel: s.fuel || undefined, trim: trim || undefined,
         yearFrom: s.year_min ? String(s.year_min) : undefined,
         yearTo: s.year_max ? String(s.year_max) : undefined,
+        mileage: s.mileage_max ?? undefined,
       });
       url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
     } catch { url = null; }
@@ -127,12 +129,14 @@ async function scrapeCountry(
   return out;
 }
 
-/** Médiane des 5 moins chers d'une liste de prix (règle des opportunités MI). */
+/** Médiane des 6 PREMIÈRES annonces (tri prix croissant — règle Channing
+ *  27/07 : le bas du marché fait le prix, pas la moyenne du stock). */
+export const MEDIAN_SAMPLE = 6;
 function cheapMedian(prices: number[]): number | null {
   const sorted = [...prices].sort((a, b) => a - b);
-  if (sorted.length < 5) return null;
-  const cheap = sorted.slice(0, 5);
-  return cheap[Math.floor(cheap.length / 2)];
+  if (sorted.length < MEDIAN_SAMPLE) return null;
+  const cheap = sorted.slice(0, MEDIAN_SAMPLE);
+  return cheap[Math.floor((cheap.length - 1) / 2)];
 }
 
 /** REPLI seulement (scrape cible trop maigre) : médiane depuis les
@@ -202,6 +206,8 @@ async function runDailySearch(s: SearchRow): Promise<void> {
     for (const l of listings) {
       const price = typeof l.price === 'number' ? l.price : null;
       if (price == null || price < MIN_PRICE_EUR) continue;
+      // Kilométrage max : filtre dur même si le site a ignoré le paramètre.
+      if (s.mileage_max != null && typeof l.mileage === 'number' && l.mileage > s.mileage_max) continue;
       scanned++;
       const listingUrl = (l.listing_url ?? '').trim();
       if (!listingUrl.startsWith('http')) { noUrl++; continue; } // sans URL stable, pas de diff fiable

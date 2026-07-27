@@ -78,6 +78,7 @@ export function Workflow() {
 const EMPTY: Partial<DailySearch> = {
   label: '', source_country: 'DE', target_country: 'FR', brand: '', model: '',
   year_min: null, year_max: null, fuel: '', trim: '', trim_target: '',
+  mileage_max: null,
   price_gap_min: 3000, price_gap_max: 10000, run_hour: 7, active: true,
 };
 
@@ -201,6 +202,9 @@ function DailySearchesTab() {
             </Field>
             <Field label="Année max">
               <input type="number" value={editing.year_max ?? ''} onChange={(e) => set({ year_max: e.target.value ? Number(e.target.value) : null })} placeholder="2026" className={inputCls} />
+            </Field>
+            <Field label="Kilométrage max">
+              <input type="number" step={5000} value={editing.mileage_max ?? ''} onChange={(e) => set({ mileage_max: e.target.value ? Number(e.target.value) : null })} placeholder="100 000" className={inputCls} />
             </Field>
             <Field label="Motorisation">
               <select value={editing.fuel ?? ''} onChange={(e) => set({ fuel: e.target.value })} className={inputCls}>
@@ -400,12 +404,21 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-// ── Onglet Résultats : le flux quotidien complet ────────────────────────────
+// ── Onglet Résultats : organisé PAR ÉTUDE, stats en tête ────────────────────
+
+/** Médiane des 6 premières annonces (même règle que le worker). */
+function median6(prices: number[]): number | null {
+  const sorted = [...prices].sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  const cheap = sorted.slice(0, 6);
+  return cheap[Math.floor((cheap.length - 1) / 2)];
+}
 
 function ResultsTab() {
   const [hits, setHits] = useState<DailyHit[]>([]);
   const [searches, setSearches] = useState<DailySearch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
 
   const reload = () => {
     Promise.all([listAllHits(), listDailySearches()])
@@ -414,38 +427,111 @@ function ResultsTab() {
   };
   useEffect(reload, []);
 
-  const labelOf = useMemo(() => {
-    const m = new Map(searches.map((s) => [s.id, s.label || `${s.brand} ${s.model}`.trim()]));
-    return (id: string) => m.get(id) ?? '—';
-  }, [searches]);
-
-  const byDay = useMemo(() => {
-    const groups = new Map<string, DailyHit[]>();
+  const groups = useMemo(() => {
+    const bySearch = new Map<string, DailyHit[]>();
     for (const h of hits) {
-      const day = new Date(h.last_seen_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-      (groups.get(day) ?? groups.set(day, []).get(day)!).push(h);
+      (bySearch.get(h.search_id) ?? bySearch.set(h.search_id, []).get(h.search_id)!).push(h);
     }
-    return [...groups.entries()];
-  }, [hits]);
+    return searches
+      .map((s) => {
+        const list = (bySearch.get(s.id) ?? []).sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at));
+        const prices = list.map((h) => h.price).filter((p): p is number => p != null);
+        const latest = list.find((h) => h.target_median != null);
+        return {
+          search: s,
+          list,
+          stats: {
+            count: list.length,
+            fresh: list.filter((h) => h.kind === 'new' && h.status === 'inbox').length,
+            drops: list.filter((h) => h.kind === 'price_drop').length,
+            medianSource: median6(prices),
+            medianTarget: latest?.target_median ?? null,
+          },
+        };
+      })
+      .filter((g) => g.list.length > 0);
+  }, [hits, searches]);
 
   if (loading) return <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>;
-  if (hits.length === 0) {
+  if (groups.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
-        Rien pour l'instant — les résultats du scrape quotidien apparaîtront ici (nouvelles annonces et baisses de prix uniquement).
+        Rien pour l'instant — les résultats du scrape quotidien apparaîtront ici, organisés par étude.
       </div>
     );
   }
+
   return (
-    <div className="space-y-6">
-      {byDay.map(([day, list]) => (
-        <div key={day}>
-          <h3 className="text-sm font-semibold text-slate-700 capitalize mb-2">{day} · {list.length} annonce{list.length > 1 ? 's' : ''}</h3>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-            {list.map((h) => <HitRow key={h.id} hit={h} searchLabel={labelOf(h.search_id)} onChanged={reload} />)}
+    <div className="space-y-4">
+      {groups.map(({ search: s, list, stats }) => {
+        const name = s.label || `${s.brand} ${s.model}`.trim();
+        const spread = stats.medianTarget != null && stats.medianSource != null
+          ? stats.medianTarget - stats.medianSource : null;
+        const isOpen = open[s.id] ?? false;
+        return (
+          <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <button
+              onClick={() => setOpen((o) => ({ ...o, [s.id]: !isOpen }))}
+              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+            >
+              <span className={`transition-transform text-slate-400 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-slate-900 truncate">{name}</p>
+                <p className="text-xs text-slate-500">
+                  {flagOf(s.source_country)} → {flagOf(s.target_country)} · {stats.count} annonce{stats.count > 1 ? 's' : ''}
+                  {stats.fresh > 0 ? ` · ${stats.fresh} à traiter` : ''}
+                  {stats.drops > 0 ? ` · ${stats.drops} baisse${stats.drops > 1 ? 's' : ''}` : ''}
+                </p>
+              </div>
+              {spread != null && (
+                <span className={`text-sm font-semibold shrink-0 ${spread > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                  {spread > 0 ? '+' : ''}{spread.toLocaleString('fr-FR')} € d'écart médian
+                </span>
+              )}
+            </button>
+
+            {isOpen && (
+              <>
+                {/* Tableau des données importantes de l'étude */}
+                <div className="px-4 pb-3">
+                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50">
+                        <tr className="text-left text-xs text-slate-500">
+                          <th className="py-2 px-3">Médiane source ({flagOf(s.source_country)})</th>
+                          <th className="py-2 px-3">Médiane cible ({flagOf(s.target_country)})</th>
+                          <th className="py-2 px-3">Écart médian</th>
+                          <th className="py-2 px-3">Annonces trouvées</th>
+                          <th className="py-2 px-3">À traiter</th>
+                          <th className="py-2 px-3">Baisses</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="text-slate-800">
+                          <td className="py-2 px-3 font-semibold">{fmtEur(stats.medianSource)}</td>
+                          <td className="py-2 px-3 font-semibold">{fmtEur(stats.medianTarget)}</td>
+                          <td className={`py-2 px-3 font-semibold ${spread != null && spread > 0 ? 'text-emerald-600' : ''}`}>
+                            {spread != null ? `${spread > 0 ? '+' : ''}${spread.toLocaleString('fr-FR')} €` : '—'}
+                          </td>
+                          <td className="py-2 px-3 tabular-nums">{stats.count}</td>
+                          <td className="py-2 px-3 tabular-nums">{stats.fresh}</td>
+                          <td className="py-2 px-3 tabular-nums">{stats.drops}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    Médianes calculées sur les 6 premières annonces (prix croissant). Chaque annonce ci-dessous affiche son écart à la médiane cible.
+                  </p>
+                </div>
+                <div className="divide-y divide-slate-100 border-t border-slate-100">
+                  {list.map((h) => <HitRow key={h.id} hit={h} onChanged={reload} />)}
+                </div>
+              </>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
