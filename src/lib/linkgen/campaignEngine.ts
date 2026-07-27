@@ -173,6 +173,9 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
   // les combos carburant×année jamais immatriculés. Table absente / erreur →
   // map vide → aucun verdict (fail-open, comme les fenêtres).
   const motorisations = await getMotorisationsCached();
+  // Trace boîte noire (worker_logs capture les warn) : distingue « table non
+  // chargée » (0 clés) de « chargée mais aucun combo à déprioriser ».
+  console.warn(`[CAMPAIGN_KNOWLEDGE] référentiel motorisations : ${Object.keys(motorisations).length} clés modèle chargées`);
 
   return {
     brands: [...brands].sort(),

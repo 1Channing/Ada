@@ -14,6 +14,11 @@ import { refModelKey } from './vehicleRef';
  *      période couverte par la source (2020-2025) — hors période : ok.
  *   4. Variantes « e- » : eVito/E-208 vivent sous leur propre clé (EVITO,
  *      E208) — un contrôle ELECTRIQUE unionne clé et E+clé avant verdict.
+ *   5. Bruit de saisie (prouvé 27/07) : l'EEA contient des anomalies — BMW
+ *      Série 1 « électrique » : 3 immat. sur 461 251, X3 : 28 sur 502 432.
+ *      Un carburant est réputé ABSENT sous un seuil relatif au volume du
+ *      modèle (0,1 %, borné [20, 500]) — sinon 3 fautes de frappe suffisent
+ *      à faire passer « Série 1 électrique » pour un marché réel.
  *
  * Phase 1 : le planificateur se contente de DÉPRIORISER les « improbables »
  * (traçable dans la raison de l'étude). Aucun blocage tant que la boîte noire
@@ -107,10 +112,15 @@ export function comboMotoVerdict(
 
   const fuelRows = rows.filter((r) => r.fuel === fuel);
   const fuelTotal = fuelRows.reduce((s, r) => s + r.total, 0);
-  if (fuelTotal === 0) {
+  // Pare-feu n° 5 : sous ce seuil, les immat. sont du bruit de saisie EEA,
+  // pas un marché (le seuil ne peut créer que des DÉPRIORISATIONS, phase 1).
+  const noiseCeil = Math.max(20, Math.min(500, modelTotal * 0.001));
+  if (fuelTotal < noiseCeil) {
     return {
       unlikely: true,
-      detail: `0 immat. UE 2020-2025 en ${fuel} (${modelTotal.toLocaleString('fr-FR')} immat. autres énergies)`,
+      detail: fuelTotal === 0
+        ? `0 immat. UE 2020-2025 en ${fuel} (${modelTotal.toLocaleString('fr-FR')} immat. autres énergies)`
+        : `≈0 immat. UE 2020-2025 en ${fuel} (${fuelTotal} anomalies sur ${modelTotal.toLocaleString('fr-FR')})`,
     };
   }
 

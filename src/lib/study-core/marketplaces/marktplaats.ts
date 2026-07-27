@@ -146,7 +146,11 @@ function mapFuel(raw: string): string {
 }
 
 function normalizeToken(str: string): string {
+  // Translittération AVANT le filtre ascii : « Léon » → 'leon' — sans elle le
+  // é était SUPPRIMÉ ('lon', 0 résultat, prouvé campagne 27/07 #15).
   return str
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
     .toLowerCase()
     .trim()
     .replace(/\s+/g, '+')

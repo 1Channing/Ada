@@ -150,7 +150,10 @@ function mapFuel(raw: string): string {
  * marque entière (des Aygo dans une étude Yaris Cross).
  */
 function pathSlug(raw: string): string {
-  return raw.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9._-]/g, '');
+  // Translittération AVANT le filtre ascii : « Mégane » → 'megane' — sans elle
+  // le é était SUPPRIMÉ ('mgane', slug inconnu → page marque entière, 27/07).
+  return raw.normalize('NFD').replace(/\p{M}/gu, '')
+    .trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9._-]/g, '');
 }
 
 /**
@@ -237,7 +240,8 @@ function generateCorrectionHypotheses(
       // d'une lignée (GOLF → 'ms-golf-serie', prouvé par les logs ; le site
       // affiche « C4-Serie », qui couvre aussi les ë-C4). Deux sondes, la
       // forme préfixée d'abord (précédent Golf).
-      const s = String(params.model ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const s = String(params.model ?? '').normalize('NFD').replace(/\p{M}/gu, '')
+        .trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
       if (s && !s.includes('-serie')) {
         for (const cand of [`ms-${s}-serie`, `${s}-serie`]) {
           const { url } = buildSearchUrl({ ...params, model: cand });

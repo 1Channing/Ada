@@ -204,7 +204,7 @@ function mercedesClassSlug(raw: string): string | null {
 function modelToSlug(raw: string): string {
   const mercedes = mercedesClassSlug(raw);
   if (mercedes) return mercedes;
-  const alnum = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const alnum = raw.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, '');
   return MODEL_SLUG_BY_ALNUM[alnum] ?? slug(raw);
 }
 

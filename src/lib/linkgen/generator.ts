@@ -328,7 +328,8 @@ export function fixBilbasenQueryForm(url: string): string {
     if (!make) return url;
     u.searchParams.delete('make');
     u.searchParams.delete('model');
-    const slug = (s: string) => s.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9._-]/g, '');
+    const slug = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '')
+      .trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9._-]/g, '');
     u.pathname = `/brugt/bil/${slug(make)}${model ? `/${slug(model)}` : ''}`;
     return u.toString();
   } catch { return url; }
@@ -345,7 +346,8 @@ function injectTrimIntoUrl(url: string, trim: string): string {
   try {
     const u = new URL(url);
     if (u.hostname.includes('marktplaats.nl')) {
-      const norm = t.toLowerCase().replace(/\s+/g, '+').replace(/[^a-z0-9+\-]/g, '');
+      const norm = t.normalize('NFD').replace(/\p{M}/gu, '')
+        .toLowerCase().replace(/\s+/g, '+').replace(/[^a-z0-9+\-]/g, '');
       if (!norm) return url;
       const parts = u.hash.replace(/^#/, '').split('|').filter((seg) => seg && !seg.startsWith('q:'));
       parts.unshift(`q:${norm}`);
