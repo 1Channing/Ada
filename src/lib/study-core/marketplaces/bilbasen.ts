@@ -197,6 +197,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // Only inject fuel if mapping produced a non-empty value (GPL maps to '' for Bilbasen)
   const mappedFuel = params.fuel ? mapFuel(params.fuel) : null;
   if (mappedFuel && mappedFuel.trim()) qs.set('fuel', mappedFuel);
+  // Texte libre `free=` — PROUVÉ URL humaine (Channing 27/07 :
+  // ?free=gr+sport sur yaris_cross). La finition passe par là, jamais en
+  // critère structuré.
+  if (params.trim && params.trim.trim()) qs.set('free', params.trim.trim());
   // Native param `hpfrom` — human-confirmed (ingestion 89/89 with hpfrom=250).
   const power = params.powerFrom ?? params.minPower;
   if (power !== undefined && String(power).trim()) qs.set('hpfrom', String(power));

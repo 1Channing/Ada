@@ -129,6 +129,8 @@ const MODEL_FACET: Record<string, { slug: string; id: string }> = {
  */
 const FUEL_FACET: Record<string, { slug: string; id: string }> = {
   ELECTRIQUE: { slug: 'elektrisch', id: '11756' },
+  // vérifié URL humaine (Channing 27/07) : yaris-cross+hybride-elektrisch-benzine/13882+13838
+  HYBRIDE: { slug: 'hybride-elektrisch-benzine', id: '13838' },
 };
 
 const UNSUPPORTED_PARAMS = ['minPower'];
@@ -215,17 +217,24 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   }
 
   const hashParts: string[] = [];
-  if (qText) hashParts.push(`q:${qText}`);
   if (yearFrom) hashParts.push(`constructionYearFrom:${yearFrom}`);
   if (yearTo) hashParts.push(`constructionYearTo:${yearTo}`);
   if (params.mileage) hashParts.push(`mileageTo:${params.mileage}`);
   hashParts.push('sortBy:PRICE', 'sortOrder:INCREASING');
 
+  // Texte libre en CHEMIN /q/…/ — PROUVÉ URL humaine (Channing 27/07) :
+  // /l/auto-s/toyota/q/gr+sport/f/yaris-cross+…/. Le #q: du hash n'est
+  // JAMAIS envoyé au serveur : en HTML pur le site servait la page non
+  // filtrée (d'où « rien n'allait sur Marktplaats »). Sans slug marque, le
+  // hash reste le seul véhicule (repli historique, moteur post-filtre).
+  const qPath = brandSlug && qText ? `q/${qText}/` : '';
+  if (!brandSlug && qText) hashParts.unshift(`q:${qText}`);
+
   const facetPath = brandSlug && facets.length > 0
     ? `f/${facets.map((f) => f.slug).join('+')}/${facets.map((f) => f.id).join('+')}/`
     : '';
   const base = brandSlug
-    ? `https://www.marktplaats.nl/l/auto-s/${brandSlug}/${facetPath}`
+    ? `https://www.marktplaats.nl/l/auto-s/${brandSlug}/${qPath}${facetPath}`
     : 'https://www.marktplaats.nl/l/auto-s/';
   return { url: `${base}#${hashParts.join('|')}`, warnings };
 }
@@ -472,15 +481,22 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   if (!d) return {};
   const h = d.hashParams;
   const out: Partial<SearchCriteria> = {};
-  const path = pathBrandModel(d.pathSegments);
+  // Le segment /q/{texte}/ n'est PAS un segment marque/modèle — on l'écarte
+  // avant l'extraction (sinon « gr+sport » devenait une marque).
+  const qi = d.pathSegments.indexOf('q');
+  const segs = qi >= 0 ? [...d.pathSegments.slice(0, qi), ...d.pathSegments.slice(qi + 2)] : d.pathSegments;
+  const path = pathBrandModel(segs);
   if (path.brand) out.brand = reverseLookup(BRAND_MAP, path.brand);
   if (path.model) out.model = reverseLookup(MODEL_MAP, path.model);
   if (path.fuelSlug) out.fuel = reverseLookup(FUEL_MAP, path.fuelSlug);
-  // The free text (#q:) feeds the site's "Variant" box — when the model is
+  // The free text feeds the site's "Variant" box — when the model is
   // already pinned by a path facet, that text is a FINITION ; sans facette
   // modèle, c'est le MODÈLE en recherche texte (grammaire du site).
-  if (h['q'] && path.model) out.trim = h['q'].replace(/\+/g, ' ').trim();
-  else if (h['q'] && !path.model) out.model = h['q'].replace(/\+/g, ' ').trim();
+  // Deux formes : chemin /q/…/ (URLs du site) et hash #q: (historique).
+  const qm = url.match(/\/q\/([^/#?]+)/);
+  const qText2 = (qm ? decodeURIComponent(qm[1]) : h['q'] ?? '').replace(/\+/g, ' ').trim();
+  if (qText2 && path.model) out.trim = qText2;
+  else if (qText2 && !path.model) out.model = qText2;
   if (h['constructionYearFrom'] && /^\d{4}$/.test(h['constructionYearFrom'])) out.yearFrom = h['constructionYearFrom'];
   if (h['constructionYearTo'] && /^\d{4}$/.test(h['constructionYearTo'])) out.yearTo = h['constructionYearTo'];
   if (h['mileageTo'] && /^\d+$/.test(h['mileageTo'])) out.mileage = h['mileageTo'];

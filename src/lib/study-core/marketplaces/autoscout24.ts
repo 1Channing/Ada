@@ -538,6 +538,10 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     if (powerTo != null) out.powerTo = String(powerTo);
     // kwd= free-text keyword ≈ finition (human-proven: kwd=Sportline on .es).
     if ((q['kwd'] ?? '').trim()) out.trim = q['kwd'].trim();
+    // Forme chemin du site (URL humaine 27/07) : /kw_gr%20sport/ — équivalente
+    // à kwd= (prouvé kw_trail = kwd=Trail = 5 offres), lue au prefill.
+    const kwPath = url.match(/\/kw_([^/#?]+)/);
+    if (!out.trim && kwPath) out.trim = decodeURIComponent(kwPath[1]).trim();
 
     return out;
   }

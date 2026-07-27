@@ -411,6 +411,10 @@ function parseMarktplaatsHash(url: string): Record<string, string> {
     const i = seg.indexOf(':');
     if (i > 0) out[seg.slice(0, i)] = decodeURIComponent(seg.slice(i + 1));
   }
+  // Texte libre en CHEMIN /q/…/ (forme native du site, prouvée 27/07) —
+  // prioritaire sur un éventuel #q: historique.
+  const qm = url.match(/\/q\/([^/#?]+)/);
+  if (qm) out['q'] = decodeURIComponent(qm[1]).replace(/\+/g, ' ').trim();
   return out;
 }
 
