@@ -24,6 +24,7 @@ import { generateSearchUrlsWithMemory } from './generator';
 import type { SiteKey } from './types';
 import { writeMarketSnapshot, brandKey } from '../../services/marketData';
 import { loadRefWindows, getRefWindowsCached, refComboKey, findRefWindow, yearInRefWindow } from '../../services/vehicleRef';
+import { getMotorisationsCached } from '../../services/vehicleMotorisations';
 import { YEAR_PIN_MIN } from './campaignPlanner';
 import type { CampaignKnowledge, CampaignPlanItem } from './campaignPlanner';
 import type { ScrapedListing } from '../study-core/types';
@@ -168,6 +169,11 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     }
   } catch { /* référentiel indisponible — la campagne tourne comme avant */ }
 
+  // ── Référentiel MOTORISATIONS (EEA) : sert au planificateur à déprioriser
+  // les combos carburant×année jamais immatriculés. Table absente / erreur →
+  // map vide → aucun verdict (fail-open, comme les fenêtres).
+  const motorisations = await getMotorisationsCached();
+
   return {
     brands: [...brands].sort(),
     modelsByBrand: toRec(modelsByBrand),
@@ -176,6 +182,7 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     coveredBySite: Object.fromEntries(Object.entries(coveredBySite).map(([k, s]) => [k, s])),
     refWindows,
     refCombos,
+    motorisations,
   };
 }
 

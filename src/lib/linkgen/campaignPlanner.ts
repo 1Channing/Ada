@@ -22,6 +22,7 @@
 
 import { refComboKey, refModelKey } from '../../services/vehicleRef';
 import { brandKey, canonKey } from '../../services/marketData';
+import { comboMotoVerdict, type MotoMap } from '../../services/vehicleMotorisations';
 
 export interface CampaignKnowledge {
   brands: string[];
@@ -44,6 +45,12 @@ export interface CampaignKnowledge {
    * campagnes, injectés en exploration avec une part plafonnée.
    */
   refCombos?: Array<{ brand: string; model: string }>;
+  /**
+   * Référentiel MOTORISATIONS (EEA, immatriculations UE) — clé
+   * `brandKey|refModelKey` → lignes carburant. Absence = fail-open.
+   * Phase 1 : sert uniquement à DÉPRIORISER les combos improbables.
+   */
+  motorisations?: MotoMap;
 }
 
 /** Part maximale de l'exploration allouée aux modèles « expansion référentiel »
@@ -156,10 +163,13 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   for (let y = pinMin; y <= pinMax; y++) years.push(y);
   const fuelChoices: Array<string | null> = forcedFuels.length > 0 ? forcedFuels : [null];
 
-  type Atom = { site: string; brand: string; model: string; year: number; fuel: string | null; fromRef?: boolean };
+  type Atom = { site: string; brand: string; model: string; year: number; fuel: string | null; fromRef?: boolean; moto?: string };
   const exploration: Atom[] = [];
   const explorationRef: Atom[] = [];
   const reinforcement: Atom[] = [];
+  // Combos improbables (motorisations EEA) : JAMAIS exclus — mis de côté, ils
+  // ne consomment le budget que s'il reste de la place (phase 1 : dépriorisation).
+  const unlikelyPool: Array<{ atom: Atom; kind: CampaignPlanItem['kind'] }> = [];
   for (const site of opts.sites) {
     const covered = k.coveredBySite[site] ?? new Set<string>();
     for (const c of combos) {
@@ -173,8 +183,22 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
       if (comboYears.length === 0) continue; // fenêtre entièrement hors période
       const bucket = c.fromRef ? explorationRef
         : covered.has(`${c.brand}|${c.model}`) ? reinforcement : exploration;
+      const bucketKind: CampaignPlanItem['kind'] = bucket === reinforcement ? 'reinforcement' : 'exploration';
       for (const year of comboYears) {
-        for (const fuel of fuelChoices) bucket.push({ site, ...c, year, fuel });
+        for (const fuel of fuelChoices) {
+          const atom: Atom = { site, ...c, year, fuel };
+          // Motorisations (EEA) : un combo carburant×année jamais immatriculé
+          // est mis de côté avec sa raison chiffrée — jamais supprimé.
+          const verdict = k.motorisations && fuel
+            ? comboMotoVerdict(k.motorisations, c.brand, c.model, fuel, year)
+            : { unlikely: false as const };
+          if (verdict.unlikely) {
+            atom.moto = verdict.detail;
+            unlikelyPool.push({ atom, kind: bucketKind });
+          } else {
+            bucket.push(atom);
+          }
+        }
       }
     }
   }
@@ -182,11 +206,12 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   // Narrow campaign whose FULL space fits the budget → exhaustive enumeration
   // (all 28 studies, deterministic). Sampling only when the space overflows.
   let picked: Array<{ atom: Atom; kind: CampaignPlanItem['kind'] }>;
-  if (exploration.length + explorationRef.length + reinforcement.length <= total) {
+  if (exploration.length + explorationRef.length + reinforcement.length + unlikelyPool.length <= total) {
     picked = [
       ...exploration.map((atom) => ({ atom, kind: 'exploration' as const })),
       ...explorationRef.map((atom) => ({ atom, kind: 'exploration' as const })),
       ...reinforcement.map((atom) => ({ atom, kind: 'reinforcement' as const })),
+      ...unlikelyPool,
     ];
   } else {
     const atomKey = (a: Atom) => `${a.site}|${a.brand}|${a.model}|${a.year}|${a.fuel ?? ''}`;
@@ -214,6 +239,10 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
       ...pickedExp.map((atom) => ({ atom, kind: 'exploration' as const })),
       ...pickedReinf.map((atom) => ({ atom, kind: 'reinforcement' as const })),
     ];
+    // Dernier recours : les improbables ne remplissent que le budget restant.
+    if (picked.length < total && unlikelyPool.length > 0) {
+      picked.push(...shuffle(unlikelyPool, rng).slice(0, total - picked.length));
+    }
   }
 
   const items: CampaignPlanItem[] = [];
@@ -249,6 +278,7 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
     }
     item.year = atom.year;
     item.reason += ` (année ${atom.year})`;
+    if (atom.moto) item.reason += ` — improbable : ${atom.moto}`;
     items.push(item);
   }
 
