@@ -186,6 +186,13 @@ function reconstructUrlFromMapping(
       .replace(/&[^=&|#?]+=([^&|#?]*\{[^}]+\}[^&|#?]*)/g, '')
       .replace(/\|[^|#]+:\{[^}]+\}/g, '');
 
+    // Un placeholder resté brut ({query}…) donne une page où le site affiche
+    // littéralement « query » dans sa barre SANS AUCUN filtre (vu Marktplaats
+    // 27/07 : son template n'a pas de placeholder {brand}/{model}). Dans ce
+    // cas la reconstruction est refusée → l'appelant retombe sur la grammaire
+    // native de l'adaptateur (buildSearchUrl), qui est la forme prouvée.
+    if (/\{[^}]*\}/.test(rebuilt)) return null;
+
     // Final sanity check: URL must contain expected domain
     if (!rebuilt.includes(adapter.domain)) return null;
 
