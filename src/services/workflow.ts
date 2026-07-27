@@ -1,5 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
+import { getRefWindowsCached } from './vehicleRef';
+import { brandKey, canonKey } from './marketData';
 
 /**
  * Workflow personnel : études quotidiennes + nouvelles annonces + négociations.
@@ -17,11 +19,66 @@ export interface DailySearch {
   year_max: number | null;
   fuel: string;
   trim: string;
+  /** Finition ÉQUIVALENTE côté pays cible (les noms diffèrent par pays). */
+  trim_target: string;
   price_gap_min: number;
   price_gap_max: number;
   run_hour: number;
   active: boolean;
   last_run_at: string | null;
+}
+
+// ── Sélecteurs sans faute de frappe ─────────────────────────────────────────
+
+/** Marques + modèles du RÉFÉRENTIEL (libellés canoniques) pour les selects. */
+export async function listRefBrandModels(): Promise<{ brands: string[]; modelsByBrand: Record<string, string[]> }> {
+  const windows = await getRefWindowsCached();
+  const modelsByBrand: Record<string, Set<string>> = {};
+  for (const w of windows.values()) {
+    const b = w.brandLabel.trim().toUpperCase();
+    const m = w.modelLabel.trim().toUpperCase();
+    if (!b || !m || !/[A-Z]/.test(b)) continue;
+    (modelsByBrand[b] ??= new Set()).add(m);
+  }
+  const brands = Object.keys(modelsByBrand).sort((a, b) => a.localeCompare(b));
+  return {
+    brands,
+    modelsByBrand: Object.fromEntries(brands.map((b) => [b, [...modelsByBrand[b]].sort((a, c) => a.localeCompare(c))])),
+  };
+}
+
+/**
+ * Finitions déjà VUES pour ce marque/modèle dans un pays (observations MI +
+ * mémoire de mapping) — suggestions de saisie, le texte libre reste permis
+ * (une finition est par nature du texte de site).
+ */
+export async function listKnownTrims(brand: string, model: string, country?: string): Promise<string[]> {
+  const bk = brandKey(brand);
+  const mk = canonKey(model);
+  let q = supabase
+    .from('market_listing_observations')
+    .select('trim, brand, model')
+    .neq('trim', '')
+    .limit(4000);
+  if (country) q = q.eq('country', country);
+  const [{ data: obs }, { data: mem }] = await Promise.all([
+    q,
+    supabase.from('linkgen_mapping_memory').select('trim, brand, model').neq('trim', '').limit(2000),
+  ]);
+  const seen = new Map<string, string>(); // clé canonique → première graphie vue
+  const take = (rows: Array<{ trim: string | null; brand: string | null; model: string | null }> | null) => {
+    for (const r of rows ?? []) {
+      const t = (r.trim ?? '').trim();
+      if (!t || t.length < 2) continue;
+      if (brandKey(r.brand ?? '') !== bk) continue;
+      if (mk && canonKey(r.model ?? '') !== mk) continue;
+      const key = canonKey(t);
+      if (key && !seen.has(key)) seen.set(key, t);
+    }
+  };
+  take(obs as never);
+  take(mem as never);
+  return [...seen.values()].sort((a, b) => a.localeCompare(b)).slice(0, 60);
 }
 
 export interface DailyHit {

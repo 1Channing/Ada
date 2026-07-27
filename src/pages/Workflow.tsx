@@ -3,7 +3,7 @@ import { CalendarClock, BarChart3, Archive, Plus, Pencil, Trash2, Power, Externa
 import { StudiesV2Results } from './StudiesV2Results';
 import {
   DailySearch, DailyHit, listDailySearches, saveDailySearch, deleteDailySearch,
-  listAllHits, saveHitToNegotiations, dismissHit,
+  listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
 } from '../services/workflow';
 
 /**
@@ -76,7 +76,7 @@ export function Workflow() {
 
 const EMPTY: Partial<DailySearch> = {
   label: '', source_country: 'DE', target_country: 'FR', brand: '', model: '',
-  year_min: null, year_max: null, fuel: '', trim: '',
+  year_min: null, year_max: null, fuel: '', trim: '', trim_target: '',
   price_gap_min: 3000, price_gap_max: 10000, run_hour: 7, active: true,
 };
 
@@ -85,11 +85,28 @@ function DailySearchesTab() {
   const [editing, setEditing] = useState<Partial<DailySearch> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Sélecteurs sans faute de frappe : référentiel (marques/modèles) +
+  // finitions déjà vues par ADA (source et cible séparées — noms différents).
+  const [ref, setRef] = useState<{ brands: string[]; modelsByBrand: Record<string, string[]> }>({ brands: [], modelsByBrand: {} });
+  const [trimsSource, setTrimsSource] = useState<string[]>([]);
+  const [trimsTarget, setTrimsTarget] = useState<string[]>([]);
 
   const reload = () => {
     listDailySearches().then(setRows).catch((e) => setError(String(e.message ?? e))).finally(() => setLoading(false));
   };
   useEffect(reload, []);
+  useEffect(() => { void listRefBrandModels().then(setRef); }, []);
+
+  // Suggestions de finitions dès que marque/modèle/pays changent.
+  useEffect(() => {
+    const b = editing?.brand ?? '';
+    if (!b) { setTrimsSource([]); setTrimsTarget([]); return; }
+    const m = editing?.model ?? '';
+    let cancelled = false;
+    void listKnownTrims(b, m, editing?.source_country).then((t) => { if (!cancelled) setTrimsSource(t); });
+    void listKnownTrims(b, m, editing?.target_country).then((t) => { if (!cancelled) setTrimsTarget(t); });
+    return () => { cancelled = true; };
+  }, [editing?.brand, editing?.model, editing?.source_country, editing?.target_country]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,10 +160,26 @@ function DailySearchesTab() {
               </select>
             </Field>
             <Field label="Marque *">
-              <input value={editing.brand ?? ''} onChange={(e) => set({ brand: e.target.value })} placeholder="TOYOTA" required className={inputCls} />
+              <select
+                value={editing.brand ?? ''}
+                onChange={(e) => set({ brand: e.target.value, model: '' })}
+                required
+                className={inputCls}
+              >
+                <option value="">— choisir —</option>
+                {ref.brands.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
             </Field>
             <Field label="Modèle">
-              <input value={editing.model ?? ''} onChange={(e) => set({ model: e.target.value })} placeholder="YARIS CROSS" className={inputCls} />
+              <select
+                value={editing.model ?? ''}
+                onChange={(e) => set({ model: e.target.value })}
+                disabled={!editing.brand}
+                className={inputCls}
+              >
+                <option value="">Toute la marque</option>
+                {(ref.modelsByBrand[editing.brand ?? ''] ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
             </Field>
             <Field label="Année min">
               <input type="number" value={editing.year_min ?? ''} onChange={(e) => set({ year_min: e.target.value ? Number(e.target.value) : null })} placeholder="2020" className={inputCls} />
@@ -159,8 +192,29 @@ function DailySearchesTab() {
                 {FUELS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
             </Field>
-            <Field label="Finition (contient)">
-              <input value={editing.trim ?? ''} onChange={(e) => set({ trim: e.target.value })} placeholder="GR Sport" className={inputCls} />
+            <Field label={`Finition pays source (${editing.source_country})`}>
+              <input
+                value={editing.trim ?? ''}
+                onChange={(e) => set({ trim: e.target.value })}
+                placeholder="GR Sport"
+                list="trims-source"
+                className={inputCls}
+              />
+              <datalist id="trims-source">
+                {trimsSource.map((t) => <option key={t} value={t} />)}
+              </datalist>
+            </Field>
+            <Field label={`Finition équivalente cible (${editing.target_country})`}>
+              <input
+                value={editing.trim_target ?? ''}
+                onChange={(e) => set({ trim_target: e.target.value })}
+                placeholder="mêmes équipements, nom local"
+                list="trims-target"
+                className={inputCls}
+              />
+              <datalist id="trims-target">
+                {trimsTarget.map((t) => <option key={t} value={t} />)}
+              </datalist>
             </Field>
             <Field label="Écart de prix min (€)">
               <input type="number" value={editing.price_gap_min ?? 3000} onChange={(e) => set({ price_gap_min: Number(e.target.value) || 0 })} className={inputCls} />
@@ -170,7 +224,7 @@ function DailySearchesTab() {
             </Field>
           </div>
           <p className="text-xs text-slate-500">
-            L'écart compare le prix de l'annonce à la médiane Market Intelligence du pays cible. Sans données cible, l'annonce est montrée quand même (jamais de filtre aveugle).
+            Marques et modèles viennent du référentiel (zéro faute de frappe). Les finitions sont suggérées d'après ce qu'ADA a déjà vu dans chaque pays — les noms diffèrent d'un marché à l'autre, d'où les deux champs. L'écart compare le prix de l'annonce à la médiane du pays cible (filtrée sur la finition équivalente si renseignée) ; sans données cible, l'annonce est montrée quand même.
           </p>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setEditing(null)} className="px-4 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100">Annuler</button>
@@ -198,6 +252,7 @@ function DailySearchesTab() {
                       {s.year_min || s.year_max ? ` · ${s.year_min ?? '…'}–${s.year_max ?? '…'}` : ''}
                       {s.fuel ? ` · ${FUELS.find((f) => f.value === s.fuel)?.label ?? s.fuel}` : ''}
                       {s.trim ? ` · « ${s.trim} »` : ''}
+                      {s.trim_target ? ` ≈ « ${s.trim_target} » (${s.target_country})` : ''}
                     </p>
                     <p className="text-xs text-slate-500 mt-1">
                       Écart visé {s.price_gap_min.toLocaleString('fr-FR')}–{s.price_gap_max.toLocaleString('fr-FR')} € · scrape {String(s.run_hour).padStart(2, '0')} h 00

@@ -41,7 +41,7 @@ interface SearchRow {
   source_country: string; target_country: string;
   brand: string; model: string;
   year_min: number | null; year_max: number | null;
-  fuel: string; trim: string;
+  fuel: string; trim: string; trim_target: string;
   price_gap_min: number; price_gap_max: number;
   run_hour: number; active: boolean; last_run_at: string | null;
 }
@@ -86,12 +86,14 @@ async function tick(): Promise<void> {
   }
 }
 
-/** Médiane des 5 moins chers du pays cible (mêmes règles que les opportunités MI). */
+/** Médiane des 5 moins chers du pays cible (mêmes règles que les opportunités
+ *  MI). Si une finition ÉQUIVALENTE cible est renseignée, la médiane ne se
+ *  calcule que sur cette finition (comparaison à équipement comparable). */
 async function targetCheapMedian(s: SearchRow): Promise<number | null> {
   const token = CRITERIA_TO_TOKEN[s.fuel] ?? '';
   let q = supabase
     .from('market_listing_observations')
-    .select('price, brand, model, fuel, year')
+    .select('price, brand, model, fuel, year, trim')
     .eq('country', s.target_country)
     .gte('scraped_at', new Date(Date.now() - 45 * 86_400_000).toISOString())
     .gt('price', MIN_PRICE_EUR)
@@ -100,10 +102,12 @@ async function targetCheapMedian(s: SearchRow): Promise<number | null> {
   const { data } = await q;
   const bk = brandKey(s.brand);
   const mk = canonKey(s.model);
-  const prices = ((data ?? []) as Array<{ price: number | null; brand: string | null; model: string | null; year: number | null }>)
+  const tk = canonKey(s.trim_target ?? '');
+  const prices = ((data ?? []) as Array<{ price: number | null; brand: string | null; model: string | null; year: number | null; trim: string | null }>)
     .filter((r) => r.price != null
       && brandKey(r.brand ?? '') === bk
       && (!mk || canonKey(r.model ?? '') === mk)
+      && (!tk || canonKey(r.trim ?? '').includes(tk))
       && (s.year_min == null || (r.year ?? 9999) >= s.year_min)
       && (s.year_max == null || (r.year ?? 0) <= s.year_max))
     .map((r) => r.price as number)

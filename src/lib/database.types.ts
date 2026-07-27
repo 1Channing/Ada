@@ -21,7 +21,7 @@ export type Database = {
           source_country: string; target_country: string
           brand: string; model: string
           year_min: number | null; year_max: number | null
-          fuel: string; trim: string
+          fuel: string; trim: string; trim_target: string
           price_gap_min: number; price_gap_max: number
           run_hour: number; active: boolean
           last_run_at: string | null; created_at: string; updated_at: string
@@ -31,7 +31,7 @@ export type Database = {
           source_country: string; target_country: string
           brand: string; model?: string
           year_min?: number | null; year_max?: number | null
-          fuel?: string; trim?: string
+          fuel?: string; trim?: string; trim_target?: string
           price_gap_min?: number; price_gap_max?: number
           run_hour?: number; active?: boolean
           last_run_at?: string | null; created_at?: string; updated_at?: string
@@ -41,7 +41,7 @@ export type Database = {
           source_country?: string; target_country?: string
           brand?: string; model?: string
           year_min?: number | null; year_max?: number | null
-          fuel?: string; trim?: string
+          fuel?: string; trim?: string; trim_target?: string
           price_gap_min?: number; price_gap_max?: number
           run_hour?: number; active?: boolean
           last_run_at?: string | null; created_at?: string; updated_at?: string
