@@ -23,6 +23,24 @@ Mapping carburants Ft × Fm → enums ADA (PROUVÉ sur les distributions 2024,
   petrol/diesel (M)           → ESSENCE / DIESEL
   e85 → ESSENCE · lpg → GPL · ng → GNV · hydrogen → HYDROGENE
 
+Repli des clés fragmentées (27/07/2026) : l'EEA enregistre souvent la
+désignation commerciale complète (« Z4 sDrive20i » → Z4SDRIVE20I,
+« NX 350h » → NX350H, « X3 xDrive20d » → X3XDRIVE20D) — la clé du modèle de
+base (Z4, NX, X3) n'existe alors pas et le service reste fail-open (aucun
+verdict). On replie chaque clé fragmentée sur le modèle de base en prenant
+pour AUTORITÉ le référentiel générations (supabase/data/
+vehicle_ref_generations.sql) : préfixe le plus long de la même marque, parmi
+les seuls modèles ayant une génération vivante sur la fenêtre EEA
+(year_to ≥ 2019 ou en cours) — évite p. ex. de replier le BMW 320d moderne
+sur la clé « 320 » de 1937. Garde-fous :
+  - une clé qui EST déjà un modèle du référentiel n'est jamais repliée
+    (YARISCROSS reste distinct de YARIS) ;
+  - cible d'une seule lettre (classes Mercedes E/C/S…, séries BMW 1-8)
+    acceptée uniquement si le reste commence par un chiffre (E220D → E,
+    320D → 3, mais AMGGT ne tombe jamais dans A) ;
+  - un repli ne fait qu'AJOUTER des immatriculations au modèle de base :
+    il ne peut que débloquer des verdicts, jamais créer de faux blocage.
+
 Usage :
   python3 scripts/eea/import_eea_motorisations.py            # extraction live
   python3 scripts/eea/import_eea_motorisations.py cache.json # depuis un cache
@@ -145,6 +163,48 @@ def strip_brand_echo(bk: str, raw_mk: str, cn: str) -> str:
     return ' '.join(toks)
 
 
+# ── Repli des clés fragmentées via le référentiel générations ──────────────
+GEN_ROW_RE = re.compile(
+    r"^\('([A-Z0-9]+)','([A-Z0-9]+)',.*,(\d+|NULL),(\d+|NULL),'[^']*','[^']*',(?:true|false)\),?$")
+FOLD_MODERN_YEAR = 2019  # une génération finie avant ça ne peut pas porter d'immat. 2020-2025
+
+
+def load_generation_keys(path: Path) -> tuple[dict, dict]:
+    """→ (toutes_clés, cibles_modernes) : marque → ensemble de model_key.
+
+    toutes_clés sert au garde « déjà un modèle connu → jamais replié » ;
+    cibles_modernes (au moins une génération vivante ≥ FOLD_MODERN_YEAR)
+    sont les seuls modèles de base sur lesquels on accepte de replier.
+    """
+    all_keys: dict[str, set] = defaultdict(set)
+    modern: dict[str, set] = defaultdict(set)
+    for line in open(path, encoding='utf-8'):
+        g = GEN_ROW_RE.match(line.strip())
+        if not g:
+            continue
+        bk, mk, _yf, yt = g.group(1), g.group(2), g.group(3), g.group(4)
+        if not re.search(r'[A-Z]', bk):
+            continue  # ligne parasite du fichier source (clés numériques)
+        all_keys[bk].add(mk)
+        if yt == 'NULL' or int(yt) >= FOLD_MODERN_YEAR:
+            modern[bk].add(mk)
+    return all_keys, modern
+
+
+def fold_model_key(bk: str, mkey: str, gen_all: dict, gen_modern: dict) -> str:
+    if mkey in gen_all.get(bk, ()):  # déjà un modèle du référentiel → intact
+        return mkey
+    best = ''
+    for g in gen_modern.get(bk, ()):
+        if len(g) <= len(best) or not mkey.startswith(g) or g == mkey:
+            continue
+        rest = mkey[len(g):]
+        if len(g) == 1 and not (rest and rest[0].isdigit()):
+            continue  # classe/série d'une lettre : suite numérique exigée
+        best = g
+    return best or mkey
+
+
 def discodata(q: str, hits: int = 25000):
     url = 'https://discodata.eea.europa.eu/sql?' + urllib.parse.urlencode(
         {'query': q, 'p': 1, 'nrOfHits': hits})
@@ -172,8 +232,14 @@ def main() -> None:
         print('extraction DiscoData…')
         data = extract_live()
 
+    gen_all, gen_modern = load_generation_keys(
+        root / 'supabase' / 'data' / 'vehicle_ref_generations.sql')
+    print(f'référentiel générations : {sum(len(v) for v in gen_all.values()):,} modèles '
+          f'({sum(len(v) for v in gen_modern.values()):,} cibles de repli modernes)')
+
     agg: dict[tuple, Counter] = defaultdict(Counter)
-    kept = dropped = 0
+    kept = dropped = folded = 0
+    fold_cache: dict[tuple, str] = {}
     for ystr, rows in data.items():
         y = int(ystr)
         for r in rows:
@@ -189,6 +255,13 @@ def main() -> None:
             if not mkey or len(mkey) > 26:
                 dropped += n
                 continue
+            base = fold_cache.get((bk, mkey))
+            if base is None:
+                base = fold_model_key(bk, mkey, gen_all, gen_modern)
+                fold_cache[(bk, mkey)] = base
+            if base != mkey:
+                folded += n
+                mkey = base
             fuels = fuels_of(r.get('Ft'), r.get('Fm'))
             if not fuels:
                 dropped += n
@@ -197,7 +270,10 @@ def main() -> None:
                 agg[(bk, mkey, f)][y] += n
             kept += n
 
+    n_folded_keys = sum(1 for k, v in fold_cache.items() if v != k[1])
     print(f'immat. gardées {kept:,} · rejetées {dropped:,} · combos {len(agg):,}')
+    print(f'repli générations : {n_folded_keys:,} clés fragmentées → modèle de base '
+          f'({folded:,} immat. repliées)')
 
     model_total: Counter = Counter()
     for (bk, mk, _f), years in agg.items():
