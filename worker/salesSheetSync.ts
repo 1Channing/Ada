@@ -115,7 +115,10 @@ export function parseTab(values: string[][]): SheetSale[] {
   const out: SheetSale[] = [];
   for (const r of dataRows) {
     const ref = get(r, c.ref).toUpperCase();
-    if (!ref || ref.length < 2 || !/[A-Z]/.test(ref)) continue;
+    // Une vraie REF porte lettres ET chiffres (YC793, BM191…) — écarte les
+    // en-têtes répétés (« REF ») et les lignes à REF pas encore attribuée
+    // (« YC », import du 27/07) : elles arriveront une fois complétées.
+    if (!ref || ref.length < 2 || !/[A-Z]/.test(ref) || !/\d/.test(ref)) continue;
     out.push({
       ref, facture: factureNoCol >= 0 ? get(r, factureNoCol) : '',
       vehicule: get(r, c.vehicule), vin: get(r, c.vin), ville: get(r, c.ville),
