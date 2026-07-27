@@ -7,15 +7,19 @@
  *     campagnes — pas de mille-feuilles) ;
  *   - TRI PRIX CROISSANT (défaut de tous les adaptateurs) + plafond 3 pages :
  *     le bas du marché est exactement ce qu'on arbitre ;
- *   - diff contre daily_search_hits : seules les NOUVELLES annonces et les
- *     BAISSES de prix remontent — jamais deux fois la même annonce ;
- *   - écart vs médiane bas-de-marché du PAYS CIBLE (observations MI) : hors
- *     de [gap_min, gap_max] l'annonce est mémorisée mais pas montrée ;
+ *   - le PAYS CIBLE est scrapé À CHAQUE passage lui aussi (mêmes garde-fous,
+ *     finition équivalente) : la médiane de comparaison vient des tarifs du
+ *     JOUR, pas d'observations qui datent — et chaque passage éprouve les
+ *     URLs cibles (le repli silencieux Marktplaats/Bilbasen est détecté et
+ *     ces pages sont écartées du calcul) ; repli sur les observations MI si
+ *     le scrape cible est trop maigre ;
+ *   - diff contre daily_search_hits : premier passage compris, toute annonce
+ *     dans les critères d'écart va dans la boîte (demande Channing 27/07 :
+ *     « on traite les annonces à partir de maintenant ») — ensuite, seules
+ *     les NOUVELLES et les BAISSES reviennent, jamais deux fois la même ;
+ *   - hors de [gap_min, gap_max] l'annonce est mémorisée mais pas montrée ;
  *     médiane inconnue → montrée quand même (fail-open, jamais de filtre
  *     aveugle).
- *
- * Premier passage d'une recherche = amorçage : tout est mémorisé en 'seed',
- * rien n'est montré (on ne présente que ce qui APPARAÎT ensuite).
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { generateSearchUrlsWithMemory } from '../src/lib/linkgen/generator';
@@ -92,9 +96,47 @@ async function tick(): Promise<void> {
   }
 }
 
-/** Médiane des 5 moins chers du pays cible (mêmes règles que les opportunités
- *  MI). Si une finition ÉQUIVALENTE cible est renseignée, la médiane ne se
- *  calcule que sur cette finition (comparaison à équipement comparable). */
+/** Scrape tous les sites d'un pays pour les critères donnés (3 pages, prix
+ *  croissant). Les pages en REPLI SILENCIEUX (filtre modèle non appliqué —
+ *  Marktplaats/Bilbasen savent faire ça) sont écartées et loggées. */
+async function scrapeCountry(
+  s: SearchRow, country: string, trim: string, name: string,
+): Promise<Array<{ site: string; listings: Array<{ title?: string | null; price?: number | null; year?: number | null; mileage?: number | null; listing_url?: string | null }> }>> {
+  const out: Array<{ site: string; listings: never[] }> = [];
+  const sites = allSiteAdapters().filter((a) => (a as { countryCode?: string }).countryCode === country);
+  for (const site of sites) {
+    let url: string | null = null;
+    try {
+      const gen = await generateSearchUrlsWithMemory({
+        selectedSites: [site.key as SiteKey],
+        brand: s.brand, model: s.model || '',
+        fuel: s.fuel || undefined, trim: trim || undefined,
+        yearFrom: s.year_min ? String(s.year_min) : undefined,
+        yearTo: s.year_max ? String(s.year_max) : undefined,
+      });
+      url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
+    } catch { url = null; }
+    if (!url) { console.warn(`[DAILY] « ${name} »: URL non générable pour ${site.key}`); continue; }
+    const result = await scrapeSearch(url, 'full', { maxPagesCap: MAX_PAGES });
+    if (result.diagnostics?.silentFallback?.modelApplied === false) {
+      console.warn(`[DAILY] « ${name} »: ${site.key} a servi la page marque entière (repli silencieux) — annonces écartées, mapping à corriger`);
+      continue;
+    }
+    out.push({ site: site.key, listings: (result.listings ?? []) as never[] });
+  }
+  return out;
+}
+
+/** Médiane des 5 moins chers d'une liste de prix (règle des opportunités MI). */
+function cheapMedian(prices: number[]): number | null {
+  const sorted = [...prices].sort((a, b) => a - b);
+  if (sorted.length < 5) return null;
+  const cheap = sorted.slice(0, 5);
+  return cheap[Math.floor(cheap.length / 2)];
+}
+
+/** REPLI seulement (scrape cible trop maigre) : médiane depuis les
+ *  observations MI des 45 derniers jours, finition équivalente comprise. */
 async function targetCheapMedian(s: SearchRow): Promise<number | null> {
   const token = CRITERIA_TO_TOKEN[s.fuel] ?? '';
   let q = supabase
@@ -125,12 +167,6 @@ async function targetCheapMedian(s: SearchRow): Promise<number | null> {
 
 async function runDailySearch(s: SearchRow): Promise<void> {
   const name = s.label || `${s.brand} ${s.model}`.trim();
-  const seeding = !s.last_run_at;
-  const sites = allSiteAdapters().filter((a) => (a as { countryCode?: string }).countryCode === s.source_country);
-  if (sites.length === 0) {
-    console.warn(`[DAILY] « ${name} »: aucun site pour le pays ${s.source_country}`);
-    return;
-  }
 
   // Mémoire anti-doublon de la recherche (url → dernier prix vu).
   const { data: known } = await supabase
@@ -143,26 +179,27 @@ async function runDailySearch(s: SearchRow): Promise<void> {
     seen.set(k.listing_url, k);
   }
 
-  const median = await targetCheapMedian(s);
+  // 1) PAYS CIBLE d'abord : les tarifs du jour font la médiane de
+  //    comparaison (finition équivalente) — et chaque passage éprouve les
+  //    URLs cibles. Repli sur les observations MI si trop maigre.
+  const targetScrape = await scrapeCountry(s, s.target_country, s.trim_target, name);
+  const targetPrices = targetScrape.flatMap((r) => r.listings)
+    .map((l) => (typeof l.price === 'number' ? l.price : null))
+    .filter((p): p is number => p != null && p >= MIN_PRICE_EUR);
+  let medianSource = 'jour';
+  let median = cheapMedian(targetPrices);
+  if (median == null) {
+    median = await targetCheapMedian(s);
+    medianSource = median != null ? 'observations MI' : 'inconnue';
+  }
+
+  // 2) PAYS SOURCE : le flux d'annonces à traiter.
+  const sourceScrape = await scrapeCountry(s, s.source_country, s.trim, name);
   const nowIso = new Date().toISOString();
   let scanned = 0, fresh = 0, drops = 0, noUrl = 0;
 
-  for (const site of sites) {
-    let url: string | null = null;
-    try {
-      const gen = await generateSearchUrlsWithMemory({
-        selectedSites: [site.key as SiteKey],
-        brand: s.brand, model: s.model || '',
-        fuel: s.fuel || undefined, trim: s.trim || undefined,
-        yearFrom: s.year_min ? String(s.year_min) : undefined,
-        yearTo: s.year_max ? String(s.year_max) : undefined,
-      });
-      url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
-    } catch { url = null; }
-    if (!url) { console.warn(`[DAILY] « ${name} »: URL non générable pour ${site.key}`); continue; }
-
-    const result = await scrapeSearch(url, 'full', { maxPagesCap: MAX_PAGES });
-    for (const l of result.listings ?? []) {
+  for (const { site, listings } of sourceScrape) {
+    for (const l of listings) {
       const price = typeof l.price === 'number' ? l.price : null;
       if (price == null || price < MIN_PRICE_EUR) continue;
       scanned++;
@@ -173,17 +210,18 @@ async function runDailySearch(s: SearchRow): Promise<void> {
       const prior = seen.get(listingUrl);
 
       if (!prior) {
-        const kind = seeding ? 'seed' : 'new';
-        const status = seeding ? 'dismissed' : inRange ? 'inbox' : 'dismissed';
+        // Premier passage compris : ce qui matche les critères va dans la
+        // boîte tout de suite — on traite les annonces dès le départ.
+        const status = inRange ? 'inbox' : 'dismissed';
         const { data: ins } = await supabase.from('daily_search_hits').insert({
           search_id: s.id, user_id: s.user_id, listing_url: listingUrl,
           title: l.title ?? '', price, year: l.year ?? null, mileage: l.mileage ?? null,
-          fuel: s.fuel, site: site.key, source_country: s.source_country,
-          target_median: median, price_gap: gap, kind, status,
+          fuel: s.fuel, site, source_country: s.source_country,
+          target_median: median, price_gap: gap, kind: 'new', status,
           first_seen_at: nowIso, last_seen_at: nowIso,
         }).select('id').maybeSingle();
         if (ins) seen.set(listingUrl, { id: ins.id, price, status });
-        if (kind === 'new' && status === 'inbox') fresh++;
+        if (status === 'inbox') fresh++;
       } else if (prior.price != null && price <= prior.price - REAL_DROP_EUR) {
         // Baisse réelle : elle re-rentre dans la boîte, même si déjà triée.
         const status = inRange ? 'inbox' : prior.status;
@@ -201,9 +239,9 @@ async function runDailySearch(s: SearchRow): Promise<void> {
 
   await supabase.from('daily_searches').update({ last_run_at: nowIso, updated_at: nowIso }).eq('id', s.id);
   console.warn(
-    `[DAILY] « ${name} » (${s.source_country}→${s.target_country}) : ${sites.length} site(s), ${scanned} annonces vues, `
-    + (seeding ? `amorçage (${seen.size} mémorisées)` : `${fresh} nouvelle(s), ${drops} baisse(s)`)
-    + (median != null ? ` · médiane cible ${median.toLocaleString('fr-FR')} €` : ' · médiane cible inconnue (fail-open)')
+    `[DAILY] « ${name} » (${s.source_country}→${s.target_country}) : source ${sourceScrape.length} site(s)/${scanned} annonces, `
+    + `cible ${targetScrape.length} site(s)/${targetPrices.length} prix, ${fresh} nouvelle(s), ${drops} baisse(s)`
+    + (median != null ? ` · médiane cible ${median.toLocaleString('fr-FR')} € (${medianSource})` : ' · médiane cible inconnue (fail-open : tout est montré)')
     + (noUrl > 0 ? ` · ${noUrl} sans URL ignorées` : ''),
   );
 }
