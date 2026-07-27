@@ -46,7 +46,11 @@ function defaultName(): string {
 
 const PAGE_SIZE = 10;
 
-export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportunity) => void }) {
+export function OpportunityAlerts({ onInspect, touchedSince }: {
+  onInspect: (o: MarketOpportunity) => void;
+  /** Accueil : ne montrer que les opportunités touchées par la dernière campagne. */
+  touchedSince?: string | null;
+}) {
   const [threshold, setThreshold] = useState(5000);
   const [opps, setOpps] = useState<MarketOpportunity[]>([]);
   const [acks, setAcks] = useState<Map<string, number>>(new Map());
@@ -59,10 +63,11 @@ export function OpportunityAlerts({ onInspect }: { onInspect: (o: MarketOpportun
 
   const refresh = async (th: number) => {
     setLoading(true);
-    const [o, a] = await Promise.all([loadMarketOpportunities(th), loadOpportunityAcks()]);
+    const [o, a] = await Promise.all([loadMarketOpportunities(th, 5, touchedSince), loadOpportunityAcks()]);
     setOpps(o); setAcks(a); setLoading(false);
   };
-  useEffect(() => { void refresh(threshold); }, [threshold]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void refresh(threshold); }, [threshold, touchedSince]);
 
   const visible = opps.filter((o) => {
     const acked = acks.get(opportunityKey(o));

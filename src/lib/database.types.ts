@@ -9,6 +9,123 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      profiles: {
+        Row: { id: string; display_name: string; created_at: string }
+        Insert: { id: string; display_name: string; created_at?: string }
+        Update: { id?: string; display_name?: string; created_at?: string }
+        Relationships: []
+      }
+      daily_searches: {
+        Row: {
+          id: string; user_id: string; label: string
+          source_country: string; target_country: string
+          brand: string; model: string
+          year_min: number | null; year_max: number | null
+          fuel: string; trim: string
+          price_gap_min: number; price_gap_max: number
+          run_hour: number; active: boolean
+          last_run_at: string | null; created_at: string; updated_at: string
+        }
+        Insert: {
+          id?: string; user_id: string; label?: string
+          source_country: string; target_country: string
+          brand: string; model?: string
+          year_min?: number | null; year_max?: number | null
+          fuel?: string; trim?: string
+          price_gap_min?: number; price_gap_max?: number
+          run_hour?: number; active?: boolean
+          last_run_at?: string | null; created_at?: string; updated_at?: string
+        }
+        Update: {
+          id?: string; user_id?: string; label?: string
+          source_country?: string; target_country?: string
+          brand?: string; model?: string
+          year_min?: number | null; year_max?: number | null
+          fuel?: string; trim?: string
+          price_gap_min?: number; price_gap_max?: number
+          run_hour?: number; active?: boolean
+          last_run_at?: string | null; created_at?: string; updated_at?: string
+        }
+        Relationships: []
+      }
+      daily_search_hits: {
+        Row: {
+          id: string; search_id: string; user_id: string
+          listing_url: string; title: string
+          price: number | null; previous_price: number | null
+          year: number | null; mileage: number | null; fuel: string
+          site: string; source_country: string
+          target_median: number | null; price_gap: number | null
+          kind: string; status: string
+          first_seen_at: string; last_seen_at: string
+        }
+        Insert: {
+          id?: string; search_id: string; user_id: string
+          listing_url: string; title?: string
+          price?: number | null; previous_price?: number | null
+          year?: number | null; mileage?: number | null; fuel?: string
+          site?: string; source_country?: string
+          target_median?: number | null; price_gap?: number | null
+          kind?: string; status?: string
+          first_seen_at?: string; last_seen_at?: string
+        }
+        Update: {
+          id?: string; search_id?: string; user_id?: string
+          listing_url?: string; title?: string
+          price?: number | null; previous_price?: number | null
+          year?: number | null; mileage?: number | null; fuel?: string
+          site?: string; source_country?: string
+          target_median?: number | null; price_gap?: number | null
+          kind?: string; status?: string
+          first_seen_at?: string; last_seen_at?: string
+        }
+        Relationships: []
+      }
+      negotiations: {
+        Row: {
+          id: string; user_id: string; title: string; listing_url: string
+          asking_price: number | null; negotiated_price: number | null
+          notes: string; status: string; transaction_id: string | null
+          created_at: string; updated_at: string
+        }
+        Insert: {
+          id?: string; user_id: string; title: string; listing_url?: string
+          asking_price?: number | null; negotiated_price?: number | null
+          notes?: string; status?: string; transaction_id?: string | null
+          created_at?: string; updated_at?: string
+        }
+        Update: {
+          id?: string; user_id?: string; title?: string; listing_url?: string
+          asking_price?: number | null; negotiated_price?: number | null
+          notes?: string; status?: string; transaction_id?: string | null
+          created_at?: string; updated_at?: string
+        }
+        Relationships: []
+      }
+      legal_watch_entries: {
+        Row: {
+          id: string; country: string; kind: string; title: string
+          summary: string; effective_date: string | null; source_url: string
+          status: string; created_by: string; created_at: string
+        }
+        Insert: {
+          id?: string; country: string; kind?: string; title: string
+          summary?: string; effective_date?: string | null; source_url?: string
+          status?: string; created_by?: string; created_at?: string
+        }
+        Update: {
+          id?: string; country?: string; kind?: string; title?: string
+          summary?: string; effective_date?: string | null; source_url?: string
+          status?: string; created_by?: string; created_at?: string
+        }
+        Relationships: []
+      }
+      app_config: {
+        Row: { key: string; value: Json; updated_at: string }
+        Insert: { key: string; value?: Json; updated_at?: string }
+        Update: { key?: string; value?: Json; updated_at?: string }
+        Relationships: []
+      }
       market_studies: {
         Row: {
           id: string
@@ -628,6 +745,7 @@ export type Database = {
           pickup_datetime: string | null
           destination: string | null
           transporter: string | null
+          owner_user_id?: string | null
         }
         Insert: {
           id?: string
@@ -656,6 +774,7 @@ export type Database = {
           pickup_datetime?: string | null
           destination?: string | null
           transporter?: string | null
+          owner_user_id?: string | null
         }
         Update: {
           id?: string
@@ -684,6 +803,7 @@ export type Database = {
           pickup_datetime?: string | null
           destination?: string | null
           transporter?: string | null
+          owner_user_id?: string | null
         }
         Relationships: [
           {

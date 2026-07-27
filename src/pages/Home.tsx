@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, BadgeEuro, Rocket, Map } from 'lucide-react';
+import { FolderOpen, BadgeEuro, Rocket, Map, Inbox, Scale, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { loadMappingTree, type TreeNode } from '../services/ingestionHistory';
 import { MappingRadialTree } from '../components/MappingRadialTree';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
+import { DailyHit, listInboxHits } from '../services/workflow';
+import { HitRow } from './Workflow';
+import { useAuth } from '../services/auth';
 
 interface DealRow {
   id: string;
@@ -45,10 +48,15 @@ export function Home() {
   const [campaign, setCampaign] = useState<CampaignRow | null>(null);
   const [campaignEnd, setCampaignEnd] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode | null>(null);
+  const [hits, setHits] = useState<DailyHit[]>([]);
+  const [legal, setLegal] = useState<Array<{ id: string; country: string; kind: string; title: string; effective_date: string | null; created_at: string }>>([]);
+  const { displayName } = useAuth();
+
+  const reloadHits = () => { listInboxHits(30).then(setHits).catch(() => setHits([])); };
 
   useEffect(() => {
     void (async () => {
-      const [{ data: dealRows }, { data: campRows }] = await Promise.all([
+      const [{ data: dealRows }, { data: campRows }, { data: legalRows }] = await Promise.all([
         supabase
           .from('transactions_admin')
           .select('id, reference, status, transaction_type, sale_price, purchase_price, created_at, closed_at')
@@ -59,8 +67,15 @@ export function Home() {
           .select('id, label, status, total, done_count, confirmed_count, gap_count, technical_count, created_at')
           .order('created_at', { ascending: false })
           .limit(1),
+        supabase
+          .from('legal_watch_entries')
+          .select('id, country, kind, title, effective_date, created_at')
+          .eq('status', 'published')
+          .order('created_at', { ascending: false })
+          .limit(5),
       ]);
       setDeals((dealRows ?? []) as DealRow[]);
+      setLegal((legalRows ?? []) as typeof legal);
       const camp = ((campRows ?? [])[0] ?? null) as CampaignRow | null;
       setCampaign(camp);
       if (camp) {
@@ -73,6 +88,7 @@ export function Home() {
           .limit(1);
         setCampaignEnd((lastItem?.[0] as { finished_at?: string } | undefined)?.finished_at ?? null);
       }
+      reloadHits();
       // La carto en dernier : c'est la requête la plus lourde.
       setTree(await loadMappingTree());
     })();
@@ -127,8 +143,64 @@ export function Home() {
         </button>
       </div>
 
-      {/* Opportunités inter-pays repérées (même composant que le MI) */}
-      <OpportunityAlerts onInspect={() => navigateTo('/market')} />
+      {/* Nouvelles annonces : le flux quotidien PERSONNEL (études du Workflow) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <Inbox className="w-5 h-5 text-blue-600" />
+            <h2 className="text-lg font-semibold">Nouvelles annonces{displayName ? ` — ${displayName}` : ''}</h2>
+            {hits.length > 0 && (
+              <span className="text-xs font-semibold text-white bg-brand-ocean rounded-full px-2 py-0.5">{hits.length}</span>
+            )}
+          </div>
+          <button onClick={() => navigateTo('/workflow')} className="flex items-center gap-1 text-sm text-brand-ocean hover:underline">
+            Mes études quotidiennes <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">Nouveautés et baisses de prix depuis ton dernier scrape — enregistre (→ négociations) ou écarte.</p>
+        {hits.length === 0 ? (
+          <p className="text-sm text-slate-500 py-6 text-center">
+            Rien à trier. Les annonces du scrape quotidien arrivent ici — configure tes études dans le Workflow.
+          </p>
+        ) : (
+          <div className="divide-y divide-slate-100 -mx-2">
+            {hits.map((h) => <HitRow key={h.id} hit={h} onChanged={reloadHits} compact />)}
+          </div>
+        )}
+      </div>
+
+      {/* Opportunités repérées par la DERNIÈRE campagne uniquement */}
+      <OpportunityAlerts onInspect={() => navigateTo('/market')} touchedSince={campaign?.created_at ?? undefined} />
+
+      {/* Veille juridique : dernières entrées publiées */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <Scale className="w-5 h-5 text-blue-600" />
+            <h2 className="text-lg font-semibold">Veille juridique</h2>
+          </div>
+          <button onClick={() => navigateTo('/veille')} className="flex items-center gap-1 text-sm text-brand-ocean hover:underline">
+            Tout l'historique <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">Lois, taxes et règlements de l'automobile européenne.</p>
+        {legal.length === 0 ? (
+          <p className="text-sm text-slate-500 py-4 text-center">Aucune entrée pour l'instant — la collecte automatique démarre avec le branchement de l'API.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {legal.map((l) => (
+              <li key={l.id} className="py-2 flex items-center gap-3">
+                <span className="text-xs font-semibold text-slate-500 w-8 shrink-0">{l.country}</span>
+                <span className={`text-[10px] uppercase font-semibold rounded-full px-2 py-0.5 shrink-0 ${l.kind === 'taxe' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>{l.kind}</span>
+                <span className="text-sm text-slate-800 truncate flex-1">{l.title}</span>
+                <span className="text-xs text-slate-400 shrink-0">
+                  {l.effective_date ? `effet ${new Date(l.effective_date).toLocaleDateString('fr-FR')}` : new Date(l.created_at).toLocaleDateString('fr-FR')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {/* Cartographie */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">

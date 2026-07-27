@@ -11,6 +11,9 @@ import { writeMarketSnapshot } from '../src/services/marketData';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
 import { startWorkerCampaign, resumeWorkerCampaigns } from './campaign';
 import { initWorkerLogCapture } from './logStore';
+import { startDailySearchScheduler } from './dailySearches';
+import { startSalesSheetSync } from './salesSheetSync';
+import { startLegalWatchCollector } from './legalWatchCollector';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -455,6 +458,10 @@ app.listen(PORT, "0.0.0.0", () => {
     setSharedSupabase(client as any);
     // Pick interrupted campaigns back up after a restart/deploy.
     void resumeWorkerCampaigns();
+    // Études quotidiennes des comptes + branchements (tableur, veille).
+    startDailySearchScheduler();
+    startSalesSheetSync();
+    startLegalWatchCollector();
   } else {
     console.warn('[CAMPAIGN_WORKER] Supabase env missing — campaigns disabled');
   }

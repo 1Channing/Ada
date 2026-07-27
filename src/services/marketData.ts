@@ -728,7 +728,14 @@ export function opportunityKey(o: MarketOpportunity): string {
   return [o.brand, o.model, o.fuel, o.year, o.lowCountry, o.highCountry].join('|');
 }
 
-export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5): Promise<MarketOpportunity[]> {
+export async function loadMarketOpportunities(
+  minDelta = 5000,
+  minPerCountry = 5,
+  /** Si fourni : ne garde que les marchés TOUCHÉS (re-scrapés) depuis cette
+   *  date — « opportunités apparues sur la dernière campagne » (accueil).
+   *  La comparaison de prix garde toute la fenêtre (il faut les deux pays). */
+  touchedSinceIso?: string | null,
+): Promise<MarketOpportunity[]> {
   const cutoff = new Date(Date.now() - OPP_WINDOW_DAYS * 86_400_000).toISOString();
   // Paginated: a flat .limit() is silently capped at ~1000 rows by PostgREST.
   const data = await fetchAllPages<{ site: string; country: string; brand: string; model: string; fuel: string; price: number | null; year: number | null }>(
@@ -746,6 +753,7 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
   // an arbitrage). Listings without a year can't be placed — excluded.
   type Side = { prices: number[]; sites: Map<string, number> };
   const groups = new Map<string, Map<string, Side>>();
+  const touched = new Set<string>();
   // Canonical grouping keys: 'RAV4' (FR) and 'RAV-4' (AS24 slug) are the SAME
   // car — grouping on raw text split them into incomparable segments and the
   // radar missed real cross-country gaps. Display keeps the first raw form.
@@ -761,6 +769,7 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
     if (!brand || !model || !fuel || !country || year == null) continue;
     const gKey = `${brandKey(brand)}|${canonKey(model)}|${fuel}|${year}`;
     if (!labels.has(gKey)) labels.set(gKey, { brand, model });
+    if (touchedSinceIso && ((r as { scraped_at?: string }).scraped_at ?? '') >= touchedSinceIso) touched.add(gKey);
     const byCountry = groups.get(gKey) ?? new Map<string, Side>();
     const side: Side = byCountry.get(country) ?? { prices: [], sites: new Map<string, number>() };
     side.prices.push(price);
@@ -771,6 +780,7 @@ export async function loadMarketOpportunities(minDelta = 5000, minPerCountry = 5
 
   const out: MarketOpportunity[] = [];
   for (const [gKey, byCountry] of groups) {
+    if (touchedSinceIso && !touched.has(gKey)) continue;
     const [, , fuel, yearStr] = gKey.split('|');
     const { brand, model } = labels.get(gKey)!;
     const sides: Array<{ country: string; median: number; count: number; site: string }> = [];

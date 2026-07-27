@@ -1,8 +1,9 @@
 import { ReactNode } from 'react';
-import { Upload, History, LineChart, FileText, Home, ClipboardList } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, LogOut } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
 import { FeedbackCenter } from './FeedbackCenter';
+import { useAuth, signOut } from '../services/auth';
 
 type LayoutProps = {
   children: ReactNode;
@@ -29,12 +30,15 @@ export function Layout({ children }: LayoutProps) {
 
   const items: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[] }> = [
     { path: '/', label: 'Accueil', icon: <Home className="w-4 h-4" /> },
-    { path: '/etudes', label: 'Études', icon: <ClipboardList className="w-4 h-4" /> },
-    { path: '/admin', label: 'Administratif', icon: <FileText className="w-4 h-4" /> },
+    // Workflow personnel : études quotidiennes + résultats (ex-Études).
+    { path: '/workflow', label: 'Workflow', icon: <ClipboardList className="w-4 h-4" />, also: ['/etudes'] },
+    // Ventes : négociations (perso) + ventes équipe (ex-Administratif).
+    { path: '/ventes', label: 'Ventes', icon: <Handshake className="w-4 h-4" />, also: ['/admin'] },
     // Atelier = campagnes + ingestion + link gen fusionnés (une seule page).
     { path: '/ingestion', label: 'Atelier', icon: <Upload className="w-4 h-4" />, exact: true, also: ['/link-generator'] },
     { path: '/ingestion/history', label: 'Historique', icon: <History className="w-4 h-4" /> },
     { path: '/market', label: 'Market Intelligence', icon: <LineChart className="w-4 h-4" /> },
+    { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" /> },
   ];
 
   const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>
@@ -85,7 +89,7 @@ export function Layout({ children }: LayoutProps) {
             </button>
           ))}
 
-          {/* À droite : signalements équipe + notifications + présence. */}
+          {/* À droite : présence + signalements + notifications + compte. */}
           <div className="ml-auto flex items-center gap-1">
             <span className="hidden md:flex items-center gap-1.5 text-[11px] text-white/60 font-mono mr-2">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
@@ -93,6 +97,7 @@ export function Layout({ children }: LayoutProps) {
             </span>
             <FeedbackCenter />
             <NotificationCenter />
+            <UserChip />
           </div>
         </div>
       </nav>
@@ -102,6 +107,28 @@ export function Layout({ children }: LayoutProps) {
           {children}
         </div>
       </main>
+    </div>
+  );
+}
+
+/** Compte connecté : prénom + déconnexion. */
+function UserChip() {
+  const { displayName, email } = useAuth();
+  return (
+    <div className="flex items-center gap-1.5 ml-1 pl-3 border-l border-white/20">
+      <span className="w-7 h-7 rounded-full bg-white/15 text-white text-xs font-semibold grid place-items-center uppercase">
+        {(displayName || email || '?').slice(0, 1)}
+      </span>
+      <span className="hidden lg:block text-white/80 text-xs font-medium max-w-[90px] truncate">
+        {displayName || email || ''}
+      </span>
+      <button
+        onClick={() => { void signOut().then(() => window.location.reload()); }}
+        title="Se déconnecter"
+        className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+      >
+        <LogOut className="w-4 h-4" />
+      </button>
     </div>
   );
 }

@@ -550,7 +550,13 @@ async function scrapeMarktplaatsViaApi(
  * Exported for the /ingest-url endpoint (discovery scrape) — same fetch,
  * retries, profile escalation and parsing as study execution.
  */
-export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'detailed' | 'deep'): Promise<ScrapeSearchResult> {
+export async function scrapeSearch(
+  url: string,
+  scrapeMode: 'fast' | 'full' | 'detailed' | 'deep',
+  /** Plafond de pages imposé par l'appelant (études quotidiennes : 3 pages,
+   *  tri prix croissant — le bas du marché suffit). */
+  opts?: { maxPagesCap?: number },
+): Promise<ScrapeSearchResult> {
   const marketplace = marketplaceOf(url);
   console.log(`[SCRAPE_ROUTE] marketplace=${marketplace} scrapeMode=${scrapeMode} url=${url.substring(0, 150)}`);
 
@@ -565,7 +571,10 @@ export async function scrapeSearch(url: string, scrapeMode: 'fast' | 'full' | 'd
   // 'deep' pushes pagination further (finition-level data lives beyond the
   // cheapest 100): 10 pages / ~300 listings instead of 5 / 100. Opt-in — it
   // costs up to 2x the Zyte calls of a 'full' scrape.
-  const maxPages = scrapeMode === 'deep' ? DEEP_MAX_PAGES : MAX_PAGES;
+  const maxPages = Math.min(
+    scrapeMode === 'deep' ? DEEP_MAX_PAGES : MAX_PAGES,
+    opts?.maxPagesCap ?? Number.POSITIVE_INFINITY,
+  );
   const maxListings = scrapeMode === 'deep' ? DEEP_MAX_LISTINGS : MAX_LISTINGS;
 
   // Filtered Marktplaats searches go through the server-side JSON API (the
