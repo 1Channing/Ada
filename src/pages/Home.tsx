@@ -4,8 +4,7 @@ import { supabase } from '../lib/supabase';
 import { loadMappingTree, type TreeNode } from '../services/ingestionHistory';
 import { MappingRadialTree } from '../components/MappingRadialTree';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
-import { DailyHit, listInboxHits } from '../services/workflow';
-import { HitRow } from './Workflow';
+import { DailyHit, DailySearch, listInboxHits, listDailySearches } from '../services/workflow';
 import { useAuth } from '../services/auth';
 
 interface DealRow {
@@ -49,10 +48,14 @@ export function Home() {
   const [campaignEnd, setCampaignEnd] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [hits, setHits] = useState<DailyHit[]>([]);
+  const [mySearches, setMySearches] = useState<DailySearch[]>([]);
   const [legal, setLegal] = useState<Array<{ id: string; country: string; kind: string; title: string; effective_date: string | null; created_at: string }>>([]);
   const { displayName } = useAuth();
 
-  const reloadHits = () => { listInboxHits(30).then(setHits).catch(() => setHits([])); };
+  const reloadHits = () => {
+    listInboxHits(500).then(setHits).catch(() => setHits([]));
+    listDailySearches().then(setMySearches).catch(() => setMySearches([]));
+  };
 
   useEffect(() => {
     void (async () => {
@@ -143,31 +146,37 @@ export function Home() {
         </button>
       </div>
 
-      {/* Nouvelles annonces : le flux quotidien PERSONNEL (études du Workflow) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-1">
+      {/* Nouvelles annonces : RÉSUMÉ minimal — le volume de travail du jour,
+          une ligne par étude ; le traitement se fait dans le Workflow. */}
+      <button
+        onClick={() => navigateTo('/workflow')}
+        className="w-full text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-blue-300 transition-colors"
+      >
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <Inbox className="w-5 h-5 text-blue-600" />
-            <h2 className="text-lg font-semibold">Nouvelles annonces{displayName ? ` — ${displayName}` : ''}</h2>
-            {hits.length > 0 && (
-              <span className="text-xs font-semibold text-white bg-brand-ocean rounded-full px-2 py-0.5">{hits.length}</span>
+            <span className="text-xs uppercase tracking-wide text-slate-500">Nouvelles annonces{displayName ? ` — ${displayName}` : ''}</span>
+          </div>
+          <span className="text-3xl font-bold tabular-nums">{hits.length}</span>
+          <span className="text-sm text-slate-500">à traiter
+            {hits.filter((h) => h.kind === 'price_drop').length > 0 && (
+              <> · dont <span className="text-emerald-600 font-medium">{hits.filter((h) => h.kind === 'price_drop').length} baisse{hits.filter((h) => h.kind === 'price_drop').length > 1 ? 's' : ''}</span></>
             )}
+          </span>
+          <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+            {mySearches
+              .map((s) => ({ s, n: hits.filter((h) => h.search_id === s.id).length }))
+              .filter(({ n }) => n > 0)
+              .map(({ s, n }) => (
+                <span key={s.id} className="text-xs text-slate-600 bg-slate-100 border border-slate-200 rounded-full px-2.5 py-1">
+                  {s.label || `${s.brand} ${s.model}`.trim()} · <span className="font-semibold">{n}</span>
+                </span>
+              ))}
+            {hits.length === 0 && <span className="text-sm text-slate-400">rien à trier — le scrape quotidien remplit cette case</span>}
+            <ChevronRight className="w-4 h-4 text-slate-400" />
           </div>
-          <button onClick={() => navigateTo('/workflow')} className="flex items-center gap-1 text-sm text-brand-ocean hover:underline">
-            Mes études quotidiennes <ChevronRight className="w-4 h-4" />
-          </button>
         </div>
-        <p className="text-xs text-slate-500 mb-3">Nouveautés et baisses de prix depuis ton dernier scrape — enregistre (→ négociations) ou écarte.</p>
-        {hits.length === 0 ? (
-          <p className="text-sm text-slate-500 py-6 text-center">
-            Rien à trier. Les annonces du scrape quotidien arrivent ici — configure tes études dans le Workflow.
-          </p>
-        ) : (
-          <div className="divide-y divide-slate-100 -mx-2">
-            {hits.map((h) => <HitRow key={h.id} hit={h} onChanged={reloadHits} compact />)}
-          </div>
-        )}
-      </div>
+      </button>
 
       {/* Opportunités repérées par la DERNIÈRE campagne uniquement */}
       <OpportunityAlerts onInspect={() => navigateTo('/market')} touchedSince={campaign?.created_at ?? undefined} />
