@@ -146,7 +146,7 @@ async function runDailySearch(s: SearchRow): Promise<void> {
     try {
       const gen = await generateSearchUrlsWithMemory({
         selectedSites: [site.key as SiteKey],
-        brand: s.brand, model: s.model || undefined,
+        brand: s.brand, model: s.model || '',
         fuel: s.fuel || undefined, trim: s.trim || undefined,
         yearFrom: s.year_min ? String(s.year_min) : undefined,
         yearTo: s.year_max ? String(s.year_max) : undefined,

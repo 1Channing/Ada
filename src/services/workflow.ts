@@ -2,6 +2,9 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { getRefWindowsCached } from './vehicleRef';
 import { brandKey, canonKey } from './marketData';
+import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
+import { allSiteAdapters } from '../lib/study-core/marketplaces';
+import type { SiteKey } from '../lib/linkgen/types';
 
 /**
  * Workflow personnel : études quotidiennes + nouvelles annonces + négociations.
@@ -118,6 +121,48 @@ function uid(): string {
   const id = useAuth.getState().userId;
   if (!id) throw new Error('Session absente');
   return id;
+}
+
+// ── Couverture URL des deux pays ────────────────────────────────────────────
+
+export interface UrlGap {
+  site: string;
+  country: string;
+  side: 'source' | 'cible';
+}
+
+/**
+ * Vérifie, site par site, que l'étude est réellement exécutable : une URL
+ * doit être générable sur chaque site du pays SOURCE (la recherche
+ * quotidienne) ET du pays CIBLE (les données de comparaison). Un site sans
+ * URL = un trou de mapping → panneau ⚠ sur la carte + raccourci ingestion.
+ */
+export async function checkSearchUrlCoverage(s: Pick<DailySearch,
+  'source_country' | 'target_country' | 'brand' | 'model' | 'fuel' | 'trim' | 'trim_target' | 'year_min' | 'year_max'
+>): Promise<UrlGap[]> {
+  const gaps: UrlGap[] = [];
+  const sides: Array<{ country: string; side: UrlGap['side']; trim: string }> = [
+    { country: s.source_country, side: 'source', trim: s.trim },
+    { country: s.target_country, side: 'cible', trim: s.trim_target },
+  ];
+  for (const { country, side, trim } of sides) {
+    const sites = allSiteAdapters().filter((a) => (a as { countryCode?: string }).countryCode === country);
+    for (const site of sites) {
+      let ok = false;
+      try {
+        const gen = await generateSearchUrlsWithMemory({
+          selectedSites: [site.key as SiteKey],
+          brand: s.brand, model: s.model || '',
+          fuel: s.fuel || undefined, trim: trim || undefined,
+          yearFrom: s.year_min ? String(s.year_min) : undefined,
+          yearTo: s.year_max ? String(s.year_max) : undefined,
+        });
+        ok = !!gen[0]?.url && gen[0].url.length > 10;
+      } catch { ok = false; }
+      if (!ok) gaps.push({ site: site.key, country, side });
+    }
+  }
+  return gaps;
 }
 
 // ── Études quotidiennes ─────────────────────────────────────────────────────

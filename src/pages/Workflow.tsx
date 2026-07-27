@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, Pencil, Trash2, Power, ExternalLink, ArrowDownRight, BookmarkPlus, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, BookmarkPlus, X, MoreVertical, AlertTriangle } from 'lucide-react';
 import { StudiesV2Results } from './StudiesV2Results';
 import {
-  DailySearch, DailyHit, listDailySearches, saveDailySearch, deleteDailySearch,
+  DailySearch, DailyHit, UrlGap, listDailySearches, saveDailySearch, deleteDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
+  checkSearchUrlCoverage,
 } from '../services/workflow';
 
 /**
@@ -91,8 +92,22 @@ function DailySearchesTab() {
   const [trimsSource, setTrimsSource] = useState<string[]>([]);
   const [trimsTarget, setTrimsTarget] = useState<string[]>([]);
 
+  // Couverture URL par étude (id → trous) — calculée à l'affichage et après
+  // chaque enregistrement ; null = vérification en cours.
+  const [coverage, setCoverage] = useState<Record<string, UrlGap[] | null>>({});
+
+  const checkCoverage = (list: DailySearch[]) => {
+    for (const s of list) {
+      setCoverage((c) => ({ ...c, [s.id]: c[s.id] ?? null }));
+      void checkSearchUrlCoverage(s).then((gaps) => setCoverage((c) => ({ ...c, [s.id]: gaps })));
+    }
+  };
+
   const reload = () => {
-    listDailySearches().then(setRows).catch((e) => setError(String(e.message ?? e))).finally(() => setLoading(false));
+    listDailySearches()
+      .then((list) => { setRows(list); checkCoverage(list); })
+      .catch((e) => setError(String(e.message ?? e)))
+      .finally(() => setLoading(false));
   };
   useEffect(reload, []);
   useEffect(() => { void listRefBrandModels().then(setRef); }, []);
@@ -241,46 +256,127 @@ function DailySearchesTab() {
         ) : (
           <div className="grid md:grid-cols-2 gap-3">
             {rows.map((s) => (
-              <div key={s.id} className={`bg-white rounded-xl border shadow-sm p-4 ${s.active ? 'border-slate-200' : 'border-slate-200 opacity-60'}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-slate-900">
-                      {s.label || `${s.brand} ${s.model}`.trim()}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {flagOf(s.source_country)} → {flagOf(s.target_country)} · {s.brand}{s.model ? ` ${s.model}` : ''}
-                      {s.year_min || s.year_max ? ` · ${s.year_min ?? '…'}–${s.year_max ?? '…'}` : ''}
-                      {s.fuel ? ` · ${FUELS.find((f) => f.value === s.fuel)?.label ?? s.fuel}` : ''}
-                      {s.trim ? ` · « ${s.trim} »` : ''}
-                      {s.trim_target ? ` ≈ « ${s.trim_target} » (${s.target_country})` : ''}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Écart visé {s.price_gap_min.toLocaleString('fr-FR')}–{s.price_gap_max.toLocaleString('fr-FR')} € · scrape {String(s.run_hour).padStart(2, '0')} h 00
-                      {s.last_run_at ? ` · dernier passage ${new Date(s.last_run_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ' · jamais lancé'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      title={s.active ? 'Mettre en pause' : 'Réactiver'}
-                      onClick={async () => { await saveDailySearch({ ...s, active: !s.active }); reload(); }}
-                      className={`p-1.5 rounded-lg transition-colors ${s.active ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-100'}`}
-                    >
-                      <Power className="w-4 h-4" />
-                    </button>
-                    <button title="Modifier" onClick={() => setEditing(s)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>
-                    <button
-                      title="Supprimer"
-                      onClick={async () => { if (confirm(`Supprimer l'étude « ${s.label || s.brand} » ?`)) { await deleteDailySearch(s.id); reload(); } }}
-                      className="p-1.5 rounded-lg text-red-500 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <SearchCard
+                key={s.id}
+                s={s}
+                gaps={coverage[s.id] ?? null}
+                onEdit={() => setEditing(s)}
+                onDuplicate={() => setEditing({ ...s, id: undefined, label: `${s.label || `${s.brand} ${s.model}`.trim()} (copie)`, last_run_at: null })}
+                onChanged={reload}
+              />
             ))}
           </div>
         )}
+    </div>
+  );
+}
+
+function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
+  s: DailySearch;
+  gaps: UrlGap[] | null; // null = vérification en cours
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onChanged: () => void;
+}) {
+  const [menu, setMenu] = useState(false);
+  const [showGaps, setShowGaps] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenu(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [menu]);
+
+  const navigateTo = (path: string) => {
+    window.history.pushState({}, '', path);
+    window.location.reload();
+  };
+
+  return (
+    <div className={`bg-white rounded-xl border shadow-sm p-4 ${s.active ? 'border-slate-200' : 'border-slate-200 opacity-60'}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-slate-900 truncate">
+              {s.label || `${s.brand} ${s.model}`.trim()}
+            </p>
+            {gaps && gaps.length > 0 && (
+              <button
+                title="Couverture incomplète — voir le détail"
+                onClick={() => setShowGaps(!showGaps)}
+                className="p-1 rounded-lg text-amber-500 hover:bg-amber-50 shrink-0"
+              >
+                <AlertTriangle className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {flagOf(s.source_country)} → {flagOf(s.target_country)} · {s.brand}{s.model ? ` ${s.model}` : ''}
+            {s.year_min || s.year_max ? ` · ${s.year_min ?? '…'}–${s.year_max ?? '…'}` : ''}
+            {s.fuel ? ` · ${FUELS.find((f) => f.value === s.fuel)?.label ?? s.fuel}` : ''}
+            {s.trim ? ` · « ${s.trim} »` : ''}
+            {s.trim_target ? ` ≈ « ${s.trim_target} » (${s.target_country})` : ''}
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            Écart visé {s.price_gap_min.toLocaleString('fr-FR')}–{s.price_gap_max.toLocaleString('fr-FR')} € · scrape {String(s.run_hour).padStart(2, '0')} h 00
+            {s.last_run_at ? ` · dernier passage ${new Date(s.last_run_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ' · jamais lancé'}
+            {!s.active ? ' · en pause' : ''}
+          </p>
+        </div>
+        <div className="relative shrink-0" ref={menuRef}>
+          <button onClick={() => setMenu(!menu)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100">
+            <MoreVertical className="w-4 h-4" />
+          </button>
+          {menu && (
+            <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-48 text-sm">
+              <button
+                onClick={async () => { setMenu(false); await saveDailySearch({ ...s, active: !s.active }); onChanged(); }}
+                className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700"
+              >
+                {s.active ? 'Mettre en pause' : 'Réactiver'}
+              </button>
+              <button onClick={() => { setMenu(false); onEdit(); }} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
+                Modifier
+              </button>
+              <button onClick={() => { setMenu(false); onDuplicate(); }} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
+                Dupliquer
+              </button>
+              <button
+                onClick={async () => {
+                  setMenu(false);
+                  if (confirm(`Supprimer l'étude « ${s.label || s.brand} » ?`)) { await deleteDailySearch(s.id); onChanged(); }
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-slate-50 text-red-600"
+              >
+                Supprimer
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {gaps && gaps.length > 0 && showGaps && (
+        <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <p className="text-xs font-medium text-amber-800 mb-1.5">
+            ADA ne sait pas encore générer l'URL sur {gaps.length} site{gaps.length > 1 ? 's' : ''} — l'étude tournera sur les autres :
+          </p>
+          <ul className="text-xs text-amber-800 space-y-0.5 mb-2">
+            {gaps.map((g) => (
+              <li key={`${g.side}|${g.site}`}>
+                • {g.site} ({flagOf(g.country)} pays {g.side}) : mapping {s.brand}{s.model ? ` ${s.model}` : ''} manquant
+              </li>
+            ))}
+          </ul>
+          <button
+            onClick={() => navigateTo('/ingestion')}
+            className="text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg px-3 py-1.5 transition-colors"
+          >
+            Compléter par ingestion →
+          </button>
+        </div>
+      )}
     </div>
   );
 }
