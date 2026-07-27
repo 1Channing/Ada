@@ -163,9 +163,7 @@ function DailySearchesTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-600">
-          {rows.length} étude{rows.length > 1 ? 's' : ''} — scrape quotidien en <span className="font-medium">prix croissant</span>, 3 pages par site du pays source.
-        </p>
+        <p className="text-sm text-slate-600">{rows.length} étude{rows.length > 1 ? 's' : ''}</p>
         <button
           onClick={() => setEditing({ ...EMPTY })}
           className="flex items-center gap-2 bg-brand-ocean hover:bg-brand-encre text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
