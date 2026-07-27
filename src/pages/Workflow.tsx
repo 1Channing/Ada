@@ -2,10 +2,36 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, BookmarkPlus, X, MoreVertical, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { StudiesV2Results } from './StudiesV2Results';
 import {
-  DailySearch, DailyHit, UrlGap, listDailySearches, saveDailySearch, deleteDailySearch,
+  DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
-  checkSearchUrlCoverage,
+  checkSearchUrlCoverage, listStudyUrls,
 } from '../services/workflow';
+
+/** Identité visuelle des places de marché — badge normalisé partout. */
+const SITE_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
+  LEBONCOIN: { label: 'LBC', bg: '#F56B2A', fg: '#fff' },
+  MARKTPLAATS: { label: 'MP', bg: '#134FA8', fg: '#fff' },
+  BILBASEN: { label: 'BB', bg: '#0F766E', fg: '#fff' },
+  MOBILE_DE: { label: 'MD', bg: '#E85D26', fg: '#fff' },
+  AUTOSCOUT_FR: { label: 'AS24 FR', bg: '#FFCC00', fg: '#1e293b' },
+  AUTOSCOUT_DE: { label: 'AS24 DE', bg: '#FFCC00', fg: '#1e293b' },
+  AUTOSCOUT_NL: { label: 'AS24 NL', bg: '#FFCC00', fg: '#1e293b' },
+  AUTOSCOUT_IT: { label: 'AS24 IT', bg: '#FFCC00', fg: '#1e293b' },
+  AUTOSCOUT_ES: { label: 'AS24 ES', bg: '#FFCC00', fg: '#1e293b' },
+  AUTOSCOUT_BE: { label: 'AS24 BE', bg: '#FFCC00', fg: '#1e293b' },
+};
+
+export function SiteBadge({ site }: { site: string }) {
+  const s = SITE_STYLE[site] ?? { label: site, bg: '#e2e8f0', fg: '#334155' };
+  return (
+    <span
+      className="inline-flex items-center rounded font-bold uppercase tracking-wide shrink-0"
+      style={{ background: s.bg, color: s.fg, fontSize: '9px', padding: '2px 6px' }}
+    >
+      {s.label}
+    </span>
+  );
+}
 
 /**
  * Workflow PERSONNEL (ex-Études) : chaque compte enregistre ses études
@@ -419,6 +445,17 @@ function ResultsTab() {
   const [searches, setSearches] = useState<DailySearch[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  // Liens d'étude par recherche (vérification humaine) — chargés à l'ouverture.
+  const [urls, setUrls] = useState<Record<string, StudyUrl[] | null>>({});
+
+  const toggle = (s: DailySearch) => {
+    const willOpen = !(open[s.id] ?? false);
+    setOpen((o) => ({ ...o, [s.id]: willOpen }));
+    if (willOpen && urls[s.id] === undefined) {
+      setUrls((u) => ({ ...u, [s.id]: null }));
+      void listStudyUrls(s).then((list) => setUrls((u) => ({ ...u, [s.id]: list })));
+    }
+  };
 
   const reload = () => {
     Promise.all([listAllHits(), listDailySearches()])
@@ -471,7 +508,7 @@ function ResultsTab() {
         return (
           <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <button
-              onClick={() => setOpen((o) => ({ ...o, [s.id]: !isOpen }))}
+              onClick={() => toggle(s)}
               className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
             >
               <span className={`transition-transform text-slate-400 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
@@ -523,6 +560,31 @@ function ResultsTab() {
                   <p className="text-[11px] text-slate-400 mt-1.5">
                     Médianes calculées sur les 6 premières annonces (prix croissant). Chaque annonce ci-dessous affiche son écart à la médiane cible.
                   </p>
+
+                  {/* Liens de l'étude — les URLs exactes que le worker utilise, à vérifier d'un clic. */}
+                  <div className="mt-2 flex items-center gap-1.5 flex-wrap text-xs">
+                    <span className="text-slate-500 font-medium">Liens de l'étude :</span>
+                    {urls[s.id] === null || urls[s.id] === undefined
+                      ? <span className="text-slate-400">génération…</span>
+                      : (urls[s.id] ?? []).map((u) => (
+                        u.url
+                          ? <a
+                              key={`${u.side}|${u.site}`}
+                              href={u.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={`${u.side === 'source' ? 'Pays source' : 'Pays cible'} — ${u.url}`}
+                              className="inline-flex items-center gap-1 border border-slate-200 rounded-full pl-1 pr-2 py-0.5 hover:border-brand-ocean hover:bg-blue-50 transition-colors"
+                            >
+                              <SiteBadge site={u.site} />
+                              <ExternalLink className="w-3 h-3 text-slate-400" />
+                            </a>
+                          : <span key={`${u.side}|${u.site}`} title="URL non générable — mapping manquant" className="inline-flex items-center gap-1 border border-amber-200 bg-amber-50 rounded-full pl-1 pr-2 py-0.5 opacity-70">
+                              <SiteBadge site={u.site} />
+                              <AlertTriangle className="w-3 h-3 text-amber-500" />
+                            </span>
+                      ))}
+                  </div>
                 </div>
                 <div className="divide-y divide-slate-100 border-t border-slate-100">
                   {list.map((h) => <HitRow key={h.id} hit={h} onChanged={reload} />)}
@@ -555,10 +617,14 @@ export function HitRow({ hit, searchLabel, onChanged, compact }: {
             </span>
           )}
         </div>
-        <p className="text-xs text-slate-500 mt-0.5 truncate">
-          {flagOf(hit.source_country)} {hit.site} · {hit.year ?? '—'} · {hit.mileage != null ? `${hit.mileage.toLocaleString('fr-FR')} km` : '—'}
-          {searchLabel ? ` · ${searchLabel}` : ''}
-          {hit.price_gap != null ? ` · écart cible ${hit.price_gap >= 0 ? '+' : ''}${hit.price_gap.toLocaleString('fr-FR')} €` : ''}
+        <p className="text-xs text-slate-500 mt-0.5 truncate flex items-center gap-1.5">
+          <span>{flagOf(hit.source_country)}</span>
+          <SiteBadge site={hit.site} />
+          <span>
+            {hit.year ?? '—'} · {hit.mileage != null ? `${hit.mileage.toLocaleString('fr-FR')} km` : '—'}
+            {searchLabel ? ` · ${searchLabel}` : ''}
+            {hit.price_gap != null ? ` · écart cible ${hit.price_gap >= 0 ? '+' : ''}${hit.price_gap.toLocaleString('fr-FR')} €` : ''}
+          </span>
         </p>
       </div>
       <span className="font-semibold text-slate-900 shrink-0">{fmtEur(hit.price)}</span>

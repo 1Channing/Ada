@@ -132,16 +132,20 @@ export interface UrlGap {
   side: 'source' | 'cible';
 }
 
+export interface StudyUrl extends UrlGap {
+  url: string | null;
+}
+
 /**
- * Vérifie, site par site, que l'étude est réellement exécutable : une URL
- * doit être générable sur chaque site du pays SOURCE (la recherche
- * quotidienne) ET du pays CIBLE (les données de comparaison). Un site sans
- * URL = un trou de mapping → panneau ⚠ sur la carte + raccourci ingestion.
+ * Les URLs exactes de l'étude, site par site et des DEUX côtés (source =
+ * la recherche quotidienne, cible = les données de comparaison) — celles que
+ * le worker utilisera. Affichées dans les Résultats pour vérification
+ * humaine ; url null = trou de mapping.
  */
-export async function checkSearchUrlCoverage(s: Pick<DailySearch,
+export async function listStudyUrls(s: Pick<DailySearch,
   'source_country' | 'target_country' | 'brand' | 'model' | 'fuel' | 'trim' | 'trim_target' | 'year_min' | 'year_max'
->): Promise<UrlGap[]> {
-  const gaps: UrlGap[] = [];
+> & Partial<Pick<DailySearch, 'mileage_max'>>): Promise<StudyUrl[]> {
+  const out: StudyUrl[] = [];
   const sides: Array<{ country: string; side: UrlGap['side']; trim: string }> = [
     { country: s.source_country, side: 'source', trim: s.trim },
     { country: s.target_country, side: 'cible', trim: s.trim_target },
@@ -149,7 +153,7 @@ export async function checkSearchUrlCoverage(s: Pick<DailySearch,
   for (const { country, side, trim } of sides) {
     const sites = allSiteAdapters().filter((a) => (a as { countryCode?: string }).countryCode === country);
     for (const site of sites) {
-      let ok = false;
+      let url: string | null = null;
       try {
         const gen = await generateSearchUrlsWithMemory({
           selectedSites: [site.key as SiteKey],
@@ -157,13 +161,19 @@ export async function checkSearchUrlCoverage(s: Pick<DailySearch,
           fuel: s.fuel || undefined, trim: trim || undefined,
           yearFrom: s.year_min ? String(s.year_min) : undefined,
           yearTo: s.year_max ? String(s.year_max) : undefined,
+          mileage: s.mileage_max ?? undefined,
         });
-        ok = !!gen[0]?.url && gen[0].url.length > 10;
-      } catch { ok = false; }
-      if (!ok) gaps.push({ site: site.key, country, side });
+        url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
+      } catch { url = null; }
+      out.push({ site: site.key, country, side, url });
     }
   }
-  return gaps;
+  return out;
+}
+
+/** Trous de couverture (panneau ⚠ des cartes d'étude) — dérivé de listStudyUrls. */
+export async function checkSearchUrlCoverage(s: Parameters<typeof listStudyUrls>[0]): Promise<UrlGap[]> {
+  return (await listStudyUrls(s)).filter((u) => !u.url).map(({ site, country, side }) => ({ site, country, side }));
 }
 
 // ── Études quotidiennes ─────────────────────────────────────────────────────

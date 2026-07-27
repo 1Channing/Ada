@@ -667,6 +667,18 @@ export async function scrapeSearch(
 
     if (listings.length > 0) {
       const totalCount = extractTotalCount(html);
+      // Le site annonce « 0 offres » mais le parseur a trouvé des cartes :
+      // ce sont des RECOMMANDATIONS (« annonces similaires »), pas des
+      // résultats — prouvé AS24 27/07 (kwd=GR+SPORT → 0 offres, page pleine
+      // de Yaris Cross d'autres finitions). On rend un vide CONFIRMÉ.
+      if (totalCount === 0) {
+        console.warn(`[WORKER_SCRAPER] ⚠️ total annoncé = 0 mais ${listings.length} carte(s) parsée(s) — recommandations écartées (${url.slice(0, 110)})`);
+        return finalize(
+          { listings: [], totalCount: 0 },
+          { attempts: attempt + 1, htmlLength: html.length, emptyResults: true, emptyConfirmed: true },
+          true,
+        );
+      }
       let all = dedupeListings(listings);
 
       // Depth: fetch further pages (cheap mode, bounded) when more results

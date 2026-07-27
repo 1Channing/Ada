@@ -152,7 +152,8 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (yearTo) vars['yearTo'] = yearTo;
   if (params.mileage) vars['mileage'] = String(params.mileage);
   if (mappedFuel) vars['fuel'] = mappedFuel;
-  if (params.trim && params.trim.trim()) vars['trim'] = params.trim.trim();
+  // encodé : un espace brut dans text= casse la requête chez certains clients.
+  if (params.trim && params.trim.trim()) vars['trim'] = encodeURIComponent(params.trim.trim());
 
   const url = applyTemplate(URL_TEMPLATE, vars);
   return { url, warnings };
