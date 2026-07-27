@@ -47,7 +47,11 @@ interface SearchRow {
 }
 
 function parisHour(): number {
-  return Number(new Intl.DateTimeFormat('fr-FR', { hour: 'numeric', hour12: false, timeZone: TZ }).format(new Date()));
+  // fr-FR formate « 20 h » (suffixe !) → Number() = NaN et la requête
+  // plantait (prouvé worker_logs 27/07 18:01). On ne garde que les chiffres.
+  const raw = new Intl.DateTimeFormat('fr-FR', { hour: 'numeric', hour12: false, timeZone: TZ }).format(new Date());
+  const h = Number(raw.replace(/\D/g, ''));
+  return Number.isFinite(h) ? h : new Date().getUTCHours();
 }
 function parisDay(iso?: string): string {
   return new Intl.DateTimeFormat('fr-CA', { timeZone: TZ }).format(iso ? new Date(iso) : new Date());
@@ -58,7 +62,9 @@ let running = false;
 export function startDailySearchScheduler(): void {
   setTimeout(() => void tick(), 45_000);
   setInterval(() => void tick(), TICK_MS);
-  console.log('[DAILY] ordonnanceur des études quotidiennes actif (tick 10 min)');
+  // warn (pas log) : la ligne part dans worker_logs — preuve de vie de
+  // l'ordonnanceur dans la boîte noire après chaque déploiement.
+  console.warn(`[DAILY] ordonnanceur actif (tick 10 min) — heure Paris détectée : ${parisHour()} h`);
 }
 
 async function tick(): Promise<void> {
