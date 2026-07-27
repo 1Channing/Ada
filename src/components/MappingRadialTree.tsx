@@ -2,12 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { TreeNode, MappingStatus } from '../services/ingestionHistory';
 
 const STATUS_COLOR: Record<MappingStatus, string> = {
-  valid: '#10b981',   // emerald — human_verified valid
-  partial: '#f59e0b', // amber
+  valid: '#2C5F9E',   // océan MC Export — human_verified valid
+  partial: '#d97706', // ambre (lisible sur blanc)
   csv: '#64748b',     // slate — csv_import
-  pending: '#71717a', // zinc
-  invalid: '#ef4444', // red
-  group: '#3f3f46',   // zinc-700 — structural node
+  pending: '#94a3b8', // slate clair
+  invalid: '#dc2626', // rouge
+  group: '#94a3b8',   // slate — nœud structurel
 };
 
 const STATUS_LABEL: Record<MappingStatus, string> = {
@@ -20,7 +20,7 @@ const STATUS_LABEL: Record<MappingStatus, string> = {
 };
 
 // Mappings confirmed by Ada's campaigns with no human confirmation yet.
-const ADA_COLOR = '#a78bfa'; // violet-400
+const ADA_COLOR = '#7c3aed'; // violet-600 — l'IA garde le violet
 const ADA_LABEL = 'Appris par Ada seule';
 
 const RING = 120;
@@ -248,28 +248,28 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
       <div className="flex items-center gap-3 flex-wrap text-xs">
         <button
           onClick={() => setExpanded(new Set(collectAllIds(root)))}
-          className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+          className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700"
         >Tout déplier</button>
         <button
           onClick={() => setExpanded(new Set([root.id]))}
-          className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+          className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700"
         >Tout replier</button>
-        <span className="text-zinc-600">·</span>
-        <button onClick={() => applyZoom(0.9)} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">−</button>
-        <span className="text-zinc-500 tabular-nums">{Math.round(zoom * 100)}%</span>
-        <button onClick={() => applyZoom(1.12)} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">+</button>
-        <span className="text-zinc-600">·</span>
+        <span className="text-slate-400">·</span>
+        <button onClick={() => applyZoom(0.9)} className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700">−</button>
+        <span className="text-slate-500 tabular-nums">{Math.round(zoom * 100)}%</span>
+        <button onClick={() => applyZoom(1.12)} className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700">+</button>
+        <span className="text-slate-400">·</span>
         {(['valid', 'partial', 'csv', 'pending'] as MappingStatus[]).map((s) => (
-          <span key={s} className="inline-flex items-center gap-1 text-zinc-400">
+          <span key={s} className="inline-flex items-center gap-1 text-slate-600">
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: STATUS_COLOR[s] }} />
             {STATUS_LABEL[s]}
           </span>
         ))}
-        <span className="inline-flex items-center gap-1 text-zinc-400">
+        <span className="inline-flex items-center gap-1 text-slate-600">
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: ADA_COLOR }} />
           {ADA_LABEL}
         </span>
-        <span className="text-zinc-600 ml-auto">Molette = espacer · glisser = se déplacer · clic = déplier / replier</span>
+        <span className="text-slate-400 ml-auto">Molette = espacer · glisser = se déplacer · clic = déplier / replier</span>
       </div>
 
       <div
@@ -278,7 +278,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
-        className={`relative overflow-auto rounded-xl border border-zinc-800 bg-zinc-950 select-none ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
+        className={`relative overflow-auto rounded-xl border border-slate-200 bg-white select-none ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{ maxHeight: 620 }}
       >
         <svg
@@ -291,7 +291,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
             <line
               key={i}
               x1={l.from.x} y1={l.from.y} x2={l.to.x} y2={l.to.y}
-              stroke="#3f3f46" strokeWidth={1} opacity={linkOpacity}
+              stroke="#cbd5e1" strokeWidth={1} opacity={linkOpacity}
             />
           ))}
           {positioned.map((p) => {
@@ -316,7 +316,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
                 <circle
                   r={r}
                   fill={p.node.adaOnly ? ADA_COLOR : STATUS_COLOR[p.node.status]}
-                  stroke={p.hasChildren && !p.expanded ? '#e4e4e7' : '#18181b'}
+                  stroke={p.hasChildren && !p.expanded ? '#334155' : '#ffffff'}
                   strokeWidth={p.hasChildren && !p.expanded ? 1.5 : 1}
                 />
                 {showLabel && (
@@ -325,7 +325,7 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
                     y={4}
                     textAnchor={rightHalf ? 'start' : 'end'}
                     fontSize={fontSize}
-                    fill={isRoot ? '#f4f4f5' : p.depth >= 4 ? '#8b8b93' : '#a1a1aa'}
+                    fill={isRoot ? '#0f172a' : p.depth >= 4 ? '#94a3b8' : '#334155'}
                     fontWeight={p.depth <= 1 ? 600 : 400}
                   >
                     {p.node.label}
@@ -338,13 +338,13 @@ export function MappingRadialTree({ root }: { root: TreeNode }) {
         </svg>
 
         {hovered && (
-          <div className="pointer-events-none absolute top-2 left-2 bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-200 shadow-lg">
+          <div className="pointer-events-none absolute top-2 left-2 bg-white/95 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 shadow-lg">
             <div className="font-medium">{hovered.node.label}</div>
-            <div className="text-zinc-500">
+            <div className="text-slate-500">
               {hovered.node.adaOnly ? ADA_LABEL : STATUS_LABEL[hovered.node.status]}
             </div>
             {hovered.node.meta && Object.entries(hovered.node.meta).map(([k, v]) => (
-              <div key={k} className="text-zinc-400">{k}: {String(v)}</div>
+              <div key={k} className="text-slate-600">{k}: {String(v)}</div>
             ))}
           </div>
         )}

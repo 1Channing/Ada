@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Link2, Upload, History, LineChart, FileText, Home } from 'lucide-react';
+import { Upload, History, LineChart, FileText, Home, ClipboardList } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
 import { FeedbackCenter } from './FeedbackCenter';
@@ -27,17 +27,19 @@ export function Layout({ children }: LayoutProps) {
     return currentPath.startsWith(path);
   };
 
-  const items: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean }> = [
-    { path: '/', label: 'Études', icon: <Home className="w-4 h-4" /> },
+  const items: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[] }> = [
+    { path: '/', label: 'Accueil', icon: <Home className="w-4 h-4" /> },
+    { path: '/etudes', label: 'Études', icon: <ClipboardList className="w-4 h-4" /> },
     { path: '/admin', label: 'Administratif', icon: <FileText className="w-4 h-4" /> },
-    { path: '/link-generator', label: 'Link Gen', icon: <Link2 className="w-4 h-4" /> },
-    { path: '/ingestion', label: 'Ingestion', icon: <Upload className="w-4 h-4" />, exact: true },
+    // Atelier = campagnes + ingestion + link gen fusionnés (une seule page).
+    { path: '/ingestion', label: 'Atelier', icon: <Upload className="w-4 h-4" />, exact: true, also: ['/link-generator'] },
     { path: '/ingestion/history', label: 'Historique', icon: <History className="w-4 h-4" /> },
     { path: '/market', label: 'Market Intelligence', icon: <LineChart className="w-4 h-4" /> },
   ];
 
-  const activeFor = (it: { path: string; exact?: boolean }) =>
-    it.exact ? currentPath === it.path : isActive(it.path);
+  const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>
+    (it.exact ? currentPath === it.path : isActive(it.path)) ||
+    (it.also ?? []).some((p) => currentPath.startsWith(p));
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">

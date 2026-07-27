@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { startCampaignWatcher } from './services/campaignRunner';
 import { StudiesV2 } from './pages/StudiesV2';
+import { Home } from './pages/Home';
+import { Atelier } from './pages/Atelier';
+import { logPageVisit } from './services/usageLog';
 import { Administrative } from './pages/Administrative';
 import { AdminHistory } from './pages/AdminHistory';
-import { LinkGenerator } from './pages/LinkGenerator';
-import { Ingestion } from './pages/Ingestion';
 import { IngestionHistory } from './pages/IngestionHistory';
 import { MarketIntelligence } from './pages/MarketIntelligence';
 
@@ -23,6 +24,11 @@ function App() {
   useEffect(() => {
     startCampaignWatcher();
   }, []);
+
+  // Journal d'usage : quelles pages servent vraiment au quotidien.
+  useEffect(() => {
+    void logPageVisit(path);
+  }, [path]);
 
   useEffect(() => {
     const handleLocationChange = () => {
@@ -46,10 +52,10 @@ function App() {
       return <AdminHistory />;
     }
     if (path === '/link-generator') {
-      return <LinkGenerator />;
+      return <Atelier initial="linkgen" />;
     }
     if (path === '/ingestion') {
-      return <Ingestion />;
+      return <Atelier initial="ingestion" />;
     }
     if (path === '/ingestion/history') {
       return <IngestionHistory />;
@@ -57,7 +63,11 @@ function App() {
     if (path === '/market') {
       return <MarketIntelligence />;
     }
-    return <StudiesV2 />;
+    if (path === '/etudes') {
+      return <StudiesV2 />;
+    }
+    // Accueil : poste de pilotage (carto, dossiers, dernière campagne).
+    return <Home />;
   };
 
   return (

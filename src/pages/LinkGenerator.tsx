@@ -701,7 +701,7 @@ function UrlCard({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export function LinkGenerator() {
+export function LinkGenerator({ embedded = false }: { embedded?: boolean } = {}) {
   // Load draft on first render
   const draft = loadDraft();
 
@@ -921,10 +921,10 @@ export function LinkGenerator() {
     brand.trim().length > 0 && model.trim().length > 0 && selectedSites.length > 0;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
+    <div className={embedded ? 'w-full space-y-8' : 'max-w-3xl mx-auto space-y-8'}>
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        {!embedded && <div className="flex items-center gap-3">
           <div className="p-2 bg-blue-100 rounded-lg border border-blue-600/20">
             <Link2 className="w-5 h-5 text-blue-600" />
           </div>
@@ -934,7 +934,7 @@ export function LinkGenerator() {
               Generate and validate multi-market search URLs for ADA studies
             </p>
           </div>
-        </div>
+        </div>}
         <button
           onClick={handleClear}
           title="Clear form, results and local session data (does not delete memory)"
@@ -1343,7 +1343,7 @@ export function LinkGenerator() {
       )}
 
       {/* ─── Campagnes de mapping (exploration de masse) ─────────────────── */}
-      <CampaignPanel />
+      {!embedded && <CampaignPanel />}
 
     </div>
   );

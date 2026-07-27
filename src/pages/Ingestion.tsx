@@ -105,7 +105,7 @@ const EMPTY_FORM: FormState = {
   submittedBy: '',
 };
 
-export function Ingestion() {
+export function Ingestion({ embedded = false }: { embedded?: boolean } = {}) {
   const [url, setUrl] = useState('');
   const [adapter, setAdapter] = useState<SiteAdapter | null>(null);
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -464,8 +464,8 @@ export function Ingestion() {
     : false;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div>
+    <div className={embedded ? 'w-full space-y-6' : 'max-w-5xl mx-auto space-y-6'}>
+      {!embedded && <div>
         <h1 className="text-2xl font-bold flex items-center gap-3">
           <Upload className="w-6 h-6 text-blue-500" />
           Ingestion
@@ -475,7 +475,7 @@ export function Ingestion() {
           confirme empiriquement chaque critère (min {INGESTION_MIN_SAMPLE} annonces, ≥{INGESTION_CONFIRM_THRESHOLD * 100}% de cohérence)
           et ne mémorise que les correspondances certaines.
         </p>
-      </div>
+      </div>}
 
       {/* URL bar */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
