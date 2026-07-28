@@ -339,6 +339,9 @@ export interface ScrapeSearchResult {
 // Short-TTL in-memory dedup cache: two contributors ingesting the same URL
 // within minutes (or repeated study scans) hit the cache instead of paying
 // Zyte again. Lost on restart — fine.
+// Sonde taxonomie Bilbasen : un seul dump par boot (voir [BILBASEN_TAXO]).
+let bilbasenTaxoProbed = false;
+
 const SCRAPE_CACHE = new Map<string, { at: number; result: ScrapeSearchResult }>();
 const SCRAPE_CACHE_TTL_MS = 5 * 60 * 1000;
 // A full results page that yields 0 listings is a genuine empty search, not a
@@ -722,6 +725,33 @@ export async function scrapeSearch(
           const nd = html.match(/__NEXT_DATA__[^>]*>([\s\S]*?)<\/script>/);
           const isr = nd ? JSON.parse(nd[1])?.props?.pageProps?.initialSearchRequest : null;
           if (isr) console.warn(`[BILBASEN_ISR] ${activeUrl.slice(0, 90)} → ${JSON.stringify(isr).slice(0, 350)}`);
+          // SONDE TAXONOMIE (28/07, une fois par boot) : où la page embarque-
+          // t-elle sa liste de modèles ? On logge les tableaux candidats du
+          // NEXT_DATA (chemin, taille, clés, 1er élément) pour bâtir la
+          // moisson Bilbasen sur PREUVE — comme MP/AS24, jamais de devinette.
+          if (nd && !bilbasenTaxoProbed) {
+            bilbasenTaxoProbed = true;
+            const found: string[] = [];
+            const walk = (o: unknown, path: string, depth: number): void => {
+              if (depth > 9 || found.length >= 8) return;
+              if (Array.isArray(o)) {
+                if (o.length >= 8 && o.every((x) => x && typeof x === 'object' && !Array.isArray(x))) {
+                  const keys = Object.keys(o[0] as object).slice(0, 6).join(',');
+                  if (/name|label|value|slug|id|model/i.test(keys)) {
+                    found.push(`${path} len=${o.length} keys={${keys}} ex=${JSON.stringify(o[0]).slice(0, 110)}`);
+                  }
+                }
+                for (const el of o.slice(0, 4)) walk(el, `${path}[]`, depth + 1);
+                return;
+              }
+              if (o && typeof o === 'object') {
+                for (const [kk, vv] of Object.entries(o)) walk(vv, `${path}.${kk}`, depth + 1);
+              }
+            };
+            walk(JSON.parse(nd[1])?.props?.pageProps, 'pageProps', 0);
+            for (const f of found) console.warn(`[BILBASEN_TAXO] ${f}`);
+            if (!found.length) console.warn('[BILBASEN_TAXO] aucun tableau candidat dans pageProps — structure à creuser');
+          }
         } catch { /* sonde silencieuse */ }
       }
       if (silentFallback && !silentFallback.modelApplied) {

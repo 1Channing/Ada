@@ -59,7 +59,7 @@ export type Database = {
           year: number | null; mileage: number | null; fuel: string
           site: string; source_country: string
           target_median: number | null; price_gap: number | null
-          kind: string; status: string
+          kind: string; status: string; resolution: string | null
           first_seen_at: string; last_seen_at: string
         }
         Insert: {
@@ -69,7 +69,7 @@ export type Database = {
           year?: number | null; mileage?: number | null; fuel?: string
           site?: string; source_country?: string
           target_median?: number | null; price_gap?: number | null
-          kind?: string; status?: string
+          kind?: string; status?: string; resolution?: string | null
           first_seen_at?: string; last_seen_at?: string
         }
         Update: {
@@ -79,7 +79,7 @@ export type Database = {
           year?: number | null; mileage?: number | null; fuel?: string
           site?: string; source_country?: string
           target_median?: number | null; price_gap?: number | null
-          kind?: string; status?: string
+          kind?: string; status?: string; resolution?: string | null
           first_seen_at?: string; last_seen_at?: string
         }
         Relationships: []

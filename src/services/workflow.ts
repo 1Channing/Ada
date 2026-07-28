@@ -101,6 +101,7 @@ export interface DailyHit {
   price_gap: number | null;
   kind: string;      // 'new' | 'price_drop' ('seed' jamais montré)
   status: string;    // 'inbox' | 'saved' | 'dismissed' | 'cleared' (vidé, mémoire gardée)
+  resolution: string | null; // motif du traitement : 'trop_chere' | 'hors_criteres'
   first_seen_at: string;
   last_seen_at: string;
 }
@@ -243,8 +244,13 @@ export async function clearSearchHits(searchId: string, keepMemory: boolean): Pr
   if (error) throw new Error(error.message);
 }
 
-export async function dismissHit(id: string): Promise<void> {
-  await supabase.from('daily_search_hits').update({ status: 'dismissed' }).eq('id', id);
+/**
+ * Traite une annonce : écartée AVEC son motif ('trop_chere' | 'hors_criteres')
+ * — elle reste dans l'historique des Résultats avec son badge, sort des
+ * compteurs « à traiter », et la mémoire de dédup tient (la ligne reste).
+ */
+export async function dismissHit(id: string, resolution?: 'trop_chere' | 'hors_criteres'): Promise<void> {
+  await supabase.from('daily_search_hits').update({ status: 'dismissed', resolution: resolution ?? null }).eq('id', id);
 }
 
 /** Enregistrer : crée la négociation et marque le hit 'saved'. */

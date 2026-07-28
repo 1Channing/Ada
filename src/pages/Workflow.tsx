@@ -637,18 +637,60 @@ export function HitRow({ hit, searchLabel, onChanged, compact }: {
             <a href={hit.listing_url} target="_blank" rel="noreferrer" title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><ExternalLink className="w-4 h-4" /></a>
           )}
           <button
-            title="Enregistrer → négociations"
+            title="Envoyer en négociations"
             onClick={async () => { await saveHitToNegotiations(hit); onChanged(); }}
             className="p-1.5 rounded-lg text-brand-ocean hover:bg-blue-50"
           >
             <BookmarkPlus className="w-4 h-4" />
           </button>
-          <button title="Supprimer" onClick={async () => { await dismissHit(hit.id); onChanged(); }} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-red-500">
-            <X className="w-4 h-4" />
-          </button>
+          <HitResolveMenu hit={hit} onChanged={onChanged} />
         </div>
       )}
       {hit.status === 'saved' && <span className="text-xs text-emerald-600 font-medium shrink-0">En négociation</span>}
+      {hit.status === 'dismissed' && (
+        <span className="text-xs text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 shrink-0">
+          Traitée{hit.resolution === 'trop_chere' ? ' · trop chère' : hit.resolution === 'hors_criteres' ? ' · hors critères' : ''}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Traitement d'une annonce (demande Channing 28/07) : archivée AVEC son motif
+ * — trop chère ou hors critères — badge conservé dans l'historique.
+ */
+function HitResolveMenu({ hit, onChanged }: { hit: DailyHit; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const resolve = async (reason: 'trop_chere' | 'hors_criteres') => {
+    setOpen(false);
+    await dismissHit(hit.id, reason);
+    onChanged();
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button title="Traiter (motif)" onClick={() => setOpen(!open)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-red-500">
+        <X className="w-4 h-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-8 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-44 text-sm">
+          <button onClick={() => void resolve('trop_chere')} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
+            Traitée · trop chère
+          </button>
+          <button onClick={() => void resolve('hors_criteres')} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
+            Traitée · hors critères
+          </button>
+        </div>
+      )}
     </div>
   );
 }
