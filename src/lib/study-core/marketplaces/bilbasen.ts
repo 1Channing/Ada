@@ -138,6 +138,60 @@ function mapModel(raw: string): string {
   return MODEL_MAP[raw.trim().toUpperCase()] ?? raw.trim();
 }
 
+// ─── Slugs modèle APPRIS des annonces (moisson, 28/07) ───────────────────────
+// La sonde [BILBASEN_TAXO] (dump réel du 28/07 16:54) a prouvé que chaque
+// annonce embarque son URI avec les slugs EXACTS du site :
+// dehydratedState.queries[].state.data.listings[].uri =
+// "https://www.bilbasen.dk/brugt/bil/leapmotor/t03/41-design-5d/6897749"
+// → marque 'leapmotor', modèle 't03'. Chaque scrape apprend les slugs des
+// modèles affichés ; réinjectés ici, prioritaires sur la dérivation naïve
+// (les Classes Mercedes prouvées par URL humaine gardent le dernier mot).
+const LEARNED_MODEL_SLUG: Record<string, string> = {};
+const canonSlug = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
+  const out: Array<{ field: string; code: string; label: string }> = [];
+  try {
+    const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (!m) return out;
+    const queries = JSON.parse(m[1])?.props?.pageProps?.dehydratedState?.queries;
+    if (!Array.isArray(queries)) return out;
+    const seen = new Set<string>();
+    for (const q of queries) {
+      const listings = (q as { state?: { data?: { listings?: unknown } } })?.state?.data?.listings;
+      if (!Array.isArray(listings)) continue;
+      for (const l of listings as Array<{ uri?: unknown; model?: unknown }>) {
+        if (typeof l?.uri !== 'string') continue;
+        const um = l.uri.match(/\/brugt\/bil\/([a-z0-9._-]+)\/([a-z0-9._-]+)\//);
+        if (!um) continue;
+        const [, brandSlug, modelSlug] = um;
+        const code = `${brandSlug};${modelSlug}`;
+        if (seen.has(code)) continue;
+        seen.add(code);
+        const label = typeof l.model === 'string' && l.model.trim()
+          ? l.model.trim()
+          : typeof (l.model as { name?: unknown } | null)?.name === 'string'
+            ? String((l.model as { name: string }).name).trim()
+            : modelSlug.replace(/_/g, ' ');
+        out.push({ field: 'bb:model', code, label });
+      }
+    }
+  } catch { /* moisson silencieuse — jamais bloquante */ }
+  return out;
+}
+
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field !== 'bb:model') return;
+  for (const p of pairs) {
+    const [, modelSlug] = p.code.split(';');
+    if (!modelSlug) continue;
+    // Indexé par label ET par slug canonisé ('yaris_cross' ≡ 'YARIS CROSS').
+    for (const k of [canonSlug(p.label), canonSlug(modelSlug)]) {
+      if (k && !LEARNED_MODEL_SLUG[k]) LEARNED_MODEL_SLUG[k] = modelSlug;
+    }
+  }
+}
+
 function mapFuel(raw: string): string {
   return FUEL_MAP[raw.trim().toUpperCase()] ?? raw.trim();
 }
@@ -184,7 +238,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // (human-confirmed with /brugt/bil/skoda/elroq).
   const brandSlug = pathSlug(mapBrand(params.brand || ''));
   const mercSlug = params.model ? mercedesModelSlug(params.brand, String(params.model)) : null;
-  const modelSlug = mercSlug ?? pathSlug(mapModel(params.model || ''));
+  // Mercedes (URL humaine) > slug APPRIS des annonces du site > dérivation naïve.
+  const modelSlug = mercSlug
+    ?? (params.model ? LEARNED_MODEL_SLUG[canonSlug(params.model)] : undefined)
+    ?? pathSlug(mapModel(params.model || ''));
   const segs = ['https://www.bilbasen.dk/brugt/bil'];
   if (brandSlug) segs.push(brandSlug);
   if (brandSlug && modelSlug) segs.push(modelSlug);
@@ -610,6 +667,8 @@ export const bilbasenAdapter: SiteAdapter = {
   detectSilentFallback,
 
   getFetchProfile,
+  harvestTaxonomy,
+  learnEnumValues,
 
   prefillCriteriaFromUrl,
   extractCandidateSegments,

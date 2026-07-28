@@ -748,9 +748,24 @@ export async function scrapeSearch(
                 for (const [kk, vv] of Object.entries(o)) walk(vv, `${path}.${kk}`, depth + 1);
               }
             };
-            walk(JSON.parse(nd[1])?.props?.pageProps, 'pageProps', 0);
+            const pp = JSON.parse(nd[1])?.props?.pageProps;
+            walk(pp, 'pageProps', 0);
             for (const f of found) console.warn(`[BILBASEN_TAXO] ${f}`);
             if (!found.length) console.warn('[BILBASEN_TAXO] aucun tableau candidat dans pageProps — structure à creuser');
+            // Ciblage FILTRE MODÈLE (28/07, 2e passe) : le dump générique a
+            // montré filterOptions[].filterOptions {key, optionValues} — on
+            // photographie les groupes Make/Model pour bâtir la moisson de
+            // gamme complète (pas seulement les modèles affichés).
+            const dumpFilters = (o: unknown, depth: number): void => {
+              if (depth > 8 || !o || typeof o !== 'object') return;
+              if (Array.isArray(o)) { for (const el of o.slice(0, 20)) dumpFilters(el, depth + 1); return; }
+              const rec = o as { key?: unknown; optionValues?: unknown };
+              if (typeof rec.key === 'string' && /model|make/i.test(rec.key) && Array.isArray(rec.optionValues)) {
+                console.warn(`[BILBASEN_TAXO_FILTER] key=${rec.key} n=${rec.optionValues.length} ex=${JSON.stringify(rec.optionValues.slice(0, 3)).slice(0, 300)}`);
+              }
+              for (const v of Object.values(rec)) dumpFilters(v, depth + 1);
+            };
+            dumpFilters(pp, 0);
           }
         } catch { /* sonde silencieuse */ }
       }
