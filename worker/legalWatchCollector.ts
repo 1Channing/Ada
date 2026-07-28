@@ -227,7 +227,9 @@ async function refreshCountry(profile: FiscalProfileRow, cfg: Required<LegalWatc
 
   const body = {
     model: cfg.model,
-    max_tokens: 8000,
+    // 16000 : l'Autriche a claqué 8000 (28/07, appel facturé perdu) — le
+    // plafond ne coûte que s'il est consommé, le JSON final reste petit.
+    max_tokens: 16000,
     stream: true,
     tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: cfg.max_searches }],
     output_config: { format: { type: 'json_schema', schema: FISCAL_SCHEMA } },
@@ -242,7 +244,7 @@ async function refreshCountry(profile: FiscalProfileRow, cfg: Required<LegalWatc
       'content-type': 'application/json',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(8 * 60 * 1000),
+    signal: AbortSignal.timeout(12 * 60 * 1000), // CZ a dépassé 8 min (28/07)
   });
   if (!res.ok || !res.body) {
     const errText = (await res.text().catch(() => '')).slice(0, 500);

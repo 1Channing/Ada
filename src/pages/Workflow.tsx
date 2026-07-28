@@ -504,11 +504,13 @@ function ResultsTab() {
           ? stats.medianTarget - stats.medianSource : null;
         const isOpen = open[s.id] ?? false;
         return (
-          <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {/* PAS d'overflow-hidden ici : il rognait le panneau du menu ⋯
+              (constat Channing 28/07) — l'arrondi est porté par le bouton. */}
+          <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
             <div className="flex items-center pr-2">
               <button
                 onClick={() => toggle(s)}
-                className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+                className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors rounded-t-xl"
               >
                 <span className={`transition-transform text-slate-400 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
                 <div className="min-w-0 flex-1">
