@@ -51,7 +51,20 @@ export interface CampaignKnowledge {
    * Phase 1 : sert uniquement à DÉPRIORISER les combos improbables.
    */
   motorisations?: MotoMap;
+  /**
+   * BAN « marché prouvé vide » (règle Channing 28/07) : clés emptyComboKey
+   * des modèle×carburant vidés par ≥ 3 SITES DISTINCTS (vide CONFIRMÉ par
+   * les sites eux-mêmes) sans jamais aucun échantillon nulle part. Jamais
+   * replanifiés — la file de campagne ne se pollue plus. Recalculé à chaque
+   * campagne depuis l'historique : une seule annonce trouvée un jour lève
+   * le ban toute seule.
+   */
+  provenEmptyCombos?: Set<string>;
 }
+
+/** Clé canonique du ban marché vide — graphies unifiées via refComboKey. */
+export const emptyComboKey = (brand: string, model: string, fuel: string): string =>
+  `${refComboKey(brand, model)}|${fuel.trim().toUpperCase()}`;
 
 /** Part maximale de l'exploration allouée aux modèles « expansion référentiel »
  *  — les combos issus de notre mémoire restent prioritaires (on maintient ce
@@ -279,6 +292,9 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
     item.year = atom.year;
     item.reason += ` (année ${atom.year})`;
     if (atom.moto) item.reason += ` — improbable : ${atom.moto}`;
+    // BAN marché prouvé vide : ce modèle×carburant a rendu vide-confirmé sur
+    // ≥ 3 sites — on ne le replanifie plus (voir CampaignKnowledge).
+    if (item.fuel && k.provenEmptyCombos?.has(emptyComboKey(item.brand, item.model, item.fuel))) continue;
     items.push(item);
   }
 

@@ -17,7 +17,7 @@
  * **PURE ARCHITECTURE:**
  * - Parsers: 100% pure functions (NO I/O, NO side effects)
  * - This module: Re-exports parsers + provides helpers
- * - Adapters (scraperClient.ts, worker): Handle I/O and call parsers
+ * - Adapters (worker): Handle I/O and call parsers
  *
  * **DETERMINISTIC GUARANTEE:**
  * Given identical HTML, both INSTANT and SCHEDULED produce identical listings.

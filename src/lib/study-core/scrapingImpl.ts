@@ -13,7 +13,7 @@
  * - Same fallback logic
  *
  * **EXTRACTED FROM:**
- * - src/lib/scraperClient.ts (advanced instant scraping)
+ * - worker/scraper.ts (moteur unique de scraping)
  * - worker/scraper.js (simplified scheduled scraping)
  *
  * **ENVIRONMENT AGNOSTIC:**

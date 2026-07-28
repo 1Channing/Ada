@@ -26,7 +26,7 @@ import { generateSearchUrlsWithMemory } from '../src/lib/linkgen/generator';
 import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
-import { scrapeSearch } from './scraper';
+import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 
 const TICK_MS = 10 * 60 * 1000;
 const MAX_PAGES = 3;
@@ -124,6 +124,16 @@ async function scrapeCountry(
       console.warn(`[DAILY] « ${name} »: ${site.key} a servi la page marque entière (repli silencieux) — annonces écartées, mapping à corriger`);
       continue;
     }
+    // Chaque scrape d'étude quotidienne nourrit aussi le Market Intelligence
+    // (médianes + vélocité) — demande Channing 28/07. Marqué à sa source pour
+    // rester distinguable des campagnes ; best-effort, jamais bloquant.
+    await recordStudyMarketSnapshot(
+      supabase,
+      { site: site.key, country, brand: s.brand.toUpperCase(), model: (s.model || '').toUpperCase() },
+      result.listings ?? [],
+      url,
+      'Étude quotidienne',
+    );
     out.push({ site: site.key, listings: (result.listings ?? []) as never[] });
   }
   return out;

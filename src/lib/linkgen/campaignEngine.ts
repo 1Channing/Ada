@@ -25,7 +25,7 @@ import type { SiteKey } from './types';
 import { writeMarketSnapshot, brandKey } from '../../services/marketData';
 import { loadRefWindows, getRefWindowsCached, refComboKey, findRefWindow, yearInRefWindow } from '../../services/vehicleRef';
 import { getMotorisationsCached } from '../../services/vehicleMotorisations';
-import { YEAR_PIN_MIN } from './campaignPlanner';
+import { YEAR_PIN_MIN, emptyComboKey } from './campaignPlanner';
 import type { CampaignKnowledge, CampaignPlanItem } from './campaignPlanner';
 import type { ScrapedListing } from '../study-core/types';
 
@@ -177,6 +177,50 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
   // chargée » (0 clés) de « chargée mais aucun combo à déprioriser ».
   console.warn(`[CAMPAIGN_KNOWLEDGE] référentiel motorisations : ${Object.keys(motorisations).length} clés modèle chargées`);
 
+  // ── BAN « marché prouvé vide » (règle Channing 28/07) : un modèle×carburant
+  // rendu vide-CONFIRMÉ par ≥ 3 sites distincts (le site affiche lui-même
+  // « aucun résultat »), jamais contredit par le moindre échantillon, sort de
+  // la planification. Recalculé ici à chaque campagne depuis l'historique :
+  // une seule annonce trouvée un jour, n'importe où, lève le ban tout seul.
+  const provenEmptyCombos = new Set<string>();
+  try {
+    const [{ data: empt }, { data: pos }] = await Promise.all([
+      supabase
+        .from('linkgen_campaign_items')
+        .select('site, brand, model, criteria')
+        .eq('outcome', 'insufficient')
+        .eq('sample_size', 0)
+        .ilike('detail', 'marché réellement vide%')
+        .limit(10000),
+      supabase
+        .from('linkgen_campaign_items')
+        .select('brand, model, criteria')
+        .gt('sample_size', 0)
+        .limit(20000),
+    ]);
+    const fuelOf = (c: unknown) => String((c as { fuel?: string } | null)?.fuel ?? '').trim().toUpperCase();
+    const positives = new Set<string>();
+    for (const r of (pos ?? []) as Array<{ brand: string; model: string; criteria: unknown }>) {
+      const f = fuelOf(r.criteria);
+      if (f) positives.add(emptyComboKey(r.brand, r.model, f));
+    }
+    const sitesByCombo = new Map<string, Set<string>>();
+    for (const r of (empt ?? []) as Array<{ site: string; brand: string; model: string; criteria: unknown }>) {
+      const f = fuelOf(r.criteria);
+      if (!f || !r.site) continue;
+      const k = emptyComboKey(r.brand, r.model, f);
+      (sitesByCombo.get(k) ?? sitesByCombo.set(k, new Set()).get(k)!).add(r.site);
+    }
+    for (const [k, sites] of sitesByCombo) {
+      if (sites.size >= 3 && !positives.has(k)) provenEmptyCombos.add(k);
+    }
+    if (provenEmptyCombos.size > 0) {
+      console.warn(`[CAMPAIGN_KNOWLEDGE] ban marché vide : ${provenEmptyCombos.size} combo(s) modèle×carburant exclus (≥3 sites vides confirmés, aucun échantillon jamais vu)`);
+    }
+  } catch (e) {
+    console.warn('[CAMPAIGN_KNOWLEDGE] calcul du ban marché vide échoué (fail-open, aucun ban):', e instanceof Error ? e.message : e);
+  }
+
   return {
     brands: [...brands].sort(),
     modelsByBrand: toRec(modelsByBrand),
@@ -186,6 +230,7 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     refWindows,
     refCombos,
     motorisations,
+    provenEmptyCombos,
   };
 }
 

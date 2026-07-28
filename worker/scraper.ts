@@ -78,11 +78,12 @@ function siteKeyForUrl(url: string): string {
  * src/services/marketData.ts:writeMarketSnapshot but uses the worker's
  * service-role client. Best-effort: a study must never fail because of it.
  */
-async function recordStudyMarketSnapshot(
+export async function recordStudyMarketSnapshot(
   supabase: SupabaseClient,
   segment: { site: string; country: string; brand: string; model: string },
   listings: ScrapedListing[],
   sourceUrl: string,
+  submittedBy = 'Étude',
 ): Promise<void> {
   try {
     if (!segment.brand || !segment.model || !segment.country) return;
@@ -106,7 +107,7 @@ async function recordStudyMarketSnapshot(
         price_median: Math.round(percentileAsc(pricesEur, 0.5)),
         price_p75: Math.round(percentileAsc(pricesEur, 0.75)),
         price_max: pricesEur[pricesEur.length - 1],
-        price_avg: avg, currency: 'EUR', source_url: sourceUrl, submitted_by: 'Étude',
+        price_avg: avg, currency: 'EUR', source_url: sourceUrl, submitted_by: submittedBy,
       })
       .select('id').single();
     if (snapErr || !snap) {

@@ -1,4 +1,4 @@
-import { fetchHtmlLite } from '../scraperClient';
+import { fetchHtmlLite } from './fetchHtmlLite';
 import { generateHypotheses } from './correctionStrategies';
 import { validateSite } from './siteValidators/index';
 import { getSiteAdapter } from '../study-core/marketplaces';

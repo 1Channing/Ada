@@ -15,7 +15,7 @@
  * - Same listing normalization
  *
  * **EXECUTION MODES:**
- * - INSTANT: User-triggered from UI (uses src/lib/scraperClient.ts for scraping)
+ * - INSTANT: User-triggered from UI (scraping via le worker (moteur unique))
  * - SCHEDULED: Background jobs (uses worker/scraper.js for scraping)
  *
  * Both modes MUST call functions from this module for business logic.
