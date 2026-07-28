@@ -504,9 +504,9 @@ function ResultsTab() {
           ? stats.medianTarget - stats.medianSource : null;
         const isOpen = open[s.id] ?? false;
         return (
-          {/* PAS d'overflow-hidden ici : il rognait le panneau du menu ⋯
-              (constat Channing 28/07) — l'arrondi est porté par le bouton. */}
           <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
+            {/* PAS d'overflow-hidden sur la carte : il rognait le panneau du
+                menu ⋯ (constat 28/07) — l'arrondi est porté par le bouton. */}
             <div className="flex items-center pr-2">
               <button
                 onClick={() => toggle(s)}
