@@ -118,6 +118,8 @@ const FUEL_MAP: Record<string, string> = {
 const MODEL_FACET: Record<string, { slug: string; id: string }> = {
   'YARIS CROSS': { slug: 'yaris-cross', id: '13882' }, // vérifié Channing 20/07/2026
   Q8: { slug: 'q8', id: '11868' }, // vérifié URL humaine (ingestion Channing 27/07)
+  RAV4: { slug: 'rav4', id: '1237' }, // vérifié URL humaine (Channing 28/07)
+  'RAV 4': { slug: 'rav4', id: '1237' },
 };
 
 /**

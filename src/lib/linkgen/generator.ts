@@ -93,112 +93,71 @@ export function generateSearchUrls(params: LinkGenParams): LinkGenUrlResult[] {
   });
 }
 
-// ─── Memory-first URL reconstruction ─────────────────────────────────────────
+// ─── Facettes modèle Marktplaats apprises (générique, tous modèles) ─────────
+//
+// La grammaire serveur de Marktplaats filtre le modèle par facette de chemin
+// `/f/{slug}/{id}/` — l'id est opaque et ne peut PAS être deviné. Chaque
+// ingestion humaine d'une URL à facette l'enregistre dans la mémoire
+// (fieldToParam.model → _path:model_id). Ce module extrait cette facette de
+// N'IMPORTE QUELLE ligne mémoire du même modèle (peu importe son scope
+// carburant/finition) et réécrit l'URL native pour y déplacer le modèle du
+// texte libre vers la facette. Appris une fois → sert toutes les études.
+
+interface MpFacet { slug: string; id: string }
+
+export function extractMarktplaatsModelFacet(rows: Array<Record<string, unknown>>): MpFacet | null {
+  for (const row of rows) {
+    const mapping = (row.validated_mapping ?? row.inferred_mapping) as InferredMapping | null;
+    const modelEntry = mapping?.fieldToParam?.model as { paramName?: string; rawValue?: string } | undefined;
+    if (!modelEntry || modelEntry.paramName !== '_path:model_id' || !modelEntry.rawValue) continue;
+    const id = String(modelEntry.rawValue);
+    const segs = ((row.detected_params as { pathSegments?: string[] } | null)?.pathSegments ?? []);
+    const fIdx = segs.indexOf('f');
+    if (fIdx < 0 || fIdx + 2 >= segs.length) continue;
+    const slugs = segs[fIdx + 1].split('+');
+    const ids = segs[fIdx + 2].split('+');
+    const i = ids.indexOf(id);
+    if (i < 0 || !slugs[i]) continue;
+    return { slug: slugs[i], id };
+  }
+  return null;
+}
+
+const mpNormalize = (s: string) =>
+  s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim()
+    .replace(/\s+/g, '+').replace(/[^a-z0-9+\-]/g, '');
 
 /**
- * Reconstruct a search URL from a validated InferredMapping record + current params.
- * Returns null if the mapping cannot produce a complete, valid URL.
+ * Déplace le modèle du texte libre `/q/…/` vers la facette `/f/…/` d'une URL
+ * Marktplaats générée par la grammaire native. Sans texte restant, le segment
+ * /q/ disparaît ; la facette modèle passe DEVANT les facettes existantes
+ * (ordre prouvé par les URLs humaines : modèle+carburant).
  */
-function reconstructUrlFromMapping(
-  mapping: InferredMapping,
-  _detectedParams: { queryParams: Record<string, string>; hashParams: Record<string, string> } | null,
-  params: LinkGenParams,
-  site: SiteKey
-): string | null {
-  if (!mapping.brandParam && !mapping.modelParam) return null;
-
-  const adapter = getSiteAdapter(site);
-  const { yearFrom, yearTo } = resolveYearRange(params);
-
-  // Use the base URL template for the site and substitute values
-  // via the learned param names
-  const template = adapter.urlTemplate;
-  if (!template) return null;
-
-  // Build substitution from learned field→param mappings
-  const subs: Record<string, string> = {};
-
-  if (mapping.brandParam && params.brand) {
-    subs[mapping.brandParam] = adapter.mapBrand(params.brand);
-  }
-  if (mapping.modelParam && params.model) {
-    subs[mapping.modelParam] = adapter.mapModel(params.model);
-  }
-  if (mapping.yearFromParam && yearFrom) subs[mapping.yearFromParam] = yearFrom;
-  if (mapping.yearToParam && yearTo) subs[mapping.yearToParam] = yearTo;
-  if (mapping.mileageParam && params.mileage) subs[mapping.mileageParam] = String(params.mileage);
-  if (mapping.fuelParam && params.fuel) {
-    const mappedFuel = adapter.mapFuel(params.fuel);
-    if (mappedFuel) subs[mapping.fuelParam] = mappedFuel;
-  }
-  if (mapping.trimParam && params.trim) subs[mapping.trimParam] = params.trim.trim();
-
-  // If we couldn't populate brand or model, don't use this mapping
-  if (!subs[mapping.brandParam ?? ''] && !subs[mapping.modelParam ?? '']) return null;
-
-  // Verify at least brand or model can be placed
-  const hasBrand = mapping.brandParam && subs[mapping.brandParam];
-  const hasModel = mapping.modelParam && subs[mapping.modelParam];
-  if (!hasBrand && !hasModel) return null;
-
-  // Reconstruct by replacing known param values in the template
-  // Strategy: start from a base URL derived from detectedParams domain + path,
-  // then layer the current substitutions on top.
-  // The safest fallback is to use the standard template substitution.
+export function applyMarktplaatsModelFacet(url: string, facet: MpFacet, modelText: string): string {
   try {
-    const baseUrl = new URL(template.split('?')[0].split('#')[0]);
-    if (!baseUrl.hostname.includes(adapter.domain)) return null;
-
-    // Use original template approach — replace placeholders with learned param names
-    // by building the URL from scratch using the template
-    let rebuilt = template;
-
-    // Map template placeholders to learned param names, then to values
-    const fieldToPlaceholder: Record<string, string> = {
-      brand: '{brand}',
-      model: '{model}',
-      yearFrom: '{yearFrom}',
-      yearTo: '{yearTo}',
-      mileage: '{mileage}',
-      fuel: '{fuel}',
-      trim: '{trim}',
-    };
-
-    const fieldToValue: Record<string, string> = {
-      brand: subs[mapping.brandParam ?? ''] ?? '',
-      model: subs[mapping.modelParam ?? ''] ?? '',
-      yearFrom: yearFrom,
-      yearTo: yearTo,
-      mileage: params.mileage ? String(params.mileage) : '',
-      fuel: mapping.fuelParam && subs[mapping.fuelParam] ? subs[mapping.fuelParam] : '',
-      trim: params.trim?.trim() ?? '',
-    };
-
-    for (const [field, placeholder] of Object.entries(fieldToPlaceholder)) {
-      const value = fieldToValue[field] ?? '';
-      if (value) {
-        rebuilt = rebuilt.split(placeholder).join(value);
-      }
+    const u = new URL(url);
+    if (!u.hostname.includes('marktplaats.nl')) return url;
+    const segs = u.pathname.split('/').filter(Boolean); // l / auto-s / brand / [q, txt] / [f, slugs, ids]
+    if (segs.length < 3 || segs[0] !== 'l') return url;
+    const head = segs.slice(0, 3);
+    let qText = '';
+    let slugs: string[] = [];
+    let ids: string[] = [];
+    for (let i = 3; i < segs.length; i++) {
+      if (segs[i] === 'q' && i + 1 < segs.length) { qText = segs[i + 1]; i += 1; }
+      else if (segs[i] === 'f' && i + 2 < segs.length) { slugs = segs[i + 1].split('+'); ids = segs[i + 2].split('+'); i += 2; }
     }
-
-    // Strip unfilled placeholders
-    rebuilt = rebuilt
-      .replace(/&[^=&|#?]+=([^&|#?]*\{[^}]+\}[^&|#?]*)/g, '')
-      .replace(/\|[^|#]+:\{[^}]+\}/g, '');
-
-    // Un placeholder resté brut ({query}…) donne une page où le site affiche
-    // littéralement « query » dans sa barre SANS AUCUN filtre (vu Marktplaats
-    // 27/07 : son template n'a pas de placeholder {brand}/{model}). Dans ce
-    // cas la reconstruction est refusée → l'appelant retombe sur la grammaire
-    // native de l'adaptateur (buildSearchUrl), qui est la forme prouvée.
-    if (/\{[^}]*\}/.test(rebuilt)) return null;
-
-    // Final sanity check: URL must contain expected domain
-    if (!rebuilt.includes(adapter.domain)) return null;
-
-    return rebuilt;
+    if (ids.includes(facet.id)) return url; // facette déjà posée
+    // Retire les tokens du modèle du texte libre (ils passent en facette).
+    const modelTokens = new Set(mpNormalize(modelText).split('+').filter(Boolean));
+    const remaining = qText.split('+').filter((t) => t && !modelTokens.has(t));
+    const newSlugs = [facet.slug, ...slugs];
+    const newIds = [facet.id, ...ids];
+    const path = ['', ...head, ...(remaining.length ? ['q', remaining.join('+')] : []), 'f', newSlugs.join('+'), newIds.join('+'), ''].join('/');
+    u.pathname = path;
+    return u.toString();
   } catch {
-    return null;
+    return url;
   }
 }
 
@@ -347,22 +306,46 @@ export function fixBilbasenQueryForm(url: string): string {
  * feeds the "Variant" box; the model belongs to the model facet carried by
  * the validated URL's path). AS24's equivalent is the kwd= parameter.
  */
-function injectTrimIntoUrl(url: string, trim: string): string {
+/**
+ * Pose la finition sur une URL déjà construite, dans le slot texte-libre PROUVÉ
+ * de chaque site : LBC text= / AS24 kwd= / Bilbasen free= / Marktplaats chemin
+ * /q/…/ (le hash #q: n'est JAMAIS envoyé au serveur — étude RAV4 GR SPORT
+ * 27/07 : la finition posée en hash était invisible du site).
+ */
+export function injectTrimIntoUrl(url: string, trim: string): string {
   const t = trim.trim();
   if (!t) return url;
   try {
     const u = new URL(url);
     if (u.hostname.includes('marktplaats.nl')) {
-      const norm = t.normalize('NFD').replace(/\p{M}/gu, '')
-        .toLowerCase().replace(/\s+/g, '+').replace(/[^a-z0-9+\-]/g, '');
+      const norm = mpNormalize(t);
       if (!norm) return url;
-      const parts = u.hash.replace(/^#/, '').split('|').filter((seg) => seg && !seg.startsWith('q:'));
-      parts.unshift(`q:${norm}`);
-      u.hash = `#${parts.join('|')}`;
+      const segs = u.pathname.split('/').filter(Boolean);
+      if (segs.length < 3 || segs[0] !== 'l') return url;
+      const qIdx = segs.indexOf('q', 3);
+      if (qIdx >= 0 && qIdx + 1 < segs.length) {
+        // Fusion sans doublon avec le texte déjà présent (ex: modèle sans facette).
+        const existing = segs[qIdx + 1].split('+').filter(Boolean);
+        for (const tok of norm.split('+')) if (tok && !existing.includes(tok)) existing.push(tok);
+        segs[qIdx + 1] = existing.join('+');
+      } else {
+        // /q/ se place après la marque, AVANT le groupe /f/ (forme humaine prouvée).
+        const fIdx = segs.indexOf('f', 3);
+        segs.splice(fIdx >= 0 ? fIdx : segs.length, 0, 'q', norm);
+      }
+      u.pathname = `/${segs.join('/')}/`;
       return u.toString();
     }
     if (u.hostname.includes('autoscout24.')) {
       u.searchParams.set('kwd', t);
+      return u.toString();
+    }
+    if (u.hostname.includes('leboncoin.fr')) {
+      u.searchParams.set('text', t);
+      return u.toString();
+    }
+    if (u.hostname.includes('bilbasen.dk')) {
+      u.searchParams.set('free', t);
       return u.toString();
     }
   } catch { /* URL invalide — on garde l'originale */ }
@@ -472,7 +455,6 @@ export async function generateSearchUrlsWithMemory(
     if (memoryRecord) {
       const record = memoryRecord as unknown as MappingMemoryRecord;
       const mapping = (record.validated_mapping ?? record.inferred_mapping) as InferredMapping | null;
-      const detectedParams = record.detected_params as { queryParams: Record<string, string>; hashParams: Record<string, string> } | null;
 
       logs.push({
         level: 'INPUT',
@@ -531,42 +513,17 @@ export async function generateSearchUrlsWithMemory(
         continue;
       }
 
-      if (mapping) {
-        const reconstructed = reconstructUrlFromMapping(mapping, detectedParams, params, site);
-
-        if (reconstructed) {
-          // Même normalisation que la branche « URL validée » : la
-          // reconstruction ressortait les vieilles formes ?make=&model= de
-          // Bilbasen (paramètres IGNORÉS par le site → page marque entière,
-          // boîte noire du 26/07 : C-HR servi en Aygo) et des URLs sans année.
-          let normalized = fixBilbasenQueryForm(reconstructed);
-          normalized = enforceYearParams(normalized, params);
-          normalized = fixMobiledeMileageForm(normalized, params);
-          const finalUrl = await applyLearnedSecondaryParams(normalized, site, mapping, params, logs);
-          logs.push({
-            level: 'OUTPUT',
-            message: '[MAPPING_MEMORY] URL reconstructed from learned mapping',
-            data: { url: finalUrl },
-          });
-
-          results.push({
-            site,
-            country: adapter.country,
-            url: finalUrl,
-            debugLogs: logs,
-            warnings: [],
-            validationStatus: 'not_checked',
-            mappingSource: 'learned',
-          });
-          continue;
-        }
-
-        logs.push({
-          level: 'WARNING',
-          message: '[MAPPING_MEMORY] Learned mapping could not reconstruct a complete URL — falling back to template',
-          data: { site },
-        });
-      }
+      // PAS de reconstruction par template ici : cette voie strippait
+      // silencieusement les critères qu'elle ne savait pas placer (AS24 NL
+      // 27/07 : URL sans carburant ni finition sur l'étude RAV4 GR SPORT).
+      // Quand l'URL validée n'est pas réutilisable, la seule voie sûre est la
+      // grammaire native de l'adaptateur (buildSearchUrl, fallback ci-dessous)
+      // + les paramètres secondaires appris par-dessus.
+      logs.push({
+        level: 'INPUT',
+        message: '[MAPPING_MEMORY] Validated URL not reusable for this scope — native grammar fallback',
+        data: { site, wantFuel, wantTrim, recFuel: rowFuel(memoryRecord as Record<string, unknown>), recTrim: rowTrim(memoryRecord as Record<string, unknown>) },
+      });
     } else {
       logs.push({
         level: 'INPUT',
@@ -582,6 +539,23 @@ export async function generateSearchUrlsWithMemory(
     // Even on template fallback, a memory record's learned secondary params
     // (power/doors/seats + enum codes) still apply on top of the template URL.
     let fallbackUrl = fallbackResult.url;
+    // Facette modèle Marktplaats apprise par N'IMPORTE QUELLE ligne mémoire du
+    // modèle (même à scope carburant/finition différent) : retrofittée sur
+    // l'URL native — le modèle sort du texte libre, la finition y reste seule.
+    if (site === 'MARKTPLAATS' && params.model) {
+      const facet = extractMarktplaatsModelFacet(candidates);
+      if (facet) {
+        const before = fallbackUrl;
+        fallbackUrl = applyMarktplaatsModelFacet(fallbackUrl, facet, params.model);
+        if (fallbackUrl !== before) {
+          logs.push({
+            level: 'MAPPING',
+            message: '[MAPPING_MEMORY] Facette modèle Marktplaats retrofittée depuis la mémoire',
+            data: { slug: facet.slug, id: facet.id, url: fallbackUrl },
+          });
+        }
+      }
+    }
     if (memoryRecord) {
       const record = memoryRecord as unknown as MappingMemoryRecord;
       const mapping = (record.validated_mapping ?? record.inferred_mapping) as InferredMapping | null;
