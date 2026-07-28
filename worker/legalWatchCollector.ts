@@ -27,8 +27,13 @@ import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 
 const POLL_MS = 24 * 3600 * 1000;
 const DEFAULT_MODEL = 'claude-opus-5';
-const DEFAULT_COUNTRIES_PER_DAY = 4;
-const DEFAULT_MAX_SEARCHES = 8;
+// Défauts calibrés sur le passage réel du 27/07 : ~1,30 $/pays avec 8
+// recherches sur Opus (chaque résultat de recherche est refacturé en entrée à
+// chaque itération). On divise le débit par défaut ; tout reste réglable sans
+// redéploiement via app_config 'legal_watch'.
+const DEFAULT_COUNTRIES_PER_DAY = 2;
+const DEFAULT_MAX_SEARCHES = 4;
+const DEFAULT_REFRESH_DAYS = 14; // un profil vérifié n'est re-vérifié que tous les N jours
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
 
@@ -36,7 +41,16 @@ interface LegalWatchConfig {
   model?: string;
   countries_per_day?: number;
   max_searches?: number;
+  refresh_days?: number;
 }
+
+// Tarifs $/Mtoken (entrée, sortie) pour l'estimation de coût loggée — à titre
+// indicatif seulement, la facture Anthropic fait foi.
+const PRICE_PER_MTOK: Record<string, [number, number]> = {
+  'claude-opus-5': [5, 25],
+  'claude-sonnet-5': [3, 15],
+  'claude-haiku-4-5': [1, 5],
+};
 
 interface FiscalProfileRow {
   country: string;
@@ -158,6 +172,7 @@ async function loadConfig(): Promise<Required<LegalWatchConfig>> {
     model: cfg.model || DEFAULT_MODEL,
     countries_per_day: cfg.countries_per_day ?? DEFAULT_COUNTRIES_PER_DAY,
     max_searches: cfg.max_searches ?? DEFAULT_MAX_SEARCHES,
+    refresh_days: cfg.refresh_days ?? DEFAULT_REFRESH_DAYS,
   };
 }
 
@@ -175,9 +190,9 @@ async function collectOnce(): Promise<void> {
     console.warn('[LEGAL_WATCH] lecture des profils impossible:', error.message);
     return;
   }
-  const dayAgo = Date.now() - 24 * 3600 * 1000;
+  const staleBefore = Date.now() - cfg.refresh_days * 24 * 3600 * 1000;
   const due = ((data ?? []) as FiscalProfileRow[])
-    .filter((p) => !p.verified || new Date(p.updated_at).getTime() < dayAgo)
+    .filter((p) => !p.verified || new Date(p.updated_at).getTime() < staleBefore)
     .slice(0, cfg.countries_per_day);
   if (!due.length) {
     console.warn('[LEGAL_WATCH] tous les profils sont frais — rien à rafraîchir aujourd\'hui');
@@ -205,6 +220,9 @@ async function refreshCountry(profile: FiscalProfileRow, cfg: Required<LegalWatc
     `5. Les actualités fiscales/légales des 12 derniers mois utiles à un négociant (réformes votées, barèmes ${new Date().getFullYear() + 1}, fins de dispositifs).`,
     `Privilégie les sources officielles (administrations fiscales, journaux officiels) et cite les URLs consultées.`,
     `Réponds en français, de façon factuelle et chiffrée.`,
+    // Le passage réel du 27/07 : la prose entre les recherches a fait sauter
+    // le plafond de sortie (FR perdu, appel facturé quand même).
+    `IMPORTANT : n'écris AUCUN texte d'accompagnement ni commentaire entre tes recherches — ta seule sortie rédigée est le JSON final. Sois dense et bref dans les champs texte.`,
   ].join('\n');
 
   const body = {
@@ -231,7 +249,12 @@ async function refreshCountry(profile: FiscalProfileRow, cfg: Required<LegalWatc
     throw new Error(`API ${res.status}: ${errText}`);
   }
 
-  const { text, stopReason } = await readSseText(res.body);
+  const { text, stopReason, usage } = await readSseText(res.body);
+  const [pIn, pOut] = PRICE_PER_MTOK[cfg.model] ?? [0, 0];
+  const cost = pIn ? ((usage.input / 1e6) * pIn + (usage.output / 1e6) * pOut).toFixed(2) : '?';
+  console.warn(
+    `[LEGAL_WATCH] ${profile.country} — ${usage.input} tok entrée / ${usage.output} tok sortie ≈ ${cost} $ (${cfg.model}, ${cfg.max_searches} recherches max)`,
+  );
   if (stopReason && stopReason !== 'end_turn') {
     // max_tokens / refusal : on ne parse pas un JSON potentiellement tronqué.
     throw new Error(`stop_reason inattendu: ${stopReason}`);
@@ -309,9 +332,10 @@ const normTitle = (t: string) => t.toLowerCase().normalize('NFD').replace(/\p{M}
  * web_search_tool_result sont ignorés — seul le JSON final nous intéresse)
  * et remonte le stop_reason.
  */
-async function readSseText(stream: NodeJS.ReadableStream | ReadableStream<Uint8Array>): Promise<{ text: string; stopReason: string | null }> {
+async function readSseText(stream: NodeJS.ReadableStream | ReadableStream<Uint8Array>): Promise<{ text: string; stopReason: string | null; usage: { input: number; output: number } }> {
   let buffer = '';
   let stopReason: string | null = null;
+  const usage = { input: 0, output: 0 };
   // Un buffer par bloc texte : le modèle peut parler AVANT ses recherches ;
   // seul le DERNIER bloc texte contient le JSON contraint par le schéma.
   const textByBlock = new Map<number, string>();
@@ -329,8 +353,14 @@ async function readSseText(stream: NodeJS.ReadableStream | ReadableStream<Uint8A
     if (ev.type === 'content_block_start' && ev.content_block?.type === 'text') textByBlock.set(ev.index, '');
     else if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && textByBlock.has(ev.index))
       textByBlock.set(ev.index, textByBlock.get(ev.index) + ev.delta.text);
-    else if (ev.type === 'message_delta' && ev.delta?.stop_reason) stopReason = ev.delta.stop_reason;
-    else if (ev.type === 'error') throw new Error(`stream error: ${JSON.stringify(ev.error).slice(0, 300)}`);
+    else if (ev.type === 'message_delta') {
+      if (ev.delta?.stop_reason) stopReason = ev.delta.stop_reason;
+      if (typeof ev.usage?.output_tokens === 'number') usage.output = Math.max(usage.output, ev.usage.output_tokens);
+      if (typeof ev.usage?.input_tokens === 'number') usage.input = Math.max(usage.input, ev.usage.input_tokens);
+    } else if (ev.type === 'message_start') {
+      const u = ev.message?.usage;
+      if (typeof u?.input_tokens === 'number') usage.input = Math.max(usage.input, u.input_tokens);
+    } else if (ev.type === 'error') throw new Error(`stream error: ${JSON.stringify(ev.error).slice(0, 300)}`);
   };
 
   const feed = (chunk: string) => {
@@ -348,5 +378,5 @@ async function readSseText(stream: NodeJS.ReadableStream | ReadableStream<Uint8A
   }
   if (buffer) handleLine(buffer.trimEnd());
   const lastIndex = Math.max(...textByBlock.keys(), -1);
-  return { text: lastIndex >= 0 ? (textByBlock.get(lastIndex) as string) : '', stopReason };
+  return { text: lastIndex >= 0 ? (textByBlock.get(lastIndex) as string) : '', stopReason, usage };
 }
