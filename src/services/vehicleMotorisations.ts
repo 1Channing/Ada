@@ -85,6 +85,30 @@ export interface MotoVerdict {
   unlikely: boolean;
   /** Raison chiffrée, affichée dans le rapport de campagne (traçabilité). */
   detail?: string;
+  /**
+   * Force du verdict (phase 2, 28/07) :
+   *  - 'zero'  : 0 immat. UE sur toute la période, modèle bien couvert — le
+   *              seul verdict assez sûr pour EXCLURE un combo au ciblage forcé.
+   *  - 'noise' : quelques immat. anecdotiques — dépriorisation seulement
+   *              (un micro-marché d'import reste possible).
+   *  - 'year'  : le carburant existe mais pas autour de cette année —
+   *              dépriorisation seulement.
+   */
+  severity?: 'zero' | 'noise' | 'year';
+}
+
+/**
+ * Total d'immatriculations UE d'un carburant pour un modèle (suggestion PHEV
+ * du planificateur). null = modèle inconnu ou mal couvert (fail-open).
+ */
+export function motoFuelTotal(map: MotoMap, brand: string, model: string, fuel: string): number | null {
+  const mk = refModelKey(brand, model);
+  if (!mk) return null;
+  const rows = map[`${brandKey(brand)}|${mk}`] ?? [];
+  if (rows.length === 0) return null;
+  const modelTotal = rows.reduce((s, r) => s + r.total, 0);
+  if (modelTotal < MIN_MODEL_TOTAL) return null;
+  return rows.filter((r) => r.fuel === fuel).reduce((s, r) => s + r.total, 0);
 }
 
 export function comboMotoVerdict(
@@ -118,6 +142,7 @@ export function comboMotoVerdict(
   if (fuelTotal < noiseCeil) {
     return {
       unlikely: true,
+      severity: fuelTotal === 0 ? 'zero' : 'noise',
       detail: fuelTotal === 0
         ? `0 immat. UE 2020-2025 en ${fuel} (${modelTotal.toLocaleString('fr-FR')} immat. autres énergies)`
         : `≈0 immat. UE 2020-2025 en ${fuel} (${fuelTotal} anomalies sur ${modelTotal.toLocaleString('fr-FR')})`,
@@ -132,6 +157,7 @@ export function comboMotoVerdict(
     if (around === 0) {
       return {
         unlikely: true,
+        severity: 'year',
         detail: `${fuel} existe (${fuelTotal.toLocaleString('fr-FR')} immat.) mais 0 en ${year} ± 1`,
       };
     }

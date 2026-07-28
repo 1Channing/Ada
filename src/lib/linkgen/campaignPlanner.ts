@@ -22,7 +22,7 @@
 
 import { refComboKey, refModelKey } from '../../services/vehicleRef';
 import { brandKey, canonKey } from '../../services/marketData';
-import { comboMotoVerdict, type MotoMap } from '../../services/vehicleMotorisations';
+import { comboMotoVerdict, motoFuelTotal, type MotoMap } from '../../services/vehicleMotorisations';
 
 export interface CampaignKnowledge {
   brands: string[];
@@ -60,6 +60,14 @@ export interface CampaignKnowledge {
    * le ban toute seule.
    */
   provenEmptyCombos?: Set<string>;
+  /**
+   * PREUVE TERRAIN (28/07) : combos modèle×carburant VUS vivants au moins une
+   * fois — carburant validé en mémoire par une ingestion, ou le moindre
+   * échantillon en historique de campagne. Clé emptyComboKey. La réalité
+   * prime sur la donnée : un combo prouvé n'est JAMAIS exclu par le verdict
+   * EEA, même à « 0 immatriculation ».
+   */
+  observedFuelCombos?: Set<string>;
 }
 
 /** Clé canonique du ban marché vide — graphies unifiées via refComboKey. */
@@ -176,7 +184,7 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   for (let y = pinMin; y <= pinMax; y++) years.push(y);
   const fuelChoices: Array<string | null> = forcedFuels.length > 0 ? forcedFuels : [null];
 
-  type Atom = { site: string; brand: string; model: string; year: number; fuel: string | null; fromRef?: boolean; moto?: string };
+  type Atom = { site: string; brand: string; model: string; year: number; fuel: string | null; fromRef?: boolean; moto?: string; note?: string };
   const exploration: Atom[] = [];
   const explorationRef: Atom[] = [];
   const reinforcement: Atom[] = [];
@@ -206,6 +214,32 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
             ? comboMotoVerdict(k.motorisations, c.brand, c.model, fuel, year)
             : { unlikely: false as const };
           if (verdict.unlikely) {
+            // PREUVE TERRAIN d'abord : un combo déjà vu vivant (ingestion,
+            // échantillon de campagne) n'est jamais exclu — la réalité prime.
+            const proven = fuel != null && k.observedFuelCombos?.has(emptyComboKey(c.brand, c.model, fuel));
+            const severity = (verdict as { severity?: string }).severity;
+            if (forcedFuels.length > 0 && severity === 'zero' && !proven) {
+              // PHASE 2 (28/07) : ciblage carburant FORCÉ × verdict STRICT
+              // « 0 immat. UE, modèle bien couvert » × aucune preuve terrain
+              // → le combo n'est pas planifié du tout (M5 électrique, RS7
+              // électrique… ne consomment plus la file). Fail-open intact :
+              // modèle inconnu / mal couvert / bruit → dépriorisation only.
+              if (fuel === 'HYBRIDE' && !fuelChoices.includes('PLUG_IN_HYBRID') && k.motorisations) {
+                // Le modèle n'existe qu'en RECHARGEABLE (cas M5 2024) : on
+                // étudie la variante qui existe au lieu de jeter le modèle —
+                // en repassant le verdict sur la variante (un M5 PHEV 2020
+                // n'existe pas non plus, seules les années réelles passent).
+                const phev = motoFuelTotal(k.motorisations, c.brand, c.model, 'PLUG_IN_HYBRID');
+                const phevVerdict = comboMotoVerdict(k.motorisations, c.brand, c.model, 'PLUG_IN_HYBRID', year);
+                if (phev != null && phev > 0 && !phevVerdict.unlikely) {
+                  bucket.push({
+                    ...atom, fuel: 'PLUG_IN_HYBRID',
+                    note: `hybride simple inexistant (0 immat. UE) → étudié en RECHARGEABLE (${phev.toLocaleString('fr-FR')} immat.)`,
+                  });
+                }
+              }
+              continue;
+            }
             atom.moto = verdict.detail;
             unlikelyPool.push({ atom, kind: bucketKind });
           } else {
@@ -219,13 +253,18 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   // Narrow campaign whose FULL space fits the budget → exhaustive enumeration
   // (all 28 studies, deterministic). Sampling only when the space overflows.
   let picked: Array<{ atom: Atom; kind: CampaignPlanItem['kind'] }>;
-  if (exploration.length + explorationRef.length + reinforcement.length + unlikelyPool.length <= total) {
+  if (exploration.length + explorationRef.length + reinforcement.length <= total) {
     picked = [
       ...exploration.map((atom) => ({ atom, kind: 'exploration' as const })),
       ...explorationRef.map((atom) => ({ atom, kind: 'exploration' as const })),
       ...reinforcement.map((atom) => ({ atom, kind: 'reinforcement' as const })),
-      ...unlikelyPool,
     ];
+    // FIN DU PASSE-DROIT (28/07) : même en énumération exhaustive, les
+    // improbables ne comblent que le budget RESTANT — les petites campagnes
+    // ciblées ne les embarquent plus d'office (constat M5/RS7 électriques).
+    if (picked.length < total && unlikelyPool.length > 0) {
+      picked.push(...shuffle(unlikelyPool, rng).slice(0, total - picked.length));
+    }
   } else {
     const atomKey = (a: Atom) => `${a.site}|${a.brand}|${a.model}|${a.year}|${a.fuel ?? ''}`;
     const explorationTarget = Math.round(total * (1 - reinforceShare));
@@ -292,6 +331,7 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
     item.year = atom.year;
     item.reason += ` (année ${atom.year})`;
     if (atom.moto) item.reason += ` — improbable : ${atom.moto}`;
+    if (atom.note) item.reason += ` — ${atom.note}`;
     // BAN marché prouvé vide : ce modèle×carburant a rendu vide-confirmé sur
     // ≥ 3 sites — on ne le replanifie plus (voir CampaignKnowledge).
     if (item.fuel && k.provenEmptyCombos?.has(emptyComboKey(item.brand, item.model, item.fuel))) continue;

@@ -183,6 +183,13 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
   // la planification. Recalculé ici à chaque campagne depuis l'historique :
   // une seule annonce trouvée un jour, n'importe où, lève le ban tout seul.
   const provenEmptyCombos = new Set<string>();
+  // PREUVE TERRAIN : combos modèle×carburant vus vivants — carburant validé
+  // en mémoire (une ingestion a confirmé des annonces) ou échantillon > 0 en
+  // historique de campagne. Prime sur tout verdict EEA (jamais exclus).
+  const observedFuelCombos = new Set<string>();
+  for (const r of rows) {
+    if (r.fuel) observedFuelCombos.add(emptyComboKey(r.brand, r.model, r.fuel));
+  }
   try {
     const [{ data: empt }, { data: pos }] = await Promise.all([
       supabase
@@ -202,7 +209,10 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     const positives = new Set<string>();
     for (const r of (pos ?? []) as Array<{ brand: string; model: string; criteria: unknown }>) {
       const f = fuelOf(r.criteria);
-      if (f) positives.add(emptyComboKey(r.brand, r.model, f));
+      if (f) {
+        positives.add(emptyComboKey(r.brand, r.model, f));
+        observedFuelCombos.add(emptyComboKey(r.brand, r.model, f));
+      }
     }
     const sitesByCombo = new Map<string, Set<string>>();
     for (const r of (empt ?? []) as Array<{ site: string; brand: string; model: string; criteria: unknown }>) {
@@ -231,6 +241,7 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     refCombos,
     motorisations,
     provenEmptyCombos,
+    observedFuelCombos,
   };
 }
 
