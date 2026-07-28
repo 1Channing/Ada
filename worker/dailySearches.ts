@@ -193,11 +193,11 @@ async function runDailySearch(s: SearchRow): Promise<void> {
   // Mémoire anti-doublon de la recherche (url → dernier prix vu).
   const { data: known } = await supabase
     .from('daily_search_hits')
-    .select('id, listing_url, price, status')
+    .select('id, listing_url, price, status, resolution')
     .eq('search_id', s.id)
     .limit(10000);
-  const seen = new Map<string, { id: string; price: number | null; status: string }>();
-  for (const k of (known ?? []) as Array<{ id: string; listing_url: string; price: number | null; status: string }>) {
+  const seen = new Map<string, { id: string; price: number | null; status: string; resolution?: string | null }>();
+  for (const k of (known ?? []) as Array<{ id: string; listing_url: string; price: number | null; status: string; resolution: string | null }>) {
     seen.set(k.listing_url, k);
   }
 
@@ -247,13 +247,17 @@ async function runDailySearch(s: SearchRow): Promise<void> {
         if (ins) seen.set(listingUrl, { id: ins.id, price, status });
         if (status === 'inbox') fresh++;
       } else if (prior.price != null && price <= prior.price - REAL_DROP_EUR) {
-        // Baisse réelle : elle re-rentre dans la boîte, même si déjà triée.
-        const status = inRange ? 'inbox' : prior.status;
+        // Baisse réelle : elle re-rentre dans la boîte, même si déjà triée —
+        // SAUF « hors critères » (définitif, règle Channing 28/07). « Trop
+        // chère » et les hors-écart automatiques reviennent, motif effacé.
+        const canReturn = prior.resolution !== 'hors_criteres';
+        const status = inRange && canReturn ? 'inbox' : prior.status;
         await supabase.from('daily_search_hits').update({
           kind: 'price_drop', previous_price: prior.price, price,
           target_median: median, price_gap: gap, status, last_seen_at: nowIso,
+          ...(status === 'inbox' ? { resolution: null } : {}),
         }).eq('id', prior.id);
-        seen.set(listingUrl, { ...prior, price, status });
+        seen.set(listingUrl, { ...prior, price, status, resolution: status === 'inbox' ? null : prior.resolution });
         if (status === 'inbox') drops++;
       } else {
         await supabase.from('daily_search_hits').update({ last_seen_at: nowIso }).eq('id', prior.id);

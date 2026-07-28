@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, BookmarkPlus, X, MoreVertical, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { StudiesV2Results } from './StudiesV2Results';
 import {
   DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch,
@@ -469,7 +469,14 @@ function ResultsTab() {
     }
     return searches
       .map((s) => {
-        const list = (bySearch.get(s.id) ?? []).sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at));
+        // Le FEED ne montre que les annonces DANS l'écart de l'étude (inbox +
+        // envoyées en négo). Les hors-écart insérées par le worker pour la
+        // mémoire de dédup (dismissed sans motif) n'apparaissent nulle part ;
+        // les traitées à la main (motif) vivent dans les Archives dessous.
+        // Tri PRIX CROISSANT (règle maison : le bas du marché fait le prix).
+        const list = (bySearch.get(s.id) ?? [])
+          .filter((h) => h.status === 'inbox' || h.status === 'saved')
+          .sort((a, b) => (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER));
         const prices = list.map((h) => h.price).filter((p): p is number => p != null);
         const latest = list.find((h) => h.target_median != null);
         return {
@@ -487,8 +494,15 @@ function ResultsTab() {
       .filter((g) => g.list.length > 0);
   }, [hits, searches]);
 
+  // Archives : les annonces traitées À LA MAIN (motif posé). « Trop chère »
+  // reviendra dans le feed sur vraie baisse ; « hors critères » est définitif.
+  const archived = useMemo(
+    () => hits.filter((h) => h.status === 'dismissed' && h.resolution),
+    [hits],
+  );
+
   if (loading) return <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>;
-  if (groups.length === 0) {
+  if (groups.length === 0 && archived.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
         Rien pour l'instant — les résultats du scrape quotidien apparaîtront ici, organisés par étude.
@@ -597,6 +611,73 @@ function ResultsTab() {
           </div>
         );
       })}
+      <ArchivedHitsSection archived={archived} searches={searches} />
+    </div>
+  );
+}
+
+/**
+ * Archives des annonces traitées (demande Channing 28/07) : triées par
+ * marque, modèle puis année. « Trop chère » reviendra d'elle-même dans le
+ * feed sur vraie baisse de prix ; « hors critères » est définitif.
+ */
+function ArchivedHitsSection({ archived, searches }: { archived: DailyHit[]; searches: DailySearch[] }) {
+  const [open, setOpen] = useState(false);
+  const groups = useMemo(() => {
+    const byId = new Map(searches.map((s) => [s.id, s]));
+    const byModel = new Map<string, { brand: string; model: string; hits: DailyHit[] }>();
+    for (const h of archived) {
+      const s = byId.get(h.search_id);
+      const brand = (s?.brand ?? '?').toUpperCase();
+      const model = (s?.model ?? '').toUpperCase();
+      const key = `${brand}|${model}`;
+      (byModel.get(key) ?? byModel.set(key, { brand, model, hits: [] }).get(key)!).hits.push(h);
+    }
+    return [...byModel.values()]
+      .sort((a, b) => a.brand.localeCompare(b.brand) || a.model.localeCompare(b.model))
+      .map((g) => ({
+        ...g,
+        hits: g.hits.sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || (a.price ?? 0) - (b.price ?? 0)),
+      }));
+  }, [archived, searches]);
+
+  if (archived.length === 0) return null;
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors rounded-xl">
+        <span className={`transition-transform text-slate-400 ${open ? 'rotate-90' : ''}`}>▸</span>
+        <Archive className="w-4 h-4 text-slate-400" />
+        <span className="font-semibold text-slate-700">Archives</span>
+        <span className="text-xs text-slate-500">{archived.length} annonce(s) traitée(s) — « trop chère » revient sur baisse, « hors critères » est définitif</span>
+      </button>
+      {open && groups.map((g) => (
+        <div key={`${g.brand}|${g.model}`} className="border-t border-slate-100">
+          <p className="px-4 pt-2.5 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {g.brand}{g.model ? ` ${g.model}` : ''}
+          </p>
+          <div className="divide-y divide-slate-50">
+            {g.hits.map((h) => (
+              <div key={h.id} className="flex items-center gap-3 px-4 py-2">
+                <div className="min-w-0 flex-1 flex items-center gap-2">
+                  {h.listing_url?.startsWith('http')
+                    ? <a href={h.listing_url} target="_blank" rel="noreferrer" className="text-sm text-slate-700 hover:text-blue-600 hover:underline truncate">{h.title || h.listing_url}</a>
+                    : <span className="text-sm text-slate-700 truncate">{h.title || '(annonce)'}</span>}
+                  <SiteBadge site={h.site} />
+                  <span className="text-xs text-slate-400 shrink-0">{h.year ?? '—'}</span>
+                </div>
+                <span className="text-sm font-medium text-slate-600 shrink-0">{fmtEur(h.price)}</span>
+                <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${
+                  h.resolution === 'trop_chere'
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>
+                  {h.resolution === 'trop_chere' ? 'trop chère' : 'hors critères'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -636,31 +717,20 @@ export function HitRow({ hit, searchLabel, onChanged, compact }: {
           {hit.listing_url?.startsWith('http') && !compact && (
             <a href={hit.listing_url} target="_blank" rel="noreferrer" title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><ExternalLink className="w-4 h-4" /></a>
           )}
-          <button
-            title="Envoyer en négociations"
-            onClick={async () => { await saveHitToNegotiations(hit); onChanged(); }}
-            className="p-1.5 rounded-lg text-brand-ocean hover:bg-blue-50"
-          >
-            <BookmarkPlus className="w-4 h-4" />
-          </button>
-          <HitResolveMenu hit={hit} onChanged={onChanged} />
+          <HitActionsMenu hit={hit} onChanged={onChanged} />
         </div>
       )}
       {hit.status === 'saved' && <span className="text-xs text-emerald-600 font-medium shrink-0">En négociation</span>}
-      {hit.status === 'dismissed' && (
-        <span className="text-xs text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 shrink-0">
-          Traitée{hit.resolution === 'trop_chere' ? ' · trop chère' : hit.resolution === 'hors_criteres' ? ' · hors critères' : ''}
-        </span>
-      )}
     </div>
   );
 }
 
 /**
- * Traitement d'une annonce (demande Channing 28/07) : archivée AVEC son motif
- * — trop chère ou hors critères — badge conservé dans l'historique.
+ * Menu ⋯ d'une annonce (demande Channing 28/07) : Valider → négociations ;
+ * Traitée avec motif → archives (« trop chère » revient sur vraie baisse,
+ * « hors critères » est définitif).
  */
-function HitResolveMenu({ hit, onChanged }: { hit: DailyHit; onChanged: () => void }) {
+function HitActionsMenu({ hit, onChanged }: { hit: DailyHit; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -678,16 +748,22 @@ function HitResolveMenu({ hit, onChanged }: { hit: DailyHit; onChanged: () => vo
 
   return (
     <div className="relative" ref={ref}>
-      <button title="Traiter (motif)" onClick={() => setOpen(!open)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-red-500">
-        <X className="w-4 h-4" />
+      <button title="Traiter l'annonce" onClick={() => setOpen(!open)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100">
+        <MoreVertical className="w-4 h-4" />
       </button>
       {open && (
-        <div className="absolute right-0 top-8 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-44 text-sm">
+        <div className="absolute right-0 top-8 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-56 text-sm">
+          <button
+            onClick={async () => { setOpen(false); await saveHitToNegotiations(hit); onChanged(); }}
+            className="w-full text-left px-4 py-2 hover:bg-slate-50 text-brand-ocean font-medium"
+          >
+            Valider → négociations
+          </button>
           <button onClick={() => void resolve('trop_chere')} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
-            Traitée · trop chère
+            Traitée · trop chère <span className="text-xs text-slate-400">(revient si baisse)</span>
           </button>
           <button onClick={() => void resolve('hors_criteres')} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
-            Traitée · hors critères
+            Traitée · hors critères <span className="text-xs text-slate-400">(définitif)</span>
           </button>
         </div>
       )}
