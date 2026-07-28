@@ -100,7 +100,7 @@ export interface DailyHit {
   target_median: number | null;
   price_gap: number | null;
   kind: string;      // 'new' | 'price_drop' ('seed' jamais montré)
-  status: string;    // 'inbox' | 'saved' | 'dismissed'
+  status: string;    // 'inbox' | 'saved' | 'dismissed' | 'cleared' (vidé, mémoire gardée)
   first_seen_at: string;
   last_seen_at: string;
 }
@@ -214,16 +214,33 @@ export async function listInboxHits(limit = 100): Promise<DailyHit[]> {
   return (data ?? []) as DailyHit[];
 }
 
-/** Historique complet des trouvailles (page Résultats), seeds exclus. */
+/** Historique complet des trouvailles (page Résultats), seeds et vidés exclus. */
 export async function listAllHits(limit = 400): Promise<DailyHit[]> {
   const { data, error } = await supabase
     .from('daily_search_hits')
     .select('*')
     .neq('kind', 'seed')
+    .neq('status', 'cleared')
     .order('last_seen_at', { ascending: false })
     .limit(limit);
   if (error) throw new Error(error.message);
   return (data ?? []) as DailyHit[];
+}
+
+/**
+ * Vide les résultats d'une étude (menu ⋯ de la page Résultats).
+ * - keepMemory=true : les lignes passent en 'cleared' — invisibles à l'écran
+ *   mais toujours en base, donc la dédup du scrape tient : ces annonces ne
+ *   re-apparaîtront pas (seule une baisse de prix les fait revenir, comme
+ *   pour « Écarter »).
+ * - keepMemory=false : suppression pure — amnésie totale, les annonces déjà
+ *   vues pourront réapparaître en nouveautés au prochain passage.
+ */
+export async function clearSearchHits(searchId: string, keepMemory: boolean): Promise<void> {
+  const { error } = keepMemory
+    ? await supabase.from('daily_search_hits').update({ status: 'cleared' }).eq('search_id', searchId)
+    : await supabase.from('daily_search_hits').delete().eq('search_id', searchId);
+  if (error) throw new Error(error.message);
 }
 
 export async function dismissHit(id: string): Promise<void> {

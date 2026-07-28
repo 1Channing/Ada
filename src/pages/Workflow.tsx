@@ -4,7 +4,7 @@ import { StudiesV2Results } from './StudiesV2Results';
 import {
   DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
-  checkSearchUrlCoverage, listStudyUrls,
+  checkSearchUrlCoverage, listStudyUrls, clearSearchHits,
 } from '../services/workflow';
 
 /** Identité visuelle des places de marché — badge normalisé partout. */
@@ -505,25 +505,28 @@ function ResultsTab() {
         const isOpen = open[s.id] ?? false;
         return (
           <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <button
-              onClick={() => toggle(s)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
-            >
-              <span className={`transition-transform text-slate-400 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-slate-900 truncate">{name}</p>
-                <p className="text-xs text-slate-500">
-                  {flagOf(s.source_country)} → {flagOf(s.target_country)} · {stats.count} annonce{stats.count > 1 ? 's' : ''}
-                  {stats.fresh > 0 ? ` · ${stats.fresh} à traiter` : ''}
-                  {stats.drops > 0 ? ` · ${stats.drops} baisse${stats.drops > 1 ? 's' : ''}` : ''}
-                </p>
-              </div>
-              {spread != null && (
-                <span className={`text-sm font-semibold shrink-0 ${spread > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
-                  {spread > 0 ? '+' : ''}{spread.toLocaleString('fr-FR')} € d'écart médian
-                </span>
-              )}
-            </button>
+            <div className="flex items-center pr-2">
+              <button
+                onClick={() => toggle(s)}
+                className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+              >
+                <span className={`transition-transform text-slate-400 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-slate-900 truncate">{name}</p>
+                  <p className="text-xs text-slate-500">
+                    {flagOf(s.source_country)} → {flagOf(s.target_country)} · {stats.count} annonce{stats.count > 1 ? 's' : ''}
+                    {stats.fresh > 0 ? ` · ${stats.fresh} à traiter` : ''}
+                    {stats.drops > 0 ? ` · ${stats.drops} baisse${stats.drops > 1 ? 's' : ''}` : ''}
+                  </p>
+                </div>
+                {spread != null && (
+                  <span className={`text-sm font-semibold shrink-0 ${spread > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                    {spread > 0 ? '+' : ''}{spread.toLocaleString('fr-FR')} € d'écart médian
+                  </span>
+                )}
+              </button>
+              <ResultsGroupMenu search={s} name={name} onChanged={reload} />
+            </div>
 
             {isOpen && (
               <>
@@ -644,6 +647,59 @@ export function HitRow({ hit, searchLabel, onChanged, compact }: {
         </div>
       )}
       {hit.status === 'saved' && <span className="text-xs text-emerald-600 font-medium shrink-0">En négociation</span>}
+    </div>
+  );
+}
+
+/**
+ * Menu ⋯ d'un groupe de résultats : vider l'affichage de l'étude, avec ou
+ * sans la mémoire « déjà vu ». La mémoire = les lignes daily_search_hits
+ * elles-mêmes (le scrape déduplique dessus, tous statuts confondus) — les
+ * garder en 'cleared' masque sans faire revenir, les supprimer remet à zéro.
+ */
+function ResultsGroupMenu({ search, name, onChanged }: { search: DailySearch; name: string; onChanged: () => void }) {
+  const [menu, setMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenu(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [menu]);
+
+  return (
+    <div className="relative shrink-0" ref={menuRef}>
+      <button onClick={() => setMenu(!menu)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100">
+        <MoreVertical className="w-4 h-4" />
+      </button>
+      {menu && (
+        <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-72 text-sm">
+          <button
+            onClick={async () => {
+              setMenu(false);
+              if (confirm(`Vider les résultats de « ${name} » en GARDANT la mémoire ?\n\nLes annonces déjà apparues ne seront pas re-présentées par les prochains scrapes (sauf baisse de prix).`)) {
+                await clearSearchHits(search.id, true);
+                onChanged();
+              }
+            }}
+            className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700"
+          >
+            Vider les résultats <span className="text-xs text-slate-500">(garder la mémoire)</span>
+          </button>
+          <button
+            onClick={async () => {
+              setMenu(false);
+              if (confirm(`Vider les résultats de « ${name} » ET la mémoire ?\n\nLes annonces déjà apparues pourront réapparaître en nouveautés au prochain scrape.`)) {
+                await clearSearchHits(search.id, false);
+                onChanged();
+              }
+            }}
+            className="w-full text-left px-4 py-2 hover:bg-slate-50 text-red-600"
+          >
+            Vider et oublier <span className="text-xs opacity-70">(tout peut réapparaître)</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
