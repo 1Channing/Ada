@@ -525,6 +525,16 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
  * ni l'accent d'ouverture pour être insensible à la variante servie.
  */
 function detectEmptyState(html: string): boolean {
+  // Signal STRUCTUREL prioritaire : le total serveur (searchData.total du
+  // NEXT_DATA). Un « 0 annonce » avec total > 0 est une page servie sans son
+  // tableau d'annonces (soft-block observé rafale du 28/07) — PAS un vide.
+  try {
+    const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (m) {
+      const total = JSON.parse(m[1])?.props?.pageProps?.searchData?.total;
+      if (typeof total === 'number') return total === 0;
+    }
+  } catch { /* NEXT_DATA illisible — repli sur le marqueur visuel */ }
   return html.includes('avons pas ça sous la main');
 }
 

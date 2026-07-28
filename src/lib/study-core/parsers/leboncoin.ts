@@ -118,7 +118,10 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
     }
 
     if (adsArray.length === 0) {
-      console.warn('[LEBONCOIN] ⚠️ No ads array found in known paths');
+      // total = ce que le SERVEUR annonce : 0 → vraie recherche vide ; > 0 →
+      // page servie sans son tableau (soft-block) ; absent → forme inconnue.
+      const total = data?.props?.pageProps?.searchData?.total;
+      console.warn(`[LEBONCOIN] ⚠️ No ads array found in known paths (searchData.total=${total ?? 'absent'}) ${url.slice(0, 110)}`);
       console.warn('[LEBONCOIN] Available top-level keys:', Object.keys(data || {}).join(', '));
       if (data?.props) {
         console.warn('[LEBONCOIN] data.props keys:', Object.keys(data.props).join(', '));

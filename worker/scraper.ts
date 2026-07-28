@@ -788,13 +788,24 @@ export async function scrapeSearch(
       const esAdapter = findSiteAdapterByDomain(activeUrl);
       const emptyConfirmed = esAdapter?.detectEmptyState ? esAdapter.detectEmptyState(html) : null;
       if (emptyConfirmed === false) {
-        console.warn(`[WORKER_SCRAPER] ⚠️ page pleine à 0 annonce SANS le marqueur vide du site (${marketplaceOf(activeUrl)}, ${html.length}b) — parseur à vérifier: ${activeUrl.slice(0, 120)}`);
+        // Le site lui-même DÉMENT le vide (ex. LBC : searchData.total > 0 mais
+        // tableau d'annonces absent — soft-block prouvé rafale du 28/07, les
+        // études matinales rendaient 0 sur des recherches à 340 annonces).
+        // C'est un blocage déguisé, pas un résultat : on RÉESSAIE avec la
+        // même patience que les blocages francs avant de rendre le vide.
+        console.warn(`[WORKER_SCRAPER] ⚠️ page pleine à 0 annonce SANS vide confirmé par le site (${marketplaceOf(activeUrl)}, ${html.length}b, attempt ${attempt + 1}/${MAX_RETRIES + 1}) — soft-block probable: ${activeUrl.slice(0, 120)}`);
+        if (attempt < MAX_RETRIES) {
+          await new Promise((resolve) => setTimeout(resolve, 8000 * (attempt + 1)));
+          continue;
+        }
       }
       console.log(`[WORKER_SCRAPER] 0 listings on a full page (${html.length}b, mode=${mode}) — genuine empty result, no retry`);
       // Le référentiel embarqué (dropdown marques) est présent même sur une
       // page à 0 résultat — moisson identique au chemin succès.
       const taxonomyHarvest = esAdapter?.harvestTaxonomy?.(html) ?? null;
-      return finalize({ listings: [], totalCount: extractTotalCount(html) }, { attempts: attempt + 1, htmlLength: html.length, emptyResults: true, emptyConfirmed, taxonomyHarvest }, true);
+      // Un vide DÉMENTI par le site (soft-block épuisé) ne va jamais au cache :
+      // le passage suivant retentera à neuf au lieu d'hériter du poison.
+      return finalize({ listings: [], totalCount: extractTotalCount(html) }, { attempts: attempt + 1, htmlLength: html.length, emptyResults: true, emptyConfirmed, taxonomyHarvest }, emptyConfirmed !== false);
     }
 
     // Small page, no listings, not blocked → retry (likely a soft failure).

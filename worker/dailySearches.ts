@@ -244,9 +244,13 @@ async function runDailySearch(s: SearchRow): Promise<void> {
   }
 
   await supabase.from('daily_searches').update({ last_run_at: nowIso, updated_at: nowIso }).eq('id', s.id);
+  // Détail PAR SITE dans la boîte noire : un site à 0 sur une recherche qui
+  // devrait rendre (LBC rafale du 28/07) devient visible immédiatement.
+  const perSite = (arr: Array<{ site: string; listings: unknown[] }>) =>
+    arr.map((x) => `${x.site} ${x.listings.length}`).join(' · ') || 'aucun site';
   console.warn(
-    `[DAILY] « ${name} » (${s.source_country}→${s.target_country}) : source ${sourceScrape.length} site(s)/${scanned} annonces, `
-    + `cible ${targetScrape.length} site(s)/${targetPrices.length} prix, ${fresh} nouvelle(s), ${drops} baisse(s)`
+    `[DAILY] « ${name} » (${s.source_country}→${s.target_country}) : source ${sourceScrape.length} site(s)/${scanned} annonces [${perSite(sourceScrape)}], `
+    + `cible ${targetScrape.length} site(s)/${targetPrices.length} prix [${perSite(targetScrape)}], ${fresh} nouvelle(s), ${drops} baisse(s)`
     + (median != null ? ` · médiane cible ${median.toLocaleString('fr-FR')} € (${medianSource})` : ' · médiane cible inconnue (fail-open : tout est montré)')
     + (noUrl > 0 ? ` · ${noUrl} sans URL ignorées` : ''),
   );
