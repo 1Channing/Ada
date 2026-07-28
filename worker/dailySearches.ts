@@ -27,6 +27,7 @@ import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
+import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 
 const TICK_MS = 10 * 60 * 1000;
 const MAX_PAGES = 3;
@@ -123,6 +124,13 @@ async function scrapeCountry(
     if (result.diagnostics?.silentFallback?.modelApplied === false) {
       console.warn(`[DAILY] « ${name} »: ${site.key} a servi la page marque entière (repli silencieux) — annonces écartées, mapping à corriger`);
       continue;
+    }
+    // Moisson taxonomy (enums modèle vus dans les annonces, ex. LBC
+    // u_car_model 'BMW_iX1') : les études quotidiennes apprennent comme les
+    // campagnes — best-effort.
+    const harvest = result.diagnostics?.taxonomyHarvest;
+    if (harvest && harvest.length > 0) {
+      await persistTaxonomyHarvest(site.key, harvest).catch(() => undefined);
     }
     // Chaque scrape d'étude quotidienne nourrit aussi le Market Intelligence
     // (médianes + vélocité) — demande Channing 28/07. Marqué à sa source pour

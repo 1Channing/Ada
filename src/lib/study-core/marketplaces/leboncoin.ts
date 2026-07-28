@@ -120,15 +120,74 @@ function titleCase(s: string): string {
   return s.replace(/[A-Za-z]+/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
 }
 
+// ─── Enums modèle APPRIS des annonces (moisson u_car_model) ──────────────────
+// Chaque annonce LBC porte la valeur d'énum EXACTE de son modèle, casse
+// comprise : attributes u_car_model {value:'BMW_iX1', value_label:'iX1'}.
+// C'est la seule source sûre pour les casses indevinables — prouvé 28/07 :
+// nos 4 graphies (IX1, Ix1…) → total=0, 'BMW_iX1' → 18 annonces. Moissonné à
+// chaque scrape (harvestTaxonomy), persisté au dictionnaire, réinjecté ici.
+const LEARNED_MODEL_ENUM: Record<string, string> = {};
+const canonEnum = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field !== 'u_car_model') return;
+  for (const p of pairs) {
+    const code = p.code.trim();
+    if (!code) continue;
+    // Indexé par label ('iX1') ET par suffixe du code ('BMW_iX1' → 'IX1') —
+    // premier appris gagne (certain-ou-rien, jamais d'écrasement).
+    const suffix = code.includes('_') ? code.slice(code.indexOf('_') + 1) : code;
+    for (const k of [canonEnum(p.label || ''), canonEnum(suffix)]) {
+      if (k && !LEARNED_MODEL_ENUM[k]) LEARNED_MODEL_ENUM[k] = code;
+    }
+  }
+}
+
+function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
+  const out: Array<{ field: string; code: string; label: string }> = [];
+  try {
+    const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (!m) return out;
+    const ads = JSON.parse(m[1])?.props?.pageProps?.searchData?.ads;
+    if (!Array.isArray(ads)) return out;
+    const seen = new Set<string>();
+    for (const ad of ads) {
+      for (const a of (ad?.attributes ?? []) as Array<{ key?: string; value?: unknown; value_label?: unknown }>) {
+        if (a?.key !== 'u_car_model' || typeof a.value !== 'string' || !a.value.trim()) continue;
+        const code = a.value.trim();
+        if (seen.has(code)) continue;
+        seen.add(code);
+        out.push({
+          field: 'u_car_model',
+          code,
+          label: typeof a.value_label === 'string' && a.value_label.trim() ? a.value_label.trim() : code,
+        });
+      }
+    }
+  } catch { /* moisson silencieuse — jamais bloquante */ }
+  return out;
+}
+
 function modelParamCandidates(brandMapped: string, modelMapped: string): string {
   const display = modelMapped.trim();
   const compact = display.replace(/\s+/g, '');
   const brand = brandMapped.trim();
   const out: string[] = [];
+  // ENUM APPRIS d'abord : la valeur exacte du site, vue dans ses annonces.
+  const learned = LEARNED_MODEL_ENUM[canonEnum(display)] ?? LEARNED_MODEL_ENUM[canonEnum(compact)];
+  if (learned) out.push(learned);
   for (const base of [display, compact]) {
     if (!base) continue;
     for (const v of [base, titleCase(base), `${brand}_${base}`, `${brand}_${titleCase(base)}`]) {
       if (v && v !== brand && !out.includes(v)) out.push(v);
+    }
+    // Famille i de BMW (iX1, i4, iX…) : i minuscule + suite MAJUSCULE — casse
+    // prouvée par URL humaine (BMW_iX1, 28/07), que titleCase ne produit pas.
+    if (/^i(x\d?|\d)/i.test(base)) {
+      const iForm = 'i' + base.slice(1).toUpperCase();
+      for (const v of [iForm, `${brand}_${iForm}`]) {
+        if (!out.includes(v)) out.push(v);
+      }
     }
   }
   // Espaces encodés (%20) comme le fait le site, virgules littérales (le
@@ -568,6 +627,8 @@ export const leboncoinAdapter: SiteAdapter = {
 
   getFetchProfile,
   detectEmptyState,
+  harvestTaxonomy,
+  learnEnumValues,
 
   prefillCriteriaFromUrl,
   extractCandidateSegments,

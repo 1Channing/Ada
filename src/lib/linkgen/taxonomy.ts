@@ -74,11 +74,13 @@ export async function loadLearnedTaxonomy(): Promise<void> {
   taxonomyLoaded = true;
   for (const adapter of allSiteAdapters()) {
     if (!adapter.learnEnumValues) continue;
+    // TOUS les champs du site — chaque adaptateur ignore ceux qu'il ne
+    // connaît pas (l'ancien filtre 'ms:%' était un héritage mobile.de qui
+    // privait Leboncoin de ses enums modèle u_car_model, constat iX1 28/07).
     const { data, error } = await supabase
       .from('linkgen_enum_mappings')
       .select('field, code, label')
-      .eq('site', adapter.key)
-      .like('field', 'ms:%');
+      .eq('site', adapter.key);
     if (error || !data?.length) continue;
     const byField = new Map<string, Array<{ code: string; label: string }>>();
     for (const r of data) {
