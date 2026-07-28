@@ -456,8 +456,14 @@ app.listen(PORT, "0.0.0.0", () => {
     // Journal technique : les warn/error partent aussi dans worker_logs.
     initWorkerLogCapture(client);
     setSharedSupabase(client as any);
-    // Pick interrupted campaigns back up after a restart/deploy.
+    // Pick interrupted campaigns back up after a restart/deploy — ET en
+    // continu : une campagne lancée PENDANT un redéploiement naît orpheline
+    // (créée la seconde même du boot du 28/07 16:41, la reprise-au-boot avait
+    // déjà interrogé la base → « running » que personne ne traite, stop qui
+    // mouline). Le chien de garde est sans risque : heartbeat frais → passe,
+    // une seule reprise par passage, 'stopping' orphelin → finalisé.
     void resumeWorkerCampaigns();
+    setInterval(() => void resumeWorkerCampaigns(), 2 * 60 * 1000);
     // Études quotidiennes des comptes + branchements (tableur, veille).
     startDailySearchScheduler();
     startSalesSheetSync();
