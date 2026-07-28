@@ -297,6 +297,37 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
     }
   }
 
+  // ── DÉCOUVERTE DE GAMME (28/07) : une part bornée d'études SANS modèle.
+  // La page marque livre sa taxonomie ENTIÈRE en un scrape (facettes modèle
+  // Marktplaats, enums u_car_model Leboncoin, gamme AS24/mobile.de) via
+  // harvestTaxonomy — le mapping appris rend les études précises fiables dès
+  // la campagne suivante. Planifiée pour les couples site×marque dont moins
+  // de la moitié des modèles connus est validée. Modèle vide = jamais
+  // d'écriture mémoire (garde confirmed.has('model') de l'ingestion).
+  const DISCOVERY_SHARE = 0.1;
+  const discovery: Atom[] = [];
+  const brandsInScope = [...new Set(combos.map((c) => c.brand))];
+  const discoveryYear = years.length ? years[years.length - 1] : new Date().getFullYear();
+  for (const site of opts.sites) {
+    const covered = k.coveredBySite[site] ?? new Set<string>();
+    for (const brand of brandsInScope) {
+      const models = k.modelsByBrand[brand] ?? [];
+      const coveredCount = models.filter((mo) => covered.has(`${brand}|${mo}`)).length;
+      if (models.length === 0 || coveredCount < models.length / 2) {
+        discovery.push({
+          site, brand, model: '', year: discoveryYear, fuel: null,
+          note: `découverte gamme — ${models.length - coveredCount}/${models.length || '?'} modèle(s) non validé(s), la page marque apprend la taxonomie du site`,
+        });
+      }
+    }
+  }
+  if (discovery.length > 0) {
+    const slots = Math.min(Math.max(1, Math.round(total * DISCOVERY_SHARE)), discovery.length);
+    const discoveryPicked = shuffle(discovery, rng).slice(0, slots)
+      .map((atom) => ({ atom, kind: 'exploration' as const }));
+    picked = [...discoveryPicked, ...picked.slice(0, Math.max(0, total - discoveryPicked.length))];
+  }
+
   const items: CampaignPlanItem[] = [];
   for (const { atom, kind } of picked) {
     const key = `${atom.brand}|${atom.model}`;

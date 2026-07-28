@@ -122,6 +122,77 @@ const MODEL_FACET: Record<string, { slug: string; id: string }> = {
   'RAV 4': { slug: 'rav4', id: '1237' },
 };
 
+// ─── Facettes modèle APPRISES (moisson des pages, 28/07) ─────────────────────
+// Toute page Marktplaats d'une marque (recherche comprise) embarque la liste
+// COMPLÈTE de ses facettes modèle dans la barre latérale : label + slug + id
+// exacts (`<label for="model-Rav4"><a … href="/l/auto-s/toyota/f/rav4/1237/"`,
+// prouvé sur page réelle). Un seul scrape apprend toute la gamme — moissonné
+// partout (campagnes, études, ingestions), persisté au dictionnaire,
+// réinjecté ici au boot. Clé `brandSlug|CANONLABEL` ; les graines humaines
+// (MODEL_FACET) gardent la priorité.
+const LEARNED_MODEL_FACET: Record<string, { slug: string; id: string }> = {};
+const canonFacet = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** Slug Marktplaats depuis le label du site — règle validée sur les 6 paires
+ *  label↔href de la page Toyota (Rav4→rav4, Yaris Cross→yaris-cross,
+ *  Aygo X→aygo-x, C-HR→c-hr). */
+const mpSlugOf = (label: string) =>
+  label.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
+function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
+  const out: Array<{ field: string; code: string; label: string }> = [];
+  // Marque de la page = contexte de toutes ses facettes modèle.
+  const brandSlug = html.match(/href="\/l\/auto-s\/([a-z0-9-]+)\/f\//)?.[1]
+    ?? html.match(/rel="canonical"[^>]*href="https:\/\/www\.marktplaats\.nl\/l\/auto-s\/([a-z0-9-]+)\//)?.[1]
+    ?? null;
+  if (!brandSlug) return out;
+
+  const byId = new Map<string, { slug: string; label: string }>();
+  // 1. Le groupe "model" du JSON embarqué : liste COMPLÈTE de la gamme, y
+  //    compris les modèles cachés derrière « Toon meer » (prouvé Toyota :
+  //    6 visibles, 20+ dans le JSON — Auris, ProAce City, Starlet…). Le slug
+  //    est dérivé du label (règle validée sur les paires visibles).
+  // Le document peut porter PLUSIEURS blocs "key":"model" (config, hydration…)
+  // — on les moissonne tous, seuls ceux qui contiennent des attributeValueId
+  // produisent des entrées. Borne de segment : le prochain "key":" (les
+  // "attributeValueKey" ne matchent pas — K majuscule).
+  let gi = html.indexOf('"key":"model"');
+  while (gi >= 0) {
+    const next = html.indexOf('"key":"', gi + 14);
+    const seg = html.slice(gi, next > 0 ? next : undefined);
+    const reJson = /"attributeValueId":(\d+),"attributeValueLabel":"([^"]+)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = reJson.exec(seg)) !== null) {
+      const [, id, label] = m;
+      const slug = mpSlugOf(label);
+      if (slug && !byId.has(id)) byId.set(id, { slug, label: label.trim() });
+    }
+    gi = html.indexOf('"key":"model"', gi + 14);
+  }
+  // 2. Les hrefs visibles portent le slug EXACT du site : ils priment sur la
+  //    dérivation quand l'id est déjà connu.
+  const reHref = /for="model-([^"]+)"><a[^>]+href="\/l\/auto-s\/[a-z0-9-]+\/f\/([a-z0-9.+-]+)\/(\d+)\/"/g;
+  let h: RegExpExecArray | null;
+  while ((h = reHref.exec(html)) !== null) {
+    const [, label, slug, id] = h;
+    byId.set(id, { slug, label: label.trim() });
+  }
+  for (const [id, { slug, label }] of byId) {
+    out.push({ field: 'model_facet', code: `${brandSlug};${slug};${id}`, label });
+  }
+  return out;
+}
+
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field !== 'model_facet') return;
+  for (const p of pairs) {
+    const [brandSlug, slug, id] = p.code.split(';');
+    if (!brandSlug || !slug || !/^\d+$/.test(id ?? '')) continue;
+    const k = `${brandSlug}|${canonFacet(p.label)}`;
+    if (!LEARNED_MODEL_FACET[k]) LEARNED_MODEL_FACET[k] = { slug, id };
+  }
+}
+
 /**
  * Facettes CARBURANT — même grammaire de chemin que le modèle, composables
  * (`/f/{slug+slug}/{id+id}/`). Sans facette connue, le carburant reste
@@ -206,7 +277,9 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // en texte (comme la recherche du site) quand sa facette est inconnue, la
   // finition sinon. Un carburant sans facette reste post-filtré par le
   // moteur — même chemin, le filtre passe côté serveur dès l'ID appris.
-  const modelFacet = MODEL_FACET[(params.model ?? '').trim().toUpperCase()];
+  // Graine humaine d'abord, puis facette APPRISE de la moisson (par marque).
+  const modelFacet = MODEL_FACET[(params.model ?? '').trim().toUpperCase()]
+    ?? (brandSlug ? LEARNED_MODEL_FACET[`${brandSlug}|${canonFacet(params.model ?? '')}`] : undefined);
   const fuelFacet = params.fuel ? FUEL_FACET[params.fuel.trim().toUpperCase()] : undefined;
   const facets = [modelFacet, fuelFacet].filter((f): f is { slug: string; id: string } => Boolean(f));
 
@@ -599,4 +672,6 @@ export const marktplaatsAdapter: SiteAdapter = {
   prefillCriteriaFromUrl,
   extractCandidateSegments,
   inferFuel,
+  harvestTaxonomy,
+  learnEnumValues,
 };

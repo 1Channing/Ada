@@ -200,12 +200,58 @@ function mercedesClassSlug(raw: string): string | null {
   return code.length === 1 ? `${lower}-klasse` : lower;
 }
 
+// ─── Modèles APPRIS de la taxonomie embarquée (moisson, 28/07) ───────────────
+// Chaque page AS24 embarque taxonomy.models.{makeId} : la gamme COMPLÈTE de
+// la marque visitée, labels officiels compris ('iX1', 'Yaris Cross'…). Le
+// slug SEO du site = slug(label) — prouvé sur toutes les graines humaines
+// (RAV 4→rav-4, Yaris Cross→yaris-cross, C-HR→c-hr). On apprend donc
+// slug(label du site) pour chaque graphie sans séparateur ; les graines
+// humaines (MODEL_SLUG_BY_ALNUM) gardent la priorité. Partagé par les 6
+// adaptateurs pays (les IDs/labels AS24 sont globaux, prouvé mmmv 21/07).
+const LEARNED_MODEL_SLUG: Record<string, string> = {};
+
+function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
+  const out: Array<{ field: string; code: string; label: string }> = [];
+  try {
+    const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (!m) return out;
+    const taxo = JSON.parse(m[1])?.props?.pageProps?.taxonomy;
+    const models = taxo?.models && typeof taxo.models === 'object' ? taxo.models : {};
+    const seen = new Set<string>();
+    for (const [makeId, list] of Object.entries(models)) {
+      if (!Array.isArray(list) || !/^\d+$/.test(makeId)) continue;
+      for (const it of list as Array<{ value?: unknown; label?: unknown }>) {
+        const label = typeof it.label === 'string' ? it.label.trim() : '';
+        const value = String(it.value ?? '');
+        if (!label || !/^\d+$/.test(value)) continue;
+        const code = `${makeId};${value}`;
+        if (seen.has(code)) continue;
+        seen.add(code);
+        out.push({ field: 'as:model', code, label });
+      }
+    }
+  } catch { /* moisson silencieuse — jamais bloquante */ }
+  return out;
+}
+
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field !== 'as:model') return;
+  for (const p of pairs) {
+    const label = p.label.trim();
+    if (!label) continue;
+    const alnum = label.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (alnum && !MODEL_SLUG_BY_ALNUM[alnum] && !LEARNED_MODEL_SLUG[alnum]) {
+      LEARNED_MODEL_SLUG[alnum] = slug(label);
+    }
+  }
+}
+
 /** Model → AutoScout URL slug, resolving common no-separator variants first. */
 function modelToSlug(raw: string): string {
   const mercedes = mercedesClassSlug(raw);
   if (mercedes) return mercedes;
   const alnum = raw.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  return MODEL_SLUG_BY_ALNUM[alnum] ?? slug(raw);
+  return MODEL_SLUG_BY_ALNUM[alnum] ?? LEARNED_MODEL_SLUG[alnum] ?? slug(raw);
 }
 
 function mapFuel(raw: string): string {
@@ -599,6 +645,8 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     prefillCriteriaFromUrl,
     extractCandidateSegments,
     inferFuel,
+    harvestTaxonomy,
+    learnEnumValues,
   };
 }
 
