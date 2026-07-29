@@ -14,6 +14,7 @@ import { canonicalizeFuel, refineFuelToken, FUEL_LABELS } from '../lib/study-cor
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
+import { fetchAllPages } from '../lib/fetchAllPages';
 
 type ObsInsert = Database['public']['Tables']['market_listing_observations']['Insert'];
 
@@ -464,34 +465,6 @@ export function timeSeries(obs: Observation[]): { date: string; median: number; 
 export interface MarketData {
   snapshots: Snapshot[];
   observations: Observation[];
-}
-
-/**
- * Paginated full read. PostgREST silently caps ANY request at ~1000 rows —
- * `.limit(5000)` still returns 1000 — and with an ASCENDING sort that meant
- * the dashboard only ever saw the 1000 OLDEST observations: every new
- * country/segment (ES, DE…) was invisible even though its snapshots were
- * recorded. Reads now page with .range() until exhausted; observations are
- * read NEWEST-first so if the safety cap ever hits, it's old data that drops
- * out, never fresh scans.
- */
-async function fetchAllPages<T>(
-  build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
-  maxRows: number,
-): Promise<T[]> {
-  const PAGE = 1000;
-  const out: T[] = [];
-  for (let from = 0; from < maxRows; from += PAGE) {
-    const { data, error } = await build(from, Math.min(from + PAGE, maxRows) - 1);
-    if (error) {
-      console.warn('[MARKET_DATA] paged read failed:', error.message);
-      break;
-    }
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < PAGE) break;
-  }
-  return out;
 }
 
 export async function loadMarketData(maxObservations = 60_000): Promise<MarketData> {

@@ -6,6 +6,7 @@
 
 import { supabase } from '../lib/supabase';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
+import { fetchAllPages } from '../lib/fetchAllPages';
 
 export interface IngestionEventRow {
   id: string;
@@ -185,23 +186,39 @@ function bestStatus(children: TreeNode[]): MappingStatus {
  * learned (gearbox/color/…).
  */
 export async function loadMappingTree(): Promise<TreeNode> {
-  const [{ data: memData }, { data: enumData }, { data: eventData }] = await Promise.all([
-    supabase
-      .from('linkgen_mapping_memory')
-      .select('site, country, brand, model, fuel, trim, validation_status, source, human_confirmations, confidence, last_confirmed_at'),
-    supabase
-      .from('linkgen_enum_mappings')
-      .select('site, field, code, label, confirmations'),
+  // Lectures PAGINÉES obligatoires : PostgREST plafonne à 1000 lignes en
+  // silence. Le dictionnaire de taxonomie dépasse les 13 000 entrées depuis
+  // les campagnes de découverte — sans pagination la carto n'en voyait que
+  // 1000, et le compteur « modèles couverts » restait figé pendant qu'Ada
+  // apprenait des milliers de modèles (constat 29/07).
+  const [rows, enums, eventData] = await Promise.all([
+    fetchAllPages<MemoryRow>(
+      (from, to) => supabase
+        .from('linkgen_mapping_memory')
+        .select('site, country, brand, model, fuel, trim, validation_status, source, human_confirmations, confidence, last_confirmed_at')
+        .order('last_confirmed_at', { ascending: false })
+        .range(from, to),
+      50_000, 'MAPPING_TREE',
+    ),
+    fetchAllPages<EnumRow>(
+      (from, to) => supabase
+        .from('linkgen_enum_mappings')
+        .select('site, field, code, label, confirmations')
+        .order('confirmations', { ascending: false })
+        .range(from, to),
+      100_000, 'MAPPING_TREE',
+    ),
     // Attribution: which mappings were written by Ada (campaigns) vs humans.
-    supabase
-      .from('linkgen_ingestion_events')
-      .select('site, submitted_by, declared_criteria, memory_action')
-      .not('memory_action', 'is', null)
-      .limit(5000),
+    fetchAllPages<Record<string, unknown>>(
+      (from, to) => supabase
+        .from('linkgen_ingestion_events')
+        .select('site, submitted_by, declared_criteria, memory_action')
+        .not('memory_action', 'is', null)
+        .order('created_at', { ascending: false })
+        .range(from, to),
+      20_000, 'MAPPING_TREE',
+    ),
   ]);
-
-  const rows = (memData ?? []) as unknown as MemoryRow[];
-  const enums = (enumData ?? []) as unknown as EnumRow[];
 
   // Keys (model + variant grain) confirmed by Ada vs by at least one human.
   // A node is "Ada seule" when Ada wrote it and no human ever did.
