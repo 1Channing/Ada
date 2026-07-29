@@ -462,9 +462,10 @@ function ResultsTab() {
   };
   useEffect(reload, []);
 
-  // Bascule « études sans résultat » : vérifier les marchés à l'œil (liens
-  // d'étude) et confirmer qu'un zéro n'est pas une erreur de scraping.
-  const [showEmpty, setShowEmpty] = useState(false);
+  // Commutateur à deux positions (retour Channing 29/07 — un switch, pas une
+  // case) : « À traiter » OU « Sans résultat » (vérification des marchés),
+  // jamais les deux mélangés.
+  const [mode, setMode] = useState<'feed' | 'empty'>('feed');
 
   const allGroups = useMemo(() => {
     const bySearch = new Map<string, DailyHit[]>();
@@ -501,10 +502,11 @@ function ResultsTab() {
   }, [hits, searches]);
 
   const groups = useMemo(
-    () => allGroups.filter((g) => g.list.length > 0 || showEmpty),
-    [allGroups, showEmpty],
+    () => allGroups.filter((g) => (mode === 'empty' ? g.list.length === 0 : g.list.length > 0)),
+    [allGroups, mode],
   );
-  const emptyCount = allGroups.filter((g) => g.list.length === 0).length;
+  const feedCount = allGroups.filter((g) => g.list.length > 0).length;
+  const emptyCount = allGroups.length - feedCount;
 
   // Archives : les annonces traitées À LA MAIN (motif posé). « Trop chère »
   // reviendra dans le feed sur vraie baisse ; « hors critères » est définitif.
@@ -524,25 +526,25 @@ function ResultsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-sm text-slate-600">
-          {allGroups.filter((g) => g.list.length > 0).length} étude(s) avec annonces à traiter
-        </p>
-        {emptyCount > 0 && (
-          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showEmpty}
-              onChange={(e) => setShowEmpty(e.target.checked)}
-              className="rounded border-slate-300"
-            />
-            Afficher les {emptyCount} étude(s) sans résultat (vérifier les marchés)
-          </label>
-        )}
+      <div className="flex justify-end">
+        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-medium shadow-sm">
+          <button
+            onClick={() => setMode('feed')}
+            className={`px-3 py-1.5 rounded-md transition-colors ${mode === 'feed' ? 'bg-brand-ocean text-white' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            À traiter · {feedCount}
+          </button>
+          <button
+            onClick={() => setMode('empty')}
+            className={`px-3 py-1.5 rounded-md transition-colors ${mode === 'empty' ? 'bg-brand-ocean text-white' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            Sans résultat · {emptyCount}
+          </button>
+        </div>
       </div>
       {groups.length === 0 && (
         <div className="bg-white rounded-xl border border-dashed border-slate-300 p-8 text-center text-slate-500 text-sm">
-          Aucune annonce à traiter — tout est à jour.
+          {mode === 'feed' ? 'Aucune annonce à traiter — tout est à jour.' : 'Aucune étude sans résultat — tout a trouvé.'}
         </div>
       )}
       {groups.map(({ search: s, list, stats }) => {

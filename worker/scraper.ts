@@ -27,6 +27,7 @@ import {
 } from '../src/lib/study-core/index';
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
+import { mpSlugOfLabel } from '../src/lib/study-core/marketplaces/marktplaats';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
 import { canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { StudyLogger } from './studyLogger';
@@ -498,6 +499,7 @@ async function scrapeMarktplaatsViaApi(
   let all: ScrapedListing[] = [];
   let totalCount: number | null = null;
   let pages = 0;
+  let lrpHarvest: Array<{ field: string; code: string; label: string }> | null = null;
   for (let page = 0; page < maxPages && all.length < maxListings; page++) {
     const apiUrl = buildLrpUrl(l2, h, page * 30, facetIds);
     const { html: body } = await fetchHtmlWithZyte(apiUrl, 1);
@@ -513,22 +515,37 @@ async function scrapeMarktplaatsViaApi(
       const t = body.match(/"totalResultCount"\s*:\s*(\d+)/);
       if (t) totalCount = parseInt(t[1], 10);
     }
-    // SONDE TAXONOMIE LRP (29/07, une fois par boot) : les recherches MP
-    // passent par cette API JSON, jamais par la page HTML — la moisson des
-    // facettes modèle (bâtie sur le HTML) n'y voit rien (model_facet=0 après
-    // 1000 études). On photographie la structure des facettes du JSON pour
-    // bâtir la moisson LRP sur preuve.
-    if (page === 0 && !mpLrpTaxoProbed) {
-      mpLrpTaxoProbed = true;
+    // MOISSON TAXONOMIE LRP (29/07) : les recherches MP passent par cette
+    // API JSON, jamais par la page HTML — sonde du 29/07 05:32 : `facets` à
+    // la racine, groupes {key, attributeGroup:[{attributeValueKey/Id/Label}]}
+    // (même grammaire que le JSON de la page HTML, prouvée sur Toyota). Le
+    // groupe key='model' porte la gamme de la marque : moissonnée ici, elle
+    // rejoint le dictionnaire via diagnostics.taxonomyHarvest.
+    if (page === 0) {
       try {
-        const d = JSON.parse(body) as Record<string, unknown>;
-        console.warn(`[MP_LRP_TAXO] clés racine: ${Object.keys(d).join(', ').slice(0, 200)}`);
-        for (const k of ['facets', 'searchCategoryOptions', 'attributeHierarchies', 'alternativeLocales', 'sortOptions']) {
-          if (d[k] !== undefined) console.warn(`[MP_LRP_TAXO] ${k} = ${JSON.stringify(d[k]).slice(0, 350)}`);
+        const brandSlug = url.match(/\/l\/auto-s\/([a-z0-9-]+)(?:\/|$)/)?.[1] ?? null;
+        const facets = (JSON.parse(body) as {
+          facets?: Array<{ key?: unknown; attributeGroup?: Array<{ attributeValueKey?: unknown; attributeValueId?: unknown; attributeValueLabel?: unknown }> }>;
+        }).facets;
+        const grp = facets?.find((f) => f?.key === 'model');
+        if (!mpLrpTaxoProbed) {
+          mpLrpTaxoProbed = true;
+          console.warn(`[MP_LRP_TAXO] facettes: ${(facets ?? []).map((f) => String(f?.key ?? '?')).join(',').slice(0, 180)}`);
+          if (grp) console.warn(`[MP_LRP_TAXO] groupe model: ${JSON.stringify(grp.attributeGroup?.slice(0, 3)).slice(0, 300)}`);
         }
-        const km = body.indexOf('"key":"model"');
-        if (km >= 0) console.warn(`[MP_LRP_TAXO] "key":"model" présent → ${body.slice(km, km + 350)}`);
-      } catch { /* sonde silencieuse */ }
+        if (brandSlug && Array.isArray(grp?.attributeGroup)) {
+          const entries: Array<{ field: string; code: string; label: string }> = [];
+          for (const v of grp.attributeGroup) {
+            const label = typeof v.attributeValueLabel === 'string' && v.attributeValueLabel.trim()
+              ? v.attributeValueLabel.trim()
+              : typeof v.attributeValueKey === 'string' ? v.attributeValueKey.trim() : '';
+            const id = typeof v.attributeValueId === 'number' ? v.attributeValueId : null;
+            if (!label || id == null) continue;
+            entries.push({ field: 'model_facet', code: `${brandSlug};${mpSlugOfLabel(label)};${id}`, label });
+          }
+          if (entries.length) lrpHarvest = entries;
+        }
+      } catch { /* moisson silencieuse — jamais bloquante */ }
     }
     const pageListings = coreParseSearchPage(body, url);
     pages++;
@@ -549,7 +566,7 @@ async function scrapeMarktplaatsViaApi(
         diagnostics: {
           site: 'MARKTPLAATS', mode: 'raw', attempts, htmlLength: 0, listingCount: 0,
           totalCount: 0, blocked: false, blockReason: null, emptyResults: true,
-          fromCache: false, fieldsPresent: {},
+          fromCache: false, fieldsPresent: {}, taxonomyHarvest: lrpHarvest,
         },
       };
       SCRAPE_CACHE.set(url, { at: Date.now(), result });
@@ -565,7 +582,7 @@ async function scrapeMarktplaatsViaApi(
     diagnostics: {
       site: 'MARKTPLAATS', mode: 'raw', attempts, htmlLength: 0, listingCount: all.length,
       totalCount, blocked: false, blockReason: null, emptyResults: false,
-      fromCache: false, fieldsPresent: fieldCoverage(all),
+      fromCache: false, fieldsPresent: fieldCoverage(all), taxonomyHarvest: lrpHarvest,
     },
   };
   SCRAPE_CACHE.set(url, { at: Date.now(), result });

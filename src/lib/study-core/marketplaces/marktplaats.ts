@@ -135,7 +135,8 @@ const canonFacet = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toUp
 
 /** Slug Marktplaats depuis le label du site — règle validée sur les 6 paires
  *  label↔href de la page Toyota (Rav4→rav4, Yaris Cross→yaris-cross,
- *  Aygo X→aygo-x, C-HR→c-hr). */
+ *  Aygo X→aygo-x, C-HR→c-hr). Exporté pour la moisson LRP du worker. */
+export const mpSlugOfLabel = (label: string) => mpSlugOf(label);
 const mpSlugOf = (label: string) =>
   label.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 

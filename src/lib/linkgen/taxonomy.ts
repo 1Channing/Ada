@@ -41,7 +41,15 @@ export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntr
     }
   }
   if (fresh.length) {
-    const { error: insErr } = await supabase.from('linkgen_enum_mappings').insert(fresh);
+    // UPSERT ignore-doublons (29/07) : la lecture anti-doublon ci-dessus est
+    // plafonnée à 1000 lignes par PostgREST — au-delà (AS24 : 5826 modèles),
+    // l'insert groupé heurtait la contrainte UNIQUE (site,field,code) et TOUT
+    // le lot était perdu (spam « insertion échouée » du 29/07 au matin). Les
+    // doublons sont ignorés ligne à ligne, les labels existants JAMAIS
+    // réécrits (certain-ou-rien intact), le neuf passe toujours.
+    const { error: insErr } = await supabase
+      .from('linkgen_enum_mappings')
+      .upsert(fresh, { onConflict: 'site,field,code', ignoreDuplicates: true });
     if (insErr) {
       console.warn(`[TAXONOMY] insertion échouée (${site}): ${insErr.message}`);
       return 0;
