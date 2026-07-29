@@ -201,6 +201,20 @@ async function runDailySearch(s: SearchRow): Promise<void> {
     seen.set(k.listing_url, k);
   }
 
+  // Véhicules déjà en NÉGOCIATION chez ce compte (tous statuts — un véhicule
+  // validé un jour n'est jamais re-présenté, règle Channing 29/07) : une
+  // annonce croisée par une AUTRE étude entre directement en 'saved'.
+  const { data: negos } = await supabase
+    .from('negotiations')
+    .select('listing_url')
+    .eq('user_id', s.user_id)
+    .limit(5000);
+  const negoUrls = new Set(
+    ((negos ?? []) as Array<{ listing_url: string | null }>)
+      .map((n) => (n.listing_url ?? '').trim())
+      .filter((u) => u.startsWith('http')),
+  );
+
   // 1) PAYS CIBLE d'abord : les tarifs du jour font la médiane de
   //    comparaison (finition équivalente) — et chaque passage éprouve les
   //    URLs cibles. Repli sur les observations MI si trop maigre.
@@ -236,7 +250,9 @@ async function runDailySearch(s: SearchRow): Promise<void> {
       if (!prior) {
         // Premier passage compris : ce qui matche les critères va dans la
         // boîte tout de suite — on traite les annonces dès le départ.
-        const status = inRange ? 'inbox' : 'dismissed';
+        // SAUF un véhicule déjà EN NÉGOCIATION (règle Channing 29/07) : il ne
+        // re-apparaît jamais dans les résultats, il vit dans l'onglet Ventes.
+        const status = negoUrls.has(listingUrl) ? 'saved' : inRange ? 'inbox' : 'dismissed';
         const { data: ins } = await supabase.from('daily_search_hits').insert({
           search_id: s.id, user_id: s.user_id, listing_url: listingUrl,
           title: l.title ?? '', price, year: l.year ?? null, mileage: l.mileage ?? null,
@@ -248,9 +264,9 @@ async function runDailySearch(s: SearchRow): Promise<void> {
         if (status === 'inbox') fresh++;
       } else if (prior.price != null && price <= prior.price - REAL_DROP_EUR) {
         // Baisse réelle : elle re-rentre dans la boîte, même si déjà triée —
-        // SAUF « hors critères » (définitif, règle Channing 28/07). « Trop
-        // chère » et les hors-écart automatiques reviennent, motif effacé.
-        const canReturn = prior.resolution !== 'hors_criteres';
+        // SAUF « hors critères » (définitif, règle 28/07) et SAUF un véhicule
+        // en négociation (règle 29/07 : validé = plus jamais dans le feed).
+        const canReturn = prior.resolution !== 'hors_criteres' && prior.status !== 'saved';
         const status = inRange && canReturn ? 'inbox' : prior.status;
         await supabase.from('daily_search_hits').update({
           kind: 'price_drop', previous_price: prior.price, price,

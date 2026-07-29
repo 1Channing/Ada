@@ -462,37 +462,49 @@ function ResultsTab() {
   };
   useEffect(reload, []);
 
-  const groups = useMemo(() => {
+  // Bascule « études sans résultat » : vérifier les marchés à l'œil (liens
+  // d'étude) et confirmer qu'un zéro n'est pas une erreur de scraping.
+  const [showEmpty, setShowEmpty] = useState(false);
+
+  const allGroups = useMemo(() => {
     const bySearch = new Map<string, DailyHit[]>();
     for (const h of hits) {
       (bySearch.get(h.search_id) ?? bySearch.set(h.search_id, []).get(h.search_id)!).push(h);
     }
-    return searches
-      .map((s) => {
-        // Le FEED ne montre que les annonces DANS l'écart de l'étude (inbox +
-        // envoyées en négo). Les hors-écart insérées par le worker pour la
-        // mémoire de dédup (dismissed sans motif) n'apparaissent nulle part ;
-        // les traitées à la main (motif) vivent dans les Archives dessous.
-        // Tri PRIX CROISSANT (règle maison : le bas du marché fait le prix).
-        const list = (bySearch.get(s.id) ?? [])
-          .filter((h) => h.status === 'inbox' || h.status === 'saved')
-          .sort((a, b) => (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER));
-        const prices = list.map((h) => h.price).filter((p): p is number => p != null);
-        const latest = list.find((h) => h.target_median != null);
-        return {
-          search: s,
-          list,
-          stats: {
-            count: list.length,
-            fresh: list.filter((h) => h.kind === 'new' && h.status === 'inbox').length,
-            drops: list.filter((h) => h.kind === 'price_drop').length,
-            medianSource: median6(prices),
-            medianTarget: latest?.target_median ?? null,
-          },
-        };
-      })
-      .filter((g) => g.list.length > 0);
+    return searches.map((s) => {
+      const all = bySearch.get(s.id) ?? [];
+      // Le FEED = uniquement les annonces À TRAITER (inbox, dans l'écart).
+      // Les validées vivent en Négociations (règle 29/07 : jamais re-montrées),
+      // les hors-écart automatiques restent invisibles (mémoire de dédup),
+      // les traitées à motif vivent aux Archives. Le non-traité S'ACCUMULE de
+      // jour en jour — rien n'est écrasé. Tri PRIX CROISSANT (règle maison).
+      const list = all
+        .filter((h) => h.status === 'inbox')
+        .sort((a, b) => (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER));
+      const prices = list.map((h) => h.price).filter((p): p is number => p != null);
+      const latest = list.find((h) => h.target_median != null);
+      return {
+        search: s,
+        list,
+        stats: {
+          count: list.length,
+          fresh: list.filter((h) => h.kind === 'new').length,
+          drops: list.filter((h) => h.kind === 'price_drop').length,
+          // Annonces VUES par le scrape mais hors écart : la preuve qu'un
+          // zéro vient du marché, pas d'un scrape en panne.
+          outOfRange: all.filter((h) => h.status === 'dismissed' && !h.resolution).length,
+          medianSource: median6(prices),
+          medianTarget: latest?.target_median ?? null,
+        },
+      };
+    });
   }, [hits, searches]);
+
+  const groups = useMemo(
+    () => allGroups.filter((g) => g.list.length > 0 || showEmpty),
+    [allGroups, showEmpty],
+  );
+  const emptyCount = allGroups.filter((g) => g.list.length === 0).length;
 
   // Archives : les annonces traitées À LA MAIN (motif posé). « Trop chère »
   // reviendra dans le feed sur vraie baisse ; « hors critères » est définitif.
@@ -502,7 +514,7 @@ function ResultsTab() {
   );
 
   if (loading) return <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>;
-  if (groups.length === 0 && archived.length === 0) {
+  if (searches.length === 0 && archived.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
         Rien pour l'instant — les résultats du scrape quotidien apparaîtront ici, organisés par étude.
@@ -512,6 +524,27 @@ function ResultsTab() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-sm text-slate-600">
+          {allGroups.filter((g) => g.list.length > 0).length} étude(s) avec annonces à traiter
+        </p>
+        {emptyCount > 0 && (
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showEmpty}
+              onChange={(e) => setShowEmpty(e.target.checked)}
+              className="rounded border-slate-300"
+            />
+            Afficher les {emptyCount} étude(s) sans résultat (vérifier les marchés)
+          </label>
+        )}
+      </div>
+      {groups.length === 0 && (
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-8 text-center text-slate-500 text-sm">
+          Aucune annonce à traiter — tout est à jour.
+        </div>
+      )}
       {groups.map(({ search: s, list, stats }) => {
         const name = s.label || `${s.brand} ${s.model}`.trim();
         const spread = stats.medianTarget != null && stats.medianSource != null
@@ -530,9 +563,18 @@ function ResultsTab() {
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-slate-900 truncate">{name}</p>
                   <p className="text-xs text-slate-500">
-                    {flagOf(s.source_country)} → {flagOf(s.target_country)} · {stats.count} annonce{stats.count > 1 ? 's' : ''}
-                    {stats.fresh > 0 ? ` · ${stats.fresh} à traiter` : ''}
-                    {stats.drops > 0 ? ` · ${stats.drops} baisse${stats.drops > 1 ? 's' : ''}` : ''}
+                    {flagOf(s.source_country)} → {flagOf(s.target_country)}
+                    {stats.count > 0 ? (
+                      <> · {stats.count} annonce{stats.count > 1 ? 's' : ''} à traiter
+                        {stats.drops > 0 ? ` · ${stats.drops} baisse${stats.drops > 1 ? 's' : ''}` : ''}</>
+                    ) : (
+                      // Étude sans résultat : le compteur hors-écart prouve que
+                      // le scrape a bien vu le marché — ouvrir pour les liens.
+                      <> · aucune annonce dans l'écart
+                        {stats.outOfRange > 0
+                          ? ` · ${stats.outOfRange} vue${stats.outOfRange > 1 ? 's' : ''} hors écart (scrape OK)`
+                          : ' · rien vu au scrape — vérifier les liens ci-dessous'}</>
+                    )}
                   </p>
                 </div>
                 {spread != null && (

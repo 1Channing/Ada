@@ -215,8 +215,10 @@ export async function listInboxHits(limit = 100): Promise<DailyHit[]> {
   return (data ?? []) as DailyHit[];
 }
 
-/** Historique complet des trouvailles (page Résultats), seeds et vidés exclus. */
-export async function listAllHits(limit = 400): Promise<DailyHit[]> {
+/** Historique complet des trouvailles (page Résultats), seeds et vidés exclus.
+ *  Limite large : le non-traité S'ACCUMULE de jour en jour (règle Channing
+ *  29/07 — on n'en perd pas une goutte), il ne doit jamais tomber du bord. */
+export async function listAllHits(limit = 3000): Promise<DailyHit[]> {
   const { data, error } = await supabase
     .from('daily_search_hits')
     .select('*')
