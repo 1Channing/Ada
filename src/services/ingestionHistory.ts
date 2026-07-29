@@ -346,11 +346,39 @@ export async function loadMappingTree(): Promise<TreeNode> {
       const key = `${site}|${U(label)}`;
       let brand = brandMap.get(key);
       if (!brand) {
-        brand = { id: `brand:${key}`, label, kind: 'brand', status: 'group', weight: 0, children: [] };
+        // `catalog:` = REPLIÉ par défaut dans MappingRadialTree : une gamme
+        // taxonomie (jusqu'à 114 modèles/marque, moisson AS24) ne déplie plus
+        // ses chapelets — constat mobile 29/07. Les marques déjà présentes
+        // via la mémoire (études réelles) restent dépliées, elles.
+        brand = { id: `catalog:brand:${key}`, label, kind: 'brand', status: 'group', weight: 0, children: [] };
         brandMap.set(key, brand);
         siteNode.children.push(brand);
       }
       return brand;
+    };
+
+    /**
+     * Marque + label modèle d'une entrée taxonomie, selon la grammaire du
+     * champ — chaque site encode différemment (29/07) :
+     *  - `{x}:model`  : code `makeId;modelId`, marque via le dico `{x}:make`
+     *  - `model_facet`: code `brandSlug;slug;id` (Marktplaats)
+     *  - `bb:model`   : code `brandSlug;modelSlug` (Bilbasen)
+     *  - `u_car_model`: code `BRAND_Model` (Leboncoin)
+     */
+    const resolveTaxoModel = (e: { field: string; code: string; label: string }): { brandLabel: string | null; modelLabel: string } | null => {
+      if (e.field.endsWith(':model')) {
+        const makeLabel = makeLabelByCode.get(e.code.split(';')[0] ?? '');
+        return { brandLabel: makeLabel ?? null, modelLabel: e.label };
+      }
+      if (e.field === 'model_facet' || e.field === 'bb:model') {
+        const brandSlug = e.code.split(';')[0] ?? '';
+        return brandSlug ? { brandLabel: brandSlug.replace(/-/g, ' ').toUpperCase(), modelLabel: e.label } : null;
+      }
+      if (e.field === 'u_car_model') {
+        const i = e.code.indexOf('_');
+        return i > 0 ? { brandLabel: e.code.slice(0, i).toUpperCase(), modelLabel: e.label } : null;
+      }
+      return null;
     };
 
     for (const e of list) {
@@ -358,15 +386,19 @@ export async function loadMappingTree(): Promise<TreeNode> {
         // Marque seule : rangée après la boucle dans le groupe replié
         // « Marques connues » si aucun modèle ne s'y rattache.
         continue;
-      } else if (e.field.endsWith(':model')) {
-        const makeCode = e.code.split(';')[0] ?? '';
-        const makeLabel = makeLabelByCode.get(makeCode) ?? '(marque ?)';
-        const brand = taxoBrandNode(makeLabel);
-        const modelKey = `${site}|${U(makeLabel)}|${U(e.label)}`;
+      }
+      const taxo = resolveTaxoModel(e);
+      if (taxo) {
+        // Marque irrésolue (dico marques pas encore moissonné) : on n'affiche
+        // PAS de nœud « (marque ?) » — l'entrée reste au dictionnaire et
+        // apparaîtra dès que la marque est apprise (prochain scrape du site).
+        if (!taxo.brandLabel) continue;
+        const brand = taxoBrandNode(taxo.brandLabel);
+        const modelKey = `${site}|${U(taxo.brandLabel)}|${U(taxo.modelLabel)}`;
         let model = modelMap.get(modelKey);
         if (!model) {
           model = {
-            id: `model:${modelKey}`, label: e.label, kind: 'model', status: 'valid',
+            id: `model:${modelKey}`, label: taxo.modelLabel, kind: 'model', status: 'valid',
             weight: Math.max(1, e.confirmations ?? 0), children: [],
             meta: { confirmations: e.confirmations ?? 0, source: 'taxonomie du site' },
           };

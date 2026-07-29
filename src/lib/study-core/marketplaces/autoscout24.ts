@@ -218,6 +218,18 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
     const taxo = JSON.parse(m[1])?.props?.pageProps?.taxonomy;
     const models = taxo?.models && typeof taxo.models === 'object' ? taxo.models : {};
     const seen = new Set<string>();
+    // MARQUES (makesSorted : 293 entrées {label, value}) — indispensables à
+    // la cartographie pour résoudre makeId → nom (constat « (marque ?) »
+    // 29/07 : 5 826 modèles appris, 0 marque).
+    if (Array.isArray(taxo?.makesSorted)) {
+      for (const mk of taxo.makesSorted as Array<{ value?: unknown; label?: unknown }>) {
+        const label = typeof mk.label === 'string' ? mk.label.trim() : '';
+        const value = String(mk.value ?? '');
+        if (!label || !/^\d+$/.test(value) || seen.has(`m${value}`)) continue;
+        seen.add(`m${value}`);
+        out.push({ field: 'as:make', code: value, label });
+      }
+    }
     for (const [makeId, list] of Object.entries(models)) {
       if (!Array.isArray(list) || !/^\d+$/.test(makeId)) continue;
       for (const it of list as Array<{ value?: unknown; label?: unknown }>) {

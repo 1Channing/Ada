@@ -341,6 +341,8 @@ export interface ScrapeSearchResult {
 // Zyte again. Lost on restart — fine.
 // Sonde taxonomie Bilbasen : un seul dump par boot (voir [BILBASEN_TAXO]).
 let bilbasenTaxoProbed = false;
+// Sonde taxonomie Marktplaats LRP : un seul dump par boot (voir [MP_LRP_TAXO]).
+let mpLrpTaxoProbed = false;
 
 const SCRAPE_CACHE = new Map<string, { at: number; result: ScrapeSearchResult }>();
 const SCRAPE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -510,6 +512,23 @@ async function scrapeMarktplaatsViaApi(
     if (totalCount == null) {
       const t = body.match(/"totalResultCount"\s*:\s*(\d+)/);
       if (t) totalCount = parseInt(t[1], 10);
+    }
+    // SONDE TAXONOMIE LRP (29/07, une fois par boot) : les recherches MP
+    // passent par cette API JSON, jamais par la page HTML — la moisson des
+    // facettes modèle (bâtie sur le HTML) n'y voit rien (model_facet=0 après
+    // 1000 études). On photographie la structure des facettes du JSON pour
+    // bâtir la moisson LRP sur preuve.
+    if (page === 0 && !mpLrpTaxoProbed) {
+      mpLrpTaxoProbed = true;
+      try {
+        const d = JSON.parse(body) as Record<string, unknown>;
+        console.warn(`[MP_LRP_TAXO] clés racine: ${Object.keys(d).join(', ').slice(0, 200)}`);
+        for (const k of ['facets', 'searchCategoryOptions', 'attributeHierarchies', 'alternativeLocales', 'sortOptions']) {
+          if (d[k] !== undefined) console.warn(`[MP_LRP_TAXO] ${k} = ${JSON.stringify(d[k]).slice(0, 350)}`);
+        }
+        const km = body.indexOf('"key":"model"');
+        if (km >= 0) console.warn(`[MP_LRP_TAXO] "key":"model" présent → ${body.slice(km, km + 350)}`);
+      } catch { /* sonde silencieuse */ }
     }
     const pageListings = coreParseSearchPage(body, url);
     pages++;
