@@ -189,6 +189,18 @@ export function MarketIntelligence() {
         </button>
       </div>
 
+      {/* Plafond de lecture atteint : le dire au lieu de tronquer en silence —
+          une page qui perd des modèles sans prévenir passe pour aléatoire. */}
+      {data.truncatedFrom && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-sm text-amber-800">
+          Volume maximal atteint : seules les observations postérieures au{' '}
+          <span className="font-semibold">
+            {new Date(data.truncatedFrom).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+          </span>{' '}
+          sont affichées. Les scrapes plus anciens existent en base mais ne sont pas chargés ici.
+        </div>
+      )}
+
       {/* Radar d'opportunités inter-pays — alimenté par chaque scrape (campagnes incluses).
           Inspecter = ouvrir DIRECTEMENT les deux marchés de l'écart en études
           comparées (pays bas vs pays haut), prêtes à lire côte à côte. */}

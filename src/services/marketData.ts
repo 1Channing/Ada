@@ -465,20 +465,43 @@ export function timeSeries(obs: Observation[]): { date: string; median: number; 
 export interface MarketData {
   snapshots: Snapshot[];
   observations: Observation[];
+  /** Non nul si le plafond de lecture a mordu : date de la plus ancienne
+   *  observation affichée — tout ce qui précède est absent de la page. */
+  truncatedFrom?: string | null;
 }
 
-export async function loadMarketData(maxObservations = 60_000): Promise<MarketData> {
+/**
+ * Le plafond de 60 000 lignes était atteint depuis les campagnes de masse
+ * (170 000 observations en base le 29/07) : la lecture, triée du plus récent
+ * au plus ancien, ne montrait plus que les ~2 derniers jours et 42 couples
+ * marque/modèle disparaissaient purement de la page. Comme la borne avance à
+ * chaque scrape, l'affichage changeait tout seul d'une visite à l'autre —
+ * d'où l'impression de résultats aléatoires. Le plafond est relevé, et s'il
+ * mord un jour la page le DIT au lieu de tronquer en silence.
+ */
+export const MARKET_OBS_CAP = 250_000;
+
+export async function loadMarketData(maxObservations = MARKET_OBS_CAP): Promise<MarketData> {
   const [snapshots, observations] = await Promise.all([
     fetchAllPages<Snapshot>(
       (from, to) => supabase.from('market_snapshots').select('*').order('scraped_at', { ascending: false }).range(from, to),
       20_000,
+      'MARKET_DATA',
     ),
     fetchAllPages<Observation>(
       (from, to) => supabase.from('market_listing_observations').select('*').order('scraped_at', { ascending: false }).range(from, to),
       maxObservations,
+      'MARKET_DATA',
     ),
   ]);
-  return { snapshots, observations };
+  // Plafond atteint = des observations plus anciennes existent sans être lues.
+  const truncatedFrom = observations.length >= maxObservations
+    ? (observations[observations.length - 1]?.scraped_at ?? null)
+    : null;
+  if (truncatedFrom) {
+    console.warn(`[MARKET_DATA] plafond ${maxObservations} atteint — rien d'antérieur à ${truncatedFrom} n'est affiché`);
+  }
+  return { snapshots, observations, truncatedFrom };
 }
 
 export function priceHistogramFrom(obs: Observation[], buckets = 12): { range: string; count: number; from: number; to: number }[] {
