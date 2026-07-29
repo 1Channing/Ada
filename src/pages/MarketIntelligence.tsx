@@ -7,7 +7,7 @@ import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, Externa
 import {
   loadMarketData, loadKnownDimensions, sortedUnion, canonUnion, canonKey, brandKey, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
-  studiesFromOpportunity, MARKET_STUDIES_KEY,
+  studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing,
 } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
@@ -166,11 +166,14 @@ export function MarketIntelligence() {
     const firstWithCountry = studies.findIndex((x) => x.country === f.country);
     const color = countryColor && firstWithCountry === i ? countryColor : STUDY_COLORS[i] ?? BLUE;
     const filtered = filterObservations(obs, f);
-    const latestTs = filtered.length ? Math.max(...filtered.map((o) => new Date(o.scraped_at).getTime())) : 0;
-    const latestObs = filtered.filter((o) => Math.abs(new Date(o.scraped_at).getTime() - latestTs) < 60_000);
+    // État actuel du marché : une ligne par annonce, dans sa version la plus
+    // récente. Les indicateurs LE décrivent (mêmes chiffres que le tableau du
+    // dessous) ; l'historique complet reste dans `filtered` pour les courbes
+    // et la vélocité, qui ont besoin de chaque passage.
+    const latestObs = latestPerListing(filtered);
     return {
       idx: i, filters: f, color, label: studyLabel(f, i),
-      filtered, latestObs, stats: priceStats(filtered), series: timeSeries(filtered),
+      filtered, latestObs, stats: priceStats(latestObs), series: timeSeries(filtered),
       realDepth: computeRealDepth(data.snapshots, f),
     };
   }), [studies, obs, data.snapshots]);

@@ -288,6 +288,35 @@ export function dedupeClonedListings(obs: Observation[]): Observation[] {
   return out;
 }
 
+/**
+ * ÉTAT ACTUEL DU MARCHÉ : une ligne par annonce, dans sa version la plus
+ * récemment vue.
+ *
+ * Remplace l'ancienne définition « observations vues dans les 60 s du dernier
+ * scrape » : celle-ci ne tenait que si le filtre visait UN segment scanné d'un
+ * seul tenant. Dès que le filtre couvrait plusieurs pays ou sites (Pays =
+ * Tous), elle se réduisait au dernier scan d'un seul site — le tableau
+ * n'affichait plus que les annonces de ce scan-là (que des EQA françaises de
+ * 2024 démarrant à 31 400 €) pendant que les indicateurs, eux, comptaient tout
+ * le marché (minimum à 12 990 € en Allemagne). Et comme le « dernier scan »
+ * change à chaque étude, le contenu variait tout seul — constat 29/07.
+ *
+ * L'identité d'une annonce est son URL, à défaut sa référence interne, à
+ * défaut son empreinte véhicule (SANS le prix : une baisse de prix ne doit pas
+ * créer une seconde annonce, elle doit remplacer l'ancienne).
+ */
+export function latestPerListing(obs: Observation[]): Observation[] {
+  const byListing = new Map<string, Observation>();
+  for (const o of obs) {
+    const id = (o.listing_url ?? '').trim()
+      || (o.internal_ref ?? '').trim()
+      || [o.site, brandKey(o.brand), canonKey(o.model), o.year ?? '', o.mileage ?? '', o.power_din ?? '', normText(o.title)].join('|');
+    const cur = byListing.get(id);
+    if (!cur || String(o.scraped_at ?? '') > String(cur.scraped_at ?? '')) byListing.set(id, o);
+  }
+  return [...byListing.values()];
+}
+
 export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_FILTERS): Observation[] {
   const trimNeedle = normText(f.trim).trim();
   const gearboxNeedle = normText(f.gearbox).trim();
