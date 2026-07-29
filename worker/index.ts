@@ -419,13 +419,13 @@ app.post('/campaign/start', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: Invalid or missing WORKER_SECRET' });
   }
 
-  const { sites, total, reinforceShare, variantShare, label, filters, deepScan, plan } = req.body ?? {};
+  const { sites, total, reinforceShare, variantShare, label, filters, deepScan, discoveryOnly, plan } = req.body ?? {};
   if (!Array.isArray(sites) || sites.length === 0 || !total) {
     return res.status(400).json({ error: 'Missing required parameters: sites[], total' });
   }
 
   try {
-    const result = await startWorkerCampaign({ sites, total, reinforceShare, variantShare, label, filters, deepScan, plan });
+    const result = await startWorkerCampaign({ sites, total, reinforceShare, variantShare, label, filters, deepScan, discoveryOnly: discoveryOnly === true, plan });
     return res.status(result.started ? 200 : 409).json(result);
   } catch (e: any) {
     console.error('[CAMPAIGN_WORKER] start failed:', e?.message ?? e);
