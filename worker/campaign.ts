@@ -81,6 +81,7 @@ export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<{ 
         sites: opts.sites, total: opts.total,
         reinforceShare: opts.reinforceShare, variantShare: opts.variantShare,
         filters: opts.filters, deepScan: opts.deepScan === true,
+        discoveryOnly: opts.discoveryOnly === true,
         plan, runner: 'worker',
       })),
       last_heartbeat: new Date().toISOString(),
