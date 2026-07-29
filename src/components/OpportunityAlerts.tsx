@@ -12,7 +12,7 @@
  * memory-first URLs for both sides.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import {
@@ -61,9 +61,17 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
   const [collapsed, setCollapsed] = useState(false);
   const [shown, setShown] = useState(PAGE_SIZE);
 
+  // Garde anti-réponse périmée : le calcul lit ~40 000 observations paginées,
+  // donc deux chargements lancés coup sur coup (changement de seuil, ou portée
+  // qui arrive après le premier rendu) peuvent revenir dans le désordre — la
+  // réponse la plus LENTE écrasait alors la plus récente et l'accueil
+  // affichait la liste non filtrée (110 écarts au lieu de 4, constat 29/07).
+  const reqSeq = useRef(0);
   const refresh = async (th: number) => {
+    const seq = ++reqSeq.current;
     setLoading(true);
     const [o, a] = await Promise.all([loadMarketOpportunities(th, 5, touchedSince), loadOpportunityAcks()]);
+    if (seq !== reqSeq.current) return; // un chargement plus récent a pris la main
     setOpps(o); setAcks(a); setLoading(false);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps

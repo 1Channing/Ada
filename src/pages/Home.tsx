@@ -46,6 +46,10 @@ const fmtTime = (iso: string) =>
 export function Home() {
   const [deals, setDeals] = useState<DealRow[]>([]);
   const [campaign, setCampaign] = useState<CampaignRow | null>(null);
+  // Tant que la dernière campagne n'est pas connue, le radar d'opportunités
+  // ne doit PAS se lancer : sans portée il chargerait tous les écarts des 30
+  // jours, alors que l'accueil ne montre que ceux de la dernière campagne.
+  const [campaignLoaded, setCampaignLoaded] = useState(false);
   const [campaignEnd, setCampaignEnd] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [hits, setHits] = useState<DailyHit[]>([]);
@@ -82,6 +86,7 @@ export function Home() {
       setLegal((legalRows ?? []) as typeof legal);
       const camp = ((campRows ?? [])[0] ?? null) as CampaignRow | null;
       setCampaign(camp);
+      setCampaignLoaded(true);
       if (camp) {
         const { data: lastItem } = await supabase
           .from('linkgen_campaign_items')
@@ -180,10 +185,12 @@ export function Home() {
       </button>
 
       {/* Opportunités repérées par la DERNIÈRE campagne uniquement */}
-      <OpportunityAlerts
-        onInspect={(o) => inspectOpportunityInMarket(o, navigateTo)}
-        touchedSince={campaign?.created_at ?? undefined}
-      />
+      {campaignLoaded && campaign && (
+        <OpportunityAlerts
+          onInspect={(o) => inspectOpportunityInMarket(o, navigateTo)}
+          touchedSince={campaign.created_at}
+        />
+      )}
 
       {/* Veille juridique : dernières entrées publiées */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
