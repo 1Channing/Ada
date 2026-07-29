@@ -92,7 +92,17 @@ export function CampaignPanel() {
   const [yearMax, setYearMax] = useState<string>('');
   // Deep pagination (10 pages / ~300 annonces) — off by default: ~2× Zyte cost.
   const [deepScan, setDeepScan] = useState(false);
-  const [discoveryOnly, setDiscoveryOnly] = useState(false);
+  // Persisté : sur mobile le navigateur recharge la page en arrière-plan et
+  // un state React repart à zéro — le mode choisi sautait silencieusement
+  // entre le moment où on le sélectionne et le clic Lancer (campagnes du
+  // 29/07 parties en précision alors que l'opérateur avait choisi découverte).
+  const [discoveryOnly, setDiscoveryOnlyState] = useState(() => {
+    try { return localStorage.getItem('ada.campaignMode') === 'discovery'; } catch { return false; }
+  });
+  const setDiscoveryOnly = (v: boolean) => {
+    setDiscoveryOnlyState(v);
+    try { localStorage.setItem('ada.campaignMode', v ? 'discovery' : 'precision'); } catch { /* privé/quota */ }
+  };
   const [knownBrands, setKnownBrands] = useState<string[]>([]);
   useEffect(() => {
     (async () => {
