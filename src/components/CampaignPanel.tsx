@@ -234,6 +234,44 @@ export function CampaignPanel() {
       {/* Config */}
       {!running && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Mode : sélecteur segmenté pleine largeur — un checkbox se rate
+              trop facilement sur mobile, un mode doit se voir avant le clic. */}
+          <div className="md:col-span-2">
+            <span className="text-xs text-slate-600 block mb-1.5">Mode de campagne</span>
+            <div className="inline-flex w-full sm:w-auto rounded-lg border border-slate-200 bg-slate-50 p-1">
+              <button
+                onClick={() => setDiscoveryOnly(false)}
+                className={`flex-1 sm:flex-none px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  !discoveryOnly
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                Précision
+              </button>
+              <button
+                onClick={() => setDiscoveryOnly(true)}
+                className={`flex-1 sm:flex-none px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  discoveryOnly
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                Découverte taxonomie
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              {discoveryOnly ? (
+                <>
+                  <span className="text-amber-600 font-medium">Marques sans modèle</span> — chaque page
+                  marque enseigne sa gamme entière (facettes, slugs, enums). 1 étude par marque × site,
+                  aucune écriture mémoire.
+                </>
+              ) : (
+                <>Combos marque + modèle + carburant précis : confirme les mappings et nourrit la mémoire.</>
+              )}
+            </p>
+          </div>
           <div className="space-y-3">
             <label className="block">
               <span className="text-xs text-slate-600">Nombre d'études : <span className="text-slate-800 font-semibold">{total}</span> (~{estMinutes} min, {total} appels Zyte)</span>
@@ -243,27 +281,31 @@ export function CampaignPanel() {
                 className="w-full mt-1 accent-violet-500"
               />
             </label>
-            <label className="block">
-              <span className="text-xs text-slate-600">Renforcement (re-test de combos déjà validés) : {reinforcePct}%</span>
-              <input
-                type="range" min={0} max={50} step={5} value={reinforcePct}
-                onChange={(e) => setReinforcePct(Number(e.target.value))}
-                className="w-full mt-1 accent-violet-500"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs text-slate-600">Variantes carburant / finition (liées à leur marque+modèle) : {variantPct}%</span>
-              <input
-                type="range" min={0} max={100} step={10} value={variantPct}
-                onChange={(e) => setVariantPct(Number(e.target.value))}
-                className="w-full mt-1 accent-violet-500"
-              />
-            </label>
-            <p className="text-[11px] text-slate-500">
-              Chaque étude cible <span className="text-slate-700">une année précise</span> (min = max,
-              tirée entre 2020 et {new Date().getFullYear()}) — obligatoire, sinon la recherche est
-              trop vaste et les médianes mélangent tous les âges.
-            </p>
+            {!discoveryOnly && (
+              <>
+                <label className="block">
+                  <span className="text-xs text-slate-600">Renforcement (re-test de combos déjà validés) : {reinforcePct}%</span>
+                  <input
+                    type="range" min={0} max={50} step={5} value={reinforcePct}
+                    onChange={(e) => setReinforcePct(Number(e.target.value))}
+                    className="w-full mt-1 accent-violet-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-slate-600">Variantes carburant / finition (liées à leur marque+modèle) : {variantPct}%</span>
+                  <input
+                    type="range" min={0} max={100} step={10} value={variantPct}
+                    onChange={(e) => setVariantPct(Number(e.target.value))}
+                    className="w-full mt-1 accent-violet-500"
+                  />
+                </label>
+                <p className="text-[11px] text-slate-500">
+                  Chaque étude cible <span className="text-slate-700">une année précise</span> (min = max,
+                  tirée entre 2020 et {new Date().getFullYear()}) — obligatoire, sinon la recherche est
+                  trop vaste et les médianes mélangent tous les âges.
+                </p>
+              </>
+            )}
             <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
               <input
                 type="checkbox"
@@ -272,19 +314,6 @@ export function CampaignPanel() {
                 className="accent-violet-500"
               />
               Scan profond — 10 pages (~300 annonces) au lieu de 5 <span className="text-slate-400">· ~2× d'appels Zyte</span>
-            </label>
-            <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={discoveryOnly}
-                onChange={(e) => setDiscoveryOnly(e.target.checked)}
-                className="accent-violet-500"
-              />
-              <span>
-                Découverte taxonomie — <span className="text-slate-700">marques sans modèle</span> :
-                chaque page marque enseigne sa gamme entière (facettes, slugs, enums)
-                <span className="text-slate-400"> · 1 étude par marque × site, aucune écriture mémoire</span>
-              </span>
             </label>
           </div>
           <div className="space-y-3">
@@ -394,10 +423,12 @@ export function CampaignPanel() {
           <button
             onClick={handleStart}
             disabled={sites.length === 0}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium transition-colors"
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg disabled:opacity-40 text-white text-sm font-medium transition-colors ${
+              discoveryOnly ? 'bg-amber-500 hover:bg-amber-400' : 'bg-violet-600 hover:bg-violet-500'
+            }`}
           >
             <Rocket className="w-4 h-4" />
-            Lancer la campagne ({total})
+            {discoveryOnly ? `Lancer la découverte taxonomie (${total})` : `Lancer la campagne précision (${total})`}
           </button>
         ) : (
           <button
