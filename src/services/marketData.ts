@@ -701,6 +701,32 @@ export function opportunityKey(o: MarketOpportunity): string {
   return [o.brand, o.model, o.fuel, o.year, o.lowCountry, o.highCountry].join('|');
 }
 
+/** Clé de session où le Market Intelligence lit ses études au montage. */
+export const MARKET_STUDIES_KEY = 'ada_market_studies';
+
+/**
+ * Un écart du radar → les deux études comparées (pays bas vs pays haut),
+ * même carburant et même millésime des deux côtés.
+ */
+export function studiesFromOpportunity(o: MarketOpportunity): MarketFilters[] {
+  const base = { brand: o.brand, model: o.model, fuel: o.fuel as FuelToken, yearMin: o.year, yearMax: o.year };
+  return [{ ...base, country: o.lowCountry }, { ...base, country: o.highCountry }];
+}
+
+/**
+ * « Inspecter » depuis une AUTRE page que le MI (l'Accueil) : la navigation
+ * y recharge la page entière, donc l'écart cliqué ne peut pas voyager en
+ * mémoire — il était purement perdu et le MI s'ouvrait vierge (constat
+ * 29/07). On le dépose dans la session que le MI lit au montage, puis on
+ * navigue.
+ */
+export function inspectOpportunityInMarket(o: MarketOpportunity, navigateTo: (path: string) => void): void {
+  try {
+    sessionStorage.setItem(MARKET_STUDIES_KEY, JSON.stringify(studiesFromOpportunity(o)));
+  } catch { /* session pleine ou navigation privée : le MI s'ouvrira sur ses filtres courants */ }
+  navigateTo('/market');
+}
+
 export async function loadMarketOpportunities(
   minDelta = 5000,
   minPerCountry = 5,

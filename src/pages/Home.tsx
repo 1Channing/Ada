@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { loadMappingTree, type TreeNode } from '../services/ingestionHistory';
 import { MappingRadialTree } from '../components/MappingRadialTree';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
+import { inspectOpportunityInMarket } from '../services/marketData';
 import { DailyHit, DailySearch, listInboxHits, listDailySearches } from '../services/workflow';
 import { useAuth } from '../services/auth';
 
@@ -179,7 +180,10 @@ export function Home() {
       </button>
 
       {/* Opportunités repérées par la DERNIÈRE campagne uniquement */}
-      <OpportunityAlerts onInspect={() => navigateTo('/market')} touchedSince={campaign?.created_at ?? undefined} />
+      <OpportunityAlerts
+        onInspect={(o) => inspectOpportunityInMarket(o, navigateTo)}
+        touchedSince={campaign?.created_at ?? undefined}
+      />
 
       {/* Veille juridique : dernières entrées publiées */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">

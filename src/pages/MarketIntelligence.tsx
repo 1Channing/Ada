@@ -7,6 +7,7 @@ import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, Externa
 import {
   loadMarketData, loadKnownDimensions, sortedUnion, canonUnion, canonKey, brandKey, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
+  studiesFromOpportunity, MARKET_STUDIES_KEY,
 } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
@@ -30,7 +31,9 @@ const COUNTRY_FLAG: Record<string, string> = {
 };
 const FUEL_TOKENS: FuelToken[] = ['petrol', 'diesel', 'hybrid', 'mild_hybrid', 'phev', 'electric', 'hydrogen', 'cng', 'lpg'];
 
-const STUDIES_KEY = 'ada_market_studies';
+// Clé partagée avec le service : l'Accueil y dépose l'écart cliqué avant de
+// naviguer (la navigation recharge la page, rien ne voyage en mémoire).
+const STUDIES_KEY = MARKET_STUDIES_KEY;
 const LEGACY_FILTERS_KEY = 'ada_market_filters';
 const MAX_STUDIES = 3;
 
@@ -190,11 +193,7 @@ export function MarketIntelligence() {
           Inspecter = ouvrir DIRECTEMENT les deux marchés de l'écart en études
           comparées (pays bas vs pays haut), prêtes à lire côte à côte. */}
       <OpportunityAlerts onInspect={(o) => {
-        const base = { brand: o.brand, model: o.model, fuel: o.fuel as FuelToken, yearMin: o.year, yearMax: o.year };
-        setStudies([
-          { ...base, country: o.lowCountry },
-          { ...base, country: o.highCountry },
-        ]);
+        setStudies(studiesFromOpportunity(o));
         setActiveIdx(0);
         setPriceBand(null);
       }} />
