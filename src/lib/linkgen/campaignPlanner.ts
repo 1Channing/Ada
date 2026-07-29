@@ -120,6 +120,15 @@ export interface CampaignPlanOptions {
   /** 0..1 share of items carrying a fuel or trim variant (when known). Default 0.4. */
   variantShare?: number;
   filters?: CampaignFilters;
+  /**
+   * MODE DÉCOUVERTE TAXONOMIE (Channing 29/07) : campagne 100 % sans modèle —
+   * toutes les marques connues (mémoire ∪ référentiel) × tous les sites
+   * demandés, une étude par couple. Chaque page marque livre sa gamme
+   * entière via harvestTaxonomy (facettes MP, taxonomy AS24, enums LBC,
+   * slugs Bilbasen/mobile.de) ; ensuite les recherches précises profitent
+   * du mapping appris. Modèle vide = jamais d'écriture mémoire.
+   */
+  discoveryOnly?: boolean;
   rng?: () => number;
 }
 
@@ -154,6 +163,28 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   const brandMatches = (b: string) => brandSet.size === 0 || brandSet.has(brandKey(b));
   const modelMatches = (b: string, m: string) =>
     modelSet.size === 0 || modelSet.has(canonKey(m)) || modelSet.has(refModelKey(b, m));
+
+  // ── MODE DÉCOUVERTE TAXONOMIE : toutes les marques × tous les sites, sans
+  // modèle — une étude par couple, c'est la page marque qui enseigne.
+  if (opts.discoveryOnly) {
+    const byKey = new Map<string, string>(); // clé canonique → libellé élu
+    for (const b of k.brands) byKey.set(brandKey(b), b);
+    for (const c of k.refCombos ?? []) {
+      const bk2 = brandKey(c.brand);
+      if (!byKey.has(bk2)) byKey.set(bk2, c.brand);
+    }
+    const items: CampaignPlanItem[] = [];
+    for (const site of opts.sites) {
+      for (const [, brand] of byKey) {
+        if (!brandMatches(brand)) continue;
+        items.push({
+          site, brand, model: '', year: nowYear, kind: 'exploration',
+          reason: `découverte taxonomie — gamme complète ${brand} (page marque)`,
+        });
+      }
+    }
+    return shuffle(items, rng).slice(0, total);
+  }
   const forcedFuels = (f.fuels ?? []).map(U).filter(Boolean);
   const pinMin = Math.max(YEAR_PIN_MIN, Math.min(f.yearMin ?? YEAR_PIN_MIN, nowYear));
   const pinMax = Math.max(pinMin, Math.min(f.yearMax ?? nowYear, nowYear));

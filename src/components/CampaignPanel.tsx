@@ -92,6 +92,7 @@ export function CampaignPanel() {
   const [yearMax, setYearMax] = useState<string>('');
   // Deep pagination (10 pages / ~300 annonces) — off by default: ~2× Zyte cost.
   const [deepScan, setDeepScan] = useState(false);
+  const [discoveryOnly, setDiscoveryOnly] = useState(false);
   const [knownBrands, setKnownBrands] = useState<string[]>([]);
   useEffect(() => {
     (async () => {
@@ -172,6 +173,7 @@ export function CampaignPanel() {
       variantShare: variantPct / 100,
       ...(Object.keys(filters).length > 0 ? { filters } : {}),
       ...(deepScan ? { deepScan: true } : {}),
+      ...(discoveryOnly ? { discoveryOnly: true } : {}),
     });
     if (!res.started) setStartError(res.reason ?? 'Lancement impossible');
   };
@@ -270,6 +272,19 @@ export function CampaignPanel() {
                 className="accent-violet-500"
               />
               Scan profond — 10 pages (~300 annonces) au lieu de 5 <span className="text-slate-400">· ~2× d'appels Zyte</span>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={discoveryOnly}
+                onChange={(e) => setDiscoveryOnly(e.target.checked)}
+                className="accent-violet-500"
+              />
+              <span>
+                Découverte taxonomie — <span className="text-slate-700">marques sans modèle</span> :
+                chaque page marque enseigne sa gamme entière (facettes, slugs, enums)
+                <span className="text-slate-400"> · 1 étude par marque × site, aucune écriture mémoire</span>
+              </span>
             </label>
           </div>
           <div className="space-y-3">

@@ -29,6 +29,8 @@ export interface StartCampaignOptions {
   filters?: CampaignFilters;
   /** 10-page deep pagination (~2× Zyte calls). Off by default. */
   deepScan?: boolean;
+  /** Découverte taxonomie : marques sans modèle, la page marque enseigne sa gamme. */
+  discoveryOnly?: boolean;
   /** Explicit plan (monthly re-scan: the exact segments the operator ticked). */
   plan?: CampaignPlanItem[];
   label?: string;
