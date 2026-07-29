@@ -7,7 +7,7 @@ import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, Externa
 import {
   loadMarketData, loadKnownDimensions, sortedUnion, canonUnion, canonKey, brandKey, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
-  studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing,
+  studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing, canonicalizeGearbox, GEARBOX_LABELS,
 } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
@@ -39,6 +39,11 @@ const MAX_STUDIES = 3;
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+}
+/** Boîte affichée dans la langue de l'app, pas dans celle du site d'origine. */
+function gearboxLabel(raw: string | null | undefined): string {
+  const t = canonicalizeGearbox(raw);
+  return t ? GEARBOX_LABELS[t] : '';
 }
 function fmtEur(n: number | null | undefined): string {
   return n == null || n === 0 ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`;
@@ -648,7 +653,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
                           {o.year ?? '—'} · {o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'} · {fuelLabel(o.fuel)}
-                          {o.power_din != null ? ` · ${o.power_din} ch` : ''}{o.gearbox ? ` · ${o.gearbox}` : ''}
+                          {o.power_din != null ? ` · ${o.power_din} ch` : ''}{gearboxLabel(o.gearbox) ? ` · ${gearboxLabel(o.gearbox)}` : ''}
                         </div>
                         {(o.trim || o.title) && <div className="text-xs text-slate-600 truncate mt-0.5">{o.trim || o.title}</div>}
                       </div>
@@ -734,7 +739,7 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
               <td className="py-2 pr-3 text-slate-600">{o.year ?? '—'}</td>
               <td className="py-2 pr-3 text-slate-600">{o.mileage != null ? `${o.mileage.toLocaleString('fr-FR')} km` : '—'}</td>
               <td className="py-2 pr-3 text-slate-600">{o.power_din != null ? `${o.power_din} ch` : '—'}</td>
-              <td className="py-2 pr-3 text-slate-600">{o.gearbox || '—'}</td>
+              <td className="py-2 pr-3 text-slate-600">{gearboxLabel(o.gearbox) || '—'}</td>
               <td className="py-2 pr-3 text-slate-700">{o.trim || '—'}</td>
               <td className="py-2 pr-3 text-slate-700">{fuelLabel(o.fuel)}</td>
               <td className="py-2">

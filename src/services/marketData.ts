@@ -258,6 +258,44 @@ export function fuelFilterMatches(obsFuel: string, wanted: string): boolean {
 }
 
 /**
+ * BOÎTE DE VITESSES — canonisation multilingue.
+ *
+ * Chaque site écrit la boîte dans sa langue : la base contient 25 graphies
+ * pour 3 réalités ('Automatik', 'Boîte automatique', 'Automatisch',
+ * 'Automatico', 'Automaat', 'Automatique', 'Automático', 'Automatisk gear'…).
+ * Le filtre listait ces 25 graphies et n'en sélectionnait qu'une à la fois :
+ * choisir « Automatik » écartait les automatiques françaises, néerlandaises,
+ * italiennes… (constat 29/07). On canonise à la LECTURE, la base garde la
+ * graphie d'origine.
+ *
+ * Ordre des tests critique : 'Semiautomatico', 'Halbautomatik' et
+ * 'Half/Semi-automaat' contiennent le motif automatique — le semi passe donc
+ * en premier. Les libellés commençant par « - » sont des entrées vides des
+ * sites (« - Boîte », « - Cambio »), pas des valeurs.
+ */
+export type GearboxToken = 'automatique' | 'manuelle' | 'semi';
+
+export const GEARBOX_LABELS: Record<GearboxToken, string> = {
+  automatique: 'Automatique',
+  manuelle: 'Manuelle',
+  semi: 'Semi-automatique',
+};
+
+export function canonicalizeGearbox(raw: string | null | undefined): GearboxToken | '' {
+  // Accents retirés ICI : le normText partagé ne fait que minuscules, or
+  // l'espagnol écrit « Automático » (8 966 annonces) — sans dépouiller le
+  // 'á', le motif 'automa' ne matche pas et tout le stock espagnol tombe.
+  const s = String(raw ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+  if (!s || s.startsWith('-')) return '';
+  if (s.includes('semi') || s.includes('halb')) return 'semi';
+  // 'automa' et non 'automat' : le néerlandais écrit « Automaat » (10 939
+  // annonces), qui ne contient PAS 'automat' — elles étaient toutes ignorées.
+  if (s.includes('automa')) return 'automatique'; // automatik/automatisch/automatico/automaat/automatisk…
+  if (s.includes('manu') || s.includes('schalt') || s.includes('handgeschakeld')) return 'manuelle';
+  return '';
+}
+
+/**
  * Trim is a CONTAINS match over the listing's version AND its title: sites
  * write finitions their own way ("60 Sportline 150 kW 63 kWh" vs "Sportline"),
  * an exact-equality filter returned 0 for everything. Typing "sportline"
@@ -319,7 +357,9 @@ export function latestPerListing(obs: Observation[]): Observation[] {
 
 export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_FILTERS): Observation[] {
   const trimNeedle = normText(f.trim).trim();
-  const gearboxNeedle = normText(f.gearbox).trim();
+  // Boîte : comparaison sur le TOKEN canonique — « Automatique » retient
+  // aussi Automatik, Automatisch, Automatico, Automaat, Automatisk gear…
+  const gearboxToken = canonicalizeGearbox(f.gearbox);
   return dedupeClonedListings(obs).filter((o) =>
     (!f.site || o.site === f.site) &&
     (!f.country || o.country === f.country) &&
@@ -327,7 +367,7 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
     (!f.model || canonKey(o.model) === canonKey(f.model)) &&
     (!trimNeedle || normText(o.trim).includes(trimNeedle) || normText(o.title).includes(trimNeedle)) &&
     fuelFilterMatches(o.fuel, f.fuel ?? '') &&
-    (!gearboxNeedle || normText(o.gearbox).includes(gearboxNeedle)) &&
+    (!gearboxToken || canonicalizeGearbox(o.gearbox) === gearboxToken) &&
     (f.yearMin == null || (o.year != null && o.year >= f.yearMin)) &&
     (f.yearMax == null || (o.year != null && o.year <= f.yearMax)) &&
     (f.mileageMax == null || (o.mileage != null && o.mileage <= f.mileageMax)) &&
@@ -354,6 +394,19 @@ export function distinctValues(obs: Observation[], field: keyof Observation, app
     return [...byKey.values()]
       .map((variants) => [...variants.entries()].sort((a, b) => b[1] - a[1])[0][0])
       .sort((a, b) => a.localeCompare(b));
+  }
+
+  // Boîte : les 25 graphies multilingues de la base se réduisent aux 3
+  // réalités — une option par réalité, jamais une par langue.
+  if (field === 'gearbox') {
+    const set = new Set<GearboxToken>();
+    for (const o of scoped) {
+      const t = canonicalizeGearbox(o.gearbox);
+      if (t) set.add(t);
+    }
+    return (['automatique', 'manuelle', 'semi'] as GearboxToken[])
+      .filter((t) => set.has(t))
+      .map((t) => GEARBOX_LABELS[t]);
   }
 
   const set = new Set<string>();
