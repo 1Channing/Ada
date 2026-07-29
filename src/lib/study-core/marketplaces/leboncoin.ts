@@ -143,6 +143,14 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
   }
 }
 
+// Attributs énumérés des annonces (clés vues par le parser) : codes finis du
+// site, moissonnables sans bruit. Les valeurs par-annonce (km, prix, date…)
+// sont exclues — elles noieraient le dictionnaire sous des codes uniques.
+const HARVEST_ENUM_KEYS = new Set([
+  'u_car_model', 'u_car_brand', 'fuel', 'gearbox',
+  'vehicle_color', 'vehicle_type', 'doors', 'seats',
+]);
+
 function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
   const out: Array<{ field: string; code: string; label: string }> = [];
   try {
@@ -153,12 +161,15 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
     const seen = new Set<string>();
     for (const ad of ads) {
       for (const a of (ad?.attributes ?? []) as Array<{ key?: string; value?: unknown; value_label?: unknown }>) {
-        if (a?.key !== 'u_car_model' || typeof a.value !== 'string' || !a.value.trim()) continue;
-        const code = a.value.trim();
-        if (seen.has(code)) continue;
-        seen.add(code);
+        if (!a?.key || !HARVEST_ENUM_KEYS.has(a.key)) continue;
+        const code = typeof a.value === 'string' ? a.value.trim()
+          : typeof a.value === 'number' ? String(a.value) : '';
+        if (!code) continue;
+        const dedup = `${a.key}|${code}`;
+        if (seen.has(dedup)) continue;
+        seen.add(dedup);
         out.push({
-          field: 'u_car_model',
+          field: a.key,
           code,
           label: typeof a.value_label === 'string' && a.value_label.trim() ? a.value_label.trim() : code,
         });

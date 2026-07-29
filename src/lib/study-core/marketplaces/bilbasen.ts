@@ -176,6 +176,32 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
         out.push({ field: 'bb:model', code, label });
       }
     }
+    // Filtres énumérés de la page (sonde [BILBASEN_TAXO] 29/07) :
+    // data.filterOptions[].filterOptions[] = { key, optionValues:[{name,value}] }.
+    // Les filtres à plage (prix, km) n'ont pas d'optionValues — ignorés d'office.
+    const seenF = new Set<string>();
+    for (const q of queries) {
+      const groups = (q as { state?: { data?: { filterOptions?: unknown } } })?.state?.data?.filterOptions;
+      if (!Array.isArray(groups)) continue;
+      for (const g of groups) {
+        const filters = (g as { filterOptions?: unknown })?.filterOptions;
+        if (!Array.isArray(filters)) continue;
+        for (const f of filters as Array<{ key?: unknown; optionValues?: unknown }>) {
+          const key = typeof f?.key === 'string' ? f.key.trim() : '';
+          if (!key || !Array.isArray(f.optionValues)) continue;
+          for (const ov of f.optionValues as Array<{ name?: unknown; value?: unknown }>) {
+            const code = typeof ov?.value === 'string' ? ov.value.trim()
+              : typeof ov?.value === 'number' ? String(ov.value) : '';
+            if (!code) continue;
+            const dedup = `${key}|${code}`;
+            if (seenF.has(dedup)) continue;
+            seenF.add(dedup);
+            const label = typeof ov?.name === 'string' && ov.name.trim() ? ov.name.trim() : code;
+            out.push({ field: `bb:filter:${key}`, code, label });
+          }
+        }
+      }
+    }
   } catch { /* moisson silencieuse — jamais bloquante */ }
   return out;
 }

@@ -533,18 +533,29 @@ async function scrapeMarktplaatsViaApi(
           console.warn(`[MP_LRP_TAXO] facettes: ${(facets ?? []).map((f) => String(f?.key ?? '?')).join(',').slice(0, 180)}`);
           if (grp) console.warn(`[MP_LRP_TAXO] groupe model: ${JSON.stringify(grp.attributeGroup?.slice(0, 3)).slice(0, 300)}`);
         }
-        if (brandSlug && Array.isArray(grp?.attributeGroup)) {
-          const entries: Array<{ field: string; code: string; label: string }> = [];
-          for (const v of grp.attributeGroup) {
+        const entries: Array<{ field: string; code: string; label: string }> = [];
+        for (const f of facets ?? []) {
+          const key = typeof f?.key === 'string' ? f.key.trim() : '';
+          if (!key || !Array.isArray(f?.attributeGroup)) continue; // range facets (prix, km…) n'ont pas de groupe
+          for (const v of f.attributeGroup) {
             const label = typeof v.attributeValueLabel === 'string' && v.attributeValueLabel.trim()
               ? v.attributeValueLabel.trim()
               : typeof v.attributeValueKey === 'string' ? v.attributeValueKey.trim() : '';
             const id = typeof v.attributeValueId === 'number' ? v.attributeValueId : null;
             if (!label || id == null) continue;
-            entries.push({ field: 'model_facet', code: `${brandSlug};${mpSlugOfLabel(label)};${id}`, label });
+            if (key === 'model') {
+              // Gamme de la marque — code scopé marque, consommé par la génération d'URL.
+              if (brandSlug) entries.push({ field: 'model_facet', code: `${brandSlug};${mpSlugOfLabel(label)};${id}`, label });
+            } else {
+              // Toute autre facette énumérée (fuel, hybridType, advertiser, warranty…) :
+              // codes globaux du site, même grammaire attributeValueKey/Id/Label.
+              const code = typeof v.attributeValueKey === 'string' && v.attributeValueKey.trim()
+                ? `${v.attributeValueKey.trim()};${id}` : String(id);
+              entries.push({ field: `mp:facet:${key}`, code, label });
+            }
           }
-          if (entries.length) lrpHarvest = entries;
         }
+        if (entries.length) lrpHarvest = entries;
       } catch { /* moisson silencieuse — jamais bloquante */ }
     }
     const pageListings = coreParseSearchPage(body, url);
