@@ -251,6 +251,52 @@ directe de mapping par le modèle) :
 - Prérequis : clé API Anthropic + budget dans les variables Railway ;
   s'appuie sur `worker_logs` + `linkgen_error_dossiers` comme matière.
 
+## 6. Assainir le typecheck front → en faire un vrai gate (acté 30/07/2026)
+
+**Pourquoi c'est au backlog** : `npm run build` (vite/esbuild) ne vérifie PAS
+les identifiants — un nom non importé compile sans broncher et explose au
+rendu. C'est ce qui a mis la page Résultats du Workflow en écran blanc le
+30/07 (`inboxToProcess` appelé sans être importé). `npm run typecheck`
+(`tsc --noEmit -p tsconfig.app.json`) le signalait à la ligne exacte, mais il
+rend 94 erreurs préexistantes : inexploitable comme gate, donc jamais lancé.
+Objectif du chantier : **zéro erreur**, puis typecheck obligatoire avant tout
+push touchant le front.
+
+Inventaire au 30/07 (94 erreurs), par ordre de rentabilité :
+
+1. **≈80 erreurs vivent dans du code MORT** — aucun de ces fichiers n'est
+   référencé par quoi que ce soit (vérifié) : `pages/StudiesV2Negotiations`,
+   `pages/StudiesV2Sales`, `pages/StudiesV2MakesStudies`,
+   `pages/ListingsHistory`, `pages/Dashboard`, `services/studyRunLogs`,
+   `services/remoteStudyRunner`, `components/StudyRunsPanel`. Vestiges de
+   l'ancien moteur d'études, remplacés par le Workflow. Les supprimer vide
+   l'essentiel du bruit d'un coup. À vérifier avant : le worker garde un
+   endpoint `/execute-studies` qui lit `studies_v2` et que plus rien n'appelle
+   côté front — le retirer ou le documenter comme mort.
+2. **8 tables réelles absentes de `database.types.ts`** (existence confirmée en
+   base, HTTP 200 sur chacune) : `study_source_listings`, `study_run_logs`,
+   `sales`, `scheduled_study_runs`, `negotiation_notes`,
+   `vehicle_ref_motorisations`, `vehicle_ref_generations`,
+   `study_run_results`. Mécanique : `from('x')` inconnue → `SelectQueryError` →
+   chaque colonne lue produit sa propre erreur (5-6 par table). Aucun effet à
+   l'exécution (le client interroge la vraie base), mais TypeScript ne vérifie
+   plus rien dans ces fichiers. Après le point 1, seules
+   `vehicle_ref_generations` et `vehicle_ref_motorisations` restent utilisées
+   (référentiel + planificateur de campagnes) : ce sont les deux à typer.
+3. **43 erreurs de ménage pur** (TS6133/6192/6196 — variables et imports
+   jamais lus), dont 18 dans `pages/LinkGenerator.tsx`. Sans effet, mais
+   c'est 46 % du bruit.
+4. **Une seule erreur dans du code vivant et critique** :
+   `lib/linkgen/taxonomy.ts:52` — l'`upsert` de la moisson passe un
+   `Record<string, unknown>[]` là où le type attend
+   `{site, field, code, label}[]`. Fonctionne, mais la forme de ce qu'on écrit
+   au dictionnaire de taxonomie (13 470 entrées) n'est plus garantie. À typer
+   proprement, c'est le chemin le plus chaud du système.
+
+En attendant ce chantier, garde-fou minimal avant push front :
+`npm run typecheck 2>&1 | grep -E "TS2304|TS2305|TS2552|TS2724"` — les classes
+d'erreur qui produisent une page blanche. Doit rester vide.
+
 ## 5. Rappels de chantiers déjà actés ailleurs
 
 - `parseDetailPage` à intégrer au contrat SiteAdapter (différé lors du
