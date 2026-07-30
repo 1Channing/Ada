@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, Plus, Save, X, UserPlus, FileText, Download, History, Trash2 } from 'lucide-react';
+import { Search, Plus, Save, X, UserPlus, FileText, Download, History, Trash2, Pencil } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { generateAdminDocument } from '../lib/adminDocGenerator';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
@@ -121,6 +121,23 @@ const EMPTY_CONTACT_FORM: ContactForm = {
   company_name: '', first_name: '', last_name: '', birth_date: '', birth_place: '',
   address_line1: '', address_line2: '', postal_code: '', city: '', country: 'FR', siren: '',
 };
+
+/**
+ * Champ vide → NULL avant toute écriture d'un contact.
+ *
+ * OBLIGATOIRE : `birth_date` est une colonne `date`, et PostgreSQL refuse la
+ * chaîne vide (`22007 invalid input syntax for type date: ""`). Un formulaire
+ * de contact laisse toujours des champs vides — une société n'a pas de date de
+ * naissance — donc sans ce passage, l'insertion est rejetée en bloc. C'est
+ * exactement ce qui rendait le panneau « Ajouter un contact » inopérant depuis
+ * toujours (constat 30/07) alors que les formulaires de dossier, eux,
+ * nettoyaient déjà. Une seule implémentation pour les deux chemins.
+ */
+function nullifyBlanks(form: ContactForm): Record<string, string | null> {
+  return Object.fromEntries(
+    Object.entries(form).map(([k, v]) => [k, v === '' ? null : v]),
+  );
+}
 
 // Un dossier = une voiture = deux contreparties externes qui ne changent pas
 // quand on bascule d'un côté à l'autre : le fournisseur (MC Export lui achète)
@@ -323,10 +340,16 @@ export function Administrative() {
   // documents reuse it and the contacts list never fills with duplicates.
   useEffect(() => {
     (async () => {
+      // `order` OBLIGATOIRE : tant que deux fiches portent ce SIREN (doublon
+      // constaté le 30/07), un `limit(1)` sans tri renvoie l'une OU l'autre
+      // selon le plan d'exécution — MC Export changeait donc d'identité d'une
+      // session à l'autre. On élit toujours la PLUS ANCIENNE, celle que les
+      // dossiers historiques référencent.
       const { data: found } = await supabase
         .from('contacts')
         .select('*')
         .eq('siren', MC_EXPORT_SIREN)
+        .order('created_at', { ascending: true })
         .limit(1)
         .maybeSingle();
       if (found) { setMcExport(found as Contact); return; }
@@ -508,9 +531,7 @@ export function Administrative() {
     selected: Contact | null, form: ContactForm, type: string,
   ): Promise<string | null> => {
     const hasName = form.first_name || form.last_name || form.company_name;
-    const clean = Object.fromEntries(
-      Object.entries(form).map(([k, v]) => [k, v === '' ? null : v]),
-    );
+    const clean = nullifyBlanks(form);
     if (selected) {
       await supabase.from('contacts').update(clean).eq('id', selected.id);
       return selected.id;
@@ -609,13 +630,51 @@ export function Administrative() {
   // Add a contact from the settings panel (light: name + address).
   const [newContact, setNewContact] = useState<ContactForm>(EMPTY_CONTACT);
   const [addingContact, setAddingContact] = useState(false);
+  // Retour d'écriture : l'ancienne version ignorait le résultat de l'insertion
+  // ET vidait le formulaire quoi qu'il arrive — un échec était donc
+  // indiscernable d'un succès, et la saisie perdue (constat 30/07).
+  const [contactNotice, setContactNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  // Édition en place : id du contact en cours de modification (null = ajout).
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
+
+  const startEditContact = (c: Contact) => {
+    setEditingContactId(c.id);
+    setNewContact(contactToForm(c));
+    setContactNotice(null);
+  };
+  const cancelEditContact = () => {
+    setEditingContactId(null);
+    setNewContact(EMPTY_CONTACT);
+    setContactNotice(null);
+  };
+
   const addContact = async () => {
     if (!newContact.company_name && !newContact.first_name && !newContact.last_name) return;
     setAddingContact(true);
+    setContactNotice(null);
     try {
-      await supabase.from('contacts').insert({ type: 'client', ...newContact });
+      const clean = nullifyBlanks(newContact);
+      const label = newContact.company_name
+        || `${newContact.first_name} ${newContact.last_name}`.trim()
+        || 'Contact';
+      if (editingContactId) {
+        const { error } = await supabase.from('contacts').update(clean).eq('id', editingContactId);
+        if (error) throw new Error(error.message);
+        setContactNotice({ ok: true, text: `« ${label} » mis à jour.` });
+        setEditingContactId(null);
+      } else {
+        const { error } = await supabase.from('contacts').insert({ type: 'client', ...clean });
+        if (error) throw new Error(error.message);
+        setContactNotice({ ok: true, text: `« ${label} » ajouté.` });
+      }
+      // Formulaire vidé UNIQUEMENT après une écriture réussie.
       setNewContact(EMPTY_CONTACT);
       await loadContacts();
+    } catch (e) {
+      setContactNotice({
+        ok: false,
+        text: `Enregistrement refusé : ${e instanceof Error ? e.message : String(e)} — votre saisie est conservée.`,
+      });
     } finally { setAddingContact(false); }
   };
 
@@ -1780,9 +1839,11 @@ export function Administrative() {
             <span className="text-sm text-slate-500">{contacts.length} contact(s)</span>
           </div>
 
-          {/* Ajout d'un contact */}
-          <div className="mb-5 p-4 bg-slate-100 border border-slate-200 rounded-lg space-y-3">
-            <p className="text-sm font-medium text-slate-700">Ajouter un contact</p>
+          {/* Ajout / modification d'un contact */}
+          <div className={`mb-5 p-4 border rounded-lg space-y-3 ${editingContactId ? 'bg-blue-50 border-blue-300' : 'bg-slate-100 border-slate-200'}`}>
+            <p className="text-sm font-medium text-slate-700">
+              {editingContactId ? 'Modifier le contact' : 'Ajouter un contact'}
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <input
                 value={newContact.company_name}
@@ -1827,13 +1888,30 @@ export function Administrative() {
                 className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
               />
             </div>
-            <div className="flex justify-end">
+            {/* Retour d'écriture explicite : succès confirmé, échec expliqué et
+                saisie conservée — plus de clic dans le vide. */}
+            {contactNotice && (
+              <p className={`text-sm ${contactNotice.ok ? 'text-emerald-700' : 'text-red-600'}`}>
+                {contactNotice.text}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-3">
+              {/* La condition du bouton est ÉCRITE, plus seulement subie. */}
+              {!newContact.company_name && !newContact.first_name && !newContact.last_name && (
+                <span className="text-xs text-slate-500">Renseignez au moins une Société, un Prénom ou un Nom.</span>
+              )}
+              {editingContactId && (
+                <button onClick={cancelEditContact} className="px-3 py-2 text-sm text-slate-600 hover:text-slate-900">
+                  Annuler
+                </button>
+              )}
               <button
                 onClick={addContact}
                 disabled={addingContact || (!newContact.company_name && !newContact.first_name && !newContact.last_name)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg text-sm font-medium"
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg text-sm font-medium text-white"
               >
-                <Plus size={16} /> {addingContact ? 'Ajout…' : 'Ajouter'}
+                <Plus size={16} />
+                {addingContact ? 'Enregistrement…' : editingContactId ? 'Enregistrer' : 'Ajouter'}
               </button>
             </div>
           </div>
@@ -1855,15 +1933,28 @@ export function Administrative() {
                       {[c.address_line1, loc, c.siren && `SIREN ${c.siren}`].filter(Boolean).join(' · ')}
                     </div>
                   </div>
-                  {!isMc && (
+                  <div className="shrink-0 flex items-center gap-4">
+                    {/* Modifiable même pour MC Export : corriger une adresse ou
+                        un SIREN est légitime, seule la SUPPRESSION reste
+                        interdite pour lui. */}
                     <button
-                      onClick={() => deleteContact(c.id)}
-                      disabled={deletingContactId === c.id}
-                      className="shrink-0 flex items-center gap-1 text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                      onClick={() => startEditContact(c)}
+                      className={`flex items-center gap-1 text-xs ${
+                        editingContactId === c.id ? 'text-blue-700 font-medium' : 'text-blue-600 hover:text-blue-700'
+                      }`}
                     >
-                      <Trash2 size={14} /> Supprimer
+                      <Pencil size={14} /> {editingContactId === c.id ? 'En cours…' : 'Modifier'}
                     </button>
-                  )}
+                    {!isMc && (
+                      <button
+                        onClick={() => deleteContact(c.id)}
+                        disabled={deletingContactId === c.id}
+                        className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                      >
+                        <Trash2 size={14} /> Supprimer
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
