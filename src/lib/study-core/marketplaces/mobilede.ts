@@ -21,9 +21,13 @@
  */
 
 import type {
-  BuildUrlResult, CandidateSegment, SampleListing, ScrapedListing, SearchCriteria,
+  BuildUrlResult, CandidateSegment, SampleListing, SearchCriteria,
   SiteAdapter, SiteValidationResult, ZyteProfileOverrides,
 } from './types';
+// ScrapedListing vit dans study-core/types — marketplaces/types l'importe sans
+// le ré-exporter, donc l'importer d'ici privait ce fichier de tout contrôle de
+// type sur ses quatre parseurs.
+import type { ScrapedListing } from '../types';
 import { resolveYearRange } from './urlTemplate';
 import { decomposeUrl } from './urlDecompose';
 import { defaultBuildPaginatedUrl } from './registry';

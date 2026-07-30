@@ -3,7 +3,7 @@ import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, 
 import {
   DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
-  checkSearchUrlCoverage, listStudyUrls, clearSearchHits,
+  checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
 } from '../services/workflow';
 
 /** Identité visuelle des places de marché — badge normalisé partout. */
