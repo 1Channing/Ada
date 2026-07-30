@@ -478,17 +478,10 @@ function ResultsTab() {
       // les hors-écart automatiques restent invisibles (mémoire de dédup),
       // les traitées à motif vivent aux Archives. Le non-traité S'ACCUMULE de
       // jour en jour — rien n'est écrasé. Tri PRIX CROISSANT (règle maison).
-      // Conformité aux critères ACTUELS de l'étude : resserrer le kilométrage
-      // ou les années ne doit pas laisser traîner dans la boîte des annonces
-      // entrées sous des critères plus larges (90 000 km demandés, 107 356 km
-      // affichés — constat 30/07). Le worker les archivera proprement à son
-      // prochain passage ; la lecture, elle, est juste tout de suite.
-      const matchesCriteria = (h: DailyHit) =>
-        !(s.mileage_max != null && typeof h.mileage === 'number' && h.mileage > s.mileage_max)
-        && !(s.year_min != null && typeof h.year === 'number' && h.year < s.year_min)
-        && !(s.year_max != null && typeof h.year === 'number' && h.year > s.year_max);
-      const list = all
-        .filter((h) => h.status === 'inbox' && matchesCriteria(h))
+      // « À traiter » = la définition PARTAGÉE avec l'accueil (inboxToProcess) :
+      // en boîte et conforme aux critères actuels de l'étude. Les deux pages
+      // affichent forcément le même nombre.
+      const list = inboxToProcess(all, [s])
         .sort((a, b) => (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER));
       const prices = list.map((h) => h.price).filter((p): p is number => p != null);
       const latest = list.find((h) => h.target_median != null);

@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FolderOpen, BadgeEuro, Rocket, Map, Inbox, Scale, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { loadMappingTree, type TreeNode } from '../services/ingestionHistory';
 import { MappingRadialTree } from '../components/MappingRadialTree';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
 import { inspectOpportunityInMarket } from '../services/marketData';
-import { DailyHit, DailySearch, listInboxHits, listDailySearches } from '../services/workflow';
+import { DailyHit, DailySearch, listInboxHits, listDailySearches, inboxToProcess } from '../services/workflow';
 import { useAuth } from '../services/auth';
 
 interface DealRow {
@@ -58,7 +58,9 @@ export function Home() {
   const { displayName } = useAuth();
 
   const reloadHits = () => {
-    listInboxHits(500).then(setHits).catch(() => setHits([]));
+    // Même plafond que le Workflow (listAllHits) : deux limites différentes
+    // finissent par produire deux compteurs différents dès qu'elles mordent.
+    listInboxHits(3000).then(setHits).catch(() => setHits([]));
     listDailySearches().then(setMySearches).catch(() => setMySearches([]));
   };
 
@@ -107,6 +109,10 @@ export function Home() {
     window.history.pushState({}, '', path);
     window.location.reload();
   };
+
+  // MÊME définition de « à traiter » que le Workflow (inboxToProcess) : les
+  // deux écrans annonçaient des nombres différents faute de règle partagée.
+  const toProcess = useMemo(() => inboxToProcess(hits, mySearches), [hits, mySearches]);
 
   const open = deals.filter((d) => d.status === 'en_cours');
   const now = new Date();
@@ -163,22 +169,22 @@ export function Home() {
             <Inbox className="w-5 h-5 text-blue-600" />
             <span className="text-xs uppercase tracking-wide text-slate-500">Nouvelles annonces{displayName ? ` — ${displayName}` : ''}</span>
           </div>
-          <span className="text-3xl font-bold tabular-nums">{hits.length}</span>
+          <span className="text-3xl font-bold tabular-nums">{toProcess.length}</span>
           <span className="text-sm text-slate-500">à traiter
-            {hits.filter((h) => h.kind === 'price_drop').length > 0 && (
-              <> · dont <span className="text-emerald-600 font-medium">{hits.filter((h) => h.kind === 'price_drop').length} baisse{hits.filter((h) => h.kind === 'price_drop').length > 1 ? 's' : ''}</span></>
+            {toProcess.filter((h) => h.kind === 'price_drop').length > 0 && (
+              <> · dont <span className="text-emerald-600 font-medium">{toProcess.filter((h) => h.kind === 'price_drop').length} baisse{toProcess.filter((h) => h.kind === 'price_drop').length > 1 ? 's' : ''}</span></>
             )}
           </span>
           <div className="flex items-center gap-1.5 flex-wrap ml-auto">
             {mySearches
-              .map((s) => ({ s, n: hits.filter((h) => h.search_id === s.id).length }))
+              .map((s) => ({ s, n: toProcess.filter((h) => h.search_id === s.id).length }))
               .filter(({ n }) => n > 0)
               .map(({ s, n }) => (
                 <span key={s.id} className="text-xs text-slate-600 bg-slate-100 border border-slate-200 rounded-full px-2.5 py-1">
                   {s.label || `${s.brand} ${s.model}`.trim()} · <span className="font-semibold">{n}</span>
                 </span>
               ))}
-            {hits.length === 0 && <span className="text-sm text-slate-400">rien à trier — le scrape quotidien remplit cette case</span>}
+            {toProcess.length === 0 && <span className="text-sm text-slate-400">rien à trier — le scrape quotidien remplit cette case</span>}
             <ChevronRight className="w-4 h-4 text-slate-400" />
           </div>
         </div>

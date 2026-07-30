@@ -202,6 +202,36 @@ export async function deleteDailySearch(id: string): Promise<void> {
 
 // ── Nouvelles annonces (hits) ───────────────────────────────────────────────
 
+/**
+ * Une annonce est-elle conforme aux critères ACTUELS de son étude ?
+ *
+ * Les critères STRUCTURELS (kilométrage, années) peuvent être resserrés après
+ * qu'une annonce est entrée en boîte : l'accumulation la garde en base, mais
+ * elle n'est plus « à traiter ». Le worker l'archivera à son prochain passage ;
+ * en attendant, la lecture doit être juste — et surtout IDENTIQUE partout :
+ * l'accueil annonçait 28 annonces là où le Workflow en montrait 25 (constat
+ * 30/07), parce que chacun comptait à sa façon.
+ *
+ * Étude introuvable : conforme par défaut (fail-open, on ne masque jamais une
+ * annonce faute de référentiel).
+ */
+export function hitMatchesCriteria(h: DailyHit, s: DailySearch | undefined): boolean {
+  if (!s) return true;
+  return !(s.mileage_max != null && typeof h.mileage === 'number' && h.mileage > s.mileage_max)
+    && !(s.year_min != null && typeof h.year === 'number' && h.year < s.year_min)
+    && !(s.year_max != null && typeof h.year === 'number' && h.year > s.year_max);
+}
+
+/**
+ * LA définition unique de « à traiter » : en boîte, hors semences, et conforme
+ * aux critères actuels de son étude. Accueil et Workflow s'appuient dessus —
+ * un seul endroit à corriger, deux affichages toujours d'accord.
+ */
+export function inboxToProcess(hits: DailyHit[], searches: DailySearch[]): DailyHit[] {
+  const byId = new Map(searches.map((s) => [s.id, s]));
+  return hits.filter((h) => h.status === 'inbox' && h.kind !== 'seed' && hitMatchesCriteria(h, byId.get(h.search_id)));
+}
+
 /** Boîte de réception : nouveautés + baisses, jamais les seeds ni le trié. */
 export async function listInboxHits(limit = 100): Promise<DailyHit[]> {
   const { data, error } = await supabase
