@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { StudiesV2Results } from './StudiesV2Results';
 import {
   DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
@@ -664,10 +663,9 @@ function ResultsTab() {
 }
 
 /**
- * Onglet Archives — UN SEUL endroit pour les annonces traitées (retour
- * Channing 30/07 : la section en bas des Résultats faisait doublon avec
- * l'onglet). Les annonces archivées d'abord, puis l'historique des anciennes
- * séries d'études, qui vivait déjà ici.
+ * Onglet Archives — UNIQUEMENT les annonces traitées (retour Channing 30/07 :
+ * ni doublon avec la section des Résultats, ni bloc « Results » de l'ancien
+ * moteur d'études, qui refaisait doublon avec l'onglet Résultats).
  */
 function ArchivesTab() {
   const [hits, setHits] = useState<DailyHit[]>([]);
@@ -686,8 +684,13 @@ function ArchivesTab() {
     <div className="space-y-6">
       {loading
         ? <p className="text-sm text-slate-400 py-4 text-center">Chargement…</p>
-        : <ArchivedHitsSection archived={archived} searches={searches} defaultOpen />}
-      <StudiesV2Results />
+        : archived.length === 0
+          ? (
+            <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
+              Aucune annonce archivée — les annonces marquées « traitée » depuis les Résultats arrivent ici.
+            </div>
+          )
+          : <ArchivedHitsSection archived={archived} searches={searches} defaultOpen />}
     </div>
   );
 }
