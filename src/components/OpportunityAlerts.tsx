@@ -8,19 +8,18 @@
  * between two countries. Coarse by design: it points at a MARKET to work,
  * the market study then hunts the listings. Ordered by gap × volume — no
  * displayed score, just priority. "Contrôlée" hides an alert until the gap
- * moves ±1000€; "Créer l'étude" spawns a pre-filled studies_v2 row with
- * memory-first URLs for both sides.
+ * moves ±1000€; "Créer l'étude" crée une ÉTUDE QUOTIDIENNE pré-remplie dans
+ * le Workflow (elle tourne chaque matin et reste affinable).
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import {
   loadMarketOpportunities, loadOpportunityAcks, ackOpportunity, opportunityKey, fuelLabel,
+  brandKey, canonKey,
 } from '../services/marketData';
 import type { MarketOpportunity } from '../services/marketData';
-import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
-import type { SiteKey } from '../lib/linkgen/types';
+import { saveDailySearch, listDailySearches } from '../services/workflow';
 
 const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
@@ -90,37 +89,55 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
     setAcks((m) => new Map(m).set(opportunityKey(o), o.deltaEur));
   };
 
+  /**
+   * Un écart repéré devient une ÉTUDE QUOTIDIENNE du Workflow (choix Channing
+   * 30/07) : elle tourne chaque matin, alimente les résultats et reste
+   * modifiable (finitions, kilométrage, écart, heure) — l'ancien dossier
+   * studies_v2 n'était ni exécuté ni affiché nulle part.
+   *
+   * Source = pays le MOINS cher (on y achète), cible = le plus cher (on y
+   * revend). Millésime figé sur celui de l'écart : comparer 2021 et 2024,
+   * c'est comparer des âges, pas un arbitrage.
+   */
   const handleCreateStudy = async (o: MarketOpportunity) => {
     const key = opportunityKey(o);
     setBusyKey(key);
     setNotice(null);
     try {
-      const criteriaFuel = TOKEN_TO_CRITERIA[o.fuel];
-      const gen = await generateSearchUrlsWithMemory({
-        selectedSites: [o.lowSite as SiteKey, o.highSite as SiteKey],
-        brand: o.brand, model: o.model, fuel: criteriaFuel,
-        yearFrom: String(o.year), yearTo: String(o.year),
-      });
-      const sourceUrl = gen.find((g) => g.site === o.lowSite)?.url ?? '';
-      const targetUrl = gen.find((g) => g.site === o.highSite)?.url ?? '';
-      if (!sourceUrl || !targetUrl) throw new Error('URL non générable pour un des deux sites');
+      // Pas deux fois le même dossier : le même segment entre les mêmes pays
+      // renvoie vers l'étude existante, à affiner plutôt qu'à dupliquer.
+      const existing = (await listDailySearches()).find((s) =>
+        brandKey(s.brand) === brandKey(o.brand)
+        && canonKey(s.model) === canonKey(o.model)
+        && s.source_country === o.lowCountry && s.target_country === o.highCountry
+        && (s.year_min ?? 0) <= o.year && (s.year_max ?? 9999) >= o.year);
+      if (existing) {
+        setNotice(`Étude « ${existing.label} » déjà en place pour ce segment — ajuste-la dans le Workflow.`);
+        return;
+      }
 
-      const id = `ADA-${o.brand}-${o.model}-${o.year}-${o.lowCountry}-${o.highCountry}-${Date.now().toString(36)}`
-        .replace(/[^A-Za-z0-9-]+/g, '-').toUpperCase();
-      // Source = pays le moins cher (achat), target = pays le plus cher (revente).
-      const { error } = await supabase.from('studies_v2').insert({
-        id,
+      // Écart : le seuil que TU surveilles comme plancher, le double de l'écart
+      // observé comme plafond — bornes de départ, affinables dans le Workflow.
+      const gapMax = Math.max(10_000, Math.round((o.deltaEur * 2) / 1000) * 1000);
+      const err = await saveDailySearch({
+        label: `${o.brand} ${o.model} ${o.year}`.replace(/\s+/g, ' ').trim(),
+        source_country: o.lowCountry,
+        target_country: o.highCountry,
         brand: o.brand,
         model: o.model,
-        year: o.year,
-        max_mileage: null,
-        country_source: o.lowCountry,
-        market_source_url: sourceUrl,
-        country_target: o.highCountry,
-        market_target_url: targetUrl,
+        year_min: o.year,
+        year_max: o.year,
+        fuel: TOKEN_TO_CRITERIA[o.fuel] ?? '',
+        trim: '',
+        trim_target: '',
+        mileage_max: null,
+        price_gap_min: threshold,
+        price_gap_max: gapMax,
+        run_hour: 7,
+        active: true,
       });
-      if (error) throw new Error(error.message);
-      setNotice(`Étude ${id} créée — visible dans l'onglet Studies.`);
+      if (err) throw new Error(err);
+      setNotice(`Étude « ${o.brand} ${o.model} ${o.year} » créée dans le Workflow (${o.lowCountry} → ${o.highCountry}, 7 h) — ajoute la finition et le kilométrage pour l'affiner.`);
     } catch (e) {
       setNotice(`Création impossible : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -199,7 +216,7 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
                     onClick={() => void handleCreateStudy(o)}
                     disabled={busyKey === key}
                     className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-700 disabled:opacity-50"
-                    title={`Créer une étude ${o.lowCountry} → ${o.highCountry} pré-remplie`}
+                    title={`Créer une étude quotidienne ${o.lowCountry} → ${o.highCountry} dans le Workflow (7 h), à affiner ensuite`}
                   >
                     {busyKey === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
                     Créer l'étude
