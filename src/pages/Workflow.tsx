@@ -94,7 +94,7 @@ export function Workflow() {
       </div>
       {tab === 'searches' && <DailySearchesTab />}
       {tab === 'results' && <ResultsTab />}
-      {tab === 'archives' && <StudiesV2Results />}
+      {tab === 'archives' && <ArchivesTab />}
     </div>
   );
 }
@@ -517,15 +517,10 @@ function ResultsTab() {
   const feedCount = allGroups.filter((g) => g.list.length > 0).length;
   const emptyCount = allGroups.length - feedCount;
 
-  // Archives : les annonces traitées À LA MAIN (motif posé). « Trop chère »
-  // reviendra dans le feed sur vraie baisse ; « hors critères » est définitif.
-  const archived = useMemo(
-    () => hits.filter((h) => h.status === 'dismissed' && h.resolution),
-    [hits],
-  );
-
+  // Les annonces traitées à la main vivent dans l'ONGLET Archives — plus de
+  // section en doublon ici (retour Channing 30/07).
   if (loading) return <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>;
-  if (searches.length === 0 && archived.length === 0) {
+  if (searches.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
         Rien pour l'instant — les résultats du scrape quotidien apparaîtront ici, organisés par étude.
@@ -664,7 +659,35 @@ function ResultsTab() {
           </div>
         );
       })}
-      <ArchivedHitsSection archived={archived} searches={searches} />
+    </div>
+  );
+}
+
+/**
+ * Onglet Archives — UN SEUL endroit pour les annonces traitées (retour
+ * Channing 30/07 : la section en bas des Résultats faisait doublon avec
+ * l'onglet). Les annonces archivées d'abord, puis l'historique des anciennes
+ * séries d'études, qui vivait déjà ici.
+ */
+function ArchivesTab() {
+  const [hits, setHits] = useState<DailyHit[]>([]);
+  const [searches, setSearches] = useState<DailySearch[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    Promise.all([listAllHits(), listDailySearches()])
+      .then(([h, s]) => { setHits(h); setSearches(s); })
+      .finally(() => setLoading(false));
+  }, []);
+  const archived = useMemo(
+    () => hits.filter((h) => h.status === 'dismissed' && h.resolution),
+    [hits],
+  );
+  return (
+    <div className="space-y-6">
+      {loading
+        ? <p className="text-sm text-slate-400 py-4 text-center">Chargement…</p>
+        : <ArchivedHitsSection archived={archived} searches={searches} defaultOpen />}
+      <StudiesV2Results />
     </div>
   );
 }
@@ -674,8 +697,8 @@ function ResultsTab() {
  * marque, modèle puis année. « Trop chère » reviendra d'elle-même dans le
  * feed sur vraie baisse de prix ; « hors critères » est définitif.
  */
-function ArchivedHitsSection({ archived, searches }: { archived: DailyHit[]; searches: DailySearch[] }) {
-  const [open, setOpen] = useState(false);
+function ArchivedHitsSection({ archived, searches, defaultOpen = false }: { archived: DailyHit[]; searches: DailySearch[]; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const groups = useMemo(() => {
     const byId = new Map(searches.map((s) => [s.id, s]));
     const byModel = new Map<string, { brand: string; model: string; hits: DailyHit[] }>();
