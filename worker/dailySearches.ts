@@ -193,12 +193,37 @@ async function runDailySearch(s: SearchRow): Promise<void> {
   // Mémoire anti-doublon de la recherche (url → dernier prix vu).
   const { data: known } = await supabase
     .from('daily_search_hits')
-    .select('id, listing_url, price, status, resolution')
+    .select('id, listing_url, price, status, resolution, mileage, year')
     .eq('search_id', s.id)
     .limit(10000);
   const seen = new Map<string, { id: string; price: number | null; status: string; resolution?: string | null }>();
   for (const k of (known ?? []) as Array<{ id: string; listing_url: string; price: number | null; status: string; resolution: string | null }>) {
     seen.set(k.listing_url, k);
+  }
+
+  // MISE EN CONFORMITÉ des annonces DÉJÀ accumulées avec les critères actuels.
+  // L'accumulation garantit que rien n'est perdu, mais elle gardait aussi dans
+  // la boîte des annonces entrées sous des critères plus larges : un
+  // kilométrage max resserré à 90 000 laissait des 107 356 km à traiter
+  // (constat 30/07). Les critères STRUCTURELS (km, année) ne peuvent plus
+  // devenir conformes — l'annonce part donc aux archives en « hors critères »,
+  // définitif, jamais supprimée. Le prix n'entre pas ici : une baisse doit
+  // toujours pouvoir ramener une annonce (règle du 28/07).
+  const offCriteria = ((known ?? []) as Array<{ id: string; status: string; resolution: string | null; mileage: number | null; year: number | null }>)
+    .filter((k) => k.status !== 'saved' // un véhicule en négociation n'est jamais touché
+      && k.resolution !== 'hors_criteres' // déjà archivé pour ce motif
+      && ((s.mileage_max != null && typeof k.mileage === 'number' && k.mileage > s.mileage_max)
+        || (s.year_min != null && typeof k.year === 'number' && k.year < s.year_min)
+        || (s.year_max != null && typeof k.year === 'number' && k.year > s.year_max)));
+  if (offCriteria.length > 0) {
+    await supabase.from('daily_search_hits')
+      .update({ status: 'dismissed', resolution: 'hors_criteres' })
+      .in('id', offCriteria.map((k) => k.id));
+    console.warn(`[DAILY] « ${name} » : ${offCriteria.length} annonce(s) archivée(s) — hors critères actuels (km max ${s.mileage_max ?? '—'}, années ${s.year_min ?? '—'}–${s.year_max ?? '—'})`);
+    for (const k of offCriteria) {
+      const cur = [...seen.entries()].find(([, v]) => v.id === k.id);
+      if (cur) seen.set(cur[0], { ...cur[1], status: 'dismissed', resolution: 'hors_criteres' });
+    }
   }
 
   // Véhicules déjà en NÉGOCIATION chez ce compte (tous statuts — un véhicule
