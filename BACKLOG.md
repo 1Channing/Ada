@@ -47,6 +47,66 @@ avec de VRAIS paramètres serveur (query, attributeRanges constructionYear,
 l1/l2CategoryId lus du `__NEXT_DATA__` de la page marque), et apprendre les
 IDs dans le dictionnaire enum. Voir discussion « plan auto-correction ».
 
+## 0ter. Marktplaats : hybride RECHARGEABLE jamais filtré ni confirmable (30/07/2026)
+
+Suite directe du 0bis. L'API LRP a bien réglé le fond, mais trois trous
+subsistent sur le carburant. Diagnostic complet ci-dessous — tout est prouvé,
+il n'y a rien à re-chercher.
+
+**Le cas d'essai** (URL humaine de Channing, Kia Sportage GT Line 2023) :
+`/l/auto-s/kia/q/gt+line/f/sportage+hybride-elektrisch-benzine/892+13838/#f:13956|constructionYearFrom:2023|constructionYearTo:2023|mileageTo:90001`
+Le site affiche **7** annonces (toutes rechargeables) ; ADA en a scrapé **19**
+(hybrides complets + rechargeables). L'écart EST le bug.
+
+**Trou 1 — la facette du hash est ignorée.** `marktplaatsFacetIds()`
+(worker/scraper.ts) ne lit que le CHEMIN :
+`url.match(/\/f\/[^/#?]+\/([0-9+]+)/)`. Or l'interface range le sous-type
+hybride dans le HASH (`#f:13956`), pas dans le chemin. La facette est donc
+perdue avant l'appel API. À corriger : lire aussi `#f:<id>` (et `|f:<id>`).
+`buildLrpUrl` accepte déjà une liste libre (`attributesById[]`) — rien d'autre
+à changer côté transport. **C'est le correctif à plus fort rendement : à lui
+seul il ramène l'URL ci-dessus de 19 à 7.**
+
+**Trou 2 — le générateur ne connaît pas le rechargeable.** `FUEL_FACET`
+(marketplaces/marktplaats.ts) ne contient que `ELECTRIQUE → elektrisch/11756`
+et `HYBRIDE → hybride-elektrisch-benzine/13838`. Rien pour `PLUG_IN_HYBRID` →
+aucune facette carburant émise (URL générée nue : `f/sportage/892/`).
+À faire : `PLUG_IN_HYBRID` = famille `13838` dans le CHEMIN + sous-type
+`13956` dans le HASH — c'est exactement la disposition de l'URL humaine, donc
+aucune invention. Idem `MILD_HYBRID → 13954`. `HYBRIDE` garde `13838` seul
+(chez ADA c'est la famille, c'est déjà juste). Lire les ids depuis le
+dictionnaire APPRIS en priorité, graines prouvées en repli.
+
+**Trou 3 — le rechargeable n'est PAS confirmable au niveau annonce.** Le site
+étiquette chaque annonce avec la FAMILLE (« Hybride Elektrisch/Benzine »),
+jamais « plug-in » — vérifié sur des annonces dont le titre dit pourtant
+« Plug-in Hybrid GT-Line ». La confirmation champ-par-champ compare donc
+`PLUG_IN_HYBRID` déclaré à « Hybride Elektrisch/Benzine » observé → 0 %,
+verdict « jeté », et l'URL n'est jamais mémorisée comme réutilisable. Ce sera
+vrai ÉTERNELLEMENT, même une fois les trous 1 et 2 bouchés. À faire : rendre
+la comparaison hiérarchique (la famille observée CONFIRME le sous-type
+déclaré, elle ne le contredit pas) — le principe existe déjà dans
+`fuelFilterMatches` (marketData.ts : HYBRIDE englobe phev et mild), le
+réutiliser plutôt que d'en écrire un second. Corroboration possible par le
+titre. Verdict cible : « retenu (famille) », pas « jeté ».
+
+**Codes déjà appris** (moisson LRP du 30/07, et confirmés par l'URL humaine) :
+```
+mp:facet:fuel        Hybride Elektrisch/Benzine → 13838   (chemin)
+mp:facet:hybridType  Plug-in hybride            → 13956   (hash)
+                     Volledig hybride           → 13955
+                     Half hybride               → 13954
+```
+
+**Critère de recette** : rejouer l'URL du cas d'essai via le worker doit
+renvoyer **7** annonces, pas 19. Tant que ce n'est pas le cas, c'est raté.
+
+**Piste pour généraliser** (pas nécessaire ici) : la sonde `[MP_LRP_TAXO]` a
+montré que chaque valeur de facette porte un drapeau `isValuableForSeo` —
+c'est lui qui décide chemin vs hash. Le moissonner permettrait de placer
+n'importe quelle facette au bon endroit automatiquement, au lieu de le savoir
+au cas par cas.
+
 ## 1. Vocabulaire de détection carburant (prioritaire dès les premières ingestions)
 
 La confirmation carburant de la page Ingestion échouera souvent au début :
