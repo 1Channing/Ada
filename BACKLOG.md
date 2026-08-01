@@ -254,6 +254,23 @@ en série, worker qui redémarre). Accès direct via `ADA_SUPABASE_URL` +
 `*.supabase.co` — à re-vérifier à la prochaine session ("vérifie l'accès
 aux logs").
 
+## 4sexies. Accidentées — exclusion À LA SOURCE dans les URLs (différé, acté 01/08)
+
+Le nettoyage à la LECTURE est livré (01/08) : détecteur négation-d'abord
+`isDamagedVehicleText` (business-logic) branché sur le MI, les études
+quotidiennes et le radar SQL — mesuré sur 187 k obs : 129 vraies accidentées
+en titre, 1 422 « NON accidenté » + 88 « Unfallfrei » = saines à ne jamais
+jeter. Décision Channing : « pour le moment les gens trieront d'eux-mêmes,
+on améliorera plus tard ».
+
+Reste, quand on s'y remet : exclure côté URL sur les sites qui ont un filtre
+natif « sans véhicules endommagés » (AutoScout, Mobile.de au moins). Règle
+d'empirisme : AUCUN paramètre écrit sans preuve — demander à Channing une URL
+humaine avec le filtre coché par site, ou la valider par scrape comparatif
+(même recherche avec/sans le paramètre, compter). Gain : les accidentées ne
+consommeront plus de place dans les 3 pages scrapées (elles trustent le bas
+du tri prix croissant).
+
 ## 4ter. MI différés (validés sur le principe 21/07, « pas d'urgence »)
 
 - **Carte de couverture** : onglet MI, grille modèle × pays colorée par
