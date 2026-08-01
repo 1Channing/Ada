@@ -287,6 +287,18 @@ function modelTokenInText(normText: string, tok: string): boolean {
   if (parts) {
     return new RegExp(`(^|[^a-z0-9])${escapeRegex(parts[1])} ${parts[2]}([^a-z0-9]|$)`).test(normText);
   }
+  // Graphie compacte du critère vs graphie ÉCLATÉE du site : les titres
+  // écrivent « e-tron » (normalisé 'e tron', DEUX jetons) quand le critère
+  // porte 'etron' en un seul — « Q6-etron » faisait 0/46 sur une page dont
+  // 100 % des titres disaient e-tron (01/08). Accepté si deux jetons ADJACENTS
+  // du texte, recollés, ÉGALENT le jeton (égalité stricte, pas de sous-chaîne :
+  // « q6 » ne peut pas sortir de « sq6 »). Même famille : E-Tech, T-Roc, C-HR.
+  if (tok.length >= 4) {
+    const words = normText.split(/[^a-z0-9]+/).filter(Boolean);
+    for (let i = 0; i + 1 < words.length; i++) {
+      if (words[i] + words[i + 1] === tok) return true;
+    }
+  }
   return false;
 }
 
