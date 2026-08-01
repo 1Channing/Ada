@@ -10,11 +10,16 @@ import { marktplaatsAdapter } from './marktplaats';
 import { bilbasenAdapter } from './bilbasen';
 import { mobiledeAdapter } from './mobilede';
 import { autoscout24Adapters } from './autoscout24';
+import { subitoAdapter } from './subito';
+import { gaspedaalAdapter } from './gaspedaal';
 
 siteRegistry.register(leboncoinAdapter);
 siteRegistry.register(marktplaatsAdapter);
 siteRegistry.register(bilbasenAdapter);
 siteRegistry.register(mobiledeAdapter);
+// Extension du réseau (01/08) : Subito (IT) + Gaspedaal (NL), v1 sur preuve.
+siteRegistry.register(subitoAdapter);
+siteRegistry.register(gaspedaalAdapter);
 // AutoScout24: one instance per country (FR/DE/NL/IT/ES/BE), same taxonomy.
 for (const adapter of autoscout24Adapters) siteRegistry.register(adapter);
 
