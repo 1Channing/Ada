@@ -104,10 +104,13 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
     try {
       // Pas deux fois le même dossier : le même segment entre les mêmes pays
       // renvoie vers l'étude existante, à affiner plutôt qu'à dupliquer.
+      // Le même carburant fait partie du segment : une étude HYBRIDE en place
+      // ne couvre pas l'écart PLUG_IN_HYBRID du même modèle.
       const existing = (await listDailySearches()).find((s) =>
         brandKey(s.brand) === brandKey(o.brand)
         && canonKey(s.model) === canonKey(o.model)
         && s.source_country === o.lowCountry && s.target_country === o.highCountry
+        && (s.fuel ?? '') === (TOKEN_TO_CRITERIA[o.fuel] ?? '')
         && (s.year_min ?? 0) <= o.year && (s.year_max ?? 9999) >= o.year);
       if (existing) {
         setNotice(`Étude « ${existing.label} » déjà en place pour ce segment — ajuste-la dans le Workflow.`);

@@ -362,6 +362,36 @@ export function latestPerListing(obs: Observation[]): Observation[] {
   return [...byListing.values()];
 }
 
+/**
+ * Purge des annonces disparues : une annonce dont le segment (tel que scanné :
+ * site + pays + marque + modèle + carburant + finition du snapshot) a été
+ * re-scanné plus récemment et qui n'apparaît plus dans ce dernier scan
+ * n'existe très probablement plus sur le site — elle sort de l'« état actuel »
+ * (liste ET métriques). L'historique en base reste intact : les courbes
+ * temporelles et la vélocité (qui se nourrit précisément des disparitions)
+ * gardent chaque passage. Snapshot inconnu de la fenêtre chargée = conservé
+ * (fail-open : on ne supprime que sur preuve d'un re-scan du même segment).
+ */
+export function pruneVanishedListings(obs: Observation[], snapshots: Snapshot[]): Observation[] {
+  if (snapshots.length === 0) return obs;
+  const segOf = (s: Snapshot) =>
+    [s.site, s.country, brandKey(s.brand), canonKey(s.model), s.fuel ?? '', canonKey(s.trim ?? '')].join('|');
+  const byId = new Map<string, Snapshot>();
+  const latestBySeg = new Map<string, Snapshot>();
+  for (const s of snapshots) {
+    byId.set(s.id, s);
+    const k = segOf(s);
+    const cur = latestBySeg.get(k);
+    if (!cur || String(s.scraped_at) > String(cur.scraped_at)) latestBySeg.set(k, s);
+  }
+  return obs.filter((o) => {
+    const snap = byId.get(o.snapshot_id);
+    if (!snap) return true;
+    const latest = latestBySeg.get(segOf(snap));
+    return !latest || latest.id === snap.id;
+  });
+}
+
 export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_FILTERS): Observation[] {
   const trimNeedle = normText(f.trim).trim();
   // Boîte : comparaison sur le TOKEN canonique — « Automatique » retient

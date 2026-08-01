@@ -403,8 +403,16 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     // Free-text keyword filter — human-proven on autoscout24.es
     // (?kwd=Sportline narrows the Elroq list to Sportlines). Carries the
     // finition into the URL; the ingestion still confirms it via listing text.
-    if (params.trim && params.trim.trim()) {
-      qs.set('kwd', params.trim.trim());
+    //
+    // PHEV : le code fuel=2 couvre TOUS les hybrides — AS24 n'a aucun code qui
+    // isole les rechargeables (constat opérateur 01/08 : le filtre « hybride
+    // rechargeable » ne fonctionne pas). On resserre par le texte : « PHEV »
+    // posé dans kwd AVANT la finition (kwd=PHEV GR SPORT). Les autres
+    // carburants gardent leur comportement exact.
+    const wantsPhev = ['PLUG_IN_HYBRID', 'PHEV'].includes(String(params.fuel ?? '').trim().toUpperCase());
+    const kwdParts = [wantsPhev ? 'PHEV' : '', (params.trim ?? '').trim()].filter(Boolean);
+    if (kwdParts.length > 0) {
+      qs.set('kwd', kwdParts.join(' '));
     }
 
     return { url: `https://www.${cfg.domain}${path}?${qs.toString()}`, warnings };

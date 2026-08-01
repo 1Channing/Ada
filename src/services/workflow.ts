@@ -200,7 +200,10 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
   }
   // Anti-doublon à la CRÉATION : deux études sur le même segment entre les
   // mêmes pays scrapent et paient double (2× HYUNDAI KONA constatés au 01/08).
-  // La modification d'une étude existante n'est jamais bloquée.
+  // Le segment inclut le carburant et la boîte : RAV4 GR SPORT hybride et RAV4
+  // GR SPORT hybride RECHARGEABLE sont deux marchés différents (constat 01/08 —
+  // la création de la variante PHEV était bloquée à tort). La modification
+  // d'une étude existante n'est jamais bloquée.
   if (!s.id) {
     const existing = (await listDailySearches()).find((e) =>
       brandKey(e.brand) === brandKey(s.brand)
@@ -208,6 +211,8 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
       && e.source_country === s.source_country
       && e.target_country === s.target_country
       && canonKey(e.trim ?? '') === canonKey(s.trim ?? '')
+      && (e.fuel ?? '') === (s.fuel ?? '')
+      && (e.gearbox ?? '') === (s.gearbox ?? '')
       && (e.year_min ?? 0) === (s.year_min ?? 0)
       && (e.year_max ?? 0) === (s.year_max ?? 0));
     if (existing) {

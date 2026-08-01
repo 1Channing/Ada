@@ -9,6 +9,7 @@ import {
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
   studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing, canonicalizeGearbox, GEARBOX_LABELS,
   loadSnapshots, loadObservedDimensions, loadObservationsForStudy, attackPrice, FUEL_TOKEN_TO_CRITERIA,
+  pruneVanishedListings,
 } from '../services/marketData';
 import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
@@ -311,10 +312,12 @@ export function MarketIntelligence() {
     const color = countryColor && firstWithCountry === i ? countryColor : STUDY_COLORS[i] ?? BLUE;
     const filtered = filterObservations(obs, f);
     // État actuel du marché : une ligne par annonce, dans sa version la plus
-    // récente. Les indicateurs LE décrivent (mêmes chiffres que le tableau du
-    // dessous) ; l'historique complet reste dans `filtered` pour les courbes
-    // et la vélocité, qui ont besoin de chaque passage.
-    const latestObs = latestPerListing(filtered);
+    // récente — MOINS les annonces absentes du dernier scan de leur segment
+    // (disparues = très probablement vendues ou retirées). Les indicateurs LE
+    // décrivent (mêmes chiffres que le tableau du dessous) ; l'historique
+    // complet reste dans `filtered` pour les courbes et la vélocité, qui ont
+    // besoin de chaque passage, disparitions comprises.
+    const latestObs = pruneVanishedListings(latestPerListing(filtered), data.snapshots);
     return {
       idx: i, filters: f, color, label: studyLabel(f, i),
       filtered, latestObs, stats: priceStats(latestObs), series: timeSeries(filtered),

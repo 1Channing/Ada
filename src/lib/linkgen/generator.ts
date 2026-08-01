@@ -392,6 +392,26 @@ export function injectTrimIntoUrl(url: string, trim: string): string {
   return url;
 }
 
+/**
+ * AS24 + hybride rechargeable : fuel=2 couvre TOUS les hybrides, aucun code ne
+ * distingue les PHEV (constat opérateur 01/08 : le filtre du site ne fonctionne
+ * pas). Le resserrage passe par le texte : « PHEV » devant la finition dans
+ * kwd=. L'adaptateur le fait sur les URL construites ; ce correctif couvre la
+ * voie URL APPRISE, qui ne repasse pas par l'adaptateur. Idempotent, et
+ * strictement limité aux hôtes autoscout24 + carburant PLUG_IN_HYBRID.
+ */
+export function ensureAs24PhevKeyword(url: string, params: LinkGenParams): string {
+  const fuelUp = String(params.fuel ?? '').trim().toUpperCase();
+  if (fuelUp !== 'PLUG_IN_HYBRID' && fuelUp !== 'PHEV') return url;
+  try {
+    const u = new URL(url);
+    if (!u.hostname.includes('autoscout24.')) return url;
+    const cur = (u.searchParams.get('kwd') ?? '').trim();
+    if (/\bphev\b/i.test(cur)) return url;
+    return setQueryParamRaw(url, 'kwd', cur ? `PHEV ${cur}` : 'PHEV');
+  } catch { return url; }
+}
+
 function numericParamValue(field: string, params: LinkGenParams): string | undefined {
   const raw =
     field === 'power' ? params.minPower :
@@ -535,6 +555,7 @@ export async function generateSearchUrlsWithMemory(
         if (wantTrim && (recTrim === '' || url.includes('autoscout24.'))) {
           url = injectTrimIntoUrl(url, params.trim ?? '');
         }
+        url = ensureAs24PhevKeyword(url, params);
         url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
         logs.push({
           level: 'OUTPUT',
