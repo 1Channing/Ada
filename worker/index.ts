@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
-import { executeStudy, scrapeSearch } from './scraper';
+import { executeStudy, scrapeSearch, reconScrape } from './scraper';
 import { findSiteAdapterByDomain, decomposeUrl } from '../src/lib/study-core/marketplaces';
 import type { SearchCriteria } from '../src/lib/study-core/marketplaces';
 import { analyzeIngestion } from '../src/lib/study-core/ingestion';
@@ -110,7 +110,24 @@ app.post('/ingest-url', async (req, res) => {
 
   const adapter = findSiteAdapterByDomain(url);
   if (!adapter) {
-    return res.status(400).json({ error: 'unsupported_site', message: `No site adapter for URL domain: ${url.slice(0, 120)}` });
+    // MODE RECONNAISSANCE (01/08) : domaine sans adaptateur = candidat à
+    // l'extension du réseau. On photographie la page (données embarquées,
+    // annonces lisibles, taxonomie, devise, langue) au lieu de refuser —
+    // lecture seule, aucune écriture mémoire/snapshot. Voir logs [RECON].
+    console.log(`[INGEST] RECON (domaine sans adaptateur): ${url.slice(0, 140)}`);
+    const runRecon = async () => ({ recon: true, report: await reconScrape(url) });
+    if (wantAsync) {
+      purgeOldIngestJobs();
+      const id = `rec_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      INGEST_JOBS.set(id, { status: 'running', at: Date.now() });
+      void runRecon().then(
+        (payload) => INGEST_JOBS.set(id, { status: 'done', payload, at: Date.now() }),
+        (e) => INGEST_JOBS.set(id, { status: 'error', message: e?.message ?? String(e), at: Date.now() }),
+      );
+      return res.json({ jobId: id, jobStatus: 'running' });
+    }
+    try { return res.json(await runRecon()); }
+    catch (e) { return res.status(500).json({ error: 'RECON_FAILED', message: e instanceof Error ? e.message : String(e) }); }
   }
 
   console.log(`[INGEST] Discovery scrape site=${adapter.key} async=${!!wantAsync} serverPipeline=${serverPipeline} url=${url.slice(0, 150)}`);

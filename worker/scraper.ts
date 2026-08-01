@@ -348,6 +348,120 @@ let mpLrpTaxoProbed = false;
 
 const SCRAPE_CACHE = new Map<string, { at: number; result: ScrapeSearchResult }>();
 const SCRAPE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// ─── MODE RECONNAISSANCE (01/08) — domaine SANS adaptateur ───────────────────
+//
+// Extension du réseau de sites : avant d'écrire le moindre adaptateur, on
+// photographie la page d'une URL HUMAINE — où vivent les données embarquées
+// (NEXT_DATA, NUXT, JSON-LD…), y a-t-il des tableaux d'annonces lisibles, la
+// TAXONOMIE (listes marques/modèles) est-elle embarquée, quelle devise, quelle
+// langue. Lecture seule : aucune écriture mémoire/snapshot, jamais.
+
+export interface ReconReport {
+  url: string; host: string; htmlLength: number; blocked: string | null;
+  lang: string | null; title: string | null;
+  embeddedBlobs: Array<{ kind: string; length: number }>;
+  /** Tableaux d'objets ressemblant à des ANNONCES (prix/km/année dans les clés). */
+  listingArrays: Array<{ path: string; len: number; keys: string; sample: string }>;
+  /** Tableaux ressemblant à de la TAXONOMIE (name/value/label/slug, ≥15 entrées). */
+  taxonomyArrays: Array<{ path: string; len: number; keys: string; sample: string }>;
+  /** <select> du HTML : la taxonomie old-school vit dans les dropdowns. */
+  selects: Array<{ name: string; options: number }>;
+  currencyHints: Record<string, number>;
+}
+
+const RECON_LISTING_KEY_RX = /price|prezzo|pris|preis|prix|cena|kaina|ar\b|mileage|km|kilometer|chilometri|year|anno|ev\b|rok|metai|fuel|make|brand|model/i;
+const RECON_TAXO_KEY_RX = /^(name|label|value|slug|id|key|text|title|count)$/i;
+
+function reconWalkJson(root: unknown, tag: string, report: ReconReport): void {
+  const walk = (o: unknown, path: string, depth: number): void => {
+    if (depth > 10 || (report.listingArrays.length + report.taxonomyArrays.length) > 40) return;
+    if (Array.isArray(o)) {
+      if (o.length >= 5 && o.every((x) => x && typeof x === 'object' && !Array.isArray(x))) {
+        const keys = Object.keys(o[0] as object);
+        const keyStr = keys.slice(0, 8).join(',');
+        const sample = JSON.stringify(o[0]).slice(0, 140);
+        const listingKeys = keys.filter((k) => RECON_LISTING_KEY_RX.test(k)).length;
+        if (listingKeys >= 3) {
+          report.listingArrays.push({ path: `${tag}${path}`, len: o.length, keys: keyStr, sample });
+        } else if (o.length >= 15 && keys.length <= 6 && keys.every((k) => RECON_TAXO_KEY_RX.test(k))) {
+          report.taxonomyArrays.push({ path: `${tag}${path}`, len: o.length, keys: keyStr, sample });
+        }
+      }
+      for (const el of o.slice(0, 3)) walk(el, `${path}[]`, depth + 1);
+      return;
+    }
+    if (o && typeof o === 'object') {
+      for (const [k, v] of Object.entries(o)) walk(v, `${path}.${k}`, depth + 1);
+    }
+  };
+  walk(root, '', 0);
+}
+
+export async function reconScrape(url: string): Promise<ReconReport> {
+  const host = (() => { try { return new URL(url).hostname; } catch { return url.slice(0, 40); } })();
+  const report: ReconReport = {
+    url, host, htmlLength: 0, blocked: null, lang: null, title: null,
+    embeddedBlobs: [], listingArrays: [], taxonomyArrays: [], selects: [], currencyHints: {},
+  };
+  let html: string | null = null;
+  for (let attempt = 1; attempt <= 2 && !html; attempt++) {
+    const r = await fetchHtmlWithZyte(attempt === 1 ? url : `${url}${url.includes('?') ? '&' : '?'}adanc=${Date.now().toString(36)}`, attempt);
+    html = r.html;
+    if (!html) await new Promise((res) => setTimeout(res, 5000));
+  }
+  if (!html) { report.blocked = 'aucun HTML (fetch en échec)'; return report; }
+  report.htmlLength = html.length;
+  const blockedCheck = detectBlockedContent(html, false);
+  if (blockedCheck.isBlocked) report.blocked = blockedCheck.matchedKeyword ?? 'blocked';
+
+  report.lang = html.match(/<html[^>]*\blang=["']?([a-zA-Z-]+)/)?.[1] ?? null;
+  report.title = html.match(/<title[^>]*>([^<]{0,120})/)?.[1]?.trim() ?? null;
+
+  // Blobs embarqués connus + parse JSON quand c'est du JSON pur.
+  const blobs: Array<[string, RegExp]> = [
+    ['NEXT_DATA', /<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i],
+    ['NUXT', /window\.__NUXT__\s*=\s*([\s\S]*?)<\/script>/i],
+    ['INITIAL_STATE', /window\.__INITIAL_STATE__\s*=\s*([\s\S]*?)<\/script>/i],
+    ['PRELOADED_STATE', /window\.__PRELOADED_STATE__\s*=\s*([\s\S]*?)<\/script>/i],
+    ['APOLLO_STATE', /window\.__APOLLO_STATE__\s*=\s*([\s\S]*?)<\/script>/i],
+  ];
+  for (const [kind, rx] of blobs) {
+    const m = html.match(rx);
+    if (!m) continue;
+    report.embeddedBlobs.push({ kind, length: m[1].length });
+    try { reconWalkJson(JSON.parse(m[1]), kind, report); } catch { /* pas du JSON pur (JS inline) — la présence seule est déjà l'info */ }
+  }
+  const ldJson = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+  if (ldJson.length > 0) {
+    report.embeddedBlobs.push({ kind: `JSON-LD ×${ldJson.length}`, length: ldJson.reduce((s, m) => s + m[1].length, 0) });
+    for (const m of ldJson.slice(0, 6)) {
+      try { reconWalkJson(JSON.parse(m[1]), 'JSON-LD', report); } catch { /* ignore */ }
+    }
+  }
+
+  // Taxonomie old-school : les <select> (marques/modèles en dropdown).
+  for (const sel of [...html.matchAll(/<select[^>]*(?:name|id)=["']([^"']{1,40})["'][^>]*>([\s\S]{0,60000}?)<\/select>/gi)].slice(0, 20)) {
+    const options = (sel[2].match(/<option/gi) ?? []).length;
+    if (options >= 5) report.selects.push({ name: sel[1], options });
+  }
+
+  // Devise : compter les marqueurs — SEK/HUF/etc. = conversion à prévoir.
+  for (const [label, rx] of Object.entries({
+    'EUR €': /€/g, 'kr (SEK/DKK)': /\d\s?kr\b/gi, 'Ft (HUF)': /\bFt\b/g,
+    'Kč (CZK)': /Kč/g, 'zł (PLN)': /zł/g, 'SEK': /\bSEK\b/g, 'HUF': /\bHUF\b/g,
+  })) {
+    const n = (html.match(rx as RegExp) ?? []).length;
+    if (n > 0) report.currencyHints[label] = n;
+  }
+
+  console.warn(`[RECON ${host}] ${report.htmlLength}b lang=${report.lang} blocked=${report.blocked ?? 'non'} blobs=${report.embeddedBlobs.map((b) => `${b.kind}:${b.length}`).join('|') || 'aucun'}`);
+  for (const a of report.listingArrays.slice(0, 6)) console.warn(`[RECON ${host}] annonces? ${a.path} len=${a.len} keys={${a.keys}}`);
+  for (const a of report.taxonomyArrays.slice(0, 6)) console.warn(`[RECON ${host}] taxo? ${a.path} len=${a.len} keys={${a.keys}}`);
+  if (report.selects.length) console.warn(`[RECON ${host}] selects: ${report.selects.map((s) => `${s.name}(${s.options})`).join(' ')}`);
+  console.warn(`[RECON ${host}] devises: ${JSON.stringify(report.currencyHints)}`);
+  return report;
+}
 // A full results page that yields 0 listings is a genuine empty search, not a
 // parse failure — don't waste Zyte retries on it.
 const FULL_PAGE_MIN_BYTES = 100_000;
