@@ -115,7 +115,8 @@ app.post('/ingest-url', async (req, res) => {
     // annonces lisibles, taxonomie, devise, langue) au lieu de refuser —
     // lecture seule, aucune écriture mémoire/snapshot. Voir logs [RECON].
     console.log(`[INGEST] RECON (domaine sans adaptateur): ${url.slice(0, 140)}`);
-    const runRecon = async () => ({ recon: true, report: await reconScrape(url) });
+    const dump = typeof (req.body ?? {}).dump === 'string' ? String(req.body.dump) : undefined;
+    const runRecon = async () => ({ recon: true, report: await reconScrape(url, dump) });
     if (wantAsync) {
       purgeOldIngestJobs();
       const id = `rec_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

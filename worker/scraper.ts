@@ -398,7 +398,13 @@ function reconWalkJson(root: unknown, tag: string, report: ReconReport): void {
   walk(root, '', 0);
 }
 
-export async function reconScrape(url: string): Promise<ReconReport> {
+/**
+ * Dump ciblé d'un blob embarqué : `dump` = 'NEXT_DATA:props.pageProps' ou
+ * 'JSON-LD:1' (index) — le sous-arbre est rendu dans le payload du job
+ * (les logs tronquent à ~180 caractères, le payload non). Outil d'exploration
+ * pour écrire les parseurs sur PREUVE avant tout adaptateur.
+ */
+export async function reconScrape(url: string, dump?: string): Promise<ReconReport & { dump?: { path: string; totalLength: number; data: string } }> {
   const host = (() => { try { return new URL(url).hostname; } catch { return url.slice(0, 40); } })();
   const report: ReconReport = {
     url, host, htmlLength: 0, blocked: null, lang: null, title: null,
@@ -455,12 +461,45 @@ export async function reconScrape(url: string): Promise<ReconReport> {
     if (n > 0) report.currencyHints[label] = n;
   }
 
+  // Dump ciblé demandé : extraire le sous-arbre et le rendre dans le payload.
+  let dumpOut: { path: string; totalLength: number; data: string } | undefined;
+  if (dump) {
+    try {
+      const [kind, subPath] = dump.split(':', 2);
+      let root: unknown = null;
+      if (kind === 'NEXT_DATA') {
+        const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+        if (m) root = JSON.parse(m[1]);
+      } else if (kind === 'JSON-LD') {
+        const all = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+        const idx = /^\d+$/.test(subPath ?? '') ? Number(subPath) : 0;
+        if (all[idx]) root = JSON.parse(all[idx][1]);
+      } else if (kind === 'HTML') {
+        // HTML brut par tranches : HTML:offset (200 Ko par appel).
+        const off = /^\d+$/.test(subPath ?? '') ? Number(subPath) : 0;
+        dumpOut = { path: dump, totalLength: html.length, data: html.slice(off, off + 200_000) };
+      }
+      if (root != null && !dumpOut) {
+        let node: unknown = root;
+        if (kind === 'NEXT_DATA' && subPath) {
+          for (const seg of subPath.split('.')) {
+            node = (node as Record<string, unknown> | null)?.[seg];
+            if (node == null) break;
+          }
+        }
+        const s = JSON.stringify(node ?? null);
+        dumpOut = { path: dump, totalLength: s.length, data: s.slice(0, 250_000) };
+      }
+    } catch (e) {
+      dumpOut = { path: dump, totalLength: 0, data: `dump en échec: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
   console.warn(`[RECON ${host}] ${report.htmlLength}b lang=${report.lang} blocked=${report.blocked ?? 'non'} blobs=${report.embeddedBlobs.map((b) => `${b.kind}:${b.length}`).join('|') || 'aucun'}`);
   for (const a of report.listingArrays.slice(0, 6)) console.warn(`[RECON ${host}] annonces? ${a.path} len=${a.len} keys={${a.keys}}`);
   for (const a of report.taxonomyArrays.slice(0, 6)) console.warn(`[RECON ${host}] taxo? ${a.path} len=${a.len} keys={${a.keys}}`);
   if (report.selects.length) console.warn(`[RECON ${host}] selects: ${report.selects.map((s) => `${s.name}(${s.options})`).join(' ')}`);
   console.warn(`[RECON ${host}] devises: ${JSON.stringify(report.currencyHints)}`);
-  return report;
+  return dumpOut ? { ...report, dump: dumpOut } : report;
 }
 // A full results page that yields 0 listings is a genuine empty search, not a
 // parse failure — don't waste Zyte retries on it.
