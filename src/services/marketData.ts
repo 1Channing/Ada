@@ -559,6 +559,28 @@ const callRpc = (fn: string, args?: Record<string, unknown>) =>
   (supabase.rpc as unknown as (f: string, a?: Record<string, unknown>) =>
     PromiseLike<{ data: unknown; error: { message: string } | null }>)(fn, args);
 
+/**
+ * Lecture RPC paginée : PostgREST plafonne AUSSI les fonctions à ~1000 lignes
+ * par réponse (mi_dimensions rendait pile 1000 — les menus perdaient des
+ * modèles en silence, constat 01/08). Même contrat que fetchAllPages, via
+ * .range() sur le builder RPC. Une page en erreur interrompt sans jeter :
+ * les pages déjà lues valent mieux que rien (l'appelant a ses replis).
+ */
+async function callRpcAllPages<T>(fn: string, args: Record<string, unknown> | undefined, maxRows: number): Promise<{ data: T[] | null; error: { message: string } | null }> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  for (let from = 0; from < maxRows; from += PAGE) {
+    const builder = (supabase.rpc as unknown as (f: string, a?: Record<string, unknown>) =>
+      { range: (f: number, t: number) => PromiseLike<{ data: unknown; error: { message: string } | null }> })(fn, args);
+    const { data, error } = await builder.range(from, Math.min(from + PAGE, maxRows) - 1);
+    if (error) return out.length > 0 ? { data: out, error: null } : { data: null, error };
+    const rows = (Array.isArray(data) ? data : []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return { data: out, error: null };
+}
+
 /** Clés canoniques d'une marque, alias compris (VOLKSWAGEN → aussi VW). */
 function brandKeysForQuery(brand: string): string[] {
   const canonical = brandKey(brand);
@@ -583,8 +605,8 @@ export interface DimensionRow {
 
 /** Dimensions observées (agrégat serveur) — nourrit les menus sans annonces. */
 export async function loadObservedDimensions(): Promise<DimensionRow[]> {
-  const { data, error } = await callRpc('mi_dimensions');
-  if (!error && Array.isArray(data)) return data as DimensionRow[];
+  const { data, error } = await callRpcAllPages<DimensionRow>('mi_dimensions', undefined, 20_000);
+  if (!error && Array.isArray(data)) return data;
   console.warn('[MI_SCOPE] mi_dimensions indisponible (migration à appliquer ?) — repli lecture intégrale:', error?.message);
   const { observations } = await legacyAll();
   const agg = new Map<string, DimensionRow>();
@@ -1024,9 +1046,9 @@ export async function loadMarketOpportunities(
   // — le front n'apparie plus que quelques centaines de segments au lieu de
   // repaginer 40 000 observations (fenêtre déjà dépassée par les campagnes).
   const since = new Date(Date.now() - OPP_WINDOW_DAYS * 86_400_000).toISOString();
-  const { data: medianRows, error: rpcError } = await callRpc('mi_cheap_medians', {
+  const { data: medianRows, error: rpcError } = await callRpcAllPages<unknown>('mi_cheap_medians', {
     p_since: since, p_min_price: OPP_MIN_PRICE_EUR,
-  });
+  }, 20_000);
   if (!rpcError && Array.isArray(medianRows)) {
     type Row = { brand_label: string; model_label: string; fuel: string; year: number; country: string; site: string; median: number | null; cnt: number; last_seen: string };
     const groups = new Map<string, Row[]>();

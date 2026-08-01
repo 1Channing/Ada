@@ -148,46 +148,40 @@ export function MarketIntelligence() {
   // Chargements en vol : le montage et un Rafraîchir peuvent viser les mêmes
   // segments à quelques secondes d'écart — pas deux fois la même requête.
   const inflightScopes = useRef(new Set<string>());
+  // Charge UN scope, indépendamment de tout cycle de rendu : le résultat est
+  // rangé par sa CLÉ, il est valable quel que soit l'effet qui l'a demandé.
+  // JAMAIS d'annulation ici — l'ancienne version « annulait » les chargements
+  // quand refresh() relançait l'effet en plein vol : l'instance annulée jetait
+  // ses lignes, la nouvelle voyait les scopes « en vol » et ne faisait rien →
+  // « Chargement du segment… » pour toujours (constat 01/08, plusieurs minutes).
+  const ensureScope = async (f: MarketFilters) => {
+    const s = scopeOf(f);
+    if (!s || scopeCache.current.has(s) || inflightScopes.current.has(s)) return;
+    inflightScopes.current.add(s);
+    setScopeLoading(true);
+    try {
+      const rows = await loadObservationsForStudy(f);
+      scopeCache.current.set(s, rows);
+      setScopeErrors((prev) => { const n = new Map(prev); n.delete(s); return n; });
+    } catch (e) {
+      setScopeErrors((prev) => new Map(prev).set(s, `${studyLabel(f, 0)} — ${e instanceof Error ? e.message : String(e)}`));
+    } finally {
+      inflightScopes.current.delete(s);
+      setScopeLoading(inflightScopes.current.size > 0);
+      setScopeEpoch((e) => e + 1); // affichage progressif : chaque scope arrive quand il est prêt
+    }
+  };
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const wanted = [...new Set(scopesKey.split(';').filter(Boolean))];
-      const missing = studies.filter((f) => {
-        const s = scopeOf(f);
-        return s && !scopeCache.current.has(s) && !inflightScopes.current.has(s);
-      });
-      if (missing.length === 0) return;
-      setScopeLoading(true);
-      const failures = new Map<string, string>();
-      await Promise.all(missing.map(async (f) => {
-        const s = scopeOf(f);
-        if (!s || scopeCache.current.has(s) || inflightScopes.current.has(s)) return;
-        inflightScopes.current.add(s);
-        try {
-          const rows = await loadObservationsForStudy(f);
-          if (!cancelled) scopeCache.current.set(s, rows);
-        } catch (e) {
-          failures.set(s, `${studyLabel(f, 0)} — ${e instanceof Error ? e.message : String(e)}`);
-        } finally {
-          inflightScopes.current.delete(s);
-        }
-      }));
-      if (cancelled) return;
-      // Purge des scopes plus regardés par personne (mémoire bornée).
-      for (const key of [...scopeCache.current.keys()]) {
-        if (!wanted.includes(key)) scopeCache.current.delete(key);
-      }
-      setScopeErrors((prev) => {
-        const next = new Map(prev);
-        for (const s of wanted) if (scopeCache.current.has(s)) next.delete(s);
-        for (const [s, msg] of failures) next.set(s, msg);
-        for (const key of [...next.keys()]) if (!wanted.includes(key)) next.delete(key);
-        return next;
-      });
-      setScopeLoading(false);
-      setScopeEpoch((e) => e + 1);
-    })();
-    return () => { cancelled = true; };
+    // Purge des scopes plus regardés par personne (mémoire bornée).
+    const wanted = new Set(scopesKey.split(';').filter(Boolean));
+    for (const key of [...scopeCache.current.keys()]) if (!wanted.has(key)) scopeCache.current.delete(key);
+    setScopeErrors((prev) => {
+      const next = new Map(prev);
+      for (const key of [...next.keys()]) if (!wanted.has(key)) next.delete(key);
+      return next;
+    });
+    studies.forEach((f) => { void ensureScope(f); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopesKey, studies.length, scopeRetryTick]);
 
