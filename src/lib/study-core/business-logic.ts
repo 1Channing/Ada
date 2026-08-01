@@ -105,46 +105,42 @@ function isPriceMonthly(text: string): boolean {
  * @param text - Text to check (case-insensitive)
  * @returns true if damage indicators found
  */
+/**
+ * Détection NÉGATION D'ABORD : les annonces SAINES contiennent le mot du
+ * dégât — mesure du 01/08 sur 187 000 observations : 1 430 titres portent
+ * « accident » dont 1 422 « NON accidenté » (LBC), 131 « unfall » dont 88
+ * « Unfallfrei » (mobile.de). L'ancienne recherche de sous-chaînes jetait
+ * donc surtout des voitures saines ('hs' matchait même n'importe quel mot
+ * le contenant). On RETIRE les tournures « sain » du texte, puis on cherche
+ * les vrais marqueurs de dégât — bornés par des frontières de mot.
+ */
+export function isDamagedVehicleText(text: string): boolean {
+  const t = ` ${String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()} `
+    // Tournures « sain » : elles contiennent le mot du dégât, on les efface d'abord.
+    .replace(/\b(?:non|jamais|sans|nooit|zonder|geen|kein(?:e[nmrs]?)?|ohne|no|never)[\s-]*accident\w*/g, ' ')
+    .replace(/\baccident[\s-]*free\w*/g, ' ')
+    .replace(/\bunfall[\s-]?frei\w*/g, ' ')
+    .replace(/\bschade(?:n|s)?[\s-]?frei\w*/g, ' ')
+    .replace(/\bschadevrij\w*/g, ' ')
+    .replace(/\bskades?fri\w*/g, ' ');
+  return (
+    /\baccident\w*/.test(t)                                  // fr/en/es accidenté, accidentado, accident damage
+    || /\bepave\w*/.test(t)                                  // fr épave (accents dépouillés)
+    || /\bunfall\w*/.test(t)                                 // de Unfall, Unfallwagen, Unfallfahrzeug
+    || /\w*schaden?\b/.test(t)                               // de/nl Motorschaden, Getriebeschaden, Hagelschaden, schade
+    || /\b(?:schadeauto|schadewagen|beschadigd\w*)\b/.test(t) // nl
+    || /\bskadet?\b/.test(t)                                 // dk skade/skadet
+    || /\bincidentat[aoie]\b/.test(t)                        // it incidentata/o
+    || /\bsinistr(?:ad[ao]s?|[ée]s?)\b/.test(t)              // es siniestrado / fr sinistré
+    || /\b(?:salvage|written? off|total loss|cat [cdsn])\b/.test(t) // en
+    || /\bpour pieces?\b/.test(t) || /\bfor parts\b/.test(t) // pièces détachées
+    || /\bnon roulant\w*/.test(t)
+    || /\b(?:moteur|boite) hs\b/.test(t) || /\bhors service\b/.test(t)
+  );
+}
+
 function isDamagedVehicle(text: string): boolean {
-  const textLower = text.toLowerCase();
-
-  const damageKeywords = [
-    'accidenté',
-    'véhicule accidenté',
-    'épave',
-    'choc',
-    'réparé suite à choc',
-    'châssis tordu',
-    'damaged',
-    'accident damage',
-    'salvage',
-    'cat c',
-    'cat d',
-    'cat s',
-    'cat n',
-    'written off',
-    'write off',
-    'schade',
-    'ongeval',
-    'schadeauto',
-    'total loss',
-    'skadet',
-    'skade',
-    'kollisionsskade',
-    'ulykke',
-    'for parts',
-    'pour pièces',
-    'non roulant',
-    'as is',
-    'hs',
-    'hors service',
-    'parts only',
-    'dépanneuse',
-    'not running',
-    'moteur hs',
-  ];
-
-  return damageKeywords.some(keyword => textLower.includes(keyword));
+  return isDamagedVehicleText(text);
 }
 
 /**

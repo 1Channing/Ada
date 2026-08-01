@@ -27,6 +27,7 @@ import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
 import { canonicalizeGearbox } from '../src/lib/study-core/ingestion';
+import { isDamagedVehicleText } from '../src/lib/study-core/business-logic';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 
@@ -196,6 +197,17 @@ async function scrapeCountry(
         if (listings.length < before) {
           console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (boîte ≠ ${s.gearbox})`);
         }
+      }
+    }
+    // Accidentées : titre + description (on les A ici, au scrape) — jamais
+    // dans les résultats d'étude. Détection négation-aware : « non
+    // accidenté » / « Unfallfrei » sont des voitures saines, conservées.
+    {
+      const before = listings.length;
+      listings = listings.filter((l) => !isDamagedVehicleText(
+        `${(l as { title?: string | null }).title ?? ''} ${(l as { description?: string | null }).description ?? ''}`));
+      if (listings.length < before) {
+        console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (accidentée)`);
       }
     }
     out.push({ site: site.key, listings: listings as never[] });

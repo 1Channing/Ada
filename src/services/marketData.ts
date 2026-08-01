@@ -11,6 +11,7 @@ import { sharedSupabase as supabase } from '../lib/supabaseShared';
 import type { Database } from '../lib/database.types';
 import { generateInternalRef } from '../lib/internalRefGenerator';
 import { canonicalizeFuel, refineFuelToken, FUEL_LABELS } from '../lib/study-core/ingestion';
+import { isDamagedVehicleText } from '../lib/study-core/business-logic';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
@@ -398,6 +399,12 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
   // aussi Automatik, Automatisch, Automatico, Automaat, Automatisk gear…
   const gearboxToken = canonicalizeGearbox(f.gearbox);
   return dedupeClonedListings(obs).filter((o) =>
+    // Accidentées : JAMAIS dans l'état du marché — elles s'agglutinent au bas
+    // du classement prix et faussaient précisément le prix d'attaque et le
+    // radar (129 titres confirmés en base au 01/08 : Accidenté, Unfall,
+    // Motorschaden…). Détection négation-aware : « non accidenté » et
+    // « Unfallfrei » sont des voitures SAINES et restent affichées.
+    !isDamagedVehicleText(o.title) &&
     (!f.site || o.site === f.site) &&
     (!f.country || o.country === f.country) &&
     (!f.brand || brandKey(o.brand) === brandKey(f.brand)) &&
