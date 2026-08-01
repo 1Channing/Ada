@@ -113,8 +113,16 @@ export function MarketIntelligence() {
     setKnown(k);
     setDims(d);
     setLoading(false);
-    scopeCache.current.clear(); // un rafraîchissement recharge aussi les segments
-    setScopeEpoch((e) => e + 1);
+    // Un rafraîchissement recharge aussi les segments : vider le cache PUIS
+    // relancer le chargement scopé (scopeRetryTick), qui bumpera l'epoch une
+    // fois les données fraîches en place. SURTOUT ne pas bumper l'epoch ici :
+    // au montage, refresh() finit souvent APRÈS les chargements de segment —
+    // vider + réafficher immédiatement montrait une page à 0 annonce que rien
+    // ne venait recharger (constat 01/08 : « tout disparaît par moments, un
+    // aller-retour répare »). Les lignes affichées restent donc à l'écran
+    // jusqu'à l'arrivée des fraîches.
+    scopeCache.current.clear();
+    setScopeRetryTick((t) => t + 1);
   };
   useEffect(() => { refresh(); }, []);
   useEffect(() => { try { sessionStorage.setItem(STUDIES_KEY, JSON.stringify(studies)); } catch { /* ignore */ } }, [studies]);
@@ -137,25 +145,31 @@ export function MarketIntelligence() {
       ? `${brandKey(f.brand!)}|${(f.model ?? '').trim() ? canonKey(f.model!) : ''}|${(f.country ?? '').trim() || ''}`
       : '';
   const scopesKey = studies.map(scopeOf).filter(Boolean).sort().join(';');
+  // Chargements en vol : le montage et un Rafraîchir peuvent viser les mêmes
+  // segments à quelques secondes d'écart — pas deux fois la même requête.
+  const inflightScopes = useRef(new Set<string>());
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const wanted = [...new Set(scopesKey.split(';').filter(Boolean))];
       const missing = studies.filter((f) => {
         const s = scopeOf(f);
-        return s && !scopeCache.current.has(s);
+        return s && !scopeCache.current.has(s) && !inflightScopes.current.has(s);
       });
       if (missing.length === 0) return;
       setScopeLoading(true);
       const failures = new Map<string, string>();
       await Promise.all(missing.map(async (f) => {
         const s = scopeOf(f);
-        if (!s || scopeCache.current.has(s)) return;
+        if (!s || scopeCache.current.has(s) || inflightScopes.current.has(s)) return;
+        inflightScopes.current.add(s);
         try {
           const rows = await loadObservationsForStudy(f);
           if (!cancelled) scopeCache.current.set(s, rows);
         } catch (e) {
           failures.set(s, `${studyLabel(f, 0)} — ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          inflightScopes.current.delete(s);
         }
       }));
       if (cancelled) return;
