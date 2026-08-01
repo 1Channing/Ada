@@ -47,7 +47,11 @@ avec de VRAIS paramètres serveur (query, attributeRanges constructionYear,
 l1/l2CategoryId lus du `__NEXT_DATA__` de la page marque), et apprendre les
 IDs dans le dictionnaire enum. Voir discussion « plan auto-correction ».
 
-## 0ter. Marktplaats : hybride RECHARGEABLE jamais filtré ni confirmable (30/07/2026)
+## 0ter-FAIT (01/08). Marktplaats : hybride rechargeable filtré ET confirmable — LIVRÉ
+
+Les trois trous sont bouchés et la RECETTE LIVE est passée : l'URL humaine
+Sportage rejouée via le worker rend 7 annonces (= le site), plus 19.
+Diagnostic d'origine conservé ci-dessous pour référence.
 
 Suite directe du 0bis. L'API LRP a bien réglé le fond, mais trois trous
 subsistent sur le carburant. Diagnostic complet ci-dessous — tout est prouvé,
@@ -311,7 +315,10 @@ directe de mapping par le modèle) :
 - Prérequis : clé API Anthropic + budget dans les variables Railway ;
   s'appuie sur `worker_logs` + `linkgen_error_dossiers` comme matière.
 
-## 6. Assainir le typecheck front → en faire un vrai gate (acté 30/07/2026)
+## 6-FAIT (01/08). Typecheck front assaini — LIVRÉ
+
+Zéro erreur ; `npm run gate` (tsc --noEmit puis vite build) est le gate front
+officiel, à lancer avant tout push. Inventaire d'origine ci-dessous.
 
 **Pourquoi c'est au backlog** : `npm run build` (vite/esbuild) ne vérifie PAS
 les identifiants — un nom non importé compile sans broncher et explose au
