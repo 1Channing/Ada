@@ -206,6 +206,22 @@ const FUEL_FACET: Record<string, { slug: string; id: string }> = {
   ELECTRIQUE: { slug: 'elektrisch', id: '11756' },
   // vérifié URL humaine (Channing 27/07) : yaris-cross+hybride-elektrisch-benzine/13882+13838
   HYBRIDE: { slug: 'hybride-elektrisch-benzine', id: '13838' },
+  // Les sous-types hybrides gardent la FAMILLE au chemin — le sous-type
+  // se joue dans le hash (HYBRID_SUBTYPE_HASH), disposition prouvée par
+  // l'URL humaine Sportage 30/07 : /f/…+hybride-elektrisch-benzine/…+13838/#f:13956
+  PLUG_IN_HYBRID: { slug: 'hybride-elektrisch-benzine', id: '13838' },
+  MILD_HYBRID: { slug: 'hybride-elektrisch-benzine', id: '13838' },
+};
+
+/**
+ * Sous-type hybride → facette de HASH (#f:<id>). Ids déclarés par le site
+ * lui-même (moisson LRP mp:facet:hybridType, confirmés par l'URL humaine du
+ * 30/07). Le worker les lit (marktplaatsFacetIds) et les passe à l'API LRP
+ * en attributesById[] — le sous-filtre est appliqué CÔTÉ SERVEUR.
+ */
+const HYBRID_SUBTYPE_HASH: Record<string, string> = {
+  PLUG_IN_HYBRID: '13956', // Plug-in hybride
+  MILD_HYBRID: '13954',    // Half hybride
 };
 
 const UNSUPPORTED_PARAMS = ['minPower'];
@@ -297,6 +313,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (yearFrom) hashParts.push(`constructionYearFrom:${yearFrom}`);
   if (yearTo) hashParts.push(`constructionYearTo:${yearTo}`);
   if (params.mileage) hashParts.push(`mileageTo:${params.mileage}`);
+  // Sous-type hybride (rechargeable/léger) : facette de hash, lue par le
+  // worker et appliquée serveur via l'API LRP.
+  const subtypeId = params.fuel ? HYBRID_SUBTYPE_HASH[params.fuel.trim().toUpperCase()] : undefined;
+  if (subtypeId) hashParts.push(`f:${subtypeId}`);
   hashParts.push('sortBy:PRICE', 'sortOrder:INCREASING');
 
   // Texte libre en CHEMIN /q/…/ — PROUVÉ URL humaine (Channing 27/07) :

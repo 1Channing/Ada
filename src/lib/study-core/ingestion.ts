@@ -363,6 +363,7 @@ export function confirmCriteriaAgainstSample(
       });
     } else {
       let matchCount = 0;
+      let familyCount = 0;
       let voting = 0;
       let unreadable = 0;
       const seen: Record<string, number> = {};
@@ -372,20 +373,37 @@ export function confirmCriteriaAgainstSample(
         // Un carburant ILLISIBLE (« o », libellé inconnu du canonicaliseur)
         // n'est pas une preuve CONTRE : il s'abstient. Seuls les carburants
         // reconnus votent — rapport 20/07 : 43× hybride + 10× « o » rejetait
-        // à 81 % un segment en réalité confirmé à 100 %. Un carburant reconnu
-        // mais DIFFÉRENT vote bien contre (PHEV strict : un simple 'hybrid'
-        // ne satisfait jamais un plug-in déclaré).
+        // à 81 % un segment en réalité confirmé à 100 %.
         if (!canonical) { unreadable++; continue; }
         voting++;
-        if (canonical === declaredCanon) matchCount++;
+        // Le titre de l'annonce peut préciser ce que l'attribut du site ne
+        // dit pas (« Plug-in Hybrid GT-Line » étiqueté famille) — même
+        // raffineur que le Market Intelligence, jamais un second.
+        const refined = refineFuelToken(canonical as FuelToken, `${l.title ?? ''} ${l.description ?? ''} ${l.trim ?? ''}`);
+        if (refined === declaredCanon) { matchCount++; continue; }
+        // CONFIRMATION HIÉRARCHIQUE (backlog 0ter, 30/07) : Marktplaats
+        // étiquette chaque annonce avec la FAMILLE (« Hybride
+        // Elektrisch/Benzine »), jamais le sous-type — un plug-in déclaré y
+        // était rejeté À VIE (0 % < 90 %) et l'URL jamais mémorisée. La
+        // famille observée CONFIRME le sous-type déclaré : elle ne le
+        // contredit pas. Un carburant d'une AUTRE famille vote toujours contre.
+        if (canonical === 'hybrid' && (declaredCanon === 'phev' || declaredCanon === 'mild_hybrid')) {
+          familyCount++;
+        }
       }
+      const okCount = matchCount + familyCount;
       if (voting < INGESTION_MIN_SAMPLE) {
         out.push({
           field: 'fuel', declaredValue: fuel, status: 'rejected', matchCount: 0, sampleSize: voting,
           method, reason: `données insuffisantes (${voting} carburant(s) lisible(s) < ${INGESTION_MIN_SAMPLE}${unreadable ? ` ; ${unreadable} illisible(s)` : ''})`,
         });
-      } else if (matchCount / voting >= INGESTION_CONFIRM_THRESHOLD) {
-        out.push({ field: 'fuel', declaredValue: fuel, status: 'confirmed', matchCount, sampleSize: voting, method });
+      } else if (okCount / voting >= INGESTION_CONFIRM_THRESHOLD) {
+        out.push({
+          field: 'fuel', declaredValue: fuel, status: 'confirmed', matchCount: okCount, sampleSize: voting, method,
+          ...(familyCount > 0
+            ? { reason: `retenu (famille) : ${familyCount}/${voting} au niveau famille hybride — le site n'étiquette pas le sous-type` }
+            : {}),
+        });
       } else {
         const dist = Object.entries(seen).map(([k, v]) => `${v}× ${k}`).join(', ');
         out.push({

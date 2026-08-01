@@ -433,7 +433,19 @@ function marktplaatsBrandSlug(url: string): string | null {
 /** IDs de facette du path `/f/{slug}/{id[+id…]}/` — le vrai filtre modèle du site. */
 function marktplaatsFacetIds(url: string): string[] {
   const m = url.match(/\/f\/[^/#?]+\/([0-9+]+)/);
-  return m ? m[1].split('+').filter((t) => /^\d+$/.test(t)) : [];
+  const ids = m ? m[1].split('+').filter((t) => /^\d+$/.test(t)) : [];
+  // Facettes du HASH aussi (#f:13956 ou …|f:13956) : l'interface du site y
+  // range les sous-filtres (type d'hybride…). Les ignorer, c'était scraper la
+  // FAMILLE au lieu du sous-type — URL humaine Sportage GT Line rechargeable :
+  // le site affichait 7 annonces, ADA en remontait 19 (backlog 0ter, 30/07).
+  const hashIdx = url.indexOf('#');
+  if (hashIdx >= 0) {
+    for (const seg of url.slice(hashIdx + 1).split('|')) {
+      const f = seg.match(/^f:(\d+(?:\+\d+)*)$/);
+      if (f) for (const id of f[1].split('+')) if (!ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
 }
 
 /** l2CategoryId of the brand page: explicit l2Category, else the dominant listing categoryId. */
