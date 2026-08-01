@@ -137,7 +137,9 @@ export function canonicalizeFuel(raw: string): FuelToken {
   if (PHEV_TOKENS.test(t)) return 'phev';
   if (MILD_HYBRID_TOKENS.test(t)) return 'mild_hybrid';
   // hibrid = ES « híbrido » accent-strippé ; ibrid = IT « ibrida/ibrido ».
-  if (/hybrid|hybride|hibrid|ibrid|\bhev\b|volledig hybride/.test(t)) return 'hybrid';
+  // e-Power (Nissan), e:HEV (Honda — « : » devient espace au normalisage),
+  // HSD (Toyota Hybrid Synergy Drive) : hybrides sans le mot « hybride ».
+  if (/hybrid|hybride|hibrid|ibrid|\bhev\b|volledig hybride|e ?power|\be hev\b|\bhsd\b/.test(t)) return 'hybrid';
   // Electric + combustion listed together (AutoScout "Elektro/Benzin",
   // "Électrique/Essence", ES "Electro/Gasolina", IT "Elettrica/Benzina") is a
   // hybrid, not a pure EV. Test before 'electric' — the ES combo fell through
@@ -149,8 +151,11 @@ export function canonicalizeFuel(raw: string): FuelToken {
   if (/electr|elektr|elettr|elektrisk|\bel\b|\belbil\b|\bev\b|zero emission/.test(t)) return 'electric';
   // gasoil (FR), gasóleo (ES), gasolio (IT) — word-bounded so « gasolina »
   // (essence ES) ne matche jamais la branche diesel.
-  if (/diesel|gasoil|\bgasoleo\b|\bgasolio\b|\bhdi\b|\btdi\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|\bd4d\b/.test(t)) return 'diesel';
-  if (/essence|benzine|benzin|petrol|gasoline|gasolina|\btsi\b|\btfsi\b|\bvti\b|puretech/.test(t)) return 'petrol';
+  // Brandings moteur (backlog 1) : les vendeurs écrivent la motorisation sans
+  // le mot carburant — 2.0 TDI, 1.5 TCe, 1.6 CRDi… Chaque token est un
+  // branding constructeur univoque, jamais une devinette.
+  if (/diesel|gasoil|\bgasoleo\b|\bgasolio\b|\bhdi\b|\btdi\b|\btdci\b|\bcdti\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|bluetec|multijet|\bd4d\b|\bd 4d\b/.test(t)) return 'diesel';
+  if (/essence|benzine|benzin|petrol|gasoline|gasolina|\btsi\b|\btfsi\b|\btce\b|\bgdi\b|\bvti\b|vvt ?i|puretech|ecoboost|\bmpi\b/.test(t)) return 'petrol';
   return '';
 }
 
@@ -171,6 +176,54 @@ export function canonicalizeGearbox(raw: string): GearboxToken {
   if (/semi|halbautomat|semiautomat/.test(t)) return 'semi';
   if (/automat|automaat|\bdsg\b|\bcvt\b|e ?cvt|tiptronic|s ?tronic|\bdct\b|\bedc\b|steptronic|powershift|\bat\b/.test(t)) return 'automatic';
   if (/manuel|manual|manuale|schaltgetriebe|handgeschakeld|\bmt\b|mecanique/.test(t)) return 'manual';
+  return '';
+}
+
+/**
+ * Couleur multilingue → jeton canonique (backlog 2quinquies) : chaque site
+ * écrit sa langue (Zwart≡Noir≡Schwarz≡Sort≡Nero≡Negro) — la confirmation en
+ * texte brut rejetait des couleurs identiques. Vocabulaire relevé sur les
+ * valeurs RÉELLES de la base (relevé du 30/07) + langues des sites couverts.
+ * Libellé inconnu → '' : confirmStructuredLabel retombe alors sur la
+ * comparaison texte, jamais une mauvaise catégorie en silence.
+ */
+export function canonicalizeColor(raw: string): string {
+  const t = normalizeForMatch(raw);
+  if (!t) return '';
+  if (/noir|zwart|schwarz|\bsort\b|nero|negro|black/.test(t)) return 'noir';
+  if (/blanc|\bwit\b|weiss|hvid|bianco|white/.test(t)) return 'blanc';
+  // argent AVANT gris : « Zilver of Grijs » (NL) et « gris argent » penchent
+  // argent — le libellé le plus précis gagne.
+  if (/argent|zilver|silber|solv|silver|plata|plateado/.test(t)) return 'argent';
+  if (/gris|grijs|grau|\bgra\b|grigio|grey|gray/.test(t)) return 'gris';
+  if (/bleu|blauw|blau|\bbla\b|\bblu\b|azul|blue/.test(t)) return 'bleu';
+  if (/rouge|rood|\brot\b|\brod\b|rosso|rojo|red/.test(t)) return 'rouge';
+  if (/vert|groen|grun|\bgron\b|verde|green/.test(t)) return 'vert';
+  if (/jaune|geel|gelb|\bgul\b|giallo|amarillo|yellow/.test(t)) return 'jaune';
+  if (/orange|oranje|naranja|arancio/.test(t)) return 'orange';
+  if (/beige/.test(t)) return 'beige';
+  if (/marron|brun|bruin|braun|marrone|brown/.test(t)) return 'marron';
+  if (/violet|prune|paars|lila|purple|morado/.test(t)) return 'violet';
+  if (/\bor\b|goud|gold|dore|oro/.test(t)) return 'or';
+  return '';
+}
+
+/**
+ * Carrosserie multilingue → jeton canonique : Berline≡Limousine≡Sedan,
+ * SUV≡Terreinwagen≡Geländewagen, Break≡Kombi≡Stationwagen≡Touring…
+ * Même règle : inconnu → '' (repli texte, jamais de fausse catégorie).
+ */
+export function canonicalizeVehicleType(raw: string): string {
+  const t = normalizeForMatch(raw);
+  if (!t) return '';
+  if (/suv|terreinwagen|gelandewagen|4x4|tout ?terrain|crossover/.test(t)) return 'suv';
+  if (/break|kombi|stationwagen|stationcar|estate|touring|\bsw\b|familiale/.test(t)) return 'break';
+  if (/berline|limousine|sedan|saloon|berlina/.test(t)) return 'berline';
+  if (/coupe|\bcoupé\b/.test(t)) return 'coupe';
+  if (/cabrio|convertible|roadster|spider|spyder|decapotable/.test(t)) return 'cabriolet';
+  if (/monospace|\bmpv\b|minivan|ruimtewagen|van personen/.test(t)) return 'monospace';
+  if (/citadine|kleinwagen|hatchback|compact|city ?car|petite voiture/.test(t)) return 'citadine';
+  if (/utilitaire|bestelwagen|fourgon|kastenwagen|\bvan\b|pick ?up/.test(t)) return 'utilitaire';
   return '';
 }
 
@@ -515,9 +568,9 @@ export function confirmCriteriaAgainstSample(
   const gearbox = declared(criteria.gearbox);
   if (gearbox) out.push(confirmStructuredLabel('gearbox', gearbox, listings, (l) => l.gearbox ?? null, n, canonicalizeGearbox));
   const color = declared(criteria.color);
-  if (color) out.push(confirmStructuredLabel('color', color, listings, (l) => l.color ?? null, n));
+  if (color) out.push(confirmStructuredLabel('color', color, listings, (l) => l.color ?? null, n, canonicalizeColor));
   const vehicleType = declared(criteria.vehicleType);
-  if (vehicleType) out.push(confirmStructuredLabel('vehicleType', vehicleType, listings, (l) => l.vehicleType ?? null, n));
+  if (vehicleType) out.push(confirmStructuredLabel('vehicleType', vehicleType, listings, (l) => l.vehicleType ?? null, n, canonicalizeVehicleType));
 
   return out;
 }
