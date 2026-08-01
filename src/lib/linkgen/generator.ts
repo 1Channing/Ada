@@ -173,6 +173,35 @@ export function applyMarktplaatsModelFacet(url: string, facet: MpFacet, modelTex
 const LEARNED_ENUM_FIELDS = ['fuel', 'gearbox', 'color', 'vehicleType'] as const;
 
 /**
+ * POSE CHIRURGICALE d'un paramètre de query — remplace `new URL()` +
+ * `searchParams.set()` + `toString()` dans TOUT le post-traitement.
+ *
+ * OBLIGATOIRE : URLSearchParams re-sérialise la query ENTIÈRE à chaque set()
+ * — les virgules deviennent %2C et les %20 deviennent +. Or Leboncoin attend
+ * des listes d'enums à virgules LITTÉRALES (`u_car_model=A,B`) : après
+ * ré-encodage, le site reçoit un seul enum géant invalide et répond
+ * searchData.total=0. C'est ce qui a éteint six études quotidiennes du 29/07
+ * au 01/08 (logs : `u_car_model=TOYOTA_Yaris+Cross%2CYARIS+CROSS%…`).
+ * Ici : seule la paire visée est touchée, le reste de l'URL est conservé
+ * OCTET PAR OCTET. `value: null` supprime le paramètre.
+ */
+export function setQueryParamRaw(url: string, param: string, value: string | null): string {
+  const hashIdx = url.indexOf('#');
+  const base = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
+  const hash = hashIdx >= 0 ? url.slice(hashIdx) : '';
+  const qIdx = base.indexOf('?');
+  const path = qIdx >= 0 ? base.slice(0, qIdx) : base;
+  let pairs = qIdx >= 0 ? base.slice(qIdx + 1).split('&').filter(Boolean) : [];
+  pairs = pairs.filter((p) => p !== param && !p.startsWith(`${param}=`));
+  if (value !== null && value !== '') {
+    // Encodage standard du seul VALUE posé — virgules restaurées (séparateur
+    // de liste des sites, jamais un caractère à échapper pour eux).
+    pairs.push(`${param}=${encodeURIComponent(value).replace(/%2C/gi, ',')}`);
+  }
+  return path + (pairs.length ? `?${pairs.join('&')}` : '') + hash;
+}
+
+/**
  * A reused validated_url embeds the ORIGINAL ingestion's year/mileage values —
  * variables by design. Override them with the current request's values (or
  * remove them when the request doesn't filter), in the query string AND in a
@@ -180,14 +209,24 @@ const LEARNED_ENUM_FIELDS = ['fuel', 'gearbox', 'color', 'vehicleType'] as const
  */
 function overrideVariableParams(url: string, mapping: InferredMapping, params: LinkGenParams): string {
   const { yearFrom, yearTo } = resolveYearRange(params);
+  // Leboncoin : la grammaire kilométrage PROUVÉE (8 URLs humaines en mémoire)
+  // est `mileage=min-90000` — le littéral `min` fait partie de la syntaxe du
+  // site. La valeur nue (`mileage=90000`) est lue comme borne BASSE : toutes
+  // les voitures sous le plafond disparaissent (études GR SPORT à 0 dès
+  // l'ajout du critère 90 000 km, 29/07).
+  const isLbc = url.includes('leboncoin.fr');
+  const mileageValue = params.mileage
+    ? (isLbc ? `min-${params.mileage}` : String(params.mileage))
+    : '';
   const overrides: Array<[string | undefined, string]> = [
     [mapping.yearFromParam ?? mapping.fieldToParam?.year?.paramName, yearFrom],
     [mapping.yearToParam ?? mapping.fieldToParam?.yearTo?.paramName, yearTo],
-    [mapping.mileageParam ?? mapping.fieldToParam?.mileage?.paramName, params.mileage ? String(params.mileage) : ''],
+    [mapping.mileageParam ?? mapping.fieldToParam?.mileage?.paramName, mileageValue],
   ];
   try {
-    const u = new URL(url);
-    let hash = u.hash.replace(/^#/, '');
+    let out = url;
+    const hashIdx = out.indexOf('#');
+    let hash = hashIdx >= 0 ? out.slice(hashIdx + 1) : '';
     const hashStyle = hash.includes(':'); // Marktplaats `#q:…|mileageTo:…`
     for (const [param, value] of overrides) {
       if (!param || param.startsWith('_path')) continue;
@@ -195,14 +234,15 @@ function overrideVariableParams(url: string, mapping: InferredMapping, params: L
         const parts = hash.split('|').filter((seg) => seg && !seg.startsWith(`${param}:`));
         if (value) parts.push(`${param}:${value}`);
         hash = parts.join('|');
-      } else if (value) {
-        u.searchParams.set(param, value);
       } else {
-        u.searchParams.delete(param);
+        out = setQueryParamRaw(out, param, value || null);
       }
     }
-    u.hash = hash ? `#${hash}` : '';
-    return u.toString();
+    if (hashStyle) {
+      const base = out.indexOf('#') >= 0 ? out.slice(0, out.indexOf('#')) : out;
+      out = hash ? `${base}#${hash}` : base;
+    }
+    return out;
   } catch {
     return url;
   }
@@ -225,27 +265,31 @@ function overrideVariableParams(url: string, mapping: InferredMapping, params: L
 export function enforceYearParams(url: string, params: LinkGenParams): string {
   const { yearFrom, yearTo } = resolveYearRange(params);
   if (!yearFrom && !yearTo) return url;
-  try {
-    const u = new URL(url);
-    const h = u.hostname;
-    if (h.includes('autoscout24.')) {
-      if (yearFrom) u.searchParams.set('fregfrom', yearFrom);
-      if (yearTo) u.searchParams.set('fregto', yearTo);
-    } else if (h.includes('bilbasen.dk')) {
-      if (yearFrom) u.searchParams.set('yearfrom', yearFrom);
-      if (yearTo) u.searchParams.set('yearto', yearTo);
-    } else if (h.includes('leboncoin.fr')) {
-      u.searchParams.set('regdate', `${yearFrom || yearTo}-${yearTo || yearFrom}`);
-    } else if (h.includes('mobile.de')) {
-      // Format composite natif fr=min:max — overrideVariableParams réinjecte
-      // la valeur simple apprise (fr=2022) que le site lit « à partir de
-      // 2022 » : campagne 21h55, années 12/34 (35 %) sur une étude 2022.
-      u.searchParams.set('fr', `${yearFrom ?? ''}:${yearTo ?? ''}`);
-    } else {
-      return url;
-    }
-    return u.toString();
-  } catch { return url; }
+  // setQueryParamRaw et non searchParams.set : cette fonction tourne sur
+  // TOUTES les URLs LBC (l'ancrage année est obligatoire) — c'était le
+  // ré-encodeur qui cassait les listes à virgules de u_car_model.
+  if (url.includes('autoscout24.')) {
+    let out = url;
+    if (yearFrom) out = setQueryParamRaw(out, 'fregfrom', yearFrom);
+    if (yearTo) out = setQueryParamRaw(out, 'fregto', yearTo);
+    return out;
+  }
+  if (url.includes('bilbasen.dk')) {
+    let out = url;
+    if (yearFrom) out = setQueryParamRaw(out, 'yearfrom', yearFrom);
+    if (yearTo) out = setQueryParamRaw(out, 'yearto', yearTo);
+    return out;
+  }
+  if (url.includes('leboncoin.fr')) {
+    return setQueryParamRaw(url, 'regdate', `${yearFrom || yearTo}-${yearTo || yearFrom}`);
+  }
+  if (url.includes('mobile.de')) {
+    // Format composite natif fr=min:max — overrideVariableParams réinjecte
+    // la valeur simple apprise (fr=2022) que le site lit « à partir de
+    // 2022 » : campagne 21h55, années 12/34 (35 %) sur une étude 2022.
+    return setQueryParamRaw(url, 'fr', `${yearFrom ?? ''}:${yearTo ?? ''}`);
+  }
+  return url;
 }
 
 /**
@@ -257,25 +301,22 @@ export function enforceYearParams(url: string, params: LinkGenParams): string {
 export function fixMobiledeMileageForm(url: string, params: LinkGenParams): string {
   if (!url.includes('mobile.de')) return url;
   try {
-    const u = new URL(url);
+    const u = new URL(url); // lecture seule — l'écriture reste chirurgicale
     const wanted = params.mileage ? String(params.mileage) : '';
     const current = u.searchParams.get('ml') ?? '';
-    if (wanted) u.searchParams.set('ml', `:${wanted}`);
-    else if (/^\d+$/.test(current)) u.searchParams.set('ml', `:${current}`);
-    return u.toString();
+    if (wanted) return setQueryParamRaw(url, 'ml', `:${wanted}`);
+    if (/^\d+$/.test(current)) return setQueryParamRaw(url, 'ml', `:${current}`);
+    return url;
   } catch { return url; }
 }
 
 export function overrideAs24PathYear(url: string, params: LinkGenParams): string {
   if (!url.includes('autoscout24.') || !/\/re_\d{4}/.test(url)) return url;
-  try {
-    const u = new URL(url);
-    u.pathname = u.pathname.replace(/\/re_\d{4}(?=\/|$)/, '');
-    const { yearFrom, yearTo } = resolveYearRange(params);
-    if (yearFrom) u.searchParams.set('fregfrom', yearFrom);
-    if (yearTo) u.searchParams.set('fregto', yearTo);
-    return u.toString();
-  } catch { return url; }
+  let out = url.replace(/\/re_\d{4}(?=\/|$)/, '');
+  const { yearFrom, yearTo } = resolveYearRange(params);
+  if (yearFrom) out = setQueryParamRaw(out, 'fregfrom', yearFrom);
+  if (yearTo) out = setQueryParamRaw(out, 'fregto', yearTo);
+  return out;
 }
 
 /**
@@ -288,16 +329,18 @@ export function overrideAs24PathYear(url: string, params: LinkGenParams): string
 export function fixBilbasenQueryForm(url: string): string {
   if (!url.includes('bilbasen.dk')) return url;
   try {
-    const u = new URL(url);
+    const u = new URL(url); // lecture seule
     const make = u.searchParams.get('make');
     const model = u.searchParams.get('model');
     if (!make) return url;
-    u.searchParams.delete('make');
-    u.searchParams.delete('model');
     const slug = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '')
       .trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9._-]/g, '');
-    u.pathname = `/brugt/bil/${slug(make)}${model ? `/${slug(model)}` : ''}`;
-    return u.toString();
+    let out = setQueryParamRaw(setQueryParamRaw(url, 'make', null), 'model', null);
+    // Remplacement textuel du chemin — jamais de re-sérialisation de la query.
+    const m = out.match(/^(https?:\/\/[^/]+)([^?#]*)(.*)$/);
+    if (!m) return url;
+    out = `${m[1]}/brugt/bil/${slug(make)}${model ? `/${slug(model)}` : ''}${m[3]}`;
+    return out;
   } catch { return url; }
 }
 
@@ -337,16 +380,13 @@ export function injectTrimIntoUrl(url: string, trim: string): string {
       return u.toString();
     }
     if (u.hostname.includes('autoscout24.')) {
-      u.searchParams.set('kwd', t);
-      return u.toString();
+      return setQueryParamRaw(url, 'kwd', t);
     }
     if (u.hostname.includes('leboncoin.fr')) {
-      u.searchParams.set('text', t);
-      return u.toString();
+      return setQueryParamRaw(url, 'text', t);
     }
     if (u.hostname.includes('bilbasen.dk')) {
-      u.searchParams.set('free', t);
-      return u.toString();
+      return setQueryParamRaw(url, 'free', t);
     }
   } catch { /* URL invalide — on garde l'originale */ }
   return url;
@@ -370,12 +410,12 @@ async function applyLearnedSecondaryParams(
   logs: LinkGenLogEntry[]
 ): Promise<string> {
   const fieldToParam = mapping.fieldToParam ?? {};
-  let parsed: URL;
-  try { parsed = new URL(url); } catch { return url; }
+  const hash = url.indexOf('#') >= 0 ? url.slice(url.indexOf('#')) : '';
+  let out = url;
 
   for (const [field, seg] of Object.entries(fieldToParam)) {
     if (!seg?.paramName || seg.paramName.startsWith('_path')) continue; // path/hash IDs: template's job
-    if (parsed.hash.includes(`${seg.paramName}:`)) continue; // hash-param sites (Marktplaats)
+    if (hash.includes(`${seg.paramName}:`)) continue; // hash-param sites (Marktplaats)
     // minPower is a LOWER bound — never inject it into an upper-bound param
     // (powerto/hpto) a confirmed mapping may have attributed to 'power'.
     if (field === 'power' && /to$|max/i.test(seg.paramName)) continue;
@@ -383,7 +423,7 @@ async function applyLearnedSecondaryParams(
     // Numeric criteria: transparent values, inject directly.
     const numeric = numericParamValue(field, params);
     if (numeric !== undefined) {
-      parsed.searchParams.set(seg.paramName, numeric);
+      out = setQueryParamRaw(out, seg.paramName, numeric);
       logs.push({ level: 'MAPPING', message: `[MAPPING_MEMORY] Learned param ${seg.paramName}=${numeric} (${field})`, data: {} });
       continue;
     }
@@ -400,12 +440,12 @@ async function applyLearnedSecondaryParams(
         .ilike('label', label)
         .maybeSingle();
       if (data?.code) {
-        parsed.searchParams.set(seg.paramName, data.code);
+        out = setQueryParamRaw(out, seg.paramName, data.code);
         logs.push({ level: 'MAPPING', message: `[MAPPING_MEMORY] Learned enum ${seg.paramName}=${data.code} (${field}=${label})`, data: {} });
       }
     }
   }
-  return parsed.toString();
+  return out;
 }
 
 /**

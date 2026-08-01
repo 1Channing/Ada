@@ -82,7 +82,11 @@ const FUEL_MAP: Record<string, string> = {
   GPL: '3',
   ELECTRIQUE: '4',
   ELECTRIC: '4',
-  PLUG_IN_HYBRID: '5',
+  // 8 et non 5 : les annonces du site déclarent elles-mêmes leurs codes
+  // (moisson 30/07-01/08) — 8 = « Hybride Rechargeable », 5 = « Autre ».
+  // L'ancienne valeur 5 faisait chercher « carburant : Autre » à toutes les
+  // études PHEV : total=0 systématique (RAV4 PLUG IN, Sportage PHEV).
+  PLUG_IN_HYBRID: '8',
   HYBRIDE: '6',
   HYBRID: '6',
 };
@@ -184,9 +188,13 @@ function modelParamCandidates(brandMapped: string, modelMapped: string): string 
   const compact = display.replace(/\s+/g, '');
   const brand = brandMapped.trim();
   const out: string[] = [];
-  // ENUM APPRIS d'abord : la valeur exacte du site, vue dans ses annonces.
+  // ENUM APPRIS = candidat UNIQUE : c'est la valeur exacte que le site
+  // déclare dans ses propres annonces — quand on la connaît, lui adjoindre
+  // cinq variantes devinées n'ajoute que du risque (une liste contenant un
+  // membre invalide peut rendre 0). Les variantes ne servent qu'en
+  // DÉCOUVERTE, tant que l'enum n'a pas encore été moissonné.
   const learned = LEARNED_MODEL_ENUM[canonEnum(display)] ?? LEARNED_MODEL_ENUM[canonEnum(compact)];
-  if (learned) out.push(learned);
+  if (learned) return encodeURIComponent(learned);
   for (const base of [display, compact]) {
     if (!base) continue;
     for (const v of [base, titleCase(base), `${brand}_${base}`, `${brand}_${titleCase(base)}`]) {
