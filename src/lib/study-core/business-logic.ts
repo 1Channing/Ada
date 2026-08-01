@@ -114,7 +114,7 @@ function isPriceMonthly(text: string): boolean {
  * le contenant). On RETIRE les tournures « sain » du texte, puis on cherche
  * les vrais marqueurs de dégât — bornés par des frontières de mot.
  */
-export function isDamagedVehicleText(text: string): boolean {
+export function isDamagedVehicleText(text: string | null | undefined): boolean {
   const t = ` ${String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()} `
     // Tournures « sain » : elles contiennent le mot du dégât, on les efface d'abord.
     .replace(/\b(?:non|jamais|sans|nooit|zonder|geen|kein(?:e[nmrs]?)?|ohne|no|never)[\s-]*accident\w*/g, ' ')
