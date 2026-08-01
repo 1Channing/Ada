@@ -632,12 +632,35 @@ export async function loadObservationsForStudy(f: MarketFilters): Promise<Observ
     error = res.error;
     if (!/timeout|57014/i.test(String(res.error?.message ?? ''))) break;
   }
-  console.warn('[MI_SCOPE] mi_obs_for_segment indisponible — repli lecture intégrale:', error?.message);
-  const { observations } = await legacyAll();
-  return observations.filter((o) =>
-    brandKey(o.brand) === brandKey(brand)
-    && (!f.model || canonKey(o.model) === canonKey(f.model))
-    && (!f.country || o.country === f.country));
+  console.warn('[MI_SCOPE] mi_obs_for_segment indisponible — repli via snapshots:', error?.message);
+  // Repli SCOPÉ via les snapshots — surtout PAS la lecture intégrale (jusqu'à
+  // 250 pages de 1 000 lignes : des MINUTES de « Chargement du segment » dès
+  // que la RPC timeoutait trois fois, constat 01/08 sur Q6 E-TRON). Chaque
+  // snapshot porte son segment : on les filtre par clés canoniques CÔTÉ CLIENT
+  // (~4 200 lignes), puis on lit les observations par snapshot_id — 0,7 s
+  // mesuré sur le segment qui bloquait.
+  const snaps = await loadSnapshots();
+  const bks = new Set(brandKeysForQuery(brand));
+  const mk = (f.model ?? '').trim() ? canonKey(f.model!) : null;
+  const ctry = (f.country ?? '').trim() || null;
+  const ids = snaps
+    .filter((s) => bks.has(brandKey(s.brand))
+      && (!mk || canonKey(s.model) === mk)
+      && (!ctry || s.country === ctry))
+    .map((s) => s.id);
+  if (ids.length === 0) return [];
+  const out: Observation[] = [];
+  for (let i = 0; i < ids.length && out.length < 30_000; i += 40) {
+    const chunk = ids.slice(i, i + 40);
+    const rows = await fetchAllPages<Observation>(
+      (from, to) => supabase.from('market_listing_observations').select('*')
+        .in('snapshot_id', chunk).order('scraped_at', { ascending: false }).range(from, to),
+      30_000,
+      'MI_SCOPE_FALLBACK',
+    );
+    out.push(...rows);
+  }
+  return out.slice(0, 30_000);
 }
 
 /** Median/percentiles of the filtered observation prices. */

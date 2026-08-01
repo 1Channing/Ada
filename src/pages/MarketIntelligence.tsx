@@ -432,7 +432,7 @@ export function MarketIntelligence() {
           <p className="text-slate-600 mt-1 text-sm">Profondeur, prix et vélocité du marché — filtrable au grain de l'annonce, jusqu'à 3 études comparées.</p>
         </div>
         <button onClick={refresh} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-sm">
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Rafraîchir
+          <RefreshCw className={`w-4 h-4 ${loading || scopeLoading ? 'animate-spin' : ''}`} /> Rafraîchir
         </button>
       </div>
 
