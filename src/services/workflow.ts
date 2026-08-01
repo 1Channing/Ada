@@ -189,6 +189,28 @@ export async function listDailySearches(): Promise<DailySearch[]> {
 }
 
 export async function saveDailySearch(s: Partial<DailySearch> & { source_country: string; target_country: string; brand: string }): Promise<string | null> {
+  // Une étude compare DEUX marchés : source = pays d'achat, cible = pays de
+  // revente. Source = cible n'a pas de sens (l'étude « YARIS CROSS TRAIL »
+  // FR→FR rendait une médiane cible vide et noyait la boîte, 01/08).
+  if (s.source_country === s.target_country) {
+    return `Pays source et pays cible identiques (${s.source_country}) — une étude compare un marché d'achat à un marché de revente.`;
+  }
+  // Anti-doublon à la CRÉATION : deux études sur le même segment entre les
+  // mêmes pays scrapent et paient double (2× HYUNDAI KONA constatés au 01/08).
+  // La modification d'une étude existante n'est jamais bloquée.
+  if (!s.id) {
+    const existing = (await listDailySearches()).find((e) =>
+      brandKey(e.brand) === brandKey(s.brand)
+      && canonKey(e.model ?? '') === canonKey(s.model ?? '')
+      && e.source_country === s.source_country
+      && e.target_country === s.target_country
+      && canonKey(e.trim ?? '') === canonKey(s.trim ?? '')
+      && (e.year_min ?? 0) === (s.year_min ?? 0)
+      && (e.year_max ?? 0) === (s.year_max ?? 0));
+    if (existing) {
+      return `Étude en double : « ${existing.label || `${existing.brand} ${existing.model}`} » couvre déjà ce segment ${s.source_country} → ${s.target_country}. Modifiez-la plutôt.`;
+    }
+  }
   const row = { ...s, user_id: uid(), updated_at: new Date().toISOString() };
   const { error } = s.id
     ? await supabase.from('daily_searches').update(row).eq('id', s.id)

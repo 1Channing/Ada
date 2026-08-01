@@ -269,7 +269,12 @@ async function runDailySearch(s: SearchRow): Promise<void> {
       const listingUrl = (l.listing_url ?? '').trim();
       if (!listingUrl.startsWith('http')) { noUrl++; continue; } // sans URL stable, pas de diff fiable
       const gap = median != null ? median - price : null;
-      const inRange = gap == null || (gap >= s.price_gap_min && gap <= s.price_gap_max);
+      // Médiane cible INCONNUE ≠ écart favorable : l'ancien `gap == null →
+      // inRange` déversait tout le scrape en inbox (« YARIS CROSS TRAIL »
+      // FR→FR, cible 0 prix : 119 annonces à traiter d'un coup, 01/08).
+      // Sans médiane, les annonces sont stockées hors écart (diagnostic
+      // « vues hors écart » visible) et reviendront quand la cible parlera.
+      const inRange = gap != null && gap >= s.price_gap_min && gap <= s.price_gap_max;
       const prior = seen.get(listingUrl);
 
       if (!prior) {
