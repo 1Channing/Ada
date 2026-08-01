@@ -599,6 +599,13 @@ function ResultsTab() {
                           ? ` · ${stats.outOfRange} vue${stats.outOfRange > 1 ? 's' : ''} hors écart (scrape OK)`
                           : ' · rien vu au scrape — vérifier les liens ci-dessous'}</>
                     )}
+                    {/* Fraîcheur de l'analyse : sans elle, un lancement forcé
+                        qui range tout en « hors écart » semblait n'avoir
+                        jamais tourné (constat 01/08 — le forçage avait pris
+                        3 s, mais rien ne le montrait). */}
+                    {s.last_run_at
+                      ? ` · analysé le ${new Date(s.last_run_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                      : ' · jamais analysé'}
                   </p>
                 </div>
                 {spread != null && (
