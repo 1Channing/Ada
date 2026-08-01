@@ -52,7 +52,6 @@ export function JSONImport({ onClose, onSuccess }: JSONImportProps) {
         throw new Error('JSON must be an array of listings');
       }
 
-      const success = 0;
       const errors: string[] = [];
 
       for (const raw of rawListings) {

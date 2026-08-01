@@ -559,11 +559,11 @@ function parseListings(html: string, url: string): ScrapedListing[] {
   return viaGeneric;
 }
 
-function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {
+function scoreSearchResults(html: string, url: string, _params: SearchCriteria, listingCount: number): SiteValidationResult {
   const raw = parseListings(html, url).slice(0, 10);
   const sampleListings: SampleListing[] = raw.map((l) => ({
     title: l.title ?? '', price: l.price ?? 0, year: l.year ?? null,
-    mileage: l.mileage ?? null, fuel: l.fuel ?? '', url: l.url ?? '',
+    mileage: l.mileage ?? null, fuel: l.fuel ?? '', url: l.listing_url ?? '',
   }));
   return {
     site: 'MOBILE_DE', url, listingCount, sampleListings,

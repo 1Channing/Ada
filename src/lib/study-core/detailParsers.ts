@@ -339,7 +339,7 @@ function extractSellerContent(html: string, listingUrl: string): SellerContent {
  * STRICT: Only returns options found in whitelist with exact keyword match
  * FAIL-CLOSED: Uses structured equipment for Leboncoin if available
  */
-function extractPremiumOptions(content: SellerContent, isLeboncoin: boolean): { options: string[]; evidence: string[]; source: string } {
+function extractPremiumOptions(content: SellerContent, _isLeboncoin: boolean): { options: string[]; evidence: string[]; source: string } {
   const options: string[] = [];
   const evidence: string[] = [];
   let source = 'none';

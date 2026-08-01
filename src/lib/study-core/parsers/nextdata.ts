@@ -349,8 +349,8 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
       vehicleType: str(readField(ad, ['bodyType', 'body', 'category', 'carType'], ['carrosserie', 'bodytype', 'karrosseri'])),
       // Data quality: pro vs private (VAT) and the price NATURE — Bilbasen's
       // "WithoutTax"/engros prices must be excluded from medians downstream.
-      sellerType: str(readField(ad, ['sellerType', 'sellerKind'], [])) ?? str((ad as { seller?: { type?: unknown } })?.seller?.type),
-      priceType: str((ad as { price?: { priceType?: unknown } })?.price?.priceType) ?? str(readField(ad, ['priceType'], [])),
+      sellerType: str(readField(ad, ['sellerType', 'sellerKind'], []) as string | null) ?? str((ad as { seller?: { type?: unknown } })?.seller?.type as string | null),
+      priceType: str((ad as { price?: { priceType?: unknown } })?.price?.priceType as string | null) ?? str(readField(ad, ['priceType'], []) as string | null),
     });
   }
 

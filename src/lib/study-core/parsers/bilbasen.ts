@@ -21,7 +21,7 @@ import { parseNextDataListings } from './nextdata';
  * @param url - Source URL for normalization
  * @returns Array of scraped listings
  */
-export function parseListings(html: string, url: string): ScrapedListing[] {
+export function parseListings(html: string, _url: string): ScrapedListing[] {
   // Preferred: structured __NEXT_DATA__ (Bilbasen SSRs listings there). The
   // legacy context-window regex below produced garbage titles → brand/model
   // confirmed at ~6%. Prices are DKK, converted to EUR by the shared parser.

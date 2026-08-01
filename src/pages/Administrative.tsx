@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, Plus, Save, X, UserPlus, FileText, Download, History, Trash2, Pencil } from 'lucide-react';
+import { Search, Plus, X, UserPlus, FileText, Download, History, Trash2, Pencil } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { generateAdminDocument } from '../lib/adminDocGenerator';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
@@ -256,7 +256,7 @@ export function Administrative() {
   const [supplier, setSupplier] = useState<Party>(emptyParty());
   const [client, setClient] = useState<Party>(emptyParty());
 
-  const [saving, setSaving] = useState(false);
+  const [, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   const [savingSellerContact, setSavingSellerContact] = useState(false);
@@ -449,25 +449,9 @@ export function Administrative() {
     markDirty();
   };
 
-  const updateSellerForm = (updates: Partial<ContactForm>) => {
-    setSellerForm(prev => ({ ...prev, ...updates }));
-    markDirty();
-  };
 
-  const updateSellerForm2 = (updates: Partial<ContactForm>) => {
-    setSellerForm2(prev => ({ ...prev, ...updates }));
-    markDirty();
-  };
 
-  const updateBuyerForm = (updates: Partial<ContactForm>) => {
-    setBuyerForm(prev => ({ ...prev, ...updates }));
-    markDirty();
-  };
 
-  const updateBuyerForm2 = (updates: Partial<ContactForm>) => {
-    setBuyerForm2(prev => ({ ...prev, ...updates }));
-    markDirty();
-  };
 
   const updateTransactionForm = (updates: Partial<TransactionForm>) => {
     setTransactionForm(prev => ({ ...prev, ...updates }));
@@ -702,10 +686,10 @@ export function Administrative() {
 
     // The two persistent counterparties. Legacy deals (no columns) fall back to
     // whichever external party the active direction carried.
-    const supplierC = (tx.supplier as Contact | null)
-      ?? (dir === 'purchase' ? (tx.seller as Contact | null) : null);
-    const clientC = (tx.client as Contact | null)
-      ?? (dir === 'sale' ? (tx.buyer as Contact | null) : null);
+    const supplierC = (tx.supplier as unknown as Contact | null)
+      ?? (dir === 'purchase' ? (tx.seller as unknown as Contact | null) : null);
+    const clientC = (tx.client as unknown as Contact | null)
+      ?? (dir === 'sale' ? (tx.buyer as unknown as Contact | null) : null);
     setSupplier(supplierC ? { form: contactToForm(supplierC), selected: supplierC } : emptyParty());
     setClient(clientC ? { form: contactToForm(clientC), selected: clientC } : emptyParty());
 
@@ -1403,7 +1387,7 @@ export function Administrative() {
     form: ContactForm,
     setForm: (form: ContactForm) => void,
     selectedContact: Contact | null,
-    label: string,
+    _label: string,
     savingState: boolean,
     setSavingState: (val: boolean) => void,
     role: 'seller' | 'buyer'

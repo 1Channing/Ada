@@ -30,17 +30,6 @@ function getImageQualityScore(url: string): number {
   return 1;
 }
 
-function deduplicateUrls(urls: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const url of urls) {
-    if (!seen.has(url)) {
-      seen.add(url);
-      result.push(url);
-    }
-  }
-  return result;
-}
 
 function createImagePageContainer(
   imageUrl: string,
@@ -181,7 +170,6 @@ export async function exportListingToPdf(
     const pdf = new jsPDF('p', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 10;
 
     let pagesAdded = 0;
 

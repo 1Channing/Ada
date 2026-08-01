@@ -25,8 +25,8 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-import type {Currency, ScrapedListing, SearchResult } from './types';
-import { detectBlockedContent, getZyteRequestProfile, BLOCKED_KEYWORDS } from './scraping';
+import type { ScrapedListing, SearchResult } from './types';
+import { detectBlockedContent, getZyteRequestProfile } from './scraping';
 
 /**
  * Configuration for scraping operations
@@ -181,24 +181,6 @@ function extractTitle(html: string): string | null {
   return null;
 }
 
-function extractThumbnail(cardHtml: string): string | null {
-  const imgPatterns = [
-    /<img[^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*data-src=["']([^"']+)["']/i,
-  ];
-
-  for (const pattern of imgPatterns) {
-    const match = cardHtml.match(pattern);
-    if (match) {
-      const url = match[1];
-      if (url && !url.startsWith('data:') && url.length > 10) {
-        return url;
-      }
-    }
-  }
-
-  return null;
-}
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -206,29 +188,6 @@ function extractThumbnail(cardHtml: string): string | null {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-function isNetworkError(error: unknown, statusCode?: number): boolean {
-  if (!error) return false;
-
-  const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-
-  const networkKeywords = [
-    'failed to fetch',
-    'network',
-    'err_network_io_suspended',
-    'network suspended',
-    'connection',
-    'timeout',
-    'econnrefused',
-    'enotfound',
-  ];
-
-  const hasNetworkKeyword = networkKeywords.some(keyword => errorMessage.includes(keyword));
-
-  if (hasNetworkKeyword) return true;
-  if (statusCode === 504 || statusCode === 502 || statusCode === 503) return true;
-
-  return false;
-}
 
 async function fetchHtmlWithZyte(
   targetUrl: string,

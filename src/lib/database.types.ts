@@ -129,6 +129,40 @@ export type Database = {
         Update: { key?: string; value?: Json; updated_at?: string }
         Relationships: []
       }
+      vehicle_ref_generations: {
+        Row: {
+          id: number; brand_key: string; model_key: string
+          brand_label: string; model_label: string
+          generation_label: string; generation_code: string
+          year_from: number | null; year_to: number | null
+          classification: string; source: string
+          manual_lock: boolean; created_at: string
+        }
+        Insert: {
+          id?: number; brand_key: string; model_key: string
+          brand_label: string; model_label: string
+          generation_label?: string; generation_code?: string
+          year_from?: number | null; year_to?: number | null
+          classification?: string; source?: string
+          manual_lock?: boolean; created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['vehicle_ref_generations']['Insert']>
+        Relationships: []
+      }
+      vehicle_ref_motorisations: {
+        Row: {
+          id: string; brand_key: string; model_key: string
+          fuel: string; years: Record<string, number>; total: number
+          source: string; created_at: string
+        }
+        Insert: {
+          id?: string; brand_key: string; model_key: string
+          fuel: string; years?: Record<string, number>; total?: number
+          source?: string; created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['vehicle_ref_motorisations']['Insert']>
+        Relationships: []
+      }
       country_fiscal_profiles: {
         Row: {
           country: string; country_name: string; bloc: string; ada_market: boolean

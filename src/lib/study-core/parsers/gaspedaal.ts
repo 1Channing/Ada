@@ -17,7 +17,7 @@ import { extractEuroPrice, extractYear, extractMileage } from './shared';
  * @param url - Source URL for normalization
  * @returns Array of scraped listings
  */
-export function parseListings(html: string, url: string): ScrapedListing[] {
+export function parseListings(html: string, _url: string): ScrapedListing[] {
   let listings: ScrapedListing[] = [];
 
   // Strategy 1: Try HTML card extraction
@@ -176,7 +176,6 @@ function parseAnchors(html: string): ScrapedListing[] {
   for (const match of matches) {
     const href = match[1];
     const innerHTML = match[2];
-    const anchorBlock = match[0];
 
     // Skip non-car-listing anchors
     if (href.startsWith('#') || href.startsWith('javascript:') ||

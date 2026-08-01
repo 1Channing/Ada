@@ -63,7 +63,7 @@ export function Layout({ children }: LayoutProps) {
                   el.nextElementSibling?.removeAttribute('hidden');
                 }}
               />
-              <svg hidden width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+              <svg style={{ display: "none" }} width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
                 <ellipse cx="11" cy="11" rx="8.5" ry="5" transform="rotate(-24 11 11)" stroke="#2C5F9E" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="21 7" />
                 <circle cx="11" cy="11" r="2.6" fill="#22346E" />
               </svg>

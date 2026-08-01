@@ -31,7 +31,13 @@ export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntr
   }
   const known = new Map((existing ?? []).map((r) => [`${r.field}|${r.code}`, r.label as string]));
   const now = new Date().toISOString();
-  const fresh: Array<Record<string, unknown>> = [];
+  // Typé sur la forme réelle de la table : la moisson écrit le chemin le plus
+  // chaud du système (13 470+ entrées) — un Record opaque privait TypeScript
+  // de toute garantie sur ce qui part au dictionnaire.
+  const fresh: Array<{
+    site: string; field: string; code: string; label: string;
+    confirmations: number; last_confirmed_at: string; updated_at: string;
+  }> = [];
   for (const e of entries) {
     const prev = known.get(`${e.field}|${e.code}`);
     if (prev === undefined) {
