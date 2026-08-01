@@ -221,9 +221,11 @@ export interface SiteAdapter {
    * full page with 0 parsed listings: true = the site itself says the search
    * is empty (genuine empty market, proven); false = marker ABSENT — the page
    * likely holds listings the parser no longer reads (structure change
-   * tripwire). Only declare markers proven on a real empty page.
+   * tripwire) OR an anti-bot shell (Bilbasen 01/08 : habillage sans requête
+   * exécutée) — the worker retries; null = page unreadable, no verdict.
+   * Only declare markers proven on a real empty page.
    */
-  detectEmptyState?(html: string): boolean;
+  detectEmptyState?(html: string): boolean | null;
   /**
    * Optional PURE harvest of the site's embedded reference data (mobile.de
    * ships its complete make list {"label":"Skoda","value":"22900"} inside the

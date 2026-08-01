@@ -849,10 +849,12 @@ export async function scrapeSearch(
           const sibling = swapAs24Host(activeUrl);
           if (sibling) { activeUrl = sibling; hostSwapped = true; }
         }
-        // Cache-buster on EVERY blocked AS24 retry (flip included: BE served
-        // byte-identical error pages on both locales, so the flip alone
-        // doesn't dodge the cached block).
-        if (activeUrl.includes('autoscout24.')) activeUrl = withNocache(activeUrl);
+        // Cache-buster on EVERY blocked AS24/Bilbasen retry (flip included: BE
+        // served byte-identical error pages on both locales, so the flip alone
+        // doesn't dodge the cached block; Bilbasen a servi 4× la même coquille
+        // sur la même URL le 01/08 — param inconnu prouvé ignoré : adanc=test
+        // rendait les 64 résultats).
+        if (activeUrl.includes('autoscout24.') || activeUrl.includes('bilbasen.dk')) activeUrl = withNocache(activeUrl);
         if (activeUrl !== url) console.log(`[WORKER_SCRAPER] retry variant: ${activeUrl}`);
         // A CF block that just fired rarely clears within seconds from the
         // same exit — logs showed 4/4 blocked with 2.5-10s pauses. 8/16/24s
@@ -900,6 +902,13 @@ export async function scrapeSearch(
         // même patience que les blocages francs avant de rendre le vide.
         console.warn(`[WORKER_SCRAPER] ⚠️ page pleine à 0 annonce SANS vide confirmé par le site (${marketplaceOf(activeUrl)}, ${html.length}b, attempt ${attempt + 1}/${MAX_RETRIES + 1}) — soft-block probable: ${activeUrl.slice(0, 120)}`);
         if (attempt < MAX_RETRIES) {
+          // La coquille est servie DEPUIS UN CACHE par URL (Bilbasen 01/08 :
+          // 4 tentatives, même squelette) — changer la clé de cache à chaque
+          // retry, param inconnu prouvé ignoré par le site.
+          if (activeUrl.includes('bilbasen.dk')) {
+            activeUrl = withNocache(activeUrl);
+            console.log(`[WORKER_SCRAPER] retry variant: ${activeUrl.slice(0, 130)}`);
+          }
           await new Promise((resolve) => setTimeout(resolve, 8000 * (attempt + 1)));
           continue;
         }

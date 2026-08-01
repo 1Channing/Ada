@@ -652,6 +652,38 @@ function inferFuel(title: string, description: string): string {
  * /mercedes/vito…) → Make/FuelType/ModelYear présents mais AUCUNE clé
  * `Model` : le site a jeté le filtre en silence et sert la marque entière.
  */
+/**
+ * Vide CONFIRMÉ vs COQUILLE anti-bot — preuve du 01/08 : la mise à jour DK
+ * e-tron a reçu 4× une page-squelette (habillage complet, dehydratedState
+ * réduit aux listes de villes, initialSearchRequest **null**) et l'a prise
+ * pour « 0 annonce » alors que le site en montrait 64. Or TOUTE vraie page de
+ * résultats — y compris à 0 voiture (sondes [BILBASEN_ISR] Vauxhall/HiPhi
+ * 2026) — porte initialSearchRequest.selectedFilters ET sa query listings.
+ *   → ISR absent/null : coquille, PAS un vide (le worker réessaie) ;
+ *   → query listings pleine que le parseur n'a pas rendue : structure
+ *     changée, pas un vide non plus ;
+ *   → ISR présent + listings [] : vide confirmé par le site.
+ */
+function detectEmptyState(html: string): boolean | null {
+  const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!m) return null;
+  try {
+    const pp = JSON.parse(m[1])?.props?.pageProps as {
+      initialSearchRequest?: { selectedFilters?: unknown } | null;
+      dehydratedState?: { queries?: Array<{ state?: { data?: { listings?: unknown } } }> };
+    } | undefined;
+    if (!pp?.initialSearchRequest?.selectedFilters) return false; // coquille anti-bot
+    const queries = pp.dehydratedState?.queries;
+    if (Array.isArray(queries)) {
+      for (const q of queries) {
+        const listings = q?.state?.data?.listings;
+        if (Array.isArray(listings)) return listings.length === 0;
+      }
+    }
+    return false; // vraie recherche mais aucune query listings : suspect, pas un vide
+  } catch { return null; }
+}
+
 function detectSilentFallback(html: string): { modelApplied: boolean; evidence: string } | null {
   const m = html.match(/__NEXT_DATA__[^>]*>([\s\S]*?)<\/script>/);
   if (!m) return null;
@@ -691,6 +723,7 @@ export const bilbasenAdapter: SiteAdapter = {
   scoreSearchResults,
   generateCorrectionHypotheses,
   detectSilentFallback,
+  detectEmptyState,
 
   getFetchProfile,
   harvestTaxonomy,
