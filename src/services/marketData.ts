@@ -614,13 +614,24 @@ export async function loadSnapshots(): Promise<Snapshot[]> {
 export async function loadObservationsForStudy(f: MarketFilters): Promise<Observation[]> {
   const brand = (f.brand ?? '').trim();
   if (!brand) return [];
-  const { data, error } = await callRpc('mi_obs_for_segment', {
-    p_brand_keys: brandKeysForQuery(brand),
-    p_model_key: (f.model ?? '').trim() ? canonKey(f.model!) : null,
-    p_country: (f.country ?? '').trim() || null,
-    p_limit: 30_000,
-  });
-  if (!error && Array.isArray(data)) return data as Observation[];
+  // 3 tentatives : le premier appel à FROID peut dépasser le statement timeout
+  // (57014 constaté le 01/08 — AUDI/Q5/FR en échec, puis 4,1 s / 1,3 s / 0,8 s
+  // sur les essais suivants : le cache de la base fait tout). Réessayer suffit
+  // presque toujours ; l'échec définitif remonte au caller, qui l'AFFICHE au
+  // lieu de montrer un faux zéro.
+  let error: { message?: string } | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 700 * attempt));
+    const res = await callRpc('mi_obs_for_segment', {
+      p_brand_keys: brandKeysForQuery(brand),
+      p_model_key: (f.model ?? '').trim() ? canonKey(f.model!) : null,
+      p_country: (f.country ?? '').trim() || null,
+      p_limit: 30_000,
+    });
+    if (!res.error && Array.isArray(res.data)) return res.data as Observation[];
+    error = res.error;
+    if (!/timeout|57014/i.test(String(res.error?.message ?? ''))) break;
+  }
   console.warn('[MI_SCOPE] mi_obs_for_segment indisponible — repli lecture intégrale:', error?.message);
   const { observations } = await legacyAll();
   return observations.filter((o) =>

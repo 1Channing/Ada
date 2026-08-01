@@ -126,6 +126,12 @@ export function MarketIntelligence() {
   const scopeCache = useRef(new Map<string, Observation[]>());
   const [scopeEpoch, setScopeEpoch] = useState(0);
   const [scopeLoading, setScopeLoading] = useState(false);
+  // Scopes en ÉCHEC de chargement (timeout base…) : surtout ne pas mettre un
+  // tableau vide en cache — la page montrait « 0 annonce » pour un segment
+  // plein (FR/AUDI/Q5, 01/08 : statement timeout à froid puis cache collant).
+  // L'échec s'affiche, et « Réessayer » relance la lecture.
+  const [scopeErrors, setScopeErrors] = useState<Map<string, string>>(new Map());
+  const [scopeRetryTick, setScopeRetryTick] = useState(0);
   const scopeOf = (f: MarketFilters) =>
     (f.brand ?? '').trim()
       ? `${brandKey(f.brand!)}|${(f.model ?? '').trim() ? canonKey(f.model!) : ''}|${(f.country ?? '').trim() || ''}`
@@ -141,23 +147,35 @@ export function MarketIntelligence() {
       });
       if (missing.length === 0) return;
       setScopeLoading(true);
+      const failures = new Map<string, string>();
       await Promise.all(missing.map(async (f) => {
         const s = scopeOf(f);
         if (!s || scopeCache.current.has(s)) return;
-        const rows = await loadObservationsForStudy(f).catch(() => [] as Observation[]);
-        if (!cancelled) scopeCache.current.set(s, rows);
+        try {
+          const rows = await loadObservationsForStudy(f);
+          if (!cancelled) scopeCache.current.set(s, rows);
+        } catch (e) {
+          failures.set(s, `${studyLabel(f, 0)} — ${e instanceof Error ? e.message : String(e)}`);
+        }
       }));
       if (cancelled) return;
       // Purge des scopes plus regardés par personne (mémoire bornée).
       for (const key of [...scopeCache.current.keys()]) {
         if (!wanted.includes(key)) scopeCache.current.delete(key);
       }
+      setScopeErrors((prev) => {
+        const next = new Map(prev);
+        for (const s of wanted) if (scopeCache.current.has(s)) next.delete(s);
+        for (const [s, msg] of failures) next.set(s, msg);
+        for (const key of [...next.keys()]) if (!wanted.includes(key)) next.delete(key);
+        return next;
+      });
       setScopeLoading(false);
       setScopeEpoch((e) => e + 1);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopesKey, studies.length]);
+  }, [scopesKey, studies.length, scopeRetryTick]);
 
   useEffect(() => {
     const rows: Observation[] = [];
@@ -195,40 +213,104 @@ export function MarketIntelligence() {
 
   const obs = data.observations;
 
-  // ── Menu ⋯ par étude + « Mettre à jour » : scrape le segment maintenant
-  //    (mêmes URLs que le bouton « URLs »), puis recharge scope + snapshots. ──
+  // ── Menu ⋯ par étude + « Mettre à jour » ────────────────────────────────────
+  //
+  // Résilient à la navigation (constat 01/08 : quitter la page tuait le suivi
+  // ET la reprise d'affichage, alors que le scrape server-side aboutissait) :
+  //   1. TOUS les jobs du segment démarrent immédiatement côté worker ;
+  //   2. leurs jobIds sont persistés en sessionStorage ;
+  //   3. au montage, la page reprend le polling là où il en était — le
+  //      spinner remouline et le rechargement final a bien lieu.
+  // Job inconnu au retour (worker redémarré, TTL 15 min dépassé) = fail-open :
+  // le scrape a très probablement abouti, on recharge et on n'alarme pas.
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
-  const [updating, setUpdating] = useState<Map<number, string>>(new Map());
-  const setUpdMsg = (idx: number, msg: string | null) =>
-    setUpdating((m) => { const n = new Map(m); if (msg == null) n.delete(idx); else n.set(idx, msg); return n; });
+  const [updating, setUpdating] = useState<Map<string, { label: string; msg: string }>>(new Map());
+  const setUpd = (scope: string, v: { label: string; msg: string } | null) =>
+    setUpdating((m) => { const n = new Map(m); if (v == null) n.delete(scope); else n.set(scope, v); return n; });
+  const trackedScopes = useRef(new Set<string>());
+
+  const readPendingUpdates = (): PendingUpdate[] => {
+    try {
+      const arr = JSON.parse(sessionStorage.getItem(MI_UPDATES_KEY) ?? '[]');
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  };
+  const removePendingUpdate = (scope: string) => {
+    try {
+      sessionStorage.setItem(MI_UPDATES_KEY, JSON.stringify(readPendingUpdates().filter((p) => p.scope !== scope)));
+    } catch { /* ignore */ }
+  };
+
+  const trackUpdate = (pu: PendingUpdate) => {
+    if (trackedScopes.current.has(pu.scope)) return;
+    trackedScopes.current.add(pu.scope);
+    void (async () => {
+      const remaining = new Map(pu.jobs.map((j) => [j.jobId, j.site]));
+      const errors: string[] = [];
+      const deadline = pu.startedAt + 12 * 60 * 1000;
+      setUpd(pu.scope, { label: pu.label, msg: `scrape en cours — 0/${pu.jobs.length} site(s) terminé(s)` });
+      while (remaining.size > 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 4000));
+        for (const [jobId, site] of [...remaining]) {
+          const poll = await supabase.functions.invoke('ingest-url', { body: { jobId } });
+          if (poll.error) {
+            const status = ((poll.error as { context?: unknown }).context as { status?: number } | undefined)?.status;
+            // 404 = job purgé/worker redémarré : le scrape a pu aboutir — fail-open.
+            if (status === 404) remaining.delete(jobId);
+            continue; // autre erreur (réseau…) : on retente au tour suivant
+          }
+          const d = poll.data as { jobStatus?: string; message?: string } | null;
+          if (d?.jobStatus === 'running') continue;
+          if (d?.jobStatus === 'error') errors.push(`${site} : ${d?.message ?? 'échec'}`);
+          remaining.delete(jobId);
+        }
+        setUpd(pu.scope, { label: pu.label, msg: `scrape en cours — ${pu.jobs.length - remaining.size}/${pu.jobs.length} site(s) terminé(s)` });
+      }
+      if (remaining.size > 0) errors.push(`délai dépassé (${[...remaining.values()].join(', ')})`);
+      // Quoi qu'il arrive : recharger — des scrapes ont pu écrire.
+      setUpd(pu.scope, { label: pu.label, msg: 'rechargement des données…' });
+      try {
+        const [rows, snaps] = await Promise.all([loadObservationsForStudy(pu.filters), loadSnapshots()]);
+        scopeCache.current.set(pu.scope, rows);
+        setData((prev) => ({ ...prev, snapshots: snaps }));
+        setScopeEpoch((e) => e + 1);
+      } catch {
+        errors.push('rechargement échoué — utilise Rafraîchir');
+      }
+      removePendingUpdate(pu.scope);
+      trackedScopes.current.delete(pu.scope);
+      if (errors.length > 0) setUpd(pu.scope, { label: pu.label, msg: `échec : ${errors.join(' · ')}` });
+      else setUpd(pu.scope, null);
+    })();
+  };
+
+  // Reprise au montage : navigation = rechargement complet de la page, seul le
+  // sessionStorage survit — les mises à jour en cours y sont reprises.
+  useEffect(() => { readPendingUpdates().forEach(trackUpdate); /* eslint-disable-line react-hooks/exhaustive-deps */ }, []);
 
   const updateStudy = async (idx: number) => {
     const f = studies[idx];
-    if (!f?.country || !f?.brand || updating.has(idx)) return;
+    const scope = scopeOf(f);
+    if (!f?.country || !f?.brand || !scope || updating.has(scope)) return;
     setMenuIdx(null);
-    setUpdMsg(idx, 'génération des URLs…');
+    const label = studyLabel(f, idx);
+    setUpd(scope, { label, msg: 'génération des URLs…' });
     try {
       const targets = (await generateStudyUrls(f)).filter((t): t is { site: string; url: string } => Boolean(t.url));
       if (targets.length === 0) {
-        setUpdMsg(idx, 'échec : aucune URL générable pour ce segment (mapping absent)');
+        setUpd(scope, { label, msg: 'échec : aucune URL générable pour ce segment (mapping absent)' });
         return;
       }
-      for (let i = 0; i < targets.length; i++) {
-        setUpdMsg(idx, `scrape ${targets[i].site} (${i + 1}/${targets.length})…`);
-        await runIngestJob(targets[i].url, f);
-      }
-      setUpdMsg(idx, 'rechargement des données…');
-      const scope = scopeOf(f);
-      const [rows, snaps] = await Promise.all([
-        loadObservationsForStudy(f).catch(() => [] as Observation[]),
-        loadSnapshots(),
-      ]);
-      if (scope) scopeCache.current.set(scope, rows);
-      setData((prev) => ({ ...prev, snapshots: snaps }));
-      setScopeEpoch((e) => e + 1);
-      setUpdMsg(idx, null);
+      // Tous les jobs partent MAINTENANT : dès cet instant, fermer la page ne
+      // perd rien — le worker scrape, la persistance est server-side.
+      const jobs = await Promise.all(targets.map(async (t) => ({ site: t.site, jobId: await startIngestJob(t.url, f) })));
+      const pu: PendingUpdate = { scope, label, filters: f, jobs, startedAt: Date.now() };
+      try {
+        sessionStorage.setItem(MI_UPDATES_KEY, JSON.stringify([...readPendingUpdates().filter((p) => p.scope !== scope), pu]));
+      } catch { /* ignore */ }
+      trackUpdate(pu);
     } catch (e) {
-      setUpdMsg(idx, `échec : ${e instanceof Error ? e.message : String(e)}`);
+      setUpd(scope, { label, msg: `échec : ${e instanceof Error ? e.message : String(e)}` });
     }
   };
 
@@ -379,15 +461,18 @@ export function MarketIntelligence() {
                 <span className="relative">
                   <button onClick={(e) => { e.stopPropagation(); setMenuIdx(menuIdx === s.idx ? null : s.idx); }}
                     className="p-0.5 rounded hover:bg-slate-300 text-slate-500 hover:text-slate-800" title="Actions">
-                    {updating.has(s.idx) && !updating.get(s.idx)!.startsWith('échec')
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                      : <MoreHorizontal className="w-3.5 h-3.5" />}
+                    {(() => {
+                      const upd = updating.get(scopeOf(s.filters));
+                      return upd && !upd.msg.startsWith('échec')
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                        : <MoreHorizontal className="w-3.5 h-3.5" />;
+                    })()}
                   </button>
                   {menuIdx === s.idx && (
                     <span className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[190px]"
                       onClick={(e) => e.stopPropagation()}>
                       <button onClick={() => updateStudy(s.idx)}
-                        disabled={!s.filters.country || !s.filters.brand || updating.has(s.idx)}
+                        disabled={!s.filters.country || !s.filters.brand || updating.has(scopeOf(s.filters))}
                         className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-40 flex items-center gap-2">
                         <RefreshCw className="w-3.5 h-3.5" /> Mettre à jour
                       </button>
@@ -413,16 +498,31 @@ export function MarketIntelligence() {
             )}
           </div>
 
-          {/* Progression des mises à jour lancées depuis le menu ⋯ */}
-          {[...updating.entries()].map(([i, msg]) => (
-            <p key={i} className={`text-xs flex items-center gap-2 ${msg.startsWith('échec') ? 'text-rose-600' : 'text-slate-500'}`}>
-              {!msg.startsWith('échec') && <Loader2 className="w-3 h-3 animate-spin" />}
-              Mise à jour « {perStudy[i]?.label ?? `étude ${i + 1}`} » : {msg}
-              {msg.startsWith('échec') && (
-                <button onClick={() => setUpdMsg(i, null)} className="text-slate-500 hover:text-slate-800">✕</button>
+          {/* Progression des mises à jour lancées depuis le menu ⋯ (elles
+              survivent à la navigation : reprise depuis sessionStorage). */}
+          {[...updating.entries()].map(([scope, u]) => (
+            <p key={scope} className={`text-xs flex items-center gap-2 ${u.msg.startsWith('échec') ? 'text-rose-600' : 'text-slate-500'}`}>
+              {!u.msg.startsWith('échec') && <Loader2 className="w-3 h-3 animate-spin" />}
+              Mise à jour « {u.label} » : {u.msg}
+              {u.msg.startsWith('échec') && (
+                <button onClick={() => setUpd(scope, null)} className="text-slate-500 hover:text-slate-800">✕</button>
               )}
             </p>
           ))}
+
+          {/* Segments dont la LECTURE a échoué (timeout base…) : le dire au
+              lieu d'afficher un faux zéro, et permettre de réessayer. */}
+          {scopeErrors.size > 0 && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center justify-between gap-3">
+              <span>
+                Chargement impossible pour : {[...scopeErrors.values()].join(' · ')} — les chiffres affichés excluent ce(s) segment(s).
+              </span>
+              <button onClick={() => setScopeRetryTick((t) => t + 1)}
+                className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-amber-100 hover:bg-amber-200 border border-amber-300">
+                <RefreshCw className="w-3.5 h-3.5" /> Réessayer
+              </button>
+            </div>
+          )}
 
           {/* Filter panel — edits the ACTIVE study. */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
@@ -524,11 +624,12 @@ async function generateStudyUrls(filters: MarketFilters): Promise<{ site: string
 }
 
 /**
- * Fait scraper UNE url par le worker via l'edge ingest-url, en mode job
- * (start → poll), même contrat que la page Ingestion : le pipeline complet
- * (analyse, rétention mémoire, snapshot marché) tourne côté serveur.
+ * DÉMARRE un scrape côté worker via l'edge ingest-url (mode job, même contrat
+ * que la page Ingestion : analyse, rétention mémoire et snapshot marché
+ * tournent server-side) et rend le jobId sans attendre — le suivi appartient
+ * au caller, qui le persiste pour survivre à la navigation.
  */
-async function runIngestJob(url: string, f: MarketFilters): Promise<void> {
+async function startIngestJob(url: string, f: MarketFilters): Promise<string> {
   const criteria = {
     brand: f.brand ?? '', model: f.model ?? '',
     yearFrom: f.yearMin != null ? String(f.yearMin) : undefined,
@@ -538,23 +639,24 @@ async function runIngestJob(url: string, f: MarketFilters): Promise<void> {
     trim: f.trim || undefined,
     gearbox: gearboxCriteria(f),
   };
-  const invoke = (body: Record<string, unknown>) => supabase.functions.invoke('ingest-url', { body });
-  const start = await invoke({ url, async: true, criteria, submittedBy: 'Market Intelligence' });
+  const start = await supabase.functions.invoke('ingest-url', {
+    body: { url, async: true, criteria, submittedBy: 'Market Intelligence' },
+  });
   if (start.error) throw new Error(start.error.message ?? 'edge ingest-url en échec');
   const jobId = (start.data as { jobId?: string } | null)?.jobId;
-  if (!jobId) return; // vieux worker sans mode job : réponse synchrone déjà traitée
-  const DEADLINE = Date.now() + 10 * 60 * 1000;
-  while (Date.now() < DEADLINE) {
-    await new Promise((r) => setTimeout(r, 4000));
-    const poll = await invoke({ jobId });
-    if (poll.error) throw new Error(poll.error.message ?? 'poll du job en échec');
-    const d = poll.data as { jobStatus?: string; message?: string } | null;
-    if (d?.jobStatus === 'running') continue;
-    if (d?.jobStatus === 'error') throw new Error(d?.message ?? 'scrape en échec côté worker');
-    return;
-  }
-  throw new Error('délai dépassé (10 min) — le scrape tourne peut-être encore côté worker');
+  if (!jobId) throw new Error('worker sans mode job — réponse synchrone inattendue');
+  return jobId;
 }
+
+/** Mise à jour en cours, persistée en sessionStorage (survit à la navigation). */
+interface PendingUpdate {
+  scope: string;
+  label: string;
+  filters: MarketFilters;
+  jobs: { site: string; jobId: string }[];
+  startedAt: number;
+}
+const MI_UPDATES_KEY = 'ada_mi_updates';
 
 /**
  * Bouton « URLs » : déroule les liens par site. Sans pays ni marque, aucune
