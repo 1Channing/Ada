@@ -507,6 +507,91 @@ export function sortedUnion(a: string[], b: string[]): string[] {
   return [...new Set([...a, ...b])].sort((x, y) => x.localeCompare(y));
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// LECTURES SCOPÉES (option A, 01/08/2026) — la base trie, le navigateur reçoit
+// UNIQUEMENT le segment étudié. Fin des plafonds : 186 467 observations au
+// 01/08 (+35 000/j en campagne), tout chargement intégral était condamné.
+// Chaque lecture tente d'abord la RPC SQL (migration mi_scoped_reads) et se
+// replie sur l'ancienne lecture intégrale tant que la migration n'est pas
+// appliquée — le MI ne casse jamais, il accélère quand le SQL est en place.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Pont RPC typé : les fonctions SQL ne sont pas déclarées dans
+ *  database.types (chantier hygiène) — le contrat d'appel est ici. */
+const callRpc = (fn: string, args?: Record<string, unknown>) =>
+  (supabase.rpc as unknown as (f: string, a?: Record<string, unknown>) =>
+    PromiseLike<{ data: unknown; error: { message: string } | null }>)(fn, args);
+
+/** Clés canoniques d'une marque, alias compris (VOLKSWAGEN → aussi VW). */
+function brandKeysForQuery(brand: string): string[] {
+  const canonical = brandKey(brand);
+  const keys = [canonical];
+  for (const [alias, target] of Object.entries(BRAND_KEY_ALIASES)) {
+    if (target === canonical) keys.push(alias);
+  }
+  return keys;
+}
+
+/** Repli : l'ancienne lecture intégrale, UNE fois par session, partagée. */
+let legacyAllPromise: Promise<MarketData> | null = null;
+function legacyAll(): Promise<MarketData> {
+  legacyAllPromise ??= loadMarketData();
+  return legacyAllPromise;
+}
+
+export interface DimensionRow {
+  site: string; country: string; brand: string; model: string; fuel: string;
+  n: number; last_seen: string;
+}
+
+/** Dimensions observées (agrégat serveur) — nourrit les menus sans annonces. */
+export async function loadObservedDimensions(): Promise<DimensionRow[]> {
+  const { data, error } = await callRpc('mi_dimensions');
+  if (!error && Array.isArray(data)) return data as DimensionRow[];
+  console.warn('[MI_SCOPE] mi_dimensions indisponible (migration à appliquer ?) — repli lecture intégrale:', error?.message);
+  const { observations } = await legacyAll();
+  const agg = new Map<string, DimensionRow>();
+  for (const o of observations) {
+    const k = [o.site, o.country, o.brand, o.model, o.fuel].join('|');
+    const cur = agg.get(k);
+    if (cur) { cur.n++; if (o.scraped_at > cur.last_seen) cur.last_seen = o.scraped_at; }
+    else agg.set(k, { site: o.site, country: o.country, brand: o.brand, model: o.model, fuel: o.fuel, n: 1, last_seen: o.scraped_at });
+  }
+  return [...agg.values()];
+}
+
+/** Les snapshots restent une lecture intégrale : ~4 000 lignes, sans danger. */
+export async function loadSnapshots(): Promise<Snapshot[]> {
+  return fetchAllPages<Snapshot>(
+    (from, to) => supabase.from('market_snapshots').select('*').order('scraped_at', { ascending: false }).range(from, to),
+    20_000, 'MI_SCOPE',
+  );
+}
+
+/**
+ * Observations d'une étude : marque obligatoire (sans marque il n'y a pas de
+ * segment — la page affiche l'invite), modèle et pays optionnels. Les filtres
+ * fins (finition, carburant, années, km) restent appliqués côté client par
+ * filterObservations, sur ce jeu déjà réduit.
+ */
+export async function loadObservationsForStudy(f: MarketFilters): Promise<Observation[]> {
+  const brand = (f.brand ?? '').trim();
+  if (!brand) return [];
+  const { data, error } = await callRpc('mi_obs_for_segment', {
+    p_brand_keys: brandKeysForQuery(brand),
+    p_model_key: (f.model ?? '').trim() ? canonKey(f.model!) : null,
+    p_country: (f.country ?? '').trim() || null,
+    p_limit: 30_000,
+  });
+  if (!error && Array.isArray(data)) return data as Observation[];
+  console.warn('[MI_SCOPE] mi_obs_for_segment indisponible — repli lecture intégrale:', error?.message);
+  const { observations } = await legacyAll();
+  return observations.filter((o) =>
+    brandKey(o.brand) === brandKey(brand)
+    && (!f.model || canonKey(o.model) === canonKey(f.model))
+    && (!f.country || o.country === f.country));
+}
+
 /** Median/percentiles of the filtered observation prices. */
 export function priceStats(obs: Observation[]): { count: number; median: number; p25: number; p75: number; min: number; max: number; avg: number } {
   const prices = obs.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0).sort((a, b) => a - b);
@@ -838,6 +923,49 @@ export async function loadMarketOpportunities(
   /** Si fourni : ne garde que les marchés TOUCHÉS (re-scrapés) depuis cette
    *  date — « opportunités apparues sur la dernière campagne » (accueil).
    *  La comparaison de prix garde toute la fenêtre (il faut les deux pays). */
+  touchedSinceIso?: string | null,
+): Promise<MarketOpportunity[]> {
+  // RPC d'abord : les médianes basses sont calculées EN BASE (mi_cheap_medians)
+  // — le front n'apparie plus que quelques centaines de segments au lieu de
+  // repaginer 40 000 observations (fenêtre déjà dépassée par les campagnes).
+  const since = new Date(Date.now() - OPP_WINDOW_DAYS * 86_400_000).toISOString();
+  const { data: medianRows, error: rpcError } = await callRpc('mi_cheap_medians', {
+    p_since: since, p_min_price: OPP_MIN_PRICE_EUR,
+  });
+  if (!rpcError && Array.isArray(medianRows)) {
+    type Row = { brand_label: string; model_label: string; fuel: string; year: number; country: string; site: string; median: number | null; cnt: number; last_seen: string };
+    const groups = new Map<string, Row[]>();
+    for (const r of medianRows as Row[]) {
+      if (r.median == null || r.cnt < minPerCountry) continue;
+      const key = `${brandKey(r.brand_label)}|${canonKey(r.model_label)}|${r.fuel}|${r.year}`;
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(r);
+    }
+    const out: MarketOpportunity[] = [];
+    for (const rows of groups.values()) {
+      if (rows.length < 2) continue;
+      if (touchedSinceIso && !rows.some((r) => r.last_seen >= touchedSinceIso)) continue;
+      const sides = [...rows].sort((a, b) => (a.median! - b.median!));
+      const low = sides[0];
+      const high = sides[sides.length - 1];
+      const delta = Math.round(high.median! - low.median!);
+      if (delta < minDelta) continue;
+      out.push({
+        brand: low.brand_label.toUpperCase(), model: low.model_label.toUpperCase(),
+        fuel: low.fuel, year: low.year,
+        lowCountry: low.country, lowSite: low.site, lowMedian: Math.round(low.median!), lowCount: Number(low.cnt),
+        highCountry: high.country, highSite: high.site, highMedian: Math.round(high.median!), highCount: Number(high.cnt),
+        deltaEur: delta,
+      });
+    }
+    return out.sort((a, b) => (b.deltaEur * Math.min(b.lowCount, b.highCount)) - (a.deltaEur * Math.min(a.lowCount, a.highCount)));
+  }
+  console.warn('[MI_SCOPE] mi_cheap_medians indisponible — repli calcul client:', rpcError?.message);
+  return loadMarketOpportunitiesLegacy(minDelta, minPerCountry, touchedSinceIso);
+}
+
+async function loadMarketOpportunitiesLegacy(
+  minDelta = 5000,
+  minPerCountry = 5,
   touchedSinceIso?: string | null,
 ): Promise<MarketOpportunity[]> {
   const cutoff = new Date(Date.now() - OPP_WINDOW_DAYS * 86_400_000).toISOString();

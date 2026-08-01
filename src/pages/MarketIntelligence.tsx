@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Line, LineChart, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ComposedChart,
 } from 'recharts';
 import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X } from 'lucide-react';
 import {
-  loadMarketData, loadKnownDimensions, sortedUnion, canonUnion, canonKey, brandKey, filterObservations, distinctValues, priceStats, timeSeries,
+  loadKnownDimensions, sortedUnion, canonUnion, canonKey, brandKey, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
   studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing, canonicalizeGearbox, GEARBOX_LABELS,
+  loadSnapshots, loadObservedDimensions, loadObservationsForStudy,
 } from '../services/marketData';
+import type { DimensionRow } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import { getRefWindowsCached, findRefWindow } from '../services/vehicleRef';
@@ -94,13 +96,76 @@ export function MarketIntelligence() {
 
   const [known, setKnown] = useState<KnownDimensions>({ sites: [], countries: [], brands: [], modelsByBrand: {}, fuelsByBrandModel: {}, allFuels: [] });
 
+  // Dimensions observées (agrégat serveur) : nourrit les menus marque/modèle/
+  // pays même quand AUCUNE observation n'est chargée — le chargement de masse
+  // n'existe plus, chaque étude ne reçoit que SON segment.
+  const [dims, setDims] = useState<DimensionRow[]>([]);
+
   const refresh = async () => {
     setLoading(true);
-    const [d, k] = await Promise.all([loadMarketData(), loadKnownDimensions()]);
-    setData(d); setKnown(k); setLoading(false);
+    const [snaps, k, d] = await Promise.all([loadSnapshots(), loadKnownDimensions(), loadObservedDimensions()]);
+    setData((prev) => ({ ...prev, snapshots: snaps }));
+    setKnown(k);
+    setDims(d);
+    setLoading(false);
+    scopeCache.current.clear(); // un rafraîchissement recharge aussi les segments
+    setScopeEpoch((e) => e + 1);
   };
   useEffect(() => { refresh(); }, []);
   useEffect(() => { try { sessionStorage.setItem(STUDIES_KEY, JSON.stringify(studies)); } catch { /* ignore */ } }, [studies]);
+
+  // ── Chargement SCOPÉ : une requête par segment (marque[/modèle][/pays]),
+  //    mémoïsée pour la session. Les réponses en désordre ne peuvent pas se
+  //    marcher dessus : chaque scope écrit dans SA case, l'affichage est la
+  //    concaténation des cases vivantes. ─────────────────────────────────────
+  const scopeCache = useRef(new Map<string, Observation[]>());
+  const [scopeEpoch, setScopeEpoch] = useState(0);
+  const [scopeLoading, setScopeLoading] = useState(false);
+  const scopeOf = (f: MarketFilters) =>
+    (f.brand ?? '').trim()
+      ? `${brandKey(f.brand!)}|${(f.model ?? '').trim() ? canonKey(f.model!) : ''}|${(f.country ?? '').trim() || ''}`
+      : '';
+  const scopesKey = studies.map(scopeOf).filter(Boolean).sort().join(';');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const wanted = [...new Set(scopesKey.split(';').filter(Boolean))];
+      const missing = studies.filter((f) => {
+        const s = scopeOf(f);
+        return s && !scopeCache.current.has(s);
+      });
+      if (missing.length === 0) return;
+      setScopeLoading(true);
+      await Promise.all(missing.map(async (f) => {
+        const s = scopeOf(f);
+        if (!s || scopeCache.current.has(s)) return;
+        const rows = await loadObservationsForStudy(f).catch(() => [] as Observation[]);
+        if (!cancelled) scopeCache.current.set(s, rows);
+      }));
+      if (cancelled) return;
+      // Purge des scopes plus regardés par personne (mémoire bornée).
+      for (const key of [...scopeCache.current.keys()]) {
+        if (!wanted.includes(key)) scopeCache.current.delete(key);
+      }
+      setScopeLoading(false);
+      setScopeEpoch((e) => e + 1);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopesKey, studies.length]);
+
+  useEffect(() => {
+    const rows: Observation[] = [];
+    const seenScope = new Set<string>();
+    for (const f of studies) {
+      const s = scopeOf(f);
+      if (!s || seenScope.has(s)) continue;
+      seenScope.add(s);
+      rows.push(...(scopeCache.current.get(s) ?? []));
+    }
+    setData((prev) => ({ ...prev, observations: rows }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeEpoch, scopesKey]);
 
   const comparing = studies.length > 1;
   const active = studies[Math.min(activeIdx, studies.length - 1)] ?? {};
@@ -138,27 +203,60 @@ export function MarketIntelligence() {
     [refWindows, active.brand, active.model],
   );
 
+  // Dimensions OBSERVÉES (agrégat serveur) reprofilées comme les « known » :
+  // sans elles, aucun menu ne saurait ce qui existe puisque plus aucune
+  // observation n'est chargée tant qu'une marque n'est pas choisie.
+  const dimsAgg = useMemo(() => {
+    const sites = new Set<string>(); const countries = new Set<string>();
+    const brands: string[] = []; const modelsByBrand: Record<string, string[]> = {};
+    const fuelsByBrandModel: Record<string, Set<string>> = {}; const allFuels = new Set<string>();
+    for (const r of dims) {
+      if (r.site) sites.add(r.site);
+      if (r.country) countries.add(r.country.toUpperCase());
+      const b = (r.brand ?? '').trim(); if (!b) continue;
+      brands.push(b.toUpperCase());
+      const m = (r.model ?? '').trim();
+      if (m) {
+        (modelsByBrand[brandKey(b)] ??= []).push(m.toUpperCase());
+        if (r.fuel) {
+          (fuelsByBrandModel[`${brandKey(b)}|${canonKey(m)}`] ??= new Set()).add(r.fuel);
+          allFuels.add(r.fuel);
+        }
+      }
+    }
+    return {
+      sites: [...sites], countries: [...countries], brands,
+      modelsByBrand, allFuels: [...allFuels],
+      fuelsByBrandModel: Object.fromEntries(Object.entries(fuelsByBrandModel).map(([k, s]) => [k, [...s]])),
+    };
+  }, [dims]);
+
   // Cascading option lists for the ACTIVE study. Site/country/brand/model are
   // the UNION of what has observations AND what ADA knows (mapped segments +
   // covered sites/countries), so a mapped-but-not-yet-scanned segment stays
-  // selectable (charts then show the "awaiting data" state). Trim/fuel stay
-  // observation-only (not reliably in the mapping memory). All alphabetical.
+  // selectable (charts then show the "awaiting data" state). Trim/gearbox stay
+  // observation-only (per-listing text). All alphabetical.
   const opts = {
-    site: useMemo(() => sortedUnion(distinctValues(obs, 'site', active), known.sites), [obs, active, known]),
-    country: useMemo(() => sortedUnion(distinctValues(obs, 'country', active), known.countries), [obs, active, known]),
+    site: useMemo(() => sortedUnion(distinctValues(obs, 'site', active), sortedUnion(known.sites, dimsAgg.sites)), [obs, active, known, dimsAgg]),
+    country: useMemo(() => sortedUnion(distinctValues(obs, 'country', active), sortedUnion(known.countries, dimsAgg.countries)), [obs, active, known, dimsAgg]),
     // Marque/modèle : une seule entrée par véhicule, quelle que soit la graphie
     // des sites ('RAV4'/'RAV-4'/'RAV 4') — la variante des observations gagne.
-    brand: useMemo(() => canonUnion(distinctValues(obs, 'brand', active), known.brands, brandKey), [obs, active, known]),
+    brand: useMemo(() => canonUnion(distinctValues(obs, 'brand', active), canonUnion(dimsAgg.brands, known.brands, brandKey), brandKey), [obs, active, known, dimsAgg]),
     model: useMemo(() => {
-      const mapped = active.brand ? (known.modelsByBrand[brandKey(active.brand)] ?? []) : Object.values(known.modelsByBrand).flat();
+      const bk = active.brand ? brandKey(active.brand) : '';
+      const mapped = bk
+        ? [...(dimsAgg.modelsByBrand[bk] ?? []), ...(known.modelsByBrand[bk] ?? [])]
+        : [...Object.values(dimsAgg.modelsByBrand).flat(), ...Object.values(known.modelsByBrand).flat()];
       return canonUnion(distinctValues(obs, 'model', active), mapped, canonKey);
-    }, [obs, active, known]),
+    }, [obs, active, known, dimsAgg]),
     trim: useMemo(() => distinctValues(obs, 'trim', active), [obs, active]),
     fuel: useMemo(() => {
       const key = active.brand && active.model ? `${brandKey(active.brand)}|${canonKey(active.model)}` : '';
-      const mapped = key ? (known.fuelsByBrandModel[key] ?? []) : known.allFuels;
+      const mapped = key
+        ? [...(dimsAgg.fuelsByBrandModel[key] ?? []), ...(known.fuelsByBrandModel[key] ?? [])]
+        : [...dimsAgg.allFuels, ...known.allFuels];
       return sortedUnion(distinctValues(obs, 'fuel', active), mapped);
-    }, [obs, active, known]),
+    }, [obs, active, known, dimsAgg]),
     gearbox: useMemo(() => distinctValues(obs, 'gearbox' as keyof Observation, active), [obs, active]),
   };
 
@@ -218,11 +316,10 @@ export function MarketIntelligence() {
         setPriceBand(null);
       }} />
 
-      {data.observations.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500">
-          Aucune donnée de marché pour l'instant. Chaque ingestion confirmée enregistre les annonces ici.
-        </div>
-      ) : (
+      {/* Barre d'études + filtres TOUJOURS visibles : en chargement scopé,
+          aucune observation n'existe tant qu'une marque n'est pas choisie —
+          les cacher derrière « aucune donnée » rendait le choix impossible. */}
+      {(
         <>
           {/* Study bar — pick which study you're editing, add/remove up to 3. */}
           <div className="flex flex-wrap items-center gap-2">
@@ -289,7 +386,20 @@ export function MarketIntelligence() {
             )}
           </div>
 
-          {comparing
+          {!active.brand ? (
+            <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500">
+              Choisis une <span className="text-slate-700 font-medium">marque</span> (et idéalement un modèle) :
+              le Market Intelligence charge alors ce segment — et uniquement lui, quelle que soit la taille de la base.
+            </div>
+          ) : scopeLoading && obs.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500">
+              Chargement du segment {active.brand}{active.model ? ` ${active.model}` : ''}…
+            </div>
+          ) : obs.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500">
+              Aucune observation pour ce segment. Chaque scrape (études quotidiennes, campagnes, ingestions) en enregistre ici.
+            </div>
+          ) : comparing
             ? <ComparisonView perStudy={perStudy} />
             : <SingleStudyView study={perStudy[0]} filters={active} priceBand={priceBand} setPriceBand={setPriceBand} />}
         </>
