@@ -342,6 +342,7 @@ export interface ScrapeSearchResult {
 // Zyte again. Lost on restart — fine.
 // Sonde taxonomie Bilbasen : un seul dump par boot (voir [BILBASEN_TAXO]).
 let bilbasenTaxoProbed = false;
+let bilbasenYearProbed = false;
 // Sonde taxonomie Marktplaats LRP : un seul dump par boot (voir [MP_LRP_TAXO]).
 let mpLrpTaxoProbed = false;
 
@@ -784,6 +785,25 @@ export async function scrapeSearch(
           const nd = html.match(/__NEXT_DATA__[^>]*>([\s\S]*?)<\/script>/);
           const isr = nd ? JSON.parse(nd[1])?.props?.pageProps?.initialSearchRequest : null;
           if (isr) console.warn(`[BILBASEN_ISR] ${activeUrl.slice(0, 90)} → ${JSON.stringify(isr).slice(0, 350)}`);
+          // SONDE ANNÉE (01/08, une fois par boot) : le filtre « 2023 » du site
+          // porte l'année-MODÈLE (årgang) mais nos observations sortent 2022
+          // (immatriculation) — 36/64 e-tron DK écartées à tort par le filtre
+          // année du MI. On photographie les champs année du 1er listing brut
+          // pour choisir LE champ qui épouse la sémantique du filtre du site.
+          if (nd && !bilbasenYearProbed) {
+            const qs2 = JSON.parse(nd[1])?.props?.pageProps?.dehydratedState?.queries as Array<{ state?: { data?: { listings?: unknown[] } } }> | undefined;
+            const first = qs2?.map((q) => q?.state?.data?.listings?.[0]).find(Boolean) as Record<string, unknown> | undefined;
+            if (first) {
+              bilbasenYearProbed = true;
+              console.warn(`[BILBASEN_YEAR] keys=${Object.keys(first).join(',').slice(0, 160)}`);
+              const yearish = Object.fromEntries(Object.entries(first)
+                .filter(([k]) => /year|date|reg|årgang|aargang|properties|details/i.test(k)));
+              console.warn(`[BILBASEN_YEAR] champs année: ${JSON.stringify(yearish).slice(0, 170)}`);
+              console.warn(`[BILBASEN_YEAR] brut[0..160]: ${JSON.stringify(first).slice(0, 165)}`);
+              console.warn(`[BILBASEN_YEAR] brut[160..330]: ${JSON.stringify(first).slice(165, 330)}`);
+              console.warn(`[BILBASEN_YEAR] brut[330..500]: ${JSON.stringify(first).slice(330, 500)}`);
+            }
+          }
           // SONDE TAXONOMIE (28/07, une fois par boot) : où la page embarque-
           // t-elle sa liste de modèles ? On logge les tableaux candidats du
           // NEXT_DATA (chemin, taille, clés, 1er élément) pour bâtir la
