@@ -34,8 +34,8 @@ const URL_TEMPLATE =
   'https://www.bilbasen.dk/brugt/bil' +
   '?make={brand}' +
   '&model={model}' +
-  '&yearfrom={yearFrom}' +
-  '&yearto={yearTo}' +
+  '&regfrom={yearFrom}-01' +
+  '&regto={yearTo}-12' +
   '&mileageto={mileage}' +
   '&fuel={fuel}' +
   '&hpfrom={powerFrom}' +
@@ -274,8 +274,15 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
 
   const qs = new URLSearchParams();
   const { yearFrom, yearTo } = resolveYearRange(params);
-  if (yearFrom) qs.set('yearfrom', yearFrom);
-  if (yearTo) qs.set('yearto', yearTo);
+  // PREMIÈRE IMMATRICULATION (regfrom/regto mensuels), PAS l'année-modèle
+  // (yearfrom/yearto = årgang) : le filtre årgang « 2023 » du site rendait des
+  // voitures immatriculées 11/2022 — 36/64 e-tron DK écartées ensuite par le
+  // filtre année du MI (01/08). Décision Channing : « c'est la première
+  // immatriculation qu'on veut » — grammaire de SON URL humaine, validée live
+  // (regfrom=2023-01&regto=2023-12 → 28/28, toutes parsées 2023). Même
+  // sémantique que fregfrom/fregto AutoScout et regdate Leboncoin.
+  if (yearFrom) qs.set('regfrom', `${yearFrom}-01`);
+  if (yearTo) qs.set('regto', `${yearTo}-12`);
   if (params.mileage) qs.set('mileageto', String(params.mileage));
   // Only inject fuel if mapping produced a non-empty value (GPL maps to '' for Bilbasen)
   const mappedFuel = params.fuel ? mapFuel(params.fuel) : null;
@@ -620,6 +627,8 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
   push('model', 'model');
   push('yearfrom', 'year');
   push('yearto', 'year');
+  push('regfrom', 'year');
+  push('regto', 'year');
   push('mileageto', 'mileage');
   push('fuel', 'fuel');
   push('hpfrom', 'power');

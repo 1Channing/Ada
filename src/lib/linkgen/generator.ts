@@ -275,9 +275,15 @@ export function enforceYearParams(url: string, params: LinkGenParams): string {
     return out;
   }
   if (url.includes('bilbasen.dk')) {
+    // Première immatriculation (regfrom/regto mensuels) — yearfrom/yearto est
+    // l'année-MODÈLE danoise (årgang), qui rendait des immatriculées N-1
+    // (36/64 e-tron DK, 01/08). Les anciens params sont RETIRÉS des URLs
+    // apprises : les deux familles combinées restreindraient doublement.
     let out = url;
-    if (yearFrom) out = setQueryParamRaw(out, 'yearfrom', yearFrom);
-    if (yearTo) out = setQueryParamRaw(out, 'yearto', yearTo);
+    if (yearFrom) out = setQueryParamRaw(out, 'regfrom', `${yearFrom}-01`);
+    if (yearTo) out = setQueryParamRaw(out, 'regto', `${yearTo}-12`);
+    out = setQueryParamRaw(out, 'yearfrom', null);
+    out = setQueryParamRaw(out, 'yearto', null);
     return out;
   }
   if (url.includes('leboncoin.fr')) {
