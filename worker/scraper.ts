@@ -795,13 +795,13 @@ export async function scrapeSearch(
             const first = qs2?.map((q) => q?.state?.data?.listings?.[0]).find(Boolean) as Record<string, unknown> | undefined;
             if (first) {
               bilbasenYearProbed = true;
-              console.warn(`[BILBASEN_YEAR] keys=${Object.keys(first).join(',').slice(0, 160)}`);
-              const yearish = Object.fromEntries(Object.entries(first)
-                .filter(([k]) => /year|date|reg|årgang|aargang|properties|details/i.test(k)));
-              console.warn(`[BILBASEN_YEAR] champs année: ${JSON.stringify(yearish).slice(0, 170)}`);
-              console.warn(`[BILBASEN_YEAR] brut[0..160]: ${JSON.stringify(first).slice(0, 165)}`);
-              console.warn(`[BILBASEN_YEAR] brut[160..330]: ${JSON.stringify(first).slice(165, 330)}`);
-              console.warn(`[BILBASEN_YEAR] brut[330..500]: ${JSON.stringify(first).slice(330, 500)}`);
+              // 2e passe (01/08 20:07) : la 1re a montré details=["11/2022",…]
+              // et properties.firstregistrationdate — properties ENTIER cette
+              // fois, c'est là que vit l'éventuelle année-modèle (årgang).
+              const props = JSON.stringify((first as { properties?: unknown }).properties ?? null);
+              for (let i = 0; i < Math.min(props.length, 1200); i += 165) {
+                console.warn(`[BILBASEN_YEAR] properties[${i}..]: ${props.slice(i, i + 165)}`);
+              }
             }
           }
           // SONDE TAXONOMIE (28/07, une fois par boot) : où la page embarque-
