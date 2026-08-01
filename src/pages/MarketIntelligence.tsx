@@ -3,7 +3,7 @@ import {
   Line, LineChart, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ComposedChart,
 } from 'recharts';
-import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X } from 'lucide-react';
+import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X, MoreHorizontal, Loader2 } from 'lucide-react';
 import {
   loadKnownDimensions, sortedUnion, canonUnion, canonKey, brandKey, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
@@ -13,6 +13,7 @@ import {
 import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/linkgen/types';
+import { supabase } from '../lib/supabase';
 import type { DimensionRow } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
@@ -193,6 +194,43 @@ export function MarketIntelligence() {
 
   const obs = data.observations;
 
+  // ── Menu ⋯ par étude + « Mettre à jour » : scrape le segment maintenant
+  //    (mêmes URLs que le bouton « URLs »), puis recharge scope + snapshots. ──
+  const [menuIdx, setMenuIdx] = useState<number | null>(null);
+  const [updating, setUpdating] = useState<Map<number, string>>(new Map());
+  const setUpdMsg = (idx: number, msg: string | null) =>
+    setUpdating((m) => { const n = new Map(m); if (msg == null) n.delete(idx); else n.set(idx, msg); return n; });
+
+  const updateStudy = async (idx: number) => {
+    const f = studies[idx];
+    if (!f?.country || !f?.brand || updating.has(idx)) return;
+    setMenuIdx(null);
+    setUpdMsg(idx, 'génération des URLs…');
+    try {
+      const targets = (await generateStudyUrls(f)).filter((t): t is { site: string; url: string } => Boolean(t.url));
+      if (targets.length === 0) {
+        setUpdMsg(idx, 'échec : aucune URL générable pour ce segment (mapping absent)');
+        return;
+      }
+      for (let i = 0; i < targets.length; i++) {
+        setUpdMsg(idx, `scrape ${targets[i].site} (${i + 1}/${targets.length})…`);
+        await runIngestJob(targets[i].url, f);
+      }
+      setUpdMsg(idx, 'rechargement des données…');
+      const scope = scopeOf(f);
+      const [rows, snaps] = await Promise.all([
+        loadObservationsForStudy(f).catch(() => [] as Observation[]),
+        loadSnapshots(),
+      ]);
+      if (scope) scopeCache.current.set(scope, rows);
+      setData((prev) => ({ ...prev, snapshots: snaps }));
+      setScopeEpoch((e) => e + 1);
+      setUpdMsg(idx, null);
+    } catch (e) {
+      setUpdMsg(idx, `échec : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   // Fenêtre de commercialisation (référentiel constructeur) du modèle actif —
   // affichée discrètement sous les filtres. Chargée une fois, cache module.
   const [refWindows, setRefWindows] = useState<RefWindowMap | null>(null);
@@ -335,6 +373,27 @@ export function MarketIntelligence() {
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
                 <span className={s.idx === activeIdx ? 'text-slate-900' : 'text-slate-600'}>{s.label}</span>
                 <span className="text-[10px] text-slate-500">{s.stats.count}</span>
+                <span className="relative">
+                  <button onClick={(e) => { e.stopPropagation(); setMenuIdx(menuIdx === s.idx ? null : s.idx); }}
+                    className="p-0.5 rounded hover:bg-slate-300 text-slate-500 hover:text-slate-800" title="Actions">
+                    {updating.has(s.idx) && !updating.get(s.idx)!.startsWith('échec')
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                      : <MoreHorizontal className="w-3.5 h-3.5" />}
+                  </button>
+                  {menuIdx === s.idx && (
+                    <span className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[190px]"
+                      onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => updateStudy(s.idx)}
+                        disabled={!s.filters.country || !s.filters.brand || updating.has(s.idx)}
+                        className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-40 flex items-center gap-2">
+                        <RefreshCw className="w-3.5 h-3.5" /> Mettre à jour
+                      </button>
+                      {(!s.filters.country || !s.filters.brand) && (
+                        <span className="block px-3 pb-1 text-[10px] text-slate-400">choisis un pays et une marque</span>
+                      )}
+                    </span>
+                  )}
+                </span>
                 {studies.length > 1 && (
                   <button onClick={(e) => { e.stopPropagation(); removeStudy(s.idx); }}
                     className="p-0.5 rounded hover:bg-slate-300 text-slate-500 hover:text-slate-800" title="Retirer cette étude">
@@ -350,6 +409,17 @@ export function MarketIntelligence() {
               </button>
             )}
           </div>
+
+          {/* Progression des mises à jour lancées depuis le menu ⋯ */}
+          {[...updating.entries()].map(([i, msg]) => (
+            <p key={i} className={`text-xs flex items-center gap-2 ${msg.startsWith('échec') ? 'text-rose-600' : 'text-slate-500'}`}>
+              {!msg.startsWith('échec') && <Loader2 className="w-3 h-3 animate-spin" />}
+              Mise à jour « {perStudy[i]?.label ?? `étude ${i + 1}`} » : {msg}
+              {msg.startsWith('échec') && (
+                <button onClick={() => setUpdMsg(i, null)} className="text-slate-500 hover:text-slate-800">✕</button>
+              )}
+            </p>
+          ))}
 
           {/* Filter panel — edits the ACTIVE study. */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
@@ -414,11 +484,78 @@ export function MarketIntelligence() {
 
 // ─── URLs directes de l'étude ───────────────────────────────────────────────────
 
+function gearboxCriteria(f: MarketFilters): 'AUTOMATIQUE' | 'MANUELLE' | undefined {
+  const t = canonicalizeGearbox(f.gearbox);
+  return t === 'automatique' ? 'AUTOMATIQUE' : t === 'manuelle' ? 'MANUELLE' : undefined;
+}
+
 /**
  * Les liens de recherche que le LinkGen génère depuis les filtres actifs, un
- * par site du pays sélectionné (Pays=FR → Leboncoin + AutoScout FR…). Sert à
- * ouvrir le marché tel que le site le montre — et à vérifier les URL à l'œil.
- * Sans pays ni marque, aucune URL ne veut dire quelque chose : bouton absent.
+ * par site du pays sélectionné (Pays=FR → Leboncoin + AutoScout FR…).
+ * Partagé entre le bouton « URLs » et « Mettre à jour » : ce qui s'affiche est
+ * exactement ce qui se scrape.
+ */
+async function generateStudyUrls(filters: MarketFilters): Promise<{ site: string; url: string | null }[]> {
+  const sites = allSiteAdapters()
+    .filter((a) => (a as { countryCode?: string }).countryCode === filters.country)
+    .filter((a) => !filters.site || a.key === filters.site);
+  const out: { site: string; url: string | null }[] = [];
+  for (const site of sites) {
+    let url: string | null = null;
+    try {
+      const gen = await generateSearchUrlsWithMemory({
+        selectedSites: [site.key as SiteKey],
+        brand: filters.brand!, model: filters.model || '',
+        fuel: filters.fuel ? FUEL_TOKEN_TO_CRITERIA[filters.fuel] : undefined,
+        trim: filters.trim || undefined,
+        yearFrom: filters.yearMin != null ? String(filters.yearMin) : undefined,
+        yearTo: filters.yearMax != null ? String(filters.yearMax) : undefined,
+        mileage: filters.mileageMax ?? undefined,
+        gearbox: gearboxCriteria(filters),
+      });
+      url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
+    } catch { url = null; }
+    out.push({ site: site.key, url });
+  }
+  return out;
+}
+
+/**
+ * Fait scraper UNE url par le worker via l'edge ingest-url, en mode job
+ * (start → poll), même contrat que la page Ingestion : le pipeline complet
+ * (analyse, rétention mémoire, snapshot marché) tourne côté serveur.
+ */
+async function runIngestJob(url: string, f: MarketFilters): Promise<void> {
+  const criteria = {
+    brand: f.brand ?? '', model: f.model ?? '',
+    yearFrom: f.yearMin != null ? String(f.yearMin) : undefined,
+    yearTo: f.yearMax != null ? String(f.yearMax) : undefined,
+    mileage: f.mileageMax != null ? String(f.mileageMax) : undefined,
+    fuel: f.fuel ? FUEL_TOKEN_TO_CRITERIA[f.fuel] : undefined,
+    trim: f.trim || undefined,
+    gearbox: gearboxCriteria(f),
+  };
+  const invoke = (body: Record<string, unknown>) => supabase.functions.invoke('ingest-url', { body });
+  const start = await invoke({ url, async: true, criteria, submittedBy: 'Market Intelligence' });
+  if (start.error) throw new Error(start.error.message ?? 'edge ingest-url en échec');
+  const jobId = (start.data as { jobId?: string } | null)?.jobId;
+  if (!jobId) return; // vieux worker sans mode job : réponse synchrone déjà traitée
+  const DEADLINE = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < DEADLINE) {
+    await new Promise((r) => setTimeout(r, 4000));
+    const poll = await invoke({ jobId });
+    if (poll.error) throw new Error(poll.error.message ?? 'poll du job en échec');
+    const d = poll.data as { jobStatus?: string; message?: string } | null;
+    if (d?.jobStatus === 'running') continue;
+    if (d?.jobStatus === 'error') throw new Error(d?.message ?? 'scrape en échec côté worker');
+    return;
+  }
+  throw new Error('délai dépassé (10 min) — le scrape tourne peut-être encore côté worker');
+}
+
+/**
+ * Bouton « URLs » : déroule les liens par site. Sans pays ni marque, aucune
+ * URL ne veut dire quelque chose : bouton absent.
  */
 function StudyLinks({ filters }: { filters: MarketFilters }) {
   const [open, setOpen] = useState(false);
@@ -434,29 +571,7 @@ function StudyLinks({ filters }: { filters: MarketFilters }) {
     if (!next || links || busy) return;
     setBusy(true);
     try {
-      const sites = allSiteAdapters()
-        .filter((a) => (a as { countryCode?: string }).countryCode === filters.country)
-        .filter((a) => !filters.site || a.key === filters.site);
-      const gearToken = canonicalizeGearbox(filters.gearbox);
-      const out: { site: string; url: string | null }[] = [];
-      for (const site of sites) {
-        let url: string | null = null;
-        try {
-          const gen = await generateSearchUrlsWithMemory({
-            selectedSites: [site.key as SiteKey],
-            brand: filters.brand!, model: filters.model || '',
-            fuel: filters.fuel ? FUEL_TOKEN_TO_CRITERIA[filters.fuel] : undefined,
-            trim: filters.trim || undefined,
-            yearFrom: filters.yearMin != null ? String(filters.yearMin) : undefined,
-            yearTo: filters.yearMax != null ? String(filters.yearMax) : undefined,
-            mileage: filters.mileageMax ?? undefined,
-            gearbox: gearToken === 'automatique' ? 'AUTOMATIQUE' : gearToken === 'manuelle' ? 'MANUELLE' : undefined,
-          });
-          url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
-        } catch { url = null; }
-        out.push({ site: site.key, url });
-      }
-      setLinks(out);
+      setLinks(await generateStudyUrls(filters));
     } finally { setBusy(false); }
   };
 
