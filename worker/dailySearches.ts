@@ -26,6 +26,7 @@ import { generateSearchUrlsWithMemory } from '../src/lib/linkgen/generator';
 import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
+import { canonicalizeGearbox } from '../src/lib/study-core/ingestion';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 
@@ -47,9 +48,14 @@ interface SearchRow {
   brand: string; model: string;
   year_min: number | null; year_max: number | null;
   fuel: string; trim: string; trim_target: string;
+  /** 'AUTOMATIQUE' | 'MANUELLE' | '' — optionnel tant que la migration
+   *  gearbox n'est pas appliquée, d'où le `?`. */
+  gearbox?: string | null;
   mileage_max: number | null;
   price_gap_min: number; price_gap_max: number;
   run_hour: number; active: boolean; last_run_at: string | null;
+  /** Drapeau « Lancer maintenant » (menu ⋯) — sondé toutes les 30 s. */
+  force_requested_at?: string | null;
 }
 
 function parisHour(): number {
@@ -68,9 +74,39 @@ let running = false;
 export function startDailySearchScheduler(): void {
   setTimeout(() => void tick(), 45_000);
   setInterval(() => void tick(), TICK_MS);
+  // « Lancer maintenant » (menu ⋯ du Workflow) : sondage léger toutes les
+  // 30 s — un select sur drapeau, quasi gratuit. L'étude part immédiatement,
+  // même en pause et hors heure programmée : c'est l'outil de TEST.
+  setInterval(() => void pollForcedRuns(), 30_000);
   // warn (pas log) : la ligne part dans worker_logs — preuve de vie de
   // l'ordonnanceur dans la boîte noire après chaque déploiement.
-  console.warn(`[DAILY] ordonnanceur actif (tick 10 min) — heure Paris détectée : ${parisHour()} h`);
+  console.warn(`[DAILY] ordonnanceur actif (tick 10 min + forçage 30 s) — heure Paris détectée : ${parisHour()} h`);
+}
+
+async function pollForcedRuns(): Promise<void> {
+  if (running) return; // jamais en même temps qu'un tick (ou qu'un autre forçage)
+  running = true;
+  try {
+    const { data, error } = await supabase
+      .from('daily_searches')
+      .select('*')
+      .not('force_requested_at', 'is', null)
+      .limit(5);
+    if (error || !data?.length) return; // colonne absente (migration à venir) ou rien à faire
+    for (const s of data as SearchRow[]) {
+      // Drapeau effacé AVANT le run : un crash en cours d'étude ne doit pas
+      // la relancer en boucle toutes les 30 s.
+      await supabase.from('daily_searches').update({ force_requested_at: null }).eq('id', s.id);
+      console.warn(`[DAILY] ⚡ lancement FORCÉ « ${s.label || s.brand} » (demandé ${s.force_requested_at})`);
+      try {
+        await runDailySearch(s);
+      } catch (e) {
+        console.warn(`[DAILY] échec du forçage « ${s.label || s.brand} »: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  } finally {
+    running = false;
+  }
 }
 
 async function tick(): Promise<void> {
@@ -116,6 +152,7 @@ async function scrapeCountry(
         yearFrom: s.year_min ? String(s.year_min) : undefined,
         yearTo: s.year_max ? String(s.year_max) : undefined,
         mileage: s.mileage_max ?? undefined,
+        gearbox: s.gearbox || undefined,
       });
       url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
     } catch { url = null; }
@@ -142,7 +179,26 @@ async function scrapeCountry(
       url,
       'Étude quotidienne',
     );
-    out.push({ site: site.key, listings: (result.listings ?? []) as never[] });
+    // Boîte de vitesses : post-filtre DUR même si le site a ignoré le
+    // paramètre — comparaison en jeton canonique (Automatik≡Automatique≡
+    // Automaat). Boîte illisible = conservée (fail-open : on n'écarte que
+    // sur une contradiction LUE). Le snapshot MI ci-dessus garde TOUT :
+    // on stocke fidèlement, on filtre la lecture.
+    let listings = (result.listings ?? []) as Array<{ gearbox?: string | null }>;
+    if (s.gearbox) {
+      const wanted = canonicalizeGearbox(s.gearbox);
+      if (wanted) {
+        const before = listings.length;
+        listings = listings.filter((l) => {
+          const got = canonicalizeGearbox(l.gearbox ?? '');
+          return !got || got === wanted;
+        });
+        if (listings.length < before) {
+          console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (boîte ≠ ${s.gearbox})`);
+        }
+      }
+    }
+    out.push({ site: site.key, listings: listings as never[] });
   }
   return out;
 }

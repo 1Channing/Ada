@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import {
-  DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch,
+  DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
   checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
 } from '../services/workflow';
@@ -103,9 +103,15 @@ export function Workflow() {
 const EMPTY: Partial<DailySearch> = {
   label: '', source_country: 'DE', target_country: 'FR', brand: '', model: '',
   year_min: null, year_max: null, fuel: '', trim: '', trim_target: '',
-  mileage_max: null,
+  gearbox: '', mileage_max: null,
   price_gap_min: 3000, price_gap_max: 10000, run_hour: 7, active: true,
 };
+
+const GEARBOXES = [
+  { value: '', label: 'Toutes boîtes' },
+  { value: 'AUTOMATIQUE', label: 'Automatique' },
+  { value: 'MANUELLE', label: 'Manuelle' },
+];
 
 function DailySearchesTab() {
   const [rows, setRows] = useState<DailySearch[]>([]);
@@ -229,6 +235,11 @@ function DailySearchesTab() {
             <Field label="Kilométrage max">
               <input type="number" step={5000} value={editing.mileage_max ?? ''} onChange={(e) => set({ mileage_max: e.target.value ? Number(e.target.value) : null })} placeholder="100 000" className={inputCls} />
             </Field>
+            <Field label="Boîte de vitesses">
+              <select value={editing.gearbox ?? ''} onChange={(e) => set({ gearbox: e.target.value })} className={inputCls}>
+                {GEARBOXES.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+              </select>
+            </Field>
             <Field label="Motorisation">
               <select value={editing.fuel ?? ''} onChange={(e) => set({ fuel: e.target.value })} className={inputCls}>
                 {FUELS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -351,6 +362,7 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
             {flagOf(s.source_country)} → {flagOf(s.target_country)} · {s.brand}{s.model ? ` ${s.model}` : ''}
             {s.year_min || s.year_max ? ` · ${s.year_min ?? '…'}–${s.year_max ?? '…'}` : ''}
             {s.fuel ? ` · ${FUELS.find((f) => f.value === s.fuel)?.label ?? s.fuel}` : ''}
+            {s.gearbox ? ` · ${GEARBOXES.find((g) => g.value === s.gearbox)?.label ?? s.gearbox}` : ''}
             {s.trim ? ` · « ${s.trim} »` : ''}
             {s.trim_target ? ` ≈ « ${s.trim_target} » (${s.target_country})` : ''}
           </p>
@@ -366,6 +378,20 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
           </button>
           {menu && (
             <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-48 text-sm">
+              {/* Test / urgence : le worker sonde le drapeau toutes les 30 s
+                  et lance l'étude même en pause, hors heure programmée. */}
+              <button
+                onClick={async () => {
+                  setMenu(false);
+                  const err = await forceRunDailySearch(s.id);
+                  window.alert(err
+                    ? `Lancement impossible : ${err}`
+                    : `Étude « ${s.label || s.brand} » lancée — le worker la prend sous 30 s, résultats dans l'onglet Résultats (recharge la page dans ~2 min).`);
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-slate-50 text-emerald-700 font-medium"
+              >
+                Lancer maintenant
+              </button>
               <button
                 onClick={async () => { setMenu(false); await saveDailySearch({ ...s, active: !s.active }); onChanged(); }}
                 className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700"

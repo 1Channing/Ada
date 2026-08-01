@@ -22,10 +22,12 @@ export type Database = {
           brand: string; model: string
           year_min: number | null; year_max: number | null
           fuel: string; trim: string; trim_target: string
+          gearbox: string
           mileage_max: number | null
           price_gap_min: number; price_gap_max: number
           run_hour: number; active: boolean
-          last_run_at: string | null; created_at: string; updated_at: string
+          last_run_at: string | null; force_requested_at: string | null
+          created_at: string; updated_at: string
         }
         Insert: {
           id?: string; user_id: string; label?: string
@@ -33,10 +35,12 @@ export type Database = {
           brand: string; model?: string
           year_min?: number | null; year_max?: number | null
           fuel?: string; trim?: string; trim_target?: string
+          gearbox?: string
           mileage_max?: number | null
           price_gap_min?: number; price_gap_max?: number
           run_hour?: number; active?: boolean
-          last_run_at?: string | null; created_at?: string; updated_at?: string
+          last_run_at?: string | null; force_requested_at?: string | null
+          created_at?: string; updated_at?: string
         }
         Update: {
           id?: string; user_id?: string; label?: string
@@ -44,10 +48,12 @@ export type Database = {
           brand?: string; model?: string
           year_min?: number | null; year_max?: number | null
           fuel?: string; trim?: string; trim_target?: string
+          gearbox?: string
           mileage_max?: number | null
           price_gap_min?: number; price_gap_max?: number
           run_hour?: number; active?: boolean
-          last_run_at?: string | null; created_at?: string; updated_at?: string
+          last_run_at?: string | null; force_requested_at?: string | null
+          created_at?: string; updated_at?: string
         }
         Relationships: []
       }

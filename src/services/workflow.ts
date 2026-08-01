@@ -24,6 +24,8 @@ export interface DailySearch {
   trim: string;
   /** Finition ÉQUIVALENTE côté pays cible (les noms diffèrent par pays). */
   trim_target: string;
+  /** 'AUTOMATIQUE' | 'MANUELLE' | '' (toutes) — même convention que fuel. */
+  gearbox: string;
   mileage_max: number | null;
   price_gap_min: number;
   price_gap_max: number;
@@ -145,7 +147,7 @@ export interface StudyUrl extends UrlGap {
  */
 export async function listStudyUrls(s: Pick<DailySearch,
   'source_country' | 'target_country' | 'brand' | 'model' | 'fuel' | 'trim' | 'trim_target' | 'year_min' | 'year_max'
-> & Partial<Pick<DailySearch, 'mileage_max'>>): Promise<StudyUrl[]> {
+> & Partial<Pick<DailySearch, 'mileage_max' | 'gearbox'>>): Promise<StudyUrl[]> {
   const out: StudyUrl[] = [];
   const sides: Array<{ country: string; side: UrlGap['side']; trim: string }> = [
     { country: s.source_country, side: 'source', trim: s.trim },
@@ -163,6 +165,7 @@ export async function listStudyUrls(s: Pick<DailySearch,
           yearFrom: s.year_min ? String(s.year_min) : undefined,
           yearTo: s.year_max ? String(s.year_max) : undefined,
           mileage: s.mileage_max ?? undefined,
+          gearbox: s.gearbox || undefined,
         });
         url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
       } catch { url = null; }
@@ -212,14 +215,40 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
     }
   }
   const row = { ...s, user_id: uid(), updated_at: new Date().toISOString() };
-  const { error } = s.id
-    ? await supabase.from('daily_searches').update(row).eq('id', s.id)
-    : await supabase.from('daily_searches').insert(row);
+  const write = (r: typeof row) => (s.id
+    ? supabase.from('daily_searches').update(r).eq('id', s.id)
+    : supabase.from('daily_searches').insert(r));
+  const { error } = await write(row);
+  // Migration gearbox pas encore appliquée : on n'empêche pas d'enregistrer
+  // une étude pour autant — retry sans le champ, et on le DIT si l'opérateur
+  // avait justement choisi une boîte.
+  if (error && /gearbox/.test(error.message)) {
+    const { gearbox, ...rest } = row;
+    const { error: retryErr } = await write(rest as typeof row);
+    if (retryErr) return retryErr.message;
+    return gearbox
+      ? 'Étude enregistrée SANS le critère boîte : la migration SQL gearbox n\'est pas encore appliquée en base.'
+      : null;
+  }
   return error ? error.message : null;
 }
 
 export async function deleteDailySearch(id: string): Promise<void> {
   await supabase.from('daily_searches').delete().eq('id', id);
+}
+
+/**
+ * « Lancer maintenant » (menu ⋯) : pose un drapeau que le worker sonde toutes
+ * les 30 s — l'étude part immédiatement, même en pause et hors heure
+ * programmée. C'est l'outil de test : modifier un critère puis vérifier le
+ * résultat sans attendre demain 7 h.
+ */
+export async function forceRunDailySearch(id: string): Promise<string | null> {
+  const { error } = await supabase
+    .from('daily_searches')
+    .update({ force_requested_at: new Date().toISOString() })
+    .eq('id', id);
+  return error ? error.message : null;
 }
 
 // ── Nouvelles annonces (hits) ───────────────────────────────────────────────
