@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   loadMarketOpportunities, loadOpportunityAcks, ackOpportunity, opportunityKey, fuelLabel,
-  brandKey, canonKey,
+  brandKey, canonKey, FUEL_TOKEN_TO_CRITERIA,
 } from '../services/marketData';
 import type { MarketOpportunity } from '../services/marketData';
 import { saveDailySearch, listDailySearches } from '../services/workflow';
@@ -25,11 +25,7 @@ const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
 };
 
-// Canonical fuel token → LinkGen criteria label
-const TOKEN_TO_CRITERIA: Record<string, string> = {
-  electric: 'ELECTRIQUE', petrol: 'ESSENCE', diesel: 'DIESEL',
-  hybrid: 'HYBRIDE', phev: 'PLUG_IN_HYBRID', lpg: 'GPL', cng: 'CNG',
-};
+const TOKEN_TO_CRITERIA = FUEL_TOKEN_TO_CRITERIA;
 
 function eur(n: number): string {
   return `${n.toLocaleString('fr-FR')} €`;
@@ -56,8 +52,10 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // The list can get huge — collapsible panel + progressive reveal.
-  const [collapsed, setCollapsed] = useState(false);
+  // The list can get huge — collapsible panel + progressive reveal. Fermé par
+  // défaut : le calcul arrive après le premier rendu et dépliait la page sous
+  // le doigt pendant le chargement.
+  const [collapsed, setCollapsed] = useState(true);
   const [shown, setShown] = useState(PAGE_SIZE);
 
   // Garde anti-réponse périmée : le calcul lit ~40 000 observations paginées,

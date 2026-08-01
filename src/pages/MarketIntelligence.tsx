@@ -8,8 +8,11 @@ import {
   loadKnownDimensions, sortedUnion, canonUnion, canonKey, brandKey, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
   studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing, canonicalizeGearbox, GEARBOX_LABELS,
-  loadSnapshots, loadObservedDimensions, loadObservationsForStudy,
+  loadSnapshots, loadObservedDimensions, loadObservationsForStudy, attackPrice, FUEL_TOKEN_TO_CRITERIA,
 } from '../services/marketData';
+import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
+import { allSiteAdapters } from '../lib/study-core/marketplaces';
+import type { SiteKey } from '../lib/linkgen/types';
 import type { DimensionRow } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
@@ -277,6 +280,7 @@ export function MarketIntelligence() {
     return {
       idx: i, filters: f, color, label: studyLabel(f, i),
       filtered, latestObs, stats: priceStats(latestObs), series: timeSeries(filtered),
+      attack: attackPrice(latestObs),
       realDepth: computeRealDepth(data.snapshots, f),
     };
   }), [studies, obs, data.snapshots]);
@@ -408,12 +412,86 @@ export function MarketIntelligence() {
   );
 }
 
+// ─── URLs directes de l'étude ───────────────────────────────────────────────────
+
+/**
+ * Les liens de recherche que le LinkGen génère depuis les filtres actifs, un
+ * par site du pays sélectionné (Pays=FR → Leboncoin + AutoScout FR…). Sert à
+ * ouvrir le marché tel que le site le montre — et à vérifier les URL à l'œil.
+ * Sans pays ni marque, aucune URL ne veut dire quelque chose : bouton absent.
+ */
+function StudyLinks({ filters }: { filters: MarketFilters }) {
+  const [open, setOpen] = useState(false);
+  const [links, setLinks] = useState<{ site: string; url: string | null }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const sig = JSON.stringify(filters);
+  useEffect(() => { setLinks(null); setOpen(false); }, [sig]);
+  if (!filters.country || !filters.brand) return null;
+
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (!next || links || busy) return;
+    setBusy(true);
+    try {
+      const sites = allSiteAdapters()
+        .filter((a) => (a as { countryCode?: string }).countryCode === filters.country)
+        .filter((a) => !filters.site || a.key === filters.site);
+      const gearToken = canonicalizeGearbox(filters.gearbox);
+      const out: { site: string; url: string | null }[] = [];
+      for (const site of sites) {
+        let url: string | null = null;
+        try {
+          const gen = await generateSearchUrlsWithMemory({
+            selectedSites: [site.key as SiteKey],
+            brand: filters.brand!, model: filters.model || '',
+            fuel: filters.fuel ? FUEL_TOKEN_TO_CRITERIA[filters.fuel] : undefined,
+            trim: filters.trim || undefined,
+            yearFrom: filters.yearMin != null ? String(filters.yearMin) : undefined,
+            yearTo: filters.yearMax != null ? String(filters.yearMax) : undefined,
+            mileage: filters.mileageMax ?? undefined,
+            gearbox: gearToken === 'automatique' ? 'AUTOMATIQUE' : gearToken === 'manuelle' ? 'MANUELLE' : undefined,
+          });
+          url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
+        } catch { url = null; }
+        out.push({ site: site.key, url });
+      }
+      setLinks(out);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <span className="relative inline-flex shrink-0">
+      <button onClick={toggle} title="URLs de recherche générées depuis les filtres"
+        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-600">
+        <ExternalLink className="w-3 h-3" /> URLs
+      </button>
+      {open && (
+        <span className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg p-2 min-w-[230px] space-y-1">
+          {busy && <span className="block text-xs text-slate-500 px-1 py-0.5">Génération…</span>}
+          {!busy && links?.length === 0 && <span className="block text-xs text-slate-500 px-1 py-0.5">Aucun site pour ce pays.</span>}
+          {!busy && links?.map((l) => (
+            <span key={l.site} className="flex items-center justify-between gap-3 px-1 py-0.5">
+              <span className="text-xs text-slate-700">{l.site}</span>
+              {l.url
+                ? <a href={l.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                : <span className="text-slate-400 text-xs">indisponible</span>}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 // ─── Single-study dashboard (the full, rich view) ───────────────────────────────
 
 interface StudyDerived {
   idx: number; filters: MarketFilters; color: string; label: string;
   filtered: Observation[]; latestObs: Observation[];
   stats: ReturnType<typeof priceStats>; series: ReturnType<typeof timeSeries>;
+  /** Médiane des N moins chères (N adaptatif) — le prix pour être compétitif. */
+  attack: ReturnType<typeof attackPrice>;
   realDepth: number | null;
 }
 
@@ -445,10 +523,11 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
   return (
     <>
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <Kpi label="Annonces (filtre)" value={String(stats.count)} />
         <Kpi label="Profondeur marché" value={realDepth != null ? String(realDepth) : '—'} hint={realDepth != null ? 'total site (marque/modèle)' : 'sélectionne marque+modèle'} />
-        <Kpi label="Médian" value={fmtEur(stats.median)} />
+        <Kpi label="Prix d'attaque" value={study.attack ? fmtEur(study.attack.price) : '—'} hint={study.attack ? `médiane des ${study.attack.window} moins chères` : undefined} />
+        <Kpi label="Médian" value={fmtEur(stats.median)} hint="ensemble du marché filtré" />
         <Kpi label="Fourchette p25–p75" value={`${fmtEur(stats.p25)} – ${fmtEur(stats.p75)}`} />
         <Kpi label="Étalement min–max" value={`${fmtEur(stats.min)} – ${fmtEur(stats.max)}`} />
       </div>
@@ -527,7 +606,10 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-semibold text-slate-800">Annonces {priceBand && <span className="text-slate-500 font-normal text-sm">· tranche {Math.round(priceBand.from / 1000)}–{Math.round(priceBand.to / 1000)}k €</span>}</h2>
-          {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-slate-600 hover:text-slate-800">✕ tranche</button>}
+          <span className="inline-flex items-center gap-3">
+            {priceBand && <button onClick={() => setPriceBand(null)} className="text-xs text-slate-600 hover:text-slate-800">✕ tranche</button>}
+            <StudyLinks filters={filters} />
+          </span>
         </div>
         <ListingsTable rows={tableRows} />
       </div>
@@ -613,6 +695,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
               <th className="py-2 pr-3">Étude</th>
               <th className="py-2 pr-3">Annonces</th>
               <th className="py-2 pr-3">Profondeur</th>
+              <th className="py-2 pr-3">Prix d'attaque</th>
               <th className="py-2 pr-3">Médian</th>
               <th className="py-2 pr-3">p25–p75</th>
               <th className="py-2 pr-3">min–max</th>
@@ -633,6 +716,9 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                   </td>
                   <td className="py-2 pr-3 text-slate-700">{s.stats.count}</td>
                   <td className="py-2 pr-3 text-slate-600">{s.realDepth != null ? s.realDepth : '—'}</td>
+                  <td className="py-2 pr-3 font-medium text-slate-900">
+                    {s.attack ? <>{fmtEur(s.attack.price)} <span className="text-xs text-slate-400 font-normal">/ {s.attack.window}</span></> : '—'}
+                  </td>
                   <td className="py-2 pr-3 font-medium text-slate-900">{fmtEur(s.stats.median)}</td>
                   <td className="py-2 pr-3 text-slate-600">{fmtEur(s.stats.p25)} – {fmtEur(s.stats.p75)}</td>
                   <td className="py-2 pr-3 text-slate-600">{fmtEur(s.stats.min)} – {fmtEur(s.stats.max)}</td>
@@ -645,6 +731,10 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
             })}
           </tbody>
         </table>
+        <p className="text-xs text-slate-400 mt-2">
+          Prix d'attaque = médiane des N annonces les moins chères (N : 3 en dessous de 20 annonces, 5 jusqu'à 99, 8 au-delà) —
+          le prix auquel une annonce est réellement compétitive. Le médian, lui, décrit l'ensemble du marché filtré.
+        </p>
       </div>
 
       {/* Overlaid median over time + grouped medians */}
@@ -749,7 +839,10 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                 <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-200">
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
                   <span className="text-sm text-slate-800 truncate">{s.label}</span>
-                  <span className="ml-auto text-xs text-slate-500 shrink-0">{colRows.length}</span>
+                  <span className="ml-auto inline-flex items-center gap-2 shrink-0">
+                    <StudyLinks filters={s.filters} />
+                    <span className="text-xs text-slate-500">{colRows.length}</span>
+                  </span>
                 </div>
                 {colRows.length === 0 ? <p className="text-xs text-slate-400 py-4 text-center">Aucune annonce.</p> : (
                   <div className="max-h-[440px] overflow-y-auto pr-1">

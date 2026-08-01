@@ -23,6 +23,13 @@ export function fuelLabel(token: string): string {
   return (FUEL_LABELS as Record<string, string>)[token] ?? (token || '—');
 }
 
+/** Token carburant canonique → label de critère LinkGen (génération d'URL). */
+export const FUEL_TOKEN_TO_CRITERIA: Record<string, string> = {
+  electric: 'ELECTRIQUE', petrol: 'ESSENCE', diesel: 'DIESEL',
+  hybrid: 'HYBRIDE', mild_hybrid: 'MILD_HYBRID', phev: 'PLUG_IN_HYBRID',
+  lpg: 'GPL', cng: 'CNG',
+};
+
 const DKK_TO_EUR = 0.134;
 function toEur(price: number, currency: string): number {
   return currency === 'DKK' ? Math.round(price * DKK_TO_EUR) : price;
@@ -605,6 +612,30 @@ export function priceStats(obs: Observation[]): { count: number; median: number;
     max: prices[prices.length - 1],
     avg: Math.round(prices.reduce((s, p) => s + p, 0) / prices.length),
   };
+}
+
+/**
+ * Prix d'attaque : à partir de quel prix une annonce est réellement compétitive
+ * sur le segment — médiane des N annonces les moins chères. La médiane globale
+ * décrit le MILIEU du marché ; pour se placer, c'est le bas qui compte, mais le
+ * minimum brut est souvent une épave ou une arnaque : la médiane d'une petite
+ * fenêtre résiste à 1-2 annonces pourries.
+ *
+ * N est adaptatif : une fenêtre fixe change de sens avec la profondeur (5 moins
+ * chères sur 12 annonces = 40 % du marché, ce n'est plus « le bas » ; 3 sur 300
+ * reste fragile face à une seule annonce cassée).
+ */
+export function attackWindowSize(count: number): number {
+  if (count >= 100) return 8;
+  if (count >= 20) return 5;
+  return 3;
+}
+
+export function attackPrice(obs: Observation[]): { price: number; window: number } | null {
+  const prices = obs.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0).sort((a, b) => a - b);
+  if (prices.length === 0) return null;
+  const window = Math.min(attackWindowSize(prices.length), prices.length);
+  return { price: Math.round(percentile(prices.slice(0, window), 0.5)), window };
 }
 
 /** Group filtered observations by snapshot time → time series of median + count. */
