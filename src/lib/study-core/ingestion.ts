@@ -107,7 +107,16 @@ const MILD_HYBRID_TOKENS = /half hybrid|mild hybrid|micro hybrid|\bmhev\b/;
  */
 export function refineFuelToken(structured: FuelToken, adText: string): FuelToken {
   if (structured !== 'hybrid' && structured !== '') return structured;
-  return PHEV_TOKENS.test(normalizeForMatch(adText)) ? 'phev' : structured;
+  if (PHEV_TOKENS.test(normalizeForMatch(adText))) return 'phev';
+  // Badge Lexus « 450h+ » : le + EST le marqueur plug-in (350h = full hybrid,
+  // 450h+ = rechargeable). Testé sur le texte BRUT : normalizeForMatch
+  // transforme '+' en espace et détruit la preuve. Constat 01/08 : 7/7
+  // NX 450h+ étiquetées famille « Hybride » par Marktplaats, invisibles du
+  // filtre rechargeable du MI.
+  // Sans frontière de mot à gauche : le badge s'écrit aussi collé au modèle
+  // (« NX450h+ ») — \b ne coupe pas entre deux caractères de mot.
+  if (/\d{3}h\+/i.test(adText)) return 'phev';
+  return structured;
 }
 
 export type FuelToken =

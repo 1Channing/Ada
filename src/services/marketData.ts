@@ -117,6 +117,17 @@ export async function writeMarketSnapshot(params: {
     return { ok: false, error: snapErr?.message ?? 'insert failed' };
   }
 
+  // Sous-type certifié par la RECHERCHE elle-même : une page filtrée plug-in
+  // (facette MP 13956, critère CONFIRMÉ par l'ingestion — c'est la condition
+  // pour que segment.fuel soit renseigné) ne contient QUE des rechargeables,
+  // mais chaque carte n'étiquette que la famille « Hybride » — 7/7 NX 450h+
+  // rangées 'hybrid', invisibles du filtre rechargeable du MI (01/08). Quand
+  // le segment confirmé porte le sous-type et que la carte ne dit que la
+  // famille, le sous-type gagne. Une carte qui CONTREDIT (diesel…) garde son
+  // propre attribut — la preuve au grain le plus fin prime.
+  const SEGMENT_FUEL_SUBTYPE: Record<string, FuelToken> = { PLUG_IN_HYBRID: 'phev', MILD_HYBRID: 'mild_hybrid' };
+  const segmentSubtype = SEGMENT_FUEL_SUBTYPE[(segment.fuel ?? '').trim().toUpperCase()];
+
   const observations: ObsInsert[] = priced.map((l) => ({
     snapshot_id: snap.id,
     site: segment.site,
@@ -127,7 +138,10 @@ export async function writeMarketSnapshot(params: {
     // filtered on them) — this is what lets the dashboard slice by trim/fuel.
     // PHEV refinement: cards label plug-ins as plain "Hybride"; the ad text
     // ("Plug-In", "eHybrid"…) upgrades the token so 'phev' data exists at all.
-    fuel: refineFuelToken(canonicalizeFuel(l.fuel ?? ''), `${l.title ?? ''} ${l.description ?? ''} ${l.trim ?? ''}`) || '',
+    fuel: (() => {
+      const t = refineFuelToken(canonicalizeFuel(l.fuel ?? ''), `${l.title ?? ''} ${l.description ?? ''} ${l.trim ?? ''}`);
+      return (segmentSubtype && (t === 'hybrid' || t === '') ? segmentSubtype : t) || '';
+    })(),
     trim: (l.trim ?? '').trim(),
     internal_ref: generateInternalRef({ listing_url: l.listing_url }),
     price: toEur(l.price, l.currency),
