@@ -410,12 +410,27 @@ export function confirmCriteriaAgainstSample(
   }
   const model = declared(criteria.model);
   if (model) pushMatch('model', model, (l) => modelMatchesTitle(l.title ?? '', model));
-  // trim — title + description (same sources as the study pipeline's matchesTrim)
+  // trim — title + description (same sources as the study pipeline's matchesTrim).
+  // Graphie compacte vs éclatée, comme les modèles : « m sport » déclaré vs
+  // « MSport » écrit collé par les vendeurs (Subito 02/08 — la confirmation
+  // ratait la moitié des annonces). Égalité STRICTE de jetons pour la forme
+  // compacte : « quantum sport » ne peut pas satisfaire « msport ».
   const trim = declared(criteria.trim);
   if (trim) {
     const trimNorm = normalizeForMatch(trim);
-    pushMatch('trim', trim, (l) =>
-      normalizeForMatch(`${l.title ?? ''} ${l.description ?? ''}`).includes(trimNorm));
+    const compact = trimNorm.replace(/ /g, '');
+    const trimHit = (raw: string): boolean => {
+      const text = normalizeForMatch(raw);
+      if (text.includes(trimNorm)) return true;
+      if (compact === trimNorm) return false;
+      const words = text.split(' ');
+      for (let i = 0; i < words.length; i++) {
+        if (words[i] === compact) return true; // écrit collé (« msport »)
+        if (i + 1 < words.length && words[i] + words[i + 1] === compact) return true;
+      }
+      return false;
+    };
+    pushMatch('trim', trim, (l) => trimHit(`${l.title ?? ''} ${l.description ?? ''}`));
   }
 
   // fuel — prefer the seller-declared structured attribute; fall back to
