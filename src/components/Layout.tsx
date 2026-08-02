@@ -48,10 +48,12 @@ export function Layout({ children }: LayoutProps) {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <nav className="bg-gradient-to-r from-brand-encre via-brand-ocean to-[#3F85C2] shadow-md">
-        <div className="flex items-center gap-2 px-6 py-2.5">
+        {/* Mobile (< md) : la barre DÉFILE horizontalement — aucune classe
+            existante modifiée, uniquement des ajouts max-md: (inertes sur PC). */}
+        <div className="flex items-center gap-2 px-6 py-2.5 max-md:overflow-x-auto max-md:px-3 max-md:[scrollbar-width:none]">
           {/* Logo : /logo-mark.png (version sans texte) — repli sur la
               marque « orbite » si le fichier n'est pas encore déposé. */}
-          <div className="flex items-center gap-3 pr-4 mr-1 border-r border-white/20">
+          <div className="flex items-center gap-3 pr-4 mr-1 border-r border-white/20 max-md:shrink-0">
             <span className="w-9 h-9 rounded-lg bg-white/95 grid place-items-center overflow-hidden shadow-sm">
               <img
                 src="/logo-mark.png"
@@ -78,7 +80,7 @@ export function Layout({ children }: LayoutProps) {
             <button
               key={it.path}
               onClick={() => navigateTo(it.path)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors max-md:shrink-0 max-md:whitespace-nowrap ${
                 activeFor(it)
                   ? 'bg-white/15 text-white shadow-inner'
                   : 'text-white/70 hover:text-white hover:bg-white/10'
@@ -90,7 +92,7 @@ export function Layout({ children }: LayoutProps) {
           ))}
 
           {/* À droite : présence + signalements + notifications + compte. */}
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1 max-md:shrink-0">
             <span className="hidden md:flex items-center gap-1.5 text-[11px] text-white/60 font-mono mr-2">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
               {activeCount ?? '—'} connecté{(activeCount ?? 0) > 1 ? 's' : ''}
@@ -104,7 +106,7 @@ export function Layout({ children }: LayoutProps) {
       </nav>
 
       <main className="min-h-screen overflow-auto">
-        <div className="p-8">
+        <div className="p-8 max-md:p-3">
           {children}
         </div>
       </main>

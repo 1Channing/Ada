@@ -154,7 +154,8 @@ function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => 
         <div className="relative shrink-0" ref={menuRef}>
           <button onClick={() => setMenu(!menu)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><MoreVertical className="w-4 h-4" /></button>
           {menu && (
-            <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-56 text-sm">
+            // Mobile : feuille ancrée en bas d'écran — uniquement des ajouts max-md: (inertes sur PC).
+            <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-56 text-sm max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:w-auto max-md:z-50 max-md:rounded-t-2xl max-md:rounded-b-none max-md:shadow-2xl max-md:max-h-[70vh] max-md:overflow-y-auto max-md:py-2">
               {!pushed && (
                 <MenuBtn onClick={async () => {
                   setMenu(false);
@@ -206,7 +207,7 @@ function MenuBtn({ children, onClick, danger }: { children: React.ReactNode; onC
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-4 py-2 hover:bg-slate-50 ${danger ? 'text-red-600' : 'text-slate-700'}`}
+      className={`w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 ${danger ? 'text-red-600' : 'text-slate-700'}`}
     >
       {children}
     </button>

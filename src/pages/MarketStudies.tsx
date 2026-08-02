@@ -520,7 +520,7 @@ export function MarketStudies() {
       ) : studies.length === 0 ? (
         <div className="text-center py-12 text-slate-600">No market studies yet. Create one to get started.</div>
       ) : (
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden max-md:overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-200 border-b border-slate-300">
               <tr>

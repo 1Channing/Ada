@@ -477,11 +477,12 @@ export function MarketIntelligence() {
                     })()}
                   </button>
                   {menuIdx === s.idx && (
-                    <span className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[190px]"
+                    // Mobile : feuille ancrée en bas d'écran — ajouts max-md: seulement (inertes sur PC).
+                    <span className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[190px] max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:mt-0 max-md:z-50 max-md:rounded-t-2xl max-md:rounded-b-none max-md:shadow-2xl max-md:max-h-[70vh] max-md:overflow-y-auto max-md:py-2"
                       onClick={(e) => e.stopPropagation()}>
                       <button onClick={() => updateStudy(s.idx)}
                         disabled={!s.filters.country || !s.filters.brand || updating.has(scopeOf(s.filters))}
-                        className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-40 flex items-center gap-2">
+                        className="w-full text-left px-3 py-1.5 max-md:py-3 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-40 flex items-center gap-2">
                         <RefreshCw className="w-3.5 h-3.5" /> Mettre à jour
                       </button>
                       {(!s.filters.country || !s.filters.brand) && (
@@ -695,7 +696,7 @@ function StudyLinks({ filters }: { filters: MarketFilters }) {
         <ExternalLink className="w-3 h-3" /> URLs
       </button>
       {open && (
-        <span className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg p-2 min-w-[230px] space-y-1">
+        <span className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg p-2 min-w-[230px] space-y-1 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:mt-0 max-md:z-50 max-md:rounded-t-2xl max-md:rounded-b-none max-md:shadow-2xl max-md:max-h-[70vh] max-md:overflow-y-auto max-md:p-3">
           {busy && <span className="block text-xs text-slate-500 px-1 py-0.5">Génération…</span>}
           {!busy && links?.length === 0 && <span className="block text-xs text-slate-500 px-1 py-0.5">Aucun site pour ce pays.</span>}
           {!busy && links?.map((l) => (

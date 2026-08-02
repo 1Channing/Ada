@@ -105,7 +105,7 @@ export function FeedbackCenter() {
       {open && (
         <div
           onPaste={onPaste}
-          className="absolute right-0 top-11 z-50 w-[480px] max-w-[92vw] bg-white border border-slate-300 rounded-xl shadow-2xl p-4 space-y-3"
+          className="absolute right-0 top-11 z-50 w-[480px] max-w-[92vw] bg-white border border-slate-300 rounded-xl shadow-2xl p-4 space-y-3 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:w-auto max-md:max-w-none max-md:rounded-t-2xl max-md:rounded-b-none max-md:max-h-[80vh] max-md:overflow-y-auto"
         >
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-800">Signaler — problème ou suggestion</h3>

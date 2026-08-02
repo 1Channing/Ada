@@ -377,7 +377,8 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
             <MoreVertical className="w-4 h-4" />
           </button>
           {menu && (
-            <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-48 text-sm">
+            // Mobile : feuille ancrée en bas d'écran — uniquement des ajouts max-md: (inertes sur PC).
+            <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-48 text-sm max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:w-auto max-md:z-50 max-md:rounded-t-2xl max-md:rounded-b-none max-md:shadow-2xl max-md:max-h-[70vh] max-md:overflow-y-auto max-md:py-2">
               {/* Test / urgence : le worker sonde le drapeau toutes les 30 s
                   et lance l'étude même en pause, hors heure programmée. */}
               <button
@@ -388,20 +389,20 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
                     ? `Lancement impossible : ${err}`
                     : `Étude « ${s.label || s.brand} » lancée — le worker la prend sous 30 s, résultats dans l'onglet Résultats (recharge la page dans ~2 min).`);
                 }}
-                className="w-full text-left px-4 py-2 hover:bg-slate-50 text-emerald-700 font-medium"
+                className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-emerald-700 font-medium"
               >
                 Lancer maintenant
               </button>
               <button
                 onClick={async () => { setMenu(false); await saveDailySearch({ ...s, active: !s.active }); onChanged(); }}
-                className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700"
+                className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700"
               >
                 {s.active ? 'Mettre en pause' : 'Réactiver'}
               </button>
-              <button onClick={() => { setMenu(false); onEdit(); }} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
+              <button onClick={() => { setMenu(false); onEdit(); }} className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700">
                 Modifier
               </button>
-              <button onClick={() => { setMenu(false); onDuplicate(); }} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
+              <button onClick={() => { setMenu(false); onDuplicate(); }} className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700">
                 Dupliquer
               </button>
               <button
@@ -409,7 +410,7 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
                   setMenu(false);
                   if (confirm(`Supprimer l'étude « ${s.label || s.brand} » ?`)) { await deleteDailySearch(s.id); onChanged(); }
                 }}
-                className="w-full text-left px-4 py-2 hover:bg-slate-50 text-red-600"
+                className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-red-600"
               >
                 Supprimer
               </button>
@@ -857,17 +858,17 @@ function HitActionsMenu({ hit, onChanged }: { hit: DailyHit; onChanged: () => vo
         <MoreVertical className="w-4 h-4" />
       </button>
       {open && (
-        <div className="absolute right-0 top-8 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-56 text-sm">
+        <div className="absolute right-0 top-8 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-56 text-sm max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:w-auto max-md:z-50 max-md:rounded-t-2xl max-md:rounded-b-none max-md:shadow-2xl max-md:max-h-[70vh] max-md:overflow-y-auto max-md:py-2">
           <button
             onClick={async () => { setOpen(false); await saveHitToNegotiations(hit); onChanged(); }}
-            className="w-full text-left px-4 py-2 hover:bg-slate-50 text-brand-ocean font-medium"
+            className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-brand-ocean font-medium"
           >
             Valider → négociations
           </button>
-          <button onClick={() => void resolve('trop_chere')} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
+          <button onClick={() => void resolve('trop_chere')} className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700">
             Traitée · trop chère <span className="text-xs text-slate-400">(revient si baisse)</span>
           </button>
-          <button onClick={() => void resolve('hors_criteres')} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700">
+          <button onClick={() => void resolve('hors_criteres')} className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700">
             Traitée · hors critères <span className="text-xs text-slate-400">(définitif)</span>
           </button>
         </div>
@@ -898,7 +899,7 @@ function ResultsGroupMenu({ search, name, onChanged }: { search: DailySearch; na
         <MoreVertical className="w-4 h-4" />
       </button>
       {menu && (
-        <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-72 text-sm">
+        <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-72 text-sm max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:w-auto max-md:z-50 max-md:rounded-t-2xl max-md:rounded-b-none max-md:shadow-2xl max-md:max-h-[70vh] max-md:overflow-y-auto max-md:py-2">
           <button
             onClick={async () => {
               setMenu(false);
@@ -907,7 +908,7 @@ function ResultsGroupMenu({ search, name, onChanged }: { search: DailySearch; na
                 onChanged();
               }
             }}
-            className="w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700"
+            className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700"
           >
             Vider les résultats <span className="text-xs text-slate-500">(garder la mémoire)</span>
           </button>
@@ -919,7 +920,7 @@ function ResultsGroupMenu({ search, name, onChanged }: { search: DailySearch; na
                 onChanged();
               }
             }}
-            className="w-full text-left px-4 py-2 hover:bg-slate-50 text-red-600"
+            className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-red-600"
           >
             Vider et oublier <span className="text-xs opacity-70">(tout peut réapparaître)</span>
           </button>
