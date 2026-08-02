@@ -73,9 +73,16 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
   if (m) {
     const bk = brandIdKey(m[1].replace(/-/g, ' '));
     for (const p of pairs) {
-      const key = `${bk}|${modelKeyLoose(p.label)}`;
-      const prev = LEARNED_MODEL_ID[key];
-      if (!prev || variantDepth(p.code) > variantDepth(prev)) LEARNED_MODEL_ID[key] = p.code;
+      // Les séries Blocket sont suffixées dans leurs labels (« CLA-Klass »,
+      // « NX-Serie ») : on indexe AUSSI le label dépouillé pour que « CLA »
+      // (notre référentiel) trouve la série — la profondeur départage
+      // toujours (une version exacte bat la série au même libellé).
+      const stripped = p.label.replace(/[-\s](serien?|klass)$/i, '');
+      for (const lbl of new Set([p.label, stripped])) {
+        const key = `${bk}|${modelKeyLoose(lbl)}`;
+        const prev = LEARNED_MODEL_ID[key];
+        if (!prev || variantDepth(p.code) > variantDepth(prev)) LEARNED_MODEL_ID[key] = p.code;
+      }
     }
   }
 }
