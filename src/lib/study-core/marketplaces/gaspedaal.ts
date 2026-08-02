@@ -55,11 +55,33 @@ const CANON_BY_FUEL_SLUG: Record<string, string[]> = {
 };
 const LEARNED_FUEL_SLUG: Record<string, string> = {};
 
+// Miroir local de brandKey (services/marketData) — l'adaptateur reste pur
+// (pas d'import de la couche services) ; mêmes deux alias.
+const brandIdKey = (v: string): string => {
+  const k = (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return k === 'MERCEDESBENZ' ? 'MERCEDES' : k === 'VW' ? 'VOLKSWAGEN' : k;
+};
+
+// Slugs MARQUE appris (gp:brand moissonné — le label du site EST le slug,
+// même dérivation que les modèles). Preuve du besoin (campagne 02/08 16h) :
+// notre slugify('MERCEDES') → /mercedes, slug inconnu du site qui a servi
+// une page toutes-marques (300 annonces mélangées, marque rejetée 0 %) —
+// le site dit « Mercedes-Benz » → /mercedes-benz.
+const LEARNED_BRAND_SLUG: Record<string, string> = {};
+
 // Slugs modèle appris : marque (slug) → clé de jetons triés → slug du site.
 // Indexé par label ET par code (identiques sur ce site, mais restons larges).
 const LEARNED_MODEL_SLUG = new Map<string, Map<string, string>>();
 
 function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field === 'gp:brand') {
+    for (const p of pairs) {
+      for (const k of [brandIdKey(p.label), brandIdKey(p.code)]) {
+        if (k && !LEARNED_BRAND_SLUG[k]) LEARNED_BRAND_SLUG[k] = p.code;
+      }
+    }
+    return;
+  }
   if (field === 'gp:fuel') {
     for (const p of pairs) {
       for (const canon of CANON_BY_FUEL_SLUG[p.code] ?? []) {
@@ -89,6 +111,13 @@ function fuelSlugFor(fuel: string | null | undefined): string | undefined {
 function modelSlugFor(brandSlug: string, model: string | null | undefined): string | undefined {
   if (!model) return undefined;
   return LEARNED_MODEL_SLUG.get(brandSlug)?.get(modelKeyLoose(model));
+}
+
+/** Slug marque : appris (gp:brand — « Mercedes-Benz » → mercedes-benz) sinon
+ *  dérivé mécaniquement du nom déclaré. */
+function brandSlugFor(brand: string | null | undefined): string {
+  const raw = brand ?? '';
+  return LEARNED_BRAND_SLUG[brandIdKey(raw)] ?? slugify(raw);
 }
 
 const slugify = (s: string) =>
@@ -176,7 +205,7 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
 
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
-  const brandSlug = slugify(params.brand || '');
+  const brandSlug = brandSlugFor(params.brand);
   const fuelSlug = fuelSlugFor(params.fuel);
   if (params.fuel && !fuelSlug) {
     warnings.push(`[LINKGEN_WARNING] Gaspedaal: carburant "${params.fuel}" sans slug prouvé — filtre omis`);
@@ -214,7 +243,7 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const brandOk = listings.length > 0 && brandHits / listings.length >= 0.8;
   // Modèle posé en URL (slug moissonné trouvé) → vérification par le modèle
   // STRUCTURÉ des annonces ; sans slug → page marque, honnêtement non appliqué.
-  const modelPosed = Boolean(params.model && (modelSlugFor(slugify(params.brand || ''), params.model) || params.derivedModelSlug));
+  const modelPosed = Boolean(params.model && (modelSlugFor(brandSlugFor(params.brand), params.model) || params.derivedModelSlug));
   const wantModelKey = params.model ? modelKeyLoose(params.model) : '';
   const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
   const modelOk = modelPosed && listings.length > 0 && modelHits / listings.length >= 0.8;
@@ -294,7 +323,7 @@ export const gaspedaalAdapter: SiteAdapter = {
   domain: 'gaspedaal.nl',
   urlTemplate: URL_TEMPLATE,
 
-  mapBrand: (raw) => slugify(raw),
+  mapBrand: (raw) => brandSlugFor(raw),
   mapModel: (raw) => raw.trim(),
   mapFuel: (raw) => fuelSlugFor(raw) ?? '',
   supportsParam: () => false,

@@ -47,6 +47,13 @@ export interface LinkGenParams {
   color?: string;
   vehicleType?: string;
   country?: string;
+  /** Tri demandé — absent = prix croissant (études/précision) ; 'relevance' =
+   *  ordre par défaut du site (campagnes DÉCOUVERTE uniquement). Transmis tel
+   *  quel aux adaptateurs (SearchCriteria.sort). */
+  sort?: 'price_asc' | 'relevance';
+  /** Découverte-validation : hypothèse de slug modèle autorisée (Gaspedaal
+   *  slugify, Subito q=) — vérifiée par le modèle structuré du scrape. */
+  derivedModelSlug?: boolean;
 }
 
 export interface LinkGenLogEntry {

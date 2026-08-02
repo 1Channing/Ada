@@ -316,6 +316,12 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
       fuel: p.fuel || undefined, trim: p.trim || undefined,
       yearFrom: p.year ? String(p.year) : undefined,
       yearTo: p.year ? String(p.year) : undefined,
+      // Drapeaux découverte — sans eux l'URL retombait en page marque triée
+      // prix (constat campagne 02/08 17h : /auto/ford/?order=priceasc sans
+      // q=, 0/30, lacune à tort) : les critères d'ANALYSE les portaient,
+      // mais pas cet appel de génération d'URL.
+      sort: criteria.sort,
+      derivedModelSlug: criteria.derivedModelSlug,
     });
     url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
     urlSource = (gen[0] as { mappingSource?: string } | undefined)?.mappingSource ?? 'template';
