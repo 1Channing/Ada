@@ -432,11 +432,37 @@ export function pruneVanishedListings(obs: Observation[], snapshots: Snapshot[])
     const cur = latestBySeg.get(k);
     if (!cur || String(s.scraped_at) > String(cur.scraped_at)) latestBySeg.set(k, s);
   }
+  // Couverture ANNÉES du dernier scan de chaque segment, lue dans ses propres
+  // observations : les campagnes scannent ANNÉE PAR ANNÉE (min = max), donc le
+  // « dernier scan » d'un segment ne décrit souvent qu'un seul millésime — un
+  // scan épinglé 2025 ne prouve RIEN sur les annonces 2024 ou 2026 (constat
+  // Channing 02/08 : les EV3 belges s'effaçaient dès l'arrivée des snapshots).
+  // Un scan ne peut faire disparaître que ce que sa fourchette d'années a
+  // effectivement recouvert.
+  const latestYearCover = new Map<string, { min: number; max: number }>();
+  for (const o of obs) {
+    if (o.year == null) continue;
+    const snap = byId.get(o.snapshot_id);
+    if (!snap) continue;
+    const latest = latestBySeg.get(segOf(snap));
+    if (!latest || latest.id !== o.snapshot_id) continue;
+    const cur = latestYearCover.get(latest.id);
+    latestYearCover.set(latest.id, {
+      min: cur ? Math.min(cur.min, o.year) : o.year,
+      max: cur ? Math.max(cur.max, o.year) : o.year,
+    });
+  }
   return obs.filter((o) => {
     const snap = byId.get(o.snapshot_id);
     if (!snap) return true;
     const latest = latestBySeg.get(segOf(snap));
-    return !latest || latest.id === snap.id;
+    if (!latest || latest.id === snap.id) return true;
+    const cover = latestYearCover.get(latest.id);
+    // Fail-open : dernier scan sans observations chargées (scan vide, obs
+    // écartées par les filtres de l'étude) ou année de l'annonce inconnue →
+    // aucune preuve de disparition, l'annonce reste.
+    if (!cover || o.year == null) return true;
+    return o.year < cover.min || o.year > cover.max;
   });
 }
 
