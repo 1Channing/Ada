@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { History, Trophy, RefreshCw, CheckCircle2, XCircle, Radio } from 'lucide-react';
+import { History, Trophy, RefreshCw, CheckCircle2, XCircle, Radio, MoreHorizontal } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import {
   loadIngestionEvents,
@@ -43,6 +43,8 @@ export function IngestionHistory() {
   // Journal pagination — 10 rows per page, the page was endless otherwise.
   const [page, setPage] = useState(0);
   const [flashId, setFlashId] = useState<string | null>(null);
+  // Détail « mapping appris » déplié (menu ⋯ d'une ligne du journal).
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const treeReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = async () => {
@@ -207,13 +209,14 @@ export function IngestionHistory() {
                 <th className="py-2 pr-3">Retenu</th>
                 <th className="py-2 pr-3">Jeté</th>
                 <th className="py-2 pr-3">Mémoire</th>
-                <th className="py-2">Lien</th>
+                <th className="py-2 pr-3">Lien</th>
+                <th className="py-2" />{/* menu ⋯ */}
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((e) => {
+              {pageRows.flatMap((e) => {
                 const badge = ACTION_BADGE[e.memory_action ?? 'none'] ?? ACTION_BADGE.none;
-                return (
+                const mainRow = (
                   <tr key={e.id} className={`border-b border-slate-200 transition-colors ${flashId === e.id ? 'bg-emerald-50' : ''}`}>
                     <td className="py-2 pr-3 text-slate-600 whitespace-nowrap">{fmtDate(e.created_at)}</td>
                     <td className="py-2 pr-3 text-slate-800">{e.submitted_by || <span className="text-slate-400">anonyme</span>}</td>
@@ -243,16 +246,74 @@ export function IngestionHistory() {
                     <td className="py-2 pr-3">
                       <span className={`text-[11px] px-1.5 py-0.5 rounded border ${badge.cls}`}>{badge.text}</span>
                     </td>
-                    <td className="py-2 max-w-[220px]">
+                    <td className="py-2 pr-3 max-w-[220px]">
                       <a href={e.submitted_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline text-xs truncate block">
                         {e.submitted_url.replace(/^https?:\/\/(www\.)?/, '')}
                       </a>
                     </td>
+                    <td className="py-2">
+                      <button onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}
+                        className="p-1 rounded hover:bg-slate-200 text-slate-500 hover:text-slate-800"
+                        title="Voir le mapping appris par cette ingestion">
+                        <MoreHorizontal className="w-4 h-4" />
+                      </button>
+                    </td>
                   </tr>
                 );
+                if (expandedId !== e.id) return [mainRow];
+                // Détail « mapping appris » : ce que CETTE ingestion a confirmé
+                // champ par champ (méthode + score). Un code déjà connu n'est
+                // jamais ré-appris — la mémoire incrémente juste son compteur
+                // de confirmations (badge : Nouveau = créé, Renforcé = re-confirmé).
+                const METHOD_LABEL: Record<string, string> = { structured: 'donnée structurée', text: 'texte des annonces' };
+                const crit = (e.declared_criteria ?? {}) as Record<string, unknown>;
+                const detailRow = (
+                  <tr key={`${e.id}-detail`} className="border-b border-slate-200 bg-slate-50">
+                    <td colSpan={9} className="py-3 px-4">
+                      <div className="text-xs text-slate-600 space-y-2">
+                        <div className="font-semibold text-slate-800">
+                          Mapping appris par cette ingestion — {SITE_FLAG[e.site] ?? ''} {e.site}
+                          <span className="font-normal text-slate-500"> · {fmtDate(e.created_at)} · échantillon {e.sample_size} annonce(s)</span>
+                        </div>
+                        <div className="grid sm:grid-cols-2 gap-x-8 gap-y-1">
+                          {(e.retained ?? []).map((r, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span className="text-slate-800 font-medium">{r.field}</span>
+                              <span className="text-slate-600">« {r.declared} »</span>
+                              <span className="text-slate-400">
+                                {METHOD_LABEL[r.method ?? ''] ?? r.method ?? ''}
+                                {r.matchCount != null && r.sampleSize != null ? ` · ${r.matchCount}/${r.sampleSize}` : ''}
+                              </span>
+                            </div>
+                          ))}
+                          {(e.discarded ?? []).map((d, i) => (
+                            <div key={`d${i}`} className="flex items-center gap-2">
+                              <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                              <span className="text-slate-800 font-medium">{d.field}</span>
+                              <span className="text-slate-600">« {d.declared} »</span>
+                              <span className="text-red-600/80">{d.reason}</span>
+                            </div>
+                          ))}
+                          {(e.retained ?? []).length === 0 && (e.discarded ?? []).length === 0 && (
+                            <span className="text-slate-400">Aucun champ confirmé ni jeté{e.scrape_error ? ` — scrape en échec : ${e.scrape_error}` : ''}.</span>
+                          )}
+                        </div>
+                        <div className="text-slate-500">
+                          Critères déclarés : {Object.entries(crit).filter(([, v]) => String(v ?? '').trim()).map(([k, v]) => `${k}=${String(v)}`).join(' · ') || '—'}
+                        </div>
+                        <div className="text-slate-400">
+                          Seul ce qui est confirmé ici entre en mémoire — un champ déjà connu du site n'est pas ré-appris,
+                          sa confirmation est simplement comptée (badge Mémoire : « Nouveau » = mapping créé, « Renforcé » = déjà connu).
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                );
+                return [mainRow, detailRow];
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="py-6 text-center text-slate-500">Aucune ingestion pour ces filtres.</td></tr>
+                <tr><td colSpan={9} className="py-6 text-center text-slate-500">Aucune ingestion pour ces filtres.</td></tr>
               )}
             </tbody>
           </table>

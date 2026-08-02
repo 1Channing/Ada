@@ -15,7 +15,7 @@ export interface IngestionEventRow {
   site: string;
   submitted_by: string | null;
   declared_criteria: Record<string, unknown> | null;
-  retained: Array<{ field: string; declared: string }> | null;
+  retained: Array<{ field: string; declared: string; method?: string; matchCount?: number; sampleSize?: number }> | null;
   discarded: Array<{ field: string; declared: string; reason: string }> | null;
   memory_action: string | null;
   sample_size: number;
