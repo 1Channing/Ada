@@ -46,6 +46,9 @@ const COUNTRIES: Array<{ code: string; label: string; flag: string }> = [
   { code: 'IT', label: 'Italie', flag: '🇮🇹' },
   { code: 'ES', label: 'Espagne', flag: '🇪🇸' },
   { code: 'BE', label: 'Belgique', flag: '🇧🇪' },
+  { code: 'HU', label: 'Hongrie', flag: '🇭🇺' },
+  { code: 'LT', label: 'Lituanie', flag: '🇱🇹' },
+  { code: 'SE', label: 'Suède', flag: '🇸🇪' },
 ];
 const FUELS = [
   { value: '', label: 'Toutes énergies' },

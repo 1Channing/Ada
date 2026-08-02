@@ -11,7 +11,7 @@ import { sharedSupabase as supabase } from '../lib/supabaseShared';
 import type { Database } from '../lib/database.types';
 import { generateInternalRef } from '../lib/internalRefGenerator';
 import { canonicalizeFuel, refineFuelToken, FUEL_LABELS } from '../lib/study-core/ingestion';
-import { isDamagedVehicleText } from '../lib/study-core/business-logic';
+import { isDamagedVehicleText, modelKeyLoose } from '../lib/study-core/business-logic';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
@@ -82,7 +82,31 @@ export async function writeMarketSnapshot(params: {
   submittedBy?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const { segment, listings, totalCount, sourceUrl, submittedBy } = params;
-  const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetailPrice(l));
+  // GARDE D'IDENTITÉ À L'ÉCRITURE (constat 02/08 : l'étude quotidienne
+  // Gaspedaal « RAV4 » recevait la page TOUT Toyota — chaque Yaris/C-HR est
+  // entrée en base sous model=RAV4, contaminant le MI ET le radar inter-pays).
+  // Chaque observation copie l'identité du SEGMENT : une annonce dont la
+  // marque ou le modèle STRUCTURÉ contredit ce segment ne doit JAMAIS entrer,
+  // quel que soit l'appelant (campagne, étude quotidienne, mise à jour MI,
+  // ingestion). Fail-open : sans champ structuré (LBC, AS24…), l'annonce
+  // reste — les post-filtres texte amont couvrent ces sites-là. On n'écarte
+  // que sur DOUBLE désaccord (clé lâche ET identité référentiel) pour ne pas
+  // rejeter les graphies honnêtes (« CLASSE CLA » vs « CLA »).
+  const segBrandKey = brandKey(segment.brand ?? '');
+  const segModel = (segment.model ?? '').trim();
+  const identityOk = (l: ScrapedListing): boolean => {
+    const lb = (l.brand ?? '').trim();
+    if (segBrandKey && lb && brandKey(lb) !== segBrandKey) return false;
+    const lm = (l.model ?? '').trim();
+    if (!segModel || !lm) return true;
+    return modelKeyLoose(lm) === modelKeyLoose(segModel)
+      || refModelKey(segment.brand, lm) === refModelKey(segment.brand, segModel);
+  };
+  const contradicted = listings.filter((l) => !identityOk(l)).length;
+  if (contradicted > 0) {
+    console.warn(`[MARKET_SNAPSHOT] ${contradicted} annonce(s) écartée(s) — identité structurée contraire au segment ${segment.brand} ${segment.model} (${segment.site})`);
+  }
+  const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetailPrice(l) && identityOk(l));
   if (priced.length === 0) return { ok: false, error: 'no priced listings' };
 
   const scrapedAt = new Date().toISOString();
