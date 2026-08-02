@@ -40,10 +40,33 @@ const FUEL_CODE: Record<string, string[]> = {
 };
 
 // Codes variant PROUVÉS (813=Toyota par variant=0.813 ; 3074=RAV4 par
-// variant=1.813.3074). Les autres marques/modèles s'apprennent par les URLs
-// humaines — la mémoire de mapping les réutilise telles quelles.
+// variant=1.813.3074). Le RESTE de l'arbre vient du dictionnaire moissonné
+// bl:brandcode / bl:modelcode:<marque> — codes lus dans les pages SEO
+// « discover » DU SITE (/mobility/discover/cars/<marque>[/<modèle>] publie
+// variant=0.<id> et variant=1.<id>.<id>, moisson du 02/08 : 102 marques),
+// réinjectés via learnEnumValues. Jamais devinés.
 const BRAND_ID: Record<string, string> = { TOYOTA: '813' };
 const MODEL_ID: Record<string, string> = { 'TOYOTA|RAV4': '3074' };
+const LEARNED_BRAND_ID: Record<string, string> = {};
+const LEARNED_MODEL_ID: Record<string, string> = {};
+
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field === 'bl:brandcode') {
+    for (const p of pairs) {
+      const k = brandIdKey(p.label);
+      if (k && !LEARNED_BRAND_ID[k]) LEARNED_BRAND_ID[k] = p.code;
+    }
+    return;
+  }
+  const m = field.match(/^bl:modelcode:(.+)$/);
+  if (m) {
+    const bk = brandIdKey(m[1].replace(/-/g, ' '));
+    for (const p of pairs) {
+      const key = `${bk}|${modelKeyLoose(p.label)}`;
+      if (!LEARNED_MODEL_ID[key]) LEARNED_MODEL_ID[key] = p.code;
+    }
+  }
+}
 
 const brandIdKey = (v: string): string => {
   const k = (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -150,8 +173,11 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // variant : 1.<marque>.<modèle> si les DEUX codes sont connus, sinon
   // 0.<marque>, sinon omis (marché entier) — codes appris, jamais devinés.
   const bk = brandIdKey(params.brand || '');
-  const brandId = BRAND_ID[bk];
-  const modelId = params.model ? MODEL_ID[`${bk}|${modelKeyLoose(params.model).toUpperCase()}`] ?? MODEL_ID[`${bk}|${(params.model || '').trim().toUpperCase()}`] : undefined;
+  const brandId = BRAND_ID[bk] ?? LEARNED_BRAND_ID[bk];
+  const modelId = params.model
+    ? MODEL_ID[`${bk}|${(params.model || '').trim().toUpperCase()}`]
+      ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(params.model)}`]
+    : undefined;
   if (brandId && modelId) qs.set('variant', `1.${brandId}.${modelId}`);
   else if (brandId) {
     qs.set('variant', `0.${brandId}`);
@@ -237,7 +263,8 @@ export const blocketAdapter: SiteAdapter = {
   domain: 'blocket.se',
   urlTemplate: URL_TEMPLATE,
 
-  mapBrand: (raw) => BRAND_ID[brandIdKey(raw)] ?? '',
+  mapBrand: (raw) => BRAND_ID[brandIdKey(raw)] ?? LEARNED_BRAND_ID[brandIdKey(raw)] ?? '',
+  learnEnumValues,
   mapModel: (raw) => raw.trim(),
   mapFuel: (raw) => (FUEL_CODE[raw.trim().toUpperCase()] ?? []).join(','),
   supportsParam: () => false,
