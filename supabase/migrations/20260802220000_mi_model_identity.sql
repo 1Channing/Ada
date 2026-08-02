@@ -42,7 +42,7 @@ begin
   -- 1. Numéral romain de génération en fin de nom (Golf IV, C4 III, Ignis II).
   v := regexp_replace(v, '\s+(I{1,3}|IV|V|VI{0,3}|IX|X{1,2})$', '', 'i');
   -- 2. Mercedes : X-Class / Classe X / X-Klasse → code nu.
-  if ada_brand_key(p_brand) = 'MERCEDES' then
+  if public.ada_brand_key(p_brand) = 'MERCEDES' then
     m := regexp_match(v, '^([A-Za-z]{1,3})[- ]?(?:CLASS|KLASSE)$', 'i');
     if m is null then
       m := regexp_match(v, '^(?:CLASSE|CLASE|CLASS)\s+([A-Za-z]{1,3})$', 'i');
@@ -62,7 +62,7 @@ end $$;
 --       v3 (clé marque, clé modèle, scraped_at desc) ────────────────────────
 create index if not exists idx_mlo_identity_scraped
   on market_listing_observations (
-    (ada_brand_key(brand)), (ada_model_key(brand, model)), scraped_at desc
+    (public.ada_brand_key(brand)), (public.ada_model_key(brand, model)), scraped_at desc
   );
 
 -- ── 3. mi_obs_for_segment v3 : mêmes branches anti-timeout (01/08), clés
@@ -80,26 +80,26 @@ begin
   if p_model_key is not null and p_country is not null then
     return query
       select * from market_listing_observations
-      where ada_brand_key(brand) = any (p_brand_keys)
-        and ada_model_key(brand, model) = p_model_key
+      where public.ada_brand_key(brand) = any (p_brand_keys)
+        and public.ada_model_key(brand, model) = p_model_key
         and country = p_country
       order by scraped_at desc limit lim;
   elsif p_model_key is not null then
     return query
       select * from market_listing_observations
-      where ada_brand_key(brand) = any (p_brand_keys)
-        and ada_model_key(brand, model) = p_model_key
+      where public.ada_brand_key(brand) = any (p_brand_keys)
+        and public.ada_model_key(brand, model) = p_model_key
       order by scraped_at desc limit lim;
   elsif p_country is not null then
     return query
       select * from market_listing_observations
-      where ada_brand_key(brand) = any (p_brand_keys)
+      where public.ada_brand_key(brand) = any (p_brand_keys)
         and country = p_country
       order by scraped_at desc limit lim;
   else
     return query
       select * from market_listing_observations
-      where ada_brand_key(brand) = any (p_brand_keys)
+      where public.ada_brand_key(brand) = any (p_brand_keys)
       order by scraped_at desc limit lim;
   end if;
 end $$;
@@ -117,12 +117,12 @@ returns table (
 language sql stable as $$
   with obs as (
     select
-      ada_brand_key(brand) as bk,
-      ada_model_key(brand, model) as mk,
+      public.ada_brand_key(brand) as bk,
+      public.ada_model_key(brand, model) as mk,
       brand, model, lower(fuel) as fuel, year, upper(country) as country,
       site, price, scraped_at,
       row_number() over (
-        partition by ada_brand_key(brand), ada_model_key(brand, model),
+        partition by public.ada_brand_key(brand), public.ada_model_key(brand, model),
                      lower(fuel), year, upper(country)
         order by price asc
       ) as rn
