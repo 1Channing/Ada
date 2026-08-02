@@ -42,13 +42,24 @@ const FUEL_CODE: Record<string, string[]> = {
 // Codes variant PROUVÉS (813=Toyota par variant=0.813 ; 3074=RAV4 par
 // variant=1.813.3074). Le RESTE de l'arbre vient du dictionnaire moissonné
 // bl:brandcode / bl:modelcode:<marque> — codes lus dans les pages SEO
-// « discover » DU SITE (/mobility/discover/cars/<marque>[/<modèle>] publie
-// variant=0.<id> et variant=1.<id>.<id>, moisson du 02/08 : 102 marques),
-// réinjectés via learnEnumValues. Jamais devinés.
+// « discover » DU SITE, réinjectés via learnEnumValues. Jamais devinés.
+//
+// ARBRE À 3 NIVEAUX (constat Channing 02/08 soir, X3 ⊂ X-Serie ⊂ BMW) :
+//   variant=0.<marque> · 1.<marque>.<série> · 2.<marque>.<série>.<version>
+// Les pages discover suivent la même hiérarchie (/bmw → /bmw/x-serie →
+// /bmw/x-serie/x3 publie variant=2.749.2466.7798). Un code modèle appris
+// peut donc être soit un id nu hérité (« 3074 », composé en 1.<b>.<m>),
+// soit un JETON COMPLET (« 1.749.2466 », « 2.749.2466.7798 ») posé tel
+// quel. À libellés équivalents, le niveau le plus PROFOND gagne (la
+// version X3 est plus précise que la série X-Serie).
 const BRAND_ID: Record<string, string> = { TOYOTA: '813' };
 const MODEL_ID: Record<string, string> = { 'TOYOTA|RAV4': '3074' };
 const LEARNED_BRAND_ID: Record<string, string> = {};
 const LEARNED_MODEL_ID: Record<string, string> = {};
+
+/** Profondeur d'un code modèle : id nu ≡ série (1) ; jeton n.x.y[.z] → n. */
+const variantDepth = (code: string): number =>
+  code.includes('.') ? Number(code.split('.')[0]) || 0 : 1;
 
 function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
   if (field === 'bl:brandcode') {
@@ -63,7 +74,8 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
     const bk = brandIdKey(m[1].replace(/-/g, ' '));
     for (const p of pairs) {
       const key = `${bk}|${modelKeyLoose(p.label)}`;
-      if (!LEARNED_MODEL_ID[key]) LEARNED_MODEL_ID[key] = p.code;
+      const prev = LEARNED_MODEL_ID[key];
+      if (!prev || variantDepth(p.code) > variantDepth(prev)) LEARNED_MODEL_ID[key] = p.code;
     }
   }
 }
@@ -170,15 +182,17 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (params.mileage) qs.set('mileage_to', String(Math.round(Number(params.mileage) / 10)));
   if (params.trim && String(params.trim).trim()) qs.set('q', String(params.trim).trim());
   if (params.sort !== 'relevance') qs.set('sort', 'PRICE_ASC');
-  // variant : 1.<marque>.<modèle> si les DEUX codes sont connus, sinon
-  // 0.<marque>, sinon omis (marché entier) — codes appris, jamais devinés.
+  // variant : jeton complet appris (série/version) posé tel quel, sinon
+  // 1.<marque>.<modèle> composé d'un id nu hérité, sinon 0.<marque>, sinon
+  // omis (marché entier) — codes appris, jamais devinés.
   const bk = brandIdKey(params.brand || '');
   const brandId = BRAND_ID[bk] ?? LEARNED_BRAND_ID[bk];
   const modelId = params.model
     ? MODEL_ID[`${bk}|${(params.model || '').trim().toUpperCase()}`]
       ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(params.model)}`]
     : undefined;
-  if (brandId && modelId) qs.set('variant', `1.${brandId}.${modelId}`);
+  if (modelId?.includes('.')) qs.set('variant', modelId);
+  else if (brandId && modelId) qs.set('variant', `1.${brandId}.${modelId}`);
   else if (brandId) {
     qs.set('variant', `0.${brandId}`);
     if (params.model) warnings.push(`[LINKGEN_WARNING] Blocket: modèle "${params.model}" sans code variant appris — page marque, tri en aval`);
@@ -191,7 +205,8 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   qs.sort();
   return {
     url: `https://www.blocket.se/mobility/search/car?${qs.toString()}`, warnings,
-    modelExpressed: !params.model || Boolean(brandId && modelId),
+    // Jeton complet : le modèle est exprimé même sans code marque (il l'embarque).
+    modelExpressed: !params.model || Boolean(modelId && (modelId.includes('.') || brandId)),
   };
 }
 

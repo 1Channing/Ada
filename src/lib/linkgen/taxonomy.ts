@@ -99,11 +99,23 @@ export async function loadLearnedTaxonomy(): Promise<void> {
     // TOUS les champs du site — chaque adaptateur ignore ceux qu'il ne
     // connaît pas (l'ancien filtre 'ms:%' était un héritage mobile.de qui
     // privait Leboncoin de ses enums modèle u_car_model, constat iX1 28/07).
-    const { data, error } = await supabase
-      .from('linkgen_enum_mappings')
-      .select('field, code, label')
-      .eq('site', adapter.key);
-    if (error || !data?.length) continue;
+    // Lecture PAGINÉE : PostgREST plafonne toute requête à 1000 lignes (même
+    // avec limit=), et Blocket/mobile.de dépassent ce cap — sans .range(),
+    // l'adaptateur perdait silencieusement la fin de son dictionnaire.
+    const data: Array<{ field: string; code: string; label: string }> = [];
+    let readError = false;
+    for (let from = 0; ; from += 1000) {
+      const { data: page, error } = await supabase
+        .from('linkgen_enum_mappings')
+        .select('field, code, label')
+        .eq('site', adapter.key)
+        .order('id', { ascending: true })
+        .range(from, from + 999);
+      if (error) { readError = true; break; }
+      data.push(...(page ?? []));
+      if (!page || page.length < 1000) break;
+    }
+    if (readError || !data.length) continue;
     const byField = new Map<string, Array<{ code: string; label: string }>>();
     for (const r of data) {
       const list = byField.get(r.field) ?? [];
