@@ -499,7 +499,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   // filtre depuis le texte des annonces, uniquement s'il reste un échantillon
   // suffisant — sinon l'analyse dira honnêtement que le modèle ne confirme pas.
   let listingsForStudy = listings;
-  if ((p.site === 'MARKTPLAATS' || p.site === 'LEBONCOIN') && criteria.model) {
+  if ((p.site === 'MARKTPLAATS' || p.site === 'LEBONCOIN' || p.site === 'SKELBIU') && criteria.model) {
     const wanted = String(criteria.model);
     const filtered = listingsForStudy.filter((l) => modelMatchesTitle(l.title ?? '', wanted));
     if (filtered.length >= INGESTION_MIN_SAMPLE && filtered.length < listingsForStudy.length) {
@@ -515,7 +515,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   // des pages marque entières). Match POSITIF exigé ici (clé de jetons triés :
   // « SÉRIE 5 » ≡ « 5-serie ») — le but est un échantillon pur du modèle ;
   // trop peu de correspondances → échantillon mixte conservé, analyse honnête.
-  if ((p.site === 'SUBITO' || p.site === 'GASPEDAAL') && criteria.model) {
+  if ((p.site === 'SUBITO' || p.site === 'GASPEDAAL' || p.site === 'JOFOGAS' || p.site === 'BLOCKET') && criteria.model) {
     const wantedKey = modelKeyLoose(String(criteria.model));
     const filtered = listingsForStudy.filter((l) => modelKeyLoose(l.model) === wantedKey);
     if (filtered.length >= INGESTION_MIN_SAMPLE && filtered.length < listingsForStudy.length) {
@@ -531,7 +531,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   // Subito/Gaspedaal rendent aussi le carburant STRUCTURÉ (« Ibrida »,
   // « Elektrisch ») — même filtre à la main quand l'URL ne l'exprime pas.
   let sampleListings = listingsForStudy;
-  if ((p.site === 'MARKTPLAATS' || p.site === 'SUBITO' || p.site === 'GASPEDAAL') && criteria.fuel) {
+  if (['MARKTPLAATS', 'SUBITO', 'GASPEDAAL', 'JOFOGAS', 'BLOCKET', 'SKELBIU'].includes(p.site) && criteria.fuel) {
     const want = canonicalizeFuel(criteria.fuel);
     if (want) {
       const filtered = listingsForStudy.filter((l) => {

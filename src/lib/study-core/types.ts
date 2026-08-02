@@ -17,7 +17,7 @@
 /**
  * Supported currency types
  */
-export type Currency = 'EUR' | 'DKK' | 'UNKNOWN';
+export type Currency = 'EUR' | 'DKK' | 'SEK' | 'HUF' | 'UNKNOWN';
 
 /**
  * A single scraped vehicle listing from any marketplace

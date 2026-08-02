@@ -45,6 +45,8 @@ import type {
 const FX_RATES: Record<Currency, number> = {
   EUR: 1,
   DKK: 0.134, // kept in sync with parsers/shared.ts and services/marketData.ts
+  SEK: 0.089, // Blocket (couronne suédoise) — ~11,2 SEK/EUR
+  HUF: 0.0025, // Jofogas (forint hongrois) — ~395 HUF/EUR
   UNKNOWN: 1,
 };
 

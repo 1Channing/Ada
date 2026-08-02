@@ -94,7 +94,8 @@ export interface IngestionAnalysis {
 // "Hybride Elektrisch" is never mis-read as electric.
 
 // ES « híbrido enchufable », IT « ibrida ricaricabile », VW badge « GTE ».
-const PHEV_TOKENS = /plug\s?in|phev|hybride rechargeable|oplaadbare|\be[\s-]?hybrid|enchufable|ricaricabile|\bgte\b/;
+// laddhybrid = SV « hybride rechargeable » (Blocket fuel=1352, 02/08).
+const PHEV_TOKENS = /plug\s?in|phev|hybride rechargeable|oplaadbare|\be[\s-]?hybrid|enchufable|ricaricabile|laddhybrid|\bgte\b/;
 const MILD_HYBRID_TOKENS = /half hybrid|mild hybrid|micro hybrid|\bmhev\b/;
 
 /**
@@ -153,7 +154,8 @@ export function canonicalizeFuel(raw: string): FuelToken {
   // "Électrique/Essence", ES "Electro/Gasolina", IT "Elettrica/Benzina") is a
   // hybrid, not a pure EV. Test before 'electric' — the ES combo fell through
   // to 'electric' and hid Spanish hybrids from the Hybride filter.
-  if (/electr|elektr|elettr/.test(t) && /essence|benzine|benzin|petrol|gasoline|gasolina|gasolio|diesel/.test(t)) return 'hybrid';
+  // + LT « Benzinas/Dyzelinas + elektra » (Skelbiu), SV « bensin » (Blocket).
+  if (/electr|elektr|elettr/.test(t) && /essence|benzine|benzin|bensin|petrol|gasoline|gasolina|gasolio|diesel|dyzel/.test(t)) return 'hybrid';
   if (/hydrogen|hydrogene|waterstof|\bh2\b/.test(t)) return 'hydrogen';
   if (/\bcng\b|\bgnv\b|gaz naturel|aardgas|metano/.test(t)) return 'cng';
   if (/\bgpl\b|\blpg\b|\bglp\b|autogas/.test(t)) return 'lpg';
@@ -163,8 +165,10 @@ export function canonicalizeFuel(raw: string): FuelToken {
   // Brandings moteur (backlog 1) : les vendeurs écrivent la motorisation sans
   // le mot carburant — 2.0 TDI, 1.5 TCe, 1.6 CRDi… Chaque token est un
   // branding constructeur univoque, jamais une devinette.
-  if (/diesel|gasoil|\bgasoleo\b|\bgasolio\b|\bhdi\b|\btdi\b|\btdci\b|\bcdti\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|bluetec|multijet|\bd4d\b|\bd 4d\b/.test(t)) return 'diesel';
-  if (/essence|benzine|benzin|petrol|gasoline|gasolina|\btsi\b|\btfsi\b|\btce\b|\bgdi\b|\bvti\b|vvt ?i|puretech|ecoboost|\bmpi\b/.test(t)) return 'petrol';
+  // dyzel* = LT « Dyzelinas » (Skelbiu), dizel = HU « Dízel » (Jofogas).
+  if (/diesel|dyzel|\bdizel\b|gasoil|\bgasoleo\b|\bgasolio\b|\bhdi\b|\btdi\b|\btdci\b|\bcdti\b|\bdci\b|\bcdi\b|\bcrdi\b|blue ?hdi|bluetec|multijet|\bd4d\b|\bd 4d\b/.test(t)) return 'diesel';
+  // bensin = SV (Blocket), benzinas = LT (couvert par « benzin »).
+  if (/essence|benzine|benzin|bensin|petrol|gasoline|gasolina|\btsi\b|\btfsi\b|\btce\b|\bgdi\b|\bvti\b|vvt ?i|puretech|ecoboost|\bmpi\b/.test(t)) return 'petrol';
   return '';
 }
 

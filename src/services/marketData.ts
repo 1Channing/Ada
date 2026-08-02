@@ -31,9 +31,11 @@ export const FUEL_TOKEN_TO_CRITERIA: Record<string, string> = {
   lpg: 'GPL', cng: 'CNG',
 };
 
-const DKK_TO_EUR = 0.134;
+// Taux alignés sur business-logic FX_RATES (source unique de vérité métier).
+const TO_EUR: Record<string, number> = { DKK: 0.134, SEK: 0.089, HUF: 0.0025 };
 function toEur(price: number, currency: string): number {
-  return currency === 'DKK' ? Math.round(price * DKK_TO_EUR) : price;
+  const r = TO_EUR[currency];
+  return r ? Math.round(price * r) : price;
 }
 
 // ─── Percentiles ──────────────────────────────────────────────────────────────

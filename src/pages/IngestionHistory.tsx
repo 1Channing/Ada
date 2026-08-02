@@ -13,6 +13,7 @@ import { MappingRadialTree } from '../components/MappingRadialTree';
 const SITE_FLAG: Record<string, string> = {
   LEBONCOIN: '🇫🇷', MARKTPLAATS: '🇳🇱', BILBASEN: '🇩🇰', MOBILE_DE: '🇩🇪',
   SUBITO: '🇮🇹', GASPEDAAL: '🇳🇱',
+  JOFOGAS: '🇭🇺', BLOCKET: '🇸🇪', SKELBIU: '🇱🇹',
   AUTOSCOUT_FR: '🇫🇷', AUTOSCOUT_DE: '🇩🇪', AUTOSCOUT_NL: '🇳🇱',
   AUTOSCOUT_IT: '🇮🇹', AUTOSCOUT_ES: '🇪🇸', AUTOSCOUT_BE: '🇧🇪',
 };
