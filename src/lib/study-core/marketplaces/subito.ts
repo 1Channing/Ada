@@ -89,6 +89,7 @@ function parseSearchResults(html: string, _url: string): ScrapedListing[] {
       trim: fv(ad, '/car', 2)?.value ?? null, // Versione
       listing_url: ad.urls?.default ?? '',
       brand: fv(ad, '/car', 0)?.value ?? null,
+      model: fv(ad, '/car', 1)?.value ?? null,
       fuel: fv(ad, '/fuel')?.value ?? null,
       gearbox: fv(ad, '/gearbox')?.value ?? null,
       sellerType: null,

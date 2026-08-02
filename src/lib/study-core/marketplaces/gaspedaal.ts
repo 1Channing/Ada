@@ -81,6 +81,7 @@ function parseSearchResults(html: string, _url: string): ScrapedListing[] {
       trim: null,
       listing_url: it['@id'] ?? '',
       brand: it.brand ?? null,
+      model: it.model ?? null,
       fuel: it.fuelType ?? null,
       gearbox: it.vehicleTransmission ?? null,
       color: it.color ?? null,

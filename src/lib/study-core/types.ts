@@ -53,6 +53,10 @@ export interface ScrapedListing {
   // and the price nature — Bilbasen serves "WithoutTax"/engros prices that
   // must never enter a median. Raw site labels, interpreted downstream.
   sellerType?: string | null;
+  /** Modèle STRUCTURÉ déclaré par le site (Subito features /car, Gaspedaal
+   *  JSON-LD `model`) — permet le post-filtre modèle quand l'URL du site n'a
+   *  pas pu le poser (adaptateurs v1). Null quand le site ne le donne pas. */
+  model?: string | null;
   priceType?: string | null;
 }
 

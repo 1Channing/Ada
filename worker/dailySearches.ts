@@ -199,6 +199,27 @@ async function scrapeCountry(
         }
       }
     }
+    // Modèle STRUCTURÉ : les adaptateurs v1 (Subito, Gaspedaal) servent la
+    // page MARQUE entière (modèle pas encore posé en URL) — sans ce filtre,
+    // les 100 Toyota toutes gammes de Gaspedaal entraient dans la médiane
+    // cible d'une étude Yaris Cross (constat 02/08 au matin : « GASPEDAAL
+    // 100 prix » sur chaque étude NL). Une annonce qui PORTE son modèle
+    // structuré et ne matche pas est écartée ; sans modèle structuré (LBC,
+    // AS24…), rien ne change — fail-open. Les suffixes de série Subito
+    // (« RAV4 5ª serie », « C-HR (2016-2023) ») sont dépouillés avant
+    // comparaison canonique.
+    if (s.model) {
+      const stripSeries = (m: string) => m.replace(/\(.*?\)/g, ' ').replace(/\d+ª\s*serie/gi, ' ');
+      const wantedModel = canonKey(stripSeries(s.model));
+      const before = listings.length;
+      listings = listings.filter((l) => {
+        const m = ((l as { model?: string | null }).model ?? '').trim();
+        return !m || canonKey(stripSeries(m)) === wantedModel;
+      });
+      if (listings.length < before) {
+        console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (modèle structuré ≠ ${s.model})`);
+      }
+    }
     // Accidentées : titre + description (on les A ici, au scrape) — jamais
     // dans les résultats d'étude. Détection négation-aware : « non
     // accidenté » / « Unfallfrei » sont des voitures saines, conservées.
