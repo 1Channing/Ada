@@ -61,6 +61,18 @@ const LEARNED_MODEL_ID: Record<string, string> = {};
 const variantDepth = (code: string): number =>
   code.includes('.') ? Number(code.split('.')[0]) || 0 : 1;
 
+/**
+ * Mots génériques de série, dépouillés des DEUX côtés de l'appariement :
+ * côté site les libellés portent « 4-Serie » / « CLA-Klass », côté études le
+ * référentiel dit « 4-SERIES » / « SERIE 4 » / « CLASSE CLA » — sans ce
+ * dépouillement symétrique, « 4-SERIES » ne trouvait jamais « 4-Serie »
+ * (constat campagne 02/08 : no_url sur des séries pourtant apprises).
+ */
+const stripSeriesWords = (v: string): string => v
+  .replace(/^(serien?|series|classe?|klasse?)[-\s]+/i, '')
+  .replace(/[-\s]+(serien?|series|classe?|klasse?)$/i, '')
+  .trim();
+
 function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
   if (field === 'bl:brandcode') {
     for (const p of pairs) {
@@ -77,8 +89,7 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
       // « NX-Serie ») : on indexe AUSSI le label dépouillé pour que « CLA »
       // (notre référentiel) trouve la série — la profondeur départage
       // toujours (une version exacte bat la série au même libellé).
-      const stripped = p.label.replace(/[-\s](serien?|klass)$/i, '');
-      for (const lbl of new Set([p.label, stripped])) {
+      for (const lbl of new Set([p.label, stripSeriesWords(p.label)])) {
         const key = `${bk}|${modelKeyLoose(lbl)}`;
         const prev = LEARNED_MODEL_ID[key];
         if (!prev || variantDepth(p.code) > variantDepth(prev)) LEARNED_MODEL_ID[key] = p.code;
@@ -197,6 +208,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const modelId = params.model
     ? MODEL_ID[`${bk}|${(params.model || '').trim().toUpperCase()}`]
       ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(params.model)}`]
+      ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(stripSeriesWords(params.model))}`]
     : undefined;
   if (modelId?.includes('.')) qs.set('variant', modelId);
   else if (brandId && modelId) qs.set('variant', `1.${brandId}.${modelId}`);
