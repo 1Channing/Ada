@@ -35,9 +35,15 @@ const FUEL_CODE: Record<string, string> = {
   ELECTRIQUE: '5', ELECTRIC: '5',
 };
 
-// Catégories PROUVÉES (URLs humaines) : 101 = toutes autos ; le grain
-// marque/modèle est un arbre de catégories opaque appris par URLs humaines.
-const CATEGORY_ALL_CARS = '101';
+// Catégories PROUVÉES (URLs humaines 02/08) — arbre à trois niveaux :
+//   31    = Automobiliai (TOUTES les autos — URL humaine « sans marques »)
+//   101   = Toyota (catégorie MARQUE — URL humaine « sans modèle »)
+//   21575 = Toyota RAV4 (catégorie MODÈLE)
+// Le reste de l'arbre est opaque et s'apprend par URLs humaines — jamais
+// deviné. (1re version : 101 pris pour « toutes autos » → chaque recherche
+// non-Toyota servait la page Toyota, constat campagne 02/08 soir.)
+const CATEGORY_ALL_CARS = '31';
+const CATEGORY_BRAND_ID: Record<string, string> = { TOYOTA: '101' };
 const CATEGORY_ID: Record<string, string> = { 'TOYOTA|RAV4': '21575' };
 
 const canon = (v: string) => (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -97,10 +103,13 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
   const bk = canon(params.brand || '');
   const mk = canon(params.model || '');
-  // category_id : grain modèle si appris, sinon toutes-autos + tri en aval.
-  const categoryId = (mk && CATEGORY_ID[`${bk}|${mk}`]) || CATEGORY_ALL_CARS;
+  // category_id : grain modèle si appris, sinon MARQUE si apprise, sinon
+  // toutes-autos + tri texte en aval.
+  const categoryId = (mk && CATEGORY_ID[`${bk}|${mk}`]) || CATEGORY_BRAND_ID[bk] || CATEGORY_ALL_CARS;
   if ((params.brand || params.model) && categoryId === CATEGORY_ALL_CARS) {
     warnings.push(`[LINKGEN_WARNING] Skelbiu: "${params.brand ?? ''} ${params.model ?? ''}" sans category_id appris — recherche toutes-autos, tri par le texte en aval`);
+  } else if (params.model && !CATEGORY_ID[`${bk}|${mk}`]) {
+    warnings.push(`[LINKGEN_WARNING] Skelbiu: modèle "${params.model}" sans catégorie apprise — page marque, tri par le texte en aval`);
   }
   const fuelCode = params.fuel ? FUEL_CODE[String(params.fuel).trim().toUpperCase()] : undefined;
   if (params.fuel && !fuelCode) {
@@ -169,6 +178,9 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
       const [b, m] = hit.split('|');
       out.brand = b;
       out.model = m;
+    } else {
+      const bHit = Object.entries(CATEGORY_BRAND_ID).find(([, v]) => v === cat)?.[0];
+      if (bHit) out.brand = bHit;
     }
     const ym = u.searchParams.get('year_min'), yx = u.searchParams.get('year_max');
     if (ym && /^\d{4}$/.test(ym)) out.yearFrom = ym;
