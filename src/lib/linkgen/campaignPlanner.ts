@@ -175,7 +175,11 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   // la boucle 2020→2026 couvre les modèles arrêtés entre-temps. Sans
   // fourchette fournie : année en cours seule (comportement historique).
   if (opts.discoveryOnly) {
-    const dMin = Math.max(YEAR_PIN_MIN, Math.min(f.yearMin ?? nowYear, nowYear));
+    // Défaut SANS fourchette saisie : toute la période d'arbitrage
+    // (2020→année en cours) — constat 02/08 : les champs année vides
+    // limitaient la découverte aux seuls millésimes 2026 (26 URLs au lieu
+    // de ~180), alors que la moisson par annonces a besoin de chaque année.
+    const dMin = Math.max(YEAR_PIN_MIN, Math.min(f.yearMin ?? YEAR_PIN_MIN, nowYear));
     const dMax = Math.max(dMin, Math.min(f.yearMax ?? nowYear, nowYear));
     const byKey = new Map<string, string>(); // clé canonique → libellé élu
     for (const b of k.brands) byKey.set(brandKey(b), b);
