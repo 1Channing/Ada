@@ -351,16 +351,18 @@ export async function loadMappingTree(): Promise<TreeNode> {
     arr.push(e);
     enumBySite.set(e.site, arr);
   }
-  const FACET_LABEL: Record<string, string> = { gearbox: 'Boîte', color: 'Couleur', vehicleType: 'Type', fuel: 'Carburant' };
   for (const [site, list] of enumBySite) {
     const siteNode = getSite(site);
-    const facetGroup: TreeNode = { id: `facets:${site}`, label: 'Facettes apprises', kind: 'facet', status: 'group', weight: 0, children: [] };
 
     // 1er passage : marques de la taxonomie (code → libellé), pour rattacher
-    // ensuite chaque modèle (code `makeId;modelId`) à sa marque.
+    // ensuite chaque modèle (code `makeId;modelId`) à sa marque. sb:brand /
+    // gp:brand (Subito, Gaspedaal) sont des dictionnaires marque au même
+    // titre que `…:make`.
     const makeLabelByCode = new Map<string, string>();
     for (const e of list) {
-      if (e.field.endsWith(':make')) makeLabelByCode.set(e.code, e.label);
+      if (e.field.endsWith(':make') || e.field === 'sb:brand' || e.field === 'gp:brand') {
+        makeLabelByCode.set(e.code, e.label);
+      }
     }
     const taxoBrandNode = (label: string): TreeNode => {
       const key = `${site}|${U(label)}`;
@@ -398,11 +400,17 @@ export async function loadMappingTree(): Promise<TreeNode> {
         const i = e.code.indexOf('_');
         return i > 0 ? { brandLabel: e.code.slice(0, i).toUpperCase(), modelLabel: e.label } : null;
       }
+      // Subito / Gaspedaal : la marque est dans le NOM du champ
+      // (`sb:model:bmw`, `gp:model:mercedes-benz`).
+      const scoped = e.field.match(/^(?:sb|gp):model:(.+)$/);
+      if (scoped) {
+        return { brandLabel: scoped[1].replace(/-/g, ' ').toUpperCase(), modelLabel: e.label };
+      }
       return null;
     };
 
     for (const e of list) {
-      if (e.field.endsWith(':make')) {
+      if (e.field.endsWith(':make') || e.field === 'sb:brand' || e.field === 'gp:brand') {
         // Marque seule : rangée après la boucle dans le groupe replié
         // « Marques connues » si aucun modèle ne s'y rattache.
         continue;
@@ -425,17 +433,10 @@ export async function loadMappingTree(): Promise<TreeNode> {
           modelMap.set(modelKey, model);
           brand.children.push(model);
         }
-      } else {
-        facetGroup.children.push({
-          id: `facet:${site}|${e.field}|${e.label}`,
-          label: `${FACET_LABEL[e.field] ?? e.field} : ${e.label}`,
-          kind: 'facet',
-          status: 'valid',
-          weight: Math.max(1, e.confirmations ?? 0),
-          children: [],
-          meta: { confirmations: e.confirmations ?? 0 },
-        });
       }
+      // Facettes (carburant, boîte, couleur…) : dictionnaire seulement — plus
+      // de branche « Facettes apprises » (décision Channing 02/08 : la carto
+      // reste ADA → marque → modèle, le reste noyait la carte).
     }
     // Marques connues sans modèle rattaché : visibles mais regroupées dans un
     // nœud REPLIÉ par défaut (id `catalog:` — voir MappingRadialTree), pour
@@ -461,7 +462,6 @@ export async function loadMappingTree(): Promise<TreeNode> {
         })),
       });
     }
-    if (facetGroup.children.length > 0) siteNode.children.push(facetGroup);
   }
 
   // Roll statuses/weights up. adaOnly rolls up too: the tree opens at
