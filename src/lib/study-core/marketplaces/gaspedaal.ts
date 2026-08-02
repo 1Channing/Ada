@@ -27,10 +27,12 @@ import { resolveYearRange } from './urlTemplate';
 
 const URL_TEMPLATE = 'https://www.gaspedaal.nl/{brand}/{fuel}?bmin={yearFrom}&bmax={yearTo}&kmax={mileage}&srt=df-a';
 
-// Seul slug PROUVÉ par l'URL humaine du 01/08 — le reste est omis (fail-open).
+// Slugs PROUVÉS par URLs humaines (01/08 hybride, 02/08 /bmw/diesel) — le
+// reste est omis (fail-open).
 const FUEL_SLUG: Record<string, string> = {
   HYBRIDE: 'hybride', HYBRID: 'hybride',
   PLUG_IN_HYBRID: 'hybride', MILD_HYBRID: 'hybride',
+  DIESEL: 'diesel',
 };
 
 const slugify = (s: string) =>
@@ -92,6 +94,30 @@ function parseSearchResults(html: string, _url: string): ScrapedListing[] {
   return out;
 }
 
+/** Moisson : marques/modèles/carburants depuis les annonces JSON-LD — le site
+ *  n'a pas de codes opaques, le slug d'URL EST dérivable du label (preuve :
+ *  /bmw/diesel, /toyota/hybride). Champ modèle scopé à sa marque. */
+function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
+  const out: Array<{ field: string; code: string; label: string }> = [];
+  const seen = new Set<string>();
+  const push = (field: string, code: string, label: string) => {
+    if (!code || !label) return;
+    const k = `${field}|${code}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push({ field, code, label });
+  };
+  for (const it of jsonLdCars(html)) {
+    const brand = (it.brand ?? '').trim();
+    const model = (it.model ?? '').trim();
+    if (brand) push('gp:brand', slugify(brand), brand);
+    if (brand && model) push(`gp:model:${slugify(brand)}`, slugify(model), model);
+    const fuel = (it.fuelType ?? '').trim();
+    if (fuel) push('gp:fuel', slugify(fuel), fuel);
+  }
+  return out;
+}
+
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
   const brandSlug = slugify(params.brand || '');
@@ -107,7 +133,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (yearFrom) qs.set('bmin', yearFrom);
   if (yearTo) qs.set('bmax', yearTo);
   if (params.mileage) qs.set('kmax', String(params.mileage));
-  qs.set('srt', 'df-a'); // tri de l'URL humaine étalon
+  // PRIX CROISSANT — preuve par paire d'URLs humaines (Channing 02/08) :
+  // srt=pr-a = « Prijs laag-hoog », srt=df-a = relevantie. Le bas du marché
+  // est ce qu'on arbitre : les études prennent pr-a.
+  qs.set('srt', 'pr-a');
   return { url: `https://www.gaspedaal.nl/${brandSlug}${fuelSlug ? `/${fuelSlug}` : ''}?${qs.toString()}`, warnings };
 }
 
@@ -182,6 +211,7 @@ export const gaspedaalAdapter: SiteAdapter = {
   generateCorrectionHypotheses: () => [],
   getFetchProfile: (): ZyteProfileOverrides => ({}),
 
+  harvestTaxonomy,
   prefillCriteriaFromUrl,
   extractCandidateSegments,
 };
