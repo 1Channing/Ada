@@ -26,7 +26,6 @@ import type {
   SiteValidationResult, ZyteProfileOverrides, CandidateSegment,
 } from './types';
 import type { ScrapedListing } from '../types';
-import { defaultBuildPaginatedUrl } from './registry';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose } from '../business-logic';
 
@@ -42,7 +41,22 @@ const FUEL_SLUG: Record<string, string> = {
   PLUG_IN_HYBRID: 'ibrida', MILD_HYBRID: 'ibrida',
   // URL humaine 02/08 : /auto/bmw/elettrica/?q=m+sport&order=priceasc…
   ELECTRIQUE: 'elettrica', ELECTRIC: 'elettrica', ELETTRICA: 'elettrica',
+  // URL humaine 02/08 soir : /auto/bmw/serie-1/diesel/…
+  DIESEL: 'diesel',
 };
+
+// Segments carburant PROUVÉS du chemin — sert à distinguer, dans
+// /auto/{brand}/{model?}/{fuel?}/, un modèle d'un carburant.
+const FUEL_PATH_TO_CANON: Record<string, string> = {
+  ibrida: 'HYBRIDE', elettrica: 'ELECTRIQUE', diesel: 'DIESEL',
+};
+
+// Slugs MODÈLE appris depuis le dictionnaire moissonné sb:model:<marque>
+// (label « Serie 1 » → slug slugify = serie-1). Grammaire du chemin
+// /auto/{brand}/{model}/{fuel}/ PROUVÉE par la paire d'URLs humaines du
+// 02/08 soir : /auto/bmw/serie-1/diesel/?q=m+sport&order=priceasc&ys=&ye=.
+// Un modèle sans label moissonné est OMIS (fail-open, page marque).
+const LEARNED_MODEL_SLUG = new Map<string, Map<string, string>>();
 
 const slugify = (s: string) =>
   s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -135,6 +149,25 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
   return out;
 }
 
+function modelSlugFor(brandSlug: string, model: string | null | undefined): string | undefined {
+  if (!model) return undefined;
+  return LEARNED_MODEL_SLUG.get(brandSlug)?.get(modelKeyLoose(model));
+}
+
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (!field.startsWith('sb:model:')) return;
+  const brand = field.slice('sb:model:'.length);
+  const byKey = LEARNED_MODEL_SLUG.get(brand) ?? new Map<string, string>();
+  for (const p of pairs) {
+    // Le CODE est un enum opaque du site ('004796') — le slug d'URL se
+    // dérive du LABEL (« Serie 1 » → serie-1, prouvé par l'URL humaine).
+    const k = modelKeyLoose(p.label);
+    const slug = slugify(p.label);
+    if (k && slug && !byKey.has(k)) byKey.set(k, slug);
+  }
+  LEARNED_MODEL_SLUG.set(brand, byKey);
+}
+
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
   const brandSlug = slugify(params.brand || '');
@@ -142,15 +175,16 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (params.fuel && !fuelSlug) {
     warnings.push(`[LINKGEN_WARNING] Subito: carburant "${params.fuel}" sans slug prouvé — filtre omis`);
   }
-  // Modèle : pas de segment de chemin prouvé. En découverte-validation
-  // (derivedModelSlug), le modèle passe par la recherche texte q= (grammaire
-  // prouvée par l'URL humaine ?q=m+sport) — le modèle STRUCTURÉ des annonces
-  // valide ensuite. Les études, elles, restent page marque + tri en aval.
-  const validateModel = Boolean(params.model && params.derivedModelSlug && !(params.trim && String(params.trim).trim()));
-  if (params.model && !validateModel) {
-    warnings.push('[LINKGEN_WARNING] Subito v1: modèle non posé en URL (grammaire non prouvée) — page marque, tri par le texte/structuré en aval');
+  // Modèle dans le CHEMIN — grammaire /auto/{brand}/{model}/{fuel}/ prouvée
+  // par la paire d'URLs humaines du 02/08 soir (/auto/bmw/serie-1/diesel/).
+  // Slug = label moissonné sb:model:<marque> slugifié, jamais inventé ;
+  // sans label appris, repli : q= texte (derivedModelSlug) ou page marque.
+  const modelSlug = modelSlugFor(brandSlug, params.model);
+  const validateModel = Boolean(!modelSlug && params.model && params.derivedModelSlug && !(params.trim && String(params.trim).trim()));
+  if (params.model && !modelSlug && !validateModel) {
+    warnings.push(`[LINKGEN_WARNING] Subito: modèle "${params.model}" sans label moissonné — page marque, tri par le structuré en aval`);
   }
-  const path = `/annunci-italia/vendita/auto/${brandSlug}${fuelSlug ? `/${fuelSlug}` : ''}/`;
+  const path = `/annunci-italia/vendita/auto/${brandSlug}${modelSlug ? `/${modelSlug}` : ''}${fuelSlug ? `/${fuelSlug}` : ''}/`;
   const qs = new URLSearchParams();
   // Finition en texte libre q= — URL humaine 02/08 : ?q=m+sport.
   if (params.trim && String(params.trim).trim()) qs.set('q', String(params.trim).trim().toLowerCase());
@@ -172,7 +206,9 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const brandOk = listings.length > 0 && brandHits / listings.length >= 0.8;
   // Modèle posé via q= (découverte-validation) → vérification par le modèle
   // STRUCTURÉ (/car Modello) ; sinon page marque, honnêtement non appliqué.
-  const modelPosed = Boolean(params.model && params.derivedModelSlug && !(params.trim && String(params.trim).trim()));
+  const modelPosed = Boolean(params.model && (
+    modelSlugFor(slugify(params.brand || ''), params.model)
+    || (params.derivedModelSlug && !(params.trim && String(params.trim).trim()))));
   const wantModelKey = params.model ? modelKeyLoose(params.model) : '';
   const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
   const modelOk = modelPosed && listings.length > 0 && modelHits / listings.length >= 0.8;
@@ -199,8 +235,13 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     const segs = u.pathname.split('/').filter(Boolean);
     const i = segs.indexOf('auto');
     if (i >= 0 && segs[i + 1]) out.brand = segs[i + 1].replace(/-/g, ' ').toUpperCase();
-    if (i >= 0 && segs[i + 2] === 'ibrida') out.fuel = 'HYBRIDE';
-    if (i >= 0 && segs[i + 2] === 'elettrica') out.fuel = 'ELECTRIQUE';
+    // /auto/{brand}/{model?}/{fuel?}/ : un segment est un carburant s'il
+    // appartient au vocabulaire prouvé, sinon un modèle.
+    for (const seg of segs.slice(i + 2)) {
+      const canon = FUEL_PATH_TO_CANON[seg];
+      if (canon) out.fuel = canon;
+      else if (!out.model) out.model = seg.replace(/-/g, ' ').toUpperCase();
+    }
     const q = u.searchParams.get('q');
     if (q) out.trim = q;
     const ys = u.searchParams.get('ys'), ye = u.searchParams.get('ye');
@@ -217,8 +258,14 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
     const segs = u.pathname.split('/').filter(Boolean);
     const i = segs.indexOf('auto');
     if (i >= 0 && segs[i + 1]) out.push({ raw: segs[i + 1], location: 'path', paramName: '_path:brand', guessField: 'brand' });
-    if (i >= 0 && segs[i + 2]) out.push({ raw: segs[i + 2], location: 'path', paramName: '_path:fuel', guessField: 'fuel' });
-    if (i >= 0 && segs[i + 3]) out.push({ raw: segs[i + 3], location: 'path', paramName: '_path:model', guessField: 'model' });
+    for (const seg of segs.slice(i + 2)) {
+      const isFuel = Boolean(FUEL_PATH_TO_CANON[seg]);
+      out.push({
+        raw: seg, location: 'path',
+        paramName: isFuel ? '_path:fuel' : '_path:model',
+        guessField: isFuel ? 'fuel' : 'model',
+      });
+    }
     for (const [p, f] of [['ys', 'year'], ['ye', 'year'], ['me', 'mileage']] as const) {
       const v = u.searchParams.get(p);
       if (v) out.push({ raw: v, location: 'query', paramName: p, guessField: f });
@@ -239,9 +286,19 @@ export const subitoAdapter: SiteAdapter = {
   mapModel: (raw) => raw.trim(),
   mapFuel: (raw) => FUEL_SLUG[raw.trim().toUpperCase()] ?? '',
   supportsParam: () => false,
+  learnEnumValues,
 
   buildSearchUrl,
-  buildPaginatedUrl: defaultBuildPaginatedUrl, // pagination réelle non prouvée : page 1
+  // Pagination o=N — PROUVÉE par paire d'URLs humaines 02/08 soir
+  // (page 2 : …&o=2&ys=2023&ye=2023). Le scan profond devient effectif.
+  buildPaginatedUrl: (baseUrl: string, pageNumber: number): string => {
+    if (pageNumber <= 1) return baseUrl;
+    try {
+      const u = new URL(baseUrl);
+      u.searchParams.set('o', String(pageNumber));
+      return u.toString();
+    } catch { return baseUrl; }
+  },
   parseSearchResults,
   scoreSearchResults,
   generateCorrectionHypotheses: () => [],
