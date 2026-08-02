@@ -9,37 +9,12 @@
  */
 
 import { sharedSupabase as supabase } from '../lib/supabaseShared';
-import { canonKey, brandKey } from './marketData';
+import { brandKey, refModelKey } from './marketData';
 
-/**
- * Clé modèle du référentiel : mêmes règles que canonKey, plus les
- * conventions d'écriture des catalogues qui polluent l'identité :
- * - « Golf IV », « C4 III » → numéral romain de génération retiré ;
- * - famille Mercedes : « GLC-Class » ≡ « CLASSE GLC » ≡ « GLC » — la clé
- *   est le CODE nu (même famille de règles que l'adaptateur AutoScout).
- * L'importeur Python (scripts/teoalida) réplique EXACTEMENT ces règles —
- * les vecteurs du smoke test font foi des deux côtés.
- */
-export function refModelKey(brand: string, model: string): string {
-  let m = String(model ?? '').trim();
-  // Numéral romain de génération en fin de nom (Golf IV, C4 III, Ignis II).
-  m = m.replace(/\s+(?:I{1,3}|IV|V|VI{0,3}|IX|X{1,2})$/i, '');
-  // Mercedes : X-Class / Classe X / X-Klasse → code nu.
-  const bk = brandKey(brand);
-  if (bk === 'MERCEDES') {
-    const cm = m.match(/^([A-Z]{1,3})[- ]?(?:CLASS|KLASSE)$/i)
-      ?? m.match(/^(?:CLASSE|CLASE|CLASS)\s+([A-Z]{1,3})$/i);
-    if (cm) m = cm[1];
-  }
-  // Séries (BMW & co) : '3-Series' (Teoalida) ≡ 'SERIE 3' ≡ '3er(-Reihe)' →
-  // code nu — la boîte noire du 26/07 montrait '3-SERIES' envoyé tel quel
-  // comme slug (inconnu de tous les sites).
-  const sm = m.match(/^(?:SERIE|SÉRIE|SERIES)\s+(\w{1,3})$/i)
-    ?? m.match(/^(\w{1,3})[- ]?SERIES?$/i)
-    ?? m.match(/^(\d)[- ]?ER(?:[- ]?REIHE)?$/i);
-  if (sm) m = sm[1];
-  return canonKey(m);
-}
+// refModelKey vit désormais dans marketData (clé d'identité modèle de TOUT
+// le système : MI, radar, purge, menus — chantier nommage 02/08). Ré-export
+// pour les consommateurs historiques du référentiel.
+export { refModelKey } from './marketData';
 
 export interface RefWindow {
   brandLabel: string;

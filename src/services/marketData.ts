@@ -255,6 +255,37 @@ export function brandKey(v: string): string {
   return BRAND_KEY_ALIASES[k] ?? k;
 }
 
+/**
+ * Clé d'IDENTITÉ modèle du système (chantier nommage 02/08) : canonKey plus
+ * les conventions d'écriture qui polluent l'identité :
+ * - « Golf IV », « C4 III » → numéral romain de génération retiré ;
+ * - Mercedes : « GLC-Class » ≡ « CLASSE GLC » ≡ « GLC » — code nu ;
+ * - Séries : « 3-Series » (Teoalida) ≡ « SÉRIE 3 » ≡ « 3er » ≡ « 3-serie »
+ *   (Gaspedaal) → code nu.
+ * Constat fondateur : les snapshots portaient « CLA » ET « CLASSE CLA » comme
+ * deux modèles — segments MI dédoublés, radar inter-pays aveugle à la paire.
+ * Répliquée à L'IDENTIQUE : importeur Python (scripts/teoalida) et SQL
+ * (ada_model_key, migration 20260802220000) — les vecteurs des smokes font
+ * foi des trois côtés.
+ */
+export function refModelKey(brand: string, model: string): string {
+  let m = String(model ?? '').trim();
+  // Numéral romain de génération en fin de nom (Golf IV, C4 III, Ignis II).
+  m = m.replace(/\s+(?:I{1,3}|IV|V|VI{0,3}|IX|X{1,2})$/i, '');
+  // Mercedes : X-Class / Classe X / X-Klasse → code nu.
+  const bk = brandKey(brand);
+  if (bk === 'MERCEDES') {
+    const cm = m.match(/^([A-Z]{1,3})[- ]?(?:CLASS|KLASSE)$/i)
+      ?? m.match(/^(?:CLASSE|CLASE|CLASS)\s+([A-Z]{1,3})$/i);
+    if (cm) m = cm[1];
+  }
+  const sm = m.match(/^(?:SERIE|SÉRIE|SERIES)\s+(\w{1,3})$/i)
+    ?? m.match(/^(\w{1,3})[- ]?SERIES?$/i)
+    ?? m.match(/^(\d)[- ]?ER(?:[- ]?REIHE)?$/i);
+  if (sm) m = sm[1];
+  return canonKey(m);
+}
+
 /** Union dédupliquée par clé canonique — la variante du 1er argument gagne. */
 export function canonUnion(primary: string[], secondary: string[], keyFn: (v: string) => string): string[] {
   const seen = new Map<string, string>();
@@ -390,7 +421,7 @@ export function latestPerListing(obs: Observation[]): Observation[] {
 export function pruneVanishedListings(obs: Observation[], snapshots: Snapshot[]): Observation[] {
   if (snapshots.length === 0) return obs;
   const segOf = (s: Snapshot) =>
-    [s.site, s.country, brandKey(s.brand), canonKey(s.model), s.fuel ?? '', canonKey(s.trim ?? '')].join('|');
+    [s.site, s.country, brandKey(s.brand), refModelKey(s.brand, s.model), s.fuel ?? '', canonKey(s.trim ?? '')].join('|');
   const byId = new Map<string, Snapshot>();
   const latestBySeg = new Map<string, Snapshot>();
   for (const s of snapshots) {
@@ -422,7 +453,9 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
     (!f.site || o.site === f.site) &&
     (!f.country || o.country === f.country) &&
     (!f.brand || brandKey(o.brand) === brandKey(f.brand)) &&
-    (!f.model || canonKey(o.model) === canonKey(f.model)) &&
+    // refModelKey et non canonKey : « CLA » ≡ « CLASSE CLA », « SÉRIE 3 » ≡
+    // « 3-SERIES » — l'identité modèle unifiée (chantier nommage 02/08).
+    (!f.model || refModelKey(o.brand, o.model) === refModelKey(f.brand ?? o.brand, f.model)) &&
     (!trimNeedle || normText(o.trim).includes(trimNeedle) || normText(o.title).includes(trimNeedle)) &&
     fuelFilterMatches(o.fuel, f.fuel ?? '') &&
     (!gearboxToken || canonicalizeGearbox(o.gearbox) === gearboxToken) &&
@@ -526,7 +559,7 @@ export async function loadKnownDimensions(): Promise<KnownDimensions> {
     bump(brandVariants.get(bk) ?? brandVariants.set(bk, new Map()).get(bk)!, b);
     const m = (r.model ?? '').trim().toUpperCase();
     if (m) {
-      const mk = canonKey(m);
+      const mk = refModelKey(b, m);
       const byModel = modelVariants.get(bk) ?? modelVariants.set(bk, new Map()).get(bk)!;
       bump(byModel.get(mk) ?? byModel.set(mk, new Map()).get(mk)!, m);
       // Fuel is stored as the declared label ('HYBRIDE') — canonicalise it to
@@ -667,7 +700,9 @@ export async function loadObservationsForStudy(f: MarketFilters): Promise<Observ
     if (attempt > 0) await new Promise((r) => setTimeout(r, 700 * attempt));
     const res = await callRpc('mi_obs_for_segment', {
       p_brand_keys: brandKeysForQuery(brand),
-      p_model_key: (f.model ?? '').trim() ? canonKey(f.model!) : null,
+      // refModelKey — aligné sur ada_model_key côté SQL (migration
+      // 20260802220000) : « CLA » et « CLASSE CLA » chargent le même segment.
+      p_model_key: (f.model ?? '').trim() ? refModelKey(brand, f.model!) : null,
       p_country: (f.country ?? '').trim() || null,
       p_limit: 30_000,
     });
@@ -684,11 +719,11 @@ export async function loadObservationsForStudy(f: MarketFilters): Promise<Observ
   // mesuré sur le segment qui bloquait.
   const snaps = await loadSnapshots();
   const bks = new Set(brandKeysForQuery(brand));
-  const mk = (f.model ?? '').trim() ? canonKey(f.model!) : null;
+  const mk = (f.model ?? '').trim() ? refModelKey(brand, f.model!) : null;
   const ctry = (f.country ?? '').trim() || null;
   const ids = snaps
     .filter((s) => bks.has(brandKey(s.brand))
-      && (!mk || canonKey(s.model) === mk)
+      && (!mk || refModelKey(s.brand, s.model) === mk)
       && (!ctry || s.country === ctry))
     .map((s) => s.id);
   if (ids.length === 0) return [];
@@ -1075,7 +1110,9 @@ export async function loadMarketOpportunities(
     const groups = new Map<string, Row[]>();
     for (const r of medianRows as Row[]) {
       if (r.median == null || r.cnt < minPerCountry) continue;
-      const key = `${brandKey(r.brand_label)}|${canonKey(r.model_label)}|${r.fuel}|${r.year}`;
+      // refModelKey : « SÉRIE 3 » (étude FR) et « 3-SERIES » (référentiel)
+      // sont LE MÊME segment — le radar inter-pays doit les apparier.
+      const key = `${brandKey(r.brand_label)}|${refModelKey(r.brand_label, r.model_label)}|${r.fuel}|${r.year}`;
       (groups.get(key) ?? groups.set(key, []).get(key)!).push(r);
     }
     const out: MarketOpportunity[] = [];
@@ -1137,7 +1174,7 @@ async function loadMarketOpportunitiesLegacy(
     const country = (r.country ?? '').trim().toUpperCase();
     const year = typeof r.year === 'number' ? r.year : null;
     if (!brand || !model || !fuel || !country || year == null) continue;
-    const gKey = `${brandKey(brand)}|${canonKey(model)}|${fuel}|${year}`;
+    const gKey = `${brandKey(brand)}|${refModelKey(brand, model)}|${fuel}|${year}`;
     if (!labels.has(gKey)) labels.set(gKey, { brand, model });
     if (touchedSinceIso && ((r as { scraped_at?: string }).scraped_at ?? '') >= touchedSinceIso) touched.add(gKey);
     const byCountry = groups.get(gKey) ?? new Map<string, Side>();

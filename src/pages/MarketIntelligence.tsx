@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X, MoreHorizontal, Loader2 } from 'lucide-react';
 import {
-  loadKnownDimensions, sortedUnion, canonUnion, canonKey, brandKey, filterObservations, distinctValues, priceStats, timeSeries,
+  loadKnownDimensions, sortedUnion, canonUnion, brandKey, refModelKey, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
   studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing, canonicalizeGearbox, GEARBOX_LABELS,
   loadSnapshots, loadObservedDimensions, loadObservationsForStudy, attackPrice, FUEL_TOKEN_TO_CRITERIA,
@@ -142,7 +142,7 @@ export function MarketIntelligence() {
   const [scopeRetryTick, setScopeRetryTick] = useState(0);
   const scopeOf = (f: MarketFilters) =>
     (f.brand ?? '').trim()
-      ? `${brandKey(f.brand!)}|${(f.model ?? '').trim() ? canonKey(f.model!) : ''}|${(f.country ?? '').trim() || ''}`
+      ? `${brandKey(f.brand!)}|${(f.model ?? '').trim() ? refModelKey(f.brand!, f.model!) : ''}|${(f.country ?? '').trim() || ''}`
       : '';
   const scopesKey = studies.map(scopeOf).filter(Boolean).sort().join(';');
   // Chargements en vol : le montage et un Rafraîchir peuvent viser les mêmes
@@ -351,7 +351,7 @@ export function MarketIntelligence() {
       if (m) {
         (modelsByBrand[brandKey(b)] ??= []).push(m.toUpperCase());
         if (r.fuel) {
-          (fuelsByBrandModel[`${brandKey(b)}|${canonKey(m)}`] ??= new Set()).add(r.fuel);
+          (fuelsByBrandModel[`${brandKey(b)}|${refModelKey(b, m)}`] ??= new Set()).add(r.fuel);
           allFuels.add(r.fuel);
         }
       }
@@ -379,11 +379,13 @@ export function MarketIntelligence() {
       const mapped = bk
         ? [...(dimsAgg.modelsByBrand[bk] ?? []), ...(known.modelsByBrand[bk] ?? [])]
         : [...Object.values(dimsAgg.modelsByBrand).flat(), ...Object.values(known.modelsByBrand).flat()];
-      return canonUnion(distinctValues(obs, 'model', active), mapped, canonKey);
+      // Fusion par IDENTITÉ modèle : « CLA » et « CLASSE CLA » = une seule
+      // entrée de menu (la variante des observations gagne l'affichage).
+      return canonUnion(distinctValues(obs, 'model', active), mapped, (m) => refModelKey(active.brand ?? '', m));
     }, [obs, active, known, dimsAgg]),
     trim: useMemo(() => distinctValues(obs, 'trim', active), [obs, active]),
     fuel: useMemo(() => {
-      const key = active.brand && active.model ? `${brandKey(active.brand)}|${canonKey(active.model)}` : '';
+      const key = active.brand && active.model ? `${brandKey(active.brand)}|${refModelKey(active.brand, active.model)}` : '';
       const mapped = key
         ? [...(dimsAgg.fuelsByBrandModel[key] ?? []), ...(known.fuelsByBrandModel[key] ?? [])]
         : [...dimsAgg.allFuels, ...known.allFuels];
