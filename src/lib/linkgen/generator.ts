@@ -394,6 +394,10 @@ export function injectTrimIntoUrl(url: string, trim: string): string {
     if (u.hostname.includes('bilbasen.dk')) {
       return setQueryParamRaw(url, 'free', t);
     }
+    if (u.hostname.includes('subito.it')) {
+      // Slot texte libre prouvé par URL humaine (02/08 : ?q=m+sport).
+      return setQueryParamRaw(url, 'q', t.toLowerCase());
+    }
   } catch { /* URL invalide — on garde l'originale */ }
   return url;
 }

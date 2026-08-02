@@ -39,6 +39,8 @@ const FUEL_SLUG: Record<string, string> = {
   // La famille couvre les rechargeables comme sur Marktplaats — l'annonce
   // elle-même (features /fuel) et le texte raffinent ensuite.
   PLUG_IN_HYBRID: 'ibrida', MILD_HYBRID: 'ibrida',
+  // URL humaine 02/08 : /auto/bmw/elettrica/?q=m+sport&order=priceasc…
+  ELECTRIQUE: 'elettrica', ELECTRIC: 'elettrica', ELETTRICA: 'elettrica',
 };
 
 const slugify = (s: string) =>
@@ -144,11 +146,15 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   }
   const path = `/annunci-italia/vendita/auto/${brandSlug}${fuelSlug ? `/${fuelSlug}` : ''}/`;
   const qs = new URLSearchParams();
+  // Finition en texte libre q= — URL humaine 02/08 : ?q=m+sport.
+  if (params.trim && String(params.trim).trim()) qs.set('q', String(params.trim).trim().toLowerCase());
+  // Tri PRIX CROISSANT prouvé par paire d'URLs humaines 02/08
+  // (order=priceasc vs order=relevance) — le bas du marché est ce qu'on arbitre.
+  qs.set('order', 'priceasc');
   const { yearFrom, yearTo } = resolveYearRange(params);
   if (yearFrom) qs.set('ys', yearFrom);
   if (yearTo) qs.set('ye', yearTo);
-  const q = qs.toString();
-  return { url: `https://www.subito.it${path}${q ? `?${q}` : ''}`, warnings };
+  return { url: `https://www.subito.it${path}?${qs.toString()}`, warnings };
 }
 
 function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {
@@ -179,6 +185,9 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     const i = segs.indexOf('auto');
     if (i >= 0 && segs[i + 1]) out.brand = segs[i + 1].replace(/-/g, ' ').toUpperCase();
     if (i >= 0 && segs[i + 2] === 'ibrida') out.fuel = 'HYBRIDE';
+    if (i >= 0 && segs[i + 2] === 'elettrica') out.fuel = 'ELECTRIQUE';
+    const q = u.searchParams.get('q');
+    if (q) out.trim = q;
     const ys = u.searchParams.get('ys'), ye = u.searchParams.get('ye');
     if (ys && /^\d{4}$/.test(ys)) out.yearFrom = ys;
     if (ye && /^\d{4}$/.test(ye)) out.yearTo = ye;
