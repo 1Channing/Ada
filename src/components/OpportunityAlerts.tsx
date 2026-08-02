@@ -16,10 +16,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   loadMarketOpportunities, loadOpportunityAcks, ackOpportunity, opportunityKey, fuelLabel,
-  brandKey, canonKey, FUEL_TOKEN_TO_CRITERIA,
+  brandKey, FUEL_TOKEN_TO_CRITERIA,
 } from '../services/marketData';
 import type { MarketOpportunity } from '../services/marketData';
 import { saveDailySearch, listDailySearches } from '../services/workflow';
+import { refModelKey } from '../services/vehicleRef';
 
 const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
@@ -106,9 +107,12 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
       // renvoie vers l'étude existante, à affiner plutôt qu'à dupliquer.
       // Le même carburant fait partie du segment : une étude HYBRIDE en place
       // ne couvre pas l'écart PLUG_IN_HYBRID du même modèle.
+      // refModelKey et non canonKey : les données radar portent le nommage du
+      // référentiel (« 3-SERIES ») quand les études portent le nôtre
+      // (« SÉRIE 3 ») — l'égalité ordonnée ne les appariait jamais (audit 02/08).
       const existing = (await listDailySearches()).find((s) =>
         brandKey(s.brand) === brandKey(o.brand)
-        && canonKey(s.model) === canonKey(o.model)
+        && refModelKey(o.brand, s.model) === refModelKey(o.brand, o.model)
         && s.source_country === o.lowCountry && s.target_country === o.highCountry
         && (s.fuel ?? '') === (TOKEN_TO_CRITERIA[o.fuel] ?? '')
         && (s.year_min ?? 0) <= o.year && (s.year_max ?? 9999) >= o.year);

@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
-import { getRefWindowsCached } from './vehicleRef';
+import { getRefWindowsCached, refModelKey } from './vehicleRef';
 import { brandKey, canonKey } from './marketData';
 import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
@@ -205,9 +205,12 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
   // la création de la variante PHEV était bloquée à tort). La modification
   // d'une étude existante n'est jamais bloquée.
   if (!s.id) {
+    // refModelKey et non canonKey : une étude créée depuis le radar hérite du
+    // nommage référentiel (« 3-SERIES ») quand une étude manuelle dit
+    // « SÉRIE 3 » — même segment, l'égalité ordonnée laissait passer le double.
     const existing = (await listDailySearches()).find((e) =>
       brandKey(e.brand) === brandKey(s.brand)
-      && canonKey(e.model ?? '') === canonKey(s.model ?? '')
+      && refModelKey(s.brand, e.model ?? '') === refModelKey(s.brand, s.model ?? '')
       && e.source_country === s.source_country
       && e.target_country === s.target_country
       && canonKey(e.trim ?? '') === canonKey(s.trim ?? '')
