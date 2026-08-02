@@ -397,8 +397,12 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     const power = params.minPower ?? params.powerFrom;
     if (power) { qs.set('powerfrom', String(power)); qs.set('powertype', 'hp'); }
     if (params.powerTo) { qs.set('powerto', String(params.powerTo)); qs.set('powertype', 'hp'); }
-    qs.set('sort', 'price');
-    qs.set('desc', '0');
+    // Découverte : tri par défaut du site (paramètres omis, rien d'inventé) —
+    // meilleure couverture de gamme. Études/précision : prix croissant.
+    if (params.sort !== 'relevance') {
+      qs.set('sort', 'price');
+      qs.set('desc', '0');
+    }
     qs.set('ustate', 'N,U');
     // Free-text keyword filter — human-proven on autoscout24.es
     // (?kwd=Sportline narrows the Elroq list to Sportlines). Carries the

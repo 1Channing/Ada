@@ -299,8 +299,12 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // isRetailPrice les écarte déjà des médianes à l'écriture).
   qs.set('includeengroscvr', 'true');
   qs.set('includeleasing', 'false');
-  qs.set('sortby', 'price');
-  qs.set('sortorder', 'asc');
+  // Découverte : tri par défaut du site (paramètres omis, rien d'inventé).
+  // Études/précision : prix croissant.
+  if (params.sort !== 'relevance') {
+    qs.set('sortby', 'price');
+    qs.set('sortorder', 'asc');
+  }
 
   return { url: `${segs.join('/')}?${qs.toString()}`, warnings };
 }

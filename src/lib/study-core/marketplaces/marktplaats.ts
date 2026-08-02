@@ -317,7 +317,9 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // worker et appliquée serveur via l'API LRP.
   const subtypeId = params.fuel ? HYBRID_SUBTYPE_HASH[params.fuel.trim().toUpperCase()] : undefined;
   if (subtypeId) hashParts.push(`f:${subtypeId}`);
-  hashParts.push('sortBy:PRICE', 'sortOrder:INCREASING');
+  // Découverte : tri par défaut du site (facettes de tri omises, rien
+  // d'inventé). Études/précision : prix croissant.
+  if (params.sort !== 'relevance') hashParts.push('sortBy:PRICE', 'sortOrder:INCREASING');
 
   // Texte libre en CHEMIN /q/…/ — PROUVÉ URL humaine (Channing 27/07) :
   // /l/auto-s/toyota/q/gr+sport/f/yaris-cross+…/. Le #q: du hash n'est

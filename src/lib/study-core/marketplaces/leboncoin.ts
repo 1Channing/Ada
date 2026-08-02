@@ -233,7 +233,11 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // encodé : un espace brut dans text= casse la requête chez certains clients.
   if (params.trim && params.trim.trim()) vars['trim'] = encodeURIComponent(params.trim.trim());
 
-  const url = applyTemplate(URL_TEMPLATE, vars);
+  let url = applyTemplate(URL_TEMPLATE, vars);
+  // Découverte : tri par DÉFAUT du site (on retire notre sort=price&order=asc,
+  // rien d'inventé) — le tri prix rendrait toujours les mêmes annonces bas de
+  // gamme (décision Channing 02/08). Études/précision : prix croissant intact.
+  if (params.sort === 'relevance') url = url.replace('&sort=price&order=asc', '');
   return { url, warnings };
 }
 
