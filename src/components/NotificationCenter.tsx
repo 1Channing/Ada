@@ -16,6 +16,7 @@ import { startCampaign } from '../services/campaignRunner';
 
 const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
+  HU: '🇭🇺', LT: '🇱🇹', SE: '🇸🇪',
 };
 
 function defaultName(): string {

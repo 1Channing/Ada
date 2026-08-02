@@ -43,8 +43,17 @@ const mkScrape = (deep: boolean, stopFlag: { stop: boolean }): ScrapeFn => async
   }
 };
 
-// One campaign at a time per worker process.
+// One campaign at a time per worker process. The lock remembers WHICH
+// campaign holds it: a start request cross-checks the DB, because a loop can
+// legitimately outlive its campaign row for a while (an « Arrêt immédiat »
+// only aborts at the NEXT Zyte call — a deep item mid-scrape keeps the loop
+// alive for minutes). Without the cross-check, the in-memory flag kept
+// answering campaign_already_running long after the operator stopped the
+// campaign (bug 02/08). If the holder is no longer 'running', the residual
+// loop is on its way out (stopFlag) — release the lock and let the new
+// campaign start; the overlap is bounded to one in-flight Zyte call.
 let loopBusy = false;
+let lockHolderCampaignId: string | null = null;
 
 export interface WorkerCampaignStart extends Omit<CampaignPlanOptions, 'rng'> {
   label?: string;
@@ -58,41 +67,64 @@ export interface WorkerCampaignStart extends Omit<CampaignPlanOptions, 'rng'> {
 }
 
 export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<{ started: boolean; campaignId?: string; reason?: string }> {
-  if (loopBusy) return { started: false, reason: 'campaign_already_running' };
-
-  let plan: CampaignPlanItem[];
-  if (Array.isArray(opts.plan) && opts.plan.length > 0) {
-    plan = opts.plan;
-  } else {
-    const knowledge = await loadCampaignKnowledge();
-    plan = planCampaign(knowledge, opts);
+  if (loopBusy) {
+    // Holder unknown = another start request is mid-planning: genuinely busy.
+    if (!lockHolderCampaignId) return { started: false, reason: 'campaign_already_running' };
+    const { data } = await supabase
+      .from('linkgen_campaigns').select('status')
+      .eq('id', lockHolderCampaignId).maybeSingle();
+    // Row gone = nothing left to protect.
+    const holderStatus = data?.status ?? 'stopped';
+    if (holderStatus === 'running') {
+      return { started: false, reason: `campaign_already_running — une campagne est déjà en cours, arrêtez-la d'abord` };
+    }
+    console.log(`[CAMPAIGN_WORKER] verrou libéré: la campagne ${lockHolderCampaignId} est en statut ${holderStatus} — sa boucle résiduelle s'éteindra seule`);
+    loopBusy = false;
+    lockHolderCampaignId = null;
   }
-  if (plan.length === 0) {
-    return { started: false, reason: 'no_plan — la mémoire ne contient pas encore de mapping validé' };
+  // Hold the lock through planning (async) so two rapid clicks can't both
+  // pass the check above; released on every non-started exit.
+  loopBusy = true;
+
+  let launched = false;
+  try {
+    let plan: CampaignPlanItem[];
+    if (Array.isArray(opts.plan) && opts.plan.length > 0) {
+      plan = opts.plan;
+    } else {
+      const knowledge = await loadCampaignKnowledge();
+      plan = planCampaign(knowledge, opts);
+    }
+    if (plan.length === 0) {
+      return { started: false, reason: 'no_plan — la mémoire ne contient pas encore de mapping validé' };
+    }
+
+    const { data: row, error } = await supabase
+      .from('linkgen_campaigns')
+      .insert({
+        label: opts.label ?? `Campagne ${new Date().toISOString().slice(0, 16)}`,
+        status: 'running',
+        total: plan.length,
+        config: JSON.parse(JSON.stringify({
+          sites: opts.sites, total: opts.total,
+          reinforceShare: opts.reinforceShare, variantShare: opts.variantShare,
+          filters: opts.filters, deepScan: opts.deepScan === true,
+          discoveryOnly: opts.discoveryOnly === true,
+          plan, runner: 'worker',
+        })),
+        last_heartbeat: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+    if (error || !row) return { started: false, reason: error?.message ?? 'insert failed' };
+
+    console.log(`[CAMPAIGN_WORKER] start id=${row.id} total=${plan.length} deep=${opts.deepScan === true} sites=${opts.sites.join(',')}`);
+    void runLoop(row.id, plan, 0, opts.deepScan === true);
+    launched = true;
+    return { started: true, campaignId: row.id };
+  } finally {
+    if (!launched) loopBusy = false;
   }
-
-  const { data: row, error } = await supabase
-    .from('linkgen_campaigns')
-    .insert({
-      label: opts.label ?? `Campagne ${new Date().toISOString().slice(0, 16)}`,
-      status: 'running',
-      total: plan.length,
-      config: JSON.parse(JSON.stringify({
-        sites: opts.sites, total: opts.total,
-        reinforceShare: opts.reinforceShare, variantShare: opts.variantShare,
-        filters: opts.filters, deepScan: opts.deepScan === true,
-        discoveryOnly: opts.discoveryOnly === true,
-        plan, runner: 'worker',
-      })),
-      last_heartbeat: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
-  if (error || !row) return { started: false, reason: error?.message ?? 'insert failed' };
-
-  console.log(`[CAMPAIGN_WORKER] start id=${row.id} total=${plan.length} deep=${opts.deepScan === true} sites=${opts.sites.join(',')}`);
-  void runLoop(row.id, plan, 0, opts.deepScan === true);
-  return { started: true, campaignId: row.id };
 }
 
 /**
@@ -160,6 +192,7 @@ async function readStatus(campaignId: string): Promise<string> {
 
 async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex: number, deepScan = false): Promise<void> {
   loopBusy = true;
+  lockHolderCampaignId = campaignId;
   // A deep item (Cloudflare retries with backoffs, 404 probes, 10-page
   // pagination) can legitimately run for MINUTES. Reading the stop signal only
   // between items made « Arrêt immédiat » feel dead, and a heartbeat that only
@@ -272,7 +305,12 @@ async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex:
     }
   } finally {
     clearInterval(signalTimer);
-    loopBusy = false;
+    // A residual loop (stopped campaign draining its last item) must not
+    // clear the lock a NEWER campaign now holds.
+    if (lockHolderCampaignId === campaignId) {
+      loopBusy = false;
+      lockHolderCampaignId = null;
+    }
     await supabase.from('linkgen_campaigns').update({
       status: stopped ? 'stopped' : 'done',
       finished_at: new Date().toISOString(),

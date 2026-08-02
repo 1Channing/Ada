@@ -24,6 +24,7 @@ import { refModelKey } from '../services/vehicleRef';
 
 const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
+  HU: '🇭🇺', LT: '🇱🇹', SE: '🇸🇪',
 };
 
 const TOKEN_TO_CRITERIA = FUEL_TOKEN_TO_CRITERIA;

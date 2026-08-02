@@ -29,12 +29,15 @@ const AXIS = '#64748b';
 // Distinct, well-separated hues for the (up to 3) compared studies.
 const STUDY_COLORS = ['#3987e5', '#d95926', '#199e70'];
 // One LOGICAL colour per country, stable everywhere (charts, legends):
-// FR bleu, DK blanc, DE or, IT vert, ES rouge, NL orange, BE violet.
+// FR bleu, DK blanc, DE or, IT vert, ES rouge, NL orange, BE violet,
+// SE bleu ciel, HU bordeaux, LT vert forêt.
 const COUNTRY_COLOR: Record<string, string> = {
   FR: '#2C5F9E', DK: '#0F766E', DE: '#CA8A04', IT: '#22c55e', ES: '#ef4444', NL: '#f97316', BE: '#a855f7',
+  SE: '#0284c7', HU: '#9f1239', LT: '#15803d',
 };
 const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
+  HU: '🇭🇺', LT: '🇱🇹', SE: '🇸🇪',
 };
 const FUEL_TOKENS: FuelToken[] = ['petrol', 'diesel', 'hybrid', 'mild_hybrid', 'phev', 'electric', 'hydrogen', 'cng', 'lpg'];
 
