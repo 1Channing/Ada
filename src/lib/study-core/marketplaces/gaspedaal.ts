@@ -13,8 +13,14 @@
  * d'annonce disponible (pas d'URL de fiche dans le JSON-LD) : suffisant pour
  * la déduplication et le suivi, le clic « Ouvrir » ancre la page de recherche.
  *
- * v1 sans modèle dans l'URL (grammaire non prouvée — la voie « URL apprise »
- * prendra le relais) ; pagination non prouvée : page 1 = 100 annonces.
+ * v2 (02/08) : le MODÈLE entre dans le chemin — grammaire prouvée par l'URL
+ * humaine Channing apprise en mémoire (confidence 1) :
+ *   /bmw/5-serie/hybride?bmin=2022&bmax=2022&kmax=90000&trefw=M+sport&srt=df-a
+ * → /{brand}/{model}/{fuel}. Le slug modèle N'EST PAS inventé : il vient du
+ * dictionnaire moissonné gp:model:<marque> (labels JSON-LD du site lui-même,
+ * ex. « 5-serie » — le label EST le slug, prouvé par la paire URL/JSON-LD),
+ * réinjecté via learnEnumValues. Modèle sans slug appris → omis (fail-open,
+ * page marque + tri en aval). Pagination non prouvée : page 1 = 100 annonces.
  */
 
 import type {
@@ -24,16 +30,66 @@ import type {
 import type { ScrapedListing } from '../types';
 import { defaultBuildPaginatedUrl } from './registry';
 import { resolveYearRange } from './urlTemplate';
+import { modelKeyLoose } from '../business-logic';
 
-const URL_TEMPLATE = 'https://www.gaspedaal.nl/{brand}/{fuel}?bmin={yearFrom}&bmax={yearTo}&kmax={mileage}&srt=df-a';
+const URL_TEMPLATE = 'https://www.gaspedaal.nl/{brand}/{model}/{fuel}?bmin={yearFrom}&bmax={yearTo}&kmax={mileage}&srt=df-a';
 
 // Slugs PROUVÉS par URLs humaines (01/08 hybride, 02/08 /bmw/diesel) — le
-// reste est omis (fail-open).
+// reste vient du dictionnaire gp:fuel moissonné (vocabulaire du site :
+// Benzine, Elektrisch, LPG, Waterstof — slug = label minuscule, même
+// dérivation que hybride/diesel), réinjecté par learnEnumValues.
 const FUEL_SLUG: Record<string, string> = {
   HYBRIDE: 'hybride', HYBRID: 'hybride',
   PLUG_IN_HYBRID: 'hybride', MILD_HYBRID: 'hybride',
   DIESEL: 'diesel',
 };
+
+// Nos noms canoniques ← slug néerlandais (traduction sémantique fixe).
+const CANON_BY_FUEL_SLUG: Record<string, string[]> = {
+  benzine: ['ESSENCE', 'PETROL', 'GASOLINE'],
+  diesel: ['DIESEL'],
+  elektrisch: ['ELECTRIQUE', 'ELECTRIC'],
+  hybride: ['HYBRIDE', 'HYBRID', 'PLUG_IN_HYBRID', 'MILD_HYBRID'],
+  lpg: ['LPG', 'GPL'],
+  waterstof: ['HYDROGENE', 'HYDROGEN'],
+};
+const LEARNED_FUEL_SLUG: Record<string, string> = {};
+
+// Slugs modèle appris : marque (slug) → clé de jetons triés → slug du site.
+// Indexé par label ET par code (identiques sur ce site, mais restons larges).
+const LEARNED_MODEL_SLUG = new Map<string, Map<string, string>>();
+
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field === 'gp:fuel') {
+    for (const p of pairs) {
+      for (const canon of CANON_BY_FUEL_SLUG[p.code] ?? []) {
+        if (!LEARNED_FUEL_SLUG[canon]) LEARNED_FUEL_SLUG[canon] = p.code;
+      }
+    }
+    return;
+  }
+  if (field.startsWith('gp:model:')) {
+    const brand = field.slice('gp:model:'.length);
+    const byKey = LEARNED_MODEL_SLUG.get(brand) ?? new Map<string, string>();
+    for (const p of pairs) {
+      for (const k of [modelKeyLoose(p.label), modelKeyLoose(p.code)]) {
+        if (k && !byKey.has(k)) byKey.set(k, p.code);
+      }
+    }
+    LEARNED_MODEL_SLUG.set(brand, byKey);
+  }
+}
+
+function fuelSlugFor(fuel: string | null | undefined): string | undefined {
+  if (!fuel) return undefined;
+  const canon = String(fuel).trim().toUpperCase();
+  return FUEL_SLUG[canon] ?? LEARNED_FUEL_SLUG[canon];
+}
+
+function modelSlugFor(brandSlug: string, model: string | null | undefined): string | undefined {
+  if (!model) return undefined;
+  return LEARNED_MODEL_SLUG.get(brandSlug)?.get(modelKeyLoose(model));
+}
 
 const slugify = (s: string) =>
   s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -121,12 +177,16 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
   const brandSlug = slugify(params.brand || '');
-  const fuelSlug = params.fuel ? FUEL_SLUG[String(params.fuel).trim().toUpperCase()] : undefined;
+  const fuelSlug = fuelSlugFor(params.fuel);
   if (params.fuel && !fuelSlug) {
     warnings.push(`[LINKGEN_WARNING] Gaspedaal: carburant "${params.fuel}" sans slug prouvé — filtre omis`);
   }
-  if (params.model) {
-    warnings.push('[LINKGEN_WARNING] Gaspedaal v1: modèle non posé en URL (grammaire non prouvée) — page marque, tri en aval');
+  // Grammaire /{brand}/{model}/{fuel} prouvée par URL humaine (mémoire
+  // /bmw/5-serie/hybride). Slug modèle = dictionnaire moissonné uniquement —
+  // jamais inventé ; inconnu → page marque, tri structuré en aval.
+  const modelSlug = modelSlugFor(brandSlug, params.model);
+  if (params.model && !modelSlug) {
+    warnings.push(`[LINKGEN_WARNING] Gaspedaal: modèle "${params.model}" sans slug moissonné — page marque, tri en aval`);
   }
   const qs = new URLSearchParams();
   const { yearFrom, yearTo } = resolveYearRange(params);
@@ -137,7 +197,8 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // srt=pr-a = « Prijs laag-hoog », srt=df-a = relevantie. Le bas du marché
   // est ce qu'on arbitre : les études prennent pr-a.
   qs.set('srt', 'pr-a');
-  return { url: `https://www.gaspedaal.nl/${brandSlug}${fuelSlug ? `/${fuelSlug}` : ''}?${qs.toString()}`, warnings };
+  const path = [brandSlug, modelSlug, fuelSlug].filter(Boolean).join('/');
+  return { url: `https://www.gaspedaal.nl/${path}?${qs.toString()}`, warnings };
 }
 
 function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {
@@ -145,20 +206,35 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const wantBrand = (params.brand ?? '').trim().toLowerCase();
   const brandHits = wantBrand ? listings.filter((l) => (l.brand ?? '').toLowerCase().includes(wantBrand)).length : listings.length;
   const brandOk = listings.length > 0 && brandHits / listings.length >= 0.8;
+  // Modèle posé en URL (slug moissonné trouvé) → vérification par le modèle
+  // STRUCTURÉ des annonces ; sans slug → page marque, honnêtement non appliqué.
+  const modelPosed = Boolean(params.model && modelSlugFor(slugify(params.brand || ''), params.model));
+  const wantModelKey = params.model ? modelKeyLoose(params.model) : '';
+  const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
+  const modelOk = modelPosed && listings.length > 0 && modelHits / listings.length >= 0.8;
   const issues: SiteValidationResult['issues'] = [];
   if (!brandOk && wantBrand) issues.push({ type: 'brand_missing' });
-  if (params.model) issues.push({ type: 'model_not_applied' }); // v1 : jamais posé en URL
+  if (params.model && !modelPosed) issues.push({ type: 'model_not_applied' });
+  if (params.model && modelPosed && !modelOk) issues.push({ type: 'model_missing' });
   if (listings.length === 0) issues.push({ type: 'no_listings' });
   return {
     site: 'GASPEDAAL', url, listingCount,
     sampleListings: listings.slice(0, 5).map((l) => ({ title: l.title, price: l.price, year: l.year, mileage: l.mileage, fuel: l.fuel ?? '', url: l.listing_url })),
-    appliedFilters: { brand: brandOk, model: false, year: true, mileage: true, fuel: Boolean(params.fuel && FUEL_SLUG[String(params.fuel).toUpperCase()]), trim: false, sort: true },
-    score: brandOk ? 70 : 30,
-    status: listings.length === 0 ? 'invalid' : brandOk ? 'partial' : 'invalid',
+    appliedFilters: { brand: brandOk, model: modelOk, year: true, mileage: true, fuel: Boolean(fuelSlugFor(params.fuel)), trim: false, sort: true },
+    score: brandOk ? (modelOk ? 90 : 70) : 30,
+    status: listings.length === 0 ? 'invalid' : brandOk ? (modelOk ? 'valid' : 'partial') : 'invalid',
     issues,
     evidence: { structuredFieldsAvailable: true, fieldsUsed: ['brand', 'model', 'fuel', 'gearbox', 'year', 'mileage', 'color', 'doors', 'price'], missingFields: [] },
   };
 }
+
+// Segment carburant du chemin : slug = label du site (dictionnaire gp:fuel
+// moissonné 02/08 : Benzine, Diesel, Elektrisch, Hybride, LPG, Waterstof).
+// Sert à distinguer /audi/elektrisch (fuel) de /bmw/5-serie (modèle).
+const FUEL_PATH_TO_CANON: Record<string, string> = {
+  benzine: 'ESSENCE', diesel: 'DIESEL', elektrisch: 'ELECTRIQUE',
+  hybride: 'HYBRIDE', lpg: 'LPG', waterstof: 'HYDROGENE',
+};
 
 function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const out: Partial<SearchCriteria> = {};
@@ -166,7 +242,14 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     const u = new URL(url);
     const segs = u.pathname.split('/').filter(Boolean);
     if (segs[0]) out.brand = segs[0].replace(/-/g, ' ').toUpperCase();
-    if (segs[1] === 'hybride') out.fuel = 'HYBRIDE';
+    // Grammaire /{brand}/{model?}/{fuel?} : le 2e segment est un carburant
+    // s'il appartient au vocabulaire du site, sinon un modèle.
+    const rest = segs.slice(1);
+    for (const seg of rest) {
+      const canon = FUEL_PATH_TO_CANON[seg];
+      if (canon) out.fuel = canon;
+      else if (!out.model) out.model = seg.replace(/-/g, ' ').toUpperCase();
+    }
     const bmin = u.searchParams.get('bmin'), bmax = u.searchParams.get('bmax'), kmax = u.searchParams.get('kmax');
     if (bmin && /^\d{4}$/.test(bmin)) out.yearFrom = bmin;
     if (bmax && /^\d{4}$/.test(bmax)) out.yearTo = bmax;
@@ -181,8 +264,14 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
     const u = new URL(url);
     const segs = u.pathname.split('/').filter(Boolean);
     if (segs[0]) out.push({ raw: segs[0], location: 'path', paramName: '_path:brand', guessField: 'brand' });
-    if (segs[1]) out.push({ raw: segs[1], location: 'path', paramName: '_path:fuel', guessField: 'fuel' });
-    if (segs[2]) out.push({ raw: segs[2], location: 'path', paramName: '_path:model', guessField: 'model' });
+    for (const seg of segs.slice(1)) {
+      const isFuel = Boolean(FUEL_PATH_TO_CANON[seg]);
+      out.push({
+        raw: seg, location: 'path',
+        paramName: isFuel ? '_path:fuel' : '_path:model',
+        guessField: isFuel ? 'fuel' : 'model',
+      });
+    }
     for (const [p, f] of [['bmin', 'year'], ['bmax', 'year'], ['kmax', 'mileage']] as const) {
       const v = u.searchParams.get(p);
       if (v) out.push({ raw: v, location: 'query', paramName: p, guessField: f });
@@ -201,8 +290,9 @@ export const gaspedaalAdapter: SiteAdapter = {
 
   mapBrand: (raw) => slugify(raw),
   mapModel: (raw) => raw.trim(),
-  mapFuel: (raw) => FUEL_SLUG[raw.trim().toUpperCase()] ?? '',
+  mapFuel: (raw) => fuelSlugFor(raw) ?? '',
   supportsParam: () => false,
+  learnEnumValues,
 
   buildSearchUrl,
   buildPaginatedUrl: defaultBuildPaginatedUrl, // pagination réelle non prouvée : page 1 (= 100 annonces)

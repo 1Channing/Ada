@@ -18,6 +18,7 @@ import type { Json } from '../database.types';
 import { getSiteAdapter, decomposeUrl } from '../study-core/marketplaces';
 import type { SearchCriteria } from '../study-core/marketplaces';
 import { analyzeIngestion, INGESTION_MIN_SAMPLE, canonicalizeFuel, refineFuelToken, modelMatchesTitle } from '../study-core/ingestion';
+import { modelKeyLoose } from '../study-core/business-logic';
 import { persistIngestionResult } from './ingestion';
 import { persistTaxonomyHarvest, loadLearnedTaxonomy } from './taxonomy';
 import { generateSearchUrlsWithMemory } from './generator';
@@ -491,13 +492,31 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     }
   }
 
+  // Post-filtre modèle STRUCTURÉ pour les adaptateurs à page marque (Subito,
+  // Gaspedaal v1/v2 sans slug appris) : chaque annonce porte son marque/modèle
+  // structuré — on applique nous-mêmes le filtre modèle avant l'analyse, comme
+  // le fait déjà le worker pour les études (constat 02/08 : campagne précision
+  // Gaspedaal 28/28 « lacune taxonomie », rejet « 0/100 contiennent A6 » sur
+  // des pages marque entières). Match POSITIF exigé ici (clé de jetons triés :
+  // « SÉRIE 5 » ≡ « 5-serie ») — le but est un échantillon pur du modèle ;
+  // trop peu de correspondances → échantillon mixte conservé, analyse honnête.
+  if ((p.site === 'SUBITO' || p.site === 'GASPEDAAL') && criteria.model) {
+    const wantedKey = modelKeyLoose(String(criteria.model));
+    const filtered = listingsForStudy.filter((l) => modelKeyLoose(l.model) === wantedKey);
+    if (filtered.length >= INGESTION_MIN_SAMPLE && filtered.length < listingsForStudy.length) {
+      listingsForStudy = filtered;
+    }
+  }
+
   // Marktplaats has NO fuel filter expressible in the URL (neither the hash
   // nor lrp/api carries one), so a fuel-scoped study always analysed a mixed
   // sample and rejected its own fuel. The per-listing STRUCTURED fuel is
   // reliable — apply the filter ourselves, exactly like the site's checkbox
   // would (hybrid family grouped as in the MI), before analysis + snapshot.
+  // Subito/Gaspedaal rendent aussi le carburant STRUCTURÉ (« Ibrida »,
+  // « Elektrisch ») — même filtre à la main quand l'URL ne l'exprime pas.
   let sampleListings = listingsForStudy;
-  if (p.site === 'MARKTPLAATS' && criteria.fuel) {
+  if ((p.site === 'MARKTPLAATS' || p.site === 'SUBITO' || p.site === 'GASPEDAAL') && criteria.fuel) {
     const want = canonicalizeFuel(criteria.fuel);
     if (want) {
       const filtered = listingsForStudy.filter((l) => {

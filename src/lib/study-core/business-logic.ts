@@ -144,6 +144,38 @@ function isDamagedVehicle(text: string): boolean {
 }
 
 /**
+ * Clé de modèle INSENSIBLE À L'ORDRE des jetons, pour comparer un modèle
+ * d'étude au modèle STRUCTURÉ rendu par un site. Preuve du besoin (02/08) :
+ * Gaspedaal nomme « 5-serie » ce que nos études appellent « SÉRIE 5 » —
+ * l'égalité canonique ordonnée (SERIE5 ≠ 5SERIE) jetait 100 % des annonces.
+ * Les suffixes de série Subito (« RAV4 5ª serie », « C-HR (2016-2023) »)
+ * sont dépouillés avant découpage ; les jetons alphanumériques sont triés
+ * puis recollés : { serie, 5 } et { 5, serie } donnent la même clé « 5serie »,
+ * et les écritures compactes (« etron » vs « e tron ») convergent aussi.
+ */
+export function modelKeyLoose(raw: string | null | undefined): string {
+  return String(raw ?? '')
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\d+ª\s*serie/gi, ' ')
+    .normalize('NFD').replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .sort()
+    .join('');
+}
+
+/**
+ * Un modèle structuré d'annonce correspond-il au modèle d'étude ?
+ * Fail-open : une annonce SANS modèle structuré est conservée (LBC, AS24…
+ * ne le renseignent pas) — seul un modèle porté ET différent écarte.
+ */
+export function structuredModelMatches(structured: string | null | undefined, wanted: string): boolean {
+  const got = modelKeyLoose(structured);
+  return !got || got === modelKeyLoose(wanted);
+}
+
+/**
  * Check if listing title matches expected brand and model.
  * Uses token-based matching for flexibility with naming variations.
  *

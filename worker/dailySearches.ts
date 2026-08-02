@@ -27,7 +27,7 @@ import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
 import { canonicalizeGearbox } from '../src/lib/study-core/ingestion';
-import { isDamagedVehicleText } from '../src/lib/study-core/business-logic';
+import { isDamagedVehicleText, structuredModelMatches } from '../src/lib/study-core/business-logic';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 
@@ -209,13 +209,12 @@ async function scrapeCountry(
     // (« RAV4 5ª serie », « C-HR (2016-2023) ») sont dépouillés avant
     // comparaison canonique.
     if (s.model) {
-      const stripSeries = (m: string) => m.replace(/\(.*?\)/g, ' ').replace(/\d+ª\s*serie/gi, ' ');
-      const wantedModel = canonKey(stripSeries(s.model));
+      // Jetons triés (structuredModelMatches) et non plus égalité ordonnée :
+      // Gaspedaal nomme « 5-serie » ce que l'étude appelle « Série 5 » —
+      // l'ancienne clé ordonnée (SERIE5 ≠ 5SERIE) jetait 100 % des annonces.
       const before = listings.length;
-      listings = listings.filter((l) => {
-        const m = ((l as { model?: string | null }).model ?? '').trim();
-        return !m || canonKey(stripSeries(m)) === wantedModel;
-      });
+      listings = listings.filter((l) =>
+        structuredModelMatches((l as { model?: string | null }).model, s.model!));
       if (listings.length < before) {
         console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (modèle structuré ≠ ${s.model})`);
       }
