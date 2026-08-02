@@ -23,7 +23,7 @@ import { persistIngestionResult } from './ingestion';
 import { persistTaxonomyHarvest, loadLearnedTaxonomy } from './taxonomy';
 import { generateSearchUrlsWithMemory } from './generator';
 import type { SiteKey } from './types';
-import { writeMarketSnapshot, brandKey } from '../../services/marketData';
+import { writeMarketSnapshot, brandKey, refModelKey } from '../../services/marketData';
 import { loadRefWindows, getRefWindowsCached, refComboKey, findRefWindow, yearInRefWindow } from '../../services/vehicleRef';
 import { getMotorisationsCached } from '../../services/vehicleMotorisations';
 import { YEAR_PIN_MIN, emptyComboKey } from './campaignPlanner';
@@ -31,6 +31,32 @@ import type { CampaignKnowledge, CampaignPlanItem } from './campaignPlanner';
 import type { ScrapedListing } from '../study-core/types';
 
 export const CAMPAIGN_SUBMITTER = 'Ada';
+
+// ── Fraîcheur des segments (Channing 02/08, N approuvé = 3 jours) : un item
+// précision dont le segment EXACT (site·marque·modèle·carburant·finition,
+// identité refModelKey) a un snapshot de moins de FRESH_DAYS n'est pas
+// re-scrapé — les observations sont encore bonnes, l'appel Zyte est évité.
+// Cache 10 min, rechargé en cours de campagne ; échec de lecture = fail-open
+// (on scrape comme avant).
+const FRESH_DAYS = 3;
+let freshCache: { at: number; keys: Set<string> } | null = null;
+
+async function getFreshSegments(): Promise<Set<string>> {
+  if (freshCache && Date.now() - freshCache.at < 10 * 60_000) return freshCache.keys;
+  const since = new Date(Date.now() - FRESH_DAYS * 86_400_000).toISOString();
+  const { data, error } = await supabase
+    .from('market_snapshots')
+    .select('site, brand, model, fuel, trim, scraped_at')
+    .gte('scraped_at', since)
+    .limit(10_000);
+  if (error) throw new Error(error.message);
+  const keys = new Set<string>();
+  for (const s of (data ?? []) as Array<{ site: string; brand: string; model: string; fuel: string | null; trim: string | null }>) {
+    keys.add([s.site, brandKey(s.brand), refModelKey(s.brand, s.model), (s.fuel ?? '').toUpperCase(), (s.trim ?? '').trim()].join('|'));
+  }
+  freshCache = { at: Date.now(), keys };
+  return keys;
+}
 
 export type CampaignOutcome =
   | 'confirmed' | 'taxonomy_gap' | 'enum_gap' | 'no_url' | 'insufficient' | 'technical';
@@ -391,6 +417,21 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
         detail: `segment non exprimable sur ${p.site} : modèle "${p.model}" inconnu du dictionnaire du site et aucune URL apprise — scrape évité (0 appel Zyte)`,
         sampleSize: 0,
         dossier: mkDossier('expressibility', { warnings: probe.warnings }),
+      };
+    }
+  }
+
+  // ── Saut de FRAÎCHEUR (approuvé 02/08, N=3 j) : segment exact déjà scanné
+  // récemment → rien à réapprendre ni à re-mesurer, scrape évité. Jamais en
+  // découverte (elle vise la moisson, pas la donnée marché).
+  if (!p.discovery && p.model) {
+    const fkey = [p.site, brandKey(p.brand), refModelKey(p.brand, p.model), (p.fuel ?? '').toUpperCase(), (p.trim ?? '').trim()].join('|');
+    const fresh = await getFreshSegments().catch(() => null);
+    if (fresh?.has(fkey)) {
+      return {
+        ...base, url, outcome: 'confirmed', confirmedFields: [], rejected: [],
+        detail: `segment déjà frais (scanné il y a moins de ${FRESH_DAYS} j) — scrape évité (0 appel Zyte)`,
+        sampleSize: 0,
       };
     }
   }
