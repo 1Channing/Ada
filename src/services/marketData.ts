@@ -652,11 +652,22 @@ async function callRpcAllPages<T>(fn: string, args: Record<string, unknown> | un
   const PAGE = 1000;
   const out: T[] = [];
   for (let from = 0; from < maxRows; from += PAGE) {
-    const builder = (supabase.rpc as unknown as (f: string, a?: Record<string, unknown>) =>
-      { range: (f: number, t: number) => PromiseLike<{ data: unknown; error: { message: string } | null }> })(fn, args);
-    const { data, error } = await builder.range(from, Math.min(from + PAGE, maxRows) - 1);
-    if (error) return out.length > 0 ? { data: out, error: null } : { data: null, error };
-    const rows = (Array.isArray(data) ? data : []) as T[];
+    // Une page en échec (statement timeout à froid) est RETENTÉE avant
+    // d'abandonner : le radar rendu à moitié (500+ écarts → 95, constat
+    // 02/08) venait d'un timeout en cours de pagination accepté tel quel.
+    let page: { data: unknown; error: { message: string } | null } = { data: null, error: null };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 800));
+      const builder = (supabase.rpc as unknown as (f: string, a?: Record<string, unknown>) =>
+        { range: (f: number, t: number) => PromiseLike<{ data: unknown; error: { message: string } | null }> })(fn, args);
+      page = await builder.range(from, Math.min(from + PAGE, maxRows) - 1);
+      if (!page.error) break;
+    }
+    if (page.error) {
+      if (out.length > 0) console.warn(`[MI_SCOPE] ${fn}: pagination interrompue à ${out.length} ligne(s) (${page.error.message}) — résultat PARTIEL`);
+      return out.length > 0 ? { data: out, error: null } : { data: null, error: page.error };
+    }
+    const rows = (Array.isArray(page.data) ? page.data : []) as T[];
     out.push(...rows);
     if (rows.length < PAGE) break;
   }
