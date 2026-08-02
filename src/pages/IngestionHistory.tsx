@@ -10,7 +10,12 @@ import {
 import type { IngestionEventRow, Contributor, TreeNode, GlobalIngestionStats } from '../services/ingestionHistory';
 import { MappingRadialTree } from '../components/MappingRadialTree';
 
-const SITE_FLAG: Record<string, string> = { LEBONCOIN: '🇫🇷', MARKTPLAATS: '🇳🇱', BILBASEN: '🇩🇰' };
+const SITE_FLAG: Record<string, string> = {
+  LEBONCOIN: '🇫🇷', MARKTPLAATS: '🇳🇱', BILBASEN: '🇩🇰', MOBILE_DE: '🇩🇪',
+  SUBITO: '🇮🇹', GASPEDAAL: '🇳🇱',
+  AUTOSCOUT_FR: '🇫🇷', AUTOSCOUT_DE: '🇩🇪', AUTOSCOUT_NL: '🇳🇱',
+  AUTOSCOUT_IT: '🇮🇹', AUTOSCOUT_ES: '🇪🇸', AUTOSCOUT_BE: '🇧🇪',
+};
 
 const ACTION_BADGE: Record<string, { text: string; cls: string }> = {
   inserted: { text: 'Nouveau', cls: 'bg-emerald-50 text-emerald-700 border-emerald-300' },
