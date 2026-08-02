@@ -359,8 +359,11 @@ export async function loadMappingTree(): Promise<TreeNode> {
     // gp:brand (Subito, Gaspedaal) sont des dictionnaires marque au même
     // titre que `…:make`.
     const makeLabelByCode = new Map<string, string>();
+    // sb/gp/bl/jf:brand (cartes) et bl:brandcode (pages discover Blocket)
+    // sont des dictionnaires marque au même titre que `…:make`.
+    const BRAND_FIELDS = new Set(['sb:brand', 'gp:brand', 'bl:brand', 'jf:brand', 'bl:brandcode']);
     for (const e of list) {
-      if (e.field.endsWith(':make') || e.field === 'sb:brand' || e.field === 'gp:brand') {
+      if (e.field.endsWith(':make') || BRAND_FIELDS.has(e.field)) {
         makeLabelByCode.set(e.code, e.label);
       }
     }
@@ -400,9 +403,9 @@ export async function loadMappingTree(): Promise<TreeNode> {
         const i = e.code.indexOf('_');
         return i > 0 ? { brandLabel: e.code.slice(0, i).toUpperCase(), modelLabel: e.label } : null;
       }
-      // Subito / Gaspedaal : la marque est dans le NOM du champ
-      // (`sb:model:bmw`, `gp:model:mercedes-benz`).
-      const scoped = e.field.match(/^(?:sb|gp):model:(.+)$/);
+      // Subito / Gaspedaal / Blocket / Jofogas : la marque est dans le NOM du
+      // champ (`sb:model:bmw`, `bl:modelcode:mercedes-benz`, `jf:model:toyota`).
+      const scoped = e.field.match(/^(?:sb|gp|bl|jf):model(?:code)?:(.+)$/);
       if (scoped) {
         return { brandLabel: scoped[1].replace(/-/g, ' ').toUpperCase(), modelLabel: e.label };
       }

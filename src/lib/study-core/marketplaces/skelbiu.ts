@@ -48,6 +48,38 @@ const CATEGORY_ID: Record<string, string> = { 'TOYOTA|RAV4': '21575' };
 
 const canon = (v: string) => (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+// Catégories APPRISES (moisson sk:category : liens category_id=N + libellé,
+// lus sur les pages du site — la page « toutes autos » liste les marques,
+// une page marque liste ses modèles). L'appariement se fait par LIBELLÉ :
+// « Toyota » → catégorie marque, « RAV4 » / « Toyota RAV4 » → catégorie
+// modèle. Rien n'est deviné : sans libellé correspondant, repli 31.
+const LEARNED_CATEGORIES: Array<{ code: string; label: string }> = [];
+const learnedSeen = new Set<string>();
+
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field !== 'sk:category') return;
+  for (const p of pairs) {
+    if (learnedSeen.has(p.code)) continue;
+    learnedSeen.add(p.code);
+    LEARNED_CATEGORIES.push({ code: p.code, label: p.label });
+  }
+}
+
+function learnedBrandCategory(brand: string): string | undefined {
+  const bk = canon(brand);
+  return bk ? LEARNED_CATEGORIES.find((c) => canon(c.label) === bk)?.code : undefined;
+}
+
+function learnedModelCategory(brand: string, model: string): string | undefined {
+  const bk = canon(brand);
+  const mk = canon(model);
+  if (!mk) return undefined;
+  return LEARNED_CATEGORIES.find((c) => {
+    const ck = canon(c.label);
+    return ck === mk || (bk && ck === bk + mk);
+  })?.code;
+}
+
 function parseSearchResults(html: string): ScrapedListing[] {
   const out: ScrapedListing[] = [];
   // Cartes galerie : ancre fiche + bloc contenu (h3 + params + prix).
@@ -96,6 +128,23 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
       push(field, m[1], m[2].trim());
     }
   }
+  // Arbre de catégories : tout LIEN category_id=N de la page (la page 31
+  // « toutes autos » liste les catégories MARQUE, une page marque ses
+  // MODÈLES — même mécanique que les pages discover Blocket). Libellé =
+  // texte du lien, compteurs « (1 234) » dépouillés. Filtres stricts :
+  // jamais la racine 31, libellés 2-40 caractères non purement numériques.
+  for (const m of html.matchAll(/<a\b[^>]*category_id=(\d+)[^>]*>([\s\S]{0,300}?)<\/a>/gi)) {
+    const code = m[1];
+    if (code === CATEGORY_ALL_CARS) continue;
+    const label = m[2]
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;|&#160;/g, ' ')
+      .replace(/\(\s*[\d\s]+\)\s*$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (label.length < 2 || label.length > 40 || /^\d+$/.test(label)) continue;
+    push('sk:category', code, label);
+  }
   return out;
 }
 
@@ -103,12 +152,14 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
   const bk = canon(params.brand || '');
   const mk = canon(params.model || '');
-  // category_id : grain modèle si appris, sinon MARQUE si apprise, sinon
-  // toutes-autos + tri texte en aval.
-  const categoryId = (mk && CATEGORY_ID[`${bk}|${mk}`]) || CATEGORY_BRAND_ID[bk] || CATEGORY_ALL_CARS;
+  // category_id : grain modèle si appris (graine puis moisson sk:category),
+  // sinon MARQUE si apprise, sinon toutes-autos + tri texte en aval.
+  const modelCat = (mk && CATEGORY_ID[`${bk}|${mk}`]) || learnedModelCategory(params.brand || '', params.model || '');
+  const brandCat = CATEGORY_BRAND_ID[bk] || learnedBrandCategory(params.brand || '');
+  const categoryId = modelCat || brandCat || CATEGORY_ALL_CARS;
   if ((params.brand || params.model) && categoryId === CATEGORY_ALL_CARS) {
     warnings.push(`[LINKGEN_WARNING] Skelbiu: "${params.brand ?? ''} ${params.model ?? ''}" sans category_id appris — recherche toutes-autos, tri par le texte en aval`);
-  } else if (params.model && !CATEGORY_ID[`${bk}|${mk}`]) {
+  } else if (params.model && !modelCat) {
     warnings.push(`[LINKGEN_WARNING] Skelbiu: modèle "${params.model}" sans catégorie apprise — page marque, tri par le texte en aval`);
   }
   const fuelCode = params.fuel ? FUEL_CODE[String(params.fuel).trim().toUpperCase()] : undefined;
@@ -147,7 +198,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   qs.set('mileage_max', params.mileage ? String(params.mileage) : '');
   return {
     url: `https://www.skelbiu.lt/skelbimai/?${qs.toString()}`, warnings,
-    modelExpressed: !params.model || Boolean(mk && CATEGORY_ID[`${bk}|${mk}`]),
+    modelExpressed: !params.model || Boolean(modelCat),
   };
 }
 
@@ -184,6 +235,12 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     } else {
       const bHit = Object.entries(CATEGORY_BRAND_ID).find(([, v]) => v === cat)?.[0];
       if (bHit) out.brand = bHit;
+      else {
+        // Catégorie apprise par moisson : son libellé fait foi (marque ou
+        // « Marque Modèle » — préremplie telle quelle, l'humain tranche).
+        const learned = LEARNED_CATEGORIES.find((c) => c.code === cat);
+        if (learned) out.brand = learned.label.toUpperCase();
+      }
     }
     const ym = u.searchParams.get('year_min'), yx = u.searchParams.get('year_max');
     if (ym && /^\d{4}$/.test(ym)) out.yearFrom = ym;
@@ -223,6 +280,7 @@ export const skelbiuAdapter: SiteAdapter = {
   mapModel: (raw) => raw.trim(),
   mapFuel: (raw) => FUEL_CODE[raw.trim().toUpperCase()] ?? '',
   supportsParam: () => false,
+  learnEnumValues,
 
   buildSearchUrl,
   // Pagination /skelbimai/N?… — PROUVÉE par URL humaine (page 2 dans le CHEMIN).

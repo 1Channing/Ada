@@ -38,6 +38,18 @@ const FUEL_CODE: Record<string, string[]> = {
   HYBRIDE: ['6'], HYBRID: ['6'], MILD_HYBRID: ['6'],
   PLUG_IN_HYBRID: ['1352'],
 };
+// Codes fuel APPRIS (dictionnaire bl:fuelcode : code URL → libellé suédois,
+// alimenté par les graines prouvées et les URLs humaines futures). Le label
+// se range dans sa famille canonique par vocabulaire — laddhybrid AVANT
+// hybrid (le second est contenu dans le premier).
+const LEARNED_FUEL_CODE: Record<string, string[]> = {};
+const FUEL_LABEL_PATTERNS: Array<[RegExp, string[]]> = [
+  [/laddhybrid/i, ['PLUG_IN_HYBRID']],
+  [/hybrid/i, ['HYBRIDE', 'HYBRID', 'MILD_HYBRID']],
+  [/\bel\b|^el$|elektrisk/i, ['ELECTRIQUE', 'ELECTRIC']],
+  [/bensin/i, ['ESSENCE', 'PETROL', 'GASOLINE']],
+  [/diesel/i, ['DIESEL']],
+];
 
 // Codes variant PROUVÉS (813=Toyota par variant=0.813 ; 3074=RAV4 par
 // variant=1.813.3074). Le RESTE de l'arbre vient du dictionnaire moissonné
@@ -74,6 +86,16 @@ const stripSeriesWords = (v: string): string => v
   .trim();
 
 function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field === 'bl:fuelcode') {
+    for (const p of pairs) {
+      const fam = FUEL_LABEL_PATTERNS.find(([re]) => re.test(p.label))?.[1];
+      for (const k of fam ?? []) {
+        const list = (LEARNED_FUEL_CODE[k] ??= []);
+        if (!list.includes(p.code)) list.push(p.code);
+      }
+    }
+    return;
+  }
   if (field === 'bl:brandcode') {
     for (const p of pairs) {
       const k = brandIdKey(p.label);
@@ -190,8 +212,9 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
   const qs = new URLSearchParams();
-  // Codes carburant : seuls les PROUVÉS sont posés (6 hybride, 1352 plug-in).
-  const fuelCodes = params.fuel ? FUEL_CODE[String(params.fuel).trim().toUpperCase()] : undefined;
+  // Codes carburant : les PROUVÉS (graines) puis les APPRIS (bl:fuelcode).
+  const fuelKey = String(params.fuel ?? '').trim().toUpperCase();
+  const fuelCodes = params.fuel ? (FUEL_CODE[fuelKey] ?? LEARNED_FUEL_CODE[fuelKey]) : undefined;
   if (params.fuel && !fuelCodes) {
     warnings.push(`[LINKGEN_WARNING] Blocket: carburant "${params.fuel}" sans code prouvé — filtre omis`);
   }
