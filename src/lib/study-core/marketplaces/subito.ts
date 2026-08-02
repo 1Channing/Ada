@@ -28,6 +28,7 @@ import type {
 import type { ScrapedListing } from '../types';
 import { defaultBuildPaginatedUrl } from './registry';
 import { resolveYearRange } from './urlTemplate';
+import { modelKeyLoose } from '../business-logic';
 
 const URL_TEMPLATE =
   'https://www.subito.it/annunci-italia/vendita/auto/{brand}/{fuel}/?ys={yearFrom}&ye={yearTo}';
@@ -141,16 +142,23 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (params.fuel && !fuelSlug) {
     warnings.push(`[LINKGEN_WARNING] Subito: carburant "${params.fuel}" sans slug prouvé — filtre omis`);
   }
-  if (params.model) {
+  // Modèle : pas de segment de chemin prouvé. En découverte-validation
+  // (derivedModelSlug), le modèle passe par la recherche texte q= (grammaire
+  // prouvée par l'URL humaine ?q=m+sport) — le modèle STRUCTURÉ des annonces
+  // valide ensuite. Les études, elles, restent page marque + tri en aval.
+  const validateModel = Boolean(params.model && params.derivedModelSlug && !(params.trim && String(params.trim).trim()));
+  if (params.model && !validateModel) {
     warnings.push('[LINKGEN_WARNING] Subito v1: modèle non posé en URL (grammaire non prouvée) — page marque, tri par le texte/structuré en aval');
   }
   const path = `/annunci-italia/vendita/auto/${brandSlug}${fuelSlug ? `/${fuelSlug}` : ''}/`;
   const qs = new URLSearchParams();
   // Finition en texte libre q= — URL humaine 02/08 : ?q=m+sport.
   if (params.trim && String(params.trim).trim()) qs.set('q', String(params.trim).trim().toLowerCase());
-  // Tri PRIX CROISSANT prouvé par paire d'URLs humaines 02/08
-  // (order=priceasc vs order=relevance) — le bas du marché est ce qu'on arbitre.
-  qs.set('order', 'priceasc');
+  else if (validateModel) qs.set('q', String(params.model).trim().toLowerCase());
+  // Tri prouvé par paire d'URLs humaines 02/08 (order=priceasc vs
+  // order=relevance). Études/précision : prix croissant. Découverte :
+  // relevance — meilleure couverture de gamme (décision Channing 02/08).
+  qs.set('order', params.sort === 'relevance' ? 'relevance' : 'priceasc');
   const { yearFrom, yearTo } = resolveYearRange(params);
   if (yearFrom) qs.set('ys', yearFrom);
   if (yearTo) qs.set('ye', yearTo);
@@ -162,16 +170,23 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const wantBrand = (params.brand ?? '').trim().toLowerCase();
   const brandHits = wantBrand ? listings.filter((l) => (l.brand ?? '').toLowerCase().includes(wantBrand)).length : listings.length;
   const brandOk = listings.length > 0 && brandHits / listings.length >= 0.8;
+  // Modèle posé via q= (découverte-validation) → vérification par le modèle
+  // STRUCTURÉ (/car Modello) ; sinon page marque, honnêtement non appliqué.
+  const modelPosed = Boolean(params.model && params.derivedModelSlug && !(params.trim && String(params.trim).trim()));
+  const wantModelKey = params.model ? modelKeyLoose(params.model) : '';
+  const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
+  const modelOk = modelPosed && listings.length > 0 && modelHits / listings.length >= 0.8;
   const issues: SiteValidationResult['issues'] = [];
   if (!brandOk && wantBrand) issues.push({ type: 'brand_missing' });
-  if (params.model) issues.push({ type: 'model_not_applied' }); // v1 : jamais posé en URL
+  if (params.model && !modelPosed) issues.push({ type: 'model_not_applied' });
+  if (params.model && modelPosed && !modelOk) issues.push({ type: 'model_missing' });
   if (listings.length === 0) issues.push({ type: 'no_listings' });
   return {
     site: 'SUBITO', url, listingCount,
     sampleListings: listings.slice(0, 5).map((l) => ({ title: l.title, price: l.price, year: l.year, mileage: l.mileage, fuel: l.fuel ?? '', url: l.listing_url })),
-    appliedFilters: { brand: brandOk, model: false, year: true, mileage: false, fuel: Boolean(params.fuel && FUEL_SLUG[String(params.fuel).toUpperCase()]), trim: false, sort: false },
-    score: brandOk ? 70 : 30,
-    status: listings.length === 0 ? 'invalid' : brandOk ? 'partial' : 'invalid',
+    appliedFilters: { brand: brandOk, model: modelOk, year: true, mileage: false, fuel: Boolean(params.fuel && FUEL_SLUG[String(params.fuel).toUpperCase()]), trim: false, sort: false },
+    score: brandOk ? (modelOk ? 90 : 70) : 30,
+    status: listings.length === 0 ? 'invalid' : brandOk ? (modelOk ? 'valid' : 'partial') : 'invalid',
     issues,
     evidence: { structuredFieldsAvailable: true, fieldsUsed: ['brand', 'model', 'fuel', 'gearbox', 'year', 'mileage', 'price'], missingFields: [] },
   };

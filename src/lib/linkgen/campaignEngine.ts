@@ -232,6 +232,33 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     console.warn('[CAMPAIGN_KNOWLEDGE] calcul du ban marché vide échoué (fail-open, aucun ban):', e instanceof Error ? e.message : e);
   }
 
+  // ── Dictionnaire MODÈLES des sites à moisson-annonces (Gaspedaal, Subito) :
+  // sert au plan découverte piloté par les manques — la référence MOINS ce
+  // dictionnaire = les modèles à valider par l'URL. Échec de lecture →
+  // absent → le plan retombe sur l'amorçage pages marque (fail-open).
+  const siteModelDict: Record<string, Record<string, string[]>> = {};
+  try {
+    const DICT_PREFIX: Record<string, string> = { GASPEDAAL: 'gp:model:', SUBITO: 'sb:model:' };
+    for (const [siteKey, prefix] of Object.entries(DICT_PREFIX)) {
+      const { data: dictRows } = await supabase
+        .from('linkgen_enum_mappings')
+        .select('field, label')
+        .eq('site', siteKey)
+        .like('field', `${prefix}%`)
+        .limit(10000);
+      if (!dictRows?.length) continue;
+      const byBrand: Record<string, string[]> = {};
+      for (const r of dictRows as Array<{ field: string; label: string }>) {
+        const bk2 = brandKey(r.field.slice(prefix.length).replace(/-/g, ' '));
+        if (!bk2 || !r.label) continue;
+        (byBrand[bk2] ??= []).push(r.label);
+      }
+      if (Object.keys(byBrand).length > 0) siteModelDict[siteKey] = byBrand;
+    }
+  } catch (e) {
+    console.warn('[CAMPAIGN_KNOWLEDGE] dictionnaire modèles par site illisible (fail-open):', e instanceof Error ? e.message : e);
+  }
+
   return {
     brands: [...brands].sort(),
     modelsByBrand: toRec(modelsByBrand),
@@ -243,6 +270,7 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     motorisations,
     provenEmptyCombos,
     observedFuelCombos,
+    siteModelDict,
   };
 }
 
@@ -267,6 +295,12 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     model: p.model,
     fuel: p.fuel || undefined,
     trim: p.trim || undefined,
+    // Découverte : tri PERTINENCE (le tri prix rend toujours les mêmes
+    // annonces bas de gamme — décision Channing 02/08) + hypothèse de slug
+    // modèle autorisée (validée par le modèle structuré du scrape).
+    // Précision/études : prix croissant, jamais d'hypothèse.
+    sort: p.discovery ? 'relevance' : undefined,
+    derivedModelSlug: p.discovery && p.model ? true : undefined,
     // Year pin: from = to = the same year, so the sample is year-resolved.
     yearFrom: p.year ? String(p.year) : undefined,
     yearTo: p.year ? String(p.year) : undefined,

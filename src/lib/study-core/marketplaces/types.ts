@@ -44,6 +44,15 @@ export interface SearchCriteria {
   seats?: string | number;
   color?: string;
   vehicleType?: string;
+  /** Tri demandé. Absent = prix croissant (défaut historique — études,
+   *  précision, MI). 'relevance' = tri du site (campagnes DÉCOUVERTE
+   *  uniquement, décision Channing 02/08 : le tri prix rend toujours les
+   *  mêmes annonces bas de gamme, mauvaise couverture de gamme). */
+  sort?: 'price_asc' | 'relevance';
+  /** Découverte-validation : autorise un slug modèle DÉRIVÉ (hypothèse
+   *  slugify) quand le dictionnaire ne le connaît pas encore — le scrape
+   *  vérifie par le modèle structuré. Jamais posé par les études. */
+  derivedModelSlug?: boolean;
 }
 
 export interface LinkGenIssue {

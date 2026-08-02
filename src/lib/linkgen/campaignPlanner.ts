@@ -22,6 +22,7 @@
 
 import { refComboKey, refModelKey } from '../../services/vehicleRef';
 import { brandKey, canonKey } from '../../services/marketData';
+import { modelKeyLoose } from '../study-core/business-logic';
 import { comboMotoVerdict, motoFuelTotal, type MotoMap } from '../../services/vehicleMotorisations';
 
 export interface CampaignKnowledge {
@@ -45,6 +46,14 @@ export interface CampaignKnowledge {
    * campagnes, injectés en exploration avec une part plafonnée.
    */
   refCombos?: Array<{ brand: string; model: string }>;
+  /**
+   * Dictionnaire MODÈLES par site à moisson-annonces (Gaspedaal, Subito) :
+   * site → clé marque → labels modèle connus (linkgen_enum_mappings,
+   * champs gp:model:… et sb:model:…). Sert au plan découverte « chercher ce qu'on ne
+   * sait pas » : la référence (mémoire ∪ référentiel) MOINS ce dictionnaire
+   * = les modèles à valider par l'URL.
+   */
+  siteModelDict?: Record<string, Record<string, string[]>>;
   /**
    * Référentiel MOTORISATIONS (EEA, immatriculations UE) — clé
    * `brandKey|refModelKey` → lignes carburant. Absence = fail-open.
@@ -90,6 +99,9 @@ export interface CampaignPlanItem {
   kind: 'exploration' | 'reinforcement';
   /** Why this item exists — shown in the live feed. */
   reason: string;
+  /** Item de campagne DÉCOUVERTE : tri pertinence (jamais prix croissant,
+   *  décision Channing 02/08) + hypothèse de slug modèle autorisée. */
+  discovery?: boolean;
 }
 
 /**
@@ -182,13 +194,52 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
     }
     const items: CampaignPlanItem[] = [];
     for (const site of opts.sites) {
-      for (const [, brand] of byKey) {
-        if (!brandMatches(brand)) continue;
-        for (let y = dMin; y <= dMax; y++) {
+      // ── Découverte PILOTÉE PAR LES MANQUES (Channing 02/08 : « il faut
+      // savoir ce qu'on ne sait pas ») : quand le site a déjà un dictionnaire
+      // modèles (moisson par annonces — Gaspedaal, Subito), on ne repasse PAS
+      // sur les pages marque : chaque item VALIDE un modèle que la référence
+      // (mémoire ∪ référentiel) connaît mais que le dictionnaire du site
+      // ignore encore — URL hypothèse (slug dérivé / q=), vérifiée par le
+      // modèle structuré des annonces. Dictionnaire vide → amorçage classique
+      // pages marque, année par année.
+      const dict = k.siteModelDict?.[site];
+      const dictEntries = dict ? Object.entries(dict) : [];
+      if (dictEntries.length > 0) {
+        const known = new Set<string>();
+        for (const [bk2, labels] of dictEntries) {
+          for (const lb of labels) {
+            known.add(`${bk2}|${refModelKey(bk2, lb)}`);
+            known.add(`${bk2}|${modelKeyLoose(lb)}`);
+          }
+        }
+        const reference: Array<{ brand: string; model: string }> = [];
+        for (const [brand, models] of Object.entries(k.modelsByBrand)) {
+          for (const m of models) reference.push({ brand, model: m });
+        }
+        for (const c of k.refCombos ?? []) reference.push(c);
+        const planned = new Set<string>();
+        for (const { brand, model } of reference) {
+          if (!brandMatches(brand) || !modelMatches(brand, model)) continue;
+          const bk2 = brandKey(brand);
+          const refKey = `${bk2}|${refModelKey(brand, model)}`;
+          const looseKey = `${bk2}|${modelKeyLoose(model)}`;
+          if (known.has(refKey) || known.has(looseKey)) continue;
+          if (planned.has(looseKey)) continue;
+          planned.add(looseKey);
           items.push({
-            site, brand, model: '', year: y, kind: 'exploration',
-            reason: `découverte taxonomie — gamme ${brand} ${y} (page marque)`,
+            site, brand, model, kind: 'exploration', discovery: true,
+            reason: `validation modèle — ${model} absent du dictionnaire ${site}`,
           });
+        }
+      } else {
+        for (const [, brand] of byKey) {
+          if (!brandMatches(brand)) continue;
+          for (let y = dMin; y <= dMax; y++) {
+            items.push({
+              site, brand, model: '', year: y, kind: 'exploration', discovery: true,
+              reason: `découverte taxonomie — gamme ${brand} ${y} (page marque)`,
+            });
+          }
         }
       }
     }

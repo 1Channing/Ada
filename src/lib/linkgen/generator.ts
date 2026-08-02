@@ -410,6 +410,24 @@ export function injectTrimIntoUrl(url: string, trim: string): string {
  * voie URL APPRISE, qui ne repasse pas par l'adaptateur. Idempotent, et
  * strictement limité aux hôtes autoscout24 + carburant PLUG_IN_HYBRID.
  */
+/**
+ * Gaspedaal/Subito : les campagnes DÉCOUVERTE scrapent en tri pertinence
+ * (couverture de gamme) — une URL apprise pendant une découverte porte donc
+ * srt=df-a / order=relevance. Les études et campagnes précision, elles,
+ * exigent le PRIX CROISSANT (le bas du marché fait le prix). Ce correctif
+ * l'impose sur la voie URL APPRISE, qui ne repasse pas par l'adaptateur.
+ * Idempotent, limité à ces deux hôtes ; paramètres prouvés par paires
+ * d'URLs humaines (02/08 : srt=pr-a/df-a, order=priceasc/relevance).
+ */
+export function enforcePriceSort(url: string): string {
+  try {
+    const host = new URL(url).hostname;
+    if (host.includes('gaspedaal.nl')) return setQueryParamRaw(url, 'srt', 'pr-a');
+    if (host.includes('subito.it')) return setQueryParamRaw(url, 'order', 'priceasc');
+  } catch { /* URL illisible — inchangée */ }
+  return url;
+}
+
 export function ensureAs24PhevKeyword(url: string, params: LinkGenParams): string {
   const fuelUp = String(params.fuel ?? '').trim().toUpperCase();
   if (fuelUp !== 'PLUG_IN_HYBRID' && fuelUp !== 'PHEV') return url;
@@ -557,6 +575,7 @@ export async function generateSearchUrlsWithMemory(
         url = overrideAs24PathYear(url, params);
         url = fixBilbasenQueryForm(url);
         url = enforceYearParams(url, params);
+        url = enforcePriceSort(url);
         url = fixMobiledeMileageForm(url, params);
         // AS24: even a trim-scoped learned URL can predate kwd= (daily report:
         // GR SPORT study reused a kwd-less URL → 6% trim match). Setting kwd is

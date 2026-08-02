@@ -182,9 +182,14 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
     warnings.push(`[LINKGEN_WARNING] Gaspedaal: carburant "${params.fuel}" sans slug prouvé — filtre omis`);
   }
   // Grammaire /{brand}/{model}/{fuel} prouvée par URL humaine (mémoire
-  // /bmw/5-serie/hybride). Slug modèle = dictionnaire moissonné uniquement —
-  // jamais inventé ; inconnu → page marque, tri structuré en aval.
-  const modelSlug = modelSlugFor(brandSlug, params.model);
+  // /bmw/5-serie/hybride). Slug modèle = dictionnaire moissonné, ou — en
+  // découverte-validation UNIQUEMENT (derivedModelSlug) — hypothèse slugify
+  // vérifiée par le scrape structuré. Les études n'hypothèquent jamais.
+  let modelSlug = modelSlugFor(brandSlug, params.model);
+  if (params.model && !modelSlug && params.derivedModelSlug) {
+    modelSlug = slugify(String(params.model));
+    warnings.push(`[LINKGEN] Gaspedaal: slug modèle HYPOTHÈSE "${modelSlug}" (dérivé, à valider par le scrape)`);
+  }
   if (params.model && !modelSlug) {
     warnings.push(`[LINKGEN_WARNING] Gaspedaal: modèle "${params.model}" sans slug moissonné — page marque, tri en aval`);
   }
@@ -193,10 +198,11 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (yearFrom) qs.set('bmin', yearFrom);
   if (yearTo) qs.set('bmax', yearTo);
   if (params.mileage) qs.set('kmax', String(params.mileage));
-  // PRIX CROISSANT — preuve par paire d'URLs humaines (Channing 02/08) :
-  // srt=pr-a = « Prijs laag-hoog », srt=df-a = relevantie. Le bas du marché
-  // est ce qu'on arbitre : les études prennent pr-a.
-  qs.set('srt', 'pr-a');
+  // Tri — preuve par paire d'URLs humaines (Channing 02/08) : srt=pr-a =
+  // « Prijs laag-hoog », srt=df-a = relevantie. Études/précision : pr-a (le
+  // bas du marché est ce qu'on arbitre). Découverte : df-a — le tri prix
+  // rendrait toujours les mêmes annonces bas de gamme (décision 02/08).
+  qs.set('srt', params.sort === 'relevance' ? 'df-a' : 'pr-a');
   const path = [brandSlug, modelSlug, fuelSlug].filter(Boolean).join('/');
   return { url: `https://www.gaspedaal.nl/${path}?${qs.toString()}`, warnings };
 }
@@ -208,7 +214,7 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const brandOk = listings.length > 0 && brandHits / listings.length >= 0.8;
   // Modèle posé en URL (slug moissonné trouvé) → vérification par le modèle
   // STRUCTURÉ des annonces ; sans slug → page marque, honnêtement non appliqué.
-  const modelPosed = Boolean(params.model && modelSlugFor(slugify(params.brand || ''), params.model));
+  const modelPosed = Boolean(params.model && (modelSlugFor(slugify(params.brand || ''), params.model) || params.derivedModelSlug));
   const wantModelKey = params.model ? modelKeyLoose(params.model) : '';
   const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
   const modelOk = modelPosed && listings.length > 0 && modelHits / listings.length >= 0.8;
