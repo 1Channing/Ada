@@ -141,9 +141,14 @@ app.post('/ingest-url', async (req, res) => {
     // persisté puis retiré des diagnostics (payload/journal légers).
     const taxo = result.diagnostics?.taxonomyHarvest;
     let taxonomyLearned = 0;
+    // Bilan de moisson pour le journal : combien de codes lus, combien de
+    // NOUVEAUX (« rien de nouveau » est une info — dictionnaire déjà à jour).
+    let taxonomySummary: { harvested: number; learned: number; byField: Record<string, number> } | null = null;
     if (taxo?.length) {
-      taxonomyLearned = await persistTaxonomyHarvest(adapter.key, taxo)
-        .catch((e) => { console.warn(`[TAXONOMY] persistance (ingest) échouée: ${e instanceof Error ? e.message : e}`); return 0; });
+      const taxoRes = await persistTaxonomyHarvest(adapter.key, taxo)
+        .catch((e) => { console.warn(`[TAXONOMY] persistance (ingest) échouée: ${e instanceof Error ? e.message : e}`); return { learned: 0, byField: {} }; });
+      taxonomyLearned = taxoRes.learned;
+      taxonomySummary = { harvested: taxo.length, learned: taxoRes.learned, byField: taxoRes.byField };
       if (adapter.learnEnumValues) {
         const byField = new Map<string, Array<{ code: string; label: string }>>();
         for (const e of taxo) {
@@ -172,6 +177,7 @@ app.post('/ingest-url', async (req, res) => {
       // front l'affiche, précieux en ingestion « découverte » sans modèle.
       taxonomyLearned,
       taxonomyHarvested: taxo?.length ?? 0,
+      taxonomy: taxonomySummary,
     };
 
     // Full pipeline server-side — the retention happens HERE, browser or not.
@@ -185,6 +191,7 @@ app.post('/ingest-url', async (req, res) => {
             url, site: adapter.key, country: adapter.countryCode, criteria,
             analysis: null, sampleSize: 0, scrapeError: result.error,
             detectedParams, submittedBy, scrapeDiagnostics: diag,
+            taxonomy: taxonomySummary,
           });
           payload.persisted = true;
           payload.persistOutcome = outcome;
@@ -194,6 +201,7 @@ app.post('/ingest-url', async (req, res) => {
             url, site: adapter.key, country: adapter.countryCode, criteria,
             analysis, sampleSize: result.listings.length,
             detectedParams, submittedBy, scrapeDiagnostics: diag,
+            taxonomy: taxonomySummary,
           });
           const confirmed = new Set(analysis.confirmedFields);
           if (confirmed.has('brand') && confirmed.has('model') && result.listings.length > 0) {

@@ -20,6 +20,9 @@ export interface IngestionEventRow {
   memory_action: string | null;
   sample_size: number;
   scrape_error: string | null;
+  /** Diagnostics du scrape — porte scrape_diagnostics.taxonomy : bilan de la
+   *  moisson (codes lus / nouveaux par champ) affiché au journal. */
+  scrape_diagnostics: Record<string, unknown> | null;
 }
 
 export interface Contributor {
@@ -31,7 +34,7 @@ export interface Contributor {
 export async function loadIngestionEvents(limit = 500): Promise<IngestionEventRow[]> {
   const { data, error } = await supabase
     .from('linkgen_ingestion_events')
-    .select('id, created_at, submitted_url, site, submitted_by, declared_criteria, retained, discarded, memory_action, sample_size, scrape_error')
+    .select('id, created_at, submitted_url, site, submitted_by, declared_criteria, retained, discarded, memory_action, sample_size, scrape_error, scrape_diagnostics')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) {

@@ -304,6 +304,22 @@ export function IngestionHistory() {
                             <span className="text-slate-400">Aucun champ confirmé ni jeté{e.scrape_error ? ` — scrape en échec : ${e.scrape_error}` : ''}.</span>
                           )}
                         </div>
+                        {(() => {
+                          // Moisson taxonomie de CE scrape (dictionnaire, pas la
+                          // mémoire d'URL) : « rien de nouveau » est une info —
+                          // les modèles de la page étaient déjà tous connus.
+                          const t = (e.scrape_diagnostics as { taxonomy?: { harvested: number; learned: number; byField?: Record<string, number> } } | null)?.taxonomy;
+                          if (!t || t.harvested === 0) return null;
+                          const parts = Object.entries(t.byField ?? {}).map(([f, n]) => `${f} +${n}`).join(' · ');
+                          return (
+                            <div className="text-slate-600">
+                              <span className="font-medium text-slate-800">Moisson taxonomie</span> : {t.harvested} code(s) lu(s) dans la page — {' '}
+                              {t.learned > 0
+                                ? <>{t.learned} nouveau(x) au dictionnaire ({parts})</>
+                                : 'rien de nouveau, tout était déjà connu du dictionnaire'}
+                            </div>
+                          );
+                        })()}
                         <div className="text-slate-500">
                           Critères déclarés : {Object.entries(crit).filter(([, v]) => String(v ?? '').trim()).map(([k, v]) => `${k}=${String(v)}`).join(' · ') || '—'}
                         </div>

@@ -16,9 +16,15 @@ import { allSiteAdapters } from '../study-core/marketplaces';
 
 export interface TaxonomyEntry { field: string; code: string; label: string }
 
+/** Bilan d'une moisson : nombre de nouveaux codes, ventilés par champ —
+ *  affiché dans le journal d'ingestion (« rien de nouveau » est une info). */
+export interface TaxonomyHarvestSummary { learned: number; byField: Record<string, number> }
+
+const EMPTY_SUMMARY: TaxonomyHarvestSummary = { learned: 0, byField: {} };
+
 /** Persiste une moisson : insertion des inconnus uniquement, conflits loggés. */
-export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntry[]): Promise<number> {
-  if (!entries.length) return 0;
+export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntry[]): Promise<TaxonomyHarvestSummary> {
+  if (!entries.length) return EMPTY_SUMMARY;
   const fields = [...new Set(entries.map((e) => e.field))];
   const { data: existing, error } = await supabase
     .from('linkgen_enum_mappings')
@@ -27,7 +33,7 @@ export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntr
     .in('field', fields);
   if (error) {
     console.warn(`[TAXONOMY] lecture dictionnaire échouée (${site}): ${error.message}`);
-    return 0;
+    return EMPTY_SUMMARY;
   }
   const known = new Map((existing ?? []).map((r) => [`${r.field}|${r.code}`, r.label as string]));
   const now = new Date().toISOString();
@@ -58,11 +64,13 @@ export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntr
       .upsert(fresh, { onConflict: 'site,field,code', ignoreDuplicates: true });
     if (insErr) {
       console.warn(`[TAXONOMY] insertion échouée (${site}): ${insErr.message}`);
-      return 0;
+      return EMPTY_SUMMARY;
     }
     console.warn(`[TAXONOMY] ${site}: ${fresh.length} entrée(s) apprise(s) (${fields.join(', ')})`);
   }
-  return fresh.length;
+  const byField: Record<string, number> = {};
+  for (const f of fresh) byField[f.field] = (byField[f.field] ?? 0) + 1;
+  return { learned: fresh.length, byField };
 }
 
 let taxonomyLoaded = false;

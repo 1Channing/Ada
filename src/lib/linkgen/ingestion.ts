@@ -41,6 +41,9 @@ export interface PersistIngestionInput {
   submittedBy?: string;
   /** Worker scrape health report (mode, retries, field coverage, block reason). */
   scrapeDiagnostics?: unknown;
+  /** Bilan de la moisson taxonomie de CE scrape (codes lus / nouveaux par
+   *  champ) — rangé dans scrape_diagnostics.taxonomy, affiché au journal. */
+  taxonomy?: { harvested: number; learned: number; byField: Record<string, number> } | null;
 }
 
 export type MemoryAction =
@@ -273,7 +276,9 @@ export async function persistIngestionResult(
     detected_params: detectedParams as unknown as Json,
     sample_size: sampleSize,
     scrape_error: scrapeError ?? null,
-    scrape_diagnostics: (scrapeDiagnostics ?? null) as unknown as Json,
+    scrape_diagnostics: (input.taxonomy
+      ? { ...((scrapeDiagnostics as Record<string, unknown> | null) ?? {}), taxonomy: input.taxonomy }
+      : scrapeDiagnostics ?? null) as unknown as Json,
     retained: retained as unknown as Json,
     discarded: discarded as unknown as Json,
     conflicts: outcome.conflicts.length > 0 ? (outcome.conflicts as unknown as Json) : null,

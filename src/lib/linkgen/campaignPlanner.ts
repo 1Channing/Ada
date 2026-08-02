@@ -164,9 +164,16 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   const modelMatches = (b: string, m: string) =>
     modelSet.size === 0 || modelSet.has(canonKey(m)) || modelSet.has(refModelKey(b, m));
 
-  // ── MODE DÉCOUVERTE TAXONOMIE : toutes les marques × tous les sites, sans
-  // modèle — une étude par couple, c'est la page marque qui enseigne.
+  // ── MODE DÉCOUVERTE TAXONOMIE : toutes les marques × tous les sites ×
+  // CHAQUE année de la fourchette ciblée, sans modèle — c'est la page marque
+  // qui enseigne. L'année démultiplie exprès (décision Channing 02/08) : sur
+  // les sites où la taxonomie s'apprend DEPUIS les annonces (Gaspedaal,
+  // Subito), une page marque 2026 n'enseigne que les modèles vendus en 2026 —
+  // la boucle 2020→2026 couvre les modèles arrêtés entre-temps. Sans
+  // fourchette fournie : année en cours seule (comportement historique).
   if (opts.discoveryOnly) {
+    const dMin = Math.max(YEAR_PIN_MIN, Math.min(f.yearMin ?? nowYear, nowYear));
+    const dMax = Math.max(dMin, Math.min(f.yearMax ?? nowYear, nowYear));
     const byKey = new Map<string, string>(); // clé canonique → libellé élu
     for (const b of k.brands) byKey.set(brandKey(b), b);
     for (const c of k.refCombos ?? []) {
@@ -177,10 +184,12 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
     for (const site of opts.sites) {
       for (const [, brand] of byKey) {
         if (!brandMatches(brand)) continue;
-        items.push({
-          site, brand, model: '', year: nowYear, kind: 'exploration',
-          reason: `découverte taxonomie — gamme complète ${brand} (page marque)`,
-        });
+        for (let y = dMin; y <= dMax; y++) {
+          items.push({
+            site, brand, model: '', year: y, kind: 'exploration',
+            reason: `découverte taxonomie — gamme ${brand} ${y} (page marque)`,
+          });
+        }
       }
     }
     return shuffle(items, rng).slice(0, total);

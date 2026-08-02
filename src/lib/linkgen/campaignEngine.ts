@@ -370,9 +370,11 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   // dictionnaire enum + appris immédiatement en mémoire de process, puis
   // RETIRÉ des diagnostics pour garder les dossiers légers.
   const taxo = (diagnostics as { taxonomyHarvest?: Array<{ field: string; code: string; label: string }> | null } | null)?.taxonomyHarvest;
+  let taxonomySummary: { harvested: number; learned: number; byField: Record<string, number> } | null = null;
   if (taxo?.length) {
     try {
-      await persistTaxonomyHarvest(p.site, taxo);
+      const taxoRes = await persistTaxonomyHarvest(p.site, taxo);
+      taxonomySummary = { harvested: taxo.length, learned: taxoRes.learned, byField: taxoRes.byField };
       const adapter = getSiteAdapter(p.site);
       if (adapter?.learnEnumValues) {
         const byField = new Map<string, Array<{ code: string; label: string }>>();
@@ -399,6 +401,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
       url, site: adapter.key, country: adapter.countryCode, criteria,
       analysis: null, sampleSize: 0, scrapeError: error,
       detectedParams: decomposeUrl(url), submittedBy: CAMPAIGN_SUBMITTER,
+      taxonomy: taxonomySummary,
     }).catch(() => undefined);
     // A not-found page means the URL PATH is wrong (bad brand/model slug) —
     // that's a mapping problem, not a technical one. Before recording the
@@ -535,6 +538,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     url, site: adapter.key, country: adapter.countryCode, criteria,
     analysis, sampleSize: sampleListings.length,
     detectedParams: decomposeUrl(url), submittedBy: CAMPAIGN_SUBMITTER,
+    taxonomy: taxonomySummary,
   }).catch(() => undefined);
 
   const confirmed = new Set(analysis.confirmedFields);

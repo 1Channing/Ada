@@ -421,6 +421,7 @@ export function Ingestion({ embedded = false }: { embedded?: boolean } = {}) {
             criteria,
             analysis: result,
             sampleSize: listings.length,
+            taxonomy: (data?.taxonomy as { harvested: number; learned: number; byField: Record<string, number> } | null) ?? null,
             detectedParams,
             submittedBy: form.submittedBy.trim() || undefined,
             scrapeDiagnostics: diag,
