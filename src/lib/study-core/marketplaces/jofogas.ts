@@ -114,7 +114,11 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // Tri prix croissant sp=1 (paire d'URLs humaines) ; découverte = défaut du site.
   if (params.sort !== 'relevance') qs.set('sp', '1');
   const path = `/magyarorszag/auto/${brandSlug}${fuelSlug ? `/${fuelSlug}` : ''}`;
-  return { url: `https://auto.jofogas.hu${path}?${qs.toString()}`, warnings };
+  return {
+    url: `https://auto.jofogas.hu${path}?${qs.toString()}`, warnings,
+    // v1 : jamais posé en URL construite — seule la voie URL apprise l'exprime.
+    modelExpressed: !params.model,
+  };
 }
 
 function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {

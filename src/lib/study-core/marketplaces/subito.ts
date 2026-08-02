@@ -196,7 +196,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const { yearFrom, yearTo } = resolveYearRange(params);
   if (yearFrom) qs.set('ys', yearFrom);
   if (yearTo) qs.set('ye', yearTo);
-  return { url: `https://www.subito.it${path}?${qs.toString()}`, warnings };
+  return {
+    url: `https://www.subito.it${path}?${qs.toString()}`, warnings,
+    modelExpressed: !params.model || Boolean(modelSlug || validateModel),
+  };
 }
 
 function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {

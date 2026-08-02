@@ -133,6 +133,11 @@ export interface BuildUrlResult {
   url: string;
   /** Human-readable warnings, e.g. an unsupported param that was dropped. */
   warnings: string[];
+  /** false = un modèle était demandé mais l'URL ne le pose PAS (page marque /
+   *  recherche large). Absent = exprimé (comportement historique). Sert à la
+   *  garde d'exprimabilité des campagnes précision : pas de scrape payé pour
+   *  une page qu'on sait incapable de confirmer le modèle (Channing 02/08). */
+  modelExpressed?: boolean;
 }
 
 export interface ZyteProfileOverrides {

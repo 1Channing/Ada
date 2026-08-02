@@ -145,7 +145,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   qs.set('power_max', '');
   qs.set('mileage_min', '');
   qs.set('mileage_max', params.mileage ? String(params.mileage) : '');
-  return { url: `https://www.skelbiu.lt/skelbimai/?${qs.toString()}`, warnings };
+  return {
+    url: `https://www.skelbiu.lt/skelbimai/?${qs.toString()}`, warnings,
+    modelExpressed: !params.model || Boolean(mk && CATEGORY_ID[`${bk}|${mk}`]),
+  };
 }
 
 function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {

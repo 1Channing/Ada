@@ -233,7 +233,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // rendrait toujours les mêmes annonces bas de gamme (décision 02/08).
   qs.set('srt', params.sort === 'relevance' ? 'df-a' : 'pr-a');
   const path = [brandSlug, modelSlug, fuelSlug].filter(Boolean).join('/');
-  return { url: `https://www.gaspedaal.nl/${path}?${qs.toString()}`, warnings };
+  return {
+    url: `https://www.gaspedaal.nl/${path}?${qs.toString()}`, warnings,
+    modelExpressed: !params.model || Boolean(modelSlug),
+  };
 }
 
 function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {

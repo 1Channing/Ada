@@ -375,6 +375,26 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     return null;
   };
 
+  // ── Garde d'EXPRIMABILITÉ (Channing 02/08 : « scraper sur base de ce
+  // qu'on sait uniquement ») : un modèle que le site ne sait pas poser en
+  // URL (ni dictionnaire, ni mémoire apprise) partirait en page marque →
+  // lacune au prix d'un scrape plein. Classé no_url SANS appel Zyte ; le
+  // centre de résolution dit quoi apprendre. Le CARBURANT ne bloque jamais :
+  // modèle posé, le post-filtre structuré le confirme gratuitement. La
+  // découverte (p.discovery, sans modèle) et les URLs apprises (urlSource
+  // 'learned') passent toujours.
+  if (p.model && url && urlSource !== 'learned') {
+    const probe = getSiteAdapter(p.site)?.buildSearchUrl(criteria);
+    if (probe && probe.modelExpressed === false) {
+      return {
+        ...base, url, outcome: 'no_url', confirmedFields: [], rejected: [],
+        detail: `segment non exprimable sur ${p.site} : modèle "${p.model}" inconnu du dictionnaire du site et aucune URL apprise — scrape évité (0 appel Zyte)`,
+        sampleSize: 0,
+        dossier: mkDossier('expressibility', { warnings: probe.warnings }),
+      };
+    }
+  }
+
   const { listings, error, diagnostics } = await scrape(url);
 
   // Référentiel embarqué moissonné par l'adaptateur (mobile.de : liste

@@ -189,7 +189,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (yearFrom) qs.set('year_from', yearFrom);
   if (yearTo) qs.set('year_to', yearTo);
   qs.sort();
-  return { url: `https://www.blocket.se/mobility/search/car?${qs.toString()}`, warnings };
+  return {
+    url: `https://www.blocket.se/mobility/search/car?${qs.toString()}`, warnings,
+    modelExpressed: !params.model || Boolean(brandId && modelId),
+  };
 }
 
 function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {
