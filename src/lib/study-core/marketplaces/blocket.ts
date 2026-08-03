@@ -228,11 +228,19 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // omis (marché entier) — codes appris, jamais devinés.
   const bk = brandIdKey(params.brand || '');
   const brandId = BRAND_ID[bk] ?? LEARNED_BRAND_ID[bk];
-  const modelId = params.model
+  // Déclinaisons rechargeables NOMMÉES (URL humaine 02/08 : « RAV4 Plug-in
+  // Hybrid » = série 1.813.2000660, distincte du RAV4 1.813.3074) : quand le
+  // carburant demandé est plug-in, la série PHEV du modèle gagne — sinon la
+  // recherche RAV4+fuel=1352 raterait tout ce que le site range à part.
+  const phevId = params.model && String(params.fuel ?? '').trim().toUpperCase() === 'PLUG_IN_HYBRID'
+    ? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(params.model + ' plug in hybrid')}`]
+      ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(params.model + ' laddhybrid')}`]
+    : undefined;
+  const modelId = phevId ?? (params.model
     ? MODEL_ID[`${bk}|${(params.model || '').trim().toUpperCase()}`]
       ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(params.model)}`]
       ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(stripSeriesWords(params.model))}`]
-    : undefined;
+    : undefined);
   if (modelId?.includes('.')) qs.set('variant', modelId);
   else if (brandId && modelId) qs.set('variant', `1.${brandId}.${modelId}`);
   else if (brandId) {
