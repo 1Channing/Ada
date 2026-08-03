@@ -483,6 +483,14 @@ export function confirmCriteriaAgainstSample(
         if (canonical === 'hybrid' && (declaredCanon === 'phev' || declaredCanon === 'mild_hybrid')) {
           familyCount++;
         }
+        // …et RÉCIPROQUEMENT (constat campagne Gaspedaal 02/08 : « 6× Hybride
+        // vs déclaré HYBRIDE — 0 % ») : le site étiquette la famille, mais le
+        // RAFFINEUR surclasse chaque titre « Plug-in Hybrid » en phev — un
+        // sous-type observé CONFIRME la famille déclarée (le slug /hybride
+        // couvre toute la famille), il ne la contredit pas.
+        else if (declaredCanon === 'hybrid' && (refined === 'phev' || refined === 'mild_hybrid')) {
+          familyCount++;
+        }
       }
       const okCount = matchCount + familyCount;
       if (voting < INGESTION_MIN_SAMPLE) {
