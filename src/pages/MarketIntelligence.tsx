@@ -268,6 +268,10 @@ export function MarketIntelligence() {
             const status = ((poll.error as { context?: unknown }).context as { status?: number } | undefined)?.status;
             // 404 = job purgé/worker redémarré : le scrape a pu aboutir — fail-open.
             if (status === 404) remaining.delete(jobId);
+            // 502 = worker injoignable (redéploiement Railway en cours) : le
+            // spinner semblait mouliner sans raison pendant ces fenêtres —
+            // on AFFICHE l'état au lieu de laisser croire à un blocage.
+            else if (status === 502) setUpd(pu.scope, { label: pu.label, msg: 'worker en redéploiement — reprise automatique du suivi…' });
             continue; // autre erreur (réseau…) : on retente au tour suivant
           }
           const d = poll.data as { jobStatus?: string; message?: string } | null;
