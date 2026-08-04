@@ -309,6 +309,19 @@ export function refModelKey(brand: string, model: string): string {
     ?? m.match(/^(\w{1,3})[- ]?SERIES?$/i)
     ?? m.match(/^(\d)[- ]?ER(?:[- ]?REIHE)?$/i);
   if (sm) m = sm[1];
+  // Motorisation déguisée en nom de modèle (constat MI 04/08 : le menu
+  // listait « KONA » ET « KONA EV », « TUCSON » / « TUCSON HEV » / « TUCSON
+  // PHEV » comme des modèles distincts — héritage référentiel). La
+  // motorisation vit dans le champ CARBURANT, pas dans l'identité modèle :
+  // suffixes dépouillés en boucle tant qu'il reste un nom. Jetons COMPLETS
+  // uniquement : « CLASSE E » (E seul), « EV6 »/« EV9 » Kia (un seul jeton,
+  // pas de suffixe), « Mach-E » restent intouchés.
+  for (;;) {
+    const stripped = m.replace(
+      /\s+(?:EV|BEV|HEV|PHEV|MHEV|FHEV|HYBRIDE?|ELECTRIC|[ÉE]LECTRIQUE|ELETTRICA|PLUG[- ]?IN(?:[- ]HYBRIDE?)?)$/i, '');
+    if (stripped === m || !stripped.trim()) break;
+    m = stripped;
+  }
   return canonKey(m);
 }
 
