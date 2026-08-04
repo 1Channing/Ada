@@ -109,12 +109,16 @@ app.post('/ingest-url', async (req, res) => {
   }
 
   const adapter = findSiteAdapterByDomain(url);
-  if (!adapter) {
+  // forceRecon (04/08) : dump brut même sur un domaine AVEC adaptateur —
+  // indispensable pour écrire un parseur sur PREUVE quand le site refuse
+  // tout accès direct (Skelbiu 403 hors Zyte) : sans lui, impossible de
+  // photographier une page taxonomie d'un site déjà intégré.
+  if (!adapter || (req.body ?? {}).forceRecon === true) {
     // MODE RECONNAISSANCE (01/08) : domaine sans adaptateur = candidat à
     // l'extension du réseau. On photographie la page (données embarquées,
     // annonces lisibles, taxonomie, devise, langue) au lieu de refuser —
     // lecture seule, aucune écriture mémoire/snapshot. Voir logs [RECON].
-    console.log(`[INGEST] RECON (domaine sans adaptateur): ${url.slice(0, 140)}`);
+    console.log(`[INGEST] RECON (${adapter ? 'forcé' : 'domaine sans adaptateur'}): ${url.slice(0, 140)}`);
     const dump = typeof (req.body ?? {}).dump === 'string' ? String(req.body.dump) : undefined;
     const runRecon = async () => ({ recon: true, report: await reconScrape(url, dump) });
     if (wantAsync) {
