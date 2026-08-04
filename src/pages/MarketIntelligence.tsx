@@ -258,8 +258,18 @@ export function MarketIntelligence() {
     void (async () => {
       const remaining = new Map(pu.jobs.map((j) => [j.jobId, j.site]));
       const errors: string[] = [];
-      const deadline = pu.startedAt + 12 * 60 * 1000;
-      setUpd(pu.scope, { label: pu.label, msg: `scrape en cours — 0/${pu.jobs.length} site(s) terminé(s)` });
+      // 20 min : les mises à jour partagent la file Zyte avec les campagnes —
+      // pendant une campagne active, un scrape MI passe derrière et peut
+      // légitimement dépasser les 12 min de l'ancien délai (constat 04/08 :
+      // « échec : délai dépassé » alors que les snapshots ENYAQ ont atterri).
+      const deadline = pu.startedAt + 20 * 60 * 1000;
+      // Campagne active = files d'attente plus longues : on l'annonce.
+      let campSuffix = '';
+      try {
+        const { data: camp } = await supabase.from('linkgen_campaigns').select('id').eq('status', 'running').limit(1);
+        if (camp && camp.length > 0) campSuffix = ' · campagne active en parallèle, cela peut prendre plus de temps';
+      } catch { /* indication seulement */ }
+      setUpd(pu.scope, { label: pu.label, msg: `scrape en cours — 0/${pu.jobs.length} site(s) terminé(s)${campSuffix}` });
       while (remaining.size > 0 && Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 4000));
         for (const [jobId, site] of [...remaining]) {
@@ -279,9 +289,13 @@ export function MarketIntelligence() {
           if (d?.jobStatus === 'error') errors.push(`${site} : ${d?.message ?? 'échec'}`);
           remaining.delete(jobId);
         }
-        setUpd(pu.scope, { label: pu.label, msg: `scrape en cours — ${pu.jobs.length - remaining.size}/${pu.jobs.length} site(s) terminé(s)` });
+        setUpd(pu.scope, { label: pu.label, msg: `scrape en cours — ${pu.jobs.length - remaining.size}/${pu.jobs.length} site(s) terminé(s)${campSuffix}` });
       }
-      if (remaining.size > 0) errors.push(`délai dépassé (${[...remaining.values()].join(', ')})`);
+      // Délai de garde atteint ≠ échec : le worker CONTINUE côté serveur et
+      // écrit ses snapshots quand il finit (vérifié le 04/08 : les données
+      // ENYAQ ont atterri après l'ancien message « échec »). On l'annonce
+      // comme un suivi interrompu, pas comme un scrape raté.
+      const stillRunning = [...remaining.values()];
       // Quoi qu'il arrive : recharger — des scrapes ont pu écrire.
       setUpd(pu.scope, { label: pu.label, msg: 'rechargement des données…' });
       try {
@@ -295,7 +309,9 @@ export function MarketIntelligence() {
       removePendingUpdate(pu.scope);
       trackedScopes.current.delete(pu.scope);
       if (errors.length > 0) setUpd(pu.scope, { label: pu.label, msg: `échec : ${errors.join(' · ')}` });
-      else setUpd(pu.scope, null);
+      else if (stillRunning.length > 0) {
+        setUpd(pu.scope, { label: pu.label, msg: `scrapes toujours en cours côté serveur (${stillRunning.join(', ')}) — les données s'ajouteront d'elles-mêmes, utilise Rafraîchir dans quelques minutes` });
+      } else setUpd(pu.scope, null);
     })();
   };
 
