@@ -33,10 +33,12 @@ import { modelKeyLoose } from '../business-logic';
 
 const URL_TEMPLATE = 'https://www.blocket.se/mobility/search/car?variant={brand}&year_from={yearFrom}&year_to={yearTo}';
 
-// Codes carburant PROUVÉS (URLs humaines 02/08 + labels des cartes).
+// Codes carburant PROUVÉS (URLs humaines 02/08 : 6 hybride, 1352 plug-in ;
+// 04/08 : 4 électrique — fuel=4 sur le Kona SE).
 const FUEL_CODE: Record<string, string[]> = {
   HYBRIDE: ['6'], HYBRID: ['6'], MILD_HYBRID: ['6'],
   PLUG_IN_HYBRID: ['1352'],
+  ELECTRIQUE: ['4'], ELECTRIC: ['4'],
 };
 // Codes fuel APPRIS (dictionnaire bl:fuelcode : code URL → libellé suédois,
 // alimenté par les graines prouvées et les URLs humaines futures). Le label
