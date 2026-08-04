@@ -119,24 +119,44 @@ function isPriceMonthly(text: string): boolean {
 export function isDamagedVehicleText(text: string | null | undefined): boolean {
   const t = ` ${String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()} `
     // Tournures « sain » : elles contiennent le mot du dégât, on les efface d'abord.
-    .replace(/\b(?:non|jamais|sans|nooit|zonder|geen|kein(?:e[nmrs]?)?|ohne|no|never)[\s-]*accident\w*/g, ' ')
+    .replace(/\b(?:non|jamais|sans|nooit|zonder|geen|kein(?:e[nmrs]?)?|ohne|no|never|senza|mai|sin)[\s-]*(?:accident|incident|siniestr)\w*/g, ' ')
     .replace(/\baccident[\s-]*free\w*/g, ' ')
     .replace(/\bunfall[\s-]?frei\w*/g, ' ')
     .replace(/\bschade(?:n|s)?[\s-]?frei\w*/g, ' ')
     .replace(/\bschadevrij\w*/g, ' ')
-    .replace(/\bskades?fri\w*/g, ' ');
+    .replace(/\bskades?fri\w*/g, ' ')
+    // sv « krockfri » (jamais accidentée), « inga skador » (aucun dégât),
+    // négations de « defekt » toutes langues (inga defekter, keine Defekte,
+    // geen defecten, sans defaut…).
+    .replace(/\bkrockfri\w*/g, ' ')
+    .replace(/\binga[\s-]*skador\w*/g, ' ')
+    .replace(/\b(?:inga|utan|keine?[nmrs]?|geen|zonder|sans|no|ohne)[\s-]*defe[ck]te?\w*/g, ' ');
   return (
     /\baccident\w*/.test(t)                                  // fr/en/es accidenté, accidentado, accident damage
     || /\bepave\w*/.test(t)                                  // fr épave (accents dépouillés)
     || /\bunfall\w*/.test(t)                                 // de Unfall, Unfallwagen, Unfallfahrzeug
     || /\w*schaden?\b/.test(t)                               // de/nl Motorschaden, Getriebeschaden, Hagelschaden, schade
     || /\b(?:schadeauto|schadewagen|beschadigd\w*)\b/.test(t) // nl
-    || /\bskadet?\b/.test(t)                                 // dk skade/skadet
+    || /\w*skadet?\b/.test(t)                                // dk skade/skadet, totalskadet (composés germaniques)
     || /\bincidentat[aoie]\b/.test(t)                        // it incidentata/o
-    || /\bsinistr(?:ad[ao]s?|[ée]s?)\b/.test(t)              // es siniestrado / fr sinistré
+    || /\bsinistrat[aoie]\b/.test(t)                         // it sinistrata/o (constat 04/08 : « AUT.SINISTRATA »)
+    || /\bsinistr(?:ad[ao]s?|[ée]s?)\b/.test(t)              // es sinistrado / fr sinistré
+    || /\bsiniestr\w*/.test(t)                               // es siniestro/siniestrado (graphie « ie »)
+    || /\bper ricambi\b/.test(t)                             // it pour pièces
+    || /\bpara piezas\b/.test(t)                             // es pour pièces
+    || /\bkrockskad\w*/.test(t) || /\bkrockad\w*/.test(t)    // sv krockskadad, krockad
+    || /\breparationsobjekt\w*/.test(t)                      // sv à réparer
+    || /\bserult\w*/.test(t) || /\btorott\b/.test(t) || /\bkarambol\w*/.test(t) // hu sérült, törött, karambolos
+    || /\bmotorhibas\b/.test(t)                              // hu moteur en panne
+    || /\bdauzt\w*/.test(t) || /\bpo avarijos\b/.test(t)     // lt daužtas, po avarijos
+    || /\b(?:parduodama[\s-])?dalimis\b/.test(t)             // lt vendue en pièces
+    || /\bbastler\w*/.test(t)                                // de Bastlerfahrzeug
+    || /\bdefekt\w*/.test(t) || /\bdefect\w*/.test(t)        // de/sv/nl defekt/defect (négations effacées plus haut)
     || /\b(?:salvage|written? off|total loss|cat [cdsn])\b/.test(t) // en
     || /\bpour pieces?\b/.test(t) || /\bfor parts\b/.test(t) // pièces détachées
     || /\bnon roulant\w*/.test(t)
+    || /\bnon marciante\w*/.test(t)                          // it non roulante
+    || /\bnevaziuojant\w*/.test(t)                           // lt non roulante
     || /\b(?:moteur|boite) hs\b/.test(t) || /\bhors service\b/.test(t)
   );
 }
