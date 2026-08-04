@@ -859,19 +859,30 @@ export function attackPrice(obs: Observation[]): { price: number; window: number
   return { price: Math.round(percentile(prices.slice(0, window), 0.5)), window };
 }
 
-/** Group filtered observations by snapshot time → time series of median + count. */
+/**
+ * Série temporelle des médianes : UN point par JOUR (et plus par scan —
+ * constat 04/08 : les campagnes année par année posent plusieurs snapshots
+ * le même jour, l'axe répétait les dates et la médiane sautait d'une tranche
+ * d'année à l'autre). Toutes les observations du jour sont réunies, chaque
+ * annonce comptée UNE fois (sa version la plus récente du jour), puis les
+ * stats sont calculées sur ce marché du jour — même grain que les
+ * indicateurs. La série reçoit les observations DÉJÀ filtrées (carburant,
+ * années, km, finition) : chaque filtre du MI change donc bien la courbe.
+ */
 export function timeSeries(obs: Observation[]): { date: string; median: number; p25: number; p75: number; count: number; ts: number }[] {
-  const bySnap = new Map<string, Observation[]>();
+  const byDay = new Map<string, Observation[]>();
   for (const o of obs) {
-    const arr = bySnap.get(o.snapshot_id) ?? [];
+    const day = String(o.scraped_at ?? '').slice(0, 10);
+    if (!day) continue;
+    const arr = byDay.get(day) ?? [];
     arr.push(o);
-    bySnap.set(o.snapshot_id, arr);
+    byDay.set(day, arr);
   }
-  const rows = [...bySnap.values()].map((group) => {
-    const st = priceStats(group);
+  const rows = [...byDay.entries()].map(([day, group]) => {
+    const st = priceStats(latestPerListing(group));
     return {
-      ts: new Date(group[0].scraped_at).getTime(),
-      date: group[0].scraped_at,
+      ts: new Date(`${day}T12:00:00Z`).getTime(),
+      date: `${day}T12:00:00Z`,
       median: st.median,
       p25: st.p25,
       p75: st.p75,

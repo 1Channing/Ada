@@ -112,6 +112,30 @@ export function IngestionHistory() {
   const contributors = useMemo(() => stats?.contributors ?? [], [stats]);
   const treeStats = useMemo(() => (tree ? countMappings(tree) : { models: 0, variants: 0, valid: 0 }), [tree]);
 
+  // ── Carto façon MI (04/08) : on n'affiche QUE la sélection. L'arbre complet
+  //    (3 000+ codes depuis Blocket/Skelbiu) rendait la page imbuvable — on
+  //    choisit un site (obligatoire), puis éventuellement une marque, et
+  //    seule cette branche est construite. Rien d'autre ne change : le même
+  //    arbre complet reste calculé pour les KPIs, MappingRadialTree est
+  //    intouché, il reçoit juste un sous-arbre.
+  const [cartoSite, setCartoSite] = useState<string>('');
+  const [cartoBrand, setCartoBrand] = useState<string>('');
+  const cartoSiteNode = useMemo(
+    () => tree?.children.find((s) => s.label === cartoSite) ?? null,
+    [tree, cartoSite],
+  );
+  const cartoBrandOptions = useMemo(
+    () => (cartoSiteNode?.children ?? []).map((b) => b.label).sort((a, b) => a.localeCompare(b)),
+    [cartoSiteNode],
+  );
+  const scopedTree = useMemo((): TreeNode | null => {
+    if (!tree || !cartoSiteNode) return null;
+    const site = cartoBrand
+      ? { ...cartoSiteNode, children: cartoSiteNode.children.filter((b) => b.label === cartoBrand) }
+      : cartoSiteNode;
+    return { ...tree, children: [site] };
+  }, [tree, cartoSiteNode, cartoBrand]);
+
   const filtered = useMemo(() => events.filter((e) =>
     (!siteFilter || e.site === siteFilter) &&
     (!contributorFilter || (e.submitted_by ?? '') === contributorFilter)
@@ -174,16 +198,47 @@ export function IngestionHistory() {
         </div>
       )}
 
-      {/* Radial mapping graph */}
+      {/* Radial mapping graph — façon MI : on ne dessine QUE la sélection. */}
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <h2 className="font-semibold text-slate-800 mb-1">Cartographie des mappings</h2>
-        <p className="text-xs text-slate-500 mb-4">
-          Site → marque → modèle → déclinaisons (carburant / finition) et facettes apprises.
-          {tree ? ` ${treeStats.models} modèles, ${treeStats.variants} déclinaisons, ${treeStats.valid} certifiées.` : ''}
+        <p className="text-xs text-slate-500 mb-3">
+          Choisis un site (puis une marque si besoin) — seule la branche sélectionnée est dessinée.
+          {tree ? ` Au total : ${treeStats.models} modèles, ${treeStats.variants} déclinaisons, ${treeStats.valid} certifiées.` : ''}
         </p>
-        {tree && tree.children.length > 0
-          ? <MappingRadialTree root={tree} />
-          : <p className="text-sm text-slate-500">Aucun mapping enregistré pour l'instant — les premières ingestions confirmées apparaîtront ici.</p>}
+        {tree && tree.children.length > 0 ? (
+          <>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {tree.children.map((s) => (
+                <button
+                  key={s.label}
+                  onClick={() => { setCartoSite(cartoSite === s.label ? '' : s.label); setCartoBrand(''); }}
+                  className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
+                    cartoSite === s.label
+                      ? 'bg-sky-50 border-sky-300 text-sky-700 font-medium'
+                      : 'bg-white border-slate-200 text-slate-600 hover:text-slate-800'
+                  }`}
+                >
+                  {s.label} <span className="text-slate-400">({s.children.length})</span>
+                </button>
+              ))}
+            </div>
+            {cartoSiteNode && (
+              <select
+                value={cartoBrand}
+                onChange={(e) => setCartoBrand(e.target.value)}
+                className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs mb-3"
+              >
+                <option value="">Toutes les marques ({cartoBrandOptions.length})</option>
+                {cartoBrandOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            )}
+            {scopedTree
+              ? <MappingRadialTree key={`${cartoSite}|${cartoBrand}`} root={scopedTree} />
+              : <p className="text-sm text-slate-500">Clique un site ci-dessus pour dessiner sa branche.</p>}
+          </>
+        ) : (
+          <p className="text-sm text-slate-500">Aucun mapping enregistré pour l'instant — les premières ingestions confirmées apparaîtront ici.</p>
+        )}
       </div>
 
       {/* Journal */}
