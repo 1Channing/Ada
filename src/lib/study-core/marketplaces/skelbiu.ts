@@ -52,8 +52,10 @@ const canon = (v: string) => (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 // lituanien (« 3 serija », « CLA klasė ») et marque « Mercedes-Benz ».
 // Dépouillées/aliasées des DEUX côtés de l'appariement — sinon « SERIE 3 »
 // ou « CLA » (nos études) ne trouvaient jamais leur catégorie.
+// Frontières Unicode (lookaround \p{L}) et non \b : « klasė » finit par une
+// lettre hors-ASCII, invisible pour \b — le mot n'était jamais dépouillé.
 const stripSeriesWordsSk = (v: string) =>
-  (v ?? '').replace(/\b(serij[ao]s?|serien?|series|klas[eė]s?|classe?|klasse?)\b/gi, ' ');
+  (v ?? '').replace(/(?<![\p{L}\p{N}])(serij[ao]s?|serien?|series|klas[eė]s?|classe?|klasse?)(?![\p{L}\p{N}])/giu, ' ');
 const canonAlias = (v: string) =>
   canon(stripSeriesWordsSk(v)).replace(/MERCEDESBENZ/, 'MERCEDES').replace(/^VW(?=$|[A-Z0-9])/, 'VOLKSWAGEN');
 
