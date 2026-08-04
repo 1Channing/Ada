@@ -48,6 +48,15 @@ const CATEGORY_ID: Record<string, string> = { 'TOYOTA|RAV4': '21575' };
 
 const canon = (v: string) => (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+// Conventions de nommage du site (constat crawl 04/08) : séries en
+// lituanien (« 3 serija », « CLA klasė ») et marque « Mercedes-Benz ».
+// Dépouillées/aliasées des DEUX côtés de l'appariement — sinon « SERIE 3 »
+// ou « CLA » (nos études) ne trouvaient jamais leur catégorie.
+const stripSeriesWordsSk = (v: string) =>
+  (v ?? '').replace(/\b(serij[ao]s?|serien?|series|klas[eė]s?|classe?|klasse?)\b/gi, ' ');
+const canonAlias = (v: string) =>
+  canon(stripSeriesWordsSk(v)).replace(/MERCEDESBENZ/, 'MERCEDES').replace(/^VW(?=$|[A-Z0-9])/, 'VOLKSWAGEN');
+
 // Catégories APPRISES (moisson sk:category : liens category_id=N + libellé,
 // lus sur les pages du site — la page « toutes autos » liste les marques,
 // une page marque liste ses modèles). L'appariement se fait par LIBELLÉ :
@@ -68,16 +77,16 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
 }
 
 function learnedBrandCategory(brand: string): string | undefined {
-  const bk = canon(brand);
-  return bk ? LEARNED_CATEGORIES.find((c) => canon(c.label) === bk)?.code : undefined;
+  const bk = canonAlias(brand);
+  return bk ? LEARNED_CATEGORIES.find((c) => canonAlias(c.label) === bk)?.code : undefined;
 }
 
 function learnedModelCategory(brand: string, model: string): string | undefined {
-  const bk = canon(brand);
-  const mk = canon(model);
+  const bk = canonAlias(brand);
+  const mk = canonAlias(model);
   if (!mk) return undefined;
   return LEARNED_CATEGORIES.find((c) => {
-    const ck = canon(c.label);
+    const ck = canonAlias(c.label);
     return ck === mk || (bk && ck === bk + mk);
   })?.code;
 }
