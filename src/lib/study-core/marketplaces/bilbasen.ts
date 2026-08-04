@@ -124,7 +124,11 @@ const FUEL_MAP: Record<string, string> = {
   ELECTRIC: '3',
   HYBRIDE: '6',
   HYBRID: '6',
-  PLUG_IN_HYBRID: '',
+  // Pas de code rechargeable prouvé chez Bilbasen : repli FAMILLE hybride
+  // (règle 04/08 — un site qui ne sait pas exprimer le plug-in pose la
+  // famille, le raffineur de titres et les post-filtres font le tri).
+  PLUG_IN_HYBRID: '6',
+  MILD_HYBRID: '6',
   GPL: '',
 };
 

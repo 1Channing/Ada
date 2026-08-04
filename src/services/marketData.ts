@@ -674,10 +674,6 @@ export function sortedUnion(a: string[], b: string[]): string[] {
 
 /** Pont RPC typé : les fonctions SQL ne sont pas déclarées dans
  *  database.types (chantier hygiène) — le contrat d'appel est ici. */
-const callRpc = (fn: string, args?: Record<string, unknown>) =>
-  (supabase.rpc as unknown as (f: string, a?: Record<string, unknown>) =>
-    PromiseLike<{ data: unknown; error: { message: string } | null }>)(fn, args);
-
 /**
  * Lecture RPC paginée : PostgREST plafonne AUSSI les fonctions à ~1000 lignes
  * par réponse (mi_dimensions rendait pile 1000 — les menus perdaient des
@@ -751,9 +747,12 @@ export async function loadObservedDimensions(): Promise<DimensionRow[]> {
 
 /** Les snapshots restent une lecture intégrale : ~4 000 lignes, sans danger. */
 export async function loadSnapshots(): Promise<Snapshot[]> {
+  // 50 000 : 4 843 snapshots au 04/08, ~3 000 de plus par grande campagne
+  // (plafond monté à 3 000 études) — l'ancien cap 20 000 aurait mordu en
+  // quelques semaines et tronqué purge/vélocité/repli en silence.
   return fetchAllPages<Snapshot>(
     (from, to) => supabase.from('market_snapshots').select('*').order('scraped_at', { ascending: false }).range(from, to),
-    20_000, 'MI_SCOPE',
+    50_000, 'MI_SCOPE',
   );
 }
 
@@ -774,15 +773,19 @@ export async function loadObservationsForStudy(f: MarketFilters): Promise<Observ
   let error: { message?: string } | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 700 * attempt));
-    const res = await callRpc('mi_obs_for_segment', {
+    // PAGINÉ (constat 04/08) : un appel RPC nu est plafonné à 1000 lignes par
+    // PostgREST quel que soit p_limit — les gros segments (CLA : 4 226 obs)
+    // étaient TRONQUÉS en silence. La pagination .range() est stable depuis
+    // l'ORDER BY id de mi_obs_for_segment v4 (migration 20260802235000).
+    const res = await callRpcAllPages<Observation>('mi_obs_for_segment', {
       p_brand_keys: brandKeysForQuery(brand),
       // refModelKey — aligné sur ada_model_key côté SQL (migration
       // 20260802220000) : « CLA » et « CLASSE CLA » chargent le même segment.
       p_model_key: (f.model ?? '').trim() ? refModelKey(brand, f.model!) : null,
       p_country: (f.country ?? '').trim() || null,
       p_limit: 30_000,
-    });
-    if (!res.error && Array.isArray(res.data)) return res.data as Observation[];
+    }, 30_000);
+    if (!res.error && Array.isArray(res.data)) return res.data;
     error = res.error;
     if (!/timeout|57014/i.test(String(res.error?.message ?? ''))) break;
   }

@@ -44,15 +44,24 @@ let freshCache: { at: number; keys: Set<string> } | null = null;
 async function getFreshSegments(): Promise<Set<string>> {
   if (freshCache && Date.now() - freshCache.at < 10 * 60_000) return freshCache.keys;
   const since = new Date(Date.now() - FRESH_DAYS * 86_400_000).toISOString();
-  const { data, error } = await supabase
-    .from('market_snapshots')
-    .select('site, brand, model, fuel, trim, scraped_at')
-    .gte('scraped_at', since)
-    .limit(10_000);
-  if (error) throw new Error(error.message);
+  // PAGINÉ (04/08) : PostgREST plafonne toute réponse à 1000 lignes — avec
+  // les campagnes montées à 3 000 études, 3 jours de snapshots dépassent
+  // vite l'ancien limit(10 000) qui était de toute façon écrêté ; une
+  // troncature silencieuse = segments frais invisibles = scrapes payés
+  // pour rien.
   const keys = new Set<string>();
-  for (const s of (data ?? []) as Array<{ site: string; brand: string; model: string; fuel: string | null; trim: string | null }>) {
-    keys.add([s.site, brandKey(s.brand), refModelKey(s.brand, s.model), (s.fuel ?? '').toUpperCase(), (s.trim ?? '').trim()].join('|'));
+  for (let from = 0; from < 50_000; from += 1000) {
+    const { data, error } = await supabase
+      .from('market_snapshots')
+      .select('site, brand, model, fuel, trim, scraped_at')
+      .gte('scraped_at', since)
+      .order('scraped_at', { ascending: false })
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    for (const s of (data ?? []) as Array<{ site: string; brand: string; model: string; fuel: string | null; trim: string | null }>) {
+      keys.add([s.site, brandKey(s.brand), refModelKey(s.brand, s.model), (s.fuel ?? '').toUpperCase(), (s.trim ?? '').trim()].join('|'));
+    }
+    if (!data || data.length < 1000) break;
   }
   freshCache = { at: Date.now(), keys };
   return keys;

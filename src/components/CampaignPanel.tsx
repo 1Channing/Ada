@@ -72,7 +72,11 @@ function testedFilterChips(item: CampaignItemResult): string[] {
   return chips;
 }
 
-const FUEL_TARGETS = ['ESSENCE', 'DIESEL', 'HYBRIDE', 'ELECTRIQUE'];
+const FUEL_TARGETS = ['ESSENCE', 'DIESEL', 'HYBRIDE', 'PLUG_IN_HYBRID', 'ELECTRIQUE'];
+// 11/12 sites expriment le rechargeable (exact : LBC fuel=8, Blocket 1352,
+// MP facette 13956 — ou famille hybride : AS24, Subito, Gaspedaal, Jofogas,
+// Skelbiu, Bilbasen) ; le raffineur de titres récupère le sous-type.
+const FUEL_TARGET_LABEL: Record<string, string> = { PLUG_IN_HYBRID: 'HYBRIDE RECHARGEABLE' };
 
 export function CampaignPanel() {
   const state = useCampaignStore();
@@ -286,7 +290,7 @@ export function CampaignPanel() {
             <label className="block">
               <span className="text-xs text-slate-600">Nombre d'études : <span className="text-slate-800 font-semibold">{total}</span> (~{estMinutes} min, {total} appels Zyte)</span>
               <input
-                type="range" min={10} max={1000} step={10} value={total}
+                type="range" min={10} max={3000} step={10} value={total}
                 onChange={(e) => setTotal(Number(e.target.value))}
                 className="w-full mt-1 accent-violet-500"
               />
@@ -363,7 +367,7 @@ export function CampaignPanel() {
                         : 'bg-white border-slate-200 text-slate-500 hover:text-slate-700'
                     }`}
                   >
-                    {fu}
+                    {FUEL_TARGET_LABEL[fu] ?? fu}
                   </button>
                 ))}
               </div>
