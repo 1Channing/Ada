@@ -57,7 +57,9 @@ const LEARNED_CATEGORIES: Array<{ code: string; label: string }> = [];
 const learnedSeen = new Set<string>();
 
 function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
-  if (field !== 'sk:category') return;
+  // sk:cat uniquement — les entrées v1 « sk:category » (libellés d'ancres
+  // trompeurs) sont ignorées et n'empoisonnent plus l'appariement.
+  if (field !== 'sk:cat') return;
   for (const p of pairs) {
     if (learnedSeen.has(p.code)) continue;
     learnedSeen.add(p.code);
@@ -128,22 +130,21 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
       push(field, m[1], m[2].trim());
     }
   }
-  // Arbre de catégories : tout LIEN category_id=N de la page (la page 31
-  // « toutes autos » liste les catégories MARQUE, une page marque ses
-  // MODÈLES — même mécanique que les pages discover Blocket). Libellé =
-  // texte du lien, compteurs « (1 234) » dépouillés. Filtres stricts :
-  // jamais la racine 31, libellés 2-40 caractères non purement numériques.
-  for (const m of html.matchAll(/<a\b[^>]*category_id=(\d+)[^>]*>([\s\S]{0,300}?)<\/a>/gi)) {
-    const code = m[1];
-    if (code === CATEGORY_ALL_CARS) continue;
-    const label = m[2]
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/&nbsp;|&#160;/g, ' ')
-      .replace(/\(\s*[\d\s]+\)\s*$/, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (label.length < 2 || label.length > 40 || /^\d+$/.test(label)) continue;
-    push('sk:category', code, label);
+  // Arbre de catégories v2 (dump forceRecon 04/08) : chaque page porte SON
+  // identité — <input name="category_id" value="…" id="categoryField"> + un
+  // <title> « Toyota automobiliai - Skelbiu.lt » (marque) ou « Toyota RAV4
+  // automobiliai … » (modèle). C'est le SEUL endroit fiable où lire un id de
+  // catégorie avec son libellé. (v1 « sk:category » abandonnée : elle lisait
+  // le texte d'ancres qui n'en portent pas — libellés « lt » appris à tort.)
+  const ownId = html.match(/name="category_id" value="(\d+)"/)?.[1];
+  const title = html.match(/<title>([^<]*)<\/title>/i)?.[1] ?? '';
+  const ownLabel = title
+    .replace(/\s*-\s*Skelbiu\.lt\s*$/i, '')
+    .replace(/\s*\b(automobiliai|transportas)\b\s*/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (ownId && ownId !== CATEGORY_ALL_CARS && ownLabel && ownLabel.length <= 60) {
+    push('sk:cat', ownId, ownLabel);
   }
   return out;
 }
