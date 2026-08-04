@@ -52,6 +52,9 @@ interface SearchRow {
   /** 'AUTOMATIQUE' | 'MANUELLE' | '' — optionnel tant que la migration
    *  gearbox n'est pas appliquée, d'où le `?`. */
   gearbox?: string | null;
+  /** Puissance min (ch DIN) — optionnel tant que la migration power_min
+   *  n'est pas appliquée, d'où le `?`. */
+  power_min?: number | null;
   mileage_max: number | null;
   price_gap_min: number; price_gap_max: number;
   run_hour: number; active: boolean; last_run_at: string | null;
@@ -154,6 +157,9 @@ async function scrapeCountry(
         yearTo: s.year_max ? String(s.year_max) : undefined,
         mileage: s.mileage_max ?? undefined,
         gearbox: s.gearbox || undefined,
+        // Puissance min (ch DIN) : posée en URL partout où le site sait
+        // (AS24 powerfrom, Bilbasen hpfrom, LBC horse_power_din appris).
+        minPower: s.power_min != null ? String(s.power_min) : undefined,
       });
       url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
     } catch { url = null; }
@@ -185,7 +191,7 @@ async function scrapeCountry(
     // Automaat). Boîte illisible = conservée (fail-open : on n'écarte que
     // sur une contradiction LUE). Le snapshot MI ci-dessus garde TOUT :
     // on stocke fidèlement, on filtre la lecture.
-    let listings = (result.listings ?? []) as Array<{ gearbox?: string | null }>;
+    let listings = (result.listings ?? []) as Array<{ gearbox?: string | null; powerDin?: number | null }>;
     if (s.gearbox) {
       const wanted = canonicalizeGearbox(s.gearbox);
       if (wanted) {
@@ -197,6 +203,15 @@ async function scrapeCountry(
         if (listings.length < before) {
           console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (boîte ≠ ${s.gearbox})`);
         }
+      }
+    }
+    // Puissance min : post-filtre DUR même si le site a ignoré le paramètre.
+    // Puissance illisible = conservée (fail-open, même règle que la boîte).
+    if (s.power_min != null) {
+      const before = listings.length;
+      listings = listings.filter((l) => l.powerDin == null || l.powerDin >= (s.power_min as number));
+      if (listings.length < before) {
+        console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (< ${s.power_min} ch)`);
       }
     }
     // Modèle STRUCTURÉ : les adaptateurs v1 (Subito, Gaspedaal) servent la

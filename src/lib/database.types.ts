@@ -23,6 +23,7 @@ export type Database = {
           year_min: number | null; year_max: number | null
           fuel: string; trim: string; trim_target: string
           gearbox: string
+          power_min: number | null
           mileage_max: number | null
           price_gap_min: number; price_gap_max: number
           run_hour: number; active: boolean
@@ -36,6 +37,7 @@ export type Database = {
           year_min?: number | null; year_max?: number | null
           fuel?: string; trim?: string; trim_target?: string
           gearbox?: string
+          power_min?: number | null
           mileage_max?: number | null
           price_gap_min?: number; price_gap_max?: number
           run_hour?: number; active?: boolean
@@ -49,6 +51,7 @@ export type Database = {
           year_min?: number | null; year_max?: number | null
           fuel?: string; trim?: string; trim_target?: string
           gearbox?: string
+          power_min?: number | null
           mileage_max?: number | null
           price_gap_min?: number; price_gap_max?: number
           run_hour?: number; active?: boolean

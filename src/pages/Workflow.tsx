@@ -106,7 +106,7 @@ export function Workflow() {
 const EMPTY: Partial<DailySearch> = {
   label: '', source_country: 'DE', target_country: 'FR', brand: '', model: '',
   year_min: null, year_max: null, fuel: '', trim: '', trim_target: '',
-  gearbox: '', mileage_max: null,
+  gearbox: '', power_min: null, mileage_max: null,
   price_gap_min: 3000, price_gap_max: 10000, run_hour: 7, active: true,
 };
 
@@ -243,6 +243,9 @@ function DailySearchesTab() {
                 {GEARBOXES.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
             </Field>
+            <Field label="Puissance min (ch)">
+              <input type="number" step={10} value={editing.power_min ?? ''} onChange={(e) => set({ power_min: e.target.value ? Number(e.target.value) : null })} placeholder="150" className={inputCls} />
+            </Field>
             <Field label="Motorisation">
               <select value={editing.fuel ?? ''} onChange={(e) => set({ fuel: e.target.value })} className={inputCls}>
                 {FUELS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -366,6 +369,7 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
             {s.year_min || s.year_max ? ` · ${s.year_min ?? '…'}–${s.year_max ?? '…'}` : ''}
             {s.fuel ? ` · ${FUELS.find((f) => f.value === s.fuel)?.label ?? s.fuel}` : ''}
             {s.gearbox ? ` · ${GEARBOXES.find((g) => g.value === s.gearbox)?.label ?? s.gearbox}` : ''}
+            {s.power_min != null ? ` · ≥ ${s.power_min} ch` : ''}
             {s.trim ? ` · « ${s.trim} »` : ''}
             {s.trim_target ? ` ≈ « ${s.trim_target} » (${s.target_country})` : ''}
           </p>

@@ -26,6 +26,8 @@ export interface DailySearch {
   trim_target: string;
   /** 'AUTOMATIQUE' | 'MANUELLE' | '' (toutes) — même convention que fuel. */
   gearbox: string;
+  /** Puissance minimale (ch DIN) — null = sans critère. */
+  power_min: number | null;
   mileage_max: number | null;
   price_gap_min: number;
   price_gap_max: number;
@@ -147,7 +149,7 @@ export interface StudyUrl extends UrlGap {
  */
 export async function listStudyUrls(s: Pick<DailySearch,
   'source_country' | 'target_country' | 'brand' | 'model' | 'fuel' | 'trim' | 'trim_target' | 'year_min' | 'year_max'
-> & Partial<Pick<DailySearch, 'mileage_max' | 'gearbox'>>): Promise<StudyUrl[]> {
+> & Partial<Pick<DailySearch, 'mileage_max' | 'gearbox' | 'power_min'>>): Promise<StudyUrl[]> {
   const out: StudyUrl[] = [];
   const sides: Array<{ country: string; side: UrlGap['side']; trim: string }> = [
     { country: s.source_country, side: 'source', trim: s.trim },
@@ -166,6 +168,7 @@ export async function listStudyUrls(s: Pick<DailySearch,
           yearTo: s.year_max ? String(s.year_max) : undefined,
           mileage: s.mileage_max ?? undefined,
           gearbox: s.gearbox || undefined,
+          minPower: s.power_min != null ? String(s.power_min) : undefined,
         });
         url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
       } catch { url = null; }
@@ -236,6 +239,15 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
     if (retryErr) return retryErr.message;
     return gearbox
       ? 'Étude enregistrée SANS le critère boîte : la migration SQL gearbox n\'est pas encore appliquée en base.'
+      : null;
+  }
+  // Même dégradation pour la puissance min (migration power_min).
+  if (error && /power_min/.test(error.message)) {
+    const { power_min, ...rest } = row;
+    const { error: retryErr } = await write(rest as typeof row);
+    if (retryErr) return retryErr.message;
+    return power_min != null
+      ? 'Étude enregistrée SANS le critère puissance : la migration SQL power_min n\'est pas encore appliquée en base.'
       : null;
   }
   return error ? error.message : null;
