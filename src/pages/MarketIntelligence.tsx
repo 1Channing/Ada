@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Line, LineChart, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ComposedChart,
+  ScatterChart, Scatter,
 } from 'recharts';
 import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X, MoreHorizontal, Loader2 } from 'lucide-react';
 import {
@@ -45,7 +46,10 @@ const FUEL_TOKENS: FuelToken[] = ['petrol', 'diesel', 'hybrid', 'mild_hybrid', '
 // naviguer (la navigation recharge la page, rien ne voyage en mémoire).
 const STUDIES_KEY = MARKET_STUDIES_KEY;
 const LEGACY_FILTERS_KEY = 'ada_market_filters';
-const MAX_STUDIES = 3;
+// 6 depuis le 04/08 (demande Channing : le nuage prix/km doit accueillir plus
+// de 3 comparaisons) — au-delà de STUDY_COLORS, les couleurs continuent sur
+// la palette SERIES, jamais recyclées entre études affichées.
+const MAX_STUDIES = 6;
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
@@ -424,7 +428,7 @@ export function MarketIntelligence() {
   const perStudy = useMemo(() => studies.map((f, i) => {
     const countryColor = f.country ? COUNTRY_COLOR[f.country] : undefined;
     const firstWithCountry = studies.findIndex((x) => x.country === f.country);
-    const color = countryColor && firstWithCountry === i ? countryColor : STUDY_COLORS[i] ?? BLUE;
+    const color = countryColor && firstWithCountry === i ? countryColor : STUDY_COLORS[i] ?? SERIES[i % SERIES.length];
     const filtered = filterObservations(obs, f);
     // État actuel du marché : une ligne par annonce, dans sa version la plus
     // récente — MOINS les annonces absentes du dernier scan de leur segment
@@ -875,9 +879,25 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
 
 function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
   const [priceBand, setPriceBand] = useState<{ from: number; to: number } | null>(null);
+  // Distribution ↔ nuage prix/km : deux lectures du même marché filtré.
+  const [priceView, setPriceView] = useState<'dist' | 'scatter'>('dist');
   const filtersSig = perStudy.map((s) => JSON.stringify(s.filters)).join('|');
   useEffect(() => { setPriceBand(null); }, [filtersSig]);
   const inBand = (p: number | null) => p != null && priceBand != null && p >= priceBand.from && p <= priceBand.to;
+
+  // Nuage prix × kilométrage (04/08) : chaque annonce de l'état actuel du
+  // marché est un point — exactement les mêmes données filtrées/purgées que
+  // la liste et les indicateurs (tout filtre du MI redessine le nuage). Une
+  // annonce sans kilométrage lisible n'est pas plaçable : comptée à part.
+  const scatterData = useMemo(() => perStudy.map((s) => ({
+    idx: s.idx, label: s.label, color: s.color,
+    points: s.latestObs
+      .filter((o) => typeof o.price === 'number' && o.price > 0 && typeof o.mileage === 'number' && o.mileage >= 0)
+      .map((o) => ({ x: o.mileage as number, y: o.price as number, o })),
+    noKm: s.latestObs.filter((o) => !(typeof o.mileage === 'number' && o.mileage >= 0)).length,
+  })), [perStudy]);
+  const scatterNoKm = scatterData.reduce((n, s) => n + s.noKm, 0);
+  const scatterCount = scatterData.reduce((n, s) => n + s.points.length, 0);
 
   // Shared-axis price distribution: common buckets across every study's latest
   // scan, counted per study (grouped bars) — click a bucket to filter listings.
@@ -1046,32 +1066,120 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
         <VelocityCard velocity={velocity} coverageDays={velocityCoverage} />
       </div>
 
-      {/* Distribution des prix — comparée, cliquable par tranche */}
-      <ChartCard title="Distribution des prix comparée" subtitle={`dernier scan · barres groupées par étude${priceBand ? ' · tranche sélectionnée' : ' · clique une tranche'}`} icon={<Gauge className="w-4 h-4 text-amber-600" />}>
-        {dist.rows.length === 0 ? <NeedMore text="Pas d'annonces." /> : (
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={dist.rows} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-              <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="range" tick={{ fill: AXIS, fontSize: 10 }} stroke={GRID} interval={0} angle={-30} textAnchor="end" height={50} />
-              <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={32} allowDecimals={false} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [`${v} annonces`, name]} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#0f172a0a' }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              {perStudy.map((s, i) => (
-                // fill sur la Bar (pas seulement les Cells) : c'est lui que la
-                // légende utilise — sans lui, carrés noirs.
-                <Bar key={s.idx} dataKey={`s${i}`} name={s.label} fill={s.color} radius={[3, 3, 0, 0]} cursor="pointer"
-                  onClick={((d: { from?: number; to?: number }) => {
-                    if (d?.from == null || d?.to == null) return;
-                    setPriceBand((cur) => (cur && cur.from === d.from && cur.to === d.to ? null : { from: d.from as number, to: d.to as number }));
-                  }) as never}>
-                  {dist.rows.map((r, ri) => (
-                    <Cell key={ri} fill={s.color}
-                      fillOpacity={priceBand && !(Number(r.from) >= priceBand.from && Number(r.to) <= priceBand.to + 1) ? 0.25 : 1} />
-                  ))}
-                </Bar>
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
+      {/* Prix comparés — deux lectures commutables du même marché filtré :
+          distribution (tranches cliquables) ↔ nuage prix × kilométrage
+          (chaque point = une annonce, clic = ouvrir). */}
+      <ChartCard
+        title={priceView === 'dist' ? 'Distribution des prix comparée' : 'Nuage prix × kilométrage'}
+        subtitle={priceView === 'dist'
+          ? `dernier scan · barres groupées par étude${priceBand ? ' · tranche sélectionnée' : ' · clique une tranche'}`
+          : `dernier scan · chaque point = une annonce · clique un point pour ouvrir l'annonce${scatterNoKm > 0 ? ` · ${scatterNoKm} sans km non plaçable(s)` : ''}`}
+        icon={<Gauge className="w-4 h-4 text-amber-600" />}
+        action={(
+          <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden text-xs shrink-0" role="tablist">
+            {([['dist', 'Distribution'], ['scatter', 'Nuage prix / km']] as const).map(([v, lbl]) => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={priceView === v}
+                onClick={() => setPriceView(v)}
+                className={`px-2.5 py-1.5 transition-colors ${priceView === v
+                  ? 'bg-slate-800 text-white font-medium'
+                  : 'bg-white text-slate-600 hover:text-slate-800'}`}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+        )}
+      >
+        {priceView === 'dist' ? (
+          dist.rows.length === 0 ? <NeedMore text="Pas d'annonces." /> : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={dist.rows} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="range" tick={{ fill: AXIS, fontSize: 10 }} stroke={GRID} interval={0} angle={-30} textAnchor="end" height={50} />
+                <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={32} allowDecimals={false} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [`${v} annonces`, name]} labelFormatter={(l) => `${l} €`} cursor={{ fill: '#0f172a0a' }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {perStudy.map((s, i) => (
+                  // fill sur la Bar (pas seulement les Cells) : c'est lui que la
+                  // légende utilise — sans lui, carrés noirs.
+                  <Bar key={s.idx} dataKey={`s${i}`} name={s.label} fill={s.color} radius={[3, 3, 0, 0]} cursor="pointer"
+                    onClick={((d: { from?: number; to?: number }) => {
+                      if (d?.from == null || d?.to == null) return;
+                      setPriceBand((cur) => (cur && cur.from === d.from && cur.to === d.to ? null : { from: d.from as number, to: d.to as number }));
+                    }) as never}>
+                    {dist.rows.map((r, ri) => (
+                      <Cell key={ri} fill={s.color}
+                        fillOpacity={priceBand && !(Number(r.from) >= priceBand.from && Number(r.to) <= priceBand.to + 1) ? 0.25 : 1} />
+                    ))}
+                  </Bar>
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )
+        ) : (
+          scatterCount === 0 ? <NeedMore text="Pas d'annonce avec prix ET kilométrage sur la sélection." /> : (
+            <ResponsiveContainer width="100%" height={340}>
+              <ScatterChart margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
+                <XAxis
+                  type="number" dataKey="x" name="Kilométrage"
+                  tickFormatter={(v: number) => `${Math.round(v / 1000)}k`}
+                  tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID}
+                  domain={[0, 'dataMax']}
+                />
+                <YAxis
+                  type="number" dataKey="y" name="Prix"
+                  tickFormatter={(v: number) => `${Math.round(v / 1000)}k€`}
+                  tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={46}
+                  domain={['auto', 'auto']}
+                />
+                <Tooltip
+                  cursor={{ stroke: AXIS, strokeDasharray: '3 3' }}
+                  content={({ active: act, payload }) => {
+                    if (!act || !payload || payload.length === 0) return null;
+                    const p = payload[0].payload as { x: number; y: number; o: Observation } | undefined;
+                    if (!p?.o) return null;
+                    const s = scatterData.find((sd) => sd.points.some((pt) => pt.o === p.o));
+                    return (
+                      <div style={tooltipStyle} className="px-3 py-2 max-w-[260px]">
+                        {s && (
+                          <p className="flex items-center gap-1.5 text-xs text-slate-500 mb-1">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                            <span className="truncate">{s.label}</span>
+                          </p>
+                        )}
+                        <p className="font-semibold text-slate-900">{fmtEur(p.y)} <span className="font-normal text-slate-500">· {Math.round(p.x / 1000)} 000 km</span></p>
+                        <p className="text-xs text-slate-600">
+                          {[p.o.year, p.o.fuel ? fuelLabel(p.o.fuel) : '', gearboxLabel(p.o.gearbox)].filter(Boolean).join(' · ')}
+                        </p>
+                        {(p.o.trim || p.o.title) && <p className="text-xs text-slate-500 truncate">{p.o.trim || p.o.title}</p>}
+                        {p.o.listing_url?.startsWith('http') && <p className="text-[10px] text-blue-600 mt-1">clic → ouvrir l'annonce</p>}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {scatterData.map((s, i) => (
+                  <Scatter
+                    key={s.idx} name={s.label} data={s.points} fill={s.color}
+                    isAnimationActive={false} cursor="pointer"
+                    // Identité DOUBLE : couleur pays + FORME par étude (cercle,
+                    // carré, triangle, losange…) — deux pays aux teintes proches
+                    // (ES rouge / NL orange) restent séparables, et l'anneau
+                    // blanc garde les chevauchements lisibles. Cible ≥ 8 px.
+                    shape={(props: { cx?: number; cy?: number; fill?: string }) => scatterMark(i, props)}
+                    onClick={((pt: { o?: Observation }) => {
+                      const url = pt?.o?.listing_url;
+                      if (url?.startsWith('http')) window.open(url, '_blank', 'noopener');
+                    }) as never}
+                  />
+                ))}
+              </ScatterChart>
+            </ResponsiveContainer>
+          )
         )}
       </ChartCard>
 
@@ -1284,10 +1392,26 @@ function Kpi({ label, value, hint }: { label: string; value: string; hint?: stri
     </div>
   );
 }
-function ChartCard({ title, subtitle, icon, children }: { title: string; subtitle?: string; icon?: React.ReactNode; children: React.ReactNode }) {
+/** Marque du nuage : la FORME suit l'ordre de l'étude (encodage secondaire —
+ *  la couleur seule ne suffit pas quand deux pays ont des teintes proches). */
+function scatterMark(order: number, { cx, cy, fill }: { cx?: number; cy?: number; fill?: string }) {
+  if (cx == null || cy == null) return <g />;
+  const common = { fill, fillOpacity: 0.8, stroke: '#ffffff', strokeWidth: 1.5 } as const;
+  switch (order % 4) {
+    case 1: return <rect x={cx - 4} y={cy - 4} width={8} height={8} rx={1.5} {...common} />;
+    case 2: return <path d={`M ${cx} ${cy - 5} L ${cx + 4.5} ${cy + 4} L ${cx - 4.5} ${cy + 4} Z`} {...common} />;
+    case 3: return <path d={`M ${cx} ${cy - 5.5} L ${cx + 5.5} ${cy} L ${cx} ${cy + 5.5} L ${cx - 5.5} ${cy} Z`} {...common} />;
+    default: return <circle cx={cx} cy={cy} r={4.5} {...common} />;
+  }
+}
+
+function ChartCard({ title, subtitle, icon, action, children }: { title: string; subtitle?: string; icon?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5">
-      <div className="flex items-center gap-2 mb-1">{icon}<h2 className="font-semibold text-slate-800">{title}</h2></div>
+      <div className="flex items-center gap-2 mb-1">
+        {icon}<h2 className="font-semibold text-slate-800">{title}</h2>
+        {action && <span className="ml-auto">{action}</span>}
+      </div>
       {subtitle && <p className="text-xs text-slate-500 mb-3">{subtitle}</p>}
       {children}
     </div>
