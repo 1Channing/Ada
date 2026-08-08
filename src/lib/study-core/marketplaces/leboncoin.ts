@@ -93,12 +93,19 @@ const FUEL_MAP: Record<string, string> = {
 
 const UNSUPPORTED_PARAMS = ['minPower'];
 
+// Le site n'accepte que l'ASCII dans ses paramètres d'énum : le référentiel
+// écrit « ŠKODA »/« CITROËN » mais u_car_brand=ŠKODA sert la page non filtrée
+// (signalement 05/08). Tout ce qui entre dans une URL LBC passe par ici.
+const deburr = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '');
+
 function mapBrand(raw: string): string {
-  return BRAND_MAP[raw.trim().toUpperCase()] ?? raw.trim();
+  const clean = deburr(raw.trim());
+  return BRAND_MAP[clean.toUpperCase()] ?? clean;
 }
 
 function mapModel(raw: string): string {
-  return MODEL_MAP[raw.trim().toUpperCase()] ?? raw.trim();
+  const clean = deburr(raw.trim());
+  return MODEL_MAP[clean.toUpperCase()] ?? clean;
 }
 
 function mapFuel(raw: string): string {
@@ -247,8 +254,8 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
 // 2. brand_model (combined lowercase)
 // 3. MODEL only (already the default — included so caller can detect duplication)
 function buildModelCandidates(brand: string, model: string): string[] {
-  const normBrand = brand.trim().toUpperCase().replace(/\s+/g, '_');
-  const normModel = model.trim().toUpperCase().replace(/\s+/g, '_');
+  const normBrand = deburr(brand.trim()).toUpperCase().replace(/\s+/g, '_');
+  const normModel = deburr(model.trim()).toUpperCase().replace(/\s+/g, '_');
   const combined = `${normBrand}_${normModel}`;
   const combinedLower = combined.toLowerCase();
   const modelOnly = normModel;
