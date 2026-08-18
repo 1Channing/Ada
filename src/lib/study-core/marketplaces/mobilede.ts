@@ -225,8 +225,11 @@ function harvestMakes(html: string): Array<{ field: string; code: string; label:
         try {
           const arr = JSON.parse(seg) as Array<{ label?: unknown; value?: unknown }>;
           if (Array.isArray(arr)) {
-            const entries = arr
-              .filter((o) => o && typeof o.label === 'string' && /^\d{3,6}$/.test(String(o.value ?? '')) && !/^\d+$/.test(o.label))
+            // Deux formes prouvées : {label,value} (historique) et {n,i}
+            // (gabarit 18/08, ctx Leapmotor : {"i":32303,"n":"Leapmotor"}).
+            const entries = (arr as Array<{ label?: unknown; value?: unknown; n?: unknown; i?: unknown }>)
+              .map((o) => ({ label: o?.label ?? o?.n, value: o?.value ?? o?.i }))
+              .filter((o) => typeof o.label === 'string' && /^\d{3,6}$/.test(String(o.value ?? '')) && !/^\d+$/.test(o.label))
               .map((o) => ({ field: 'ms:make', code: String(o.value), label: String(o.label).trim() }));
             const seedHits = Object.entries(MAKE_ID)
               .filter(([key, id]) => entries.some((e) => e.code === id && canon(e.label) === key)).length;
@@ -407,6 +410,44 @@ function listingUrlOf(ad: Record<string, unknown>): string {
   return id ? `https://suchen.mobile.de/fahrzeuge/details.html?id=${id}` : '';
 }
 
+/**
+ * Badges d'état des CARTES DOM, corrélés aux annonces flight (preuve dump
+ * 18/08) : le JSON flight ne porte AUCUN marqueur d'état, mais chaque carte
+ * affiche `<strong>Endommagé</strong> • <strong>Véhicule accidenté</strong> •
+ * PI 09/2024 • 49 000 km • 210 kW (…)`. La triplette (date, km, kW) — même
+ * source des deux côtés (attr.fr / attr.ml / attr.pw) — sert de clé de
+ * jonction ; les badges sont recopiés TELS QUELS dans le titre (« Non
+ * accidenté » compris : la négation-d'abord du détecteur le neutralise).
+ * Clé ambiguë (deux cartes identiques) = badge ignoré — jamais de marquage
+ * par collision.
+ */
+function cardStateBadges(html: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const dup = new Set<string>();
+  try {
+    const re = /data-testid="listing-details-attributes"><div>((?:<strong>[^<]{1,80}<\/strong>(?:[^<]|<!-- -->){0,10})+)(?:[^<]|<!-- -->)*?(\d{2}\/\d{4})(?:[^<]|<!-- -->)*?([\d\s.,  ]+)\s*km(?:[^<]|<!-- -->)*?(\d+)\s*kW/g;
+    for (const m of html.matchAll(re)) {
+      const badges = [...m[1].matchAll(/<strong>([^<]+)<\/strong>/g)]
+        .map((b) => b[1].replace(/&#x27;/g, "'").trim()).filter(Boolean).join(' • ');
+      const key = `${m[2]}|${m[3].replace(/\D/g, '')}|${m[4]}`;
+      if (!badges) continue;
+      if (out.has(key) && out.get(key) !== badges) { dup.add(key); continue; }
+      out.set(key, badges);
+    }
+    for (const k of dup) out.delete(k);
+  } catch { /* corrélation best-effort — jamais bloquante */ }
+  return out;
+}
+
+function flightStateKey(ad: Record<string, unknown>): string | null {
+  const attr = (ad as { attr?: Record<string, unknown> }).attr;
+  if (!attr) return null;
+  const fr = String(attr.fr ?? '');
+  const ml = String(attr.ml ?? '').replace(/\D/g, '');
+  const kw = String(attr.pw ?? '').match(/^(\d+)\s*kW/i)?.[1] ?? '';
+  return /^\d{2}\/\d{4}$/.test(fr) && ml && kw ? `${fr}|${ml}|${kw}` : null;
+}
+
 let flightProbeCount = 0;
 function parseFlightListings(html: string): ScrapedListing[] {
   const { total, ads } = extractFlightAds(html);
@@ -427,6 +468,7 @@ function parseFlightListings(html: string): ScrapedListing[] {
     } catch { /* sonde silencieuse */ }
   }
   const out: ScrapedListing[] = [];
+  const stateBadges = cardStateBadges(html);
   // mobile.de liste aussi des annonces hors Allemagne — attr.cn (prouvé :
   // "DE" sur les dumps) donne le pays de l'annonce. Une étude MOBILE_DE
   // décrit le MARCHÉ ALLEMAND : on écarte les autres pays (compteur loggé).
@@ -447,9 +489,20 @@ function parseFlightListings(html: string): ScrapedListing[] {
       ?? deepFindPrice((ad as { price?: unknown }).price ?? (ad as { prices?: unknown }).prices ?? (ad as { priceInfo?: unknown }).priceInfo ?? null);
     const shortTitle = readField(ad, ['shortTitle'], []);
     const subTitle = readField(ad, ['subTitle'], []);
-    const title = [shortTitle, subTitle].filter(Boolean).join(' ')
-      || readField(ad, ['title', 'name', 'headline', 'adTitle', 'heading'], []);
-    if (!price || !title) continue;
+    // Gabarit 18/08 (dump prouvé) : plus AUCUNE clé titre dans l'annonce —
+    // l'identité vit dans make/model {localized}. On reconstruit, et le badge
+    // d'état de la carte DOM (Endommagé, Non accidenté…) est recollé au titre
+    // pour que le détecteur d'accidentées continue de voir ce que le site
+    // affiche (le repli générique le voyait ; le structuré ne doit pas
+    // devenir aveugle en devenant propre).
+    const rebuilt = [readField(ad, ['make'], []), readField(ad, ['model'], [])].filter(Boolean).join(' ');
+    const baseTitle = [shortTitle, subTitle].filter(Boolean).join(' ')
+      || readField(ad, ['title', 'name', 'headline', 'adTitle', 'heading'], [])
+      || rebuilt;
+    if (!price || !baseTitle) continue;
+    const sk = flightStateKey(ad);
+    const badge = sk ? stateBadges.get(sk) : undefined;
+    const title = badge ? `${baseTitle} — ${badge}` : baseTitle;
     const url = listingUrlOf(ad);
     out.push({
       title: title.slice(0, 200),

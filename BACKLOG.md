@@ -21,7 +21,13 @@ au scalpel, jamais à la hache. Concrètement :
 - Les mappings ne s'écrivent en mémoire que confirmés par échantillon ou par
   un humain ; l'auto-correction propose, la donnée dispose.
 
-## 0. REFONTE COMPLÈTE DE L'INTERFACE ADA (acté 19/07/2026, à garder en tête)
+## 0-FAIT (confirmé Channing 18/08). REFONTE DE L'INTERFACE ADA
+
+Clos par Channing (18/08/2026) : « la refonte a déjà été faite depuis,
+l'interface est bien pour le moment ». Les principes restent (composants
+autonomes, signalements `ada_feedback` dépilés à chaque session).
+
+Titre d'origine : REFONTE COMPLÈTE DE L'INTERFACE ADA (acté 19/07/2026)
 
 Demande de Channing : revoir l'interface complète d'ADA — enchaînement propre
 des pages, UI à jour et cohérente, navigation fluide entre Studies / Admin /
@@ -144,12 +150,11 @@ règle les cas fréquents où le titre omet la marque ("Megane E-Tech" sans
 "Renault") ou l'énergie. `canonicalizeFuel` gère FR/NL/DA + badges moteur
 (TDI/TSI…) et sépare hybride vs hybride rechargeable (PHEV strict).
 
-RESTE À FAIRE : les parsers **Marktplaats et Bilbasen** ne peuplent pas encore
-les champs structurés (marque/carburant/boîte/puissance…) — extraction par
-regex de cards, pas de JSON structuré fiable. Donc sur ces deux sites, marque
-et carburant retombent sur le TEXTE du titre (moins fiable) et les champs
-secondaires ressortent "jeté — données structurées insuffisantes". Il faudra
-ajouter leur extraction structurée pour parité avec Leboncoin.
+FAIT AUSSI (constaté 18/08) : **Marktplaats et Bilbasen** parsent désormais le
+`__NEXT_DATA__` structuré en stratégie 0 (regex cards en repli). Mesuré sur
+les observations du 15-18/08 : Marktplaats 1 000 obs → marque 100 %, carburant
+99 %, boîte 99 % (puissance 23 % — souvent absente des annonces NL) ;
+Bilbasen 760 obs → 100 % sur les quatre champs. Parité Leboncoin atteinte.
 
 ## 2bis. Génération d'URL depuis les mappings secondaires appris
 

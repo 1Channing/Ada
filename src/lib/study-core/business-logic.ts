@@ -130,7 +130,10 @@ export function isDamagedVehicleText(text: string | null | undefined): boolean {
     // geen defecten, sans defaut…).
     .replace(/\bkrockfri\w*/g, ' ')
     .replace(/\binga[\s-]*skador\w*/g, ' ')
-    .replace(/\b(?:inga|utan|keine?[nmrs]?|geen|zonder|sans|no|ohne)[\s-]*defe[ck]te?\w*/g, ' ');
+    .replace(/\b(?:inga|utan|keine?[nmrs]?|geen|zonder|sans|no|ohne)[\s-]*defe[ck]te?\w*/g, ' ')
+    // fr « non endommagé » (badge mobile.de « Non accidenté » déjà couvert
+    // par la 1ʳᵉ tournure ; celle-ci protège la variante endommagé).
+    .replace(/\b(?:non|pas|jamais|sans)[\s-]*endommage\w*/g, ' ');
   return (
     /\baccident\w*/.test(t)                                  // fr/en/es accidenté, accidentado, accident damage
     || /\bepave\w*/.test(t)                                  // fr épave (accents dépouillés)
@@ -154,6 +157,7 @@ export function isDamagedVehicleText(text: string | null | undefined): boolean {
     || /\bdefekt\w*/.test(t) || /\bdefect\w*/.test(t)        // de/sv/nl defekt/defect (négations effacées plus haut)
     || /\b(?:salvage|written? off|total loss|cat [cdsn])\b/.test(t) // en
     || /\bpour pieces?\b/.test(t) || /\bfor parts\b/.test(t) // pièces détachées
+    || /\bendommag\w*/.test(t)                               // fr badge mobile.de « Endommagé » (cartes DOM, preuve 18/08)
     || /\bnon roulant\w*/.test(t)
     || /\bnon marciante\w*/.test(t)                          // it non roulante
     || /\bnevaziuojant\w*/.test(t)                           // lt non roulante

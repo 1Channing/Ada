@@ -140,6 +140,33 @@ export function readField(listing: any, directKeys: string[], attrKeys: string[]
   return null;
 }
 
+/**
+ * Total de résultats DÉCLARÉ par la page, où qu'il vive dans l'arbre
+ * (totalResults Marktplaats, numResultsTotal mobile.de, totalResultCount…).
+ * Ne sert qu'à distinguer « marché vide » (total=0) d'un vrai échec de parse
+ * — en cas de doute (aucun champ trouvé, ou total > 0) on reste bruyant.
+ */
+function findDeclaredTotal(root: any): number | null {
+  const seen = new Set<any>();
+  const stack: any[] = [root];
+  let guard = 0;
+  while (stack.length && guard < 100_000) {
+    guard++;
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+    seen.add(cur);
+    if (!Array.isArray(cur)) {
+      for (const [k, v] of Object.entries(cur)) {
+        if (typeof v === 'number' && /^(totalresults?|numresultstotal|totalresultcount|totalcount|resultcount)$/i.test(k)) {
+          return v;
+        }
+      }
+    }
+    for (const k in cur) { const v = (cur as any)[k]; if (v && typeof v === 'object') stack.push(v); }
+  }
+  return null;
+}
+
 /** Largest array of objects anywhere in the tree — diagnostic for shape discovery. */
 function largestObjectArray(root: any): any[] | null {
   let best: any[] | null = null;
@@ -264,6 +291,15 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
   const pageProps = data?.props?.pageProps ?? {};
   const ads = findListingsArray(pageProps) ?? findListingsArray(data);
   if (!ads || ads.length === 0) {
+    // Page à 0 résultat DÉCLARÉ par le site (marché réellement vide) : une
+    // ligne calme suffit — les 4 diagnostics de forme ne servent qu'aux
+    // vrais échecs de parse (constat 18/08 : études PHEV à marché vide qui
+    // remplissaient worker_logs de « no listings via looksLikeListing »).
+    const declaredTotal = findDeclaredTotal(data);
+    if (declaredTotal === 0) {
+      console.log(`[NEXTDATA] ${cfg.siteLabel}: 0 annonce — total=0 déclaré par la page (marché vide, pas un échec de parse)`);
+      return [];
+    }
     console.warn(`[NEXTDATA] ${cfg.siteLabel}: no listings via looksLikeListing. pageProps keys: ${Object.keys(pageProps).join(', ')}`);
     const big = largestObjectArray(data);
     if (big) {

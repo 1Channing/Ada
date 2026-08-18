@@ -349,6 +349,23 @@ export function enforcePowerParams(url: string, params: LinkGenParams): string {
   return url;
 }
 
+/**
+ * Décision Channing (17/07, rappelée 18/08) : sur Leboncoin la finition passe
+ * par la BARRE DE RECHERCHE (text=), jamais par le critère u_car_finition —
+ * l'énum finition du site est trop stricte et rate les annonces dont seul le
+ * TITRE porte la finition (lacune « COLLECTION » du 18/08 : l'URL apprise
+ * u_car_finition=TOYOTA_Yaris_Collection était ressortie telle quelle).
+ * Les URLs humaines apprises via le critère sont réécrites au passage ;
+ * sans finition demandée, text= saute (variable, même règle que année/km).
+ */
+export function enforceLbcTrimChannel(url: string, params: LinkGenParams): string {
+  if (!url.includes('leboncoin.fr')) return url;
+  let out = setQueryParamRaw(url, 'u_car_finition', null);
+  const t = (params.trim ?? '').trim();
+  out = setQueryParamRaw(out, 'text', t || null);
+  return out;
+}
+
 export function overrideAs24PathYear(url: string, params: LinkGenParams): string {
   if (!url.includes('autoscout24.') || !/\/re_\d{4}/.test(url)) return url;
   let out = url.replace(/\/re_\d{4}(?=\/|$)/, '');
@@ -618,6 +635,7 @@ export async function generateSearchUrlsWithMemory(
           url = injectTrimIntoUrl(url, params.trim ?? '');
         }
         url = ensureAs24PhevKeyword(url, params);
+        url = enforceLbcTrimChannel(url, params);
         url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
         url = enforcePowerParams(url, params);
         logs.push({
