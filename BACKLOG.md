@@ -3,6 +3,39 @@
 Décisions actées en discussion d'architecture (juillet 2026). Chaque entrée
 note pourquoi elle a été différée et ce qui la débloquera.
 
+## -1. CARTE EUROPE DU RÉSEAU + OUTIL D'INTÉGRATION DE SITES (proposé 18/08, en attente de validation Channing)
+
+Deux chantiers liés, proposition détaillée envoyée le 18/08 (voir la
+discussion de session) :
+
+**A. Carte Europe interactive du réseau** — page carte (SVG maison,
+pan/zoom fluide) avec les contacts Acheteur/Vendeur épinglés, leurs
+marques/modèles suivis (clés canoniques partagées avec le MI et le
+référentiel), lien vitrine, panneau dépliant par contact pour ne pas
+surcharger. Filtre par modèle → « qui achète / qui vend ce modèle » en un
+regard ; realtime Supabase. Phase ultérieure : croisement automatique
+opportunités ↔ contacts (à qui vendre / où acheter dès qu'une annonce
+sort). Tables additives : network_contacts + network_contact_models.
+Beaucoup de vitrines vivent sur des marketplaces déjà adaptées (page
+marchand mobile.de / AS24 / boutique LBC…) : leur scraping réutilise les
+adaptateurs existants tel quel.
+
+**B. Outil d'intégration assistée de nouveaux sites** (« recon
+industrialisée ») — pipeline en 4 étages : photographie (reconScrape,
+EXISTE) → analyse déterministe des blobs embarqués (scoring annonce-like,
+inférence des chemins de champs, pagination, devise — listingScore existe
+déjà) → étage LLM API Anthropic pour trancher les cas ambigus (le LLM
+PROPOSE, le scrape DÉCIDE — principe 4bis inchangé ; prérequis : crédits
+API Railway) → recette rejouée sur page de contrôle puis écriture d'une
+CONFIG d'adaptateur générique en base (un seul code, N sites). Les
+marketplaces majeures gardent leurs adaptateurs taillés main ; l'outil
+vise les vitrines propres des contacts et les sites secondaires.
+
+**Cas de test acté (Channing 18/08) : La Centrale (lacentrale.fr)** —
+2ᵉ source France utile en soi ET banc d'essai de l'outil. NB : grande
+marketplace derrière protection anti-bot sérieuse (famille Datadome comme
+LBC) — passer par le mode navigateur Zyte dès la recon.
+
 ## PRINCIPE DIRECTEUR — travail CHIRURGICAL sur les données de mapping
 
 Acté par Channing (19/07/2026) : la qualité des données qui entrent en
