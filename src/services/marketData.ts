@@ -271,9 +271,20 @@ const normText = (s: string | null | undefined) => (s ?? '').toLowerCase();
  * ('RAV4' Leboncoin, 'RAV-4' slug AS24, 'RAV 4' Marktplaats, 'C-HR'/'CHR') —
  * la clé (MAJ + alphanumérique) les regroupe, l'affichage garde UNE variante
  * représentative (la plus fréquente dans les données).
+ *
+ * Déburrage AVANT le strip (18/08) : sans lui 'ŠKODA' → 'KODA' ≠ 'SKODA'
+ * (7 588 vs 2 944 obs scindées en deux marques), 'CITROËN' → 'CITRON',
+ * 'LÉON' → 'LON'. Ø/Ł/Đ n'ont pas de décomposition NFD → table explicite.
+ * Règle STRICTEMENT jumelle de ada_deburr côté SQL (migration 20260818) —
+ * les clés TS sont passées telles quelles aux RPC (mi_obs_for_segment).
  */
+const NFD_LESS: Record<string, string> = { 'Ø': 'O', 'Ł': 'L', 'Đ': 'D' };
 export function canonKey(v: string): string {
-  return (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return (v ?? '')
+    .toUpperCase()
+    .normalize('NFD').replace(/\p{M}/gu, '')
+    .replace(/[ØŁĐ]/g, (c) => NFD_LESS[c] ?? c)
+    .replace(/[^A-Z0-9]/g, '');
 }
 const BRAND_KEY_ALIASES: Record<string, string> = { VW: 'VOLKSWAGEN', MERCEDESBENZ: 'MERCEDES' };
 export function brandKey(v: string): string {
