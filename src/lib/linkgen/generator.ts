@@ -316,6 +316,39 @@ export function fixMobiledeMileageForm(url: string, params: LinkGenParams): stri
   } catch { return url; }
 }
 
+/**
+ * Puissance min sur les grammaires natives PROUVÉES — appelée en DERNIER
+ * (après applyLearnedSecondaryParams, qui réinjecterait sinon la valeur en ch
+ * par-dessus). Bilbasen : hpfrom en ch (hk) — URL humaine hpfrom=250 ; une
+ * URL apprise peut porter un `hpfrom=` VIDE hérité de son ingestion (étude
+ * ENYAQ, worker_logs 11-18/08) — la valeur du critère du jour remplace, et
+ * sans critère le paramètre saute (variable, même règle que année/km).
+ * AutoScout : powerfrom en kW + powertype=kw — prouvé live 18/08 (hp ignoré,
+ * valeur nue lue en kW : 260 → 0 annonce) ; on répare aussi au passage un
+ * powertype=hp hérité de notre ancienne injection.
+ */
+export function enforcePowerParams(url: string, params: LinkGenParams): string {
+  const hp = Number(params.minPower ?? '');
+  const has = Number.isFinite(hp) && hp > 0;
+  if (url.includes('bilbasen.dk')) {
+    return setQueryParamRaw(url, 'hpfrom', has ? String(hp) : null);
+  }
+  if (url.includes('autoscout24.')) {
+    if (has) {
+      let out = setQueryParamRaw(url, 'powerfrom', String(Math.floor(hp / 1.35962)));
+      return setQueryParamRaw(out, 'powertype', 'kw');
+    }
+    // Héritage de l'ancienne injection cassée : powertype=hp est ignoré par le
+    // site et powerfrom est alors lu en kW → page à 0. On retire le trio.
+    if (/[?&]powertype=hp\b/.test(url)) {
+      let out = setQueryParamRaw(url, 'powerfrom', null);
+      out = setQueryParamRaw(out, 'powerto', null);
+      return setQueryParamRaw(out, 'powertype', null);
+    }
+  }
+  return url;
+}
+
 export function overrideAs24PathYear(url: string, params: LinkGenParams): string {
   if (!url.includes('autoscout24.') || !/\/re_\d{4}/.test(url)) return url;
   let out = url.replace(/\/re_\d{4}(?=\/|$)/, '');
@@ -586,6 +619,7 @@ export async function generateSearchUrlsWithMemory(
         }
         url = ensureAs24PhevKeyword(url, params);
         url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
+        url = enforcePowerParams(url, params);
         logs.push({
           level: 'OUTPUT',
           message: '[MAPPING_MEMORY] Reusing human-validated URL (variables overridden)',
@@ -651,6 +685,9 @@ export async function generateSearchUrlsWithMemory(
       const mapping = (record.validated_mapping ?? record.inferred_mapping) as InferredMapping | null;
       if (mapping) fallbackUrl = await applyLearnedSecondaryParams(fallbackUrl, site, mapping, params, logs);
     }
+    // Unités garanties même sur la voie template (les params secondaires
+    // appris réinjecteraient des ch là où AutoScout lit des kW).
+    fallbackUrl = enforcePowerParams(fallbackUrl, params);
 
     results.push({
       site,

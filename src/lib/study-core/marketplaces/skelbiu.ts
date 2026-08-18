@@ -46,7 +46,10 @@ const CATEGORY_ALL_CARS = '31';
 const CATEGORY_BRAND_ID: Record<string, string> = { TOYOTA: '101' };
 const CATEGORY_ID: Record<string, string> = { 'TOYOTA|RAV4': '21575' };
 
-const canon = (v: string) => (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// Déburrage avant le strip : sans lui 'ŠKODA' ET le label du site « Škoda »
+// donnaient 'KODA' (collision heureuse), mais toute clé déburrée ailleurs
+// ('SKODA' du référentiel translittéré) ratait — on aligne tout sur 'SKODA'.
+const canon = (v: string) => (v ?? '').toUpperCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Z0-9]/g, '');
 
 // Conventions de nommage du site (constat crawl 04/08) : séries en
 // lituanien (« 3 serija », « CLA klasė ») et marque « Mercedes-Benz ».

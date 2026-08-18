@@ -123,7 +123,9 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
 }
 
 const brandIdKey = (v: string): string => {
-  const k = (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  // Déburrage avant le strip : 'ŠKODA' donnait 'KODA' (Š supprimé, pas
+  // translittéré) et ratait la marque apprise 'Skoda' (constat ENYAQ 18/08).
+  const k = (v ?? '').toUpperCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Z0-9]/g, '');
   return k === 'MERCEDESBENZ' ? 'MERCEDES' : k === 'VW' ? 'VOLKSWAGEN' : k;
 };
 

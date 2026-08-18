@@ -95,7 +95,11 @@ const UNSUPPORTED_PARAMS: string[] = [];
 
 const norm = (s: string) => s.trim().toUpperCase();
 // Clé alphanumérique : 'YARIS CROSS' ≡ 'YARIS-CROSS' ≡ 'Yaris Cross'.
-const canon = (s: string) => norm(s).replace(/[^A-Z0-9]/g, '');
+// Déburrage AVANT le strip : sans lui, 'ŠKODA' → 'KODA' (Š hors [A-Z] était
+// supprimé, jamais translittéré) et la marque apprise 'Skoda'/22900 devenait
+// introuvable — « URL non générable pour MOBILE_DE » chaque matin sur
+// l'étude ENYAQ (worker_logs 11-18/08). Même famille que CITROËN → 'CITRON'.
+const canon = (s: string) => norm(s).normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Z0-9]/g, '');
 const comboKey = (brand: string, model: string) => `${canon(brand)}|${canon(model)}`;
 
 // ─── Taxonomie APPRISE (moissonnée des pages + persistée en dictionnaire) ────

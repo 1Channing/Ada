@@ -394,9 +394,15 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     else if (params.fuel) warnings.push(`[LINKGEN_WARNING] AutoScout24: unknown fuel "${params.fuel}", filter dropped`);
     const mappedGear = params.gearbox ? mapGear(params.gearbox) : '';
     if (mappedGear) qs.set('gear', mappedGear);
-    const power = params.minPower ?? params.powerFrom;
-    if (power) { qs.set('powerfrom', String(power)); qs.set('powertype', 'hp'); }
-    if (params.powerTo) { qs.set('powerto', String(params.powerTo)); qs.set('powertype', 'hp'); }
+    // Puissance : le site lit powerfrom/powerto en kW — PROUVÉ live 18/08
+    // (Enyaq DE 2024 : powerfrom=260&powertype=hp → 0 annonce alors que
+    // powerfrom=191&powertype=kw → 47, toutes ≥ 260 ch). 'hp' est ignoré et
+    // la valeur nue est lue en kW (260 lu 354 ch → toujours 0). Bornes
+    // inclusives : min arrondi vers le bas, max vers le haut.
+    const power = Number(params.minPower ?? params.powerFrom ?? '');
+    if (Number.isFinite(power) && power > 0) { qs.set('powerfrom', String(Math.floor(power / 1.35962))); qs.set('powertype', 'kw'); }
+    const powerTo = Number(params.powerTo ?? '');
+    if (Number.isFinite(powerTo) && powerTo > 0) { qs.set('powerto', String(Math.ceil(powerTo / 1.35962))); qs.set('powertype', 'kw'); }
     // Découverte : tri par défaut du site (paramètres omis, rien d'inventé) —
     // meilleure couverture de gamme. Études/précision : prix croissant.
     if (params.sort !== 'relevance') {
@@ -602,10 +608,12 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     if (km != null) out.mileage = String(km);
     if (q['fuel'] && FUEL_CODE_TO_LABEL[q['fuel']]) out.fuel = FUEL_CODE_TO_LABEL[q['fuel']];
     if (q['gear'] && GEAR_CODE_TO_LABEL[q['gear']]) out.gearbox = GEAR_CODE_TO_LABEL[q['gear']];
+    // powertype=kw : la valeur URL est en kW, nos critères en ch DIN.
+    const inKw = (q['powertype'] ?? '').toLowerCase() === 'kw';
     const power = firstNumber(q['powerfrom']);
-    if (power != null) out.powerFrom = String(power);
+    if (power != null) out.powerFrom = String(inKw ? Math.round(power * 1.35962) : power);
     const powerTo = firstNumber(q['powerto']);
-    if (powerTo != null) out.powerTo = String(powerTo);
+    if (powerTo != null) out.powerTo = String(inKw ? Math.round(powerTo * 1.35962) : powerTo);
     // kwd= free-text keyword ≈ finition (human-proven: kwd=Sportline on .es).
     if ((q['kwd'] ?? '').trim()) out.trim = q['kwd'].trim();
     // Forme chemin du site (URL humaine 27/07) : /kw_gr%20sport/ — équivalente
