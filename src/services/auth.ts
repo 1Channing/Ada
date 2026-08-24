@@ -30,8 +30,35 @@ export const useAuth = create<AuthState>((set) => ({
   setReady: () => set({ ready: true }),
 }));
 
+/**
+ * Session EMPOISONNÉE : un jeton que le serveur refuse durablement — constat
+ * 24/08, « JWT issued at future » (jeton émis pendant un décalage d'horloge
+ * transitoire côté Supabase : son horodatage d'émission est « dans le futur »,
+ * donc CHAQUE requête est refusée, Y COMPRIS le renouvellement — il ne se
+ * répare jamais seul et survit aux redéploiements puisqu'il vit dans le
+ * navigateur). Détectée au premier appel authentifié du boot (loadProfile) :
+ * on purge la session locale et on repasse par l'écran de connexion, où un
+ * jeton sain est réémis. Les erreurs non-JWT ne purgent jamais (fail-open).
+ */
+const POISONED_JWT = /jwt (issued at future|expired)|invalid jwt|jwt is invalid|invalid claim/i;
+
+async function purgePoisonedSession(reason: string): Promise<void> {
+  console.warn(`[AUTH] session invalide (${reason}) — purge locale et retour à la connexion`);
+  await supabase.auth.signOut().catch(() => undefined);
+  // Le signOut serveur peut être refusé pour la même raison que le reste :
+  // on efface aussi le stockage local de supabase-js (clés sb-*).
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('sb-')) localStorage.removeItem(k);
+  } catch { /* stockage inaccessible — le reload tentera sa chance */ }
+  window.location.reload();
+}
+
 async function loadProfile(userId: string): Promise<void> {
-  const { data } = await supabase.from('profiles').select('display_name, is_admin').eq('id', userId).maybeSingle();
+  const { data, error } = await supabase.from('profiles').select('display_name, is_admin').eq('id', userId).maybeSingle();
+  if (error && POISONED_JWT.test(error.message ?? '')) {
+    await purgePoisonedSession(error.message);
+    return;
+  }
   useAuth.getState().setProfile(data?.display_name ?? '', data?.is_admin === true);
 }
 
