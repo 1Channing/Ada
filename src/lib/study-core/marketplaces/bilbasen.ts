@@ -66,7 +66,10 @@ const BRAND_MAP: Record<string, string> = {
   VOLVO: 'Volvo',
   SKODA: 'Skoda',
   SEAT: 'Seat',
-  CITROEN: 'Citroen',
+  // Le site parle SA langue : /brugt/bil/citroen → page TOUTES-MARQUES
+  // (9 628), /brugt/bil/citroën → 394 Citroën (sondes live 24/08). Le slug
+  // porte le tréma — l'inverse exact de Leboncoin, d'où l'empirisme par site.
+  CITROEN: 'Citroën',
   OPEL: 'Opel',
 };
 
@@ -134,12 +137,17 @@ const FUEL_MAP: Record<string, string> = {
 
 const UNSUPPORTED_PARAMS: string[] = [];
 
+// Clé de table déburrée : le référentiel écrit « ŠKODA »/« CITROËN », les
+// clés de BRAND_MAP/MODEL_MAP sont en ASCII — sans déburrage l'accent ratait
+// l'entrée et le nom brut fuyait dans le slug (même famille que Leboncoin 05/08).
+const mapKey = (raw: string): string => raw.trim().toUpperCase().normalize('NFD').replace(/\p{M}/gu, '');
+
 function mapBrand(raw: string): string {
-  return BRAND_MAP[raw.trim().toUpperCase()] ?? raw.trim();
+  return BRAND_MAP[mapKey(raw)] ?? raw.trim();
 }
 
 function mapModel(raw: string): string {
-  return MODEL_MAP[raw.trim().toUpperCase()] ?? raw.trim();
+  return MODEL_MAP[mapKey(raw)] ?? raw.trim();
 }
 
 // ─── Slugs modèle APPRIS des annonces (moisson, 28/07) ───────────────────────
@@ -151,7 +159,24 @@ function mapModel(raw: string): string {
 // modèles affichés ; réinjectés ici, prioritaires sur la dérivation naïve
 // (les Classes Mercedes prouvées par URL humaine gardent le dernier mot).
 const LEARNED_MODEL_SLUG: Record<string, string> = {};
+// Slugs MARQUE appris du filtre Make du site (bb:filter:Make : « Citroën »),
+// mêmes clés déburrées — un nom de marque hors BRAND_MAP retombe dessus.
+const LEARNED_BRAND_SLUG: Record<string, string> = {};
 const canonSlug = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/**
+ * Slug de RECHERCHE Bilbasen = le LABEL NATIF du site, minuscules, espaces
+ * → '_', tirets ET accents CONSERVÉS — prouvé par sondes live 24/08 :
+ * 'Yaris Cross' → /toyota/yaris_cross (21/21, Model appliqué) là où le slug
+ * d'ANNONCE 'yaris-cross' servait la page marque entière ; 'C-HR' → /c-hr ✓ ;
+ * 'Citroën'/'ë-C4' → /citroën/ë-c4 (13/13) là où toute forme déburrée
+ * retombait sur la page toutes-marques. Les URLs d'annonces (source de la
+ * moisson) parlent une AUTRE grammaire (tirets) : ne jamais les recopier
+ * telles quelles dans une URL de recherche.
+ */
+function pathSlugNative(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^\p{L}\p{N}._-]/gu, '');
+}
 
 function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
   const out: Array<{ field: string; code: string; label: string }> = [];
@@ -166,9 +191,14 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
       if (!Array.isArray(listings)) continue;
       for (const l of listings as Array<{ uri?: unknown; model?: unknown }>) {
         if (typeof l?.uri !== 'string') continue;
-        const um = l.uri.match(/\/brugt\/bil\/([a-z0-9._-]+)\/([a-z0-9._-]+)\//);
+        // Unicode-aware : les URIs du site portent leurs accents (citroën,
+        // ë-c4) — l'ancienne classe [a-z0-9._-] ne matchait pas ces segments
+        // (lignes mutilées 'citron;-c4' en dictionnaire).
+        const um = l.uri.match(/\/brugt\/bil\/([^/?#]+)\/([^/?#]+)\//u);
         if (!um) continue;
-        const [, brandSlug, modelSlug] = um;
+        const dec = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
+        const brandSlug = dec(um[1]);
+        const modelSlug = dec(um[2]);
         const code = `${brandSlug};${modelSlug}`;
         if (seen.has(code)) continue;
         seen.add(code);
@@ -211,13 +241,29 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
 }
 
 function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  // Marques : labels natifs du filtre Make du site (« Citroën » → 'citroën').
+  if (field === 'bb:filter:Make') {
+    for (const p of pairs) {
+      const k = canonSlug(p.label);
+      const v = pathSlugNative(p.label);
+      if (k && v && !LEARNED_BRAND_SLUG[k]) LEARNED_BRAND_SLUG[k] = v;
+    }
+    return;
+  }
   if (field !== 'bb:model') return;
   for (const p of pairs) {
     const [, modelSlug] = p.code.split(';');
     if (!modelSlug) continue;
-    // Indexé par label ET par slug canonisé ('yaris_cross' ≡ 'YARIS CROSS').
-    for (const k of [canonSlug(p.label), canonSlug(modelSlug)]) {
-      if (k && !LEARNED_MODEL_SLUG[k]) LEARNED_MODEL_SLUG[k] = modelSlug;
+    // La VALEUR vient du LABEL (grammaire de recherche prouvée 24/08 :
+    // 'Yaris Cross' → 'yaris_cross'), jamais du slug d'annonce ('yaris-cross',
+    // qui servait la page marque entière en silence). Avec label, la clé est
+    // celle du label SEUL : la clé d'alias du slug d'annonce recréait des
+    // collisions depuis les vieilles lignes mutilées ('-c4' → clé 'C4' qui
+    // aurait envoyé toute étude C4 sur la page ë-C4).
+    const value = p.label.trim() ? pathSlugNative(p.label) : modelSlug;
+    const keys = p.label.trim() ? [canonSlug(p.label)] : [canonSlug(modelSlug)];
+    for (const k of keys) {
+      if (k && value && !LEARNED_MODEL_SLUG[k]) LEARNED_MODEL_SLUG[k] = value;
     }
   }
 }
@@ -266,15 +312,23 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // IGNORES ?make=&model= query params ("Diesel - 5864 brugte", mixed brands).
   // The native form /brugt/bil/{brand}/{model} is the site's own filter
   // (human-confirmed with /brugt/bil/skoda/elroq).
-  const brandSlug = pathSlug(mapBrand(params.brand || ''));
+  // Marque : table prouvée > label natif appris (filtre Make) > dérivation
+  // déburrée. NATIF car le site garde ses accents (/citroën, sondes 24/08).
+  const rawBrand = params.brand || '';
+  const mappedBrand = mapBrand(rawBrand);
+  const brandSlug = BRAND_MAP[mapKey(rawBrand)]
+    ? pathSlugNative(mappedBrand)
+    : (LEARNED_BRAND_SLUG[canonSlug(rawBrand)] ?? pathSlug(mappedBrand));
   const mercSlug = params.model ? mercedesModelSlug(params.brand, String(params.model)) : null;
-  // Mercedes (URL humaine) > slug APPRIS des annonces du site > dérivation naïve.
+  // Mercedes (URL humaine) > slug de recherche APPRIS (dérivé du label natif)
+  // > dérivation naïve déburrée (les labels du site sont d'ordinaire ASCII).
   const modelSlug = mercSlug
     ?? (params.model ? LEARNED_MODEL_SLUG[canonSlug(params.model)] : undefined)
     ?? pathSlug(mapModel(params.model || ''));
   const segs = ['https://www.bilbasen.dk/brugt/bil'];
-  if (brandSlug) segs.push(brandSlug);
-  if (brandSlug && modelSlug) segs.push(modelSlug);
+  // encodeURIComponent : les slugs natifs portent des accents (ë-c4, citroën).
+  if (brandSlug) segs.push(encodeURIComponent(brandSlug));
+  if (brandSlug && modelSlug) segs.push(encodeURIComponent(modelSlug));
 
   const qs = new URLSearchParams();
   const { yearFrom, yearTo } = resolveYearRange(params);
