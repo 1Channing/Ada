@@ -602,8 +602,22 @@ function marktplaatsFacetIds(url: string): string[] {
   return ids;
 }
 
-/** l2CategoryId of the brand page: explicit l2Category, else the dominant listing categoryId. */
+/**
+ * l2CategoryId of the brand page. NOUVEAU GABARIT (dumps 24/08 : plus aucun
+ * __NEXT_DATA__ sur les pages marque) : l'id vit dans le FORMULAIRE de
+ * recherche — `<input type="hidden" name="categoryId" value="155">` — et,
+ * en corroboration, dans le lien android-app `search/execute?categoryId=155`.
+ * Prouvé sur deux marques (Toyota→155, Skoda→151, aria-label « {Marque}
+ * selected ») puis validé live : l'API LRP avec ce 155 rend bien des Yaris
+ * Cross 2022 filtrées. 91 = l1 « Auto's », jamais un l2 — rejeté. Les
+ * anciennes règles (l2Category JSON, majorité des categoryId d'annonces)
+ * restent en repli pour un éventuel gabarit historique encore servi.
+ */
 function extractMarktplaatsL2(html: string): string | null {
+  const form = html.match(/<input type="hidden" name="categoryId" value="(\d+)"/);
+  if (form && form[1] !== MARKTPLAATS_L1_CARS) return form[1];
+  const app = html.match(/android-app:\/\/nl\.marktplaats\.android\/marktplaats\/search\/execute\?categoryId=(\d+)/);
+  if (app && app[1] !== MARKTPLAATS_L1_CARS) return app[1];
   const m = html.match(/"l2Category"\s*:\s*\{[^{}]*?"id"\s*:\s*(\d+)/);
   if (m) return m[1];
   const counts = new Map<string, number>();
@@ -655,7 +669,7 @@ async function scrapeMarktplaatsViaApi(
     attempts++;
     l2 = html ? extractMarktplaatsL2(html) : null;
     if (!l2) {
-      console.warn('[MARKTPLAATS_LRP] l2CategoryId introuvable sur la page marque — repli HTML');
+      console.warn(`[MARKTPLAATS_LRP] l2CategoryId introuvable sur la page marque (${brandSlug}, html=${html?.length ?? 0}) — repli HTML`);
       return null;
     }
     MP_L2_CACHE.set(brandSlug, l2);

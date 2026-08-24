@@ -226,12 +226,17 @@ const HYBRID_SUBTYPE_HASH: Record<string, string> = {
 
 const UNSUPPORTED_PARAMS = ['minPower'];
 
+// Clé de table déburrée : « ŠKODA »/« CITROËN » du référentiel doivent
+// retrouver les entrées ASCII (même famille de bug que Leboncoin 05/08 —
+// sans ça le slug marque était raté et la recherche retombait en texte).
+const mapKey = (raw: string): string => raw.trim().toUpperCase().normalize('NFD').replace(/\p{M}/gu, '');
+
 function mapBrand(raw: string): string {
-  return BRAND_MAP[raw.trim().toUpperCase()] ?? raw.trim();
+  return BRAND_MAP[mapKey(raw)] ?? raw.trim();
 }
 
 function mapModel(raw: string): string {
-  return MODEL_MAP[raw.trim().toUpperCase()] ?? raw.trim();
+  return MODEL_MAP[mapKey(raw)] ?? raw.trim();
 }
 
 function mapFuel(raw: string): string {
@@ -286,7 +291,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // we know its slug; only model+trim stay in the free-text search. Putting
   // "seat leon" wholesale in #q: returned mixed-brand samples (4% brand match)
   // — the site's category page can't make that mistake.
-  const brandSlug = BRAND_MAP[(params.brand ?? '').trim().toUpperCase()] ?? null;
+  const brandSlug = BRAND_MAP[mapKey(params.brand ?? '')] ?? null;
 
   // ── Pipeline UNIQUE (grammaire du site) : tout critère dont la facette de
   // chemin est connue va dans /f/{slug+slug}/{id+id}/ (composable — modèle,
