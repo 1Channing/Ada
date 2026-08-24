@@ -40,7 +40,13 @@ export const useAuth = create<AuthState>((set) => ({
  * on purge la session locale et on repasse par l'écran de connexion, où un
  * jeton sain est réémis. Les erreurs non-JWT ne purgent jamais (fail-open).
  */
-const POISONED_JWT = /jwt (issued at future|expired)|invalid jwt|jwt is invalid|invalid claim/i;
+const POISONED_JWT = /invalid jwt|jwt is invalid|invalid claim|jwt expired/i;
+// « JWT issued at future » N'EST PAS un jeton malade : mesuré le 24/08, un
+// jeton à l'iat EXACT (écart 0,0 s) était refusé — c'est l'horloge du
+// VALIDEUR (PostgREST) qui retarde, panne côté Supabase. Purger déconnectait
+// l'utilisateur en boucle (chaque jeton frais naît « dans le futur »). On
+// garde la session, on réessaie, et on affiche l'explication.
+const SERVER_CLOCK_LAG = /jwt issued at future/i;
 
 async function purgePoisonedSession(reason: string): Promise<void> {
   console.warn(`[AUTH] session invalide (${reason}) — purge locale et retour à la connexion`);
@@ -53,12 +59,24 @@ async function purgePoisonedSession(reason: string): Promise<void> {
   window.location.reload();
 }
 
+// Relances espacées le temps que l'horloge du serveur rattrape l'iat du
+// jeton (ou que Supabase répare) — la session reste ouverte pendant ce temps.
+const CLOCK_RETRY_DELAYS_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
+let clockRetryIdx = 0;
+
 async function loadProfile(userId: string): Promise<void> {
   const { data, error } = await supabase.from('profiles').select('display_name, is_admin').eq('id', userId).maybeSingle();
+  if (error && SERVER_CLOCK_LAG.test(error.message ?? '')) {
+    const delay = CLOCK_RETRY_DELAYS_MS[Math.min(clockRetryIdx++, CLOCK_RETRY_DELAYS_MS.length - 1)];
+    console.warn(`[AUTH] horloge du serveur de données en retard (« ${error.message} ») — nouvel essai dans ${Math.round(delay / 1000)} s ; si ça persiste : Supabase → Settings → General → Restart project`);
+    setTimeout(() => { void loadProfile(userId); }, delay);
+    return;
+  }
   if (error && POISONED_JWT.test(error.message ?? '')) {
     await purgePoisonedSession(error.message);
     return;
   }
+  clockRetryIdx = 0;
   useAuth.getState().setProfile(data?.display_name ?? '', data?.is_admin === true);
 }
 
