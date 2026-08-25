@@ -264,7 +264,9 @@ function overrideVariableParams(url: string, mapping: InferredMapping, params: L
  */
 export function enforceYearParams(url: string, params: LinkGenParams): string {
   const { yearFrom, yearTo } = resolveYearRange(params);
-  if (!yearFrom && !yearTo) return url;
+  // Gaspedaal AVANT le retour anticipé : sa branche gère aussi kmax (variable
+  // kilométrage), qui doit s'appliquer même sur une étude sans borne d'année.
+  if (!yearFrom && !yearTo && !url.includes('gaspedaal.nl')) return url;
   // setQueryParamRaw et non searchParams.set : cette fonction tourne sur
   // TOUTES les URLs LBC (l'ancrage année est obligatoire) — c'était le
   // ré-encodeur qui cassait les listes à virgules de u_car_model.
@@ -288,6 +290,19 @@ export function enforceYearParams(url: string, params: LinkGenParams): string {
   }
   if (url.includes('leboncoin.fr')) {
     return setQueryParamRaw(url, 'regdate', `${yearFrom || yearTo}-${yearTo || yearFrom}`);
+  }
+  if (url.includes('gaspedaal.nl')) {
+    // bmin/bmax prouvés par URLs humaines (en-tête de l'adaptateur ; re-donné
+    // par Channing 25/08). Constat du même jour : la ligne mémoire Yaris Cross
+    // ne connaissait bmax que comme « année » générique — bmin était réécrit
+    // (2025) mais bmax gardait le 2023 de son ingestion → bornes inversées,
+    // 0 résultat, étude faussée. On impose les DEUX bornes ; le kilométrage
+    // (kmax, même grammaire prouvée) suit la même règle de variable.
+    let out = url;
+    if (yearFrom) out = setQueryParamRaw(out, 'bmin', yearFrom);
+    if (yearTo) out = setQueryParamRaw(out, 'bmax', yearTo);
+    out = setQueryParamRaw(out, 'kmax', params.mileage ? String(params.mileage) : null);
+    return out;
   }
   if (url.includes('mobile.de')) {
     // Format composite natif fr=min:max — overrideVariableParams réinjecte
@@ -443,6 +458,11 @@ export function injectTrimIntoUrl(url: string, trim: string): string {
     }
     if (u.hostname.includes('bilbasen.dk')) {
       return setQueryParamRaw(url, 'free', t);
+    }
+    if (u.hostname.includes('gaspedaal.nl')) {
+      // trefw = la barre de recherche du site (URL humaine trefw=M+sport,
+      // re-prouvée trefw=GR+SPORT par Channing 25/08).
+      return setQueryParamRaw(url, 'trefw', t);
     }
     if (u.hostname.includes('subito.it')) {
       // Slot texte libre prouvé par URL humaine (02/08 : ?q=m+sport).
@@ -631,7 +651,7 @@ export async function generateSearchUrlsWithMemory(
         // GR SPORT study reused a kwd-less URL → 6% trim match). Setting kwd is
         // idempotent, so guarantee it. Marktplaats keeps the trim-less-row-only
         // rule: replacing q: on a trim-scoped learned URL would lose its text.
-        if (wantTrim && (recTrim === '' || url.includes('autoscout24.'))) {
+        if (wantTrim && (recTrim === '' || url.includes('autoscout24.') || url.includes('gaspedaal.nl'))) {
           url = injectTrimIntoUrl(url, params.trim ?? '');
         }
         url = ensureAs24PhevKeyword(url, params);

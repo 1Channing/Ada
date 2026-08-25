@@ -229,6 +229,11 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (yearFrom) qs.set('bmin', yearFrom);
   if (yearTo) qs.set('bmax', yearTo);
   if (params.mileage) qs.set('kmax', String(params.mileage));
+  // Finition dans la BARRE DE RECHERCHE du site — trefw=M+sport prouvé par
+  // URL humaine (en-tête de ce fichier) ; manquait au constructeur alors que
+  // la grammaire était documentée depuis le début (constat Channing 25/08 :
+  // étude GR SPORT sans trefw). Même règle que text= Leboncoin et /q/ MP.
+  if (params.trim && params.trim.trim()) qs.set('trefw', params.trim.trim());
   // Tri — preuve par paire d'URLs humaines (Channing 02/08) : srt=pr-a =
   // « Prijs laag-hoog », srt=df-a = relevantie. Études/précision : pr-a (le
   // bas du marché est ce qu'on arbitre). Découverte : df-a — le tri prix
