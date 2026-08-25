@@ -264,16 +264,18 @@ function overrideVariableParams(url: string, mapping: InferredMapping, params: L
  */
 export function enforceYearParams(url: string, params: LinkGenParams): string {
   const { yearFrom, yearTo } = resolveYearRange(params);
-  // Gaspedaal AVANT le retour anticipé : sa branche gère aussi kmax (variable
-  // kilométrage), qui doit s'appliquer même sur une étude sans borne d'année.
-  if (!yearFrom && !yearTo && !url.includes('gaspedaal.nl')) return url;
+  // Chaque borne est POSÉE OU RETIRÉE — jamais héritée de l'URL apprise.
+  // Constat MI 25/08 (Yaris Cross, filtre « 2025 – max vide ») : la borne
+  // absente laissait survivre le bmax=2023 fossile de l'ingestion d'origine
+  // → bornes inversées, 0 résultat, profondeur/vélocité faussées. La règle
+  // des variables (année/km/puissance) s'applique aux DEUX bornes : sans
+  // critère, le paramètre hérité saute.
   // setQueryParamRaw et non searchParams.set : cette fonction tourne sur
   // TOUTES les URLs LBC (l'ancrage année est obligatoire) — c'était le
   // ré-encodeur qui cassait les listes à virgules de u_car_model.
   if (url.includes('autoscout24.')) {
-    let out = url;
-    if (yearFrom) out = setQueryParamRaw(out, 'fregfrom', yearFrom);
-    if (yearTo) out = setQueryParamRaw(out, 'fregto', yearTo);
+    let out = setQueryParamRaw(url, 'fregfrom', yearFrom || null);
+    out = setQueryParamRaw(out, 'fregto', yearTo || null);
     return out;
   }
   if (url.includes('bilbasen.dk')) {
@@ -281,26 +283,25 @@ export function enforceYearParams(url: string, params: LinkGenParams): string {
     // l'année-MODÈLE danoise (årgang), qui rendait des immatriculées N-1
     // (36/64 e-tron DK, 01/08). Les anciens params sont RETIRÉS des URLs
     // apprises : les deux familles combinées restreindraient doublement.
-    let out = url;
-    if (yearFrom) out = setQueryParamRaw(out, 'regfrom', `${yearFrom}-01`);
-    if (yearTo) out = setQueryParamRaw(out, 'regto', `${yearTo}-12`);
+    let out = setQueryParamRaw(url, 'regfrom', yearFrom ? `${yearFrom}-01` : null);
+    out = setQueryParamRaw(out, 'regto', yearTo ? `${yearTo}-12` : null);
     out = setQueryParamRaw(out, 'yearfrom', null);
     out = setQueryParamRaw(out, 'yearto', null);
     return out;
   }
   if (url.includes('leboncoin.fr')) {
-    return setQueryParamRaw(url, 'regdate', `${yearFrom || yearTo}-${yearTo || yearFrom}`);
+    // Formes prouvées par URLs humaines en mémoire : '2021-2021' (borné) et
+    // '2021-max' (ouvert vers le haut). Borne basse seule absente : grammaire
+    // non prouvée → on garde la forme bornée symétrique historique.
+    if (!yearFrom && !yearTo) return setQueryParamRaw(url, 'regdate', null);
+    const to = yearTo || (yearFrom ? 'max' : yearFrom);
+    return setQueryParamRaw(url, 'regdate', `${yearFrom || yearTo}-${to}`);
   }
   if (url.includes('gaspedaal.nl')) {
-    // bmin/bmax prouvés par URLs humaines (en-tête de l'adaptateur ; re-donné
-    // par Channing 25/08). Constat du même jour : la ligne mémoire Yaris Cross
-    // ne connaissait bmax que comme « année » générique — bmin était réécrit
-    // (2025) mais bmax gardait le 2023 de son ingestion → bornes inversées,
-    // 0 résultat, étude faussée. On impose les DEUX bornes ; le kilométrage
-    // (kmax, même grammaire prouvée) suit la même règle de variable.
-    let out = url;
-    if (yearFrom) out = setQueryParamRaw(out, 'bmin', yearFrom);
-    if (yearTo) out = setQueryParamRaw(out, 'bmax', yearTo);
+    // bmin/bmax/kmax prouvés par URLs humaines (en-tête de l'adaptateur ;
+    // re-donnés par Channing 25/08).
+    let out = setQueryParamRaw(url, 'bmin', yearFrom || null);
+    out = setQueryParamRaw(out, 'bmax', yearTo || null);
     out = setQueryParamRaw(out, 'kmax', params.mileage ? String(params.mileage) : null);
     return out;
   }
@@ -308,6 +309,8 @@ export function enforceYearParams(url: string, params: LinkGenParams): string {
     // Format composite natif fr=min:max — overrideVariableParams réinjecte
     // la valeur simple apprise (fr=2022) que le site lit « à partir de
     // 2022 » : campagne 21h55, années 12/34 (35 %) sur une étude 2022.
+    // Sans aucun critère d'année, le fr hérité saute (règle des variables).
+    if (!yearFrom && !yearTo) return setQueryParamRaw(url, 'fr', null);
     return setQueryParamRaw(url, 'fr', `${yearFrom ?? ''}:${yearTo ?? ''}`);
   }
   return url;
