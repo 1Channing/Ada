@@ -761,7 +761,7 @@ function ArchivedHitsSection({ archived, searches, defaultOpen = false }: { arch
         <span className={`transition-transform text-slate-400 ${open ? 'rotate-90' : ''}`}>▸</span>
         <Archive className="w-4 h-4 text-slate-400" />
         <span className="font-semibold text-slate-700">Archives</span>
-        <span className="text-xs text-slate-500">{archived.length} annonce(s) traitée(s) — « trop chère » revient sur baisse, « hors critères » est définitif</span>
+        <span className="text-xs text-slate-500">{archived.length} annonce(s) traitée(s) — « trop chère » revient sur baisse, « plus disponible » revient si l'annonce est revue, « hors critères » est définitif</span>
       </button>
       {open && groups.map((g) => (
         <div key={`${g.brand}|${g.model}`} className="border-t border-slate-100">
@@ -782,9 +782,11 @@ function ArchivedHitsSection({ archived, searches, defaultOpen = false }: { arch
                 <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${
                   h.resolution === 'trop_chere'
                     ? 'bg-amber-50 text-amber-700 border-amber-200'
-                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                    : h.resolution === 'plus_disponible'
+                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                      : 'bg-slate-100 text-slate-600 border-slate-200'
                 }`}>
-                  {h.resolution === 'trop_chere' ? 'trop chère' : 'hors critères'}
+                  {h.resolution === 'trop_chere' ? 'trop chère' : h.resolution === 'plus_disponible' ? 'plus disponible' : 'hors critères'}
                 </span>
               </div>
             ))}
@@ -853,7 +855,7 @@ function HitActionsMenu({ hit, onChanged }: { hit: DailyHit; onChanged: () => vo
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
 
-  const resolve = async (reason: 'trop_chere' | 'hors_criteres') => {
+  const resolve = async (reason: 'trop_chere' | 'hors_criteres' | 'plus_disponible') => {
     setOpen(false);
     await dismissHit(hit.id, reason);
     onChanged();
@@ -877,6 +879,9 @@ function HitActionsMenu({ hit, onChanged }: { hit: DailyHit; onChanged: () => vo
           </button>
           <button onClick={() => void resolve('hors_criteres')} className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700">
             Traitée · hors critères <span className="text-xs text-slate-400">(définitif)</span>
+          </button>
+          <button onClick={() => void resolve('plus_disponible')} className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700">
+            Plus disponible <span className="text-xs text-slate-400">(revient si l'annonce est revue)</span>
           </button>
         </div>
       )}

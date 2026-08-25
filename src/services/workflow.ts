@@ -352,7 +352,7 @@ export async function clearSearchHits(searchId: string, keepMemory: boolean): Pr
  * — elle reste dans l'historique des Résultats avec son badge, sort des
  * compteurs « à traiter », et la mémoire de dédup tient (la ligne reste).
  */
-export async function dismissHit(id: string, resolution?: 'trop_chere' | 'hors_criteres'): Promise<void> {
+export async function dismissHit(id: string, resolution?: 'trop_chere' | 'hors_criteres' | 'plus_disponible'): Promise<void> {
   await supabase.from('daily_search_hits').update({ status: 'dismissed', resolution: resolution ?? null }).eq('id', id);
 }
 

@@ -408,6 +408,23 @@ async function runDailySearch(s: SearchRow): Promise<void> {
         }).eq('id', prior.id);
         seen.set(listingUrl, { ...prior, price, status, resolution: status === 'inbox' ? null : prior.resolution });
         if (status === 'inbox') drops++;
+      } else if (prior.resolution === 'plus_disponible' && prior.status === 'dismissed') {
+        // « Plus disponible » (option Channing 25/08) : le LIEN avait été
+        // marqué mort à la main — le revoir dans un scrape postérieur prouve
+        // le contraire (annonce revenue en ligne, ou marquage erroné) :
+        // l'annonce redevient triable. Hors écart, elle reste archivée mais
+        // nettoyée de son motif (le flux la reprendra si l'écart parle).
+        // Une annonce repostée sous une NOUVELLE URL re-rentre déjà par la
+        // voie normale : l'anti-doublon est par URL, jamais par contenu.
+        const status = inRange && !negoUrls.has(listingUrl) ? 'inbox' : 'dismissed';
+        await supabase.from('daily_search_hits').update({
+          status, resolution: null, target_median: median, price_gap: gap, last_seen_at: nowIso,
+        }).eq('id', prior.id);
+        seen.set(listingUrl, { ...prior, status, resolution: null });
+        if (status === 'inbox') {
+          fresh++;
+          console.warn(`[DAILY] « ${name} »: annonce marquée « plus disponible » revue en ligne — remise à traiter (${listingUrl.slice(0, 90)})`);
+        }
       } else {
         await supabase.from('daily_search_hits').update({ last_seen_at: nowIso }).eq('id', prior.id);
       }
