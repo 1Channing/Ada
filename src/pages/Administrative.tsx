@@ -1064,13 +1064,13 @@ export function Administrative() {
           buyer_contact_id_2: buyerContactId2,
           supplier_contact_id: supplierId,
           client_contact_id: clientId,
-          transaction_price: transactionForm.transaction_price ? parseFloat(transactionForm.transaction_price) : null,
+          transaction_price: transactionForm.transaction_price ? parsePriceInput(transactionForm.transaction_price) : null,
           reference: transactionForm.reference || null,
           commercial: transactionForm.commercial || null,
           notes: transactionForm.notes || null,
-          purchase_price: transactionForm.purchase_price ? parseFloat(transactionForm.purchase_price) : null,
-          sale_price: transactionForm.sale_price ? parseFloat(transactionForm.sale_price) : null,
-          fees: transactionForm.fees ? parseFloat(transactionForm.fees) : null,
+          purchase_price: transactionForm.purchase_price ? parsePriceInput(transactionForm.purchase_price) : null,
+          sale_price: transactionForm.sale_price ? parsePriceInput(transactionForm.sale_price) : null,
+          fees: transactionForm.fees ? parsePriceInput(transactionForm.fees) : null,
           transaction_date: transactionForm.transaction_date || null,
           transaction_time: transactionForm.transaction_time || null,
           pickup_location: transactionForm.pickup_location || null,
@@ -1183,13 +1183,13 @@ export function Administrative() {
           buyer_contact_id_2: buyerContactId2,
           supplier_contact_id: supplierId,
           client_contact_id: clientId,
-          transaction_price: transactionForm.transaction_price ? parseFloat(transactionForm.transaction_price) : null,
+          transaction_price: transactionForm.transaction_price ? parsePriceInput(transactionForm.transaction_price) : null,
           reference: transactionForm.reference || null,
           commercial: transactionForm.commercial || null,
           notes: transactionForm.notes || null,
-          purchase_price: transactionForm.purchase_price ? parseFloat(transactionForm.purchase_price) : null,
-          sale_price: transactionForm.sale_price ? parseFloat(transactionForm.sale_price) : null,
-          fees: transactionForm.fees ? parseFloat(transactionForm.fees) : null,
+          purchase_price: transactionForm.purchase_price ? parsePriceInput(transactionForm.purchase_price) : null,
+          sale_price: transactionForm.sale_price ? parsePriceInput(transactionForm.sale_price) : null,
+          fees: transactionForm.fees ? parsePriceInput(transactionForm.fees) : null,
           transaction_date: transactionForm.transaction_date || null,
           transaction_time: transactionForm.transaction_time || null,
           pickup_location: transactionForm.pickup_location || null,
@@ -1226,6 +1226,17 @@ export function Administrative() {
     }
   };
 
+  // Un montant saisi à la française (« 12 500 », « 12500,50 ») passait par
+  // parseFloat nu : l'espace coupait à 12, la virgule à 12500 — des montants
+  // FAUX selon l'habitude de frappe de l'utilisateur (signalement Antoine
+  // 21/08, famille « bug d'une machine à l'autre »). Espaces (insécables
+  // compris) retirés, virgule décimale acceptée ; « 12500 » inchangé.
+  const parsePriceInput = (raw: string): number | null => {
+    const s = raw.replace(/[\s  ]/g, '').replace(',', '.');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : null;
+  };
+
   const handleGenerateDocument = async (documentType: string) => {
     console.log('[ADMIN_GEN] Starting document generation for:', documentType);
 
@@ -1250,8 +1261,16 @@ export function Administrative() {
         });
         return;
       }
-    } else if (isDirty) {
-      console.log('[ADMIN_GEN] Form dirty, updating existing transaction id=', transactionId);
+    } else {
+      // TOUJOURS resynchroniser avant de générer — plus de condition isDirty.
+      // Signalement Antoine 21/08 (« montant total : € » vide) : la
+      // restauration du BROUILLON local remettait isDirty à false — l'écran
+      // montrait le prix (brouillon localStorage), la base ne l'avait pas,
+      // et l'aperçu « sans mise à jour nécessaire » sortait un document vide.
+      // Bug par machine puisque le brouillon vit dans le navigateur. Le
+      // document doit refléter CE QUE L'OPÉRATEUR VOIT : l'update WYSIWYG
+      // est idempotent, son coût est un écrire redondant au pire.
+      console.log('[ADMIN_GEN] Syncing form → transaction before generation, id=', transactionId);
       setSaveMessage({
         type: 'info',
         text: 'Updating transaction with current data...'
@@ -1269,8 +1288,6 @@ export function Administrative() {
         });
         return;
       }
-    } else {
-      console.log('[ADMIN_GEN] Using existing transaction, no update needed, id=', transactionId);
     }
 
     setGeneratingDoc(documentType);
