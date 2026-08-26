@@ -660,6 +660,12 @@ async function generateStudyUrls(filters: MarketFilters): Promise<{ site: string
         yearTo: filters.yearMax != null ? String(filters.yearMax) : undefined,
         mileage: filters.mileageMax ?? undefined,
         gearbox: gearboxCriteria(filters),
+        // Puissance min : ajoutée aux filtres MI après ce constructeur et
+        // jamais câblée ici (constat Fiat 500e 26/08 : URLs et scrape de mise
+        // à jour SANS le ≥110 ch — trié prix croissant, les pages se
+        // remplissaient d'entrées de gamme et la vraie cible n'entrait
+        // jamais en base). Lacune, pas un choix.
+        minPower: filters.powerMin != null ? String(filters.powerMin) : undefined,
       });
       url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
     } catch { url = null; }
@@ -683,6 +689,7 @@ async function startIngestJob(url: string, f: MarketFilters): Promise<string> {
     fuel: f.fuel ? FUEL_TOKEN_TO_CRITERIA[f.fuel] : undefined,
     trim: f.trim || undefined,
     gearbox: gearboxCriteria(f),
+    minPower: f.powerMin != null ? String(f.powerMin) : undefined,
   };
   const start = await supabase.functions.invoke('ingest-url', {
     body: { url, async: true, criteria, submittedBy: 'Market Intelligence' },

@@ -538,7 +538,12 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
     (f.yearMin == null || (o.year != null && o.year >= f.yearMin)) &&
     (f.yearMax == null || (o.year != null && o.year <= f.yearMax)) &&
     (f.mileageMax == null || (o.mileage != null && o.mileage <= f.mileageMax)) &&
-    (f.powerMin == null || (o.power_din != null && o.power_din >= f.powerMin))
+    (f.powerMin == null || (o.power_din != null && o.power_din >= f.powerMin)) &&
+    // Prix fantaisistes (« 203 € » sur une 500e, constat 26/08 : mensualité ou
+    // acompte parsé comme prix) : même plancher que le radar (1 000 €) — une
+    // « annonce » sous ce seuil n'est jamais un prix de véhicule et faussait
+    // le min affiché et le nuage. Les obs sans prix restent (comptées à part).
+    !(typeof o.price === 'number' && o.price > 0 && o.price < 1000)
   );
 }
 

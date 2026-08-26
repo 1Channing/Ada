@@ -34,7 +34,10 @@ import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 
 const TICK_MS = 10 * 60 * 1000;
 const MAX_PAGES = 3;
-const MIN_PRICE_EUR = 500;      // ignore les loyers/leasing parasites
+// 1 000 € — ALIGNÉ sur le radar SQL et la lecture MI (26/08) : les loyers de
+// leasing dépassent souvent 500 € (« 294 €/mois », « 620 €/mois »…) et un
+// vrai véhicule de notre univers d'arbitrage n'existe pas sous 1 000 €.
+const MIN_PRICE_EUR = 1000;
 const REAL_DROP_EUR = 100;      // en dessous : bruit d'arrondi, pas une baisse
 const TZ = 'Europe/Paris';
 
