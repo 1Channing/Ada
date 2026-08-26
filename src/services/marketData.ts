@@ -694,24 +694,56 @@ export function sortedUnion(a: string[], b: string[]): string[] {
  */
 async function callRpcAllPages<T>(fn: string, args: Record<string, unknown> | undefined, maxRows: number): Promise<{ data: T[] | null; error: { message: string } | null }> {
   const PAGE = 1000;
-  const out: T[] = [];
-  for (let from = 0; from < maxRows; from += PAGE) {
-    // Une page en échec (statement timeout à froid) est RETENTÉE avant
-    // d'abandonner : le radar rendu à moitié (500+ écarts → 95, constat
-    // 02/08) venait d'un timeout en cours de pagination accepté tel quel.
-    let page: { data: unknown; error: { message: string } | null } = { data: null, error: null };
+  // PostgREST RÉ-EXÉCUTE la fonction à chaque page : en série, 5 pages de
+  // radar ≈ 5 × son coût (constat 26/08 : « les écarts inter-pays mettent du
+  // temps à apparaître »). La 1ʳᵉ page rapporte le TOTAL (count exact), les
+  // suivantes partent en PARALLÈLE (4 de front — assez pour écraser le mur,
+  // pas de quoi étouffer la base). Retry par page conservé ; un échec rend
+  // un PARTIEL toujours CONTIGU (les pages après le trou sont écartées pour
+  // garder l'ordre déterministe du ORDER BY).
+  type PageRes = { data: unknown; error: { message: string } | null; count?: number | null };
+  const fetchPage = async (from: number, withCount: boolean): Promise<PageRes> => {
+    let page: PageRes = { data: null, error: null };
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 800));
-      const builder = (supabase.rpc as unknown as (f: string, a?: Record<string, unknown>) =>
-        { range: (f: number, t: number) => PromiseLike<{ data: unknown; error: { message: string } | null }> })(fn, args);
+      const builder = (supabase.rpc as unknown as (f: string, a?: Record<string, unknown>, o?: { count?: 'exact' }) =>
+        { range: (f: number, t: number) => PromiseLike<PageRes> })(fn, args, withCount ? { count: 'exact' } : undefined);
       page = await builder.range(from, Math.min(from + PAGE, maxRows) - 1);
       if (!page.error) break;
     }
-    if (page.error) {
-      if (out.length > 0) console.warn(`[MI_SCOPE] ${fn}: pagination interrompue à ${out.length} ligne(s) (${page.error.message}) — résultat PARTIEL`);
-      return out.length > 0 ? { data: out, error: null } : { data: null, error: page.error };
+    return page;
+  };
+
+  const first = await fetchPage(0, true);
+  if (first.error) return { data: null, error: first.error };
+  const out: T[] = [...((Array.isArray(first.data) ? first.data : []) as T[])];
+  if (out.length < PAGE) return { data: out, error: null };
+
+  const total = Math.min(typeof first.count === 'number' ? first.count : maxRows, maxRows);
+  const froms: number[] = [];
+  for (let f = PAGE; f < total; f += PAGE) froms.push(f);
+  if (froms.length === 0) return { data: out, error: null };
+
+  const results: Array<T[] | undefined> = new Array(froms.length);
+  let failedAt = Number.POSITIVE_INFINITY;
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(4, froms.length) }, async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= froms.length || i > failedAt) return;
+      const p = await fetchPage(froms[i], false);
+      if (p.error) { failedAt = Math.min(failedAt, i); return; }
+      results[i] = (Array.isArray(p.data) ? p.data : []) as T[];
     }
-    const rows = (Array.isArray(page.data) ? page.data : []) as T[];
+  });
+  await Promise.all(workers);
+
+  for (let i = 0; i < froms.length; i++) {
+    const rows = results[i];
+    if (i >= failedAt || !rows) {
+      console.warn(`[MI_SCOPE] ${fn}: pagination interrompue à ${out.length} ligne(s) — résultat PARTIEL`);
+      break;
+    }
     out.push(...rows);
     if (rows.length < PAGE) break;
   }
@@ -1203,9 +1235,24 @@ export async function loadMarketOpportunities(
   // — le front n'apparie plus que quelques centaines de segments au lieu de
   // repaginer 40 000 observations (fenêtre déjà dépassée par les campagnes).
   const since = new Date(Date.now() - OPP_WINDOW_DAYS * 86_400_000).toISOString();
-  const { data: medianRows, error: rpcError } = await callRpcAllPages<unknown>('mi_cheap_medians', {
+  // Variante UN APPEL d'abord (mi_cheap_medians_json, 26/08) : chaque page
+  // PostgREST ré-exécutait la fonction entière (~8 s × 5 — la base faisait
+  // cinq fois le même travail, « les écarts mettent du temps à apparaître »).
+  // Repli transparent sur la voie paginée si la migration n'est pas passée.
+  let medianRows: unknown = null;
+  let rpcError: { message: string } | null = null;
+  const single = await supabase.rpc('mi_cheap_medians_json' as never, {
     p_since: since, p_min_price: OPP_MIN_PRICE_EUR,
-  }, 20_000);
+  } as never);
+  if (!single.error && Array.isArray(single.data)) {
+    medianRows = single.data;
+  } else {
+    const paged = await callRpcAllPages<unknown>('mi_cheap_medians', {
+      p_since: since, p_min_price: OPP_MIN_PRICE_EUR,
+    }, 20_000);
+    medianRows = paged.data;
+    rpcError = paged.error;
+  }
   if (!rpcError && Array.isArray(medianRows)) {
     type Row = { brand_label: string; model_label: string; fuel: string; year: number; country: string; site: string; median: number | null; cnt: number; last_seen: string };
     const groups = new Map<string, Row[]>();
