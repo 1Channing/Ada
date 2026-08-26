@@ -407,6 +407,25 @@ export const CRITERIA_DETECTORS: Record<string, RegExp> = {
 };
 
 /**
+ * Familles de critères que le REGISTRE sait poser sur l'URL de ce site —
+ * sert à distinguer, pour un critère manquant, « se corrige tout seul à la
+ * prochaine vague » (grammaire connue) de « nécessite un apprentissage »
+ * (trou de dictionnaire / grammaire non prouvée).
+ */
+export function registryCoveredCriteria(url: string): Set<string> {
+  const g = grammarForUrl(url);
+  const out = new Set<string>();
+  if (!g) return out;
+  if (g.year) out.add('année');
+  if (g.mileage) out.add('km');
+  if (g.power) out.add('puissance');
+  if (g.gearbox) out.add('boîte');
+  if (g.fuel) out.add('carburant');
+  if (g.trimSlot || g.trimEnforced) out.add('finition');
+  return out;
+}
+
+/**
  * Familles de critères que l'étude DEMANDE mais que l'URL n'exprime PAS.
  * Vide = « tous les filtres sont dans l'URL » — la condition posée par
  * Channing (26/08) pour autoriser la profondeur 5 pages au lieu de 3.

@@ -3,7 +3,7 @@ import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Lo
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
 import { brandKey, refModelKey } from '../services/marketData';
-import { missingUrlCriteria } from '../lib/linkgen/grammar';
+import { missingUrlCriteria, registryCoveredCriteria } from '../lib/linkgen/grammar';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
 
 /**
@@ -155,7 +155,11 @@ export function TruthCenter() {
   };
   useEffect(() => { void load(); }, []);
 
-  const open = useMemo(() => dossiers.filter((d) => d.status === 'detected' || d.status === 'needs_evidence'), [dossiers]);
+  // « À vérifier » = ce qui attend TES yeux ; « En diagnostic » = ce qui
+  // attend le MOTEUR (preuve déposée, cause en cours d'identification) — un
+  // dossier corrigé y reste jusqu'à la re-vérification de la vague suivante.
+  const open = useMemo(() => dossiers.filter((d) => d.status === 'detected'), [dossiers]);
+  const diagnosing = useMemo(() => dossiers.filter((d) => d.status === 'needs_evidence'), [dossiers]);
   const resolved = useMemo(() => dossiers.filter((d) => d.status !== 'detected' && d.status !== 'needs_evidence'), [dossiers]);
 
   // Réservé à l'admin (demande Channing 26/08) — l'onglet n'apparaît que
@@ -222,6 +226,29 @@ export function TruthCenter() {
         </div>
       )}
 
+      {diagnosing.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold text-sky-800 flex items-center gap-2">
+            <Loader2 className="w-4 h-4" /> En diagnostic / correction (moteur) — {diagnosing.length}
+          </h2>
+          <p className="text-xs text-slate-500 -mt-2">
+            Preuve reçue, cause en cours d'identification ou correctif déployé en attente de
+            re-vérification à la prochaine vague. Rien à faire de ton côté.
+          </p>
+          {diagnosing.map((d) => (
+            <DossierCard
+              key={d.id}
+              d={d}
+              study={studyForDossier(studies, d)}
+              isOpen={openId === d.id}
+              onToggle={() => setOpenId(openId === d.id ? null : d.id)}
+              onStatus={(s) => void setStatus(d, s)}
+              userEmail={email ?? ''}
+            />
+          ))}
+        </div>
+      )}
+
       {resolved.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200">
           <button
@@ -241,6 +268,11 @@ export function TruthCenter() {
                   <span className={`ml-auto text-xs rounded-full px-2 py-0.5 ${d.status === 'verified' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
                     {STATUS_LABELS[d.status] ?? d.status}
                   </span>
+                  {typeof d.details?.diagnosed_by === 'string' && (
+                    <span className="text-xs bg-violet-100 text-violet-700 rounded-full px-2 py-0.5">
+                      diagnostic {String(d.details.diagnosed_by)}
+                    </span>
+                  )}
                   <button onClick={() => void setStatus(d, 'detected')} className="text-xs text-slate-400 hover:text-slate-700">rouvrir</button>
                 </div>
               ))}
@@ -366,6 +398,14 @@ function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
       </button>
       {isOpen && (
         <div className="border-t border-slate-100 p-4 space-y-4">
+          {typeof d.details?.diagnosis === 'string' && (
+            <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 text-sm text-violet-900">
+              <p className="text-xs font-medium text-violet-600 mb-1">
+                Diagnostic{typeof d.details?.diagnosed_by === 'string' ? ` — ${String(d.details.diagnosed_by)}` : ''}
+              </p>
+              {String(d.details.diagnosis)}
+            </div>
+          )}
           {study ? (
             <div className="bg-slate-50 rounded-lg p-3">
               <p className="text-xs font-medium text-slate-500 mb-1.5">Critères d'origine de l'étude « {study.label} »</p>
@@ -374,15 +414,21 @@ function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
                   <span key={c} className="text-xs bg-white border border-slate-200 text-slate-700 rounded-full px-2.5 py-1">{c}</span>
                 ))}
               </div>
-              {notInUrl.length > 0 && (
-                <p className="text-xs text-amber-700 mt-2">
-                  ⚠ Non exprimé dans l'URL d'ADA : <b>{notInUrl.join(', ')}</b> — la page du site est plus large
-                  que l'étude, la comparaison de profondeur n'a pas de sens tant que ce n'est pas résolu.
-                  Le registre pose ces critères à la prochaine vague quand la grammaire est connue ; s'il s'agit
-                  d'un trou de dictionnaire, colle l'URL humaine dans Atelier → Ingestion. Tu peux laisser ce
-                  dossier tel quel en attendant.
-                </p>
-              )}
+              {notInUrl.length > 0 && (() => {
+                // Distinction décisive : grammaire au registre = se corrige
+                // SEUL à la prochaine vague ; sinon = apprentissage requis.
+                const covered = adaUrl ? registryCoveredCriteria(adaUrl) : new Set<string>();
+                const auto = notInUrl.filter((c) => covered.has(c));
+                const learn = notInUrl.filter((c) => !covered.has(c));
+                return (
+                  <p className="text-xs text-amber-700 mt-2">
+                    ⚠ Non exprimé dans l'URL d'ADA : <b>{notInUrl.join(', ')}</b> — la page du site est plus
+                    large que l'étude, la comparaison de profondeur n'a pas de sens pour l'instant.
+                    {auto.length > 0 && <> {auto.join(', ')} : grammaire connue → <b>se corrige seul à la prochaine vague</b>, rien à faire.</>}
+                    {learn.length > 0 && <> {learn.join(', ')} : grammaire/dictionnaire inconnu → <b>colle l'URL humaine dans Atelier → Ingestion</b>.</>}
+                  </p>
+                );
+              })()}
             </div>
           ) : (
             <UrlDecodedCriteria d={d} adaUrl={adaUrl} />
@@ -436,27 +482,40 @@ function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
  * exprimait réellement, à défaut de ce que l'étude demandait.
  */
 function UrlDecodedCriteria({ d, adaUrl }: { d: Dossier; adaUrl: string | null }) {
-  const chips = useMemo(() => {
-    if (!adaUrl || !d.site) return [];
-    const adapter = allSiteAdapters().find((a) => a.key === d.site);
-    if (!adapter?.prefillCriteriaFromUrl) return [];
-    try {
-      const c = adapter.prefillCriteriaFromUrl(adaUrl);
-      const out: string[] = [];
-      if (c.brand) out.push(`Marque ${c.brand}`);
-      if (c.model) out.push(`Modèle ${c.model}`);
-      if (c.fuel) out.push(`Carburant ${c.fuel}`);
-      if (c.yearFrom || c.yearTo) out.push(`Année ${c.yearFrom ?? '…'} – ${c.yearTo ?? 'max'}`);
-      if (c.mileage) out.push(`≤ ${Number(c.mileage).toLocaleString('fr-FR')} km`);
-      if (c.trim) out.push(`Texte « ${c.trim} »`);
-      return out;
-    } catch { return []; }
-  }, [adaUrl, d.site]);
+  const { chips, fromUrl } = useMemo(() => {
+    // Adaptateur par l'HÔTE de l'URL (les dossiers « médiane » n'ont pas de
+    // site — le segment agrège plusieurs sites), repli sur d.site.
+    const adapter = allSiteAdapters().find((a) =>
+      (adaUrl && a.domain && adaUrl.includes(a.domain)) || (d.site && a.key === d.site));
+    if (adaUrl && adapter?.prefillCriteriaFromUrl) {
+      try {
+        const c = adapter.prefillCriteriaFromUrl(adaUrl);
+        const out: string[] = [];
+        if (c.brand) out.push(`Marque ${c.brand}`);
+        if (c.model) out.push(`Modèle ${c.model}`);
+        if (c.fuel) out.push(`Carburant ${c.fuel}`);
+        if (c.yearFrom || c.yearTo) out.push(`Année ${c.yearFrom ?? '…'} – ${c.yearTo ?? 'max'}`);
+        if (c.mileage) out.push(`≤ ${Number(c.mileage).toLocaleString('fr-FR')} km`);
+        if (c.trim) out.push(`Texte « ${c.trim} »`);
+        if (out.length > 0) return { chips: out, fromUrl: true };
+      } catch { /* URL illisible — repli segment */ }
+    }
+    // Repli : le segment du dossier lui-même (mieux que rien — dossiers
+    // médiane/complétude sans URL décodable).
+    const seg: string[] = [];
+    if (d.brand) seg.push(`Marque ${d.brand}`);
+    if (d.model) seg.push(`Modèle ${d.model}`);
+    if (d.fuel) seg.push(`Carburant ${d.fuel}`);
+    if (d.country) seg.push(`Pays ${d.country}`);
+    return { chips: seg, fromUrl: false };
+  }, [adaUrl, d]);
   if (chips.length === 0) return null;
   return (
     <div className="bg-slate-50 rounded-lg p-3">
       <p className="text-xs font-medium text-slate-500 mb-1.5">
-        Critères décodés de l'URL d'ADA (étude d'un autre compte — hors de ton Workflow)
+        {fromUrl
+          ? "Critères décodés de l'URL d'ADA (étude hors de ton Workflow — campagne, autre compte ou historique)"
+          : 'Segment du dossier (agrégé sur les observations — pas de recherche unique derrière)'}
       </p>
       <div className="flex flex-wrap gap-1.5">
         {chips.map((c) => (
