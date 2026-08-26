@@ -77,7 +77,7 @@ function segmentTitle(d: Dossier): string {
 }
 
 export function TruthCenter() {
-  const { email } = useAuth();
+  const { email, isAdmin } = useAuth();
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +101,16 @@ export function TruthCenter() {
 
   const open = useMemo(() => dossiers.filter((d) => d.status === 'detected' || d.status === 'needs_evidence'), [dossiers]);
   const resolved = useMemo(() => dossiers.filter((d) => d.status !== 'detected' && d.status !== 'needs_evidence'), [dossiers]);
+
+  // Réservé à l'admin (demande Channing 26/08) — l'onglet n'apparaît que
+  // pour lui, et l'URL directe rend cette page muette pour les autres.
+  if (!isAdmin) {
+    return (
+      <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
+        Espace réservé à l'administrateur.
+      </div>
+    );
+  }
 
   const setStatus = async (d: Dossier, status: string) => {
     const patch = { status, resolved_at: status === 'detected' || status === 'needs_evidence' ? null : new Date().toISOString() };

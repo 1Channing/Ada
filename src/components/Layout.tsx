@@ -42,8 +42,6 @@ export function Layout({ children }: LayoutProps) {
     { path: '/ingestion/history', label: 'Historique', icon: <History className="w-4 h-4" /> },
     { path: '/market', label: 'Market Intelligence', icon: <LineChart className="w-4 h-4" /> },
     { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" /> },
-    // Truth Center : les dossiers de vérité (qualité de la donnée).
-    { path: '/verite', label: 'Vérité', icon: <ShieldCheck className="w-4 h-4" /> },
   ];
 
   const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>
@@ -104,6 +102,7 @@ export function Layout({ children }: LayoutProps) {
             </span>
             <FeedbackCenter />
             <NotificationCenter />
+            <AdminTruthButton />
             <AdminTelemetryButton />
             <UserChip />
           </div>
@@ -116,6 +115,24 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
     </div>
+  );
+}
+
+/** Admin uniquement : accès au Truth Center (dossiers de vérité) —
+ *  demande Channing 26/08 : visible par l'admin seul, à côté de la
+ *  télémétrie. Même navigation interne (pushState patché étage 3). */
+function AdminTruthButton() {
+  const { isAdmin } = useAuth();
+  if (!isAdmin) return null;
+  const active = window.location.pathname === '/verite';
+  return (
+    <button
+      title="Truth Center (admin)"
+      onClick={() => { window.history.pushState({}, '', '/verite'); }}
+      className={`p-1.5 rounded-lg transition-colors ${active ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
+    >
+      <ShieldCheck className="w-4 h-4" />
+    </button>
   );
 }
 
