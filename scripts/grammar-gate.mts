@@ -96,14 +96,17 @@ const MEMORY_CASES: Array<{
   {
     site: 'AUTOSCOUT',
     bare: 'https://www.autoscout24.fr/lst/toyota/rav4?atype=C&cy=F',
-    fossil: 'https://www.autoscout24.fr/lst/toyota/rav4/re_2021?atype=C&cy=F&fregfrom=2021&fregto=2021&kmto=50000&powerfrom=99&powertype=hp&gear=M',
+    fossil: 'https://www.autoscout24.fr/lst/toyota/rav4/re_2021?atype=C&cy=F&fregfrom=2021&fregto=2021&kmto=50000&powerfrom=99&powertype=hp&gear=M&fuel=D',
     wantPosed: [
       ['année', /fregfrom=2022&?/], ['année', /fregto=2024/], ['km', /kmto=90000/],
       // 150 ch → 110 kW (floor) + powertype=kw — unité prouvée live 18/08.
       ['puissance', /powerfrom=110/], ['puissance', /powertype=kw/],
       ['boîte', /gear=A(&|$)/], ['finition', /kwd=GR%20Sport/],
+      // fuel=2 (HYBRIDE, table fixe vérifiée) — dossier Yaris Cross 26/08 :
+      // les URLs apprises perdaient le carburant.
+      ['carburant', /fuel=2(&|$)/],
     ],
-    wantGone: [/re_2021/, /fregfrom/, /fregto/, /kmto/, /powerfrom/, /powertype/, /gear=/],
+    wantGone: [/re_2021/, /fregfrom/, /fregto/, /kmto/, /powerfrom/, /powertype/, /gear=/, /fuel=/],
   },
   {
     site: 'LEBONCOIN',
@@ -197,11 +200,18 @@ const MEMORY_CASES: Array<{
     wantKept: [/rs=2000/],
   },
   {
-    site: 'MARKTPLAATS (finition = chemin /q/)',
+    // Bornes du hash posées SANS mapping appris — dossier X3 26/08 : la borne
+    // haute d'année se perdait quand la ligne mémoire ne l'avait pas apprise.
+    site: 'MARKTPLAATS (hash + finition chemin /q/)',
     bare: 'https://www.marktplaats.nl/l/auto-s/toyota/f/rav4/1234/#sortBy:PRICE',
-    fossil: 'https://www.marktplaats.nl/l/auto-s/toyota/f/rav4/1234/#sortBy:PRICE',
-    wantPosed: [['finition', /\/q\/gr\+sport\//]],
-    wantGone: [],
+    fossil: 'https://www.marktplaats.nl/l/auto-s/toyota/f/rav4/1234/#sortBy:PRICE|constructionYearFrom:2019|constructionYearTo:2019|mileageTo:1',
+    wantPosed: [
+      ['année', /constructionYearFrom:2022/], ['année', /constructionYearTo:2024/],
+      ['km', /mileageTo:90000/],
+      ['finition', /\/q\/gr\+sport\//],
+    ],
+    wantGone: [/constructionYearFrom/, /constructionYearTo/, /mileageTo/],
+    wantKept: [/sortBy:PRICE/],
   },
 ];
 

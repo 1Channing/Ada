@@ -54,6 +54,20 @@ export function setQueryParamRaw(url: string, param: string, value: string | nul
 }
 
 /**
+ * Pose chirurgicale dans un hash Marktplaats (`#cle:valeur|…`). Les clés du
+ * hash sont l'état des filtres du site (LRP) — invariantes d'une URL à
+ * l'autre, donc posables SANS mapping appris. `value: null` supprime.
+ */
+function setHashParamRaw(url: string, key: string, value: string | null): string {
+  const hashIdx = url.indexOf('#');
+  const base = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
+  let segs = hashIdx >= 0 ? url.slice(hashIdx + 1).split('|').filter(Boolean) : [];
+  segs = segs.filter((s) => !s.startsWith(`${key}:`));
+  if (value !== null && value !== '') segs.push(`${key}:${value}`);
+  return segs.length ? `${base}#${segs.join('|')}` : base;
+}
+
+/**
  * Variante formulaire (Skelbiu) : le site attend le formulaire COMPLET,
  * champs vides inclus (`power_min=&…`, URL humaine 02/08) — un paramètre
  * sans valeur est posé VIDE, jamais supprimé.
@@ -103,6 +117,7 @@ export interface SiteGrammar {
   mileage?: (url: string, km: number | null) => string;
   power?: (url: string, ch: number | null) => string;
   gearbox?: (url: string, params: LinkGenParams) => string;
+  fuel?: (url: string, params: LinkGenParams) => string;
   /** Finition IMPOSÉE (posée-ou-retirée à chaque passage) — LBC seulement. */
   trimEnforced?: (url: string, trim: string) => string;
   /** Slot texte-libre : POSE seulement (une URL apprise à finition scopée
@@ -145,6 +160,20 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
         String(params.gearbox ?? '').trim().toUpperCase()
       ];
       return setQueryParamRaw(url, 'gear', code ?? null);
+    },
+    // fuel=B/D/E/2/L/C — table fixe vérifiée (FUEL_MAP de l'adaptateur).
+    // Jusqu'ici la voie mémoire ne posait le carburant que si l'ingestion
+    // l'avait appris — dossier Yaris Cross 26/08 : URL apprise sans fuel=,
+    // « carburant non exprimé » chaque matin. Posé-ou-retiré comme le reste.
+    fuel: (url, params) => {
+      const code = {
+        ESSENCE: 'B', GASOLINE: 'B', PETROL: 'B',
+        DIESEL: 'D',
+        ELECTRIQUE: 'E', ELECTRIC: 'E',
+        HYBRIDE: '2', HYBRID: '2', PLUG_IN_HYBRID: '2', PHEV: '2',
+        GPL: 'L', LPG: 'L', GNV: 'C', CNG: 'C',
+      }[String(params.fuel ?? '').trim().toUpperCase()];
+      return setQueryParamRaw(url, 'fuel', code ?? null);
     },
     trimSlot: (url, t) => setQueryParamRaw(url, 'kwd', t),
   },
@@ -255,11 +284,21 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
   },
   {
     // ── Marktplaats ──────────────────────────────────────────────────────────
-    // Année/km vivent dans le HASH (#constructionYearFrom:…) — posés par
-    // overrideVariableParams (mapping appris) et par la voie native ; les
-    // facettes (modèle, carburant 473/474, Automaat 534, Vraagprijs 10882)
-    // sont des ids opaques du chemin /f/, jamais réécrits ici.
+    // Année/km vivent dans le HASH (#constructionYearFrom:…), aux clés
+    // INVARIANTES du site — posées-ou-retirées ici SANS dépendre du mapping
+    // appris. (Dossier X3 26/08 : la ligne mémoire « M Sport » n'avait pas
+    // appris constructionYearTo [son URL d'origine était « 2022 et + »] —
+    // toute étude BORNÉE la réutilisant perdait sa borne haute en silence :
+    // page « 2023 et + » servie pour une étude 2023-2023.) Le worker lit ces
+    // clés côté API (attributeRanges constructionYear/mileage). Les facettes
+    // (modèle, carburant, Automaat 534, Vraagprijs 10882) restent des ids
+    // opaques du chemin /f/ — jamais réécrites ici.
     host: 'marktplaats.nl',
+    year: (url, from, to) => {
+      const out = setHashParamRaw(url, 'constructionYearFrom', from || null);
+      return setHashParamRaw(out, 'constructionYearTo', to || null);
+    },
+    mileage: (url, km) => setHashParamRaw(url, 'mileageTo', km ? String(km) : null),
     // Texte libre = chemin /q/…/ (le hash #q: n'est JAMAIS envoyé au serveur —
     // étude RAV4 GR SPORT 27/07). Fusion sans doublon, /q/ AVANT le groupe /f/.
     trimSlot: (url, t) => {
@@ -410,6 +449,7 @@ export function applyVariableCriteria(url: string, params: LinkGenParams): strin
   if (g.mileage) out = g.mileage(out, mileageKm(params));
   if (g.power) out = g.power(out, powerCh(params));
   if (g.gearbox) out = g.gearbox(out, params);
+  if (g.fuel) out = g.fuel(out, params);
   if (g.trimEnforced) out = g.trimEnforced(out, String(params.trim ?? '').trim());
   if (g.policy) out = g.policy(out);
   return out;

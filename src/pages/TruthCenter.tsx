@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
 import { brandKey, refModelKey } from '../services/marketData';
 import { missingUrlCriteria } from '../lib/linkgen/grammar';
+import { allSiteAdapters } from '../lib/study-core/marketplaces';
 
 /**
  * TRUTH CENTER — brique 2 (validée Channing 26/08) : la fenêtre sur les
@@ -365,7 +366,7 @@ function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
       </button>
       {isOpen && (
         <div className="border-t border-slate-100 p-4 space-y-4">
-          {study && (
+          {study ? (
             <div className="bg-slate-50 rounded-lg p-3">
               <p className="text-xs font-medium text-slate-500 mb-1.5">Critères d'origine de l'étude « {study.label} »</p>
               <div className="flex flex-wrap gap-1.5">
@@ -375,10 +376,16 @@ function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
               </div>
               {notInUrl.length > 0 && (
                 <p className="text-xs text-amber-700 mt-2">
-                  ⚠ Non exprimé dans l'URL d'ADA : <b>{notInUrl.join(', ')}</b> — la page du site sera plus large que l'étude.
+                  ⚠ Non exprimé dans l'URL d'ADA : <b>{notInUrl.join(', ')}</b> — la page du site est plus large
+                  que l'étude, la comparaison de profondeur n'a pas de sens tant que ce n'est pas résolu.
+                  Le registre pose ces critères à la prochaine vague quand la grammaire est connue ; s'il s'agit
+                  d'un trou de dictionnaire, colle l'URL humaine dans Atelier → Ingestion. Tu peux laisser ce
+                  dossier tel quel en attendant.
                 </p>
               )}
             </div>
+          ) : (
+            <UrlDecodedCriteria d={d} adaUrl={adaUrl} />
           )}
           {adaUrl ? (
             <a href={adaUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-sky-700 hover:underline break-all">
@@ -418,6 +425,44 @@ function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Sans étude appariée dans TON Workflow (l'étude appartient à un autre compte
+ * — daily_searches est personnel), les critères sont DÉCODÉS de l'URL d'ADA
+ * par l'adaptateur du site (prefillCriteriaFromUrl) : ce que la recherche
+ * exprimait réellement, à défaut de ce que l'étude demandait.
+ */
+function UrlDecodedCriteria({ d, adaUrl }: { d: Dossier; adaUrl: string | null }) {
+  const chips = useMemo(() => {
+    if (!adaUrl || !d.site) return [];
+    const adapter = allSiteAdapters().find((a) => a.key === d.site);
+    if (!adapter?.prefillCriteriaFromUrl) return [];
+    try {
+      const c = adapter.prefillCriteriaFromUrl(adaUrl);
+      const out: string[] = [];
+      if (c.brand) out.push(`Marque ${c.brand}`);
+      if (c.model) out.push(`Modèle ${c.model}`);
+      if (c.fuel) out.push(`Carburant ${c.fuel}`);
+      if (c.yearFrom || c.yearTo) out.push(`Année ${c.yearFrom ?? '…'} – ${c.yearTo ?? 'max'}`);
+      if (c.mileage) out.push(`≤ ${Number(c.mileage).toLocaleString('fr-FR')} km`);
+      if (c.trim) out.push(`Texte « ${c.trim} »`);
+      return out;
+    } catch { return []; }
+  }, [adaUrl, d.site]);
+  if (chips.length === 0) return null;
+  return (
+    <div className="bg-slate-50 rounded-lg p-3">
+      <p className="text-xs font-medium text-slate-500 mb-1.5">
+        Critères décodés de l'URL d'ADA (étude d'un autre compte — hors de ton Workflow)
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {chips.map((c) => (
+          <span key={c} className="text-xs bg-white border border-slate-200 text-slate-700 rounded-full px-2.5 py-1">{c}</span>
+        ))}
+      </div>
     </div>
   );
 }
