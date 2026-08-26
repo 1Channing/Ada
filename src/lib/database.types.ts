@@ -532,6 +532,90 @@ export type Database = {
         }
         Relationships: []
       }
+      mi_dashboard_dimensions: {
+        Row: {
+          site: string
+          country: string
+          brand: string
+          model: string
+          fuel: string
+          n: number
+          last_seen: string | null
+        }
+        Insert: {
+          site?: string
+          country?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          n?: number
+          last_seen?: string | null
+        }
+        Update: {
+          site?: string
+          country?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          n?: number
+          last_seen?: string | null
+        }
+        Relationships: []
+      }
+      mi_dashboard_medians: {
+        Row: {
+          brand_label: string
+          model_label: string
+          fuel: string
+          year: number | null
+          country: string
+          site: string
+          median: number | null
+          cnt: number
+          last_seen: string | null
+        }
+        Insert: {
+          brand_label?: string
+          model_label?: string
+          fuel?: string
+          year?: number | null
+          country?: string
+          site?: string
+          median?: number | null
+          cnt?: number
+          last_seen?: string | null
+        }
+        Update: {
+          brand_label?: string
+          model_label?: string
+          fuel?: string
+          year?: number | null
+          country?: string
+          site?: string
+          median?: number | null
+          cnt?: number
+          last_seen?: string | null
+        }
+        Relationships: []
+      }
+      mi_dashboard_meta: {
+        Row: {
+          id: string
+          refreshed_at: string
+          row_count: number
+        }
+        Insert: {
+          id: string
+          refreshed_at?: string
+          row_count?: number
+        }
+        Update: {
+          id?: string
+          refreshed_at?: string
+          row_count?: number
+        }
+        Relationships: []
+      }
       market_snapshots: {
         Row: {
           id: string

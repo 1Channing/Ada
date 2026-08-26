@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   loadMarketOpportunities, loadOpportunityAcks, ackOpportunity, opportunityKey, fuelLabel,
-  brandKey, FUEL_TOKEN_TO_CRITERIA, wasLastOpportunitiesLoadPartial,
+  brandKey, FUEL_TOKEN_TO_CRITERIA, wasLastOpportunitiesLoadPartial, getDashboardsRefreshedAt,
 } from '../services/marketData';
 import type { MarketOpportunity } from '../services/marketData';
 import { saveDailySearch, listDailySearches } from '../services/workflow';
@@ -31,6 +31,14 @@ const TOKEN_TO_CRITERIA = FUEL_TOKEN_TO_CRITERIA;
 
 function eur(n: number): string {
   return `${n.toLocaleString('fr-FR')} €`;
+}
+
+/** « il y a 3 min » / « il y a 2 h » — fraîcheur du précalcul serveur. */
+function agoLabel(iso: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (mins < 1) return "à l'instant";
+  if (mins < 60) return `il y a ${mins} min`;
+  return `il y a ${Math.round(mins / 60)} h`;
 }
 
 function defaultName(): string {
@@ -63,6 +71,8 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
   // désormais — trois chasses au fantôme sur des comptes silencieusement
   // partiels (95, 34, 36 écarts : 02/08, 25-26/08).
   const [partial, setPartial] = useState(false);
+  // Fraîcheur du précalcul serveur (étage 1) — honnêteté d'affichage.
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
 
   // Garde anti-réponse périmée : le calcul lit ~40 000 observations paginées,
   // donc deux chargements lancés coup sur coup (changement de seuil, ou portée
@@ -75,7 +85,8 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
     setLoading(true);
     const [o, a] = await Promise.all([loadMarketOpportunities(th, 5, touchedSince), loadOpportunityAcks()]);
     if (seq !== reqSeq.current) return; // un chargement plus récent a pris la main
-    setOpps(o); setAcks(a); setPartial(wasLastOpportunitiesLoadPartial()); setLoading(false);
+    setOpps(o); setAcks(a); setPartial(wasLastOpportunitiesLoadPartial());
+    setRefreshedAt(getDashboardsRefreshedAt()); setLoading(false);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void refresh(threshold); }, [threshold, touchedSince]);
@@ -178,6 +189,14 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
               title="Le serveur n'a rendu qu'une partie des segments (délai dépassé en cours de lecture) — recharge la page pour le compte complet."
             >
               résultat partiel — recharger
+            </span>
+          )}
+          {!partial && refreshedAt && (
+            <span
+              className="text-xs text-slate-400 font-normal"
+              title="Les écarts sont précalculés par le serveur après chaque vague de scrapes (études du matin, campagnes)."
+            >
+              · calculé {agoLabel(refreshedAt)}
             </span>
           )}
         </button>

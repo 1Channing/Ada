@@ -333,9 +333,9 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
     return () => document.removeEventListener('mousedown', close);
   }, [menu]);
 
+  // Navigation interne sans rechargement (étage 3) — App écoute pushState.
   const navigateTo = (path: string) => {
     window.history.pushState({}, '', path);
-    window.location.reload();
   };
 
   return (

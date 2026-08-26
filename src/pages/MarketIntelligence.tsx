@@ -133,6 +133,13 @@ export function MarketIntelligence() {
   };
   useEffect(() => { refresh(); }, []);
   useEffect(() => { try { sessionStorage.setItem(STUDIES_KEY, JSON.stringify(studies)); } catch { /* ignore */ } }, [studies]);
+  // Keep-alive (étage 3) : « Inspecter » un écart depuis une autre page ne
+  // remonte plus le composant — l'événement applique les études déposées.
+  useEffect(() => {
+    const apply = () => { setStudies(loadStudies()); setActiveIdx(0); };
+    window.addEventListener('ada:open-market-studies', apply);
+    return () => window.removeEventListener('ada:open-market-studies', apply);
+  }, []);
 
   // ── Chargement SCOPÉ : une requête par segment (marque[/modèle][/pays]),
   //    mémoïsée pour la session. Les réponses en désordre ne peuvent pas se

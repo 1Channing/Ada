@@ -57,39 +57,43 @@ function App() {
     };
   }, []);
 
-  const renderPage = () => {
-    // /admin (ancien nom) et /ventes mènent à la même page Ventes.
-    if (path === '/admin' || path === '/ventes') {
-      return <Ventes />;
-    }
-    if (path === '/admin/history') {
-      return <AdminHistory />;
-    }
-    if (path === '/link-generator') {
-      return <Atelier initial="linkgen" />;
-    }
-    if (path === '/ingestion') {
-      return <Atelier initial="ingestion" />;
-    }
-    if (path === '/ingestion/history') {
-      return <IngestionHistory />;
-    }
-    if (path === '/market') {
-      return <MarketIntelligence />;
-    }
-    // /etudes (ancien nom) et /workflow mènent au Workflow personnel.
-    if (path === '/etudes' || path === '/workflow') {
-      return <Workflow />;
-    }
-    if (path === '/veille') {
-      return <Veille />;
-    }
-    if (path === '/telemetrie') {
-      return <Telemetrie />;
-    }
-    // Accueil : poste de pilotage (ventes, campagne, nouvelles annonces, veille).
-    return <Home />;
+  // ── Navigation interne + KEEP-ALIVE (étage 3, validé Channing 26/08) ──────
+  // Chaque page VISITÉE reste montée et simplement masquée quand une autre
+  // est active : revenir sur le MI le retrouve exactement comme on l'a
+  // laissé (études, filtres, radar déjà chargés), sans rechargement ni
+  // nouvelle lecture serveur. /admin et /etudes sont les anciens noms de
+  // /ventes et /workflow — même clé, même instance.
+  const pageKeyOf = (p: string): string => {
+    if (p === '/admin' || p === '/ventes') return 'ventes';
+    if (p === '/admin/history') return 'admin-history';
+    if (p === '/link-generator') return 'atelier-linkgen';
+    if (p === '/ingestion') return 'atelier-ingestion';
+    if (p === '/ingestion/history') return 'ingestion-history';
+    if (p === '/market') return 'market';
+    if (p === '/etudes' || p === '/workflow') return 'workflow';
+    if (p === '/veille') return 'veille';
+    if (p === '/telemetrie') return 'telemetrie';
+    return 'home';
   };
+  const renderPageFor = (key: string) => {
+    switch (key) {
+      case 'ventes': return <Ventes />;
+      case 'admin-history': return <AdminHistory />;
+      case 'atelier-linkgen': return <Atelier initial="linkgen" />;
+      case 'atelier-ingestion': return <Atelier initial="ingestion" />;
+      case 'ingestion-history': return <IngestionHistory />;
+      case 'market': return <MarketIntelligence />;
+      case 'workflow': return <Workflow />;
+      case 'veille': return <Veille />;
+      case 'telemetrie': return <Telemetrie />;
+      default: return <Home />;
+    }
+  };
+  const activeKey = pageKeyOf(path);
+  const [visited, setVisited] = useState<string[]>([activeKey]);
+  useEffect(() => {
+    setVisited((v) => (v.includes(activeKey) ? v : [...v, activeKey]));
+  }, [activeKey]);
 
   if (!ready) {
     return <div className="min-h-screen bg-slate-50" />;
@@ -100,7 +104,11 @@ function App() {
 
   return (
     <Layout>
-      {renderPage()}
+      {(visited.includes(activeKey) ? visited : [...visited, activeKey]).map((k) => (
+        <div key={k} style={{ display: k === activeKey ? undefined : 'none' }}>
+          {renderPageFor(k)}
+        </div>
+      ))}
     </Layout>
   );
 }

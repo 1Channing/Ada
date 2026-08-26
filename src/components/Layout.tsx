@@ -18,9 +18,12 @@ export function Layout({ children }: LayoutProps) {
   const activeCount = useActiveUsersCount();
   const currentPath = window.location.pathname;
 
+  // Navigation INTERNE (étage 3, 26/08) : pushState suffit — App écoute
+  // 'locationchange' et bascule de page sans recharger l'application. Les
+  // pages visitées restent montées (keep-alive dans App) : le MI retrouvé
+  // exactement comme on l'a laissé.
   const navigateTo = (path: string) => {
     window.history.pushState({}, '', path);
-    window.location.reload();
   };
 
   const isActive = (path: string) => {
@@ -122,7 +125,7 @@ function AdminTelemetryButton() {
   return (
     <button
       title="Télémétrie (admin)"
-      onClick={() => { window.history.pushState({}, '', '/telemetrie'); window.location.reload(); }}
+      onClick={() => { window.history.pushState({}, '', '/telemetrie'); }}
       className={`p-1.5 rounded-lg transition-colors ${active ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
     >
       <Activity className="w-4 h-4" />

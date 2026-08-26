@@ -105,9 +105,9 @@ export function Home() {
     })();
   }, []);
 
+  // Navigation interne sans rechargement (étage 3) — App écoute pushState.
   const navigateTo = (path: string) => {
     window.history.pushState({}, '', path);
-    window.location.reload();
   };
 
   // MÊME définition de « à traiter » que le Workflow (inboxToProcess) : les

@@ -10,6 +10,7 @@ import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 import { writeMarketSnapshot } from '../src/services/marketData';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
 import { startWorkerCampaign, resumeWorkerCampaigns } from './campaign';
+import { refreshDashboards } from './dashboards';
 import { initWorkerLogCapture } from './logStore';
 import { startDailySearchScheduler } from './dailySearches';
 import { startSalesSheetSync } from './salesSheetSync';
@@ -498,6 +499,11 @@ app.listen(PORT, "0.0.0.0", () => {
     startDailySearchScheduler();
     startSalesSheetSync();
     startLegalWatchCollector();
+    // Tableaux MI précalculés (étage 1) : rattrapage au boot (les scrapes
+    // arrivés pendant un redéploiement n'ont pas déclenché de recalcul),
+    // puis garde horaire — filet si une vague d'écriture a raté son hook.
+    setTimeout(() => void refreshDashboards('boot', 0), 90_000);
+    setInterval(() => void refreshDashboards('garde horaire', 55 * 60_000), 60 * 60 * 1000);
   } else {
     console.warn('[CAMPAIGN_WORKER] Supabase env missing — campaigns disabled');
   }

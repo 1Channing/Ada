@@ -12,6 +12,7 @@
  */
 
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
+import { refreshDashboards } from './dashboards';
 import { planCampaign } from '../src/lib/linkgen/campaignPlanner';
 import type { CampaignPlanItem, CampaignPlanOptions } from '../src/lib/linkgen/campaignPlanner';
 import {
@@ -318,5 +319,7 @@ async function runLoop(campaignId: string, plan: CampaignPlanItem[], startIndex:
       () => console.log(`[CAMPAIGN_WORKER] ${stopped ? 'stoppée' : 'terminée'} id=${campaignId} (${doneCount}/${plan.length})`),
       (e) => console.warn('[CAMPAIGN_WORKER] final update failed:', e?.message ?? e)
     );
+    // Fin de la plus grosse vague d'écriture → tableaux MI recalculés (étage 1).
+    await refreshDashboards('fin de campagne', 0);
   }
 }

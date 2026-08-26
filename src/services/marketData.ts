@@ -770,37 +770,51 @@ function brandKeysForQuery(brand: string): string[] {
   return keys;
 }
 
-/** Repli : l'ancienne lecture intégrale, UNE fois par session, partagée. */
-let legacyAllPromise: Promise<MarketData> | null = null;
-function legacyAll(): Promise<MarketData> {
-  legacyAllPromise ??= loadMarketData();
-  return legacyAllPromise;
-}
+// (l'ancien repli « lecture intégrale » legacyAll a été retiré le 26/08 —
+// étage 1 anti-mille-feuille : plus aucun chemin ne relit toute la table.)
 
 export interface DimensionRow {
   site: string; country: string; brand: string; model: string; fuel: string;
   n: number; last_seen: string;
 }
 
-/** Dimensions observées (agrégat serveur) — nourrit les menus sans annonces. */
+// ── Tableaux de bord PRÉCALCULÉS (étage 1 anti-mille-feuille, 26/08) ────────
+// Le worker régénère mi_dashboard_* après chaque vague d'écriture
+// (mi_refresh_dashboards) ; la page ne fait plus que LIRE ces petites tables.
+// mi_dashboard_meta date le dernier calcul — affiché à l'écran.
+let dashboardsRefreshedAt: string | null = null;
+export function getDashboardsRefreshedAt(): string | null {
+  return dashboardsRefreshedAt;
+}
+async function trackDashboardsMeta(): Promise<void> {
+  try {
+    const { data } = await supabase.from('mi_dashboard_meta').select('*');
+    const rows = (data ?? []) as Array<{ id: string; refreshed_at: string }>;
+    const med = rows.find((r) => r.id === 'medians') ?? rows[0];
+    if (med?.refreshed_at) dashboardsRefreshedAt = med.refreshed_at;
+  } catch { /* table absente avant migration — sans gravité */ }
+}
+
+/** Dimensions observées — table précalculée d'abord, fonction à la volée en
+ *  transition. FINI le repli « lecture intégrale » (400 requêtes, la page
+ *  tenue en otage des minutes — c'était LUI le mille-feuille qui s'écroule) :
+ *  sans données, les menus retombent sur la taxonomie connue, jamais sur un
+ *  chargement de masse. */
 export async function loadObservedDimensions(): Promise<DimensionRow[]> {
-  // Un appel d'abord (mi_dimensions_json, 26/08) : la version paginée
-  // EXPIRAIT à 400 k obs (57014 mesuré) et son repli intégral tenait la page
-  // en otage ~2 min (« ça charge, je ne peux pas sélectionner de modèle »).
+  const table = await fetchAllPages<DimensionRow>(
+    (from, to) => supabase.from('mi_dashboard_dimensions').select('*')
+      .order('site').order('country').order('brand').order('model').order('fuel')
+      .range(from, to),
+    20_000, 'MI_SCOPE',
+  );
+  if (table.length > 0) {
+    void trackDashboardsMeta();
+    return table;
+  }
   const single = await supabase.rpc('mi_dimensions_json' as never);
   if (!single.error && Array.isArray(single.data)) return single.data as unknown as DimensionRow[];
-  const { data, error } = await callRpcAllPages<DimensionRow>('mi_dimensions', undefined, 20_000);
-  if (!error && Array.isArray(data)) return data;
-  console.warn('[MI_SCOPE] mi_dimensions indisponible (migration à appliquer ?) — repli lecture intégrale:', error?.message);
-  const { observations } = await legacyAll();
-  const agg = new Map<string, DimensionRow>();
-  for (const o of observations) {
-    const k = [o.site, o.country, o.brand, o.model, o.fuel].join('|');
-    const cur = agg.get(k);
-    if (cur) { cur.n++; if (o.scraped_at > cur.last_seen) cur.last_seen = o.scraped_at; }
-    else agg.set(k, { site: o.site, country: o.country, brand: o.brand, model: o.model, fuel: o.fuel, n: 1, last_seen: o.scraped_at });
-  }
-  return [...agg.values()];
+  console.warn('[MI_SCOPE] tableaux précalculés indisponibles (migration 20260826140000 à appliquer ?) — menus limités à la taxonomie');
+  return [];
 }
 
 /** Les snapshots restent une lecture intégrale : ~4 000 lignes, sans danger. */
@@ -1235,6 +1249,9 @@ export function inspectOpportunityInMarket(o: MarketOpportunity, navigateTo: (pa
   try {
     sessionStorage.setItem(MARKET_STUDIES_KEY, JSON.stringify(studiesFromOpportunity(o)));
   } catch { /* session pleine ou navigation privée : le MI s'ouvrira sur ses filtres courants */ }
+  // Depuis le keep-alive (étage 3), un MI DÉJÀ monté ne repasse plus par son
+  // montage — l'événement lui dit d'appliquer les études déposées en session.
+  window.dispatchEvent(new Event('ada:open-market-studies'));
   navigateTo('/market');
 }
 
@@ -1257,18 +1274,28 @@ export async function loadMarketOpportunities(
   let medianRows: unknown = null;
   let rpcError: { message: string } | null = null;
   opportunitiesPartial = false;
-  const single = await supabase.rpc('mi_cheap_medians_json' as never, {
-    p_since: since, p_min_price: OPP_MIN_PRICE_EUR,
-  } as never);
-  if (!single.error && Array.isArray(single.data)) {
-    medianRows = single.data;
+  // ÉTAGE 1 : la table précalculée d'abord (lecture < 1 s), la fonction à la
+  // volée en transition. Fini les cascades paginées : soit le résultat est
+  // complet, soit le badge « partiel » l'annonce.
+  const tableRows = await fetchAllPages<unknown>(
+    (from, to) => supabase.from('mi_dashboard_medians').select('*')
+      .order('brand_label').order('model_label').order('fuel').order('year').order('country')
+      .range(from, to),
+    20_000, 'MI_SCOPE',
+  );
+  if (tableRows.length > 0) {
+    medianRows = tableRows;
+    void trackDashboardsMeta();
   } else {
-    const paged = await callRpcAllPages<unknown>('mi_cheap_medians', {
+    const single = await supabase.rpc('mi_cheap_medians_json' as never, {
       p_since: since, p_min_price: OPP_MIN_PRICE_EUR,
-    }, 20_000);
-    medianRows = paged.data;
-    rpcError = paged.error;
-    opportunitiesPartial = paged.partial === true;
+    } as never);
+    if (!single.error && Array.isArray(single.data)) {
+      medianRows = single.data;
+    } else {
+      rpcError = (single.error as { message: string } | null) ?? { message: 'tableaux précalculés vides' };
+      opportunitiesPartial = true;
+    }
   }
   if (!rpcError && Array.isArray(medianRows)) {
     type Row = { brand_label: string; model_label: string; fuel: string; year: number; country: string; site: string; median: number | null; cnt: number; last_seen: string };
@@ -1299,90 +1326,14 @@ export async function loadMarketOpportunities(
     }
     return out.sort((a, b) => (b.deltaEur * Math.min(b.lowCount, b.highCount)) - (a.deltaEur * Math.min(a.lowCount, a.highCount)));
   }
-  console.warn('[MI_SCOPE] mi_cheap_medians indisponible — repli calcul client:', rpcError?.message);
-  return loadMarketOpportunitiesLegacy(minDelta, minPerCountry, touchedSinceIso);
+  // Plus AUCUN repli « calcul client » (il relisait 40 000 observations
+  // paginées — l'étage le plus bas du mille-feuille) : sans données, liste
+  // vide + badge « partiel », jamais un chargement de masse.
+  console.warn('[MI_SCOPE] radar indisponible (migration 20260826140000 à appliquer ?):', rpcError?.message);
+  opportunitiesPartial = true;
+  return [];
 }
 
-async function loadMarketOpportunitiesLegacy(
-  minDelta = 5000,
-  minPerCountry = 5,
-  touchedSinceIso?: string | null,
-): Promise<MarketOpportunity[]> {
-  const cutoff = new Date(Date.now() - OPP_WINDOW_DAYS * 86_400_000).toISOString();
-  // Paginated: a flat .limit() is silently capped at ~1000 rows by PostgREST.
-  const data = await fetchAllPages<{ site: string; country: string; brand: string; model: string; fuel: string; price: number | null; year: number | null }>(
-    (from, to) => supabase
-      .from('market_listing_observations')
-      .select('site, country, brand, model, fuel, price, year, scraped_at')
-      .gte('scraped_at', cutoff)
-      .order('scraped_at', { ascending: false })
-      .range(from, to),
-    40_000,
-  );
-
-  // Group at brand|model|fuel|YEAR grain: an alert must compare the SAME
-  // vintage on both sides (a 1998 911 vs a 2022 911 is an age difference, not
-  // an arbitrage). Listings without a year can't be placed — excluded.
-  type Side = { prices: number[]; sites: Map<string, number> };
-  const groups = new Map<string, Map<string, Side>>();
-  const touched = new Set<string>();
-  // Canonical grouping keys: 'RAV4' (FR) and 'RAV-4' (AS24 slug) are the SAME
-  // car — grouping on raw text split them into incomparable segments and the
-  // radar missed real cross-country gaps. Display keeps the first raw form.
-  const labels = new Map<string, { brand: string; model: string }>();
-  for (const r of data) {
-    const price = typeof r.price === 'number' ? r.price : 0;
-    if (price < OPP_MIN_PRICE_EUR) continue;
-    const brand = (r.brand ?? '').trim().toUpperCase();
-    const model = (r.model ?? '').trim().toUpperCase();
-    const fuel = (r.fuel ?? '').trim().toLowerCase();
-    const country = (r.country ?? '').trim().toUpperCase();
-    const year = typeof r.year === 'number' ? r.year : null;
-    if (!brand || !model || !fuel || !country || year == null) continue;
-    const gKey = `${brandKey(brand)}|${refModelKey(brand, model)}|${fuel}|${year}`;
-    if (!labels.has(gKey)) labels.set(gKey, { brand, model });
-    if (touchedSinceIso && ((r as { scraped_at?: string }).scraped_at ?? '') >= touchedSinceIso) touched.add(gKey);
-    const byCountry = groups.get(gKey) ?? new Map<string, Side>();
-    const side: Side = byCountry.get(country) ?? { prices: [], sites: new Map<string, number>() };
-    side.prices.push(price);
-    side.sites.set(r.site, (side.sites.get(r.site) ?? 0) + 1);
-    byCountry.set(country, side);
-    groups.set(gKey, byCountry);
-  }
-
-  const out: MarketOpportunity[] = [];
-  for (const [gKey, byCountry] of groups) {
-    if (touchedSinceIso && !touched.has(gKey)) continue;
-    const [, , fuel, yearStr] = gKey.split('|');
-    const { brand, model } = labels.get(gKey)!;
-    const sides: Array<{ country: string; median: number; count: number; site: string }> = [];
-    for (const [country, side] of byCountry) {
-      if (side.prices.length < minPerCountry) continue;
-      const cheap = side.prices.sort((a, b) => a - b).slice(0, 5);
-      const median = cheap[Math.floor(cheap.length / 2)];
-      const site = [...side.sites.entries()].sort((a, b) => b[1] - a[1])[0][0];
-      sides.push({ country, median, count: side.prices.length, site });
-    }
-    if (sides.length < 2) continue;
-    sides.sort((a, b) => a.median - b.median);
-    const low = sides[0];
-    const high = sides[sides.length - 1];
-    const delta = Math.round(high.median - low.median);
-    if (delta < minDelta) continue;
-    out.push({
-      brand, model, fuel, year: Number(yearStr),
-      lowCountry: low.country, lowSite: low.site, lowMedian: Math.round(low.median), lowCount: low.count,
-      highCountry: high.country, highSite: high.site, highMedian: Math.round(high.median), highCount: high.count,
-      deltaEur: delta,
-    });
-  }
-
-  // Priority ordering (no displayed score): bigger gap × more available
-  // listings first — a €5,200 gap on 40 cars outranks €6,000 on 2.
-  out.sort((a, b) =>
-    b.deltaEur * Math.min(b.lowCount, b.highCount) - a.deltaEur * Math.min(a.lowCount, a.highCount));
-  return out;
-}
 
 /** key → acked delta (EUR). An alert stays hidden while |Δnow − Δacked| < 1000. */
 export async function loadOpportunityAcks(): Promise<Map<string, number>> {

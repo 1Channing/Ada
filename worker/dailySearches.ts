@@ -28,6 +28,7 @@ import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
 import { canonicalizeGearbox } from '../src/lib/study-core/ingestion';
 import { isDamagedVehicleText, structuredModelMatches } from '../src/lib/study-core/business-logic';
+import { refreshDashboards } from './dashboards';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 
@@ -108,6 +109,8 @@ async function pollForcedRuns(): Promise<void> {
         console.warn(`[DAILY] échec du forçage « ${s.label || s.brand} »: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+    // Les tableaux MI précalculés suivent la vague d'écriture (étage 1).
+    await refreshDashboards('étude forcée');
   } finally {
     running = false;
   }
@@ -133,6 +136,8 @@ async function tick(): Promise<void> {
         console.warn(`[DAILY] échec « ${s.label || s.brand} »: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+    // Fin de vague d'écriture → recalcul des tableaux MI (étage 1).
+    if (due.length > 0) await refreshDashboards('études quotidiennes');
   } finally {
     running = false;
   }
