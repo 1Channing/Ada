@@ -692,7 +692,7 @@ export function sortedUnion(a: string[], b: string[]): string[] {
  * .range() sur le builder RPC. Une page en erreur interrompt sans jeter :
  * les pages déjà lues valent mieux que rien (l'appelant a ses replis).
  */
-async function callRpcAllPages<T>(fn: string, args: Record<string, unknown> | undefined, maxRows: number): Promise<{ data: T[] | null; error: { message: string } | null }> {
+async function callRpcAllPages<T>(fn: string, args: Record<string, unknown> | undefined, maxRows: number): Promise<{ data: T[] | null; error: { message: string } | null; partial?: boolean }> {
   const PAGE = 1000;
   // PostgREST RÉ-EXÉCUTE la fonction à chaque page : en série, 5 pages de
   // radar ≈ 5 × son coût (constat 26/08 : « les écarts inter-pays mettent du
@@ -738,16 +738,26 @@ async function callRpcAllPages<T>(fn: string, args: Record<string, unknown> | un
   });
   await Promise.all(workers);
 
+  let partial = false;
   for (let i = 0; i < froms.length; i++) {
     const rows = results[i];
     if (i >= failedAt || !rows) {
       console.warn(`[MI_SCOPE] ${fn}: pagination interrompue à ${out.length} ligne(s) — résultat PARTIEL`);
+      partial = true;
       break;
     }
     out.push(...rows);
     if (rows.length < PAGE) break;
   }
-  return { data: out, error: null };
+  return { data: out, error: null, partial };
+}
+
+// Le radar a déjà rendu trois fois un PARTIEL silencieux pris pour un bug
+// (95, 34, 36 écarts — constats 02/08, 25-26/08) : le dernier chargement
+// d'opportunités mémorise s'il était complet, et le panneau l'affiche.
+let opportunitiesPartial = false;
+export function wasLastOpportunitiesLoadPartial(): boolean {
+  return opportunitiesPartial;
 }
 
 /** Clés canoniques d'une marque, alias compris (VOLKSWAGEN → aussi VW). */
@@ -1241,6 +1251,7 @@ export async function loadMarketOpportunities(
   // Repli transparent sur la voie paginée si la migration n'est pas passée.
   let medianRows: unknown = null;
   let rpcError: { message: string } | null = null;
+  opportunitiesPartial = false;
   const single = await supabase.rpc('mi_cheap_medians_json' as never, {
     p_since: since, p_min_price: OPP_MIN_PRICE_EUR,
   } as never);
@@ -1252,6 +1263,7 @@ export async function loadMarketOpportunities(
     }, 20_000);
     medianRows = paged.data;
     rpcError = paged.error;
+    opportunitiesPartial = paged.partial === true;
   }
   if (!rpcError && Array.isArray(medianRows)) {
     type Row = { brand_label: string; model_label: string; fuel: string; year: number; country: string; site: string; median: number | null; cnt: number; last_seen: string };

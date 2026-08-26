@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   loadMarketOpportunities, loadOpportunityAcks, ackOpportunity, opportunityKey, fuelLabel,
-  brandKey, FUEL_TOKEN_TO_CRITERIA,
+  brandKey, FUEL_TOKEN_TO_CRITERIA, wasLastOpportunitiesLoadPartial,
 } from '../services/marketData';
 import type { MarketOpportunity } from '../services/marketData';
 import { saveDailySearch, listDailySearches } from '../services/workflow';
@@ -59,6 +59,10 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
   // le doigt pendant le chargement.
   const [collapsed, setCollapsed] = useState(true);
   const [shown, setShown] = useState(PAGE_SIZE);
+  // Un radar tronqué (timeout serveur en cours de pagination) s'AFFICHE
+  // désormais — trois chasses au fantôme sur des comptes silencieusement
+  // partiels (95, 34, 36 écarts : 02/08, 25-26/08).
+  const [partial, setPartial] = useState(false);
 
   // Garde anti-réponse périmée : le calcul lit ~40 000 observations paginées,
   // donc deux chargements lancés coup sur coup (changement de seuil, ou portée
@@ -71,7 +75,7 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
     setLoading(true);
     const [o, a] = await Promise.all([loadMarketOpportunities(th, 5, touchedSince), loadOpportunityAcks()]);
     if (seq !== reqSeq.current) return; // un chargement plus récent a pris la main
-    setOpps(o); setAcks(a); setLoading(false);
+    setOpps(o); setAcks(a); setPartial(wasLastOpportunitiesLoadPartial()); setLoading(false);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void refresh(threshold); }, [threshold, touchedSince]);
@@ -168,6 +172,14 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
           <Bell className="w-4 h-4 text-amber-600" />
           Opportunités à contrôler — {visible.length} écart(s) inter-pays
           {ackedCount > 0 && <span className="text-slate-500 font-normal">· {ackedCount} contrôlée(s)</span>}
+          {partial && (
+            <span
+              className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"
+              title="Le serveur n'a rendu qu'une partie des segments (délai dépassé en cours de lecture) — recharge la page pour le compte complet."
+            >
+              résultat partiel — recharger
+            </span>
+          )}
         </button>
         {!collapsed && (
           <label className="text-xs text-slate-500 flex items-center gap-2">
