@@ -75,14 +75,41 @@ function studyLabel(f: MarketFilters, i: number): string {
   return parts.length ? parts.join(' · ') : `Étude ${i + 1}`;
 }
 
-/** Site's reported total depth for a study's coarse segment (latest snapshot). */
+/**
+ * Total annoncé par le site pour l'étude — DERNIER snapshot du segment DONT
+ * LES CRITÈRES CORRESPONDENT à ceux de l'étude. Sans ce tri, une mise à jour
+ * MI ponctuelle aux critères différents devenait la « profondeur » de
+ * l'étude (constat X3 26/08 : profondeur 19 [année 2024 seule] affichée sur
+ * une étude 2023+ qui montrait 71 annonces). Les critères du snapshot sont
+ * DÉCODÉS de son source_url par l'adaptateur du site (prefillCriteriaFromUrl)
+ * — indécodable = accepté (fail-open), repli : dernier snapshot du segment.
+ */
 function computeRealDepth(snapshots: Snapshot[], f: MarketFilters): number | null {
   if (!f.brand || !f.model) return null;
   const matching = snapshots.filter((s) =>
     (!f.site || s.site === f.site) && (!f.country || s.country === f.country) &&
-    s.brand === f.brand && s.model === f.model && s.listing_count != null);
+    s.brand === f.brand && s.model === f.model && s.listing_count != null)
+    .sort((a, b) => b.scraped_at.localeCompare(a.scraped_at));
   if (matching.length === 0) return null;
-  return matching.sort((a, b) => b.scraped_at.localeCompare(a.scraped_at))[0].listing_count;
+  const adapters = allSiteAdapters();
+  const criteriaCompatible = (s: Snapshot): boolean => {
+    if (f.fuel && s.fuel && s.fuel.toUpperCase() !== String(f.fuel).toUpperCase()) return false;
+    const url = (s as { source_url?: string | null }).source_url;
+    if (!url) return true;
+    const adapter = adapters.find((a) => a.key === s.site);
+    if (!adapter?.prefillCriteriaFromUrl) return true;
+    try {
+      const dec = adapter.prefillCriteriaFromUrl(url);
+      if (f.yearMin != null && dec.yearFrom && Number(dec.yearFrom) !== f.yearMin) return false;
+      if (f.yearMax != null && dec.yearTo && Number(dec.yearTo) !== f.yearMax) return false;
+      // Borne décodée sans critère d'étude = snapshot plus étroit que l'étude.
+      if (f.yearMin == null && f.yearMax == null && (dec.yearFrom || dec.yearTo)) return false;
+      if (f.mileageMax != null && dec.mileage && Number(dec.mileage) !== f.mileageMax) return false;
+      return true;
+    } catch { return true; }
+  };
+  const compatible = matching.find(criteriaCompatible);
+  return (compatible ?? matching[0]).listing_count;
 }
 
 function loadStudies(): MarketFilters[] {
