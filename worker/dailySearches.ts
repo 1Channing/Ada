@@ -29,7 +29,7 @@ import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
 import { canonicalizeGearbox } from '../src/lib/study-core/ingestion';
 import { isDamagedVehicleText, structuredModelMatches } from '../src/lib/study-core/business-logic';
-import { archiveOldObservations, refreshDashboards } from './dashboards';
+import { archiveOldObservations, recordTruthGap, refreshDashboards, runTruthSweep } from './dashboards';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 
@@ -148,10 +148,13 @@ async function tick(): Promise<void> {
       }
     }
     // Fin de vague d'écriture → rangement (étage 2 : > 60 j vers l'archive,
-    // jamais de suppression) puis recalcul des tableaux MI (étage 1).
+    // jamais de suppression), recalcul des tableaux MI (étage 1), puis
+    // balayage des signaux de doute (Truth Center brique 1) sur les données
+    // fraîchement rangées.
     if (due.length > 0) {
       await archiveOldObservations('études quotidiennes');
       await refreshDashboards('études quotidiennes');
+      await runTruthSweep('études quotidiennes');
     }
   } finally {
     running = false;
@@ -187,7 +190,18 @@ async function scrapeCountry(
       url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
       genWarnings = gen[0]?.warnings ?? [];
     } catch { url = null; }
-    if (!url) { console.warn(`[DAILY] « ${name} »: URL non générable pour ${site.key}`); continue; }
+    if (!url) {
+      console.warn(`[DAILY] « ${name} »: URL non générable pour ${site.key}`);
+      // File de résorption Truth Center : le combo manque au dictionnaire du
+      // site — le dossier dit exactement quelle URL humaine coller.
+      await recordTruthGap({
+        site: site.key, country, brand: s.brand, model: s.model || '', fuel: s.fuel || '',
+        signal: 'dictionnaire',
+        summary: `URL non générable — coller une URL humaine de « ${s.brand} ${s.model || ''} » sur ${site.key} pour apprendre le dictionnaire`,
+        details: { study: name, warnings: genWarnings },
+      });
+      continue;
+    }
     // PROFONDEUR CONDITIONNELLE (règle Channing 26/08) : 5 pages seulement si
     // l'URL exprime TOUS les critères de l'étude (mesuré sur l'URL produite,
     // détecteurs du registre) ET que la génération n'a rien signalé d'omis
@@ -197,6 +211,14 @@ async function scrapeCountry(
     if (!precise) {
       const why = missing.length > 0 ? `critères hors URL: ${missing.join(', ')}` : 'warnings de génération';
       console.log(`[DAILY] « ${name} »: ${site.key} profondeur ${MAX_PAGES} pages (${why})`);
+      // Truth Center : chaque critère non exprimé est un dossier actionnable
+      // (priorité 1 : l'étude tourne chaque jour avec des œillères).
+      await recordTruthGap({
+        site: site.key, country, brand: s.brand, model: s.model || '', fuel: s.fuel || '',
+        signal: 'url_incomplete',
+        summary: `Critère(s) non exprimé(s) dans l'URL ${site.key} : ${missing.join(', ') || 'voir warnings'} — profondeur réduite à ${MAX_PAGES} pages`,
+        details: { study: name, url, missing, warnings: genWarnings },
+      });
     }
     const result = await scrapeSearch(url, 'full', precise
       ? { maxPagesCap: MAX_PAGES_PRECISE, maxListingsCap: MAX_LISTINGS_PRECISE }

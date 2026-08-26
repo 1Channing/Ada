@@ -47,6 +47,66 @@ export async function archiveOldObservations(reason: string): Promise<void> {
   }
 }
 
+let lastTruthMs = 0;
+
+/**
+ * TRUTH CENTER brique 1 (26/08) : balayage des signaux de doute — variation/
+ * zéro de profondeur, pollution du sample, médiane aberrante, chute de
+ * complétude — calculés PAR LA BASE (truth_sweep(), migration 20260826160000)
+ * sur les données déjà acquises : zéro scrape, zéro coût Zyte. Upsert des
+ * dossiers de vérité, priorisés par usage réel (études quotidiennes actives).
+ * Au plus 1×/20 h, best-effort.
+ */
+export async function runTruthSweep(reason: string): Promise<void> {
+  if (Date.now() - lastTruthMs < 20 * 3_600_000) return;
+  lastTruthMs = Date.now();
+  try {
+    const { data, error } = await supabase.rpc('truth_sweep' as never);
+    if (error) {
+      console.warn(`[TRUTH] balayage (${reason}) échoué : ${error.message} — migration 20260826160000 appliquée ?`);
+      lastTruthMs = 0;
+      return;
+    }
+    console.warn(`[TRUTH] balayage (${reason}) : ${Number(data ?? 0)} dossier(s) de vérité ouverts/actualisés`);
+  } catch (e) {
+    console.warn(`[TRUTH] balayage (${reason}) :`, e instanceof Error ? e.message : e);
+    lastTruthMs = 0;
+  }
+}
+
+/**
+ * File de résorption des trous de dictionnaire (Truth Center, signaux posés
+ * EN DIRECT par les études quotidiennes) : URL non générable ou critère non
+ * exprimé → un dossier par (site, segment, signal), priorité 1 (l'étude
+ * tourne chaque jour). Le statut existant n'est jamais écrasé (upsert
+ * partiel). Best-effort : jamais bloquant pour le scrape.
+ */
+export async function recordTruthGap(gap: {
+  site: string; country: string; brand: string; model: string; fuel: string;
+  signal: 'dictionnaire' | 'url_incomplete';
+  summary: string; details: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const { error } = await (supabase.from('truth_dossiers' as never) as never as {
+      upsert: (v: unknown, o: unknown) => PromiseLike<{ error: { message: string } | null }>;
+    }).upsert({
+      site: gap.site, country: gap.country,
+      brand: gap.brand.toUpperCase(), model: gap.model.toUpperCase(),
+      fuel: (gap.fuel || '').toLowerCase(),
+      signal: gap.signal,
+      layer: gap.signal === 'dictionnaire' ? 'dictionnaire' : 'url',
+      doubt_score: gap.signal === 'dictionnaire' ? 85 : 60,
+      priority: 1,
+      summary: gap.summary,
+      details: gap.details,
+      last_seen_at: new Date().toISOString(),
+    }, { onConflict: 'site,country,brand,model,fuel,signal' });
+    if (error) console.warn(`[TRUTH] dossier ${gap.signal} ${gap.site} ${gap.brand} ${gap.model} :`, error.message);
+  } catch (e) {
+    console.warn('[TRUTH] dossier :', e instanceof Error ? e.message : e);
+  }
+}
+
 export async function refreshDashboards(reason: string, minIntervalMs = 10 * 60_000): Promise<void> {
   if (Date.now() - lastRefreshMs < minIntervalMs) return;
   lastRefreshMs = Date.now();
