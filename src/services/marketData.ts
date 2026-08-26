@@ -784,6 +784,11 @@ export interface DimensionRow {
 
 /** Dimensions observées (agrégat serveur) — nourrit les menus sans annonces. */
 export async function loadObservedDimensions(): Promise<DimensionRow[]> {
+  // Un appel d'abord (mi_dimensions_json, 26/08) : la version paginée
+  // EXPIRAIT à 400 k obs (57014 mesuré) et son repli intégral tenait la page
+  // en otage ~2 min (« ça charge, je ne peux pas sélectionner de modèle »).
+  const single = await supabase.rpc('mi_dimensions_json' as never);
+  if (!single.error && Array.isArray(single.data)) return single.data as unknown as DimensionRow[];
   const { data, error } = await callRpcAllPages<DimensionRow>('mi_dimensions', undefined, 20_000);
   if (!error && Array.isArray(data)) return data;
   console.warn('[MI_SCOPE] mi_dimensions indisponible (migration à appliquer ?) — repli lecture intégrale:', error?.message);
