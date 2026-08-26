@@ -143,14 +143,22 @@ export function TruthCenter() {
       .limit(300);
     if (err) setError(err.message);
     setDossiers(((data ?? []) as unknown as Dossier[]));
-    // Les critères d'origine des études quotidiennes actives (Workflow) —
-    // affichés dans chaque dossier avant toute validation.
-    const st = await supabase
-      .from('daily_searches')
-      .select('label, brand, model, fuel, trim, trim_target, year_min, year_max, mileage_max, gearbox, power_min, source_country, target_country')
-      .eq('active', true)
-      .limit(500);
-    setStudies(((st.data ?? []) as unknown as StudyRow[]));
+    // Les critères RÉELS des études quotidiennes actives — TOUTES équipes
+    // confondues via truth_active_studies() (security definer : critères
+    // seuls, jamais le propriétaire). L'URL ne sert JAMAIS de référence de
+    // critères : c'est l'objet à vérifier (constat Lexus NX 26/08 — le
+    // décodage perdait le carburant PHEV). Repli : mes propres études.
+    const viaRpc = await supabase.rpc('truth_active_studies' as never);
+    if (!viaRpc.error && Array.isArray(viaRpc.data)) {
+      setStudies((viaRpc.data as unknown as StudyRow[]));
+    } else {
+      const st = await supabase
+        .from('daily_searches')
+        .select('label, brand, model, fuel, trim, trim_target, year_min, year_max, mileage_max, gearbox, power_min, source_country, target_country')
+        .eq('active', true)
+        .limit(500);
+      setStudies(((st.data ?? []) as unknown as StudyRow[]));
+    }
     setLoading(false);
   };
   useEffect(() => { void load(); }, []);
@@ -514,7 +522,7 @@ function UrlDecodedCriteria({ d, adaUrl }: { d: Dossier; adaUrl: string | null }
     <div className="bg-slate-50 rounded-lg p-3">
       <p className="text-xs font-medium text-slate-500 mb-1.5">
         {fromUrl
-          ? "Critères décodés de l'URL d'ADA (étude hors de ton Workflow — campagne, autre compte ou historique)"
+          ? "Critères décodés de l'URL d'ADA — aucune étude quotidienne active ne correspond (campagne, historique ou étude désactivée). Décodage partiel possible (les codes enum ne se retraduisent pas tous) : à prendre comme indice, pas comme référence."
           : 'Segment du dossier (agrégé sur les observations — pas de recherche unique derrière)'}
       </p>
       <div className="flex flex-wrap gap-1.5">
