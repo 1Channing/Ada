@@ -1448,7 +1448,12 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      // Étage 2 (migration 20260826150000) : chaud + archive recollés —
+      // l'historique par étude lit cette vue, jamais la table chaude seule.
+      market_listing_observations_all: {
+        Row: Database['public']['Tables']['market_listing_observations']['Row']
+        Relationships: []
+      }
     }
     Functions: {
       [_ in never]: never

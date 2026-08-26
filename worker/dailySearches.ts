@@ -23,17 +23,25 @@
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { generateSearchUrlsWithMemory } from '../src/lib/linkgen/generator';
+import { missingUrlCriteria } from '../src/lib/linkgen/grammar';
 import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
 import { canonicalizeGearbox } from '../src/lib/study-core/ingestion';
 import { isDamagedVehicleText, structuredModelMatches } from '../src/lib/study-core/business-logic';
-import { refreshDashboards } from './dashboards';
+import { archiveOldObservations, refreshDashboards } from './dashboards';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 
 const TICK_MS = 10 * 60 * 1000;
+// Profondeur des quotidiennes — règle Channing 26/08 : 5 pages À CONDITION
+// que TOUS les filtres de l'étude soient exprimés dans l'URL (mesuré par les
+// détecteurs du registre de grammaires) ; sinon 3 pages prudentes — creuser
+// une recherche floue n'ajouterait que du bruit. Le plafond d'annonces suit
+// (5 pages × ~25-30 par page), sinon la 5e page serait coupée à 100.
 const MAX_PAGES = 3;
+const MAX_PAGES_PRECISE = 5;
+const MAX_LISTINGS_PRECISE = 150;
 // 1 000 € — ALIGNÉ sur le radar SQL et la lecture MI (26/08) : les loyers de
 // leasing dépassent souvent 500 € (« 294 €/mois », « 620 €/mois »…) et un
 // vrai véhicule de notre univers d'arbitrage n'existe pas sous 1 000 €.
@@ -139,8 +147,12 @@ async function tick(): Promise<void> {
         console.warn(`[DAILY] échec « ${s.label || s.brand} »: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    // Fin de vague d'écriture → recalcul des tableaux MI (étage 1).
-    if (due.length > 0) await refreshDashboards('études quotidiennes');
+    // Fin de vague d'écriture → rangement (étage 2 : > 60 j vers l'archive,
+    // jamais de suppression) puis recalcul des tableaux MI (étage 1).
+    if (due.length > 0) {
+      await archiveOldObservations('études quotidiennes');
+      await refreshDashboards('études quotidiennes');
+    }
   } finally {
     running = false;
   }
@@ -156,8 +168,10 @@ async function scrapeCountry(
   const sites = allSiteAdapters().filter((a) => (a as { countryCode?: string }).countryCode === country);
   for (const site of sites) {
     let url: string | null = null;
+    let genWarnings: string[] = [];
+    let genParams: Parameters<typeof generateSearchUrlsWithMemory>[0] | null = null;
     try {
-      const gen = await generateSearchUrlsWithMemory({
+      genParams = {
         selectedSites: [site.key as SiteKey],
         brand: s.brand, model: s.model || '',
         fuel: s.fuel || undefined, trim: trim || undefined,
@@ -168,11 +182,25 @@ async function scrapeCountry(
         // Puissance min (ch DIN) : posée en URL partout où le site sait
         // (AS24 powerfrom, Bilbasen hpfrom, LBC horse_power_din appris).
         minPower: s.power_min != null ? String(s.power_min) : undefined,
-      });
+      };
+      const gen = await generateSearchUrlsWithMemory(genParams);
       url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
+      genWarnings = gen[0]?.warnings ?? [];
     } catch { url = null; }
     if (!url) { console.warn(`[DAILY] « ${name} »: URL non générable pour ${site.key}`); continue; }
-    const result = await scrapeSearch(url, 'full', { maxPagesCap: MAX_PAGES });
+    // PROFONDEUR CONDITIONNELLE (règle Channing 26/08) : 5 pages seulement si
+    // l'URL exprime TOUS les critères de l'étude (mesuré sur l'URL produite,
+    // détecteurs du registre) ET que la génération n'a rien signalé d'omis
+    // (warnings = carburant sans code, modèle sans slug… → page trop large).
+    const missing = genParams ? missingUrlCriteria(url, genParams) : ['inconnu'];
+    const precise = missing.length === 0 && genWarnings.length === 0;
+    if (!precise) {
+      const why = missing.length > 0 ? `critères hors URL: ${missing.join(', ')}` : 'warnings de génération';
+      console.log(`[DAILY] « ${name} »: ${site.key} profondeur ${MAX_PAGES} pages (${why})`);
+    }
+    const result = await scrapeSearch(url, 'full', precise
+      ? { maxPagesCap: MAX_PAGES_PRECISE, maxListingsCap: MAX_LISTINGS_PRECISE }
+      : { maxPagesCap: MAX_PAGES });
     if (result.diagnostics?.silentFallback?.modelApplied === false) {
       console.warn(`[DAILY] « ${name} »: ${site.key} a servi la page marque entière (repli silencieux) — annonces écartées, mapping à corriger`);
       continue;

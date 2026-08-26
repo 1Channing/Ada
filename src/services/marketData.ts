@@ -886,8 +886,10 @@ export async function loadObservationsForStudy(f: MarketFilters): Promise<Observ
   const out: Observation[] = [];
   for (let i = 0; i < ids.length && out.length < 30_000; i += 40) {
     const chunk = ids.slice(i, i + 40);
+    // Vue chaud + archive (étage 2) : les observations > 60 j vivent dans
+    // l'archive — l'historique par étude doit voir TOUT (exigence 26/08).
     const rows = await fetchAllPages<Observation>(
-      (from, to) => supabase.from('market_listing_observations').select('*')
+      (from, to) => supabase.from('market_listing_observations_all').select('*')
         .in('snapshot_id', chunk).order('scraped_at', { ascending: false }).range(from, to),
       30_000,
       'MI_SCOPE_FALLBACK',
@@ -995,8 +997,9 @@ export async function loadMarketData(maxObservations = MARKET_OBS_CAP): Promise<
       20_000,
       'MARKET_DATA',
     ),
+    // Vue chaud + archive (étage 2) — « tout » veut dire tout, archive comprise.
     fetchAllPages<Observation>(
-      (from, to) => supabase.from('market_listing_observations').select('*').order('scraped_at', { ascending: false }).range(from, to),
+      (from, to) => supabase.from('market_listing_observations_all').select('*').order('scraped_at', { ascending: false }).range(from, to),
       maxObservations,
       'MARKET_DATA',
     ),

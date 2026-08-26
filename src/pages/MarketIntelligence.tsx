@@ -797,7 +797,16 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <Kpi label="Annonces (filtre)" value={String(stats.count)} />
-        <Kpi label="Profondeur marché" value={realDepth != null ? String(realDepth) : '—'} hint={realDepth != null ? 'total site (marque/modèle)' : 'sélectionne marque+modèle'} />
+        {/* Couverture : échantillon analysé vs total annoncé par le site
+            (listing_count du dernier snapshot, grain marque+modèle) — on
+            mesure les œillères au lieu de les subir (plan 26/08, point 3). */}
+        <Kpi
+          label="Couverture marché"
+          value={realDepth != null ? `${stats.count} / ${realDepth}` : '—'}
+          hint={realDepth != null && realDepth > 0
+            ? `échantillon / total site (${Math.min(100, Math.round((stats.count / realDepth) * 100))} %)`
+            : 'sélectionne marque+modèle'}
+        />
         <Kpi label="Prix d'attaque" value={study.attack ? fmtEur(study.attack.price) : '—'} hint={study.attack ? `médiane des ${study.attack.window} moins chères` : undefined} />
         <Kpi label="Médian" value={fmtEur(stats.median)} hint="ensemble du marché filtré" />
         <Kpi label="Fourchette p25–p75" value={`${fmtEur(stats.p25)} – ${fmtEur(stats.p75)}`} />

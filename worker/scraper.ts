@@ -790,9 +790,12 @@ async function scrapeMarktplaatsViaApi(
 export async function scrapeSearch(
   url: string,
   scrapeMode: 'fast' | 'full' | 'detailed' | 'deep',
-  /** Plafond de pages imposé par l'appelant (études quotidiennes : 3 pages,
-   *  tri prix croissant — le bas du marché suffit). */
-  opts?: { maxPagesCap?: number },
+  /** Plafonds imposés par l'appelant. Études quotidiennes : 3 pages (URL
+   *  incomplète) ou 5 pages + 150 annonces (tous les filtres exprimés dans
+   *  l'URL — règle Channing 26/08) ; tri prix croissant, le bas du marché
+   *  fait le prix. Sans maxListingsCap, le plafond du mode s'applique (100
+   *  en 'full' — il couperait la 5e page sur les sites denses). */
+  opts?: { maxPagesCap?: number; maxListingsCap?: number },
 ): Promise<ScrapeSearchResult> {
   const marketplace = marketplaceOf(url);
   console.log(`[SCRAPE_ROUTE] marketplace=${marketplace} scrapeMode=${scrapeMode} url=${url.substring(0, 150)}`);
@@ -812,7 +815,7 @@ export async function scrapeSearch(
     scrapeMode === 'deep' ? DEEP_MAX_PAGES : MAX_PAGES,
     opts?.maxPagesCap ?? Number.POSITIVE_INFINITY,
   );
-  const maxListings = scrapeMode === 'deep' ? DEEP_MAX_LISTINGS : MAX_LISTINGS;
+  const maxListings = opts?.maxListingsCap ?? (scrapeMode === 'deep' ? DEEP_MAX_LISTINGS : MAX_LISTINGS);
 
   // Filtered Marktplaats searches go through the server-side JSON API (the
   // hash never reaches the server) — falls back to the HTML path on any doubt.

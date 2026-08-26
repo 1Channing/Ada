@@ -21,7 +21,7 @@
  */
 
 import { allSiteAdapters } from '../src/lib/study-core/marketplaces/index';
-import { applyVariableCriteria, injectTrimIntoUrl } from '../src/lib/linkgen/grammar';
+import { applyVariableCriteria, injectTrimIntoUrl, CRITERIA_DETECTORS, missingUrlCriteria } from '../src/lib/linkgen/grammar';
 import type { LinkGenParams } from '../src/lib/linkgen/types';
 
 let fails = 0;
@@ -41,16 +41,9 @@ const FULL: LinkGenParams = {
 };
 const EMPTY: LinkGenParams = { brand: 'TOYOTA', model: 'RAV4' };
 
-// ─── Détecteurs par famille de critère (toutes grammaires prouvées) ─────────
-const DET: Record<string, RegExp> = {
-  année: /regdate=|fregfrom=|bmin=|regfrom=|[?&]fr=|year_from=|constructionYearFrom|[?&]ys=|[?&]rs=|year_min=[^&]/i,
-  km: /mileage=min|kmto=|kmax=|mileageto=|[?&]ml=|mileage_to=|mileageTo|[?&]me=|mileage_max=[^&]/i,
-  puissance: /powerfrom=|hpfrom=|[?&]pw=|vmin=|engine_effect_from=|power_min=[^&]|[?&]hps=/i,
-  boîte: /[?&]gear=|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
-  finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;/i,
-  carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|13838|473|\/hybride|\/elektr|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b/i,
-};
-type Crit = keyof typeof DET;
+// ─── Détecteurs par famille de critère — SOURCE UNIQUE : le registre ────────
+const DET = CRITERIA_DETECTORS;
+type Crit = string;
 const CRITS = Object.keys(DET) as Crit[];
 
 // ─── 1. MATRICE NATIVE ATTENDUE (snapshot des grammaires prouvées) ──────────
@@ -234,6 +227,28 @@ for (const tc of MEMORY_CASES) {
   const once = applyVariableCriteria(tc.bare, FULL);
   const twice = applyVariableCriteria(once, FULL);
   if (once !== twice) fail(`${tc.site}: applyVariableCriteria non idempotente\n    1×: ${once}\n    2×: ${twice}`);
+}
+
+// ─── 4. Décision de profondeur (missingUrlCriteria — règle « 5 pages ») ─────
+console.log('=== 4. DÉCISION DE PROFONDEUR ===');
+{
+  // URL complète (voie mémoire enrichie par le registre) → 5 pages éligible.
+  const complete = injectTrimIntoUrl(
+    applyVariableCriteria('https://www.gaspedaal.nl/toyota/rav4/hybride?srt=pr-a', FULL),
+    String(FULL.trim),
+  );
+  const m1 = missingUrlCriteria(complete, FULL);
+  if (m1.length !== 0) fail(`profondeur: URL complète jugée incomplète (${m1.join(',')})\n    ${complete}`);
+  // LBC sans grammaire puissance → la puissance manque, 3 pages.
+  const lbc = applyVariableCriteria('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA', FULL);
+  const m2 = missingUrlCriteria(lbc, FULL);
+  if (!m2.includes('puissance')) fail(`profondeur: puissance absente de l'URL LBC non détectée\n    ${lbc}`);
+  // Étude sans critères variables : rien à exiger — éligible d'office.
+  if (missingUrlCriteria('https://www.gaspedaal.nl/toyota/rav4', EMPTY).length !== 0) {
+    fail('profondeur: étude sans critères jugée incomplète');
+  }
+  // URL vide : jamais éligible.
+  if (missingUrlCriteria('', FULL).length === 0) fail('profondeur: URL vide jugée complète');
 }
 
 if (fails > 0) {

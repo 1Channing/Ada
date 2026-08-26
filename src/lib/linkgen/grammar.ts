@@ -353,6 +353,43 @@ export function grammarForUrl(url: string): SiteGrammar | undefined {
   return SITE_GRAMMARS.find((g) => url.includes(g.host));
 }
 
+// ─── Détecteurs par famille de critère ───────────────────────────────────────
+// Toutes les grammaires PROUVÉES, tous sites confondus — partagés entre le
+// gate de matrice (scripts/grammar-gate.mts) et la décision de profondeur
+// des études quotidiennes (une URL qui n'exprime pas un critère demandé ne
+// mérite pas 5 pages : on scraperait large ce qu'on croit précis).
+export const CRITERIA_DETECTORS: Record<string, RegExp> = {
+  année: /regdate=|fregfrom=|bmin=|regfrom=|[?&]fr=|year_from=|constructionYearFrom|[?&]ys=|[?&]rs=|year_min=[^&]/i,
+  km: /mileage=min|kmto=|kmax=|mileageto=|[?&]ml=|mileage_to=|mileageTo|[?&]me=|mileage_max=[^&]/i,
+  puissance: /powerfrom=|hpfrom=|[?&]pw=|vmin=|engine_effect_from=|power_min=[^&]|[?&]hps=/i,
+  boîte: /[?&]gear=|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
+  finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;/i,
+  carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
+};
+
+/**
+ * Familles de critères que l'étude DEMANDE mais que l'URL n'exprime PAS.
+ * Vide = « tous les filtres sont dans l'URL » — la condition posée par
+ * Channing (26/08) pour autoriser la profondeur 5 pages au lieu de 3.
+ * Empirique : on lit l'URL réellement produite, pas ce qu'on croit avoir posé.
+ */
+export function missingUrlCriteria(url: string, params: LinkGenParams): string[] {
+  if (!url) return Object.keys(CRITERIA_DETECTORS);
+  const { yearFrom, yearTo } = resolveYearRange(params);
+  const wanted: Array<[string, boolean]> = [
+    ['année', Boolean(yearFrom || yearTo)],
+    ['km', mileageKm(params) !== null],
+    ['puissance', powerCh(params) !== null],
+    // Boîte : seule la grammaire AUTOMATIQUE est prouvée sur les sites —
+    // une demande manuelle non exprimable est couverte par le post-filtre
+    // dur du worker, elle ne doit pas bloquer la profondeur.
+    ['boîte', isAutomatic(params)],
+    ['finition', Boolean(String(params.trim ?? '').trim())],
+    ['carburant', Boolean(String(params.fuel ?? '').trim())],
+  ];
+  return wanted.filter(([crit, has]) => has && !CRITERIA_DETECTORS[crit].test(url)).map(([c]) => c);
+}
+
 // ─── LA fonction d'application unique ────────────────────────────────────────
 
 /**
