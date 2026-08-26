@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
+import { brandKey, refModelKey } from '../services/marketData';
+import { missingUrlCriteria } from '../lib/linkgen/grammar';
 
 /**
  * TRUTH CENTER — brique 2 (validée Channing 26/08) : la fenêtre sur les
@@ -51,6 +53,50 @@ const LAYER_LABELS: Record<string, string> = {
   inconnue: 'à déterminer',
 };
 
+/** Étude quotidienne (Workflow) : les critères D'ORIGINE de la recherche
+ *  mise en doute — affichés avant toute validation (demande Channing 26/08). */
+interface StudyRow {
+  label: string;
+  brand: string;
+  model: string | null;
+  fuel: string | null;
+  trim: string | null;
+  trim_target: string | null;
+  year_min: number | null;
+  year_max: number | null;
+  mileage_max: number | null;
+  gearbox: string | null;
+  power_min: number | null;
+  source_country: string;
+  target_country: string;
+}
+
+function studyForDossier(studies: StudyRow[], d: Dossier): StudyRow | null {
+  if (!d.brand) return null;
+  const bk = brandKey(d.brand);
+  const mk = d.model ? refModelKey(d.brand, d.model) : '';
+  const hits = studies.filter((s) =>
+    brandKey(s.brand) === bk && (!mk || refModelKey(s.brand, s.model ?? '') === mk));
+  if (hits.length === 0) return null;
+  // Plusieurs études sur le même modèle : préférer celle dont un pays
+  // correspond au dossier.
+  return hits.find((s) => d.country && (s.source_country === d.country || s.target_country === d.country)) ?? hits[0];
+}
+
+function studyCriteriaChips(s: StudyRow): string[] {
+  const out: string[] = [];
+  if (s.brand) out.push(`Marque ${s.brand}`);
+  if (s.model) out.push(`Modèle ${s.model}`);
+  if (s.fuel) out.push(`Carburant ${s.fuel}`);
+  if (s.year_min || s.year_max) out.push(`Année ${s.year_min ?? '…'} – ${s.year_max ?? 'max'}`);
+  if (s.mileage_max) out.push(`≤ ${s.mileage_max.toLocaleString('fr-FR')} km`);
+  if (s.gearbox) out.push(`Boîte ${s.gearbox.toLowerCase()}`);
+  if (s.power_min) out.push(`≥ ${s.power_min} ch`);
+  if (s.trim || s.trim_target) out.push(`Finition ${s.trim || s.trim_target}`);
+  out.push(`${s.source_country} → ${s.target_country}`);
+  return out;
+}
+
 const STATUS_LABELS: Record<string, string> = {
   detected: 'Détecté',
   needs_evidence: 'Preuve reçue — diagnostic en attente',
@@ -79,6 +125,7 @@ function segmentTitle(d: Dossier): string {
 export function TruthCenter() {
   const { email, isAdmin } = useAuth();
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
+  const [studies, setStudies] = useState<StudyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -95,6 +142,14 @@ export function TruthCenter() {
       .limit(300);
     if (err) setError(err.message);
     setDossiers(((data ?? []) as unknown as Dossier[]));
+    // Les critères d'origine des études quotidiennes actives (Workflow) —
+    // affichés dans chaque dossier avant toute validation.
+    const st = await supabase
+      .from('daily_searches')
+      .select('label, brand, model, fuel, trim, trim_target, year_min, year_max, mileage_max, gearbox, power_min, source_country, target_country')
+      .eq('active', true)
+      .limit(500);
+    setStudies(((st.data ?? []) as unknown as StudyRow[]));
     setLoading(false);
   };
   useEffect(() => { void load(); }, []);
@@ -156,6 +211,7 @@ export function TruthCenter() {
             <DossierCard
               key={d.id}
               d={d}
+              study={studyForDossier(studies, d)}
               isOpen={openId === d.id}
               onToggle={() => setOpenId(openId === d.id ? null : d.id)}
               onStatus={(s) => void setStatus(d, s)}
@@ -209,6 +265,24 @@ function useAdaUrl(d: Dossier, isOpen: boolean): { url: string | null; scrapedAt
     if (!isOpen || found || searching) return;
     setSearching(true);
     (async () => {
+      // Le snapshot EXACT qui a déclenché le signal (le balayage stocke son
+      // horodatage) — sinon une mise à jour MI ultérieure aux critères
+      // différents deviendrait « l'URL d'ADA » (constat X3 26/08 : lien 2024
+      // seul ouvert pour juger un dossier bâti sur 2023+/100 000 km).
+      const snapAt = typeof d.details?.snapshot_at === 'string' ? String(d.details.snapshot_at) : null;
+      if (snapAt) {
+        let qe = supabase.from('market_snapshots')
+          .select('source_url, scraped_at')
+          .eq('scraped_at', snapAt)
+          .limit(1);
+        if (d.site) qe = qe.eq('site', d.site);
+        const exact = (await qe).data?.[0] as { source_url: string | null; scraped_at: string } | undefined;
+        if (exact?.source_url) {
+          setFound({ url: exact.source_url, scrapedAt: exact.scraped_at });
+          setSearching(false);
+          return;
+        }
+      }
       let q = supabase.from('market_snapshots')
         .select('source_url, scraped_at')
         .not('source_url', 'is', null)
@@ -240,8 +314,9 @@ function useAdaUrl(d: Dossier, isOpen: boolean): { url: string | null; scrapedAt
   return { url: found?.url ?? null, scrapedAt: found?.scrapedAt ?? null, searching };
 }
 
-function DossierCard({ d, isOpen, onToggle, onStatus, userEmail }: {
+function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
   d: Dossier;
+  study: StudyRow | null;
   isOpen: boolean;
   onToggle: () => void;
   onStatus: (s: string) => void;
@@ -249,6 +324,22 @@ function DossierCard({ d, isOpen, onToggle, onStatus, userEmail }: {
 }) {
   const { url: adaUrl, scrapedAt, searching } = useAdaUrl(d, isOpen);
   const isGap = d.signal === 'dictionnaire' || d.signal === 'url_incomplete';
+  // Pilier 2 en automatique : les critères de l'étude que l'URL d'ADA
+  // n'exprime PAS (détecteurs du registre de grammaires) — affiché avant
+  // toute validation humaine.
+  const notInUrl = useMemo(() => {
+    if (!study || !adaUrl) return [];
+    try {
+      return missingUrlCriteria(adaUrl, {
+        brand: study.brand, model: study.model ?? '',
+        fuel: study.fuel ?? undefined, trim: (study.trim || study.trim_target) ?? undefined,
+        yearFrom: study.year_min ?? undefined, yearTo: study.year_max ?? undefined,
+        mileage: study.mileage_max ?? undefined,
+        gearbox: study.gearbox ?? undefined,
+        minPower: study.power_min ?? undefined,
+      });
+    } catch { return []; }
+  }, [study, adaUrl]);
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
       <button onClick={onToggle} className="w-full flex items-start gap-3 p-4 text-left">
@@ -274,6 +365,21 @@ function DossierCard({ d, isOpen, onToggle, onStatus, userEmail }: {
       </button>
       {isOpen && (
         <div className="border-t border-slate-100 p-4 space-y-4">
+          {study && (
+            <div className="bg-slate-50 rounded-lg p-3">
+              <p className="text-xs font-medium text-slate-500 mb-1.5">Critères d'origine de l'étude « {study.label} »</p>
+              <div className="flex flex-wrap gap-1.5">
+                {studyCriteriaChips(study).map((c) => (
+                  <span key={c} className="text-xs bg-white border border-slate-200 text-slate-700 rounded-full px-2.5 py-1">{c}</span>
+                ))}
+              </div>
+              {notInUrl.length > 0 && (
+                <p className="text-xs text-amber-700 mt-2">
+                  ⚠ Non exprimé dans l'URL d'ADA : <b>{notInUrl.join(', ')}</b> — la page du site sera plus large que l'étude.
+                </p>
+              )}
+            </div>
+          )}
           {adaUrl ? (
             <a href={adaUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-sky-700 hover:underline break-all">
               <ExternalLink className="w-4 h-4 shrink-0" /> Ouvrir l'URL utilisée par ADA{scrapedAt ? ` (scrapée ${fmtAgo(scrapedAt)})` : ''}
@@ -293,16 +399,22 @@ function DossierCard({ d, isOpen, onToggle, onStatus, userEmail }: {
           ) : (
             <EvidenceForm d={d} userEmail={userEmail} onSubmitted={() => onStatus('needs_evidence')} />
           )}
-          <div className="flex items-center gap-2 pt-1">
-            <button onClick={() => onStatus('verified')} className="inline-flex items-center gap-1.5 text-sm bg-emerald-600 text-white rounded-lg px-3 py-1.5 hover:bg-emerald-700">
-              <Check className="w-4 h-4" /> Vérifié — conforme à la réalité
-            </button>
-            <button onClick={() => onStatus('accepted_variance')} className="inline-flex items-center gap-1.5 text-sm border border-slate-200 text-slate-600 rounded-lg px-3 py-1.5 hover:bg-slate-50">
-              Écart réel mais compris
-            </button>
-            <button onClick={() => onStatus('obsolete')} className="inline-flex items-center gap-1.5 text-sm text-slate-400 rounded-lg px-3 py-1.5 hover:text-slate-600">
-              <EyeOff className="w-4 h-4" /> Ignorer
-            </button>
+          <div className="pt-1">
+            <p className="text-[11px] text-slate-400 mb-1.5">
+              Verdict seulement si l'explication est connue — un écart confirmé mais inexpliqué reste en
+              « diagnostic en attente » (enregistre la preuve, le moteur cherche la cause).
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => onStatus('verified')} className="inline-flex items-center gap-1.5 text-sm bg-emerald-600 text-white rounded-lg px-3 py-1.5 hover:bg-emerald-700">
+                <Check className="w-4 h-4" /> Vérifié — conforme à la réalité
+              </button>
+              <button onClick={() => onStatus('accepted_variance')} title="La différence est réelle mais on sait pourquoi (vrai mouvement de marché, périmètre assumé…)" className="inline-flex items-center gap-1.5 text-sm border border-slate-200 text-slate-600 rounded-lg px-3 py-1.5 hover:bg-slate-50">
+                Écart réel mais compris
+              </button>
+              <button onClick={() => onStatus('obsolete')} className="inline-flex items-center gap-1.5 text-sm text-slate-400 rounded-lg px-3 py-1.5 hover:text-slate-600">
+                <EyeOff className="w-4 h-4" /> Ignorer
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -360,8 +472,13 @@ function EvidenceForm({ d, userEmail, onSubmitted }: { d: Dossier; userEmail: st
   if (done) {
     return (
       <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">
-        Preuve enregistrée{gapPct != null ? ` — écart ADA/site : ${gapPct} %` : ''}. Le moteur la comparera à ses données ;
-        choisis un verdict ci-dessous si tu peux déjà trancher.
+        Preuve enregistrée{gapPct != null ? ` — écart ADA/site : ${gapPct} %` : ''}.
+        {gapPct != null && gapPct >= 20 ? (
+          <> Écart significatif : <b>ne choisis pas de verdict</b> — le dossier est passé en
+          « diagnostic en attente », le moteur doit identifier la cause (ton travail s'arrête aux faits).</>
+        ) : (
+          <> Si la page correspond à ce qu'ADA voit, clique « Vérifié » ; sinon laisse le dossier en diagnostic.</>
+        )}
       </div>
     );
   }

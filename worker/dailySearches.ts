@@ -243,6 +243,9 @@ async function scrapeCountry(
       result.listings ?? [],
       url,
       'Étude quotidienne',
+      // Vrai total du site (market_depth) — sans lui la « profondeur » MI
+      // n'était que notre propre échantillon (3 pages = 90).
+      result.totalCount ?? null,
     );
     // Boîte de vitesses : post-filtre DUR même si le site a ignoré le
     // paramètre — comparaison en jeton canonique (Automatik≡Automatique≡

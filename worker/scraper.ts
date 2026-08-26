@@ -85,6 +85,11 @@ export async function recordStudyMarketSnapshot(
   listings: ScrapedListing[],
   sourceUrl: string,
   submittedBy = 'Étude',
+  /** Total annoncé par le SITE (market_depth). Sans lui, listing_count
+   *  retombait sur le nombre d'annonces RAMENÉES (sample) — le Truth Center
+   *  comparait alors notre échantillon à lui-même (dossier X3 90 vs 34,
+   *  constat Channing 26/08 : le site n'affichait ni 90 ni 34). */
+  totalCount: number | null = null,
 ): Promise<void> {
   try {
     if (!segment.brand || !segment.model || !segment.country) return;
@@ -102,7 +107,7 @@ export async function recordStudyMarketSnapshot(
       .insert({
         site: segment.site, country: segment.country,
         brand: segment.brand, model: segment.model, fuel: '', trim: '',
-        scraped_at: scrapedAt, listing_count: listings.length, sample_size: priced.length,
+        scraped_at: scrapedAt, listing_count: totalCount ?? listings.length, sample_size: priced.length,
         price_min: pricesEur[0],
         price_p25: Math.round(percentileAsc(pricesEur, 0.25)),
         price_median: Math.round(percentileAsc(pricesEur, 0.5)),
@@ -1567,7 +1572,7 @@ export async function executeStudy({
       country: String(study.country_target ?? '').toUpperCase(),
       brand: String(study.brand ?? '').toUpperCase(),
       model: String(study.model ?? '').toUpperCase(),
-    }, filteredTarget, targetUrl);
+    }, filteredTarget, targetUrl, 'Étude', targetResult.totalCount ?? null);
 
     lastStage = 'FILTER_SOURCE';
     const sourceDiag = diagnoseFilterRejections(sourceResult.listings, sourceCriteria);
@@ -1590,7 +1595,7 @@ export async function executeStudy({
       country: String(study.country_source ?? '').toUpperCase(),
       brand: String(study.brand ?? '').toUpperCase(),
       model: String(study.model ?? '').toUpperCase(),
-    }, filteredSource, sourceUrl);
+    }, filteredSource, sourceUrl, 'Étude', sourceResult.totalCount ?? null);
 
     if (filteredTarget.length === 0) {
       logger.log('FILTER_TARGET', 'warning', 'No target listings remain after filtering — returning NULL');
