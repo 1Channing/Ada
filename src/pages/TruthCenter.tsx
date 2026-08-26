@@ -397,7 +397,7 @@ function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
               Reviens ensuite marquer ce dossier « Vérifié ».
             </div>
           ) : (
-            <EvidenceForm d={d} userEmail={userEmail} onSubmitted={() => onStatus('needs_evidence')} />
+            <EvidenceForm d={d} study={study} userEmail={userEmail} onSubmitted={() => onStatus('needs_evidence')} />
           )}
           <div className="pt-1">
             <p className="text-[11px] text-slate-400 mb-1.5">
@@ -427,7 +427,20 @@ function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
  * par champ, URL réelle, commentaire. Tout est facultatif — chaque fait
  * fourni devient une preuve horodatée (truth_evidence).
  */
-function EvidenceForm({ d, userEmail, onSubmitted }: { d: Dossier; userEmail: string; onSubmitted: () => void }) {
+function EvidenceForm({ d, study, userEmail, onSubmitted }: { d: Dossier; study: StudyRow | null; userEmail: string; onSubmitted: () => void }) {
+  // Seuls les critères que l'ÉTUDE définit sont à juger — les autres restent
+  // vides (« hors étude ») et sont grisés. Sans étude appariée : tout actif.
+  const relevant = useMemo(() => {
+    if (!study) return new Set<string>(CRITERIA_FIELDS);
+    const r = new Set<string>(['marque']);
+    if (study.model) r.add('modèle');
+    if (study.fuel) r.add('carburant');
+    if (study.year_min || study.year_max) r.add('année');
+    if (study.mileage_max) r.add('kilométrage');
+    if (study.gearbox) r.add('boîte');
+    if (study.trim || study.trim_target) r.add('finition');
+    return r;
+  }, [study]);
   const [count, setCount] = useState('');
   const [crit, setCrit] = useState<Record<string, CritState>>({});
   const [manualUrl, setManualUrl] = useState('');
@@ -510,9 +523,13 @@ function EvidenceForm({ d, userEmail, onSubmitted }: { d: Dossier; userEmail: st
         </div>
       </div>
       <div>
-        <label className="text-xs text-slate-500">Conformité des critères sur la page du site (clique pour basculer ✓ / ✗ / ?)</label>
+        <label className="text-xs text-slate-500">
+          Conformité des critères sur la page du site (clique pour basculer ✓ / ✗ / ?) —
+          laisse VIDE un critère que l'étude ne demande pas (grisé).
+        </label>
         <div className="flex flex-wrap gap-2 mt-1">
           {CRITERIA_FIELDS.map((f) => {
+            const isRelevant = relevant.has(f);
             const s = crit[f];
             const cls = s === 'ok' ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
               : s === 'ko' ? 'bg-rose-100 text-rose-700 border-rose-200'
@@ -520,7 +537,12 @@ function EvidenceForm({ d, userEmail, onSubmitted }: { d: Dossier; userEmail: st
               : 'bg-white text-slate-500 border-slate-200';
             const mark = s === 'ok' ? '✓' : s === 'ko' ? '✗' : s === 'inconnu' ? '?' : '·';
             return (
-              <button key={f} onClick={() => cycle(f)} className={`text-xs border rounded-full px-2.5 py-1 ${cls}`}>
+              <button
+                key={f}
+                onClick={() => cycle(f)}
+                title={isRelevant ? undefined : "Hors étude — rien à valider, laisse vide"}
+                className={`text-xs border rounded-full px-2.5 py-1 ${cls} ${isRelevant ? '' : 'opacity-40'}`}
+              >
                 {f} {mark}
               </button>
             );
