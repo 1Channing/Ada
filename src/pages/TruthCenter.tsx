@@ -195,6 +195,51 @@ export function TruthCenter() {
   );
 }
 
+/**
+ * L'URL exacte que l'étude mise en doute a scrapée : les dossiers du worker
+ * la portent dans details.url ; ceux du balayage SQL (profondeur, pollution,
+ * médiane) non — on la retrouve dans le DERNIER snapshot du segment
+ * (source_url), chargé paresseusement à l'ouverture du dossier.
+ */
+function useAdaUrl(d: Dossier, isOpen: boolean): { url: string | null; scrapedAt: string | null; searching: boolean } {
+  const detailUrl = typeof d.details?.url === 'string' ? String(d.details.url) : null;
+  const [found, setFound] = useState<{ url: string | null; scrapedAt: string | null } | null>(detailUrl ? { url: detailUrl, scrapedAt: null } : null);
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    if (!isOpen || found || searching) return;
+    setSearching(true);
+    (async () => {
+      let q = supabase.from('market_snapshots')
+        .select('source_url, scraped_at')
+        .not('source_url', 'is', null)
+        .order('scraped_at', { ascending: false })
+        .limit(1);
+      if (d.site) q = q.eq('site', d.site);
+      if (d.brand) q = q.ilike('brand', d.brand);
+      if (d.model) q = q.ilike('model', d.model);
+      if (d.fuel) q = q.ilike('fuel', d.fuel);
+      let { data } = await q;
+      // Repli sans le carburant (les snapshots de campagne peuvent porter un
+      // libellé de carburant différent du token du dossier).
+      if (!data?.length && d.fuel) {
+        let q2 = supabase.from('market_snapshots')
+          .select('source_url, scraped_at')
+          .not('source_url', 'is', null)
+          .order('scraped_at', { ascending: false })
+          .limit(1);
+        if (d.site) q2 = q2.eq('site', d.site);
+        if (d.brand) q2 = q2.ilike('brand', d.brand);
+        if (d.model) q2 = q2.ilike('model', d.model);
+        data = (await q2).data;
+      }
+      const row = data?.[0] as { source_url: string | null; scraped_at: string } | undefined;
+      setFound({ url: row?.source_url ?? null, scrapedAt: row?.scraped_at ?? null });
+      setSearching(false);
+    })().catch(() => { setFound({ url: null, scrapedAt: null }); setSearching(false); });
+  }, [isOpen, found, searching, d]);
+  return { url: found?.url ?? null, scrapedAt: found?.scrapedAt ?? null, searching };
+}
+
 function DossierCard({ d, isOpen, onToggle, onStatus, userEmail }: {
   d: Dossier;
   isOpen: boolean;
@@ -202,7 +247,7 @@ function DossierCard({ d, isOpen, onToggle, onStatus, userEmail }: {
   onStatus: (s: string) => void;
   userEmail: string;
 }) {
-  const detailUrl = typeof d.details?.url === 'string' ? String(d.details.url) : null;
+  const { url: adaUrl, scrapedAt, searching } = useAdaUrl(d, isOpen);
   const isGap = d.signal === 'dictionnaire' || d.signal === 'url_incomplete';
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -229,10 +274,14 @@ function DossierCard({ d, isOpen, onToggle, onStatus, userEmail }: {
       </button>
       {isOpen && (
         <div className="border-t border-slate-100 p-4 space-y-4">
-          {detailUrl && (
-            <a href={detailUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-sky-700 hover:underline">
-              <ExternalLink className="w-4 h-4" /> Ouvrir l'URL utilisée par ADA
+          {adaUrl ? (
+            <a href={adaUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-sky-700 hover:underline break-all">
+              <ExternalLink className="w-4 h-4 shrink-0" /> Ouvrir l'URL utilisée par ADA{scrapedAt ? ` (scrapée ${fmtAgo(scrapedAt)})` : ''}
             </a>
+          ) : searching ? (
+            <p className="text-xs text-slate-400"><Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" /> Recherche de l'URL scrapée…</p>
+          ) : (
+            <p className="text-xs text-slate-400">URL scrapée introuvable pour ce segment (snapshot sans source_url).</p>
           )}
           {isGap ? (
             <div className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3">
