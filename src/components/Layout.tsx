@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, LogOut, Activity } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, ShieldCheck, LogOut, Activity } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
 import { FeedbackCenter } from './FeedbackCenter';
@@ -42,6 +42,8 @@ export function Layout({ children }: LayoutProps) {
     { path: '/ingestion/history', label: 'Historique', icon: <History className="w-4 h-4" /> },
     { path: '/market', label: 'Market Intelligence', icon: <LineChart className="w-4 h-4" /> },
     { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" /> },
+    // Truth Center : les dossiers de vérité (qualité de la donnée).
+    { path: '/verite', label: 'Vérité', icon: <ShieldCheck className="w-4 h-4" /> },
   ];
 
   const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>

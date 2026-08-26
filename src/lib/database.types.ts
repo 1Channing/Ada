@@ -1446,6 +1446,84 @@ export type Database = {
         }
         Relationships: []
       }
+      // Truth Center (migration 20260826160000).
+      truth_config: {
+        Row: { key: string; value: number; description: string }
+        Insert: { key: string; value: number; description?: string }
+        Update: { key?: string; value?: number; description?: string }
+        Relationships: []
+      }
+      truth_dossiers: {
+        Row: {
+          id: string
+          site: string
+          country: string
+          brand: string
+          model: string
+          fuel: string
+          signal: string
+          layer: string
+          doubt_score: number
+          priority: number
+          status: string
+          summary: string
+          details: Json
+          first_detected_at: string
+          last_seen_at: string
+          resolved_at: string | null
+        }
+        Insert: {
+          id?: string
+          site?: string
+          country?: string
+          brand?: string
+          model?: string
+          fuel?: string
+          signal: string
+          layer?: string
+          doubt_score?: number
+          priority?: number
+          status?: string
+          summary?: string
+          details?: Json
+          first_detected_at?: string
+          last_seen_at?: string
+          resolved_at?: string | null
+        }
+        Update: {
+          status?: string
+          resolved_at?: string | null
+        }
+        Relationships: []
+      }
+      truth_evidence: {
+        Row: {
+          id: string
+          dossier_id: string
+          kind: string
+          observed_count: number | null
+          criteria_check: Json | null
+          manual_url: string | null
+          comment: string | null
+          submitted_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          dossier_id: string
+          kind: string
+          observed_count?: number | null
+          criteria_check?: Json | null
+          manual_url?: string | null
+          comment?: string | null
+          submitted_by?: string
+          created_at?: string
+        }
+        Update: {
+          comment?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       // Étage 2 (migration 20260826150000) : chaud + archive recollés —

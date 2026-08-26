@@ -10,6 +10,7 @@ import { MarketIntelligence } from './pages/MarketIntelligence';
 import { Workflow } from './pages/Workflow';
 import { Ventes } from './pages/Ventes';
 import { Veille } from './pages/Veille';
+import { TruthCenter } from './pages/TruthCenter';
 import { Telemetrie } from './pages/Telemetrie';
 import { Login } from './pages/Login';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
@@ -72,6 +73,7 @@ function App() {
     if (p === '/market') return 'market';
     if (p === '/etudes' || p === '/workflow') return 'workflow';
     if (p === '/veille') return 'veille';
+    if (p === '/verite') return 'truth';
     if (p === '/telemetrie') return 'telemetrie';
     return 'home';
   };
@@ -85,6 +87,7 @@ function App() {
       case 'market': return <MarketIntelligence />;
       case 'workflow': return <Workflow />;
       case 'veille': return <Veille />;
+      case 'truth': return <TruthCenter />;
       case 'telemetrie': return <Telemetrie />;
       default: return <Home />;
     }
