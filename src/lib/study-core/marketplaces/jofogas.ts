@@ -19,8 +19,9 @@
  *   vehicle-reg-date · badge-company_ad = pro.
  *
  * MODÈLE : slug réel « rav-4- » (tiret FINAL non dérivable mécaniquement) —
- * jamais inventé : v1 sans modèle en URL (page marque + tri structuré en
- * aval), la voie URL apprise porte les modèles. Prix en HUF (converti EUR).
+ * jamais inventé : seules les graines PROUVÉES par URL humaine posent le
+ * segment (MODEL_PATH_SLUG), sinon page marque + tri structuré en aval ;
+ * la voie URL apprise porte le reste. Prix en HUF (converti EUR).
  */
 
 import type {
@@ -33,13 +34,31 @@ import { modelKeyLoose } from '../business-logic';
 
 const URL_TEMPLATE = 'https://auto.jofogas.hu/magyarorszag/auto/{brand}/{fuel}?me={mileage}&rs={yearFrom}&re={yearTo}';
 
-// Slugs carburant PROUVÉS par URLs humaines (hibrid, dizel — 02/08).
+// Slugs carburant PROUVÉS par URLs humaines (hibrid, dizel — 02/08 ;
+// elektromos, benzin — 26/08 : /tesla/model-3/elektromos, /…/benzin).
 const FUEL_SLUG: Record<string, string> = {
   HYBRIDE: 'hibrid', HYBRID: 'hibrid', HIBRID: 'hibrid',
   PLUG_IN_HYBRID: 'hibrid', MILD_HYBRID: 'hibrid',
   DIESEL: 'dizel', DIZEL: 'dizel',
+  ELECTRIQUE: 'elektromos', ELECTRIC: 'elektromos', ELEKTROMOS: 'elektromos',
+  ESSENCE: 'benzin', PETROL: 'benzin', GASOLINE: 'benzin', BENZIN: 'benzin',
 };
-const FUEL_PATH_TO_CANON: Record<string, string> = { hibrid: 'HYBRIDE', dizel: 'DIESEL' };
+const FUEL_PATH_TO_CANON: Record<string, string> = {
+  hibrid: 'HYBRIDE', dizel: 'DIESEL', elektromos: 'ELECTRIQUE', benzin: 'ESSENCE',
+};
+
+// Slugs MODÈLE du chemin — grammaire /magyarorszag/auto/{brand}/{model}/{fuel}
+// PROUVÉE par URLs humaines 26/08 (/toyota/rav-4-/hibrid, /tesla/model-3/
+// elektromos). Le slug n'est PAS dérivable mécaniquement (« rav-4- » porte un
+// tiret FINAL qu'aucun slugify ne produit) → seules les graines prouvées
+// posent le segment ; modèle inconnu = page marque + tri structuré en aval
+// (comportement v1 conservé). La voie URL apprise couvre le reste.
+const MODEL_PATH_SLUG: Record<string, string> = {
+  'TOYOTA|RAV4': 'rav-4-',
+  'TESLA|MODEL3': 'model-3',
+};
+const canonKey = (v: string) =>
+  (v ?? '').toUpperCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Z0-9]/g, '');
 
 const slugify = (s: string) =>
   s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -99,8 +118,11 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (params.fuel && !fuelSlug) {
     warnings.push(`[LINKGEN_WARNING] Jofogas: carburant "${params.fuel}" sans slug prouvé — filtre omis`);
   }
-  if (params.model) {
-    warnings.push('[LINKGEN_WARNING] Jofogas v1: modèle non posé en URL (slug « rav-4- » à tiret final non dérivable) — page marque, tri structuré en aval');
+  const modelSlug = params.model
+    ? MODEL_PATH_SLUG[`${canonKey(params.brand || '')}|${canonKey(params.model)}`]
+    : undefined;
+  if (params.model && !modelSlug) {
+    warnings.push('[LINKGEN_WARNING] Jofogas: modèle sans slug de chemin prouvé (slugs à la « rav-4- » non dérivables) — page marque, tri structuré en aval');
   }
   const qs = new URLSearchParams();
   if (params.mileage) qs.set('me', String(params.mileage));
@@ -113,11 +135,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (yearTo) qs.set('re', yearTo);
   // Tri prix croissant sp=1 (paire d'URLs humaines) ; découverte = défaut du site.
   if (params.sort !== 'relevance') qs.set('sp', '1');
-  const path = `/magyarorszag/auto/${brandSlug}${fuelSlug ? `/${fuelSlug}` : ''}`;
+  const path = `/magyarorszag/auto/${brandSlug}${modelSlug ? `/${modelSlug}` : ''}${fuelSlug ? `/${fuelSlug}` : ''}`;
   return {
     url: `https://auto.jofogas.hu${path}?${qs.toString()}`, warnings,
-    // v1 : jamais posé en URL construite — seule la voie URL apprise l'exprime.
-    modelExpressed: !params.model,
+    modelExpressed: !params.model || Boolean(modelSlug),
   };
 }
 
@@ -130,7 +151,9 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
   const issues: SiteValidationResult['issues'] = [];
   if (!brandOk && wantBrand) issues.push({ type: 'brand_missing' });
-  if (params.model) issues.push({ type: 'model_not_applied' }); // v1 : jamais posé en URL
+  const modelPosed = Boolean(params.model
+    && MODEL_PATH_SLUG[`${canonKey(params.brand || '')}|${canonKey(params.model || '')}`]);
+  if (params.model && !modelPosed) issues.push({ type: 'model_not_applied' }); // sans slug de chemin prouvé
   if (listings.length === 0) issues.push({ type: 'no_listings' });
   return {
     site: 'JOFOGAS', url, listingCount,

@@ -204,6 +204,13 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
  */
 const FUEL_FACET: Record<string, { slug: string; id: string }> = {
   ELECTRIQUE: { slug: 'elektrisch', id: '11756' },
+  // Essence/diesel : URLs humaines 26/08 (yaris-cross+benzine/13882+473,
+  // sportage+diesel/892+474) — codes confirmés par le dictionnaire moissonné
+  // du site (mp:facet:fuel Benzine;473, Diesel;474).
+  ESSENCE: { slug: 'benzine', id: '473' },
+  PETROL: { slug: 'benzine', id: '473' },
+  GASOLINE: { slug: 'benzine', id: '473' },
+  DIESEL: { slug: 'diesel', id: '474' },
   // vérifié URL humaine (Channing 27/07) : yaris-cross+hybride-elektrisch-benzine/13882+13838
   HYBRIDE: { slug: 'hybride-elektrisch-benzine', id: '13838' },
   // Les sous-types hybrides gardent la FAMILLE au chemin — le sous-type
@@ -321,7 +328,15 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // Sous-type hybride (rechargeable/léger) : facette de hash, lue par le
   // worker et appliquée serveur via l'API LRP.
   const subtypeId = params.fuel ? HYBRID_SUBTYPE_HASH[params.fuel.trim().toUpperCase()] : undefined;
-  if (subtypeId) hashParts.push(`f:${subtypeId}`);
+  // Facettes de hash cumulées : sous-type hybride, boîte (Automaat;534 —
+  // URL humaine 26/08, dictionnaire du site mp:facet:transmission), et
+  // « Vraagprijs » (10882, prix affiché : exclut les enchères « Bieden »
+  // qui pollueraient les médianes — coché dans les DEUX URLs humaines).
+  // Le worker les transmet à l'API LRP en attributesById[] (côté serveur).
+  const hashFacetIds: string[] = ['10882'];
+  if (subtypeId) hashFacetIds.push(subtypeId);
+  if (/^AUTOMAT/i.test(String(params.gearbox ?? '').trim())) hashFacetIds.push('534');
+  hashParts.push(`f:${hashFacetIds.join(',')}`);
   // Découverte : tri par défaut du site (facettes de tri omises, rien
   // d'inventé). Études/précision : prix croissant.
   if (params.sort !== 'relevance') hashParts.push('sortBy:PRICE', 'sortOrder:INCREASING');

@@ -228,6 +228,14 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   for (const c of fuelCodes ?? []) qs.append('fuel', c);
   // MIL SUÉDOIS : km → mil (÷10) — l'oublier fausserait TOUTES les données.
   if (params.mileage) qs.set('mileage_to', String(Math.round(Number(params.mileage) / 10)));
+  // Puissance min & boîte — PROUVÉS URL humaine (Channing 26/08, RAV4 hybride) :
+  // engine_effect_from=…&transmission=2 (2 = Automat). Unité : la valeur « 1 »
+  // de l'URL-preuve révèle le NOM du paramètre, pas l'unité — hästkrafter
+  // suédois ≈ ch DIN (convention du site), donc valeur passée telle quelle.
+  const power = params.powerFrom ?? params.minPower;
+  if (power !== undefined && String(power).trim()) qs.set('engine_effect_from', String(power));
+  if (/^AUTOMAT/i.test(String(params.gearbox ?? '').trim())) qs.set('transmission', '2');
+  // q= texte libre — PROUVÉ URL humaine (26/08 : &q=Gr+sport).
   if (params.trim && String(params.trim).trim()) qs.set('q', String(params.trim).trim());
   if (params.sort !== 'relevance') qs.set('sort', 'PRICE_ASC');
   // variant : jeton complet appris (série/version) posé tel quel, sinon

@@ -184,7 +184,8 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // Squelette de paramètres calqué sur l'URL humaine (le site attend le
   // formulaire complet — champs vides inclus).
   const qs = new URLSearchParams();
-  qs.set('keywords', '');
+  // keywords = texte libre (finition) — PROUVÉ URL humaine (Channing 26/08).
+  qs.set('keywords', String(params.trim ?? '').trim());
   qs.set('autocompleted', '1');
   qs.set('search', '1');
   qs.set('cities', '');
@@ -207,7 +208,11 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (fuelCode) qs.append('fuel[]', fuelCode);
   qs.set('engine_min', '');
   qs.set('engine_max', '');
-  qs.set('power_min', '');
+  // power_min EN KW — PROUVÉ URL humaine (Channing 26/08 : power_min=110,
+  // libellé « puissance kW » du formulaire). Nos critères sont en ch DIN →
+  // conversion floor(ch / 1.35962), jamais la valeur ch brute.
+  const powerCh = Number(params.powerFrom ?? params.minPower);
+  qs.set('power_min', Number.isFinite(powerCh) && powerCh > 0 ? String(Math.floor(powerCh / 1.35962)) : '');
   qs.set('power_max', '');
   qs.set('mileage_min', '');
   qs.set('mileage_max', params.mileage ? String(params.mileage) : '');

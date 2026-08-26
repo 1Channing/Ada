@@ -595,8 +595,10 @@ function marktplaatsFacetIds(url: string): string[] {
   const hashIdx = url.indexOf('#');
   if (hashIdx >= 0) {
     for (const seg of url.slice(hashIdx + 1).split('|')) {
-      const f = seg.match(/^f:(\d+(?:\+\d+)*)$/);
-      if (f) for (const id of f[1].split('+')) if (!ids.includes(id)) ids.push(id);
+      // Deux séparateurs vus dans les URLs du site : '+' (historique) et ','
+      // (URLs humaines 26/08 : #f:534,10882 — Automaat + Vraagprijs).
+      const f = seg.match(/^f:(\d+(?:[+,]\d+)*)$/);
+      if (f) for (const id of f[1].split(/[+,]/)) if (!ids.includes(id)) ids.push(id);
     }
   }
   return ids;

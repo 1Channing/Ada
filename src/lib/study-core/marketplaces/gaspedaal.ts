@@ -234,6 +234,12 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // la grammaire était documentée depuis le début (constat Channing 25/08 :
   // étude GR SPORT sans trefw). Même règle que text= Leboncoin et /q/ MP.
   if (params.trim && params.trim.trim()) qs.set('trefw', params.trim.trim());
+  // Puissance min (ch) et boîte auto — PROUVÉS URL humaine (Channing 26/08) :
+  // ?…&trns=AUTOMATISCH&vmin=130. Valeur manuelle sans preuve → seul
+  // l'automatique est exprimé, le post-filtre du moteur couvre le reste.
+  const power = params.powerFrom ?? params.minPower;
+  if (power !== undefined && String(power).trim()) qs.set('vmin', String(power));
+  if (/^AUTOMAT/i.test(String(params.gearbox ?? '').trim())) qs.set('trns', 'AUTOMATISCH');
   // Tri — preuve par paire d'URLs humaines (Channing 02/08) : srt=pr-a =
   // « Prijs laag-hoog », srt=df-a = relevantie. Études/précision : pr-a (le
   // bas du marché est ce qu'on arbitre). Découverte : df-a — le tri prix

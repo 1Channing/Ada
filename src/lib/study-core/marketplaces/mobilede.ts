@@ -65,9 +65,10 @@ const MODEL_ID: Record<string, { id: string; label: string }> = {
  * Carburants : deux paramètres distincts chez mobile.de (prouvé par URLs
  * humaines 26/07) — `ft=` porte ELECTRICITY (Elroq/iX1) et HYBRID (Yaris
  * Cross « Hybride essence/électrique »), tandis que le PHEV passe par
- * `fe=HYBRID_PLUGIN` (Tucson « Hybride rechargeable »). PETROL/DIESEL/LPG :
- * tokens de l'ancienne API publique, hypothèses — un mauvais token donne une
- * page 0 annonce, jamais de pollution, et la boîte noire le remonterait.
+ * `fe=HYBRID_PLUGIN` (Tucson « Hybride rechargeable »). PETROL et DIESEL :
+ * PROUVÉS par URLs humaines 26/08 (ft=PETROL sur Fiat 500, ft=DIESEL sur
+ * RAV4). LPG : token de l'ancienne API publique, hypothèse restante — un
+ * mauvais token donne une page 0 annonce, jamais de pollution.
  */
 const FUEL_PARAM: Record<string, { param: 'ft' | 'fe'; value: string }> = {
   ELECTRIQUE: { param: 'ft', value: 'ELECTRICITY' },
@@ -271,7 +272,18 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   qs.set('isSearchRequest', 'true');
   qs.set('s', 'Car');
   qs.set('vc', 'Car');
-  qs.set('ms', modelId ? `${makeId};${modelId}` : makeId);
+  // FINITION : 4e segment du paramètre ms — PROUVÉ URL humaine (Channing
+  // 26/08) : ms=24100;28;;GR+Sport (RAV4 diesel GR Sport, tr/pw/dam à côté).
+  // La barre de recherche générique n'existe pas chez mobile.de : c'est LE
+  // canal finition du site.
+  const trim = (params.trim ?? '').trim();
+  qs.set('ms', modelId
+    ? (trim ? `${makeId};${modelId};;${trim}` : `${makeId};${modelId}`)
+    : makeId);
+  // Sans véhicules ENDOMMAGÉS, à la source — dam=false prouvé par la même
+  // URL humaine (backlog 4sexies : les accidentées trustaient le bas du tri
+  // prix et gaspillaient les pages scrapées).
+  qs.set('dam', 'false');
   const { yearFrom, yearTo } = resolveYearRange(params);
   if (yearFrom || yearTo) qs.set('fr', `${yearFrom ?? ''}:${yearTo ?? ''}`);
   if (params.mileage) qs.set('ml', `:${params.mileage}`);
@@ -280,6 +292,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   else if (params.fuel) warnings.push(`[LINKGEN_WARNING] MOBILE_DE: carburant "${params.fuel}" sans enum connu — filtre omis`);
   const power = params.powerFrom ?? params.minPower;
   if (power !== undefined && String(power).trim()) qs.set('pw', String(hpToKw(Number(power))));
+  // Boîte automatique : tr=AUTOMATIC_GEAR — PROUVÉ URL humaine 26/08.
+  // La valeur manuelle n'a pas de preuve → seul l'automatique est exprimé,
+  // le post-filtre boîte du moteur couvre le reste (fail-open).
+  if (/^AUTOMAT/i.test(String(params.gearbox ?? '').trim())) qs.set('tr', 'AUTOMATIC_GEAR');
   // Tri prix croissant — prouvé (URL humaine : od=up&sb=p ↔ « Prix (croissant) »).
   qs.set('sb', 'p');
   qs.set('od', 'up');

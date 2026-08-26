@@ -43,13 +43,20 @@ const FUEL_SLUG: Record<string, string> = {
   ELECTRIQUE: 'elettrica', ELECTRIC: 'elettrica', ELETTRICA: 'elettrica',
   // URL humaine 02/08 soir : /auto/bmw/serie-1/diesel/…
   DIESEL: 'diesel',
+  // URL humaine 26/08 : /auto/bmw/benzina/?q=M+sport.
+  ESSENCE: 'benzina', PETROL: 'benzina', GASOLINE: 'benzina', BENZINA: 'benzina',
 };
 
 // Segments carburant PROUVÉS du chemin — sert à distinguer, dans
 // /auto/{brand}/{model?}/{fuel?}/, un modèle d'un carburant.
 const FUEL_PATH_TO_CANON: Record<string, string> = {
-  ibrida: 'HYBRIDE', elettrica: 'ELECTRIQUE', diesel: 'DIESEL',
+  ibrida: 'HYBRIDE', elettrica: 'ELECTRIQUE', diesel: 'DIESEL', benzina: 'ESSENCE',
 };
+
+// me= : km max en CODE ENUM du site, PAS en km. Une seule correspondance
+// PROUVÉE (URL humaine 26/08 : me=18 sur le filtre « 90 000 km »). Les
+// autres codes sont inconnus → filtre omis + warning, jamais deviné.
+const MILEAGE_ENUM: Record<number, string> = { 90000: '18' };
 
 // Slugs MODÈLE appris depuis le dictionnaire moissonné sb:model:<marque>
 // (label « Serie 1 » → slug slugify = serie-1). Grammaire du chemin
@@ -196,6 +203,20 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const { yearFrom, yearTo } = resolveYearRange(params);
   if (yearFrom) qs.set('ys', yearFrom);
   if (yearTo) qs.set('ye', yearTo);
+  // km max : me= en CODE ENUM (URL humaine 26/08 : me=18 = 90 000 km).
+  // Codes des autres paliers inconnus → omission + warning, jamais deviné.
+  const km = Number(params.mileage);
+  if (Number.isFinite(km) && km > 0) {
+    const meCode = MILEAGE_ENUM[km];
+    if (meCode) qs.set('me', meCode);
+    else warnings.push(`[LINKGEN_WARNING] Subito: km max ${km} sans code enum me= prouvé — filtre omis, tri en aval`);
+  }
+  // Puissance min hps= en CV & boîte gr=2 (Automatico) — PROUVÉS URL
+  // humaine 26/08 : …&hps=150&gr=2 (gearbox key '2' = Automatico, confirmé
+  // par le dictionnaire /gearbox des annonces).
+  const power = params.powerFrom ?? params.minPower;
+  if (power !== undefined && String(power).trim()) qs.set('hps', String(power));
+  if (/^AUTOMAT/i.test(String(params.gearbox ?? '').trim())) qs.set('gr', '2');
   return {
     url: `https://www.subito.it${path}?${qs.toString()}`, warnings,
     modelExpressed: !params.model || Boolean(modelSlug || validateModel),
@@ -250,6 +271,10 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     const ys = u.searchParams.get('ys'), ye = u.searchParams.get('ye');
     if (ys && /^\d{4}$/.test(ys)) out.yearFrom = ys;
     if (ye && /^\d{4}$/.test(ye)) out.yearTo = ye;
+    // me= : code enum → km, seulement pour les correspondances prouvées.
+    const me = u.searchParams.get('me');
+    const kmHit = Object.entries(MILEAGE_ENUM).find(([, v]) => v === me)?.[0];
+    if (kmHit) out.mileage = kmHit;
   } catch { /* URL illisible */ }
   return out;
 }

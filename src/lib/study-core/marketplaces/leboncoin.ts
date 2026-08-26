@@ -233,8 +233,14 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const { yearFrom, yearTo } = resolveYearRange(params);
 
   const vars: Record<string, string> = { brand: mappedBrand, model: modelParamCandidates(mappedBrand, mappedModel) };
-  if (yearFrom) vars['yearFrom'] = yearFrom;
-  if (yearTo) vars['yearTo'] = yearTo;
+  // Formes regdate prouvées par URLs humaines : '2021-2021' (borné) et
+  // '2021-max' (ouvert vers le haut) — mêmes règles que enforceYearParams.
+  // Avant : yearTo absent → placeholder vide → regdate ENTIER supprimé par
+  // applyTemplate, l'ancrage année sautait sur la voie native (audit 26/08).
+  if (yearFrom || yearTo) {
+    vars['yearFrom'] = yearFrom || yearTo || '';
+    vars['yearTo'] = yearTo || 'max';
+  }
   if (params.mileage) vars['mileage'] = String(params.mileage);
   if (mappedFuel) vars['fuel'] = mappedFuel;
   // encodé : un espace brut dans text= casse la requête chez certains clients.

@@ -352,6 +352,9 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // Native param `hpfrom` — human-confirmed (ingestion 89/89 with hpfrom=250).
   const power = params.powerFrom ?? params.minPower;
   if (power !== undefined && String(power).trim()) qs.set('hpfrom', String(power));
+  // Boîte auto : gear=automatic — PROUVÉ URL humaine (Channing 26/08, Enyaq).
+  // Manuelle sans preuve → non exprimée, post-filtre moteur en couverture.
+  if (/^AUTOMAT/i.test(String(params.gearbox ?? '').trim())) qs.set('gear', 'automatic');
   // Miroir de l'usage réel (URL live Channing 20/07) : pas d'offres leasing
   // (mensualités qui polluent les prix), engros inclus (le garde-fou
   // isRetailPrice les écarte déjà des médianes à l'écriture).
