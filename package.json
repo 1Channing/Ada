@@ -16,7 +16,7 @@
     "test:parity:all": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e",
     "build:worker": "cd worker && npm ci && npm run build",
     "start:worker": "cd worker && npm start",
-    "gate": "tsc --noEmit -p tsconfig.app.json && vite build"
+    "gate": "tsc --noEmit -p tsconfig.app.json && tsx scripts/grammar-gate.mts && vite build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

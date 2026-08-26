@@ -2,6 +2,12 @@ import { getSiteAdapter } from '../study-core/marketplaces';
 import { resolveYearRange } from '../study-core/marketplaces/urlTemplate';
 import { sharedSupabase as supabase } from '../supabaseShared';
 import { ensureLearnedTaxonomy } from './taxonomy';
+import { applyVariableCriteria, injectTrimIntoUrl, mpNormalize, setQueryParamRaw } from './grammar';
+
+// Le REGISTRE UNIQUE des grammaires (année/km/puissance/boîte/finition par
+// site) vit dans ./grammar.ts — les deux voies (native et mémoire) le
+// partagent, et scripts/grammar-gate.mts le contre-vérifie au gate.
+export { applyVariableCriteria, injectTrimIntoUrl, setQueryParamRaw } from './grammar';
 import type {
   LinkGenParams,
   LinkGenResult,
@@ -123,10 +129,6 @@ export function extractMarktplaatsModelFacet(rows: Array<Record<string, unknown>
   return null;
 }
 
-const mpNormalize = (s: string) =>
-  s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim()
-    .replace(/\s+/g, '+').replace(/[^a-z0-9+\-]/g, '');
-
 /**
  * Déplace le modèle du texte libre `/q/…/` vers la facette `/f/…/` d'une URL
  * Marktplaats générée par la grammaire native. Sans texte restant, le segment
@@ -173,35 +175,6 @@ export function applyMarktplaatsModelFacet(url: string, facet: MpFacet, modelTex
 const LEARNED_ENUM_FIELDS = ['fuel', 'gearbox', 'color', 'vehicleType'] as const;
 
 /**
- * POSE CHIRURGICALE d'un paramètre de query — remplace `new URL()` +
- * `searchParams.set()` + `toString()` dans TOUT le post-traitement.
- *
- * OBLIGATOIRE : URLSearchParams re-sérialise la query ENTIÈRE à chaque set()
- * — les virgules deviennent %2C et les %20 deviennent +. Or Leboncoin attend
- * des listes d'enums à virgules LITTÉRALES (`u_car_model=A,B`) : après
- * ré-encodage, le site reçoit un seul enum géant invalide et répond
- * searchData.total=0. C'est ce qui a éteint six études quotidiennes du 29/07
- * au 01/08 (logs : `u_car_model=TOYOTA_Yaris+Cross%2CYARIS+CROSS%…`).
- * Ici : seule la paire visée est touchée, le reste de l'URL est conservé
- * OCTET PAR OCTET. `value: null` supprime le paramètre.
- */
-export function setQueryParamRaw(url: string, param: string, value: string | null): string {
-  const hashIdx = url.indexOf('#');
-  const base = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
-  const hash = hashIdx >= 0 ? url.slice(hashIdx) : '';
-  const qIdx = base.indexOf('?');
-  const path = qIdx >= 0 ? base.slice(0, qIdx) : base;
-  let pairs = qIdx >= 0 ? base.slice(qIdx + 1).split('&').filter(Boolean) : [];
-  pairs = pairs.filter((p) => p !== param && !p.startsWith(`${param}=`));
-  if (value !== null && value !== '') {
-    // Encodage standard du seul VALUE posé — virgules restaurées (séparateur
-    // de liste des sites, jamais un caractère à échapper pour eux).
-    pairs.push(`${param}=${encodeURIComponent(value).replace(/%2C/gi, ',')}`);
-  }
-  return path + (pairs.length ? `?${pairs.join('&')}` : '') + hash;
-}
-
-/**
  * A reused validated_url embeds the ORIGINAL ingestion's year/mileage values —
  * variables by design. Override them with the current request's values (or
  * remove them when the request doesn't filter), in the query string AND in a
@@ -246,233 +219,6 @@ function overrideVariableParams(url: string, mapping: InferredMapping, params: L
   } catch {
     return url;
   }
-}
-
-/**
- * AS24 learned URLs can carry the YEAR in the PATH (SEO segment re_YYYY) —
- * out of reach of the query-param overrides. Daily report 20/07: a learned
- * /rav-4/re_2021/… reused for a 2025 study served 2021 cars (year 0/55).
- * Strip the segment and pin the year with the known fregfrom/fregto params.
- */
-/**
- * Une URL apprise peut manquer les paramètres d'ANNÉE (mapping incomplet au
- * moment de l'apprentissage) — or l'ancrage année est obligatoire pour la
- * donnée marché. Rapport 20/07 : ~10 dossiers « year 0/85 » sur des URLs
- * apprises sans fregfrom/yearfrom/regdate. On impose les paramètres natifs
- * connus par site ; Marktplaats (hash) est déjà couvert par
- * overrideVariableParams.
- */
-export function enforceYearParams(url: string, params: LinkGenParams): string {
-  const { yearFrom, yearTo } = resolveYearRange(params);
-  // Chaque borne est POSÉE OU RETIRÉE — jamais héritée de l'URL apprise.
-  // Constat MI 25/08 (Yaris Cross, filtre « 2025 – max vide ») : la borne
-  // absente laissait survivre le bmax=2023 fossile de l'ingestion d'origine
-  // → bornes inversées, 0 résultat, profondeur/vélocité faussées. La règle
-  // des variables (année/km/puissance) s'applique aux DEUX bornes : sans
-  // critère, le paramètre hérité saute.
-  // setQueryParamRaw et non searchParams.set : cette fonction tourne sur
-  // TOUTES les URLs LBC (l'ancrage année est obligatoire) — c'était le
-  // ré-encodeur qui cassait les listes à virgules de u_car_model.
-  if (url.includes('autoscout24.')) {
-    let out = setQueryParamRaw(url, 'fregfrom', yearFrom || null);
-    out = setQueryParamRaw(out, 'fregto', yearTo || null);
-    return out;
-  }
-  if (url.includes('bilbasen.dk')) {
-    // Première immatriculation (regfrom/regto mensuels) — yearfrom/yearto est
-    // l'année-MODÈLE danoise (årgang), qui rendait des immatriculées N-1
-    // (36/64 e-tron DK, 01/08). Les anciens params sont RETIRÉS des URLs
-    // apprises : les deux familles combinées restreindraient doublement.
-    let out = setQueryParamRaw(url, 'regfrom', yearFrom ? `${yearFrom}-01` : null);
-    out = setQueryParamRaw(out, 'regto', yearTo ? `${yearTo}-12` : null);
-    out = setQueryParamRaw(out, 'yearfrom', null);
-    out = setQueryParamRaw(out, 'yearto', null);
-    return out;
-  }
-  if (url.includes('leboncoin.fr')) {
-    // Formes prouvées par URLs humaines en mémoire : '2021-2021' (borné) et
-    // '2021-max' (ouvert vers le haut). Borne basse seule absente : grammaire
-    // non prouvée → on garde la forme bornée symétrique historique.
-    if (!yearFrom && !yearTo) return setQueryParamRaw(url, 'regdate', null);
-    const to = yearTo || (yearFrom ? 'max' : yearFrom);
-    return setQueryParamRaw(url, 'regdate', `${yearFrom || yearTo}-${to}`);
-  }
-  if (url.includes('gaspedaal.nl')) {
-    // bmin/bmax/kmax prouvés par URLs humaines (en-tête de l'adaptateur ;
-    // re-donnés par Channing 25/08).
-    let out = setQueryParamRaw(url, 'bmin', yearFrom || null);
-    out = setQueryParamRaw(out, 'bmax', yearTo || null);
-    out = setQueryParamRaw(out, 'kmax', params.mileage ? String(params.mileage) : null);
-    return out;
-  }
-  if (url.includes('mobile.de')) {
-    // Format composite natif fr=min:max — overrideVariableParams réinjecte
-    // la valeur simple apprise (fr=2022) que le site lit « à partir de
-    // 2022 » : campagne 21h55, années 12/34 (35 %) sur une étude 2022.
-    // Sans aucun critère d'année, le fr hérité saute (règle des variables).
-    if (!yearFrom && !yearTo) return setQueryParamRaw(url, 'fr', null);
-    return setQueryParamRaw(url, 'fr', `${yearFrom ?? ''}:${yearTo ?? ''}`);
-  }
-  return url;
-}
-
-/**
- * mobile.de : le kilométrage est aussi composite (ml=min:max, borne max seule
- * = `ml=:80000`, URL humaine 26/07). La réinjection générique pose ml=80000,
- * que le site lirait comme MINIMUM 80 000 km — l'inverse exact du besoin, et
- * un biais marché silencieux. On remet la forme native.
- */
-export function fixMobiledeMileageForm(url: string, params: LinkGenParams): string {
-  if (!url.includes('mobile.de')) return url;
-  try {
-    const u = new URL(url); // lecture seule — l'écriture reste chirurgicale
-    const wanted = params.mileage ? String(params.mileage) : '';
-    const current = u.searchParams.get('ml') ?? '';
-    if (wanted) return setQueryParamRaw(url, 'ml', `:${wanted}`);
-    if (/^\d+$/.test(current)) return setQueryParamRaw(url, 'ml', `:${current}`);
-    return url;
-  } catch { return url; }
-}
-
-/**
- * Puissance min sur les grammaires natives PROUVÉES — appelée en DERNIER
- * (après applyLearnedSecondaryParams, qui réinjecterait sinon la valeur en ch
- * par-dessus). Bilbasen : hpfrom en ch (hk) — URL humaine hpfrom=250 ; une
- * URL apprise peut porter un `hpfrom=` VIDE hérité de son ingestion (étude
- * ENYAQ, worker_logs 11-18/08) — la valeur du critère du jour remplace, et
- * sans critère le paramètre saute (variable, même règle que année/km).
- * AutoScout : powerfrom en kW + powertype=kw — prouvé live 18/08 (hp ignoré,
- * valeur nue lue en kW : 260 → 0 annonce) ; on répare aussi au passage un
- * powertype=hp hérité de notre ancienne injection.
- */
-export function enforcePowerParams(url: string, params: LinkGenParams): string {
-  const hp = Number(params.minPower ?? '');
-  const has = Number.isFinite(hp) && hp > 0;
-  if (url.includes('bilbasen.dk')) {
-    return setQueryParamRaw(url, 'hpfrom', has ? String(hp) : null);
-  }
-  if (url.includes('autoscout24.')) {
-    if (has) {
-      let out = setQueryParamRaw(url, 'powerfrom', String(Math.floor(hp / 1.35962)));
-      return setQueryParamRaw(out, 'powertype', 'kw');
-    }
-    // Héritage de l'ancienne injection cassée : powertype=hp est ignoré par le
-    // site et powerfrom est alors lu en kW → page à 0. On retire le trio.
-    if (/[?&]powertype=hp\b/.test(url)) {
-      let out = setQueryParamRaw(url, 'powerfrom', null);
-      out = setQueryParamRaw(out, 'powerto', null);
-      return setQueryParamRaw(out, 'powertype', null);
-    }
-  }
-  return url;
-}
-
-/**
- * Décision Channing (17/07, rappelée 18/08) : sur Leboncoin la finition passe
- * par la BARRE DE RECHERCHE (text=), jamais par le critère u_car_finition —
- * l'énum finition du site est trop stricte et rate les annonces dont seul le
- * TITRE porte la finition (lacune « COLLECTION » du 18/08 : l'URL apprise
- * u_car_finition=TOYOTA_Yaris_Collection était ressortie telle quelle).
- * Les URLs humaines apprises via le critère sont réécrites au passage ;
- * sans finition demandée, text= saute (variable, même règle que année/km).
- */
-export function enforceLbcTrimChannel(url: string, params: LinkGenParams): string {
-  if (!url.includes('leboncoin.fr')) return url;
-  let out = setQueryParamRaw(url, 'u_car_finition', null);
-  const t = (params.trim ?? '').trim();
-  out = setQueryParamRaw(out, 'text', t || null);
-  return out;
-}
-
-export function overrideAs24PathYear(url: string, params: LinkGenParams): string {
-  if (!url.includes('autoscout24.') || !/\/re_\d{4}/.test(url)) return url;
-  let out = url.replace(/\/re_\d{4}(?=\/|$)/, '');
-  const { yearFrom, yearTo } = resolveYearRange(params);
-  if (yearFrom) out = setQueryParamRaw(out, 'fregfrom', yearFrom);
-  if (yearTo) out = setQueryParamRaw(out, 'fregto', yearTo);
-  return out;
-}
-
-/**
- * Bilbasen IGNORE les query params make=/model= en silence (prouvé campagne
- * Tiguan : page « Diesel - 5864 brugte » toutes marques ; re-prouvé rapport
- * 20/07 : le validated_url appris ?make=VW&model=ms-golf-serie servait des
- * ID.3). Une URL apprise sous cette forme est réécrite en path natif
- * /brugt/bil/{make}/{model} — le seul filtre que le site applique.
- */
-export function fixBilbasenQueryForm(url: string): string {
-  if (!url.includes('bilbasen.dk')) return url;
-  try {
-    const u = new URL(url); // lecture seule
-    const make = u.searchParams.get('make');
-    const model = u.searchParams.get('model');
-    if (!make) return url;
-    const slug = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '')
-      .trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9._-]/g, '');
-    let out = setQueryParamRaw(setQueryParamRaw(url, 'make', null), 'model', null);
-    // Remplacement textuel du chemin — jamais de re-sérialisation de la query.
-    const m = out.match(/^(https?:\/\/[^/]+)([^?#]*)(.*)$/);
-    if (!m) return url;
-    out = `${m[1]}/brugt/bil/${slug(make)}${model ? `/${slug(model)}` : ''}${m[3]}`;
-    return out;
-  } catch { return url; }
-}
-
-/**
- * Free-text slot = the FINITION (site rule: on Marktplaats the free text
- * feeds the "Variant" box; the model belongs to the model facet carried by
- * the validated URL's path). AS24's equivalent is the kwd= parameter.
- */
-/**
- * Pose la finition sur une URL déjà construite, dans le slot texte-libre PROUVÉ
- * de chaque site : LBC text= / AS24 kwd= / Bilbasen free= / Marktplaats chemin
- * /q/…/ (le hash #q: n'est JAMAIS envoyé au serveur — étude RAV4 GR SPORT
- * 27/07 : la finition posée en hash était invisible du site).
- */
-export function injectTrimIntoUrl(url: string, trim: string): string {
-  const t = trim.trim();
-  if (!t) return url;
-  try {
-    const u = new URL(url);
-    if (u.hostname.includes('marktplaats.nl')) {
-      const norm = mpNormalize(t);
-      if (!norm) return url;
-      const segs = u.pathname.split('/').filter(Boolean);
-      if (segs.length < 3 || segs[0] !== 'l') return url;
-      const qIdx = segs.indexOf('q', 3);
-      if (qIdx >= 0 && qIdx + 1 < segs.length) {
-        // Fusion sans doublon avec le texte déjà présent (ex: modèle sans facette).
-        const existing = segs[qIdx + 1].split('+').filter(Boolean);
-        for (const tok of norm.split('+')) if (tok && !existing.includes(tok)) existing.push(tok);
-        segs[qIdx + 1] = existing.join('+');
-      } else {
-        // /q/ se place après la marque, AVANT le groupe /f/ (forme humaine prouvée).
-        const fIdx = segs.indexOf('f', 3);
-        segs.splice(fIdx >= 0 ? fIdx : segs.length, 0, 'q', norm);
-      }
-      u.pathname = `/${segs.join('/')}/`;
-      return u.toString();
-    }
-    if (u.hostname.includes('autoscout24.')) {
-      return setQueryParamRaw(url, 'kwd', t);
-    }
-    if (u.hostname.includes('leboncoin.fr')) {
-      return setQueryParamRaw(url, 'text', t);
-    }
-    if (u.hostname.includes('bilbasen.dk')) {
-      return setQueryParamRaw(url, 'free', t);
-    }
-    if (u.hostname.includes('gaspedaal.nl')) {
-      // trefw = la barre de recherche du site (URL humaine trefw=M+sport,
-      // re-prouvée trefw=GR+SPORT par Channing 25/08).
-      return setQueryParamRaw(url, 'trefw', t);
-    }
-    if (u.hostname.includes('subito.it')) {
-      // Slot texte libre prouvé par URL humaine (02/08 : ?q=m+sport).
-      return setQueryParamRaw(url, 'q', t.toLowerCase());
-    }
-  } catch { /* URL invalide — on garde l'originale */ }
-  return url;
 }
 
 /**
@@ -645,11 +391,7 @@ export async function generateSearchUrlsWithMemory(
         (recTrim === wantTrim || recTrim === '');
       if (validatedUrl && scopeMatches && mapping) {
         let url = overrideVariableParams(validatedUrl, mapping, params);
-        url = overrideAs24PathYear(url, params);
-        url = fixBilbasenQueryForm(url);
-        url = enforceYearParams(url, params);
         url = enforcePriceSort(url);
-        url = fixMobiledeMileageForm(url, params);
         // AS24: even a trim-scoped learned URL can predate kwd= (daily report:
         // GR SPORT study reused a kwd-less URL → 6% trim match). Setting kwd is
         // idempotent, so guarantee it. Marktplaats keeps the trim-less-row-only
@@ -658,9 +400,13 @@ export async function generateSearchUrlsWithMemory(
           url = injectTrimIntoUrl(url, params.trim ?? '');
         }
         url = ensureAs24PhevKeyword(url, params);
-        url = enforceLbcTrimChannel(url, params);
         url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
-        url = enforcePowerParams(url, params);
+        // REGISTRE UNIQUE en DERNIER : réparations + année/km/puissance/boîte
+        // (chaque paramètre posé-ou-retiré, anti-fossile) + canal finition LBC
+        // + politiques de site — il écrase toute réinjection héritée (unités
+        // comprises : les params secondaires appris réinjecteraient des ch là
+        // où AS24/mobile.de/Skelbiu lisent des kW).
+        url = applyVariableCriteria(url, params);
         logs.push({
           level: 'OUTPUT',
           message: '[MAPPING_MEMORY] Reusing human-validated URL (variables overridden)',
@@ -726,9 +472,10 @@ export async function generateSearchUrlsWithMemory(
       const mapping = (record.validated_mapping ?? record.inferred_mapping) as InferredMapping | null;
       if (mapping) fallbackUrl = await applyLearnedSecondaryParams(fallbackUrl, site, mapping, params, logs);
     }
-    // Unités garanties même sur la voie template (les params secondaires
-    // appris réinjecteraient des ch là où AutoScout lit des kW).
-    fallbackUrl = enforcePowerParams(fallbackUrl, params);
+    // REGISTRE UNIQUE aussi sur la voie native : idempotent quand l'adaptateur
+    // a tout posé (mêmes grammaires prouvées), filet quand une réinjection
+    // apprise a déposé une unité ou une forme fausse par-dessus.
+    fallbackUrl = applyVariableCriteria(fallbackUrl, params);
 
     results.push({
       site,
