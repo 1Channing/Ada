@@ -155,7 +155,7 @@ declare
   v_ratio numeric := coalesce((select value from truth_config where key = 'median_ratio'), 2);
   v_drop_pts numeric := coalesce((select value from truth_config where key = 'completeness_drop_pts'), 30);
   v_min_n numeric := coalesce((select value from truth_config where key = 'min_sample'), 20);
-  n int; total int := 0;
+  v_rows int; v_total int := 0;
 begin
   -- A/B/C — profondeur : dernier listing_count vs médiane historique (2-30 j).
   with latest as (
@@ -199,7 +199,7 @@ begin
   on conflict (site, country, brand, model, fuel, signal) do update set
     doubt_score = excluded.doubt_score, priority = excluded.priority,
     summary = excluded.summary, details = excluded.details, last_seen_at = now();
-  get diagnostics n = row_count; total := total + n;
+  get diagnostics v_rows = row_count; v_total := v_total + v_rows;
 
   -- E — pollution du sample : part d'annonces dont le modèle canonique ne
   -- correspond pas au segment du snapshot (préfixes tolérés : « RAV4 » et
@@ -229,7 +229,7 @@ begin
   on conflict (site, country, brand, model, fuel, signal) do update set
     doubt_score = excluded.doubt_score, priority = excluded.priority,
     summary = excluded.summary, details = excluded.details, last_seen_at = now();
-  get diagnostics n = row_count; total := total + n;
+  get diagnostics v_rows = row_count; v_total := v_total + v_rows;
 
   -- F — médiane aberrante : médiane 7 j vs médiane 8-30 j (identités canoniques).
   with recent as (
@@ -263,7 +263,7 @@ begin
   on conflict (site, country, brand, model, fuel, signal) do update set
     doubt_score = excluded.doubt_score, priority = excluded.priority,
     summary = excluded.summary, details = excluded.details, last_seen_at = now();
-  get diagnostics n = row_count; total := total + n;
+  get diagnostics v_rows = row_count; v_total := v_total + v_rows;
 
   -- H — chute de complétude par SITE : % de champs renseignés 7 j vs 8-30 j.
   with recent as (
@@ -304,9 +304,9 @@ begin
   on conflict (site, country, brand, model, fuel, signal) do update set
     doubt_score = excluded.doubt_score, summary = excluded.summary,
     details = excluded.details, last_seen_at = now();
-  get diagnostics n = row_count; total := total + n;
+  get diagnostics v_rows = row_count; v_total := v_total + v_rows;
 
-  return total;
+  return v_total;
 end;
 $$;
 
