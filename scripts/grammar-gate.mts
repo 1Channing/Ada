@@ -111,11 +111,14 @@ const MEMORY_CASES: Array<{
   {
     site: 'LEBONCOIN',
     bare: 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Rav4,RAV4',
-    fossil: 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Rav4,RAV4&regdate=2019-2019&mileage=min-50000&u_car_finition=TOYOTA_Rav4_Gr&text=vieux',
+    fossil: 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Rav4,RAV4&regdate=2019-2019&mileage=min-50000&u_car_finition=TOYOTA_Rav4_Gr&text=vieux&gearbox=1',
     wantPosed: [
       ['année', /regdate=2022-2024/], ['km', /mileage=min-90000/], ['finition', /text=GR%20Sport/],
+      // gearbox=2 (Automatique) — enum humain confirmé en base + URL humaine
+      // en mémoire (constat Ignis 27/08 : savoir par ligne → registre).
+      ['boîte', /gearbox=2(&|$)/],
     ],
-    wantGone: [/regdate/, /mileage=/, /u_car_finition/, /text=/],
+    wantGone: [/regdate/, /mileage=/, /u_car_finition/, /text=/, /gearbox=/],
     // La liste à virgules du modèle doit survivre OCTET PAR OCTET.
     wantKept: [/u_car_model=TOYOTA_Rav4,RAV4/],
   },

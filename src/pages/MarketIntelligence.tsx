@@ -13,6 +13,7 @@ import {
   pruneVanishedListings,
 } from '../services/marketData';
 import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
+import { CRITERIA_DETECTORS } from '../lib/linkgen/grammar';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/linkgen/types';
 import { supabase } from '../lib/supabase';
@@ -108,6 +109,13 @@ function computeRealDepth(snapshots: Snapshot[], f: MarketFilters): number | nul
     const adapter = adapters.find((a) => a.key === s.site);
     if (!adapter?.prefillCriteriaFromUrl) return true;
     try {
+      // Boîte / puissance : quand l'étude les exige, le scan doit les avoir
+      // EXPRIMÉS dans son URL (présence par famille — détecteurs du registre),
+      // sinon son total compte des voitures hors étude (Ignis 27/08 :
+      // profondeur 19 « toutes boîtes » affichée sur une étude Automatique
+      // qui ne gardait que 3 annonces).
+      if (f.gearbox && !CRITERIA_DETECTORS['boîte'].test(url)) return false;
+      if (f.powerMin != null && !CRITERIA_DETECTORS['puissance'].test(url)) return false;
       const dec = adapter.prefillCriteriaFromUrl(url);
       if (f.yearMin != null && dec.yearFrom && Number(dec.yearFrom) !== f.yearMin) return false;
       if (f.yearMax != null && dec.yearTo && Number(dec.yearTo) !== f.yearMax) return false;

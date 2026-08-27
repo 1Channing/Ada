@@ -191,6 +191,16 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     // humaines) ; la valeur nue est lue comme borne BASSE (études GR SPORT à 0
     // dès l'ajout du critère, 29/07).
     mileage: (url, km) => setQueryParamRaw(url, 'mileage', km ? `min-${km}` : null),
+    // Boîte : codes du site PROUVÉS (enum humain confirmé en base,
+    // linkgen_enum_mappings LEBONCOIN gearbox : Manuelle=1, Automatique=2 ;
+    // URL humaine en mémoire gearbox=2). Constat Ignis 27/08 : le savoir
+    // vivait dans une ligne mémoire — une étude Automatique scrapait la page
+    // toutes-boîtes dès que la voie native/le mauvais scope servait.
+    gearbox: (url, params) => {
+      const g = String(params.gearbox ?? '').trim().toUpperCase();
+      const code = /^AUTOMAT/.test(g) ? '2' : /^MANUEL/.test(g) ? '1' : null;
+      return setQueryParamRaw(url, 'gearbox', code);
+    },
     // Décision Channing 17/07 (rappelée 18/08) : la finition passe par la
     // BARRE DE RECHERCHE (text=), jamais par u_car_finition (énum trop
     // stricte — lacune « COLLECTION » 18/08).
@@ -401,7 +411,7 @@ export const CRITERIA_DETECTORS: Record<string, RegExp> = {
   année: /regdate=|fregfrom=|fregto=|bmin=|bmax=|regfrom=|regto=|[?&]fr=|year_from=|year_to=|constructionYear|[?&]ys=|[?&]ye=|[?&]rs=|[?&]re=|year_min=[^&]|year_max=[^&]/i,
   km: /mileage=min|kmto=|kmax=|mileageto=|[?&]ml=|mileage_to=|mileageTo|[?&]me=|mileage_max=[^&]/i,
   puissance: /powerfrom=|hpfrom=|[?&]pw=|vmin=|engine_effect_from=|power_min=[^&]|[?&]hps=/i,
-  boîte: /[?&]gear=|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
+  boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
   finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;/i,
   carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
 };
