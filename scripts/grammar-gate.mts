@@ -151,13 +151,17 @@ const MEMORY_CASES: Array<{
   },
   {
     site: 'GASPEDAAL',
-    bare: 'https://www.gaspedaal.nl/toyota/rav4/hybride?srt=pr-a',
+    bare: 'https://www.gaspedaal.nl/toyota/rav4?srt=pr-a',
     fossil: 'https://www.gaspedaal.nl/toyota/rav4/hybride?srt=pr-a&bmin=2019&bmax=2020&kmax=10000&vmin=999&trns=AUTOMATISCH',
     wantPosed: [
       ['année', /bmin=2022/], ['année', /bmax=2024/], ['km', /kmax=90000/],
       ['puissance', /vmin=150/], ['boîte', /trns=AUTOMATISCH/], ['finition', /trefw=GR%20Sport/],
+      // Segment de chemin /hybride posé sur URL apprise nue (slug prouvé
+      // 01/08 ; PHEV → famille hybride, pas de catégorie rechargeable —
+      // Channing 27/08).
+      ['carburant', /\/rav4\/hybride(\?|$)/],
     ],
-    wantGone: [/bmin/, /bmax/, /kmax/, /vmin/, /trns/],
+    wantGone: [/bmin/, /bmax/, /kmax/, /vmin/, /trns/, /\/hybride/],
   },
   {
     site: 'BLOCKET',
@@ -266,6 +270,10 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
     { ...FULL, brand: 'MERCEDES-BENZ', model: 'GLA-Class', fuel: 'PLUG_IN_HYBRID' },
   );
   if (!/fuel=8(&|$)/.test(lbcPhev)) fail(`LBC PHEV: fuel=8 attendu (URL humaine GLA 27/08)\n    ${lbcPhev}`);
+  // Gaspedaal n'a PAS de catégorie hybride rechargeable (Channing 27/08) :
+  // une étude PHEV doit servir la famille /hybride — voie mémoire comprise.
+  const gpPhev = applyVariableCriteria('https://www.gaspedaal.nl/toyota/rav4?srt=pr-a', { ...FULL, fuel: 'PLUG_IN_HYBRID' });
+  if (!/\/rav4\/hybride(\?|$)/.test(gpPhev)) fail(`Gaspedaal PHEV: segment /hybride attendu (famille)\n    ${gpPhev}`);
   // LBC sans grammaire puissance → la puissance manque, 3 pages.
   const lbc = applyVariableCriteria('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA', FULL);
   const m2 = missingUrlCriteria(lbc, FULL);

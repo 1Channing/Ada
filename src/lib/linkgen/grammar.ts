@@ -322,6 +322,27 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     power: (url, ch) => setQueryParamRaw(url, 'vmin', ch ? String(ch) : null),
     // trns=AUTOMATISCH — PROUVÉ URL humaine 26/08 ; seule valeur prouvée.
     gearbox: (url, params) => setQueryParamRaw(url, 'trns', isAutomatic(params) ? 'AUTOMATISCH' : null),
+    // Carburant = SEGMENT DE CHEMIN /{brand}/{model?}/{fuel} — slugs prouvés
+    // par URLs humaines : /hybride (01/08), /diesel (02/08). Gaspedaal n'a
+    // PAS de catégorie hybride rechargeable (Channing 27/08) : PHEV/mild →
+    // famille /hybride, l'affinage se fait en aval. Posé-ou-retiré : tout
+    // segment carburant du vocabulaire du site est d'abord retiré (anti-
+    // fossile — une URL apprise /hybride resservie pour une étude diesel).
+    fuel: (url, params) => {
+      try {
+        const u = new URL(url);
+        const VOCAB = new Set(['benzine', 'diesel', 'elektrisch', 'hybride', 'lpg', 'waterstof']);
+        const segs = u.pathname.split('/').filter(Boolean).filter((s) => !VOCAB.has(s.toLowerCase()));
+        const slug = {
+          HYBRIDE: 'hybride', HYBRID: 'hybride',
+          PLUG_IN_HYBRID: 'hybride', PHEV: 'hybride', MILD_HYBRID: 'hybride',
+          DIESEL: 'diesel',
+        }[String(params.fuel ?? '').trim().toUpperCase()];
+        if (slug) segs.push(slug);
+        u.pathname = `/${segs.join('/')}`;
+        return u.toString();
+      } catch { return url; }
+    },
     // trefw = la barre de recherche (trefw=GR+SPORT re-prouvé 25/08).
     trimSlot: (url, t) => setQueryParamRaw(url, 'trefw', t),
   },
