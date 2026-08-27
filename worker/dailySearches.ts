@@ -30,6 +30,7 @@ import { brandKey, canonKey } from '../src/services/marketData';
 import { canonicalizeGearbox } from '../src/lib/study-core/ingestion';
 import { isDamagedVehicleText, structuredModelMatches } from '../src/lib/study-core/business-logic';
 import { archiveOldObservations, recordTruthGap, refreshDashboards, runTruthSweep } from './dashboards';
+import { runTruthDiagnose } from './truthDiagnose';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 
@@ -155,6 +156,9 @@ async function tick(): Promise<void> {
       await archiveOldObservations('études quotidiennes');
       await refreshDashboards('études quotidiennes');
       await runTruthSweep('études quotidiennes');
+      // Brique 3a : le diagnostic déterministe passe derrière le balayage —
+      // diff d'URL vs preuves, artefacts, auto-guérison, re-vérification.
+      await runTruthDiagnose('études quotidiennes');
     }
   } finally {
     running = false;

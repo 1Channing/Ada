@@ -398,7 +398,7 @@ export function grammarForUrl(url: string): SiteGrammar | undefined {
 // des études quotidiennes (une URL qui n'exprime pas un critère demandé ne
 // mérite pas 5 pages : on scraperait large ce qu'on croit précis).
 export const CRITERIA_DETECTORS: Record<string, RegExp> = {
-  année: /regdate=|fregfrom=|bmin=|regfrom=|[?&]fr=|year_from=|constructionYearFrom|[?&]ys=|[?&]rs=|year_min=[^&]/i,
+  année: /regdate=|fregfrom=|fregto=|bmin=|bmax=|regfrom=|regto=|[?&]fr=|year_from=|year_to=|constructionYear|[?&]ys=|[?&]ye=|[?&]rs=|[?&]re=|year_min=[^&]|year_max=[^&]/i,
   km: /mileage=min|kmto=|kmax=|mileageto=|[?&]ml=|mileage_to=|mileageTo|[?&]me=|mileage_max=[^&]/i,
   puissance: /powerfrom=|hpfrom=|[?&]pw=|vmin=|engine_effect_from=|power_min=[^&]|[?&]hps=/i,
   boîte: /[?&]gear=|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
