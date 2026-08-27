@@ -108,6 +108,21 @@ function computeRealDepth(snapshots: Snapshot[], f: MarketFilters): number | nul
       return true;
     } catch { return true; }
   };
+  // SOMME sur tous les sites du pays (décision Channing 27/08) : le marché
+  // d'une étude est la réunion des sites, pas le dernier site scrapé. Par
+  // site : dernier snapshot aux critères conformes portant un total lisible,
+  // à condition qu'il soit frais (≤ 14 j — un total fossile d'un site plus
+  // scanné depuis des semaines fausserait la somme). Aucun site frais et
+  // conforme → repli : dernier snapshot du segment, comme avant.
+  const FRESH_MS = 14 * 86_400_000;
+  const bySite = new Map<string, number>();
+  for (const s of matching) {
+    if (bySite.has(s.site)) continue; // triés desc — le premier est le dernier
+    if (Date.now() - new Date(s.scraped_at).getTime() > FRESH_MS) continue;
+    if (!criteriaCompatible(s)) continue;
+    bySite.set(s.site, s.listing_count as number);
+  }
+  if (bySite.size > 0) return [...bySite.values()].reduce((a, b) => a + b, 0);
   const compatible = matching.find(criteriaCompatible);
   return (compatible ?? matching[0]).listing_count;
 }
@@ -831,7 +846,7 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
           label="Couverture marché"
           value={realDepth != null ? `${stats.count} / ${realDepth}` : '—'}
           hint={realDepth != null && realDepth > 0
-            ? `échantillon / total site (${Math.min(100, Math.round((stats.count / realDepth) * 100))} %)`
+            ? `échantillon / total (somme des sites, ${Math.min(100, Math.round((stats.count / realDepth) * 100))} %)`
             : 'sélectionne marque+modèle'}
         />
         <Kpi label="Prix d'attaque" value={study.attack ? fmtEur(study.attack.price) : '—'} hint={study.attack ? `médiane des ${study.attack.window} moins chères` : undefined} />

@@ -36,6 +36,18 @@ vise les vitrines propres des contacts et les sites secondaires.
 marketplace derrière protection anti-bot sérieuse (famille Datadome comme
 LBC) — passer par le mode navigateur Zyte dès la recon.
 
+## -2. CRITÈRE CARROSSERIE (demandé Channing 27/08 — Corolla GR Sport NL)
+
+Une étude « Corolla GR sport hybride 2022 » rend hatchback ET Touring
+Sports — les deux cochent tous les critères actuels. Pour cibler une
+silhouette, il faut un critère CARROSSERIE de bout en bout :
+daily_searches + MI (filtre) + SearchCriteria + grammaires par site
+(Gaspedaal « Carrosserie=Hatchback » vu en screenshot 27/08 ; les autres
+sites à PROUVER par URLs humaines, comme d'habitude — rien sans preuve),
+post-filtre lecture (champ structuré carrosserie déjà présent sur
+plusieurs sites), détecteur famille + matrice au gate. Différé : demande
+la collecte d'URLs-preuves par site avant tout code.
+
 ## PRINCIPE DIRECTEUR — travail CHIRURGICAL sur les données de mapping
 
 Acté par Channing (19/07/2026) : la qualité des données qui entrent en

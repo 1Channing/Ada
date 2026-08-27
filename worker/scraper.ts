@@ -288,6 +288,10 @@ async function scrapeDetailPage(listingUrl: string): Promise<DetailPageData | nu
 function extractTotalCount(html: string): number | null {
   const text = html.replace(/<[^>]+>/g, ' ');
   const patterns = [
+    // Gaspedaal — « We hebben 6 occasions gevonden » (prouvé screenshot
+    // Channing 27/08) : son total restait NULL, la profondeur MI retombait
+    // sur un autre site. Avant les motifs génériques : plus spécifique.
+    /([\d][\d\s. ]*)\s*occasions?\s+gevonden/i,
     /([\d][\d\s. ]*)\s*(?:annonces?|résultats?|resultats?)/i,   // FR
     /([\d][\d\s. ]*)\s*(?:advertenties?|resultaten|zoekresultaten)/i, // NL
     /([\d][\d\s. ]*)\s*(?:resultater|biler|annoncer)/i,          // DA
