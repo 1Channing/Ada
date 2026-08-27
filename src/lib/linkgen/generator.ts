@@ -174,6 +174,49 @@ export function applyMarktplaatsModelFacet(url: string, facet: MpFacet, modelTex
 
 const LEARNED_ENUM_FIELDS = ['fuel', 'gearbox', 'color', 'vehicleType'] as const;
 
+// ─── Savoir PAR SITE, plus jamais par ligne (constat Ignis 27/08) ────────────
+//
+// Le NOM du paramètre d'un champ (gearbox → 'gearbox', power →
+// 'horse_power_din'…) est une propriété du SITE — mais il n'était lu que dans
+// la ligne mémoire choisie pour l'étude en cours : si cette ligne ne l'avait
+// pas appris (son URL d'origine ne portait pas le champ), le savoir dormait
+// dans les AUTRES lignes du même site et l'étude scrapait sans le filtre
+// (Ignis : gearbox=2 connu par 9 lignes, absent du scope hybride choisi —
+// page toutes-boîtes servie). On agrège désormais les noms de paramètres sur
+// TOUTES les lignes valides du site (le plus fréquent gagne), une requête
+// par site et par session. La classe entière est morte : tout champ appris
+// une fois quelque part sert toutes les études du site, présentes et futures.
+const SITE_FIELD_PARAMS = new Map<string, Map<string, string>>();
+
+async function siteFieldParams(site: SiteKey): Promise<Map<string, string>> {
+  const hit = SITE_FIELD_PARAMS.get(site);
+  if (hit) return hit;
+  const out = new Map<string, string>();
+  try {
+    const { data } = await supabase
+      .from('linkgen_mapping_memory')
+      .select('validated_mapping, inferred_mapping')
+      .eq('site', site)
+      .eq('validation_status', 'valid')
+      .limit(150);
+    const counts = new Map<string, Map<string, number>>();
+    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+      const m = (r.validated_mapping ?? r.inferred_mapping) as InferredMapping | null;
+      for (const [field, seg] of Object.entries(m?.fieldToParam ?? {})) {
+        const p = (seg as { paramName?: string } | undefined)?.paramName;
+        if (!p || p.startsWith('_path')) continue;
+        const c = counts.get(field) ?? counts.set(field, new Map()).get(field)!;
+        c.set(p, (c.get(p) ?? 0) + 1);
+      }
+    }
+    for (const [field, c] of counts) {
+      out.set(field, [...c.entries()].sort((a, b) => b[1] - a[1])[0][0]);
+    }
+  } catch { /* dictionnaire indisponible — le savoir de la ligne seule sert */ }
+  SITE_FIELD_PARAMS.set(site, out);
+  return out;
+}
+
 /**
  * A reused validated_url embeds the ORIGINAL ingestion's year/mileage values —
  * variables by design. Override them with the current request's values (or
@@ -280,8 +323,18 @@ async function applyLearnedSecondaryParams(
   const hash = url.indexOf('#') >= 0 ? url.slice(url.indexOf('#')) : '';
   let out = url;
 
+  // Union : les champs de LA ligne + ceux appris ailleurs sur LE SITE — la
+  // ligne garde priorité sur le nom du paramètre quand les deux existent.
+  const siteParams = await siteFieldParams(site);
+  const effective = new Map<string, string>();
+  for (const [field, p] of siteParams) effective.set(field, p);
   for (const [field, seg] of Object.entries(fieldToParam)) {
-    if (!seg?.paramName || seg.paramName.startsWith('_path')) continue; // path/hash IDs: template's job
+    if (seg?.paramName) effective.set(field, seg.paramName);
+  }
+
+  for (const [field, paramName] of effective) {
+    const seg = { paramName };
+    if (!seg.paramName || seg.paramName.startsWith('_path')) continue; // path/hash IDs: template's job
     if (hash.includes(`${seg.paramName}:`)) continue; // hash-param sites (Marktplaats)
     // minPower is a LOWER bound — never inject it into an upper-bound param
     // (powerto/hpto) a confirmed mapping may have attributed to 'power'.

@@ -111,26 +111,31 @@ const MEMORY_CASES: Array<{
   {
     site: 'LEBONCOIN',
     bare: 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Rav4,RAV4',
-    fossil: 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Rav4,RAV4&regdate=2019-2019&mileage=min-50000&u_car_finition=TOYOTA_Rav4_Gr&text=vieux&gearbox=1',
+    fossil: 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Rav4,RAV4&regdate=2019-2019&mileage=min-50000&u_car_finition=TOYOTA_Rav4_Gr&text=vieux&gearbox=1&horse_power_din=99&fuel=2',
     wantPosed: [
       ['année', /regdate=2022-2024/], ['km', /mileage=min-90000/], ['finition', /text=GR%20Sport/],
       // gearbox=2 (Automatique) — enum humain confirmé en base + URL humaine
       // en mémoire (constat Ignis 27/08 : savoir par ligne → registre).
       ['boîte', /gearbox=2(&|$)/],
+      // horse_power_din appris par 12 lignes mémoire ; fuel=6 (HYBRIDE)
+      // prouvé par URL humaine — inventaire 27/08.
+      ['puissance', /horse_power_din=150/], ['carburant', /fuel=6(&|$)/],
     ],
-    wantGone: [/regdate/, /mileage=/, /u_car_finition/, /text=/, /gearbox=/],
+    wantGone: [/regdate/, /mileage=/, /u_car_finition/, /text=/, /gearbox=/, /horse_power_din/, /fuel=/],
     // La liste à virgules du modèle doit survivre OCTET PAR OCTET.
     wantKept: [/u_car_model=TOYOTA_Rav4,RAV4/],
   },
   {
     site: 'BILBASEN',
     bare: 'https://www.bilbasen.dk/brugt/bil/toyota/rav4?includeengroscvr=true',
-    fossil: 'https://www.bilbasen.dk/brugt/bil/toyota/rav4?yearfrom=2019&yearto=2020&regfrom=2019-01&regto=2020-12&mileageto=10000&hpfrom=999&gear=automatic',
+    fossil: 'https://www.bilbasen.dk/brugt/bil/toyota/rav4?yearfrom=2019&yearto=2020&regfrom=2019-01&regto=2020-12&mileageto=10000&hpfrom=999&gear=automatic&fuel=1',
     wantPosed: [
       ['année', /regfrom=2022-01/], ['année', /regto=2024-12/], ['km', /mileageto=90000/],
       ['puissance', /hpfrom=150/], ['boîte', /gear=automatic/], ['finition', /free=GR%20Sport/],
+      // fuel=6 (HYBRIDE) — codes 1/2/3/6 prouvés 26/08, promus voie mémoire.
+      ['carburant', /fuel=6(&|$)/],
     ],
-    wantGone: [/yearfrom/, /yearto/, /regfrom/, /regto/, /mileageto/, /hpfrom/, /gear=/],
+    wantGone: [/yearfrom/, /yearto/, /regfrom/, /regto/, /mileageto/, /hpfrom/, /gear=/, /fuel=/],
   },
   {
     site: 'MOBILE_DE',

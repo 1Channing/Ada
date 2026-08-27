@@ -191,6 +191,23 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     // humaines) ; la valeur nue est lue comme borne BASSE (études GR SPORT à 0
     // dès l'ajout du critère, 29/07).
     mileage: (url, km) => setQueryParamRaw(url, 'mileage', km ? `min-${km}` : null),
+    // Puissance min : horse_power_din — APPRIS par 12 lignes mémoire humaines
+    // (inventaire 27/08 : le « paramètre puissance LBC sans preuve » dormait
+    // en base depuis des semaines). Unité ch DIN par le nom même du champ.
+    power: (url, ch) => setQueryParamRaw(url, 'horse_power_din', ch ? String(ch) : null),
+    // Carburant : codes 1/2/4 = enum humain confirmé en base (ESSENCE/DIESEL/
+    // ELECTRIQUE), 6 = HYBRIDE prouvé par URL humaine en mémoire (fuel=6,
+    // ligne Ignis 27/08). Familles rechargeables → famille hybride (règle
+    // 04/08), comme l'adaptateur.
+    fuel: (url, params) => {
+      const code = {
+        ESSENCE: '1', PETROL: '1', GASOLINE: '1',
+        DIESEL: '2',
+        ELECTRIQUE: '4', ELECTRIC: '4',
+        HYBRIDE: '6', HYBRID: '6', PLUG_IN_HYBRID: '6', MILD_HYBRID: '6',
+      }[String(params.fuel ?? '').trim().toUpperCase()];
+      return setQueryParamRaw(url, 'fuel', code ?? null);
+    },
     // Boîte : codes du site PROUVÉS (enum humain confirmé en base,
     // linkgen_enum_mappings LEBONCOIN gearbox : Manuelle=1, Automatique=2 ;
     // URL humaine en mémoire gearbox=2). Constat Ignis 27/08 : le savoir
@@ -240,6 +257,18 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     mileage: (url, km) => setQueryParamRaw(url, 'mileageto', km ? String(km) : null),
     // hpfrom EN CH (hk) — URL humaine hpfrom=250.
     power: (url, ch) => setQueryParamRaw(url, 'hpfrom', ch ? String(ch) : null),
+    // Carburant : codes 1/2/3/6 PROUVÉS (URLs humaines 26/08, FUEL_MAP de
+    // l'adaptateur) — promu au registre pour la voie mémoire (inventaire
+    // 27/08 : le savoir ne servait que la voie native).
+    fuel: (url, params) => {
+      const code = {
+        ESSENCE: '1', PETROL: '1', GASOLINE: '1',
+        DIESEL: '2',
+        ELECTRIQUE: '3', ELECTRIC: '3',
+        HYBRIDE: '6', HYBRID: '6', PLUG_IN_HYBRID: '6', MILD_HYBRID: '6',
+      }[String(params.fuel ?? '').trim().toUpperCase()];
+      return setQueryParamRaw(url, 'fuel', code ?? null);
+    },
     // gear=automatic — PROUVÉ URL humaine 26/08 ; seule valeur prouvée.
     gearbox: (url, params) => setQueryParamRaw(url, 'gear', isAutomatic(params) ? 'automatic' : null),
     trimSlot: (url, t) => setQueryParamRaw(url, 'free', t),
