@@ -11,8 +11,17 @@
 import { supabase } from '../lib/supabase';
 import { findSiteAdapterByDomain, getSiteAdapter } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/study-core/marketplaces';
+import { brandKey, refModelKey, canonKey, FUEL_TOKEN_TO_CRITERIA } from './marketData';
 
 export const RESCAN_AFTER_DAYS = 30;
+
+// Carburant canonique : les snapshots portent selon le canal la forme CRITÈRE
+// ('HYBRIDE'), le token ('hybrid') ou rien — tout ramené au CRITÈRE majuscule.
+const fuelC = (v: string | null | undefined): string => {
+  const raw = (v ?? '').trim();
+  if (!raw) return '';
+  return FUEL_TOKEN_TO_CRITERIA[raw.toLowerCase()] ?? raw.toUpperCase();
+};
 
 export interface StaleSegment {
   key: string;                 // site|brand|model|fuel|trim
@@ -29,13 +38,49 @@ export interface StaleSegment {
   sourceUrl: string | null;
 }
 
-const segKey = (r: { site: string; brand: string; model: string; fuel: string; trim: string }) =>
-  [r.site, r.brand, r.model, r.fuel, r.trim].join('|');
+// Clé CANONIQUE (constat 27/08 : les clés brutes rendaient les segments
+// impérissables — les relances écrivaient 'RAV4'/carburant natif là où la
+// liste attendait 'RAV-4'/'HYBRIDE' d'époque : jamais le même « dernier
+// scan », la cloche gonflait et chaque relance re-payait du Zyte pour rien).
+const segKey = (r: { site: string; brand: string; model: string; fuel?: string | null; trim?: string | null }) =>
+  [r.site, brandKey(r.brand ?? ''), refModelKey(r.brand ?? '', r.model ?? ''), fuelC(r.fuel), canonKey(r.trim ?? '')].join('|');
 
-/** All segments whose latest snapshot is > RESCAN_AFTER_DAYS old, minus opt-outs. */
+interface SnapRow {
+  site: string; country: string; brand: string; model: string;
+  fuel: string; trim: string; scraped_at: string; source_url: string | null;
+}
+
+/** Bornes d'années décodées de l'URL d'un scan (cache par URL). */
+const yearBoundsCache = new Map<string, { from: number | null; to: number | null }>();
+function yearBoundsOf(url: string | null): { from: number | null; to: number | null } {
+  if (!url) return { from: null, to: null };
+  const hit = yearBoundsCache.get(url);
+  if (hit) return hit;
+  let out: { from: number | null; to: number | null } = { from: null, to: null };
+  try {
+    const pre = findSiteAdapterByDomain(url)?.prefillCriteriaFromUrl?.(url);
+    const f = Number(pre?.yearFrom ?? '');
+    const t = Number(pre?.yearTo ?? '');
+    out = {
+      from: f >= 2000 && f <= 2100 ? f : null,
+      to: t >= 2000 && t <= 2100 ? t : null,
+    };
+  } catch { /* illisible */ }
+  yearBoundsCache.set(url, out);
+  return out;
+}
+
+/**
+ * Segments dont AUCUN scan COUVRANT n'a moins de RESCAN_AFTER_DAYS, hors
+ * opt-outs. « Couvrant » = même site + même identité canonique marque/modèle,
+ * portée carburant (scan sans carburant = tous) et finition (scan sans
+ * finition = toutes) englobantes, et millésime épinglé du segment dans la
+ * fourchette d'années du scan (scan sans bornes décodables = toutes années).
+ * Même doctrine de périmètre que la purge des annonces disparues : un scan
+ * quotidien large rafraîchit les segments étroits qu'il recouvre.
+ */
 export async function loadStaleSegments(): Promise<StaleSegment[]> {
-  // Latest snapshot per segment — paginated read, newest first, first hit wins.
-  const latest = new Map<string, { site: string; country: string; brand: string; model: string; fuel: string; trim: string; scraped_at: string; source_url: string | null }>();
+  const rows: SnapRow[] = [];
   const PAGE = 1000;
   for (let from = 0; from < 20_000; from += PAGE) {
     const { data, error } = await supabase
@@ -44,39 +89,60 @@ export async function loadStaleSegments(): Promise<StaleSegment[]> {
       .order('scraped_at', { ascending: false })
       .range(from, from + PAGE - 1);
     if (error || !data) break;
-    for (const r of data as typeof data & Array<{ site: string; country: string; brand: string; model: string; fuel: string; trim: string; scraped_at: string; source_url: string | null }>) {
-      const k = segKey(r);
-      if (!latest.has(k)) latest.set(k, r);
-    }
+    rows.push(...(data as unknown as SnapRow[]));
     if (data.length < PAGE) break;
+  }
+
+  // Dernier snapshot par segment canonique + index par groupe site|marque|modèle.
+  const latest = new Map<string, SnapRow>();
+  const byGroup = new Map<string, SnapRow[]>();
+  const groupOf = (r: SnapRow) => [r.site, brandKey(r.brand), refModelKey(r.brand, r.model)].join('|');
+  for (const r of rows) {
+    if (!r.brand || !r.model) continue;
+    const k = segKey(r);
+    if (!latest.has(k)) latest.set(k, r);
+    const g = groupOf(r);
+    (byGroup.get(g) ?? byGroup.set(g, []).get(g)!).push(r); // déjà triés desc
   }
 
   const { data: optRows } = await supabase
     .from('market_rescan_optouts')
     .select('site, brand, model, fuel, trim')
     .limit(5000);
-  const optedOut = new Set((optRows ?? []).map((r) => segKey(r as { site: string; brand: string; model: string; fuel: string; trim: string })));
+  const optedOut = new Set((optRows ?? []).map((r) => segKey(r as SnapRow)));
 
   const now = Date.now();
   const out: StaleSegment[] = [];
   for (const [key, r] of latest) {
     if (optedOut.has(key)) continue;
-    if (!r.brand || !r.model) continue;
-    const days = Math.floor((now - new Date(r.scraped_at).getTime()) / 86_400_000);
-    if (days < RESCAN_AFTER_DAYS) continue;
-    // Vintage pin: decode the year the segment was scanned with from its URL.
-    let year: number | null = null;
-    if (r.source_url) {
-      try {
-        const pre = findSiteAdapterByDomain(r.source_url)?.prefillCriteriaFromUrl?.(r.source_url);
-        const y = Number(pre?.yearFrom ?? '');
-        if (y >= 2000 && y <= 2100) year = y;
-      } catch { /* keep null */ }
-    }
+    const ownDays = Math.floor((now - new Date(r.scraped_at).getTime()) / 86_400_000);
+    if (ownDays < RESCAN_AFTER_DAYS) continue;
+    // Millésime épinglé du segment (décodé de sa dernière URL).
+    const pin = yearBoundsOf(r.source_url).from;
+    // Un scan plus récent COUVRANT le segment le rafraîchit — quel que soit
+    // le canal qui l'a produit (quotidienne, MI, campagne).
+    const segFuel = fuelC(r.fuel);
+    const segTrim = canonKey(r.trim ?? '');
+    const fresherCover = (byGroup.get(groupOf(r)) ?? []).find((c) => {
+      const age = Math.floor((now - new Date(c.scraped_at).getTime()) / 86_400_000);
+      if (age >= RESCAN_AFTER_DAYS) return false; // triés desc : on peut sortir tôt, mais find suffit
+      const cFuel = fuelC(c.fuel);
+      if (cFuel !== '' && cFuel !== segFuel) return false;
+      const cTrim = canonKey(c.trim ?? '');
+      if (cTrim && cTrim !== segTrim) return false;
+      if (pin != null) {
+        const b = yearBoundsOf(c.source_url);
+        if (b.from != null && pin < b.from) return false;
+        if (b.to != null && pin > b.to) return false;
+        if (b.to == null && b.from != null && pin < b.from) return false;
+      }
+      return true;
+    });
+    if (fresherCover) continue;
     out.push({
       key, site: r.site, country: r.country, brand: r.brand, model: r.model,
-      fuel: r.fuel, trim: r.trim, year,
-      lastScanAt: r.scraped_at, daysSince: days, sourceUrl: r.source_url,
+      fuel: r.fuel, trim: r.trim, year: pin,
+      lastScanAt: r.scraped_at, daysSince: ownDays, sourceUrl: r.source_url,
     });
   }
   // Oldest first — the most overdue markets at the top.
