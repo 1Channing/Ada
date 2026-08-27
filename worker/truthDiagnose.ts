@@ -287,15 +287,32 @@ export async function runTruthDiagnose(reason: string): Promise<void> {
           .limit(40);
         const s = studyFor(studies, d);
         const adapter = adapters.find((a) => a.key === d.site);
+        // Périmètre de comparaison : d'abord celui de la PREUVE elle-même
+        // (l'URL manuelle porte ses propres bornes — cas X3 : deux études
+        // 2022-2022 et 2024-2024 sur le même segment, seule l'URL de la
+        // preuve dit laquelle est jugée), sinon celui de l'étude appariée.
+        const proofScope = (() => {
+          if (!ev.manual_url || !adapter?.prefillCriteriaFromUrl) return null;
+          try { return adapter.prefillCriteriaFromUrl(ev.manual_url); } catch { return null; }
+        })();
         const fresh = ((snaps ?? []) as Array<{ listing_count: number | null; sample_size: number; source_url: string | null; scraped_at: string }>)
+          // Vrai total : différent de l'échantillon, OU petit marché lu en
+          // entier (total = échantillon < 60 : moins que la capacité d'une
+          // vague — cas X3 re-mesuré à 11/11, parfaitement probant).
           .filter((x) => x.scraped_at > ev.created_at && x.listing_count != null
-            && x.listing_count !== x.sample_size /* vrai total, pas un échantillon */)
+            && (x.listing_count !== x.sample_size || x.listing_count < 60))
           .find((x) => {
             if (!x.source_url || !adapter?.prefillCriteriaFromUrl) return false;
             try {
               const dec = adapter.prefillCriteriaFromUrl(x.source_url);
               const decBrand = (dec.brand ?? '').trim();
               if (decBrand && brandKey(decBrand) !== brandKey(d.brand)) return false;
+              if (proofScope) {
+                if (proofScope.yearFrom && dec.yearFrom && String(dec.yearFrom) !== String(proofScope.yearFrom)) return false;
+                if (proofScope.yearTo && dec.yearTo && String(dec.yearTo) !== String(proofScope.yearTo)) return false;
+                if (proofScope.mileage && dec.mileage && String(dec.mileage) !== String(proofScope.mileage)) return false;
+                return true;
+              }
               if (s?.year_min != null && dec.yearFrom && Number(dec.yearFrom) !== s.year_min) return false;
               if (s?.year_max != null && dec.yearTo && Number(dec.yearTo) !== s.year_max) return false;
               return true;

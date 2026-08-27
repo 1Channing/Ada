@@ -107,7 +107,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 // Champs de la conformité « champ par champ » (pilier 2 du plan).
-const CRITERIA_FIELDS = ['marque', 'modèle', 'carburant', 'année', 'kilométrage', 'boîte', 'finition'] as const;
+const CRITERIA_FIELDS = ['marque', 'modèle', 'carburant', 'année', 'kilométrage', 'puissance', 'boîte', 'finition'] as const;
 type CritState = 'ok' | 'ko' | 'inconnu';
 
 function fmtAgo(iso: string): string {
@@ -549,6 +549,7 @@ function EvidenceForm({ d, study, userEmail, onSubmitted }: { d: Dossier; study:
     if (study.fuel) r.add('carburant');
     if (study.year_min || study.year_max) r.add('année');
     if (study.mileage_max) r.add('kilométrage');
+    if (study.power_min) r.add('puissance');
     if (study.gearbox) r.add('boîte');
     if (study.trim || study.trim_target) r.add('finition');
     return r;
