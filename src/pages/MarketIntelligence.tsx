@@ -502,7 +502,8 @@ export function MarketIntelligence() {
     // décrivent (mêmes chiffres que le tableau du dessous) ; l'historique
     // complet reste dans `filtered` pour les courbes et la vélocité, qui ont
     // besoin de chaque passage, disparitions comprises.
-    const latestObs = pruneVanishedListings(latestPerListing(filtered), data.snapshots);
+    // Couverture des scans lue sur le jeu COMPLET (obs), pas sur le filtré.
+    const latestObs = pruneVanishedListings(latestPerListing(filtered), data.snapshots, obs);
     return {
       idx: i, filters: f, color, label: studyLabel(f, i),
       filtered, latestObs, stats: priceStats(latestObs), series: timeSeries(filtered),

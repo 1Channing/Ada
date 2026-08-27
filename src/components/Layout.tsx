@@ -1,5 +1,5 @@
-import { ReactNode } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, ShieldCheck, LogOut, Activity } from 'lucide-react';
+import { ReactNode, useEffect, useState } from 'react';
+import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, ShieldCheck, LogOut, Activity, RefreshCw } from 'lucide-react';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
 import { FeedbackCenter } from './FeedbackCenter';
@@ -14,8 +14,40 @@ type LayoutProps = {
  * MC Export, logo de marque, libellés français, contenu sur fond clair.
  * Habillage pur — navigation, routes et comportements inchangés.
  */
+/**
+ * DÉTECTEUR DE NOUVELLE VERSION (point 4 de l'étage 3, livré 27/08).
+ * Le keep-alive fige le bundle : l'onglet garde l'ancien code après chaque
+ * déploiement Railway — trois diagnostics de la semaine se sont faits sur du
+ * code périmé sans que personne le sache. On relit index.html (no-store) au
+ * focus et toutes les 5 min : si le bundle hashé qu'il référence n'est plus
+ * celui qui tourne, un bandeau propose de recharger. Jamais de rechargement
+ * forcé — l'utilisateur peut être en pleine saisie.
+ */
+function useNewVersionAvailable(): boolean {
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    const current = document.querySelector<HTMLScriptElement>('script[src*="/assets/index-"]')
+      ?.getAttribute('src')?.split('/').pop();
+    if (!current) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const html = await (await fetch('/index.html', { cache: 'no-store' })).text();
+        const m = html.match(/\/assets\/(index-[^"']+\.js)/);
+        if (!cancelled && m && m[1] !== current) setStale(true);
+      } catch { /* hors-ligne — on retentera */ }
+    };
+    const iv = setInterval(() => void check(), 5 * 60_000);
+    const onFocus = () => void check();
+    window.addEventListener('focus', onFocus);
+    return () => { cancelled = true; clearInterval(iv); window.removeEventListener('focus', onFocus); };
+  }, []);
+  return stale;
+}
+
 export function Layout({ children }: LayoutProps) {
   const activeCount = useActiveUsersCount();
+  const newVersion = useNewVersionAvailable();
   const currentPath = window.location.pathname;
 
   // Navigation INTERNE (étage 3, 26/08) : pushState suffit — App écoute
@@ -109,6 +141,17 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </nav>
 
+      {newVersion && (
+        <div className="sticky top-0 z-50 bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-center gap-3 text-sm text-amber-900">
+          Une nouvelle version d'ADA est disponible — les correctifs récents ne sont pas encore dans cet onglet.
+          <button
+            onClick={() => window.location.reload()}
+            className="inline-flex items-center gap-1.5 bg-amber-600 text-white rounded-lg px-3 py-1 hover:bg-amber-700"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Recharger
+          </button>
+        </div>
+      )}
       <main className="min-h-screen overflow-auto">
         <div className="p-8 max-md:p-3">
           {children}

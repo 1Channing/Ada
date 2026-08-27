@@ -486,7 +486,17 @@ export function latestPerListing(obs: Observation[]): Observation[] {
  *    la page 5 ne prouve rien au-delà de sa dernière annonce).
  * Fail-open sur chaque garde : sans preuve de couverture, l'annonce reste.
  */
-export function pruneVanishedListings(obs: Observation[], snapshots: Snapshot[]): Observation[] {
+export function pruneVanishedListings(
+  obs: Observation[],
+  snapshots: Snapshot[],
+  /** Source de COUVERTURE des scans (années effectivement vues) : le jeu
+   *  COMPLET d'observations, AVANT filtres d'étude et déduplication.
+   *  Constat Ignis 27/08 : la couverture était lue dans la liste déjà
+   *  filtrée/dédupliquée — quand les annonces du scan frais étaient
+   *  dédupliquées au profit d'un clone d'un autre site, le scan perdait sa
+   *  couverture et ne purgeait plus rien (fail-open devenu passoire). */
+  coverageSource?: Observation[],
+): Observation[] {
   if (snapshots.length === 0) return obs;
   const groupOf = (s: Snapshot) =>
     [s.site, s.country, brandKey(s.brand), refModelKey(s.brand, s.model)].join('|');
@@ -500,7 +510,7 @@ export function pruneVanishedListings(obs: Observation[], snapshots: Snapshot[])
   for (const list of byGroup.values()) list.sort((a, b) => String(b.scraped_at).localeCompare(String(a.scraped_at)));
   // Fourchette d'années effectivement vue par CHAQUE scan (ses propres obs).
   const yearCover = new Map<string, { min: number; max: number }>();
-  for (const o of obs) {
+  for (const o of coverageSource ?? obs) {
     if (o.year == null) continue;
     const cur = yearCover.get(o.snapshot_id);
     yearCover.set(o.snapshot_id, {
