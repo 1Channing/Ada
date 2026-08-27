@@ -538,8 +538,22 @@ export function pruneVanishedListings(obs: Observation[], snapshots: Snapshot[])
   });
 }
 
+/**
+ * Texte « souple » pour la FINITION : minuscules, accents dépouillés, toute
+ * ponctuation devenue espace. Constat Channing 27/08 (Corolla NL) : le filtre
+ * « GR sport » ratait « GR-Sport » — les titres Gaspedaal écrivent la
+ * finition avec un TIRET, normText gardait la ponctuation et l'inclusion
+ * échouait ; les 6 annonces du scan (URL pourtant bien filtrée trefw=GR+sport)
+ * étaient éliminées À L'AFFICHAGE. Espaces conservés comme frontières : on ne
+ * colle pas les mots (un besoin « RS » ne doit pas matcher « veRSion » plus
+ * qu'avant).
+ */
+const softText = (v: string | null | undefined) =>
+  (v ?? '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+
 export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_FILTERS): Observation[] {
-  const trimNeedle = normText(f.trim).trim();
+  const trimNeedle = softText(f.trim);
   // Boîte : comparaison sur le TOKEN canonique — « Automatique » retient
   // aussi Automatik, Automatisch, Automatico, Automaat, Automatisk gear…
   const gearboxToken = canonicalizeGearbox(f.gearbox);
@@ -556,7 +570,7 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
     // refModelKey et non canonKey : « CLA » ≡ « CLASSE CLA », « SÉRIE 3 » ≡
     // « 3-SERIES » — l'identité modèle unifiée (chantier nommage 02/08).
     (!f.model || refModelKey(o.brand, o.model) === refModelKey(f.brand ?? o.brand, f.model)) &&
-    (!trimNeedle || normText(o.trim).includes(trimNeedle) || normText(o.title).includes(trimNeedle)) &&
+    (!trimNeedle || softText(o.trim).includes(trimNeedle) || softText(o.title).includes(trimNeedle)) &&
     fuelFilterMatches(o.fuel, f.fuel ?? '') &&
     (!gearboxToken || canonicalizeGearbox(o.gearbox) === gearboxToken) &&
     (f.yearMin == null || (o.year != null && o.year >= f.yearMin)) &&
