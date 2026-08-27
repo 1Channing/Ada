@@ -468,49 +468,73 @@ export function latestPerListing(obs: Observation[]): Observation[] {
  * gardent chaque passage. Snapshot inconnu de la fenêtre chargée = conservé
  * (fail-open : on ne supprime que sur preuve d'un re-scan du même segment).
  */
+/**
+ * V2 par PÉRIMÈTRE (constat Channing 27/08 : les vendues survivaient à une
+ * mise à jour MI). La v1 ne comparait que des scans du MÊME segment exact
+ * (fuel+trim compris) — or chaque canal écrit son grain : études
+ * quotidiennes fuel=''/trim='', mise à jour MI fuel/trim remplis, campagnes
+ * année par année. Un scan frais ne faisait donc jamais disparaître les
+ * annonces des autres canaux.
+ *
+ * Règle v2 : une annonce disparaît si un scan POSTÉRIEUR l'a RECOUVERTE
+ * sans la revoir. « Recouverte » = même site/pays/marque/modèle ET :
+ *  - portée carburant : scan sans carburant (tout) ou carburant compatible ;
+ *  - portée finition : scan sans finition ou finition contenue dans l'annonce ;
+ *  - fourchette d'ANNÉES du scan (lue dans ses propres observations — les
+ *    campagnes scannent millésime par millésime, constat EV3 02/08) ;
+ *  - bande de PRIX du scan (price_max : un scan trié prix croissant coupé à
+ *    la page 5 ne prouve rien au-delà de sa dernière annonce).
+ * Fail-open sur chaque garde : sans preuve de couverture, l'annonce reste.
+ */
 export function pruneVanishedListings(obs: Observation[], snapshots: Snapshot[]): Observation[] {
   if (snapshots.length === 0) return obs;
-  const segOf = (s: Snapshot) =>
-    [s.site, s.country, brandKey(s.brand), refModelKey(s.brand, s.model), s.fuel ?? '', canonKey(s.trim ?? '')].join('|');
+  const groupOf = (s: Snapshot) =>
+    [s.site, s.country, brandKey(s.brand), refModelKey(s.brand, s.model)].join('|');
   const byId = new Map<string, Snapshot>();
-  const latestBySeg = new Map<string, Snapshot>();
+  const byGroup = new Map<string, Snapshot[]>();
   for (const s of snapshots) {
     byId.set(s.id, s);
-    const k = segOf(s);
-    const cur = latestBySeg.get(k);
-    if (!cur || String(s.scraped_at) > String(cur.scraped_at)) latestBySeg.set(k, s);
+    const k = groupOf(s);
+    (byGroup.get(k) ?? byGroup.set(k, []).get(k)!).push(s);
   }
-  // Couverture ANNÉES du dernier scan de chaque segment, lue dans ses propres
-  // observations : les campagnes scannent ANNÉE PAR ANNÉE (min = max), donc le
-  // « dernier scan » d'un segment ne décrit souvent qu'un seul millésime — un
-  // scan épinglé 2025 ne prouve RIEN sur les annonces 2024 ou 2026 (constat
-  // Channing 02/08 : les EV3 belges s'effaçaient dès l'arrivée des snapshots).
-  // Un scan ne peut faire disparaître que ce que sa fourchette d'années a
-  // effectivement recouvert.
-  const latestYearCover = new Map<string, { min: number; max: number }>();
+  for (const list of byGroup.values()) list.sort((a, b) => String(b.scraped_at).localeCompare(String(a.scraped_at)));
+  // Fourchette d'années effectivement vue par CHAQUE scan (ses propres obs).
+  const yearCover = new Map<string, { min: number; max: number }>();
   for (const o of obs) {
     if (o.year == null) continue;
-    const snap = byId.get(o.snapshot_id);
-    if (!snap) continue;
-    const latest = latestBySeg.get(segOf(snap));
-    if (!latest || latest.id !== o.snapshot_id) continue;
-    const cur = latestYearCover.get(latest.id);
-    latestYearCover.set(latest.id, {
+    const cur = yearCover.get(o.snapshot_id);
+    yearCover.set(o.snapshot_id, {
       min: cur ? Math.min(cur.min, o.year) : o.year,
       max: cur ? Math.max(cur.max, o.year) : o.year,
     });
   }
   return obs.filter((o) => {
-    const snap = byId.get(o.snapshot_id);
-    if (!snap) return true;
-    const latest = latestBySeg.get(segOf(snap));
-    if (!latest || latest.id === snap.id) return true;
-    const cover = latestYearCover.get(latest.id);
-    // Fail-open : dernier scan sans observations chargées (scan vide, obs
-    // écartées par les filtres de l'étude) ou année de l'annonce inconnue →
-    // aucune preuve de disparition, l'annonce reste.
-    if (!cover || o.year == null) return true;
-    return o.year < cover.min || o.year > cover.max;
+    const own = byId.get(o.snapshot_id);
+    if (!own) return true;
+    for (const cand of byGroup.get(groupOf(own)) ?? []) {
+      if (String(cand.scraped_at) <= String(own.scraped_at)) break; // triés desc — plus rien de postérieur
+      // Portée carburant : '' = tous ; sinon l'annonce doit y appartenir.
+      // Le snapshot porte la forme CRITÈRE ('HYBRIDE', 'PLUG_IN_HYBRID'…),
+      // les observations le token ('hybrid', 'phev'…) — on retraduit.
+      const scanFuelRaw = (cand.fuel ?? '').trim();
+      const scanFuelToken = scanFuelRaw
+        ? (Object.entries(FUEL_TOKEN_TO_CRITERIA).find(([, c]) => c === scanFuelRaw.toUpperCase())?.[0] ?? scanFuelRaw.toLowerCase())
+        : '';
+      if (scanFuelToken !== '' && !fuelFilterMatches(o.fuel ?? '', scanFuelToken)) continue;
+      // Portée finition : '' = toutes ; sinon contenue dans l'annonce.
+      const wantTrim = canonKey(cand.trim ?? '');
+      if (wantTrim && !canonKey(`${o.trim ?? ''} ${o.title ?? ''}`).includes(wantTrim)) continue;
+      // Fourchette d'années du scan candidat (sans preuve → pas couvert).
+      const cover = yearCover.get(cand.id);
+      if (!cover || o.year == null) continue;
+      if (o.year < cover.min || o.year > cover.max) continue;
+      // Bande de prix : au-delà du prix max vu par le scan (tri prix, pages
+      // limitées), rien n'est prouvé. Comparaison en EUR seulement.
+      if (cand.price_max != null && typeof o.price === 'number'
+        && ((o as { currency?: string }).currency ?? 'EUR') === 'EUR' && o.price > Number(cand.price_max)) continue;
+      return false; // scan postérieur couvrant, annonce non revue → disparue
+    }
+    return true;
   });
 }
 
