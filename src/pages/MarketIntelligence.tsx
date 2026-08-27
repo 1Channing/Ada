@@ -93,7 +93,16 @@ function computeRealDepth(snapshots: Snapshot[], f: MarketFilters): number | nul
   if (matching.length === 0) return null;
   const adapters = allSiteAdapters();
   const criteriaCompatible = (s: Snapshot): boolean => {
-    if (f.fuel && s.fuel && s.fuel.toUpperCase() !== String(f.fuel).toUpperCase()) return false;
+    // Carburant : le filtre MI parle en TOKEN ('hybrid'), le snapshot en
+    // CRITÈRE ('HYBRIDE') — sans retraduction ils n'étaient JAMAIS égaux et
+    // tous les scans frais étaient rejetés (Corolla 27/08 : profondeur 5 au
+    // lieu de la somme). Snapshot sans carburant : toléré (études
+    // quotidiennes — le carburant est dans l'URL, pas dans le segment).
+    if (f.fuel && s.fuel) {
+      const snapUp = s.fuel.trim().toUpperCase();
+      const snapToken = Object.entries(FUEL_TOKEN_TO_CRITERIA).find(([, c]) => c === snapUp)?.[0] ?? s.fuel.trim().toLowerCase();
+      if (snapToken !== String(f.fuel).toLowerCase()) return false;
+    }
     const url = (s as { source_url?: string | null }).source_url;
     if (!url) return true;
     const adapter = adapters.find((a) => a.key === s.site);
