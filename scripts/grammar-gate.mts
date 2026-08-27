@@ -257,6 +257,15 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
   );
   const m1 = missingUrlCriteria(complete, FULL);
   if (m1.length !== 0) fail(`profondeur: URL complète jugée incomplète (${m1.join(',')})\n    ${complete}`);
+  // Carburant PHEV Leboncoin : fuel=8 (« Hybride Rechargeable ») — moisson
+  // des annonces 30/07-01/08, RE-prouvé par URL humaine GLA 27/08 (&fuel=8).
+  // Régression payée le 27/08 : le registre rabattait PHEV→6 (famille
+  // hybride) et écrasait le 8 natif — étude GLA sur le mauvais marché.
+  const lbcPhev = applyVariableCriteria(
+    'https://www.leboncoin.fr/recherche?category=2&u_car_brand=MERCEDES-BENZ&fuel=6',
+    { ...FULL, brand: 'MERCEDES-BENZ', model: 'GLA-Class', fuel: 'PLUG_IN_HYBRID' },
+  );
+  if (!/fuel=8(&|$)/.test(lbcPhev)) fail(`LBC PHEV: fuel=8 attendu (URL humaine GLA 27/08)\n    ${lbcPhev}`);
   // LBC sans grammaire puissance → la puissance manque, 3 pages.
   const lbc = applyVariableCriteria('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA', FULL);
   const m2 = missingUrlCriteria(lbc, FULL);

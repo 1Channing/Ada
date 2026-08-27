@@ -197,14 +197,18 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     power: (url, ch) => setQueryParamRaw(url, 'horse_power_din', ch ? String(ch) : null),
     // Carburant : codes 1/2/4 = enum humain confirmé en base (ESSENCE/DIESEL/
     // ELECTRIQUE), 6 = HYBRIDE prouvé par URL humaine en mémoire (fuel=6,
-    // ligne Ignis 27/08). Familles rechargeables → famille hybride (règle
-    // 04/08), comme l'adaptateur.
+    // ligne Ignis 27/08), 8 = HYBRIDE RECHARGEABLE — moisson des annonces
+    // 30/07-01/08 (l'adaptateur le savait) RE-prouvé par URL humaine GLA
+    // 27/08 (&fuel=8). Rechargeable ≠ famille 6 sur CE site : le registre
+    // qui rabattait PHEV→6 écrasait le 8 natif (étude GLA faussée 27/08).
+    // Seul MILD_HYBRID reste rangé famille hybride (pas de code distinct).
     fuel: (url, params) => {
       const code = {
         ESSENCE: '1', PETROL: '1', GASOLINE: '1',
         DIESEL: '2',
         ELECTRIQUE: '4', ELECTRIC: '4',
-        HYBRIDE: '6', HYBRID: '6', PLUG_IN_HYBRID: '6', MILD_HYBRID: '6',
+        HYBRIDE: '6', HYBRID: '6', MILD_HYBRID: '6',
+        PLUG_IN_HYBRID: '8', PHEV: '8',
       }[String(params.fuel ?? '').trim().toUpperCase()];
       return setQueryParamRaw(url, 'fuel', code ?? null);
     },

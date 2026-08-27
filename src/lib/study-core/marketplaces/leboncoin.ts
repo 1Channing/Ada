@@ -140,16 +140,30 @@ function titleCase(s: string): string {
 const LEARNED_MODEL_ENUM: Record<string, string> = {};
 const canonEnum = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+// Mercedes FRANCISE ses classes chez LBC : le référentiel dit « GLA-Class »,
+// l'enum du site est « MERCEDES-BENZ_Classe GLA » (URL humaine 27/08 :
+// u_car_model=MERCEDES-BENZ_Classe%20GLA — nos 4 graphies GLA-CLASS rendaient
+// la liste de candidats sans le bon membre). Extrait le cœur (« GLA ») des
+// deux ordres de mots pour relier les deux mondes.
+function classCore(s: string): string | null {
+  const m = s.trim().match(/^(.+?)[\s_-]+classe?$/i) ?? s.trim().match(/^classe?[\s_-]+(.+)$/i);
+  return m ? m[1].trim() : null;
+}
+
 function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
   if (field !== 'u_car_model') return;
   for (const p of pairs) {
     const code = p.code.trim();
     if (!code) continue;
     // Indexé par label ('iX1') ET par suffixe du code ('BMW_iX1' → 'IX1') —
-    // premier appris gagne (certain-ou-rien, jamais d'écrasement).
+    // premier appris gagne (certain-ou-rien, jamais d'écrasement). Les formes
+    // « Classe X » sont aussi indexées par leur cœur (« Classe GLA » → 'GLA')
+    // pour que la recherche « GLA-Class » du référentiel retrouve l'enum.
     const suffix = code.includes('_') ? code.slice(code.indexOf('_') + 1) : code;
-    for (const k of [canonEnum(p.label || ''), canonEnum(suffix)]) {
-      if (k && !LEARNED_MODEL_ENUM[k]) LEARNED_MODEL_ENUM[k] = code;
+    for (const raw of [p.label || '', suffix]) {
+      for (const k of [canonEnum(raw), canonEnum(classCore(raw) ?? '')]) {
+        if (k && !LEARNED_MODEL_ENUM[k]) LEARNED_MODEL_ENUM[k] = code;
+      }
     }
   }
 }
@@ -200,7 +214,9 @@ function modelParamCandidates(brandMapped: string, modelMapped: string): string 
   // cinq variantes devinées n'ajoute que du risque (une liste contenant un
   // membre invalide peut rendre 0). Les variantes ne servent qu'en
   // DÉCOUVERTE, tant que l'enum n'a pas encore été moissonné.
-  const learned = LEARNED_MODEL_ENUM[canonEnum(display)] ?? LEARNED_MODEL_ENUM[canonEnum(compact)];
+  const core = classCore(display);
+  const learned = LEARNED_MODEL_ENUM[canonEnum(display)] ?? LEARNED_MODEL_ENUM[canonEnum(compact)]
+    ?? (core ? LEARNED_MODEL_ENUM[canonEnum(core)] : undefined);
   if (learned) return encodeURIComponent(learned);
   for (const base of [display, compact]) {
     if (!base) continue;
@@ -214,6 +230,16 @@ function modelParamCandidates(brandMapped: string, modelMapped: string): string 
       for (const v of [iForm, `${brand}_${iForm}`]) {
         if (!out.includes(v)) out.push(v);
       }
+    }
+  }
+  // Classes Mercedes : « X-Class » du référentiel → « Classe X » chez LBC
+  // (forme prouvée MERCEDES-BENZ_Classe GLA, URL humaine 27/08 — Classe en
+  // Titre, cœur en MAJUSCULES). Candidats de découverte seulement — dès que
+  // l'enum est moissonné, la branche « learned » ci-dessus le sert seul.
+  if (core) {
+    const frForm = `Classe ${core.toUpperCase()}`;
+    for (const v of [frForm, `${brand}_${frForm}`]) {
+      if (!out.includes(v)) out.push(v);
     }
   }
   // Espaces encodés (%20) comme le fait le site, virgules littérales (le
@@ -501,14 +527,17 @@ function getFetchProfile(_attempt: number): ZyteProfileOverrides {
 // Canonical reverse of FUEL_MAP: codes verified live on leboncoin.fr.
 // Not auto-inverted because several declared labels share a code
 // (ESSENCE/GASOLINE/PETROL → '1'); we pick one canonical label per code.
+// '8' = Hybride Rechargeable (moisson 30/07-01/08, URL humaine GLA 27/08) ;
+// '5' = « Autre » — l'ancien décodage 5→PLUG_IN_HYBRID était un fossile de
+// l'époque où FUEL_MAP posait 5 : on ne décode pas « Autre » en critère.
 const FUEL_CODE_TO_LABEL: Record<string, string> = {
   '1': 'ESSENCE',
   '2': 'DIESEL',
   '3': 'GPL',
   '4': 'ELECTRIQUE',
-  '5': 'PLUG_IN_HYBRID',
   '6': 'HYBRIDE',
   '7': 'GNV',
+  '8': 'PLUG_IN_HYBRID',
 };
 
 function reverseLookup(map: Record<string, string>, siteValue: string): string {
