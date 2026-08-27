@@ -80,6 +80,9 @@ export async function writeMarketSnapshot(params: {
   totalCount: number | null;
   sourceUrl: string;
   submittedBy?: string;
+  /** Vide PROUVÉ (le site a confirmé « aucun résultat » sur page complète) :
+   *  autorise un snapshot profondeur 0 — voir le bloc marché-vide plus bas. */
+  verifiedEmpty?: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
   const { segment, listings, totalCount, sourceUrl, submittedBy } = params;
   // GARDE D'IDENTITÉ À L'ÉCRITURE (constat 02/08 : l'étude quotidienne
@@ -107,7 +110,25 @@ export async function writeMarketSnapshot(params: {
     console.warn(`[MARKET_SNAPSHOT] ${contradicted} annonce(s) écartée(s) — identité structurée contraire au segment ${segment.brand} ${segment.model} (${segment.site})`);
   }
   const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetailPrice(l) && identityOk(l));
-  if (priced.length === 0) return { ok: false, error: 'no priced listings' };
+  if (priced.length === 0) {
+    // MARCHÉ VIDE VÉRIFIÉ (constat cloche re-scan 27/08) : un scan qui prouve
+    // « 0 annonce, filtres appliqués » est une INFORMATION de marché — sans
+    // snapshot, le segment restait « périmé » à jamais et chaque relance
+    // re-payait un scrape pour re-découvrir le même vide. On écrit un
+    // snapshot profondeur 0, sans prix ni observations. Réservé au vide
+    // PROUVÉ (verifiedEmpty) — un parseur en échec ne « rafraîchit » rien.
+    if (!params.verifiedEmpty) return { ok: false, error: 'no priced listings' };
+    const { error: emptyErr } = await supabase.from('market_snapshots').insert({
+      site: segment.site, country: segment.country,
+      brand: segment.brand, model: segment.model,
+      fuel: segment.fuel, trim: segment.trim,
+      scraped_at: new Date().toISOString(),
+      listing_count: totalCount ?? 0, sample_size: 0,
+      currency: 'EUR', source_url: sourceUrl, submitted_by: submittedBy ?? null,
+    });
+    if (emptyErr) return { ok: false, error: emptyErr.message };
+    return { ok: true };
+  }
 
   const scrapedAt = new Date().toISOString();
   const pricesEur = priced.map((l) => toEur(l.price, l.currency)).sort((a, b) => a - b);

@@ -531,6 +531,29 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
         }
       } catch { /* référentiel indisponible — libellé générique */ }
     }
+    // COMPTABILITÉ DE FRAÎCHEUR (constat cloche 27/08 : 43/47 relances
+    // retombaient sur des marchés vides ou quasi vides, aucun snapshot
+    // n'était écrit, les segments restaient « périmés » à jamais et chaque
+    // clic re-payait les mêmes scrapes). Un vide PROUVÉ (le site confirme,
+    // ou page complète filtrée) devient un snapshot profondeur 0 ; un
+    // échantillon minuscule (1-2 annonces) devient un snapshot normal —
+    // la garde d'identité de writeMarketSnapshot écarte les intrus. Seul le
+    // vide SUSPECT (0 parsé sans le message « aucun résultat » du site =
+    // parseur douteux) n'écrit rien : il ne prouve pas le marché.
+    if (emptyDiag?.emptyConfirmed !== false) {
+      await writeMarketSnapshot({
+        segment: {
+          site: adapter.key, country: adapter.countryCode,
+          brand: p.brand.toUpperCase(), model: p.model.toUpperCase(),
+          fuel: (p.fuel ?? '').toUpperCase(), trim: p.trim ?? '',
+        },
+        listings,
+        totalCount: emptyMarket ? 0 : null,
+        sourceUrl: url,
+        submittedBy: CAMPAIGN_SUBMITTER,
+        verifiedEmpty: emptyMarket,
+      }).catch(() => undefined);
+    }
     return {
       ...base, url, outcome: 'insufficient', confirmedFields: [], rejected: [],
       detail: emptyMarket

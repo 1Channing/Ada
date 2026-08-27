@@ -90,13 +90,27 @@ export async function recordStudyMarketSnapshot(
    *  comparait alors notre échantillon à lui-même (dossier X3 90 vs 34,
    *  constat Channing 26/08 : le site n'affichait ni 90 ni 34). */
   totalCount: number | null = null,
+  /** Vide PROUVÉ par le site (« aucun résultat » sur page filtrée) : écrit un
+   *  snapshot profondeur 0 — sans lui, un marché vide restait « périmé » à
+   *  jamais dans la cloche re-scan (constat 27/08). */
+  verifiedEmpty = false,
 ): Promise<void> {
   try {
     if (!segment.brand || !segment.model || !segment.country) return;
     // Non-retail guard: "WithoutTax"/engros prices never enter a median.
     const isRetail = (l: ScrapedListing) => !/withouttax|without tax|engros|wholesale|excl/.test(((l as { priceType?: string | null }).priceType ?? '').toLowerCase());
     const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetail(l));
-    if (priced.length === 0) return;
+    if (priced.length === 0) {
+      if (!verifiedEmpty) return;
+      await supabase.from('market_snapshots').insert({
+        site: segment.site, country: segment.country,
+        brand: segment.brand, model: segment.model, fuel: '', trim: '',
+        scraped_at: new Date().toISOString(),
+        listing_count: totalCount ?? 0, sample_size: 0,
+        currency: 'EUR', source_url: sourceUrl, submitted_by: submittedBy,
+      });
+      return;
+    }
 
     const scrapedAt = new Date().toISOString();
     const pricesEur = priced.map((l) => Math.round(toEur(l.price, l.currency))).sort((a, b) => a - b);
@@ -1576,7 +1590,8 @@ export async function executeStudy({
       country: String(study.country_target ?? '').toUpperCase(),
       brand: String(study.brand ?? '').toUpperCase(),
       model: String(study.model ?? '').toUpperCase(),
-    }, filteredTarget, targetUrl, 'Étude', targetResult.totalCount ?? null);
+    }, filteredTarget, targetUrl, 'Étude', targetResult.totalCount ?? null,
+      (targetResult.diagnostics as { emptyResults?: boolean } | null)?.emptyResults === true);
 
     lastStage = 'FILTER_SOURCE';
     const sourceDiag = diagnoseFilterRejections(sourceResult.listings, sourceCriteria);
@@ -1599,7 +1614,8 @@ export async function executeStudy({
       country: String(study.country_source ?? '').toUpperCase(),
       brand: String(study.brand ?? '').toUpperCase(),
       model: String(study.model ?? '').toUpperCase(),
-    }, filteredSource, sourceUrl, 'Étude', sourceResult.totalCount ?? null);
+    }, filteredSource, sourceUrl, 'Étude', sourceResult.totalCount ?? null,
+      (sourceResult.diagnostics as { emptyResults?: boolean } | null)?.emptyResults === true);
 
     if (filteredTarget.length === 0) {
       logger.log('FILTER_TARGET', 'warning', 'No target listings remain after filtering — returning NULL');
