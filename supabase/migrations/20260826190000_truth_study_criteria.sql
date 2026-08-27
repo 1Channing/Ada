@@ -19,7 +19,8 @@ returns table (
   brand text,
   model text,
   fuel text,
-  trim text,
+  -- « trim » est une fonction SQL réservée — guillemets obligatoires ici.
+  "trim" text,
   trim_target text,
   year_min int,
   year_max int,
