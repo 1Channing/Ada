@@ -168,8 +168,21 @@ function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => 
   const pushed = n.status === 'pushed_to_sale';
 
   return (
-    <div className="px-4 py-3">
-      <div className="flex items-center gap-3">
+    <div className="relative px-4 py-3 overflow-hidden">
+      {/* Première photo en fond du bord gauche, fondue vers le blanc (même
+          esprit que les cartes du site MC Export) — le voile blanc garde
+          titre et icônes lisibles par-dessus. */}
+      {n.photos[0] && (
+        <>
+          <div
+            aria-hidden
+            className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-cover bg-center"
+            style={{ backgroundImage: `url(${n.photos[0]})` }}
+          />
+          <div aria-hidden className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-gradient-to-r from-white/65 via-white/85 to-white" />
+        </>
+      )}
+      <div className="relative flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-medium text-slate-900 truncate">{n.title}</span>
@@ -233,7 +246,7 @@ function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => 
         <NegotiationPhotosModal nego={n} onClose={() => setShowPhotos(false)} onChanged={onChanged} />
       )}
       {showNotes && (
-        <div className="mt-2 flex gap-2">
+        <div className="relative mt-2 flex gap-2">
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
