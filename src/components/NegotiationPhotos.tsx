@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Download, ImagePlus, Loader2, Paintbrush, RefreshCw, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Crop, Download, ImagePlus, Loader2, Paintbrush, RefreshCw, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Negotiation, extractListingDetail, updateNegotiation } from '../services/workflow';
 
@@ -67,6 +67,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [maskIdx, setMaskIdx] = useState<number | null>(null);
+  const [cropIdx, setCropIdx] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const persist = async (next: string[]) => {
@@ -152,6 +153,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
                     <IconBtn title="Reculer" onClick={() => move(i, -1)} disabled={i === 0}><ArrowLeft className="w-4 h-4" /></IconBtn>
                     <IconBtn title="Avancer" onClick={() => move(i, 1)} disabled={i === photos.length - 1}><ArrowRight className="w-4 h-4" /></IconBtn>
                     <IconBtn title="Masquer une zone (bordereau, plaque…)" onClick={() => setMaskIdx(i)}><Paintbrush className="w-4 h-4" /></IconBtn>
+                    <IconBtn title="Rogner" onClick={() => setCropIdx(i)}><Crop className="w-4 h-4" /></IconBtn>
                     <IconBtn title="Retirer" onClick={() => void persist(photos.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4" /></IconBtn>
                   </div>
                 </div>
@@ -169,6 +171,18 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
             const masked = await uploadPhoto(nego.id, blob, 'masked');
             const next = photos.map((p, j) => (j === maskIdx ? masked : p));
             setMaskIdx(null);
+            await persist(next);
+          }}
+        />
+      )}
+      {cropIdx != null && photos[cropIdx] && (
+        <CropEditor
+          url={photos[cropIdx]}
+          onCancel={() => setCropIdx(null)}
+          onSave={async (blob) => {
+            const cropped = await uploadPhoto(nego.id, blob, 'crop');
+            const next = photos.map((p, j) => (j === cropIdx ? cropped : p));
+            setCropIdx(null);
             await persist(next);
           }}
         />
@@ -437,6 +451,176 @@ function MaskEditor({ url, onSave, onCancel }: { url: string; onSave: (b: Blob) 
               Enregistrer la photo masquée
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Rognage (demande 28/08) : UN cadre — coins et bords pour redimensionner,
+ * intérieur pour déplacer, extérieur assombri. Enregistrer exporte la seule
+ * zone cadrée en NOUVELLE image (l'originale n'est jamais réécrite).
+ */
+function CropEditor({ url, onSave, onCancel }: { url: string; onSave: (b: Blob) => Promise<void>; onCancel: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const boxRef = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
+  const dragRef = useRef<{ kind: string; x0: number; y0: number; box0: { x: number; y: number; w: number; h: number } } | null>(null);
+  const [ready, setReady] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { imgRef.current = img; setReady(true); };
+    img.onerror = () => setErr('Photo inaccessible pour édition');
+    img.src = url;
+  }, [url]);
+
+  const handleR = () => Math.max(12, Math.round((canvasRef.current?.width ?? 800) / 70));
+  const MIN = 40; // taille minimale du cadre (px image)
+
+  const canvasPoint = (e: React.PointerEvent): [number, number] => {
+    const c = canvasRef.current!;
+    const r = c.getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * c.width, ((e.clientY - r.top) / r.height) * c.height];
+  };
+
+  const redraw = () => {
+    const c = canvasRef.current, img = imgRef.current;
+    if (!c || !img) return;
+    const ctx = c.getContext('2d')!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(img, 0, 0);
+    const b = boxRef.current;
+    // Extérieur assombri (4 bandes autour du cadre).
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, c.width, b.y);
+    ctx.fillRect(0, b.y + b.h, c.width, c.height - b.y - b.h);
+    ctx.fillRect(0, b.y, b.x, b.h);
+    ctx.fillRect(b.x + b.w, b.y, c.width - b.x - b.w, b.h);
+    const hr = handleR();
+    ctx.strokeStyle = '#60a5fa';
+    ctx.lineWidth = Math.max(2, hr / 5);
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+    // Poignées : coins pleins, milieux de bords.
+    ctx.fillStyle = '#60a5fa';
+    for (const [hx, hy] of [
+      [b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h],
+      [b.x + b.w / 2, b.y], [b.x + b.w / 2, b.y + b.h], [b.x, b.y + b.h / 2], [b.x + b.w, b.y + b.h / 2],
+    ]) {
+      ctx.beginPath(); ctx.arc(hx, hy, hr * 0.8, 0, Math.PI * 2); ctx.fill();
+    }
+  };
+
+  useEffect(() => {
+    if (!ready) return;
+    const c = canvasRef.current, img = imgRef.current;
+    if (!c || !img) return;
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    // Cadre initial : image entière — on ne rogne que ce qu'on retire.
+    boxRef.current = { x: 0, y: 0, w: c.width, h: c.height };
+    redraw();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  /** Quelle prise au point (x,y) ? nw/ne/sw/se, n/s/w/e, move, ou rien. */
+  const hitKind = (x: number, y: number): string | null => {
+    const b = boxRef.current, t = handleR() * 1.6;
+    const nearX0 = Math.abs(x - b.x) <= t, nearX1 = Math.abs(x - (b.x + b.w)) <= t;
+    const nearY0 = Math.abs(y - b.y) <= t, nearY1 = Math.abs(y - (b.y + b.h)) <= t;
+    const inX = x >= b.x - t && x <= b.x + b.w + t;
+    const inY = y >= b.y - t && y <= b.y + b.h + t;
+    if (nearX0 && nearY0) return 'nw';
+    if (nearX1 && nearY0) return 'ne';
+    if (nearX0 && nearY1) return 'sw';
+    if (nearX1 && nearY1) return 'se';
+    if (nearY0 && inX) return 'n';
+    if (nearY1 && inX) return 's';
+    if (nearX0 && inY) return 'w';
+    if (nearX1 && inY) return 'e';
+    if (x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) return 'move';
+    return null;
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+          <div>
+            <h4 className="font-semibold text-slate-900">Rogner la photo</h4>
+            <p className="text-xs text-slate-500">Ajuste le cadre par ses coins/bords, déplace-le depuis l'intérieur — seul le cadre est conservé.</p>
+          </div>
+          <button onClick={onCancel} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-4 overflow-auto flex-1 bg-slate-100">
+          {err ? <p className="text-sm text-red-600">{err}</p> : (
+            <canvas
+              ref={canvasRef}
+              className="max-w-full h-auto mx-auto rounded-lg shadow touch-none cursor-crosshair"
+              onPointerDown={(e) => {
+                (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                const [x, y] = canvasPoint(e);
+                const kind = hitKind(x, y);
+                if (kind) dragRef.current = { kind, x0: x, y0: y, box0: { ...boxRef.current } };
+              }}
+              onPointerMove={(e) => {
+                const d = dragRef.current;
+                const c = canvasRef.current;
+                if (!d || !c) return;
+                const [x, y] = canvasPoint(e);
+                const dx = x - d.x0, dy = y - d.y0;
+                const b0 = d.box0;
+                let { x: bx, y: by, w: bw, h: bh } = b0;
+                if (d.kind === 'move') {
+                  bx = Math.min(Math.max(0, b0.x + dx), c.width - b0.w);
+                  by = Math.min(Math.max(0, b0.y + dy), c.height - b0.h);
+                } else {
+                  let x0 = b0.x, y0 = b0.y, x1 = b0.x + b0.w, y1 = b0.y + b0.h;
+                  if (d.kind.includes('w')) x0 = Math.min(Math.max(0, b0.x + dx), x1 - MIN);
+                  if (d.kind.includes('e')) x1 = Math.max(Math.min(c.width, b0.x + b0.w + dx), x0 + MIN);
+                  if (d.kind.includes('n')) y0 = Math.min(Math.max(0, b0.y + dy), y1 - MIN);
+                  if (d.kind.includes('s')) y1 = Math.max(Math.min(c.height, b0.y + b0.h + dy), y0 + MIN);
+                  bx = x0; by = y0; bw = x1 - x0; bh = y1 - y0;
+                }
+                boxRef.current = { x: bx, y: by, w: bw, h: bh };
+                redraw();
+              }}
+              onPointerUp={() => { dragRef.current = null; }}
+            />
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200">
+          <button onClick={onCancel} className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200 text-slate-700">Abandonner</button>
+          <button
+            onClick={async () => {
+              const img = imgRef.current;
+              const b = boxRef.current;
+              if (!img) return;
+              const c = canvasRef.current;
+              if (c && b.w >= c.width - 1 && b.h >= c.height - 1) { onCancel(); return; } // rien rogné
+              setSaving(true); setErr(null);
+              try {
+                const out = document.createElement('canvas');
+                out.width = Math.round(b.w); out.height = Math.round(b.h);
+                // Recadrage depuis l'IMAGE source (jamais depuis le canvas
+                // d'aperçu — il porte l'assombrissement et les poignées).
+                out.getContext('2d')!.drawImage(img, b.x, b.y, b.w, b.h, 0, 0, out.width, out.height);
+                const blob = await new Promise<Blob>((res, rej) => out.toBlob((bl) => (bl ? res(bl) : rej(new Error('export impossible'))), 'image/jpeg', 0.92));
+                await onSave(blob);
+              } catch (e2) {
+                setErr(e2 instanceof Error ? e2.message : String(e2));
+                setSaving(false);
+              }
+            }}
+            disabled={saving || !ready}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-60"
+          >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            Enregistrer la photo rognée
+          </button>
         </div>
       </div>
     </div>
