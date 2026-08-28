@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles } from 'lucide-react';
+import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users } from 'lucide-react';
 import { Administrative } from './Administrative';
+import { useAuth } from '../services/auth';
 import {
   Negotiation, listNegotiations, createNegotiation, updateNegotiation,
   deleteNegotiation, pushNegotiationToSale, extractListingDetail,
+  NegoConflict, listNegotiationConflicts,
 } from '../services/workflow';
 import { NegotiationPhotosModal } from '../components/NegotiationPhotos';
 import { resumeNegoExtractions, subscribeNegoExtractions, isExtracting } from '../services/negoExtraction';
@@ -56,7 +58,11 @@ function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
-  const reload = () => { listNegotiations().then(setRows).finally(() => setLoading(false)); };
+  const [conflicts, setConflicts] = useState<NegoConflict[]>([]);
+  const reload = () => {
+    listNegotiations().then(setRows).finally(() => setLoading(false));
+    listNegotiationConflicts().then(setConflicts);
+  };
   useEffect(reload, []);
   // Extractions d'arrière-plan : reprise des jobs interrompus (navigation,
   // rechargement) + re-render à chaque changement d'état (spinner de ligne,
@@ -153,19 +159,34 @@ function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-            {rows.map((n) => <NegoRow key={n.id} n={n} onChanged={reload} onPushed={onPushed} />)}
+            {rows.map((n) => <NegoRow key={n.id} n={n} conflicts={conflicts} onChanged={reload} onPushed={onPushed} />)}
           </div>
         )}
     </div>
   );
 }
 
-function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => void; onPushed: () => void }) {
+function NegoRow({ n, conflicts, onChanged, onPushed }: { n: Negotiation; conflicts: NegoConflict[]; onChanged: () => void; onPushed: () => void }) {
   const [menu, setMenu] = useState(false);
   const [notes, setNotes] = useState(n.notes);
   const [showNotes, setShowNotes] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
+  const [showConflict, setShowConflict] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const conflictRef = useRef<HTMLDivElement>(null);
+  const { userId } = useAuth();
+  // Même annonce (URL identique) ouverte par un COLLÈGUE → anti-collision.
+  const myUrl = (n.listing_url ?? '').trim();
+  const others = myUrl
+    ? conflicts.filter((c) => c.owner_id !== userId && c.listing_url.trim() === myUrl)
+    : [];
+
+  useEffect(() => {
+    if (!showConflict) return;
+    const close = (e: MouseEvent) => { if (!conflictRef.current?.contains(e.target as Node)) setShowConflict(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [showConflict]);
 
   useEffect(() => {
     if (!menu) return;
@@ -197,6 +218,38 @@ function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => 
           <div className="flex items-center gap-2">
             <span className="font-medium text-slate-900 truncate">{n.title}</span>
             {pushed && <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0">Poussée en vente</span>}
+            {others.length > 0 && (
+              <div className="relative shrink-0" ref={conflictRef}>
+                <button
+                  onClick={() => setShowConflict(!showConflict)}
+                  className="flex items-center gap-1 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-300 rounded-full px-2 py-0.5 hover:bg-amber-100 transition-colors"
+                >
+                  <Users className="w-3 h-3" />
+                  Déjà en négo · {others[0].owner_name}{others.length > 1 ? ` +${others.length - 1}` : ''}
+                </button>
+                {showConflict && (
+                  <div className="absolute left-0 top-7 z-30 w-80 bg-white border border-amber-200 rounded-xl shadow-lg p-3 space-y-3">
+                    {others.map((c, i) => (
+                      <div key={i} className="text-xs space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-800">{c.owner_name}</span>
+                          <span className="text-slate-400">
+                            depuis le {new Date(c.created_at).toLocaleDateString('fr-FR')} à {new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-slate-600 whitespace-pre-wrap">
+                          {c.notes?.trim() ? c.notes : <span className="italic text-slate-400">Pas de notes.</span>}
+                        </p>
+                        {c.updated_at !== c.created_at && (
+                          <p className="text-[10px] text-slate-400">dernière activité le {new Date(c.updated_at).toLocaleDateString('fr-FR')} à {new Date(c.updated_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>
+                        )}
+                      </div>
+                    ))}
+                    <p className="text-[10px] text-slate-400 border-t border-slate-100 pt-1.5">Lecture seule — parlez-vous avant de doubler l'offre.</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
             Prix affiché {fmtEur(n.asking_price)}

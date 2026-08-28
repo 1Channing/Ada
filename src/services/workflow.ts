@@ -418,6 +418,25 @@ export async function extractListingDetail(url: string): Promise<ListingExtract>
   throw new Error("Délai dépassé — l'annonce n'a pas pu être lue");
 }
 
+/**
+ * Anti-collision : les négociations OUVERTES de toute l'équipe, réduites au
+ * minimum (RPC security definer — les prix des collègues ne sortent jamais).
+ * Le front rapproche par listing_url pour marquer « déjà en négo avec X ».
+ */
+export interface NegoConflict {
+  listing_url: string;
+  owner_id: string;
+  owner_name: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+export async function listNegotiationConflicts(): Promise<NegoConflict[]> {
+  const { data, error } = await supabase.rpc('negotiation_conflicts' as never);
+  if (error) return []; // RPC pas encore migrée — fail-open, pas de badge
+  return ((data ?? []) as unknown) as NegoConflict[];
+}
+
 export async function updateNegotiation(id: string, patch: Partial<Negotiation>): Promise<void> {
   await supabase.from('negotiations').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
 }
