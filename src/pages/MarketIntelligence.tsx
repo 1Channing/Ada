@@ -7,7 +7,7 @@ import {
 import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X, MoreHorizontal, Loader2 } from 'lucide-react';
 import {
   loadKnownDimensions, sortedUnion, canonUnion, brandKey, refModelKey, filterObservations, distinctValues, priceStats, timeSeries,
-  priceHistogramFrom, velocityFromObservations, velocityCoverageDays, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
+  priceHistogramFrom, velocityFromObservations, velocityCoverageDays, velocityByCountry, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
   studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing, canonicalizeGearbox, GEARBOX_LABELS,
   loadSnapshots, loadObservedDimensions, loadObservationsForStudy, attackPrice, FUEL_TOKEN_TO_CRITERIA,
   pruneVanishedListings,
@@ -18,7 +18,7 @@ import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/linkgen/types';
 import { supabase } from '../lib/supabase';
 import type { DimensionRow } from '../services/marketData';
-import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, KnownDimensions } from '../services/marketData';
+import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, VelocityBandStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import { getRefWindowsCached, findRefWindow } from '../services/vehicleRef';
 import type { RefWindowMap, RefWindow } from '../services/vehicleRef';
@@ -941,7 +941,7 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
       </div>
 
       {/* Velocity */}
-      <VelocityCard velocity={velocity} coverageDays={velocityCoverage} />
+      <VelocityCard velocity={velocity} coverageDays={velocityCoverage} observations={filtered} />
 
       {/* Listings table */}
       <div className="bg-white border border-slate-200 rounded-xl p-5">
@@ -1028,7 +1028,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
     [perStudy]);
 
   // Velocity across the union of all studies' observations (deduped).
-  const { velocity, velocityCoverage } = useMemo(() => {
+  const { velocity, velocityCoverage, velocityObsUnion } = useMemo(() => {
     const seen = new Set<string>();
     const union: Observation[] = [];
     for (const s of perStudy) for (const o of s.filtered) {
@@ -1038,6 +1038,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
     return {
       velocity: velocityFromObservations(union).filter((v) => v.soldCount > 0 || v.datedActiveCount > 0 || v.datedSoldCount > 0),
       velocityCoverage: velocityCoverageDays(union),
+      velocityObsUnion: union,
     };
   }, [perStudy]);
 
@@ -1146,7 +1147,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
           </ResponsiveContainer>
         </ChartCard>
 
-        <VelocityCard velocity={velocity} coverageDays={velocityCoverage} />
+        <VelocityCard velocity={velocity} coverageDays={velocityCoverage} observations={velocityObsUnion} />
       </div>
 
       {/* Prix comparés — deux lectures commutables du même marché filtré :
@@ -1317,8 +1318,49 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
   );
 }
 
-function VelocityCard({ velocity, coverageDays }: { velocity: VelocityStat[]; coverageDays: number }) {
+function VelocityBandTable({ title, bands }: { title: string; bands: VelocityBandStat[] }) {
+  if (bands.length === 0) return null;
+  const maxD = Math.max(1, ...bands.map((b) => Math.max(b.stockMedianAgeDays ?? 0, b.soldMedianLifeDays ?? 0)));
+  return (
+    <div className="flex-1 min-w-[240px]">
+      <p className="text-xs font-semibold text-slate-600 mb-1.5">{title}</p>
+      <div className="space-y-1">
+        {bands.map((b) => (
+          <div key={b.label} className="text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-600 w-24 shrink-0">{b.label}</span>
+              <div className="flex-1 space-y-0.5">
+                {b.soldMedianLifeDays != null && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${Math.max(4, Math.round((b.soldMedianLifeDays / maxD) * 100))}%` }} />
+                    </div>
+                    <span className="text-emerald-700 font-medium w-24 text-right shrink-0">vendu en {b.soldMedianLifeDays} j <span className="text-slate-400 font-normal">({b.soldN})</span></span>
+                  </div>
+                )}
+                {b.stockMedianAgeDays != null && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="h-1.5 rounded-full bg-slate-400" style={{ width: `${Math.max(4, Math.round((b.stockMedianAgeDays / maxD) * 100))}%` }} />
+                    </div>
+                    <span className="text-slate-600 w-24 text-right shrink-0">stock {b.stockMedianAgeDays} j <span className="text-slate-400">({b.activeN})</span></span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VelocityCard({ velocity, coverageDays, observations }: { velocity: VelocityStat[]; coverageDays: number; observations: Observation[] }) {
   const [showAll, setShowAll] = useState(false);
+  const [showSegments, setShowSegments] = useState(false);
+  const countries = useMemo(() => velocityByCountry(observations), [observations]);
+  const [selCountry, setSelCountry] = useState<string | null>(null);
+  const active = countries.find((c) => c.country === selCountry) ?? countries[0];
   // Segments DATÉS d'abord (mise en ligne déclarée par le site = vélocité
   // réelle), puis le proxy par disparition, trié par volume.
   const sorted = [...velocity].sort((a, b) =>
@@ -1347,8 +1389,60 @@ function VelocityCard({ velocity, coverageDays }: { velocity: VelocityStat[]; co
           <NeedMore text="Pas encore de scans répétés sur ce filtre." />
         )
       ) : (
-        <div className="space-y-2">
-          {rows.map((v) => {
+        <div className="space-y-3">
+          {/* ── Lecture PAYS (cliquable) → tranches prix / km ─────────────── */}
+          <div className="flex flex-wrap gap-1.5">
+            {countries.map((c) => {
+              const isSel = c.country === active?.country;
+              const dated = c.datedActiveN + c.datedSoldN > 0;
+              return (
+                <button
+                  key={c.country}
+                  onClick={() => setSelCountry(c.country)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                    isSel ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ background: COUNTRY_COLOR[c.country] ?? SERIES[5] }} />
+                  <span className="font-semibold">{c.country}</span>
+                  {dated ? (
+                    <span className={isSel ? 'text-slate-300' : 'text-slate-500'}>
+                      {c.soldMedianLifeDays != null ? `vendu ${c.soldMedianLifeDays} j` : `stock ${c.stockMedianAgeDays} j`}
+                    </span>
+                  ) : (
+                    <span className={isSel ? 'text-slate-300' : 'text-slate-400'}>
+                      {c.proxyMedianDisappearDays != null ? `~${c.proxyMedianDisappearDays} j (proxy)` : 'proxy'}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {active && (active.datedActiveN + active.datedSoldN > 0 ? (
+            <>
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-slate-600">
+                {active.soldMedianLifeDays != null && (
+                  <span><span className="font-semibold text-emerald-700">{active.soldMedianLifeDays} j</span> pour vendre (médiane, {active.datedSoldN} vendues)</span>
+                )}
+                {active.stockMedianAgeDays != null && (
+                  <span>stock en vente âgé de <span className="font-semibold text-slate-800">{active.stockMedianAgeDays} j</span> ({active.datedActiveN} actives)</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-5">
+                <VelocityBandTable title="Par prix" bands={active.priceBands} />
+                <VelocityBandTable title="Par kilométrage" bands={active.mileageBands} />
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500">
+              {active.country} : sites sans date de mise en ligne déclarée — médiane proxy {active.proxyMedianDisappearDays ?? '—'} j sur {active.proxySoldN} disparues. Les tranches prix/km demandent la voie datée.
+            </p>
+          ))}
+
+          <button onClick={() => setShowSegments((s) => !s)} className="text-xs text-slate-500 hover:text-slate-700">
+            {showSegments ? 'Masquer le détail par segment' : 'Voir le détail par segment'}
+          </button>
+          {showSegments && rows.map((v) => {
             const dated = v.datedActiveCount + v.datedSoldCount > 0;
             const color = COUNTRY_COLOR[v.country] ?? SERIES[5];
             return (
@@ -1396,7 +1490,7 @@ function VelocityCard({ velocity, coverageDays }: { velocity: VelocityStat[]; co
               </div>
             );
           })}
-          {sorted.length > 10 && (
+          {showSegments && sorted.length > 10 && (
             <button onClick={() => setShowAll((s) => !s)} className="text-xs text-slate-500 hover:text-slate-700 pt-1">
               {showAll ? 'Réduire' : `Voir les ${sorted.length - 10} autres`}
             </button>

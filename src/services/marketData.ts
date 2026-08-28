@@ -1299,6 +1299,138 @@ export function velocityFromObservations(obs: Observation[]): VelocityStat[] {
     || b.soldCount - a.soldCount);
 }
 
+// ─── Vélocité v3 : lecture PAYS → tranches de prix / km (demande 28/08) ─────
+
+export interface VelocityBandStat {
+  label: string;
+  stockMedianAgeDays: number | null;
+  soldMedianLifeDays: number | null;
+  activeN: number;
+  soldN: number;
+}
+export interface CountryVelocity {
+  country: string;
+  datedActiveN: number;
+  datedSoldN: number;
+  stockMedianAgeDays: number | null;
+  soldMedianLifeDays: number | null;
+  /** Repli pour les pays sans dates déclarées (mobile.de, Blocket…). */
+  proxyMedianDisappearDays: number | null;
+  proxySoldN: number;
+  priceBands: VelocityBandStat[];
+  mileageBands: VelocityBandStat[];
+}
+
+const PRICE_EDGES = [15_000, 25_000, 35_000, 50_000];
+const PRICE_LABELS = ['< 15 k€', '15–25 k€', '25–35 k€', '35–50 k€', '≥ 50 k€'];
+const KM_EDGES = [30_000, 60_000, 100_000];
+const KM_LABELS = ['< 30 000 km', '30–60 000 km', '60–100 000 km', '≥ 100 000 km'];
+const bandIndex = (v: number, edges: number[]): number => {
+  let i = 0;
+  while (i < edges.length && v >= edges[i]) i++;
+  return i;
+};
+const medianOf = (xs: number[]): number | null => {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return Math.round((s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2) * 10) / 10;
+};
+
+/**
+ * Vélocité lisible : par PAYS (cliquable côté carte), puis délais par tranche
+ * de PRIX et de KILOMÉTRAGE — c'est là que la décision d'achat se joue
+ * (Channing 28/08). Voie datée (mise en ligne déclarée) partout où elle
+ * existe ; les pays sans dates gardent une médiane proxy par disparition
+ * (fenêtre ≥ 14 j par segment, comme avant).
+ */
+export function velocityByCountry(obs: Observation[]): CountryVelocity[] {
+  const segLatest = new Map<string, number>();
+  const segFirst = new Map<string, number>();
+  for (const o of obs) {
+    const s = segmentId(o);
+    const t = new Date(o.scraped_at).getTime();
+    if ((segLatest.get(s) ?? 0) < t) segLatest.set(s, t);
+    if ((segFirst.get(s) ?? Infinity) > t) segFirst.set(s, t);
+  }
+  interface Life {
+    country: string; seg: string;
+    price: number | null; mileage: number | null;
+    first: number; last: number; published: number | null;
+  }
+  const lives = new Map<string, Life>();
+  for (const o of obs) {
+    const seg = segmentId(o);
+    const key = `${seg}|${o.internal_ref}`;
+    const t = new Date(o.scraped_at).getTime();
+    const p = o.published_at ? new Date(o.published_at).getTime() : NaN;
+    const cur = lives.get(key);
+    if (!cur) {
+      lives.set(key, {
+        country: o.country, seg, price: o.price, mileage: o.mileage,
+        first: t, last: t, published: Number.isFinite(p) ? p : null,
+      });
+    } else {
+      if (t >= cur.last) { cur.price = o.price; cur.mileage = o.mileage; }
+      cur.first = Math.min(cur.first, t);
+      cur.last = Math.max(cur.last, t);
+      if (Number.isFinite(p)) cur.published = cur.published == null ? p : Math.min(cur.published, p);
+    }
+  }
+
+  const now = Date.now();
+  interface Acc {
+    stockAges: number[]; soldLives: number[]; proxyLives: number[];
+    price: Array<{ stock: number[]; sold: number[] }>;
+    km: Array<{ stock: number[]; sold: number[] }>;
+  }
+  const mkAcc = (): Acc => ({
+    stockAges: [], soldLives: [], proxyLives: [],
+    price: PRICE_LABELS.map(() => ({ stock: [], sold: [] })),
+    km: KM_LABELS.map(() => ({ stock: [], sold: [] })),
+  });
+  const byCountry = new Map<string, Acc>();
+  for (const life of lives.values()) {
+    const acc = byCountry.get(life.country) ?? byCountry.set(life.country, mkAcc()).get(life.country)!;
+    const latest = segLatest.get(life.seg) ?? 0;
+    const active = life.last >= latest - 60_000;
+    const windowOk = latest - (segFirst.get(life.seg) ?? latest) >= VELOCITY_MIN_DAYS * 86_400_000;
+    if (life.published != null) {
+      const days = active ? (now - life.published) / 86_400_000 : (life.last - life.published) / 86_400_000;
+      const target: 'stock' | 'sold' = active ? 'stock' : 'sold';
+      (active ? acc.stockAges : acc.soldLives).push(days);
+      if (life.price != null && life.price > 0) acc.price[bandIndex(life.price, PRICE_EDGES)][target].push(days);
+      if (life.mileage != null && life.mileage > 0) acc.km[bandIndex(life.mileage, KM_EDGES)][target].push(days);
+    } else if (!active && windowOk) {
+      acc.proxyLives.push((life.last - life.first) / 86_400_000);
+    }
+  }
+
+  const out: CountryVelocity[] = [];
+  for (const [country, acc] of byCountry) {
+    const bands = (labels: string[], src: Array<{ stock: number[]; sold: number[] }>): VelocityBandStat[] =>
+      labels.map((label, i) => ({
+        label,
+        stockMedianAgeDays: medianOf(src[i].stock),
+        soldMedianLifeDays: medianOf(src[i].sold),
+        activeN: src[i].stock.length,
+        soldN: src[i].sold.length,
+      })).filter((b) => b.activeN + b.soldN > 0);
+    out.push({
+      country,
+      datedActiveN: acc.stockAges.length,
+      datedSoldN: acc.soldLives.length,
+      stockMedianAgeDays: medianOf(acc.stockAges),
+      soldMedianLifeDays: medianOf(acc.soldLives),
+      proxyMedianDisappearDays: medianOf(acc.proxyLives),
+      proxySoldN: acc.proxyLives.length,
+      priceBands: bands(PRICE_LABELS, acc.price),
+      mileageBands: bands(KM_LABELS, acc.km),
+    });
+  }
+  return out.sort((a, b) => (b.datedActiveN + b.datedSoldN) - (a.datedActiveN + a.datedSoldN));
+}
+
 /** Histogram buckets over the latest snapshot's listing prices for a segment. */
 export function priceHistogram(observations: Observation[], buckets = 10): { range: string; count: number; from: number }[] {
   const prices = observations.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0);
