@@ -141,7 +141,13 @@ export async function generateAdminDocument(
       transaction_type: transaction.transaction_type,
       transaction_date: transaction.transaction_date,
       transaction_time: transaction.transaction_time,
-      transaction_price: transaction.transaction_price,
+      // Prix du document : la valeur explicite prime ; sinon le tarif qui
+      // correspond au SENS du deal (achat → prix d'achat, vente → prix de
+      // vente). Constat 28/08 : bon d'achat imprimé sans prix alors que le
+      // prix d'achat était saisi dans Tarifs — le même montant n'a pas à
+      // être retapé dans deux champs.
+      transaction_price: transaction.transaction_price
+        ?? (transaction.transaction_type === 'sale' ? transaction.sale_price : transaction.purchase_price),
       pickup_location: transaction.pickup_location,
       pickup_contact: transaction.pickup_contact,
       pickup_datetime: transaction.pickup_datetime,

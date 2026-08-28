@@ -2207,7 +2207,7 @@ export function Administrative() {
                 placeholder="9 500"
                 className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
               />
-              <p className="mt-1 text-xs text-slate-500">Montant reporté sur les documents (cession, bon d'achat…).</p>
+              <p className="mt-1 text-xs text-slate-500">Montant reporté sur les documents (cession, bon d'achat…). Laissé vide, le prix d'achat ou de vente des Tarifs est utilisé selon le sens du deal.</p>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1 text-slate-700">Référence <span className="text-slate-500 font-normal">(votre code, ex. I63, TGE789)</span></label>
