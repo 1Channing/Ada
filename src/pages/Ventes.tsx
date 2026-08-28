@@ -168,19 +168,20 @@ function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => 
   const pushed = n.status === 'pushed_to_sale';
 
   return (
-    <div className="relative px-4 py-3 overflow-hidden">
+    <div className="relative px-4 py-3 group">
       {/* Première photo en fond du bord gauche, fondue vers le blanc (même
           esprit que les cartes du site MC Export) — le voile blanc garde
-          titre et icônes lisibles par-dessus. */}
+          titre et icônes lisibles par-dessus. Le rognage vit sur CE calque
+          (jamais sur la bande : un overflow-hidden de ligne coupait le menu
+          ⋯ — régression du 28/08), arrondi seulement aux lignes extrêmes. */}
       {n.photos[0] && (
-        <>
+        <div aria-hidden className="absolute inset-0 overflow-hidden group-first:rounded-t-xl group-last:rounded-b-xl">
           <div
-            aria-hidden
             className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-cover bg-center"
             style={{ backgroundImage: `url(${n.photos[0]})` }}
           />
-          <div aria-hidden className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-gradient-to-r from-white/65 via-white/85 to-white" />
-        </>
+          <div className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-gradient-to-r from-white/65 via-white/85 to-white" />
+        </div>
       )}
       <div className="relative flex items-center gap-3">
         <div className="min-w-0 flex-1">
