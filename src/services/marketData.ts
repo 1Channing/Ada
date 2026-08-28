@@ -1312,6 +1312,10 @@ export interface CountryVelocity {
   country: string;
   datedActiveN: number;
   datedSoldN: number;
+  /** Dont naissances ESTIMÉES par première observation (sites sans date
+   *  déclarée — AS24/Bilbasen/mobile.de/Blocket) : seules les annonces
+   *  APPARUES en cours de suivi comptent, exactes à ±1 vague. */
+  estimatedN: number;
   stockMedianAgeDays: number | null;
   soldMedianLifeDays: number | null;
   /** Repli pour les pays sans dates déclarées (mobile.de, Blocket…). */
@@ -1380,12 +1384,12 @@ export function velocityByCountry(obs: Observation[]): CountryVelocity[] {
 
   const now = Date.now();
   interface Acc {
-    stockAges: number[]; soldLives: number[]; proxyLives: number[];
+    stockAges: number[]; soldLives: number[]; proxyLives: number[]; estimatedN: number;
     price: Array<{ stock: number[]; sold: number[] }>;
     km: Array<{ stock: number[]; sold: number[] }>;
   }
   const mkAcc = (): Acc => ({
-    stockAges: [], soldLives: [], proxyLives: [],
+    stockAges: [], soldLives: [], proxyLives: [], estimatedN: 0,
     price: PRICE_LABELS.map(() => ({ stock: [], sold: [] })),
     km: KM_LABELS.map(() => ({ stock: [], sold: [] })),
   });
@@ -1395,8 +1399,19 @@ export function velocityByCountry(obs: Observation[]): CountryVelocity[] {
     const latest = segLatest.get(life.seg) ?? 0;
     const active = life.last >= latest - 60_000;
     const windowOk = latest - (segFirst.get(life.seg) ?? latest) >= VELOCITY_MIN_DAYS * 86_400_000;
-    if (life.published != null) {
-      const days = active ? (now - life.published) / 86_400_000 : (life.last - life.published) / 86_400_000;
+    // Naissance ESTIMÉE (sites sans date déclarée — sondes 28-29/08 : AS24 et
+    // Bilbasen n'exposent rien en liste) : une annonce APPARUE en cours de
+    // suivi (première vue > 36 h après le début du suivi du segment) est née
+    // entre deux vagues — sa première observation est sa naissance à ±1 j.
+    // Celles déjà présentes au premier scan restent d'âge inconnu : jamais
+    // datées d'office, ce serait un mensonge.
+    let birth = life.published;
+    if (birth == null && life.first > (segFirst.get(life.seg) ?? life.first) + 36 * 3_600_000) {
+      birth = life.first;
+      acc.estimatedN += 1;
+    }
+    if (birth != null) {
+      const days = active ? (now - birth) / 86_400_000 : (life.last - birth) / 86_400_000;
       const target: 'stock' | 'sold' = active ? 'stock' : 'sold';
       (active ? acc.stockAges : acc.soldLives).push(days);
       if (life.price != null && life.price > 0) acc.price[bandIndex(life.price, PRICE_EDGES)][target].push(days);
@@ -1420,6 +1435,7 @@ export function velocityByCountry(obs: Observation[]): CountryVelocity[] {
       country,
       datedActiveN: acc.stockAges.length,
       datedSoldN: acc.soldLives.length,
+      estimatedN: acc.estimatedN,
       stockMedianAgeDays: medianOf(acc.stockAges),
       soldMedianLifeDays: medianOf(acc.soldLives),
       proxyMedianDisappearDays: medianOf(acc.proxyLives),

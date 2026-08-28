@@ -160,8 +160,12 @@ function jsonLdCars(html: string): GpItem[] {
 function publishedDatesById(html: string): Map<string, string> {
   const out = new Map<string, string>();
   for (const m of html.matchAll(/data-published-date="([^"]+)"/g)) {
-    const windowAfter = html.slice(m.index ?? 0, (m.index ?? 0) + 4000);
-    const id = windowAfter.match(/[#/](\d{7,10})\b/)?.[1];
+    const windowAfter = html.slice(m.index ?? 0, (m.index ?? 0) + 600);
+    // La carte porte id="oc134236223" — préfixe `oc` + chiffres (autopsie
+    // 29/08 : l'ancien motif [#/]\d+ ne matchait jamais, 0/67 en prod).
+    // L'@id JSON-LD de l'annonce se termine par #<mêmes chiffres>.
+    const id = windowAfter.match(/id="oc(\d{6,})"/)?.[1]
+      ?? windowAfter.match(/[#/](\d{7,10})\b/)?.[1];
     if (id && !out.has(id)) out.set(id, m[1]);
   }
   return out;
