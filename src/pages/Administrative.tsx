@@ -1407,7 +1407,10 @@ export function Administrative() {
     _label: string,
     savingState: boolean,
     setSavingState: (val: boolean) => void,
-    role: 'seller' | 'buyer'
+    role: 'seller' | 'buyer',
+    // Co-titulaire carte grise : l'adresse est CELLE du titulaire principal
+    // (même carte grise) — seule l'identité est demandée (Channing 28/08).
+    compact = false
   ) => {
     return (
       <div className="space-y-4">
@@ -1417,6 +1420,12 @@ export function Administrative() {
               {selectedContact.company_name || `${selectedContact.first_name} ${selectedContact.last_name}`}
             </span>
           </div>
+        )}
+
+        {compact && (
+          <p className="text-xs text-slate-500">
+            Même adresse que le titulaire principal (carte grise) — seule l'identité est nécessaire.
+          </p>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1431,7 +1440,7 @@ export function Administrative() {
           />
         </div>
 
-        <div>
+        {!compact && <div>
           <label className="block text-sm font-medium mb-1 text-slate-700">SIREN</label>
           <input
             type="text"
@@ -1439,7 +1448,7 @@ export function Administrative() {
             onChange={(e) => setForm({ ...form, siren: e.target.value })}
             className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
-        </div>
+        </div>}
 
         <div>
           <label className="block text-sm font-medium mb-1 text-slate-700">First Name</label>
@@ -1461,7 +1470,7 @@ export function Administrative() {
           />
         </div>
 
-        <div>
+        {!compact && <><div>
           <label className="block text-sm font-medium mb-1 text-slate-700">Birth Date</label>
           <input
             type="date"
@@ -1529,7 +1538,7 @@ export function Administrative() {
             onChange={(e) => setForm({ ...form, country: e.target.value })}
             className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
-        </div>
+        </div></>}
         </div>
 
         <button
@@ -2308,7 +2317,7 @@ export function Administrative() {
                       </button>
                     </div>
                     {renderContactSearch(showSeller2Search, setShowSeller2Search, (contact) => selectContact(contact, 'seller2'), 'Rechercher un contact existant')}
-                    {renderContactFields(sellerForm2, setSellerForm2, selectedSeller2Contact, 'Co-vendeur', savingSeller2Contact, setSavingSeller2Contact, 'seller')}
+                    {renderContactFields(sellerForm2, setSellerForm2, selectedSeller2Contact, 'Co-vendeur', savingSeller2Contact, setSavingSeller2Contact, 'seller', true)}
                   </div>
                 )}
               </div>
@@ -2356,7 +2365,7 @@ export function Administrative() {
                       </button>
                     </div>
                     {renderContactSearch(showBuyer2Search, setShowBuyer2Search, (contact) => selectContact(contact, 'buyer2'), 'Rechercher un contact existant')}
-                    {renderContactFields(buyerForm2, setBuyerForm2, selectedBuyer2Contact, 'Co-acheteur', savingBuyer2Contact, setSavingBuyer2Contact, 'buyer')}
+                    {renderContactFields(buyerForm2, setBuyerForm2, selectedBuyer2Contact, 'Co-acheteur', savingBuyer2Contact, setSavingBuyer2Contact, 'buyer', true)}
                   </div>
                 )}
               </div>

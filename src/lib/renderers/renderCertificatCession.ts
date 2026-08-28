@@ -202,8 +202,14 @@ export async function renderCertificatCession(
       fillFieldSafely(form, `${prefix}.num_Formule[0]`, normalized, `vehicle.registration_certificate_number (${page})`, errors);
     }
 
-    const sellerIdentity = data.seller?.company_name ||
-      `${data.seller?.first_name || ''} ${data.seller?.last_name || ''}`.trim();
+    // Co-titulaire carte grise : le CERFA n'a qu'UNE ligne d'identité par
+    // partie — les co-titulaires y figurent à la suite (usage carte grise :
+    // « NOM Prénom / NOM Prénom »). L'adresse est celle du titulaire
+    // principal, jamais re-demandée (Channing 28/08).
+    const identityOf = (c?: DocumentData['seller']) =>
+      c ? (c.company_name || `${c.first_name || ''} ${c.last_name || ''}`.trim()) : '';
+    const sellerIdentity = [identityOf(data.seller), identityOf(data.seller2)]
+      .filter(Boolean).join(' / ');
 
     if (sellerIdentity) {
       fillFieldSafely(form, `${prefix}.txt_IdentitéVendeur[0]`, sellerIdentity, `seller.identity (${page})`, errors);
@@ -246,8 +252,8 @@ export async function renderCertificatCession(
       fillFieldSafely(form, `${prefix}.num_HoraireVente2[0]`, minutes, `transaction.time.minutes (${page})`, errors);
     }
 
-    const buyerIdentity = data.buyer?.company_name ||
-      `${data.buyer?.first_name || ''} ${data.buyer?.last_name || ''}`.trim();
+    const buyerIdentity = [identityOf(data.buyer), identityOf(data.buyer2)]
+      .filter(Boolean).join(' / ');
 
     if (buyerIdentity) {
       fillFieldSafely(form, `${prefix}.txt_IdentitéAcheteur[0]`, buyerIdentity, `buyer.identity (${page})`, errors);

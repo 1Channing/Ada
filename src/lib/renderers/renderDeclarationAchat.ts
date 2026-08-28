@@ -127,10 +127,17 @@ function fillSellerFields(form: any, data: DocumentData, errors: string[]): void
     return;
   }
 
-  const sellerName = data.seller.company_name ||
+  const mainName = data.seller.company_name ||
     (data.seller.first_name && data.seller.last_name
       ? `${data.seller.first_name} ${data.seller.last_name}`.trim()
       : data.seller.full_name || '');
+  // Co-titulaire carte grise : une seule ligne d'identité sur le CERFA — les
+  // co-titulaires y figurent à la suite (« NOM Prénom / NOM Prénom »),
+  // l'adresse reste celle du titulaire principal (Channing 28/08).
+  const coName = data.seller2
+    ? (data.seller2.company_name || `${data.seller2.first_name || ''} ${data.seller2.last_name || ''}`.trim())
+    : '';
+  const sellerName = [mainName, coName].filter(Boolean).join(' / ');
 
   if (sellerName) {
     fillFieldSafely(form, 'NOM / PRENOM / RAISON SOCIAL - VENDEUR', sellerName, 'seller name', errors, true);
