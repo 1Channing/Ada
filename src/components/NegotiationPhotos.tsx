@@ -212,15 +212,26 @@ function IconBtn({ children, onClick, disabled, title }: {
 
 /**
  * Masquage MANUEL : rectangles noirs dessinés à la souris/au doigt sur la
- * photo (bordereaux, plaques pro, logos vendeur). Enregistrer produit une
+ * photo (bordereaux, plaques pro, logos vendeur). Chaque rectangle reste un
+ * OBJET éditable tant qu'on n'enregistre pas : clic pour le sélectionner,
+ * glisser pour le DÉPLACER, poignée ronde au-dessus pour le faire TOURNER
+ * (plaques photographiées de biais — demande 28/08). Enregistrer produit une
  * NOUVELLE image dans le storage — l'originale n'est jamais réécrite.
  * (Masquage automatique = détection visuelle, prévu avec l'étage vision.)
  */
+interface MaskRect { cx: number; cy: number; w: number; h: number; a: number }
+
 function MaskEditor({ url, onSave, onCancel }: { url: string; onSave: (b: Blob) => Promise<void>; onCancel: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const rectsRef = useRef<Array<[number, number, number, number]>>([]);
-  const dragRef = useRef<{ x: number; y: number } | null>(null);
+  const rectsRef = useRef<MaskRect[]>([]);
+  const selRef = useRef<number | null>(null);
+  const dragRef = useRef<
+    | { mode: 'draw'; x0: number; y0: number }
+    | { mode: 'move'; dx: number; dy: number }
+    | { mode: 'rotate' }
+    | null
+  >(null);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -234,13 +245,67 @@ function MaskEditor({ url, onSave, onCancel }: { url: string; onSave: (b: Blob) 
     img.src = url;
   }, [url]);
 
-  const redraw = () => {
+  // Taille des poignées PROPORTIONNELLE à l'image (une 1600 px affichée en
+  // 800 rendrait une poignée fixe deux fois trop petite au doigt).
+  const handleR = () => Math.max(12, Math.round((canvasRef.current?.width ?? 800) / 70));
+
+  /** Point du pointeur → coordonnées internes du canvas. */
+  const canvasPoint = (e: React.PointerEvent): [number, number] => {
+    const c = canvasRef.current!;
+    const r = c.getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * c.width, ((e.clientY - r.top) / r.height) * c.height];
+  };
+
+  /** Point exprimé dans le repère LOCAL du rectangle (centre, dé-tourné). */
+  const toLocal = (r: MaskRect, x: number, y: number): [number, number] => {
+    const dx = x - r.cx, dy = y - r.cy;
+    const cos = Math.cos(-r.a), sin = Math.sin(-r.a);
+    return [dx * cos - dy * sin, dx * sin + dy * cos];
+  };
+
+  const hitRect = (r: MaskRect, x: number, y: number): boolean => {
+    const [lx, ly] = toLocal(r, x, y);
+    return Math.abs(lx) <= r.w / 2 && Math.abs(ly) <= r.h / 2;
+  };
+
+  const hitRotateHandle = (r: MaskRect, x: number, y: number): boolean => {
+    const [lx, ly] = toLocal(r, x, y);
+    const hy = -r.h / 2 - handleR() * 2.2;
+    return Math.hypot(lx, ly - hy) <= handleR() * 1.4;
+  };
+
+  /** withOverlays=false : rendu EXPORT — jamais de poignées dans le fichier. */
+  const redraw = (withOverlays = true) => {
     const c = canvasRef.current, img = imgRef.current;
     if (!c || !img) return;
     const ctx = c.getContext('2d')!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(img, 0, 0);
-    ctx.fillStyle = '#000';
-    for (const [x, y, w, h] of rectsRef.current) ctx.fillRect(x, y, w, h);
+    rectsRef.current.forEach((r, i) => {
+      ctx.save();
+      ctx.translate(r.cx, r.cy);
+      ctx.rotate(r.a);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(-r.w / 2, -r.h / 2, r.w, r.h);
+      if (withOverlays && selRef.current === i) {
+        const hr = handleR();
+        ctx.strokeStyle = '#60a5fa';
+        ctx.lineWidth = Math.max(2, hr / 5);
+        ctx.setLineDash([hr / 1.5, hr / 2.5]);
+        ctx.strokeRect(-r.w / 2, -r.h / 2, r.w, r.h);
+        ctx.setLineDash([]);
+        // Poignée de rotation au-dessus du bord haut.
+        ctx.beginPath();
+        ctx.moveTo(0, -r.h / 2);
+        ctx.lineTo(0, -r.h / 2 - hr * 2.2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, -r.h / 2 - hr * 2.2, hr, 0, Math.PI * 2);
+        ctx.fillStyle = '#60a5fa';
+        ctx.fill();
+      }
+      ctx.restore();
+    });
   };
 
   useEffect(() => {
@@ -252,19 +317,13 @@ function MaskEditor({ url, onSave, onCancel }: { url: string; onSave: (b: Blob) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
-  const canvasPoint = (e: React.PointerEvent): [number, number] => {
-    const c = canvasRef.current!;
-    const r = c.getBoundingClientRect();
-    return [((e.clientX - r.left) / r.width) * c.width, ((e.clientY - r.top) / r.height) * c.height];
-  };
-
   return (
     <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4" onClick={onCancel}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
           <div>
             <h4 className="font-semibold text-slate-900">Masquer des zones</h4>
-            <p className="text-xs text-slate-500">Trace un rectangle sur chaque info à cacher (bordereau, plaque, logo…).</p>
+            <p className="text-xs text-slate-500">Trace un rectangle sur chaque info à cacher — clique-le pour le déplacer, poignée ronde pour le faire pivoter.</p>
           </div>
           <button onClick={onCancel} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><X className="w-5 h-5" /></button>
         </div>
@@ -276,26 +335,59 @@ function MaskEditor({ url, onSave, onCancel }: { url: string; onSave: (b: Blob) 
               onPointerDown={(e) => {
                 (e.target as HTMLElement).setPointerCapture(e.pointerId);
                 const [x, y] = canvasPoint(e);
-                dragRef.current = { x, y };
-                rectsRef.current = [...rectsRef.current, [x, y, 0, 0]];
+                const rects = rectsRef.current;
+                const sel = selRef.current;
+                // 1. Poignée de rotation du rectangle sélectionné ?
+                if (sel != null && rects[sel] && hitRotateHandle(rects[sel], x, y)) {
+                  dragRef.current = { mode: 'rotate' };
+                  return;
+                }
+                // 2. Un rectangle existant (le plus récent au-dessus) ?
+                for (let i = rects.length - 1; i >= 0; i--) {
+                  if (hitRect(rects[i], x, y)) {
+                    selRef.current = i;
+                    dragRef.current = { mode: 'move', dx: x - rects[i].cx, dy: y - rects[i].cy };
+                    redraw(); forceRender((n) => n + 1);
+                    return;
+                  }
+                }
+                // 3. Zone vide → nouveau rectangle.
+                selRef.current = null;
+                dragRef.current = { mode: 'draw', x0: x, y0: y };
+                rectsRef.current = [...rects, { cx: x, cy: y, w: 0, h: 0, a: 0 }];
+                redraw(); forceRender((n) => n + 1);
               }}
               onPointerMove={(e) => {
-                if (!dragRef.current) return;
+                const drag = dragRef.current;
+                if (!drag) return;
                 const [x, y] = canvasPoint(e);
-                const start = dragRef.current;
                 const rects = rectsRef.current;
-                rects[rects.length - 1] = [
-                  Math.min(start.x, x), Math.min(start.y, y),
-                  Math.abs(x - start.x), Math.abs(y - start.y),
-                ];
+                if (drag.mode === 'draw') {
+                  const r = rects[rects.length - 1];
+                  r.cx = (drag.x0 + x) / 2; r.cy = (drag.y0 + y) / 2;
+                  r.w = Math.abs(x - drag.x0); r.h = Math.abs(y - drag.y0);
+                } else if (drag.mode === 'move' && selRef.current != null) {
+                  const r = rects[selRef.current];
+                  r.cx = x - drag.dx; r.cy = y - drag.dy;
+                } else if (drag.mode === 'rotate' && selRef.current != null) {
+                  const r = rects[selRef.current];
+                  // La poignée vit au-dessus du centre : angle du pointeur + π/2.
+                  r.a = Math.atan2(y - r.cy, x - r.cx) + Math.PI / 2;
+                }
                 redraw();
               }}
               onPointerUp={() => {
+                const drag = dragRef.current;
                 dragRef.current = null;
-                // Rectangle-clic minuscule = raté — on l'enlève.
-                const rects = rectsRef.current;
-                const last = rects[rects.length - 1];
-                if (last && (last[2] < 4 || last[3] < 4)) rectsRef.current = rects.slice(0, -1);
+                if (drag?.mode === 'draw') {
+                  const rects = rectsRef.current;
+                  const last = rects[rects.length - 1];
+                  if (last && (last.w < 4 || last.h < 4)) {
+                    rectsRef.current = rects.slice(0, -1); // clic minuscule = raté
+                  } else {
+                    selRef.current = rectsRef.current.length - 1;
+                  }
+                }
                 redraw();
                 forceRender((n) => n + 1);
               }}
@@ -303,13 +395,23 @@ function MaskEditor({ url, onSave, onCancel }: { url: string; onSave: (b: Blob) 
           )}
         </div>
         <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-slate-200">
-          <button
-            onClick={() => { rectsRef.current = rectsRef.current.slice(0, -1); redraw(); forceRender((n) => n + 1); }}
-            disabled={rectsRef.current.length === 0}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50"
-          >
-            Annuler le dernier
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (selRef.current != null) {
+                  rectsRef.current = rectsRef.current.filter((_, i) => i !== selRef.current);
+                  selRef.current = null;
+                } else {
+                  rectsRef.current = rectsRef.current.slice(0, -1);
+                }
+                redraw(); forceRender((n) => n + 1);
+              }}
+              disabled={rectsRef.current.length === 0}
+              className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50"
+            >
+              {selRef.current != null ? 'Supprimer la zone' : 'Annuler le dernier'}
+            </button>
+          </div>
           <div className="flex gap-2">
             <button onClick={onCancel} className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200 text-slate-700">Abandonner</button>
             <button
@@ -318,6 +420,9 @@ function MaskEditor({ url, onSave, onCancel }: { url: string; onSave: (b: Blob) 
                 if (!c || rectsRef.current.length === 0) { onCancel(); return; }
                 setSaving(true); setErr(null);
                 try {
+                  // EXPORT sans poignées ni pointillés — rendu propre seul.
+                  selRef.current = null;
+                  redraw(false);
                   const blob = await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('export impossible'))), 'image/jpeg', 0.92));
                   await onSave(blob);
                 } catch (e) {
