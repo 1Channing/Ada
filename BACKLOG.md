@@ -3,6 +3,22 @@
 Décisions actées en discussion d'architecture (juillet 2026). Chaque entrée
 note pourquoi elle a été différée et ce qui la débloquera.
 
+## CRITÈRE PERMANENT — grille d'évaluation des NOUVEAUX SITES (acté 28/08)
+
+Décision Channing 28/08 (chantier vélocité) : avant d'intégrer un site,
+vérifier et consigner deux capacités — elles conditionnent la vraie
+vélocité (âge du stock) au lieu du proxy par disparition :
+1. **Date de mise en ligne par annonce** : exposée où (liste / détail),
+   sous quelle forme (ISO exact, jour, relatif « il y a X ») ;
+2. **Tri « plus récentes d'abord »** : paramètre d'URL prouvé par URL
+   humaine.
+Sondes du 28/08 sur les 10 moteurs actuels (probe-dates2, lecture seule) :
+Subito datePublished ISO exact en liste ; Marktplaats date au jour en
+liste + facette offeredSince ; Jófogás date au jour ; Skelbiu relatif
+(« prieš X ») ; LBC affiche « Publié il y a X » (donnée exacte côté
+détail) ; AS24 facette onlineSince (pas de date par annonce en liste) ;
+Bilbasen/mobile.de/Gaspedaal/Blocket : rien de probant en liste.
+
 ## -1. CARTE EUROPE DU RÉSEAU + OUTIL D'INTÉGRATION DE SITES (proposé 18/08, en attente de validation Channing)
 
 Deux chantiers liés, proposition détaillée envoyée le 18/08 (voir la
