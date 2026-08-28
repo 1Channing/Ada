@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Crop, Download, ImagePlus, Loader2, Paintbrush, RefreshCw, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Negotiation, extractListingDetail, updateNegotiation } from '../services/workflow';
+import { Negotiation, updateNegotiation } from '../services/workflow';
+import { startNegoExtraction, isExtracting, extractionError, clearExtractionError, subscribeNegoExtractions } from '../services/negoExtraction';
 
 /**
  * Photos d'une négociation → PDF « photos seules » (28/08).
@@ -90,15 +91,24 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
     setBusy(null);
   };
 
+  // L'extraction vit dans le SERVICE d'arrière-plan (negoExtraction) : fermer
+  // la modale ou naviguer ne l'interrompt plus. Ici on ne fait que démarrer,
+  // refléter l'état partagé, et rafraîchir les vignettes à l'arrivée.
+  const extracting = isExtracting(nego.id);
+  useEffect(() => subscribeNegoExtractions(() => {
+    if (isExtracting(nego.id)) { setError(null); return; }
+    const err = extractionError(nego.id);
+    if (err) { setError(err); clearExtractionError(nego.id); return; }
+    void supabase.from('negotiations').select('photos').eq('id', nego.id).single().then(({ data }) => {
+      const ph = (data as { photos?: unknown } | null)?.photos;
+      if (Array.isArray(ph)) setPhotos(ph as string[]);
+      onChanged();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [nego.id]);
+
   const extract = () => run('extract', async () => {
-    const r = await extractListingDetail(nego.listing_url);
-    if (r.photos.length === 0) throw new Error("Aucune photo extraite de l'annonce");
-    // RE-extraire = rafraîchir le jeu scrapé : les photos brutes du scrape
-    // précédent (photo_NN) sont REMPLACÉES — chaque miroir a une URL neuve,
-    // les additionner dupliquait tout (constat 28/08). Ajouts manuels,
-    // masquées et rognées sont préservés.
-    const kept = photos.filter((p) => !/\/negotiations\/[^/]+\/photo_\d+\./.test(p));
-    await persist([...kept, ...r.photos]);
+    await startNegoExtraction(nego.id, nego.listing_url);
   });
 
   const addFiles = (files: FileList | null) => run('add', async () => {
@@ -134,7 +144,9 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
 
         <div className="px-5 py-3 flex flex-wrap gap-2 border-b border-slate-100">
           {nego.listing_url?.startsWith('http') && (
-            <ActionBtn onClick={extract} busy={busy === 'extract'} icon={RefreshCw}>Extraire de l'annonce</ActionBtn>
+            <ActionBtn onClick={extract} busy={busy === 'extract' || extracting} icon={RefreshCw}>
+              {extracting ? 'Extraction en cours…' : "Extraire de l'annonce"}
+            </ActionBtn>
           )}
           <ActionBtn onClick={() => fileRef.current?.click()} busy={busy === 'add'} icon={ImagePlus}>Ajouter des photos</ActionBtn>
           <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />

@@ -6,6 +6,7 @@ import {
   deleteNegotiation, pushNegotiationToSale, extractListingDetail,
 } from '../services/workflow';
 import { NegotiationPhotosModal } from '../components/NegotiationPhotos';
+import { resumeNegoExtractions, subscribeNegoExtractions, isExtracting } from '../services/negoExtraction';
 
 /**
  * Ventes (ex-Administratif) : pipeline Négociations (perso) → Ventes (équipe).
@@ -57,6 +58,14 @@ function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
 
   const reload = () => { listNegotiations().then(setRows).finally(() => setLoading(false)); };
   useEffect(reload, []);
+  // Extractions d'arrière-plan : reprise des jobs interrompus (navigation,
+  // rechargement) + re-render à chaque changement d'état (spinner de ligne,
+  // compteur de photos à l'arrivée).
+  useEffect(() => {
+    resumeNegoExtractions();
+    return subscribeNegoExtractions(reload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -200,11 +209,13 @@ function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => 
         )}
         <button
           onClick={() => setShowPhotos(true)}
-          title="Photos & PDF"
+          title={isExtracting(n.id) ? 'Extraction des photos en cours…' : 'Photos & PDF'}
           className={`flex items-center gap-1 p-1.5 rounded-lg shrink-0 ${n.photos.length ? 'text-brand-ocean bg-blue-50 hover:bg-blue-100' : 'text-slate-500 hover:bg-slate-100'}`}
         >
           <Images className="w-4 h-4" />
           {n.photos.length > 0 && <span className="text-[11px] font-semibold">{n.photos.length}</span>}
+          {/* Extraction en cours, fenêtre fermée → le témoin vit sur la ligne. */}
+          {isExtracting(n.id) && !showPhotos && <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-ocean" />}
         </button>
         <button
           onClick={() => setShowNotes(!showNotes)}
