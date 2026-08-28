@@ -315,6 +315,34 @@ function parsePriceToken(raw: string): number | null {
   return Number.isFinite(n) && n >= 200 && n <= 500_000 ? n : null;
 }
 
+/**
+ * Téléchargement BINAIRE via Zyte (httpResponseBody base64) — pour les CDN
+ * d'images derrière anti-bot (img.leboncoin.fr / Datadome, constat 28/08 :
+ * le fetch direct depuis Railway peut être refusé alors que la page, elle,
+ * passe par Zyte). Fail-open : null = image sautée, jamais bloquant.
+ */
+export async function fetchBinaryWithZyte(url: string): Promise<{ buf: Buffer; contentType: string } | null> {
+  if (!ZYTE_API_KEY) return null;
+  try {
+    const response = await fetch(ZYTE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${Buffer.from(`${ZYTE_API_KEY}:`).toString('base64')}`,
+      },
+      body: JSON.stringify({ url, httpResponseBody: true }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as { httpResponseBody?: string; httpResponseHeaders?: Array<{ name?: string; value?: string }> };
+    if (!data.httpResponseBody) return null;
+    const buf = Buffer.from(data.httpResponseBody, 'base64');
+    const ct = data.httpResponseHeaders?.find((h) => h.name?.toLowerCase() === 'content-type')?.value ?? 'image/jpeg';
+    return { buf, contentType: String(ct).split(';')[0].trim() || 'image/jpeg' };
+  } catch {
+    return null;
+  }
+}
+
 export async function scrapeListingDetailCard(listingUrl: string): Promise<ListingDetailCard | null> {
   const { html } = await fetchHtmlWithZyte(listingUrl, 1);
   if (!html) return null;

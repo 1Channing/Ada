@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
-import { executeStudy, scrapeSearch, reconScrape, scrapeListingDetailCard } from './scraper';
+import { executeStudy, scrapeSearch, reconScrape, scrapeListingDetailCard, fetchBinaryWithZyte } from './scraper';
 import { findSiteAdapterByDomain, decomposeUrl } from '../src/lib/study-core/marketplaces';
 import type { SearchCriteria } from '../src/lib/study-core/marketplaces';
 import { analyzeIngestion } from '../src/lib/study-core/ingestion';
@@ -127,22 +127,37 @@ app.post('/ingest-url', async (req, res) => {
         const photos: string[] = [];
         for (let i = 0; i < card.imageUrls.length && photos.length < 20; i++) {
           try {
-            const r = await fetch(card.imageUrls[i], {
-              headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': new URL(url).origin,
-              },
-            });
-            if (!r.ok) continue;
-            const buf = Buffer.from(await r.arrayBuffer());
-            if (buf.length < 5_000) continue; // vignette / placeholder
-            const ct = r.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
-            const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
+            // Direct d'abord ; CDN protégé (img.leboncoin.fr / Datadome…) →
+            // repli Zyte en corps binaire. Fail-open par image.
+            let got: { buf: Buffer; contentType: string } | null = null;
+            try {
+              const r = await fetch(card.imageUrls[i], {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                  'Referer': new URL(url).origin,
+                },
+              });
+              if (r.ok) {
+                const buf = Buffer.from(await r.arrayBuffer());
+                const ct = r.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
+                if (buf.length >= 5_000 && !ct.includes('html')) got = { buf, contentType: ct };
+              }
+            } catch { /* direct raté — Zyte prend le relais */ }
+            if (!got) {
+              const z = await fetchBinaryWithZyte(card.imageUrls[i]);
+              if (z && z.buf.length >= 5_000 && !z.contentType.includes('html')) got = z;
+            }
+            if (!got) continue;
+            const ext = got.contentType.includes('png') ? 'png' : got.contentType.includes('webp') ? 'webp' : 'jpg';
             const path = `${folder}/photo_${String(photos.length + 1).padStart(2, '0')}.${ext}`;
-            const { error: upErr } = await sb.storage.from('admin-documents').upload(path, buf, { contentType: ct });
+            const { error: upErr } = await sb.storage.from('admin-documents').upload(path, got.buf, { contentType: got.contentType });
             if (upErr) { console.warn(`[LISTING_DETAIL] upload raté ${path}: ${upErr.message}`); continue; }
             photos.push(sb.storage.from('admin-documents').getPublicUrl(path).data.publicUrl);
           } catch { /* image ratée — fail-open, on garde les autres */ }
+        }
+        if (photos.length === 0 && card.imageUrls.length > 0) {
+          // console.warn = visible dans worker_logs (le .log ne l'est pas).
+          console.warn(`[LISTING_DETAIL] ${url} : ${card.imageUrls.length} image(s) vues sur la page, 0 téléchargée (CDN bloquant ?) — première : ${card.imageUrls[0]}`);
         }
         console.log(`[LISTING_DETAIL] ${url} → titre=${card.title ? 'oui' : 'non'} prix=${card.price ?? '—'} photos=${photos.length}/${card.imageUrls.length}`);
         INGEST_JOBS.set(detailJobId, {

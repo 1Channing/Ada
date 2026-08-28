@@ -500,7 +500,26 @@ function extractDefects(description: string): { defects_summary: string; evidenc
 function extractLeboncoinImages(html: string): string[] {
   const images: string[] = [];
 
+  // Source PRIMAIRE : l'annonce déclare ses images dans __NEXT_DATA__
+  // (ad.images.urls — recon 28/08 : 22 URLs rule=ad-image, chemin haché en
+  // segments 7e/e6/9b/…). Les motifs regex ci-dessous, calés sur l'ancien
+  // format rule=classified-*, ne matchaient plus rien : gardés en repli.
+  const nextData = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (nextData) {
+    try {
+      const ad = JSON.parse(nextData[1])?.props?.pageProps?.ad as { images?: { urls?: unknown } } | undefined;
+      const urls = ad?.images?.urls;
+      if (Array.isArray(urls)) {
+        for (const u of urls) {
+          if (typeof u === 'string' && u.startsWith('https://') && !images.includes(u)) images.push(u);
+        }
+      }
+    } catch { /* blob illisible — les motifs regex prennent le relais */ }
+  }
+  if (images.length > 0) return images.slice(0, 20);
+
   const patterns = [
+    /https:\/\/img\d*\.leboncoin\.fr\/api\/v1\/lbcpb1\/images\/[a-f0-9/]+\.jpg\?rule=ad-image/gi,
     /https:\/\/img\d*\.leboncoin\.fr\/api\/v1\/lbcpb1\/images\/[a-f0-9-]+\.jpg\?rule=classified-[0-9x]+/gi,
     /https:\/\/img\d*\.leboncoin\.fr\/[^"'\s]+\.jpg/gi,
   ];
