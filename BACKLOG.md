@@ -12,12 +12,17 @@ vélocité (âge du stock) au lieu du proxy par disparition :
    sous quelle forme (ISO exact, jour, relatif « il y a X ») ;
 2. **Tri « plus récentes d'abord »** : paramètre d'URL prouvé par URL
    humaine.
-Sondes du 28/08 sur les 10 moteurs actuels (probe-dates2, lecture seule) :
-Subito datePublished ISO exact en liste ; Marktplaats date au jour en
-liste + facette offeredSince ; Jófogás date au jour ; Skelbiu relatif
-(« prieš X ») ; LBC affiche « Publié il y a X » (donnée exacte côté
-détail) ; AS24 facette onlineSince (pas de date par annonce en liste) ;
-Bilbasen/mobile.de/Gaspedaal/Blocket : rien de probant en liste.
+Sondes du 28/08 sur les 10 moteurs actuels (probe-dates 1/2/3, lecture
+seule — pages de liste ET de détail) :
+- EN LISTE : Subito `datePublished` ISO seconde ; Gaspedaal
+  `data-published-date` ISO minute (attribut de chaque carte) ;
+  Marktplaats `date` au jour (+ Vandaag/Gisteren, facette offeredSince) ;
+  Jófogás `date` au jour ; Skelbiu relatif « prieš X val./d. » ; LBC
+  relatif affiché « Publié il y a X » (exact attendu côté détail).
+- AU DÉTAIL SEULEMENT : AS24 `createdTimestampWithOffset` ISO ms ;
+  Bilbasen `publicationDate` ISO (+ lastUpdateDate).
+- AUCUN MARQUEUR (liste ni détail) : mobile.de, Blocket → naissance =
+  notre première observation (first_seen).
 
 ## -1. CARTE EUROPE DU RÉSEAU + OUTIL D'INTÉGRATION DE SITES (proposé 18/08, en attente de validation Channing)
 
