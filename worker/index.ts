@@ -127,24 +127,33 @@ app.post('/ingest-url', async (req, res) => {
         const photos: string[] = [];
         for (let i = 0; i < card.imageUrls.length && photos.length < 20; i++) {
           try {
+            // Variantes de taille AS24 : la 1920x1080 est RECONSTRUITE depuis
+            // la bande de vignettes — si elle n'existe pas pour cette photo,
+            // on essaie les tailles inférieures avant d'abandonner l'image.
+            const primary = card.imageUrls[i];
+            const candidates = /autoscout24\.net\/listing-images\/.+\/1920x1080\.jpg$/.test(primary)
+              ? [primary, primary.replace(/1920x1080\.jpg$/, '1280x960.jpg'), primary.replace(/1920x1080\.jpg$/, '800x600.jpg')]
+              : [primary];
             // Direct d'abord ; CDN protégé (img.leboncoin.fr / Datadome…) →
             // repli Zyte en corps binaire. Fail-open par image.
             let got: { buf: Buffer; contentType: string } | null = null;
-            try {
-              const r = await fetch(card.imageUrls[i], {
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                  'Referer': new URL(url).origin,
-                },
-              });
-              if (r.ok) {
-                const buf = Buffer.from(await r.arrayBuffer());
-                const ct = r.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
-                if (buf.length >= 5_000 && !ct.includes('html')) got = { buf, contentType: ct };
-              }
-            } catch { /* direct raté — Zyte prend le relais */ }
+            for (const cu of candidates) {
+              try {
+                const r = await fetch(cu, {
+                  headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': new URL(url).origin,
+                  },
+                });
+                if (r.ok) {
+                  const buf = Buffer.from(await r.arrayBuffer());
+                  const ct = r.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
+                  if (buf.length >= 5_000 && !ct.includes('html')) { got = { buf, contentType: ct }; break; }
+                }
+              } catch { /* cette variante rate — suivante, puis Zyte */ }
+            }
             if (!got) {
-              const z = await fetchBinaryWithZyte(card.imageUrls[i]);
+              const z = await fetchBinaryWithZyte(candidates[0]);
               if (z && z.buf.length >= 5_000 && !z.contentType.includes('html')) got = z;
             }
             if (!got) continue;

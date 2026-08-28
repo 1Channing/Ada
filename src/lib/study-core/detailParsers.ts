@@ -660,17 +660,21 @@ function extractGenericImages(html: string): string[] {
  * la PLUS GRANDE variante .jpg, dans l'ordre d'apparition.
  */
 function extractAutoscoutImages(html: string): string[] {
-  const SIZE_RANK: Record<string, number> = { '1920x1080': 5, '1280x960': 4, '1080x810': 3, '800x600': 2, '640x480': 1 };
-  const best = new Map<string, { url: string; rank: number; order: number }>();
+  // Le rendu navigateur ne charge en GRAND que les premières diapos du
+  // carrousel (extraction « aléatoire » constatée 28/08 : 1 puis 3 photos
+  // sur la même annonce) — mais la BANDE DE VIGNETTES 120x90 porte TOUTES
+  // les images. Le CDN est un redimensionneur par chemin : on reconstruit
+  // la variante 1920x1080 depuis chaque id vu, quelle que soit la taille
+  // rencontrée. Fail-open : une taille absente fait sauter la photo au
+  // téléchargement, jamais l'extraction.
+  const seen = new Map<string, number>();
   let order = 0;
-  for (const m of html.matchAll(/https:\/\/prod\.pictures\.autoscout24\.net\/listing-images\/([a-f0-9-]+_[a-f0-9-]+)\.jpg\/(\d+x\d+)\.jpg/gi)) {
-    const key = m[1];
-    const rank = SIZE_RANK[m[2]] ?? 0;
-    const cur = best.get(key);
-    if (!cur) best.set(key, { url: m[0], rank, order: order++ });
-    else if (rank > cur.rank) { cur.url = m[0]; cur.rank = rank; }
+  for (const m of html.matchAll(/https:\/\/prod\.pictures\.autoscout24\.net\/listing-images\/([a-f0-9-]+_[a-f0-9-]+)\.jpg\/\d+x\d+\.(?:jpg|webp)/gi)) {
+    if (!seen.has(m[1])) seen.set(m[1], order++);
   }
-  return [...best.values()].sort((a, b) => a.order - b.order).map((x) => x.url).slice(0, 20);
+  return [...seen.entries()].sort((a, b) => a[1] - b[1])
+    .map(([id]) => `https://prod.pictures.autoscout24.net/listing-images/${id}.jpg/1920x1080.jpg`)
+    .slice(0, 20);
 }
 
 function extractCarImages(html: string, listingUrl: string): string[] {

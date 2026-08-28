@@ -93,8 +93,12 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
   const extract = () => run('extract', async () => {
     const r = await extractListingDetail(nego.listing_url);
     if (r.photos.length === 0) throw new Error("Aucune photo extraite de l'annonce");
-    const next = [...photos, ...r.photos.filter((p) => !photos.includes(p))];
-    await persist(next);
+    // RE-extraire = rafraîchir le jeu scrapé : les photos brutes du scrape
+    // précédent (photo_NN) sont REMPLACÉES — chaque miroir a une URL neuve,
+    // les additionner dupliquait tout (constat 28/08). Ajouts manuels,
+    // masquées et rognées sont préservés.
+    const kept = photos.filter((p) => !/\/negotiations\/[^/]+\/photo_\d+\./.test(p));
+    await persist([...kept, ...r.photos]);
   });
 
   const addFiles = (files: FileList | null) => run('add', async () => {
