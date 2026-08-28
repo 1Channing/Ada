@@ -2415,7 +2415,7 @@ export function Administrative() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Pickup Contact</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Pickup Contact <span className="text-slate-500 font-normal">(nom, prénom, téléphone)</span></label>
                 <input
                   type="text"
                   value={transactionForm.pickup_contact}
