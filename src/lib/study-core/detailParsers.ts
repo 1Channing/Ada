@@ -653,9 +653,31 @@ function extractGenericImages(html: string): string[] {
   return images.slice(0, 20);
 }
 
+/**
+ * AutoScout24 : chaque photo vit en N variantes de taille
+ * `listing-images/{idAnnonce}_{idImage}.jpg/{LxH}.{jpg|webp}` (sonde 28/08,
+ * 64 URLs sur une page de détail). Une entrée par image (groupée par idImage),
+ * la PLUS GRANDE variante .jpg, dans l'ordre d'apparition.
+ */
+function extractAutoscoutImages(html: string): string[] {
+  const SIZE_RANK: Record<string, number> = { '1920x1080': 5, '1280x960': 4, '1080x810': 3, '800x600': 2, '640x480': 1 };
+  const best = new Map<string, { url: string; rank: number; order: number }>();
+  let order = 0;
+  for (const m of html.matchAll(/https:\/\/prod\.pictures\.autoscout24\.net\/listing-images\/([a-f0-9-]+_[a-f0-9-]+)\.jpg\/(\d+x\d+)\.jpg/gi)) {
+    const key = m[1];
+    const rank = SIZE_RANK[m[2]] ?? 0;
+    const cur = best.get(key);
+    if (!cur) best.set(key, { url: m[0], rank, order: order++ });
+    else if (rank > cur.rank) { cur.url = m[0]; cur.rank = rank; }
+  }
+  return [...best.values()].sort((a, b) => a.order - b.order).map((x) => x.url).slice(0, 20);
+}
+
 function extractCarImages(html: string, listingUrl: string): string[] {
   let siteImages: string[] = [];
-  if (listingUrl.includes('leboncoin.fr')) {
+  if (listingUrl.includes('autoscout24.')) {
+    siteImages = extractAutoscoutImages(html);
+  } else if (listingUrl.includes('leboncoin.fr')) {
     siteImages = extractLeboncoinImages(html);
   } else if (listingUrl.includes('marktplaats.nl')) {
     siteImages = extractMarktplaatsImages(html);

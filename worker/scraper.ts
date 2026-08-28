@@ -348,11 +348,27 @@ export async function scrapeListingDetailCard(listingUrl: string): Promise<Listi
   const { html } = await fetchHtmlWithZyte(listingUrl, 1);
   if (!html) return null;
 
-  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1]
-    ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:title["']/i)?.[1]
-    ?? html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]
-    ?? null;
-  const title = og ? og.replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().slice(0, 160) : null;
+  // Titre : og:title d'abord — SAUF quand il est pollué par le prix (AS24 :
+  // og:title = « Mercedes-Benz de € 84 990 », sonde 28/08) ; le <title> porte
+  // alors le vrai nom, débarrassé de sa queue commerciale (« en Gris occasion
+  // à … pour € … »). Fail-open : au pire un titre verbeux, jamais vide.
+  const clean = (t: string) => t
+    .replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
+    .replace(/\s*(?:pour|voor|für|per|for|de|da)?\s*€.*$/iu, '')
+    .replace(/\s+(?:en|in)\s+\p{L}+(?:\s+\p{L}+)?\s+(?:occasion|d'occasion|gebraucht|usata|usado|tweedehands|brugt)\b.*$/iu, '')
+    .trim();
+  const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1]
+    ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:title["']/i)?.[1] ?? null;
+  const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ?? null;
+  const candidates = [ogTitle, titleTag]
+    .filter((t): t is string => Boolean(t && t.trim()))
+    .map(clean)
+    .filter(Boolean);
+  // Un og réduit à « Marque » après nettoyage (prix retiré) est moins parlant
+  // que le <title> nettoyé : on prend le candidat NETTOYÉ le plus riche.
+  const title = candidates.length
+    ? candidates.reduce((best, c) => (c.split(' ').length > best.split(' ').length ? c : best)).slice(0, 160)
+    : null;
 
   let price: number | null = null;
   const ldPrice = html.match(/"price"\s*:\s*"?([\d][\d\s .,]{0,12})/);
