@@ -516,7 +516,7 @@ function extractLeboncoinImages(html: string): string[] {
     }
   }
 
-  return images.slice(0, 8);
+  return images.slice(0, 20);
 }
 
 /**
@@ -540,7 +540,7 @@ function extractMarktplaatsImages(html: string): string[] {
     }
   }
 
-  return images.slice(0, 8);
+  return images.slice(0, 20);
 }
 
 /**
@@ -560,7 +560,7 @@ function extractBilbasenImages(html: string): string[] {
     }
   }
 
-  return images.slice(0, 8);
+  return images.slice(0, 20);
 }
 
 /**
@@ -580,7 +580,7 @@ function extractGaspedaalImages(html: string): string[] {
     }
   }
 
-  return images.slice(0, 8);
+  return images.slice(0, 20);
 }
 
 /**

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus } from 'lucide-react';
+import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles } from 'lucide-react';
 import { Administrative } from './Administrative';
 import {
   Negotiation, listNegotiations, createNegotiation, updateNegotiation,
-  deleteNegotiation, pushNegotiationToSale,
+  deleteNegotiation, pushNegotiationToSale, extractListingDetail,
 } from '../services/workflow';
+import { NegotiationPhotosModal } from '../components/NegotiationPhotos';
 
 /**
  * Ventes (ex-Administratif) : pipeline Négociations (perso) → Ventes (équipe).
@@ -52,15 +53,40 @@ function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   const [url, setUrl] = useState('');
   const [price, setPrice] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const reload = () => { listNegotiations().then(setRows).finally(() => setLoading(false)); };
   useEffect(reload, []);
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
-    const err = await createNegotiation(title.trim() || url.trim() || 'Négociation', url.trim(), price ? Number(price) : null);
+    const { error: err } = await createNegotiation(title.trim() || url.trim() || 'Négociation', url.trim(), price ? Number(price) : null);
     if (err) { setError(err); return; }
     setAdding(false); setTitle(''); setUrl(''); setPrice(''); setError(null); reload();
+  };
+
+  // Ajout par la SEULE URL (annonce hors ADA) : le worker lit la page —
+  // titre, prix affiché, photos re-hébergées — et la négo se crée pré-remplie.
+  // Ce que TU as tapé (titre/prix) prime toujours sur ce que lit ADA.
+  const analyze = async () => {
+    const u = url.trim();
+    if (!u.startsWith('http')) { setError("Colle d'abord l'URL de l'annonce"); return; }
+    setAnalyzing(true); setError(null);
+    try {
+      const r = await extractListingDetail(u);
+      const { id, error: err } = await createNegotiation(
+        title.trim() || r.title || u,
+        u,
+        price ? Number(price) : r.price,
+        r.photos,
+      );
+      if (err) throw new Error(err);
+      void id;
+      setAdding(false); setTitle(''); setUrl(''); setPrice(''); reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    setAnalyzing(false);
   };
 
   return (
@@ -95,6 +121,18 @@ function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
             </div>
             <button type="submit" className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-ocean hover:bg-brand-encre text-white self-end transition-colors">OK</button>
           </div>
+          <div className="md:col-span-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={analyze}
+              disabled={analyzing || !url.trim().startsWith('http')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 disabled:opacity-50 transition-colors"
+            >
+              {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {analyzing ? 'Lecture de l\'annonce…' : "Analyser l'annonce"}
+            </button>
+            <span className="text-xs text-slate-500">Colle juste l'URL : ADA lit titre, prix et photos, puis crée la négociation.</span>
+          </div>
         </form>
       )}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
@@ -117,6 +155,7 @@ function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => 
   const [menu, setMenu] = useState(false);
   const [notes, setNotes] = useState(n.notes);
   const [showNotes, setShowNotes] = useState(false);
+  const [showPhotos, setShowPhotos] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -145,6 +184,14 @@ function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => 
         {n.listing_url?.startsWith('http') && (
           <a href={n.listing_url} target="_blank" rel="noreferrer" title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 shrink-0"><ExternalLink className="w-4 h-4" /></a>
         )}
+        <button
+          onClick={() => setShowPhotos(true)}
+          title="Photos & PDF"
+          className={`flex items-center gap-1 p-1.5 rounded-lg shrink-0 ${n.photos.length ? 'text-brand-ocean bg-blue-50 hover:bg-blue-100' : 'text-slate-500 hover:bg-slate-100'}`}
+        >
+          <Images className="w-4 h-4" />
+          {n.photos.length > 0 && <span className="text-[11px] font-semibold">{n.photos.length}</span>}
+        </button>
         <button
           onClick={() => setShowNotes(!showNotes)}
           className={`text-xs px-2 py-1 rounded-lg shrink-0 ${n.notes ? 'text-brand-ocean bg-blue-50' : 'text-slate-500 hover:bg-slate-100'}`}
@@ -182,6 +229,9 @@ function NegoRow({ n, onChanged, onPushed }: { n: Negotiation; onChanged: () => 
           )}
         </div>
       </div>
+      {showPhotos && (
+        <NegotiationPhotosModal nego={n} onClose={() => setShowPhotos(false)} onChanged={onChanged} />
+      )}
       {showNotes && (
         <div className="mt-2 flex gap-2">
           <textarea

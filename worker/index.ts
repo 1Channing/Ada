@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
-import { executeStudy, scrapeSearch, reconScrape } from './scraper';
+import { executeStudy, scrapeSearch, reconScrape, scrapeListingDetailCard } from './scraper';
 import { findSiteAdapterByDomain, decomposeUrl } from '../src/lib/study-core/marketplaces';
 import type { SearchCriteria } from '../src/lib/study-core/marketplaces';
 import { analyzeIngestion } from '../src/lib/study-core/ingestion';
@@ -107,6 +107,53 @@ app.post('/ingest-url', async (req, res) => {
 
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'Missing required parameter: url' });
+  }
+
+  // MODE FICHE ANNONCE (négociations, 28/08) : une page de DÉTAIL — titre,
+  // prix, photos. Les photos sont MIROITÉES dans le storage (le navigateur ne
+  // peut pas lire les CDN des sites en CORS : impossible d'en faire un PDF
+  // côté client sans copie chez nous). Job asynchrone, même mécanique.
+  if ((req.body ?? {}).mode === 'listing_detail') {
+    purgeOldIngestJobs();
+    const detailJobId = `detail_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    INGEST_JOBS.set(detailJobId, { status: 'running', at: Date.now() });
+    res.json({ jobId: detailJobId });
+    (async () => {
+      try {
+        const card = await scrapeListingDetailCard(url);
+        if (!card) throw new Error("Page d'annonce illisible (fetch en échec)");
+        const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+        const folder = `negotiations/${Date.now().toString(36)}`;
+        const photos: string[] = [];
+        for (let i = 0; i < card.imageUrls.length && photos.length < 20; i++) {
+          try {
+            const r = await fetch(card.imageUrls[i], {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': new URL(url).origin,
+              },
+            });
+            if (!r.ok) continue;
+            const buf = Buffer.from(await r.arrayBuffer());
+            if (buf.length < 5_000) continue; // vignette / placeholder
+            const ct = r.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
+            const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
+            const path = `${folder}/photo_${String(photos.length + 1).padStart(2, '0')}.${ext}`;
+            const { error: upErr } = await sb.storage.from('admin-documents').upload(path, buf, { contentType: ct });
+            if (upErr) { console.warn(`[LISTING_DETAIL] upload raté ${path}: ${upErr.message}`); continue; }
+            photos.push(sb.storage.from('admin-documents').getPublicUrl(path).data.publicUrl);
+          } catch { /* image ratée — fail-open, on garde les autres */ }
+        }
+        console.log(`[LISTING_DETAIL] ${url} → titre=${card.title ? 'oui' : 'non'} prix=${card.price ?? '—'} photos=${photos.length}/${card.imageUrls.length}`);
+        INGEST_JOBS.set(detailJobId, {
+          status: 'done', at: Date.now(),
+          payload: { card: { title: card.title, price: card.price }, photos, sourceUrl: url },
+        });
+      } catch (e) {
+        INGEST_JOBS.set(detailJobId, { status: 'error', message: e instanceof Error ? e.message : String(e), at: Date.now() });
+      }
+    })();
+    return;
   }
 
   const adapter = findSiteAdapterByDomain(url);

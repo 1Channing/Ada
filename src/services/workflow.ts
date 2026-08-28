@@ -119,6 +119,8 @@ export interface Negotiation {
   notes: string;
   status: string;    // 'open' | 'pushed_to_sale' | 'closed'
   transaction_id: string | null;
+  /** URLs ORDONNÉES (storage admin-documents) — l'ordre = les pages du PDF. */
+  photos: string[];
   created_at: string;
   updated_at: string;
 }
@@ -378,14 +380,42 @@ export async function listNegotiations(): Promise<Negotiation[]> {
     .neq('status', 'closed')
     .order('updated_at', { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []) as Negotiation[];
+  // photos absent (migration pas encore passée) ou null → toujours un tableau.
+  return (data ?? []).map((r) => ({ ...r, photos: Array.isArray((r as { photos?: unknown }).photos) ? (r as { photos: string[] }).photos : [] })) as Negotiation[];
 }
 
-export async function createNegotiation(title: string, listingUrl: string, askingPrice: number | null): Promise<string | null> {
-  const { error } = await supabase.from('negotiations').insert({
+export async function createNegotiation(
+  title: string, listingUrl: string, askingPrice: number | null, photos: string[] = [],
+): Promise<{ id: string | null; error: string | null }> {
+  const { data, error } = await supabase.from('negotiations').insert({
     user_id: uid(), title, listing_url: listingUrl, asking_price: askingPrice,
-  });
-  return error ? error.message : null;
+    ...(photos.length ? { photos } : {}),
+  }).select('id').single();
+  return { id: data?.id ?? null, error: error ? error.message : null };
+}
+
+/**
+ * Extraction de la FICHE d'une annonce par le worker (mode listing_detail de
+ * l'edge ingest-url) : titre, prix affiché, photos re-hébergées dans notre
+ * storage (indispensable au PDF côté client — les CDN des sites refusent le
+ * CORS). Job asynchrone, sondé toutes les 2,5 s pendant 2,5 min max.
+ */
+export interface ListingExtract { title: string | null; price: number | null; photos: string[] }
+export async function extractListingDetail(url: string): Promise<ListingExtract> {
+  const start = await supabase.functions.invoke('ingest-url', { body: { url, mode: 'listing_detail' } });
+  if (start.error) throw new Error(start.error.message ?? "edge ingest-url en échec");
+  const jobId = (start.data as { jobId?: string } | null)?.jobId;
+  if (!jobId) throw new Error('worker sans mode fiche annonce — réponse inattendue');
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 2500));
+    const poll = await supabase.functions.invoke('ingest-url', { body: { jobId } });
+    const d = poll.data as { jobStatus?: string; message?: string; card?: { title: string | null; price: number | null }; photos?: string[] } | null;
+    if (d?.jobStatus === 'done') {
+      return { title: d.card?.title ?? null, price: d.card?.price ?? null, photos: d.photos ?? [] };
+    }
+    if (d?.jobStatus === 'error') throw new Error(d.message || 'extraction en échec');
+  }
+  throw new Error("Délai dépassé — l'annonce n'a pas pu être lue");
 }
 
 export async function updateNegotiation(id: string, patch: Partial<Negotiation>): Promise<void> {

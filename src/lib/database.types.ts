@@ -98,18 +98,21 @@ export type Database = {
           id: string; user_id: string; title: string; listing_url: string
           asking_price: number | null; negotiated_price: number | null
           notes: string; status: string; transaction_id: string | null
+          photos: Json
           created_at: string; updated_at: string
         }
         Insert: {
           id?: string; user_id: string; title: string; listing_url?: string
           asking_price?: number | null; negotiated_price?: number | null
           notes?: string; status?: string; transaction_id?: string | null
+          photos?: Json
           created_at?: string; updated_at?: string
         }
         Update: {
           id?: string; user_id?: string; title?: string; listing_url?: string
           asking_price?: number | null; negotiated_price?: number | null
           notes?: string; status?: string; transaction_id?: string | null
+          photos?: Json
           created_at?: string; updated_at?: string
         }
         Relationships: []

@@ -294,6 +294,50 @@ async function scrapeDetailPage(listingUrl: string): Promise<DetailPageData | nu
 }
 
 /**
+ * Fiche d'une annonce pour les NÉGOCIATIONS (28/08) : titre + prix + photos
+ * depuis la page de DÉTAIL. Titre/prix lus aux emplacements STANDARD
+ * (og:title / <title>, JSON-LD "price" / og:price:amount) — fail-open :
+ * champ illisible = null, l'opérateur complète à la main. Les photos
+ * viennent des parseurs de détail par site (parseDetailPage).
+ */
+export interface ListingDetailCard {
+  title: string | null;
+  price: number | null;
+  imageUrls: string[];
+}
+
+function parsePriceToken(raw: string): number | null {
+  let s = raw.trim().replace(/\s| /g, '');
+  // Décimales finales (15999.00 / 15999,00) retirées ; séparateurs de
+  // milliers (15.999 / 15,999) effacés ensuite.
+  s = s.replace(/[.,]\d{1,2}$/, '').replace(/[.,]/g, '');
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 200 && n <= 500_000 ? n : null;
+}
+
+export async function scrapeListingDetailCard(listingUrl: string): Promise<ListingDetailCard | null> {
+  const { html } = await fetchHtmlWithZyte(listingUrl, 1);
+  if (!html) return null;
+
+  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1]
+    ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:title["']/i)?.[1]
+    ?? html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]
+    ?? null;
+  const title = og ? og.replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().slice(0, 160) : null;
+
+  let price: number | null = null;
+  const ldPrice = html.match(/"price"\s*:\s*"?([\d][\d\s .,]{0,12})/);
+  if (ldPrice) price = parsePriceToken(ldPrice[1]);
+  if (price == null) {
+    const ogPrice = html.match(/<meta[^>]+property=["'](?:og:price:amount|product:price:amount)["'][^>]*content=["']([^"']+)["']/i);
+    if (ogPrice) price = parsePriceToken(ogPrice[1]);
+  }
+
+  const detail = parseDetailPage(html, listingUrl);
+  return { title, price, imageUrls: detail.car_image_urls };
+}
+
+/**
  * Extract the total result count the marketplace advertises on the page
  * ("X annonces" / "X advertenties" / "X resultater"). Best-effort — returns
  * null when not found. Powers the market-depth metric (the parsed sample is
