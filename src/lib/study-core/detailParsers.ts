@@ -586,18 +586,68 @@ function extractGaspedaalImages(html: string): string[] {
 /**
  * Extract car images based on marketplace
  */
-function extractCarImages(html: string, listingUrl: string): string[] {
-  if (listingUrl.includes('leboncoin.fr')) {
-    return extractLeboncoinImages(html);
-  } else if (listingUrl.includes('marktplaats.nl')) {
-    return extractMarktplaatsImages(html);
-  } else if (listingUrl.includes('bilbasen.dk')) {
-    return extractBilbasenImages(html);
-  } else if (listingUrl.includes('gaspedaal.nl')) {
-    return extractGaspedaalImages(html);
+/**
+ * Repli GÉNÉRIQUE (constat Yaris Cross 28/08 : seuls 4 sites avaient un
+ * extracteur — AutoScout, mobile.de, Blocket, Subito… rendaient 0 photo) :
+ * les images que la page DÉCLARE elle-même dans ses blocs JSON-LD
+ * (schema.org Vehicle/Product/Offer) — même doctrine que les enums moissonnés,
+ * la donnée vient du site, jamais devinée. og:image en dernier secours
+ * (souvent la seule photo de couverture).
+ */
+function extractGenericImages(html: string): string[] {
+  const images: string[] = [];
+  const push = (u: unknown) => {
+    if (typeof u !== 'string') return;
+    const url = u.trim();
+    if (!/^https?:\/\//i.test(url)) return;
+    if (/\.svg|logo|favicon|sprite|icon|placeholder/i.test(url)) return;
+    if (!images.includes(url)) images.push(url);
+  };
+  const ldBlocks = html.match(/<script[^>]+application\/ld\+json[^>]*>[\s\S]*?<\/script>/gi) ?? [];
+  for (const block of ldBlocks) {
+    if (images.length >= 20) break;
+    const body = block.replace(/^<script[^>]*>/i, '').replace(/<\/script>$/i, '');
+    try {
+      const walk = (node: unknown): void => {
+        if (!node || images.length >= 20) return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (typeof node !== 'object') return;
+        const o = node as Record<string, unknown>;
+        const img = o['image'];
+        if (typeof img === 'string') push(img);
+        else if (Array.isArray(img)) {
+          for (const it of img) push(it && typeof it === 'object' ? (it as { url?: unknown; contentUrl?: unknown }).url ?? (it as { contentUrl?: unknown }).contentUrl : it);
+        } else if (img && typeof img === 'object') {
+          push((img as { url?: unknown; contentUrl?: unknown }).url ?? (img as { contentUrl?: unknown }).contentUrl);
+        }
+        for (const k of ['@graph', 'mainEntity', 'mainEntityOfPage', 'offers', 'itemOffered']) {
+          if (o[k]) walk(o[k]);
+        }
+      };
+      walk(JSON.parse(body));
+    } catch { /* bloc illisible — repli suivant */ }
   }
+  if (images.length === 0) {
+    for (const m of html.matchAll(/<meta[^>]+property=["']og:image(?::url)?["'][^>]*content=["']([^"']+)["']/gi)) push(m[1]);
+    for (const m of html.matchAll(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image(?::url)?["']/gi)) push(m[1]);
+  }
+  return images.slice(0, 20);
+}
 
-  return [];
+function extractCarImages(html: string, listingUrl: string): string[] {
+  let siteImages: string[] = [];
+  if (listingUrl.includes('leboncoin.fr')) {
+    siteImages = extractLeboncoinImages(html);
+  } else if (listingUrl.includes('marktplaats.nl')) {
+    siteImages = extractMarktplaatsImages(html);
+  } else if (listingUrl.includes('bilbasen.dk')) {
+    siteImages = extractBilbasenImages(html);
+  } else if (listingUrl.includes('gaspedaal.nl')) {
+    siteImages = extractGaspedaalImages(html);
+  }
+  // Extracteur de site muet (ou site sans extracteur) → le repli générique
+  // couvre TOUTE la classe d'un coup.
+  return siteImages.length > 0 ? siteImages : extractGenericImages(html);
 }
 
 /**
@@ -611,6 +661,10 @@ function extractCarImages(html: string, listingUrl: string): string[] {
 export function parseDetailPage(html: string, listingUrl: string): DetailPageData {
   const isLeboncoin = listingUrl.includes('leboncoin.fr');
   const sellerContent = extractSellerContent(html, listingUrl);
+  // Les PHOTOS ne dépendent PAS du texte vendeur : extraites AVANT le
+  // court-circuit fail-closed (constat Yaris Cross 28/08 : description
+  // illisible → 0 photo alors que la page en portait 14).
+  const car_image_urls = extractCarImages(html, listingUrl);
 
   if (!sellerContent.description && sellerContent.structuredEquipment.length === 0) {
     return {
@@ -618,14 +672,13 @@ export function parseDetailPage(html: string, listingUrl: string): DetailPageDat
       entretien: '',
       defects_summary: '',
       maintenance_summary: '',
-      car_image_urls: [],
+      car_image_urls,
     };
   }
 
   const optionsResult = extractPremiumOptions(sellerContent, isLeboncoin);
   const maintenanceResult = extractMaintenanceInfo(sellerContent.description);
   const defectsResult = extractDefects(sellerContent.description);
-  const car_image_urls = extractCarImages(html, listingUrl);
 
   // Store evidence in entretien/defects_summary (append at end with delimiter)
   let entretien = maintenanceResult.entretien;
