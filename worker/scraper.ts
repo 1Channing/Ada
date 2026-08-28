@@ -151,6 +151,7 @@ export async function recordStudyMarketSnapshot(
       price_type: ((l as any).priceType ?? '').trim() || null,
       listing_url: l.listing_url, title: (l.title ?? '').slice(0, 200),
       currency: 'EUR', scraped_at: scrapedAt,
+      published_at: (l as any).publishedAt ?? null,
     }));
     const { error: obsErr } = await supabase.from('market_listing_observations').insert(observations);
     if (obsErr) console.warn('[WORKER] market observations insert failed (non-blocking):', obsErr.message);

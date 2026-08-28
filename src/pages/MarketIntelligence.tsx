@@ -843,7 +843,7 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
       .filter((c) => c.median > 0).sort((a, b) => a.median - b.median);
   }, [latestObs]);
 
-  const velocity = useMemo(() => velocityFromObservations(filtered).filter((v) => v.soldCount > 0), [filtered]);
+  const velocity = useMemo(() => velocityFromObservations(filtered).filter((v) => v.soldCount > 0 || v.datedActiveCount > 0 || v.datedSoldCount > 0), [filtered]);
   const velocityCoverage = useMemo(() => velocityCoverageDays(filtered), [filtered]);
 
   const tableRows = useMemo(() => {
@@ -1036,7 +1036,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
       if (seen.has(k)) continue; seen.add(k); union.push(o);
     }
     return {
-      velocity: velocityFromObservations(union).filter((v) => v.soldCount > 0),
+      velocity: velocityFromObservations(union).filter((v) => v.soldCount > 0 || v.datedActiveCount > 0 || v.datedSoldCount > 0),
       velocityCoverage: velocityCoverageDays(union),
     };
   }, [perStudy]);
@@ -1319,14 +1319,19 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
 
 function VelocityCard({ velocity, coverageDays }: { velocity: VelocityStat[]; coverageDays: number }) {
   const [showAll, setShowAll] = useState(false);
-  const sorted = [...velocity].sort((a, b) => b.soldCount - a.soldCount);
+  // Segments DATÉS d'abord (mise en ligne déclarée par le site = vélocité
+  // réelle), puis le proxy par disparition, trié par volume.
+  const sorted = [...velocity].sort((a, b) =>
+    (b.datedActiveCount + b.datedSoldCount) - (a.datedActiveCount + a.datedSoldCount)
+    || b.soldCount - a.soldCount);
   const rows = showAll ? sorted : sorted.slice(0, 10);
-  const maxDays = Math.max(1, ...rows.map((v) => v.avgDaysToDisappear));
+  const maxDays = Math.max(1, ...rows.map((v) => Math.max(v.stockMedianAgeDays ?? 0, v.soldMedianLifeDays ?? 0, v.avgDaysToDisappear)));
+  const barW = (d: number) => `${Math.max(3, Math.round((d / maxDays) * 100))}%`;
 
   return (
     <ChartCard
-      title="Vélocité — proxy de vitesse de vente"
-      subtitle={`fenêtre d'observation ≥ ${VELOCITY_MIN_DAYS} j par segment · page 1 seulement (une annonce peut sortir sans être vendue)`}
+      title="Vélocité — âge du stock et vitesse de vente"
+      subtitle="mise en ligne déclarée par le site quand elle existe (âge réel, dès le 1er scan) · sinon proxy par disparition (fenêtre ≥ 14 j, page 1)"
       icon={<Gauge className="w-4 h-4 text-rose-600" />}
     >
       {velocity.length === 0 ? (
@@ -1336,27 +1341,61 @@ function VelocityCard({ velocity, coverageDays }: { velocity: VelocityStat[]; co
               <div className="bg-rose-100 h-2" style={{ width: `${Math.min(100, Math.round((coverageDays / VELOCITY_MIN_DAYS) * 100))}%` }} />
             </div>
             <span>Collecte en cours — {Math.min(coverageDays, VELOCITY_MIN_DAYS)} j / {VELOCITY_MIN_DAYS}</span>
-            <span className="text-xs text-slate-400">La vélocité s'affiche dès {VELOCITY_MIN_DAYS} jours de scans répétés sur un segment.</span>
+            <span className="text-xs text-slate-400">Sites sans date de mise en ligne : la vélocité s'affiche après {VELOCITY_MIN_DAYS} jours de scans répétés.</span>
           </div>
         ) : (
           <NeedMore text="Pas encore de scans répétés sur ce filtre." />
         )
       ) : (
-        <div className="space-y-1.5">
-          {rows.map((v) => (
-            <div key={v.segmentId} className="flex items-center gap-3 text-xs">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COUNTRY_COLOR[v.country] ?? SERIES[5] }} />
-              <span className="text-slate-700 truncate w-44 shrink-0" title={v.label}>{v.label}</span>
-              <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div
-                  className="h-2 rounded-full"
-                  style={{ width: `${Math.round((v.avgDaysToDisappear / maxDays) * 100)}%`, background: COUNTRY_COLOR[v.country] ?? SERIES[5] }}
-                />
+        <div className="space-y-2">
+          {rows.map((v) => {
+            const dated = v.datedActiveCount + v.datedSoldCount > 0;
+            const color = COUNTRY_COLOR[v.country] ?? SERIES[5];
+            return (
+              <div key={v.segmentId} className="text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                  <span className="text-slate-700 truncate flex-1" title={`${v.site} · ${v.label}`}>{v.label}</span>
+                  {dated
+                    ? <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 shrink-0">daté site</span>
+                    : <span className="text-[10px] text-slate-400 border border-slate-200 rounded-full px-1.5 shrink-0">proxy</span>}
+                </div>
+                {dated ? (
+                  <div className="mt-1 space-y-0.5 pl-4">
+                    {v.stockMedianAgeDays != null && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500 w-28 shrink-0">stock en vente</span>
+                        <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                          <div className="h-2 rounded-full" style={{ width: barW(v.stockMedianAgeDays), background: color, opacity: 0.45 }} />
+                        </div>
+                        <span className="text-slate-800 font-medium w-14 text-right shrink-0">{v.stockMedianAgeDays} j</span>
+                        <span className="text-slate-400 w-20 text-right shrink-0">{v.datedActiveCount} actives</span>
+                      </div>
+                    )}
+                    {v.soldMedianLifeDays != null && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500 w-28 shrink-0">vendues en</span>
+                        <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                          <div className="h-2 rounded-full" style={{ width: barW(v.soldMedianLifeDays), background: color }} />
+                        </div>
+                        <span className="text-slate-800 font-medium w-14 text-right shrink-0">{v.soldMedianLifeDays} j</span>
+                        <span className="text-slate-400 w-20 text-right shrink-0">{v.datedSoldCount} vendues</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-1 flex items-center gap-2 pl-4">
+                    <span className="text-slate-500 w-28 shrink-0">disparues en</span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div className="h-2 rounded-full" style={{ width: barW(v.avgDaysToDisappear), background: color }} />
+                    </div>
+                    <span className="text-slate-800 font-medium w-14 text-right shrink-0">{v.avgDaysToDisappear} j</span>
+                    <span className="text-slate-400 w-20 text-right shrink-0">{v.soldCount} · {v.activeCount} act.</span>
+                  </div>
+                )}
               </div>
-              <span className="text-slate-800 font-medium w-12 text-right shrink-0">{v.avgDaysToDisappear} j</span>
-              <span className="text-slate-400 w-28 text-right shrink-0">{v.soldCount} disparues · {v.activeCount} actives</span>
-            </div>
-          ))}
+            );
+          })}
           {sorted.length > 10 && (
             <button onClick={() => setShowAll((s) => !s)} className="text-xs text-slate-500 hover:text-slate-700 pt-1">
               {showAll ? 'Réduire' : `Voir les ${sorted.length - 10} autres`}

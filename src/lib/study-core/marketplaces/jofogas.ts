@@ -29,6 +29,7 @@ import type {
   SiteValidationResult, ZyteProfileOverrides, CandidateSegment,
 } from './types';
 import type { ScrapedListing } from '../types';
+import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose } from '../business-logic';
 
@@ -84,6 +85,11 @@ function parseSearchResults(html: string): ScrapedListing[] {
       trim: null, listing_url: url,
       brand, model, fuel,
       sellerType: /badge-company_ad/.test(c) ? 'pro' : null,
+      // Carte datée « 2026. 06. 19 » ou relative ma/tegnap (sonde 28/08).
+      publishedAt: parsePublishedAt(
+        c.match(/\b(\d{4}\.\s*\d{2}\.\s*\d{2})\b/)?.[1]
+        ?? c.match(/>\s*(ma|tegnap)\s*[,<]/i)?.[1],
+      ),
     });
   }
   return out;

@@ -26,6 +26,7 @@ import type {
   SiteValidationResult, ZyteProfileOverrides, CandidateSegment,
 } from './types';
 import type { ScrapedListing } from '../types';
+import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose } from '../business-logic';
 
@@ -94,14 +95,40 @@ const fNum = (ad: SubitoAd, uri: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/** Mise en ligne : les blocs JSON-LD de la page portent `datePublished` ISO
+ *  par annonce (sonde 28/08 — "datePublished":"2026-08-28T13:53:15"), mappés
+ *  ici par URL pour compléter le champ `date` des objets AdItem. */
+function jsonLdPublishedByUrl(html: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const walk = (node: unknown): void => {
+        if (!node) return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (typeof node !== 'object') return;
+        const o = node as Record<string, unknown>;
+        const u = typeof o.url === 'string' ? o.url : typeof o['@id'] === 'string' ? String(o['@id']) : null;
+        const d = typeof o.datePublished === 'string' ? o.datePublished : null;
+        if (u && d && !out.has(u)) out.set(u, d);
+        for (const v of Object.values(o)) if (v && typeof v === 'object') walk(v);
+      };
+      walk(JSON.parse(m[1]));
+    } catch { /* bloc illisible */ }
+  }
+  return out;
+}
+
 function parseSearchResults(html: string, _url: string): ScrapedListing[] {
   const data = nextDataItems(html);
   if (!data) return [];
+  const ldDates = jsonLdPublishedByUrl(html);
   const out: ScrapedListing[] = [];
   for (const ad of data.ads) {
     if (ad.kind !== 'AdItem') continue;
     const price = fNum(ad, '/price');
     if (price == null || price <= 0) continue;
+    const listingUrl = ad.urls?.default ?? '';
+    const adAny = ad as { date?: unknown; datePublished?: unknown };
     out.push({
       title: ad.subject ?? '',
       description: ad.body ?? '',
@@ -111,12 +138,13 @@ function parseSearchResults(html: string, _url: string): ScrapedListing[] {
       year: fNum(ad, '/year'),
       mileage: fNum(ad, '/mileage_scalar'),
       trim: fv(ad, '/car', 2)?.value ?? null, // Versione
-      listing_url: ad.urls?.default ?? '',
+      listing_url: listingUrl,
       brand: fv(ad, '/car', 0)?.value ?? null,
       model: fv(ad, '/car', 1)?.value ?? null,
       fuel: fv(ad, '/fuel')?.value ?? null,
       gearbox: fv(ad, '/gearbox')?.value ?? null,
       sellerType: null,
+      publishedAt: parsePublishedAt(adAny.date ?? adAny.datePublished ?? ldDates.get(listingUrl)),
     });
   }
   return out;

@@ -44,6 +44,10 @@ export interface ScrapedListing {
   seats?: number | null;
   color?: string | null;
   vehicleType?: string | null;
+  /** Date de MISE EN LIGNE déclarée par le site (ISO), quand la page
+   *  l'expose (sondes 28/08 : Subito/Gaspedaal/MP/Jófogás/Skelbiu/LBC).
+   *  Nourrit la vélocité réelle : âge du stock, durée de vie des vendues. */
+  publishedAt?: string | null;
   // Structured brand/fuel labels (seller-declared), when the parser can read
   // them. More reliable than the title, which often omits the brand
   // ("Megane E-Tech" with no "Renault") or the energy. Human label, not code.

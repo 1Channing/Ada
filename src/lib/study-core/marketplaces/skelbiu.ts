@@ -25,6 +25,7 @@ import type {
   SiteValidationResult, ZyteProfileOverrides, CandidateSegment,
 } from './types';
 import type { ScrapedListing } from '../types';
+import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
 
 // Nos noms canoniques → code fuel[] du site (dictionnaire du formulaire).
@@ -120,6 +121,9 @@ function parseSearchResults(html: string): ScrapedListing[] {
       trim: null, listing_url: url,
       brand: null, model: null, // pas de champ structuré par carte — le titre porte « Toyota Rav4, … »
       fuel, gearbox,
+      // « prieš 2 val. » / « prieš 3 d. » sur la carte (sonde 28/08) —
+      // relatif converti en date par le normaliseur, fail-open sinon.
+      publishedAt: parsePublishedAt(block.match(/prieš\s+\d+\s*(?:min|val|d|mėn|men)\b\.?/i)?.[0]),
     });
   }
   return out;

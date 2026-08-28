@@ -16,6 +16,7 @@
  */
 
 import type { ScrapedListing, Currency } from '../types';
+import { parsePublishedAt } from './shared';
 
 const DKK_TO_EUR = 0.134; // in sync with parsers/shared.ts, business-logic.ts, marketData.ts
 
@@ -387,6 +388,9 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
       // "WithoutTax"/engros prices must be excluded from medians downstream.
       sellerType: str(readField(ad, ['sellerType', 'sellerKind'], []) as string | null) ?? str((ad as { seller?: { type?: unknown } })?.seller?.type as string | null),
       priceType: str((ad as { price?: { priceType?: unknown } })?.price?.priceType as string | null) ?? str(readField(ad, ['priceType'], []) as string | null),
+      // Date de mise en ligne déclarée (MP `date`:"25 aug 26"/Vandaag —
+      // sonde 28/08). Le normaliseur rejette tout ce qui n'est pas une date.
+      publishedAt: parsePublishedAt(readField(ad, ['date', 'datePublished', 'publishedDate', 'publicationDate', 'listDate', 'listTime', 'creationDate', 'createdAt'], [])),
     });
   }
 

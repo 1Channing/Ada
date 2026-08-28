@@ -8,6 +8,7 @@
  */
 
 import type { ScrapedListing } from '../types';
+import { parsePublishedAt } from './shared';
 
 /**
  * Read one attribute from a Leboncoin ad, tolerant of both shapes seen in
@@ -219,6 +220,10 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
         currency: 'EUR',
         mileage,
         year,
+        // Mise en ligne déclarée par l'annonce (« Publié il y a X » du site —
+        // sonde 28/08) : first_publication_date prime, index_date en repli
+        // (remontée en tête de liste au ré-index). Fail-open via normaliseur.
+        publishedAt: parsePublishedAt(ad.first_publication_date ?? ad.index_date ?? ad.publication_date),
         trim: trimLabel,
         listing_url: listingUrl,
         description: ad.body || ad.description || ad.text || '',

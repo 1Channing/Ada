@@ -205,6 +205,7 @@ export async function writeMarketSnapshot(params: {
     title: (l.title ?? '').slice(0, 200),
     currency: 'EUR',
     scraped_at: scrapedAt,
+    published_at: l.publishedAt ?? null,
   }));
 
   const { error: obsErr } = await supabase
@@ -262,6 +263,9 @@ export interface Observation {
   listing_url: string | null;
   title: string | null;
   scraped_at: string;
+  /** Mise en ligne DÉCLARÉE par le site (ISO) — null si le site la cache
+   *  (mobile.de, Blocket) ou observation antérieure au 28/08. */
+  published_at?: string | null;
 }
 
 export interface MarketFilters {
@@ -1113,6 +1117,14 @@ export interface VelocityStat {
   soldCount: number;         // observations no longer seen in the latest snapshot
   activeCount: number;        // still present (censored)
   avgDaysToDisappear: number; // proxy for time-to-sell (page-1 sampling caveat)
+  // ─── Vélocité RÉELLE (28/08) — quand le site déclare la mise en ligne ───
+  /** Médiane d'ÂGE du stock ACTIF (jours depuis la mise en ligne déclarée). */
+  stockMedianAgeDays: number | null;
+  /** Médiane de DURÉE DE VIE des disparues (mise en ligne → dernière vue). */
+  soldMedianLifeDays: number | null;
+  /** Actives datées / disparues datées — la matière derrière les médianes. */
+  datedActiveCount: number;
+  datedSoldCount: number;
 }
 
 /**
@@ -1171,6 +1183,10 @@ export function computeVelocity(data: MarketData): VelocityStat[] {
       soldCount,
       activeCount,
       avgDaysToDisappear: soldCount > 0 ? Math.round((sumDays / soldCount) * 10) / 10 : 0,
+      // Voie datée servie par velocityFromObservations (le canal du MI) —
+      // cette agrégation historique reste proxy-seulement.
+      stockMedianAgeDays: null, soldMedianLifeDays: null,
+      datedActiveCount: 0, datedSoldCount: 0,
     });
   }
   return out.sort((a, b) => b.soldCount - a.soldCount);
@@ -1212,25 +1228,55 @@ export function velocityFromObservations(obs: Observation[]): VelocityStat[] {
     arr.push(o);
     groups.set(key, arr);
   }
+  const median = (xs: number[]): number | null => {
+    if (xs.length === 0) return null;
+    const s = [...xs].sort((a, b) => a - b);
+    const mid = Math.floor(s.length / 2);
+    const m = s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+    return Math.round(m * 10) / 10;
+  };
+  const now = Date.now();
   const out: VelocityStat[] = [];
   for (const [seg, list] of groups) {
     const times = [...new Set(list.map((o) => new Date(o.scraped_at).getTime()))];
-    if (times.length < 2) continue; // need repeated scrapes
-    if ((Math.max(...times) - Math.min(...times)) < VELOCITY_MIN_DAYS * 86_400_000) continue;
     const latest = Math.max(...times);
-    const lives = new Map<string, { first: number; last: number }>();
+    const windowOk = times.length >= 2
+      && (latest - Math.min(...times)) >= VELOCITY_MIN_DAYS * 86_400_000;
+    const lives = new Map<string, { first: number; last: number; published: number | null }>();
     for (const o of list) {
       const t = new Date(o.scraped_at).getTime();
+      // Mise en ligne DÉCLARÉE par le site : la plus ancienne vue pour cette
+      // annonce (une re-remontée peut réécrire index_date — la naissance, non).
+      const p = o.published_at ? new Date(o.published_at).getTime() : NaN;
       const cur = lives.get(o.internal_ref);
-      if (!cur) lives.set(o.internal_ref, { first: t, last: t });
-      else { cur.first = Math.min(cur.first, t); cur.last = Math.max(cur.last, t); }
+      if (!cur) {
+        lives.set(o.internal_ref, { first: t, last: t, published: Number.isFinite(p) ? p : null });
+      } else {
+        cur.first = Math.min(cur.first, t); cur.last = Math.max(cur.last, t);
+        if (Number.isFinite(p)) cur.published = cur.published == null ? p : Math.min(cur.published, p);
+      }
     }
     let soldCount = 0, activeCount = 0, sumDays = 0;
+    const stockAges: number[] = [];
+    const soldLives: number[] = [];
     for (const life of lives.values()) {
-      if (life.last >= latest - 60_000) { activeCount += 1; continue; }
+      const active = life.last >= latest - 60_000;
+      if (active) {
+        activeCount += 1;
+        // ÂGE RÉEL du stock : la date de naissance est déclarée par le site —
+        // un SEUL scan suffit, aucune fenêtre d'observation requise.
+        if (life.published != null) stockAges.push((now - life.published) / 86_400_000);
+        continue;
+      }
+      // Disparue : le proxy garde ses gardes-fous (fenêtre ≥ 14 j) ; la voie
+      // datée n'en a pas besoin — la durée de vie part de la vraie naissance.
+      if (life.published != null) soldLives.push((life.last - life.published) / 86_400_000);
+      if (!windowOk) continue;
       soldCount += 1;
       sumDays += (life.last - life.first) / 86_400_000;
     }
+    const datedSold = windowOk || times.length >= 2 ? soldLives : [];
+    if (!windowOk && stockAges.length === 0 && datedSold.length === 0) continue;
     const bits = seg.split('|');
     const label = [bits[1], bits[2], fuelLabel(bits[3]), bits[4]]
       .map((x) => (x ?? '').trim()).filter((x) => x && x !== '—').join(' · ');
@@ -1241,9 +1287,16 @@ export function velocityFromObservations(obs: Observation[]): VelocityStat[] {
       country: list[0].country,
       soldCount, activeCount,
       avgDaysToDisappear: soldCount > 0 ? Math.round((sumDays / soldCount) * 10) / 10 : 0,
+      stockMedianAgeDays: median(stockAges),
+      soldMedianLifeDays: median(datedSold),
+      datedActiveCount: stockAges.length,
+      datedSoldCount: datedSold.length,
     });
   }
-  return out.sort((a, b) => b.soldCount - a.soldCount);
+  // Segments DATÉS d'abord (la vraie vélocité), puis le proxy par volume.
+  return out.sort((a, b) =>
+    (b.datedActiveCount + b.datedSoldCount) - (a.datedActiveCount + a.datedSoldCount)
+    || b.soldCount - a.soldCount);
 }
 
 /** Histogram buckets over the latest snapshot's listing prices for a segment. */

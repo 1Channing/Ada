@@ -28,6 +28,7 @@ import type {
   SiteValidationResult, ZyteProfileOverrides, CandidateSegment,
 } from './types';
 import type { ScrapedListing } from '../types';
+import { parsePublishedAt } from '../parsers/shared';
 import { defaultBuildPaginatedUrl } from './registry';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose } from '../business-logic';
@@ -152,14 +153,31 @@ function jsonLdCars(html: string): GpItem[] {
   return out;
 }
 
+/** Mise en ligne : chaque CARTE HTML porte data-published-date="ISO" (sonde
+ *  28/08). L'appariement carte↔annonce passe par l'id numérique de l'annonce
+ *  (l'@id JSON-LD se termine par #<id>) cherché dans la fenêtre qui suit
+ *  l'attribut. Fail-open : carte sans id apparié = pas de date. */
+function publishedDatesById(html: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of html.matchAll(/data-published-date="([^"]+)"/g)) {
+    const windowAfter = html.slice(m.index ?? 0, (m.index ?? 0) + 4000);
+    const id = windowAfter.match(/[#/](\d{7,10})\b/)?.[1];
+    if (id && !out.has(id)) out.set(id, m[1]);
+  }
+  return out;
+}
+
 function parseSearchResults(html: string, _url: string): ScrapedListing[] {
   const out: ScrapedListing[] = [];
+  const pubById = publishedDatesById(html);
   for (const it of jsonLdCars(html)) {
     const price = typeof it.offers?.price === 'number' ? it.offers.price : Number(it.offers?.price);
     if (!Number.isFinite(price) || price <= 0) continue;
     const year = Number(it.productionDate);
     const mileage = Number(it.mileageFromOdometer?.value);
+    const itemId = String(it['@id'] ?? '').match(/#(\d{6,})$/)?.[1];
     out.push({
+      publishedAt: parsePublishedAt(itemId ? pubById.get(itemId) : undefined),
       title: it.name ?? '',
       description: '',
       price,
