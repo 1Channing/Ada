@@ -117,9 +117,11 @@ const MEMORY_CASES: Array<{
       // gearbox=2 (Automatique) — enum humain confirmé en base + URL humaine
       // en mémoire (constat Ignis 27/08 : savoir par ligne → registre).
       ['boîte', /gearbox=2(&|$)/],
-      // horse_power_din appris par 12 lignes mémoire ; fuel=6 (HYBRIDE)
-      // prouvé par URL humaine — inventaire 27/08.
-      ['puissance', /horse_power_din=150/], ['carburant', /fuel=6(&|$)/],
+      // horse_power_din=N-max — la FORME vient des 12 lignes mémoire
+      // humaines (constat Elroq 29/08 : la valeur nue était lue min=max).
+      ['puissance', /horse_power_din=150-max(&|$)/],
+      // fuel=6 (HYBRIDE) prouvé par URL humaine — inventaire 27/08.
+      ['carburant', /fuel=6(&|$)/],
     ],
     wantGone: [/regdate/, /mileage=/, /u_car_finition/, /text=/, /gearbox=/, /horse_power_din/, /fuel=/],
     // La liste à virgules du modèle doit survivre OCTET PAR OCTET.

@@ -191,10 +191,12 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     // humaines) ; la valeur nue est lue comme borne BASSE (études GR SPORT à 0
     // dès l'ajout du critère, 29/07).
     mileage: (url, km) => setQueryParamRaw(url, 'mileage', km ? `min-${km}` : null),
-    // Puissance min : horse_power_din — APPRIS par 12 lignes mémoire humaines
-    // (inventaire 27/08 : le « paramètre puissance LBC sans preuve » dormait
-    // en base depuis des semaines). Unité ch DIN par le nom même du champ.
-    power: (url, ch) => setQueryParamRaw(url, 'horse_power_din', ch ? String(ch) : null),
+    // Puissance min : horse_power_din=280-max — la FORME est dans les 12
+    // lignes mémoire humaines (toutes en `N-max`, relues 29/08). La valeur
+    // nue était lue min=max par le site (constat Elroq 29/08 : « Puissance
+    // DIN 280 à 280 », zéro alerte pendant des jours). Même syntaxe à
+    // littéraux que mileage=min-N / regdate=N-max. Unité ch DIN.
+    power: (url, ch) => setQueryParamRaw(url, 'horse_power_din', ch ? `${ch}-max` : null),
     // Carburant : codes 1/2/4 = enum humain confirmé en base (ESSENCE/DIESEL/
     // ELECTRIQUE), 6 = HYBRIDE prouvé par URL humaine en mémoire (fuel=6,
     // ligne Ignis 27/08), 8 = HYBRIDE RECHARGEABLE — moisson des annonces

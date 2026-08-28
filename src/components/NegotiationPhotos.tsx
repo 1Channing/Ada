@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Crop, Download, ImagePlus, Loader2, Paintbrush, RefreshCw, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Crop, Download, FlipHorizontal2, ImagePlus, Loader2, Paintbrush, RefreshCw, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Negotiation, updateNegotiation } from '../services/workflow';
 import { startNegoExtraction, isExtracting, extractionError, clearExtractionError, subscribeNegoExtractions } from '../services/negoExtraction';
@@ -120,6 +120,23 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
     await persist([...photos, ...added]);
   });
 
+  // Miroir horizontal (demande 29/08 : tous les nez de voitures dans le même
+  // sens sur la liste des négos). Nouvelle image — l'originale intacte.
+  const flip = (i: number) => run('flip', async () => {
+    const resp = await fetch(photos[i]);
+    if (!resp.ok) throw new Error(`Photo inaccessible (${resp.status})`);
+    const bmp = await createImageBitmap(await resp.blob());
+    const c = document.createElement('canvas');
+    c.width = bmp.width; c.height = bmp.height;
+    const ctx = c.getContext('2d')!;
+    ctx.translate(bmp.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(bmp, 0, 0);
+    const blob = await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('export impossible'))), 'image/jpeg', 0.92));
+    const flipped = await uploadPhoto(nego.id, blob, 'flip');
+    await persist(photos.map((p, j) => (j === i ? flipped : p)));
+  });
+
   const genPdf = () => run('pdf', async () => {
     if (photos.length === 0) throw new Error('Aucune photo — extrais-les de l\'annonce ou ajoutes-en');
     const bytes = await buildPhotosPdf(photos);
@@ -168,6 +185,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
                   <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <IconBtn title="Reculer" onClick={() => move(i, -1)} disabled={i === 0}><ArrowLeft className="w-4 h-4" /></IconBtn>
                     <IconBtn title="Avancer" onClick={() => move(i, 1)} disabled={i === photos.length - 1}><ArrowRight className="w-4 h-4" /></IconBtn>
+                    <IconBtn title="Miroir (inverser gauche/droite)" onClick={() => void flip(i)}><FlipHorizontal2 className="w-4 h-4" /></IconBtn>
                     <IconBtn title="Masquer une zone (bordereau, plaque…)" onClick={() => setMaskIdx(i)}><Paintbrush className="w-4 h-4" /></IconBtn>
                     <IconBtn title="Rogner" onClick={() => setCropIdx(i)}><Crop className="w-4 h-4" /></IconBtn>
                     <IconBtn title="Retirer" onClick={() => void persist(photos.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4" /></IconBtn>

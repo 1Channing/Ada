@@ -206,11 +206,15 @@ function NegoRow({ n, conflicts, onChanged, onPushed }: { n: Negotiation; confli
           ⋯ — régression du 28/08), arrondi seulement aux lignes extrêmes. */}
       {n.photos[0] && (
         <div aria-hidden className="absolute inset-0 overflow-hidden group-first:rounded-t-xl group-last:rounded-b-xl">
-          <div
-            className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-cover bg-center"
-            style={{ backgroundImage: `url(${n.photos[0]})` }}
-          />
-          <div className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-gradient-to-r from-white/65 via-white/85 to-white" />
+          {/* Bande décalée à droite (demande 29/08 : après la fin du
+              sous-titre) — photo pleine au centre, fondu blanc COURT à
+              gauche, LONG à droite : la voiture se voit vraiment, le texte
+              et les icônes restent sur du blanc. */}
+          <div className="absolute inset-y-0 left-[min(36rem,45%)] w-80 max-w-[35%]">
+            <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${n.photos[0]})` }} />
+            <div className="absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-white to-transparent" />
+            <div className="absolute inset-y-0 right-0 w-28 bg-gradient-to-l from-white to-transparent" />
+          </div>
         </div>
       )}
       <div className="relative flex items-center gap-3">
