@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw } from 'lucide-react';
+import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw, Map as MapIcon, AlertTriangle } from 'lucide-react';
+import { KnowledgeMap } from '../components/KnowledgeMap';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
 import { brandKey, refModelKey } from '../services/marketData';
@@ -131,6 +132,10 @@ export function TruthCenter() {
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  // Deux visages (demande Channing 29/08) : « Doutes » = ce qu'ADA croit voir
+  // et qu'un humain doit confirmer ; « Lacunes » = ce qu'ADA SAIT ne pas
+  // savoir (slugs manquants), croisement études actives × dictionnaires.
+  const [tab, setTab] = useState<'doutes' | 'lacunes'>('doutes');
 
   const load = async () => {
     setLoading(true);
@@ -204,6 +209,27 @@ export function TruthCenter() {
         </button>
       </div>
 
+      {/* Les deux visages de la vérité : doutes remarqués / lacunes assumées. */}
+      <div className="flex gap-1 border-b border-slate-200">
+        {([
+          ['doutes', AlertTriangle, `Doutes remarqués${open.length ? ` (${open.length})` : ''}`],
+          ['lacunes', MapIcon, 'Lacunes assumées'],
+        ] as const).map(([id, Icon, label]) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={`px-4 py-2.5 flex items-center gap-2 text-sm border-b-2 transition-colors ${
+              tab === id ? 'border-emerald-600 text-emerald-700 font-medium' : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Icon className="w-4 h-4" /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'lacunes' && <KnowledgeMap studies={studies} />}
+
+      {tab === 'doutes' && <>
       {error && (
         <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg p-3">
           {error} — la migration 20260826160000 est-elle appliquée ?
@@ -288,6 +314,7 @@ export function TruthCenter() {
           )}
         </div>
       )}
+      </>}
     </div>
   );
 }
