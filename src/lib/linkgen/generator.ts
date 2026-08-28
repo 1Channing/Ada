@@ -290,17 +290,10 @@ export function enforcePriceSort(url: string): string {
   return url;
 }
 
-export function ensureAs24PhevKeyword(url: string, params: LinkGenParams): string {
-  const fuelUp = String(params.fuel ?? '').trim().toUpperCase();
-  if (fuelUp !== 'PLUG_IN_HYBRID' && fuelUp !== 'PHEV') return url;
-  try {
-    const u = new URL(url);
-    if (!u.hostname.includes('autoscout24.')) return url;
-    const cur = (u.searchParams.get('kwd') ?? '').trim();
-    if (/\bphev\b/i.test(cur)) return url;
-    return setQueryParamRaw(url, 'kwd', cur ? `PHEV ${cur}` : 'PHEV');
-  } catch { return url; }
-}
+// ensureAs24PhevKeyword : SUPPRIMÉ le 29/08 (constat Channing, AutoScout ES —
+// kwd= cherche dans les titres, les vendeurs n'écrivent pas « PHEV » : le
+// mot-clé forcé rendait 0 résultat sur un marché de 45 hybrides). Doctrine :
+// scraper la famille, trier en aval.
 
 function numericParamValue(field: string, params: LinkGenParams): string | undefined {
   const raw =
@@ -452,7 +445,11 @@ export async function generateSearchUrlsWithMemory(
         if (wantTrim && (recTrim === '' || url.includes('autoscout24.') || url.includes('gaspedaal.nl'))) {
           url = injectTrimIntoUrl(url, params.trim ?? '');
         }
-        url = ensureAs24PhevKeyword(url, params);
+        // kwd=PHEV forcé sur AS24 : RETIRÉ (constat Channing ES 29/08 — le
+        // mot-clé cherche dans les TITRES et les vendeurs n'écrivent pas
+        // « PHEV » : 45 hybrides réels, 0 résultat). La famille hybride est
+        // scrapée entière ; le tri se fait en aval (refineFuelToken : badge
+        // 450h+, tokens plug-in multilingues) et par les filtres du MI.
         url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
         // REGISTRE UNIQUE en DERNIER : réparations + année/km/puissance/boîte
         // (chaque paramètre posé-ou-retiré, anti-fossile) + canal finition LBC

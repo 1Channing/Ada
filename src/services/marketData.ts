@@ -173,7 +173,18 @@ export async function writeMarketSnapshot(params: {
   // famille, le sous-type gagne. Une carte qui CONTREDIT (diesel…) garde son
   // propre attribut — la preuve au grain le plus fin prime.
   const SEGMENT_FUEL_SUBTYPE: Record<string, FuelToken> = { PLUG_IN_HYBRID: 'phev', MILD_HYBRID: 'mild_hybrid' };
-  const segmentSubtype = SEGMENT_FUEL_SUBTYPE[(segment.fuel ?? '').trim().toUpperCase()];
+  // La promotion famille→sous-type n'est légitime QUE sur une page dont le
+  // filtre est réellement au sous-type (LBC fuel=8, facette MP 13956). Sur
+  // une page FAMILLE (AS24/Gaspedaal/Subito « hybride » — depuis le retrait
+  // du kwd=PHEV forcé, constat ES 29/08), promouvoir étiquetterait les
+  // full-hybrids en rechargeables ; là, seul le TITRE départage (450h+,
+  // plug-in…) via refineFuelToken.
+  const SUBTYPE_TRUE_URL: Array<[RegExp, RegExp]> = [
+    [/leboncoin\.fr/, /[?&]fuel=8(&|$)/],
+    [/marktplaats\.nl/, /13956/],
+  ];
+  const subtypeTrusted = !!sourceUrl && SUBTYPE_TRUE_URL.some(([h, p]) => h.test(sourceUrl) && p.test(sourceUrl));
+  const segmentSubtype = subtypeTrusted ? SEGMENT_FUEL_SUBTYPE[(segment.fuel ?? '').trim().toUpperCase()] : undefined;
 
   const observations: ObsInsert[] = priced.map((l) => ({
     snapshot_id: snap.id,
