@@ -7,7 +7,7 @@ import {
 import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X, MoreHorizontal, Loader2 } from 'lucide-react';
 import {
   loadKnownDimensions, sortedUnion, canonUnion, brandKey, refModelKey, filterObservations, distinctValues, priceStats, timeSeries,
-  priceHistogramFrom, velocityFromObservations, velocityCoverageDays, velocityByCountry, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
+  priceHistogramFrom, velocityFromObservations, velocityCoverageDays, velocityByCountry, velocitySegmentListings, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
   studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing, canonicalizeGearbox, GEARBOX_LABELS,
   loadSnapshots, loadObservedDimensions, loadObservationsForStudy, attackPrice, FUEL_TOKEN_TO_CRITERIA,
   pruneVanishedListings,
@@ -1358,14 +1358,18 @@ function VelocityBandTable({ title, bands }: { title: string; bands: VelocityBan
 function VelocityCard({ velocity, coverageDays, observations }: { velocity: VelocityStat[]; coverageDays: number; observations: Observation[] }) {
   const [showAll, setShowAll] = useState(false);
   const [showSegments, setShowSegments] = useState(false);
+  const [openSeg, setOpenSeg] = useState<string | null>(null);
   const countries = useMemo(() => velocityByCountry(observations), [observations]);
   const [selCountry, setSelCountry] = useState<string | null>(null);
   const active = countries.find((c) => c.country === selCountry) ?? countries[0];
   // Segments DATÉS d'abord (mise en ligne déclarée par le site = vélocité
-  // réelle), puis le proxy par disparition, trié par volume.
-  const sorted = [...velocity].sort((a, b) =>
-    (b.datedActiveCount + b.datedSoldCount) - (a.datedActiveCount + a.datedSoldCount)
-    || b.soldCount - a.soldCount);
+  // réelle), puis le proxy par disparition, trié par volume — et filtrés au
+  // PAYS sélectionné (demande 29/08 : l'entonnoir va jusqu'au bout).
+  const sorted = [...velocity]
+    .filter((v) => !active || v.country === active.country)
+    .sort((a, b) =>
+      (b.datedActiveCount + b.datedSoldCount) - (a.datedActiveCount + a.datedSoldCount)
+      || b.soldCount - a.soldCount);
   const rows = showAll ? sorted : sorted.slice(0, 10);
   const maxDays = Math.max(1, ...rows.map((v) => Math.max(v.stockMedianAgeDays ?? 0, v.soldMedianLifeDays ?? 0, v.avgDaysToDisappear)));
   const barW = (d: number) => `${Math.max(3, Math.round((d / maxDays) * 100))}%`;
@@ -1440,20 +1444,39 @@ function VelocityCard({ velocity, coverageDays, observations }: { velocity: Velo
           ))}
 
           <button onClick={() => setShowSegments((s) => !s)} className="text-xs text-slate-500 hover:text-slate-700">
-            {showSegments ? 'Masquer le détail par segment' : 'Voir le détail par segment'}
+            {showSegments ? `Masquer les segments ${active?.country ?? ''}` : `Voir les segments ${active?.country ?? ''} (annonce par annonce)`}
           </button>
           {showSegments && rows.map((v) => {
             const dated = v.datedActiveCount + v.datedSoldCount > 0;
             const color = COUNTRY_COLOR[v.country] ?? SERIES[5];
             return (
               <div key={v.segmentId} className="text-xs">
-                <div className="flex items-center gap-2">
+                <button className="w-full flex items-center gap-2 text-left" onClick={() => setOpenSeg(openSeg === v.segmentId ? null : v.segmentId)}>
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-                  <span className="text-slate-700 truncate flex-1" title={`${v.site} · ${v.label}`}>{v.label}</span>
+                  <span className="text-slate-700 truncate flex-1 hover:text-slate-900" title={`${v.site} · ${v.label} — clique pour voir les annonces`}>{v.label}</span>
                   {dated
                     ? <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 shrink-0">daté site</span>
                     : <span className="text-[10px] text-slate-400 border border-slate-200 rounded-full px-1.5 shrink-0">proxy</span>}
-                </div>
+                </button>
+                {openSeg === v.segmentId && (
+                  <div className="mt-1.5 ml-4 border-l-2 border-slate-100 pl-3 space-y-1">
+                    {velocitySegmentListings(observations, v.segmentId).slice(0, 40).map((l, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        {l.listing_url ? (
+                          <a href={l.listing_url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline truncate flex-1" title={l.title ?? ''}>
+                            {l.title || l.listing_url}
+                          </a>
+                        ) : (
+                          <span className="text-slate-600 truncate flex-1">{l.title ?? '—'}</span>
+                        )}
+                        {l.price != null && <span className="text-slate-500 shrink-0">{l.price.toLocaleString('fr-FR')} €</span>}
+                        <span className={`shrink-0 font-medium ${l.active ? 'text-slate-800' : 'text-emerald-700'}`}>
+                          {l.active ? 'en ligne depuis' : 'partie après'} {l.dated ? '' : '~'}{l.days} j
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {dated ? (
                   <div className="mt-1 space-y-0.5 pl-4">
                     {v.stockMedianAgeDays != null && (

@@ -1447,6 +1447,60 @@ export function velocityByCountry(obs: Observation[]): CountryVelocity[] {
   return out.sort((a, b) => (b.datedActiveN + b.datedSoldN) - (a.datedActiveN + a.datedSoldN));
 }
 
+/** Une annonce du segment, vue vélocité : son temps en ligne, cliquable. */
+export interface SegmentListingVelocity {
+  title: string | null;
+  listing_url: string | null;
+  price: number | null;
+  days: number;
+  active: boolean;   // encore en ligne au dernier scan
+  dated: boolean;    // naissance déclarée/estimée (false = simple proxy vu→disparu)
+}
+
+/**
+ * Le grain le plus fin de la vélocité (demande 29/08) : les ANNONCES d'un
+ * segment avec leur temps en ligne — mêmes règles de naissance que
+ * velocityByCountry (déclarée par le site, sinon estimée par apparition en
+ * cours de suivi, sinon proxy première→dernière vue).
+ */
+export function velocitySegmentListings(obs: Observation[], segId: string): SegmentListingVelocity[] {
+  const list = obs.filter((o) => segmentId(o) === segId);
+  if (list.length === 0) return [];
+  const times = [...new Set(list.map((o) => new Date(o.scraped_at).getTime()))];
+  const latest = Math.max(...times);
+  const first = Math.min(...times);
+  interface L { first: number; last: number; published: number | null; title: string | null; url: string | null; price: number | null }
+  const lives = new Map<string, L>();
+  for (const o of list) {
+    const t = new Date(o.scraped_at).getTime();
+    const p = o.published_at ? new Date(o.published_at).getTime() : NaN;
+    const cur = lives.get(o.internal_ref);
+    if (!cur) {
+      lives.set(o.internal_ref, { first: t, last: t, published: Number.isFinite(p) ? p : null, title: o.title, url: o.listing_url, price: o.price });
+    } else {
+      if (t >= cur.last) { cur.title = o.title; cur.url = o.listing_url; cur.price = o.price; }
+      cur.first = Math.min(cur.first, t);
+      cur.last = Math.max(cur.last, t);
+      if (Number.isFinite(p)) cur.published = cur.published == null ? p : Math.min(cur.published, p);
+    }
+  }
+  const now = Date.now();
+  const out: SegmentListingVelocity[] = [];
+  for (const l of lives.values()) {
+    const active = l.last >= latest - 60_000;
+    const birth = l.published ?? (l.first > first + 36 * 3_600_000 ? l.first : null);
+    const days = birth != null
+      ? (active ? now - birth : l.last - birth) / 86_400_000
+      : (l.last - l.first) / 86_400_000;
+    out.push({
+      title: l.title, listing_url: l.url, price: l.price,
+      days: Math.round(days * 10) / 10, active, dated: birth != null,
+    });
+  }
+  // Les plus vieilles en tête — c'est le stock qui dort qu'on veut voir.
+  return out.sort((a, b) => (a.active === b.active ? b.days - a.days : a.active ? -1 : 1));
+}
+
 /** Histogram buckets over the latest snapshot's listing prices for a segment. */
 export function priceHistogram(observations: Observation[], buckets = 10): { range: string; count: number; from: number }[] {
   const prices = observations.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0);
