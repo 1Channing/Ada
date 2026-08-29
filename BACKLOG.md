@@ -80,11 +80,19 @@ provenance : cette liste) :
   bruit d'UI, à ignorer).
 - Détail : `/auto-occasion-annonce-{id}.html` (exemples pro 69119344883,
   particulier 66104179750).
-- Finitions : PAS de texte libre — facette multi-select
-  « Version/Finition » à tokens comptés (2.5, Hybride, Dynamic, Lounge,
-  Collection…) : vocabulaire du site à moissonner, param à confirmer
-  (Channing teste). « GR Sport » n'existe pas tel quel, « GR » oui →
-  canal finition ≠ LBC, à traiter comme enum appris.
+- Finitions : `versions=gr%20sport` — PROUVÉ par test Channing 29/08
+  (URL modifiée à la main, fonctionne) : valeur en MINUSCULES, espace
+  encodé %20, combinable au modèle. L'UI n'offre qu'une facette à
+  tokens comptés (2.5, Hybride, Dynamic, Collection…) mais le paramètre
+  accepte la forme composée « gr sport » ; vocabulaire du site à
+  moissonner quand même (les tokens sont la vérité des libellés).
+- URL COMBO COMPLÈTE prouvée (29/08) : `/listing?energies=plug_hyb&
+  gearbox=AUTO&makesModelsCommercialNames=TOYOTA%3A%3ARAV%204&
+  mileageMax=150000&mileageMin=10000&powerDINMax=150&powerDINMin=150&
+  versions=gr%20sport&yearMax=2023&yearMin=2020` — tous les critères
+  coexistent en query plate, ordre alphabétique des paramètres posé par
+  le site. Le corpus grammatical est COMPLET ; il ne reste que les
+  contre-épreuves vivantes (recon durci d'abord).
 Étape suivante (GO requis) : recon durci (profil navigateur + géoloc FR
 + attentes — la page servie au profil par défaut est une coquille de
 110 Ko, constat 29/08), puis contre-épreuves du corpus et adaptateur.
