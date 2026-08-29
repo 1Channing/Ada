@@ -143,12 +143,14 @@ type Hit = {
   };
 };
 
+// Références à LETTRE VARIABLE : E118264752 mais aussi W103542718 (autopsie
+// 29/08 — le filtre /^E\d+/ rejetait tous les hits W, 2 annonces sur 16).
 const looksLikeHit = (o: unknown): o is Hit => {
   const h = o as Hit;
   return Boolean(
     h && typeof h === 'object' && !Array.isArray(h)
     && typeof h.price === 'number' && h.price > 0
-    && typeof h.reference === 'string' && /^E?\d+$/.test(h.reference)
+    && typeof h.reference === 'string' && /^[A-Z]?\d+$/.test(h.reference)
     && h.vehicle && typeof h.vehicle === 'object'
     && typeof h.vehicle.make === 'string',
   );
@@ -175,17 +177,29 @@ function collectHits(node: unknown, out: Map<string, Hit>): void {
   }
 }
 
-/** Cartes DOM vehicleCardV2 : appariement reference E… → URL détail
- *  (l'img classifieds/E{ref}_ vit dans le segment de SA carte, borné par le
- *  href suivant — jamais de fenêtre glissante inter-cartes). */
-function refToUrlMap(html: string): Map<string, string> {
-  const map = new Map<string, string>();
-  const parts = html.split(/href="(\/auto-occasion-annonce-\d+\.html)"/);
+/** Cartes DOM vehicleCardV2 : appariement reference → URL détail (l'img
+ *  classifieds/{REF}_ vit dans le segment de SA carte, borné par le href
+ *  suivant et plafonné — le dernier segment court sinon jusqu'au state).
+ *  Rend aussi la table LETTRE→préfixe apprise des paires observées : l'id du
+ *  lien détail = préfixe 2 chiffres selon la lettre de la référence + ses
+ *  chiffres (prouvé 29/08 : E118264752↔69118264752, W103542718↔87103542718)
+ *  — secours pour les hits du state sans carte appariée. */
+function refToUrlMap(html: string): { urls: Map<string, string>; letterPrefix: Map<string, string> } {
+  const urls = new Map<string, string>();
+  const letterPrefix = new Map<string, string>();
+  const parts = html.split(/href="\/auto-occasion-annonce-(\d+)\.html"/);
   for (let i = 1; i + 1 < parts.length; i += 2) {
-    const ref = parts[i + 1].match(/classifieds\/(E\d+)_/)?.[1];
-    if (ref && !map.has(ref)) map.set(ref, `https://www.lacentrale.fr${parts[i]}`);
+    const linkId = parts[i];
+    const ref = parts[i + 1].slice(0, 5000).match(/classifieds\/([A-Z]\d+)_/)?.[1];
+    if (!ref || urls.has(ref)) continue;
+    urls.set(ref, `https://www.lacentrale.fr/auto-occasion-annonce-${linkId}.html`);
+    const digits = ref.slice(1);
+    // La paire ne fait loi que si l'id du lien est EXACTEMENT préfixe+digits.
+    if (linkId.length === digits.length + 2 && linkId.endsWith(digits) && !letterPrefix.has(ref[0])) {
+      letterPrefix.set(ref[0], linkId.slice(0, 2));
+    }
   }
-  return map;
+  return { urls, letterPrefix };
 }
 
 function parseSearchResults(html: string): ScrapedListing[] {
@@ -193,13 +207,19 @@ function parseSearchResults(html: string): ScrapedListing[] {
   if (!state) return [];
   const hits = new Map<string, Hit>();
   collectHits(state, hits);
-  const urls = refToUrlMap(html);
+  const { urls, letterPrefix } = refToUrlMap(html);
   const out: ScrapedListing[] = [];
   for (const h of hits.values()) {
     const v = h.vehicle ?? {};
-    const url = urls.get(h.reference);
-    // Sans URL d'annonce (carte DOM absente du HTML servi) l'observation ne
-    // serait ni dédupliquée ni suivie (vélocité) — hit écarté, le score le voit.
+    // Carte DOM d'abord ; sinon dérivation par la table lettre→préfixe
+    // apprise des paires de CETTE page (jamais codée en dur).
+    const prefix = letterPrefix.get(h.reference[0]);
+    const url = urls.get(h.reference)
+      ?? (prefix && /^[A-Z]\d+$/.test(h.reference)
+        ? `https://www.lacentrale.fr/auto-occasion-annonce-${prefix}${h.reference.slice(1)}.html`
+        : undefined);
+    // Sans URL d'annonce (ni carte ni préfixe appris) l'observation ne serait
+    // ni dédupliquée ni suivie (vélocité) — hit écarté, le score le voit.
     if (!url) continue;
     const year = Number(v.year);
     const mileage = Number(v.mileage);
