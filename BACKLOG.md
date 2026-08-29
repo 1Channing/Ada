@@ -57,6 +57,38 @@ vise les vitrines propres des contacts et les sites secondaires.
 marketplace derrière protection anti-bot sérieuse (famille Datadome comme
 LBC) — passer par le mode navigateur Zyte dès la recon.
 
+**CORPUS D'URLS-PREUVES COMPLET fourni par Channing le 29/08** (posées à
+la main dans l'interface du site — la grammaire ci-dessous est PROUVÉE,
+provenance : cette liste) :
+- Base : `/listing` (nu). Modèle : `makesModelsCommercialNames=
+  TOYOTA%3A%3ARAV%204` — séparateur DOUBLE deux-points `::`, modèle en
+  libellé avec espace (« RAV 4 »).
+- Année : `yearMin=2010` / `yearMax=2020` (deux paramètres séparés).
+- Km : `mileageMin=10000` / `mileageMax=100000`.
+- Puissance : `powerDINMin=200` / `powerDINMax=200` (ch DIN, min et max
+  séparés — pas de piège N-max).
+- Carburant `energies=` : dies, ess, elec, hyb, **plug_hyb**,
+  **not_plug_hyb**, gpl, eth — le site distingue NATIVEMENT rechargeable /
+  non-rechargeable : page au sous-type VRAI (à ajouter à SUBTYPE_TRUE_URL
+  pour la promotion famille→phev).
+- Boîte : `gearbox=AUTO` / `gearbox=MANUAL`.
+- Tri : `sortBy=priceAsc` ; `sortBy=firstOnlineDateAsc` (libellé site
+  « plus récents » — VÉRIFIER le sens asc/desc à la contre-épreuve). Le
+  nom du champ révèle le marqueur vélocité attendu : `firstOnlineDate`
+  par annonce.
+- Pagination : `page=2` (`freetext_conversationid=&options=` vides =
+  bruit d'UI, à ignorer).
+- Détail : `/auto-occasion-annonce-{id}.html` (exemples pro 69119344883,
+  particulier 66104179750).
+- Finitions : PAS de texte libre — facette multi-select
+  « Version/Finition » à tokens comptés (2.5, Hybride, Dynamic, Lounge,
+  Collection…) : vocabulaire du site à moissonner, param à confirmer
+  (Channing teste). « GR Sport » n'existe pas tel quel, « GR » oui →
+  canal finition ≠ LBC, à traiter comme enum appris.
+Étape suivante (GO requis) : recon durci (profil navigateur + géoloc FR
++ attentes — la page servie au profil par défaut est une coquille de
+110 Ko, constat 29/08), puis contre-épreuves du corpus et adaptateur.
+
 ## -2. CRITÈRE CARROSSERIE (demandé Channing 27/08 — Corolla GR Sport NL)
 
 Une étude « Corolla GR sport hybride 2022 » rend hatchback ET Touring
