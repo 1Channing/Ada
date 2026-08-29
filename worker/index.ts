@@ -192,7 +192,19 @@ app.post('/ingest-url', async (req, res) => {
     // lecture seule, aucune écriture mémoire/snapshot. Voir logs [RECON].
     console.log(`[INGEST] RECON (${adapter ? 'forcé' : 'domaine sans adaptateur'}): ${url.slice(0, 140)}`);
     const dump = typeof (req.body ?? {}).dump === 'string' ? String(req.body.dump) : undefined;
-    const runRecon = async () => ({ recon: true, report: await reconScrape(url, dump) });
+    // RECON DURCI (29/08) : profil anti-bot fourni par l'appelant pour les
+    // domaines SANS adaptateur (La Centrale/Datadome : le profil par défaut
+    // rend une coquille de 110 Ko). Champs assainis un à un — jamais de
+    // passe-plat du corps de requête vers Zyte.
+    const rp = (req.body ?? {}).reconProfile as Record<string, unknown> | undefined;
+    const reconProfile = rp && typeof rp === 'object' ? {
+      ...(typeof rp.geolocation === 'string' && /^[A-Za-z]{2}$/.test(rp.geolocation) ? { geolocation: rp.geolocation.toUpperCase() } : {}),
+      ...(rp.javascript === true ? { javascript: true } : {}),
+      ...(rp.httpResponseBody === true ? { httpResponseBody: true } : {}),
+      ...(typeof rp.waitSeconds === 'number' && rp.waitSeconds > 0 && rp.waitSeconds <= 15
+        ? { actions: [{ action: 'waitForTimeout', timeout: rp.waitSeconds }] } : {}),
+    } : undefined;
+    const runRecon = async () => ({ recon: true, report: await reconScrape(url, dump, reconProfile && Object.keys(reconProfile).length ? reconProfile : undefined) });
     if (wantAsync) {
       purgeOldIngestJobs();
       const id = `rec_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

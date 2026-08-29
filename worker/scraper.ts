@@ -166,7 +166,7 @@ export async function recordStudyMarketSnapshot(
  */
 interface FetchResult { html: string | null; mode: 'raw' | 'browser'; status: number | null; }
 
-async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<FetchResult> {
+async function fetchHtmlWithZyte(url: string, profileLevel: number, profileOverride?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides): Promise<FetchResult> {
   if (!ZYTE_API_KEY) {
     console.error('[WORKER_SCRAPER] ZYTE_API_KEY not configured');
     return { html: null, mode: 'browser', status: null };
@@ -177,8 +177,11 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number): Promise<Fet
   // hardcoded Marktplaats-only escalation so every site — incl. Cloudflare-
   // protected AutoScout — gets its own profile without touching this function.
   // `profileLevel` maps 1:1 to the adapter's `attempt`.
+  // RECON DURCI (29/08, chantier La Centrale) : un domaine SANS adaptateur
+  // n'a pas de profil — l'appelant peut en fournir un (géoloc, JS, attentes,
+  // unblocker brut) pour photographier les sites protégés avant intégration.
   const adapter = findSiteAdapterByDomain(url);
-  const profile = adapter?.getFetchProfile ? adapter.getFetchProfile(profileLevel) : {};
+  const profile = profileOverride ?? (adapter?.getFetchProfile ? adapter.getFetchProfile(profileLevel) : {});
   // JSON API endpoints (Marktplaats lrp/api) must be fetched raw: a browser
   // render would wrap the JSON body in an HTML shell.
   const useRawHtml = profile.httpResponseBody === true || url.includes('/lrp/api/');
@@ -516,7 +519,7 @@ function reconWalkJson(root: unknown, tag: string, report: ReconReport): void {
  * (les logs tronquent à ~180 caractères, le payload non). Outil d'exploration
  * pour écrire les parseurs sur PREUVE avant tout adaptateur.
  */
-export async function reconScrape(url: string, dump?: string): Promise<ReconReport & { dump?: { path: string; totalLength: number; data: string } }> {
+export async function reconScrape(url: string, dump?: string, profile?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides): Promise<ReconReport & { dump?: { path: string; totalLength: number; data: string } }> {
   const host = (() => { try { return new URL(url).hostname; } catch { return url.slice(0, 40); } })();
   const report: ReconReport = {
     url, host, htmlLength: 0, blocked: null, lang: null, title: null,
@@ -524,7 +527,7 @@ export async function reconScrape(url: string, dump?: string): Promise<ReconRepo
   };
   let html: string | null = null;
   for (let attempt = 1; attempt <= 2 && !html; attempt++) {
-    const r = await fetchHtmlWithZyte(attempt === 1 ? url : `${url}${url.includes('?') ? '&' : '?'}adanc=${Date.now().toString(36)}`, attempt);
+    const r = await fetchHtmlWithZyte(attempt === 1 ? url : `${url}${url.includes('?') ? '&' : '?'}adanc=${Date.now().toString(36)}`, attempt, profile);
     html = r.html;
     if (!html) await new Promise((res) => setTimeout(res, 5000));
   }
