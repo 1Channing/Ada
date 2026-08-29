@@ -93,9 +93,21 @@ provenance : cette liste) :
   coexistent en query plate, ordre alphabétique des paramètres posé par
   le site. Le corpus grammatical est COMPLET ; il ne reste que les
   contre-épreuves vivantes (recon durci d'abord).
-Étape suivante (GO requis) : recon durci (profil navigateur + géoloc FR
-+ attentes — la page servie au profil par défaut est une coquille de
-110 Ko, constat 29/08), puis contre-épreuves du corpus et adaptateur.
+**INTÉGRÉ le 29/08 (adaptateur LACENTRALE v1, commits 77882fd→302c779)** —
+contre-épreuves vivantes : page RAV 4 = 23 annonces parsées en mode
+unblocker brut FR (le moins cher), tri prix exact, 23/23 datées
+firstOnlineDate (vélocité native au jour), structuré complet ; URL combo
+de la preuve = 0 annonce CONFIRMÉ par le marqueur du site (detectEmptyState).
+Savoir durci à l'autopsie : références multi-lettres (E/B/W vus) ; id du
+lien détail = préfixe 2 chiffres PAR LETTRE + chiffres de la référence
+(E→69, B→66, W→87 — 22 paires vérifiées), table apprise des paires de
+chaque page, jamais codée en dur ; script du state ENVELOPPÉ dans un bloc
+{ … } → extraction à accolades équilibrées. Dictionnaire lc:model:* appris
+par moisson (lc:model:toyota « RAV 4 » déjà en base) ; lc:body moissonné
+(critère carrosserie pré-câblé). RESTE : sens de sortBy=firstOnlineDateAsc
+à contre-éprouver si on veut un tri fraîcheur (inutile aujourd'hui, on
+trie priceAsc) ; powerDIN par annonce absent du hit principal (lu
+tolérant, similarHits le portent) — la puissance reste un filtre d'URL.
 
 ## -2. CRITÈRE CARROSSERIE (demandé Channing 27/08 — Corolla GR Sport NL)
 
