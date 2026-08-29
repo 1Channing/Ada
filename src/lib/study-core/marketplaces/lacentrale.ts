@@ -101,15 +101,33 @@ function setParamSurgical(url: string, param: string, value: string | null): str
 
 // ─── Lecture du state embarqué ───────────────────────────────────────────────
 
+/** Le script d'assignation est ENVELOPPÉ dans un bloc `{ … }` (constat
+ *  contre-épreuve 29/08 : page de 1,55 Mo, total 757 lu, 0 hit parsé — le
+ *  découpage jusqu'à </script> embarquait l'accolade du bloc et JSON.parse
+ *  cassait). Extraction à ACCOLADES ÉQUILIBRÉES depuis le premier `{` après
+ *  le marqueur — insensible à l'enveloppe et à tout </script> embarqué. */
 function extractPreloadedState(html: string): unknown {
   const i = html.indexOf('__PRELOADED_STATE_LISTING__');
   if (i < 0) return null;
-  const eq = html.indexOf('=', i);
-  const end = html.indexOf('</script>', eq);
-  if (eq < 0 || end < 0) return null;
-  let raw = html.slice(eq + 1, end).trim();
-  if (raw.endsWith(';')) raw = raw.slice(0, -1);
-  try { return JSON.parse(raw); } catch { return null; }
+  const start = html.indexOf('{', i);
+  if (start < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let j = start; j < html.length; j++) {
+    const c = html[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(html.slice(start, j + 1)); } catch { return null; }
+      }
+    }
+  }
+  return null;
 }
 
 type Hit = {
