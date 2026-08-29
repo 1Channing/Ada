@@ -439,6 +439,41 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     trimSlot: (url, t) => setQueryParamRaw(url, 'q', t.toLowerCase()),
   },
   {
+    // ── La Centrale ──────────────────────────────────────────────────────────
+    // Grammaire ENTIÈRE prouvée par le corpus d'URLs-preuves Channing 29/08
+    // (26 URLs posées à la main, gravé au BACKLOG) : yearMin/yearMax,
+    // mileageMax, powerDINMin (ch DIN, bornes séparées — pas de piège N-max),
+    // gearbox=AUTO|MANUAL, energies=, versions= (minuscules, espace %20).
+    host: 'lacentrale.fr',
+    year: (url, from, to) => {
+      const out = setQueryParamRaw(url, 'yearMin', from || null);
+      return setQueryParamRaw(out, 'yearMax', to || null);
+    },
+    mileage: (url, km) => setQueryParamRaw(url, 'mileageMax', km ? String(km) : null),
+    power: (url, ch) => setQueryParamRaw(url, 'powerDINMin', ch ? String(ch) : null),
+    // Les DEUX valeurs sont prouvées (corpus) — MANUAL posé aussi, contrairement
+    // aux sites où seule la grammaire automatique est connue.
+    gearbox: (url, params) => {
+      const g = String(params.gearbox ?? '').trim().toUpperCase();
+      const code = /^AUTOMAT/.test(g) ? 'AUTO' : /^MANUEL|^MANUAL/.test(g) ? 'MANUAL' : null;
+      return setQueryParamRaw(url, 'gearbox', code);
+    },
+    // plug_hyb NATIF (le site distingue rechargeable / non-rechargeable) —
+    // page au sous-type VRAI, inscrite à SUBTYPE_TRUE_URL côté marketData.
+    fuel: (url, params) => {
+      const code = {
+        ESSENCE: 'ess', PETROL: 'ess', GASOLINE: 'ess',
+        DIESEL: 'dies',
+        ELECTRIQUE: 'elec', ELECTRIC: 'elec',
+        HYBRIDE: 'hyb', HYBRID: 'hyb', MILD_HYBRID: 'hyb',
+        PLUG_IN_HYBRID: 'plug_hyb', PHEV: 'plug_hyb',
+        GPL: 'gpl', LPG: 'gpl', ETHANOL: 'eth',
+      }[String(params.fuel ?? '').trim().toUpperCase()];
+      return setQueryParamRaw(url, 'energies', code ?? null);
+    },
+    trimSlot: (url, t) => setQueryParamRaw(url, 'versions', t.toLowerCase()),
+  },
+  {
     // ── Jófogás ──────────────────────────────────────────────────────────────
     host: 'jofogas.hu',
     // rs TOUJOURS posé (constat Channing 01/08 : sans lui le site bloque la
@@ -464,12 +499,12 @@ export function grammarForUrl(url: string): SiteGrammar | undefined {
 // des études quotidiennes (une URL qui n'exprime pas un critère demandé ne
 // mérite pas 5 pages : on scraperait large ce qu'on croit précis).
 export const CRITERIA_DETECTORS: Record<string, RegExp> = {
-  année: /regdate=|fregfrom=|fregto=|bmin=|bmax=|regfrom=|regto=|[?&]fr=|year_from=|year_to=|constructionYear|[?&]ys=|[?&]ye=|[?&]rs=|[?&]re=|year_min=[^&]|year_max=[^&]/i,
-  km: /mileage=min|kmto=|kmax=|mileageto=|[?&]ml=|mileage_to=|mileageTo|[?&]me=|mileage_max=[^&]/i,
-  puissance: /powerfrom=|hpfrom=|[?&]pw=|vmin=|engine_effect_from=|power_min=[^&]|[?&]hps=/i,
+  année: /regdate=|fregfrom=|fregto=|bmin=|bmax=|regfrom=|regto=|[?&]fr=|year_from=|year_to=|constructionYear|[?&]ys=|[?&]ye=|[?&]rs=|[?&]re=|year_min=[^&]|year_max=[^&]|yearMin=|yearMax=/i,
+  km: /mileage=min|kmto=|kmax=|mileageto=|[?&]ml=|mileage_to=|mileageTo|[?&]me=|mileage_max=[^&]|mileageMax=|mileageMin=/i,
+  puissance: /powerfrom=|hpfrom=|[?&]pw=|vmin=|engine_effect_from=|power_min=[^&]|[?&]hps=|horse_power_din=|powerDINMin=/i,
   boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
-  finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;/i,
-  carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
+  finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;|versions=[^&]/i,
+  carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|energies=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
 };
 
 /**

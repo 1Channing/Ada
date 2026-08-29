@@ -71,6 +71,10 @@ const EXPECTED_NATIVE: Record<string, Record<Crit, boolean>> = {
   SUBITO: { année: true, km: true, puissance: true, boîte: true, finition: true, carburant: true },
   // Jófogás : puissance/boîte sans preuve.
   JOFOGAS: { année: true, km: true, puissance: false, boîte: false, finition: true, carburant: true },
+  // La Centrale : grammaire ENTIÈRE prouvée d'un bloc (corpus d'URLs-preuves
+  // Channing 29/08 — yearMin/yearMax, mileageMax, powerDINMin, gearbox=AUTO|
+  // MANUAL, energies=, versions=).
+  LACENTRALE: { année: true, km: true, puissance: true, boîte: true, finition: true, carburant: true },
 };
 
 console.log('=== 1. VOIE NATIVE (matrice attendue vs URL construite) ===');
@@ -214,6 +218,24 @@ const MEMORY_CASES: Array<{
     wantKept: [/rs=2000/],
   },
   {
+    site: 'LACENTRALE',
+    bare: 'https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA%3A%3ARAV%204&sortBy=priceAsc',
+    fossil: 'https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA%3A%3ARAV%204&yearMin=2019&yearMax=2020&mileageMax=10000&powerDINMin=999&gearbox=MANUAL&energies=dies&sortBy=priceAsc',
+    wantPosed: [
+      ['année', /yearMin=2022/], ['année', /yearMax=2024/], ['km', /mileageMax=90000/],
+      // powerDINMin en ch DIN, bornes séparées — pas de piège N-max (corpus).
+      ['puissance', /powerDINMin=150(&|$)/],
+      ['boîte', /gearbox=AUTO(&|$)/],
+      // versions= en minuscules, espace %20 (test Channing 29/08).
+      ['finition', /versions=gr%20sport(&|$)/],
+      ['carburant', /energies=hyb(&|$)/],
+    ],
+    wantGone: [/yearMin/, /yearMax/, /mileageMax/, /powerDINMin/, /gearbox=/, /energies=/],
+    // Le libellé commercial (%3A%3A + %20) doit survivre OCTET PAR OCTET —
+    // même classe que la liste à virgules Leboncoin.
+    wantKept: [/makesModelsCommercialNames=TOYOTA%3A%3ARAV%204/, /sortBy=priceAsc/],
+  },
+  {
     // Bornes du hash posées SANS mapping appris — dossier X3 26/08 : la borne
     // haute d'année se perdait quand la ligne mémoire ne l'avait pas apprise.
     site: 'MARKTPLAATS (hash + finition chemin /q/)',
@@ -276,10 +298,23 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
   // une étude PHEV doit servir la famille /hybride — voie mémoire comprise.
   const gpPhev = applyVariableCriteria('https://www.gaspedaal.nl/toyota/rav4?srt=pr-a', { ...FULL, fuel: 'PLUG_IN_HYBRID' });
   if (!/\/rav4\/hybride(\?|$)/.test(gpPhev)) fail(`Gaspedaal PHEV: segment /hybride attendu (famille)\n    ${gpPhev}`);
-  // LBC sans grammaire puissance → la puissance manque, 3 pages.
+  // La Centrale distingue NATIVEMENT le rechargeable : une étude PHEV doit
+  // poser energies=plug_hyb (jamais la famille hyb) — même doctrine que le
+  // fuel=8 Leboncoin, corpus 29/08.
+  const lcPhev = applyVariableCriteria(
+    'https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA%3A%3ARAV%204&energies=hyb',
+    { ...FULL, fuel: 'PLUG_IN_HYBRID' },
+  );
+  if (!/energies=plug_hyb(&|$)/.test(lcPhev)) fail(`La Centrale PHEV: energies=plug_hyb attendu (sous-type natif)\n    ${lcPhev}`);
+  // Depuis la grammaire horse_power_din=N-max (29/08), l'URL LBC enrichie
+  // par le registre exprime TOUT — plus aucun critère manquant.
   const lbc = applyVariableCriteria('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA', FULL);
   const m2 = missingUrlCriteria(lbc, FULL);
-  if (!m2.includes('puissance')) fail(`profondeur: puissance absente de l'URL LBC non détectée\n    ${lbc}`);
+  if (m2.length !== 0) fail(`profondeur: URL LBC enrichie jugée incomplète (${m2.join(',')})\n    ${lbc}`);
+  // Marktplaats sans grammaire puissance → la puissance manque, 3 pages.
+  const mp = applyVariableCriteria('https://www.marktplaats.nl/l/auto-s/toyota/f/rav4/1234/#sortBy:PRICE', FULL);
+  const m2b = missingUrlCriteria(mp, FULL);
+  if (!m2b.includes('puissance')) fail(`profondeur: puissance absente de l'URL Marktplaats non détectée\n    ${mp}`);
   // Étude sans critères variables : rien à exiger — éligible d'office.
   if (missingUrlCriteria('https://www.gaspedaal.nl/toyota/rav4', EMPTY).length !== 0) {
     fail('profondeur: étude sans critères jugée incomplète');

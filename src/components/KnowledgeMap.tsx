@@ -65,6 +65,10 @@ const SITE_SPECS: SiteSpec[] = [
   { site: 'BLOCKET', country: 'SE', modelNeed: 'requis', modelFields: ['bl:modelcode:', 'bl:model:'], modelScoped: true, brandFields: ['bl:brand', 'bl:brandcode'], fuelDict: ['bl:fuel'], bodyFields: [] },
   { site: 'SKELBIU', country: 'LT', modelNeed: 'dérivé', modelFields: [], modelScoped: false, brandFields: [], fuelDict: ['sk:fuel'], bodyFields: ['sk:body'] },
   { site: 'JOFOGAS', country: 'HU', modelNeed: 'dérivé', modelFields: ['jf:model:'], modelScoped: true, brandFields: ['jf:brand'], fuelDict: ['jf:fuel'], bodyFields: [] },
+  // La Centrale : le paramètre attend le LIBELLÉ commercial (« RAV 4 » avec
+  // espace, non dérivable de « RAV4 ») — dictionnaire lc:model:* appris par
+  // moisson, sinon page marque. category = carrosserie native (pré-câblage).
+  { site: 'LACENTRALE', country: 'FR', modelNeed: 'fragile', modelFields: ['lc:model:'], modelScoped: true, brandFields: ['lc:make'], fuelDict: [], bodyFields: ['lc:body'] },
 ];
 
 const canon = (s: string): string =>
@@ -77,8 +81,9 @@ async function fetchMappings(): Promise<MappingRow[]> {
     'model_facet', 'sb:brand', 'bb:model', 'gp:brand', 'jf:brand',
     'bl:brand', 'bl:brandcode', 'sk:body', 'sk:fuel', 'sb:fuel',
     'gp:fuel', 'jf:fuel', 'bl:fuel', 'as:make', 'as:model',
+    'lc:make', 'lc:body',
   ];
-  const prefixes = ['sb:model:', 'bl:model:', 'bl:modelcode:', 'jf:model:', 'gp:model:'];
+  const prefixes = ['sb:model:', 'bl:model:', 'bl:modelcode:', 'jf:model:', 'gp:model:', 'lc:model:'];
   const out: MappingRow[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const page = async (filter: (q: any) => any) => {

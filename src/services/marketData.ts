@@ -182,6 +182,8 @@ export async function writeMarketSnapshot(params: {
   const SUBTYPE_TRUE_URL: Array<[RegExp, RegExp]> = [
     [/leboncoin\.fr/, /[?&]fuel=8(&|$)/],
     [/marktplaats\.nl/, /13956/],
+    // La Centrale distingue nativement le rechargeable (corpus 29/08).
+    [/lacentrale\.fr/, /energies=plug_hyb(&|$)/],
   ];
   const subtypeTrusted = !!sourceUrl && SUBTYPE_TRUE_URL.some(([h, p]) => h.test(sourceUrl) && p.test(sourceUrl));
   const segmentSubtype = subtypeTrusted ? SEGMENT_FUEL_SUBTYPE[(segment.fuel ?? '').trim().toUpperCase()] : undefined;

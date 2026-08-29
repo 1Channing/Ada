@@ -15,6 +15,7 @@ import { gaspedaalAdapter } from './gaspedaal';
 import { jofogasAdapter } from './jofogas';
 import { blocketAdapter } from './blocket';
 import { skelbiuAdapter } from './skelbiu';
+import { lacentraleAdapter } from './lacentrale';
 
 siteRegistry.register(leboncoinAdapter);
 siteRegistry.register(marktplaatsAdapter);
@@ -28,6 +29,9 @@ siteRegistry.register(gaspedaalAdapter);
 siteRegistry.register(jofogasAdapter);
 siteRegistry.register(blocketAdapter);
 siteRegistry.register(skelbiuAdapter);
+// 16e site (29/08) : La Centrale (FR), v1 sur corpus d'URLs-preuves Channing
+// + dissection du __PRELOADED_STATE_LISTING__ (recon durci du même jour).
+siteRegistry.register(lacentraleAdapter);
 // AutoScout24: one instance per country (FR/DE/NL/IT/ES/BE), same taxonomy.
 for (const adapter of autoscout24Adapters) siteRegistry.register(adapter);
 
