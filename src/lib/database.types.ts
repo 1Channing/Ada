@@ -10,9 +10,9 @@ export type Database = {
   public: {
     Tables: {
       profiles: {
-        Row: { id: string; display_name: string; is_admin?: boolean; created_at: string }
-        Insert: { id: string; display_name: string; is_admin?: boolean; created_at?: string }
-        Update: { id?: string; display_name?: string; is_admin?: boolean; created_at?: string }
+        Row: { id: string; display_name: string; is_admin?: boolean; first_name?: string | null; last_name?: string | null; phone?: string | null; created_at: string }
+        Insert: { id: string; display_name: string; is_admin?: boolean; first_name?: string | null; last_name?: string | null; phone?: string | null; created_at?: string }
+        Update: { id?: string; display_name?: string; is_admin?: boolean; first_name?: string | null; last_name?: string | null; phone?: string | null; created_at?: string }
         Relationships: []
       }
       daily_searches: {

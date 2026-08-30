@@ -14,9 +14,13 @@ interface AuthState {
   email: string | null;
   displayName: string;
   isAdmin: boolean;
+  /** true = l'utilisateur arrive par un lien « mot de passe oublié » —
+   *  l'app affiche l'écran de nouveau mot de passe avant tout le reste. */
+  recovering: boolean;
   setSession: (userId: string | null, email: string | null) => void;
   setProfile: (name: string, isAdmin: boolean) => void;
   setReady: () => void;
+  setRecovering: (v: boolean) => void;
 }
 
 export const useAuth = create<AuthState>((set) => ({
@@ -25,9 +29,11 @@ export const useAuth = create<AuthState>((set) => ({
   email: null,
   displayName: '',
   isAdmin: false,
+  recovering: false,
   setSession: (userId, email) => set({ userId, email }),
   setProfile: (displayName, isAdmin) => set({ displayName, isAdmin }),
   setReady: () => set({ ready: true }),
+  setRecovering: (recovering) => set({ recovering }),
 }));
 
 /**
@@ -91,32 +97,102 @@ export function startAuthWatcher(): void {
     if (u) void loadProfile(u.id);
     useAuth.getState().setReady();
   });
-  supabase.auth.onAuthStateChange((_event, session) => {
+  supabase.auth.onAuthStateChange((event, session) => {
     const u = session?.user ?? null;
     useAuth.getState().setSession(u?.id ?? null, u?.email ?? null);
+    // Lien « mot de passe oublié » : Supabase ouvre une session de
+    // récupération et émet PASSWORD_RECOVERY — on force l'écran nouveau MDP.
+    if (event === 'PASSWORD_RECOVERY') useAuth.getState().setRecovering(true);
     if (u) void loadProfile(u.id);
     else useAuth.getState().setProfile('', false);
   });
 }
 
-export async function signIn(email: string, password: string): Promise<string | null> {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  return error ? error.message : null;
+/** UN compte par adresse : la même adresse tapée avec des espaces ou des
+ *  majuscules doit toujours désigner LE même compte. */
+const normalizeEmail = (e: string) => e.trim().toLowerCase();
+
+/** Messages Supabase → français clair (les libellés bruts perdaient l'équipe). */
+function frenchAuthError(msg: string): string {
+  if (/invalid login credentials/i.test(msg)) return 'Email ou mot de passe incorrect.';
+  if (/email not confirmed/i.test(msg)) return 'Adresse non confirmée : clique le lien reçu par email (regarde les spams), puis reconnecte-toi.';
+  if (/user already registered|already been registered/i.test(msg)) return 'Un compte existe déjà avec cette adresse — connecte-toi, ou utilise « Mot de passe oublié ».';
+  if (/rate limit|too many requests/i.test(msg)) return 'Trop de tentatives — réessaie dans quelques minutes.';
+  if (/password should be at least|password.*short/i.test(msg)) return 'Mot de passe trop court.';
+  if (/réservée à l'équipe|allowlist/i.test(msg)) return 'Inscription réservée à l’équipe MC Export — demande à un admin d’ajouter ton adresse.';
+  return msg;
 }
 
-export async function signUp(email: string, password: string, displayName: string): Promise<string | null> {
-  const name = displayName.trim();
-  if (!name) return 'Le prénom d’affichage est requis.';
-  const { data, error } = await supabase.auth.signUp({ email, password });
-  if (error) return error.message;
+export async function signIn(email: string, password: string): Promise<string | null> {
+  const { error } = await supabase.auth.signInWithPassword({ email: normalizeEmail(email), password });
+  return error ? frenchAuthError(error.message) : null;
+}
+
+export interface SignUpDetails {
+  firstName: string;
+  lastName: string;
+  phone: string;
+}
+
+/** Règle de robustesse : 8 caractères minimum, au moins une lettre ET un
+ *  chiffre — vérifiée ici (source de vérité) ET affichée par le formulaire. */
+export function passwordWeakness(pw: string): string | null {
+  if (pw.length < 8) return 'Au moins 8 caractères.';
+  if (!/[a-zA-Z]/.test(pw) || !/\d/.test(pw)) return 'Au moins une lettre et un chiffre.';
+  return null;
+}
+
+export async function signUp(email: string, password: string, details: SignUpDetails): Promise<string | null> {
+  const firstName = details.firstName.trim();
+  const lastName = details.lastName.trim();
+  const phone = details.phone.trim();
+  if (!firstName) return 'Le prénom est requis.';
+  if (!lastName) return 'Le nom est requis.';
+  const weak = passwordWeakness(password);
+  if (weak) return `Mot de passe trop faible : ${weak}`;
+  const cleanEmail = normalizeEmail(email);
+  const { data, error } = await supabase.auth.signUp({
+    email: cleanEmail,
+    password,
+    options: { data: { first_name: firstName, last_name: lastName, phone } },
+  });
+  if (error) return frenchAuthError(error.message);
+  // COMPTE DÉJÀ EXISTANT, détection : quand la confirmation email est activée,
+  // Supabase répond « succès » avec un utilisateur FANTÔME (anti-énumération)
+  // au lieu d'une erreur — identities est alors VIDE. C'est ce silence qui
+  // faisait croire à un « 2e compte » : on le dit franchement à la place.
+  if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    return 'Un compte existe déjà avec cette adresse — connecte-toi, ou utilise « Mot de passe oublié ».';
+  }
   const userId = data.user?.id;
   if (userId) {
     // Si la confirmation d'email est activée côté Supabase, la session n'existe
     // pas encore : l'insert profil réussit quand même après connexion (upsert
     // au premier login, voir ensureProfile).
-    await supabase.from('profiles').upsert({ id: userId, display_name: name });
-    localStorage.setItem('ada_pending_display_name', name);
+    await supabase.from('profiles').upsert({
+      id: userId, display_name: firstName,
+      first_name: firstName, last_name: lastName, phone,
+    });
+    localStorage.setItem('ada_pending_display_name', firstName);
   }
+  return null;
+}
+
+/** Envoie l'email « mot de passe oublié » — le lien ramène sur ADA, qui
+ *  affiche l'écran de nouveau mot de passe (PASSWORD_RECOVERY). */
+export async function requestPasswordReset(email: string): Promise<string | null> {
+  const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email), {
+    redirectTo: window.location.origin,
+  });
+  return error ? frenchAuthError(error.message) : null;
+}
+
+export async function updatePassword(newPassword: string): Promise<string | null> {
+  const weak = passwordWeakness(newPassword);
+  if (weak) return `Mot de passe trop faible : ${weak}`;
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) return frenchAuthError(error.message);
+  useAuth.getState().setRecovering(false);
   return null;
 }
 

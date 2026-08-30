@@ -12,7 +12,7 @@ import { Ventes } from './pages/Ventes';
 import { Veille } from './pages/Veille';
 import { TruthCenter } from './pages/TruthCenter';
 import { Telemetrie } from './pages/Telemetrie';
-import { Login } from './pages/Login';
+import { Login, ResetPassword } from './pages/Login';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
 
 const originalPushState = window.history.pushState.bind(window.history);
@@ -23,7 +23,7 @@ window.history.pushState = function(...args) {
 
 function App() {
   const [path, setPath] = useState(window.location.pathname);
-  const { ready, userId } = useAuth();
+  const { ready, userId, recovering } = useAuth();
 
   // Session : garde d'accès — tout ADA vit derrière la connexion.
   useEffect(() => {
@@ -100,6 +100,12 @@ function App() {
 
   if (!ready) {
     return <div className="min-h-screen bg-slate-50" />;
+  }
+  // Lien « mot de passe oublié » : l'écran de nouveau MDP passe avant tout
+  // (la session de récupération est active — sans ce garde, l'app s'ouvrirait
+  // normalement et le lien semblerait n'avoir rien fait).
+  if (recovering) {
+    return <ResetPassword />;
   }
   if (!userId) {
     return <Login />;
