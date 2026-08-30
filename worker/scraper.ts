@@ -376,6 +376,11 @@ export async function scrapeListingDetailCard(listingUrl: string): Promise<Listi
     .replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
     .replace(/\s*(?:pour|voor|für|per|for|de|da)?\s*€.*$/iu, '')
     .replace(/\s+(?:en|in)\s+\p{L}+(?:\s+\p{L}+)?\s+(?:occasion|d'occasion|gebraucht|usata|usado|tweedehands|brugt)\b.*$/iu, '')
+    // La Centrale : <title> = « Annonce Toyota rav 4 … occasion - Yvelines
+    // 78 » (constat 30/08) — préfixe éditorial et queue localité, même
+    // classe de bruit que les queues commerciales ci-dessus.
+    .replace(/^annonce\s+/iu, '')
+    .replace(/\s+(?:occasion|d'occasion)\s*-\s*.*$/iu, '')
     .trim();
   const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1]
     ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:title["']/i)?.[1] ?? null;
