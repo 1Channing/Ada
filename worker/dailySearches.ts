@@ -234,7 +234,11 @@ async function scrapeCountry(
     const result = await scrapeSearch(url, 'full', precise
       ? { maxPagesCap: MAX_PAGES_PRECISE, maxListingsCap: MAX_LISTINGS_PRECISE }
       : { maxPagesCap: MAX_PAGES });
-    if (result.diagnostics?.silentFallback?.modelApplied === false) {
+    // La sentinelle « repli silencieux » ne vaut QUE si un modèle était
+    // demandé : une recherche marque-seule n'aura jamais de clé Model dans
+    // selectedFilters (classe du « DK FORD sans modèle » 30/08 — la garde
+    // jetait toute récolte d'étude sans modèle). Même test que les campagnes.
+    if (s.model && result.diagnostics?.silentFallback?.modelApplied === false) {
       console.warn(`[DAILY] « ${name} »: ${site.key} a servi la page marque entière (repli silencieux) — annonces écartées, mapping à corriger`);
       continue;
     }

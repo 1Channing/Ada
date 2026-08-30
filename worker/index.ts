@@ -292,7 +292,13 @@ app.post('/ingest-url', async (req, res) => {
             taxonomy: taxonomySummary,
           });
           const confirmed = new Set(analysis.confirmedFields);
-          if (confirmed.has('brand') && confirmed.has('model') && result.listings.length > 0) {
+          // Étude SANS modèle (constat Channing 30/08 : « DK FORD Électrique »
+          // → 0 annonce au MI alors que le scrape lisait 30 Ford) : « model »
+          // n'est confirmable QUE s'il est demandé — un critère vide ne doit
+          // jamais fermer la porte du snapshot. Même classe que la garde
+          // campagne (criteria.model && …).
+          const modelOk = confirmed.has('model') || !String(criteria.model ?? '').trim();
+          if (confirmed.has('brand') && modelOk && result.listings.length > 0) {
             await writeMarketSnapshot({
               segment: {
                 site: adapter.key, country: adapter.countryCode,
