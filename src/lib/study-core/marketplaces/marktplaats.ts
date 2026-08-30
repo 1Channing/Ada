@@ -14,6 +14,7 @@
 
 import { parseListings } from '../parsers/marktplaats';
 import { normalizeForMatch } from './normalizer';
+import { bodyLabel } from '../bodyTypes';
 import { resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
 import { decomposeUrl } from './urlDecompose';
@@ -619,6 +620,22 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   if (h['constructionYearFrom'] && /^\d{4}$/.test(h['constructionYearFrom'])) out.yearFrom = h['constructionYearFrom'];
   if (h['constructionYearTo'] && /^\d{4}$/.test(h['constructionYearTo'])) out.yearTo = h['constructionYearTo'];
   if (h['mileageTo'] && /^\d+$/.test(h['mileageTo'])) out.mileage = h['mileageTo'];
+  // Facettes CARROSSERIE — ids invariants du site (URLs humaines 30/08 :
+  // /f/{slug}/{id}/ par type + multi #f:…) : hatchback 481, mpv 482,
+  // sedan 483, stationwagon 484, cabriolet 485, coupe 486, suv 488.
+  // Lues du chemin ET du hash f: ; une seule = critère, plusieurs = vide.
+  const MP_BODY_IDS: Record<string, string> = {
+    '481': 'citadine', '482': 'monospace', '483': 'berline', '484': 'break',
+    '485': 'cabriolet', '486': 'coupe', '488': 'suv',
+  };
+  const facetIds: string[] = [];
+  for (const m of url.matchAll(/\/f\/[^/#?]+\/([0-9+]+)/g)) facetIds.push(...m[1].split('+'));
+  for (const m of (url.split('#')[1] ?? '').matchAll(/(?:^|\|)f:([\d+,]+)/g)) facetIds.push(...m[1].split(/[+,]/));
+  const bodies = [...new Set(facetIds.map((id) => MP_BODY_IDS[id]).filter(Boolean))];
+  if (bodies.length === 1) out.vehicleType = bodyLabel(bodies[0]);
+  // Une facette carrosserie du chemin (/f/cabriolet/485/) n'est pas un modèle.
+  const MP_BODY_SLUGS = new Set(['cabriolet', 'hatchback', 'coupe', 'stationwagon', 'suv-of-terreinwagen', 'mpv', 'sedan']);
+  if (out.model && MP_BODY_SLUGS.has(out.model.toLowerCase().replace(/\s+/g, '-'))) out.model = undefined;
   return out;
 }
 

@@ -15,6 +15,7 @@
 
 import { parseListings } from '../parsers/bilbasen';
 import { normalizeForMatch } from './normalizer';
+import { bodyLabel } from '../bodyTypes';
 import { resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
 import { decomposeUrl } from './urlDecompose';
@@ -661,6 +662,16 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
       : serie ? serie[1].toUpperCase().replace(/-/g, ' ')
       : reverseLookup(MODEL_MAP, rawModel);
   }
+  // cartype= répété (URLs humaines 30/08) — une seule carrosserie distincte
+  // se lit en critère, plusieurs = laissé vide (queryParams n'en garde qu'un,
+  // on relit l'URL brute).
+  const CARTYPE_TO_TOKEN: Record<string, string> = {
+    stationcar: 'break', suv: 'suv', mpv: 'monospace', sedan: 'berline',
+    hatchback: 'citadine', cabriolet: 'cabriolet', coupe: 'coupe',
+  };
+  const carTypes = [...new Set([...url.matchAll(/[?&]cartype=([^&#]+)/gi)]
+    .map((m) => CARTYPE_TO_TOKEN[m[1].toLowerCase()]).filter(Boolean))];
+  if (carTypes.length === 1) out.vehicleType = bodyLabel(carTypes[0]);
   if (q['yearfrom'] && /^\d{4}$/.test(q['yearfrom'])) out.yearFrom = q['yearfrom'];
   if (q['yearto'] && /^\d{4}$/.test(q['yearto'])) out.yearTo = q['yearto'];
   // Variante mensuelle du site (URL humaine : regfrom=2023-01&regto=2023-12).

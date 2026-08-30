@@ -29,6 +29,7 @@ import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose } from '../business-logic';
+import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE =
   'https://www.subito.it/annunci-italia/vendita/auto/{brand}/{fuel}/?ys={yearFrom}&ye={yearTo}';
@@ -287,11 +288,24 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     const segs = u.pathname.split('/').filter(Boolean);
     const i = segs.indexOf('auto');
     if (i >= 0 && segs[i + 1]) out.brand = segs[i + 1].replace(/-/g, ' ').toUpperCase();
-    // /auto/{brand}/{model?}/{fuel?}/ : un segment est un carburant s'il
-    // appartient au vocabulaire prouvé, sinon un modèle.
+    // /auto/{brand}/{model?}/{fuel?}/{carrosserie?}/ : chaque segment est
+    // reconnu par son vocabulaire prouvé, sinon c'est un modèle. Slugs
+    // carrosserie (URLs humaines 30/08) : berlina, station-wagon,
+    // monovolume, cabrio, coupe, city-car.
+    const BODY_PATH: Record<string, string> = {
+      berlina: 'berline', 'station-wagon': 'break', monovolume: 'monospace',
+      cabrio: 'cabriolet', coupe: 'coupe', 'city-car': 'citadine',
+    };
+    // /auto/berlina/ SANS marque : le 1er segment peut être une carrosserie.
+    if (out.brand && BODY_PATH[segs[i + 1]?.toLowerCase() ?? '']) {
+      out.vehicleType = bodyLabel(BODY_PATH[segs[i + 1].toLowerCase()]);
+      out.brand = undefined;
+    }
     for (const seg of segs.slice(i + 2)) {
       const canon = FUEL_PATH_TO_CANON[seg];
+      const body = BODY_PATH[seg.toLowerCase()];
       if (canon) out.fuel = canon;
+      else if (body) out.vehicleType = bodyLabel(body);
       else if (!out.model) out.model = seg.replace(/-/g, ' ').toUpperCase();
     }
     const q = u.searchParams.get('q');

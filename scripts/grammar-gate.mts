@@ -134,14 +134,14 @@ const MEMORY_CASES: Array<{
   {
     site: 'BILBASEN',
     bare: 'https://www.bilbasen.dk/brugt/bil/toyota/rav4?includeengroscvr=true',
-    fossil: 'https://www.bilbasen.dk/brugt/bil/toyota/rav4?yearfrom=2019&yearto=2020&regfrom=2019-01&regto=2020-12&mileageto=10000&hpfrom=999&gear=automatic&fuel=1',
+    fossil: 'https://www.bilbasen.dk/brugt/bil/toyota/rav4?yearfrom=2019&yearto=2020&regfrom=2019-01&regto=2020-12&mileageto=10000&hpfrom=999&gear=automatic&fuel=1&cartype=sedan&cartype=suv',
     wantPosed: [
       ['année', /regfrom=2022-01/], ['année', /regto=2024-12/], ['km', /mileageto=90000/],
       ['puissance', /hpfrom=150/], ['boîte', /gear=automatic/], ['finition', /free=GR%20Sport/],
       // fuel=6 (HYBRIDE) — codes 1/2/3/6 prouvés 26/08, promus voie mémoire.
       ['carburant', /fuel=6(&|$)/],
     ],
-    wantGone: [/yearfrom/, /yearto/, /regfrom/, /regto/, /mileageto/, /hpfrom/, /gear=/, /fuel=/],
+    wantGone: [/yearfrom/, /yearto/, /regfrom/, /regto/, /mileageto/, /hpfrom/, /gear=/, /fuel=/, /cartype=/],
   },
   {
     site: 'MOBILE_DE',
@@ -197,14 +197,14 @@ const MEMORY_CASES: Array<{
   {
     site: 'SUBITO',
     bare: 'https://www.subito.it/annunci-italia/vendita/auto/toyota/ibrida/?order=priceasc',
-    fossil: 'https://www.subito.it/annunci-italia/vendita/auto/toyota/ibrida/?order=priceasc&ys=2019&ye=2020&me=18&hps=999&gr=2',
+    fossil: 'https://www.subito.it/annunci-italia/vendita/auto/toyota/ibrida/berlina/?order=priceasc&ys=2019&ye=2020&me=18&hps=999&gr=2',
     wantPosed: [
       ['année', /ys=2022/], ['année', /ye=2024/],
       // me=18 ⇔ 90 000 km : SEUL palier enum prouvé.
       ['km', /me=18(&|$)/],
       ['puissance', /hps=150/], ['boîte', /gr=2(&|$)/], ['finition', /q=gr%20sport/],
     ],
-    wantGone: [/[?&]ys=/, /[?&]ye=/, /[?&]me=/, /[?&]hps=/, /[?&]gr=/],
+    wantGone: [/[?&]ys=/, /[?&]ye=/, /[?&]me=/, /[?&]hps=/, /[?&]gr=/, /\/berlina/],
   },
   {
     site: 'JOFOGAS',
@@ -240,14 +240,16 @@ const MEMORY_CASES: Array<{
     // haute d'année se perdait quand la ligne mémoire ne l'avait pas apprise.
     site: 'MARKTPLAATS (hash + finition chemin /q/)',
     bare: 'https://www.marktplaats.nl/l/auto-s/toyota/f/rav4/1234/#sortBy:PRICE',
-    fossil: 'https://www.marktplaats.nl/l/auto-s/toyota/f/rav4/1234/#sortBy:PRICE|constructionYearFrom:2019|constructionYearTo:2019|mileageTo:1',
+    fossil: 'https://www.marktplaats.nl/l/auto-s/toyota/f/rav4/1234/#sortBy:PRICE|constructionYearFrom:2019|constructionYearTo:2019|mileageTo:1|f:485,13956',
     wantPosed: [
       ['année', /constructionYearFrom:2022/], ['année', /constructionYearTo:2024/],
       ['km', /mileageTo:90000/],
       ['finition', /\/q\/gr\+sport\//],
     ],
-    wantGone: [/constructionYearFrom/, /constructionYearTo/, /mileageTo/],
-    wantKept: [/sortBy:PRICE/],
+    // La facette carrosserie héritée (485) saute ; la facette NON-carrosserie
+    // du même f: (13956, sous-type hybride) survit — pose intra-liste.
+    wantGone: [/constructionYearFrom/, /constructionYearTo/, /mileageTo/, /f:[\d+,]*\b485\b/],
+    wantKept: [/sortBy:PRICE/, /f:13956/],
   },
 ];
 
@@ -346,6 +348,22 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
   if (!/[?&]c=Van(&|$)/.test(mdBody) || /c=Cabrio|c=OffRoad/.test(mdBody)) {
     fail(`mobile.de carrosserie: c=Van seul attendu (multi purgé)\n    ${mdBody}`);
   }
+  // Marktplaats : facette carrosserie posée DANS la liste f: du hash sans
+  // écraser les autres facettes (sous-type hybride 13956, Automaat 534).
+  const mpBody = applyVariableCriteria(
+    'https://www.marktplaats.nl/l/auto-s/toyota/f/rav4/1234/#sortBy:PRICE|f:13956',
+    { ...FULL, vehicleType: 'Cabriolet' },
+  );
+  if (!/f:13956,485(\||$)/.test(mpBody)) fail(`Marktplaats carrosserie: f:13956,485 attendu (13956 préservé)\n    ${mpBody}`);
+  // Bilbasen : cartype=stationcar (break).
+  const bbBody = applyVariableCriteria('https://www.bilbasen.dk/brugt/bil/toyota/rav4?includeengroscvr=true', { ...FULL, vehicleType: 'Break' });
+  if (!/cartype=stationcar(&|$)/.test(bbBody)) fail(`Bilbasen carrosserie: cartype=stationcar attendu\n    ${bbBody}`);
+  // Subito : segment italien après le carburant ; SUV jamais posé (aucune
+  // URL-preuve — le critère est retiré, post-filtre aval).
+  const sbBody = applyVariableCriteria('https://www.subito.it/annunci-italia/vendita/auto/toyota/ibrida/?order=priceasc', { ...FULL, vehicleType: 'Citadine' });
+  if (!/\/auto\/toyota\/ibrida\/city-car\/(\?|$)/.test(sbBody)) fail(`Subito carrosserie: /ibrida/city-car/ attendu\n    ${sbBody}`);
+  const sbSuv = applyVariableCriteria('https://www.subito.it/annunci-italia/vendita/auto/toyota/ibrida/?order=priceasc', { ...FULL, vehicleType: 'SUV' });
+  if (/\/suv/.test(sbSuv)) fail(`Subito carrosserie: SUV posé sans preuve\n    ${sbSuv}`);
   // Depuis la grammaire horse_power_din=N-max (29/08), l'URL LBC enrichie
   // par le registre exprime TOUT — plus aucun critère manquant.
   const lbc = applyVariableCriteria('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA', FULL);

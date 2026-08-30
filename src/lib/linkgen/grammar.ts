@@ -311,6 +311,18 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     // gear=automatic — PROUVÉ URL humaine 26/08 ; seule valeur prouvée.
     gearbox: (url, params) => setQueryParamRaw(url, 'gear', isAutomatic(params) ? 'automatic' : null),
     trimSlot: (url, t) => setQueryParamRaw(url, 'free', t),
+    // Carrosserie : cartype= répété pour le multi (URLs humaines 30/08 :
+    // stationcar seul, puis les 7 — stationcar=break, suv, mpv=monospace,
+    // sedan=berline, hatchback=citadine, cabriolet, coupe ; pas de société).
+    // La pose chirurgicale purge toutes les paires héritées.
+    vehicleType: (url, params) => {
+      const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+      const code = tok ? {
+        break: 'stationcar', suv: 'suv', monospace: 'mpv', berline: 'sedan',
+        citadine: 'hatchback', cabriolet: 'cabriolet', coupe: 'coupe',
+      }[tok as string] : undefined;
+      return setQueryParamRaw(url, 'cartype', code ?? null);
+    },
   },
   {
     // ── mobile.de ────────────────────────────────────────────────────────────
@@ -461,6 +473,29 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
         return u.toString();
       } catch { return url; }
     },
+    // Carrosserie : facettes 481-488 (URLs humaines 30/08 : /f/{slug}/{id}/
+    // par type + multi #f:482,483,484,485,486,488 — hatchback 481=citadine,
+    // mpv 482=monospace, sedan 483=berline, stationwagon 484=break,
+    // cabriolet 485, coupe 486, suv-of-terreinwagen 488 ; pas de « société »).
+    // Le worker traduit déjà le hash f: vers l'API (attributesById[]) — canal
+    // prouvé par le sous-type hybride 13956 (backlog 0ter). Pose CHIRURGICALE
+    // INTRA-LISTE : seuls les ids carrosserie sont retirés/posés, les autres
+    // facettes du f: (Automaat 534, 13956…) survivent octet par octet.
+    vehicleType: (url, params) => {
+      const BODY_IDS = new Set(['481', '482', '483', '484', '485', '486', '488']);
+      const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+      const want = tok ? {
+        citadine: '481', monospace: '482', berline: '483', break: '484',
+        cabriolet: '485', coupe: '486', suv: '488',
+      }[tok as string] : undefined;
+      const hashIdx = url.indexOf('#');
+      const segs = hashIdx >= 0 ? url.slice(hashIdx + 1).split('|').filter(Boolean) : [];
+      const fSeg = segs.find((s) => s.startsWith('f:'));
+      const kept = (fSeg ? fSeg.slice(2).split(/[+,]/).filter(Boolean) : [])
+        .filter((id) => !BODY_IDS.has(id));
+      if (want) kept.push(want);
+      return setHashParamRaw(url, 'f', kept.length ? kept.join(',') : null);
+    },
   },
   {
     // ── Blocket ──────────────────────────────────────────────────────────────
@@ -511,6 +546,30 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     gearbox: (url, params) => setQueryParamRaw(url, 'gr', isAutomatic(params) ? '2' : null),
     // Slot texte libre prouvé (02/08 : ?q=m+sport) — minuscule comme le site.
     trimSlot: (url, t) => setQueryParamRaw(url, 'q', t.toLowerCase()),
+    // Carrosserie : SEGMENT DE CHEMIN italien (URLs humaines 30/08 :
+    // /auto/berlina/, /station-wagon/, /monovolume/, /cabrio/, /coupe/,
+    // /city-car/ ; multi cart=2,3 — seuls ids appariés). SUV : AUCUNE URL
+    // fournie → jamais posé (post-filtre aval) ; société absente du site.
+    // Combinaison /auto/{marque}/{carrosserie} contre-éprouvée par scrape.
+    vehicleType: (url, params) => {
+      try {
+        const u = new URL(url);
+        const VOCAB = new Set(['berlina', 'station-wagon', 'monovolume', 'cabrio', 'coupe', 'city-car']);
+        const segs = u.pathname.split('/').filter(Boolean);
+        const autoIdx = segs.indexOf('auto');
+        // On ne strippe qu'APRÈS la marque (position auto+2 et suivantes) —
+        // même prudence que Gaspedaal (homonymes modèle, Fiat Coupé).
+        const keptSegs = segs.filter((s, i) => i <= autoIdx + 1 || !VOCAB.has(s.toLowerCase()));
+        const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+        const slug = tok ? {
+          berline: 'berlina', break: 'station-wagon', monospace: 'monovolume',
+          cabriolet: 'cabrio', coupe: 'coupe', citadine: 'city-car',
+        }[tok as string] : undefined;
+        if (slug && autoIdx >= 0) keptSegs.push(slug);
+        u.pathname = `/${keptSegs.join('/')}/`;
+        return u.toString();
+      } catch { return url; }
+    },
   },
   {
     // ── La Centrale ──────────────────────────────────────────────────────────
@@ -591,7 +650,7 @@ export const CRITERIA_DETECTORS: Record<string, RegExp> = {
   boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
   finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;|versions=[^&]/i,
   carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|energies=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
-  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_|[?&]c=[^&]|crs=|\/(?:cabriolet|hatchback|mpv|sedan|stationwagen|suv|bedrijfswagen)(\/|\?|$)|\/coupe(\/|\?|$)/i,
+  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_|[?&]c=[^&]|crs=|cartype=|[#|]f:[\d+,]*\b48[123468]\b|\/(?:cabriolet|hatchback|mpv|sedan|stationwagen|suv|bedrijfswagen|berlina|station-wagon|monovolume|cabrio|city-car)(\/|\?|$)|\/coupe(\/|\?|$)/i,
 };
 
 /**
