@@ -21,6 +21,8 @@ import {
 import type { MarketOpportunity } from '../services/marketData';
 import { saveDailySearch, listDailySearches } from '../services/workflow';
 import { refModelKey } from '../services/vehicleRef';
+import { useAuth } from '../services/auth';
+import { canSeeTab } from '../lib/appTabs';
 
 const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
@@ -56,6 +58,9 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
   /** Accueil : ne montrer que les opportunités touchées par la dernière campagne. */
   touchedSince?: string | null;
 }) {
+  // Droit par compte (page Équipe) : panneau retiré = invisible partout
+  // (Accueil ET Market Intelligence), admins toujours servis.
+  const { allowedTabs, isAdmin } = useAuth();
   const [threshold, setThreshold] = useState(5000);
   const [opps, setOpps] = useState<MarketOpportunity[]>([]);
   const [acks, setAcks] = useState<Map<string, number>>(new Map());
@@ -88,8 +93,11 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
     setOpps(o); setAcks(a); setPartial(wasLastOpportunitiesLoadPartial());
     setRefreshedAt(getDashboardsRefreshedAt()); setLoading(false);
   };
+  const allowed = canSeeTab(allowedTabs, isAdmin, 'opportunites');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void refresh(threshold); }, [threshold, touchedSince]);
+  useEffect(() => { if (allowed) void refresh(threshold); }, [threshold, touchedSince, allowed]);
+
+  if (!allowed) return null;
 
   const visible = opps.filter((o) => {
     const acked = acks.get(opportunityKey(o));

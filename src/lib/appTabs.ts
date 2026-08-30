@@ -17,6 +17,9 @@ export const APP_TABS = [
   { key: 'historique', label: 'Historique' },
   { key: 'market', label: 'Market Intelligence' },
   { key: 'veille', label: 'Veille' },
+  // Pas un onglet : le PANNEAU « Opportunités à contrôler » (Accueil + MI)
+  // — même mécanisme de droits, le composant s'auto-masque (demande 30/08).
+  { key: 'opportunites', label: 'Opportunités à contrôler' },
 ] as const;
 
 export type AppTabKey = (typeof APP_TABS)[number]['key'];
