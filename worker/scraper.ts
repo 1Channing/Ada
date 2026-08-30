@@ -298,10 +298,22 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number, profileOverr
  * le profil du site passe (la panne était la rafale/l'aléa Zyte, pas le
  * profil). Classe corrigée : tous les appels détail passent par ici.
  */
+/** Page de BLOCAGE anti-bot servie en 200 (mobile.de « Zugriff verweigert /
+ *  Access denied » pris pour un TITRE d'annonce — constat négociations
+ *  30/08). Motifs sans ambiguïté, testés sur le <title> et l'entame. */
+function isBlockedDetailPage(html: string): boolean {
+  const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? '';
+  const head = `${title} ${html.slice(0, 3000)}`;
+  return /zugriff verweigert|access denied|attention required|are you a robot|robot check|captcha-delivery|request unsuccessful|pardon our interruption|verifica di non essere un robot|een moment geduld/i.test(head);
+}
+
 async function fetchDetailHtml(listingUrl: string): Promise<string | null> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     const { html } = await fetchHtmlWithZyte(listingUrl, attempt);
-    if (html) return html;
+    // Une page de blocage N'EST PAS un succès : on poursuit l'escalade de
+    // profils au lieu d'en extraire un faux titre.
+    if (html && !isBlockedDetailPage(html)) return html;
+    if (html) console.warn(`[DETAIL_SCRAPE] page de blocage servie (tentative ${attempt}) ${listingUrl.slice(0, 90)}`);
     if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
   }
   return null;
