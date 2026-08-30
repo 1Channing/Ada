@@ -11,6 +11,7 @@ import { sharedSupabase as supabase } from '../lib/supabaseShared';
 import type { Database } from '../lib/database.types';
 import { generateInternalRef } from '../lib/internalRefGenerator';
 import { canonicalizeFuel, refineFuelToken, FUEL_LABELS } from '../lib/study-core/ingestion';
+import { canonicalizeBody } from '../lib/study-core/bodyTypes';
 import { isDamagedVehicleText, modelKeyLoose } from '../lib/study-core/business-logic';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
@@ -292,6 +293,8 @@ export interface MarketFilters {
   trim?: string;
   fuel?: FuelToken | '';
   gearbox?: string;
+  /** Carrosserie (token canon 'suv'|'berline'|… — critère 30/08). */
+  vehicleType?: string;
   yearMin?: number | null;
   yearMax?: number | null;
   mileageMax?: number | null;
@@ -302,7 +305,7 @@ const EMPTY_FILTERS: MarketFilters = {};
 
 /** True when only site/country/brand/model are set (no per-listing narrowing). */
 export function isCoarseOnly(f: MarketFilters): boolean {
-  return !f.trim && !f.fuel && !f.gearbox && f.yearMin == null && f.yearMax == null && f.mileageMax == null && f.powerMin == null;
+  return !f.trim && !f.fuel && !f.gearbox && !f.vehicleType && f.yearMin == null && f.yearMax == null && f.mileageMax == null && f.powerMin == null;
 }
 
 const normText = (s: string | null | undefined) => (s ?? '').toLowerCase();
@@ -608,6 +611,11 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
   // Boîte : comparaison sur le TOKEN canonique — « Automatique » retient
   // aussi Automatik, Automatisch, Automatico, Automaat, Automatisk gear…
   const gearboxToken = canonicalizeGearbox(f.gearbox);
+  // Carrosserie : même règle STRICTE que la boîte — le filtre exige la
+  // donnée structurée (SUV_4X4_CROSSOVER ≡ 4x4 ≡ Visureigis, canon 30/08) ;
+  // une annonce sans carrosserie lisible est écartée du filtre, jamais
+  // devinée. Les données s'accumulent depuis le 30/08 (capture partout).
+  const bodyToken = canonicalizeBody(f.vehicleType ?? '');
   return dedupeClonedListings(obs).filter((o) =>
     // Accidentées : JAMAIS dans l'état du marché — elles s'agglutinent au bas
     // du classement prix et faussaient précisément le prix d'attaque et le
@@ -624,6 +632,7 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
     (!trimNeedle || softText(o.trim).includes(trimNeedle) || softText(o.title).includes(trimNeedle)) &&
     fuelFilterMatches(o.fuel, f.fuel ?? '') &&
     (!gearboxToken || canonicalizeGearbox(o.gearbox) === gearboxToken) &&
+    (!bodyToken || canonicalizeBody(o.vehicle_type) === bodyToken) &&
     (f.yearMin == null || (o.year != null && o.year >= f.yearMin)) &&
     (f.yearMax == null || (o.year != null && o.year <= f.yearMax)) &&
     (f.mileageMax == null || (o.mileage != null && o.mileage <= f.mileageMax)) &&

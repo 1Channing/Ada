@@ -20,6 +20,7 @@ import { supabase } from '../lib/supabase';
 import type { DimensionRow } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, VelocityBandStat, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
+import { BODY_TYPES, bodyLabel, canonicalizeBody } from '../lib/study-core/bodyTypes';
 import { getRefWindowsCached, findRefWindow } from '../services/vehicleRef';
 import type { RefWindowMap, RefWindow } from '../services/vehicleRef';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
@@ -72,6 +73,7 @@ function studyLabel(f: MarketFilters, i: number): string {
     f.model || '',
     f.trim || '',
     f.fuel ? fuelLabel(f.fuel) : '',
+    f.vehicleType ? bodyLabel(f.vehicleType) : '',
   ].filter(Boolean);
   return parts.length ? parts.join(' · ') : `Étude ${i + 1}`;
 }
@@ -653,6 +655,12 @@ export function MarketIntelligence() {
                 placeholder="Sportline, GR Sport…" onChange={(v) => setActive({ trim: v || undefined })} />
               <SelectFuel label="Carburant" value={active.fuel ?? ''} options={opts.fuel} onChange={(v) => setActive({ fuel: (v || undefined) as FuelToken | undefined })} />
               <Select label="Boîte" value={active.gearbox ?? ''} options={opts.gearbox} onChange={(v) => setActive({ gearbox: v || undefined })} />
+              {/* Carrosserie (canon 30/08) : stockée en TOKEN, affichée en
+                  label — filtre STRICT sur la carrosserie structurée des
+                  annonces (capture depuis le 30/08, s'étoffe à chaque scrape). */}
+              <Select label="Carrosserie" value={active.vehicleType ? bodyLabel(active.vehicleType) : ''}
+                options={BODY_TYPES.map((b) => b.label)}
+                onChange={(v) => setActive({ vehicleType: canonicalizeBody(v) || undefined })} />
               <NumRange label="Année" from={active.yearMin ?? undefined} to={active.yearMax ?? undefined}
                 onFrom={(v) => setActive({ yearMin: v })} onTo={(v) => setActive({ yearMax: v })} />
               <div className="grid grid-cols-2 gap-2">
