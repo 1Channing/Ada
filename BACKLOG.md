@@ -112,14 +112,17 @@ tolérant, similarHits le portent) — la puissance reste un filtre d'URL.
 ## -2. CRITÈRE CARROSSERIE (demandé Channing 27/08 — Corolla GR Sport NL)
 
 Une étude « Corolla GR sport hybride 2022 » rend hatchback ET Touring
-Sports — les deux cochent tous les critères actuels. Pour cibler une
-silhouette, il faut un critère CARROSSERIE de bout en bout :
-daily_searches + MI (filtre) + SearchCriteria + grammaires par site
-(Gaspedaal « Carrosserie=Hatchback » vu en screenshot 27/08 ; les autres
-sites à PROUVER par URLs humaines, comme d'habitude — rien sans preuve),
-post-filtre lecture (champ structuré carrosserie déjà présent sur
-plusieurs sites), détecteur famille + matrice au gate. Différé : demande
-la collecte d'URLs-preuves par site avant tout code.
+Sports — les deux cochent tous les critères actuels.
+**LANCÉ le 30/08** : canon ADA acté par Channing = nomenclature LBC 8
+types (URLs-preuves du jour : vehicle_type=4x4 + liste complète à
+virgules littérales). Livré : bodyTypes.ts (canon + canonicalizeBody
+multilingue), grammaire LBC au registre + détecteur + gate, migration
+daily_searches.vehicle_type + observations.vehicle_type (+archive+vue),
+critère au Workflow (formulaire/carte/signature doublons), post-filtre
+dur worker en jeton canonique, capture dans toutes les observations.
+RESTE : URLs-preuves des autres sites (Channing les envoie par paquets
+de 2 liens — un filtre seul + tous cochés) → grammaires par site ; et le
+FILTRE MI en lecture (les données s'accumulent déjà en base).
 
 ## PRINCIPE DIRECTEUR — travail CHIRURGICAL sur les données de mapping
 
