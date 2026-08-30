@@ -677,10 +677,33 @@ function extractAutoscoutImages(html: string): string[] {
     .slice(0, 20);
 }
 
+function extractLacentraleImages(html: string, listingUrl: string): string[] {
+  // La page détail porte TOUTES les photos de l'annonce dans un tableau
+  // "pictures":[{…,"src1_5x":"https://pictures.lacentrale.fr/classifieds/
+  // W103542718_STANDARD_0.jpg?…signature=…"}] — sonde 30/08 : 14/14 indices
+  // présents, la plus grande variante servie (1096x829) est src1_5x. Les
+  // annonces SIMILAIRES du bas de page ont leurs propres images (max 3) :
+  // on ne garde que la référence de l'annonce COURANTE, reconnue par les
+  // chiffres de l'URL détail (id = préfixe 2 chiffres + chiffres de la
+  // référence — loi prouvée sur 22 paires). Les URLs signées sont copiées
+  // TELLES QUELLES (la signature fait partie de l'accès).
+  const digits = listingUrl.match(/auto-occasion-annonce-\d{2}(\d{6,})\.html/)?.[1];
+  const seen = new Map<string, number>();
+  let order = 0;
+  for (const m of html.matchAll(/"src1_5x"\s*:\s*"(https:[^"]*?classifieds(?:\/|\\u002F)([A-Z])(\d+)_[A-Z]+_\d+\.jpg[^"]*)"/g)) {
+    if (digits && m[3] !== digits) continue;
+    const url = m[1].replace(/\\u002F/g, '/').replace(/\\\//g, '/');
+    if (!seen.has(url)) seen.set(url, order++);
+  }
+  return [...seen.entries()].sort((a, b) => a[1] - b[1]).map(([u]) => u).slice(0, 20);
+}
+
 function extractCarImages(html: string, listingUrl: string): string[] {
   let siteImages: string[] = [];
   if (listingUrl.includes('autoscout24.')) {
     siteImages = extractAutoscoutImages(html);
+  } else if (listingUrl.includes('lacentrale.fr')) {
+    siteImages = extractLacentraleImages(html, listingUrl);
   } else if (listingUrl.includes('leboncoin.fr')) {
     siteImages = extractLeboncoinImages(html);
   } else if (listingUrl.includes('marktplaats.nl')) {
