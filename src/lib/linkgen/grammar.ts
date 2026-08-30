@@ -584,26 +584,31 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     trimSlot: (url, t) => setQueryParamRaw(url, 'q', t.toLowerCase()),
     // Carrosserie : SEGMENT DE CHEMIN italien (URLs humaines 30/08 :
     // /auto/berlina/, /station-wagon/, /monovolume/, /cabrio/, /coupe/,
-    // /city-car/ ; multi cart=2,3 — seuls ids appariés). SUV : AUCUNE URL
-    // fournie → jamais posé (post-filtre aval) ; société absente du site.
-    // Combinaison /auto/{marque}/{carrosserie} contre-éprouvée par scrape.
+    // /city-car/, /suv-fuoristrada/ ; multi cart=2,3). Société absente.
+    // ORDRE PROUVÉ PAR SCRAPE LIVE 30/08 : la carrosserie se place AVANT le
+    // carburant — /toyota/suv-fuoristrada/ibrida = 100 hybrides SUV (1 779
+    // au total), /toyota/ibrida/suv-fuoristrada = 0 (page morte).
     vehicleType: (url, params) => {
       try {
         const u = new URL(url);
         const VOCAB = new Set(['berlina', 'station-wagon', 'monovolume', 'cabrio', 'coupe', 'city-car', 'suv-fuoristrada']);
+        const SUBITO_FUELS = new Set(['ibrida', 'elettrica', 'diesel', 'benzina']);
         const segs = u.pathname.split('/').filter(Boolean);
         const autoIdx = segs.indexOf('auto');
         // On ne strippe qu'APRÈS la marque (position auto+2 et suivantes) —
         // même prudence que Gaspedaal (homonymes modèle, Fiat Coupé).
         const keptSegs = segs.filter((s, i) => i <= autoIdx + 1 || !VOCAB.has(s.toLowerCase()));
         const tok = canonicalizeBody(String(params.vehicleType ?? ''));
-        // suv-fuoristrada : URL humaine du 30/08 (complément tardif).
         const slug = tok ? {
           berline: 'berlina', break: 'station-wagon', monospace: 'monovolume',
           cabriolet: 'cabrio', coupe: 'coupe', citadine: 'city-car',
           suv: 'suv-fuoristrada',
         }[tok as string] : undefined;
-        if (slug && autoIdx >= 0) keptSegs.push(slug);
+        if (slug && autoIdx >= 0) {
+          const fuelIdx = keptSegs.findIndex((s, i) => i > autoIdx && SUBITO_FUELS.has(s.toLowerCase()));
+          if (fuelIdx >= 0) keptSegs.splice(fuelIdx, 0, slug);
+          else keptSegs.push(slug);
+        }
         u.pathname = `/${keptSegs.join('/')}/`;
         return u.toString();
       } catch { return url; }

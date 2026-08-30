@@ -359,13 +359,13 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
   // Bilbasen : cartype=stationcar (break).
   const bbBody = applyVariableCriteria('https://www.bilbasen.dk/brugt/bil/toyota/rav4?includeengroscvr=true', { ...FULL, vehicleType: 'Break' });
   if (!/cartype=stationcar(&|$)/.test(bbBody)) fail(`Bilbasen carrosserie: cartype=stationcar attendu\n    ${bbBody}`);
-  // Subito : segment italien après le carburant ; SUV jamais posé (aucune
-  // URL-preuve — le critère est retiré, post-filtre aval).
+  // Subito : la carrosserie se place AVANT le carburant (ordre prouvé par
+  // scrape live 30/08 : /suv-fuoristrada/ibrida = 100 hybrides SUV,
+  // l'inverse = 0).
   const sbBody = applyVariableCriteria('https://www.subito.it/annunci-italia/vendita/auto/toyota/ibrida/?order=priceasc', { ...FULL, vehicleType: 'Citadine' });
-  if (!/\/auto\/toyota\/ibrida\/city-car\/(\?|$)/.test(sbBody)) fail(`Subito carrosserie: /ibrida/city-car/ attendu\n    ${sbBody}`);
-  // SUV Subito : slug suv-fuoristrada (URL humaine 30/08, complément tardif).
+  if (!/\/auto\/toyota\/city-car\/ibrida\/(\?|$)/.test(sbBody)) fail(`Subito carrosserie: /city-car/ibrida/ attendu (carrosserie AVANT carburant)\n    ${sbBody}`);
   const sbSuv = applyVariableCriteria('https://www.subito.it/annunci-italia/vendita/auto/toyota/ibrida/?order=priceasc', { ...FULL, vehicleType: 'SUV' });
-  if (!/\/ibrida\/suv-fuoristrada\/(\?|$)/.test(sbSuv)) fail(`Subito carrosserie: /suv-fuoristrada/ attendu\n    ${sbSuv}`);
+  if (!/\/suv-fuoristrada\/ibrida\/(\?|$)/.test(sbSuv)) fail(`Subito carrosserie: /suv-fuoristrada/ibrida/ attendu\n    ${sbSuv}`);
   // Blocket : citadine = DEUX codes répétés (3 et 5 portes ensemble).
   const blBody = applyVariableCriteria('https://www.blocket.se/mobility/search/car?variant=1.19.219&body_type=9', { ...FULL, vehicleType: 'Citadine' });
   if (!/body_type=1&body_type=2(&|$)/.test(blBody) || /body_type=9/.test(blBody)) {
