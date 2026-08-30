@@ -404,12 +404,24 @@ export async function scrapeListingDetailCard(listingUrl: string): Promise<Listi
   const clean = (t: string) => t
     .replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
     .replace(/\s*(?:pour|voor|für|per|for|de|da)?\s*€.*$/iu, '')
+    // mobile.de : og:title = « BMW i5 für 57.900 » — le prix SANS symbole €
+    // échappe au motif ci-dessus (banc 30/08). Préposition + nombre = queue
+    // commerciale, même classe.
+    .replace(/\s+(?:pour|voor|für|per|for)\s+[\d.,\s]{3,}\s*(?:€|eur)?.*$/iu, '')
     .replace(/\s+(?:en|in)\s+\p{L}+(?:\s+\p{L}+)?\s+(?:occasion|d'occasion|gebraucht|usata|usado|tweedehands|brugt)\b.*$/iu, '')
-    // La Centrale : <title> = « Annonce Toyota rav 4 … occasion - Yvelines
-    // 78 » (constat 30/08) — préfixe éditorial et queue localité, même
-    // classe de bruit que les queues commerciales ci-dessus.
+    // Préfixes éditoriaux des <title> de site (banc 30/08) : La Centrale
+    // « Annonce … », Bilbasen « Brugt BMW i5 … », Blocket « Begagnad bil
+    // till salu: … », Subito « Subito - {vendeur} - {titre} ».
     .replace(/^annonce\s+/iu, '')
+    .replace(/^brugt\s+/iu, '')
+    .replace(/^begagnad bil till salu:\s*/iu, '')
+    .replace(/^subito\s*-\s*/iu, '')
     .replace(/\s+(?:occasion|d'occasion)\s*-\s*.*$/iu, '')
+    // Queues « - {NomDuSite} … » des <title> (banc 30/08 : « … - Bilbasen »,
+    // « … - Kecskemét, Autó - Jófogás »). La queue localité Jófogás
+    // (« - {ville}, Autó ») tombe avec le même coup de rabot.
+    .replace(/\s*[-|–]\s*(?:bilbasen|j[oó]fog[aá]s|blocket|skelbiu|marktplaats|mobile\.de|autoscout24)\b.*$/iu, '')
+    .replace(/\s*-\s*\p{Lu}\p{L}+,\s*aut[oó]\s*$/iu, '')
     .trim();
   const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1]
     ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:title["']/i)?.[1] ?? null;
