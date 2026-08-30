@@ -274,12 +274,29 @@ async function fetchHtmlWithZyte(url: string, profileLevel: number, profileOverr
 }
 
 /**
+ * Fetch d'une page DÉTAIL avec l'échelle de profils du site (attempt 1→3,
+ * même escalade que les pages liste). Un tir unique échouait par
+ * intermittence sur les sites Datadome — constat photos La Centrale 30/08 :
+ * « Page d'annonce illisible (fetch en échec) » au premier clic, alors que
+ * le profil du site passe (la panne était la rafale/l'aléa Zyte, pas le
+ * profil). Classe corrigée : tous les appels détail passent par ici.
+ */
+async function fetchDetailHtml(listingUrl: string): Promise<string | null> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const { html } = await fetchHtmlWithZyte(listingUrl, attempt);
+    if (html) return html;
+    if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
+  }
+  return null;
+}
+
+/**
  * Scrape detail page for enriched listing data
  */
 async function scrapeDetailPage(listingUrl: string): Promise<DetailPageData | null> {
   console.log(`[DETAIL_SCRAPE] Fetching listing detail ${listingUrl}`);
 
-  const { html } = await fetchHtmlWithZyte(listingUrl, 1);
+  const html = await fetchDetailHtml(listingUrl);
 
   if (!html) {
     console.warn(`[DETAIL_SCRAPE] Failed to fetch ${listingUrl}`);
@@ -348,7 +365,7 @@ export async function fetchBinaryWithZyte(url: string): Promise<{ buf: Buffer; c
 }
 
 export async function scrapeListingDetailCard(listingUrl: string): Promise<ListingDetailCard | null> {
-  const { html } = await fetchHtmlWithZyte(listingUrl, 1);
+  const html = await fetchDetailHtml(listingUrl);
   if (!html) return null;
 
   // Titre : og:title d'abord — SAUF quand il est pollué par le prix (AS24 :
