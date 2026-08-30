@@ -313,9 +313,16 @@ async function fetchDetailHtml(listingUrl: string): Promise<string | null> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     const { html } = await fetchHtmlWithZyte(listingUrl, attempt);
     // Une page de blocage N'EST PAS un succès : on poursuit l'escalade de
-    // profils au lieu d'en extraire un faux titre.
-    if (html && !isBlockedDetailPage(html)) return html;
-    if (html) console.warn(`[DETAIL_SCRAPE] page de blocage servie (tentative ${attempt}) ${listingUrl.slice(0, 90)}`);
+    // profils au lieu d'en extraire un faux titre. Une page CREUSE non plus
+    // (banc mobile.de 30/08 : Zyte convalescent a servi un HTML sans <title>
+    // ni og:title → fiche « réussie » vide ; toutes les vraies pages détail
+    // des 7 sites sondés portent l'un des deux).
+    if (html) {
+      const blocked = isBlockedDetailPage(html);
+      const substance = /<title[^>]*>\s*\S/i.test(html) || /property=["']og:title["']/i.test(html);
+      if (!blocked && substance) return html;
+      console.warn(`[DETAIL_SCRAPE] page ${blocked ? 'de blocage' : 'creuse (sans titre)'} servie (tentative ${attempt}) ${listingUrl.slice(0, 90)}`);
+    }
     if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
   }
   return null;
