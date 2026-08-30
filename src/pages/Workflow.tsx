@@ -382,9 +382,9 @@ function GroupedSearchList({ rows, coverage, onEdit, onDuplicate, onChanged }: {
         const covGaps = covs.reduce((n, c) => n + (c?.length ?? 0), 0);
         const pairs = [...new Set(list.map((s) => `${flagOf(s.source_country)}→${flagOf(s.target_country)}`))];
         return (
-          {/* PAS d'overflow-hidden ici : il rognerait le menu ⋯ des cartes
-              (leçon bande photo négociations 29/08) — les arrondis du survol
-              vivent sur le bouton d'en-tête lui-même. */}
+          // PAS d'overflow-hidden sur ce conteneur : il rognerait le menu ⋯
+          // des cartes (leçon bande photo négociations 29/08) — les arrondis
+          // du survol vivent sur le bouton d'en-tête lui-même.
           <div key={k} className="bg-white rounded-xl border border-slate-200 shadow-sm">
             <button onClick={() => toggle(k)} className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors ${isOpen ? 'rounded-t-xl' : 'rounded-xl'}`}>
               <ChevronRight className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
