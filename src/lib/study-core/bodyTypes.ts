@@ -50,14 +50,14 @@ const norm = (s: string) =>
 export function canonicalizeBody(raw: string | null | undefined): BodyToken {
   const t = norm(raw ?? '');
   if (!t) return '';
-  if (/4x4|suv|crossover|visureigis|todoterreno|fuoristrada|gelandewagen|offroad|terreinwagen/.test(t)) return 'suv';
+  if (/4x4|suv|crossover|visureigis|todoterreno|fuoristrada|gelandewagen|offroad|terreinwagen|tout ?terrain|terepjaro/.test(t)) return 'suv';
   if (/berline|sedan|saloon|limousine|limuzinas|sedanas|berlina|stufenheck/.test(t)) return 'berline';
-  if (/break|estate|station ?wagon|kombi|universalas|touring|familiale|giardinetta|sw\b/.test(t)) return 'break';
+  if (/break|estate|station ?wagon|kombi|universalas|touring|familiale|giardinetta|stationcar|sw\b/.test(t)) return 'break';
   if (/citadine|hatchback|hatch|hecbekas|compacte?|kleinwagen|city ?car|utilitaria/.test(t)) return 'citadine';
   // « van » nu banni : « caravan » finirait en monospace — minivan suffit.
   if (/monospace|mpv|minivan|vienaturis|people ?carrier|ruimtewagen/.test(t)) return 'monospace';
   if (/coupe|kupe|sportwagen/.test(t)) return 'coupe';
-  if (/cabriolet|cabrio|convertible|kabrioletas|roadster|spider|decapotable/.test(t)) return 'cabriolet';
+  if (/cabriolet|cabrio|convertible|kabrioletas|roadster|spider|spyder|decapotable/.test(t)) return 'cabriolet';
   if (/societe|commercial|komercinis|company ?car|bedrijfswagen/.test(t)) return 'societe';
   return '';
 }

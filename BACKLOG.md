@@ -430,13 +430,11 @@ Réimport annuel : scripts/teoalida/import_teoalida.py (mises à jour
 gratuites 1 an — signaler à Teoalida les manques observés, journal des
 « hors référentiel » à surveiller en revue quotidienne).
 
-RESTE (chantier finitions) : traduction des finitions entre pays — exige la
-base « European Car Database » Teoalida (niveau versions, colonnes Engine
-version/subversion, source ADAC, finitions réelles M Sportpaket/Executive…)
-NON achetée à ce stade. Une fois achetée : dictionnaire pivot (ADAC) ×
-graphies observées par pays × clustering LLM (lot 4bis), et dans le MI
-l'équivalent français affiché discrètement à côté de la finition étrangère
-sélectionnée.
+Chantier finitions inter-pays : l'ACHAT de la base « European Car
+Database » Teoalida est ÉCARTÉ (décision Channing 30/08). Si le besoin de
+traduction des finitions revient, la voie sera nos propres observations
+par pays (linkgen_enum_mappings, lc:trim…) + clustering LLM (lot 4bis) —
+sans base externe.
 
 ## 4quater. Référentiel constructeur (intervalles / motorisations / finitions)
 

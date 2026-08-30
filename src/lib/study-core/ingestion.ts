@@ -29,6 +29,7 @@ import type { ScrapedListing } from './types';
 import type { SearchCriteria, SiteAdapter, CandidateSegment } from './marketplaces/types';
 import { normalizeForMatch } from './marketplaces/normalizer';
 import { collectCandidateSegments } from './marketplaces/paramDictionary';
+import { canonicalizeBody } from './bodyTypes';
 
 // Minimum priced sample to confirm a mapping. Kept low (3) so RARE vehicles —
 // often where the best arbitrage margins hide — still get captured. The ≥90%
@@ -203,41 +204,37 @@ export function canonicalizeGearbox(raw: string): GearboxToken {
 export function canonicalizeColor(raw: string): string {
   const t = normalizeForMatch(raw);
   if (!t) return '';
-  if (/noir|zwart|schwarz|\bsort\b|nero|negro|black/.test(t)) return 'noir';
-  if (/blanc|\bwit\b|weiss|hvid|bianco|white/.test(t)) return 'blanc';
+  // + langues des sites d'août 2026 (Blocket SE, Skelbiu LT, Jófogás HU) —
+  // lexique standard, même classe de lecture tolérante que canonicalizeFuel.
+  if (/noir|zwart|schwarz|\bsort\b|nero|negro|black|fekete|juoda|svart/.test(t)) return 'noir';
+  if (/blanc|\bwit\b|weiss|hvid|bianco|white|feher|balta|\bvit\b/.test(t)) return 'blanc';
   // argent AVANT gris : « Zilver of Grijs » (NL) et « gris argent » penchent
   // argent — le libellé le plus précis gagne.
-  if (/argent|zilver|silber|solv|silver|plata|plateado/.test(t)) return 'argent';
-  if (/gris|grijs|grau|\bgra\b|grigio|grey|gray/.test(t)) return 'gris';
-  if (/bleu|blauw|blau|\bbla\b|\bblu\b|azul|blue/.test(t)) return 'bleu';
-  if (/rouge|rood|\brot\b|\brod\b|rosso|rojo|red/.test(t)) return 'rouge';
-  if (/vert|groen|grun|\bgron\b|verde|green/.test(t)) return 'vert';
-  if (/jaune|geel|gelb|\bgul\b|giallo|amarillo|yellow/.test(t)) return 'jaune';
-  if (/orange|oranje|naranja|arancio/.test(t)) return 'orange';
-  if (/beige/.test(t)) return 'beige';
-  if (/marron|brun|bruin|braun|marrone|brown/.test(t)) return 'marron';
-  if (/violet|prune|paars|lila|purple|morado/.test(t)) return 'violet';
-  if (/\bor\b|goud|gold|dore|oro/.test(t)) return 'or';
+  if (/argent|zilver|silber|solv|silver|plata|plateado|ezust|sidabr/.test(t)) return 'argent';
+  if (/gris|grijs|grau|\bgra\b|grigio|grey|gray|szurke|pilka/.test(t)) return 'gris';
+  if (/bleu|blauw|blau|\bbla\b|\bblu\b|azul|blue|\bkek\b|melyna/.test(t)) return 'bleu';
+  if (/rouge|rood|\brot\b|\brod\b|rosso|rojo|red|piros|voros|raudona/.test(t)) return 'rouge';
+  if (/vert|groen|grun|\bgron\b|verde|green|\bzold\b|zalia/.test(t)) return 'vert';
+  if (/jaune|geel|gelb|\bgul\b|giallo|amarillo|yellow|sarga|geltona/.test(t)) return 'jaune';
+  if (/orange|oranje|naranja|arancio|narancs|oranzine/.test(t)) return 'orange';
+  if (/beige|bezine/.test(t)) return 'beige';
+  if (/marron|brun|bruin|braun|marrone|brown|barna|\bruda\b/.test(t)) return 'marron';
+  if (/violet|prune|paars|lila|purple|morado|violetine/.test(t)) return 'violet';
+  if (/\bor\b|goud|gold|guld|dore|oro|arany|auksine/.test(t)) return 'or';
   return '';
 }
 
 /**
- * Carrosserie multilingue → jeton canonique : Berline≡Limousine≡Sedan,
- * SUV≡Terreinwagen≡Geländewagen, Break≡Kombi≡Stationwagen≡Touring…
- * Même règle : inconnu → '' (repli texte, jamais de fausse catégorie).
+ * Carrosserie multilingue → jeton canonique — UNIFIÉ (30/08) sur le canon
+ * bodyTypes.ts (8 types actés par Channing), qui couvre aussi le lituanien
+ * (Skelbiu), le hongrois (Jófogás) et les catégories La Centrale. DEUX
+ * canonicaliseurs séparés = le bug bmax/regdate en germe (deux savoirs, un
+ * sujet) : celui-ci délègue désormais. Différence assumée : « utilitaire »
+ * (hors canon) rend '' → confirmStructuredLabel retombe sur la comparaison
+ * texte, jamais une fausse catégorie.
  */
 export function canonicalizeVehicleType(raw: string): string {
-  const t = normalizeForMatch(raw);
-  if (!t) return '';
-  if (/suv|terreinwagen|gelandewagen|4x4|tout ?terrain|crossover/.test(t)) return 'suv';
-  if (/break|kombi|stationwagen|stationcar|estate|touring|\bsw\b|familiale/.test(t)) return 'break';
-  if (/berline|limousine|sedan|saloon|berlina/.test(t)) return 'berline';
-  if (/coupe|\bcoupé\b/.test(t)) return 'coupe';
-  if (/cabrio|convertible|roadster|spider|spyder|decapotable/.test(t)) return 'cabriolet';
-  if (/monospace|\bmpv\b|minivan|ruimtewagen|van personen/.test(t)) return 'monospace';
-  if (/citadine|kleinwagen|hatchback|compact|city ?car|petite voiture/.test(t)) return 'citadine';
-  if (/utilitaire|bestelwagen|fourgon|kastenwagen|\bvan\b|pick ?up/.test(t)) return 'utilitaire';
-  return '';
+  return canonicalizeBody(raw);
 }
 
 /** Per-listing fuel: prefer the structured attribute, fall back to title/desc. */
