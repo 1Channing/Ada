@@ -44,6 +44,8 @@ console.log('[WORKER_BUILD_TAG] marktplaats_diag_v1 deployed');
 const FX_RATES: Record<string, number> = {
   'EUR': 1.0,
   'DKK': 0.134,  // 1 DKK ≈ 0.134 EUR
+  'SEK': 0.089,  // aligné marketData.ts TO_EUR / business-logic FX_RATES
+  'HUF': 0.0025,
   'UNKNOWN': 1.0,
 };
 
@@ -356,13 +358,37 @@ export interface ListingDetailCard {
   imageUrls: string[];
 }
 
-function parsePriceToken(raw: string): number | null {
+/** Devise NATIVE des sites hors zone euro (banc 30/08 : les prix Bilbasen
+ *  429 800 / Blocket 1 149 000 / Jófogás 2 520 000 étaient bien lus puis
+ *  rejetés par le plafond « euro » — c'étaient des DKK/SEK/HUF). Le prix de
+ *  la fiche est converti et stocké EN EUR, même doctrine que les études. */
+function detailSiteCurrency(listingUrl: string): string {
+  if (/bilbasen\.dk/.test(listingUrl)) return 'DKK';
+  if (/blocket\.se/.test(listingUrl)) return 'SEK';
+  if (/jofogas\.hu/.test(listingUrl)) return 'HUF';
+  return 'EUR';
+}
+
+// Bornes de vraisemblance par devise (fenêtre métier 200–500 000 €
+// historique, transposée au taux de chaque devise).
+const PRICE_BOUNDS: Record<string, [number, number]> = {
+  EUR: [200, 500_000],
+  DKK: [1_500, 4_000_000],
+  SEK: [2_000, 6_000_000],
+  HUF: [80_000, 300_000_000],
+};
+
+function parsePriceToken(raw: string, currency = 'EUR'): number | null {
   let s = raw.trim().replace(/\s| /g, '');
   // Décimales finales (15999.00 / 15999,00) retirées ; séparateurs de
   // milliers (15.999 / 15,999) effacés ensuite.
-  s = s.replace(/[.,]\d{1,2}$/, '').replace(/[.,]/g, '');
+  // Séparateurs de QUEUE d'abord (« 429800.0, » capturé avec sa virgule de
+  // JSON, banc Bilbasen 30/08 — sans quoi .0 devenait un x10) ; puis
+  // décimales finales (15999.00 / 15999,00) ; puis séparateurs de milliers.
+  s = s.replace(/[.,\s]+$/, '').replace(/[.,]\d{1,2}$/, '').replace(/[.,]/g, '');
   const n = Number(s);
-  return Number.isFinite(n) && n >= 200 && n <= 500_000 ? n : null;
+  const [lo, hi] = PRICE_BOUNDS[currency] ?? PRICE_BOUNDS.EUR;
+  return Number.isFinite(n) && n >= lo && n <= hi ? n : null;
 }
 
 /**
@@ -396,7 +422,11 @@ export async function fetchBinaryWithZyte(url: string): Promise<{ buf: Buffer; c
 export async function scrapeListingDetailCard(listingUrl: string): Promise<ListingDetailCard | null> {
   const html = await fetchDetailHtml(listingUrl);
   if (!html) return null;
+  return parseListingDetailCard(html, listingUrl);
+}
 
+/** Cœur PUR de la fiche (exporté pour les bancs hors-ligne sur HTML sondé). */
+export function parseListingDetailCard(html: string, listingUrl: string): ListingDetailCard {
   // Titre : og:title d'abord — SAUF quand il est pollué par le prix (AS24 :
   // og:title = « Mercedes-Benz de € 84 990 », sonde 28/08) ; le <title> porte
   // alors le vrai nom, débarrassé de sa queue commerciale (« en Gris occasion
@@ -420,13 +450,28 @@ export async function scrapeListingDetailCard(listingUrl: string): Promise<Listi
     // Queues « - {NomDuSite} … » des <title> (banc 30/08 : « … - Bilbasen »,
     // « … - Kecskemét, Autó - Jófogás »). La queue localité Jófogás
     // (« - {ville}, Autó ») tombe avec le même coup de rabot.
-    .replace(/\s*[-|–]\s*(?:bilbasen|j[oó]fog[aá]s|blocket|skelbiu|marktplaats|mobile\.de|autoscout24)\b.*$/iu, '')
+    .replace(/\s*[-|–]\s*(?:bilbasen|j[oó]fog[aá]s|blocket|skelbiu|marktplaats|mobile\.de|autoscout24|subito)\b.*$/iu, '')
     .replace(/\s*-\s*\p{Lu}\p{L}+,\s*aut[oó]\s*$/iu, '')
+    // Skelbiu : queue « | A31661975 » (code d'annonce dans le <title>,
+    // sonde 30/08).
+    .replace(/\s*\|\s*A\d+\s*$/iu, '')
     .trim();
   const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1]
     ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:title["']/i)?.[1] ?? null;
   const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ?? null;
-  const candidates = [ogTitle, titleTag]
+  // mobile.de : og:title et <title> se réduisent à « BMW i5 » (marque+modèle
+  // + prix) — le NOM COMPLET de l'annonce vit dans l'alt des diapos de la
+  // galerie (sonde 30/08 : « BMW i5 eDrive40 T M SPORT AHK,Pano,… »).
+  const galleryAlt = /mobile\.de/.test(listingUrl)
+    ? html.match(/data-testid="image-\d+"[\s\S]{0,300}?<img alt="([^"]{10,160})"/)?.[1] ?? null
+    : null;
+  // Subito : le <title> empile « Subito - {vendeur} - {titre} - Auto In
+  // vendita a {ville} » quand l'og:title porte le titre nu (« … | Subito »,
+  // sonde 30/08) — l'og seul fait foi.
+  const rawCandidates = /subito\.it/.test(listingUrl) && ogTitle
+    ? [ogTitle]
+    : [galleryAlt, ogTitle, titleTag];
+  const candidates = rawCandidates
     .filter((t): t is string => Boolean(t && t.trim()))
     .map(clean)
     .filter(Boolean);
@@ -436,12 +481,32 @@ export async function scrapeListingDetailCard(listingUrl: string): Promise<Listi
     ? candidates.reduce((best, c) => (c.split(' ').length > best.split(' ').length ? c : best)).slice(0, 160)
     : null;
 
+  const currency = detailSiteCurrency(listingUrl);
   let price: number | null = null;
+  // Skelbiu : plusieurs montants concurrents sur la page (ancien prix barré
+  // « price-previous », HT export « be PVM », mensualités de crédit) — le
+  // prix AFFICHÉ vit dans announcement-price → prices → price (sonde 30/08).
+  if (/skelbiu\.lt/.test(listingUrl)) {
+    const m = html.match(/class="announcement-price[^"]*"[\s\S]{0,300}?class="price">\s*([\d\s  .]+)/);
+    if (m) price = parsePriceToken(m[1], currency);
+  }
   const ldPrice = html.match(/"price"\s*:\s*"?([\d][\d\s .,]{0,12})/);
-  if (ldPrice) price = parsePriceToken(ldPrice[1]);
+  if (ldPrice && price == null) price = parsePriceToken(ldPrice[1], currency);
   if (price == null) {
     const ogPrice = html.match(/<meta[^>]+property=["'](?:og:price:amount|product:price:amount)["'][^>]*content=["']([^"']+)["']/i);
-    if (ogPrice) price = parsePriceToken(ogPrice[1]);
+    if (ogPrice) price = parsePriceToken(ogPrice[1], currency);
+  }
+  // Stocké EN EUR (doctrine des études : conversion à l'extraction, rien ne
+  // reconvertit en aval). AVANT le repli « € du titre », qui est déjà en
+  // euros et ne doit jamais être reconverti.
+  if (price != null && currency !== 'EUR') price = Math.round(toEur(price, currency));
+  // Dernier recours : le montant du titre BRUT de la page (mobile.de :
+  // « BMW i5 für 57.900 € » — seul prix servi côté serveur, sonde 30/08).
+  if (price == null) {
+    for (const t of [ogTitle, titleTag]) {
+      const m = t?.match(/([\d][\d\s  .,]{2,10})\s*€/u);
+      if (m) { price = parsePriceToken(m[1], 'EUR'); if (price != null) break; }
+    }
   }
 
   const detail = parseDetailPage(html, listingUrl);

@@ -563,22 +563,61 @@ function extractMarktplaatsImages(html: string): string[] {
 }
 
 /**
- * Extract car images from Bilbasen detail page
+ * Bilbasen : la galerie de l'annonce vit dans le JSON embarqué
+ * `"media":{"images":[{"url":"https://billeder.bilbasen.dk/bilinfo/{uuid}.jpeg
+ * ?class=S960X960"},…]}` — sonde 30/08 : liste ORDONNÉE, host billeder.
+ * bilbasen.dk (les miroirs billeder.bilinfo.net sont des doublons). L'ancien
+ * motif exigeait `.jpg` final : il tronquait les URLs `.jpeg?class=…` (1 seule
+ * photo cassée au banc). On lit le bloc media.images tel quel, repli sur tout
+ * URL billeder.bilbasen.dk de la page.
  */
 function extractBilbasenImages(html: string): string[] {
+  const norm = html.replace(/\\u002F/g, '/').replace(/\\\//g, '/');
   const images: string[] = [];
-
-  const pattern = /https:\/\/[^"'\s]*bilbasen[^"'\s]*\.jpg/gi;
-  const matches = html.match(pattern);
-
-  if (matches) {
-    for (const url of matches) {
-      if (!images.includes(url) && !url.includes('logo') && !url.includes('icon')) {
-        images.push(url);
-      }
-    }
+  const push = (u: string) => { if (!images.includes(u)) images.push(u); };
+  const media = norm.match(/"media"\s*:\s*\{\s*"images"\s*:\s*\[([\s\S]{0,20000}?)\]/);
+  if (media) {
+    for (const m of media[1].matchAll(/"url"\s*:\s*"(https:\/\/billeder\.bilbasen\.dk\/[^"]+)"/g)) push(m[1]);
   }
+  if (images.length === 0) {
+    for (const m of norm.matchAll(/https:\/\/billeder\.bilbasen\.dk\/bilinfo\/[0-9a-f-]{36}\.(?:jpe?g|png|webp)(?:\?[^\s"'<>]*)?/gi)) push(m[0]);
+  }
+  return images.slice(0, 20);
+}
 
+/**
+ * mobile.de : galerie balisée `data-testid="image-{n}"`, chaque diapo porte
+ * un srcSet `img.classistatic.de/api/v1/mo-prod/images/{aa}/{uuid}?rule=mo-…`
+ * en 8 variantes (mo-80 → mo-1600) — sonde 30/08 : 18 diapos, le logo
+ * concession et les visuels statiques vivent HORS de ces balises. On garde
+ * une entrée par diapo, variante la plus grande (mo-1600), ordre des indices.
+ */
+function extractMobiledeImages(html: string): string[] {
+  const seen = new Map<string, number>();
+  for (const m of html.matchAll(/data-testid="image-(\d+)"[\s\S]{0,800}?img\.classistatic\.de\/api\/v1\/mo-prod\/images\/([0-9a-f]{2}\/[0-9a-f-]{36})\?rule=mo-/g)) {
+    const idx = parseInt(m[1], 10);
+    if (!seen.has(m[2]) || idx < (seen.get(m[2]) ?? Infinity)) seen.set(m[2], idx);
+  }
+  return [...seen.entries()].sort((a, b) => a[1] - b[1])
+    .map(([id]) => `https://img.classistatic.de/api/v1/mo-prod/images/${id}?rule=mo-1600`)
+    .slice(0, 20);
+}
+
+/**
+ * Blocket : les photos de l'annonce sont
+ * `images.blocketcdn.se/dynamic/default/item/{idAnnonce}/{uuid}` — sonde
+ * 30/08 : 37 distinctes, TOUTES portent l'id de l'annonce (les reco du bas
+ * de page ne sont pas rendues serveur) ; le JSON-LD n'en liste que 3 (le
+ * repli générique plafonnait là). Id relu de l'URL détail /item/{id} quand
+ * il est présent, ordre d'apparition (= ordre du tableau "images").
+ */
+function extractBlocketImages(html: string, listingUrl: string): string[] {
+  const itemId = listingUrl.match(/\/item\/(\d+)/)?.[1];
+  const images: string[] = [];
+  for (const m of html.matchAll(/https:\/\/images\.blocketcdn\.se\/dynamic\/default\/item\/(\d+)\/[0-9a-f-]{36}/g)) {
+    if (itemId && m[1] !== itemId) continue;
+    if (!images.includes(m[0])) images.push(m[0]);
+  }
   return images.slice(0, 20);
 }
 
@@ -698,6 +737,42 @@ function extractLacentraleImages(html: string, listingUrl: string): string[] {
   return [...seen.entries()].sort((a, b) => a[1] - b[1]).map(([u]) => u).slice(0, 20);
 }
 
+/**
+ * Skelbiu (plateforme Autoplius) : photos
+ * `autoplius-img.dgn.lt/ann_{variante}_{idImage}/{slug}-{idx}.jpg` — sonde
+ * 30/08 : la page détail ne rend AUCUNE annonce similaire côté serveur
+ * (1 seul slug, 50 indices 0..49) ; la grande variante est ann_3 (source
+ * du zoom min-width 401px ; og:image sert ann_6, vignettes ann_2/4/25).
+ * Une entrée par indice, ordre croissant, ann_3 préférée puis 1re vue.
+ */
+function extractSkelbiuImages(html: string): string[] {
+  const byIdx = new Map<number, { url: string; big: boolean }>();
+  for (const m of html.matchAll(/https:\/\/autoplius-img\.dgn\.lt\/ann_(\d+)_\d+\/[a-z0-9-]+?-(\d+)\.jpg/gi)) {
+    const idx = parseInt(m[2], 10);
+    const big = m[1] === '3';
+    const cur = byIdx.get(idx);
+    if (!cur || (big && !cur.big)) byIdx.set(idx, { url: m[0], big });
+  }
+  return [...byIdx.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v.url).slice(0, 20);
+}
+
+/**
+ * Jófogás : galerie `img.jofogas.hu/620x620aspect/{slugTitre}_{id}.jpg` —
+ * sonde 30/08 : le slug d'image reprend le slug de l'URL détail
+ * (/{region}/{Slug}_{idAnnonce}.htm) ; les annonces similaires portent
+ * d'autres slugs (et le chemin /images/). Filtre par slug quand l'URL le
+ * donne, variante 620x620aspect (la grande servie), ordre d'apparition.
+ */
+function extractJofogasImages(html: string, listingUrl: string): string[] {
+  const slug = listingUrl.match(/\/([A-Za-z0-9_]+?)_\d+\.htm/)?.[1];
+  const images: string[] = [];
+  for (const m of html.matchAll(/https:\/\/img\.jofogas\.hu\/620x620aspect\/([A-Za-z0-9_]+?)_\d+\.jpg/g)) {
+    if (slug && !m[1].startsWith(slug)) continue;
+    if (!images.includes(m[0])) images.push(m[0]);
+  }
+  return images.slice(0, 20);
+}
+
 function extractCarImages(html: string, listingUrl: string): string[] {
   let siteImages: string[] = [];
   if (listingUrl.includes('autoscout24.')) {
@@ -712,6 +787,14 @@ function extractCarImages(html: string, listingUrl: string): string[] {
     siteImages = extractBilbasenImages(html);
   } else if (listingUrl.includes('gaspedaal.nl')) {
     siteImages = extractGaspedaalImages(html);
+  } else if (listingUrl.includes('mobile.de')) {
+    siteImages = extractMobiledeImages(html);
+  } else if (listingUrl.includes('blocket.se')) {
+    siteImages = extractBlocketImages(html, listingUrl);
+  } else if (listingUrl.includes('skelbiu.lt')) {
+    siteImages = extractSkelbiuImages(html);
+  } else if (listingUrl.includes('jofogas.hu')) {
+    siteImages = extractJofogasImages(html, listingUrl);
   }
   // Extracteur de site muet (ou site sans extracteur) → le repli générique
   // couvre TOUTE la classe d'un coup.
