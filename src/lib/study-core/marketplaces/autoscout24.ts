@@ -16,6 +16,7 @@
 
 import { parseListings } from '../parsers/autoscout24';
 import { normalizeForMatch } from './normalizer';
+import { canonicalizeBody, bodyLabel } from '../bodyTypes';
 import { resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
 import { decomposeUrl } from './urlDecompose';
@@ -582,13 +583,31 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     if (!d) return {};
     const out: Partial<SearchCriteria> = {};
 
-    // Path: /lst/{brand-slug}/{model-slug}
+    // Path: /lst/{brand-slug}/{model-slug} — en IGNORANT les segments bt_
+    // (carrosserie, URLs humaines 30/08 : /lst/bt_citadine sans marque) qui
+    // se faisaient lire comme une marque « Bt_citadine ».
     const lstIdx = d.pathSegments.indexOf('lst');
     if (lstIdx >= 0) {
-      const brandSlug = d.pathSegments[lstIdx + 1];
-      const modelSlug = d.pathSegments[lstIdx + 2];
+      const segs = d.pathSegments.slice(lstIdx + 1).filter((sg) => !sg.startsWith('bt_') && !/^re_\d{4}$/.test(sg));
+      const brandSlug = segs[0];
+      const modelSlug = segs[1];
       if (brandSlug) out.brand = brandSlug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
       if (modelSlug) out.model = modelSlug.toUpperCase(); // keep 'C-HR' intact
+    }
+    // Carrosserie : segment bt_{slug local} OU body= à codes internationaux
+    // (1 citadine, 2 cabriolet, 3 coupé, 4 SUV, 5 break, 6 berline,
+    // 12 monospace — ordre de la facette, URLs humaines 30/08).
+    const bt = d.pathSegments.find((sg) => sg.startsWith('bt_'));
+    const btTok = bt ? canonicalizeBody(bt.slice(3)) : '';
+    if (btTok) out.vehicleType = bodyLabel(btTok);
+    if (!out.vehicleType) {
+      const BODY_CODE_TO_TOKEN: Record<string, string> = {
+        '1': 'citadine', '2': 'cabriolet', '3': 'coupe', '4': 'suv',
+        '5': 'break', '6': 'berline', '12': 'monospace',
+      };
+      const toks = [...new Set(((d.queryParams['body'] ?? '').split(',').filter(Boolean))
+        .map((c) => BODY_CODE_TO_TOKEN[c]).filter(Boolean))];
+      if (toks.length === 1) out.vehicleType = bodyLabel(toks[0]);
     }
 
     const q = d.queryParams;

@@ -41,6 +41,7 @@ import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose } from '../business-logic';
+import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://www.lacentrale.fr/listing?makesModelsCommercialNames={brand}%3A%3A{model}&yearMin={yearFrom}&yearMax={yearTo}&mileageMax={mileage}&sortBy=priceAsc';
 
@@ -365,6 +366,15 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     else if (gb === 'MANUAL') out.gearbox = 'Manuelle';
     const versions = q.get('versions');
     if (versions?.trim()) out.trim = versions.trim();
+    // categories= à codes numériques (multi-codes séparés _, URLs humaines
+    // 30/08) — chaque sous-code retombe sur son type canon.
+    const CAT_TO_BODY: Record<string, string> = {
+      '47': 'suv', '41': 'berline', '42': 'berline', '44': 'monospace',
+      '46': 'cabriolet', '40': 'citadine', '43': 'break', '45': 'coupe', '80': 'societe',
+    };
+    const cats = (q.get('categories') ?? '').split('_').filter(Boolean);
+    const bodies = [...new Set(cats.map((c) => CAT_TO_BODY[c]).filter(Boolean))];
+    if (bodies.length === 1) out.vehicleType = bodyLabel(bodies[0]);
   } catch { /* URL illisible */ }
   return out;
 }
@@ -379,6 +389,7 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
       mileageMin: 'mileage', mileageMax: 'mileage',
       powerDINMin: 'power', powerDINMax: 'power',
       energies: 'fuel', gearbox: 'gearbox', versions: 'trim',
+      categories: 'vehicleType',
     };
     for (const [k, v] of u.searchParams.entries()) {
       if (!v) continue;

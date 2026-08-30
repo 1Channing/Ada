@@ -179,6 +179,22 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
       return setQueryParamRaw(url, 'fuel', code ?? null);
     },
     trimSlot: (url, t) => setQueryParamRaw(url, 'kwd', t),
+    // Carrosserie : codes NUMÉRIQUES internationaux prouvés par URLs humaines
+    // 30/08 (.fr : body=1%2C2 = citadine+cabriolet ; liste complète
+    // body=1,2,3,4,5,6,12,13 appariée à l'ordre de la facette). Retenus face
+    // aux segments /bt_citadine : les slugs bt_ sont LOCALISÉS par TLD, les
+    // codes body= non. Tout segment bt_ hérité est purgé (anti-fossile).
+    // « Société » SANS équivalent : l'Utilitaire AS24 (13) n'est PAS la
+    // voiture société (précision Channing) — critère retiré, post-filtre aval.
+    vehicleType: (url, params) => {
+      const out = url.replace(/\/bt_[^/?#]+/g, '');
+      const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+      const code = tok ? {
+        citadine: '1', cabriolet: '2', coupe: '3', suv: '4',
+        break: '5', berline: '6', monospace: '12',
+      }[tok as string] : undefined;
+      return setQueryParamRaw(out, 'body', code ?? null);
+    },
   },
   {
     // ── Leboncoin ────────────────────────────────────────────────────────────
@@ -489,6 +505,18 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
       return setQueryParamRaw(url, 'energies', code ?? null);
     },
     trimSlot: (url, t) => setQueryParamRaw(url, 'versions', t.toLowerCase()),
+    // Carrosserie : categories= à codes numériques, multi-codes séparés par
+    // UNDERSCORE — 8 URLs humaines Channing 30/08 (SUV 47, berline 41_42
+    // [deux sous-codes cochés par la facette], monospace 44, cabriolet 46,
+    // citadine 40, break 43, coupé 45, commerciale/société 80).
+    vehicleType: (url, params) => {
+      const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+      const code = tok ? {
+        suv: '47', berline: '41_42', monospace: '44', cabriolet: '46',
+        citadine: '40', break: '43', coupe: '45', societe: '80',
+      }[tok as string] : undefined;
+      return setQueryParamRaw(url, 'categories', code ?? null);
+    },
   },
   {
     // ── Jófogás ──────────────────────────────────────────────────────────────
@@ -522,7 +550,7 @@ export const CRITERIA_DETECTORS: Record<string, RegExp> = {
   boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
   finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;|versions=[^&]/i,
   carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|energies=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
-  carrosserie: /vehicle_type=[^&]/i,
+  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_/i,
 };
 
 /**

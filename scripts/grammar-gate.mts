@@ -100,7 +100,7 @@ const MEMORY_CASES: Array<{
   {
     site: 'AUTOSCOUT',
     bare: 'https://www.autoscout24.fr/lst/toyota/rav4?atype=C&cy=F',
-    fossil: 'https://www.autoscout24.fr/lst/toyota/rav4/re_2021?atype=C&cy=F&fregfrom=2021&fregto=2021&kmto=50000&powerfrom=99&powertype=hp&gear=M&fuel=D',
+    fossil: 'https://www.autoscout24.fr/lst/toyota/rav4/bt_berline/re_2021?atype=C&cy=F&fregfrom=2021&fregto=2021&kmto=50000&powerfrom=99&powertype=hp&gear=M&fuel=D&body=6',
     wantPosed: [
       ['année', /fregfrom=2022&?/], ['année', /fregto=2024/], ['km', /kmto=90000/],
       // 150 ch → 110 kW (floor) + powertype=kw — unité prouvée live 18/08.
@@ -110,7 +110,7 @@ const MEMORY_CASES: Array<{
       // les URLs apprises perdaient le carburant.
       ['carburant', /fuel=2(&|$)/],
     ],
-    wantGone: [/re_2021/, /fregfrom/, /fregto/, /kmto/, /powerfrom/, /powertype/, /gear=/, /fuel=/],
+    wantGone: [/re_2021/, /fregfrom/, /fregto/, /kmto/, /powerfrom/, /powertype/, /gear=/, /fuel=/, /\/bt_/, /[?&]body=/],
   },
   {
     site: 'LEBONCOIN',
@@ -220,7 +220,7 @@ const MEMORY_CASES: Array<{
   {
     site: 'LACENTRALE',
     bare: 'https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA%3A%3ARAV%204&sortBy=priceAsc',
-    fossil: 'https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA%3A%3ARAV%204&yearMin=2019&yearMax=2020&mileageMax=10000&powerDINMin=999&gearbox=MANUAL&energies=dies&sortBy=priceAsc',
+    fossil: 'https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA%3A%3ARAV%204&yearMin=2019&yearMax=2020&mileageMax=10000&powerDINMin=999&gearbox=MANUAL&energies=dies&categories=40&sortBy=priceAsc',
     wantPosed: [
       ['année', /yearMin=2022/], ['année', /yearMax=2024/], ['km', /mileageMax=90000/],
       // powerDINMin en ch DIN, bornes séparées — pas de piège N-max (corpus).
@@ -230,7 +230,7 @@ const MEMORY_CASES: Array<{
       ['finition', /versions=gr%20sport(&|$)/],
       ['carburant', /energies=hyb(&|$)/],
     ],
-    wantGone: [/yearMin/, /yearMax/, /mileageMax/, /powerDINMin/, /gearbox=/, /energies=/],
+    wantGone: [/yearMin/, /yearMax/, /mileageMax/, /powerDINMin/, /gearbox=/, /energies=/, /categories=/],
     // Le libellé commercial (%3A%3A + %20) doit survivre OCTET PAR OCTET —
     // même classe que la liste à virgules Leboncoin.
     wantKept: [/makesModelsCommercialNames=TOYOTA%3A%3ARAV%204/, /sortBy=priceAsc/],
@@ -314,6 +314,22 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
     { ...FULL, vehicleType: '4x4, SUV & Crossover' },
   );
   if (!/vehicle_type=4x4(&|$)/.test(lbcBody)) fail(`LBC carrosserie: vehicle_type=4x4 attendu (URL humaine 30/08)\n    ${lbcBody}`);
+  // AS24 : codes body= internationaux (1,2,3,4,5,6,12 — ordre de la facette,
+  // URLs humaines 30/08) ; le segment bt_ localisé hérité est PURGÉ.
+  const as24Body = applyVariableCriteria(
+    'https://www.autoscout24.fr/lst/toyota/rav4/bt_berline?atype=C&cy=F',
+    { ...FULL, vehicleType: 'SUV' },
+  );
+  if (!/[?&]body=4(&|$)/.test(as24Body) || /\/bt_/.test(as24Body)) {
+    fail(`AS24 carrosserie: body=4 attendu et bt_ purgé\n    ${as24Body}`);
+  }
+  // La Centrale : berline = DEUX sous-codes 41_42 (underscore, URL humaine
+  // 30/08) — l'underscore doit survivre octet par octet.
+  const lcBody = applyVariableCriteria(
+    'https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA%3A%3ARAV%204&categories=40',
+    { ...FULL, vehicleType: 'Berline' },
+  );
+  if (!/categories=41_42(&|$)/.test(lcBody)) fail(`La Centrale carrosserie: categories=41_42 attendu\n    ${lcBody}`);
   // Depuis la grammaire horse_power_din=N-max (29/08), l'URL LBC enrichie
   // par le registre exprime TOUT — plus aucun critère manquant.
   const lbc = applyVariableCriteria('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA', FULL);
