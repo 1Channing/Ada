@@ -13,7 +13,9 @@ import { Veille } from './pages/Veille';
 import { TruthCenter } from './pages/TruthCenter';
 import { Telemetrie } from './pages/Telemetrie';
 import { Login, ResetPassword } from './pages/Login';
+import { Equipe } from './pages/Equipe';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
+import { canSeeTab, tabKeyOfPageKey } from './lib/appTabs';
 
 const originalPushState = window.history.pushState.bind(window.history);
 window.history.pushState = function(...args) {
@@ -75,6 +77,7 @@ function App() {
     if (p === '/veille') return 'veille';
     if (p === '/verite') return 'truth';
     if (p === '/telemetrie') return 'telemetrie';
+    if (p === '/equipe') return 'equipe';
     return 'home';
   };
   const renderPageFor = (key: string) => {
@@ -89,10 +92,16 @@ function App() {
       case 'veille': return <Veille />;
       case 'truth': return <TruthCenter />;
       case 'telemetrie': return <Telemetrie />;
+      case 'equipe': return <Equipe />;
       default: return <Home />;
     }
   };
-  const activeKey = pageKeyOf(path);
+  // Onglets par compte (page Équipe) : une page dont l'onglet est retiré à
+  // ce compte est remplacée par l'accueil — l'URL tapée à la main comprise.
+  const { allowedTabs, isAdmin } = useAuth();
+  const rawKey = pageKeyOf(path);
+  const gateTab = tabKeyOfPageKey(rawKey);
+  const activeKey = gateTab && !canSeeTab(allowedTabs, isAdmin, gateTab) ? 'home' : rawKey;
   const [visited, setVisited] = useState<string[]>([activeKey]);
   useEffect(() => {
     setVisited((v) => (v.includes(activeKey) ? v : [...v, activeKey]));

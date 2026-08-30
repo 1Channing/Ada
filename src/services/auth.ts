@@ -14,11 +14,13 @@ interface AuthState {
   email: string | null;
   displayName: string;
   isAdmin: boolean;
+  /** Onglets autorisés pour CE compte (page Équipe) — null = tous. */
+  allowedTabs: string[] | null;
   /** true = l'utilisateur arrive par un lien « mot de passe oublié » —
    *  l'app affiche l'écran de nouveau mot de passe avant tout le reste. */
   recovering: boolean;
   setSession: (userId: string | null, email: string | null) => void;
-  setProfile: (name: string, isAdmin: boolean) => void;
+  setProfile: (name: string, isAdmin: boolean, allowedTabs?: string[] | null) => void;
   setReady: () => void;
   setRecovering: (v: boolean) => void;
 }
@@ -29,9 +31,10 @@ export const useAuth = create<AuthState>((set) => ({
   email: null,
   displayName: '',
   isAdmin: false,
+  allowedTabs: null,
   recovering: false,
   setSession: (userId, email) => set({ userId, email }),
-  setProfile: (displayName, isAdmin) => set({ displayName, isAdmin }),
+  setProfile: (displayName, isAdmin, allowedTabs = null) => set({ displayName, isAdmin, allowedTabs }),
   setReady: () => set({ ready: true }),
   setRecovering: (recovering) => set({ recovering }),
 }));
@@ -71,7 +74,7 @@ const CLOCK_RETRY_DELAYS_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
 let clockRetryIdx = 0;
 
 async function loadProfile(userId: string): Promise<void> {
-  const { data, error } = await supabase.from('profiles').select('display_name, is_admin').eq('id', userId).maybeSingle();
+  const { data, error } = await supabase.from('profiles').select('display_name, is_admin, allowed_tabs').eq('id', userId).maybeSingle();
   if (error && SERVER_CLOCK_LAG.test(error.message ?? '')) {
     const delay = CLOCK_RETRY_DELAYS_MS[Math.min(clockRetryIdx++, CLOCK_RETRY_DELAYS_MS.length - 1)];
     console.warn(`[AUTH] horloge du serveur de données en retard (« ${error.message} ») — nouvel essai dans ${Math.round(delay / 1000)} s ; si ça persiste : Supabase → Settings → General → Restart project`);
@@ -83,7 +86,11 @@ async function loadProfile(userId: string): Promise<void> {
     return;
   }
   clockRetryIdx = 0;
-  useAuth.getState().setProfile(data?.display_name ?? '', data?.is_admin === true);
+  useAuth.getState().setProfile(
+    data?.display_name ?? '',
+    data?.is_admin === true,
+    (data as { allowed_tabs?: string[] | null } | null)?.allowed_tabs ?? null,
+  );
 }
 
 let started = false;

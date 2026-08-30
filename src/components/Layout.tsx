@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, ShieldCheck, LogOut, Activity, RefreshCw } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users } from 'lucide-react';
+import { canSeeTab, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
 import { FeedbackCenter } from './FeedbackCenter';
@@ -49,6 +50,9 @@ export function Layout({ children }: LayoutProps) {
   const activeCount = useActiveUsersCount();
   const newVersion = useNewVersionAvailable();
   const currentPath = window.location.pathname;
+  // Onglets par compte (page Équipe) : un onglet retiré à un utilisateur
+  // disparaît de SON bandeau — les admins voient toujours tout.
+  const { allowedTabs, isAdmin } = useAuth();
 
   // Navigation INTERNE (étage 3, 26/08) : pushState suffit — App écoute
   // 'locationchange' et bascule de page sans recharger l'application. Les
@@ -63,18 +67,19 @@ export function Layout({ children }: LayoutProps) {
     return currentPath.startsWith(path);
   };
 
-  const items: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[] }> = [
+  const allItems: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[]; tab?: AppTabKey }> = [
     { path: '/', label: 'Accueil', icon: <Home className="w-4 h-4" /> },
     // Workflow personnel : études quotidiennes + résultats (ex-Études).
-    { path: '/workflow', label: 'Workflow', icon: <ClipboardList className="w-4 h-4" />, also: ['/etudes'] },
+    { path: '/workflow', label: 'Workflow', icon: <ClipboardList className="w-4 h-4" />, also: ['/etudes'], tab: 'workflow' },
     // Ventes : négociations (perso) + ventes équipe (ex-Administratif).
-    { path: '/ventes', label: 'Ventes', icon: <Handshake className="w-4 h-4" />, also: ['/admin'] },
+    { path: '/ventes', label: 'Ventes', icon: <Handshake className="w-4 h-4" />, also: ['/admin'], tab: 'ventes' },
     // Atelier = campagnes + ingestion + link gen fusionnés (une seule page).
-    { path: '/ingestion', label: 'Atelier', icon: <Upload className="w-4 h-4" />, exact: true, also: ['/link-generator'] },
-    { path: '/ingestion/history', label: 'Historique', icon: <History className="w-4 h-4" /> },
-    { path: '/market', label: 'Market Intelligence', icon: <LineChart className="w-4 h-4" /> },
-    { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" /> },
+    { path: '/ingestion', label: 'Atelier', icon: <Upload className="w-4 h-4" />, exact: true, also: ['/link-generator'], tab: 'atelier' },
+    { path: '/ingestion/history', label: 'Historique', icon: <History className="w-4 h-4" />, tab: 'historique' },
+    { path: '/market', label: 'Market Intelligence', icon: <LineChart className="w-4 h-4" />, tab: 'market' },
+    { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" />, tab: 'veille' },
   ];
+  const items = allItems.filter((it) => !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab));
 
   const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>
     (it.exact ? currentPath === it.path : isActive(it.path)) ||
@@ -136,6 +141,7 @@ export function Layout({ children }: LayoutProps) {
             <NotificationCenter />
             <AdminTruthButton />
             <AdminTelemetryButton />
+            <AdminTeamButton />
             <UserChip />
           </div>
         </div>
@@ -191,6 +197,23 @@ function AdminTelemetryButton() {
       className={`p-1.5 rounded-lg transition-colors ${active ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
     >
       <Activity className="w-4 h-4" />
+    </button>
+  );
+}
+
+/** Admin uniquement : gestion de l'équipe (comptes, onglets par compte,
+ *  adresses autorisées à s'inscrire) — demande Channing 30/08. */
+function AdminTeamButton() {
+  const { isAdmin } = useAuth();
+  if (!isAdmin) return null;
+  const active = window.location.pathname === '/equipe';
+  return (
+    <button
+      title="Équipe (admin)"
+      onClick={() => { window.history.pushState({}, '', '/equipe'); }}
+      className={`p-1.5 rounded-lg transition-colors ${active ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
+    >
+      <Users className="w-4 h-4" />
     </button>
   );
 }
