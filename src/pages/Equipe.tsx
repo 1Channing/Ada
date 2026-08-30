@@ -25,6 +25,10 @@ interface Account {
   allowed_tabs: string[] | null;
   created_at: string;
   last_sign_in_at: string | null;
+  /** Dernier événement de page de la télémétrie (visitor = prénom) — la
+   *  VRAIE activité ; last_sign_in_at ne bouge qu'à une saisie du mot de
+   *  passe, la session restant ouverte des semaines. */
+  last_activity_at?: string | null;
 }
 
 interface AllowRow { email: string; note: string | null; created_at: string }
@@ -141,7 +145,16 @@ export function Equipe() {
                   )}
                   <span className="ml-auto text-xs text-slate-400 shrink-0">
                     {visible.length === all.length ? 'tous les onglets' : `${visible.length}/${all.length} onglets`}
-                    {a.last_sign_in_at ? ` · vu le ${new Date(a.last_sign_in_at).toLocaleDateString('fr-FR')}` : ' · jamais connecté'}
+                    {(() => {
+                      // La plus récente des deux traces : activité télémétrie
+                      // (la vraie) ou saisie du mot de passe (repli).
+                      const t = [a.last_activity_at, a.last_sign_in_at]
+                        .filter((d): d is string => Boolean(d))
+                        .map((d) => new Date(d).getTime());
+                      return t.length
+                        ? ` · actif le ${new Date(Math.max(...t)).toLocaleDateString('fr-FR')}`
+                        : ' · jamais connecté';
+                    })()}
                   </span>
                 </button>
                 {isOpen && (
