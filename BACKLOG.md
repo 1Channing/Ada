@@ -336,6 +336,22 @@ Constat Channing : ajout mobile.de « ne fonctionne pas du tout » (titre =
 `parseListingDetailCard` = fonction PURE (bancs hors-ligne sur HTML
 sondés : 6/6 titres nus, prix exacts, photos 18/11/20/20/10/15).
 
+**RESTE À CONFIRMER — mobile.de en VIF (30/08 soir).** L'extracteur est
+prouvé hors-ligne sur la vraie page (18 photos, titre complet de l'alt
+galerie, 57 900 € du <title>), mais la confirmation en production n'a
+pas pu aboutir : incident Zyte (erreurs 520 en rafale dès ~16:50 UTC,
+visibles worker_logs) sur le profil de rendu servant mobile.de — les 6
+autres sites passaient avec leurs profils. Les échecs rendent l'erreur
+PROPRE (« Page d'annonce illisible », garde `isBlockedDetailPage`) au
+lieu de l'ancien faux titre « Zugriff verweigert ». Éléments établis :
+la garde ne fait AUCUN faux positif sur les 7 vraies pages ; une des
+tentatives (17:24) a reçu une vraie page de blocage mobile.de en
+tentative 3 — l'URL 460265703 avait été sur-sollicitée (~6 passages du
+jour), une URL fraîche (458668438) n'a vu que des 520. À la reprise :
+relancer `bench-mobile-fresh.sh` (scratchpad) sur une annonce fraîche ;
+si blocage HORS incident Zyte → envisager l'escalade du profil détail
+mobile.de (browser + attente, comme La Centrale).
+
 ## 2ter. Scraping détail par annonce + amélioration de la lecture (différé, acté)
 
 Décision (juillet 2026) : on NE scrape PAS la page détail de chaque annonce à
