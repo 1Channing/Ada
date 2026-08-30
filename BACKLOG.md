@@ -135,8 +135,10 @@ carburant puis carrosserie OK. Constat Jófogás : parc minuscule
 (Ferrari) = segment élargi/ignoré par le site, vrai parc = filtre net.
 « Société » posable sur LBC (voituresociete), La Centrale (80),
 Gaspedaal (bedrijfswagen) seulement — ailleurs post-filtre (l'Utilitaire
-AS24/Blocket n'en est PAS un). RESTE : le FILTRE MI en lecture (les
-observations vehicle_type s'accumulent depuis le 30/08).
+AS24/Blocket n'en est PAS un). FILTRE MI en lecture LIVRÉ le 30/08
+(Select Carrosserie strict + héritage d'URL : une observation sans type
+déclaré hérite du type de la page filtrée dont elle vient — fix du
+« 0 annonces NL » ; les liens de vérification du MI portent le critère).
 
 ## PRINCIPE DIRECTEUR — travail CHIRURGICAL sur les données de mapping
 
@@ -308,6 +310,31 @@ carburant, finition ET carrosserie sur toute URL générée ou apprise,
 sur les 11 sites, avec le gate de matrice en garde-fou. Seule la COULEUR
 n'est posée nulle part (aucune URL-preuve par site — post-filtre
 structuré en lecture, canonicalizeColor multilingue).
+
+## 2ter-bis-FAIT (30/08 soir). Fiche annonce NÉGOCIATIONS : 11 sites lisibles
+
+Constat Channing : ajout mobile.de « ne fonctionne pas du tout » (titre =
+« Zugriff verweigert / Access denied »). Trois classes corrigées :
+1. **Anti-bot servi en 200 pris pour l'annonce** → `isBlockedDetailPage`
+   (motifs multilingues sur title+entame) + poursuite de l'escalade de
+   profils au lieu d'un faux succès.
+2. **Galeries** : extracteurs dédiés sondés sur pages réelles —
+   mobile.de (diapos `data-testid="image-N"` → classistatic mo-1600),
+   Bilbasen (`media.images`, l'ancien motif `.jpg` tronquait les
+   `.jpeg?class=`), Blocket (`item/{id}/{uuid}` borné par l'id d'URL,
+   le JSON-LD n'en liste que 3), Skelbiu (variante ann_3 du zoom, page
+   détail SANS similaires serveur), Jófogás (620x620aspect filtré par le
+   slug d'URL). La Centrale (pictures src1_5x) et LBC/AS24/Marktplaats
+   déjà faits.
+3. **Prix multi-devises** : les prix Bilbasen/Blocket/Jófogás étaient lus
+   puis rejetés par le plafond « euro » (429 800 DKK…) → bornes de
+   vraisemblance PAR DEVISE puis conversion, prix stocké EN EUR (doctrine
+   études) ; Skelbiu = bloc `announcement-price` (l'ancien prix barré et
+   le HT export écartés) ; mobile.de = € du titre (seul prix serveur).
+   Titres : préfixes/queues éditoriaux rabotés (Subito og:title seul,
+   alt de galerie mobile.de, queue | A{code} Skelbiu).
+`parseListingDetailCard` = fonction PURE (bancs hors-ligne sur HTML
+sondés : 6/6 titres nus, prix exacts, photos 18/11/20/20/10/15).
 
 ## 2ter. Scraping détail par annonce + amélioration de la lecture (différé, acté)
 
