@@ -336,7 +336,11 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     // ml composite aussi : borne max seule = `ml=:80000` (URL humaine 26/07) ;
     // la valeur nue serait lue MINIMUM 80 000 km — l'inverse du besoin.
     mileage: (url, km) => setQueryParamRaw(url, 'ml', km ? `:${km}` : null),
-    // pw EN KW (184 kW = 250 ch, capture 26/07).
+    // pw EN KW, valeur nue = borne MIN ouverte — PROUVÉ par contre-épreuve
+    // vivante 30/08 (classe Elroq soldée) : RAV4 2021, sans pw = 76 annonces
+    // (152-306 ch) ; pw=150 = 62 annonces, min 218 ch (150 kW = 204 ch — les
+    // 152 ch exclues, donc kW et pas ch), max toujours 306 ch (donc MIN
+    // ouvert, pas min=max). Capture 26/07 (184 kW = 250 ch) confirmée.
     power: (url, ch) => setQueryParamRaw(url, 'pw', ch ? String(chToKw(ch)) : null),
     // tr=AUTOMATIC_GEAR — PROUVÉ URL humaine 26/08 ; seule valeur prouvée.
     gearbox: (url, params) => setQueryParamRaw(url, 'tr', isAutomatic(params) ? 'AUTOMATIC_GEAR' : null),
