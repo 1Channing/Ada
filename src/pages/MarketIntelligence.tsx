@@ -734,6 +734,11 @@ async function generateStudyUrls(filters: MarketFilters): Promise<{ site: string
         // remplissaient d'entrées de gamme et la vraie cible n'entrait
         // jamais en base). Lacune, pas un choix.
         minPower: filters.powerMin != null ? String(filters.powerMin) : undefined,
+        // Carrosserie : MÊME CLASSE de lacune (constat Corolla Break 30/08,
+        // premier test du filtre : les URLs « Ouvrir » et le scrape de mise à
+        // jour ignoraient le critère — « s'ils ne matchent pas, plus lieu de
+        // vérifier »). Le registre la pose sur les 11 sites.
+        vehicleType: filters.vehicleType || undefined,
       });
       url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
     } catch { url = null; }
@@ -758,6 +763,7 @@ async function startIngestJob(url: string, f: MarketFilters): Promise<string> {
     trim: f.trim || undefined,
     gearbox: gearboxCriteria(f),
     minPower: f.powerMin != null ? String(f.powerMin) : undefined,
+    vehicleType: f.vehicleType || undefined,
   };
   const start = await supabase.functions.invoke('ingest-url', {
     body: { url, async: true, criteria, submittedBy: 'Market Intelligence' },
