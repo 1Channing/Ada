@@ -338,6 +338,12 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
       else if (body) out.vehicleType = bodyLabel(body); // jamais lu comme un modèle
       else if (!out.model) out.model = seg.replace(/-/g, ' ').toUpperCase();
     }
+    // crs= (tokens MAJUSCULES — LA forme carrosserie du site : le segment de
+    // chemin en 4e position est ignoré en silence, sonde 30/08). Un seul
+    // token distinct = critère.
+    const crsToks = [...new Set((u.searchParams.get('crs') ?? '').split(',').filter(Boolean)
+      .map((c) => BODY_PATH_TO_TOKEN[c.toLowerCase()]).filter(Boolean))];
+    if (crsToks.length === 1) out.vehicleType = bodyLabel(crsToks[0]);
     const bmin = u.searchParams.get('bmin'), bmax = u.searchParams.get('bmax'), kmax = u.searchParams.get('kmax');
     if (bmin && /^\d{4}$/.test(bmin)) out.yearFrom = bmin;
     if (bmax && /^\d{4}$/.test(bmax)) out.yearTo = bmax;

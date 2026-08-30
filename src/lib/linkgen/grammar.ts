@@ -412,29 +412,29 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     },
     // trefw = la barre de recherche (trefw=GR+SPORT re-prouvé 25/08).
     trimSlot: (url, t) => setQueryParamRaw(url, 'trefw', t),
-    // Carrosserie = SEGMENT DE CHEMIN, comme le carburant (grammaire
-    // polymorphe du site). Vocabulaire officiel prouvé par l'URL humaine
-    // 30/08 /zoeken?crs=CABRIOLET,COUPE,HATCHBACK,MPV,SEDAN,STATIONWAGEN,
-    // SUV,BEDRIJFSWAGEN (+ /cabriolet en chemin) — slugs = lowercase des
-    // tokens crs ; la COMBINAISON avec marque/modèle/carburant est
-    // contre-éprouvée par scrape live 30/08. Posé-ou-retiré (anti-fossile).
+    // Carrosserie = PARAMÈTRE crs= (tokens MAJUSCULES du vocabulaire
+    // officiel, URL humaine 30/08 : /zoeken?crs=CABRIOLET,COUPE,HATCHBACK,
+    // MPV,SEDAN,STATIONWAGEN,SUV,BEDRIJFSWAGEN). PAS le segment de chemin :
+    // le site PLAFONNE les segments — /toyota/corolla/hybride/stationwagen
+    // (4 segments) est IGNORÉ EN SILENCE (sonde 30/08 : total 776 identique
+    // avec et sans, constat Channing « facette non cochée »). crs= agit sur
+    // notre chemin carburant : ?crs=STATIONWAGEN = 562/776 (et le chemin à
+    // 3 segments /corolla/stationwagen = 585 breaks tous carburants —
+    // cohérence croisée). Tout segment carrosserie hérité (position ≥ 2,
+    // jamais le modèle — Mazda MPV) est purgé.
     vehicleType: (url, params) => {
       try {
         const u = new URL(url);
         const VOCAB = new Set(['cabriolet', 'coupe', 'hatchback', 'mpv', 'sedan', 'stationwagen', 'suv', 'bedrijfswagen']);
-        // Le 2e segment (/marque/MODÈLE/…) n'est JAMAIS strippé : « mpv »
-        // est aussi un modèle (Mazda MPV) — l'anti-fossile ne purge que les
-        // segments d'attributs (position ≥ 2).
         const segs = u.pathname.split('/').filter(Boolean)
           .filter((s, i) => i <= 1 || !VOCAB.has(s.toLowerCase()));
-        const tok = canonicalizeBody(String(params.vehicleType ?? ''));
-        const slug = tok ? {
-          suv: 'suv', berline: 'sedan', break: 'stationwagen', citadine: 'hatchback',
-          monospace: 'mpv', coupe: 'coupe', cabriolet: 'cabriolet', societe: 'bedrijfswagen',
-        }[tok as string] : undefined;
-        if (slug) segs.push(slug);
         u.pathname = `/${segs.join('/')}`;
-        return u.toString();
+        const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+        const code = tok ? {
+          suv: 'SUV', berline: 'SEDAN', break: 'STATIONWAGEN', citadine: 'HATCHBACK',
+          monospace: 'MPV', coupe: 'COUPE', cabriolet: 'CABRIOLET', societe: 'BEDRIJFSWAGEN',
+        }[tok as string] : undefined;
+        return setQueryParamRaw(u.toString(), 'crs', code ?? null);
       } catch { return url; }
     },
   },
