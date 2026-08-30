@@ -396,6 +396,31 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     },
     // trefw = la barre de recherche (trefw=GR+SPORT re-prouvé 25/08).
     trimSlot: (url, t) => setQueryParamRaw(url, 'trefw', t),
+    // Carrosserie = SEGMENT DE CHEMIN, comme le carburant (grammaire
+    // polymorphe du site). Vocabulaire officiel prouvé par l'URL humaine
+    // 30/08 /zoeken?crs=CABRIOLET,COUPE,HATCHBACK,MPV,SEDAN,STATIONWAGEN,
+    // SUV,BEDRIJFSWAGEN (+ /cabriolet en chemin) — slugs = lowercase des
+    // tokens crs ; la COMBINAISON avec marque/modèle/carburant est
+    // contre-éprouvée par scrape live 30/08. Posé-ou-retiré (anti-fossile).
+    vehicleType: (url, params) => {
+      try {
+        const u = new URL(url);
+        const VOCAB = new Set(['cabriolet', 'coupe', 'hatchback', 'mpv', 'sedan', 'stationwagen', 'suv', 'bedrijfswagen']);
+        // Le 2e segment (/marque/MODÈLE/…) n'est JAMAIS strippé : « mpv »
+        // est aussi un modèle (Mazda MPV) — l'anti-fossile ne purge que les
+        // segments d'attributs (position ≥ 2).
+        const segs = u.pathname.split('/').filter(Boolean)
+          .filter((s, i) => i <= 1 || !VOCAB.has(s.toLowerCase()));
+        const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+        const slug = tok ? {
+          suv: 'suv', berline: 'sedan', break: 'stationwagen', citadine: 'hatchback',
+          monospace: 'mpv', coupe: 'coupe', cabriolet: 'cabriolet', societe: 'bedrijfswagen',
+        }[tok as string] : undefined;
+        if (slug) segs.push(slug);
+        u.pathname = `/${segs.join('/')}`;
+        return u.toString();
+      } catch { return url; }
+    },
   },
   {
     // ── Marktplaats ──────────────────────────────────────────────────────────
@@ -566,7 +591,7 @@ export const CRITERIA_DETECTORS: Record<string, RegExp> = {
   boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
   finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;|versions=[^&]/i,
   carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|energies=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
-  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_|[?&]c=[^&]/i,
+  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_|[?&]c=[^&]|crs=|\/(?:cabriolet|hatchback|mpv|sedan|stationwagen|suv|bedrijfswagen)(\/|\?|$)|\/coupe(\/|\?|$)/i,
 };
 
 /**

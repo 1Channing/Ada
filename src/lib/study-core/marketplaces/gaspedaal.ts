@@ -32,6 +32,7 @@ import { parsePublishedAt } from '../parsers/shared';
 import { defaultBuildPaginatedUrl } from './registry';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose } from '../business-logic';
+import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://www.gaspedaal.nl/{brand}/{model}/{fuel}?bmin={yearFrom}&bmax={yearTo}&kmax={mileage}&srt=df-a';
 
@@ -309,18 +310,32 @@ const FUEL_PATH_TO_CANON: Record<string, string> = {
   hybride: 'HYBRIDE', lpg: 'LPG', waterstof: 'HYDROGENE',
 };
 
+// Segments CARROSSERIE du chemin — vocabulaire officiel du site (URL humaine
+// 30/08 : /zoeken?crs=CABRIOLET,COUPE,HATCHBACK,MPV,SEDAN,STATIONWAGEN,SUV,
+// BEDRIJFSWAGEN ; /cabriolet prouvé en chemin). Slug → token canon ADA.
+const BODY_PATH_TO_TOKEN: Record<string, string> = {
+  cabriolet: 'cabriolet', coupe: 'coupe', hatchback: 'citadine', mpv: 'monospace',
+  sedan: 'berline', stationwagen: 'break', suv: 'suv', bedrijfswagen: 'societe',
+};
+
 function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const out: Partial<SearchCriteria> = {};
   try {
     const u = new URL(url);
     const segs = u.pathname.split('/').filter(Boolean);
-    if (segs[0]) out.brand = segs[0].replace(/-/g, ' ').toUpperCase();
-    // Grammaire /{brand}/{model?}/{fuel?} : le 2e segment est un carburant
-    // s'il appartient au vocabulaire du site, sinon un modèle.
-    const rest = segs.slice(1);
+    // /cabriolet seul (URL humaine 30/08) : une carrosserie à la racine
+    // n'est pas une marque.
+    const rootBody = segs[0] ? BODY_PATH_TO_TOKEN[segs[0].toLowerCase()] : undefined;
+    if (rootBody) out.vehicleType = bodyLabel(rootBody);
+    else if (segs[0]) out.brand = segs[0].replace(/-/g, ' ').toUpperCase();
+    // Grammaire /{brand}/{model?}/{fuel?}/{carrosserie?} : chaque segment est
+    // reconnu par son vocabulaire, sinon c'est un modèle.
+    const rest = rootBody ? [] : segs.slice(1);
     for (const seg of rest) {
       const canon = FUEL_PATH_TO_CANON[seg];
+      const body = BODY_PATH_TO_TOKEN[seg.toLowerCase()];
       if (canon) out.fuel = canon;
+      else if (body) out.vehicleType = bodyLabel(body); // jamais lu comme un modèle
       else if (!out.model) out.model = seg.replace(/-/g, ' ').toUpperCase();
     }
     const bmin = u.searchParams.get('bmin'), bmax = u.searchParams.get('bmax'), kmax = u.searchParams.get('kmax');
@@ -339,10 +354,11 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
     if (segs[0]) out.push({ raw: segs[0], location: 'path', paramName: '_path:brand', guessField: 'brand' });
     for (const seg of segs.slice(1)) {
       const isFuel = Boolean(FUEL_PATH_TO_CANON[seg]);
+      const isBody = Boolean(BODY_PATH_TO_TOKEN[seg.toLowerCase()]);
       out.push({
         raw: seg, location: 'path',
-        paramName: isFuel ? '_path:fuel' : '_path:model',
-        guessField: isFuel ? 'fuel' : 'model',
+        paramName: isFuel ? '_path:fuel' : isBody ? '_path:vehicleType' : '_path:model',
+        guessField: isFuel ? 'fuel' : isBody ? 'vehicleType' : 'model',
       });
     }
     for (const [p, f] of [['bmin', 'year'], ['bmax', 'year'], ['kmax', 'mileage']] as const) {

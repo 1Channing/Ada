@@ -158,7 +158,7 @@ const MEMORY_CASES: Array<{
   {
     site: 'GASPEDAAL',
     bare: 'https://www.gaspedaal.nl/toyota/rav4?srt=pr-a',
-    fossil: 'https://www.gaspedaal.nl/toyota/rav4/hybride?srt=pr-a&bmin=2019&bmax=2020&kmax=10000&vmin=999&trns=AUTOMATISCH',
+    fossil: 'https://www.gaspedaal.nl/toyota/rav4/hybride/cabriolet?srt=pr-a&bmin=2019&bmax=2020&kmax=10000&vmin=999&trns=AUTOMATISCH',
     wantPosed: [
       ['année', /bmin=2022/], ['année', /bmax=2024/], ['km', /kmax=90000/],
       ['puissance', /vmin=150/], ['boîte', /trns=AUTOMATISCH/], ['finition', /trefw=GR%20Sport/],
@@ -167,7 +167,7 @@ const MEMORY_CASES: Array<{
       // Channing 27/08).
       ['carburant', /\/rav4\/hybride(\?|$)/],
     ],
-    wantGone: [/bmin/, /bmax/, /kmax/, /vmin/, /trns/, /\/hybride/],
+    wantGone: [/bmin/, /bmax/, /kmax/, /vmin/, /trns/, /\/hybride/, /\/cabriolet/],
   },
   {
     site: 'BLOCKET',
@@ -330,6 +330,13 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
     { ...FULL, vehicleType: 'Berline' },
   );
   if (!/categories=41_42(&|$)/.test(lcBody)) fail(`La Centrale carrosserie: categories=41_42 attendu\n    ${lcBody}`);
+  // Gaspedaal : carrosserie = segment de chemin (vocabulaire crs= 30/08),
+  // posé APRÈS le carburant ; le modèle en 2e position n'est jamais strippé
+  // (« mpv » est aussi un modèle — Mazda MPV).
+  const gpBody = applyVariableCriteria('https://www.gaspedaal.nl/toyota/rav4?srt=pr-a', { ...FULL, vehicleType: 'suv' });
+  if (!/\/toyota\/rav4\/hybride\/suv(\?|$)/.test(gpBody)) fail(`Gaspedaal carrosserie: /hybride/suv attendu\n    ${gpBody}`);
+  const gpMpv = applyVariableCriteria('https://www.gaspedaal.nl/mazda/mpv?srt=pr-a', { brand: 'MAZDA', model: 'MPV' });
+  if (!/\/mazda\/mpv(\?|$)/.test(gpMpv)) fail(`Gaspedaal: le MODÈLE mpv (position 2) a été strippé à tort\n    ${gpMpv}`);
   // mobile.de : c= à codes anglais, répété pour le multi — les DEUX fossiles
   // c=Cabrio&c=OffRoad doivent devenir le seul c=Van (monospace).
   const mdBody = applyVariableCriteria(
