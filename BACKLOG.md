@@ -120,9 +120,21 @@ multilingue), grammaire LBC au registre + détecteur + gate, migration
 daily_searches.vehicle_type + observations.vehicle_type (+archive+vue),
 critère au Workflow (formulaire/carte/signature doublons), post-filtre
 dur worker en jeton canonique, capture dans toutes les observations.
-RESTE : URLs-preuves des autres sites (Channing les envoie par paquets
-de 2 liens — un filtre seul + tous cochés) → grammaires par site ; et le
-FILTRE MI en lecture (les données s'accumulent déjà en base).
+**BOUCLÉ À LA SOURCE le 30/08 soir — 11/11 sites** (corpus complet
+Channing, 5 formes de grammaire : virgules LBC, underscores La Centrale
+[berline=41_42], répétition mobile.de c=/Bilbasen cartype=/Blocket
+body_type= [citadine = 2 codes]/Skelbiu body[] [break=3 corrigé par le
+dict sk:body], facettes hash Marktplaats f:481-488 [pose intra-liste],
+segments de chemin Gaspedaal/Subito/Jófogás [multi + dans un segment]).
+ORDRES DE SEGMENTS PROUVÉS PAR SCRAPE : Subito = carrosserie AVANT
+carburant (/suv-fuoristrada/ibrida, l'inverse = 0) ; Gaspedaal =
+carburant AVANT carrosserie (/hybride/suv, l'inverse = 0) ; Jófogás =
+carburant puis carrosserie OK. Constat Jófogás : parc minuscule
+(Ferrari) = segment élargi/ignoré par le site, vrai parc = filtre net.
+« Société » posable sur LBC (voituresociete), La Centrale (80),
+Gaspedaal (bedrijfswagen) seulement — ailleurs post-filtre (l'Utilitaire
+AS24/Blocket n'en est PAS un). RESTE : le FILTRE MI en lecture (les
+observations vehicle_type s'accumulent depuis le 30/08).
 
 ## PRINCIPE DIRECTEUR — travail CHIRURGICAL sur les données de mapping
 
