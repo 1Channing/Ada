@@ -30,6 +30,7 @@ import type {
 import type { ScrapedListing } from '../types';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose } from '../business-logic';
+import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://www.blocket.se/mobility/search/car?variant={brand}&year_from={yearFrom}&year_to={yearTo}';
 
@@ -315,6 +316,15 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     }
     const q = u.searchParams.get('q');
     if (q) out.trim = q;
+    // body_type= répété (URLs humaines 30/08) : berline 3, break 4,
+    // monospace 5, coupé 6, cabriolet 7, suv 9, citadine 1 OU 2 (3/5
+    // portes) — un seul token distinct = critère.
+    const BT_TO_TOKEN: Record<string, string> = {
+      '1': 'citadine', '2': 'citadine', '3': 'berline', '4': 'break',
+      '5': 'monospace', '6': 'coupe', '7': 'cabriolet', '9': 'suv',
+    };
+    const btToks = [...new Set(u.searchParams.getAll('body_type').map((c) => BT_TO_TOKEN[c]).filter(Boolean))];
+    if (btToks.length === 1) out.vehicleType = bodyLabel(btToks[0]);
     const yf = u.searchParams.get('year_from'), yt = u.searchParams.get('year_to');
     if (yf && /^\d{4}$/.test(yf)) out.yearFrom = yf;
     if (yt && /^\d{4}$/.test(yt)) out.yearTo = yt;

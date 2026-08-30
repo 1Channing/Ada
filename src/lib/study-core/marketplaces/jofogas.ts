@@ -32,6 +32,7 @@ import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose } from '../business-logic';
+import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://auto.jofogas.hu/magyarorszag/auto/{brand}/{fuel}?me={mileage}&rs={yearFrom}&re={yearTo}';
 
@@ -176,17 +177,33 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   };
 }
 
+// Slugs carrosserie du chemin (URLs humaines 30/08) — multi par + dans le
+// même segment (/suv+terepjaro = SUV, « on combine les deux »).
+const BODY_PATH_TO_TOKEN: Record<string, string> = {
+  sedan: 'berline', 'coupe-10': 'coupe', 'cabrio-3': 'cabriolet',
+  ferdehatu: 'citadine', kisbusz: 'monospace', kombi: 'break',
+  suv: 'suv', terepjaro: 'suv',
+};
+
 function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   const out: Partial<SearchCriteria> = {};
   try {
     const u = new URL(url);
     const segs = u.pathname.split('/').filter(Boolean);
     const i = segs.indexOf('auto');
-    if (i >= 0 && segs[i + 1]) out.brand = segs[i + 1].replace(/-/g, ' ').trim().toUpperCase();
-    for (const seg of segs.slice(i + 2)) {
+    const isBodySeg = (s: string) => s.split('+').every((t) => BODY_PATH_TO_TOKEN[t.toLowerCase()]);
+    // /auto/sedan (sans marque) : une carrosserie n'est pas une marque.
+    if (i >= 0 && segs[i + 1] && !isBodySeg(segs[i + 1])) {
+      out.brand = segs[i + 1].replace(/-/g, ' ').trim().toUpperCase();
+    }
+    for (const seg of segs.slice(i + 1)) {
       const canon = FUEL_PATH_TO_CANON[seg];
+      if (seg === segs[i + 1] && out.brand) continue; // la marque déjà lue
       if (canon) out.fuel = canon;
-      else if (!out.model) out.model = seg.replace(/-+/g, ' ').trim().toUpperCase();
+      else if (isBodySeg(seg)) {
+        const toks = [...new Set(seg.split('+').map((t) => BODY_PATH_TO_TOKEN[t.toLowerCase()]))];
+        if (toks.length === 1) out.vehicleType = bodyLabel(toks[0]);
+      } else if (out.brand && !out.model) out.model = seg.replace(/-+/g, ' ').trim().toUpperCase();
     }
     const q = u.searchParams.get('q');
     if (q) out.trim = q;

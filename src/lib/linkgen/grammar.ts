@@ -513,6 +513,23 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     gearbox: (url, params) => setQueryParamRaw(url, 'transmission', isAutomatic(params) ? '2' : null),
     // q= texte libre — PROUVÉ URL humaine 26/08 (&q=Gr+sport).
     trimSlot: (url, t) => setQueryParamRaw(url, 'q', t),
+    // Carrosserie : body_type= répété (URLs humaines 30/08) — berline 3,
+    // break 4, monospace 5, coupé 6, cabriolet 7, suv 9 ; CITADINE = DEUX
+    // codes (1 = 3 portes, 2 = 5 portes, « on les met ensemble »).
+    // Utilitaire 10 ≠ société → jamais posé. Purge multi puis pose de
+    // chaque code du token.
+    vehicleType: (url, params) => {
+      const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+      const codes = tok ? {
+        berline: ['3'], break: ['4'], monospace: ['5'], coupe: ['6'],
+        cabriolet: ['7'], suv: ['9'], citadine: ['1', '2'],
+      }[tok as string] : undefined;
+      let out = setQueryParamRaw(url, 'body_type', null);
+      for (const c of codes ?? []) {
+        out += (out.includes('?') ? '&' : '?') + `body_type=${c}`;
+      }
+      return out;
+    },
   },
   {
     // ── Skelbiu (style FORMULAIRE : champs posés vides, jamais supprimés) ────
@@ -527,6 +544,25 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     power: (url, ch) => setQueryParamKeepEmpty(url, 'power_min', ch ? String(chToKw(ch)) : ''),
     // keywords = texte libre — PROUVÉ URL humaine 26/08.
     trimSlot: (url, t) => setQueryParamKeepEmpty(url, 'keywords', t),
+    // Carrosserie : body%5B%5D= (body[]) répété — URLs humaines 30/08,
+    // codes CROISÉS avec le dictionnaire sk:body moissonné (Sedanas 1=
+    // berline, Hečbekas 2=citadine, Universalas 3=break [l'URL humaine
+    // « break » était un copier-collé de la citadine — le dictionnaire du
+    // site tranche], Visureigis 5=suv, Kupe 6=coupé, Kabrioletas 7=
+    // cabriolet, Vienatūris 9=monospace). Société (Komercinis 10) : code au
+    // dictionnaire mais jamais vu posé en URL → non posé, post-filtre aval.
+    // Posé-ou-RETIRÉ (pas keepEmpty : le formulaire du site n'envoie body[]
+    // que coché).
+    vehicleType: (url, params) => {
+      const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+      const code = tok ? {
+        berline: '1', citadine: '2', break: '3', suv: '5',
+        coupe: '6', cabriolet: '7', monospace: '9',
+      }[tok as string] : undefined;
+      let out = setQueryParamRaw(url, 'body%5B%5D', null);
+      out = setQueryParamRaw(out, 'body[]', null);
+      return code ? `${out}${out.includes('?') ? '&' : '?'}body%5B%5D=${code}` : out;
+    },
   },
   {
     // ── Subito ───────────────────────────────────────────────────────────────
@@ -554,16 +590,18 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     vehicleType: (url, params) => {
       try {
         const u = new URL(url);
-        const VOCAB = new Set(['berlina', 'station-wagon', 'monovolume', 'cabrio', 'coupe', 'city-car']);
+        const VOCAB = new Set(['berlina', 'station-wagon', 'monovolume', 'cabrio', 'coupe', 'city-car', 'suv-fuoristrada']);
         const segs = u.pathname.split('/').filter(Boolean);
         const autoIdx = segs.indexOf('auto');
         // On ne strippe qu'APRÈS la marque (position auto+2 et suivantes) —
         // même prudence que Gaspedaal (homonymes modèle, Fiat Coupé).
         const keptSegs = segs.filter((s, i) => i <= autoIdx + 1 || !VOCAB.has(s.toLowerCase()));
         const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+        // suv-fuoristrada : URL humaine du 30/08 (complément tardif).
         const slug = tok ? {
           berline: 'berlina', break: 'station-wagon', monospace: 'monovolume',
           cabriolet: 'cabrio', coupe: 'coupe', citadine: 'city-car',
+          suv: 'suv-fuoristrada',
         }[tok as string] : undefined;
         if (slug && autoIdx >= 0) keptSegs.push(slug);
         u.pathname = `/${keptSegs.join('/')}/`;
@@ -631,6 +669,34 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     // de Subito, sens différent : le registre est PAR SITE, jamais partagé.
     mileage: (url, km) => setQueryParamRaw(url, 'me', km ? String(km) : null),
     trimSlot: (url, t) => setQueryParamRaw(url, 'q', t.toLowerCase()),
+    // Carrosserie : SEGMENT DE CHEMIN, multi par + DANS LE MÊME SEGMENT
+    // (URLs humaines 30/08 : /auto/sedan, /auto/coupe-10, tous =
+    // /auto/cabrio-3+coupe-10+ferdehatu+kisbusz+kombi+sedan+suv+terepjaro).
+    // sedan=berline, coupe-10=coupé, cabrio-3=cabriolet, ferdehatu=citadine
+    // (hatchback), kisbusz=monospace (minibus), kombi=break, SUV = les DEUX
+    // slugs combinés suv+terepjaro (« on combine les deux »). Société absente.
+    // Combinaison avec marque/modèle à contre-éprouver par scrape.
+    vehicleType: (url, params) => {
+      try {
+        const u = new URL(url);
+        const VOCAB = new Set(['sedan', 'coupe-10', 'cabrio-3', 'ferdehatu', 'kisbusz', 'kombi', 'suv', 'terepjaro']);
+        const segs = u.pathname.split('/').filter(Boolean);
+        const autoIdx = segs.indexOf('auto');
+        // Un segment est carrosserie si TOUS ses sous-tokens (+) sont au
+        // vocabulaire — jamais strippé avant la marque.
+        const kept = segs.filter((s, i) =>
+          i <= autoIdx || !s.split('+').every((t) => VOCAB.has(t.toLowerCase())));
+        const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+        const slug = tok ? {
+          berline: 'sedan', coupe: 'coupe-10', cabriolet: 'cabrio-3',
+          citadine: 'ferdehatu', monospace: 'kisbusz', break: 'kombi',
+          suv: 'suv+terepjaro',
+        }[tok as string] : undefined;
+        if (slug && autoIdx >= 0) kept.push(slug);
+        u.pathname = `/${kept.join('/')}`;
+        return u.toString();
+      } catch { return url; }
+    },
   },
 ];
 
@@ -650,7 +716,7 @@ export const CRITERIA_DETECTORS: Record<string, RegExp> = {
   boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
   finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;|versions=[^&]/i,
   carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|energies=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
-  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_|[?&]c=[^&]|crs=|cartype=|[#|]f:[\d+,]*\b48[123468]\b|\/(?:cabriolet|hatchback|mpv|sedan|stationwagen|suv|bedrijfswagen|berlina|station-wagon|monovolume|cabrio|city-car)(\/|\?|$)|\/coupe(\/|\?|$)/i,
+  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_|[?&]c=[^&]|crs=|cartype=|body_type=|body(?:%5B%5D|\[\])=[^&]|[#|]f:[\d+,]*\b48[123468]\b|\/(?:cabriolet|hatchback|mpv|sedan|stationwagen|suv|bedrijfswagen|berlina|station-wagon|monovolume|cabrio|city-car|suv-fuoristrada|ferdehatu|kisbusz|kombi|coupe-10|cabrio-3)(\/|\?|$)|\/suv\+terepjaro|\/coupe(\/|\?|$)/i,
 };
 
 /**

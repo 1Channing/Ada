@@ -172,26 +172,27 @@ const MEMORY_CASES: Array<{
   {
     site: 'BLOCKET',
     bare: 'https://www.blocket.se/mobility/search/car?variant=1.19.219',
-    fossil: 'https://www.blocket.se/mobility/search/car?variant=1.19.219&year_from=2019&year_to=2020&mileage_to=1000&engine_effect_from=999&transmission=2',
+    fossil: 'https://www.blocket.se/mobility/search/car?variant=1.19.219&year_from=2019&year_to=2020&mileage_to=1000&engine_effect_from=999&transmission=2&body_type=9&body_type=3',
     wantPosed: [
       ['année', /year_from=2022/], ['année', /year_to=2024/],
       // MIL SUÉDOIS : 90 000 km → 9 000 mil.
       ['km', /mileage_to=9000(&|$)/],
       ['puissance', /engine_effect_from=150/], ['boîte', /transmission=2/], ['finition', /q=GR%20Sport/],
     ],
-    wantGone: [/year_from/, /year_to/, /mileage_to/, /engine_effect_from/, /transmission/],
+    wantGone: [/year_from/, /year_to/, /mileage_to/, /engine_effect_from/, /transmission/, /body_type=/],
   },
   {
     site: 'SKELBIU',
     bare: 'https://www.skelbiu.lt/skelbimai/?category_id=21575&search=1',
-    fossil: 'https://www.skelbiu.lt/skelbimai/?category_id=21575&search=1&year_min=2019&year_max=2020&mileage_max=10000&power_min=999&keywords=vieux',
+    fossil: 'https://www.skelbiu.lt/skelbimai/?category_id=21575&search=1&year_min=2019&year_max=2020&mileage_max=10000&power_min=999&keywords=vieux&body%5B%5D=5',
     wantPosed: [
       ['année', /year_min=2022/], ['année', /year_max=2024/], ['km', /mileage_max=90000/],
       // 150 ch → 110 kW (libellé « puissance kW » du formulaire, URL 26/08).
       ['puissance', /power_min=110/], ['finition', /keywords=GR%20Sport/],
     ],
-    // Style FORMULAIRE : les champs restent posés VIDES, jamais supprimés.
-    wantGone: [/year_min=\d/, /year_max=\d/, /mileage_max=\d/, /power_min=\d/],
+    // Style FORMULAIRE : les champs restent posés VIDES, jamais supprimés —
+    // SAUF body[] que le formulaire du site n'envoie que coché (retiré sec).
+    wantGone: [/year_min=\d/, /year_max=\d/, /mileage_max=\d/, /power_min=\d/, /body(?:%5B%5D|\[\])=/],
     wantKept: [/year_min=/, /power_min=/],
   },
   {
@@ -209,12 +210,12 @@ const MEMORY_CASES: Array<{
   {
     site: 'JOFOGAS',
     bare: 'https://auto.jofogas.hu/magyarorszag/auto/toyota/rav-4-/hibrid?sp=1',
-    fossil: 'https://auto.jofogas.hu/magyarorszag/auto/toyota/rav-4-/hibrid?sp=1&rs=2019&re=2020&me=50000',
+    fossil: 'https://auto.jofogas.hu/magyarorszag/auto/toyota/rav-4-/hibrid/kombi?sp=1&rs=2019&re=2020&me=50000',
     wantPosed: [
       ['année', /rs=2022/], ['année', /re=2024/], ['km', /me=90000/], ['finition', /q=gr%20sport/],
     ],
     // rs TOUJOURS posé (le site bloque sans lui) — repli large 2000.
-    wantGone: [/re=/, /me=/],
+    wantGone: [/re=/, /me=/, /\/kombi/],
     wantKept: [/rs=2000/],
   },
   {
@@ -362,8 +363,23 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
   // URL-preuve — le critère est retiré, post-filtre aval).
   const sbBody = applyVariableCriteria('https://www.subito.it/annunci-italia/vendita/auto/toyota/ibrida/?order=priceasc', { ...FULL, vehicleType: 'Citadine' });
   if (!/\/auto\/toyota\/ibrida\/city-car\/(\?|$)/.test(sbBody)) fail(`Subito carrosserie: /ibrida/city-car/ attendu\n    ${sbBody}`);
+  // SUV Subito : slug suv-fuoristrada (URL humaine 30/08, complément tardif).
   const sbSuv = applyVariableCriteria('https://www.subito.it/annunci-italia/vendita/auto/toyota/ibrida/?order=priceasc', { ...FULL, vehicleType: 'SUV' });
-  if (/\/suv/.test(sbSuv)) fail(`Subito carrosserie: SUV posé sans preuve\n    ${sbSuv}`);
+  if (!/\/ibrida\/suv-fuoristrada\/(\?|$)/.test(sbSuv)) fail(`Subito carrosserie: /suv-fuoristrada/ attendu\n    ${sbSuv}`);
+  // Blocket : citadine = DEUX codes répétés (3 et 5 portes ensemble).
+  const blBody = applyVariableCriteria('https://www.blocket.se/mobility/search/car?variant=1.19.219&body_type=9', { ...FULL, vehicleType: 'Citadine' });
+  if (!/body_type=1&body_type=2(&|$)/.test(blBody) || /body_type=9/.test(blBody)) {
+    fail(`Blocket carrosserie: body_type=1&body_type=2 attendu (9 purgé)\n    ${blBody}`);
+  }
+  // Skelbiu : body[]=3 = break (Universalas — dictionnaire sk:body, l'URL
+  // humaine « break » était un copier-collé de la citadine).
+  const skBody = applyVariableCriteria('https://www.skelbiu.lt/skelbimai/?category_id=21575&search=1&body%5B%5D=5', { ...FULL, vehicleType: 'Break' });
+  if (!/body%5B%5D=3(&|$)/.test(skBody) || /body%5B%5D=5/.test(skBody)) {
+    fail(`Skelbiu carrosserie: body%5B%5D=3 attendu (5 purgé)\n    ${skBody}`);
+  }
+  // Jófogás : segment multi suv+terepjaro (« on combine les deux »).
+  const jfBody = applyVariableCriteria('https://auto.jofogas.hu/magyarorszag/auto/toyota/rav-4-/hibrid?sp=1', { ...FULL, vehicleType: 'SUV' });
+  if (!/\/hibrid\/suv\+terepjaro(\?|$)/.test(jfBody)) fail(`Jófogás carrosserie: /suv+terepjaro attendu\n    ${jfBody}`);
   // Depuis la grammaire horse_power_din=N-max (29/08), l'URL LBC enrichie
   // par le registre exprime TOUT — plus aucun critère manquant.
   const lbc = applyVariableCriteria('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA', FULL);

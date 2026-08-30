@@ -27,6 +27,7 @@ import type {
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
+import { bodyLabel } from '../bodyTypes';
 
 // Nos noms canoniques → code fuel[] du site (dictionnaire du formulaire).
 const FUEL_CODE: Record<string, string> = {
@@ -266,6 +267,14 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
         if (learned) out.brand = learned.label.toUpperCase();
       }
     }
+    // body[]= répété — codes = dictionnaire sk:body (Sedanas 1, Hečbekas 2,
+    // Universalas 3, Visureigis 5, Kupe 6, Kabrioletas 7, Vienatūris 9).
+    const SK_BODY_TO_TOKEN: Record<string, string> = {
+      '1': 'berline', '2': 'citadine', '3': 'break', '5': 'suv',
+      '6': 'coupe', '7': 'cabriolet', '9': 'monospace',
+    };
+    const bodyToks = [...new Set(u.searchParams.getAll('body[]').map((c) => SK_BODY_TO_TOKEN[c]).filter(Boolean))];
+    if (bodyToks.length === 1) out.vehicleType = bodyLabel(bodyToks[0]);
     const ym = u.searchParams.get('year_min'), yx = u.searchParams.get('year_max');
     if (ym && /^\d{4}$/.test(ym)) out.yearFrom = ym;
     if (yx && /^\d{4}$/.test(yx)) out.yearTo = yx;
