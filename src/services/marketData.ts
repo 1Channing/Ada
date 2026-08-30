@@ -212,6 +212,8 @@ export async function writeMarketSnapshot(params: {
     doors: l.doors ?? null,
     seats: l.seats ?? null,
     color: (l.color ?? '').trim() || null,
+    // Carrosserie structurée déclarée par le site (label brut — canon 30/08).
+    vehicle_type: (l.vehicleType ?? '').trim() || null,
     seller_type: (l.sellerType ?? '').trim() || null,
     price_type: (l.priceType ?? '').trim() || null,
     listing_url: l.listing_url,
@@ -271,6 +273,7 @@ export interface Observation {
   doors?: number | null;
   seats?: number | null;
   color?: string | null;
+  vehicle_type?: string | null;
   seller_type?: string | null;
   price_type?: string | null;
   listing_url: string | null;

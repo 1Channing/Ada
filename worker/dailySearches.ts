@@ -28,6 +28,7 @@ import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
 import { canonicalizeGearbox } from '../src/lib/study-core/ingestion';
+import { canonicalizeBody } from '../src/lib/study-core/bodyTypes';
 import { isDamagedVehicleText, structuredModelMatches } from '../src/lib/study-core/business-logic';
 import { archiveOldObservations, recordTruthGap, refreshDashboards, runTruthSweep } from './dashboards';
 import { runTruthDiagnose } from './truthDiagnose';
@@ -69,6 +70,9 @@ interface SearchRow {
    *  n'est pas appliquée, d'où le `?`. */
   power_min?: number | null;
   mileage_max: number | null;
+  /** Carrosserie (token canon 'suv'|'berline'|… — '' = toutes) ; optionnel
+   *  tant que la migration carrosserie n'est pas appliquée, d'où le `?`. */
+  vehicle_type?: string | null;
   price_gap_min: number; price_gap_max: number;
   run_hour: number; active: boolean; last_run_at: string | null;
   /** Drapeau « Lancer maintenant » (menu ⋯) — sondé toutes les 30 s. */
@@ -189,6 +193,9 @@ async function scrapeCountry(
         // Puissance min (ch DIN) : posée en URL partout où le site sait
         // (AS24 powerfrom, Bilbasen hpfrom, LBC horse_power_din appris).
         minPower: s.power_min != null ? String(s.power_min) : undefined,
+        // Carrosserie (canon 30/08) : posée en URL où la grammaire est
+        // prouvée (LBC vehicle_type) — ailleurs post-filtre structuré.
+        vehicleType: s.vehicle_type || undefined,
       };
       const gen = await generateSearchUrlsWithMemory(genParams);
       url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
@@ -269,6 +276,22 @@ async function scrapeCountry(
         });
         if (listings.length < before) {
           console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (boîte ≠ ${s.gearbox})`);
+        }
+      }
+    }
+    // Carrosserie : post-filtre DUR même si le site a ignoré le paramètre —
+    // comparaison en jeton canonique (SUV_4X4_CROSSOVER ≡ 4x4 ≡ Visureigis).
+    // Carrosserie illisible = conservée (fail-open, même règle que la boîte).
+    if (s.vehicle_type) {
+      const wantedBody = canonicalizeBody(s.vehicle_type);
+      if (wantedBody) {
+        const before = listings.length;
+        listings = listings.filter((l) => {
+          const got = canonicalizeBody((l as { vehicleType?: string | null }).vehicleType ?? '');
+          return !got || got === wantedBody;
+        });
+        if (listings.length < before) {
+          console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (carrosserie ≠ ${s.vehicle_type})`);
         }
       }
     }

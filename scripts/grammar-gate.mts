@@ -115,7 +115,7 @@ const MEMORY_CASES: Array<{
   {
     site: 'LEBONCOIN',
     bare: 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Rav4,RAV4',
-    fossil: 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Rav4,RAV4&regdate=2019-2019&mileage=min-50000&u_car_finition=TOYOTA_Rav4_Gr&text=vieux&gearbox=1&horse_power_din=99&fuel=2',
+    fossil: 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Rav4,RAV4&regdate=2019-2019&mileage=min-50000&u_car_finition=TOYOTA_Rav4_Gr&text=vieux&gearbox=1&horse_power_din=99&fuel=2&vehicle_type=berline',
     wantPosed: [
       ['année', /regdate=2022-2024/], ['km', /mileage=min-90000/], ['finition', /text=GR%20Sport/],
       // gearbox=2 (Automatique) — enum humain confirmé en base + URL humaine
@@ -127,7 +127,7 @@ const MEMORY_CASES: Array<{
       // fuel=6 (HYBRIDE) prouvé par URL humaine — inventaire 27/08.
       ['carburant', /fuel=6(&|$)/],
     ],
-    wantGone: [/regdate/, /mileage=/, /u_car_finition/, /text=/, /gearbox=/, /horse_power_din/, /fuel=/],
+    wantGone: [/regdate/, /mileage=/, /u_car_finition/, /text=/, /gearbox=/, /horse_power_din/, /fuel=/, /vehicle_type/],
     // La liste à virgules du modèle doit survivre OCTET PAR OCTET.
     wantKept: [/u_car_model=TOYOTA_Rav4,RAV4/],
   },
@@ -306,6 +306,14 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
     { ...FULL, fuel: 'PLUG_IN_HYBRID' },
   );
   if (!/energies=plug_hyb(&|$)/.test(lcPhev)) fail(`La Centrale PHEV: energies=plug_hyb attendu (sous-type natif)\n    ${lcPhev}`);
+  // CARROSSERIE (canon 30/08, URLs humaines LBC vehicle_type=4x4 + liste à
+  // virgules littérales) : posée-ou-retirée — un fossile berline hérité doit
+  // devenir le 4x4 de l'étude, jamais s'additionner.
+  const lbcBody = applyVariableCriteria(
+    'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&vehicle_type=berline',
+    { ...FULL, vehicleType: '4x4, SUV & Crossover' },
+  );
+  if (!/vehicle_type=4x4(&|$)/.test(lbcBody)) fail(`LBC carrosserie: vehicle_type=4x4 attendu (URL humaine 30/08)\n    ${lbcBody}`);
   // Depuis la grammaire horse_power_din=N-max (29/08), l'URL LBC enrichie
   // par le registre exprime TOUT — plus aucun critère manquant.
   const lbc = applyVariableCriteria('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA', FULL);

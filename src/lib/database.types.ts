@@ -31,6 +31,7 @@ export type Database = {
           gearbox: string
           power_min: number | null
           mileage_max: number | null
+          vehicle_type?: string
           price_gap_min: number; price_gap_max: number
           run_hour: number; active: boolean
           last_run_at: string | null; force_requested_at: string | null
@@ -713,6 +714,7 @@ export type Database = {
           doors?: number | null
           seats?: number | null
           color?: string | null
+          vehicle_type?: string | null
           seller_type?: string | null
           price_type?: string | null
           listing_url: string | null
@@ -740,6 +742,7 @@ export type Database = {
           doors?: number | null
           seats?: number | null
           color?: string | null
+          vehicle_type?: string | null
           seller_type?: string | null
           price_type?: string | null
           listing_url?: string | null
@@ -767,6 +770,7 @@ export type Database = {
           doors?: number | null
           seats?: number | null
           color?: string | null
+          vehicle_type?: string | null
           seller_type?: string | null
           price_type?: string | null
           listing_url?: string | null

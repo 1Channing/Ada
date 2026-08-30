@@ -21,6 +21,7 @@
  */
 
 import { resolveYearRange } from '../study-core/marketplaces/urlTemplate';
+import { canonicalizeBody } from '../study-core/bodyTypes';
 import type { LinkGenParams } from './types';
 
 // ─── Outils de pose chirurgicale ─────────────────────────────────────────────
@@ -118,6 +119,8 @@ export interface SiteGrammar {
   power?: (url: string, ch: number | null) => string;
   gearbox?: (url: string, params: LinkGenParams) => string;
   fuel?: (url: string, params: LinkGenParams) => string;
+  /** Carrosserie (canon ADA 30/08 = nomenclature LBC) — posée-ou-retirée. */
+  vehicleType?: (url: string, params: LinkGenParams) => string;
   /** Finition IMPOSÉE (posée-ou-retirée à chaque passage) — LBC seulement. */
   trimEnforced?: (url: string, trim: string) => string;
   /** Slot texte-libre : POSE seulement (une URL apprise à finition scopée
@@ -232,6 +235,20 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
       return setQueryParamRaw(out, 'text', t || null);
     },
     trimSlot: (url, t) => setQueryParamRaw(url, 'text', t),
+    // Carrosserie : slugs PROUVÉS par les deux URLs humaines Channing 30/08
+    // (vehicle_type=4x4 seul, puis la liste complète à virgules LITTÉRALES :
+    // 4x4,berline,cabriolet,break,citadine,coupe,monospace,voituresociete —
+    // préservées par setQueryParamRaw, leçon u_car_model). Un critère hors
+    // canon = paramètre RETIRÉ, jamais deviné.
+    vehicleType: (url, params) => {
+      const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+      const slug = tok ? {
+        suv: '4x4', berline: 'berline', break: 'break', citadine: 'citadine',
+        monospace: 'monospace', coupe: 'coupe', cabriolet: 'cabriolet',
+        societe: 'voituresociete',
+      }[tok] : undefined;
+      return setQueryParamRaw(url, 'vehicle_type', slug ?? null);
+    },
   },
   {
     // ── Bilbasen ─────────────────────────────────────────────────────────────
@@ -505,6 +522,7 @@ export const CRITERIA_DETECTORS: Record<string, RegExp> = {
   boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
   finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;|versions=[^&]/i,
   carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|energies=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
+  carrosserie: /vehicle_type=[^&]/i,
 };
 
 /**
@@ -522,6 +540,7 @@ export function registryCoveredCriteria(url: string): Set<string> {
   if (g.power) out.add('puissance');
   if (g.gearbox) out.add('boîte');
   if (g.fuel) out.add('carburant');
+  if (g.vehicleType) out.add('carrosserie');
   if (g.trimSlot || g.trimEnforced) out.add('finition');
   return out;
 }
@@ -545,6 +564,7 @@ export function missingUrlCriteria(url: string, params: LinkGenParams): string[]
     ['boîte', isAutomatic(params)],
     ['finition', Boolean(String(params.trim ?? '').trim())],
     ['carburant', Boolean(String(params.fuel ?? '').trim())],
+    ['carrosserie', Boolean(String(params.vehicleType ?? '').trim())],
   ];
   return wanted.filter(([crit, has]) => has && !CRITERIA_DETECTORS[crit].test(url)).map(([c]) => c);
 }
@@ -570,6 +590,7 @@ export function applyVariableCriteria(url: string, params: LinkGenParams): strin
   if (g.power) out = g.power(out, powerCh(params));
   if (g.gearbox) out = g.gearbox(out, params);
   if (g.fuel) out = g.fuel(out, params);
+  if (g.vehicleType) out = g.vehicleType(out, params);
   if (g.trimEnforced) out = g.trimEnforced(out, String(params.trim ?? '').trim());
   if (g.policy) out = g.policy(out);
   return out;

@@ -147,6 +147,9 @@ export async function recordStudyMarketSnapshot(
       doors: (l as any).doors ?? null,
       seats: (l as any).seats ?? null,
       color: ((l as any).color ?? '').trim() || null,
+      // Carrosserie STRUCTURÉE déclarée par le site (label brut, la lecture
+      // canonicalise — critère canon 30/08).
+      vehicle_type: ((l as any).vehicleType ?? '').trim() || null,
       seller_type: ((l as any).sellerType ?? '').trim() || null,
       price_type: ((l as any).priceType ?? '').trim() || null,
       listing_url: l.listing_url, title: (l.title ?? '').slice(0, 200),

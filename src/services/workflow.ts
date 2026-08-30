@@ -29,6 +29,9 @@ export interface DailySearch {
   /** Puissance minimale (ch DIN) — null = sans critère. */
   power_min: number | null;
   mileage_max: number | null;
+  /** Carrosserie (token canon 'suv'|'berline'|… — '' = toutes). Optionnelle
+   *  tant que la migration carrosserie n'est pas appliquée. */
+  vehicle_type?: string;
   price_gap_min: number;
   price_gap_max: number;
   run_hour: number;
@@ -151,7 +154,7 @@ export interface StudyUrl extends UrlGap {
  */
 export async function listStudyUrls(s: Pick<DailySearch,
   'source_country' | 'target_country' | 'brand' | 'model' | 'fuel' | 'trim' | 'trim_target' | 'year_min' | 'year_max'
-> & Partial<Pick<DailySearch, 'mileage_max' | 'gearbox' | 'power_min'>>): Promise<StudyUrl[]> {
+> & Partial<Pick<DailySearch, 'mileage_max' | 'gearbox' | 'power_min' | 'vehicle_type'>>): Promise<StudyUrl[]> {
   const out: StudyUrl[] = [];
   const sides: Array<{ country: string; side: UrlGap['side']; trim: string }> = [
     { country: s.source_country, side: 'source', trim: s.trim },
@@ -171,6 +174,7 @@ export async function listStudyUrls(s: Pick<DailySearch,
           mileage: s.mileage_max ?? undefined,
           gearbox: s.gearbox || undefined,
           minPower: s.power_min != null ? String(s.power_min) : undefined,
+          vehicleType: s.vehicle_type || undefined,
         });
         url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
       } catch { url = null; }
@@ -221,6 +225,9 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
       && canonKey(e.trim ?? '') === canonKey(s.trim ?? '')
       && (e.fuel ?? '') === (s.fuel ?? '')
       && (e.gearbox ?? '') === (s.gearbox ?? '')
+      // SUV et berline du même modèle = deux marchés (même règle que le
+      // carburant : la variante ne doit pas être bloquée à tort).
+      && (e.vehicle_type ?? '') === (s.vehicle_type ?? '')
       && (e.year_min ?? 0) === (s.year_min ?? 0)
       && (e.year_max ?? 0) === (s.year_max ?? 0));
     if (existing) {
@@ -250,6 +257,15 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
     if (retryErr) return retryErr.message;
     return power_min != null
       ? 'Étude enregistrée SANS le critère puissance : la migration SQL power_min n\'est pas encore appliquée en base.'
+      : null;
+  }
+  // Même dégradation pour la carrosserie (migration 20260830190000).
+  if (error && /vehicle_type/.test(error.message)) {
+    const { vehicle_type, ...rest } = row;
+    const { error: retryErr } = await write(rest as typeof row);
+    if (retryErr) return retryErr.message;
+    return vehicle_type
+      ? 'Étude enregistrée SANS le critère carrosserie : la migration SQL carrosserie n\'est pas encore appliquée en base.'
       : null;
   }
   return error ? error.message : null;

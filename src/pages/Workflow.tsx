@@ -5,6 +5,7 @@ import {
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
   checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
 } from '../services/workflow';
+import { BODY_TYPES, bodyLabel } from '../lib/study-core/bodyTypes';
 
 /** Identité visuelle des places de marché — badge normalisé partout. */
 const SITE_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
@@ -106,7 +107,7 @@ export function Workflow() {
 const EMPTY: Partial<DailySearch> = {
   label: '', source_country: 'DE', target_country: 'FR', brand: '', model: '',
   year_min: null, year_max: null, fuel: '', trim: '', trim_target: '',
-  gearbox: '', power_min: null, mileage_max: null,
+  gearbox: '', power_min: null, mileage_max: null, vehicle_type: '',
   price_gap_min: 3000, price_gap_max: 10000, run_hour: 7, active: true,
 };
 
@@ -251,6 +252,12 @@ function DailySearchesTab() {
                 {FUELS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
             </Field>
+            <Field label="Carrosserie">
+              <select value={editing.vehicle_type ?? ''} onChange={(e) => set({ vehicle_type: e.target.value })} className={inputCls}>
+                <option value="">Toutes carrosseries</option>
+                {BODY_TYPES.map((b) => <option key={b.token} value={b.token}>{b.label}</option>)}
+              </select>
+            </Field>
             <Field label={`Finition pays source (${editing.source_country})`}>
               <input
                 value={editing.trim ?? ''}
@@ -323,7 +330,7 @@ function searchSignature(s: DailySearch): string {
   return [
     s.brand, s.model, s.source_country, s.target_country,
     s.year_min ?? '', s.year_max ?? '', s.fuel ?? '', s.gearbox ?? '',
-    s.power_min ?? '', s.mileage_max ?? '',
+    s.power_min ?? '', s.mileage_max ?? '', s.vehicle_type ?? '',
     (s.trim ?? '').trim().toUpperCase(), (s.trim_target ?? '').trim().toUpperCase(),
   ].join('|');
 }
@@ -487,6 +494,7 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
             {s.year_min || s.year_max ? ` · ${s.year_min ?? '…'}–${s.year_max ?? '…'}` : ''}
             {s.fuel ? ` · ${FUELS.find((f) => f.value === s.fuel)?.label ?? s.fuel}` : ''}
             {s.gearbox ? ` · ${GEARBOXES.find((g) => g.value === s.gearbox)?.label ?? s.gearbox}` : ''}
+            {s.vehicle_type ? ` · ${bodyLabel(s.vehicle_type)}` : ''}
             {s.power_min != null ? ` · ≥ ${s.power_min} ch` : ''}
             {s.trim ? ` · « ${s.trim} »` : ''}
             {s.trim_target ? ` ≈ « ${s.trim_target} » (${s.target_country})` : ''}
