@@ -135,6 +135,20 @@ export async function recordStudyMarketSnapshot(
       return;
     }
 
+    // CARROSSERIE HÉRITÉE DE L'URL (constat Corolla Break NL 30/08 : les
+    // parsers NL ne déclarent pas encore la carrosserie par annonce — le MI
+    // strict rendait 0 sur une page pourtant FILTRÉE à la source par le
+    // site). Même mécanique que la promotion carburant SUBTYPE_TRUE_URL :
+    // quand l'URL source exprime la carrosserie (relue par le prefill de
+    // l'adaptateur — /stationwagen, f:484, body=5, categories=43…), la page
+    // entière est de ce type ; une annonce SANS carrosserie propre en hérite,
+    // une annonce qui déclare la sienne la garde.
+    let segBody: string | null = null;
+    try {
+      const dec = findSiteAdapterByDomain(sourceUrl)?.prefillCriteriaFromUrl?.(sourceUrl);
+      segBody = String(dec?.vehicleType ?? '').trim() || null;
+    } catch { /* URL illisible — pas d'héritage */ }
+
     const observations = priced.map((l) => ({
       snapshot_id: snap.id, site: segment.site, country: segment.country,
       brand: segment.brand, model: segment.model,
@@ -148,8 +162,8 @@ export async function recordStudyMarketSnapshot(
       seats: (l as any).seats ?? null,
       color: ((l as any).color ?? '').trim() || null,
       // Carrosserie STRUCTURÉE déclarée par le site (label brut, la lecture
-      // canonicalise — critère canon 30/08).
-      vehicle_type: ((l as any).vehicleType ?? '').trim() || null,
+      // canonicalise) — sinon héritée de l'URL filtrée (segBody ci-dessus).
+      vehicle_type: ((l as any).vehicleType ?? '').trim() || segBody,
       seller_type: ((l as any).sellerType ?? '').trim() || null,
       price_type: ((l as any).priceType ?? '').trim() || null,
       listing_url: l.listing_url, title: (l.title ?? '').slice(0, 200),

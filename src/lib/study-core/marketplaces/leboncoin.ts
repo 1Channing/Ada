@@ -13,6 +13,7 @@
 
 import { parseListings } from '../parsers/leboncoin';
 import { normalizeForMatch } from './normalizer';
+import { bodyLabel } from '../bodyTypes';
 import { applyTemplate, resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
 import { decomposeUrl } from './urlDecompose';
@@ -590,8 +591,19 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   if (q['text']) out.trim = q['text'];
 
   // Numeric secondary filters are readable directly (value === human value).
-  // Enum secondary filters (gearbox/color/vehicle_type) carry an opaque code
-  // we don't reverse — the user declares those, the scrape learns the code.
+  // Enum secondary filters (gearbox/color) carry an opaque code we don't
+  // reverse — the user declares those, the scrape learns the code.
+  // EXCEPTION vehicle_type (30/08) : ses slugs sont LISIBLES (4x4, berline,
+  // break… — c'est la nomenclature canon d'ADA) ; un seul type distinct dans
+  // la liste à virgules = critère relu (héritage carrosserie par URL).
+  const VT_TO_TOKEN: Record<string, string> = {
+    '4x4': 'suv', berline: 'berline', break: 'break', citadine: 'citadine',
+    monospace: 'monospace', coupe: 'coupe', cabriolet: 'cabriolet',
+    voituresociete: 'societe',
+  };
+  const vts = [...new Set(String(q['vehicle_type'] ?? '').split(',').filter(Boolean)
+    .map((s) => VT_TO_TOKEN[s.toLowerCase()]).filter(Boolean))];
+  if (vts.length === 1) out.vehicleType = bodyLabel(vts[0]);
   const powerFrom = firstNumber(q['horse_power_din']);
   if (powerFrom != null) out.powerFrom = String(powerFrom);
   const doors = firstNumber(q['doors'] ?? q['nb_doors']);

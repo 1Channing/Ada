@@ -15,7 +15,7 @@ import { canonicalizeBody } from '../lib/study-core/bodyTypes';
 import { isDamagedVehicleText, modelKeyLoose } from '../lib/study-core/business-logic';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
-import { allSiteAdapters } from '../lib/study-core/marketplaces';
+import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
 import { fetchAllPages } from '../lib/fetchAllPages';
 
 type ObsInsert = Database['public']['Tables']['market_listing_observations']['Insert'];
@@ -189,6 +189,15 @@ export async function writeMarketSnapshot(params: {
   const subtypeTrusted = !!sourceUrl && SUBTYPE_TRUE_URL.some(([h, p]) => h.test(sourceUrl) && p.test(sourceUrl));
   const segmentSubtype = subtypeTrusted ? SEGMENT_FUEL_SUBTYPE[(segment.fuel ?? '').trim().toUpperCase()] : undefined;
 
+  // Carrosserie héritée de l'URL filtrée (constat Corolla Break NL 30/08 :
+  // pages filtrées à la source mais annonces sans carrosserie déclarée → le
+  // filtre MI strict rendait 0). Relue par le prefill de l'adaptateur.
+  let segBodyFromUrl: string | null = null;
+  try {
+    const dec = sourceUrl ? findSiteAdapterByDomain(sourceUrl)?.prefillCriteriaFromUrl?.(sourceUrl) : undefined;
+    segBodyFromUrl = String(dec?.vehicleType ?? '').trim() || null;
+  } catch { /* URL illisible — pas d'héritage */ }
+
   const observations: ObsInsert[] = priced.map((l) => ({
     snapshot_id: snap.id,
     site: segment.site,
@@ -213,8 +222,11 @@ export async function writeMarketSnapshot(params: {
     doors: l.doors ?? null,
     seats: l.seats ?? null,
     color: (l.color ?? '').trim() || null,
-    // Carrosserie structurée déclarée par le site (label brut — canon 30/08).
-    vehicle_type: (l.vehicleType ?? '').trim() || null,
+    // Carrosserie structurée déclarée par le site (label brut — canon
+    // 30/08), sinon héritée de l'URL FILTRÉE du scrape (segBodyFromUrl —
+    // même mécanique que la promotion carburant SUBTYPE_TRUE_URL : la page
+    // entière est du type que le site a filtré).
+    vehicle_type: (l.vehicleType ?? '').trim() || segBodyFromUrl,
     seller_type: (l.sellerType ?? '').trim() || null,
     price_type: (l.priceType ?? '').trim() || null,
     listing_url: l.listing_url,
