@@ -104,10 +104,12 @@ lien détail = préfixe 2 chiffres PAR LETTRE + chiffres de la référence
 chaque page, jamais codée en dur ; script du state ENVELOPPÉ dans un bloc
 { … } → extraction à accolades équilibrées. Dictionnaire lc:model:* appris
 par moisson (lc:model:toyota « RAV 4 » déjà en base) ; lc:body moissonné
-(critère carrosserie pré-câblé). RESTE : sens de sortBy=firstOnlineDateAsc
-à contre-éprouver si on veut un tri fraîcheur (inutile aujourd'hui, on
-trie priceAsc) ; powerDIN par annonce absent du hit principal (lu
-tolérant, similarHits le portent) — la puissance reste un filtre d'URL.
+(critère carrosserie pré-câblé). Sens de sortBy CONTRE-ÉPROUVÉ par scrape (30/08 soir) :
+firstOnlineDateAsc = ordre CROISSANT, les plus VIEILLES d'abord (23/23
+datées, 2023-09 → 2026-02) — « Asc » est littéral, le tri fraîcheur
+serait firstOnlineDateDesc (forme symétrique, non encore posée : on trie
+priceAsc). powerDIN par annonce absent du hit principal (lu tolérant,
+similarHits le portent) — la puissance reste un filtre d'URL.
 
 ## -2. CRITÈRE CARROSSERIE (demandé Channing 27/08 — Corolla GR Sport NL)
 
