@@ -252,7 +252,16 @@ c'est lui qui décide chemin vs hash. Le moissonner permettrait de placer
 n'importe quelle facette au bon endroit automatiquement, au lieu de le savoir
 au cas par cas.
 
-## 1. Vocabulaire de détection carburant (prioritaire dès les premières ingestions)
+## 1-FAIT (constaté 30/08). Vocabulaire de détection carburant
+
+Relu le 30/08 : tout ce que ce paragraphe demandait existe —
+canonicalizeFuel couvre TDI/HDi/BlueHDi/dCi/CDI/CRDi/D-4D → diesel,
+TSI/TFSI/VTi/PureTech/TCe/GDI/vvt-i/EcoBoost/MPI → essence,
+e-Power/e:HEV/HSD → hybride, multilingue FR/NL/DA/DE/IT/ES/SV/LT/HU ;
+la lacune « elektrisch » du inferFuel Marktplaats est corrigée (elektr
+couvert, hybride testé avant électrique). Paragraphe d'origine :
+
+## 1-ORIGINE. Vocabulaire de détection carburant (prioritaire dès les premières ingestions)
 
 La confirmation carburant de la page Ingestion échouera souvent au début :
 les vendeurs écrivent la motorisation ("2.0 TDI", "1.5 TSI") sans le mot
@@ -291,14 +300,14 @@ les observations du 15-18/08 : Marktplaats 1 000 obs → marque 100 %, carburant
 99 %, boîte 99 % (puissance 23 % — souvent absente des annonces NL) ;
 Bilbasen 760 obs → 100 % sur les quatre champs. Parité Leboncoin atteinte.
 
-## 2bis. Génération d'URL depuis les mappings secondaires appris
+## 2bis-FAIT (par le registre unique, constaté 30/08). Génération d'URL depuis les mappings secondaires
 
-L'ingestion apprend et mémorise `gearbox=2 → Automatique`, `horse_power_din`,
-etc. (dans `inferred_mapping.fieldToParam`), mais `generateSearchUrlsWithMemory`
-ne sait pas encore réinjecter ces filtres secondaires dans une URL générée
-(les templates ne portent que brand/model/year/mileage/fuel/trim). Câbler la
-reconstruction pour exploiter les codes opaques appris (boîte, puissance,
-couleur, type) quand on génère une recherche.
+Rendu obsolète par le REGISTRE UNIQUE des grammaires (26-30/08) :
+applyVariableCriteria pose-ou-retire année, km, puissance, boîte,
+carburant, finition ET carrosserie sur toute URL générée ou apprise,
+sur les 11 sites, avec le gate de matrice en garde-fou. Seule la COULEUR
+n'est posée nulle part (aucune URL-preuve par site — post-filtre
+structuré en lecture, canonicalizeColor multilingue).
 
 ## 2ter. Scraping détail par annonce + amélioration de la lecture (différé, acté)
 
