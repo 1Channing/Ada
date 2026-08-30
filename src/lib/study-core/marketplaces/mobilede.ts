@@ -30,6 +30,7 @@ import type {
 import type { ScrapedListing } from '../types';
 import { resolveYearRange } from './urlTemplate';
 import { decomposeUrl } from './urlDecompose';
+import { bodyLabel } from '../bodyTypes';
 import { defaultBuildPaginatedUrl } from './registry';
 import { parseNextDataListings, readField, deepFindPrice, toInt, toYear, toHp } from '../parsers/nextdata';
 import { parseListings as genericParseListings } from '../parsers/generic';
@@ -704,6 +705,15 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
   if (q['ft'] && FUEL_SITE_TO_LABEL[q['ft'].toUpperCase()]) out.fuel = FUEL_SITE_TO_LABEL[q['ft'].toUpperCase()];
   if (q['fe'] && FUEL_SITE_TO_LABEL[q['fe'].toUpperCase()]) out.fuel = FUEL_SITE_TO_LABEL[q['fe'].toUpperCase()];
   if (/^\d+$/.test(q['pw'] ?? '')) out.powerFrom = String(Math.round(Number(q['pw']) * 1.35962));
+  // Carrosserie c= (codes anglais, RÉPÉTÉ pour le multi — URLs humaines
+  // 30/08) : queryParams ne garde qu'une valeur, on relit l'URL brute ;
+  // une seule carrosserie distincte = critère, plusieurs = pas de préremplissage.
+  const C_TO_TOKEN: Record<string, string> = {
+    OffRoad: 'suv', SmallCar: 'citadine', EstateCar: 'break',
+    Limousine: 'berline', SportsCar: 'coupe', Cabrio: 'cabriolet', Van: 'monospace',
+  };
+  const cs = [...new Set([...url.matchAll(/[?&]c=([^&#]+)/g)].map((m) => C_TO_TOKEN[m[1]]).filter(Boolean))];
+  if (cs.length === 1) out.vehicleType = bodyLabel(cs[0]);
   return out;
 }
 

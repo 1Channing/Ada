@@ -146,12 +146,12 @@ const MEMORY_CASES: Array<{
   {
     site: 'MOBILE_DE',
     bare: 'https://www.mobile.de/fr/voiture/recherche.html?isSearchRequest=true&ms=24100%3B28&sb=p',
-    fossil: 'https://www.mobile.de/fr/voiture/recherche.html?isSearchRequest=true&ms=24100%3B28&fr=2019%3A2020&ml=%3A50000&pw=200&tr=AUTOMATIC_GEAR',
+    fossil: 'https://www.mobile.de/fr/voiture/recherche.html?isSearchRequest=true&ms=24100%3B28&fr=2019%3A2020&ml=%3A50000&pw=200&tr=AUTOMATIC_GEAR&c=Cabrio&c=OffRoad',
     wantPosed: [
       ['année', /fr=2022%3A2024/], ['km', /ml=%3A90000/], ['puissance', /pw=110/],
       ['boîte', /tr=AUTOMATIC_GEAR/], ['finition', /ms=24100%3B28%3B%3BGR%20Sport/],
     ],
-    wantGone: [/[?&]fr=/, /[?&]ml=/, /[?&]pw=/, /[?&]tr=/],
+    wantGone: [/[?&]fr=/, /[?&]ml=/, /[?&]pw=/, /[?&]tr=/, /[?&]c=/],
     // Politique dam=false posée sur les DEUX profils (critères pleins ou vides).
     wantKept: [/dam=false/],
   },
@@ -330,6 +330,15 @@ console.log('=== 4. DÉCISION DE PROFONDEUR ===');
     { ...FULL, vehicleType: 'Berline' },
   );
   if (!/categories=41_42(&|$)/.test(lcBody)) fail(`La Centrale carrosserie: categories=41_42 attendu\n    ${lcBody}`);
+  // mobile.de : c= à codes anglais, répété pour le multi — les DEUX fossiles
+  // c=Cabrio&c=OffRoad doivent devenir le seul c=Van (monospace).
+  const mdBody = applyVariableCriteria(
+    'https://www.mobile.de/fr/voiture/recherche.html?isSearchRequest=true&ms=24100%3B28&c=Cabrio&c=OffRoad',
+    { ...FULL, vehicleType: 'Monospace' },
+  );
+  if (!/[?&]c=Van(&|$)/.test(mdBody) || /c=Cabrio|c=OffRoad/.test(mdBody)) {
+    fail(`mobile.de carrosserie: c=Van seul attendu (multi purgé)\n    ${mdBody}`);
+  }
   // Depuis la grammaire horse_power_din=N-max (29/08), l'URL LBC enrichie
   // par le registre exprime TOUT — plus aucun critère manquant.
   const lbc = applyVariableCriteria('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA', FULL);

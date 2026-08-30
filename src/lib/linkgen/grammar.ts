@@ -339,6 +339,22 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
         return setQueryParamRaw(url, 'ms', `${ms[0]};${ms[1]};;${t}`);
       } catch { return url; }
     },
+    // Carrosserie : c= à codes anglais, RÉPÉTÉ pour le multi (URLs humaines
+    // 30/08 : c=Cabrio seul, puis c=Cabrio&c=OffRoad&c=SmallCar&c=EstateCar&
+    // c=Limousine&c=SportsCar&c=Van). OffRoad=SUV, SmallCar=citadine,
+    // EstateCar=break, Limousine=berline, SportsCar=coupé, Van=monospace
+    // (fourgonnette/minivan — précision Channing). Société sans équivalent →
+    // retiré, post-filtre aval. setQueryParamRaw supprime TOUTES les paires
+    // c= avant de poser la nôtre : purge multi incluse.
+    vehicleType: (url, params) => {
+      const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+      const code = tok ? {
+        suv: 'OffRoad', citadine: 'SmallCar', break: 'EstateCar',
+        berline: 'Limousine', coupe: 'SportsCar', cabriolet: 'Cabrio',
+        monospace: 'Van',
+      }[tok as string] : undefined;
+      return setQueryParamRaw(url, 'c', code ?? null);
+    },
     // Sans véhicules ENDOMMAGÉS, à la source — dam=false prouvé URL humaine
     // 26/08 (backlog 4sexies : les accidentées trustaient le bas du tri prix).
     // Politique de site, pas un critère : appliquée aux DEUX voies.
@@ -550,7 +566,7 @@ export const CRITERIA_DETECTORS: Record<string, RegExp> = {
   boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
   finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;|versions=[^&]/i,
   carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|energies=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
-  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_/i,
+  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_|[?&]c=[^&]/i,
 };
 
 /**
