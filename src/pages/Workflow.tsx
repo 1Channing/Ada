@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight } from 'lucide-react';
 import {
   DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
@@ -298,19 +298,137 @@ function DailySearchesTab() {
             Aucune étude quotidienne. Crée la première : ADA scrutera le marché chaque matin pour toi.
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 gap-3">
-            {rows.map((s) => (
-              <SearchCard
-                key={s.id}
-                s={s}
-                gaps={coverage[s.id] ?? null}
-                onEdit={() => setEditing(s)}
-                onDuplicate={() => setEditing({ ...s, id: undefined, label: `${s.label || `${s.brand} ${s.model}`.trim()} (copie)`, last_run_at: null })}
-                onChanged={reload}
-              />
-            ))}
-          </div>
+          <GroupedSearchList
+            rows={rows}
+            coverage={coverage}
+            onEdit={setEditing}
+            onDuplicate={(s) => setEditing({ ...s, id: undefined, label: `${s.label || `${s.brand} ${s.model}`.trim()} (copie)`, last_run_at: null })}
+            onChanged={reload}
+          />
         )}
+    </div>
+  );
+}
+
+// ── Liste groupée par MARQUE + MODÈLE (demande Channing 30/08 : « on s'y
+// perd », doublon créé faute de visuel). Accordéon : un en-tête par couple
+// marque·modèle, les cartes d'étude existantes se déplient dessous — aucune
+// option perdue, SearchCard inchangée. ─────────────────────────────────────
+
+/** Signature des CRITÈRES d'une étude — deux études à signature identique
+ *  sont des doublons vrais (même marché scruté deux fois), quel que soit
+ *  leur nom libre. L'heure de scrape et l'écart visé n'en font pas partie :
+ *  deux écarts différents sur le même marché restent le même scrape. */
+function searchSignature(s: DailySearch): string {
+  return [
+    s.brand, s.model, s.source_country, s.target_country,
+    s.year_min ?? '', s.year_max ?? '', s.fuel ?? '', s.gearbox ?? '',
+    s.power_min ?? '', s.mileage_max ?? '',
+    (s.trim ?? '').trim().toUpperCase(), (s.trim_target ?? '').trim().toUpperCase(),
+  ].join('|');
+}
+
+function GroupedSearchList({ rows, coverage, onEdit, onDuplicate, onChanged }: {
+  rows: DailySearch[];
+  coverage: Record<string, UrlGap[] | null>;
+  onEdit: (s: DailySearch) => void;
+  onDuplicate: (s: DailySearch) => void;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+
+  // Groupes marque·modèle, triés alphabétiquement ; à l'intérieur, années
+  // récentes d'abord puis nom — l'œil retrouve « Yaris Cross 2024 » d'un
+  // geste au lieu de balayer une grille plate.
+  const groups = new Map<string, DailySearch[]>();
+  for (const s of rows) {
+    const k = `${s.brand}${s.model ? ` ${s.model}` : ''}`.trim().toUpperCase() || '(SANS MARQUE)';
+    groups.set(k, [...(groups.get(k) ?? []), s]);
+  }
+  const keys = [...groups.keys()].sort((a, b) => a.localeCompare(b, 'fr'));
+  for (const k of keys) {
+    groups.get(k)!.sort((a, b) => (b.year_min ?? 0) - (a.year_min ?? 0)
+      || (a.label || '').localeCompare(b.label || '', 'fr'));
+  }
+
+  // Doublons : signatures de critères identiques (voir searchSignature).
+  const bySig = new Map<string, string[]>();
+  for (const s of rows) bySig.set(searchSignature(s), [...(bySig.get(searchSignature(s)) ?? []), s.id]);
+  const dupIds = new Set([...bySig.values()].filter((ids) => ids.length > 1).flat());
+
+  const toggle = (k: string) => setOpen((o) => {
+    const n = new Set(o);
+    if (n.has(k)) n.delete(k); else n.add(k);
+    return n;
+  });
+  // Un seul groupe : autant l'ouvrir d'office.
+  const openAll = keys.length === 1 || undefined;
+
+  return (
+    <div className="space-y-2">
+      {keys.length > 1 && (
+        <div className="flex justify-end gap-3 text-xs text-slate-500">
+          <button onClick={() => setOpen(new Set(keys))} className="hover:text-slate-700">Tout déplier</button>
+          <button onClick={() => setOpen(new Set())} className="hover:text-slate-700">Tout replier</button>
+        </div>
+      )}
+      {keys.map((k) => {
+        const list = groups.get(k)!;
+        const isOpen = openAll || open.has(k);
+        const actives = list.filter((s) => s.active).length;
+        const dups = list.filter((s) => dupIds.has(s.id)).length;
+        const covs = list.map((s) => coverage[s.id] ?? null);
+        const covPending = covs.some((c) => c === null);
+        const covGaps = covs.reduce((n, c) => n + (c?.length ?? 0), 0);
+        const pairs = [...new Set(list.map((s) => `${flagOf(s.source_country)}→${flagOf(s.target_country)}`))];
+        return (
+          {/* PAS d'overflow-hidden ici : il rognerait le menu ⋯ des cartes
+              (leçon bande photo négociations 29/08) — les arrondis du survol
+              vivent sur le bouton d'en-tête lui-même. */}
+          <div key={k} className="bg-white rounded-xl border border-slate-200 shadow-sm">
+            <button onClick={() => toggle(k)} className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors ${isOpen ? 'rounded-t-xl' : 'rounded-xl'}`}>
+              <ChevronRight className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+              <span className="font-semibold text-slate-900 truncate">{k}</span>
+              <span className="text-xs text-slate-500 shrink-0">{pairs.join(' · ')}</span>
+              <span className="ml-auto flex items-center gap-2 shrink-0">
+                {dups > 0 && (
+                  <span title="Études aux critères STRICTEMENT identiques dans ce groupe" className="text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
+                    {dups} doublon{dups > 1 ? 's' : ''}
+                  </span>
+                )}
+                {covPending ? (
+                  <span title="Vérification de la couverture URL…" className="w-3 h-3 rounded-full border-2 border-slate-300 border-t-brand-ocean animate-spin" />
+                ) : covGaps > 0 ? (
+                  <span title="Couverture URL incomplète sur certaines études"><AlertTriangle className="w-4 h-4 text-amber-500" /></span>
+                ) : (
+                  <span title="Couverture URL complète sur tout le groupe"><CheckCircle2 className="w-4 h-4 text-emerald-500" /></span>
+                )}
+                <span className="text-xs text-slate-500">
+                  {list.length} étude{list.length > 1 ? 's' : ''}{actives < list.length ? ` · ${list.length - actives} en pause` : ''}
+                </span>
+              </span>
+            </button>
+            {isOpen && (
+              <div className="grid md:grid-cols-2 gap-3 p-3 pt-0 border-t border-slate-100">
+                {list.map((s) => (
+                  <div key={s.id} className={dupIds.has(s.id) ? 'rounded-xl ring-2 ring-red-300' : undefined}>
+                    {dupIds.has(s.id) && (
+                      <p className="text-[11px] text-red-700 px-3 pt-1.5">Doublon : mêmes critères qu'une autre étude — garde l'une, supprime l'autre.</p>
+                    )}
+                    <SearchCard
+                      s={s}
+                      gaps={coverage[s.id] ?? null}
+                      onEdit={() => onEdit(s)}
+                      onDuplicate={() => onDuplicate(s)}
+                      onChanged={onChanged}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
