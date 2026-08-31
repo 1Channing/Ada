@@ -302,6 +302,21 @@ export function Administrative() {
       setShowSecondBuyer(draft.showSecondBuyer);
       setLastSavedTransactionId(draft.lastSavedTransactionId);
 
+      // Les CONTACTS SÉLECTIONNÉS aussi (constat Louwman 31/08) : le brouillon
+      // stockait les ids mais la restauration ne les relisait jamais — au
+      // retour sur la page, l'encart « contact existant » disparaissait et le
+      // save suivant CRÉAIT UN DOUBLON au lieu de relier la fiche (origine du
+      // doublon MC Export du 30/07). On re-résout chaque id en base.
+      const reselect = async (id: string | null, set: (c: Contact) => void) => {
+        if (!id) return;
+        const { data } = await supabase.from('contacts').select('*').eq('id', id).maybeSingle();
+        if (data) set(data as Contact);
+      };
+      void reselect(draft.selectedSellerContactId, setSelectedSellerContact);
+      void reselect(draft.selectedSeller2ContactId, setSelectedSeller2Contact);
+      void reselect(draft.selectedBuyerContactId, setSelectedBuyerContact);
+      void reselect(draft.selectedBuyer2ContactId, setSelectedBuyer2Contact);
+
       setIsDirty(false);
       console.log('[ADMIN_DRAFT] Form state restored from draft, isDirty initialized to false');
     }
@@ -519,6 +534,20 @@ export function Administrative() {
     if (selected) {
       await supabase.from('contacts').update(clean).eq('id', selected.id);
       return selected.id;
+    }
+    // Filet anti-doublon par SIREN (classe du doublon MC Export 30/07 et du
+    // Louwman non relié 31/08) : quand la sélection s'est perdue (brouillon
+    // d'une autre machine, session nettoyée) mais que le formulaire porte un
+    // SIREN déjà connu, on RELIE la fiche existante au lieu d'en créer une
+    // deuxième. La plus ancienne fait foi (celle que l'historique référence).
+    if (form.siren?.trim()) {
+      const { data: bySiren } = await supabase
+        .from('contacts').select('id').eq('siren', form.siren.trim())
+        .order('created_at', { ascending: true }).limit(1).maybeSingle();
+      if (bySiren) {
+        await supabase.from('contacts').update(clean).eq('id', bySiren.id);
+        return bySiren.id;
+      }
     }
     if (hasName) {
       const { data, error } = await supabase
