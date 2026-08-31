@@ -33,11 +33,28 @@ interface Account {
 
 interface AllowRow { email: string; note: string | null; created_at: string }
 
+/** Études quotidiennes de tous les comptes (RPC admin, migration 31/08). */
+interface TeamSearch {
+  id: string; user_id: string; label: string; brand: string; model: string;
+  source_country: string; target_country: string; fuel: string;
+  vehicle_type: string; active: boolean; last_run_at: string | null; created_at: string;
+}
+
+/** Négociations de tous les comptes (RPC admin, migration 31/08). */
+interface TeamNego {
+  id: string; user_id: string; title: string; listing_url: string;
+  asking_price: number | null; negotiated_price: number | null;
+  status: string; notes: string; updated_at: string; created_at: string;
+}
+
 export function Equipe() {
   const { isAdmin, userId } = useAuth();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [allow, setAllow] = useState<AllowRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  // null = RPC absente (migration pas encore collée) → sections masquées.
+  const [searches, setSearches] = useState<TeamSearch[] | null>(null);
+  const [negos, setNegos] = useState<TeamNego[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [newEmail, setNewEmail] = useState('');
@@ -45,15 +62,23 @@ export function Equipe() {
 
   const reload = async () => {
     setError(null);
-    const [{ data: acc, error: e1 }, { data: al, error: e2 }] = await Promise.all([
+    const [{ data: acc, error: e1 }, { data: al, error: e2 }, sr, ng] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       supabase.rpc('admin_list_accounts' as never) as any,
       supabase.from('auth_allowlist').select('email, note, created_at').order('created_at'),
+      // Activité par compte (migration 31/08) — dégradation propre tant que
+      // le SQL n'est pas collé : sections simplement absentes, pas d'erreur.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      supabase.rpc('admin_list_daily_searches' as never) as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      supabase.rpc('admin_list_negotiations' as never) as any,
     ]);
     if (e1) setError(`Comptes : ${e1.message} — la migration 20260830120000 est-elle appliquée ?`);
     else setAccounts((acc ?? []) as Account[]);
     if (e2) setError((prev) => prev ?? `Liste d'inscription : ${e2.message}`);
     else setAllow((al ?? []) as AllowRow[]);
+    setSearches(sr.error ? null : ((sr.data ?? []) as TeamSearch[]));
+    setNegos(ng.error ? null : ((ng.data ?? []) as TeamNego[]));
     setLoading(false);
   };
   useEffect(() => { void reload(); }, []);
@@ -185,6 +210,71 @@ export function Equipe() {
                         </div>
                       </>
                     )}
+                    {searches && (() => {
+                      const mine = searches.filter((s) => s.user_id === a.id);
+                      if (mine.length === 0) return (
+                        <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">Aucune étude quotidienne.</p>
+                      );
+                      return (
+                        <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                          <p className="text-xs font-semibold text-slate-700">Études quotidiennes ({mine.length})</p>
+                          {mine.map((s) => (
+                            <div key={s.id} className="flex items-center gap-2 text-xs text-slate-600">
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.active ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                              <span className="font-medium text-slate-800 truncate">
+                                {s.label || `${s.brand} ${s.model}`.trim()}
+                              </span>
+                              <span className="text-slate-400 shrink-0">
+                                {s.source_country} → {s.target_country}{s.fuel ? ` · ${s.fuel}` : ''}
+                              </span>
+                              <span className="ml-auto text-slate-400 shrink-0">
+                                {s.active
+                                  ? (s.last_run_at ? `passée le ${new Date(s.last_run_at).toLocaleDateString('fr-FR')}` : 'jamais passée')
+                                  : 'en pause'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                    {negos && (() => {
+                      const open = negos.filter((n) => n.user_id === a.id && n.status !== 'closed');
+                      const done = negos.filter((n) => n.user_id === a.id && n.status === 'closed').length;
+                      if (open.length === 0) return (
+                        <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">
+                          Aucune négociation en cours{done > 0 ? ` (${done} clôturée${done > 1 ? 's' : ''})` : ''}.
+                        </p>
+                      );
+                      return (
+                        <div className="pt-2 border-t border-slate-100 space-y-2">
+                          <p className="text-xs font-semibold text-slate-700">
+                            Négociations en cours ({open.length}){done > 0 ? <span className="font-normal text-slate-400"> · {done} clôturée{done > 1 ? 's' : ''}</span> : null}
+                          </p>
+                          {open.map((n) => (
+                            <div key={n.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 space-y-1">
+                              <div className="flex items-center gap-2 text-xs">
+                                {n.listing_url
+                                  ? <a href={n.listing_url} target="_blank" rel="noreferrer" className="font-medium text-brand-ocean hover:underline truncate">{n.title || 'Sans titre'}</a>
+                                  : <span className="font-medium text-slate-800 truncate">{n.title || 'Sans titre'}</span>}
+                                <span className="ml-auto text-slate-500 shrink-0">
+                                  {n.negotiated_price != null
+                                    ? `négocié ${n.negotiated_price.toLocaleString('fr-FR')} €`
+                                    : n.asking_price != null
+                                      ? `affiché ${n.asking_price.toLocaleString('fr-FR')} €`
+                                      : ''}
+                                </span>
+                                {n.status === 'pushed_to_sale' && (
+                                  <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5 shrink-0">envoyée en vente</span>
+                                )}
+                              </div>
+                              {n.notes?.trim() && (
+                                <p className="text-[11px] text-slate-500 whitespace-pre-wrap">{n.notes.trim().slice(0, 400)}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     {a.id !== userId && (
                       <div className="pt-2 border-t border-slate-100">
                         <button
