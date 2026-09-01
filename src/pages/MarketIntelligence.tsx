@@ -1574,15 +1574,41 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
 }
 
 /** Free-text filter with datalist suggestions — CONTAINS semantics downstream. */
+/**
+ * Saisie DÉBOUNCÉE (constat Channing 31/08 : taper une finition ramait —
+ * chaque caractère relançait filterObservations + tous les graphes). L'écran
+ * suit la frappe instantanément (état local) ; le FILTRE ne bouge qu'après
+ * une pause de saisie, ou tout de suite sur Entrée / sortie du champ.
+ */
+const FILTER_DEBOUNCE_MS = 800;
+function useDebouncedField<T>(value: T, push: (v: T) => void) {
+  const [local, setLocal] = useState(value);
+  const timer = useRef<number | null>(null);
+  // Valeur venue d'ailleurs (Réinitialiser, changement d'étude) → resync.
+  useEffect(() => { setLocal(value); }, [value]);
+  const set = (v: T) => {
+    setLocal(v);
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => { timer.current = null; push(v); }, FILTER_DEBOUNCE_MS);
+  };
+  const flush = () => {
+    if (timer.current) { window.clearTimeout(timer.current); timer.current = null; push(local); }
+  };
+  return { local, set, flush };
+}
+
 function TextFilter({ label, value, suggestions, placeholder, onChange }:
   { label: string; value: string; suggestions: string[]; placeholder?: string; onChange: (v: string) => void }) {
   const listId = `textfilter-${label.replace(/[^a-z0-9]/gi, '')}`;
+  const f = useDebouncedField(value, onChange);
   return (
     <div>
       <label className="block text-xs text-slate-600 mb-1">{label}</label>
       <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={f.local}
+        onChange={(e) => f.set(e.target.value)}
+        onBlur={f.flush}
+        onKeyDown={(e) => { if (e.key === 'Enter') f.flush(); }}
         list={listId}
         placeholder={placeholder ?? '—'}
         className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm"
@@ -1617,22 +1643,27 @@ function SelectFuel({ label, value, options, onChange }: { label: string; value:
     </div>
   );
 }
+// Même débounce que TextFilter : « 2021 » ne doit pas filtrer sur « 2 »,
+// « 20 », « 202 » au passage (quatre recalculs complets pour une année).
 function NumRange({ label, from, to, onFrom, onTo }: { label: string; from?: number; to?: number; onFrom: (v: number | null) => void; onTo: (v: number | null) => void }) {
+  const f = useDebouncedField<string>(from != null ? String(from) : '', (v) => onFrom(v ? Number(v) : null));
+  const t = useDebouncedField<string>(to != null ? String(to) : '', (v) => onTo(v ? Number(v) : null));
   return (
     <div>
       <label className="block text-xs text-slate-600 mb-1">{label} (min–max)</label>
       <div className="grid grid-cols-2 gap-2">
-        <input value={from ?? ''} onChange={(e) => onFrom(e.target.value ? Number(e.target.value) : null)} placeholder="min" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
-        <input value={to ?? ''} onChange={(e) => onTo(e.target.value ? Number(e.target.value) : null)} placeholder="max" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+        <input value={f.local} onChange={(e) => f.set(e.target.value)} onBlur={f.flush} onKeyDown={(e) => { if (e.key === 'Enter') f.flush(); }} placeholder="min" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+        <input value={t.local} onChange={(e) => t.set(e.target.value)} onBlur={t.flush} onKeyDown={(e) => { if (e.key === 'Enter') t.flush(); }} placeholder="max" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
       </div>
     </div>
   );
 }
 function Num({ label, value, onChange }: { label: string; value?: number; onChange: (v: number | null) => void }) {
+  const f = useDebouncedField<string>(value != null ? String(value) : '', (v) => onChange(v ? Number(v) : null));
   return (
     <div>
       <label className="block text-xs text-slate-600 mb-1">{label}</label>
-      <input value={value ?? ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} placeholder="—" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+      <input value={f.local} onChange={(e) => f.set(e.target.value)} onBlur={f.flush} onKeyDown={(e) => { if (e.key === 'Enter') f.flush(); }} placeholder="—" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
     </div>
   );
 }
