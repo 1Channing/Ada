@@ -17,7 +17,15 @@ const LS_KEY = 'nego_photo_extractions_v1';
 // Les jobs worker vivent 15 min (purge INGEST_JOBS) — au-delà, l'entrée est morte.
 const MAX_AGE_MS = 15 * 60_000;
 
-interface PendingJob { jobId: string; startedAt: number }
+interface PendingJob {
+  jobId: string;
+  startedAt: number;
+  /** Analyse d'AJOUT (31/08) : compléter la carte au retour du worker —
+   *  seulement les champs que l'utilisateur n'a PAS saisis (sa saisie prime,
+   *  toujours). Persisté avec le job : survit navigation et rechargement. */
+  fillTitle?: boolean;
+  fillPrice?: boolean;
+}
 
 let pending = new Map<string, PendingJob>();      // negoId → job
 const pollingIds = new Set<string>();             // boucles de sondage actives
@@ -40,6 +48,8 @@ export function subscribeNegoExtractions(cb: () => void): () => void {
   return () => { listeners.delete(cb); };
 }
 export function isExtracting(negoId: string): boolean { return pending.has(negoId); }
+/** Nombre d'analyses en cours — nourrit l'indicateur global persistant. */
+export function extractingCount(): number { return pending.size; }
 export function extractionError(negoId: string): string | null { return errors.get(negoId) ?? null; }
 export function clearExtractionError(negoId: string): void { errors.delete(negoId); }
 
@@ -50,14 +60,17 @@ export function resumeNegoExtractions(): void {
   if (pending.size > 0) notify();
 }
 
-export async function startNegoExtraction(negoId: string, url: string): Promise<void> {
+export async function startNegoExtraction(
+  negoId: string, url: string,
+  fill?: { title?: boolean; price?: boolean },
+): Promise<void> {
   if (pending.has(negoId)) return; // déjà en cours
   errors.delete(negoId);
   const start = await supabase.functions.invoke('ingest-url', { body: { url, mode: 'listing_detail' } });
   if (start.error) throw new Error(start.error.message ?? 'edge ingest-url en échec');
   const jobId = (start.data as { jobId?: string } | null)?.jobId;
   if (!jobId) throw new Error('worker sans mode fiche annonce — réponse inattendue');
-  pending.set(negoId, { jobId, startedAt: Date.now() });
+  pending.set(negoId, { jobId, startedAt: Date.now(), fillTitle: fill?.title, fillPrice: fill?.price });
   saveStore(); notify();
   void poll(negoId);
 }
@@ -83,10 +96,24 @@ async function poll(negoId: string): Promise<void> {
       if (Date.now() - job.startedAt > MAX_AGE_MS) throw new Error("Délai dépassé — relance l'extraction");
       await new Promise((r) => setTimeout(r, 2500));
       const p = await supabase.functions.invoke('ingest-url', { body: { jobId: job.jobId } });
-      const d = p.data as { jobStatus?: string; message?: string; photos?: string[]; error?: string } | null;
+      const d = p.data as { jobStatus?: string; message?: string; photos?: string[]; error?: string; card?: { title?: string | null; price?: number | null } } | null;
       if (d?.jobStatus === 'done') {
+        // Carte lue par le worker : complète titre/prix laissés vides à
+        // l'ajout (la saisie de l'utilisateur prime — fill* le fige).
+        const patch: Record<string, unknown> = {};
+        if (job.fillTitle && d.card?.title) patch.title = d.card.title;
+        if (job.fillPrice && d.card?.price != null) patch.asking_price = d.card.price;
+        if (Object.keys(patch).length > 0) {
+          await supabase.from('negotiations')
+            .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', negoId);
+        }
         const photos = d.photos ?? [];
-        if (photos.length === 0) throw new Error("Aucune photo extraite de l'annonce");
+        if (photos.length === 0) {
+          // Une analyse d'ajout qui a au moins rempli la carte n'est pas un
+          // échec ; hors ajout (relance photos), 0 photo reste une erreur.
+          if (Object.keys(patch).length === 0) throw new Error("Aucune photo extraite de l'annonce");
+          return;
+        }
         await mergePhotos(negoId, photos);
         return;
       }

@@ -4,11 +4,11 @@ import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
 import {
   Negotiation, listNegotiations, createNegotiation, updateNegotiation,
-  deleteNegotiation, pushNegotiationToSale, extractListingDetail,
+  deleteNegotiation, pushNegotiationToSale,
   NegoConflict, listNegotiationConflicts,
 } from '../services/workflow';
 import { NegotiationPhotosModal } from '../components/NegotiationPhotos';
-import { resumeNegoExtractions, subscribeNegoExtractions, isExtracting } from '../services/negoExtraction';
+import { resumeNegoExtractions, subscribeNegoExtractions, isExtracting, extractingCount, extractionError, startNegoExtraction } from '../services/negoExtraction';
 
 /**
  * Ventes (ex-Administratif) : pipeline Négociations (perso) → Ventes (équipe).
@@ -80,23 +80,21 @@ function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
     setAdding(false); setTitle(''); setUrl(''); setPrice(''); setError(null); reload();
   };
 
-  // Ajout par la SEULE URL (annonce hors ADA) : le worker lit la page —
-  // titre, prix affiché, photos re-hébergées — et la négo se crée pré-remplie.
-  // Ce que TU as tapé (titre/prix) prime toujours sur ce que lit ADA.
+  // Ajout par la SEULE URL (annonce hors ADA) : la négo se crée TOUT DE
+  // SUITE et l'analyse part en ARRIÈRE-PLAN (demande Channing 31/08 — l'ancien
+  // flux bloquait la fenêtre 2,5 min max et mobile.de dépassait : escalade
+  // anti-bot 3 profils + miroir des photos = « Délai dépassé »). La fenêtre
+  // se ferme, la ligne mouline, le suivi survit à la navigation (store
+  // negoExtraction en localStorage). Ce que TU as tapé prime toujours : le
+  // worker ne complète que les champs laissés vides.
   const analyze = async () => {
     const u = url.trim();
     if (!u.startsWith('http')) { setError("Colle d'abord l'URL de l'annonce"); return; }
     setAnalyzing(true); setError(null);
     try {
-      const r = await extractListingDetail(u);
-      const { id, error: err } = await createNegotiation(
-        title.trim() || r.title || u,
-        u,
-        price ? Number(price) : r.price,
-        r.photos,
-      );
-      if (err) throw new Error(err);
-      void id;
+      const { id, error: err } = await createNegotiation(title.trim() || u, u, price ? Number(price) : null);
+      if (err || !id) throw new Error(err || 'création impossible');
+      await startNegoExtraction(id, u, { title: !title.trim(), price: !price });
       setAdding(false); setTitle(''); setUrl(''); setPrice(''); reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -151,6 +149,17 @@ function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
         </form>
       )}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+
+      {/* Indicateur d'analyse PERSISTANT (demande 31/08) : visible tant que
+          des analyses tournent, il revient tel quel si on change de page —
+          le store vit en localStorage et reprend au montage. */}
+      {extractingCount() > 0 && (
+        <div className="flex items-center gap-2 text-sm text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+          <Sparkles className="w-4 h-4 shrink-0" />
+          Analyse IA en cours — {extractingCount()} annonce{extractingCount() > 1 ? 's' : ''} (titre, prix et photos arrivent d'eux-mêmes, tu peux naviguer).
+        </div>
+      )}
 
       {loading ? <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>
         : rows.length === 0 ? (
@@ -258,6 +267,11 @@ function NegoRow({ n, conflicts, onChanged, onPushed }: { n: Negotiation; confli
             {n.negotiated_price != null && <> · négocié <span className="text-emerald-700 font-medium">{fmtEur(n.negotiated_price)}</span></>}
             {' · '}{new Date(n.updated_at).toLocaleDateString('fr-FR')}
           </p>
+          {/* Analyse d'ajout échouée : le dire SUR la ligne (la fenêtre
+              d'ajout est fermée depuis longtemps). */}
+          {extractionError(n.id) && (
+            <p className="text-[11px] text-red-600 mt-0.5">Analyse : {extractionError(n.id)}</p>
+          )}
         </div>
         {n.listing_url?.startsWith('http') && (
           <a href={n.listing_url} target="_blank" rel="noreferrer" title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 shrink-0"><ExternalLink className="w-4 h-4" /></a>
