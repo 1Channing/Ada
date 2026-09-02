@@ -102,7 +102,12 @@ export async function writeMarketSnapshot(params: {
     const lb = (l.brand ?? '').trim();
     if (segBrandKey && lb && brandKey(lb) !== segBrandKey) return false;
     const lm = (l.model ?? '').trim();
-    if (!segModel || !lm) return true;
+    // Sans modèle structuré, le TITRE peut quand même CONTREDIRE (constat
+    // Yaris 01/09 : la recherche TEXTE Marktplaats « yaris cross » sert
+    // aussi des Yaris simples, étiquetées Yaris Cross par l'héritage du
+    // segment) — « Yaris » sans « Cross » est une contradiction lisible.
+    if (!lm) return !segModel || !titleContradictsModel(segModel, l.title ?? '');
+    if (!segModel) return true;
     return modelKeyLoose(lm) === modelKeyLoose(segModel)
       || refModelKey(segment.brand, lm) === refModelKey(segment.brand, segModel);
   };
@@ -618,6 +623,26 @@ const softText = (v: string | null | undefined) =>
   (v ?? '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
     .replace(/[^a-z0-9]+/g, ' ').trim();
 
+/**
+ * Contradiction LISIBLE titre↔modèle (constat Yaris 01/09) : une page
+ * « Yaris Cross » sert aussi des Yaris simples (recherche TEXTE Marktplaats
+ * q:yaris+cross…) et l'observation héritait le modèle du SEGMENT. Règle :
+ * le titre porte le PREMIER mot du modèle composé mais PAS sa suite
+ * (« Yaris » sans « Cross ») → autre modèle, écartée. Un titre qui ne cite
+ * pas le modèle du tout reste (fail-open — beaucoup de titres tronqués
+ * « 1.5 Hybrid Dynamic | … »). Partagée écriture (identityOk) ET lecture
+ * (filterObservations : l'historique pollué disparaît de l'affichage).
+ */
+export function titleContradictsModel(model: string, title: string): boolean {
+  const words = softText(model).split(' ').filter(Boolean);
+  if (words.length < 2) return false;
+  const head = words[0];
+  const tail = words.slice(1).join(' ');
+  if (head.length < 2 || tail.length < 2) return false;
+  const t = ` ${softText(title)} `;
+  return t.includes(` ${head} `) && !t.includes(` ${head} ${tail}`);
+}
+
 export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_FILTERS): Observation[] {
   const trimNeedle = softText(f.trim);
   // Boîte : comparaison sur le TOKEN canonique — « Automatique » retient
@@ -641,6 +666,10 @@ export function filterObservations(obs: Observation[], f: MarketFilters = EMPTY_
     // refModelKey et non canonKey : « CLA » ≡ « CLASSE CLA », « SÉRIE 3 » ≡
     // « 3-SERIES » — l'identité modèle unifiée (chantier nommage 02/08).
     (!f.model || refModelKey(o.brand, o.model) === refModelKey(f.brand ?? o.brand, f.model)) &&
+    // L'historique étiqueté par HÉRITAGE de segment peut porter un autre
+    // modèle réel (Yaris dans un segment Yaris Cross, 01/09) — le titre
+    // qui contredit est écarté aussi à la lecture.
+    (!f.model || !titleContradictsModel(f.model, o.title ?? '')) &&
     (!trimNeedle || softText(o.trim).includes(trimNeedle) || softText(o.title).includes(trimNeedle)) &&
     fuelFilterMatches(o.fuel, f.fuel ?? '') &&
     (!gearboxToken || canonicalizeGearbox(o.gearbox) === gearboxToken) &&

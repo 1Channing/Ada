@@ -26,6 +26,7 @@ import {
   type StudyCriteria,
 } from '../src/lib/study-core/index';
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
+import { titleContradictsModel } from '../src/services/marketData';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import { mpSlugOfLabel } from '../src/lib/study-core/marketplaces/marktplaats';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
@@ -101,7 +102,13 @@ export async function recordStudyMarketSnapshot(
     if (!segment.brand || !segment.model || !segment.country) return;
     // Non-retail guard: "WithoutTax"/engros prices never enter a median.
     const isRetail = (l: ScrapedListing) => !/withouttax|without tax|engros|wholesale|excl/.test(((l as { priceType?: string | null }).priceType ?? '').toLowerCase());
-    const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetail(l));
+    // Identité modèle : l'observation hérite du modèle du SEGMENT — un titre
+    // qui le CONTREDIT lisiblement (« Yaris » sans « Cross » sur une page
+    // Yaris Cross, constat 01/09 : recherche texte Marktplaats) n'entre pas.
+    const identityOk = (l: ScrapedListing) => !titleContradictsModel(segment.model, l.title ?? '');
+    const contradicted = listings.filter((l) => !identityOk(l)).length;
+    if (contradicted > 0) console.warn(`[MARKET_SNAPSHOT] ${contradicted} annonce(s) écartée(s) — titre d'un autre modèle que ${segment.brand} ${segment.model} (${segment.site})`);
+    const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetail(l) && identityOk(l));
     if (priced.length === 0) {
       if (!verifiedEmpty) return;
       await supabase.from('market_snapshots').insert({
