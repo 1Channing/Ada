@@ -6,6 +6,7 @@ import {
   checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
 } from '../services/workflow';
 import { BODY_TYPES, bodyLabel } from '../lib/study-core/bodyTypes';
+import { humanListingUrl } from '../services/marketData';
 
 /** Identité visuelle des places de marché — badge normalisé partout. */
 const SITE_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
@@ -899,7 +900,7 @@ function ArchivedHitsSection({ archived, searches, defaultOpen = false }: { arch
               <div key={h.id} className="flex items-center gap-3 px-4 py-2">
                 <div className="min-w-0 flex-1 flex items-center gap-2">
                   {h.listing_url?.startsWith('http')
-                    ? <a href={h.listing_url} target="_blank" rel="noreferrer" className="text-sm text-slate-700 hover:text-blue-600 hover:underline truncate">{h.title || h.listing_url}</a>
+                    ? <a href={humanListingUrl(h.listing_url)} target="_blank" rel="noreferrer" className="text-sm text-slate-700 hover:text-blue-600 hover:underline truncate">{h.title || h.listing_url}</a>
                     : <span className="text-sm text-slate-700 truncate">{h.title || '(annonce)'}</span>}
                   <SiteBadge site={h.site} />
                   <span className="text-xs text-slate-400 shrink-0">{h.year ?? '—'}</span>
@@ -934,7 +935,7 @@ export function HitRow({ hit, searchLabel, onChanged, compact }: {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {hit.listing_url?.startsWith('http')
-            ? <a href={hit.listing_url} target="_blank" rel="noreferrer" className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate">{hit.title || hit.listing_url}</a>
+            ? <a href={humanListingUrl(hit.listing_url)} target="_blank" rel="noreferrer" className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate">{hit.title || hit.listing_url}</a>
             : <span className="font-medium text-slate-900 truncate">{hit.title || '(annonce)'}</span>}
           {drop != null && (
             <span className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0">
@@ -956,7 +957,7 @@ export function HitRow({ hit, searchLabel, onChanged, compact }: {
       {hit.status === 'inbox' && (
         <div className="flex items-center gap-1 shrink-0">
           {hit.listing_url?.startsWith('http') && !compact && (
-            <a href={hit.listing_url} target="_blank" rel="noreferrer" title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><ExternalLink className="w-4 h-4" /></a>
+            <a href={humanListingUrl(hit.listing_url)} target="_blank" rel="noreferrer" title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><ExternalLink className="w-4 h-4" /></a>
           )}
           <HitActionsMenu hit={hit} onChanged={onChanged} />
         </div>

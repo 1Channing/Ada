@@ -633,6 +633,20 @@ const softText = (v: string | null | undefined) =>
  * « 1.5 Hybrid Dynamic | … »). Partagée écriture (identityOk) ET lecture
  * (filterObservations : l'historique pollué disparaît de l'affichage).
  */
+/**
+ * URL d'annonce pour un HUMAIN (constat Channing 01/09) : Gaspedaal n'a pas
+ * de page détail — l'identité stockée est « URL de recherche + #id » (l'@id
+ * JSON-LD). Or l'ancre nue ne matche pas le DOM : les cartes portent
+ * id="oc{id}" (sonde 01/09). Réécrite à l'AFFICHAGE seulement — l'identité
+ * stockée ne bouge pas (elle porte la vélocité et le dédoublonnage) — le
+ * navigateur ouvre la recherche POSITIONNÉE sur la carte de l'annonce.
+ */
+export function humanListingUrl(url: string | null | undefined): string {
+  const u = url ?? '';
+  if (/gaspedaal\.nl/.test(u)) return u.replace(/#(\d{6,})$/, '#oc$1');
+  return u;
+}
+
 export function titleContradictsModel(model: string, title: string): boolean {
   const words = softText(model).split(' ').filter(Boolean);
   if (words.length < 2) return false;

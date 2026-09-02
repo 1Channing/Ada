@@ -10,7 +10,7 @@ import {
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, velocityByCountry, velocitySegmentListings, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
   studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing, canonicalizeGearbox, GEARBOX_LABELS,
   loadSnapshots, loadObservedDimensions, loadObservationsForStudy, attackPrice, FUEL_TOKEN_TO_CRITERIA,
-  pruneVanishedListings,
+  pruneVanishedListings, humanListingUrl,
 } from '../services/marketData';
 import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { CRITERIA_DETECTORS } from '../lib/linkgen/grammar';
@@ -1270,8 +1270,8 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                     // blanc garde les chevauchements lisibles. Cible ≥ 8 px.
                     shape={(props: { cx?: number; cy?: number; fill?: string }) => scatterMark(i, props)}
                     onClick={((pt: { o?: Observation }) => {
-                      const url = pt?.o?.listing_url;
-                      if (url?.startsWith('http')) window.open(url, '_blank', 'noopener');
+                      const url = humanListingUrl(pt?.o?.listing_url);
+                      if (url.startsWith('http')) window.open(url, '_blank', 'noopener');
                     }) as never}
                   />
                 ))}
@@ -1311,7 +1311,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-medium text-slate-900">{fmtEur(o.price)}</span>
                           {o.listing_url?.startsWith('http')
-                            ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs shrink-0">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                            ? <a href={humanListingUrl(o.listing_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs shrink-0">Ouvrir <ExternalLink className="w-3 h-3" /></a>
                             : <span className="text-slate-400 text-xs shrink-0">—</span>}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
@@ -1477,7 +1477,7 @@ function VelocityCard({ velocity, coverageDays, observations }: { velocity: Velo
                     {velocitySegmentListings(observations, v.segmentId).slice(0, 40).map((l, i) => (
                       <div key={i} className="flex items-center gap-2">
                         {l.listing_url ? (
-                          <a href={l.listing_url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline truncate flex-1" title={l.title ?? ''}>
+                          <a href={humanListingUrl(l.listing_url)} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline truncate flex-1" title={l.title ?? ''}>
                             {l.title || l.listing_url}
                           </a>
                         ) : (
@@ -1562,7 +1562,7 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
               <td className="py-2 pr-3 text-slate-700">{fuelLabel(o.fuel)}</td>
               <td className="py-2">
                 {o.listing_url?.startsWith('http')
-                  ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                  ? <a href={humanListingUrl(o.listing_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
                   : <span className="text-slate-400 text-xs">—</span>}
               </td>
             </tr>
