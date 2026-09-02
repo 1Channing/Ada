@@ -465,6 +465,8 @@ export function parseListingDetailCard(html: string, listingUrl: string): Listin
     // « … - Kecskemét, Autó - Jófogás »). La queue localité Jófogás
     // (« - {ville}, Autó ») tombe avec le même coup de rabot.
     .replace(/\s*[-|–]\s*(?:bilbasen|j[oó]fog[aá]s|blocket|skelbiu|marktplaats|mobile\.de|autoscout24|subito)\b.*$/iu, '')
+    // LBC : queue catégorie « … - Voitures » du <title> (constat Ignis 02/09).
+    .replace(/\s*-\s*voitures\s*$/iu, '')
     .replace(/\s*-\s*\p{Lu}\p{L}+,\s*aut[oó]\s*$/iu, '')
     // Skelbiu : queue « | A31661975 » (code d'annonce dans le <title>,
     // sonde 30/08).
