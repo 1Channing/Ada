@@ -111,6 +111,23 @@ serait firstOnlineDateDesc (forme symétrique, non encore posée : on trie
 priceAsc). powerDIN par annonce absent du hit principal (lu tolérant,
 similarHits le portent) — la puissance reste un filtre d'URL.
 
+## -1bis-FAIT (03/09). BIBLIOTHÈQUE par site (Truth Center, ex-« Lacunes »)
+
+GO Channing 03/09. Le savoir d'un site à plat : registre des critères
+évalué EN DIRECT **par valeur** (l'URL change quand la valeur est posée,
+support = marque seule ; sous-types prouvés contre l'URL de la famille),
+marques/modèles vs référentiel constructeur (filtre « Recherche
+active »), santé (dictionnaire, mémoire, moisson), geste « Apprendre »
+(URL humaine → critères relus par l'adaptateur → ingestion ; grammaire
+PROPOSÉE tant qu'un scrape chiffré ne confirme pas).
+**Lacunes trouvées par l'outil le 03/09 (à combler par URL humaine ou
+grammaire) :** Gaspedaal ESSENCE (aucun segment /benzine posé) ; Leboncoin
+GPL (aucun code fuel posé) ; Marktplaats MANUELLE = post-filtre (pas de
+facette) ; Marktplaats hybride + MODÈLE : la reconstruction path-based ne
+combine pas modèle et carburant famille (marque seule OK) — rejoint §3.
+Reste : vélocité native par site (preuve par données), persistance du
+statut « proposée » (aujourd'hui message seulement).
+
 ## -2. CRITÈRE CARROSSERIE (demandé Channing 27/08 — Corolla GR Sport NL)
 
 Une étude « Corolla GR sport hybride 2022 » rend hatchback ET Touring

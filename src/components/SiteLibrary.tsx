@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, CheckCircle2, Filter, Loader2, Link2, AlertTriangle, ChevronRight } from 'lucide-react';
+import { BookOpen, Filter, Loader2, Link2, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/study-core/marketplaces';
@@ -44,21 +44,35 @@ const MODEL_FIELD_PREFIX: Record<string, string> = {
 };
 const siteFamily = (key: string) => (key.startsWith('AUTOSCOUT') ? 'AUTOSCOUT' : key);
 
-// Critères du canon ADA + comment le worker les couvre quand le site ne les
-// pose pas nativement (post-filtres durs prouvés : boîte, carrosserie,
-// puissance, finition sur le titre).
-const CANON: Array<{ key: string; label: string; postFilter: boolean; hint: string }> = [
-  { key: 'année', label: 'Année (min–max)', postFilter: false, hint: 'fregfrom/regdate/bmin…' },
-  { key: 'km', label: 'Kilométrage max', postFilter: false, hint: 'kmto/mileage/kmax…' },
-  { key: 'carburant', label: 'Carburant', postFilter: false, hint: 'fuel/energies/hybride…' },
-  { key: 'rechargeable', label: 'Hybride rechargeable (sous-type)', postFilter: true, hint: 'fuel=8, facette 13956, plug_hyb — sinon famille hybride + tri par titre' },
-  { key: 'boîte', label: 'Boîte automatique', postFilter: true, hint: 'gear=A/gearbox=2… — sinon post-filtre dur' },
-  { key: 'puissance', label: 'Puissance min', postFilter: true, hint: 'powerfrom/pw/horse_power_din… — sinon post-filtre' },
-  { key: 'finition', label: 'Finition (texte)', postFilter: true, hint: 'kwd/trefw/versions/text… — sinon filtre sur le titre' },
-  { key: 'carrosserie', label: 'Carrosserie (8 types LBC)', postFilter: true, hint: 'vehicle_type/body/categories/crs… — sinon post-filtre dur' },
-  { key: 'société', label: 'Véhicule société', postFilter: true, hint: 'voituresociete/80/bedrijfswagen — sinon post-filtre' },
+// Critères du canon ADA, chacun avec ses VALEURS (demande Channing 03/09 :
+// « automatique » ne prouve pas « manuelle », « SUV » ne prouve pas les 7
+// autres). Chaque valeur est évaluée à part et porte son lien de preuve.
+// postFilter = quand le site ne sait pas, le worker trie après le scrape.
+interface CanonValue { label: string; extra: Record<string, unknown>; /** Sous-type : natif seulement si l'URL diffère AUSSI de celle-ci. */ distinctFrom?: Record<string, unknown> }
+interface CanonCriterion { key: string; label: string; postFilter: boolean; values: CanonValue[] }
+const CANON: CanonCriterion[] = [
+  { key: 'année', label: 'Année', postFilter: false, values: [{ label: '2022 – 2024', extra: { yearFrom: '2022', yearTo: '2024' } }] },
+  { key: 'km', label: 'Kilométrage max', postFilter: false, values: [{ label: '≤ 90 000 km', extra: { mileage: 90000 } }] },
+  { key: 'carburant', label: 'Carburant', postFilter: false, values: [
+    { label: 'Essence', extra: { fuel: 'ESSENCE' } }, { label: 'Diesel', extra: { fuel: 'DIESEL' } },
+    { label: 'Hybride', extra: { fuel: 'HYBRIDE' } }, { label: 'Hybride rechargeable', extra: { fuel: 'PLUG_IN_HYBRID' }, distinctFrom: { fuel: 'HYBRIDE' } },
+    { label: 'Micro-hybride', extra: { fuel: 'MILD_HYBRID' }, distinctFrom: { fuel: 'HYBRIDE' } }, { label: 'Électrique', extra: { fuel: 'ELECTRIQUE' } },
+    { label: 'GPL', extra: { fuel: 'GPL' } },
+  ] },
+  { key: 'boîte', label: 'Boîte de vitesses', postFilter: true, values: [
+    { label: 'Automatique', extra: { gearbox: 'AUTOMATIQUE' } }, { label: 'Manuelle', extra: { gearbox: 'MANUELLE' } },
+  ] },
+  { key: 'puissance', label: 'Puissance min', postFilter: true, values: [{ label: '≥ 150 ch', extra: { minPower: 150 } }] },
+  { key: 'finition', label: 'Finition (texte libre)', postFilter: true, values: [{ label: '« GR Sport »', extra: { trim: 'GR Sport' } }] },
+  { key: 'carrosserie', label: 'Carrosserie (canon 8 types)', postFilter: true, values: [
+    { label: '4x4 / SUV', extra: { vehicleType: 'suv' } }, { label: 'Berline', extra: { vehicleType: 'berline' } },
+    { label: 'Break', extra: { vehicleType: 'break' } }, { label: 'Citadine', extra: { vehicleType: 'citadine' } },
+    { label: 'Monospace', extra: { vehicleType: 'monospace' } }, { label: 'Coupé', extra: { vehicleType: 'coupe' } },
+    { label: 'Cabriolet', extra: { vehicleType: 'cabriolet' } }, { label: 'Véhicule société', extra: { vehicleType: 'societe' } },
+  ] },
 ];
 type Status = 'natif' | 'post-filtre' | 'absent';
+interface RegistryRow { key: string; value: string; status: Status; url: string | null }
 
 export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
   const sites = useMemo(() => allSiteAdapters()
@@ -69,7 +83,7 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
 
   const [dict, setDict] = useState<DictRow[] | null>(null);
   const [memory, setMemory] = useState<MemoryRow[] | null>(null);
-  const [registry, setRegistry] = useState<Array<{ key: string; status: Status; url: string | null }> | null>(null);
+  const [registry, setRegistry] = useState<RegistryRow[] | null>(null);
   const [ref, setRef] = useState<RefWindowMap | null>(null);
   const [activeOnly, setActiveOnly] = useState(true);
   const [openBrand, setOpenBrand] = useState<string | null>(null);
@@ -192,30 +206,43 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
         <Kpi label="Entrées de dictionnaire" value={dict ? String(dict.length) : '…'} hint={lastHarvest ? `dernière moisson ${new Date(lastHarvest).toLocaleDateString('fr-FR')}` : 'jamais moissonné'} />
         <Kpi label="Marques apprises" value={dict ? String(learned.brands.size) : '…'} hint={`référentiel : ${refBrands.size}`} />
         <Kpi label="URLs humaines en mémoire" value={memory ? String(memory.length) : '…'} hint={memory ? Object.entries(memStats).map(([k, n]) => `${n} ${k}`).join(' · ') || '—' : ''} />
-        <Kpi label="Critères natifs" value={registry ? `${registry.filter((r) => r.status === 'natif').length}/${CANON.length}` : '…'} hint={registry ? `${registry.filter((r) => r.status === 'post-filtre').length} post-filtre · ${registry.filter((r) => r.status === 'absent').length} absent` : ''} />
+        <Kpi label="Valeurs de critère natives" value={registry ? `${registry.filter((r) => r.status === 'natif').length}/${registry.length}` : '…'} hint={registry ? `${registry.filter((r) => r.status === 'post-filtre').length} post-filtre · ${registry.filter((r) => r.status === 'absent').length} absent` : ''} />
       </div>
 
       {/* ── 1. Registre des critères ── */}
       <section className="bg-white border border-slate-200 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-slate-800 mb-1">Registre des critères</h3>
         <p className="text-xs text-slate-500 mb-3">Évalué en direct : ADA génère l'URL de ce site avec chaque critère posé et lit l'URL produite. <b>Natif</b> = le site filtre lui-même · <b>Post-filtre</b> = le site ne sait pas, ADA trie après le scrape (page plus large, profondeur réduite) · <b>Absent</b> = le critère est perdu.</p>
-        {!registry ? <p className="text-xs text-slate-400"><Loader2 className="w-3.5 h-3.5 inline animate-spin" /> génération…</p> : (
-          <ul className="divide-y divide-slate-100">
+        {!registry ? <p className="text-xs text-slate-400"><Loader2 className="w-3.5 h-3.5 inline animate-spin" /> génération des URLs de preuve…</p> : (
+          <div className="space-y-3">
             {CANON.map((c) => {
-              const r = registry.find((x) => x.key === c.key);
-              const st: Status = r?.status ?? 'absent';
+              const rows = registry.filter((r) => r.key === c.key);
+              const natif = rows.filter((r) => r.status === 'natif').length;
               return (
-                <li key={c.key} className="py-2 flex items-center gap-3 text-sm">
-                  <StatusPill status={st} />
-                  <span className="text-slate-800 w-56 shrink-0">{c.label}</span>
-                  <span className="text-xs text-slate-400 truncate flex-1">{c.hint}</span>
-                  {r?.url && st === 'natif' && (
-                    <a href={r.url} target="_blank" rel="noreferrer" className="text-xs text-brand-ocean hover:underline shrink-0">voir l'URL</a>
-                  )}
-                </li>
+                <div key={c.key} className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-medium text-slate-800">{c.label}</span>
+                    <span className={`text-[11px] rounded-full px-2 py-0.5 border ${natif === rows.length ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : natif === 0 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600'}`}>
+                      {natif}/{rows.length} natif{natif > 1 ? 's' : ''}
+                    </span>
+                    {natif < rows.length && <span className="text-[11px] text-slate-400">{c.postFilter ? 'le reste est trié après le scrape' : 'le reste est perdu'}</span>}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {rows.map((r) => (
+                      <span key={r.value} className={`inline-flex items-center gap-1.5 text-xs rounded-lg border px-2 py-1 ${r.status === 'natif' ? 'bg-white border-emerald-200 text-slate-800' : r.status === 'post-filtre' ? 'bg-white border-amber-200 text-slate-600' : 'bg-white border-rose-200 text-slate-500'}`}>
+                        <StatusDot status={r.status} />
+                        {r.value}
+                        {r.url && r.status === 'natif' && (
+                          <a href={r.url} target="_blank" rel="noreferrer" title="Ouvrir la recherche de preuve sur le site" className="text-brand-ocean hover:underline">URL ↗</a>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               );
             })}
-          </ul>
+            <p className="text-[11px] text-slate-400">Support des URLs de preuve : la marque seule (jamais un modèle, pour qu'une carrosserie ou un carburant garde son sens) — natif = l'URL change quand la valeur est posée.</p>
+          </div>
         )}
         <TeachUrl site={site} onLearned={() => setSiteKey((k) => k)} label="Le site sait filtrer un critère marqué post-filtre ou absent ? Colle une URL humaine qui porte ce filtre — ADA en apprend la forme." />
       </section>
@@ -271,32 +298,35 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
 
 // ─── Évaluation dynamique du registre ────────────────────────────────────────
 
-async function evaluateRegistry(site: SiteKey, brand: string, model: string) {
-  const base = { selectedSites: [site], brand, model };
-  const gen = async (extra: Record<string, unknown>) => {
+async function evaluateRegistry(site: SiteKey, brand: string, model: string): Promise<RegistryRow[]> {
+  // Support = la MARQUE SEULE quand le site accepte une recherche sans modèle
+  // (une carrosserie « SUV » sur une Clio serait contradictoire) ; repli sur
+  // marque + modèle pour les sites qui exigent un modèle.
+  const gen = async (base: { brand: string; model: string }, extra: Record<string, unknown>) => {
     try {
-      const g = await generateSearchUrlsWithMemory({ ...base, ...extra } as never);
+      const g = await generateSearchUrlsWithMemory({ selectedSites: [site], ...base, ...extra } as never);
       return g[0]?.url && g[0].url.length > 10 ? g[0].url : null;
     } catch { return null; }
   };
-  const out: Array<{ key: string; status: Status; url: string | null }> = [];
-  const test = async (key: string, extra: Record<string, unknown>, detector: string, postFilter: boolean) => {
-    const url = await gen(extra);
-    const native = !!url && CRITERIA_DETECTORS[detector]?.test(url);
-    out.push({ key, status: native ? 'natif' : postFilter ? 'post-filtre' : 'absent', url });
-  };
-  await test('année', { yearFrom: '2022', yearTo: '2024' }, 'année', false);
-  await test('km', { mileage: 90000 }, 'km', false);
-  await test('carburant', { fuel: 'HYBRIDE' }, 'carburant', false);
-  // Rechargeable : natif seulement si l'URL PLUG_IN diffère de l'URL HYBRIDE.
-  const hyb = await gen({ fuel: 'HYBRIDE' });
-  const phev = await gen({ fuel: 'PLUG_IN_HYBRID' });
-  out.push({ key: 'rechargeable', status: hyb && phev && hyb !== phev ? 'natif' : 'post-filtre', url: phev });
-  await test('boîte', { gearbox: 'AUTOMATIQUE' }, 'boîte', true);
-  await test('puissance', { minPower: 150 }, 'puissance', true);
-  await test('finition', { trim: 'GR Sport' }, 'finition', true);
-  await test('carrosserie', { vehicleType: 'suv' }, 'carrosserie', true);
-  await test('société', { vehicleType: 'societe' }, 'carrosserie', true);
+  let base = { brand, model: '' };
+  let ref = await gen(base, {});
+  if (!ref) { base = { brand, model }; ref = await gen(base, {}); }
+  const out: RegistryRow[] = [];
+  for (const c of CANON) {
+    for (const v of c.values) {
+      const url = await gen(base, v.extra);
+      // Preuve empirique : l'URL CHANGE quand la valeur est posée (les
+      // applicateurs posent-ou-retirent ; une valeur non supportée laisse
+      // l'URL intacte). Le détecteur du registre confirme en second.
+      let changed = !!url && !!ref && url !== ref;
+      // Sous-type (rechargeable, micro-hybride) : « hybride » posé ne prouve
+      // rien — l'URL doit différer de celle de la famille.
+      if (changed && v.distinctFrom) { const fam = await gen(base, v.distinctFrom); changed = !!fam && url !== fam; }
+      const detected = !!url && !!CRITERIA_DETECTORS[c.key]?.test(url);
+      const native = changed || (detected && !ref);
+      out.push({ key: c.key, value: v.label, status: native ? 'natif' : c.postFilter ? 'post-filtre' : 'absent', url });
+    }
+  }
   return out;
 }
 
@@ -370,10 +400,10 @@ function TeachUrl({ site, onLearned, label }: { site: { key: string; domain: str
 
 // ─── Petits rendus ────────────────────────────────────────────────────────────
 
-function StatusPill({ status }: { status: Status }) {
-  if (status === 'natif') return <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 w-24 justify-center shrink-0"><CheckCircle2 className="w-3 h-3" /> natif</span>;
-  if (status === 'post-filtre') return <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 w-24 justify-center shrink-0"><Filter className="w-3 h-3" /> post-filtre</span>;
-  return <span className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5 w-24 justify-center shrink-0"><AlertTriangle className="w-3 h-3" /> absent</span>;
+function StatusDot({ status }: { status: Status }) {
+  const cls = status === 'natif' ? 'bg-emerald-500' : status === 'post-filtre' ? 'bg-amber-400' : 'bg-rose-400';
+  const title = status === 'natif' ? 'natif — le site filtre lui-même' : status === 'post-filtre' ? 'post-filtre — ADA trie après le scrape' : 'absent — critère perdu';
+  return <span title={title} className={`w-2 h-2 rounded-full shrink-0 ${cls}`} />;
 }
 
 function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
