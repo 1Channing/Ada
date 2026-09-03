@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw, Map as MapIcon, AlertTriangle } from 'lucide-react';
-import { KnowledgeMap } from '../components/KnowledgeMap';
+import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw, BookOpen, AlertTriangle } from 'lucide-react';
+import { SiteLibrary } from '../components/SiteLibrary';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
 import { brandKey, refModelKey } from '../services/marketData';
@@ -133,8 +133,9 @@ export function TruthCenter() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   // Deux visages (demande Channing 29/08) : « Doutes » = ce qu'ADA croit voir
-  // et qu'un humain doit confirmer ; « Lacunes » = ce qu'ADA SAIT ne pas
-  // savoir (slugs manquants), croisement études actives × dictionnaires.
+  // et qu'un humain doit confirmer ; « Bibliothèque » (03/09, ex-Lacunes) =
+  // le savoir d'un site à plat — registre des critères, marques/modèles vs
+  // référentiel, santé — et le geste pour combler à l'endroit du trou.
   const [tab, setTab] = useState<'doutes' | 'lacunes'>('doutes');
 
   const load = async () => {
@@ -213,7 +214,7 @@ export function TruthCenter() {
       <div className="flex gap-1 border-b border-slate-200">
         {([
           ['doutes', AlertTriangle, `Doutes remarqués${open.length ? ` (${open.length})` : ''}`],
-          ['lacunes', MapIcon, 'Lacunes assumées'],
+          ['lacunes', BookOpen, 'Bibliothèque'],
         ] as const).map(([id, Icon, label]) => (
           <button
             key={id}
@@ -227,7 +228,7 @@ export function TruthCenter() {
         ))}
       </div>
 
-      {tab === 'lacunes' && <KnowledgeMap studies={studies} />}
+      {tab === 'lacunes' && <SiteLibrary studies={studies} />}
 
       {tab === 'doutes' && <>
       {error && (
