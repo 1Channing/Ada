@@ -43,6 +43,11 @@ const TICK_MS = 10 * 60 * 1000;
 // (5 pages × ~25-30 par page), sinon la 5e page serait coupée à 100.
 const MAX_PAGES = 3;
 const MAX_PAGES_PRECISE = 5;
+// Études en PARALLÈLE par vague (GO Channing 03/09) : la file séquentielle
+// mettait ~3 min par étude × ~45 études = 2 h 15 le matin. 3 à la fois =
+// 3 requêtes Zyte simultanées au plus (chaque étude scrape ses sites en
+// série) — tenable pour les quotas et l'anti-bot ; réglable sans redéploiement.
+const DAILY_CONCURRENCY = Math.max(1, Math.min(6, parseInt(process.env.DAILY_CONCURRENCY ?? '3', 10) || 3));
 const MAX_LISTINGS_PRECISE = 150;
 // 1 000 € — ALIGNÉ sur le radar SQL et la lecture MI (26/08) : les loyers de
 // leasing dépassent souvent 500 € (« 294 €/mois », « 620 €/mois »…) et un
@@ -145,13 +150,22 @@ async function tick(): Promise<void> {
       .lte('run_hour', hour);
     if (error) { console.warn(`[DAILY] lecture des recherches impossible: ${error.message}`); return; }
     const due = ((data ?? []) as SearchRow[]).filter((s) => parisDay(s.last_run_at ?? undefined) !== today || !s.last_run_at);
-    for (const s of due) {
-      try {
-        await runDailySearch(s);
-      } catch (e) {
-        console.warn(`[DAILY] échec « ${s.label || s.brand} »: ${e instanceof Error ? e.message : String(e)}`);
+    if (due.length > 0) console.warn(`[DAILY] vague : ${due.length} étude(s) due(s), ${DAILY_CONCURRENCY} en parallèle`);
+    // Pool : chaque « ouvrier » prend l'étude suivante de la file dès qu'il
+    // a fini la sienne — une étude en échec est loggée, la file continue.
+    let next = 0;
+    const worker = async () => {
+      for (;;) {
+        const s = due[next++];
+        if (!s) return;
+        try {
+          await runDailySearch(s);
+        } catch (e) {
+          console.warn(`[DAILY] échec « ${s.label || s.brand} »: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(DAILY_CONCURRENCY, due.length) }, worker));
     // Fin de vague d'écriture → rangement (étage 2 : > 60 j vers l'archive,
     // jamais de suppression), recalcul des tableaux MI (étage 1), puis
     // balayage des signaux de doute (Truth Center brique 1) sur les données
