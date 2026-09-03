@@ -133,6 +133,10 @@ async function pollForcedRuns(): Promise<void> {
     }
     // Les tableaux MI précalculés suivent la vague d'écriture (étage 1).
     await refreshDashboards('étude forcée');
+    // Un forçage est aussi le moyen de TESTER les briques 3b/4/5 sans
+    // attendre la vague du matin (« Lancer maintenant » → badge, cas dorés,
+    // digest recalculés dans la foulée).
+    await runTruthLoop('étude forcée');
   } finally {
     running = false;
   }
