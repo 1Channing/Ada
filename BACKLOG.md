@@ -24,7 +24,12 @@ seule — pages de liste ET de détail) :
 - AUCUN MARQUEUR (liste ni détail) : mobile.de, Blocket → naissance =
   notre première observation (first_seen).
 
-## -1. CARTE EUROPE DU RÉSEAU + OUTIL D'INTÉGRATION DE SITES (proposé 18/08, en attente de validation Channing)
+## -1. CARTE EUROPE DU RÉSEAU + OUTIL D'INTÉGRATION DE SITES (proposé 18/08 — carte RÉSERVÉE par Channing 03/09 pour une session dédiée de 2 h)
+
+**Exigence actée 03/09 pour la carte : UI magnifique et fluide, carte
+interactive (pan/zoom, épingles, panneaux dépliants, filtres en direct) —
+fond cartographique vectoriel (MapLibre/OSM) ou SVG maison selon la
+fluidité mesurée ; rien de « tableau déguisé ».**
 
 Deux chantiers liés, proposition détaillée envoyée le 18/08 (voir la
 discussion de session) :
@@ -442,7 +447,7 @@ reconstruire que des URLs à templates query/hash. Écrire le reconstructeur
 path-based (`/{brandSlug}/f/{...}/{ids}/`) pour exploiter ces mappings —
 c'est le débouché naturel des ingestions Marktplaats.
 
-## 4. Découpage des clusters de facettes Marktplaats
+## 4-ABSORBÉ (03/09). Découpage des clusters de facettes Marktplaats — les facettes sont désormais moissonnées UNE PAR UNE avec leur libellé (mp:facet:fuel, body, transmission… 782 entrées), l'isolement par différence d'ensembles n'a plus d'objet
 
 Un segment d'IDs (`1232+13838`) combine plusieurs facettes. Aujourd'hui, si le
 scraping ne confirme pas TOUTES les facettes d'un cluster, on jette les IDs de
@@ -463,7 +468,7 @@ en série, worker qui redémarre). Accès direct via `ADA_SUPABASE_URL` +
 `*.supabase.co` — à re-vérifier à la prochaine session ("vérifie l'accès
 aux logs").
 
-## 4sexies. Accidentées — exclusion À LA SOURCE dans les URLs (différé, acté 01/08)
+## 4sexies. Accidentées — exclusion À LA SOURCE dans les URLs (différé, acté 01/08 — RECONFIRMÉ 03/09 : « pas d'erreurs avec des accidentées pour le moment », on garde)
 
 Le nettoyage à la LECTURE est livré (01/08) : détecteur négation-d'abord
 `isDamagedVehicleText` (business-logic) branché sur le MI, les études
@@ -480,7 +485,7 @@ humaine avec le filtre coché par site, ou la valider par scrape comparatif
 consommeront plus de place dans les 3 pages scrapées (elles trustent le bas
 du tri prix croissant).
 
-## 4ter. MI différés (validés sur le principe 21/07, « pas d'urgence »)
+## 4ter-ÉCARTÉ (03/09). MI différés — carte de couverture et sparklines : « j'y vois moins d'intérêt maintenant » (Channing). Conservé pour mémoire.
 
 - **Carte de couverture** : onglet MI, grille modèle × pays colorée par
   fraîcheur du dernier snapshot, bouton « campagne sur les trous » qui

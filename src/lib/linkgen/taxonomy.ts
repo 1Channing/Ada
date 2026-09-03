@@ -92,6 +92,29 @@ export async function ensureLearnedTaxonomy(): Promise<void> {
  * apprendre (learnEnumValues). Appelé au chargement de la connaissance de
  * campagne et au boot ingestion — idempotent, silencieux si table vide.
  */
+/**
+ * ENUMS APPRIS lisibles par les GRAMMAIRES (dette validée Channing 03/09) :
+ * les applicateurs du registre lisaient des tables fixes alors que le
+ * dictionnaire savait déjà (LEBONCOIN fuel 3 → GPL, GASPEDAAL benzine →
+ * ESSENCE). Carte site → champ → libellé ADA canonique → code du site,
+ * remplie par loadLearnedTaxonomy. Repli GARDÉ côté applicateur : seulement
+ * quand la table fixe ne sait pas, et seulement si le code a la forme du
+ * site (le dictionnaire porte aussi du bruit : « 5-serie → HYBRIDE »).
+ */
+const LEARNED_CODES = new Map<string, Map<string, Map<string, string>>>();
+const enumKey = (label: string) => label.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+export function learnedEnumCode(site: string, field: string, label: string | null | undefined): string | null {
+  const l = String(label ?? '').trim();
+  if (!l) return null;
+  return LEARNED_CODES.get(site)?.get(field)?.get(enumKey(l)) ?? null;
+}
+function rememberLearnedCode(site: string, field: string, code: string, label: string): void {
+  const bySite = LEARNED_CODES.get(site) ?? LEARNED_CODES.set(site, new Map()).get(site)!;
+  const byField = bySite.get(field) ?? bySite.set(field, new Map()).get(field)!;
+  const k = enumKey(label);
+  if (k && !byField.has(k)) byField.set(k, code);
+}
+
 export async function loadLearnedTaxonomy(): Promise<void> {
   taxonomyLoaded = true;
   for (const adapter of allSiteAdapters()) {
@@ -116,6 +139,7 @@ export async function loadLearnedTaxonomy(): Promise<void> {
       if (!page || page.length < 1000) break;
     }
     if (readError || !data.length) continue;
+    for (const r of data) rememberLearnedCode(String(adapter.key), r.field, r.code, r.label);
     const byField = new Map<string, Array<{ code: string; label: string }>>();
     for (const r of data) {
       const list = byField.get(r.field) ?? [];

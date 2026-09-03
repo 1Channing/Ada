@@ -21,6 +21,7 @@
  */
 
 import { resolveYearRange } from '../study-core/marketplaces/urlTemplate';
+import { learnedEnumCode } from './taxonomy';
 import { canonicalizeBody } from '../study-core/bodyTypes';
 import type { LinkGenParams } from './types';
 
@@ -230,7 +231,11 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
         ELECTRIQUE: '4', ELECTRIC: '4',
         HYBRIDE: '6', HYBRID: '6', MILD_HYBRID: '6',
         PLUG_IN_HYBRID: '8', PHEV: '8',
-      }[String(params.fuel ?? '').trim().toUpperCase()];
+      }[String(params.fuel ?? '').trim().toUpperCase()]
+        // Repli GARDÉ sur l'enum appris (dictionnaire LEBONCOIN fuel : 3 →
+        // GPL, 7 → GNV — enum humain confirmé, constat Bibliothèque 03/09) ;
+        // un code Leboncoin est toujours numérique.
+        ?? (() => { const c = learnedEnumCode('LEBONCOIN', 'fuel', String(params.fuel ?? '')); return c && /^\d+$/.test(c) ? c : undefined; })();
       return setQueryParamRaw(url, 'fuel', code ?? null);
     },
     // Boîte : codes du site PROUVÉS (enum humain confirmé en base,
@@ -400,11 +405,21 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
         const u = new URL(url);
         const VOCAB = new Set(['benzine', 'diesel', 'elektrisch', 'hybride', 'lpg', 'waterstof']);
         const segs = u.pathname.split('/').filter(Boolean).filter((s) => !VOCAB.has(s.toLowerCase()));
+        const want = String(params.fuel ?? '').trim().toUpperCase();
         const slug = {
           HYBRIDE: 'hybride', HYBRID: 'hybride',
           PLUG_IN_HYBRID: 'hybride', PHEV: 'hybride', MILD_HYBRID: 'hybride',
           DIESEL: 'diesel',
-        }[String(params.fuel ?? '').trim().toUpperCase()];
+          // Segments du site moissonnés (gp:fuel : benzine, elektrisch, lpg —
+          // slugs littéraux du vocabulaire Gaspedaal, constat Bibliothèque
+          // 03/09 : « Essence » ne posait rien).
+          ESSENCE: 'benzine', PETROL: 'benzine', GASOLINE: 'benzine',
+          ELECTRIQUE: 'elektrisch', ELECTRIC: 'elektrisch',
+          GPL: 'lpg', LPG: 'lpg',
+        }[want]
+          // Repli gardé : enum appris, accepté seulement s'il est un segment
+          // du vocabulaire du site (écarte le bruit « 5-serie »).
+          ?? (() => { const c = learnedEnumCode('GASPEDAAL', 'fuel', want); return c && VOCAB.has(c.toLowerCase()) ? c.toLowerCase() : undefined; })();
         if (slug) segs.push(slug);
         u.pathname = `/${segs.join('/')}`;
         return u.toString();
