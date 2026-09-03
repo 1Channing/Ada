@@ -116,6 +116,45 @@ serait firstOnlineDateDesc (forme symétrique, non encore posée : on trie
 priceAsc). powerDIN par annonce absent du hit principal (lu tolérant,
 similarHits le portent) — la puissance reste un filtre d'URL.
 
+## -1quater-PROPOSÉ (03/09, en attente GO). TRAJECTOIRE DE PRIX × VÉLOCITÉ
+
+Question Channing 03/09 (déclenchée par « 309 baisses » du digest) : « si le
+véhicule sort à son premier prix affiché, ce n'est pas la même chose
+qu'après neuf baisses » — les sites enregistrent-ils les baisses, et peut-on
+en faire un indicateur par modèle ? Sondes vives du jour (16 sites, pages
+liste ET détail, annonces dont ADA avait lui-même observé une baisse) :
+- **Historique COMPLET natif** : La Centrale (page détail uniquement —
+  `priceVariation.prices` : initial, current, percentage, history[],
+  isDropping + `displayedAge` en jours). Absent de la liste.
+- **Ancien prix dans la LISTE déjà scrapée** (coût zéro) : Leboncoin
+  (attribut `old_price` par annonce, 9 sur 45 Yaris Cross ; badge « Baisse de
+  prix » sur la carte), AutoScout24 tous pays (`superDeal.isEligible` +
+  `oldSuperDealPrice` « € 17 990,- », badge « Prix réduit »).
+- **Drapeau sans montant** : mobile.de (filtre `ao=PRICE_REDUCED`
+  « Reduzierter Preis » ; la carte n'affiche pas l'ancien prix).
+- **Rien d'affiché** (ADA a pourtant vu la baisse) : Bilbasen, Subito,
+  Skelbiu (seulement une alerte « suivre la baisse »), Marktplaats, Blocket,
+  Gaspedaal, Jófogás.
+- **Date de mise en ligne** (déjà captée `published_at` : LBC, La Centrale,
+  Subito, Gaspedaal, Marktplaats, Jófogás, Skelbiu) — à AJOUTER : Bilbasen
+  (`publicationDate` + `lastUpdateDate`), AutoScout24
+  (`createdTimestampWithOffset`, détail), mobile.de (filtre `doc` « online
+  seit », pas de date par carte).
+- **Ce qu'ADA sait déjà seul** : une observation par annonce et par
+  passage → toute baisse vue pendant la fenêtre d'observation est déjà
+  calculable (c'est ainsi que les 309 sont comptées), et la disparition
+  date la sortie. Ce qui manque : les baisses ANTÉRIEURES à la première vue
+  (l'ancien prix des sites comble ce trou sur LBC / AS24 / La Centrale).
+Proposition (pas de code avant GO) : (1) capter `previous_price` en liste
+sur LBC + AS24 (+ `published_at` Bilbasen/AS24) ; (2) table
+`listing_price_paths` (une ligne par annonce : prix initial, prix courant,
+nb de baisses, % cumulé, jours en ligne, sortie datée) alimentée par le
+worker depuis les observations + l'ancien prix des sites ; (3) indicateur
+MI par segment : « % des sorties après ≥1 baisse », « remise médiane avant
+sortie », « jours médians avant 1re baisse », en croisant avec la vélocité
+existante (velocityFromObservations). Aucun scrape supplémentaire, aucun
+LLM. La Centrale (détail) réservée à la fiche négociations, pas au flux.
+
 ## -1ter-LIVRÉ (03/09, à éprouver). TRUTH CENTER briques 3b / 4 / 5
 
 GO Channing 03/09 (« game changer, aucune pollution possible ? » — 3b et 5
