@@ -450,6 +450,18 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
 }) {
   const [menu, setMenu] = useState(false);
   const [showGaps, setShowGaps] = useState(false);
+  // Liens de l'étude EN DIRECT (demande Channing 03/09) : vérifier les URLs
+  // par site sans attendre des résultats — chargées au premier dépliage.
+  const [showLinks, setShowLinks] = useState(false);
+  const [links, setLinks] = useState<StudyUrl[] | null | undefined>(undefined);
+  const toggleLinks = () => {
+    const willOpen = !showLinks;
+    setShowLinks(willOpen);
+    if (willOpen && links === undefined) {
+      setLinks(null);
+      void listStudyUrls(s).then(setLinks);
+    }
+  };
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -506,7 +518,14 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
             {!s.active ? ' · en pause' : ''}
           </p>
         </div>
-        <div className="relative shrink-0" ref={menuRef}>
+        <div className="relative shrink-0 flex items-center gap-1" ref={menuRef}>
+          <button
+            onClick={toggleLinks}
+            title="Voir les liens de l'étude (source et cible, par site)"
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs ${showLinks ? 'bg-blue-50 text-brand-ocean' : 'text-slate-500 hover:bg-slate-100'}`}
+          >
+            <ExternalLink className="w-3.5 h-3.5" /> Liens
+          </button>
           <button onClick={() => setMenu(!menu)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100">
             <MoreVertical className="w-4 h-4" />
           </button>
@@ -552,6 +571,40 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
           )}
         </div>
       </div>
+
+      {showLinks && (
+        <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+          {links === null || links === undefined ? (
+            <p className="text-xs text-slate-400">Génération des liens…</p>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-3">
+              {(['source', 'cible'] as const).map((side) => {
+                const rows = links.filter((l) => l.side === side);
+                const country = side === 'source' ? s.source_country : s.target_country;
+                return (
+                  <div key={side}>
+                    <p className="text-xs font-medium text-slate-700 mb-1">
+                      {flagOf(country)} {side === 'source' ? 'Source' : 'Cible'} · {country} — {side === 'source' ? 'la recherche quotidienne' : 'les données de comparaison'}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {rows.map((l) => (
+                        <li key={`${l.side}|${l.site}`} className="text-xs flex items-center gap-1.5 min-w-0">
+                          <span className="text-slate-500 w-28 shrink-0 truncate">{l.site}</span>
+                          {l.url
+                            ? <a href={l.url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline truncate">{l.url.replace(/^https?:\/\/(www\.)?/, '')}</a>
+                            : <span className="text-amber-700">mapping manquant — l'étude saute ce site</span>}
+                        </li>
+                      ))}
+                      {rows.length === 0 && <li className="text-xs text-slate-400">aucun site connu pour ce pays</li>}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p className="text-[11px] text-slate-400 mt-2">Ce sont exactement les URLs que le worker ouvre à chaque passage — ouvre-les pour vérifier les filtres en direct.</p>
+        </div>
+      )}
 
       {gaps && gaps.length > 0 && showGaps && (
         <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
