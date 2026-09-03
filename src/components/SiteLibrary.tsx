@@ -72,6 +72,8 @@ const CANON: CanonCriterion[] = [
   ] },
 ];
 type Status = 'natif' | 'post-filtre' | 'absent';
+/** Statut d'apprentissage par puce : en cours / apprise mais pas encore posée par la grammaire. */
+type Learn = 'pending' | 'apprise';
 interface RegistryRow { key: string; value: string; status: Status; url: string | null }
 
 export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
@@ -87,6 +89,14 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
   const [ref, setRef] = useState<RefWindowMap | null>(null);
   const [activeOnly, setActiveOnly] = useState(true);
   const [openBrand, setOpenBrand] = useState<string | null>(null);
+  // Geste PAR VALEUR (demande Channing 03/09) : cliquer une puce non native
+  // ouvre le champ URL pour CE critère seulement ; ADA ingère avec la valeur
+  // cible forcée dans les critères, ré-évalue le registre, et la puce passe
+  // au vert si la génération pose désormais la valeur — sinon bleu « apprise,
+  // grammaire à câbler » (le dictionnaire sait, l'applicateur pas encore).
+  const [teach, setTeach] = useState<{ key: string; value: string; extra: Record<string, unknown> } | null>(null);
+  const [learn, setLearn] = useState<Record<string, Learn>>({});
+  const [seedBrand, setSeedBrand] = useState<string>('TOYOTA');
 
   useEffect(() => { getRefWindowsCached().then(setRef).catch(() => setRef(new Map())); }, []);
 
@@ -116,6 +126,7 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
       const seed = (mem?.[0] as MemoryRow | undefined)
         ?? studies.find((s) => s.source_country === site.country || s.target_country === site.country)
         ?? { brand: 'TOYOTA', model: '' };
+      setSeedBrand(seed.brand);
       setRegistry(await evaluateRegistry(site.key as SiteKey, seed.brand, seed.model ?? ''));
     })();
     return () => { cancelled = true; };
@@ -228,23 +239,56 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
                     {natif < rows.length && <span className="text-[11px] text-slate-400">{c.postFilter ? 'le reste est trié après le scrape' : 'le reste est perdu'}</span>}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {rows.map((r) => (
-                      <span key={r.value} className={`inline-flex items-center gap-1.5 text-xs rounded-lg border px-2 py-1 ${r.status === 'natif' ? 'bg-white border-emerald-200 text-slate-800' : r.status === 'post-filtre' ? 'bg-white border-amber-200 text-slate-600' : 'bg-white border-rose-200 text-slate-500'}`}>
-                        <StatusDot status={r.status} />
-                        {r.value}
-                        {r.url && r.status === 'natif' && (
-                          <a href={r.url} target="_blank" rel="noreferrer" title="Ouvrir la recherche de preuve sur le site" className="text-brand-ocean hover:underline">URL ↗</a>
-                        )}
-                      </span>
-                    ))}
+                    {rows.map((r) => {
+                      const lk = learn[`${r.key}|${r.value}`];
+                      const clickable = r.status !== 'natif' && !lk;
+                      const cls = r.status === 'natif' ? 'bg-white border-emerald-200 text-slate-800'
+                        : lk === 'apprise' ? 'bg-white border-sky-200 text-slate-700'
+                        : lk === 'pending' ? 'bg-white border-slate-200 text-slate-500'
+                        : r.status === 'post-filtre' ? 'bg-white border-amber-200 text-slate-600 hover:bg-amber-50 cursor-pointer'
+                        : 'bg-white border-rose-200 text-slate-500 hover:bg-rose-50 cursor-pointer';
+                      const v = c.values.find((x) => x.label === r.value);
+                      return (
+                        <span key={r.value}
+                          onClick={clickable && v ? () => setTeach(teach?.key === r.key && teach.value === r.value ? null : { key: r.key, value: r.value, extra: v.extra }) : undefined}
+                          title={clickable ? `Apprendre « ${r.value} » : colle l'URL humaine qui porte ce filtre` : lk === 'apprise' ? 'Apprise (dictionnaire/mémoire) — la grammaire du site ne la pose pas encore' : undefined}
+                          className={`inline-flex items-center gap-1.5 text-xs rounded-lg border px-2 py-1 ${cls} ${teach?.key === r.key && teach.value === r.value ? 'ring-2 ring-sky-300' : ''}`}>
+                          {lk === 'pending' ? <Loader2 className="w-3 h-3 animate-spin text-slate-400" /> : lk === 'apprise' ? <span className="w-2 h-2 rounded-full bg-sky-500 shrink-0" /> : <StatusDot status={r.status} />}
+                          {r.value}
+                          {r.url && r.status === 'natif' && (
+                            <a href={r.url} target="_blank" rel="noreferrer" title="Ouvrir la recherche de preuve sur le site" className="text-brand-ocean hover:underline">URL ↗</a>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
+                  {teach && teach.key === c.key && (
+                    <TeachUrl
+                      key={`${teach.key}|${teach.value}`}
+                      site={site}
+                      compact
+                      extraCriteria={teach.extra}
+                      criterionKey={teach.key}
+                      label={`Apprendre « ${teach.value} » sur ${site.name} : colle l'URL humaine d'une recherche ${seedBrand} (marque seule) avec CE filtre posé dans l'interface du site.`}
+                      onStart={() => setLearn((m) => ({ ...m, [`${teach.key}|${teach.value}`]: 'pending' }))}
+                      onLearned={async (ok) => {
+                        const id = `${teach.key}|${teach.value}`;
+                        if (!ok) { setLearn((m) => { const n = { ...m }; delete n[id]; return n; }); return; }
+                        // Ré-évaluation : la génération pose-t-elle la valeur maintenant ?
+                        const fresh = await evaluateRegistry(site.key as SiteKey, seedBrand, '');
+                        setRegistry(fresh);
+                        const now = fresh.find((x) => x.key === teach.key && x.value === teach.value);
+                        setLearn((m) => { const n = { ...m }; if (now?.status === 'natif') delete n[id]; else n[id] = 'apprise'; return n; });
+                        if (now?.status === 'natif') setTeach(null);
+                      }}
+                    />
+                  )}
                 </div>
               );
             })}
-            <p className="text-[11px] text-slate-400">Support des URLs de preuve : la marque seule (jamais un modèle, pour qu'une carrosserie ou un carburant garde son sens) — natif = l'URL change quand la valeur est posée.</p>
+            <p className="text-[11px] text-slate-400">Support des URLs de preuve : la marque seule (jamais un modèle, pour qu'une carrosserie ou un carburant garde son sens) — natif = l'URL change quand la valeur est posée. <b>Clique une puce ambre ou rouge</b> pour apprendre cette valeur au site : vert si ADA pose désormais le filtre, bleu si elle l'a apprise mais que la grammaire du site reste à câbler.</p>
           </div>
         )}
-        <TeachUrl site={site} onLearned={() => setSiteKey((k) => k)} label="Le site sait filtrer un critère marqué post-filtre ou absent ? Colle une URL humaine qui porte ce filtre — ADA en apprend la forme." />
       </section>
 
       {/* ── 2. Marques / modèles ── */}
@@ -332,7 +376,16 @@ async function evaluateRegistry(site: SiteKey, brand: string, model: string): Pr
 
 // ─── Geste : coller une URL humaine → ADA apprend ─────────────────────────────
 
-function TeachUrl({ site, onLearned, label }: { site: { key: string; domain: string; country: string }; onLearned: () => void; label: string }) {
+function TeachUrl({ site, onLearned, onStart, label, extraCriteria, criterionKey, compact }: {
+  site: { key: string; domain: string; country: string };
+  onLearned: (ok: boolean) => void | Promise<void>;
+  onStart?: () => void;
+  label: string;
+  /** Valeur cible forcée dans les critères (geste par puce) — l'ingestion la confirme contre les annonces. */
+  extraCriteria?: Record<string, unknown>;
+  criterionKey?: string;
+  compact?: boolean;
+}) {
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null);
@@ -349,10 +402,16 @@ function TeachUrl({ site, onLearned, label }: { site: { key: string; domain: str
     // c'est ce que l'ingestion confirmera contre les annonces.
     const pre = adapter.prefillCriteriaFromUrl?.(u) ?? {};
     if (!pre.brand) { setMsg({ kind: 'err', text: "ADA ne lit pas de marque dans cette URL — colle une recherche marque (+ modèle) du site." }); return; }
-    setBusy(true); setMsg(null);
+    // Geste par puce : l'URL doit porter le filtre visé — sinon rien à
+    // apprendre. Le détecteur du registre peut ignorer une forme NOUVELLE
+    // (c'est justement ce qu'on vient apprendre) : on prévient, on n'empêche pas.
+    if (criterionKey && !CRITERIA_DETECTORS[criterionKey]?.test(u)) {
+      setMsg({ kind: 'warn', text: `ADA ne reconnaît pas encore de filtre « ${criterionKey} » dans cette URL — normal si c'est une forme nouvelle : elle va la confirmer contre les annonces.` });
+    }
+    setBusy(true); onStart?.();
     try {
       const start = await supabase.functions.invoke('ingest-url', {
-        body: { url: u, async: true, criteria: { model: '', ...pre }, submittedBy: 'Bibliothèque' },
+        body: { url: u, async: true, criteria: { model: '', ...pre, ...(extraCriteria ?? {}) }, submittedBy: 'Bibliothèque' },
       });
       if (start.error) throw new Error(start.error.message);
       const jobId = (start.data as { jobId?: string } | null)?.jobId;
@@ -370,20 +429,21 @@ function TeachUrl({ site, onLearned, label }: { site: { key: string; domain: str
         setMsg({
           kind: n > 0 ? 'ok' : 'warn',
           text: n > 0
-            ? `${n} annonce(s) lue(s), ${learned} entrée(s) de dictionnaire apprise(s), mémoire : ${mem}. Grammaire PROPOSÉE — elle devient native quand une étude chiffrée la confirme (gate).`
+            ? `${n} annonce(s) lue(s), ${learned} entrée(s) de dictionnaire apprise(s), mémoire : ${mem}.${criterionKey ? ' Ré-évaluation du registre…' : ' Grammaire PROPOSÉE — native quand une étude chiffrée la confirme.'}`
             : `Page lue mais 0 annonce — rien appris (URL trop stricte, ou page servie sans résultats). Vérifie l'URL dans ton navigateur.`,
         });
-        onLearned();
+        await onLearned(n > 0);
         return;
       }
       throw new Error('Délai dépassé (10 min)');
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : String(e) });
+      await onLearned(false);
     } finally { setBusy(false); }
   };
 
   return (
-    <div className="mt-3 pt-3 border-t border-slate-100">
+    <div className={compact ? 'mt-2 pt-2 border-t border-slate-200/70' : 'mt-3 pt-3 border-t border-slate-100'}>
       <p className="text-xs text-slate-500 mb-1.5">{label}</p>
       <div className="flex gap-2">
         <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder={`https://${site.domain}/…`} className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm" />
