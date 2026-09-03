@@ -457,6 +457,19 @@ export async function generateSearchUrlsWithMemory(
         // comprises : les params secondaires appris réinjecteraient des ch là
         // où AS24/mobile.de/Skelbiu lisent des kW).
         url = applyVariableCriteria(url, params);
+        // Marktplaats (§3, GO Channing 03/09) : une URL apprise en forme MORTE
+        // — modèle en texte « #q: » (le hash n'atteint jamais le serveur) et
+        // aucune facette de chemin — ne doit plus primer quand la voie native
+        // sait poser le modèle en FACETTE (13882 appris) et le carburant
+        // (13838). Constat Bibliothèque : hybride + Yaris Cross rendait
+        // « #q:yaris+cross » nu. La native ne gagne que si elle porte /f/.
+        if (site === 'MARKTPLAATS' && /#(?:[^|]*\|)*q:/.test(url) && !/\/f\//.test(url)) {
+          const native = generateSearchUrl({ ...params, site }).url;
+          if (native && /\/f\//.test(native)) {
+            logs.push({ level: 'MAPPING', message: '[MAPPING_MEMORY] URL apprise en #q: texte remplacée par la voie native à facettes de chemin', data: { learned: url, native } });
+            url = native;
+          }
+        }
         logs.push({
           level: 'OUTPUT',
           message: '[MAPPING_MEMORY] Reusing human-validated URL (variables overridden)',
