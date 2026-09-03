@@ -1469,6 +1469,24 @@ export type Database = {
         Update: { key?: string; value?: number; description?: string }
         Relationships: []
       }
+      truth_confidence: {
+        Row: { site: string; country: string; brand: string; model: string; score: number; label: string; components: Json; computed_at: string }
+        Insert: { site: string; country: string; brand: string; model?: string; score: number; label: string; components?: Json; computed_at?: string }
+        Update: { site?: string; country?: string; brand?: string; model?: string; score?: number; label?: string; components?: Json; computed_at?: string }
+        Relationships: []
+      }
+      truth_digests: {
+        Row: { day: string; generated_at: string; summary: string; payload: Json }
+        Insert: { day: string; generated_at?: string; summary?: string; payload?: Json }
+        Update: { day?: string; generated_at?: string; summary?: string; payload?: Json }
+        Relationships: []
+      }
+      truth_golden: {
+        Row: { id: string; site: string; label: string; params: Json; criterion: string; source: string; created_by: string | null; created_at: string; last_run_at: string | null; last_status: string | null; last_url: string | null; last_detail: string | null }
+        Insert: { id?: string; site: string; label: string; params: Json; criterion: string; source?: string; created_by?: string | null; created_at?: string; last_run_at?: string | null; last_status?: string | null; last_url?: string | null; last_detail?: string | null }
+        Update: { id?: string; site?: string; label?: string; params?: Json; criterion?: string; source?: string; created_by?: string | null; created_at?: string; last_run_at?: string | null; last_status?: string | null; last_url?: string | null; last_detail?: string | null }
+        Relationships: []
+      }
       truth_dossiers: {
         Row: {
           id: string

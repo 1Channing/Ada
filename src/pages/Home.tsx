@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FolderOpen, BadgeEuro, Rocket, Map, Inbox, Scale, ChevronRight } from 'lucide-react';
+import { loadLatestDigest, type TruthDigest } from '../services/truthLoop';
 import { supabase } from '../lib/supabase';
 import { loadMappingTree, type TreeNode } from '../services/ingestionHistory';
 import { MappingRadialTree } from '../components/MappingRadialTree';
@@ -44,6 +45,8 @@ const fmtTime = (iso: string) =>
  * Lecture seule : uniquement des données déjà produites ailleurs.
  */
 export function Home() {
+  const [digest, setDigest] = useState<TruthDigest | null>(null);
+  useEffect(() => { void loadLatestDigest().then(setDigest); }, []);
   const [deals, setDeals] = useState<DealRow[]>([]);
   const [campaign, setCampaign] = useState<CampaignRow | null>(null);
   // Tant que la dernière campagne n'est pas connue, le radar d'opportunités
@@ -157,6 +160,16 @@ export function Home() {
           )}
         </button>
       </div>
+
+      {/* Routine du matin (Truth Center 3b, GO 03/09) : la santé de la dernière
+          vague en une ligne — le détail vit dans le Truth Center. */}
+      {digest && (
+        <button onClick={() => navigateTo('/verite')} className="w-full text-left bg-white border border-slate-200 rounded-2xl px-5 py-3 shadow-sm hover:border-amber-300 transition-colors flex items-center gap-3 flex-wrap">
+          <span className="text-xs uppercase tracking-wide text-slate-500">Ce matin</span>
+          <span className="text-sm text-slate-700">{digest.summary}</span>
+          {(digest.payload.cas_dores_en_echec?.length ?? 0) > 0 && <span className="text-[11px] font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2">régression de grammaire</span>}
+        </button>
+      )}
 
       {/* Nouvelles annonces : RÉSUMÉ minimal — le volume de travail du jour,
           une ligne par étude ; le traitement se fait dans le Workflow. */}

@@ -116,6 +116,30 @@ serait firstOnlineDateDesc (forme symétrique, non encore posée : on trie
 priceAsc). powerDIN par annonce absent du hit principal (lu tolérant,
 similarHits le portent) — la puissance reste un filtre d'URL.
 
+## -1ter-LIVRÉ (03/09, à éprouver). TRUTH CENTER briques 3b / 4 / 5
+
+GO Channing 03/09 (« game changer, aucune pollution possible ? » — 3b et 5
+sont en lecture seule ; 4 écrit mais verrouillé par la preuve). Migration
+20260904100000 (truth_confidence, truth_digests, truth_golden). Le worker
+enchaîne en fin de vague : badge → cas dorés → digest (worker/truthLoop).
+- **5. Badge de confiance** par (site, pays, marque, modèle) : fraîcheur
+  du dernier snapshot, profondeur honnête, URL complète (critères de
+  l'étude exprimés), dossiers ouverts, cohérence inter-sites des médianes
+  → score 0..100, fiable / à surveiller / douteux. Affiché sur les cartes
+  d'étude (pire label + détail par site au survol).
+- **4. Cas dorés** : premier passage = l'état PROUVÉ du registre figé
+  (chaque valeur native, marque seule) ; rejoués à chaque vague ; un échec
+  ouvre un dossier signal golden_fail ET bloque les auto-validations de
+  mappings du site (validator ↔ goldenGate). Figeables depuis la
+  Bibliothèque (★ sur une puce native, admin), listés dans l'onglet
+  « Cas dorés ».
+- **3b. Routine du matin** : un digest par jour (études passées, annonces
+  nouvelles/baisses, dossiers, segments douteux, cas dorés en échec,
+  erreurs Zyte/blocages, taxonomie apprise, veille légale) — panneau
+  « Ce matin » du Truth Center + carte Accueil.
+À ÉPROUVER sur les premières vagues avant d'ouvrir l'étage LLM (décision
+Channing 03/09 : LLM après les trois briques).
+
 ## -1bis-FAIT (03/09). BIBLIOTHÈQUE par site (Truth Center, ex-« Lacunes »)
 
 GO Channing 03/09. Le savoir d'un site à plat : registre des critères

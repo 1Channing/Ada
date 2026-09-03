@@ -34,6 +34,7 @@ import { archiveOldObservations, recordTruthGap, refreshDashboards, runTruthSwee
 import { runTruthDiagnose } from './truthDiagnose';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
+import { runTruthLoop } from './truthLoop';
 
 const TICK_MS = 10 * 60 * 1000;
 // Profondeur des quotidiennes — règle Channing 26/08 : 5 pages À CONDITION
@@ -177,6 +178,8 @@ async function tick(): Promise<void> {
       // Brique 3a : le diagnostic déterministe passe derrière le balayage —
       // diff d'URL vs preuves, artefacts, auto-guérison, re-vérification.
       await runTruthDiagnose('études quotidiennes');
+      // Briques 3b/4/5 (GO 03/09) : badge de confiance → cas dorés → digest.
+      await runTruthLoop('études quotidiennes');
     }
   } finally {
     running = false;

@@ -7,6 +7,7 @@ import {
 } from '../services/workflow';
 import { BODY_TYPES, bodyLabel } from '../lib/study-core/bodyTypes';
 import { humanListingUrl } from '../services/marketData';
+import { loadConfidence, CONFIDENCE_LABEL, type ConfidenceRow } from '../services/truthLoop';
 
 /** Identité visuelle des places de marché — badge normalisé partout. */
 const SITE_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
@@ -117,6 +118,12 @@ const GEARBOXES = [
   { value: 'AUTOMATIQUE', label: 'Automatique' },
   { value: 'MANUELLE', label: 'Manuelle' },
 ];
+
+let confidencePromise: Promise<Map<string, ConfidenceRow>> | null = null;
+function confidenceOnce(): Promise<Map<string, ConfidenceRow>> {
+  if (!confidencePromise) confidencePromise = loadConfidence().catch(() => new Map<string, ConfidenceRow>());
+  return confidencePromise;
+}
 
 function DailySearchesTab() {
   const [rows, setRows] = useState<DailySearch[]>([]);
@@ -454,6 +461,16 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
   // par site sans attendre des résultats — chargées au premier dépliage.
   const [showLinks, setShowLinks] = useState(false);
   const [links, setLinks] = useState<StudyUrl[] | null | undefined>(undefined);
+  // Badge de confiance (brique 5, GO 03/09) : pire label parmi les sites des
+  // deux pays de l'étude — une seule lecture partagée entre toutes les cartes.
+  const [conf, setConf] = useState<ConfidenceRow[]>([]);
+  useEffect(() => {
+    confidenceOnce().then((m) => {
+      const b = s.brand.toUpperCase(); const mo = (s.model ?? '').toUpperCase();
+      setConf([...m.values()].filter((r) => r.brand === b && r.model === mo && (r.country === s.source_country || r.country === s.target_country)));
+    });
+  }, [s.brand, s.model, s.source_country, s.target_country]);
+  const worst = conf.length ? conf.reduce((w, r) => (r.score < w.score ? r : w)) : null;
   const toggleLinks = () => {
     const willOpen = !showLinks;
     setShowLinks(willOpen);
@@ -490,6 +507,14 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
             {gaps && gaps.length === 0 && (
               <span title="Couverture complète : URL générable sur tous les sites des deux pays" className="shrink-0">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              </span>
+            )}
+            {worst && (
+              <span
+                title={conf.map((r) => `${r.site} ${r.country} : ${r.score}/100 (${CONFIDENCE_LABEL[r.label]})`).join('\n')}
+                className={`text-[10px] font-medium rounded-full px-1.5 py-0.5 border shrink-0 ${worst.label === 'fiable' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : worst.label === 'a_surveiller' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}
+              >
+                {CONFIDENCE_LABEL[worst.label]} · {conf.length} site{conf.length > 1 ? 's' : ''}
               </span>
             )}
             {gaps && gaps.length > 0 && (

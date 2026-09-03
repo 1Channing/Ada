@@ -7,6 +7,8 @@ import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { CRITERIA_DETECTORS } from '../lib/linkgen/grammar';
 import { getRefWindowsCached, type RefWindowMap } from '../services/vehicleRef';
 import { brandKey } from '../services/marketData';
+import { addGolden } from '../services/truthLoop';
+import { useAuth } from '../services/auth';
 
 /**
  * BIBLIOTHÈQUE (GO Channing 03/09) — remplace « Lacunes assumées ».
@@ -77,6 +79,8 @@ type Learn = 'pending' | 'apprise';
 interface RegistryRow { key: string; value: string; status: Status; url: string | null }
 
 export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
+  const { isAdmin, displayName } = useAuth();
+  const [frozen, setFrozen] = useState<Record<string, boolean>>({});
   const sites = useMemo(() => allSiteAdapters()
     .map((a) => ({ key: String(a.key), name: a.displayName, country: a.countryCode, domain: a.domain }))
     .sort((x, y) => x.country.localeCompare(y.country) || x.name.localeCompare(y.name)), []);
@@ -257,6 +261,18 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
                           {r.value}
                           {r.url && r.status === 'natif' && (
                             <a href={r.url} target="_blank" rel="noreferrer" title="Ouvrir la recherche de preuve sur le site" className="text-brand-ocean hover:underline">URL ↗</a>
+                          )}
+                          {isAdmin && r.status === 'natif' && v && (
+                            <button
+                              title={frozen[`${r.key}|${r.value}`] ? 'Figé en cas doré' : 'Figer en cas doré : rejoué à chaque vague, un échec ouvre un dossier'}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (frozen[`${r.key}|${r.value}`]) return;
+                                const err = await addGolden({ site: site.key, label: `${c.label} · ${r.value}`, criterion: r.key, brand: seedBrand, extra: v.extra, distinctFrom: v.distinctFrom, url: r.url, createdBy: displayName || 'admin' });
+                                if (err) alert(err); else setFrozen((f) => ({ ...f, [`${r.key}|${r.value}`]: true }));
+                              }}
+                              className={`text-[11px] leading-none ${frozen[`${r.key}|${r.value}`] ? 'text-amber-500' : 'text-slate-300 hover:text-amber-500'}`}
+                            >★</button>
                           )}
                         </span>
                       );

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw, BookOpen, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw, BookOpen, AlertTriangle, Sunrise, Star, Trash2 } from 'lucide-react';
+import { loadLatestDigest, loadGolden, deleteGolden, type TruthDigest, type GoldenRow } from '../services/truthLoop';
 import { SiteLibrary } from '../components/SiteLibrary';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
@@ -136,11 +137,18 @@ export function TruthCenter() {
   // et qu'un humain doit confirmer ; « Bibliothèque » (03/09, ex-Lacunes) =
   // le savoir d'un site à plat — registre des critères, marques/modèles vs
   // référentiel, santé — et le geste pour combler à l'endroit du trou.
-  const [tab, setTab] = useState<'doutes' | 'lacunes'>('doutes');
+  const [tab, setTab] = useState<'doutes' | 'lacunes' | 'dores'>('doutes');
+  // Briques 3b/4 (GO 03/09) : digest du matin + cas dorés — écrits par le
+  // worker en fin de vague, lus ici ; null tant que la migration n'est pas collée.
+  const [digest, setDigest] = useState<TruthDigest | null>(null);
+  const [golden, setGolden] = useState<GoldenRow[]>([]);
+  const [digestOpen, setDigestOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setError(null);
+    void loadLatestDigest().then(setDigest);
+    void loadGolden().then(setGolden);
     const { data, error: err } = await supabase
       .from('truth_dossiers')
       .select('*')
@@ -210,11 +218,54 @@ export function TruthCenter() {
         </button>
       </div>
 
+      {/* ── 3b. ROUTINE DU MATIN — le digest de la dernière vague ── */}
+      {digest && (() => {
+        const p = digest.payload;
+        const fails = p.cas_dores_en_echec?.length ?? 0;
+        const tone = fails > 0 || (p.segments_douteux?.length ?? 0) > 5 ? 'border-amber-300 bg-amber-50/60' : 'border-emerald-200 bg-emerald-50/50';
+        return (
+          <div className={`rounded-xl border p-4 ${tone}`}>
+            <button onClick={() => setDigestOpen(!digestOpen)} className="w-full flex items-center gap-2 text-left">
+              <Sunrise className="w-5 h-5 text-amber-600 shrink-0" />
+              <span className="text-sm font-semibold text-slate-800">Ce matin</span>
+              <span className="text-xs text-slate-500">· {new Date(digest.generated_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="ml-auto text-xs text-slate-600 truncate hidden md:inline">{digest.summary}</span>
+              <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${digestOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <p className="text-xs text-slate-600 mt-1 md:hidden">{digest.summary}</p>
+            {digestOpen && (
+              <div className="mt-3 grid md:grid-cols-2 gap-3 text-xs">
+                <div className="space-y-1">
+                  <p className="font-medium text-slate-700">Études</p>
+                  <p className="text-slate-600">{p.etudes?.passees ?? 0}/{p.etudes?.actives ?? 0} passées{(p.etudes?.non_passees?.length ?? 0) > 0 ? ` — non passées : ${p.etudes!.non_passees.slice(0, 6).join(', ')}${p.etudes!.non_passees.length > 6 ? '…' : ''}` : ''}</p>
+                  <p className="font-medium text-slate-700 mt-2">Annonces</p>
+                  <p className="text-slate-600">{p.annonces?.nouvelles ?? 0} nouvelle(s), {p.annonces?.baisses ?? 0} baisse(s) — {Object.entries(p.annonces?.par_site ?? {}).map(([k, v]) => `${k} ${v}`).join(' · ') || '—'}</p>
+                  <p className="font-medium text-slate-700 mt-2">Sites</p>
+                  <p className="text-slate-600">{p.sites?.erreurs_zyte ?? 0} erreur(s) Zyte · {p.sites?.pages_bloquees ?? 0} page(s) bloquée(s) · veille légale : {p.veille_legale ?? '—'}</p>
+                  <p className="font-medium text-slate-700 mt-2">Taxonomie apprise</p>
+                  <p className="text-slate-600">{Object.entries(p.taxonomie_apprise ?? {}).map(([k, v]) => `${k} +${v}`).join(' · ') || 'rien de nouveau'}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-medium text-slate-700">Dossiers</p>
+                  <p className="text-slate-600">{p.dossiers?.ouverts ?? 0} ouvert(s) · {p.dossiers?.nouveaux?.length ?? 0} nouveau(x) · {p.dossiers?.resolus ?? 0} résolu(s)</p>
+                  {(p.dossiers?.nouveaux ?? []).slice(0, 5).map((d) => <p key={d} className="text-slate-500 pl-2">• {d}</p>)}
+                  <p className="font-medium text-slate-700 mt-2">Segments douteux ({p.segments_douteux?.length ?? 0})</p>
+                  {(p.segments_douteux ?? []).slice(0, 6).map((d) => <p key={d.segment} className="text-slate-500 pl-2">• {d.segment} — {d.score}/100</p>)}
+                  <p className={`font-medium mt-2 ${fails ? 'text-rose-700' : 'text-emerald-700'}`}>Cas dorés {fails ? `— ${fails} en échec` : 'OK'}</p>
+                  {(p.cas_dores_en_echec ?? []).slice(0, 5).map((d) => <p key={d} className="text-rose-700 pl-2">• {d}</p>)}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Les deux visages de la vérité : doutes remarqués / lacunes assumées. */}
       <div className="flex gap-1 border-b border-slate-200">
         {([
           ['doutes', AlertTriangle, `Doutes remarqués${open.length ? ` (${open.length})` : ''}`],
           ['lacunes', BookOpen, 'Bibliothèque'],
+          ['dores', Star, `Cas dorés${golden.length ? ` (${golden.filter((g) => g.last_status === 'fail').length ? `${golden.filter((g) => g.last_status === 'fail').length} en échec` : `${golden.length}`})` : ''}`],
         ] as const).map(([id, Icon, label]) => (
           <button
             key={id}
@@ -229,6 +280,29 @@ export function TruthCenter() {
       </div>
 
       {tab === 'lacunes' && <SiteLibrary studies={studies} />}
+
+      {tab === 'dores' && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <p className="text-xs text-slate-500 mb-3">Cas dorés = URLs de preuve figées (état prouvé du registre, ou figées depuis la Bibliothèque). Rejoués à chaque vague : un échec est une régression de grammaire — dossier ouvert, et les auto-validations de mappings du site sont bloquées tant qu'il dure.</p>
+          {golden.length === 0 ? <p className="text-xs text-slate-400">Aucun cas doré encore — le worker fige l'état prouvé au prochain passage (migration 20260904100000 collée ?).</p> : (
+            <ul className="divide-y divide-slate-100">
+              {[...golden].sort((a, b) => (a.last_status === 'fail' ? -1 : 1) - (b.last_status === 'fail' ? -1 : 1) || a.site.localeCompare(b.site)).map((g) => (
+                <li key={g.id} className="py-1.5 flex items-center gap-2 text-xs">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${g.last_status === 'fail' ? 'bg-rose-500' : g.last_status === 'pass' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                  <span className="text-slate-500 w-28 shrink-0 truncate">{g.site}</span>
+                  <span className="text-slate-800">{g.label}</span>
+                  <span className="text-slate-400 truncate">{g.last_detail ?? ''}</span>
+                  {g.last_url && <a href={g.last_url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline shrink-0">URL ↗</a>}
+                  <span className="ml-auto text-slate-400 shrink-0">{g.source}{g.last_run_at ? ` · ${new Date(g.last_run_at).toLocaleDateString('fr-FR')}` : ''}</span>
+                  {isAdmin && (
+                    <button title="Retirer ce cas doré" onClick={async () => { if (confirm(`Retirer le cas doré « ${g.label} » (${g.site}) ?`)) { const e = await deleteGolden(g.id); if (e) alert(e); else setGolden((l) => l.filter((x) => x.id !== g.id)); } }} className="p-1 rounded text-slate-400 hover:text-rose-600 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {tab === 'doutes' && <>
       {error && (

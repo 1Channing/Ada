@@ -1,4 +1,5 @@
 import { fetchHtmlLite } from './fetchHtmlLite';
+import { goldenBlocked } from './goldenGate';
 import { generateHypotheses } from './correctionStrategies';
 import { validateSite } from './siteValidators/index';
 import { getSiteAdapter } from '../study-core/marketplaces';
@@ -397,7 +398,8 @@ export async function validateWithRetry(
     if (
       hyp.reason === 'csv_pending_mapping_hypothesis' &&
       hyp.memoryRecordId &&
-      hypResult.score >= 80
+      hypResult.score >= 80 &&
+      !(await goldenBlocked(String(result.site)))
     ) {
       const now = new Date().toISOString();
       console.log(`[SCOUT_PROMOTE] pending memory record ${hyp.memoryRecordId} → valid (score=${hypResult.score})`);
@@ -573,7 +575,7 @@ export async function validateLearnedMapping(
     return { success: false, validationStatus: validationResult.validationStatus, score: validationResult.score };
   }
 
-  if (validationResult.score >= 80) {
+  if (validationResult.score >= 80 && !(await goldenBlocked(String(record.site)))) {
     console.log(`[SCOUT_VALIDATE] score=${validationResult.score} >= 80 — promoting to valid`);
     await supabase
       .from('linkgen_mapping_memory')
