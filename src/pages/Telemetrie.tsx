@@ -10,7 +10,7 @@ import { useActiveUsers } from '../hooks/useActiveUsersCount';
  * pure de app_usage_events (14 jours), aucune écriture.
  */
 
-interface Ev { at: string; path: string; visitor: string | null }
+interface Ev { at: string; path: string; visitor: string | null; user_id?: string | null }
 
 const DAYS = 14;
 
@@ -26,42 +26,74 @@ export function Telemetrie() {
   const { isAdmin } = useAuth();
   const { count: liveCount, names: liveNames } = useActiveUsers();
   const [events, setEvents] = useState<Ev[]>([]);
+  const [profileNames, setProfileNames] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!isAdmin) return;
     const since = new Date(Date.now() - DAYS * 86_400_000).toISOString();
-    supabase
-      .from('app_usage_events')
-      .select('at, path, visitor')
-      .gte('at', since)
-      .order('at', { ascending: false })
-      .limit(8000)
-      .then(({ data }) => { setEvents((data ?? []) as Ev[]); setLoading(false); });
+    const load = async () => {
+      // user_id (migration 04/09) — tant que le SQL n'est pas collé, la
+      // colonne manque : on relit sans elle, le regroupement retombe sur le
+      // libellé sans casse (déjà mieux qu'avant).
+      let rows: Ev[] | null = (await supabase.from('app_usage_events').select('at, path, visitor, user_id').gte('at', since).order('at', { ascending: false }).limit(8000)).data as Ev[] | null;
+      if (!rows) {
+        rows = (await supabase.from('app_usage_events').select('at, path, visitor').gte('at', since).order('at', { ascending: false }).limit(8000)).data as Ev[] | null;
+      }
+      setEvents(rows ?? []);
+      const { data: profs } = await supabase.from('profiles').select('id, display_name');
+      setProfileNames(new Map(((profs ?? []) as Array<{ id: string; display_name: string | null }>).map((p) => [p.id, (p.display_name ?? '').trim()])));
+      setLoading(false);
+    };
+    void load();
   }, [isAdmin]);
 
   const stats = useMemo(() => {
     const byPage = new Map<string, number>();
-    const byVisitor = new Map<string, { count: number; last: string; pages: Map<string, number> }>();
+    // Identité = le COMPTE (user_id), sinon le libellé SANS casse (constat
+    // Channing 04/09 : « channing » / « Channing » comptés deux fois).
+    const byVisitor = new Map<string, { count: number; last: string; pages: Map<string, number>; labels: Map<string, number> }>();
     const byDay = new Map<string, number>();
     for (const e of events) {
       const page = pageLabel(e.path);
       byPage.set(page, (byPage.get(page) ?? 0) + 1);
-      const v = (e.visitor ?? 'inconnu').trim() || 'inconnu';
-      const cur = byVisitor.get(v) ?? { count: 0, last: e.at, pages: new Map() };
+      const label = (e.visitor ?? '').trim() || 'inconnu';
+      const key = e.user_id ? `id:${e.user_id}` : `label:${label.toLowerCase()}`;
+      const cur = byVisitor.get(key) ?? { count: 0, last: e.at, pages: new Map(), labels: new Map() };
       cur.count += 1;
       if (e.at > cur.last) cur.last = e.at;
       cur.pages.set(page, (cur.pages.get(page) ?? 0) + 1);
-      byVisitor.set(v, cur);
+      cur.labels.set(label, (cur.labels.get(label) ?? 0) + 1);
+      byVisitor.set(key, cur);
       const day = e.at.slice(0, 10);
       byDay.set(day, (byDay.get(day) ?? 0) + 1);
     }
+    const displayName = (key: string, d: { labels: Map<string, number> }): string => {
+      const id = key.startsWith('id:') ? key.slice(3) : null;
+      const fromProfile = id ? profileNames.get(id) : '';
+      if (fromProfile) return fromProfile;
+      // Sans profil : le libellé le plus fréquent, capitale initiale.
+      const best = [...d.labels.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'inconnu';
+      return best.charAt(0).toUpperCase() + best.slice(1);
+    };
+    // Fusion finale par nom affiché (sans casse) : les événements d'avant la
+    // migration (sans user_id) rejoignent le compte qui porte le même prénom.
+    const merged = new Map<string, { name: string; count: number; last: string; pages: Map<string, number> }>();
+    for (const [key, d] of byVisitor) {
+      const name = displayName(key, d);
+      const k = name.toLowerCase();
+      const cur = merged.get(k) ?? { name, count: 0, last: d.last, pages: new Map<string, number>() };
+      cur.count += d.count;
+      if (d.last > cur.last) cur.last = d.last;
+      for (const [p, n] of d.pages) cur.pages.set(p, (cur.pages.get(p) ?? 0) + n);
+      merged.set(k, cur);
+    }
     return {
       pages: [...byPage.entries()].sort((a, b) => b[1] - a[1]),
-      visitors: [...byVisitor.entries()].sort((a, b) => b[1].count - a[1].count),
+      visitors: [...merged.values()].sort((a, b) => b.count - a.count).map((d) => [d.name, d] as const),
       days: [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0])),
     };
-  }, [events]);
+  }, [events, profileNames]);
 
   if (!isAdmin) {
     return (

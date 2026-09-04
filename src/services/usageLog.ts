@@ -47,6 +47,12 @@ export async function logPageVisit(path: string): Promise<void> {
   lastPath = path;
   lastAt = now;
   try {
-    await supabase.from('app_usage_events').insert({ path, visitor: visitorLabel() });
+    // Identité = le COMPTE (constat Channing 04/09 : « channing » et
+    // « Channing » comptés deux fois — le premier événement d'une session
+    // partait avant le chargement du profil et retombait sur l'ancien nom
+    // saisi dans l'Ingestion). Le libellé reste informatif ; user_id fait foi.
+    let userId: string | null = null;
+    try { userId = useAuth.getState().userId; } catch { /* store pas prêt */ }
+    await supabase.from('app_usage_events').insert({ path, visitor: visitorLabel(), user_id: userId });
   } catch { /* table pas encore créée ou hors-ligne — jamais bloquant */ }
 }

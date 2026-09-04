@@ -207,9 +207,9 @@ export type Database = {
         Relationships: []
       }
       app_usage_events: {
-        Row: { id: string; at: string; path: string; visitor: string | null }
-        Insert: { id?: string; at?: string; path: string; visitor?: string | null }
-        Update: { id?: string; at?: string; path?: string; visitor?: string | null }
+        Row: { id: string; at: string; path: string; visitor: string | null; user_id: string | null }
+        Insert: { id?: string; at?: string; path: string; visitor?: string | null; user_id?: string | null }
+        Update: { id?: string; at?: string; path?: string; visitor?: string | null; user_id?: string | null }
         Relationships: []
       }
       market_studies: {
