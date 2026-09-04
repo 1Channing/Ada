@@ -3,7 +3,7 @@ import { Layout } from './components/Layout';
 import { startCampaignWatcher } from './services/campaignRunner';
 import { Home } from './pages/Home';
 import { Atelier } from './pages/Atelier';
-import { logPageVisit } from './services/usageLog';
+import { logPageVisit, startActivityPulse } from './services/usageLog';
 import { AdminHistory } from './pages/AdminHistory';
 import { IngestionHistory } from './pages/IngestionHistory';
 import { MarketIntelligence } from './pages/MarketIntelligence';
@@ -45,6 +45,10 @@ function App() {
   useEffect(() => {
     void logPageVisit(path);
   }, [path]);
+  // Battement de présence : le temps d'activité réel (Télémétrie, 04/09).
+  useEffect(() => {
+    startActivityPulse();
+  }, []);
 
   useEffect(() => {
     const handleLocationChange = () => {
