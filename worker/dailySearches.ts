@@ -48,7 +48,10 @@ const MAX_PAGES_PRECISE = 5;
 // mettait ~3 min par étude × ~45 études = 2 h 15 le matin. 3 à la fois =
 // 3 requêtes Zyte simultanées au plus (chaque étude scrape ses sites en
 // série) — tenable pour les quotas et l'anti-bot ; réglable sans redéploiement.
-const DAILY_CONCURRENCY = Math.max(1, Math.min(6, parseInt(process.env.DAILY_CONCURRENCY ?? '3', 10) || 3));
+// 2 en parallèle (décision Channing 05/09 : à 3, rafale de Zyte 520 à 05 h —
+// 81 le 05/09 sur AutoScout NL et LBC, absorbée par les retries mais
+// coûteuse). Re-contrôle prévu samedi 12/09 au matin.
+const DAILY_CONCURRENCY = Math.max(1, Math.min(6, parseInt(process.env.DAILY_CONCURRENCY ?? '2', 10) || 2));
 const MAX_LISTINGS_PRECISE = 150;
 // 1 000 € — ALIGNÉ sur le radar SQL et la lecture MI (26/08) : les loyers de
 // leasing dépassent souvent 500 € (« 294 €/mois », « 620 €/mois »…) et un

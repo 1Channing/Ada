@@ -12,6 +12,7 @@ import {
   addOpenSpaceNote, deleteOpenSpaceNote, openSpaceUnseenCount, markOpenSpaceSeen,
 } from '../services/openSpace';
 import { NegotiationPhotosModal } from '../components/NegotiationPhotos';
+import { contactSeller } from '../services/contactSeller';
 import { resumeNegoExtractions, subscribeNegoExtractions, isExtracting, extractingCount, extractionError, startNegoExtraction } from '../services/negoExtraction';
 
 /**
@@ -341,6 +342,20 @@ function NegoRow({ n, conflicts, sharedItemId, onChanged, onPushed }: { n: Negot
                   if (error) alert(error);
                   else { onChanged(); onPushed(); }
                 }}>Ajouter aux ventes (dossier)</MenuBtn>
+              )}
+              {n.listing_url?.startsWith('http') && (
+                <MenuBtn onClick={async () => {
+                  setMenu(false);
+                  // Contact ASSISTÉ (05/09) : message copié dans la langue du
+                  // pays de l'annonce, annonce ouverte, trace « contacté le »
+                  // dans les notes pour la relance. Jamais d'envoi automatique.
+                  const r = await contactSeller({ title: n.title, url: n.listing_url });
+                  if (!r.copied) prompt('Presse-papiers indisponible — copie le message :', r.message);
+                  const stamp = `Contacté le ${new Date().toLocaleDateString('fr-FR')} (message copié)`;
+                  const next = n.notes?.trim() ? `${n.notes.trim()}\n${stamp}` : stamp;
+                  await updateNegotiation(n.id, { notes: next });
+                  setNotes(next); onChanged();
+                }}>Contacter le vendeur</MenuBtn>
               )}
               {sharedItemId ? (
                 <MenuBtn onClick={async () => {

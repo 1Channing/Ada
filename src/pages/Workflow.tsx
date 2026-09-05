@@ -12,6 +12,7 @@ import {
 import { BODY_TYPES, bodyLabel } from '../lib/study-core/bodyTypes';
 import { humanListingUrl } from '../services/marketData';
 import { loadConfidence, CONFIDENCE_LABEL, type ConfidenceRow } from '../services/truthLoop';
+import { contactSeller } from '../services/contactSeller';
 
 /** Identité visuelle des places de marché — badge normalisé partout. */
 const SITE_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
@@ -1113,6 +1114,18 @@ function HitActionsMenu({ hit, onChanged }: { hit: DailyHit; onChanged: () => vo
             className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-brand-ocean font-medium"
           >
             Valider → négociations
+          </button>
+          <button
+            onClick={async () => {
+              setOpen(false);
+              // Contact ASSISTÉ (05/09) : message dans la langue du pays copié,
+              // annonce ouverte — l'humain colle et envoie. Jamais automatique.
+              const r = await contactSeller({ title: hit.title, country: hit.source_country, url: hit.listing_url });
+              if (!r.copied) prompt('Presse-papiers indisponible — copie le message :', r.message);
+            }}
+            className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700"
+          >
+            Contacter le vendeur <span className="text-xs text-slate-400">(message copié, annonce ouverte)</span>
           </button>
           <button onClick={() => void resolve('trop_chere')} className="w-full text-left px-4 py-2 max-md:py-3 hover:bg-slate-50 text-slate-700">
             Traitée · trop chère <span className="text-xs text-slate-400">(revient si baisse)</span>

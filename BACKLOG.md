@@ -136,6 +136,24 @@ Trouvé et corrigé le jour même (preuves vives à chaque fois) :
   automatique, un seul message. À recharger côté Anthropic.
 - **Bruit de logs** : 23 faux conflits taxonomie (accents), conflits d'enum
   répétés à chaque vague → une fois par clé.
+Décisions Channing 05/09 (après-midi) :
+- **Zyte 520** → DAILY_CONCURRENCY par défaut 2 (vérifier qu'aucune variable
+  Railway ne force 3). **RE-CONTRÔLE samedi 12/09 au matin** (rappel programmé
+  08 h 40 Paris) : compter les 520 par heure/site sur 7 j, vérifier N/N
+  études passées, verdict garder 2 / revenir à 3 / étaler les heures.
+- **97 mappings « pending » (import CSV de mai)** : à supprimer — ils ne
+  servent qu'au Scout comme hypothèses à tester (memoryHypotheses), jamais
+  au registre ni à la génération. SQL donné à Channing (delete … where
+  validation_status = 'pending' and source = 'csv_import').
+- **Contact assisté** LIVRÉ : menu ⋯ d'une annonce (Résultats) et d'une
+  négociation → message dans la langue du pays copié + annonce ouverte ;
+  trace « Contacté le … » dans les notes de la négo. Texte validé Channing,
+  10 langues (services/contactSeller). Jamais d'envoi automatique.
+- **Filtres à ajouter aux études** (demande 05/09) : kilométrage MINI,
+  puissance MAX, nombre de portes — grammaire par site à prouver (URLs
+  humaines), post-filtre dur comme boîte/carrosserie/puissance.
+- **mobile.de filtre pays** et **La Centrale versions=** : sondes en cours,
+  résultat consigné ci-dessous quand disponible.
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça
