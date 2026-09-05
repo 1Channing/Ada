@@ -174,9 +174,14 @@ Décisions Channing 05/09 (après-midi) :
   tournent déjà en parallèle (un job par site) ; ce qui dure, c'est LBC en
   mode navigateur (5 pages séquentielles × 15-40 s) et les retries sur
   Zyte 520 (8/16/24 s) — et La Centrale/Datadome, qui était le site
-  manquant du « 2/3 ». Piste à prouver : LBC en mode brut (NEXT_DATA est
-  rendu serveur) = 3-5× plus rapide ; sonde à faire proprement (sans la
-  file recon), puis passage si le taux de blocage n'augmente pas.
+  manquant du « 2/3 ». LIVRÉ : pages 2..N par paires en parallèle
+  (recollées dans l'ordre, bornées par le total du site) — LBC 5 pages
+  passe d'environ 5×T à 3×T. Mode brut SONDÉ 05/09 (3 pages) : quand il
+  répond entier c'est 3× plus vite (X3 : 5 s vs 15 s, 35 annonces des deux
+  côtés) mais 2 fois sur 3 il rend une page tronquée (476-605 Ko sans le
+  tableau d'annonces) → pas de bascule ; à re-sonder sur 10 pages un jour
+  calme avant toute décision (une page tronquée en pagination = profondeur
+  perdue en silence).
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça
