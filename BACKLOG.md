@@ -155,8 +155,13 @@ Décisions Channing 05/09 (après-midi) :
 - **mobile.de filtre pays** : PROUVÉ et LIVRÉ — cn=DE (Toyota 2024 tri
   prix : sans cn 22 DE + 1 FR + 1 IT, avec cn=DE 25 DE, 0 étranger). Posé par
   la politique de site du registre (grammar MOBILE_DE, à chaque passage).
-- **La Centrale versions=** : sonde en cours (pages de 760 Ko, compte en fin
-  de page) — résultat consigné dès lecture.
+- **La Centrale versions=** : PROUVÉ et LIVRÉ — Sportage 2024 : « gt line »
+  2, « gt-line » 71, sans filtre 186, « gt » seul 2 ; pas de multi-valeur
+  (virgule/underscore → 0, paramètre répété → ignoré). L'orthographe dépend
+  de la finition (« gr sport » Toyota AVEC espace). Étude : si la forme
+  demandée rend < 5, essai de l'autre (espace ↔ tiret), on garde celle qui
+  répond (log [DAILY] « réécrite à la manière du site »). Le total du site
+  est lu dans l'état de recherche ("total":N,"nextTotal", à 46 % de la page).
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça

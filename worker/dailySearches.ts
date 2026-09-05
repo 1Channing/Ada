@@ -267,9 +267,33 @@ async function scrapeCountry(
         });
       }
     }
-    const result = await scrapeSearch(url, 'full', precise
+    const scrapeOpts = precise
       ? { maxPagesCap: MAX_PAGES_PRECISE, maxListingsCap: MAX_LISTINGS_PRECISE }
-      : { maxPagesCap: MAX_PAGES });
+      : { maxPagesCap: MAX_PAGES };
+    let result = await scrapeSearch(url, 'full', scrapeOpts);
+    // LA CENTRALE — orthographe de la finition (preuve vive 05/09, Sportage
+    // 2024) : versions= est une correspondance EXACTE sur le libellé du
+    // site, sans multi-valeur (virgule/underscore → 0, paramètre répété →
+    // ignoré). « gt line » → 2 annonces, « gt-line » → 71, sans filtre 186 ;
+    // mais « gr sport » (Toyota) s'écrit AVEC espace. L'orthographe dépend
+    // de la finition : quand la forme demandée rend presque rien, on essaie
+    // l'autre (espace ↔ tiret) et on garde celle qui répond. Les deux
+    // désignent la même finition — ce n'est pas un élargissement.
+    if (site.key === 'LACENTRALE' && /[?&]versions=[^&]*(?:%20|\+|-)/i.test(url)) {
+      const got = result.totalCount ?? (result.listings ?? []).length;
+      if (got < 5) {
+        const alt = url.replace(/([?&]versions=)([^&]*)/i, (_m: string, k: string, v: string) =>
+          k + (/%20|\+/.test(v) ? v.replace(/%20|\+/g, '-') : v.replace(/-/g, '%20')));
+        if (alt !== url) {
+          const r2 = await scrapeSearch(alt, 'full', scrapeOpts);
+          const got2 = r2.totalCount ?? (r2.listings ?? []).length;
+          if (got2 > got) {
+            console.warn(`[DAILY] « ${name} »: LACENTRALE finition « ${trim} » réécrite à la manière du site (${got} → ${got2} annonces) : ${alt.slice(0, 140)}`);
+            url = alt; result = r2;
+          }
+        }
+      }
+    }
     // La sentinelle « repli silencieux » ne vaut QUE si un modèle était
     // demandé : une recherche marque-seule n'aura jamais de clé Model dans
     // selectedFilters (classe du « DK FORD sans modèle » 30/08 — la garde
