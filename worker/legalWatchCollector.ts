@@ -177,6 +177,7 @@ async function loadConfig(): Promise<Required<LegalWatchConfig>> {
 }
 
 async function collectOnce(): Promise<void> {
+  if (Date.now() < creditPauseUntil) return; // crédits épuisés — pause 24 h
   const cfg = await loadConfig();
   // Rotation : non vérifiés d'abord, pays ADA en tête, puis les plus périmés.
   const { data, error } = await supabase
@@ -203,10 +204,21 @@ async function collectOnce(): Promise<void> {
     try {
       await refreshCountry(profile, cfg);
     } catch (e) {
-      console.warn(`[LEGAL_WATCH] ${profile.country} en échec:`, e instanceof Error ? e.message : e);
+      const msg = e instanceof Error ? e.message : String(e);
+      // Crédits API épuisés (audit 05/09 : 16 échecs/jour identiques, le
+      // même message pour chaque pays) : inutile d'insister — on se tait
+      // 24 h et on le dit UNE fois. Reprise automatique dès que ça repasse.
+      if (/credit balance|insufficient_quota|billing/i.test(msg)) {
+        creditPauseUntil = Date.now() + 24 * 3600 * 1000;
+        console.warn(`[LEGAL_WATCH] crédits API épuisés (${profile.country}) — veille en pause 24 h, reprise automatique. Recharger les crédits Anthropic.`);
+        return;
+      }
+      console.warn(`[LEGAL_WATCH] ${profile.country} en échec:`, msg);
     }
   }
 }
+
+let creditPauseUntil = 0;
 
 async function refreshCountry(profile: FiscalProfileRow, cfg: Required<LegalWatchConfig>): Promise<void> {
   const prompt = [

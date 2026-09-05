@@ -547,6 +547,18 @@ export function parseListingDetailCard(html: string, listingUrl: string): Listin
  * only page 1, so it undercounts the real depth).
  */
 function extractTotalCount(html: string): number | null {
+  // TOTAL STRUCTURÉ d'abord (audit 05/09 : AutoScout24 restait sans total
+  // sur 9 relevés sur 10, la profondeur MI et le Truth Center jugeaient à
+  // l'aveugle). Clés PROUVÉES sur pages vives : AutoScout24
+  // "numberOfResults":213 (liste FR/DE), Leboncoin searchData "total":2544.
+  // Clés spécifiques seulement — jamais un "count" générique.
+  for (const re of [/"numberOfResults":\s*(\d+)/, /"totalResultCount":\s*(\d+)/, /"searchData":\{[^{}]{0,400}?"total":\s*(\d+)/]) {
+    const m = html.match(re);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n >= 0 && n < 5_000_000) return n;
+    }
+  }
   const text = html.replace(/<[^>]+>/g, ' ');
   const patterns = [
     // Gaspedaal — « We hebben 6 occasions gevonden » (prouvé screenshot

@@ -158,7 +158,14 @@ function htmlCaptionById(html: string, id: string): { year: number | null; milea
   const empty = { year: null, mileageKm: null, fuel: null, gearbox: null };
   const i = html.indexOf(`id="${id}"`);
   if (i < 0) return empty;
-  const seg = html.slice(i, i + 6000).replace(/&nbsp;/g, ' ');
+  // La légende suit le CARROUSEL de la carte (jusqu'à 19 photos, boutons et
+  // points inclus) : sondée le 05/09 de 4 000 à 11 300 caractères après
+  // l'id — la fenêtre de 6 000 la manquait sur 6 cartes sur 10 (complétude
+  // année/km tombée de 80 % à 37 %, dossier Truth Center). On lit jusqu'à la
+  // carte SUIVANTE (prochain id numérique), 40 000 caractères au plus.
+  const nextCard = html.slice(i + 10, i + 40_000).search(/id="\d{6,}"/);
+  const end = nextCard >= 0 ? i + 10 + nextCard : i + 40_000;
+  const seg = html.slice(i, end).replace(/&nbsp;/g, ' ');
   const m = seg.match(/>\s*(\d{4})\s*∙\s*([\d\s ]+)\s*mil\s*∙\s*([^∙<]+?)\s*∙\s*([^<]+?)\s*</);
   if (!m) return empty;
   const mil = Number(m[2].replace(/[\s ]/g, ''));
