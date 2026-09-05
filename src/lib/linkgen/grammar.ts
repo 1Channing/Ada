@@ -379,7 +379,11 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     // Sans véhicules ENDOMMAGÉS, à la source — dam=false prouvé URL humaine
     // 26/08 (backlog 4sexies : les accidentées trustaient le bas du tri prix).
     // Politique de site, pas un critère : appliquée aux DEUX voies.
-    policy: (url) => setQueryParamRaw(url, 'dam', 'false'),
+    // cn=DE : annonces ALLEMANDES seulement — preuve vive 05/09 (Toyota 2024
+    // tri prix : sans cn, 22 DE + 1 FR + 1 IT ; avec cn=DE, 25 DE, 0 étranger).
+    // Sans lui, mobile.de sert IT/NL/BE/LU/DK que le worker écartait après
+    // coup (jusqu'à 50 annonces / 48 h perdues en profondeur).
+    policy: (url) => setQueryParamRaw(setQueryParamRaw(url, 'dam', 'false'), 'cn', 'DE'),
   },
   {
     // ── Gaspedaal ────────────────────────────────────────────────────────────

@@ -152,8 +152,11 @@ Décisions Channing 05/09 (après-midi) :
 - **Filtres à ajouter aux études** (demande 05/09) : kilométrage MINI,
   puissance MAX, nombre de portes — grammaire par site à prouver (URLs
   humaines), post-filtre dur comme boîte/carrosserie/puissance.
-- **mobile.de filtre pays** et **La Centrale versions=** : sondes en cours,
-  résultat consigné ci-dessous quand disponible.
+- **mobile.de filtre pays** : PROUVÉ et LIVRÉ — cn=DE (Toyota 2024 tri
+  prix : sans cn 22 DE + 1 FR + 1 IT, avec cn=DE 25 DE, 0 étranger). Posé par
+  la politique de site du registre (grammar MOBILE_DE, à chaque passage).
+- **La Centrale versions=** : sonde en cours (pages de 760 Ko, compte en fin
+  de page) — résultat consigné dès lecture.
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça
