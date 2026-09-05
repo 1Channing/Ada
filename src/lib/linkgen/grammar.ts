@@ -270,6 +270,35 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
       }[tok] : undefined;
       return setQueryParamRaw(url, 'vehicle_type', slug ?? null);
     },
+    // u_car_model = UNE valeur (audit 05/09). Les anciennes URLs (mémoire :
+    // 152 lignes validées) portaient une liste de devinettes à virgules
+    // (« TOYOTA_Yaris Cross,YARIS CROSS,Yaris Cross,… ») ; LBC rend
+    // total=0 dès qu'un membre est invalide — toutes les lignes « No ads
+    // array (total=0) » du journal étaient ces listes, la forme simple
+    // servait 53 annonces. On garde le membre le plus probable : l'enum
+    // appris s'il est dans la liste, sinon « MARQUE_Forme du site ».
+    policy: (url) => {
+      const m = url.match(/([?&])u_car_model=([^&#]*)/);
+      if (!m || !m[2].includes(',')) return url;
+      const brand = (url.match(/[?&]u_car_brand=([^&#]*)/)?.[1] ?? '').toUpperCase();
+      const members = m[2].split(',').map((v) => { try { return decodeURIComponent(v); } catch { return v; } }).filter(Boolean);
+      const siteCase = (base: string) => base.split(/\s+/).map((w) => {
+        const letters = w.replace(/[^A-Za-z]/g, '');
+        return /\d/.test(w) || letters.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1).toLowerCase();
+      }).join(' ');
+      let best = members[0]; let bestScore = -1;
+      for (const v of members) {
+        const prefixed = brand && v.toUpperCase().startsWith(`${brand}_`);
+        const rest = prefixed ? v.slice(brand.length + 1) : v;
+        let score = prefixed ? 2 : 0;
+        if (prefixed && rest === siteCase(rest)) score += 1;
+        if (prefixed && learnedEnumCode('LEBONCOIN', 'u_car_model', rest) === v) score += 3;
+        if (score > bestScore) { best = v; bestScore = score; }
+      }
+      // Remplacement EN PLACE (l'ordre des paramètres reste celui de l'URL —
+      // idempotence du registre, gate de grammaire).
+      return url.replace(m[0], `${m[1]}u_car_model=${encodeURIComponent(best)}`);
+    },
   },
   {
     // ── Bilbasen ─────────────────────────────────────────────────────────────

@@ -128,8 +128,9 @@ const MEMORY_CASES: Array<{
       ['carburant', /fuel=6(&|$)/],
     ],
     wantGone: [/regdate/, /mileage=/, /u_car_finition/, /text=/, /gearbox=/, /horse_power_din/, /fuel=/, /vehicle_type/],
-    // La liste à virgules du modèle doit survivre OCTET PAR OCTET.
-    wantKept: [/u_car_model=TOYOTA_Rav4,RAV4/],
+    // Liste à virgules du modèle → UN membre (05/09 : LBC rend total=0 dès
+    // qu'un membre est invalide) — le membre préfixé MARQUE_ survit, en place.
+    wantKept: [/u_car_model=TOYOTA_Rav4(&|$)/],
   },
   {
     site: 'BILBASEN',

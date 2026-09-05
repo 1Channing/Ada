@@ -162,6 +162,21 @@ Décisions Channing 05/09 (après-midi) :
   demandée rend < 5, essai de l'autre (espace ↔ tiret), on garde celle qui
   répond (log [DAILY] « réécrite à la manière du site »). Le total du site
   est lu dans l'état de recherche ("total":N,"nextTotal", à 46 % de la page).
+- **LBC u_car_model à virgules = total 0** (constat Channing 05/09, MI FR
+  Corolla Cross à 0) : sans code appris, l'adaptateur envoyait SIX devinettes
+  à virgules ; LBC rend 0 dès qu'un membre est invalide (toutes les lignes
+  « No ads array (total=0) » du journal). Découverte = UN candidat
+  « MARQUE_Forme du site » (Titre pour les mots, MAJUSCULES pour sigles et
+  codes chiffrés, i minuscule BMW, « Classe X » Mercedes — lu sur 292 codes
+  appris) ; politique de site du registre : une liste héritée (152 URLs
+  mémoire validées) est réduite à son meilleur membre, en place.
+- **Lenteur LBC dans les mises à jour MI** : les sites d'une mise à jour
+  tournent déjà en parallèle (un job par site) ; ce qui dure, c'est LBC en
+  mode navigateur (5 pages séquentielles × 15-40 s) et les retries sur
+  Zyte 520 (8/16/24 s) — et La Centrale/Datadome, qui était le site
+  manquant du « 2/3 ». Piste à prouver : LBC en mode brut (NEXT_DATA est
+  rendu serveur) = 3-5× plus rapide ; sonde à faire proprement (sans la
+  file recon), puis passage si le taux de blocage n'augmente pas.
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça

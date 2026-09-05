@@ -128,10 +128,6 @@ function mapFuel(raw: string): string {
  * RAV4/C-HR marchaient par chance — leurs enums sont naturellement en
  * majuscules. On ajoute donc les variantes Titre de chaque candidat.
  */
-function titleCase(s: string): string {
-  return s.replace(/[A-Za-z]+/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
-}
-
 // ─── Enums modèle APPRIS des annonces (moisson u_car_model) ──────────────────
 // Chaque annonce LBC porte la valeur d'énum EXACTE de son modèle, casse
 // comprise : attributes u_car_model {value:'BMW_iX1', value_label:'iX1'}.
@@ -219,33 +215,24 @@ function modelParamCandidates(brandMapped: string, modelMapped: string): string 
   const learned = LEARNED_MODEL_ENUM[canonEnum(display)] ?? LEARNED_MODEL_ENUM[canonEnum(compact)]
     ?? (core ? LEARNED_MODEL_ENUM[canonEnum(core)] : undefined);
   if (learned) return encodeURIComponent(learned);
-  for (const base of [display, compact]) {
-    if (!base) continue;
-    for (const v of [base, titleCase(base), `${brand}_${base}`, `${brand}_${titleCase(base)}`]) {
-      if (v && v !== brand && !out.includes(v)) out.push(v);
-    }
-    // Famille i de BMW (iX1, i4, iX…) : i minuscule + suite MAJUSCULE — casse
-    // prouvée par URL humaine (BMW_iX1, 28/07), que titleCase ne produit pas.
-    if (/^i(x\d?|\d)/i.test(base)) {
-      const iForm = 'i' + base.slice(1).toUpperCase();
-      for (const v of [iForm, `${brand}_${iForm}`]) {
-        if (!out.includes(v)) out.push(v);
-      }
-    }
-  }
-  // Classes Mercedes : « X-Class » du référentiel → « Classe X » chez LBC
-  // (forme prouvée MERCEDES-BENZ_Classe GLA, URL humaine 27/08 — Classe en
-  // Titre, cœur en MAJUSCULES). Candidats de découverte seulement — dès que
-  // l'enum est moissonné, la branche « learned » ci-dessus le sert seul.
-  if (core) {
-    const frForm = `Classe ${core.toUpperCase()}`;
-    for (const v of [frForm, `${brand}_${frForm}`]) {
-      if (!out.includes(v)) out.push(v);
-    }
-  }
-  // Espaces encodés (%20) comme le fait le site, virgules littérales (le
-  // séparateur de liste doit rester brut).
-  return out.map((v) => encodeURIComponent(v)).join(',');
+  // DÉCOUVERTE = UN SEUL candidat, le plus probable (audit 05/09) : la liste
+  // de six variantes à virgules rendait total=0 sur LBC dès qu'un membre
+  // était invalide — Corolla Cross, Yaris Cross, Série 3, Sportage : toutes
+  // les lignes « No ads array (total=0) » du journal étaient ces listes. La
+  // forme du site, lue sur 292 codes appris : BRAND_Modèle, mots en Titre
+  // (Corolla Cross, Flying Spur, Vantage), sigles et codes chiffrés en
+  // MAJUSCULES (Q3, RS4, DB12, TT, GLA, V8), famille i de BMW en i minuscule
+  // (BMW_iX1, URL humaine 28/07), classes Mercedes « Classe GLA » (URL
+  // humaine 27/08). Une mauvaise devinette sert la page marque, que le
+  // détecteur de repli silencieux écarte ; la bonne apprend l'enum exact.
+  if (core) return encodeURIComponent(`${brand}_Classe ${core.toUpperCase()}`);
+  if (/^i(x\d?|\d)/i.test(display)) return encodeURIComponent(`${brand}_i${display.slice(1).toUpperCase()}`);
+  const siteCase = (base: string) => base.split(/\s+/).map((w) => {
+    const letters = w.replace(/[^A-Za-z]/g, '');
+    return /\d/.test(w) || letters.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1).toLowerCase();
+  }).join(' ');
+  out.push(`${brand}_${siteCase(display)}`);
+  return encodeURIComponent(out[0]);
 }
 
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
