@@ -23,7 +23,7 @@
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { generateSearchUrlsWithMemory } from '../src/lib/linkgen/generator';
-import { missingUrlCriteria } from '../src/lib/linkgen/grammar';
+import { missingUrlCriteria, registryCoveredCriteria } from '../src/lib/linkgen/grammar';
 import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
@@ -245,12 +245,24 @@ async function scrapeCountry(
       console.log(`[DAILY] « ${name} »: ${site.key} profondeur ${MAX_PAGES} pages (${why})`);
       // Truth Center : chaque critère non exprimé est un dossier actionnable
       // (priorité 1 : l'étude tourne chaque jour avec des œillères).
-      await recordTruthGap({
-        site: site.key, country, brand: s.brand, model: s.model || '', fuel: s.fuel || '',
-        signal: 'url_incomplete',
-        summary: `Critère(s) non exprimé(s) dans l'URL ${site.key} : ${missing.join(', ') || 'voir warnings'} — profondeur réduite à ${MAX_PAGES} pages`,
-        details: { study: name, url, missing, warnings: genWarnings },
-      });
+      // Un simple WARNING de génération (URL pourtant complète aux
+      // détecteurs) ne fait plus de dossier : LBC Sportage portait la
+      // puissance et restait « incomplet » sur un avis (constat 05/09).
+      // Un critère que le REGISTRE du site ne sait pas poser (Marktplaats et
+      // la puissance) est une LIMITE DU SITE, couverte par le post-filtre :
+      // le dossier reste visible (apprenable par une URL humaine) mais marqué
+      // site_limit — le badge de confiance ne le compte pas.
+      if (missing.length > 0) {
+        let covered = new Set<string>();
+        try { covered = registryCoveredCriteria(url); } catch { /* grammaire inconnue */ }
+        const siteLimit = missing.every((c) => !covered.has(c));
+        await recordTruthGap({
+          site: site.key, country, brand: s.brand, model: s.model || '', fuel: s.fuel || '',
+          signal: 'url_incomplete',
+          summary: `Critère(s) non exprimé(s) dans l'URL ${site.key} : ${missing.join(', ')} — profondeur réduite à ${MAX_PAGES} pages${siteLimit ? ' (limite du site, post-filtre worker)' : ''}`,
+          details: { study: name, url, missing, warnings: genWarnings, site_limit: siteLimit },
+        });
+      }
     }
     const result = await scrapeSearch(url, 'full', precise
       ? { maxPagesCap: MAX_PAGES_PRECISE, maxListingsCap: MAX_LISTINGS_PRECISE }

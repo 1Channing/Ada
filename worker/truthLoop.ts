@@ -85,11 +85,14 @@ export async function runConfidence(reason: string): Promise<number> {
   }
 
   // Dossiers ouverts par segment.
-  const { data: dossiers } = await sb.from('truth_dossiers').select('site,country,brand,model,layer,status').is('resolved_at', null);
-  const openBy = new Map<string, { n: number; dict: boolean }>();
-  for (const d of (dossiers ?? []) as Array<{ site: string; country: string; brand: string; model: string; layer: string }>) {
+  const { data: dossiers } = await sb.from('truth_dossiers').select('site,country,brand,model,layer,status,signal,details').is('resolved_at', null);
+  const openBy = new Map<string, { n: number; dict: boolean; limites: number }>();
+  for (const d of (dossiers ?? []) as Array<{ site: string; country: string; brand: string; model: string; layer: string; signal: string; details: Record<string, unknown> | null }>) {
     const k = `${d.site}|${d.country}|${brandKey(d.brand)}|${refModelKey(d.brand, d.model ?? '')}`;
-    const e = openBy.get(k) ?? { n: 0, dict: false };
+    const e = openBy.get(k) ?? { n: 0, dict: false, limites: 0 };
+    // Limite connue du site (critère que son registre ne sait pas poser,
+    // post-filtre worker) : visible, pas pénalisante (Marktplaats/puissance).
+    if (d.signal === 'url_incomplete' && d.details?.site_limit === true) { e.limites += 1; openBy.set(k, e); continue; }
     e.n += 1; if (d.layer === 'dictionnaire') e.dict = true;
     openBy.set(k, e);
   }
@@ -140,8 +143,8 @@ export async function runConfidence(reason: string): Promise<number> {
     score += urlPts;
     // Dossiers ouverts.
     const od = openBy.get(`${seg.site}|${seg.country}|${brandKey(seg.brand)}|${refModelKey(seg.brand, seg.model)}`);
-    const dossierPts = od ? -Math.min(30, 15 * od.n) - (od.dict ? 10 : 0) : 15;
-    comp.dossiers = { ouverts: od?.n ?? 0, dictionnaire: od?.dict ?? false, points: dossierPts };
+    const dossierPts = od && od.n > 0 ? -Math.min(30, 15 * od.n) - (od.dict ? 10 : 0) : 15;
+    comp.dossiers = { ouverts: od?.n ?? 0, dictionnaire: od?.dict ?? false, limites_site: od?.limites ?? 0, points: dossierPts };
     score += dossierPts;
     // Cohérence inter-sites (même pays, même segment) : médiane vs autres.
     const mine = medRows.find((r) => r.site === seg.site && r.country === seg.country && brandKey(r.brand_label) === brandKey(seg.brand) && refModelKey(r.brand_label, r.model_label) === refModelKey(seg.brand, seg.model));
