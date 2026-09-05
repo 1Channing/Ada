@@ -101,18 +101,35 @@ export async function runConfidence(reason: string): Promise<number> {
   for (const seg of segments.values()) {
     const comp: Record<string, unknown> = {};
     let score = 0;
-    // Dernier snapshot du segment.
-    const { data: snaps } = await sb.from('market_snapshots')
+    // Dernier snapshot du segment — celui de CETTE étude d'abord (segment_key,
+    // 05/09), sinon le dernier du modèle (avant migration / ingestions).
+    type Snap = { scraped_at: string; listing_count: number | null; sample_size: number; price_median: number | null };
+    let snap: Snap | null = null;
+    const own = await sb.from('market_snapshots')
       .select('scraped_at,listing_count,sample_size,price_median')
       .eq('site', seg.site).eq('country', seg.country).eq('brand', seg.brand).eq('model', seg.model)
+      .eq('segment_key', `study:${seg.study.id}`)
       .order('scraped_at', { ascending: false }).limit(1);
-    const snap = (snaps?.[0] ?? null) as { scraped_at: string; listing_count: number | null; sample_size: number; price_median: number | null } | null;
+    if (!own.error && own.data?.[0]) snap = own.data[0] as Snap;
+    if (!snap) {
+      const { data: snaps } = await sb.from('market_snapshots')
+        .select('scraped_at,listing_count,sample_size,price_median')
+        .eq('site', seg.site).eq('country', seg.country).eq('brand', seg.brand).eq('model', seg.model)
+        .order('scraped_at', { ascending: false }).limit(1);
+      snap = (snaps?.[0] ?? null) as Snap | null;
+    }
     const age = daysAgo(snap?.scraped_at);
     const fresh = age <= 1.5 ? 30 : age <= 3 ? 20 : age <= 7 ? 10 : 0;
     comp.fraicheur = { jours: Number.isFinite(age) ? Math.round(age * 10) / 10 : null, points: fresh };
     score += fresh;
-    // Profondeur honnête : total du site connu + échantillon suffisant.
-    const depth = !snap ? 0 : (snap.listing_count != null && snap.sample_size >= 10) ? 20 : snap.sample_size > 0 ? 10 : 0;
+    // Profondeur HONNÊTE : le total du site est connu et notre échantillon le
+    // couvre (≥ 10, ou tout le marché quand il est plus petit — un vide
+    // prouvé par le site est honnête, pas douteux : « PHEV 2025 GT line
+    // ≥ 250 ch : 0 » est la vérité, constat Sportage 05/09).
+    const depth = !snap ? 0
+      : snap.listing_count == null ? (snap.sample_size > 0 ? 10 : 0)
+      : (snap.sample_size >= 10 || snap.sample_size >= snap.listing_count) ? 20
+      : snap.sample_size > 0 ? 10 : 0;
     comp.profondeur = { total_site: snap?.listing_count ?? null, echantillon: snap?.sample_size ?? 0, points: depth };
     score += depth;
     // URL complète : les critères de l'étude sont-ils tous exprimés ?

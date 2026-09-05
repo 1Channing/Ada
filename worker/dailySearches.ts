@@ -275,7 +275,8 @@ async function scrapeCountry(
     // rester distinguable des campagnes ; best-effort, jamais bloquant.
     await recordStudyMarketSnapshot(
       supabase,
-      { site: site.key, country, brand: s.brand.toUpperCase(), model: (s.model || '').toUpperCase() },
+      // segmentKey : l'historique de profondeur de CETTE étude (05/09).
+      { site: site.key, country, brand: s.brand.toUpperCase(), model: (s.model || '').toUpperCase(), segmentKey: `study:${s.id}` },
       result.listings ?? [],
       url,
       'Étude quotidienne',

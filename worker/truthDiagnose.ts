@@ -218,10 +218,14 @@ export async function runTruthDiagnose(reason: string): Promise<void> {
             const gen = await generateSearchUrlsWithMemory(params);
             const url = gen[0]?.url ?? '';
             const missing = url ? missingUrlCriteria(url, params) : ['URL non générable'];
-            const warn = (gen[0]?.warnings ?? []).length;
-            if (url && missing.length === 0 && warn === 0) {
+            const warnings = gen[0]?.warnings ?? [];
+            // Un warning de génération est un AVIS, pas une preuve : l'URL
+            // qui exprime tous les critères (détecteurs) est complète —
+            // constat Sportage 05/09 : LBC portait horse_power_din=250-max
+            // et restait « incomplet » sur un warning « minPower ignored ».
+            if (url && missing.length === 0) {
               await writeDiagnosis(d,
-                `L'URL du jour exprime désormais tous les critères de l'étude (${url.slice(0, 160)}) — trou résorbé (registre/apprentissage).`,
+                `L'URL du jour exprime désormais tous les critères de l'étude (${url.slice(0, 160)}) — trou résorbé (registre/apprentissage).${warnings.length ? ` Avis du générateur ignorés : ${warnings.join(' | ').slice(0, 200)}` : ''}`,
                 { status: 'verified', resolve: true });
               acted++;
             } else if (!alreadyByEngine) {

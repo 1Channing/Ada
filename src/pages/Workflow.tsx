@@ -514,7 +514,14 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
                 title={conf.map((r) => `${r.site} ${r.country} : ${r.score}/100 (${CONFIDENCE_LABEL[r.label]})`).join('\n')}
                 className={`text-[10px] font-medium rounded-full px-1.5 py-0.5 border shrink-0 ${worst.label === 'fiable' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : worst.label === 'a_surveiller' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}
               >
-                {CONFIDENCE_LABEL[worst.label]} · {conf.length} site{conf.length > 1 ? 's' : ''}
+                {(() => {
+                  // Le badge NOMME le maillon faible (constat Sportage 05/09 :
+                  // « douteux · 6 sites » quand un seul l'était).
+                  const weak = conf.filter((r) => r.label === worst.label);
+                  if (weak.length === conf.length) return `${CONFIDENCE_LABEL[worst.label]} · ${conf.length} site${conf.length > 1 ? 's' : ''}`;
+                  const names = weak.map((r) => `${SITE_STYLE[r.site]?.label ?? r.site} ${r.country}`).join(', ');
+                  return `${CONFIDENCE_LABEL[worst.label]} : ${names} · ${conf.length - weak.length} ok`;
+                })()}
               </span>
             )}
             {gaps && gaps.length > 0 && (

@@ -84,7 +84,10 @@ function siteKeyForUrl(url: string): string {
  */
 export async function recordStudyMarketSnapshot(
   supabase: SupabaseClient,
-  segment: { site: string; country: string; brand: string; model: string },
+  /** segmentKey : 'study:<id>' pour une étude quotidienne — chaque étude a
+   *  SON historique de profondeur (constat Sportage 05/09 : trois études du
+   *  même modèle mélangées → faux « profondeur 0 »). Vide = ingestion MI. */
+  segment: { site: string; country: string; brand: string; model: string; segmentKey?: string },
   listings: ScrapedListing[],
   sourceUrl: string,
   submittedBy = 'Étude',
@@ -109,9 +112,20 @@ export async function recordStudyMarketSnapshot(
     const contradicted = listings.filter((l) => !identityOk(l)).length;
     if (contradicted > 0) console.warn(`[MARKET_SNAPSHOT] ${contradicted} annonce(s) écartée(s) — titre d'un autre modèle que ${segment.brand} ${segment.model} (${segment.site})`);
     const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetail(l) && identityOk(l));
+    // Insertion dégradante : tant que la migration 20260905100000 n'est pas
+    // collée, la colonne segment_key manque — on réinsère sans elle plutôt
+    // que de perdre le relevé.
+    const insertSnapshot = async (row: Record<string, unknown>) => {
+      const withKey = { ...row, segment_key: segment.segmentKey ?? '' };
+      const r1 = await supabase.from('market_snapshots').insert(withKey).select('id').single();
+      if (!r1.error) return r1;
+      if (!/segment_key/i.test(r1.error.message ?? '')) return r1;
+      return supabase.from('market_snapshots').insert(row).select('id').single();
+    };
+
     if (priced.length === 0) {
       if (!verifiedEmpty) return;
-      await supabase.from('market_snapshots').insert({
+      await insertSnapshot({
         site: segment.site, country: segment.country,
         brand: segment.brand, model: segment.model, fuel: '', trim: '',
         scraped_at: new Date().toISOString(),
@@ -125,9 +139,7 @@ export async function recordStudyMarketSnapshot(
     const pricesEur = priced.map((l) => Math.round(toEur(l.price, l.currency))).sort((a, b) => a - b);
     const avg = Math.round(pricesEur.reduce((s, p) => s + p, 0) / pricesEur.length);
 
-    const { data: snap, error: snapErr } = await supabase
-      .from('market_snapshots')
-      .insert({
+    const { data: snap, error: snapErr } = await insertSnapshot({
         site: segment.site, country: segment.country,
         brand: segment.brand, model: segment.model, fuel: '', trim: '',
         scraped_at: scrapedAt, listing_count: totalCount ?? listings.length, sample_size: priced.length,
@@ -137,8 +149,7 @@ export async function recordStudyMarketSnapshot(
         price_p75: Math.round(percentileAsc(pricesEur, 0.75)),
         price_max: pricesEur[pricesEur.length - 1],
         price_avg: avg, currency: 'EUR', source_url: sourceUrl, submitted_by: submittedBy,
-      })
-      .select('id').single();
+      });
     if (snapErr || !snap) {
       console.warn('[WORKER] market snapshot insert failed (non-blocking):', snapErr?.message);
       return;
