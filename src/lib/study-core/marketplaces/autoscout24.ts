@@ -417,11 +417,13 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     //
     // PHEV : le code fuel=2 couvre TOUS les hybrides — AS24 n'a aucun code qui
     // isole les rechargeables (constat opérateur 01/08 : le filtre « hybride
-    // rechargeable » ne fonctionne pas). On resserre par le texte : « PHEV »
-    // posé dans kwd AVANT la finition (kwd=PHEV GR SPORT). Les autres
-    // carburants gardent leur comportement exact.
+    // rechargeable » ne fonctionne pas). On resserre par le texte, posé dans
+    // kwd AVANT la finition. Mot-clé « plug-in », PAS « PHEV » : preuve vive
+    // 05/09 (Sportage NL 2024 GT line) — kwd=PHEV → 0 annonce, kwd=plug-in →
+    // 9, GT line + fuel=2 seul → 25 (rechargeables ET simples). Les vendeurs
+    // écrivent « Plug-in Hybrid », presque jamais « PHEV ».
     const wantsPhev = ['PLUG_IN_HYBRID', 'PHEV'].includes(String(params.fuel ?? '').trim().toUpperCase());
-    const kwdParts = [wantsPhev ? 'PHEV' : '', (params.trim ?? '').trim()].filter(Boolean);
+    const kwdParts = [wantsPhev ? 'plug-in' : '', (params.trim ?? '').trim()].filter(Boolean);
     if (kwdParts.length > 0) {
       qs.set('kwd', kwdParts.join(' '));
     }
@@ -634,7 +636,9 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     const powerTo = firstNumber(q['powerto']);
     if (powerTo != null) out.powerTo = String(inKw ? Math.round(powerTo * 1.35962) : powerTo);
     // kwd= free-text keyword ≈ finition (human-proven: kwd=Sportline on .es).
-    if ((q['kwd'] ?? '').trim()) out.trim = q['kwd'].trim();
+    // Le marqueur carburant posé par ADA devant la finition (« plug-in »,
+    // ex-« PHEV ») n'est pas une finition : retiré à la relecture.
+    if ((q['kwd'] ?? '').trim()) out.trim = q['kwd'].trim().replace(/^(?:plug-in|phev)\s*/i, '').trim();
     // Forme chemin du site (URL humaine 27/07) : /kw_gr%20sport/ — équivalente
     // à kwd= (prouvé kw_trail = kwd=Trail = 5 offres), lue au prefill.
     const kwPath = url.match(/\/kw_([^/#?]+)/);

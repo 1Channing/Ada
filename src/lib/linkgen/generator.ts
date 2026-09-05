@@ -442,14 +442,16 @@ export async function generateSearchUrlsWithMemory(
         // GR SPORT study reused a kwd-less URL → 6% trim match). Setting kwd is
         // idempotent, so guarantee it. Marktplaats keeps the trim-less-row-only
         // rule: replacing q: on a trim-scoped learned URL would lose its text.
-        if (wantTrim && (recTrim === '' || url.includes('autoscout24.') || url.includes('gaspedaal.nl'))) {
-          url = injectTrimIntoUrl(url, params.trim ?? '');
+        // Hybride RECHARGEABLE sur AS24 : le site n'a pas de code, on resserre
+        // par le mot-clé « plug-in » (preuve vive 05/09, Sportage NL 2024 GT
+        // line : kwd=PHEV → 0, kwd=plug-in → 9, famille hybride seule → 25
+        // rechargeables et simples mélangées). « PHEV » avait été RETIRÉ le
+        // 29/08 (45 hybrides réels ES, 0 résultat) — même voie que le
+        // constructeur natif, pour que mémoire et natif disent la même chose.
+        const phevKw = url.includes('autoscout24.') && /^(PLUG_IN_HYBRID|PHEV)$/i.test(String(params.fuel ?? '').trim()) ? 'plug-in' : '';
+        if ((wantTrim || phevKw) && (recTrim === '' || url.includes('autoscout24.') || url.includes('gaspedaal.nl'))) {
+          url = injectTrimIntoUrl(url, [phevKw, (params.trim ?? '').trim()].filter(Boolean).join(' '));
         }
-        // kwd=PHEV forcé sur AS24 : RETIRÉ (constat Channing ES 29/08 — le
-        // mot-clé cherche dans les TITRES et les vendeurs n'écrivent pas
-        // « PHEV » : 45 hybrides réels, 0 résultat). La famille hybride est
-        // scrapée entière ; le tri se fait en aval (refineFuelToken : badge
-        // 450h+, tokens plug-in multilingues) et par les filtres du MI.
         url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
         // REGISTRE UNIQUE en DERNIER : réparations + année/km/puissance/boîte
         // (chaque paramètre posé-ou-retiré, anti-fossile) + canal finition LBC

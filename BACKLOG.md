@@ -116,6 +116,39 @@ serait firstOnlineDateDesc (forme symétrique, non encore posée : on trie
 priceAsc). powerDIN par annonce absent du hit principal (lu tolérant,
 similarHits le portent) — la puissance reste un filtre d'URL.
 
+## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
+
+Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **Blocket** : complétude année/km tombée de 80 % à 37 % — la légende de
+  carte suit un carrousel de 4 000 à 11 300 caractères, la fenêtre de
+  lecture faisait 6 000. Fenêtre = jusqu'à la carte suivante. 18/19 lus.
+- **AutoScout24 hybride rechargeable** : le constructeur natif posait
+  kwd=PHEV → 0 annonce (Sportage NL 2024 GT line : PHEV 0, plug-in 9,
+  famille hybride seule 25). Mot-clé « plug-in » sur les deux voies
+  (natif + mémoire), relecture kwd→finition nettoyée.
+- **Truth Center « médiane aberrante »** : 21 dossiers à 80/100 nés d'une
+  comparaison toutes années confondues (Golf 2024 vs 1.9 TDI 1999). Signal
+  recalculé à année égale (migration 20260905160000), dossiers refermés.
+- **Totaux AutoScout24/LBC** : 9 relevés sur 10 sans total (profondeur MI
+  et Truth Center à l'aveugle) — lecture structurée numberOfResults /
+  searchData.total avant les motifs texte.
+- **Veille légale** : 16 échecs/jour « credit balance too low » → pause 24 h
+  automatique, un seul message. À recharger côté Anthropic.
+- **Bruit de logs** : 23 faux conflits taxonomie (accents), conflits d'enum
+  répétés à chaque vague → une fois par clé.
+Constaté, laissé tel quel (sain ou à décider) :
+- Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
+  absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça
+  persiste : DAILY_CONCURRENCY=2 (env Railway), ou étaler les heures.
+- LBC « page servie sans annonces » (total > 0) : soft-block, le retry
+  récupère (Yaris Cross : 53 annonces au bilan). Rien à faire.
+- mobile.de sert des annonces IT/NL/BE/LU/DK écartées (≤ 50/48 h) : voir si
+  l'URL accepte un filtre pays (sonde à faire).
+- 97 mappings « pending » d'un import CSV de mai (LBC/MP/Bilbasen) : morts,
+  à purger ou à valider par les cas dorés (décision Channing).
+- La Centrale « versions=gt line » rend 0 là où LBC en voit 6-12 : sonde
+  impossible aujourd'hui (Zyte 520 sur lacentrale) — à refaire.
+
 ## -1quater-PROPOSÉ (03/09, en attente GO). TRAJECTOIRE DE PRIX × VÉLOCITÉ
 
 Question Channing 03/09 (déclenchée par « 309 baisses » du digest) : « si le
