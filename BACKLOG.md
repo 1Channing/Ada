@@ -182,6 +182,13 @@ Décisions Channing 05/09 (après-midi) :
   tableau d'annonces) → pas de bascule ; à re-sonder sur 10 pages un jour
   calme avant toute décision (une page tronquée en pagination = profondeur
   perdue en silence).
+- **Sites en parallèle** (question Channing 05/09 « un site puis l'autre ? ») :
+  une étude quotidienne scrape désormais TOUS ses sites en même temps, et
+  ses deux pays ensemble (source + cible) ; les mises à jour MI l'étaient
+  déjà (un job par site). Régulation à la source : plafond global de
+  requêtes Zyte en vol (ZYTE_MAX_PARALLEL, défaut 6, env Railway) — au-delà,
+  les requêtes attendent leur tour. Vague : 2 études × 6 sites × pages par
+  paires → jamais plus de 6 rendus Zyte à la fois. Re-contrôle 520 le 12/09.
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça

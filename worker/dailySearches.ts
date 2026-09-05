@@ -201,7 +201,12 @@ async function scrapeCountry(
 ): Promise<Array<{ site: string; listings: Array<{ title?: string | null; price?: number | null; year?: number | null; mileage?: number | null; listing_url?: string | null }> }>> {
   const out: Array<{ site: string; listings: never[] }> = [];
   const sites = allSiteAdapters().filter((a) => (a as { countryCode?: string }).countryCode === country);
-  for (const site of sites) {
+  // SITES EN PARALLÈLE (demande Channing 05/09 : « on est obligé de faire un
+  // site puis l'autre ? ») : chaque site est un travail indépendant ; ils
+  // partent tous ensemble, le plafond global de requêtes Zyte (scraper,
+  // ZYTE_MAX_PARALLEL) régule la charge à la source. Résultats recollés dans
+  // l'ordre des adaptateurs.
+  const runSite = async (site: (typeof sites)[number]): Promise<{ site: string; listings: never[] } | null> => {
     let url: string | null = null;
     let genWarnings: string[] = [];
     let genParams: Parameters<typeof generateSearchUrlsWithMemory>[0] | null = null;
@@ -235,7 +240,7 @@ async function scrapeCountry(
         summary: `URL non générable — coller une URL humaine de « ${s.brand} ${s.model || ''} » sur ${site.key} pour apprendre le dictionnaire`,
         details: { study: name, warnings: genWarnings },
       });
-      continue;
+      return null;
     }
     // PROFONDEUR CONDITIONNELLE (règle Channing 26/08) : 5 pages seulement si
     // l'URL exprime TOUS les critères de l'étude (mesuré sur l'URL produite,
@@ -300,7 +305,7 @@ async function scrapeCountry(
     // jetait toute récolte d'étude sans modèle). Même test que les campagnes.
     if (s.model && result.diagnostics?.silentFallback?.modelApplied === false) {
       console.warn(`[DAILY] « ${name} »: ${site.key} a servi la page marque entière (repli silencieux) — annonces écartées, mapping à corriger`);
-      continue;
+      return null;
     }
     // Moisson taxonomy (enums modèle vus dans les annonces, ex. LBC
     // u_car_model 'BMW_iX1') : les études quotidiennes apprennent comme les
@@ -400,8 +405,15 @@ async function scrapeCountry(
         console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (accidentée)`);
       }
     }
-    out.push({ site: site.key, listings: listings as never[] });
-  }
+    return { site: site.key, listings: listings as never[] };
+  };
+  // Un site qui plante n'emporte pas les autres : chaque travail attrape sa
+  // propre erreur (fail-open, le site est simplement absent du bilan).
+  const results = await Promise.all(sites.map((site) => runSite(site).catch((e) => {
+    console.warn(`[DAILY] « ${name} »: ${site.key} en échec —`, e instanceof Error ? e.message : e);
+    return null;
+  })));
+  for (const r of results) if (r) out.push(r);
   return out;
 }
 
@@ -501,7 +513,12 @@ async function runDailySearch(s: SearchRow): Promise<void> {
   // 1) PAYS CIBLE d'abord : les tarifs du jour font la médiane de
   //    comparaison (finition équivalente) — et chaque passage éprouve les
   //    URLs cibles. Repli sur les observations MI si trop maigre.
-  const targetScrape = await scrapeCountry(s, s.target_country, s.trim_target, name);
+  //    Les DEUX pays partent ensemble (05/09) : leurs sites sont indépendants,
+  //    le plafond Zyte régule ; la médiane cible n'est lue qu'après.
+  const [targetScrape, sourceScrape] = await Promise.all([
+    scrapeCountry(s, s.target_country, s.trim_target, name),
+    scrapeCountry(s, s.source_country, s.trim, name),
+  ]);
   const targetPrices = targetScrape.flatMap((r) => r.listings)
     .map((l) => (typeof l.price === 'number' ? l.price : null))
     .filter((p): p is number => p != null && p >= MIN_PRICE_EUR);
@@ -512,8 +529,7 @@ async function runDailySearch(s: SearchRow): Promise<void> {
     medianSource = median != null ? 'observations MI' : 'inconnue';
   }
 
-  // 2) PAYS SOURCE : le flux d'annonces à traiter.
-  const sourceScrape = await scrapeCountry(s, s.source_country, s.trim, name);
+  // 2) PAYS SOURCE : le flux d'annonces à traiter (déjà scrapé ci-dessus).
   const nowIso = new Date().toISOString();
   let scanned = 0, fresh = 0, drops = 0, noUrl = 0;
 

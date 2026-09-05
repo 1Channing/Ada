@@ -203,7 +203,35 @@ export async function recordStudyMarketSnapshot(
  */
 interface FetchResult { html: string | null; mode: 'raw' | 'browser'; status: number | null; }
 
+// PLAFOND GLOBAL de requêtes Zyte simultanées (05/09). Les études, les
+// mises à jour MI, les campagnes et la pagination parallélisent chacune de
+// leur côté ; sans plafond commun, la file Zyte déborde (520 en rafale à
+// 05 h). Ici, une seule porte : au-delà de ZYTE_MAX_PARALLEL requêtes en
+// vol, les suivantes attendent leur tour — l'ordre d'arrivée est respecté.
+const ZYTE_MAX_PARALLEL = Math.max(1, Math.min(16, parseInt(process.env.ZYTE_MAX_PARALLEL ?? '6', 10) || 6));
+let zyteInFlight = 0;
+const zyteWaiters: Array<() => void> = [];
+async function zyteAcquire(): Promise<void> {
+  if (zyteInFlight < ZYTE_MAX_PARALLEL) { zyteInFlight++; return; }
+  await new Promise<void>((resolve) => zyteWaiters.push(resolve));
+  zyteInFlight++;
+}
+function zyteRelease(): void {
+  zyteInFlight = Math.max(0, zyteInFlight - 1);
+  const next = zyteWaiters.shift();
+  if (next) next();
+}
+
 async function fetchHtmlWithZyte(url: string, profileLevel: number, profileOverride?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides): Promise<FetchResult> {
+  await zyteAcquire();
+  try {
+    return await fetchHtmlWithZyteUnbounded(url, profileLevel, profileOverride);
+  } finally {
+    zyteRelease();
+  }
+}
+
+async function fetchHtmlWithZyteUnbounded(url: string, profileLevel: number, profileOverride?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides): Promise<FetchResult> {
   if (!ZYTE_API_KEY) {
     console.error('[WORKER_SCRAPER] ZYTE_API_KEY not configured');
     return { html: null, mode: 'browser', status: null };
