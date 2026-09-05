@@ -259,6 +259,11 @@ function parseSearchResults(html: string): ScrapedListing[] {
 
 /** Total « 758 annonces » affiché par la page (constat sonde 29/08). */
 function readTotalCount(html: string): number | null {
+  // Total STRUCTURÉ d'abord (sonde 05/09 : page RAV4 → "total":758,"nextTotal":758
+  // dans l'état de recherche, à côté de "pageSize":23) — le texte « N annonces »
+  // ne se trouve que dans le dernier tiers d'une page de 1,5 Mo.
+  const j = html.match(/"total":\s*(\d+),\s*"nextTotal"/);
+  if (j) return Number(j[1]);
   const m = html.match(/(\d[\d\s  ]*)\s*annonces?\b/i);
   if (!m) return null;
   const n = Number(m[1].replace(/[\s  ]/g, ''));
