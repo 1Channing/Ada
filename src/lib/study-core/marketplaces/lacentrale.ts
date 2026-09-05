@@ -472,6 +472,11 @@ export const lacentraleAdapter: SiteAdapter = {
     attempt <= 2
       ? { httpResponseBody: true, geolocation: 'FR' }
       : { geolocation: 'FR', actions: [{ action: 'waitForTimeout', timeout: 6 }] },
+  // Brut ET navigateur ensemble au premier essai (05/09) : sur 24 h, le brut
+  // franchit Datadome ~1 fois sur 2 et chaque échec coûte ~60 s de 520 —
+  // l'étude Elroq FR attendait 3 min La Centrale quand Marktplaats et
+  // Bilbasen avaient répondu en 15 s.
+  hedgeFirstAttempt: true,
 
   detectBlocked: (html: string, hasListings: boolean): boolean =>
     !hasListings && !html.includes('__PRELOADED_STATE_LISTING__')

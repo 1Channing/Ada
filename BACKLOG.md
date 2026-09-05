@@ -189,6 +189,13 @@ Décisions Channing 05/09 (après-midi) :
   requêtes Zyte en vol (ZYTE_MAX_PARALLEL, défaut 6, env Railway) — au-delà,
   les requêtes attendent leur tour. Vague : 2 études × 6 sites × pages par
   paires → jamais plus de 6 rendus Zyte à la fois. Re-contrôle 520 le 12/09.
+- **La Centrale lente en MI** (constat Channing 05/09 soir, Elroq : MP et
+  Bilbasen en 15 s, La Centrale 3 min après 3 × Zyte 520 à ~60 s chacun ;
+  sur 24 h le brut passe Datadome ~1 fois sur 2) : COURSE DE PROFILS —
+  brut et navigateur lancés ensemble au premier essai, la première page
+  exploitable gagne, l'autre est annulée (adaptateur hedgeFirstAttempt,
+  pages suivantes comprises). Coût : une requête de plus par page, sur ce
+  seul site. Attendu : 20-30 s au lieu de 1 à 4 min.
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça

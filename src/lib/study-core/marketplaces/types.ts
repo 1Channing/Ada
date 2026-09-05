@@ -221,6 +221,12 @@ export interface SiteAdapter {
 
   /** Pure config for the caller's Zyte request — no fetch happens here. */
   getFetchProfile(attempt: number): ZyteProfileOverrides;
+  /** Site derrière un anti-bot que l'unblocker brut ne franchit qu'une fois
+   *  sur deux, avec ~60 s de pénalité par échec (Zyte 520) : le worker lance
+   *  le profil brut ET le profil navigateur EN MÊME TEMPS au premier essai et
+   *  garde la première page complète (La Centrale/Datadome, constat 05/09 :
+   *  3 × 520 = 3 min avant la réponse). Coût : une requête de plus par page. */
+  hedgeFirstAttempt?: boolean;
   /** Optional per-site override of the shared keyword-based block detector. */
   detectBlocked?(html: string, hasListings: boolean): boolean;
   /**

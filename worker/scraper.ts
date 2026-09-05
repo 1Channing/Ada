@@ -222,16 +222,65 @@ function zyteRelease(): void {
   if (next) next();
 }
 
-async function fetchHtmlWithZyte(url: string, profileLevel: number, profileOverride?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides): Promise<FetchResult> {
+async function fetchHtmlWithZyte(url: string, profileLevel: number, profileOverride?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides, signal?: AbortSignal): Promise<FetchResult> {
   await zyteAcquire();
   try {
-    return await fetchHtmlWithZyteUnbounded(url, profileLevel, profileOverride);
+    if (signal?.aborted) return { html: null, mode: 'browser', status: null };
+    return await fetchHtmlWithZyteUnbounded(url, profileLevel, profileOverride, signal);
   } finally {
     zyteRelease();
   }
 }
 
-async function fetchHtmlWithZyteUnbounded(url: string, profileLevel: number, profileOverride?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides): Promise<FetchResult> {
+/** Page exploitable : non bloquée, avec des annonces — ou un vide PROUVÉ par
+ *  le site. Une coquille (page pleine sans tableau, marqueur absent) ne l'est pas. */
+function pageLooksUsable(url: string, html: string | null): boolean {
+  if (!html) return false;
+  if (detectBlockedContent(html, false).isBlocked) return false;
+  if (coreParseSearchPage(html, url).length > 0) return true;
+  const adapter = findSiteAdapterByDomain(url);
+  return (adapter?.detectEmptyState ? adapter.detectEmptyState(html) : null) === true;
+}
+
+/**
+ * COURSE DE PROFILS (05/09) : deux requêtes Zyte en même temps (ex. brut et
+ * navigateur), la première page EXPLOITABLE gagne et l'autre est annulée.
+ * Pour les sites déclarés hedgeFirstAttempt (La Centrale/Datadome : le brut
+ * passe une fois sur deux, chaque échec coûte ~60 s de 520). Si aucune n'est
+ * exploitable, on rend la moins mauvaise et la boucle d'essais continue.
+ */
+async function fetchHtmlHedged(url: string, levels: number[]): Promise<FetchResult> {
+  const controllers = levels.map(() => new AbortController());
+  const fallbacks: FetchResult[] = [];
+  let settled = false;
+  let pending = levels.length;
+  return new Promise<FetchResult>((resolve) => {
+    levels.forEach((lvl, i) => {
+      fetchHtmlWithZyte(url, lvl, undefined, controllers[i].signal)
+        .then((r) => {
+          if (settled) return;
+          if (pageLooksUsable(url, r.html)) {
+            settled = true;
+            controllers.forEach((c, j) => { if (j !== i) c.abort(); });
+            console.log(`[WORKER_SCRAPER] course de profils : niveau ${lvl} (${r.mode}) a rendu la page — ${url.slice(0, 100)}`);
+            resolve(r);
+          } else {
+            fallbacks.push(r);
+          }
+        })
+        .catch(() => { fallbacks.push({ html: null, mode: 'browser', status: null }); })
+        .finally(() => {
+          pending--;
+          if (!settled && pending === 0) {
+            settled = true;
+            resolve(fallbacks.find((f) => f.html) ?? fallbacks[0] ?? { html: null, mode: 'browser', status: null });
+          }
+        });
+    });
+  });
+}
+
+async function fetchHtmlWithZyteUnbounded(url: string, profileLevel: number, profileOverride?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides, signal?: AbortSignal): Promise<FetchResult> {
   if (!ZYTE_API_KEY) {
     console.error('[WORKER_SCRAPER] ZYTE_API_KEY not configured');
     return { html: null, mode: 'browser', status: null };
@@ -280,6 +329,7 @@ async function fetchHtmlWithZyteUnbounded(url: string, profileLevel: number, pro
         'Authorization': `Basic ${Buffer.from(`${ZYTE_API_KEY}:`).toString('base64')}`,
       },
       body: JSON.stringify(requestBody),
+      signal,
     });
 
     if (!response.ok) {
@@ -1198,7 +1248,10 @@ export async function scrapeSearch(
     const profileLevel = attempt + 1;
     console.log(`[WORKER_SCRAPER] Fetching ${activeUrl} (attempt ${attempt + 1}/${MAX_RETRIES + 1}, profile ${profileLevel})`);
 
-    const { html, mode } = await fetchHtmlWithZyte(activeUrl, profileLevel);
+    // Site derrière Datadome (hedgeFirstAttempt) : au premier essai, brut ET
+    // navigateur en course — la première page exploitable gagne.
+    const hedge = attempt === 0 && findSiteAdapterByDomain(activeUrl)?.hedgeFirstAttempt === true;
+    const { html, mode } = hedge ? await fetchHtmlHedged(activeUrl, [1, 3]) : await fetchHtmlWithZyte(activeUrl, profileLevel);
     lastMode = mode;
 
     if (!html) {
@@ -1265,7 +1318,11 @@ export async function scrapeSearch(
             const i = next++;
             // Arrêt anticipé : une page précédente déjà vide → inutile d'aller plus loin.
             if (fetched.slice(0, i).some((f) => f !== null && f.length === 0)) { fetched[i] = []; continue; }
-            const { html: pageHtml } = await fetchHtmlWithZyte(targets[i], 1);
+            // Pages suivantes : même course de profils pour les sites Datadome —
+            // une page 2 tombée sur un 520 serait une profondeur perdue en silence.
+            const { html: pageHtml } = adapter?.hedgeFirstAttempt
+              ? await fetchHtmlHedged(targets[i], [1, 3])
+              : await fetchHtmlWithZyte(targets[i], 1);
             fetched[i] = pageHtml ? coreParseSearchPage(pageHtml, targets[i]) : [];
           }
         }));
