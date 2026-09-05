@@ -1210,17 +1210,44 @@ export async function scrapeSearch(
       let pages = 1;
       if (scrapeMode !== 'fast' && moreAvailable && all.length < maxListings) {
         const adapter = findSiteAdapterByDomain(activeUrl);
-        for (let page = 2; page <= maxPages && all.length < maxListings; page++) {
+        // PAGES 2..N EN PARALLÈLE (demande Channing 05/09 : « accélérer LBC »).
+        // Avant : une page après l'autre, chacune un rendu Zyte de 15-40 s —
+        // LBC en 5 pages = 2 à 3 minutes. Les pages sont indépendantes : on
+        // les demande par paires (2 à la fois, pour ne pas gonfler la file
+        // Zyte qui répond 520 quand on la pousse), puis on les recolle DANS
+        // L'ORDRE avec les mêmes arrêts qu'avant (page vide, page sans
+        // nouveauté, plafond d'annonces). Nombre de pages borné par le total
+        // annoncé quand le site le donne : pas une requête de trop.
+        const pageUrls: string[] = [];
+        for (let page = 2; page <= maxPages; page++) {
           const pageUrl = adapter ? adapter.buildPaginatedUrl(activeUrl, page) : activeUrl;
           if (pageUrl === activeUrl) break; // no pagination scheme for this site
-          const { html: pageHtml } = await fetchHtmlWithZyte(pageUrl, 1);
-          if (!pageHtml) break;
-          const pageListings = coreParseSearchPage(pageHtml, pageUrl);
-          if (pageListings.length === 0) break;
+          pageUrls.push(pageUrl);
+        }
+        const perPage = Math.max(1, all.length);
+        const needed = totalCount != null
+          ? Math.max(0, Math.ceil(Math.min(totalCount, maxListings) / perPage) - 1)
+          : pageUrls.length;
+        const targets = pageUrls.slice(0, needed);
+        const fetched: Array<ScrapedListing[] | null> = targets.map(() => null);
+        let next = 0;
+        const PAGE_PARALLEL = 2;
+        await Promise.all(Array.from({ length: Math.min(PAGE_PARALLEL, targets.length) }, async () => {
+          while (next < targets.length) {
+            const i = next++;
+            // Arrêt anticipé : une page précédente déjà vide → inutile d'aller plus loin.
+            if (fetched.slice(0, i).some((f) => f !== null && f.length === 0)) { fetched[i] = []; continue; }
+            const { html: pageHtml } = await fetchHtmlWithZyte(targets[i], 1);
+            fetched[i] = pageHtml ? coreParseSearchPage(pageHtml, targets[i]) : [];
+          }
+        }));
+        for (const pageListings of fetched) {
+          if (!pageListings || pageListings.length === 0) break;
           const before = all.length;
           all = dedupeListings([...all, ...pageListings]);
           pages++;
           if (all.length === before) break; // page brought no new unique listings
+          if (all.length >= maxListings) break;
         }
       }
       all = all.slice(0, maxListings);
