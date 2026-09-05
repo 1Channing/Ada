@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText } from 'lucide-react';
+import { NegotiationsTab } from './Ventes';
+import { Administrative } from './Administrative';
+import { useAuth } from '../services/auth';
+import { canSeeTab } from '../lib/appTabs';
 import {
   DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
@@ -66,28 +70,50 @@ const FUELS = [
 const flagOf = (code: string) => COUNTRIES.find((c) => c.code === code)?.flag ?? code;
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 
-type Tab = 'searches' | 'results' | 'archives';
+type Tab = 'searches' | 'results' | 'archives' | 'negotiations' | 'sales';
+
+/** /ventes → Négociations, /admin → Ventes (anciens chemins, mêmes onglets). */
+const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations' : p === '/admin' ? 'sales' : null);
 
 export function Workflow() {
-  const [tab, setTab] = useState<Tab>('searches');
+  const { allowedTabs, isAdmin } = useAuth();
+  // Négociations et Ventes vivent ici depuis le 05/09 (demande Channing),
+  // à la suite des études ; leurs droits restent ceux de l'onglet « Ventes ».
+  const seeStudies = canSeeTab(allowedTabs, isAdmin, 'workflow');
+  const seeSales = canSeeTab(allowedTabs, isAdmin, 'ventes');
+  const [tab, setTab] = useState<Tab>(() => tabFromPath(window.location.pathname) ?? (seeStudies ? 'searches' : 'negotiations'));
+  // Navigation interne (Accueil → « Dossiers en cours », retour de l'historique
+  // des ventes…) : la page reste montée, l'onglet suit le chemin.
+  useEffect(() => {
+    const follow = () => { const t = tabFromPath(window.location.pathname); if (t) setTab(t); };
+    window.addEventListener('locationchange', follow);
+    window.addEventListener('popstate', follow);
+    return () => { window.removeEventListener('locationchange', follow); window.removeEventListener('popstate', follow); };
+  }, []);
   const tabs = [
-    { id: 'searches' as Tab, label: 'Études quotidiennes', icon: CalendarClock },
-    { id: 'results' as Tab, label: 'Résultats', icon: BarChart3 },
-    { id: 'archives' as Tab, label: 'Archives', icon: Archive },
+    ...(seeStudies ? [
+      { id: 'searches' as Tab, label: 'Études quotidiennes', icon: CalendarClock },
+      { id: 'results' as Tab, label: 'Résultats', icon: BarChart3 },
+      { id: 'archives' as Tab, label: 'Archives', icon: Archive },
+    ] : []),
+    ...(seeSales ? [
+      { id: 'negotiations' as Tab, label: 'Négociations', icon: MessageSquare },
+      { id: 'sales' as Tab, label: 'Ventes', icon: FileText },
+    ] : []),
   ];
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Workflow</h1>
-        <p className="text-slate-600 mt-2">Tes études quotidiennes — nouvelles annonces et baisses de prix chaque matin.</p>
+        <p className="text-slate-600 mt-2">Tes études quotidiennes, tes négociations et les ventes de l'équipe — d'une annonce repérée à l'affaire conclue.</p>
       </div>
       <div className="border-b border-slate-200">
-        <nav className="flex gap-1">
+        <nav className="flex gap-1 overflow-x-auto">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`px-4 py-3 flex items-center gap-2 border-b-2 transition-colors ${
+              className={`px-4 py-3 flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap ${
                 tab === id ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-600 hover:text-slate-700'
               }`}
             >
@@ -97,9 +123,11 @@ export function Workflow() {
           ))}
         </nav>
       </div>
-      {tab === 'searches' && <DailySearchesTab />}
-      {tab === 'results' && <ResultsTab />}
-      {tab === 'archives' && <ArchivesTab />}
+      {tab === 'searches' && seeStudies && <DailySearchesTab />}
+      {tab === 'results' && seeStudies && <ResultsTab />}
+      {tab === 'archives' && seeStudies && <ArchivesTab />}
+      {tab === 'negotiations' && seeSales && <NegotiationsTab onPushed={() => setTab('sales')} />}
+      {tab === 'sales' && seeSales && <Administrative />}
     </div>
   );
 }

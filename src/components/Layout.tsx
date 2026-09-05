@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Handshake, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users } from 'lucide-react';
 import { canSeeTab, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
@@ -69,17 +69,19 @@ export function Layout({ children }: LayoutProps) {
 
   const allItems: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[]; tab?: AppTabKey }> = [
     { path: '/', label: 'Accueil', icon: <Home className="w-4 h-4" /> },
-    // Workflow personnel : études quotidiennes + résultats (ex-Études).
-    { path: '/workflow', label: 'Workflow', icon: <ClipboardList className="w-4 h-4" />, also: ['/etudes'], tab: 'workflow' },
-    // Ventes : négociations (perso) + ventes équipe (ex-Administratif).
-    { path: '/ventes', label: 'Ventes', icon: <Handshake className="w-4 h-4" />, also: ['/admin'], tab: 'ventes' },
+    // Workflow : études quotidiennes + résultats + (depuis le 05/09)
+    // négociations et ventes, à la suite. Les anciens chemins /ventes et
+    // /admin y mènent ; le droit « Ventes » gouverne ses deux derniers onglets.
+    { path: '/workflow', label: 'Workflow', icon: <ClipboardList className="w-4 h-4" />, also: ['/etudes', '/ventes', '/admin'], tab: 'workflow' },
     // Atelier = campagnes + ingestion + link gen fusionnés (une seule page).
     { path: '/ingestion', label: 'Atelier', icon: <Upload className="w-4 h-4" />, exact: true, also: ['/link-generator'], tab: 'atelier' },
     { path: '/ingestion/history', label: 'Historique', icon: <History className="w-4 h-4" />, tab: 'historique' },
     { path: '/market', label: 'Market Intelligence', icon: <LineChart className="w-4 h-4" />, tab: 'market' },
     { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" />, tab: 'veille' },
   ];
-  const items = allItems.filter((it) => !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab));
+  // Le Workflow reste visible à qui n'a que le droit « Ventes » (ses deux
+  // derniers onglets) — la page masque elle-même les études.
+  const items = allItems.filter((it) => !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab) || (it.tab === 'workflow' && canSeeTab(allowedTabs, isAdmin, 'ventes')));
 
   const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>
     (it.exact ? currentPath === it.path : isActive(it.path)) ||

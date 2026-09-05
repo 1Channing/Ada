@@ -8,7 +8,6 @@ import { AdminHistory } from './pages/AdminHistory';
 import { IngestionHistory } from './pages/IngestionHistory';
 import { MarketIntelligence } from './pages/MarketIntelligence';
 import { Workflow } from './pages/Workflow';
-import { Ventes } from './pages/Ventes';
 import { Veille } from './pages/Veille';
 import { TruthCenter } from './pages/TruthCenter';
 import { Telemetrie } from './pages/Telemetrie';
@@ -71,7 +70,9 @@ function App() {
   // nouvelle lecture serveur. /admin et /etudes sont les anciens noms de
   // /ventes et /workflow — même clé, même instance.
   const pageKeyOf = (p: string): string => {
-    if (p === '/admin' || p === '/ventes') return 'ventes';
+    // Négociations et Ventes vivent dans le Workflow depuis le 05/09 — les
+    // anciens chemins y mènent (l'onglet suit le chemin dans la page).
+    if (p === '/admin' || p === '/ventes') return 'workflow';
     if (p === '/admin/history') return 'admin-history';
     if (p === '/link-generator') return 'atelier-linkgen';
     if (p === '/ingestion') return 'atelier-ingestion';
@@ -86,7 +87,6 @@ function App() {
   };
   const renderPageFor = (key: string) => {
     switch (key) {
-      case 'ventes': return <Ventes />;
       case 'admin-history': return <AdminHistory />;
       case 'atelier-linkgen': return <Atelier initial="linkgen" />;
       case 'atelier-ingestion': return <Atelier initial="ingestion" />;
@@ -104,8 +104,11 @@ function App() {
   // ce compte est remplacée par l'accueil — l'URL tapée à la main comprise.
   const { allowedTabs, isAdmin } = useAuth();
   const rawKey = pageKeyOf(path);
+  // Le Workflow s'ouvre si l'un de ses deux volets est permis (études OU
+  // ventes) ; la page masque elle-même les onglets interdits.
   const gateTab = tabKeyOfPageKey(rawKey);
-  const activeKey = gateTab && !canSeeTab(allowedTabs, isAdmin, gateTab) ? 'home' : rawKey;
+  const workflowOk = canSeeTab(allowedTabs, isAdmin, 'workflow') || canSeeTab(allowedTabs, isAdmin, 'ventes');
+  const activeKey = rawKey === 'workflow' ? (workflowOk ? rawKey : 'home') : gateTab && !canSeeTab(allowedTabs, isAdmin, gateTab) ? 'home' : rawKey;
   const [visited, setVisited] = useState<string[]>([activeKey]);
   useEffect(() => {
     setVisited((v) => (v.includes(activeKey) ? v : [...v, activeKey]));

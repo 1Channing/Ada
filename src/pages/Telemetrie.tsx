@@ -59,8 +59,8 @@ async function loadEvents(since: string): Promise<Ev[]> {
 }
 
 const PAGE_LABELS: Record<string, string> = {
-  '/': 'Accueil', '/workflow': 'Workflow', '/etudes': 'Workflow', '/ventes': 'Ventes',
-  '/admin': 'Ventes', '/admin/history': 'Ventes (historique)', '/ingestion': 'Atelier',
+  '/': 'Accueil', '/workflow': 'Workflow', '/etudes': 'Workflow', '/ventes': 'Workflow (négociations)',
+  '/admin': 'Workflow (ventes)', '/admin/history': 'Ventes (historique)', '/ingestion': 'Atelier',
   '/link-generator': 'Atelier (link gen)', '/ingestion/history': 'Historique',
   '/market': 'Market Intelligence', '/veille': 'Veille', '/telemetrie': 'Télémétrie',
 };
