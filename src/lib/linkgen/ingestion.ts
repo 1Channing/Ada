@@ -304,6 +304,7 @@ export async function persistIngestionResult(
  * a confirmed ingestion is what pins code↔label per site.
  */
 const LEARNABLE_ENUM_FIELDS = ['fuel', 'gearbox', 'color', 'vehicleType'] as const;
+const ENUM_CONFLICT_LOGGED = new Set<string>();
 type LearnableEnumField = (typeof LEARNABLE_ENUM_FIELDS)[number];
 
 /**
@@ -348,8 +349,14 @@ async function learnEnumMappings(
         })
         .eq('id', existing.id);
     } else {
-      // Contradiction (same code, different label) — keep existing, log only.
-      console.warn(`[INGESTION] enum conflict ${site}/${field}/${code}: kept "${existing.label}", ignored "${label}"`);
+      // Contradiction (same code, different label) — keep existing, log only,
+      // et UNE fois par clé (audit 05/09 : la même ligne revenait 14 fois
+      // par vague, GASPEDAAL/fuel/hybride HYBRIDE vs PLUG_IN_HYBRID).
+      const k = `${site}/${field}/${code}`;
+      if (!ENUM_CONFLICT_LOGGED.has(k)) {
+        ENUM_CONFLICT_LOGGED.add(k);
+        console.warn(`[INGESTION] enum conflict ${k}: kept "${existing.label}", ignored "${label}"`);
+      }
     }
   }
 }

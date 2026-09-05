@@ -21,6 +21,9 @@ export interface TaxonomyEntry { field: string; code: string; label: string }
 export interface TaxonomyHarvestSummary { learned: number; byField: Record<string, number> }
 
 const EMPTY_SUMMARY: TaxonomyHarvestSummary = { learned: 0, byField: {} };
+/** Même libellé aux accents et à la casse près (audit 05/09 : « ELECTRIQUE »
+ *  vs « Électrique » remontait 23 faux conflits par vague). */
+const foldLabel = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 
 /** Persiste une moisson : insertion des inconnus uniquement, conflits loggés. */
 export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntry[]): Promise<TaxonomyHarvestSummary> {
@@ -48,7 +51,7 @@ export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntr
     const prev = known.get(`${e.field}|${e.code}`);
     if (prev === undefined) {
       fresh.push({ site, field: e.field, code: e.code, label: e.label, confirmations: 1, last_confirmed_at: now, updated_at: now });
-    } else if (prev.toLowerCase() !== e.label.toLowerCase()) {
+    } else if (foldLabel(prev) !== foldLabel(e.label)) {
       console.warn(`[TAXONOMY] conflit ${site}/${e.field}/${e.code}: gardé "${prev}", ignoré "${e.label}"`);
     }
   }
