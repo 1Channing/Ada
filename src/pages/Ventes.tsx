@@ -452,6 +452,7 @@ function OpenSpaceCard({ item, notes, onChanged, onError }: { item: OpenSpaceIte
   const { userId, isAdmin } = useAuth();
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [showPhotos, setShowPhotos] = useState(false);
   const n = item.nego;
   const mine = item.pushed_by === userId;
   const send = async () => {
@@ -466,11 +467,22 @@ function OpenSpaceCard({ item, notes, onChanged, onError }: { item: OpenSpaceIte
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="flex gap-4 p-4">
-        {n?.photos[0] ? (
-          <div className="w-28 h-20 rounded-lg bg-cover bg-center shrink-0 border border-slate-200" style={{ backgroundImage: `url(${n.photos[0]})` }} title={`${n.photos.length} photo(s)`} />
-        ) : (
-          <div className="w-28 h-20 rounded-lg bg-slate-100 shrink-0 flex items-center justify-center text-slate-300"><Images className="w-6 h-6" /></div>
-        )}
+        {/* Vignette = ouvre l'atelier photos (ordre, rognage, ajout, PDF),
+            le même que dans les négociations — l'équipe travaille les photos
+            d'une annonce partagée (demande 05/09). */}
+        <button
+          onClick={() => n && setShowPhotos(true)}
+          disabled={!n}
+          title={n ? `Photos & PDF (${n.photos.length})` : ''}
+          className="relative w-28 h-20 rounded-lg shrink-0 border border-slate-200 overflow-hidden bg-slate-100 flex items-center justify-center text-slate-300 hover:ring-2 hover:ring-brand-ocean disabled:opacity-60"
+        >
+          {n?.photos[0]
+            ? <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${n.photos[0]})` }} />
+            : <Images className="w-6 h-6" />}
+          {n && n.photos.length > 0 && (
+            <span className="absolute bottom-1 right-1 flex items-center gap-1 text-[10px] font-semibold text-white bg-black/60 rounded px-1.5 py-0.5"><Images className="w-3 h-3" />{n.photos.length}</span>
+          )}
+        </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-slate-900 truncate">{n?.title ?? 'Négociation retirée'}</span>
@@ -496,6 +508,9 @@ function OpenSpaceCard({ item, notes, onChanged, onError }: { item: OpenSpaceIte
           </button>
         )}
       </div>
+      {showPhotos && n && (
+        <NegotiationPhotosModal nego={n} onClose={() => setShowPhotos(false)} onChanged={onChanged} />
+      )}
       <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 space-y-2">
         {notes.length === 0 && <p className="text-xs text-slate-400 italic">Pas encore de note — sois le premier.</p>}
         {notes.map((no) => (

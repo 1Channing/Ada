@@ -457,6 +457,21 @@ export async function updateNegotiation(id: string, patch: Partial<Negotiation>)
   await supabase.from('negotiations').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
 }
 
+/**
+ * Photos d'une négociation : la mienne s'écrit en direct ; celle d'un
+ * COLLÈGUE partagée dans l'Open space passe par la fonction dédiée (05/09),
+ * qui n'ouvre à l'équipe que la colonne photos. Renvoie un message d'erreur
+ * ou null.
+ */
+export async function saveNegotiationPhotos(id: string, photos: string[]): Promise<string | null> {
+  const direct = await supabase.from('negotiations').update({ photos, updated_at: new Date().toISOString() } as never).eq('id', id).select('id');
+  if (!direct.error && (direct.data ?? []).length > 0) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc('open_space_set_photos', { p_negotiation_id: id, p_photos: photos });
+  if (error) return /does not exist|function/i.test(error.message) ? "Photos d'équipe : SQL du 05/09 (open_space_set_photos) à coller." : error.message;
+  return data === true ? null : "Cette négociation n'est plus dans l'Open space — photos non modifiables.";
+}
+
 export async function deleteNegotiation(id: string): Promise<void> {
   await supabase.from('negotiations').delete().eq('id', id);
 }

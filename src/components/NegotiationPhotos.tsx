@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Crop, Download, FlipHorizontal2, ImagePlus, Loader2, Paintbrush, RefreshCw, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Negotiation, updateNegotiation } from '../services/workflow';
+import { Negotiation, saveNegotiationPhotos } from '../services/workflow';
 import { startNegoExtraction, isExtracting, extractionError, clearExtractionError, subscribeNegoExtractions } from '../services/negoExtraction';
 
 /**
@@ -71,9 +71,12 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
   const [cropIdx, setCropIdx] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Ma négo → écriture directe ; celle d'un collègue partagée dans l'Open
+  // space → fonction dédiée (05/09). L'erreur s'affiche dans la modale.
   const persist = async (next: string[]) => {
     setPhotos(next);
-    await updateNegotiation(nego.id, { photos: next } as Partial<Negotiation>);
+    const err = await saveNegotiationPhotos(nego.id, next);
+    if (err) setError(err);
     onChanged();
   };
 
