@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Rocket, Square, Loader2, CheckCircle2, XCircle, AlertTriangle, ExternalLink, Wrench, Check, Ban } from 'lucide-react';
 import { capped } from '../services/capacity';
+import { readAllPages } from '../lib/readAllPages';
 import { supabase } from '../lib/supabase';
 import { brandKey } from '../services/marketData';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
@@ -111,12 +112,15 @@ export function CampaignPanel() {
   const [knownBrands, setKnownBrands] = useState<string[]>([]);
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
+      // Lecture complète par pages (alerte campagne.marques du 07/09 :
+      // 3 238 mappings validés, 1 000 lus). Le plafond n'est qu'un garde-fou.
+      const data = await readAllPages<{ brand: string | null }>((from, to) => supabase
         .from('linkgen_mapping_memory')
         .select('brand')
         .eq('validation_status', 'valid')
-        .limit(1000);
-      capped(data, 1000, 'campagne.marques', 'Le panneau Campagne lit 1 000 lignes de mémoire pour ses marques : des marques peuvent manquer dans les puces.');
+        .order('id')
+        .range(from, to), 100_000).catch(() => [] as Array<{ brand: string | null }>);
+      capped(data, 100_000, 'campagne.marques', 'Le panneau Campagne a atteint 100 000 mappings validés lus pour ses marques : des marques peuvent manquer dans les puces — augmenter le plafond.');
       // UNE puce par marque canonique : 'VW' et 'VOLKSWAGEN' sont la même
       // marque (signalement 23/07 — deux puces à cocher). Affichage = la
       // graphie la plus longue (la plus lisible) ; le filtre du planificateur
@@ -141,13 +145,14 @@ export function CampaignPanel() {
   const [validatedKeys, setValidatedKeys] = useState<Set<string>>(new Set());
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
+      const data = await readAllPages<{ site: string; brand: string | null; model: string | null }>((from, to) => supabase
         .from('linkgen_mapping_memory')
         .select('site, brand, model')
         .eq('validation_status', 'valid')
-        .limit(10000);
+        .order('id')
+        .range(from, to), 100_000).catch(() => [] as Array<{ site: string; brand: string | null; model: string | null }>);
       const keys = new Set<string>();
-      for (const r of capped(data, 10000, 'campagne.mappings', 'Le panneau Campagne lit 10 000 mappings validés au plus : des lacunes résolues pourraient rester affichées.')) {
+      for (const r of capped(data, 100_000, 'campagne.mappings', 'Le panneau Campagne a atteint 100 000 mappings validés lus : des lacunes résolues pourraient rester affichées — augmenter le plafond.')) {
         keys.add(`${r.site}|${String(r.brand ?? '').trim().toUpperCase()}|${String(r.model ?? '').trim().toUpperCase()}`);
       }
       setValidatedKeys(keys);

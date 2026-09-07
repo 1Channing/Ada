@@ -22,6 +22,7 @@ import { modelKeyLoose } from '../study-core/business-logic';
 import { persistIngestionResult } from './ingestion';
 import { persistTaxonomyHarvest, loadLearnedTaxonomy } from './taxonomy';
 import { generateSearchUrlsWithMemory } from './generator';
+import { readAllPages } from '../readAllPages';
 import type { SiteKey } from './types';
 import { writeMarketSnapshot, brandKey, refModelKey } from '../../services/marketData';
 import { loadRefWindows, getRefWindowsCached, refComboKey, findRefWindow, yearInRefWindow } from '../../services/vehicleRef';
@@ -114,11 +115,16 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
   // réinjectés dans les adaptateurs AVANT toute génération d'URL.
   await loadLearnedTaxonomy().catch((e) =>
     console.warn(`[TAXONOMY] réinjection au démarrage échouée: ${e instanceof Error ? e.message : e}`));
-  const { data } = await supabase
+  // Lecture complète par pages (même classe que l'alerte campagne.marques du
+  // 07/09 : un `.limit(10000)` deviné aurait tronqué en silence le jour où la
+  // mémoire le dépasse — et le planificateur aurait rescrapé du déjà-connu).
+  const data = await readAllPages<{ site: string; brand: string; model: string; fuel: string | null; trim: string | null; validation_status: string }>((from, to) => supabase
     .from('linkgen_mapping_memory')
     .select('site, brand, model, fuel, trim, validation_status')
     .eq('validation_status', 'valid')
-    .limit(10000);
+    .order('id')
+    .range(from, to), 100_000);
+  if (data.length >= 100_000) console.warn('[CAMPAIGN] mémoire de mappings au plafond de lecture (100 000) — augmenter readAllPages dans campaignEngine');
 
   // ── Identité canonique — plusieurs graphies d'un même modèle circulent en
   // mémoire ('YARIS CROSS'/'YARIS-CROSS', 'MERCEDES'/'MERCEDES-BENZ', 'RAV4'/

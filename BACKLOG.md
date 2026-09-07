@@ -226,6 +226,12 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   10 000/1 000 mappings, Truth Center 300 dossiers, études (worker) 4 000
   observations / 10 000 annonces mémoire / 5 000 négos, digest 3 000 logs.
   RÈGLE : toute nouvelle `.limit(N)` significative passe par `capped`.
+  PREMIÈRE ALERTE (07/09 13:55, campagne.marques : 3 238 mappings validés,
+  1 000 lus) → lecteur paginé partagé `readAllPages` (src/lib) appliqué aux
+  trois lectures de la mémoire (puces marques, lacunes résolues, planificateur
+  de campagne) ; plafond garde-fou 100 000. RÈGLE affinée : une lecture qui
+  sert à DÉRIVER (distinct, index, clés) se pagine jusqu'au bout, le plafond
+  n'est qu'un garde-fou ; `.limit(N)` reste légitime pour « les N derniers ».
 - **FINITION = POST-FILTRE DUR** (constat Channing 07/09, Corolla « GR
   Sport » : Touring Sports Design/Collection servies comme GR Sport). Cause
   de classe : les mots-clés de site (AS24 kwd, Gaspedaal trefw, LBC text)
