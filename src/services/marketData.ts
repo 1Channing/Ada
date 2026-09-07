@@ -649,7 +649,20 @@ export function humanListingUrl(url: string | null | undefined): string {
 
 export function titleContradictsModel(model: string, title: string): boolean {
   const words = softText(model).split(' ').filter(Boolean);
-  if (words.length < 2) return false;
+  // MODÈLE FRÈRE à chiffres (constat 07/09 : la page marque BMW de La
+  // Centrale servait des iX1/iX2 étiquetées « IX3 » dans le MI) : un modèle
+  // d'un seul mot « lettres+chiffres » (ix3, x3, q3, i20, c3) est contredit
+  // par un titre qui nomme un frère de même préfixe et d'autres chiffres
+  // (ix1, x5, q5, i30) SANS nommer le modèle attendu.
+  if (words.length === 1) {
+    const m = words[0].match(/^([a-z]+)(\d+)$/);
+    if (!m) return false;
+    const t = ` ${softText(title)} `;
+    if (t.includes(` ${words[0]} `)) return false;
+    const sibling = new RegExp(` ${m[1]}(\\d+) `);
+    const s = t.match(sibling);
+    return !!s && s[1] !== m[2];
+  }
   const head = words[0];
   const tail = words.slice(1).join(' ');
   if (head.length < 2 || tail.length < 2) return false;

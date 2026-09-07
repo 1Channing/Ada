@@ -27,6 +27,7 @@ import {
 } from '../src/lib/study-core/index';
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
 import { titleContradictsModel } from '../src/services/marketData';
+import { structuredModelMatches } from '../src/lib/study-core/business-logic';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import { mpSlugOfLabel } from '../src/lib/study-core/marketplaces/marktplaats';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
@@ -108,7 +109,13 @@ export async function recordStudyMarketSnapshot(
     // Identité modèle : l'observation hérite du modèle du SEGMENT — un titre
     // qui le CONTREDIT lisiblement (« Yaris » sans « Cross » sur une page
     // Yaris Cross, constat 01/09 : recherche texte Marktplaats) n'entre pas.
-    const identityOk = (l: ScrapedListing) => !titleContradictsModel(segment.model, l.title ?? '');
+    // + modèle STRUCTURÉ de l'annonce quand le site le donne (07/09 : la
+    // page marque BMW de La Centrale servait des IX1/IX2 sur une étude iX3 —
+    // l'étude les écartait, le snapshot MI les prenait). Même règle que la
+    // voie front (writeMarketSnapshot) : fail-open sans modèle structuré.
+    const identityOk = (l: ScrapedListing) =>
+      structuredModelMatches((l as { model?: string | null }).model, segment.model)
+      && !titleContradictsModel(segment.model, l.title ?? '');
     const contradicted = listings.filter((l) => !identityOk(l)).length;
     if (contradicted > 0) console.warn(`[MARKET_SNAPSHOT] ${contradicted} annonce(s) écartée(s) — titre d'un autre modèle que ${segment.brand} ${segment.model} (${segment.site})`);
     const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetail(l) && identityOk(l));
@@ -383,7 +390,9 @@ async function fetchHtmlWithZyteUnbounded(url: string, profileLevel: number, pro
 
     return { html, mode, status: response.status };
   } catch (error) {
-    console.error('[WORKER_SCRAPER] Fetch error:', error);
+    // Annulation volontaire (course de profils : l'autre a gagné) — pas une
+    // erreur (99 lignes « This operation was aborted » le matin du 07/09).
+    if ((error as { name?: string } | null)?.name !== 'AbortError') console.error('[WORKER_SCRAPER] Fetch error:', error);
     return { html: null, mode, status: null };
   }
 }

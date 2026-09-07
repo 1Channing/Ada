@@ -198,7 +198,13 @@ export function modelKeyLoose(raw: string | null | undefined): string {
  */
 export function structuredModelMatches(structured: string | null | undefined, wanted: string): boolean {
   const got = modelKeyLoose(structured);
-  return !got || got === modelKeyLoose(wanted);
+  if (!got) return true;
+  if (got === modelKeyLoose(wanted)) return true;
+  // Forme COMPACTE (espaces et tirets retirés, ordre conservé) : La Centrale
+  // écrit « RAV 4 » là où l'étude dit « RAV4 » — la clé à jetons triés
+  // donnait « 4rav » ≠ « rav4 » et jetait 115 annonces (constat 07/09).
+  const compact = (s: string | null | undefined) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return compact(structured) === compact(wanted);
 }
 
 /**
