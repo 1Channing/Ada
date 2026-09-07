@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
-import { APP_TABS, WORKFLOW_TAB_KEYS, normalizeTabs } from '../lib/appTabs';
+import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
 
 /**
  * Page ÉQUIPE (admin) — demande Channing 30/08 :
@@ -94,14 +94,21 @@ export function Equipe() {
     if (err) { setError(err.message); void reload(); }
   };
 
+  /** Liste = exactement le défaut (tout sauf les droits sur autorisation
+   *  explicite) → NULL (= tout, y compris les onglets futurs) ; sinon la
+   *  liste telle quelle. */
+  const compactTabs = (next: string[]): string[] | null => {
+    const dflt = grantedTabs(null);
+    const same = next.length === dflt.length && dflt.every((k) => next.includes(k));
+    return same ? null : next;
+  };
+
   const toggleTab = (a: Account, key: string) => {
-    const all = APP_TABS.map((t) => t.key as string);
     // Les listes d'avant le 07/09 (clés workflow/ventes) sont converties en
     // clés fines au premier clic — même effet, puis pilotage onglet par onglet.
-    const current = normalizeTabs(a.allowed_tabs) ?? all;
+    const current = grantedTabs(a.allowed_tabs);
     const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-    // Tout coché → NULL (= tout, y compris les onglets futurs).
-    void saveTabs(a, next.length === all.length ? null : next);
+    void saveTabs(a, compactTabs(next));
   };
 
   const toggleAdmin = async (a: Account) => {
@@ -155,7 +162,7 @@ export function Equipe() {
           {accounts.map((a) => {
             const isOpen = openId === a.id;
             const all = APP_TABS.map((t) => t.key as string);
-            const visible = a.is_admin ? all : (normalizeTabs(a.allowed_tabs) ?? all);
+            const visible = a.is_admin ? all : grantedTabs(a.allowed_tabs);
             return (
               <div key={a.id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
                 <button
@@ -190,9 +197,9 @@ export function Equipe() {
                       <p className="text-xs text-slate-500">Compte admin : accès complet, non restreignable. {a.id !== userId ? 'Retire d’abord les droits admin pour piloter ses onglets.' : '(C’est toi.)'}</p>
                     ) : (
                       <>
-                        <p className="text-xs text-slate-500">Accès de ce compte — un droit décoché retire la page (ou les onglets qu'il gouverne) de son ADA, effet à son prochain chargement. Accueil reste toujours accessible.</p>
+                        <p className="text-xs text-slate-500">Accès de ce compte — un droit décoché retire la page (ou les onglets qu'il gouverne) de son ADA, effet à son prochain chargement. Accueil reste toujours accessible. « Opportunités à contrôler » n'est donné qu'aux comptes où tu le coches.</p>
                         {(() => {
-                          const granted = normalizeTabs(a.allowed_tabs) ?? all;
+                          const granted = grantedTabs(a.allowed_tabs);
                           const wf = APP_TABS.filter((t) => WORKFLOW_TAB_KEYS.includes(t.key));
                           const others = APP_TABS.filter((t) => !WORKFLOW_TAB_KEYS.includes(t.key));
                           const wfOn = wf.filter((t) => granted.includes(t.key)).length;
@@ -223,7 +230,7 @@ export function Equipe() {
                                   <span className={`text-xs font-semibold ${wfOn > 0 ? 'text-emerald-900' : 'text-slate-400 line-through'}`}>Workflow</span>
                                   <span className="text-[11px] text-slate-500">{wfOn === wf.length ? 'tous les onglets' : wfOn === 0 ? 'aucun onglet — l’entrée disparaît de son bandeau' : `${wfOn}/${wf.length} onglets`}</span>
                                   <button
-                                    onClick={() => void saveTabs(a, (() => { const rest = granted.filter((k) => !WORKFLOW_TAB_KEYS.includes(k as never)); const next = wfOn === wf.length ? rest : [...rest, ...wf.map((t) => t.key as string)]; return next.length === all.length ? null : next; })())}
+                                    onClick={() => void saveTabs(a, (() => { const rest = granted.filter((k) => !WORKFLOW_TAB_KEYS.includes(k as never)); return compactTabs(wfOn === wf.length ? rest : [...rest, ...wf.map((t) => t.key as string)]); })())}
                                     className="ml-auto text-[11px] font-medium text-brand-ocean hover:underline"
                                   >
                                     {wfOn === wf.length ? 'Tout retirer' : 'Tout donner'}

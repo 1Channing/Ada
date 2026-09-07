@@ -28,7 +28,7 @@ export const APP_TABS = [
   { key: 'veille', label: 'Veille', hint: 'Veille légale et fiscale' },
   // Pas un onglet : le PANNEAU « Opportunités à contrôler » (Accueil + MI)
   // — même mécanisme de droits, le composant s'auto-masque (demande 30/08).
-  { key: 'opportunites', label: 'Opportunités à contrôler', hint: 'Panneau de l’Accueil et du Market Intelligence, pas une page' },
+  { key: 'opportunites', label: 'Opportunités à contrôler', hint: 'Panneau de l’Accueil et du Market Intelligence — sur autorisation explicite, personne ne l’a par défaut' },
 ] as const;
 
 export type AppTabKey = (typeof APP_TABS)[number]['key'];
@@ -41,6 +41,18 @@ const LEGACY_GRANTS: Record<string, AppTabKey[]> = {
   workflow: ['wf:etudes', 'wf:resultats', 'wf:archives'],
   ventes: ['wf:negociations', 'wf:ventes'],
 };
+
+/** Droits SUR AUTORISATION EXPLICITE (demande Channing 07/09 : « je ne veux
+ *  pas que tout le monde ait accès aux opportunités ») : « rien d'enregistré
+ *  = tout » ne les inclut PAS — seule une liste qui les nomme les accorde. */
+export const OPT_IN_TABS: AppTabKey[] = ['opportunites'];
+
+/** Droits effectifs d'un compte non admin : NULL = tout sauf les droits sur
+ *  autorisation explicite ; liste = ses clés fines (historiques développées). */
+export function grantedTabs(tabs: string[] | null): string[] {
+  if (tabs == null) return APP_TABS.map((t) => t.key as string).filter((k) => !OPT_IN_TABS.includes(k as AppTabKey));
+  return normalizeTabs(tabs) ?? [];
+}
 
 /** Liste enregistrée → liste en clés fines (les clés historiques sont
  *  développées, les inconnues retirées). NULL reste NULL (= tout). */
@@ -72,8 +84,7 @@ export function tabKeyOfPageKey(pageKey: string): AppTabKey | null {
 
 export function canSeeTab(allowedTabs: string[] | null, isAdmin: boolean, key: AppTabKey): boolean {
   if (isAdmin) return true;
-  if (allowedTabs == null) return true;
-  return (normalizeTabs(allowedTabs) ?? []).includes(key);
+  return grantedTabs(allowedTabs).includes(key);
 }
 
 /** Le Workflow s'ouvre dès qu'un de ses cinq onglets est permis. */
