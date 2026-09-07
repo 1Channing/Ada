@@ -9,9 +9,10 @@
  *         mileageFromOdometer{value}, fuelType:'Hybride',
  *         vehicleTransmission:'Automaat', color, numberOfDoors,
  *         offers{price, priceCurrency:'EUR', seller{name,@type:AutoDealer}}}
- * L'@id de chaque item = URL de recherche + #<id interne> — c'est l'identité
- * d'annonce disponible (pas d'URL de fiche dans le JSON-LD) : suffisant pour
- * la déduplication et le suivi, le clic « Ouvrir » ancre la page de recherche.
+ * L'@id de chaque item = URL de recherche + #<id interne> — identité
+ * d'annonce (pas d'URL de fiche dans le JSON-LD). Depuis le 07/09 la fiche
+ * unitaire, la version et la puissance viennent du flux Next de la page
+ * (detailsById) ; l'@id ne sert plus d'URL qu'en repli.
  *
  * v2 (02/08) : le MODÈLE entre dans le chemin — grammaire prouvée par l'URL
  * humaine Channing apprise en mémoire (confidence 1) :
@@ -172,15 +173,53 @@ function publishedDatesById(html: string): Map<string, string> {
   return out;
 }
 
+/** Fiche UNITAIRE et détails structurés par annonce, lus dans le flux Next
+ *  de la page (sonde 07/09, constat Channing : « Ouvrir » renvoyait la page
+ *  de recherche ancrée #oc<id>, pas l'annonce). Chaque occasion y porte :
+ *    {advertentieId, autogegevens{algemeen{uitvoering}, motor{vermogenKw}},
+ *     portalen:[{klikUrl:'https://api.gaspedaal.nl/redirect/vehicle/<n>',
+ *                portaalType:'dealer'|'other'|'financial', …}]}
+ *  Le klikUrl redirige vers la fiche chez le vendeur (preuve : /redirect/
+ *  vehicle/203151549 → tesselaarbv.nl/occasions/toyota/corolla-touring-
+ *  sports/hybrid-140-gr-sport-…). Portail « dealer » préféré, sinon le
+ *  premier. Fail-open : id absent du flux = l'@id JSON-LD reste l'URL. */
+interface GpDetail { url?: string; trim?: string; powerKw?: number }
+function detailsById(html: string): Map<string, GpDetail> {
+  const out = new Map<string, GpDetail>();
+  // Le flux est une chaîne JS : guillemets échappés (\") — on les déplie.
+  const flat = html.replace(/\\"/g, '"');
+  const ids = [...flat.matchAll(/"advertentieId":(\d{6,})/g)];
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i][1];
+    if (out.has(id)) continue;
+    const start = ids[i].index ?? 0;
+    const end = i + 1 < ids.length ? (ids[i + 1].index ?? flat.length) : Math.min(flat.length, start + 6000);
+    const w = flat.slice(start, end);
+    const d: GpDetail = {};
+    const trim = w.match(/"uitvoering":"([^"]*)"/)?.[1];
+    if (trim) d.trim = trim.replace(/\\u0026/g, '&');
+    const kw = Number(w.match(/"vermogenKw":(\d+)/)?.[1]);
+    if (Number.isFinite(kw) && kw > 0) d.powerKw = kw;
+    const portals = [...w.matchAll(/"klikUrl":"(https:\/\/api\.gaspedaal\.nl\/redirect\/vehicle\/\d+)"[^}]*?"portaalType":"(\w+)"/g)]
+      .map((m) => ({ url: m[1], type: m[2] }));
+    const pick = portals.find((p) => p.type === 'dealer') ?? portals[0];
+    if (pick) d.url = pick.url;
+    out.set(id, d);
+  }
+  return out;
+}
+
 function parseSearchResults(html: string, _url: string): ScrapedListing[] {
   const out: ScrapedListing[] = [];
   const pubById = publishedDatesById(html);
+  const detById = detailsById(html);
   for (const it of jsonLdCars(html)) {
     const price = typeof it.offers?.price === 'number' ? it.offers.price : Number(it.offers?.price);
     if (!Number.isFinite(price) || price <= 0) continue;
     const year = Number(it.productionDate);
     const mileage = Number(it.mileageFromOdometer?.value);
     const itemId = String(it['@id'] ?? '').match(/#(\d{6,})$/)?.[1];
+    const det = itemId ? detById.get(itemId) : undefined;
     out.push({
       publishedAt: parsePublishedAt(itemId ? pubById.get(itemId) : undefined),
       title: it.name ?? '',
@@ -190,8 +229,9 @@ function parseSearchResults(html: string, _url: string): ScrapedListing[] {
       price_type: 'one-off',
       year: Number.isFinite(year) ? year : null,
       mileage: Number.isFinite(mileage) ? mileage : null,
-      trim: null,
-      listing_url: it['@id'] ?? '',
+      trim: det?.trim ?? null,
+      powerDin: det?.powerKw ? Math.round(det.powerKw * 1.35962) : null,
+      listing_url: det?.url ?? it['@id'] ?? '',
       brand: it.brand ?? null,
       model: it.model ?? null,
       fuel: it.fuelType ?? null,

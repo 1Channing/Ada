@@ -226,6 +226,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   10 000/1 000 mappings, Truth Center 300 dossiers, études (worker) 4 000
   observations / 10 000 annonces mémoire / 5 000 négos, digest 3 000 logs.
   RÈGLE : toute nouvelle `.limit(N)` significative passe par `capped`.
+- **FINITION = POST-FILTRE DUR** (constat Channing 07/09, Corolla « GR
+  Sport » : Touring Sports Design/Collection servies comme GR Sport). Cause
+  de classe : les mots-clés de site (AS24 kwd, Gaspedaal trefw, LBC text)
+  cherchent chaque mot séparément, et l'ancien `matchesTrim` testait chaque
+  jeton en SOUS-CHAÎNE (« gr » dans « grijs », « sport » dans « Sports »).
+  Nouveau `trimMatchesText` (business-logic) : suite contiguë de mots
+  entiers, éclatée/tiret/collée, variantes connues (GR ⇒ Gazoo Racing).
+  Appliqué aux études quotidiennes (dailySearches, toutes finitions) et au
+  MI (filterListingsByStudy). Une annonce qui n'écrit pas la finition dans
+  titre/description/version est ÉCARTÉE et comptée dans les logs.
+- **GASPEDAAL : fiche unitaire** (constat 07/09, « Ouvrir » renvoyait la page
+  de recherche #oc<id>). L'URL, la version (`uitvoering`) et la puissance
+  (`vermogenKw`) viennent du flux Next de la page (detailsById) ; le lien
+  est le `klikUrl` du portail « dealer » (redirection vers la fiche chez le
+  vendeur, preuve tesselaarbv.nl). Effet une fois : les annonces Gaspedaal
+  déjà connues changent d'URL → comptées « nouvelles » à la prochaine vague.
+  À VÉRIFIER (Channing) : les autres sites dont « Ouvrir » n'ouvrirait pas
+  l'annonce à l'unité.
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça

@@ -325,27 +325,50 @@ const TRIM_VARIANT_MAP: Record<string, string[]> = {
  */
 function matchesTrim(listing: ScrapedListing, trim: string): boolean {
   if (!trim) return true; // No trim filter
+  return trimMatchesText(trim, `${listing.title} ${listing.description} ${listing.trim ?? ''}`);
+}
 
-  const trimLower = trim.toLowerCase().trim();
-  const text = `${listing.title} ${listing.description}`.toLowerCase();
+/** Jetons canoniques d'un texte : accents retirés, majuscules, découpe sur
+ *  tout ce qui n'est pas lettre/chiffre (« GT-Line » → GT, LINE). */
+function trimTokens(s: string): string[] {
+  return String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()
+    .split(/[^A-Z0-9]+/).filter(Boolean);
+}
 
-  // Strategy 1: Check known variants
-  const knownVariants = TRIM_VARIANT_MAP[trimLower];
-  if (knownVariants) {
-    return knownVariants.some(variant => text.includes(variant));
+/**
+ * La finition demandée est-elle ÉCRITE dans ce texte ?
+ *
+ * Règle (constat Channing 07/09, étude Corolla « GR Sport ») : l'ancien test
+ * exigeait que chaque jeton de la finition apparaisse quelque part comme
+ * sous-chaîne — « gr » se trouvait dans « grijs »/« gris »/« garantie » et
+ * « sport » dans « Touring Sports » : les Touring Sports Design et Collection
+ * passaient pour des GR Sport. Désormais la finition doit apparaître comme
+ * une SUITE CONTIGUË de jetons entiers, dans l'ordre :
+ *   - éclatée (« GR Sport », « GT-Line ») ou collée (« GTLine », « MSport ») ;
+ *   - variantes connues (TRIM_VARIANT_MAP : « GR » ⇒ « Gazoo Racing »…).
+ * « Touring Sports » ne contient jamais la suite GR→SPORT : écartée.
+ */
+export function trimMatchesText(trim: string, text: string): boolean {
+  const wanted = trimTokens(trim);
+  if (wanted.length === 0) return true;
+  const words = trimTokens(text);
+  if (words.length === 0) return false;
+  const forms = new Set<string>([wanted.join(' ')]);
+  for (const v of TRIM_VARIANT_MAP[trim.toLowerCase().trim()] ?? []) forms.add(trimTokens(v).join(' '));
+  for (const form of forms) {
+    const target = form.replace(/ /g, '');
+    if (!target) continue;
+    // Toute suite contiguë de 1..n mots dont la concaténation vaut la
+    // finition collée (ou son pluriel) — couvre éclatée, tiret et collée.
+    for (let i = 0; i < words.length; i++) {
+      let acc = '';
+      for (let j = i; j < words.length && acc.length < target.length + 1; j++) {
+        acc += words[j];
+        if (acc === target) return true;
+      }
+    }
   }
-
-  // Strategy 2: Safe token matching for unknown trims
-  // All trim tokens must appear in text (prevents false matches)
-  const trimTokens = trimLower
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(t => t.length > 0);
-
-  if (trimTokens.length === 0) return true;
-
-  return trimTokens.every(token => text.includes(token));
+  return false;
 }
 
 /**

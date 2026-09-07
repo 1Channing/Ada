@@ -29,7 +29,7 @@ import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
 import { canonicalizeGearbox, canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { canonicalizeBody } from '../src/lib/study-core/bodyTypes';
-import { isDamagedVehicleText, structuredModelMatches } from '../src/lib/study-core/business-logic';
+import { isDamagedVehicleText, structuredModelMatches, trimMatchesText } from '../src/lib/study-core/business-logic';
 import { archiveOldObservations, recordTruthGap, refreshDashboards, runTruthSweep, capped } from './dashboards';
 import { runTruthDiagnose } from './truthDiagnose';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
@@ -416,6 +416,23 @@ async function scrapeCountry(
         structuredModelMatches((l as { model?: string | null }).model, s.model!));
       if (listings.length < before) {
         console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (modèle structuré ≠ ${s.model})`);
+      }
+    }
+    // FINITION : post-filtre DUR (constat Channing 07/09, Corolla « GR
+    // Sport ») — les mots-clés de site (AS24 kwd, Gaspedaal trefw, LBC text)
+    // cherchent chaque mot séparément : « Sport » attrape les Touring Sports
+    // Design/Collection. On garde les annonces dont titre, description ou
+    // version ÉCRIT la finition comme suite contiguë de mots (trimMatchesText).
+    // Une annonce qui ne nomme pas la finition est écartée : une donnée
+    // fausse vaut moins que zéro donnée.
+    if (trim) {
+      const before = listings.length;
+      listings = listings.filter((l) => {
+        const x = l as { title?: string | null; description?: string | null; trim?: string | null };
+        return trimMatchesText(trim, `${x.title ?? ''} ${x.description ?? ''} ${x.trim ?? ''}`);
+      });
+      if (listings.length < before) {
+        console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (finition « ${trim} » absente du titre/version)`);
       }
     }
     // Accidentées : titre + description (on les A ici, au scrape) — jamais
