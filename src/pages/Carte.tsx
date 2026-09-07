@@ -137,7 +137,7 @@ export function Carte() {
     setView((v) => {
       const k = Math.min(40, Math.max(0.8, v.k * factor));
       const f = k / v.k;
-      return { k, tx: px - (px - v.tx) * f, ty: py - (py - v.ty) * f };
+      return clampView({ k, tx: px - (px - v.tx) * f, ty: py - (py - v.ty) * f });
     });
   };
   const onWheel = (e: React.WheelEvent) => {
@@ -146,7 +146,7 @@ export function Carte() {
     zoomAt(Math.exp(-e.deltaY * 0.0015), px, py);
   };
   const onPointerDown = (e: React.PointerEvent) => {
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    svgRef.current?.setPointerCapture?.(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
@@ -167,14 +167,14 @@ export function Carte() {
       const d = Math.hypot(bx - ax, by - ay);
       const k = Math.min(40, Math.max(0.8, pinch.current.k * (d / pinch.current.d)));
       const p = pinch.current;
-      setView((v) => { const f = k / v.k; return { k, tx: p.cx - (p.cx - v.tx) * f, ty: p.cy - (p.cy - v.ty) * f }; });
+      setView((v) => { const f = k / v.k; return clampView({ k, tx: p.cx - (p.cx - v.tx) * f, ty: p.cy - (p.cy - v.ty) * f }); });
       return;
     }
     if (!drag.current) return;
     const [px, py] = svgPoint(e.clientX, e.clientY);
     const dx = px - drag.current.x, dy = py - drag.current.y;
     if (Math.abs(dx) + Math.abs(dy) > 2) drag.current.moved = true;
-    setView((v) => ({ ...v, tx: drag.current!.tx + dx, ty: drag.current!.ty + dy }));
+    setView((v) => clampView({ ...v, tx: drag.current!.tx + dx, ty: drag.current!.ty + dy }));
   };
   const onPointerUp = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
@@ -190,7 +190,7 @@ export function Carte() {
   };
   const centerOn = (lat: number, lng: number, k?: number) => {
     const [x, y] = project(lat, lng);
-    setView((v) => { const kk = k ?? Math.max(v.k, 4); return { k: kk, tx: W / 2 - x * kk, ty: H / 2 - y * kk }; });
+    setView((v) => { const kk = k ?? Math.max(v.k, 4); return clampView({ k: kk, tx: W / 2 - x * kk, ty: H / 2 - y * kk }); });
   };
 
   // ── Placement (clic sur la carte) ──
@@ -317,7 +317,7 @@ export function Carte() {
           </defs>
           <rect x="0" y="0" width={W} height={H} fill="url(#sea)" />
           <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`} style={{ willChange: 'transform' }}>
-            <g filter="url(#landShadow)">
+            <g filter={view.k < 6 ? 'url(#landShadow)' : undefined}>
               {countryPaths.map((c) => {
                 const iso = isoOf(c.name);
                 const active = countryFilter && iso === countryFilter;
@@ -686,6 +686,20 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
 }
 
 // ── Utilitaires ─────────────────────────────────────────────────────────────
+/** La carte reste toujours visible : le centre de l'Europe ne peut pas sortir
+ *  du cadre, et une valeur non finie (division par zéro au zoom extrême)
+ *  ramène à la vue initiale — constat Channing 07/09 : « si on bouge trop la
+ *  carte et qu'on sort, on finit sur une page blanche ». */
+function clampView(v: View): View {
+  if (![v.k, v.tx, v.ty].every(Number.isFinite)) return fitView();
+  const [cx, cy] = project(50, 10); // cœur du réseau (Belgique/Allemagne)
+  const sx = cx * v.k + v.tx, sy = cy * v.k + v.ty; // position écran de ce point
+  const m = 60; // marge : le cœur reste à au moins 60 unités du bord
+  const tx = sx < m ? v.tx + (m - sx) : sx > W - m ? v.tx - (sx - (W - m)) : v.tx;
+  const ty = sy < m ? v.ty + (m - sy) : sy > H - m ? v.ty - (sy - (H - m)) : v.ty;
+  return { k: v.k, tx, ty };
+}
+
 function fitView(): View {
   // Cadre initial : Europe de l'Ouest et du Nord (les 10 pays du réseau).
   const [x1, y1] = project(66, -10), [x2, y2] = project(36, 28);

@@ -9,6 +9,7 @@ import { IngestionHistory } from './pages/IngestionHistory';
 import { MarketIntelligence } from './pages/MarketIntelligence';
 import { Workflow } from './pages/Workflow';
 import { Carte } from './pages/Carte';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Veille } from './pages/Veille';
 import { TruthCenter } from './pages/TruthCenter';
 import { Telemetrie } from './pages/Telemetrie';
@@ -134,7 +135,7 @@ function App() {
     <Layout>
       {(visited.includes(activeKey) ? visited : [...visited, activeKey]).map((k) => (
         <div key={k} style={{ display: k === activeKey ? undefined : 'none' }}>
-          {renderPageFor(k)}
+          <ErrorBoundary name={k}>{renderPageFor(k)}</ErrorBoundary>
         </div>
       ))}
     </Layout>
