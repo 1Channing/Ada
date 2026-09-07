@@ -24,6 +24,21 @@ seule — pages de liste ET de détail) :
 - AUCUN MARQUEUR (liste ni détail) : mobile.de, Blocket → naissance =
   notre première observation (first_seen).
 
+## -1-LIVRÉ v1 (07/09). CARTE EUROPE DU RÉSEAU — onglet « Carte »
+
+Décisions Channing 07/09 : contacts importés du fichier « McExport Tab
+MARKET NL » (11 groupes NL avec stock par marque + 7 prospects NL/DK/FR +
+convoyeur), placement par dictionnaire de villes embarqué + clic sur la
+carte, fond STYLISÉ sans rues (SVG maison, projection conique de Lambert,
+géométrie world-atlas 50 m allégée à 247 Ko chargée à la demande), édition
+sur droit explicite « carte:edition » (Équipe ; la politique RLS lit le
+même droit). Migration 20260907180000 (tables network_contacts /
+network_contact_models + graine). Pan/zoom souris-molette-tactile,
+regroupement des épingles selon le zoom, filtres pays/rôle/relation,
+recherche marque-modèle sur clés canoniques du MI, temps réel.
+PHASE 2 (à décider) : croisement automatique opportunités ↔ contacts
+(« à qui vendre / où acheter » dès qu'une annonce sort) ; import CSV.
+
 ## -1. CARTE EUROPE DU RÉSEAU + OUTIL D'INTÉGRATION DE SITES (proposé 18/08 — carte RÉSERVÉE par Channing 03/09 pour une session dédiée de 2 h)
 
 **Exigence actée 03/09 pour la carte : UI magnifique et fluide, carte

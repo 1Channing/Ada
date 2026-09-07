@@ -8,6 +8,7 @@ import { AdminHistory } from './pages/AdminHistory';
 import { IngestionHistory } from './pages/IngestionHistory';
 import { MarketIntelligence } from './pages/MarketIntelligence';
 import { Workflow } from './pages/Workflow';
+import { Carte } from './pages/Carte';
 import { Veille } from './pages/Veille';
 import { TruthCenter } from './pages/TruthCenter';
 import { Telemetrie } from './pages/Telemetrie';
@@ -79,6 +80,7 @@ function App() {
     if (p === '/ingestion/history') return 'ingestion-history';
     if (p === '/market') return 'market';
     if (p === '/etudes' || p === '/workflow') return 'workflow';
+    if (p === '/carte') return 'carte';
     if (p === '/veille') return 'veille';
     if (p === '/verite') return 'truth';
     if (p === '/telemetrie') return 'telemetrie';
@@ -93,6 +95,7 @@ function App() {
       case 'ingestion-history': return <IngestionHistory />;
       case 'market': return <MarketIntelligence />;
       case 'workflow': return <Workflow />;
+      case 'carte': return <Carte />;
       case 'veille': return <Veille />;
       case 'truth': return <TruthCenter />;
       case 'telemetrie': return <Telemetrie />;

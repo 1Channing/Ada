@@ -26,6 +26,10 @@ export const APP_TABS = [
   { key: 'historique', label: 'Historique', hint: 'Historique des ingestions' },
   { key: 'market', label: 'Market Intelligence', hint: 'Études de marché multi-pays' },
   { key: 'veille', label: 'Veille', hint: 'Veille légale et fiscale' },
+  // Carte Europe du réseau (07/09) : lecture pour l'équipe, ÉDITION sur
+  // autorisation explicite (la politique RLS lit ce même droit).
+  { key: 'carte', label: 'Carte du réseau', hint: 'Carte Europe des contacts acheteurs et vendeurs' },
+  { key: 'carte:edition', label: 'Carte du réseau · édition', hint: 'Ajouter, modifier, déplacer et supprimer des contacts — sur autorisation explicite' },
   // Pas un onglet : le PANNEAU « Opportunités à contrôler » (Accueil + MI)
   // — même mécanisme de droits, le composant s'auto-masque (demande 30/08).
   { key: 'opportunites', label: 'Opportunités à contrôler', hint: 'Panneau de l’Accueil et du Market Intelligence — sur autorisation explicite, personne ne l’a par défaut' },
@@ -45,7 +49,7 @@ const LEGACY_GRANTS: Record<string, AppTabKey[]> = {
 /** Droits SUR AUTORISATION EXPLICITE (demande Channing 07/09 : « je ne veux
  *  pas que tout le monde ait accès aux opportunités ») : « rien d'enregistré
  *  = tout » ne les inclut PAS — seule une liste qui les nomme les accorde. */
-export const OPT_IN_TABS: AppTabKey[] = ['opportunites'];
+export const OPT_IN_TABS: AppTabKey[] = ['opportunites', 'carte:edition'];
 
 /** Droits effectifs d'un compte non admin : NULL = tout sauf les droits sur
  *  autorisation explicite ; liste = ses clés fines (historiques développées). */
@@ -78,6 +82,7 @@ export function tabKeyOfPageKey(pageKey: string): AppTabKey | null {
     case 'ingestion-history': return 'historique';
     case 'market': return 'market';
     case 'veille': return 'veille';
+    case 'carte': return 'carte';
     default: return null;
   }
 }
