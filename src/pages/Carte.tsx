@@ -172,9 +172,14 @@ export function Carte() {
     }
     if (!drag.current) return;
     const [px, py] = svgPoint(e.clientX, e.clientY);
-    const dx = px - drag.current.x, dy = py - drag.current.y;
-    if (Math.abs(dx) + Math.abs(dy) > 2) drag.current.moved = true;
-    setView((v) => clampView({ ...v, tx: drag.current!.tx + dx, ty: drag.current!.ty + dy }));
+    const d = drag.current;
+    const dx = px - d.x, dy = py - d.y;
+    if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
+    // Valeurs capturées MAINTENANT : la mise à jour React s'exécute plus tard,
+    // et si le pointeur est sorti du cadre entre-temps, drag.current est déjà
+    // null (plantage « reading 'tx' », 07/09).
+    const tx = d.tx + dx, ty = d.ty + dy;
+    setView((v) => clampView({ ...v, tx, ty }));
   };
   const onPointerUp = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
