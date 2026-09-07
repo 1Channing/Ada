@@ -448,9 +448,11 @@ export async function generateSearchUrlsWithMemory(
         // rechargeables et simples mélangées). « PHEV » avait été RETIRÉ le
         // 29/08 (45 hybrides réels ES, 0 résultat) — même voie que le
         // constructeur natif, pour que mémoire et natif disent la même chose.
-        const phevKw = url.includes('autoscout24.') && /^(PLUG_IN_HYBRID|PHEV)$/i.test(String(params.fuel ?? '').trim()) ? 'plug-in' : '';
-        if ((wantTrim || phevKw) && (recTrim === '' || url.includes('autoscout24.') || url.includes('gaspedaal.nl'))) {
-          url = injectTrimIntoUrl(url, [phevKw, (params.trim ?? '').trim()].filter(Boolean).join(' '));
+        // (07/09 : le mot-clé « plug-in » posé le 05/09 est retiré — il dépend
+        // de la langue : NL 9, FR 0. La rechargeable se prouve dans le TEXTE
+        // des annonces, post-filtre des études.)
+        if (wantTrim && (recTrim === '' || url.includes('autoscout24.') || url.includes('gaspedaal.nl'))) {
+          url = injectTrimIntoUrl(url, (params.trim ?? '').trim());
         }
         url = await applyLearnedSecondaryParams(url, site, mapping, params, logs);
         // REGISTRE UNIQUE en DERNIER : réparations + année/km/puissance/boîte

@@ -23,11 +23,11 @@
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { generateSearchUrlsWithMemory } from '../src/lib/linkgen/generator';
-import { missingUrlCriteria, registryCoveredCriteria } from '../src/lib/linkgen/grammar';
+import { missingUrlCriteria, registryCoveredCriteria, applyVariableCriteria } from '../src/lib/linkgen/grammar';
 import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey } from '../src/services/marketData';
-import { canonicalizeGearbox } from '../src/lib/study-core/ingestion';
+import { canonicalizeGearbox, canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { canonicalizeBody } from '../src/lib/study-core/bodyTypes';
 import { isDamagedVehicleText, structuredModelMatches } from '../src/lib/study-core/business-logic';
 import { archiveOldObservations, recordTruthGap, refreshDashboards, runTruthSweep } from './dashboards';
@@ -372,6 +372,30 @@ async function scrapeCountry(
       listings = listings.filter((l) => l.powerDin == null || l.powerDin >= (s.power_min as number));
       if (listings.length < before) {
         console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (< ${s.power_min} ch)`);
+      }
+    }
+    // Hybride RECHARGEABLE sur un site qui ne sait pas l'isoler dans son URL
+    // (AutoScout24 : fuel=2 couvre toute la famille — preuve 07/09, FR :
+    // famille 57, mots-clés 0 à 8) : on garde les annonces qui PROUVENT la
+    // recharge (carburant structuré « phev », ou plug-in / PHEV / rechargeable
+    // / e-Hybrid / 450h+ dans titre, description, version). « Aveugle » se
+    // mesure sur l'URL même : la grammaire du site rend la même URL pour
+    // HYBRIDE et PLUG_IN_HYBRID.
+    if (String(s.fuel ?? '').toUpperCase() === 'PLUG_IN_HYBRID' && genParams) {
+      let blind = false;
+      try {
+        blind = applyVariableCriteria(url, { ...genParams, fuel: 'HYBRIDE' }) === applyVariableCriteria(url, { ...genParams, fuel: 'PLUG_IN_HYBRID' });
+      } catch { blind = false; }
+      if (blind) {
+        const before = listings.length;
+        listings = listings.filter((l) => {
+          const x = l as { fuel?: string | null; title?: string | null; description?: string | null; trim?: string | null };
+          const text = `${x.title ?? ''} ${x.description ?? ''} ${x.trim ?? ''}`;
+          return refineFuelToken(canonicalizeFuel(x.fuel ?? ''), text) === 'phev';
+        });
+        if (listings.length < before) {
+          console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} hybride(s) sans preuve de recharge écartée(s) (le site ne sait pas isoler la rechargeable)`);
+        }
       }
     }
     // Modèle STRUCTURÉ : les adaptateurs v1 (Subito, Gaspedaal) servent la

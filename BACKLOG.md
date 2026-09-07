@@ -196,6 +196,24 @@ Décisions Channing 05/09 (après-midi) :
   exploitable gagne, l'autre est annulée (adaptateur hedgeFirstAttempt,
   pages suivantes comprises). Coût : une requête de plus par page, sur ce
   seul site. Attendu : 20-30 s au lieu de 1 à 4 min.
+Vague du 07/09 (vérification Channing « 3 modèles seulement ») — volume
+NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
+étroits), mais trois défauts trouvés et corrigés :
+- **La Centrale « RAV 4 » ≠ RAV4** : 115 annonces jetées par le filtre de
+  modèle structuré (clé à jetons triés « 4rav »). Forme compacte ajoutée.
+- **iX3 sur La Centrale** : pas de modèle iX3 chez le site → page marque,
+  iX1/iX2 servies ; l'étude les écartait mais le snapshot MI les prenait
+  (69 observations « IX3 »). Le worker vérifie désormais le modèle structuré
+  avant d'écrire, et la contradiction de titre reconnaît les frères à
+  chiffres (iX1 ≠ iX3, i20 ≠ i30, Q3 ≠ Q5).
+- **AutoScout24 rechargeable** : mot-clé lié à la langue (FR : famille 57,
+  PHEV 8, plug-in 0 ; NL : plug-in 9, PHEV 0) → plus de mot-clé ; famille
+  hybride scrapée, l'étude ne garde que les annonces qui PROUVENT la
+  recharge dans leur texte (refineFuelToken), uniquement sur les sites
+  dont l'URL ne distingue pas HYBRIDE de PLUG_IN_HYBRID (mesuré sur l'URL).
+- À VÉRIFIER avec Channing : deux études « HYUNDAI TUCSON » et une « YARIS
+  CROSS GR » à 0 sur les six sites, sans médiane — critères à relire (les
+  « Liens » de la carte).
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça

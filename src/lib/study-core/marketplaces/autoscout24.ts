@@ -422,8 +422,13 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
     // 05/09 (Sportage NL 2024 GT line) — kwd=PHEV → 0 annonce, kwd=plug-in →
     // 9, GT line + fuel=2 seul → 25 (rechargeables ET simples). Les vendeurs
     // écrivent « Plug-in Hybrid », presque jamais « PHEV ».
-    const wantsPhev = ['PLUG_IN_HYBRID', 'PHEV'].includes(String(params.fuel ?? '').trim().toUpperCase());
-    const kwdParts = [wantsPhev ? 'plug-in' : '', (params.trim ?? '').trim()].filter(Boolean);
+    // 07/09 : le mot-clé dépend de la LANGUE du marché et perd la moitié des
+    // rechargeables partout (FR Sportage 2023-25 : famille 57, « PHEV » 8,
+    // « plug-in » 0, « rechargeable » 1 ; NL : « plug-in » 9, « PHEV » 0).
+    // Plus de mot-clé carburant : la famille hybride est scrapée entière et
+    // l'étude ne garde que les annonces qui PROUVENT la recharge dans leur
+    // texte (post-filtre dailySearches, refineFuelToken).
+    const kwdParts = [(params.trim ?? '').trim()].filter(Boolean);
     if (kwdParts.length > 0) {
       qs.set('kwd', kwdParts.join(' '));
     }
