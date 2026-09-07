@@ -24,13 +24,19 @@ let lastArchiveMs = 0;
  *  plafonnée qui touche son plafond le dit en base (capacity_alerts →
  *  bandeau rouge + « Ce matin »). Une touche par clé et par heure. */
 const capacityReported = new Map<string, number>();
+const WORKER_STARTED_AT = new Date().toISOString();
 export async function reportCapacity(key: string, message: string, limit: number): Promise<void> {
   const last = capacityReported.get(key) ?? 0;
   if (Date.now() - last < 3_600_000) return;
   capacityReported.set(key, Date.now());
   console.warn(`[CAPACITÉ] ${key} : ${message} (plafond ${limit})`);
   try {
-    const { error } = await (supabase.rpc as (fn: string, args: Record<string, unknown>) => PromiseLike<{ error: { message: string } | null }>)('capacity_hit', { p_key: key, p_message: message, p_limit: limit });
+    // Build = démarrage du processus (un worker plus vieux que l'acquittement
+    // ne rouvre pas l'alerte — migration 20260907140000) ; repli 3 arguments
+    // tant que le SQL n'est pas collé.
+    const rpc = supabase.rpc as (fn: string, args: Record<string, unknown>) => PromiseLike<{ error: { message: string } | null }>;
+    let { error } = await rpc('capacity_hit', { p_key: key, p_message: message, p_limit: limit, p_build: WORKER_STARTED_AT });
+    if (error) ({ error } = await rpc('capacity_hit', { p_key: key, p_message: message, p_limit: limit }));
     if (error) console.warn('[CAPACITÉ] écriture :', error.message);
   } catch (e) { console.warn('[CAPACITÉ] écriture :', e instanceof Error ? e.message : e); }
 }

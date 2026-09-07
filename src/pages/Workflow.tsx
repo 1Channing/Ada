@@ -4,6 +4,7 @@ import { NegotiationsTab } from './Ventes';
 import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
+import type { AppTabKey } from '../lib/appTabs';
 import {
   DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
@@ -79,29 +80,30 @@ const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations'
 export function Workflow() {
   const { allowedTabs, isAdmin } = useAuth();
   // Négociations et Ventes vivent ici depuis le 05/09 (demande Channing),
-  // à la suite des études ; leurs droits restent ceux de l'onglet « Ventes ».
-  const seeStudies = canSeeTab(allowedTabs, isAdmin, 'workflow');
-  const seeSales = canSeeTab(allowedTabs, isAdmin, 'ventes');
-  const [tab, setTab] = useState<Tab>(() => tabFromPath(window.location.pathname) ?? (seeStudies ? 'searches' : 'negotiations'));
+  // à la suite des études ; depuis le 07/09 chaque onglet a son droit (Équipe).
+  const see = (k: AppTabKey) => canSeeTab(allowedTabs, isAdmin, k);
+  const tabs = [
+    ...(see('wf:etudes') ? [{ id: 'searches' as Tab, label: 'Études quotidiennes', icon: CalendarClock }] : []),
+    ...(see('wf:resultats') ? [{ id: 'results' as Tab, label: 'Résultats', icon: BarChart3 }] : []),
+    ...(see('wf:archives') ? [{ id: 'archives' as Tab, label: 'Archives', icon: Archive }] : []),
+    ...(see('wf:negociations') ? [{ id: 'negotiations' as Tab, label: 'Négociations', icon: MessageSquare }] : []),
+    ...(see('wf:ventes') ? [{ id: 'sales' as Tab, label: 'Ventes', icon: FileText }] : []),
+  ];
+  const firstTab = tabs[0]?.id ?? 'searches';
+  const allowedTab = (t: Tab | null): Tab | null => (t && tabs.some((x) => x.id === t) ? t : null);
+  const [tab, setTab] = useState<Tab>(() => allowedTab(tabFromPath(window.location.pathname)) ?? firstTab);
   // Navigation interne (Accueil → « Dossiers en cours », retour de l'historique
   // des ventes…) : la page reste montée, l'onglet suit le chemin.
   useEffect(() => {
-    const follow = () => { const t = tabFromPath(window.location.pathname); if (t) setTab(t); };
+    const follow = () => { const t = allowedTab(tabFromPath(window.location.pathname)); if (t) setTab(t); };
     window.addEventListener('locationchange', follow);
     window.addEventListener('popstate', follow);
     return () => { window.removeEventListener('locationchange', follow); window.removeEventListener('popstate', follow); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const tabs = [
-    ...(seeStudies ? [
-      { id: 'searches' as Tab, label: 'Études quotidiennes', icon: CalendarClock },
-      { id: 'results' as Tab, label: 'Résultats', icon: BarChart3 },
-      { id: 'archives' as Tab, label: 'Archives', icon: Archive },
-    ] : []),
-    ...(seeSales ? [
-      { id: 'negotiations' as Tab, label: 'Négociations', icon: MessageSquare },
-      { id: 'sales' as Tab, label: 'Ventes', icon: FileText },
-    ] : []),
-  ];
+  // Un droit retiré pendant la session : l'onglet courant disparaît, on
+  // retombe sur le premier permis.
+  useEffect(() => { if (!tabs.some((x) => x.id === tab)) setTab(firstTab); }, [tabs.length, tab, firstTab]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="space-y-6">
       <div>
@@ -124,11 +126,11 @@ export function Workflow() {
           ))}
         </nav>
       </div>
-      {tab === 'searches' && seeStudies && <DailySearchesTab />}
-      {tab === 'results' && seeStudies && <ResultsTab />}
-      {tab === 'archives' && seeStudies && <ArchivesTab />}
-      {tab === 'negotiations' && seeSales && <NegotiationsTab onPushed={() => setTab('sales')} />}
-      {tab === 'sales' && seeSales && <Administrative />}
+      {tab === 'searches' && see('wf:etudes') && <DailySearchesTab />}
+      {tab === 'results' && see('wf:resultats') && <ResultsTab />}
+      {tab === 'archives' && see('wf:archives') && <ArchivesTab />}
+      {tab === 'negotiations' && see('wf:negociations') && <NegotiationsTab onPushed={() => { if (see('wf:ventes')) setTab('sales'); }} />}
+      {tab === 'sales' && see('wf:ventes') && <Administrative />}
     </div>
   );
 }

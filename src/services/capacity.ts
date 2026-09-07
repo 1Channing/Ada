@@ -21,11 +21,18 @@ const reportedThisSession = new Set<string>();
 const listeners = new Set<() => void>();
 export function onCapacityChange(fn: () => void): () => void { listeners.add(fn); return () => listeners.delete(fn); }
 
+/** Horodatage du build servi (vite define) — repli : maintenant. */
+const BUILD_TIME = (() => { try { return __BUILD_TIME__; } catch { return new Date().toISOString(); } })();
+
 export function reportCapacity(key: string, message: string, limit: number): void {
   if (reportedThisSession.has(key)) return;
   reportedThisSession.add(key);
   console.warn(`[CAPACITÉ] ${key} : ${message} (plafond ${limit})`);
-  void sb.rpc('capacity_hit', { p_key: key, p_message: message, p_limit: limit })
+  // Le build est transmis : un acquittement couvre tout code construit avant
+  // lui (migration 20260907140000). Tant que le SQL n'est pas collé, la
+  // signature à 4 arguments n'existe pas → repli sur l'ancienne.
+  void sb.rpc('capacity_hit', { p_key: key, p_message: message, p_limit: limit, p_build: BUILD_TIME })
+    .then(({ error }: { error: { message: string } | null }) => (error ? sb.rpc('capacity_hit', { p_key: key, p_message: message, p_limit: limit }) : null))
     .then(() => { for (const fn of listeners) fn(); })
     .catch(() => undefined);
 }
@@ -43,9 +50,17 @@ export async function loadCapacityAlerts(): Promise<CapacityAlert[]> {
   return (data ?? []) as CapacityAlert[];
 }
 
+/** « Traité » : l'alerte s'éteint aussitôt à l'écran ; l'écriture est
+ *  VÉRIFIÉE (ligne renvoyée) — une politique RLS qui bloquerait l'update
+ *  passait sans bruit avant (« j'ai toujours l'alerte », 07/09). */
 export async function ackCapacity(key: string): Promise<string | null> {
   const userId = useAuth.getState().userId;
-  const { error } = await sb.from('capacity_alerts').update({ acknowledged_at: new Date().toISOString(), acknowledged_by: userId }).eq('key', key);
-  if (!error) for (const fn of listeners) fn();
-  return error ? error.message : null;
+  const { data, error } = await sb.from('capacity_alerts')
+    .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: userId })
+    .eq('key', key)
+    .select('key');
+  if (error) return error.message;
+  if (!data?.length) return 'acquittement refusé par la base (droit de mise à jour manquant) — la migration 20260907100000 est-elle collée ?';
+  for (const fn of listeners) fn();
+  return null;
 }

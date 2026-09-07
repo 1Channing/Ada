@@ -11,13 +11,17 @@
  */
 
 export const APP_TABS = [
-  // Depuis le 05/09 le bandeau n'a plus qu'une entrée « Workflow » : ses
-  // cinq onglets internes sont gouvernés par DEUX droits (clés inchangées,
-  // les listes déjà enregistrées gardent leur sens) :
-  //   workflow → Études quotidiennes, Résultats, Archives
-  //   ventes   → Négociations (Open space compris), Ventes (+ historique)
-  { key: 'workflow', label: 'Workflow · Études', hint: 'Onglets Études quotidiennes, Résultats et Archives' },
-  { key: 'ventes', label: 'Workflow · Négociations & Ventes', hint: 'Onglets Négociations (avec l’Open space) et Ventes, historique des ventes compris' },
+  // Le Workflow (une entrée de bandeau) porte CINQ onglets, chacun son droit
+  // (demande Channing 07/09 : « sélectionner à quelles pages ont accès les
+  // utilisateurs »). Les clés historiques `workflow` (= les trois onglets
+  // d'études) et `ventes` (= Négociations + Ventes) restent COMPRISES dans
+  // les listes déjà enregistrées (legacyGrants) et sont converties en clés
+  // fines à la prochaine sauvegarde depuis Équipe (normalizeTabs).
+  { key: 'wf:etudes', label: 'Workflow · Études quotidiennes', hint: 'Onglet Études quotidiennes (créer et suivre ses études)' },
+  { key: 'wf:resultats', label: 'Workflow · Résultats', hint: 'Onglet Résultats (annonces trouvées, médianes, contact vendeur)' },
+  { key: 'wf:archives', label: 'Workflow · Archives', hint: 'Onglet Archives (études passées)' },
+  { key: 'wf:negociations', label: 'Workflow · Négociations', hint: 'Onglet Négociations, Open space compris' },
+  { key: 'wf:ventes', label: 'Workflow · Ventes', hint: 'Onglet Ventes et historique des ventes' },
   { key: 'atelier', label: 'Atelier', hint: 'Campagnes, ingestion et générateur de liens' },
   { key: 'historique', label: 'Historique', hint: 'Historique des ingestions' },
   { key: 'market', label: 'Market Intelligence', hint: 'Études de marché multi-pays' },
@@ -29,13 +33,34 @@ export const APP_TABS = [
 
 export type AppTabKey = (typeof APP_TABS)[number]['key'];
 
+/** Les cinq droits du Workflow, dans l'ordre des onglets. */
+export const WORKFLOW_TAB_KEYS: AppTabKey[] = ['wf:etudes', 'wf:resultats', 'wf:archives', 'wf:negociations', 'wf:ventes'];
+
+/** Clés historiques (avant le 07/09) → droits fins qu'elles accordaient. */
+const LEGACY_GRANTS: Record<string, AppTabKey[]> = {
+  workflow: ['wf:etudes', 'wf:resultats', 'wf:archives'],
+  ventes: ['wf:negociations', 'wf:ventes'],
+};
+
+/** Liste enregistrée → liste en clés fines (les clés historiques sont
+ *  développées, les inconnues retirées). NULL reste NULL (= tout). */
+export function normalizeTabs(tabs: string[] | null): string[] | null {
+  if (tabs == null) return null;
+  const known = new Set<string>(APP_TABS.map((t) => t.key));
+  const out = new Set<string>();
+  for (const k of tabs) {
+    if (known.has(k)) out.add(k);
+    for (const g of LEGACY_GRANTS[k] ?? []) out.add(g);
+  }
+  return [...out];
+}
+
 /** Clé d'onglet gouvernant une page du keep-alive (App.pageKeyOf) — null =
- *  page toujours accessible (accueil) ou gardée ailleurs (admin). */
+ *  page toujours accessible (accueil) ou gardée ailleurs (admin, Workflow :
+ *  ouvert dès qu'un de ses cinq droits est accordé). */
 export function tabKeyOfPageKey(pageKey: string): AppTabKey | null {
   switch (pageKey) {
-    case 'workflow': return 'workflow';
-    case 'ventes':
-    case 'admin-history': return 'ventes';
+    case 'admin-history': return 'wf:ventes';
     case 'atelier-linkgen':
     case 'atelier-ingestion': return 'atelier';
     case 'ingestion-history': return 'historique';
@@ -48,5 +73,10 @@ export function tabKeyOfPageKey(pageKey: string): AppTabKey | null {
 export function canSeeTab(allowedTabs: string[] | null, isAdmin: boolean, key: AppTabKey): boolean {
   if (isAdmin) return true;
   if (allowedTabs == null) return true;
-  return allowedTabs.includes(key);
+  return (normalizeTabs(allowedTabs) ?? []).includes(key);
+}
+
+/** Le Workflow s'ouvre dès qu'un de ses cinq onglets est permis. */
+export function canSeeWorkflow(allowedTabs: string[] | null, isAdmin: boolean): boolean {
+  return WORKFLOW_TAB_KEYS.some((k) => canSeeTab(allowedTabs, isAdmin, k));
 }

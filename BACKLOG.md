@@ -232,6 +232,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   de campagne) ; plafond garde-fou 100 000. RÈGLE affinée : une lecture qui
   sert à DÉRIVER (distinct, index, clés) se pagine jusqu'au bout, le plafond
   n'est qu'un garde-fou ; `.limit(N)` reste légitime pour « les N derniers ».
+  ACQUITTEMENT QUI TIENT (07/09, « j'ai toujours l'alerte ») : un onglet
+  encore sur l'ancien build retouchait la clé au rechargement et rouvrait
+  l'alerte. Migration 20260907140000 : `capacity_hit` reçoit le build
+  (front : __BUILD_TIME__ vite ; worker : démarrage du processus) ; « Traité »
+  couvre tout code construit avant lui, seule une touche d'un build
+  POSTÉRIEUR rouvre. Le bouton est optimiste et l'écriture vérifiée (motif
+  affiché si la base refuse).
+- **DROITS PAR ONGLET DU WORKFLOW** (demande 07/09) : cinq droits
+  `wf:etudes/resultats/archives/negociations/ventes` ; les clés historiques
+  `workflow`/`ventes` sont comprises (normalizeTabs) et converties au premier
+  clic dans Équipe ; le Workflow s'ouvre dès qu'un onglet est permis.
 - **FINITION = POST-FILTRE DUR** (constat Channing 07/09, Corolla « GR
   Sport » : Touring Sports Design/Collection servies comme GR Sport). Cause
   de classe : les mots-clés de site (AS24 kwd, Gaspedaal trefw, LBC text)

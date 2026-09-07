@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle } from 'lucide-react';
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
-import { canSeeTab, type AppTabKey } from '../lib/appTabs';
+import { canSeeTab, canSeeWorkflow, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
 import { FeedbackCenter } from './FeedbackCenter';
@@ -68,21 +68,21 @@ export function Layout({ children }: LayoutProps) {
     return currentPath.startsWith(path);
   };
 
-  const allItems: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[]; tab?: AppTabKey }> = [
+  const allItems: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[]; tab?: AppTabKey; workflow?: boolean }> = [
     { path: '/', label: 'Accueil', icon: <Home className="w-4 h-4" /> },
     // Workflow : études quotidiennes + résultats + (depuis le 05/09)
     // négociations et ventes, à la suite. Les anciens chemins /ventes et
-    // /admin y mènent ; le droit « Ventes » gouverne ses deux derniers onglets.
-    { path: '/workflow', label: 'Workflow', icon: <ClipboardList className="w-4 h-4" />, also: ['/etudes', '/ventes', '/admin'], tab: 'workflow' },
+    // /admin y mènent ; chaque onglet a son droit (page Équipe).
+    { path: '/workflow', label: 'Workflow', icon: <ClipboardList className="w-4 h-4" />, also: ['/etudes', '/ventes', '/admin'], workflow: true },
     // Atelier = campagnes + ingestion + link gen fusionnés (une seule page).
     { path: '/ingestion', label: 'Atelier', icon: <Upload className="w-4 h-4" />, exact: true, also: ['/link-generator'], tab: 'atelier' },
     { path: '/ingestion/history', label: 'Historique', icon: <History className="w-4 h-4" />, tab: 'historique' },
     { path: '/market', label: 'Market Intelligence', icon: <LineChart className="w-4 h-4" />, tab: 'market' },
     { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" />, tab: 'veille' },
   ];
-  // Le Workflow reste visible à qui n'a que le droit « Ventes » (ses deux
-  // derniers onglets) — la page masque elle-même les études.
-  const items = allItems.filter((it) => !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab) || (it.tab === 'workflow' && canSeeTab(allowedTabs, isAdmin, 'ventes')));
+  // Le Workflow reste visible dès qu'un de ses cinq onglets est permis —
+  // la page masque elle-même les autres.
+  const items = allItems.filter((it) => (it.workflow ? canSeeWorkflow(allowedTabs, isAdmin) : !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab)));
 
   const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>
     (it.exact ? currentPath === it.path : isActive(it.path)) ||
@@ -253,7 +253,16 @@ function UserChip() {
  */
 function CapacityBanner() {
   const [alerts, setAlerts] = useState<CapacityAlert[]>([]);
+  const [ackError, setAckError] = useState<string | null>(null);
   const { isAdmin } = useAuth();
+  // Optimiste : la ligne disparaît au clic ; si la base refuse, elle revient
+  // avec le motif.
+  const ack = async (key: string) => {
+    setAckError(null);
+    setAlerts((list) => list.filter((a) => a.key !== key));
+    const err = await ackCapacity(key);
+    if (err) { setAckError(err); void loadCapacityAlerts().then(setAlerts); }
+  };
   useEffect(() => {
     const load = () => { void loadCapacityAlerts().then(setAlerts); };
     load();
@@ -261,9 +270,10 @@ function CapacityBanner() {
     const off = onCapacityChange(load);
     return () => { window.clearInterval(t); off(); };
   }, []);
-  if (alerts.length === 0) return null;
+  if (alerts.length === 0 && !ackError) return null;
   return (
     <div className="bg-rose-600 text-white px-6 py-2 text-sm max-md:px-3">
+      {ackError && <p className="text-xs text-rose-100 mb-1">Acquittement impossible : {ackError}</p>}
       <div className="flex items-start gap-2">
         <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1 space-y-1">
@@ -275,7 +285,7 @@ function CapacityBanner() {
                 {a.message} <span className="text-rose-200">· {a.hits}× · dernière le {new Date(a.hit_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
               </span>
               {isAdmin && (
-                <button onClick={() => void ackCapacity(a.key)} className="text-xs font-medium bg-white/15 hover:bg-white/25 rounded px-2 py-0.5">Traité</button>
+                <button onClick={() => void ack(a.key)} className="text-xs font-medium bg-white/15 hover:bg-white/25 rounded px-2 py-0.5">Traité</button>
               )}
             </div>
           ))}

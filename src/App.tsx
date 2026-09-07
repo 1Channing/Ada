@@ -14,7 +14,7 @@ import { Telemetrie } from './pages/Telemetrie';
 import { Login, ResetPassword } from './pages/Login';
 import { Equipe } from './pages/Equipe';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
-import { canSeeTab, tabKeyOfPageKey } from './lib/appTabs';
+import { canSeeTab, canSeeWorkflow, tabKeyOfPageKey } from './lib/appTabs';
 
 const originalPushState = window.history.pushState.bind(window.history);
 window.history.pushState = function(...args) {
@@ -104,10 +104,10 @@ function App() {
   // ce compte est remplacée par l'accueil — l'URL tapée à la main comprise.
   const { allowedTabs, isAdmin } = useAuth();
   const rawKey = pageKeyOf(path);
-  // Le Workflow s'ouvre si l'un de ses deux volets est permis (études OU
-  // ventes) ; la page masque elle-même les onglets interdits.
+  // Le Workflow s'ouvre si l'un de ses cinq onglets est permis ; la page
+  // masque elle-même les onglets interdits.
   const gateTab = tabKeyOfPageKey(rawKey);
-  const workflowOk = canSeeTab(allowedTabs, isAdmin, 'workflow') || canSeeTab(allowedTabs, isAdmin, 'ventes');
+  const workflowOk = canSeeWorkflow(allowedTabs, isAdmin);
   const activeKey = rawKey === 'workflow' ? (workflowOk ? rawKey : 'home') : gateTab && !canSeeTab(allowedTabs, isAdmin, gateTab) ? 'home' : rawKey;
   const [visited, setVisited] = useState<string[]>([activeKey]);
   useEffect(() => {

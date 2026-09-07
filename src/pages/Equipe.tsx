@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
-import { APP_TABS } from '../lib/appTabs';
+import { APP_TABS, normalizeTabs } from '../lib/appTabs';
 
 /**
  * Page ÉQUIPE (admin) — demande Channing 30/08 :
@@ -96,7 +96,9 @@ export function Equipe() {
 
   const toggleTab = (a: Account, key: string) => {
     const all = APP_TABS.map((t) => t.key as string);
-    const current = a.allowed_tabs ?? all;
+    // Les listes d'avant le 07/09 (clés workflow/ventes) sont converties en
+    // clés fines au premier clic — même effet, puis pilotage onglet par onglet.
+    const current = normalizeTabs(a.allowed_tabs) ?? all;
     const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
     // Tout coché → NULL (= tout, y compris les onglets futurs).
     void saveTabs(a, next.length === all.length ? null : next);
@@ -153,7 +155,7 @@ export function Equipe() {
           {accounts.map((a) => {
             const isOpen = openId === a.id;
             const all = APP_TABS.map((t) => t.key as string);
-            const visible = a.is_admin ? all : (a.allowed_tabs ?? all);
+            const visible = a.is_admin ? all : (normalizeTabs(a.allowed_tabs) ?? all);
             return (
               <div key={a.id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
                 <button
@@ -188,10 +190,10 @@ export function Equipe() {
                       <p className="text-xs text-slate-500">Compte admin : accès complet, non restreignable. {a.id !== userId ? 'Retire d’abord les droits admin pour piloter ses onglets.' : '(C’est toi.)'}</p>
                     ) : (
                       <>
-                        <p className="text-xs text-slate-500">Accès de ce compte — un droit décoché retire la page (ou les onglets qu'il gouverne) de son ADA, effet à son prochain chargement. Accueil reste toujours accessible. Le Workflow regroupe cinq onglets sous deux droits.</p>
+                        <p className="text-xs text-slate-500">Accès de ce compte — un droit décoché retire la page (ou les onglets qu'il gouverne) de son ADA, effet à son prochain chargement. Accueil reste toujours accessible. Le Workflow a un droit par onglet.</p>
                         <div className="grid sm:grid-cols-2 gap-2">
                           {APP_TABS.map((t) => {
-                            const on = (a.allowed_tabs ?? all).includes(t.key);
+                            const on = (normalizeTabs(a.allowed_tabs) ?? all).includes(t.key);
                             return (
                               <button
                                 key={t.key}
