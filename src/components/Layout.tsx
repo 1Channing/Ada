@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle } from 'lucide-react';
+import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
 import { canSeeTab, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { NotificationCenter } from './NotificationCenter';
@@ -89,6 +90,7 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
+      <CapacityBanner />
       <nav className="bg-gradient-to-r from-brand-encre via-brand-ocean to-[#3F85C2] shadow-md">
         {/* Mobile (< md) : la barre DÉFILE horizontalement — aucune classe
             existante modifiée, uniquement des ajouts max-md: (inertes sur PC). */}
@@ -238,6 +240,47 @@ function UserChip() {
       >
         <LogOut className="w-4 h-4" />
       </button>
+    </div>
+  );
+}
+
+/**
+ * BANDEAU DES PLAFONDS ATTEINTS (règle Channing 07/09 : « pose des alertes
+ * visibles si ce genre de limites sont atteintes »). Rouge, sur toutes les
+ * pages, tant qu'une alerte n'est pas acquittée ; rechargé toutes les 10 min
+ * et à chaque nouvelle touche dans cette session. « Traité » acquitte —
+ * l'alerte se rouvre d'elle-même si le plafond est de nouveau touché.
+ */
+function CapacityBanner() {
+  const [alerts, setAlerts] = useState<CapacityAlert[]>([]);
+  const { isAdmin } = useAuth();
+  useEffect(() => {
+    const load = () => { void loadCapacityAlerts().then(setAlerts); };
+    load();
+    const t = window.setInterval(load, 10 * 60_000);
+    const off = onCapacityChange(load);
+    return () => { window.clearInterval(t); off(); };
+  }, []);
+  if (alerts.length === 0) return null;
+  return (
+    <div className="bg-rose-600 text-white px-6 py-2 text-sm max-md:px-3">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="font-semibold">Plafond atteint — une lecture d'ADA a touché sa limite, des données peuvent manquer à l'écran.</p>
+          {alerts.map((a) => (
+            <div key={a.key} className="flex items-start gap-2 flex-wrap">
+              <span className="text-rose-100">
+                <span className="font-mono text-xs bg-rose-700/60 rounded px-1 py-0.5 mr-1">{a.key}</span>
+                {a.message} <span className="text-rose-200">· {a.hits}× · dernière le {new Date(a.hit_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+              </span>
+              {isAdmin && (
+                <button onClick={() => void ackCapacity(a.key)} className="text-xs font-medium bg-white/15 hover:bg-white/25 rounded px-2 py-0.5">Traité</button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

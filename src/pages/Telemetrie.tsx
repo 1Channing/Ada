@@ -3,6 +3,7 @@ import { Activity, ShieldAlert, Wifi } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
 import { useActiveUsers } from '../hooks/useActiveUsersCount';
+import { capped } from '../services/capacity';
 
 /**
  * Télémétrie d'usage (ADMIN) — qui utilise quoi, quand : pages visitées,
@@ -55,6 +56,7 @@ async function loadEvents(since: string): Promise<Ev[]> {
     out.push(...rows);
     if (rows.length < 5000) break;
   }
+  capped(out, 60_000, 'telemetrie.evenements', 'La Télémétrie a atteint son plafond de 60 000 événements sur 4 semaines : les temps d\'activité peuvent être sous-estimés.');
   return out;
 }
 

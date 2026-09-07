@@ -30,7 +30,7 @@ import { brandKey, canonKey } from '../src/services/marketData';
 import { canonicalizeGearbox, canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { canonicalizeBody } from '../src/lib/study-core/bodyTypes';
 import { isDamagedVehicleText, structuredModelMatches } from '../src/lib/study-core/business-logic';
-import { archiveOldObservations, recordTruthGap, refreshDashboards, runTruthSweep } from './dashboards';
+import { archiveOldObservations, recordTruthGap, refreshDashboards, runTruthSweep, capped } from './dashboards';
 import { runTruthDiagnose } from './truthDiagnose';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
@@ -464,6 +464,7 @@ async function targetCheapMedian(s: SearchRow): Promise<number | null> {
     .limit(4000);
   if (token) q = q.eq('fuel', token);
   const { data } = await q;
+  capped(data, 4000, 'etudes.mediane_observations', `La médiane cible de repli lit 4 000 observations au plus (pays ${s.target_country}) : elle peut ignorer une partie du marché.`);
   const bk = brandKey(s.brand);
   const mk = canonKey(s.model);
   const tk = canonKey(s.trim_target ?? '');
@@ -490,6 +491,7 @@ async function runDailySearch(s: SearchRow): Promise<void> {
     .select('id, listing_url, price, status, resolution, mileage, year')
     .eq('search_id', s.id)
     .limit(10000);
+  capped(known, 10000, 'etudes.memoire_annonces', `L'étude « ${name} » a plus de 10 000 annonces en mémoire : au-delà, des annonces déjà vues reviendraient en nouveautés.`);
   const seen = new Map<string, { id: string; price: number | null; status: string; resolution?: string | null }>();
   for (const k of (known ?? []) as Array<{ id: string; listing_url: string; price: number | null; status: string; resolution: string | null }>) {
     seen.set(k.listing_url, k);
@@ -528,6 +530,7 @@ async function runDailySearch(s: SearchRow): Promise<void> {
     .select('listing_url')
     .eq('user_id', s.user_id)
     .limit(5000);
+  capped(negos, 5000, 'etudes.negociations', 'Un compte a plus de 5 000 négociations : au-delà, un véhicule en négociation pourrait réapparaître dans les résultats.');
   const negoUrls = new Set(
     ((negos ?? []) as Array<{ listing_url: string | null }>)
       .map((n) => (n.listing_url ?? '').trim())

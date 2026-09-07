@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Rocket, Square, Loader2, CheckCircle2, XCircle, AlertTriangle, ExternalLink, Wrench, Check, Ban } from 'lucide-react';
+import { capped } from '../services/capacity';
 import { supabase } from '../lib/supabase';
 import { brandKey } from '../services/marketData';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
@@ -115,6 +116,7 @@ export function CampaignPanel() {
         .select('brand')
         .eq('validation_status', 'valid')
         .limit(1000);
+      capped(data, 1000, 'campagne.marques', 'Le panneau Campagne lit 1 000 lignes de mémoire pour ses marques : des marques peuvent manquer dans les puces.');
       // UNE puce par marque canonique : 'VW' et 'VOLKSWAGEN' sont la même
       // marque (signalement 23/07 — deux puces à cocher). Affichage = la
       // graphie la plus longue (la plus lisible) ; le filtre du planificateur
@@ -145,7 +147,7 @@ export function CampaignPanel() {
         .eq('validation_status', 'valid')
         .limit(10000);
       const keys = new Set<string>();
-      for (const r of data ?? []) {
+      for (const r of capped(data, 10000, 'campagne.mappings', 'Le panneau Campagne lit 10 000 mappings validés au plus : des lacunes résolues pourraient rester affichées.')) {
         keys.add(`${r.site}|${String(r.brand ?? '').trim().toUpperCase()}|${String(r.model ?? '').trim().toUpperCase()}`);
       }
       setValidatedKeys(keys);

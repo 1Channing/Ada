@@ -6,6 +6,7 @@
  * 20260904100000 n'est pas collée (null / listes vides, jamais d'erreur).
  */
 import { supabase } from '../lib/supabase';
+import { capped } from './capacity';
 
 export interface TruthDigest {
   day: string;
@@ -20,6 +21,8 @@ export interface TruthDigest {
     sites?: { erreurs_zyte: number; pages_bloquees: number };
     taxonomie_apprise?: Record<string, number>;
     veille_legale?: string;
+    /** Plafonds atteints non acquittés (règle Channing 07/09). */
+    capacite?: string[];
   };
 }
 
@@ -53,7 +56,7 @@ export async function loadConfidence(): Promise<Map<string, ConfidenceRow>> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any).from('truth_confidence').select('*').limit(2000);
   if (error) return out;
-  for (const r of (data ?? []) as ConfidenceRow[]) out.set(`${r.site}|${r.country}|${r.brand}|${r.model}`, r);
+  for (const r of capped((data ?? []) as ConfidenceRow[], 2000, 'confiance.segments', 'Le badge de confiance lit 2 000 segments au plus : des études peuvent rester sans badge.')) out.set(`${r.site}|${r.country}|${r.brand}|${r.model}`, r);
   return out;
 }
 export const confidenceKey = (site: string, country: string, brand: string, model: string) =>

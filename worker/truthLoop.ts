@@ -24,6 +24,7 @@ import { generateSearchUrlsWithMemory } from '../src/lib/linkgen/generator';
 import { missingUrlCriteria, CRITERIA_DETECTORS } from '../src/lib/linkgen/grammar';
 import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import { brandKey, refModelKey } from '../src/services/marketData';
+import { capped } from './dashboards';
 import type { SiteKey, LinkGenParams } from '../src/lib/linkgen/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -262,7 +263,8 @@ export async function runDigest(reason: string): Promise<void> {
   const open = await q('truth_dossiers', (b) => b.select('id,signal').is('resolved_at', null));
   const doubtful = await q('truth_confidence', (b) => b.select('site,country,brand,model,score,components').eq('label', 'douteux').order('score', { ascending: true }).limit(15));
   const golden = await q('truth_golden', (b) => b.select('site,label,last_status,last_detail').eq('last_status', 'fail'));
-  const logs = await q('worker_logs', (b) => b.select('message').gte('created_at', since).limit(3000));
+  const logs = capped(await q('worker_logs', (b) => b.select('message').gte('created_at', since).limit(3000)), 3000, 'digest.logs', 'Le digest du matin lit 3 000 lignes de journal au plus : ses compteurs (Zyte, blocages) peuvent être sous-estimés.');
+  const capacity = await q('capacity_alerts', (b) => b.select('key,message,hits,hit_at').is('acknowledged_at', null).order('hit_at', { ascending: false }).limit(20));
   const zyte = logs.filter((l) => /Zyte API error/.test(l.message)).length;
   const blocked = logs.filter((l) => /Blocked:|page de blocage/.test(l.message)).length;
   const legalFail = logs.filter((l) => /LEGAL_WATCH\].*(échec|credit)/.test(l.message)).length;
@@ -279,6 +281,9 @@ export async function runDigest(reason: string): Promise<void> {
     sites: { erreurs_zyte: zyte, pages_bloquees: blocked },
     taxonomie_apprise: taxoBySite,
     veille_legale: legalFail > 0 ? `${legalFail} échec(s) (crédits API ?)` : 'ok',
+    // Plafonds atteints non acquittés (règle Channing 07/09) — répétés ici
+    // pour que personne ne les rate, même sans être devant le bandeau.
+    capacite: capacity.map((c) => `${c.key} — ${c.message} (${c.hits}×)`),
   };
   const summary = [
     `${passed.length}/${studies.length} études passées`,
@@ -287,6 +292,7 @@ export async function runDigest(reason: string): Promise<void> {
     `${doubtful.length} segment(s) douteux`,
     golden.length ? `${golden.length} cas doré(s) EN ÉCHEC` : 'cas dorés OK',
     zyte + blocked ? `${zyte} erreur(s) Zyte, ${blocked} blocage(s)` : 'sites OK',
+    ...(capacity.length ? [`${capacity.length} PLAFOND(S) ATTEINT(S)`] : []),
   ].join(' · ');
   const { error } = await sb.from('truth_digests').upsert({ day, generated_at: new Date().toISOString(), summary, payload }, { onConflict: 'day' });
   if (error) console.warn('[TRUTH_DIGEST] :', error.message);

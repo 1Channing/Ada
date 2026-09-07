@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
+import { capped } from './capacity';
 import { getRefWindowsCached, refModelKey } from './vehicleRef';
 import { brandKey, canonKey } from './marketData';
 import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
@@ -76,6 +77,8 @@ export async function listKnownTrims(brand: string, model: string, country?: str
     q,
     supabase.from('linkgen_mapping_memory').select('trim, brand, model').neq('trim', '').limit(2000),
   ]);
+  capped(obs, 4000, 'finitions.observations', 'La liste des finitions connues lit 4 000 observations au plus : des finitions peuvent manquer dans les suggestions.');
+  capped(mem, 2000, 'finitions.memoire', 'La liste des finitions connues lit 2 000 lignes de mémoire au plus : des finitions peuvent manquer dans les suggestions.');
   const seen = new Map<string, string>(); // clé canonique → première graphie vue
   const take = (rows: Array<{ trim: string | null; brand: string | null; model: string | null }> | null) => {
     for (const r of rows ?? []) {
@@ -359,6 +362,7 @@ export async function listAllHits(limit = 40_000): Promise<DailyHit[]> {
     out.push(...rows);
     if (rows.length < PAGE) break;
   }
+  capped(out, limit, 'resultats.hits', `La page Résultats a atteint son plafond de ${limit.toLocaleString('fr-FR')} annonces d'études : des études peuvent s'afficher vides — augmenter le plafond (listAllHits).`);
   return out;
 }
 

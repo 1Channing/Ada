@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw, BookOpen, AlertTriangle, Sunrise, Star, Trash2 } from 'lucide-react';
 import { loadLatestDigest, loadGolden, deleteGolden, type TruthDigest, type GoldenRow } from '../services/truthLoop';
+import { capped } from '../services/capacity';
 import { SiteLibrary } from '../components/SiteLibrary';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
@@ -156,7 +157,7 @@ export function TruthCenter() {
       .order('doubt_score', { ascending: false })
       .limit(300);
     if (err) setError(err.message);
-    setDossiers(((data ?? []) as unknown as Dossier[]));
+    setDossiers(capped((data ?? []) as unknown as Dossier[], 300, 'verite.dossiers', 'Le Truth Center affiche 300 dossiers au plus : des dossiers moins prioritaires sont invisibles.'));
     // Les critères RÉELS des études quotidiennes actives — TOUTES équipes
     // confondues via truth_active_studies() (security definer : critères
     // seuls, jamais le propriétaire). L'URL ne sert JAMAIS de référence de
@@ -222,7 +223,7 @@ export function TruthCenter() {
       {digest && (() => {
         const p = digest.payload;
         const fails = p.cas_dores_en_echec?.length ?? 0;
-        const tone = fails > 0 || (p.segments_douteux?.length ?? 0) > 5 ? 'border-amber-300 bg-amber-50/60' : 'border-emerald-200 bg-emerald-50/50';
+        const tone = (p.capacite?.length ?? 0) > 0 ? 'border-rose-300 bg-rose-50/60' : fails > 0 || (p.segments_douteux?.length ?? 0) > 5 ? 'border-amber-300 bg-amber-50/60' : 'border-emerald-200 bg-emerald-50/50';
         return (
           <div className={`rounded-xl border p-4 ${tone}`}>
             <button onClick={() => setDigestOpen(!digestOpen)} className="w-full flex items-center gap-2 text-left">
@@ -253,6 +254,12 @@ export function TruthCenter() {
                   {(p.segments_douteux ?? []).slice(0, 6).map((d) => <p key={d.segment} className="text-slate-500 pl-2">• {d.segment} — {d.score}/100</p>)}
                   <p className={`font-medium mt-2 ${fails ? 'text-rose-700' : 'text-emerald-700'}`}>Cas dorés {fails ? `— ${fails} en échec` : 'OK'}</p>
                   {(p.cas_dores_en_echec ?? []).slice(0, 5).map((d) => <p key={d} className="text-rose-700 pl-2">• {d}</p>)}
+                  {(p.capacite?.length ?? 0) > 0 && (
+                    <>
+                      <p className="font-medium mt-2 text-rose-700">Plafonds atteints ({p.capacite!.length})</p>
+                      {p.capacite!.slice(0, 5).map((d) => <p key={d} className="text-rose-700 pl-2">• {d}</p>)}
+                    </>
+                  )}
                 </div>
               </div>
             )}

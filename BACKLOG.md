@@ -214,6 +214,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
 - À VÉRIFIER avec Channing : deux études « HYUNDAI TUCSON » et une « YARIS
   CROSS GR » à 0 sur les six sites, sans médiane — critères à relire (les
   « Liens » de la carte).
+- **ALERTES DE CAPACITÉ** (règle Channing 07/09 : « pose des alertes visibles
+  si ce genre de limites sont atteintes ») : mécanisme, pas cas par cas.
+  Table capacity_alerts (migration 20260907100000) + RPC capacity_hit ;
+  helper `capped(rows, limite, clé, message)` côté front (services/capacity)
+  et worker (dashboards) ; bandeau ROUGE sur toutes les pages tant que non
+  acquittée (« Traité », admin ; se rouvre seule si le plafond est de
+  nouveau touché) ; reprise dans « Ce matin ». Plafonds instrumentés :
+  Résultats 40 000 annonces, Télémétrie 60 000 événements, badge 2 000
+  segments, finitions 4 000/2 000, re-scan 5 000 exclusions, Campagne
+  10 000/1 000 mappings, Truth Center 300 dossiers, études (worker) 4 000
+  observations / 10 000 annonces mémoire / 5 000 négos, digest 3 000 logs.
+  RÈGLE : toute nouvelle `.limit(N)` significative passe par `capped`.
 Constaté, laissé tel quel (sain ou à décider) :
 - Zyte 520 en rafale à 05 h (81 le 05/09, AS_NL + LBC) : les retries
   absorbent (50/50 études passées) mais ça coûte des requêtes. Si ça

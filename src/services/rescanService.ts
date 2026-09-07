@@ -10,6 +10,7 @@
 
 import { supabase } from '../lib/supabase';
 import { findSiteAdapterByDomain, getSiteAdapter } from '../lib/study-core/marketplaces';
+import { capped } from './capacity';
 import type { SiteKey } from '../lib/study-core/marketplaces';
 import { brandKey, refModelKey, canonKey, FUEL_TOKEN_TO_CRITERIA } from './marketData';
 
@@ -109,7 +110,7 @@ export async function loadStaleSegments(): Promise<StaleSegment[]> {
     .from('market_rescan_optouts')
     .select('site, brand, model, fuel, trim')
     .limit(5000);
-  const optedOut = new Set((optRows ?? []).map((r) => segKey(r as SnapRow)));
+  const optedOut = new Set(capped(optRows, 5000, 'rescan.exclusions', 'Le re-scan lit 5 000 exclusions au plus : des segments exclus pourraient être re-scannés.').map((r) => segKey(r as SnapRow)));
 
   const now = Date.now();
   const out: StaleSegment[] = [];
