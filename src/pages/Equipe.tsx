@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../services/auth';
-import { APP_TABS, normalizeTabs } from '../lib/appTabs';
+import { APP_TABS, WORKFLOW_TAB_KEYS, normalizeTabs } from '../lib/appTabs';
 
 /**
  * Page ÉQUIPE (admin) — demande Channing 30/08 :
@@ -190,30 +190,53 @@ export function Equipe() {
                       <p className="text-xs text-slate-500">Compte admin : accès complet, non restreignable. {a.id !== userId ? 'Retire d’abord les droits admin pour piloter ses onglets.' : '(C’est toi.)'}</p>
                     ) : (
                       <>
-                        <p className="text-xs text-slate-500">Accès de ce compte — un droit décoché retire la page (ou les onglets qu'il gouverne) de son ADA, effet à son prochain chargement. Accueil reste toujours accessible. Le Workflow a un droit par onglet.</p>
-                        <div className="grid sm:grid-cols-2 gap-2">
-                          {APP_TABS.map((t) => {
-                            const on = (normalizeTabs(a.allowed_tabs) ?? all).includes(t.key);
+                        <p className="text-xs text-slate-500">Accès de ce compte — un droit décoché retire la page (ou les onglets qu'il gouverne) de son ADA, effet à son prochain chargement. Accueil reste toujours accessible.</p>
+                        {(() => {
+                          const granted = normalizeTabs(a.allowed_tabs) ?? all;
+                          const wf = APP_TABS.filter((t) => WORKFLOW_TAB_KEYS.includes(t.key));
+                          const others = APP_TABS.filter((t) => !WORKFLOW_TAB_KEYS.includes(t.key));
+                          const wfOn = wf.filter((t) => granted.includes(t.key)).length;
+                          const Card = ({ t, compact }: { t: (typeof APP_TABS)[number]; compact?: boolean }) => {
+                            const on = granted.includes(t.key);
                             return (
                               <button
-                                key={t.key}
                                 onClick={() => toggleTab(a, t.key)}
                                 title={t.hint}
-                                className={`flex items-start gap-2 px-3 py-2 rounded-lg text-left border transition-colors ${
-                                  on
-                                    ? 'bg-emerald-50 border-emerald-300 hover:bg-emerald-100'
-                                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                                className={`flex items-start gap-2 rounded-lg text-left border transition-colors ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} ${
+                                  on ? 'bg-emerald-50 border-emerald-300 hover:bg-emerald-100' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
                                 }`}
                               >
                                 <CheckCircle2 className={`w-4 h-4 mt-0.5 shrink-0 ${on ? 'text-emerald-600' : 'text-slate-300'}`} />
                                 <span className="min-w-0">
-                                  <span className={`block text-xs font-medium ${on ? 'text-emerald-800' : 'text-slate-400 line-through'}`}>{t.label}</span>
+                                  <span className={`block text-xs font-medium ${on ? 'text-emerald-800' : 'text-slate-400 line-through'}`}>{t.label.replace(/^Workflow · /, '')}</span>
                                   <span className={`block text-[11px] leading-snug ${on ? 'text-emerald-700/80' : 'text-slate-400'}`}>{t.hint}</span>
                                 </span>
                               </button>
                             );
-                          })}
-                        </div>
+                          };
+                          return (
+                            <div className="grid sm:grid-cols-2 gap-2">
+                              {/* Sous-menu Workflow : une carte, ses cinq onglets dedans. */}
+                              <div className={`sm:col-span-2 rounded-lg border p-3 space-y-2 ${wfOn > 0 ? 'bg-emerald-50/40 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <ClipboardList className={`w-4 h-4 ${wfOn > 0 ? 'text-emerald-600' : 'text-slate-300'}`} />
+                                  <span className={`text-xs font-semibold ${wfOn > 0 ? 'text-emerald-900' : 'text-slate-400 line-through'}`}>Workflow</span>
+                                  <span className="text-[11px] text-slate-500">{wfOn === wf.length ? 'tous les onglets' : wfOn === 0 ? 'aucun onglet — l’entrée disparaît de son bandeau' : `${wfOn}/${wf.length} onglets`}</span>
+                                  <button
+                                    onClick={() => void saveTabs(a, (() => { const rest = granted.filter((k) => !WORKFLOW_TAB_KEYS.includes(k as never)); const next = wfOn === wf.length ? rest : [...rest, ...wf.map((t) => t.key as string)]; return next.length === all.length ? null : next; })())}
+                                    className="ml-auto text-[11px] font-medium text-brand-ocean hover:underline"
+                                  >
+                                    {wfOn === wf.length ? 'Tout retirer' : 'Tout donner'}
+                                  </button>
+                                </div>
+                                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-1.5 pl-6">
+                                  {wf.map((t) => <Card key={t.key} t={t} compact />)}
+                                </div>
+                              </div>
+                              {others.map((t) => <Card key={t.key} t={t} />)}
+                            </div>
+                          );
+                        })()}
                       </>
                     )}
                     {searches && (() => {
