@@ -337,16 +337,29 @@ export async function listInboxHits(limit = 100): Promise<DailyHit[]> {
 /** Historique complet des trouvailles (page Résultats), seeds et vidés exclus.
  *  Limite large : le non-traité S'ACCUMULE de jour en jour (règle Channing
  *  29/07 — on n'en perd pas une goutte), il ne doit jamais tomber du bord. */
-export async function listAllHits(limit = 3000): Promise<DailyHit[]> {
-  const { data, error } = await supabase
-    .from('daily_search_hits')
-    .select('*')
-    .neq('kind', 'seed')
-    .neq('status', 'cleared')
-    .order('last_seen_at', { ascending: false })
-    .limit(limit);
-  if (error) throw new Error(error.message);
-  return (data ?? []) as DailyHit[];
+export async function listAllHits(limit = 40_000): Promise<DailyHit[]> {
+  // LECTURE COMPLÈTE par pages de 1 000 (constat Channing 07/09 : avec
+  // 60 études, les 3 000 lignes les plus récentes ne couvraient plus les
+  // études du début de nuit — leurs cartes affichaient « rien vu au
+  // scrape » et des médianes vides alors que le worker avait trouvé 53
+  // annonces). Le plafond n'est qu'un garde-fou.
+  const out: DailyHit[] = [];
+  const PAGE = 1000;
+  for (let from = 0; from < limit; from += PAGE) {
+    const { data, error } = await supabase
+      .from('daily_search_hits')
+      .select('*')
+      .neq('kind', 'seed')
+      .neq('status', 'cleared')
+      .order('last_seen_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as DailyHit[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
 }
 
 /**
