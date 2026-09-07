@@ -24,7 +24,11 @@ const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 app.use(cors());
-app.use(express.json());
+// 10 Mo : un re-scan MI de 758 annonces cochées envoie son plan entier —
+// la limite par défaut (100 Ko) répondait « request entity too large »
+// (constat Channing 07/09 : « Lancement impossible : Edge Function returned
+// a non-2xx status code »).
+app.use(express.json({ limit: '10mb' }));
 
 app.get('/', (req, res) => {
   res.send('ok');
