@@ -558,7 +558,8 @@ function parseFlightListings(html: string): ScrapedListing[] {
     console.warn(`[MOBILEDE_OBS] flight: ${kept} annonces trouvées mais ${out.length} exploitables (titre/prix manquants) — repli`);
     return [];
   }
-  console.warn(`[MOBILEDE_OBS] flight: ${out.length}/${ads.length} annonces structurées extraites (total site: ${total ?? '?'})`);
+  // Diagnostic de routine (209 lignes/jour en base le 07/09) : console seule.
+  console.log(`[MOBILEDE_OBS] flight: ${out.length}/${ads.length} annonces structurées extraites (total site: ${total ?? '?'})`);
   return out;
 }
 

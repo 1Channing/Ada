@@ -239,6 +239,20 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   couvre tout code construit avant lui, seule une touche d'un build
   POSTÉRIEUR rouvre. Le bouton est optimiste et l'écriture vérifiée (motif
   affiché si la base refuse).
+- **LOGS 24 h relus le 07/09 après-midi** (1 581 lignes, 121 erreurs) :
+  AbortError × 110 = course de profils La Centrale AVANT le filtre poussé
+  le matin (à re-vérifier demain : doit être 0) ; PayloadTooLarge 08:05 =
+  avant express 10 Mo ; Zyte 520 × 9 à 05 h (rappel samedi) ; RECON AS24 FR
+  × 171 lignes en 3 min à 08:14 (rafale unique, lancement re-scan).
+  Corrigé : MERCEDES « GLE-CLASS » vs « GLE » structuré (mots de famille
+  class/classe/klasse/clase neutres dans structuredModelMatches — 13 à 55
+  annonces jetées par site, aucun snapshot GLA/GLE/GLS/SL) ; TAXONOMY
+  « 357 apprises » à chaque scrape = lecture du dictionnaire plafonnée à
+  1 000 (readAllPages) ; MOBILEDE_OBS flight (209/j) hors base.
+  À VÉRIFIER (Channing) : étude « TOYOTA RAV4 2023 » FR→NL, médiane cible
+  2 949 € = RAV4 de 2001-2005 sur AS24 NL → le critère année est-il posé
+  dans l'étude (le libellé dit 2023, l'URL générée avec 2023 pose bien
+  fregfrom=2023) ?
 - **DROITS PAR ONGLET DU WORKFLOW** (demande 07/09) : cinq droits
   `wf:etudes/resultats/archives/negociations/ventes` ; les clés historiques
   `workflow`/`ventes` sont comprises (normalizeTabs) et converties au premier

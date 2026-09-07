@@ -196,10 +196,19 @@ export function modelKeyLoose(raw: string | null | undefined): string {
  * Fail-open : une annonce SANS modèle structuré est conservée (LBC, AS24…
  * ne le renseignent pas) — seul un modèle porté ET différent écarte.
  */
+/** Mots de FAMILLE qui ne portent pas l'identité du modèle : « GLE-Class »,
+ *  « Classe GLE », « GLE-Klasse », « Clase GLE » et « GLE » désignent la même
+ *  gamme. Logs 07/09 : le registre dit MERCEDES GLE-CLASS, AutoScout24
+ *  structure « GLE » — 13 à 55 annonces écartées par site, aucun snapshot
+ *  GLA/GLE/GLS/SL sur BE/NL/IT/ES. */
+const MODEL_FAMILY_WORDS = /\b(class|classe|klasse|clase)\b/g;
+const familyKey = (s: string | null | undefined) => modelKeyLoose(String(s ?? '').toLowerCase().replace(MODEL_FAMILY_WORDS, ' '));
+
 export function structuredModelMatches(structured: string | null | undefined, wanted: string): boolean {
   const got = modelKeyLoose(structured);
   if (!got) return true;
   if (got === modelKeyLoose(wanted)) return true;
+  if (familyKey(structured) && familyKey(structured) === familyKey(wanted)) return true;
   // Forme COMPACTE (espaces et tirets retirés, ordre conservé) : La Centrale
   // écrit « RAV 4 » là où l'étude dit « RAV4 » — la clé à jetons triés
   // donnait « 4rav » ≠ « rav4 » et jetait 115 annonces (constat 07/09).

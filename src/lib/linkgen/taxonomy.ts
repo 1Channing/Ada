@@ -12,6 +12,7 @@
  */
 
 import { sharedSupabase as supabase } from '../supabaseShared';
+import { readAllPages } from '../readAllPages';
 import { allSiteAdapters } from '../study-core/marketplaces';
 
 export interface TaxonomyEntry { field: string; code: string; label: string }
@@ -29,13 +30,21 @@ const foldLabel = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLow
 export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntry[]): Promise<TaxonomyHarvestSummary> {
   if (!entries.length) return EMPTY_SUMMARY;
   const fields = [...new Set(entries.map((e) => e.field))];
-  const { data: existing, error } = await supabase
-    .from('linkgen_enum_mappings')
-    .select('field, code, label')
-    .eq('site', site)
-    .in('field', fields);
-  if (error) {
-    console.warn(`[TAXONOMY] lecture dictionnaire échouée (${site}): ${error.message}`);
+  // Lecture COMPLÈTE par pages (07/09) : plafonnée à 1 000 par PostgREST,
+  // elle ignorait 4 800 des 5 800 modèles AS24 — chaque scrape « apprenait »
+  // 357 entrées déjà connues (logs) et l'upsert ignore-doublons masquait le
+  // faux compte. Le dictionnaire est lu en entier, le journal dit vrai.
+  let existing: Array<{ field: string; code: string; label: string }>;
+  try {
+    existing = await readAllPages<{ field: string; code: string; label: string }>((from, to) => supabase
+      .from('linkgen_enum_mappings')
+      .select('field, code, label')
+      .eq('site', site)
+      .in('field', fields)
+      .order('code')
+      .range(from, to), 100_000);
+  } catch (e) {
+    console.warn(`[TAXONOMY] lecture dictionnaire échouée (${site}): ${e instanceof Error ? e.message : e}`);
     return EMPTY_SUMMARY;
   }
   const known = new Map((existing ?? []).map((r) => [`${r.field}|${r.code}`, r.label as string]));
