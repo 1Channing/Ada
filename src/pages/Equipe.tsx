@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList } from 'lucide-react';
+import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../services/auth';
+import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword } from '../services/auth';
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
 
 /**
@@ -59,6 +59,11 @@ export function Equipe() {
   const [loading, setLoading] = useState(true);
   const [newEmail, setNewEmail] = useState('');
   const [newNote, setNewNote] = useState('');
+  // Création de compte par l'admin (07/09).
+  const [nu, setNu] = useState({ firstName: '', lastName: '', phone: '', email: '', password: '' });
+  const [nuBusy, setNuBusy] = useState(false);
+  const [nuInfo, setNuInfo] = useState<string | null>(null);
+  const [resetInfo, setResetInfo] = useState<string | null>(null);
 
   const reload = async () => {
     setError(null);
@@ -139,6 +144,32 @@ export function Equipe() {
     void reload();
   };
 
+  const createAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNuInfo(null); setError(null); setNuBusy(true);
+    const email = nu.email.trim().toLowerCase();
+    // Le verrou d'inscription (liste d'adresses) s'applique aussi à cette
+    // création : on y inscrit l'adresse d'abord, si la liste est armée.
+    if (allow.length > 0 && !allow.some((r) => r.email.toLowerCase() === email)) {
+      const { error: err } = await supabase.from('auth_allowlist').insert({ email, note: nu.firstName.trim() || null });
+      if (err) { setError(`Liste d'inscription : ${err.message}`); setNuBusy(false); return; }
+    }
+    const r = await adminCreateAccount({ ...nu, email });
+    setNuBusy(false);
+    if (r.error) { setError(r.error); return; }
+    setNuInfo(r.needsConfirmation
+      ? `Compte créé pour ${email}. Supabase lui a envoyé un email de confirmation : le mot de passe fonctionne après le clic. Transmets-lui le mot de passe : ${nu.password}`
+      : `Compte créé pour ${email}. Transmets-lui le mot de passe : ${nu.password}`);
+    setNu({ firstName: '', lastName: '', phone: '', email: '', password: '' });
+    void reload();
+  };
+
+  const sendReset = async (a: Account) => {
+    if (!confirm(`Envoyer à ${a.email} un email de réinitialisation du mot de passe ?`)) return;
+    const err = await requestPasswordReset(a.email);
+    setResetInfo(err ? `${a.email} : ${err}` : `Email de réinitialisation envoyé à ${a.email}.`);
+  };
+
   const nameOf = (a: Account) =>
     [a.first_name, a.last_name].filter(Boolean).join(' ') || a.display_name || a.email.split('@')[0];
 
@@ -154,6 +185,37 @@ export function Equipe() {
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
       {loading && <p className="text-sm text-slate-400 py-6 text-center">Chargement…</p>}
+
+      {/* ── Créer un compte (admin) ── */}
+      {!loading && (
+        <form onSubmit={createAccount} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <UserPlus className="w-4 h-4 text-brand-ocean" />
+            <h2 className="text-sm font-semibold text-slate-700">Créer un compte</h2>
+            <span className="text-xs text-slate-400">La personne se connecte avec l'email et le mot de passe que tu lui transmets ; elle pourra le changer via « Mot de passe oublié ».</span>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            <input value={nu.firstName} onChange={(e) => setNu({ ...nu, firstName: e.target.value })} placeholder="Prénom *" required className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
+            <input value={nu.lastName} onChange={(e) => setNu({ ...nu, lastName: e.target.value })} placeholder="Nom *" required className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
+            <input type="tel" value={nu.phone} onChange={(e) => setNu({ ...nu, phone: e.target.value })} placeholder="Téléphone" className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
+            <input type="email" value={nu.email} onChange={(e) => setNu({ ...nu, email: e.target.value })} placeholder="prenom@mc-export.com *" required autoComplete="off" className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
+            <div className="flex gap-1 sm:col-span-2 lg:col-span-2">
+              <input value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} placeholder="Mot de passe * (8 caractères, lettres et chiffres)" required autoComplete="new-password" className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
+              <button type="button" onClick={() => setNu({ ...nu, password: suggestPassword() })} title="Proposer un mot de passe" className="px-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"><Wand2 className="w-4 h-4" /></button>
+              <button type="button" onClick={() => { void navigator.clipboard?.writeText(nu.password); }} title="Copier le mot de passe" className="px-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="w-4 h-4" /></button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button type="submit" disabled={nuBusy} className="flex items-center gap-1.5 bg-brand-ocean hover:bg-brand-encre disabled:opacity-50 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
+              <Plus className="w-4 h-4" /> {nuBusy ? 'Création…' : 'Créer le compte'}
+            </button>
+            {allow.length > 0 && <span className="text-xs text-slate-400">L'adresse sera ajoutée à la liste des adresses autorisées.</span>}
+          </div>
+          {nuInfo && <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 break-all">{nuInfo}</p>}
+        </form>
+      )}
+
+      {resetInfo && <p className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">{resetInfo}</p>}
 
       {/* ── Comptes ── */}
       {!loading && (
@@ -246,6 +308,11 @@ export function Equipe() {
                         })()}
                       </>
                     )}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button onClick={() => void sendReset(a)} className="flex items-center gap-1.5 text-xs font-medium text-slate-600 border border-slate-300 rounded-lg px-2.5 py-1.5 hover:bg-slate-50">
+                        <KeyRound className="w-3.5 h-3.5" /> Envoyer un lien de nouveau mot de passe
+                      </button>
+                    </div>
                     {searches && (() => {
                       const mine = searches.filter((s) => s.user_id === a.id);
                       if (mine.length === 0) return (

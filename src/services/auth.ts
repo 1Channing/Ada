@@ -218,3 +218,52 @@ export async function ensureProfile(): Promise<void> {
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }
+
+// ── Création de compte PAR UN ADMIN (page Équipe, demande Channing 07/09) ──
+// Sans clé service côté navigateur (jamais), on passe par l'inscription
+// publique sur un SECOND client Supabase sans persistance : la session de
+// l'admin reste intacte. Le trigger de liste d'inscription s'applique : la
+// page ajoute l'adresse à la liste avant. Si la confirmation d'email est
+// activée côté Supabase, la personne reçoit le mail de confirmation et le
+// mot de passe choisi fonctionne après le clic.
+export interface AdminCreateInput { email: string; password: string; firstName: string; lastName: string; phone: string }
+export async function adminCreateAccount(input: AdminCreateInput): Promise<{ error: string | null; needsConfirmation: boolean }> {
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  const phone = input.phone.trim();
+  if (!firstName) return { error: 'Le prénom est requis.', needsConfirmation: false };
+  if (!lastName) return { error: 'Le nom est requis.', needsConfirmation: false };
+  const weak = passwordWeakness(input.password);
+  if (weak) return { error: `Mot de passe trop faible : ${weak}`, needsConfirmation: false };
+  const cleanEmail = normalizeEmail(input.email);
+  const { createClient } = await import('@supabase/supabase-js');
+  const side = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  const { data, error } = await side.auth.signUp({
+    email: cleanEmail, password: input.password,
+    options: { data: { first_name: firstName, last_name: lastName, phone } },
+  });
+  if (error) return { error: frenchAuthError(error.message), needsConfirmation: false };
+  if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    return { error: 'Un compte existe déjà avec cette adresse.', needsConfirmation: false };
+  }
+  const userId = data.user?.id;
+  if (userId) {
+    // Profil posé par l'ADMIN (sa session, ses droits) — le compte est
+    // complet avant même la première connexion de la personne.
+    await supabase.from('profiles').upsert({
+      id: userId, display_name: firstName, first_name: firstName, last_name: lastName, phone,
+    });
+  }
+  // Session absente = confirmation d'email requise côté Supabase.
+  return { error: null, needsConfirmation: !data.session };
+}
+
+/** Mot de passe lisible et solide : 3 mots courts + 2 chiffres (ex. « rive-clef-pont-47 »). */
+export function suggestPassword(): string {
+  const words = ['rive', 'clef', 'pont', 'lune', 'sable', 'cime', 'nord', 'plage', 'roche', 'fleur', 'orage', 'tigre', 'ombre', 'vague', 'perle', 'cuivre', 'jade', 'forge', 'delta', 'astre'];
+  const pick = () => words[Math.floor(Math.random() * words.length)];
+  const n = 10 + Math.floor(Math.random() * 90);
+  return `${pick()}-${pick()}-${pick()}-${n}`;
+}
