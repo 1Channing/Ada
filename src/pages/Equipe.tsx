@@ -95,8 +95,20 @@ export function Equipe() {
   const saveTabs = async (a: Account, tabs: string[] | null) => {
     // Optimiste : l'UI répond au clic, la base suit ; on recharge derrière.
     setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, allowed_tabs: tabs } : x)));
-    const { error: err } = await supabase.from('profiles').update({ allowed_tabs: tabs }).eq('id', a.id);
-    if (err) { setError(err.message); void reload(); }
+    // RPC admin (migration 20260907160000) : crée la ligne de profil si elle
+    // manque — un UPDATE sur une ligne absente touchait zéro ligne SANS
+    // erreur et les droits « revenaient » (constat Channing 07/09). Tant que
+    // le SQL n'est pas collé : repli sur l'UPDATE, mais VÉRIFIÉ (ligne
+    // renvoyée) — un écran qui ment vaut moins que rien.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rpc = await (supabase as any).rpc('admin_set_allowed_tabs', { p_user: a.id, p_tabs: tabs });
+    if (!rpc.error) return;
+    const { data, error: err } = await supabase.from('profiles').update({ allowed_tabs: tabs }).eq('id', a.id).select('id');
+    if (err) { setError(err.message); void reload(); return; }
+    if (!data?.length) {
+      setError(`Droits de ${a.email} NON enregistrés : aucune ligne de profil à mettre à jour. Colle la migration 20260907160000 (RPC admin_set_allowed_tabs) pour que la page crée la ligne manquante.`);
+      void reload();
+    }
   };
 
   /** Liste = exactement le défaut (tout sauf les droits sur autorisation
@@ -123,8 +135,9 @@ export function Equipe() {
       ? `Donner les droits ADMIN à ${a.email} ? (Truth Center, Télémétrie, Équipe, tous les onglets)`
       : `Retirer les droits admin à ${a.email} ?`)) return;
     setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, is_admin: next } : x)));
-    const { error: err } = await supabase.from('profiles').update({ is_admin: next }).eq('id', a.id);
-    if (err) { setError(err.message); void reload(); }
+    const { data, error: err } = await supabase.from('profiles').update({ is_admin: next }).eq('id', a.id).select('id');
+    if (err) { setError(err.message); void reload(); return; }
+    if (!data?.length) { setError(`Droits admin de ${a.email} NON enregistrés : aucune ligne de profil (la personne doit s'être connectée une fois, ou colle la migration 20260907160000 puis règle d'abord ses onglets).`); void reload(); }
   };
 
   const addAllow = async (e: React.FormEvent) => {
