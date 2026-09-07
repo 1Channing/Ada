@@ -249,10 +249,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   annonces jetées par site, aucun snapshot GLA/GLE/GLS/SL) ; TAXONOMY
   « 357 apprises » à chaque scrape = lecture du dictionnaire plafonnée à
   1 000 (readAllPages) ; MOBILEDE_OBS flight (209/j) hors base.
-  À VÉRIFIER (Channing) : étude « TOYOTA RAV4 2023 » FR→NL, médiane cible
-  2 949 € = RAV4 de 2001-2005 sur AS24 NL → le critère année est-il posé
-  dans l'étude (le libellé dit 2023, l'URL générée avec 2023 pose bien
-  fregfrom=2023) ?
+  RAV4 2023 FR→NL à 2 949 € : critères année/carburant bien posés (LBC
+  regdate, LC yearMin) ; cause = Marktplaats, année et km dans le fragment
+  « # » jamais lu par le serveur (0bis) → RAV4 de 2001 dans la médiane.
+  Corrigé : post-filtres DURS année et kilométrage dans les études (comme
+  la boîte ; valeur absente = conservée). Reste à élucider : le lien AS24 FR
+  affiché par « Liens » sans fregfrom ni fuel (registre testé sain sur cette
+  URL ; aucun dossier url_incomplete côté worker) — re-vérifier après
+  rechargement, sinon lire la ligne mémoire AS24 FR TOYOTA RAV4.
 - **DROITS PAR ONGLET DU WORKFLOW** (demande 07/09) : cinq droits
   `wf:etudes/resultats/archives/negociations/ventes` ; les clés historiques
   `workflow`/`ventes` sont comprises (normalizeTabs) et converties au premier

@@ -365,6 +365,35 @@ async function scrapeCountry(
         }
       }
     }
+    // ANNÉE et KILOMÉTRAGE : post-filtre DUR (07/09, étude RAV4 2023 FR→NL à
+    // médiane 2 949 € = RAV4 de 2001). Marktplaats porte l'année et le km
+    // dans le fragment « # » de l'URL, que le serveur ne lit jamais (backlog
+    // 0bis, 19/07) : la page revient toutes années confondues. Même règle que
+    // la boîte : une valeur structurée contraire écarte, une valeur absente
+    // conserve (fail-open).
+    if (s.year_min != null || s.year_max != null) {
+      const before = listings.length;
+      listings = listings.filter((l) => {
+        const y = (l as { year?: number | null }).year;
+        if (y == null || !Number.isFinite(y)) return true;
+        if (s.year_min != null && y < s.year_min) return false;
+        if (s.year_max != null && y > s.year_max) return false;
+        return true;
+      });
+      if (listings.length < before) {
+        console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (année hors ${s.year_min ?? '…'}-${s.year_max ?? '…'})`);
+      }
+    }
+    if (s.mileage_max != null) {
+      const before = listings.length;
+      listings = listings.filter((l) => {
+        const km = (l as { mileage?: number | null }).mileage;
+        return km == null || !Number.isFinite(km) || km <= (s.mileage_max as number);
+      });
+      if (listings.length < before) {
+        console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (> ${s.mileage_max} km)`);
+      }
+    }
     // Puissance min : post-filtre DUR même si le site a ignoré le paramètre.
     // Puissance illisible = conservée (fail-open, même règle que la boîte).
     if (s.power_min != null) {
