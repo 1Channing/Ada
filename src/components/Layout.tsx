@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X } from 'lucide-react';
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
 import { canSeeTab, canSeeWorkflow, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
@@ -49,6 +49,10 @@ function useNewVersionAvailable(): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const activeCount = useActiveUsersCount();
+  // Menu dépliant MOBILE (demande Channing 07/09 : la barre défilante cachait
+  // « Carte » hors écran). Se referme à chaque navigation.
+  const [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => { setMobileOpen(false); }, [window.location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   const newVersion = useNewVersionAvailable();
   const currentPath = window.location.pathname;
   // Onglets par compte (page Équipe) : un onglet retiré à un utilisateur
@@ -95,7 +99,7 @@ export function Layout({ children }: LayoutProps) {
       <nav className="bg-gradient-to-r from-brand-encre via-brand-ocean to-[#3F85C2] shadow-md">
         {/* Mobile (< md) : la barre DÉFILE horizontalement — aucune classe
             existante modifiée, uniquement des ajouts max-md: (inertes sur PC). */}
-        <div className="flex items-center gap-2 px-6 py-2.5 max-md:overflow-x-auto max-md:px-3 max-md:[scrollbar-width:none]">
+        <div className="flex items-center gap-2 px-6 py-2.5 max-md:px-3">
           {/* Logo : /logo-mark.png (version sans texte) — repli sur la
               marque « orbite » si le fichier n'est pas encore déposé. */}
           <div className="flex items-center gap-3 pr-4 mr-1 border-r border-white/20 max-md:shrink-0">
@@ -125,7 +129,7 @@ export function Layout({ children }: LayoutProps) {
             <button
               key={it.path}
               onClick={() => navigateTo(it.path)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors max-md:shrink-0 max-md:whitespace-nowrap ${
+              className={`max-md:hidden flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeFor(it)
                   ? 'bg-white/15 text-white shadow-inner'
                   : 'text-white/70 hover:text-white hover:bg-white/10'
@@ -135,6 +139,15 @@ export function Layout({ children }: LayoutProps) {
               {it.label}
             </button>
           ))}
+          {/* Mobile : page courante + bouton de menu, à la place de la liste. */}
+          <button
+            onClick={() => setMobileOpen((o) => !o)}
+            className="md:hidden flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white/15 text-white min-w-0"
+            aria-expanded={mobileOpen}
+          >
+            {mobileOpen ? <X className="w-4 h-4 shrink-0" /> : <Menu className="w-4 h-4 shrink-0" />}
+            <span className="truncate">{items.find(activeFor)?.label ?? 'Menu'}</span>
+          </button>
 
           {/* À droite : présence + signalements + notifications + compte. */}
           <div className="ml-auto flex items-center gap-1 max-md:shrink-0">
@@ -150,6 +163,22 @@ export function Layout({ children }: LayoutProps) {
             <UserChip />
           </div>
         </div>
+        {mobileOpen && (
+          <div className="md:hidden border-t border-white/15 px-3 py-2 grid grid-cols-2 gap-1.5">
+            {items.map((it) => (
+              <button
+                key={it.path}
+                onClick={() => navigateTo(it.path)}
+                className={`flex items-center gap-2 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                  activeFor(it) ? 'bg-white/20 text-white' : 'text-white/80 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                {it.icon}
+                {it.label}
+              </button>
+            ))}
+          </div>
+        )}
       </nav>
 
       {newVersion && (

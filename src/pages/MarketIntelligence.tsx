@@ -390,11 +390,46 @@ export function MarketIntelligence() {
   // Reprise au montage : navigation = rechargement complet de la page, seul le
   // sessionStorage survit — les mises à jour en cours y sont reprises.
   useEffect(() => { readPendingUpdates().forEach(trackUpdate); /* eslint-disable-line react-hooks/exhaustive-deps */ }, []);
+  // Téléphone : l'onglet revient de veille → le suivi a pu être gelé pendant
+  // que le worker finissait ; on recharge d'un coup les données des études
+  // en cours de mise à jour (et le reste suit via Rafraîchir).
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const pending = readPendingUpdates();
+      if (pending.length === 0) return;
+      void (async () => {
+        for (const pu of pending) {
+          try {
+            const rows = await loadObservationsForStudy(pu.filters);
+            scopeCache.current.set(pu.scope, rows);
+          } catch { /* le suivi normal reprend */ }
+        }
+        try { const snaps = await loadSnapshots(); setData((prev) => ({ ...prev, snapshots: snaps })); } catch { /* idem */ }
+        setScopeEpoch((e) => e + 1);
+      })();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Peut-on (re)lancer ? Oui sauf mise à jour FRAÎCHE en cours (< 3 min).
+   *  Constat téléphone 07/09 : la mise en veille tue le suivi, l'état
+   *  « scrape en cours » restait affiché jusqu'au délai de garde (20 min) et
+   *  le bouton restait grisé — alors que le worker avait fini depuis longtemps. */
+  const canLaunch = (scope: string): boolean => {
+    const upd = updating.get(scope);
+    if (!upd || upd.msg.startsWith('échec') || upd.msg.startsWith('scrapes toujours')) return true;
+    const pu = readPendingUpdates().find((p) => p.scope === scope);
+    return !pu || Date.now() - pu.startedAt > 3 * 60_000;
+  };
 
   const updateStudy = async (idx: number) => {
     const f = studies[idx];
     const scope = scopeOf(f);
-    if (!f?.country || !f?.brand || !scope || updating.has(scope)) return;
+    if (!f?.country || !f?.brand || !scope || !canLaunch(scope)) return;
+    trackedScopes.current.delete(scope); // un suivi mort ne bloque pas le nouveau
     setMenuIdx(null);
     const label = studyLabel(f, idx);
     setUpd(scope, { label, msg: 'génération des URLs…' });
@@ -518,14 +553,32 @@ export function MarketIntelligence() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-3"><LineIcon className="w-6 h-6 text-blue-500" /> Market Intelligence</h1>
           <p className="text-slate-600 mt-1 text-sm">Profondeur, prix et vélocité du marché — filtrable au grain de l'annonce, jusqu'à 3 études comparées.</p>
         </div>
-        <button onClick={refresh} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-sm">
-          <RefreshCw className={`w-4 h-4 ${loading || scopeLoading ? 'animate-spin' : ''}`} /> Rafraîchir
-        </button>
+        <div className="flex items-center gap-2 max-md:flex-col max-md:items-stretch shrink-0">
+          {/* Accès DIRECT à la mise à jour de l'étude active (téléphone 07/09 :
+              le menu ⋯ était impraticable au doigt). */}
+          {(() => {
+            const f = studies[activeIdx];
+            const scope = f ? scopeOf(f) : '';
+            const ok = Boolean(f?.country && f?.brand && scope);
+            const upd = scope ? updating.get(scope) : undefined;
+            const running = Boolean(upd && !upd.msg.startsWith('échec') && !canLaunch(scope));
+            return (
+              <button onClick={() => void updateStudy(activeIdx)} disabled={!ok || running}
+                title={ok ? `Relancer le scrape de « ${studyLabel(f, activeIdx)} » sur tous ses sites` : 'Choisis un pays et une marque'}
+                className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre disabled:opacity-40 text-white text-sm font-medium">
+                {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Mettre à jour l'étude
+              </button>
+            );
+          })()}
+          <button onClick={refresh} className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-sm">
+            <RefreshCw className={`w-4 h-4 ${loading || scopeLoading ? 'animate-spin' : ''}`} /> Rafraîchir
+          </button>
+        </div>
       </div>
 
       {/* Plafond de lecture atteint : le dire au lieu de tronquer en silence —
@@ -566,7 +619,7 @@ export function MarketIntelligence() {
                 <span className="text-[10px] text-slate-500">{s.stats.count}</span>
                 <span className="relative">
                   <button onClick={(e) => { e.stopPropagation(); setMenuIdx(menuIdx === s.idx ? null : s.idx); }}
-                    className="p-0.5 rounded hover:bg-slate-300 text-slate-500 hover:text-slate-800" title="Actions">
+                    className="p-0.5 max-md:p-2 max-md:-my-1 rounded hover:bg-slate-300 text-slate-500 hover:text-slate-800" title="Actions">
                     {(() => {
                       const upd = updating.get(scopeOf(s.filters));
                       return upd && !upd.msg.startsWith('échec')
@@ -576,17 +629,22 @@ export function MarketIntelligence() {
                   </button>
                   {menuIdx === s.idx && (
                     // Mobile : feuille ancrée en bas d'écran — ajouts max-md: seulement (inertes sur PC).
-                    <span className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[190px] max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:mt-0 max-md:z-50 max-md:rounded-t-2xl max-md:rounded-b-none max-md:shadow-2xl max-md:max-h-[70vh] max-md:overflow-y-auto max-md:py-2"
-                      onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => updateStudy(s.idx)}
-                        disabled={!s.filters.country || !s.filters.brand || updating.has(scopeOf(s.filters))}
-                        className="w-full text-left px-3 py-1.5 max-md:py-3 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-40 flex items-center gap-2">
-                        <RefreshCw className="w-3.5 h-3.5" /> Mettre à jour
-                      </button>
-                      {(!s.filters.country || !s.filters.brand) && (
-                        <span className="block px-3 pb-1 text-[10px] text-slate-400">choisis un pays et une marque</span>
-                      )}
-                    </span>
+                    <>
+                      <span className="hidden max-md:block fixed inset-0 z-40 bg-slate-900/30" onClick={(e) => { e.stopPropagation(); setMenuIdx(null); }} />
+                      <span className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[190px] max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:mt-0 max-md:z-50 max-md:rounded-t-2xl max-md:rounded-b-none max-md:shadow-2xl max-md:max-h-[70vh] max-md:overflow-y-auto max-md:py-2"
+                        onClick={(e) => e.stopPropagation()}>
+                        <span className="hidden max-md:block px-4 pt-1 pb-2 text-sm font-semibold text-slate-800">{s.label}</span>
+                        <button onClick={() => updateStudy(s.idx)}
+                          disabled={!s.filters.country || !s.filters.brand || !canLaunch(scopeOf(s.filters))}
+                          className="w-full text-left px-3 py-1.5 max-md:py-3 max-md:px-4 text-xs max-md:text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-40 flex items-center gap-2">
+                          <RefreshCw className="w-3.5 h-3.5 max-md:w-4 max-md:h-4" /> Mettre à jour
+                        </button>
+                        {(!s.filters.country || !s.filters.brand) && (
+                          <span className="block px-3 pb-1 text-[10px] text-slate-400">choisis un pays et une marque</span>
+                        )}
+                        <button onClick={() => setMenuIdx(null)} className="hidden max-md:flex w-full items-center gap-2 px-4 py-3 text-sm text-slate-500 border-t border-slate-100"><X className="w-4 h-4" /> Fermer</button>
+                      </span>
+                    </>
                   )}
                 </span>
                 {studies.length > 1 && (
