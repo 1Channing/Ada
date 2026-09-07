@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword } from '../services/auth';
+import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, passwordWeakness } from '../services/auth';
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
 
 /**
@@ -148,10 +148,17 @@ export function Equipe() {
     e.preventDefault();
     setNuInfo(null); setError(null); setNuBusy(true);
     const email = nu.email.trim().toLowerCase();
+    // Vérifications AVANT tout effet de bord (07/09 : un mot de passe refusé
+    // laissait l'adresse déjà inscrite, et la 2e tentative butait sur la clé).
+    const weak = passwordWeakness(nu.password);
+    if (weak) { setError(`Mot de passe trop faible : ${weak}`); setNuBusy(false); return; }
+    if (!nu.firstName.trim() || !nu.lastName.trim()) { setError('Prénom et nom sont requis.'); setNuBusy(false); return; }
     // Le verrou d'inscription (liste d'adresses) s'applique aussi à cette
     // création : on y inscrit l'adresse d'abord, si la liste est armée.
-    if (allow.length > 0 && !allow.some((r) => r.email.toLowerCase() === email)) {
-      const { error: err } = await supabase.from('auth_allowlist').insert({ email, note: nu.firstName.trim() || null });
+    // Idempotent : une adresse déjà présente ne fait pas d'erreur.
+    if (allow.length > 0) {
+      const { error: err } = await supabase.from('auth_allowlist')
+        .upsert({ email, note: nu.firstName.trim() || null }, { onConflict: 'email', ignoreDuplicates: true });
       if (err) { setError(`Liste d'inscription : ${err.message}`); setNuBusy(false); return; }
     }
     const r = await adminCreateAccount({ ...nu, email });
