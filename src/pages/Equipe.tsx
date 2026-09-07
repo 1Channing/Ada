@@ -188,22 +188,26 @@ export function Equipe() {
                       <p className="text-xs text-slate-500">Compte admin : accès complet, non restreignable. {a.id !== userId ? 'Retire d’abord les droits admin pour piloter ses onglets.' : '(C’est toi.)'}</p>
                     ) : (
                       <>
-                        <p className="text-xs text-slate-500">Onglets visibles pour ce compte — un onglet décoché disparaît de son bandeau (effet à son prochain chargement d'ADA). Accueil reste toujours accessible.</p>
-                        <div className="flex flex-wrap gap-2">
+                        <p className="text-xs text-slate-500">Accès de ce compte — un droit décoché retire la page (ou les onglets qu'il gouverne) de son ADA, effet à son prochain chargement. Accueil reste toujours accessible. Le Workflow regroupe cinq onglets sous deux droits.</p>
+                        <div className="grid sm:grid-cols-2 gap-2">
                           {APP_TABS.map((t) => {
                             const on = (a.allowed_tabs ?? all).includes(t.key);
                             return (
                               <button
                                 key={t.key}
                                 onClick={() => toggleTab(a, t.key)}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                                title={t.hint}
+                                className={`flex items-start gap-2 px-3 py-2 rounded-lg text-left border transition-colors ${
                                   on
-                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
-                                    : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100 line-through'
+                                    ? 'bg-emerald-50 border-emerald-300 hover:bg-emerald-100'
+                                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
                                 }`}
                               >
-                                {on && <CheckCircle2 className="w-3.5 h-3.5" />}
-                                {t.label}
+                                <CheckCircle2 className={`w-4 h-4 mt-0.5 shrink-0 ${on ? 'text-emerald-600' : 'text-slate-300'}`} />
+                                <span className="min-w-0">
+                                  <span className={`block text-xs font-medium ${on ? 'text-emerald-800' : 'text-slate-400 line-through'}`}>{t.label}</span>
+                                  <span className={`block text-[11px] leading-snug ${on ? 'text-emerald-700/80' : 'text-slate-400'}`}>{t.hint}</span>
+                                </span>
                               </button>
                             );
                           })}

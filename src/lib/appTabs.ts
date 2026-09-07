@@ -11,15 +11,20 @@
  */
 
 export const APP_TABS = [
-  { key: 'workflow', label: 'Workflow' },
-  { key: 'ventes', label: 'Ventes' },
-  { key: 'atelier', label: 'Atelier' },
-  { key: 'historique', label: 'Historique' },
-  { key: 'market', label: 'Market Intelligence' },
-  { key: 'veille', label: 'Veille' },
+  // Depuis le 05/09 le bandeau n'a plus qu'une entrée « Workflow » : ses
+  // cinq onglets internes sont gouvernés par DEUX droits (clés inchangées,
+  // les listes déjà enregistrées gardent leur sens) :
+  //   workflow → Études quotidiennes, Résultats, Archives
+  //   ventes   → Négociations (Open space compris), Ventes (+ historique)
+  { key: 'workflow', label: 'Workflow · Études', hint: 'Onglets Études quotidiennes, Résultats et Archives' },
+  { key: 'ventes', label: 'Workflow · Négociations & Ventes', hint: 'Onglets Négociations (avec l’Open space) et Ventes, historique des ventes compris' },
+  { key: 'atelier', label: 'Atelier', hint: 'Campagnes, ingestion et générateur de liens' },
+  { key: 'historique', label: 'Historique', hint: 'Historique des ingestions' },
+  { key: 'market', label: 'Market Intelligence', hint: 'Études de marché multi-pays' },
+  { key: 'veille', label: 'Veille', hint: 'Veille légale et fiscale' },
   // Pas un onglet : le PANNEAU « Opportunités à contrôler » (Accueil + MI)
   // — même mécanisme de droits, le composant s'auto-masque (demande 30/08).
-  { key: 'opportunites', label: 'Opportunités à contrôler' },
+  { key: 'opportunites', label: 'Opportunités à contrôler', hint: 'Panneau de l’Accueil et du Market Intelligence, pas une page' },
 ] as const;
 
 export type AppTabKey = (typeof APP_TABS)[number]['key'];
