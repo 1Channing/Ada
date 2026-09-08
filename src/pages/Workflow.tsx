@@ -1029,7 +1029,7 @@ function ArchivedHitsSection({ archived, searches, defaultOpen = false }: { arch
                       ? 'bg-rose-50 text-rose-700 border-rose-200'
                       : 'bg-slate-100 text-slate-600 border-slate-200'
                 }`}>
-                  {h.resolution === 'trop_chere' ? 'trop chère' : h.resolution === 'plus_disponible' ? 'plus disponible' : 'hors critères'}
+                  {h.resolution === 'trop_chere' ? 'trop chère' : h.resolution === 'plus_disponible' ? 'plus disponible' : h.resolution === 'pas_de_deal' ? 'pas de deal' : 'hors critères'}
                 </span>
               </div>
             ))}

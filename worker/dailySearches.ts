@@ -643,7 +643,8 @@ async function runDailySearch(s: SearchRow): Promise<void> {
         // Baisse réelle : elle re-rentre dans la boîte, même si déjà triée —
         // SAUF « hors critères » (définitif, règle 28/07) et SAUF un véhicule
         // en négociation (règle 29/07 : validé = plus jamais dans le feed).
-        const canReturn = prior.resolution !== 'hors_criteres' && prior.status !== 'saved';
+        // « pas de deal » (négociation supprimée en archivant, 07/09) : définitif aussi.
+        const canReturn = prior.resolution !== 'hors_criteres' && prior.resolution !== 'pas_de_deal' && prior.status !== 'saved';
         const status = inRange && canReturn ? 'inbox' : prior.status;
         await supabase.from('daily_search_hits').update({
           kind: 'price_drop', previous_price: prior.price, price,

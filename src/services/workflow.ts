@@ -489,8 +489,25 @@ export async function saveNegotiationPhotos(id: string, photos: string[]): Promi
   return data === true ? null : "Cette négociation n'est plus dans l'Open space — photos non modifiables.";
 }
 
-export async function deleteNegotiation(id: string): Promise<void> {
+/**
+ * Supprimer une négociation — avec le SORT de l'annonce dans les résultats
+ * (GO Channing 07/09). Avant : la ligne partait, l'annonce restait gelée en
+ * « En négociation » pour toujours (jamais re-présentée, même sur une baisse).
+ *   - 'flux'    : pas de deal aujourd'hui mais le véhicule reste intéressant —
+ *                 l'annonce redevient triable et une BAISSE réelle la ramène ;
+ *   - 'archive' : pas de deal, on ne veut plus la voir — archivée « pas de
+ *                 deal », définitif (le worker ne la ramène jamais).
+ * Sans annonce liée (négociation créée par URL), seule la ligne part.
+ */
+export async function deleteNegotiation(id: string, disposition: 'flux' | 'archive' = 'archive'): Promise<void> {
+  const { data: n } = await supabase.from('negotiations').select('listing_url').eq('id', id).maybeSingle();
   await supabase.from('negotiations').delete().eq('id', id);
+  const url = (n?.listing_url ?? '').trim();
+  if (!url) return;
+  const patch = disposition === 'flux'
+    ? { status: 'dismissed', resolution: null }
+    : { status: 'dismissed', resolution: 'pas_de_deal' };
+  await supabase.from('daily_search_hits').update(patch).eq('user_id', uid()).eq('listing_url', url).eq('status', 'saved');
 }
 
 /** Pipeline : la négo devient une vente (transaction admin pré-remplie). */

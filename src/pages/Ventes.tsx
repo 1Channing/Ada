@@ -213,6 +213,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
 }
 
 function NegoRow({ n, conflicts, sharedItemId, onChanged, onPushed }: { n: Negotiation; conflicts: NegoConflict[]; sharedItemId: string | null; onChanged: () => void; onPushed: () => void }) {
+  const [askDelete, setAskDelete] = useState(false);
   const [menu, setMenu] = useState(false);
   const [notes, setNotes] = useState(n.notes);
   const [showNotes, setShowNotes] = useState(false);
@@ -381,14 +382,30 @@ function NegoRow({ n, conflicts, sharedItemId, onChanged, onPushed }: { n: Negot
                 const p = prompt('Prix d’achat négocié (€) :', String(n.negotiated_price ?? n.asking_price ?? ''));
                 if (p != null && p.trim() !== '') { await updateNegotiation(n.id, { negotiated_price: Number(p) || null }); onChanged(); }
               }}>Modifier le prix négocié</MenuBtn>
-              <MenuBtn danger onClick={async () => {
-                setMenu(false);
-                if (confirm(`Supprimer la négociation « ${n.title} » ?`)) { await deleteNegotiation(n.id); onChanged(); }
-              }}>Supprimer</MenuBtn>
+              <MenuBtn danger onClick={() => { setMenu(false); setAskDelete(true); }}>Supprimer</MenuBtn>
             </div>
           )}
         </div>
       </div>
+      {askDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 grid place-items-center p-4" onClick={() => setAskDelete(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-slate-900">Supprimer « {n.title} »</h3>
+            <p className="text-sm text-slate-600">Pas de deal. Que devient l'annonce dans les résultats de tes études ?</p>
+            <button onClick={async () => { setAskDelete(false); await deleteNegotiation(n.id, 'flux'); onChanged(); }}
+              className="w-full text-left rounded-xl border border-slate-200 hover:border-brand-ocean hover:bg-blue-50/40 px-4 py-3 transition-colors">
+              <span className="block text-sm font-medium text-slate-900">Remettre dans le flux</span>
+              <span className="block text-xs text-slate-500">Le véhicule reste intéressant : une vraie baisse de prix le ramènera dans la boîte.</span>
+            </button>
+            <button onClick={async () => { setAskDelete(false); await deleteNegotiation(n.id, 'archive'); onChanged(); }}
+              className="w-full text-left rounded-xl border border-slate-200 hover:border-rose-400 hover:bg-rose-50/40 px-4 py-3 transition-colors">
+              <span className="block text-sm font-medium text-slate-900">Archiver définitivement</span>
+              <span className="block text-xs text-slate-500">« Pas de deal » : ne sera plus jamais re-présentée, même en baisse.</span>
+            </button>
+            <button onClick={() => setAskDelete(false)} className="w-full text-sm text-slate-500 hover:text-slate-700 py-1">Annuler</button>
+          </div>
+        </div>
+      )}
       {showPhotos && (
         <NegotiationPhotosModal nego={n} onClose={() => setShowPhotos(false)} onChanged={onChanged} />
       )}
