@@ -272,6 +272,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   affiché par « Liens » sans fregfrom ni fuel (registre testé sain sur cette
   URL ; aucun dossier url_incomplete côté worker) — re-vérifier après
   rechargement, sinon lire la ligne mémoire AS24 FR TOYOTA RAV4.
+- **CAS DORÉS ET DÉCISIONS DE GRAMMAIRE** (constat Channing 08/09 : six
+  « Hybride rechargeable » AutoScout en échec) : un cas « auto » figé un jour
+  devient un fossile quand le registre change PAR DÉCISION. Liste
+  `RETIRED_GOLDEN` dans worker/truthLoop : site × libellé × raison → le cas
+  est retiré à la vague suivante, son dossier golden_fail refermé avec la
+  raison, et le premier passage ne le re-fige jamais. Les cas figés par un
+  humain (Bibliothèque) ne sont jamais retirés automatiquement. RÈGLE : toute
+  décision qui retire une capacité d'URL à un site s'inscrit dans cette liste.
 - **DROITS PAR ONGLET DU WORKFLOW** (demande 07/09) : cinq droits
   `wf:etudes/resultats/archives/negociations/ventes` ; les clés historiques
   `workflow`/`ventes` sont comprises (normalizeTabs) et converties au premier

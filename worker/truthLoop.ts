@@ -192,6 +192,45 @@ const GOLDEN_VALUES: Array<{ criterion: string; label: string; extra: Record<str
   ...['suv', 'berline', 'break', 'citadine', 'monospace', 'coupe', 'cabriolet', 'societe'].map((v) => ({ criterion: 'carrosserie', label: `Carrosserie ${v}`, extra: { vehicleType: v } })),
 ];
 
+/**
+ * DÉCISIONS DE GRAMMAIRE : un cas doré « auto » fige l'état prouvé d'un jour.
+ * Quand le registre CHANGE PAR DÉCISION (pas par accident), le cas n'est plus
+ * une preuve mais un fossile : il est RETIRÉ ici, avec la raison, et son
+ * dossier « golden_fail » refermé. Les cas figés par un humain (Bibliothèque)
+ * ne sont jamais retirés automatiquement.
+ * Constat Channing 08/09 : six cas « Hybride rechargeable » AutoScout24 en
+ * échec — le 07/09 le mot-clé « plug-in » a été retiré (dépendant de la
+ * langue : NL 9, FR 0), la rechargeable se prouve dans le TEXTE des annonces
+ * (post-filtre des études) ; l'URL ne bouge plus, par choix.
+ */
+const RETIRED_GOLDEN: Array<{ site: RegExp; label: RegExp; reason: string }> = [
+  { site: /^AUTOSCOUT_/, label: /^Hybride rechargeable$/, reason: 'décision 07/09 : AutoScout24 ne sait pas isoler la rechargeable dans son URL (fuel=2 = toute la famille, mot-clé « plug-in » dépendant de la langue) — la rechargeable se prouve dans le texte des annonces, en post-filtre.' },
+];
+
+async function retireObsoleteGolden(cases: Array<{ id: string; site: string; params: Record<string, unknown>; criterion: string; label: string; source?: string }>): Promise<Set<string>> {
+  const retired = new Set<string>();
+  for (const c of cases) {
+    if (c.source && c.source !== 'auto') continue;
+    const rule = RETIRED_GOLDEN.find((r) => r.site.test(c.site) && r.label.test(c.label));
+    if (!rule) continue;
+    const { error } = await sb.from('truth_golden').delete().eq('id', c.id);
+    if (error) { console.warn('[TRUTH_GOLDEN] retrait :', error.message); continue; }
+    retired.add(c.id);
+    // Dossier « golden_fail » du même site/marque : refermé avec la décision.
+    const brand = String((c.params as { brand?: string }).brand ?? '');
+    const { data: ds } = await sb.from('truth_dossiers').select('id,details').eq('site', c.site).eq('brand', brand).eq('signal', 'golden_fail').is('resolved_at', null);
+    for (const d of (ds ?? []) as Array<{ id: string; details: Record<string, unknown> | null }>) {
+      if (String(d.details?.golden_id ?? '') !== c.id && String(d.details?.criterion ?? '') !== c.criterion) continue;
+      await sb.from('truth_dossiers').update({
+        status: 'verified', resolved_at: new Date().toISOString(),
+        details: { ...(d.details ?? {}), diagnosis: `Cas doré retiré — ${rule.reason}`, diagnosed_by: ENGINE, diagnosed_at: new Date().toISOString() },
+      }).eq('id', d.id);
+    }
+    console.warn(`[TRUTH_GOLDEN] cas retiré : ${c.site} · ${c.label} — ${rule.reason}`);
+  }
+  return retired;
+}
+
 /** Évalue un cas : l'URL générée doit CHANGER quand la valeur est posée (et
  *  différer de la famille pour un sous-type) — même preuve que la Bibliothèque. */
 async function evaluateGolden(site: string, params: Record<string, unknown>, criterion: string): Promise<{ pass: boolean; url: string | null; detail: string }> {
@@ -207,8 +246,10 @@ async function evaluateGolden(site: string, params: Record<string, unknown>, cri
 }
 
 export async function runGolden(reason: string): Promise<{ total: number; failed: number }> {
-  const { data: existing } = await sb.from('truth_golden').select('id,site,params,criterion,label');
-  const cases = (existing ?? []) as Array<{ id: string; site: string; params: Record<string, unknown>; criterion: string; label: string }>;
+  const { data: existing } = await sb.from('truth_golden').select('id,site,params,criterion,label,source');
+  const all = (existing ?? []) as Array<{ id: string; site: string; params: Record<string, unknown>; criterion: string; label: string; source?: string }>;
+  const retired = await retireObsoleteGolden(all);
+  const cases = all.filter((c) => !retired.has(c.id));
   // Premier passage : figer l'état PROUVÉ d'aujourd'hui (marque seule, une
   // marque connue de la mémoire du site sinon Toyota).
   if (cases.length === 0) {
@@ -218,6 +259,7 @@ export async function runGolden(reason: string): Promise<{ total: number; failed
       const { data: mem } = await sb.from('linkgen_mapping_memory').select('brand').eq('site', site).eq('validation_status', 'valid').order('updated_at', { ascending: false }).limit(1);
       const brand = String((mem?.[0] as { brand?: string } | undefined)?.brand ?? 'TOYOTA');
       for (const v of GOLDEN_VALUES) {
+        if (RETIRED_GOLDEN.some((r) => r.site.test(site) && r.label.test(v.label))) continue; // décision : jamais re-figé
         const params = { brand, model: '', extra: v.extra, ...(v.distinctFrom ? { distinctFrom: v.distinctFrom } : {}) };
         const r = await evaluateGolden(site, params, v.criterion);
         if (r.pass) seeds.push({ site, label: v.label, params, criterion: v.criterion, source: 'auto', created_by: ENGINE, last_run_at: new Date().toISOString(), last_status: 'pass', last_url: r.url, last_detail: 'figé au premier passage' });
