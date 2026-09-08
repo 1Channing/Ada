@@ -769,17 +769,33 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
 }
 
 // ── Utilitaires ─────────────────────────────────────────────────────────────
-/** La carte reste toujours visible : le centre de l'Europe ne peut pas sortir
- *  du cadre, et une valeur non finie (division par zéro au zoom extrême)
- *  ramène à la vue initiale — constat Channing 07/09 : « si on bouge trop la
- *  carte et qu'on sort, on finit sur une page blanche ». */
+/** Emprise projetée de la géométrie (boîte de découpe de l'extraction :
+ *  -32…62° E, 27…75° N), échantillonnée sur son contour. */
+const MAP_BBOX = (() => {
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  const take = (lat: number, lng: number) => { const [x, y] = project(lat, lng); x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); };
+  for (let lng = -32; lng <= 62; lng += 2) { take(27, lng); take(75, lng); }
+  for (let lat = 27; lat <= 75; lat += 2) { take(lat, -32); take(lat, 62); }
+  return { x1, y1, x2, y2 };
+})();
+
+/** La carte reste toujours visible : l'ÉCRAN doit garder au moins une bande
+ *  de 120 unités de carte — n'importe où sur la carte, pas un point fixe
+ *  (première version : le cœur de l'Allemagne devait rester à l'écran, et
+ *  zoomer sur les Pays-Bas repoussait la vue vers l'Allemagne « comme au
+ *  bord de quelque chose », constat Channing 08/09). Valeur non finie
+ *  (zoom extrême) → vue initiale. */
 function clampView(v: View): View {
   if (![v.k, v.tx, v.ty].every(Number.isFinite)) return fitView();
-  const [cx, cy] = project(50, 10); // cœur du réseau (Belgique/Allemagne)
-  const sx = cx * v.k + v.tx, sy = cy * v.k + v.ty; // position écran de ce point
-  const m = 60; // marge : le cœur reste à au moins 60 unités du bord
-  const tx = sx < m ? v.tx + (m - sx) : sx > W - m ? v.tx - (sx - (W - m)) : v.tx;
-  const ty = sy < m ? v.ty + (m - sy) : sy > H - m ? v.ty - (sy - (H - m)) : v.ty;
+  const m = 120;
+  // Bords de la carte à l'écran.
+  const left = MAP_BBOX.x1 * v.k + v.tx, right = MAP_BBOX.x2 * v.k + v.tx;
+  const top = MAP_BBOX.y1 * v.k + v.ty, bottom = MAP_BBOX.y2 * v.k + v.ty;
+  let { tx, ty } = v;
+  if (right < m) tx += m - right;          // la carte est partie trop à gauche
+  else if (left > W - m) tx -= left - (W - m); // trop à droite
+  if (bottom < m) ty += m - bottom;        // trop haut
+  else if (top > H - m) ty -= top - (H - m);   // trop bas
   return { k: v.k, tx, ty };
 }
 
