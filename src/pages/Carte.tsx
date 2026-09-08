@@ -13,7 +13,7 @@
  * Données : services/network (tables network_contacts / _models, temps réel).
  * Édition : droit « carte:edition » (Équipe) — la base refuse sans lui.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapPin, Plus, Search, Pencil, Trash2, Crosshair, ExternalLink, Phone, Mail, X,
   ZoomIn, ZoomOut, Maximize2, Move, Loader2, Check, Car,
@@ -118,9 +118,37 @@ export function Carte() {
 
   // ── Vue (pan/zoom) ──
   const svgRef = useRef<SVGSVGElement>(null);
+  // `view` = vue VALIDÉE (React : regroupement des épingles, libellés). Pendant
+  // un geste, la transformation est appliquée DIRECTEMENT au DOM (viewRef +
+  // applyLive) sans re-rendre les 61 tracés — constat 07/09 : « la carte lag
+  // énormément » sur un PC modeste, chaque mouvement de souris re-rendait la
+  // géométrie entière avec son ombre portée.
   const [view, setView] = useState<View>(() => fitView());
   const viewRef = useRef(view);
-  viewRef.current = view;
+  const mapGRef = useRef<SVGGElement>(null);
+  const pinsGRef = useRef<SVGGElement>(null);
+  const rafRef = useRef<number | null>(null);
+  const commitTimer = useRef<number | null>(null);
+  const applyLive = (v: View) => {
+    viewRef.current = v;
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const { k, tx, ty } = viewRef.current;
+      mapGRef.current?.setAttribute('transform', `translate(${tx} ${ty}) scale(${k})`);
+      const pins = pinsGRef.current?.children;
+      if (pins) for (const el of pins) {
+        const x = Number((el as SVGGElement).dataset.x), y = Number((el as SVGGElement).dataset.y);
+        (el as SVGGElement).setAttribute('transform', `translate(${x * k + tx} ${y * k + ty})`);
+      }
+    });
+  };
+  const commitView = () => { setView(viewRef.current); };
+  const commitSoon = () => {
+    if (commitTimer.current != null) window.clearTimeout(commitTimer.current);
+    commitTimer.current = window.setTimeout(commitView, 140);
+  };
+  useEffect(() => { viewRef.current = view; applyLive(view); }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
   const pinch = useRef<{ d: number; k: number; cx: number; cy: number } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -133,17 +161,17 @@ export function Carte() {
     const ox = (r.width - W * s) / 2, oy = (r.height - H * s) / 2;
     return [(clientX - r.left - ox) / s, (clientY - r.top - oy) / s];
   };
-  const zoomAt = (factor: number, px: number, py: number) => {
-    setView((v) => {
-      const k = Math.min(40, Math.max(0.8, v.k * factor));
-      const f = k / v.k;
-      return clampView({ k, tx: px - (px - v.tx) * f, ty: py - (py - v.ty) * f });
-    });
+  const zoomAt = (factor: number, px: number, py: number, live = false) => {
+    const v = viewRef.current;
+    const k = Math.min(40, Math.max(0.8, v.k * factor));
+    const f = k / v.k;
+    const next = clampView({ k, tx: px - (px - v.tx) * f, ty: py - (py - v.ty) * f });
+    if (live) { applyLive(next); commitSoon(); } else { viewRef.current = next; setView(next); }
   };
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const [px, py] = svgPoint(e.clientX, e.clientY);
-    zoomAt(Math.exp(-e.deltaY * 0.0015), px, py);
+    zoomAt(Math.exp(-e.deltaY * 0.0015), px, py, true);
   };
   const onPointerDown = (e: React.PointerEvent) => {
     svgRef.current?.setPointerCapture?.(e.pointerId);
@@ -167,7 +195,8 @@ export function Carte() {
       const d = Math.hypot(bx - ax, by - ay);
       const k = Math.min(40, Math.max(0.8, pinch.current.k * (d / pinch.current.d)));
       const p = pinch.current;
-      setView((v) => { const f = k / v.k; return clampView({ k, tx: p.cx - (p.cx - v.tx) * f, ty: p.cy - (p.cy - v.ty) * f }); });
+      const v = viewRef.current; const f = k / v.k;
+      applyLive(clampView({ k, tx: p.cx - (p.cx - v.tx) * f, ty: p.cy - (p.cy - v.ty) * f }));
       return;
     }
     if (!drag.current) return;
@@ -178,14 +207,14 @@ export function Carte() {
     // Valeurs capturées MAINTENANT : la mise à jour React s'exécute plus tard,
     // et si le pointeur est sorti du cadre entre-temps, drag.current est déjà
     // null (plantage « reading 'tx' », 07/09).
-    const tx = d.tx + dx, ty = d.ty + dy;
-    setView((v) => clampView({ ...v, tx, ty }));
+    applyLive(clampView({ ...viewRef.current, tx: d.tx + dx, ty: d.ty + dy }));
   };
   const onPointerUp = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
     const wasClick = drag.current && !drag.current.moved;
     drag.current = null;
+    commitView(); // fin de geste : React reprend la main (regroupement, libellés)
     if (wasClick && placing) {
       const [px, py] = svgPoint(e.clientX, e.clientY);
       const v = viewRef.current;
@@ -195,8 +224,18 @@ export function Carte() {
   };
   const centerOn = (lat: number, lng: number, k?: number) => {
     const [x, y] = project(lat, lng);
-    setView((v) => { const kk = k ?? Math.max(v.k, 4); return clampView({ k: kk, tx: W / 2 - x * kk, ty: H / 2 - y * kk }); });
+    const kk = k ?? Math.max(viewRef.current.k, 4);
+    const next = clampView({ k: kk, tx: W / 2 - x * kk, ty: H / 2 - y * kk });
+    viewRef.current = next; setView(next);
   };
+
+  const placingRef = useRef(placing); placingRef.current = placing;
+  // Survol : pas de re-rendu pendant un glissement (la carte défile sous le curseur).
+  const hoverCountryLive = useCallback((name: string | null) => { if (!drag.current) setHoverCountry(name); }, []);
+  const pickCountry = useCallback((iso: string | null) => {
+    if (drag.current?.moved || placingRef.current || !iso) return;
+    setCountryFilter((f) => (f === iso ? null : iso));
+  }, []);
 
   // ── Placement (clic sur la carte) ──
   const placeAt = async (lat: number, lng: number) => {
@@ -316,33 +355,13 @@ export function Carte() {
             <filter id="pinShadow" x="-50%" y="-50%" width="200%" height="200%">
               <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" floodColor="#0f172a" floodOpacity="0.35" />
             </filter>
-            <filter id="landShadow" x="-5%" y="-5%" width="110%" height="110%">
-              <feDropShadow dx="0" dy="1.5" stdDeviation="2" floodColor="#1e3a5f" floodOpacity="0.18" />
-            </filter>
           </defs>
           <rect x="0" y="0" width={W} height={H} fill="url(#sea)" />
-          <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`} style={{ willChange: 'transform' }}>
-            <g filter={view.k < 6 ? 'url(#landShadow)' : undefined}>
-              {countryPaths.map((c) => {
-                const iso = isoOf(c.name);
-                const active = countryFilter && iso === countryFilter;
-                const hovered = hoverCountry === c.name;
-                return (
-                  <path
-                    key={c.id || c.name}
-                    d={c.d}
-                    fill={active ? '#bcd3ec' : hovered ? (c.network ? '#cfe0f3' : '#e3e8ee') : c.network ? '#dde9f6' : '#eceff3'}
-                    stroke="#ffffff"
-                    strokeWidth={0.9 / Math.sqrt(view.k)}
-                    strokeLinejoin="round"
-                    onMouseEnter={() => setHoverCountry(c.name)}
-                    onMouseLeave={() => setHoverCountry((h) => (h === c.name ? null : h))}
-                    onClick={(e) => { if (drag.current?.moved || placing) return; e.stopPropagation(); if (iso) setCountryFilter((f) => (f === iso ? null : iso)); }}
-                    style={{ transition: 'fill 120ms' }}
-                  />
-                );
-              })}
-            </g>
+          {/* Transformations écrites depuis viewRef (vue LIVE) : un re-rendu React
+              en plein geste (survol d'un pays sous le curseur) ne ramène pas la
+              carte à la dernière vue validée. */}
+          <g ref={mapGRef} transform={`translate(${viewRef.current.tx} ${viewRef.current.ty}) scale(${viewRef.current.k})`} style={{ willChange: 'transform' }}>
+            <LandLayer paths={countryPaths} activeIso={countryFilter} onHover={hoverCountryLive} onPick={pickCountry} />
             {/* Noms des pays du réseau */}
             {view.k >= 1.6 && NETWORK_COUNTRIES.map((iso) => {
               const [la, ln] = COUNTRY_CENTROIDS[iso];
@@ -353,16 +372,21 @@ export function Carte() {
                 </text>
               );
             })}
-            {/* Épingles */}
+          </g>
+          {/* Épingles : couche ÉCRAN (hors du groupe transformé) — taille
+              constante sans mise à l'échelle, déplacées directement par
+              applyLive pendant un geste. */}
+          <g ref={pinsGRef}>
             {clusters.map((cl, i) => {
               const single = cl.items.length === 1 ? cl.items[0] : null;
               const isSel = single ? single.c.id === selectedId : cl.items.some((p) => p.c.id === selectedId);
-              const s = 1 / view.k;
+              const lv = viewRef.current;
+              const sx = cl.x * lv.k + lv.tx, sy = cl.y * lv.k + lv.ty;
               if (!single) {
                 const roles = new Set(cl.items.map((p) => p.c.role));
                 const color = roles.size === 1 ? ROLE_COLOR[[...roles][0]] : '#475569';
                 return (
-                  <g key={`cl${i}`} transform={`translate(${cl.x} ${cl.y}) scale(${s})`} className="cursor-pointer" filter="url(#pinShadow)"
+                  <g key={`cl${i}`} data-x={cl.x} data-y={cl.y} transform={`translate(${sx} ${sy})`} className="cursor-pointer" filter="url(#pinShadow)"
                     onClick={(e) => { e.stopPropagation(); if (drag.current?.moved) return; centerOn(...unproject(cl.x, cl.y), Math.min(40, view.k * 2.2)); }}>
                     <circle r={isSel ? 16 : 14} fill={color} stroke="#fff" strokeWidth={2.5} />
                     <text y={4.5} textAnchor="middle" fontSize={12} fontWeight={700} fill="#fff" style={{ pointerEvents: 'none' }}>{cl.items.length}</text>
@@ -373,7 +397,7 @@ export function Carte() {
               const color = ROLE_COLOR[c.role];
               const rel = RELATION_COLOR[c.relation];
               return (
-                <g key={c.id} transform={`translate(${single.x} ${single.y}) scale(${s})`} className="cursor-pointer"
+                <g key={c.id} data-x={single.x} data-y={single.y} transform={`translate(${sx} ${sy})`} className="cursor-pointer"
                   onClick={(e) => { e.stopPropagation(); if (drag.current?.moved || placing) return; selectContact(c); }}>
                   {c.relation === 'chaud' && <circle r={isSel ? 20 : 16} fill={rel} opacity={0.18}><animate attributeName="r" values={`${isSel ? 16 : 12};${isSel ? 24 : 20};${isSel ? 16 : 12}`} dur="2.2s" repeatCount="indefinite" /></circle>}
                   {rel && <circle r={isSel ? 12.5 : 10.5} fill="none" stroke={rel} strokeWidth={2} opacity={0.9} />}
@@ -407,7 +431,7 @@ export function Carte() {
           {[
             { icon: ZoomIn, fn: () => zoomAt(1.6, W / 2, H / 2), t: 'Zoom avant' },
             { icon: ZoomOut, fn: () => zoomAt(1 / 1.6, W / 2, H / 2), t: 'Zoom arrière' },
-            { icon: Maximize2, fn: () => setView(fitView()), t: 'Toute l’Europe' },
+            { icon: Maximize2, fn: () => { const v = fitView(); viewRef.current = v; setView(v); }, t: 'Toute l’Europe' },
           ].map(({ icon: I, fn, t }) => (
             <button key={t} title={t} onClick={fn} className="w-9 h-9 grid place-items-center bg-white/90 backdrop-blur rounded-lg shadow-sm border border-slate-200 text-slate-600 hover:text-brand-ocean hover:bg-white transition-colors"><I className="w-4 h-4" /></button>
           ))}
@@ -497,6 +521,33 @@ export function Carte() {
     </div>
   );
 }
+
+// ── Couche des pays : FIGÉE (React.memo) — ne se re-rend qu'au changement du
+// pays filtré ; survol en CSS, épaisseur de trait en pixels écran quel que
+// soit le zoom (vector-effect), plus d'ombre portée GPU sur 250 Ko de tracés.
+const LandLayer = memo(function LandLayer({ paths, activeIso, onHover, onPick }: {
+  paths: Array<{ id: string; name: string; d: string; network: boolean }>;
+  activeIso: string | null;
+  onHover: (name: string | null) => void;
+  onPick: (iso: string | null) => void;
+}) {
+  return (
+    <g
+      onMouseOver={(e) => onHover((e.target as SVGElement).getAttribute('data-name'))}
+      onMouseLeave={() => onHover(null)}
+      onClick={(e) => { const iso = (e.target as SVGElement).getAttribute('data-iso'); if (iso !== null) { e.stopPropagation(); onPick(iso || null); } }}
+    >
+      <style>{`.ada-land{transition:fill 120ms;stroke:#fff;stroke-width:0.8px;stroke-linejoin:round;vector-effect:non-scaling-stroke}.ada-land.net{fill:#dde9f6}.ada-land.net:hover{fill:#cfe0f3}.ada-land.oth{fill:#eceff3}.ada-land.oth:hover{fill:#e3e8ee}.ada-land.active{fill:#bcd3ec!important}`}</style>
+      {paths.map((c) => {
+        const iso = isoOf(c.name);
+        return (
+          <path key={c.id || c.name} d={c.d} data-name={c.name} data-iso={iso ?? ''}
+            className={`ada-land ${c.network ? 'net' : 'oth'}${activeIso && iso === activeIso ? ' active' : ''}`} />
+        );
+      })}
+    </g>
+  );
+});
 
 // ── Détail ──────────────────────────────────────────────────────────────────
 function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand }: {
