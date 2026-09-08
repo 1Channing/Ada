@@ -152,6 +152,7 @@ export function Carte() {
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
   const pinch = useRef<{ d: number; k: number; cx: number; cy: number } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const downTarget = useRef<Element | null>(null);
 
   const svgPoint = (clientX: number, clientY: number): [number, number] => {
     const svg = svgRef.current!;
@@ -168,11 +169,26 @@ export function Carte() {
     const next = clampView({ k, tx: px - (px - v.tx) * f, ty: py - (py - v.ty) * f });
     if (live) { applyLive(next); commitSoon(); } else { viewRef.current = next; setView(next); }
   };
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const [px, py] = svgPoint(e.clientX, e.clientY);
-    zoomAt(Math.exp(-e.deltaY * 0.0015), px, py, true);
-  };
+  // Molette et TRACKPAD (demande Antoine 07/09 : « dézoomer avec le pad
+  // directement ») : écouteur natif non passif — React enregistre `wheel` en
+  // passif, donc preventDefault n'agissait pas : le pincement zoomait la
+  // PAGE et le défilement à deux doigts faisait défiler la page. Le pincement
+  // arrive en wheel + ctrlKey avec de petits deltas : facteur renforcé.
+  const zoomAtRef = useRef(zoomAt); zoomAtRef.current = zoomAt;
+  const svgPointRef = useRef(svgPoint); svgPointRef.current = svgPoint;
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const [px, py] = svgPointRef.current(e.clientX, e.clientY);
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+      const gain = e.ctrlKey || e.metaKey ? 0.012 : 0.0015;
+      zoomAtRef.current(Math.exp(-e.deltaY * unit * gain), px, py, true);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
   const onPointerDown = (e: React.PointerEvent) => {
     svgRef.current?.setPointerCapture?.(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -185,6 +201,7 @@ export function Carte() {
     }
     const [px, py] = svgPoint(e.clientX, e.clientY);
     drag.current = { x: px, y: py, tx: viewRef.current.tx, ty: viewRef.current.ty, moved: false };
+    downTarget.current = e.target as Element;
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!pointers.current.has(e.pointerId)) return;
@@ -215,12 +232,27 @@ export function Carte() {
     const wasClick = drag.current && !drag.current.moved;
     drag.current = null;
     commitView(); // fin de geste : React reprend la main (regroupement, libellés)
-    if (wasClick && placing) {
+    if (!wasClick) return;
+    if (placing) {
       const [px, py] = svgPoint(e.clientX, e.clientY);
       const v = viewRef.current;
       const [lat, lng] = unproject((px - v.tx) / v.k, (py - v.ty) / v.k);
       void placeAt(lat, lng);
+      return;
     }
+    const t = downTarget.current;
+    downTarget.current = null;
+    if (!t) return;
+    const pin = t.closest('[data-pin]');
+    if (pin) { const c = contacts.find((x) => x.id === pin.getAttribute('data-pin')); if (c) selectContact(c); return; }
+    const cl = t.closest('[data-cluster]');
+    if (cl) {
+      const x = Number(cl.getAttribute('data-x')), y = Number(cl.getAttribute('data-y'));
+      centerOn(...unproject(x, y), Math.min(40, viewRef.current.k * 2.2));
+      return;
+    }
+    const land = t.closest('[data-iso]');
+    if (land) pickCountry(land.getAttribute('data-iso') || null);
   };
   const centerOn = (lat: number, lng: number, k?: number) => {
     const [x, y] = project(lat, lng);
@@ -233,7 +265,7 @@ export function Carte() {
   // Survol : pas de re-rendu pendant un glissement (la carte défile sous le curseur).
   const hoverCountryLive = useCallback((name: string | null) => { if (!drag.current) setHoverCountry(name); }, []);
   const pickCountry = useCallback((iso: string | null) => {
-    if (drag.current?.moved || placingRef.current || !iso) return;
+    if (!iso) return;
     setCountryFilter((f) => (f === iso ? null : iso));
   }, []);
 
@@ -340,7 +372,6 @@ export function Carte() {
           ref={svgRef}
           viewBox={`0 0 ${W} ${H}`}
           className={`w-full h-full touch-none ${placing ? 'cursor-crosshair' : drag.current ? 'cursor-grabbing' : 'cursor-grab'}`}
-          onWheel={onWheel}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -361,7 +392,7 @@ export function Carte() {
               en plein geste (survol d'un pays sous le curseur) ne ramène pas la
               carte à la dernière vue validée. */}
           <g ref={mapGRef} transform={`translate(${viewRef.current.tx} ${viewRef.current.ty}) scale(${viewRef.current.k})`} style={{ willChange: 'transform' }}>
-            <LandLayer paths={countryPaths} activeIso={countryFilter} onHover={hoverCountryLive} onPick={pickCountry} />
+            <LandLayer paths={countryPaths} activeIso={countryFilter} onHover={hoverCountryLive} />
             {/* Noms des pays du réseau */}
             {view.k >= 1.6 && NETWORK_COUNTRIES.map((iso) => {
               const [la, ln] = COUNTRY_CENTROIDS[iso];
@@ -386,8 +417,7 @@ export function Carte() {
                 const roles = new Set(cl.items.map((p) => p.c.role));
                 const color = roles.size === 1 ? ROLE_COLOR[[...roles][0]] : '#475569';
                 return (
-                  <g key={`cl${i}`} data-x={cl.x} data-y={cl.y} transform={`translate(${sx} ${sy})`} className="cursor-pointer" filter="url(#pinShadow)"
-                    onClick={(e) => { e.stopPropagation(); if (drag.current?.moved) return; centerOn(...unproject(cl.x, cl.y), Math.min(40, view.k * 2.2)); }}>
+                  <g key={`cl${i}`} data-x={cl.x} data-y={cl.y} data-cluster={i} transform={`translate(${sx} ${sy})`} className="cursor-pointer" filter="url(#pinShadow)">
                     <circle r={isSel ? 16 : 14} fill={color} stroke="#fff" strokeWidth={2.5} />
                     <text y={4.5} textAnchor="middle" fontSize={12} fontWeight={700} fill="#fff" style={{ pointerEvents: 'none' }}>{cl.items.length}</text>
                   </g>
@@ -397,8 +427,7 @@ export function Carte() {
               const color = ROLE_COLOR[c.role];
               const rel = RELATION_COLOR[c.relation];
               return (
-                <g key={c.id} data-x={single.x} data-y={single.y} transform={`translate(${sx} ${sy})`} className="cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); if (drag.current?.moved || placing) return; selectContact(c); }}>
+                <g key={c.id} data-x={single.x} data-y={single.y} data-pin={c.id} transform={`translate(${sx} ${sy})`} className="cursor-pointer">
                   {c.relation === 'chaud' && <circle r={isSel ? 20 : 16} fill={rel} opacity={0.18}><animate attributeName="r" values={`${isSel ? 16 : 12};${isSel ? 24 : 20};${isSel ? 16 : 12}`} dur="2.2s" repeatCount="indefinite" /></circle>}
                   {rel && <circle r={isSel ? 12.5 : 10.5} fill="none" stroke={rel} strokeWidth={2} opacity={0.9} />}
                   <g filter="url(#pinShadow)">
@@ -525,17 +554,15 @@ export function Carte() {
 // ── Couche des pays : FIGÉE (React.memo) — ne se re-rend qu'au changement du
 // pays filtré ; survol en CSS, épaisseur de trait en pixels écran quel que
 // soit le zoom (vector-effect), plus d'ombre portée GPU sur 250 Ko de tracés.
-const LandLayer = memo(function LandLayer({ paths, activeIso, onHover, onPick }: {
+const LandLayer = memo(function LandLayer({ paths, activeIso, onHover }: {
   paths: Array<{ id: string; name: string; d: string; network: boolean }>;
   activeIso: string | null;
   onHover: (name: string | null) => void;
-  onPick: (iso: string | null) => void;
 }) {
   return (
     <g
       onMouseOver={(e) => onHover((e.target as SVGElement).getAttribute('data-name'))}
       onMouseLeave={() => onHover(null)}
-      onClick={(e) => { const iso = (e.target as SVGElement).getAttribute('data-iso'); if (iso !== null) { e.stopPropagation(); onPick(iso || null); } }}
     >
       <style>{`.ada-land{transition:fill 120ms;stroke:#fff;stroke-width:0.8px;stroke-linejoin:round;vector-effect:non-scaling-stroke}.ada-land.net{fill:#dde9f6}.ada-land.net:hover{fill:#cfe0f3}.ada-land.oth{fill:#eceff3}.ada-land.oth:hover{fill:#e3e8ee}.ada-land.active{fill:#bcd3ec!important}`}</style>
       {paths.map((c) => {
