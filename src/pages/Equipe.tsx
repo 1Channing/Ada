@@ -38,6 +38,25 @@ interface TeamSearch {
   id: string; user_id: string; label: string; brand: string; model: string;
   source_country: string; target_country: string; fuel: string;
   vehicle_type: string; active: boolean; last_run_at: string | null; created_at: string;
+  // Paramètres complets (migration 20260909130000) — absents tant que le SQL n'est pas collé.
+  year_min?: number | null; year_max?: number | null; mileage_max?: number | null;
+  trim?: string; trim_target?: string; gearbox?: string; power_min?: number | null;
+  price_gap_min?: number; price_gap_max?: number; run_hour?: number;
+}
+
+/** Ligne de critères lisible d'une étude (paramètres des autres comptes). */
+function searchCriteriaText(s: TeamSearch): string {
+  if (s.price_gap_min == null) return '';
+  const parts: string[] = [];
+  parts.push(s.year_min || s.year_max ? `années ${s.year_min ?? '…'}–${s.year_max ?? '…'}` : 'toutes années');
+  if (s.mileage_max != null) parts.push(`≤ ${s.mileage_max.toLocaleString('fr-FR')} km`);
+  if (s.trim) parts.push(`finition « ${s.trim} »${s.trim_target && s.trim_target !== s.trim ? ` (cible « ${s.trim_target} »)` : ''}`);
+  if (s.gearbox) parts.push(s.gearbox.toLowerCase());
+  if (s.power_min != null) parts.push(`≥ ${s.power_min} ch`);
+  if (s.vehicle_type) parts.push(s.vehicle_type);
+  parts.push(`écart ${(s.price_gap_min ?? 0).toLocaleString('fr-FR')}–${(s.price_gap_max ?? 0).toLocaleString('fr-FR')} €`);
+  if (s.run_hour != null) parts.push(`${s.run_hour} h`);
+  return parts.join(' · ');
 }
 
 /** Négociations de tous les comptes (RPC admin, migration 31/08). */
@@ -342,19 +361,22 @@ export function Equipe() {
                         <div className="pt-2 border-t border-slate-100 space-y-1.5">
                           <p className="text-xs font-semibold text-slate-700">Études quotidiennes ({mine.length})</p>
                           {mine.map((s) => (
-                            <div key={s.id} className="flex items-center gap-2 text-xs text-slate-600">
-                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.active ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                              <span className="font-medium text-slate-800 truncate">
-                                {s.label || `${s.brand} ${s.model}`.trim()}
-                              </span>
-                              <span className="text-slate-400 shrink-0">
-                                {s.source_country} → {s.target_country}{s.fuel ? ` · ${s.fuel}` : ''}
-                              </span>
-                              <span className="ml-auto text-slate-400 shrink-0">
-                                {s.active
-                                  ? (s.last_run_at ? `passée le ${new Date(s.last_run_at).toLocaleDateString('fr-FR')}` : 'jamais passée')
-                                  : 'en pause'}
-                              </span>
+                            <div key={s.id} className="text-xs text-slate-600">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.active ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                <span className="font-medium text-slate-800 truncate">
+                                  {s.label || `${s.brand} ${s.model}`.trim()}
+                                </span>
+                                <span className="text-slate-400 shrink-0">
+                                  {s.brand} {s.model} · {s.source_country} → {s.target_country}{s.fuel ? ` · ${s.fuel}` : ''}
+                                </span>
+                                <span className="ml-auto text-slate-400 shrink-0">
+                                  {s.active
+                                    ? (s.last_run_at ? `passée le ${new Date(s.last_run_at).toLocaleDateString('fr-FR')}` : 'jamais passée')
+                                    : 'en pause'}
+                                </span>
+                              </div>
+                              {searchCriteriaText(s) && <div className="pl-3.5 text-[11px] text-slate-500">{searchCriteriaText(s)}</div>}
                             </div>
                           ))}
                         </div>

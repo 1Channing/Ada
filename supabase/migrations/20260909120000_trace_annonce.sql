@@ -5,7 +5,7 @@
 -- première/dernière vue) et sous quels critères (années, km, écart voulu).
 -- Admin : toutes les études de l'équipe ; sinon les siennes seulement.
 -- Lecture seule, security definer (les annonces des autres sont sous RLS).
--- Additif, idempotent.
+-- Additif, idempotent. (« trim » est un mot réservé : colonne quotée.)
 -- ═══════════════════════════════════════════════════════════════════════════
 
 create or replace function public.trace_listing_url(p_url text)
@@ -16,7 +16,7 @@ returns table (
   owner_name text,
   brand text,
   model text,
-  trim text,
+  "trim" text,
   source_country text,
   target_country text,
   year_min integer,
