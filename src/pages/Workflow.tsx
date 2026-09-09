@@ -9,6 +9,7 @@ import {
   DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
   checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
+  traceListing, type ListingTrace,
 } from '../services/workflow';
 import { BODY_TYPES, bodyLabel } from '../lib/study-core/bodyTypes';
 import { humanListingUrl } from '../services/marketData';
@@ -714,6 +715,70 @@ function median6(prices: number[]): number | null {
   return cheap[Math.floor((cheap.length - 1) / 2)];
 }
 
+/** « Vérifier une annonce » (09/09) : pourquoi telle annonce est chez l'un et
+ *  pas chez l'autre — une URL → chaque étude dit si elle l'a vue, avec quel
+ *  statut et quel écart, ou pourquoi elle ne l'a jamais vue (critères). */
+function TraceListingBox() {
+  const [url, setUrl] = useState('');
+  const [rows, setRows] = useState<ListingTrace[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const run = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url.trim()) return;
+    setBusy(true); setErr(null);
+    const r = await traceListing(url);
+    setBusy(false);
+    if (r.error) { setErr(r.error); setRows(null); } else setRows(r.rows);
+  };
+  const STATUS: Record<string, string> = { inbox: 'à traiter', saved: 'en négociation', dismissed: 'écartée', cleared: 'vidée' };
+  const RES: Record<string, string> = { trop_chere: 'trop chère', hors_criteres: 'hors critères', plus_disponible: 'plus disponible', pas_de_deal: 'pas de deal' };
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 rounded-xl">
+        <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`} />
+        <span className="font-medium">Vérifier une annonce</span>
+        <span className="text-xs text-slate-400">— colle une URL : chaque étude dit si elle l'a vue, et pourquoi elle est ou non dans la boîte</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-3">
+          <form onSubmit={run} className="flex gap-2">
+            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.lacentrale.fr/auto-occasion-annonce-….html" className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
+            <button type="submit" disabled={busy} className="px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre disabled:opacity-50 text-white text-sm font-medium">{busy ? '…' : 'Tracer'}</button>
+          </form>
+          {err && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
+          {rows && rows.length === 0 && <p className="text-xs text-slate-500">Aucune étude visible.</p>}
+          {rows && rows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-left text-slate-400"><th className="py-1 pr-3">Étude</th><th className="py-1 pr-3">Compte</th><th className="py-1 pr-3">Vue ?</th><th className="py-1 pr-3">Statut</th><th className="py-1 pr-3">Prix · médiane · écart</th><th className="py-1 pr-3">Critères</th><th className="py-1">Dernier passage</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {rows.map((r) => {
+                    const gapOk = r.price_gap != null && r.price_gap >= r.price_gap_min && r.price_gap <= r.price_gap_max;
+                    return (
+                      <tr key={r.search_id} className={r.seen ? '' : 'text-slate-400'}>
+                        <td className="py-1.5 pr-3 font-medium text-slate-800">{r.search_label || `${r.brand} ${r.model}`}{!r.active && <span className="ml-1 text-[10px] text-slate-400">(en pause)</span>}</td>
+                        <td className="py-1.5 pr-3">{r.owner_name}</td>
+                        <td className="py-1.5 pr-3">{r.seen ? <span className="text-emerald-700 font-medium">oui</span> : 'jamais'}</td>
+                        <td className="py-1.5 pr-3">{r.seen ? <>{STATUS[r.status ?? ''] ?? r.status}{r.resolution ? ` · ${RES[r.resolution] ?? r.resolution}` : ''}{r.kind === 'price_drop' ? ' · baisse' : ''}</> : '—'}</td>
+                        <td className="py-1.5 pr-3">{r.seen ? <>{fmtEur(r.price)}{r.previous_price != null ? ` (avant ${fmtEur(r.previous_price)})` : ''} · {r.target_median != null ? fmtEur(r.target_median) : 'médiane inconnue'} · <span className={gapOk ? 'text-emerald-700' : 'text-amber-700'}>{r.price_gap != null ? `${r.price_gap.toLocaleString('fr-FR')} €` : '—'}{r.price_gap != null && !gapOk ? ` hors [${r.price_gap_min.toLocaleString('fr-FR')}–${r.price_gap_max.toLocaleString('fr-FR')}]` : ''}</span></> : '—'}</td>
+                        <td className="py-1.5 pr-3">{[r.year_min || r.year_max ? `années ${r.year_min ?? '…'}–${r.year_max ?? '…'}` : 'toutes années', r.mileage_max != null ? `≤ ${r.mileage_max.toLocaleString('fr-FR')} km` : null, r.trim ? `« ${r.trim} »` : null, `écart ${r.price_gap_min.toLocaleString('fr-FR')}–${r.price_gap_max.toLocaleString('fr-FR')} €`].filter(Boolean).join(' · ')}</td>
+                        <td className="py-1.5">{r.seen && r.last_seen_at ? `vue le ${new Date(r.last_seen_at).toLocaleDateString('fr-FR')}` : r.last_run_at ? `étude passée le ${new Date(r.last_run_at).toLocaleDateString('fr-FR')}` : 'jamais passée'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <p className="text-[11px] text-slate-400 mt-2">« Jamais » avec des critères compatibles = l'annonce n'était pas dans les pages scrapées de l'étude (tri prix croissant, 3 à 5 pages) ou son URL diffère selon le site. « Écartée » sans motif = vue hors écart de prix ; une baisse réelle la ramènera.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ResultsTab() {
   const [hits, setHits] = useState<DailyHit[]>([]);
   const [searches, setSearches] = useState<DailySearch[]>([]);
@@ -799,6 +864,7 @@ function ResultsTab() {
 
   return (
     <div className="space-y-4">
+      <TraceListingBox />
       <div className="flex justify-end">
         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-medium shadow-sm">
           <button

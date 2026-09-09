@@ -527,3 +527,22 @@ export async function pushNegotiationToSale(n: Negotiation): Promise<{ transacti
   await updateNegotiation(n.id, { status: 'pushed_to_sale', transaction_id: data.id } as Partial<Negotiation>);
   return { transactionId: data.id, error: null };
 }
+
+// ── « Vérifier une annonce » (09/09) ──────────────────────────────────────────
+export interface ListingTrace {
+  search_id: string; search_label: string; owner_id: string; owner_name: string;
+  brand: string; model: string; trim: string; source_country: string; target_country: string;
+  year_min: number | null; year_max: number | null; mileage_max: number | null;
+  price_gap_min: number; price_gap_max: number; active: boolean; last_run_at: string | null;
+  seen: boolean; status: string | null; resolution: string | null; kind: string | null;
+  price: number | null; previous_price: number | null; target_median: number | null; price_gap: number | null;
+  first_seen_at: string | null; last_seen_at: string | null;
+}
+/** Une URL → une ligne par étude (les miennes ; toutes pour un admin) :
+ *  vue ou pas, statut, écart, critères. Migration 20260909120000. */
+export async function traceListing(url: string): Promise<{ rows: ListingTrace[]; error: string | null }> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc('trace_listing_url', { p_url: url.trim() });
+  if (error) return { rows: [], error: /does not exist|schema cache/i.test(error.message) ? 'Fonction absente — la migration 20260909120000 est-elle collée ?' : error.message };
+  return { rows: (data ?? []) as ListingTrace[], error: null };
+}
