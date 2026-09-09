@@ -20,6 +20,18 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
 const WORKER_SECRET = process.env.WORKER_SECRET || '';
+
+/** Clé de segment d'une mise à jour MI : '' sans critère resserrant (ingestion
+ *  nue du modèle), sinon 'mi:' + critères — chaque jeu de critères a sa
+ *  propre histoire de profondeur (faux dossiers Corolla 07/09). */
+function criteriaSegmentKey(c: SearchCriteria | null): string {
+  if (!c) return '';
+  const parts = [
+    ['a', c.yearFrom], ['b', c.yearTo], ['km', c.mileage], ['t', c.trim], ['g', c.gearbox], ['p', c.minPower], ['v', c.vehicleType], ['f', c.fuel],
+  ].filter(([, v]) => v != null && String(v).trim() !== '')
+    .map(([k, v]) => `${k}=${String(v).trim().toLowerCase()}`);
+  return parts.length ? `mi:${parts.join('&')}` : '';
+}
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
@@ -315,6 +327,7 @@ app.post('/ingest-url', async (req, res) => {
               totalCount: result.totalCount ?? null,
               sourceUrl: url,
               submittedBy,
+              segmentKey: criteriaSegmentKey(criteria),
             }).catch((e) => console.warn('[INGEST] snapshot write failed:', e?.message ?? e));
           }
           payload.persisted = true;

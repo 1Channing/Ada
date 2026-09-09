@@ -84,6 +84,8 @@ export async function writeMarketSnapshot(params: {
   /** Vide PROUVÉ (le site a confirmé « aucun résultat » sur page complète) :
    *  autorise un snapshot profondeur 0 — voir le bloc marché-vide plus bas. */
   verifiedEmpty?: boolean;
+  /** Clé de segment : '' ingestion nue, 'mi:<critères>' mise à jour MI à critères, 'study:<id>' étude. */
+  segmentKey?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const { segment, listings, totalCount, sourceUrl, submittedBy } = params;
   // GARDE D'IDENTITÉ À L'ÉCRITURE (constat 02/08 : l'étude quotidienne
@@ -131,7 +133,8 @@ export async function writeMarketSnapshot(params: {
       scraped_at: new Date().toISOString(),
       listing_count: totalCount ?? 0, sample_size: 0,
       currency: 'EUR', source_url: sourceUrl, submitted_by: submittedBy ?? null,
-    });
+      segment_key: params.segmentKey ?? '',
+    } as never);
     if (emptyErr) return { ok: false, error: emptyErr.message };
     return { ok: true };
   }
@@ -161,7 +164,12 @@ export async function writeMarketSnapshot(params: {
       currency: 'EUR',
       source_url: sourceUrl,
       submitted_by: submittedBy ?? null,
-    })
+      // Une mise à jour MI à critères (année, finition, km…) est un SEGMENT à
+      // part : comparée à l'ingestion nue du modèle, sa profondeur (10-12)
+      // ouvrait de faux dossiers « profondeur en variation » (Corolla 07/09,
+      // 5 sites, badge « à surveiller » sur toutes les études Corolla).
+      segment_key: params.segmentKey ?? '',
+    } as never)
     .select('id')
     .single();
 

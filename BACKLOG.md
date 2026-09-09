@@ -282,6 +282,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **BADGE « À SURVEILLER » SUR TOUTES LES COROLLA (question Channing 09/09)** :
+  5 dossiers « profondeur en variation » (LC, LBC, MP, Gaspedaal, AS24 NL)
+  nés de la mise à jour MI du 07/09 (Corolla GR Sport 2024 break : 10-12
+  annonces) comparée à l'ingestion nue du modèle (100-329) dans le même
+  segment ('' ) ; chaque dossier ouvert = -15 au badge. CLASSE : une mise à
+  jour MI à critères porte désormais sa clé de segment `mi:<critères>`
+  (writeMarketSnapshot.segmentKey, worker/index criteriaSegmentKey) ; les
+  dossiers nés du mélange avant le 09/09 sont refermés par le diagnostic
+  (R2bis). Le badge remonte à la vague suivante.
 - **CAS DORÉS ET DÉCISIONS DE GRAMMAIRE** (constat Channing 08/09 : six
   « Hybride rechargeable » AutoScout en échec) : un cas « auto » figé un jour
   devient un fossile quand le registre change PAR DÉCISION. Liste

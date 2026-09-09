@@ -239,6 +239,23 @@ export async function runTruthDiagnose(reason: string): Promise<void> {
         continue;
       }
 
+      // R2bis — MÉLANGE DE CRITÈRES dans le segment ingestion (avant le 09/09) :
+      // une mise à jour MI à critères (Corolla GR Sport 2024 break : 10-12
+      // annonces) comparée à l'ingestion nue du modèle (100-329). Depuis le
+      // 09/09 ces relevés portent leur propre clé ('mi:…') : le signal ne
+      // peut plus naître ; ceux nés avant sont refermés.
+      {
+        const segKey = typeof d.details?.segment_key === 'string' ? String(d.details.segment_key) : null;
+        const snapAt2 = typeof d.details?.snapshot_at === 'string' ? String(d.details.snapshot_at) : null;
+        if (d.signal === 'profondeur_variation' && segKey === '' && snapAt2 && snapAt2 < '2026-09-09T15:00:00' && !alreadyByEngine) {
+          await writeDiagnosis(d,
+            'Écart compris : relevé d’une mise à jour MI à critères (année/finition/carrosserie) comparé à l’ingestion nue du modèle, dans un même segment avant le 09/09. Ces relevés ont désormais leur propre clé de segment ; se rouvrira seul si le signal persiste sur des segments propres.',
+            { status: 'accepted_variance', layer: 'profondeur', resolve: true });
+          acted++;
+          continue;
+        }
+      }
+
       // R2 — ARTEFACT total = échantillon (profondeurs d'avant le correctif
       // du 26/08) : le « total » enregistré n'était que notre pagination.
       const lc = Number(d.details?.listing_count ?? NaN);
