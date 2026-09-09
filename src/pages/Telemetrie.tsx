@@ -83,7 +83,11 @@ export function Telemetrie() {
       // les colonnes manquent : on relit sans elles, le regroupement retombe
       // sur le libellé sans casse (déjà mieux qu'avant).
       const since = mondayOf(Date.now() - (WEEKS - 1) * 7 * 86_400_000).toISOString();
-      setAllEvents(await loadEvents(since));
+      // Les événements SANS compte au libellé « appareil-… » sont des orphelins
+      // (écrits avant la restauration de session, corrigé le 09/09) : jamais
+      // une personne de plus. Ils sont écartés de la lecture ; le bloc SQL de
+      // rattachement (09/09) les rend à leur compte.
+      setAllEvents((await loadEvents(since)).filter((e) => e.user_id || !/^appareil-/i.test((e.visitor ?? '').trim())));
       const { data: profs } = await supabase.from('profiles').select('id, display_name');
       setProfileNames(new Map(((profs ?? []) as Array<{ id: string; display_name: string | null }>).map((p) => [p.id, (p.display_name ?? '').trim()])));
       setLoading(false);
