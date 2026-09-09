@@ -57,6 +57,25 @@ async function insertEvent(row: { path: string; visitor: string; user_id: string
   await supabase.from('app_usage_events').insert({ path: row.path, visitor: row.visitor });
 }
 
+/** Attend que le COMPTE soit connu (session restaurée + profil chargé) —
+ *  au plus `maxMs`. Constat Channing 09/09 : des lignes « Appareil-… » en
+ *  télémétrie = le premier événement de chaque session partait AVANT la
+ *  restauration de la session et retombait sur l'identifiant d'appareil
+ *  (uh4m53 = Channing, 7u5tsh = Antoine, prouvé par corrélation à 90 s).
+ *  ADA vit derrière la connexion : sans compte au bout du délai (page de
+ *  connexion), on n'écrit rien. */
+function waitForAccount(maxMs = 20_000): Promise<string | null> {
+  const have = () => { const st = useAuth.getState(); return st.userId && st.displayName ? st.userId : null; };
+  const now = have();
+  if (now) return Promise.resolve(now);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v: string | null) => { if (done) return; done = true; unsub(); clearTimeout(t); resolve(v); };
+    const unsub = useAuth.subscribe(() => { const v = have(); if (v) finish(v); });
+    const t = setTimeout(() => finish(have() ?? (useAuth.getState().userId || null)), maxMs);
+  });
+}
+
 export async function logPageVisit(path: string): Promise<void> {
   const now = Date.now();
   if (path === lastPath && now - lastAt < 60_000) return;
@@ -67,7 +86,9 @@ export async function logPageVisit(path: string): Promise<void> {
     // « Channing » comptés deux fois — le premier événement d'une session
     // partait avant le chargement du profil et retombait sur l'ancien nom
     // saisi dans l'Ingestion). Le libellé reste informatif ; user_id fait foi.
-    await insertEvent({ path, visitor: visitorLabel(), user_id: currentUserId(), kind: 'page' });
+    const userId = await waitForAccount();
+    if (!userId) return; // page de connexion : rien à compter
+    await insertEvent({ path, visitor: visitorLabel(), user_id: userId, kind: 'page' });
   } catch { /* table pas encore créée ou hors-ligne — jamais bloquant */ }
 }
 
