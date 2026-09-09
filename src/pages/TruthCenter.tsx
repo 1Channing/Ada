@@ -46,6 +46,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   completude_chute: 'Complétude en chute',
   dictionnaire: 'Dictionnaire à apprendre',
   url_incomplete: 'URL incomplète',
+  url_redirigee: 'Redirection du site (filtres perdus)',
 };
 
 const LAYER_LABELS: Record<string, string> = {
@@ -473,7 +474,7 @@ function DossierCard({ d, study, isOpen, onToggle, onStatus, userEmail }: {
   userEmail: string;
 }) {
   const { url: adaUrl, scrapedAt, searching } = useAdaUrl(d, isOpen);
-  const isGap = d.signal === 'dictionnaire' || d.signal === 'url_incomplete';
+  const isGap = d.signal === 'dictionnaire' || d.signal === 'url_incomplete' || d.signal === 'url_redirigee';
   // Pilier 2 en automatique : les critères de l'étude que l'URL d'ADA
   // n'exprime PAS (détecteurs du registre de grammaires) — affiché avant
   // toute validation humaine.

@@ -110,7 +110,7 @@ export async function runTruthSweep(reason: string): Promise<void> {
  */
 export async function recordTruthGap(gap: {
   site: string; country: string; brand: string; model: string; fuel: string;
-  signal: 'dictionnaire' | 'url_incomplete';
+  signal: 'dictionnaire' | 'url_incomplete' | 'url_redirigee';
   summary: string; details: Record<string, unknown>;
 }): Promise<void> {
   try {

@@ -106,13 +106,15 @@ function brandToSlug(raw: string): string {
 }
 
 // AutoScout's model slug keeps internal separators the user often omits
-// ("CHR" → the site's "c-hr", "RAV4" → "rav-4"). Naive slug() is correct when
+// ("CHR" → the site's "c-hr"). Naive slug() is correct when
 // the user includes the separator (space or hyphen); this table fixes the
 // no-separator forms. Keyed by alphanumeric-only so CHR / C-HR / "C HR" all hit.
 // Gaps get filled empirically as ingestions learn real slugs (BACKLOG 2bis).
 const MODEL_SLUG_BY_ALNUM: Record<string, string> = {
   chr: 'c-hr',
-  rav4: 'rav-4',
+  // rav4 : plus de tiret — le site renvoie /rav-4 en 308 vers /rav4 EN
+  // JETANT les filtres (fregfrom/fregto/fuel), preuve curl 09/09 sur .fr,
+  // .nl, .de. Le slug naïf est le bon.
   landcruiser: 'land-cruiser',
   cx3: 'cx-3', cx5: 'cx-5', cx30: 'cx-30', cx60: 'cx-60',
   cclass: 'c-class', eclass: 'e-class', sclass: 's-class',

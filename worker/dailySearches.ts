@@ -276,6 +276,17 @@ async function scrapeCountry(
       ? { maxPagesCap: MAX_PAGES_PRECISE, maxListingsCap: MAX_LISTINGS_PRECISE }
       : { maxPagesCap: MAX_PAGES };
     let result = await scrapeSearch(url, 'full', scrapeOpts);
+    if (result.redirect) {
+      // Le scraper a rejoué sur le chemin final ; on consigne la classe pour
+      // corriger le slug à la source (adaptateur ou mémoire).
+      console.warn(`[DAILY] « ${name} »: ${site.key} — redirection du site ${result.redirect.from.slice(0, 90)} → ${result.redirect.to.slice(0, 90)} (paramètres perdus : ${result.redirect.lost.join(', ')}) — rejouée avec la requête d'origine`);
+      await recordTruthGap({
+        site: site.key, country, brand: s.brand, model: s.model || '', fuel: s.fuel || '',
+        signal: 'url_redirigee',
+        summary: `Le site redirige ${new URL(result.redirect.from).pathname} vers ${new URL(result.redirect.to).pathname} en perdant ${result.redirect.lost.join(', ')} — corriger le slug`,
+        details: { from: result.redirect.from, to: result.redirect.to, lost: result.redirect.lost, healed: result.redirect.healed },
+      });
+    }
     // LA CENTRALE — orthographe de la finition (preuve vive 05/09, Sportage
     // 2024) : versions= est une correspondance EXACTE sur le libellé du
     // site, sans multi-valeur (virgule/underscore → 0, paramètre répété →

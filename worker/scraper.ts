@@ -208,7 +208,7 @@ export async function recordStudyMarketSnapshot(
 /**
  * Fetch HTML from Zyte API with retries
  */
-interface FetchResult { html: string | null; mode: 'raw' | 'browser'; status: number | null; }
+interface FetchResult { html: string | null; mode: 'raw' | 'browser'; status: number | null; /** URL finale rendue par Zyte (après redirections). */ finalUrl?: string | null; }
 
 // PLAFOND GLOBAL de requêtes Zyte simultanées (05/09). Les études, les
 // mises à jour MI, les campagnes et la pagination parallélisent chacune de
@@ -344,7 +344,8 @@ async function fetchHtmlWithZyteUnbounded(url: string, profileLevel: number, pro
       return { html: null, mode, status: response.status };
     }
 
-    const data = await response.json() as { browserHtml?: string; httpResponseBody?: string };
+    const data = await response.json() as { browserHtml?: string; httpResponseBody?: string; url?: string };
+    const finalUrl = typeof data.url === 'string' ? data.url : null;
 
     // httpResponseBody is base64-encoded bytes; browserHtml is a plain string.
     const html = useRawHtml
@@ -388,7 +389,7 @@ async function fetchHtmlWithZyteUnbounded(url: string, profileLevel: number, pro
       );
     }
 
-    return { html, mode, status: response.status };
+    return { html, mode, status: response.status, finalUrl };
   } catch (error) {
     // Annulation volontaire (course de profils : l'autre a gagné) — pas une
     // erreur (99 lignes « This operation was aborted » le matin du 07/09).
@@ -704,6 +705,8 @@ export interface ScrapeSearchResult {
   error?: string;
   errorReason?: string;
   diagnostics: ScrapeDiagnostics;
+  /** Redirection du site ayant perdu des paramètres (rejouée sur le chemin final). */
+  redirect?: { from: string; to: string; lost: string[]; healed: string } | null;
 }
 
 // Short-TTL in-memory dedup cache: two contributors ingesting the same URL
@@ -1203,6 +1206,7 @@ export async function scrapeSearch(
   const finalize = (r: Omit<ScrapeSearchResult, 'diagnostics'>, d: Partial<ScrapeDiagnostics>, cache: boolean): ScrapeSearchResult => {
     const result: ScrapeSearchResult = {
       ...r,
+      redirect: redirectInfo,
       diagnostics: {
         site: marketplace, mode: lastMode, attempts: d.attempts ?? 0, htmlLength: d.htmlLength ?? lastLen,
         listingCount: r.listings.length, totalCount: r.totalCount ?? null,
@@ -1221,6 +1225,8 @@ export async function scrapeSearch(
   // Cloudflare error page is cached per-URL, so when one locale is poisoned,
   // flipping to the other on retry dodges the cached block entirely.
   let activeUrl = url;
+  let rerouted = false;
+  let redirectInfo: ScrapeSearchResult['redirect'] = null;
   let hostSwapped = false;
   // AS24 shares one search engine across its TLDs and the cy= param pins the
   // listing country — autoscout24.fr serves the SAME Dutch search that
@@ -1260,8 +1266,30 @@ export async function scrapeSearch(
     // Site derrière Datadome (hedgeFirstAttempt) : au premier essai, brut ET
     // navigateur en course — la première page exploitable gagne.
     const hedge = attempt === 0 && findSiteAdapterByDomain(activeUrl)?.hedgeFirstAttempt === true;
-    const { html, mode } = hedge ? await fetchHtmlHedged(activeUrl, [1, 3]) : await fetchHtmlWithZyte(activeUrl, profileLevel);
+    const { html, mode, finalUrl } = hedge ? await fetchHtmlHedged(activeUrl, [1, 3]) : await fetchHtmlWithZyte(activeUrl, profileLevel);
     lastMode = mode;
+    // REDIRECTION QUI PERD LES FILTRES (constat 09/09, AutoScout24 : le slug
+    // /rav-4 renvoie en 308 vers /rav4 en JETANT fregfrom/fregto/fuel —
+    // page « toutes années », 110 annonces au lieu de 15, les pages les moins
+    // chères sont des RAV4 de 2000). Classe : on compare l'URL finale à
+    // l'URL demandée ; si le chemin a changé et que des paramètres ont
+    // disparu, on REJOUE une fois sur le chemin final avec la requête
+    // d'origine, et on le dit (dossier via l'appelant, log ici).
+    if (finalUrl && !rerouted) {
+      const lost = lostQueryParams(activeUrl, finalUrl);
+      if (lost.length > 0) {
+        try {
+          const a = new URL(activeUrl), b = new URL(finalUrl);
+          const healed = `${b.origin}${b.pathname}${a.search}${a.hash}`;
+          console.warn(`[WORKER_SCRAPER] ⚠️ redirection ${a.pathname} → ${b.pathname} : paramètres perdus (${lost.join(', ')}) — rejoué sur le chemin final avec la requête d'origine`);
+          redirectInfo = { from: activeUrl, to: finalUrl, lost, healed };
+          rerouted = true;
+          activeUrl = healed;
+          attempt -= 1; // ce tour ne compte pas comme un échec
+          continue;
+        } catch { /* URL illisible : on garde la page telle quelle */ }
+      }
+    }
 
     if (!html) {
       if (attempt === MAX_RETRIES) {
@@ -1638,6 +1666,18 @@ function urlHasTrimHint(url: string, trim: string): boolean {
 
 function urlHasYearHint(url: string): boolean {
   return /year|jaar|an|bj|aargang|yearFrom|yearTo|\d{4}/.test(url);
+}
+
+/** Paramètres de requête présents dans `requested` et absents de `final`
+ *  quand le CHEMIN a changé (redirection de slug). Chemin identique = rien. */
+function lostQueryParams(requested: string, final: string): string[] {
+  try {
+    const a = new URL(requested), b = new URL(final);
+    if (a.origin !== b.origin || a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '')) return [];
+    const out: string[] = [];
+    for (const k of a.searchParams.keys()) if (!b.searchParams.has(k)) out.push(k);
+    return [...new Set(out)];
+  } catch { return []; }
 }
 
 function urlHasMileageHint(url: string): boolean {

@@ -272,6 +272,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   affiché par « Liens » sans fregfrom ni fuel (registre testé sain sur cette
   URL ; aucun dossier url_incomplete côté worker) — re-vérifier après
   rechargement, sinon lire la ligne mémoire AS24 FR TOYOTA RAV4.
+- **AUTOSCOUT24 : REDIRECTION QUI PERD LES FILTRES** (analyse vague 09/09,
+  « pas tant de résultats ») : le slug `/rav-4` (table de l'adaptateur)
+  renvoie en 308 vers `/rav4` en JETANT fregfrom/fregto/fuel (.fr, .nl, .de,
+  preuve curl) → page toutes années, 110 annonces au lieu de 15, les 3-5
+  pages les moins chères = RAV4 de 2000 ; le post-filtre année (07/09)
+  écartait ensuite 370 (FR) + 590 (NL) annonces par vague. Corrigé : slug
+  `rav4` ; CLASSE : le scraper compare l'URL finale de Zyte à l'URL demandée,
+  et si le chemin change en perdant des paramètres, REJOUE sur le chemin
+  final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
+  Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
 - **CAS DORÉS ET DÉCISIONS DE GRAMMAIRE** (constat Channing 08/09 : six
   « Hybride rechargeable » AutoScout en échec) : un cas « auto » figé un jour
   devient un fossile quand le registre change PAR DÉCISION. Liste
