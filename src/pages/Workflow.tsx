@@ -724,6 +724,7 @@ function TraceListingBox() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const [showUnseen, setShowUnseen] = useState(false);
   const run = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim()) return;
@@ -749,12 +750,15 @@ function TraceListingBox() {
           </form>
           {err && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
           {rows && rows.length === 0 && <p className="text-xs text-slate-500">Aucune étude visible.</p>}
+          {rows && rows.length > 0 && rows.filter((r) => r.seen).length === 0 && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Aucune étude n'a jamais vu cette annonce ({rows.length} étude(s) consultée(s)).</p>
+          )}
           {rows && rows.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead><tr className="text-left text-slate-400"><th className="py-1 pr-3">Étude</th><th className="py-1 pr-3">Compte</th><th className="py-1 pr-3">Vue ?</th><th className="py-1 pr-3">Statut</th><th className="py-1 pr-3">Prix · médiane · écart</th><th className="py-1 pr-3">Critères</th><th className="py-1">Dernier passage</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rows.map((r) => {
+                  {rows.filter((r) => r.seen || showUnseen).map((r) => {
                     const gapOk = r.price_gap != null && r.price_gap >= r.price_gap_min && r.price_gap <= r.price_gap_max;
                     return (
                       <tr key={r.search_id} className={r.seen ? '' : 'text-slate-400'}>
@@ -770,6 +774,11 @@ function TraceListingBox() {
                   })}
                 </tbody>
               </table>
+              {rows.some((r) => !r.seen) && (
+                <button onClick={() => setShowUnseen((v) => !v)} className="text-[11px] text-brand-ocean hover:underline mt-2">
+                  {showUnseen ? 'Masquer' : 'Afficher'} les {rows.filter((r) => !r.seen).length} étude(s) qui ne l'ont jamais vue
+                </button>
+              )}
               <p className="text-[11px] text-slate-400 mt-2">« Jamais » avec des critères compatibles = l'annonce n'était pas dans les pages scrapées de l'étude (tri prix croissant, 3 à 5 pages) ou son URL diffère selon le site. « Écartée » sans motif = vue hors écart de prix ; une baisse réelle la ramènera.</p>
             </div>
           )}

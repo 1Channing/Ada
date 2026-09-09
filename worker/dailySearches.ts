@@ -579,6 +579,27 @@ async function runDailySearch(s: SearchRow): Promise<void> {
     }
   }
 
+  // RETOUR EN CONFORMITÉ (constat Channing 09/09, trace de la Yaris Cross :
+  // l'étude d'Antoine l'avait archivée « hors critères » sous d'anciens
+  // critères ; ses critères actuels la couvrent, mais « hors critères » était
+  // définitif et bloquait même le retour sur baisse). Une annonce archivée
+  // pour ce motif dont l'année et le km rentrent dans les critères ACTUELS
+  // perd son motif : elle redevient une écartée ordinaire, qu'une vraie
+  // baisse ramène. Les critères ont changé — l'annonce n'a pas menti.
+  const backInCriteria = ((known ?? []) as Array<{ id: string; resolution: string | null; mileage: number | null; year: number | null }>)
+    .filter((k) => k.resolution === 'hors_criteres'
+      && !(s.mileage_max != null && typeof k.mileage === 'number' && k.mileage > s.mileage_max)
+      && !(s.year_min != null && typeof k.year === 'number' && k.year < s.year_min)
+      && !(s.year_max != null && typeof k.year === 'number' && k.year > s.year_max));
+  if (backInCriteria.length > 0) {
+    await supabase.from('daily_search_hits').update({ resolution: null }).in('id', backInCriteria.map((k) => k.id));
+    console.warn(`[DAILY] « ${name} » : ${backInCriteria.length} annonce(s) « hors critères » redevenue(s) conforme(s) aux critères actuels — motif levé (une baisse pourra les ramener)`);
+    for (const k of backInCriteria) {
+      const cur = [...seen.entries()].find(([, v]) => v.id === k.id);
+      if (cur) seen.set(cur[0], { ...cur[1], resolution: null });
+    }
+  }
+
   // Véhicules déjà en NÉGOCIATION chez ce compte (tous statuts — un véhicule
   // validé un jour n'est jamais re-présenté, règle Channing 29/07) : une
   // annonce croisée par une AUTRE étude entre directement en 'saved'.
