@@ -282,6 +282,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **ÉCHEC ≠ VIDE + SECONDE CHANCE** (constat Channing 10/09 : Yaris Cross
+  Collection 24 900 € LBC absente de l'étude d'Antoine). Vague de 05 h :
+  381 « Zyte 520 », 59 études sur 67 avec au moins un site à zéro (LBC et
+  Gaspedaal surtout) — un site en échec était compté « 0 » comme un marché
+  vide, sans trace ni relance. Corrigé : (1) attentes longues sur 520/429/503
+  (8/20/40/60 s, un essai de plus) ; (2) ZYTE_MAX_PARALLEL 6 → 4 ;
+  (3) un site en échec est marqué « ✗ » au bilan, sans snapshot ; (4) les
+  études touchées repassent UNE fois en série 3 min après la vague, et le
+  bilan de seconde chance est loggé. Rappel du samedi 12/09 : relire les 520
+  après ces trois changements avant de toucher DAILY_CONCURRENCY.
 - **BADGE « À SURVEILLER » SUR TOUTES LES COROLLA (question Channing 09/09)** :
   5 dossiers « profondeur en variation » (LC, LBC, MP, Gaspedaal, AS24 NL)
   nés de la mise à jour MI du 07/09 (Corolla GR Sport 2024 break : 10-12

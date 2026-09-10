@@ -162,18 +162,38 @@ async function tick(): Promise<void> {
     // Pool : chaque « ouvrier » prend l'étude suivante de la file dès qu'il
     // a fini la sienne — une étude en échec est loggée, la file continue.
     let next = 0;
+    const retry: SearchRow[] = [];
     const worker = async () => {
       for (;;) {
         const s = due[next++];
         if (!s) return;
         try {
-          await runDailySearch(s);
+          const r = await runDailySearch(s);
+          if (r.failedSites.length) retry.push(s);
         } catch (e) {
           console.warn(`[DAILY] échec « ${s.label || s.brand} »: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     };
     await Promise.all(Array.from({ length: Math.min(DAILY_CONCURRENCY, due.length) }, worker));
+    // SECONDE CHANCE (10/09) : les études dont un site a été en ÉCHEC
+    // (saturation Zyte) repassent une fois, en série, après 3 min de calme —
+    // « nos études doivent être fiables, sinon aucun intérêt » (Channing).
+    if (retry.length > 0) {
+      console.warn(`[DAILY] seconde chance : ${retry.length} étude(s) avec site(s) en échec — relance en série dans 3 min`);
+      await new Promise((r) => setTimeout(r, 180_000));
+      let still = 0;
+      for (const s of retry) {
+        try {
+          const r = await runDailySearch(s);
+          if (r.failedSites.length) { still++; console.warn(`[DAILY] « ${s.label || s.brand} » : encore en échec après seconde chance (${r.failedSites.join(', ')})`); }
+        } catch (e) {
+          still++;
+          console.warn(`[DAILY] seconde chance « ${s.label || s.brand} » : ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      console.warn(`[DAILY] seconde chance terminée : ${retry.length - still}/${retry.length} étude(s) complétée(s)`);
+    }
     // Fin de vague d'écriture → rangement (étage 2 : > 60 j vers l'archive,
     // jamais de suppression), recalcul des tableaux MI (étage 1), puis
     // balayage des signaux de doute (Truth Center brique 1) sur les données
@@ -198,15 +218,15 @@ async function tick(): Promise<void> {
  *  Marktplaats/Bilbasen savent faire ça) sont écartées et loggées. */
 async function scrapeCountry(
   s: SearchRow, country: string, trim: string, name: string,
-): Promise<Array<{ site: string; listings: Array<{ title?: string | null; price?: number | null; year?: number | null; mileage?: number | null; listing_url?: string | null }> }>> {
-  const out: Array<{ site: string; listings: never[] }> = [];
+): Promise<Array<{ site: string; listings: Array<{ title?: string | null; price?: number | null; year?: number | null; mileage?: number | null; listing_url?: string | null }>; failed?: boolean }>> {
+  const out: Array<{ site: string; listings: never[]; failed?: boolean }> = [];
   const sites = allSiteAdapters().filter((a) => (a as { countryCode?: string }).countryCode === country);
   // SITES EN PARALLÈLE (demande Channing 05/09 : « on est obligé de faire un
   // site puis l'autre ? ») : chaque site est un travail indépendant ; ils
   // partent tous ensemble, le plafond global de requêtes Zyte (scraper,
   // ZYTE_MAX_PARALLEL) régule la charge à la source. Résultats recollés dans
   // l'ordre des adaptateurs.
-  const runSite = async (site: (typeof sites)[number]): Promise<{ site: string; listings: never[] } | null> => {
+  const runSite = async (site: (typeof sites)[number]): Promise<{ site: string; listings: never[]; failed?: boolean } | null> => {
     let url: string | null = null;
     let genWarnings: string[] = [];
     let genParams: Parameters<typeof generateSearchUrlsWithMemory>[0] | null = null;
@@ -276,6 +296,15 @@ async function scrapeCountry(
       ? { maxPagesCap: MAX_PAGES_PRECISE, maxListingsCap: MAX_LISTINGS_PRECISE }
       : { maxPagesCap: MAX_PAGES };
     let result = await scrapeSearch(url, 'full', scrapeOpts);
+    // ÉCHEC ≠ VIDE (constat Channing 10/09 : une Yaris Cross Collection à
+    // 24 900 € sur LBC absente de l'étude d'Antoine — LBC en 520 pendant la
+    // vague, compté « LEBONCOIN 0 » comme un marché vide). Un site en échec
+    // est marqué tel quel : bilan « ✗ », pas de snapshot, et l'étude repasse
+    // en seconde chance après la vague.
+    if (result.error) {
+      console.warn(`[DAILY] « ${name} »: ${site.key} EN ÉCHEC (${result.errorReason ?? result.error}) — site non compté, seconde chance après la vague`);
+      return { site: site.key, listings: [] as never[], failed: true };
+    }
     if (result.redirect) {
       // Le scraper a rejoué sur le chemin final ; on consigne la classe pour
       // corriger le slug à la source (adaptateur ou mémoire).
@@ -492,7 +521,7 @@ async function scrapeCountry(
   // propre erreur (fail-open, le site est simplement absent du bilan).
   const results = await Promise.all(sites.map((site) => runSite(site).catch((e) => {
     console.warn(`[DAILY] « ${name} »: ${site.key} en échec —`, e instanceof Error ? e.message : e);
-    return null;
+    return { site: site.key, listings: [] as never[], failed: true };
   })));
   for (const r of results) if (r) out.push(r);
   return out;
@@ -539,7 +568,7 @@ async function targetCheapMedian(s: SearchRow): Promise<number | null> {
   return cheap[Math.floor(cheap.length / 2)];
 }
 
-async function runDailySearch(s: SearchRow): Promise<void> {
+async function runDailySearch(s: SearchRow): Promise<{ failedSites: string[] }> {
   const name = s.label || `${s.brand} ${s.model}`.trim();
 
   // Mémoire anti-doublon de la recherche (url → dernier prix vu).
@@ -711,12 +740,15 @@ async function runDailySearch(s: SearchRow): Promise<void> {
   await supabase.from('daily_searches').update({ last_run_at: nowIso, updated_at: nowIso }).eq('id', s.id);
   // Détail PAR SITE dans la boîte noire : un site à 0 sur une recherche qui
   // devrait rendre (LBC rafale du 28/07) devient visible immédiatement.
-  const perSite = (arr: Array<{ site: string; listings: unknown[] }>) =>
-    arr.map((x) => `${x.site} ${x.listings.length}`).join(' · ') || 'aucun site';
+  const perSite = (arr: Array<{ site: string; listings: unknown[]; failed?: boolean }>) =>
+    arr.map((x) => `${x.site} ${x.failed ? '✗' : x.listings.length}`).join(' · ') || 'aucun site';
+  const failedSites = [...sourceScrape, ...targetScrape].filter((x) => x.failed).map((x) => x.site);
   console.warn(
     `[DAILY] « ${name} » (${s.source_country}→${s.target_country}) : source ${sourceScrape.length} site(s)/${scanned} annonces [${perSite(sourceScrape)}], `
     + `cible ${targetScrape.length} site(s)/${targetPrices.length} prix [${perSite(targetScrape)}], ${fresh} nouvelle(s), ${drops} baisse(s)`
     + (median != null ? ` · médiane cible ${median.toLocaleString('fr-FR')} € (${medianSource})` : ' · médiane cible inconnue (fail-open : tout est montré)')
-    + (noUrl > 0 ? ` · ${noUrl} sans URL ignorées` : ''),
+    + (noUrl > 0 ? ` · ${noUrl} sans URL ignorées` : '')
+    + (failedSites.length ? ` · ✗ ${failedSites.length} site(s) en échec` : ''),
   );
+  return { failedSites };
 }

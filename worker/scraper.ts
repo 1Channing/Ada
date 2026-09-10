@@ -215,7 +215,8 @@ interface FetchResult { html: string | null; mode: 'raw' | 'browser'; status: nu
 // leur côté ; sans plafond commun, la file Zyte déborde (520 en rafale à
 // 05 h). Ici, une seule porte : au-delà de ZYTE_MAX_PARALLEL requêtes en
 // vol, les suivantes attendent leur tour — l'ordre d'arrivée est respecté.
-const ZYTE_MAX_PARALLEL = Math.max(1, Math.min(16, parseInt(process.env.ZYTE_MAX_PARALLEL ?? '6', 10) || 6));
+// 6 → 4 (10/09) : à 6, la vague de 05 h saturait Zyte (381 « 520 »).
+const ZYTE_MAX_PARALLEL = Math.max(1, Math.min(16, parseInt(process.env.ZYTE_MAX_PARALLEL ?? '4', 10) || 4));
 let zyteInFlight = 0;
 const zyteWaiters: Array<() => void> = [];
 async function zyteAcquire(): Promise<void> {
@@ -1266,7 +1267,7 @@ export async function scrapeSearch(
     // Site derrière Datadome (hedgeFirstAttempt) : au premier essai, brut ET
     // navigateur en course — la première page exploitable gagne.
     const hedge = attempt === 0 && findSiteAdapterByDomain(activeUrl)?.hedgeFirstAttempt === true;
-    const { html, mode, finalUrl } = hedge ? await fetchHtmlHedged(activeUrl, [1, 3]) : await fetchHtmlWithZyte(activeUrl, profileLevel);
+    const { html, mode, finalUrl, status } = hedge ? await fetchHtmlHedged(activeUrl, [1, 3]) : await fetchHtmlWithZyte(activeUrl, profileLevel);
     lastMode = mode;
     // REDIRECTION QUI PERD LES FILTRES (constat 09/09, AutoScout24 : le slug
     // /rav-4 renvoie en 308 vers /rav4 en JETANT fregfrom/fregto/fuel —
@@ -1292,10 +1293,18 @@ export async function scrapeSearch(
     }
 
     if (!html) {
-      if (attempt === MAX_RETRIES) {
-        return finalize({ listings: [], error: 'SCRAPER_FAILED', errorReason: 'Failed to fetch HTML after retries' }, { attempts: attempt + 1, htmlLength: 0 }, false);
+      // SATURATION ZYTE (520/429) : rafale de 381 « 520 » le 10/09 à 05 h,
+      // 59 études sur 67 avec un site à zéro — les 1 s / 2 s / 3 s d'attente
+      // retombaient dans la même rafale. Sur ces codes : attentes longues
+      // (8 s, 20 s, 40 s, 60 s) et un essai de plus ; le site n'est déclaré
+      // en échec qu'après ~2 min de patience.
+      const saturated = status === 520 || status === 429 || status === 503;
+      const maxTries = saturated ? Math.max(MAX_RETRIES, 4) : MAX_RETRIES;
+      if (attempt >= maxTries) {
+        return finalize({ listings: [], error: 'SCRAPER_FAILED', errorReason: saturated ? `Zyte ${status} après ${attempt + 1} essais` : 'Failed to fetch HTML after retries' }, { attempts: attempt + 1, htmlLength: 0 }, false);
       }
-      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+      const wait = saturated ? [8000, 20000, 40000, 60000][Math.min(attempt, 3)] : 1000 * (attempt + 1);
+      await new Promise((resolve) => setTimeout(resolve, wait));
       continue;
     }
     lastLen = html.length;
