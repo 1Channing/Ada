@@ -59,6 +59,20 @@ function searchCriteriaText(s: TeamSearch): string {
   return parts.join(' · ');
 }
 
+/** Leads du Workflow (RPC admin, migration 10/09) : annonces entrées dans la
+ *  boîte d'une étude (nouvelles ou baisses dans l'écart). */
+interface TeamLead {
+  id: string; user_id: string; owner_name: string; search_id: string; search_label: string;
+  listing_url: string; title: string; price: number | null; previous_price: number | null;
+  target_median: number | null; price_gap: number | null; site: string; kind: string;
+  status: string; resolution: string | null; first_seen_at: string; last_seen_at: string;
+}
+/** Date d'apparition du lead : première vue, ou dernière vue pour une baisse. */
+const leadAt = (l: TeamLead) => (l.kind === 'price_drop' ? l.last_seen_at : l.first_seen_at);
+const dayKey = (iso: string) => new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris' }).format(new Date(iso));
+const LEAD_STATUS: Record<string, string> = { inbox: 'à traiter', saved: 'en négociation', cleared: 'vidée', dismissed: 'traitée' };
+const LEAD_RES: Record<string, string> = { trop_chere: 'trop chère', hors_criteres: 'hors critères', plus_disponible: 'plus disponible', pas_de_deal: 'pas de deal' };
+
 /** Négociations de tous les comptes (RPC admin, migration 31/08). */
 interface TeamNego {
   id: string; user_id: string; title: string; listing_url: string;
@@ -74,6 +88,9 @@ export function Equipe() {
   // null = RPC absente (migration pas encore collée) → sections masquées.
   const [searches, setSearches] = useState<TeamSearch[] | null>(null);
   const [negos, setNegos] = useState<TeamNego[] | null>(null);
+  const [leads, setLeads] = useState<TeamLead[] | null>(null);
+  const [leadsAt, setLeadsAt] = useState<Date | null>(null);
+  const [leadsOpen, setLeadsOpen] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [newEmail, setNewEmail] = useState('');
@@ -97,6 +114,7 @@ export function Equipe() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       supabase.rpc('admin_list_negotiations' as never) as any,
     ]);
+    void reloadLeads();
     if (e1) setError(`Comptes : ${e1.message} — la migration 20260830120000 est-elle appliquée ?`);
     else setAccounts((acc ?? []) as Account[]);
     if (e2) setError((prev) => prev ?? `Liste d'inscription : ${e2.message}`);
@@ -105,7 +123,19 @@ export function Equipe() {
     setNegos(ng.error ? null : ((ng.data ?? []) as TeamNego[]));
     setLoading(false);
   };
+  /** Leads : rechargés à l'ouverture et toutes les 10 min (la vague du
+   *  matin les écrit vers 5 h ; la page ouverte le jour se met à jour seule). */
+  const reloadLeads = async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await (supabase as any).rpc('admin_list_daily_leads', { p_days: 14 });
+    setLeads(r.error ? null : ((r.data ?? []) as TeamLead[]));
+    setLeadsAt(new Date());
+  };
   useEffect(() => { void reload(); }, []);
+  useEffect(() => {
+    const t = window.setInterval(() => { void reloadLeads(); }, 10 * 60_000);
+    return () => window.clearInterval(t);
+  }, []);
 
   if (!isAdmin) {
     return <p className="text-sm text-slate-500 py-10 text-center">Page réservée aux admins.</p>;
@@ -256,6 +286,46 @@ export function Equipe() {
 
       {resetInfo && <p className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">{resetInfo}</p>}
 
+      {/* ── Leads du Workflow par jour et par personne (7 jours) ── */}
+      {!loading && leads && accounts.length > 0 && (() => {
+        const days: string[] = [];
+        for (let i = 6; i >= 0; i--) days.push(dayKey(new Date(Date.now() - i * 86_400_000).toISOString()));
+        const people = accounts.filter((a) => leads.some((l) => l.user_id === a.id) || searches?.some((s) => s.user_id === a.id));
+        const count = (uid: string, d: string, kind?: string) => leads.filter((l) => l.user_id === uid && dayKey(leadAt(l)) === d && (!kind || l.kind === kind)).length;
+        const fmtDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+        return (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-semibold text-slate-700">Leads du Workflow — 7 derniers jours</h2>
+              <span className="text-xs text-slate-400">annonces entrées dans la boîte (nouvelles + baisses dans l'écart), par personne et par jour</span>
+              <button onClick={() => void reloadLeads()} className="ml-auto text-xs text-brand-ocean hover:underline">Actualiser{leadsAt ? ` · ${leadsAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}</button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-left text-slate-400"><th className="py-1 pr-3">Personne</th>{days.map((d) => <th key={d} className="py-1 px-2 text-right whitespace-nowrap">{fmtDay(d)}</th>)}<th className="py-1 pl-3 text-right">7 j</th><th className="py-1 pl-3 text-right">14 j</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {people.map((a) => {
+                    const total7 = days.reduce((n, d) => n + count(a.id, d), 0);
+                    const total14 = leads.filter((l) => l.user_id === a.id).length;
+                    return (
+                      <tr key={a.id}>
+                        <td className="py-1.5 pr-3 font-medium text-slate-800">{nameOf(a)}</td>
+                        {days.map((d) => {
+                          const n = count(a.id, d), drops = count(a.id, d, 'price_drop');
+                          return <td key={d} className={`py-1.5 px-2 text-right tabular-nums ${n === 0 ? 'text-slate-300' : d === days[days.length - 1] ? 'text-emerald-700 font-semibold' : 'text-slate-700'}`}>{n === 0 ? '—' : n}{drops > 0 ? <span className="text-amber-600 font-normal"> ({drops}↓)</span> : ''}</td>;
+                        })}
+                        <td className="py-1.5 pl-3 text-right font-semibold tabular-nums text-slate-800">{total7}</td>
+                        <td className="py-1.5 pl-3 text-right tabular-nums text-slate-500">{total14}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Comptes ── */}
       {!loading && (
         <div className="space-y-2">
@@ -379,6 +449,32 @@ export function Equipe() {
                               {searchCriteriaText(s) && <div className="pl-3.5 text-[11px] text-slate-500">{searchCriteriaText(s)}</div>}
                             </div>
                           ))}
+                        </div>
+                      );
+                    })()}
+                    {leads && (() => {
+                      const mine = leads.filter((l) => l.user_id === a.id).sort((x, y) => leadAt(y).localeCompare(leadAt(x)));
+                      const today = dayKey(new Date().toISOString());
+                      const todayN = mine.filter((l) => dayKey(leadAt(l)) === today).length;
+                      const isOpen = leadsOpen[a.id] ?? false;
+                      const shown = isOpen ? mine.slice(0, 60) : mine.slice(0, 5);
+                      return (
+                        <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                          <p className="text-xs font-semibold text-slate-700">Leads du Workflow — {todayN} aujourd'hui · {mine.length} sur 14 jours</p>
+                          {mine.length === 0 && <p className="text-xs text-slate-400">Aucun lead sur 14 jours.</p>}
+                          {shown.map((l) => (
+                            <div key={l.id} className="flex items-center gap-2 text-xs text-slate-600">
+                              <span className="text-slate-400 shrink-0 w-14">{new Date(leadAt(l)).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</span>
+                              <a href={l.listing_url} target="_blank" rel="noreferrer" className="font-medium text-slate-800 truncate hover:text-brand-ocean hover:underline" title={l.title}>{l.title || l.listing_url}</a>
+                              <span className="text-slate-400 shrink-0 truncate max-w-[160px]">{l.search_label}</span>
+                              <span className="shrink-0 tabular-nums text-slate-700">{l.price != null ? `${l.price.toLocaleString('fr-FR')} €` : '—'}{l.kind === 'price_drop' && l.previous_price != null ? <span className="text-amber-600"> ↓{(l.previous_price - l.price!).toLocaleString('fr-FR')}</span> : ''}</span>
+                              <span className="shrink-0 text-emerald-700 tabular-nums">{l.price_gap != null ? `+${l.price_gap.toLocaleString('fr-FR')}` : ''}</span>
+                              <span className="ml-auto shrink-0 text-[10px] rounded-full px-1.5 py-0.5 bg-slate-100 text-slate-600">{LEAD_STATUS[l.status] ?? l.status}{l.resolution ? ` · ${LEAD_RES[l.resolution] ?? l.resolution}` : ''}</span>
+                            </div>
+                          ))}
+                          {mine.length > 5 && (
+                            <button onClick={() => setLeadsOpen((o) => ({ ...o, [a.id]: !isOpen }))} className="text-[11px] text-brand-ocean hover:underline">{isOpen ? 'Réduire' : `Afficher les ${Math.min(60, mine.length)} derniers`}</button>
+                          )}
                         </div>
                       );
                     })()}
