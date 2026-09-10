@@ -282,6 +282,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **DOSSIERS DE NÉGOCIATION** (demande Channing 10/09 : « classer mes
+  négociations en cours par dossiers que je nommerai selon mes besoins »).
+  Table `negotiation_folders` (personnelle, RLS own, nom libre, ordre) +
+  colonne `negotiations.folder_id` (on delete set null : supprimer un
+  dossier ne supprime jamais une négociation, elle redevient « sans
+  dossier »). Onglet Négociations : bouton « Nouveau dossier », sections
+  repliables par dossier puis « Sans dossier » (état replié = localStorage),
+  menu ⋯ du dossier (renommer / supprimer avec confirmation), menu ⋯ de la
+  ligne → « Ranger dans un dossier » (liste, coche, « Nouveau dossier… »
+  qui crée ET range). Sans dossier créé, la liste reste telle quelle.
+  Fail-open : SQL non collé → pas de dossier, message explicite à la
+  première écriture. SQL : 20260910140000_negociations_dossiers.sql.
 - **ÉCHEC ≠ VIDE + SECONDE CHANCE** (constat Channing 10/09 : Yaris Cross
   Collection 24 900 € LBC absente de l'étude d'Antoine). Vague de 05 h :
   381 « Zyte 520 », 59 études sur 67 avec au moins un site à zéro (LBC et

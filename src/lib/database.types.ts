@@ -105,23 +105,29 @@ export type Database = {
           id: string; user_id: string; title: string; listing_url: string
           asking_price: number | null; negotiated_price: number | null
           notes: string; status: string; transaction_id: string | null
-          photos: Json
+          photos: Json; folder_id: string | null
           created_at: string; updated_at: string
         }
         Insert: {
           id?: string; user_id: string; title: string; listing_url?: string
           asking_price?: number | null; negotiated_price?: number | null
           notes?: string; status?: string; transaction_id?: string | null
-          photos?: Json
+          photos?: Json; folder_id?: string | null
           created_at?: string; updated_at?: string
         }
         Update: {
           id?: string; user_id?: string; title?: string; listing_url?: string
           asking_price?: number | null; negotiated_price?: number | null
           notes?: string; status?: string; transaction_id?: string | null
-          photos?: Json
+          photos?: Json; folder_id?: string | null
           created_at?: string; updated_at?: string
         }
+        Relationships: []
+      }
+      negotiation_folders: {
+        Row: { id: string; user_id: string; name: string; position: number; created_at: string }
+        Insert: { id?: string; user_id: string; name: string; position?: number; created_at?: string }
+        Update: { id?: string; user_id?: string; name?: string; position?: number; created_at?: string }
         Relationships: []
       }
       legal_watch_entries: {

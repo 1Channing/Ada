@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send } from 'lucide-react';
+import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check } from 'lucide-react';
 import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
 import {
   Negotiation, listNegotiations, createNegotiation, updateNegotiation,
   deleteNegotiation, pushNegotiationToSale,
   NegoConflict, listNegotiationConflicts,
+  NegotiationFolder, listNegotiationFolders, createNegotiationFolder, renameNegotiationFolder,
+  deleteNegotiationFolder, moveNegotiationToFolder,
 } from '../services/workflow';
 import {
   OpenSpaceItem, OpenSpaceNote, listOpenSpace, listOpenSpaceNotes, pushToOpenSpace, removeFromOpenSpace,
@@ -71,8 +73,31 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   const [shared, setShared] = useState<Map<string, string>>(new Map()); // negotiation_id → item id
 
   const [conflicts, setConflicts] = useState<NegoConflict[]>([]);
+  // Dossiers (10/09) : personnels, nommés librement ; l'état replié/déplié
+  // est un confort local (localStorage), jamais une donnée.
+  const [folders, setFolders] = useState<NegotiationFolder[]>([]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('nego:folders:collapsed') ?? '[]') as string[]); } catch { return new Set(); }
+  });
+  const toggleFolder = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem('nego:folders:collapsed', JSON.stringify([...next])); } catch { /* stockage indispo */ }
+      return next;
+    });
+  };
+  const newFolder = async (): Promise<string | null> => {
+    const name = prompt('Nom du nouveau dossier :', '');
+    if (!name?.trim()) return null;
+    const { id, error: err } = await createNegotiationFolder(name);
+    if (err) { setError(err); return null; }
+    reload();
+    return id;
+  };
   const reload = () => {
     listNegotiations().then(setRows).finally(() => setLoading(false));
+    listNegotiationFolders().then(setFolders);
     listNegotiationConflicts().then(setConflicts);
     listOpenSpace().then((items) => setShared(new Map(items.map((i) => [i.negotiation_id, i.id]))));
     openSpaceUnseenCount().then(setUnseen);
@@ -133,6 +158,13 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
           <p className="text-sm text-slate-600 mt-1">Tes annonces enregistrées — pousse-les en vente quand l'affaire se conclut.</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => { void newFolder(); }}
+            title="Créer un dossier pour classer tes négociations (nom libre)"
+            className="flex items-center gap-2 bg-white border border-slate-300 hover:border-brand-ocean text-slate-700 hover:text-brand-ocean px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <FolderPlus className="w-4 h-4" /> Nouveau dossier
+          </button>
           <button
             onClick={() => { setOpenSpace(true); setUnseen(0); void markOpenSpaceSeen(); }}
             title="L'espace partagé de l'équipe : les négociations poussées par chacun, avec les notes de tous"
@@ -203,18 +235,119 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
           <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
             Aucune négociation — enregistre une annonce depuis l'accueil (Nouvelles annonces) ou ajoute-la ici.
           </div>
-        ) : (
+        ) : folders.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-            {rows.map((n) => <NegoRow key={n.id} n={n} conflicts={conflicts} sharedItemId={shared.get(n.id) ?? null} onChanged={reload} onPushed={onPushed} />)}
+            {rows.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} sharedItemId={shared.get(n.id) ?? null} onChanged={reload} onPushed={onPushed} />)}
+          </div>
+        ) : (
+          // Regroupement par dossier (10/09) : les dossiers dans leur ordre,
+          // puis « Sans dossier ». Un dossier dont l'id n'existe plus (supprimé
+          // depuis un autre onglet) se lit comme « sans dossier ».
+          <div className="space-y-3">
+            {(() => {
+              const known = new Set(folders.map((f) => f.id));
+              const byFolder = new Map<string, Negotiation[]>();
+              const loose: Negotiation[] = [];
+              for (const n of rows) {
+                if (n.folder_id && known.has(n.folder_id)) byFolder.set(n.folder_id, [...(byFolder.get(n.folder_id) ?? []), n]);
+                else loose.push(n);
+              }
+              const sections: { id: string; folder: NegotiationFolder | null; items: Negotiation[] }[] = [
+                ...folders.map((f) => ({ id: f.id, folder: f, items: byFolder.get(f.id) ?? [] })),
+                { id: '__none__', folder: null, items: loose },
+              ];
+              return sections.map(({ id, folder, items }) => {
+                if (!folder && items.length === 0) return null;
+                const open = !collapsed.has(id);
+                return (
+                  <div key={id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
+                    <FolderHeader
+                      folder={folder} count={items.length} open={open}
+                      onToggle={() => toggleFolder(id)}
+                      onRename={folder ? async () => {
+                        const name = prompt('Nouveau nom du dossier :', folder.name);
+                        if (!name?.trim() || name.trim() === folder.name) return;
+                        const err = await renameNegotiationFolder(folder.id, name);
+                        if (err) setError(err); else reload();
+                      } : undefined}
+                      onDelete={folder ? async () => {
+                        const what = items.length
+                          ? `Supprimer le dossier « ${folder.name} » ? Ses ${items.length} négociation${items.length > 1 ? 's' : ''} restent en cours, simplement sans dossier.`
+                          : `Supprimer le dossier « ${folder.name} » (vide) ?`;
+                        if (!confirm(what)) return;
+                        const err = await deleteNegotiationFolder(folder.id);
+                        if (err) setError(err); else reload();
+                      } : undefined}
+                    />
+                    {open && (
+                      items.length === 0
+                        ? <p className="px-4 py-3 text-xs text-slate-400 border-t border-slate-100">Dossier vide — range une négociation ici depuis son menu ⋯ → « Ranger dans un dossier ».</p>
+                        : (
+                          <div className="divide-y divide-slate-100 border-t border-slate-100">
+                            {items.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} sharedItemId={shared.get(n.id) ?? null} onChanged={reload} onPushed={onPushed} />)}
+                          </div>
+                        )
+                    )}
+                  </div>
+                );
+              });
+            })()}
           </div>
         )}
     </div>
   );
 }
 
-function NegoRow({ n, conflicts, sharedItemId, onChanged, onPushed }: { n: Negotiation; conflicts: NegoConflict[]; sharedItemId: string | null; onChanged: () => void; onPushed: () => void }) {
+function FolderHeader({ folder, count, open, onToggle, onRename, onDelete }: {
+  folder: NegotiationFolder | null; count: number; open: boolean;
+  onToggle: () => void; onRename?: () => void; onDelete?: () => void;
+}) {
+  const [menu, setMenu] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setMenu(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [menu]);
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <button onClick={onToggle} className="flex items-center gap-2 flex-1 min-w-0 text-left rounded-lg px-1 py-1 hover:bg-slate-50">
+        {open ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
+        <Folder className={`w-4 h-4 shrink-0 ${folder ? 'text-amber-500' : 'text-slate-300'}`} />
+        <span className={`font-semibold truncate ${folder ? 'text-slate-900' : 'text-slate-500'}`}>{folder ? folder.name : 'Sans dossier'}</span>
+        <span className="text-xs text-slate-400 shrink-0">{count}</span>
+      </button>
+      {folder && (
+        <div className="relative shrink-0" ref={ref}>
+          <button onClick={() => setMenu(!menu)} title="Renommer ou supprimer le dossier" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><MoreVertical className="w-4 h-4" /></button>
+          {menu && (
+            <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-56 text-sm">
+              <MenuBtn onClick={() => { setMenu(false); onRename?.(); }}>Renommer le dossier</MenuBtn>
+              <MenuBtn danger onClick={() => { setMenu(false); onDelete?.(); }}>Supprimer le dossier</MenuBtn>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, onPushed }: {
+  n: Negotiation; folders: NegotiationFolder[]; onNewFolder: () => Promise<string | null>;
+  conflicts: NegoConflict[]; sharedItemId: string | null; onChanged: () => void; onPushed: () => void;
+}) {
   const [askDelete, setAskDelete] = useState(false);
   const [menu, setMenu] = useState(false);
+  // Sous-menu « Ranger dans un dossier » : la liste des dossiers remplace le
+  // menu principal (une seule feuille sur mobile).
+  const [pickFolder, setPickFolder] = useState(false);
+  const moveTo = async (folderId: string | null) => {
+    setMenu(false); setPickFolder(false);
+    if (folderId === (n.folder_id ?? null)) return;
+    const err = await moveNegotiationToFolder(n.id, folderId);
+    if (err) alert(err); else onChanged();
+  };
   const [notes, setNotes] = useState(n.notes);
   const [showNotes, setShowNotes] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
@@ -236,7 +369,7 @@ function NegoRow({ n, conflicts, sharedItemId, onChanged, onPushed }: { n: Negot
   }, [showConflict]);
 
   useEffect(() => {
-    if (!menu) return;
+    if (!menu) { setPickFolder(false); return; }
     const close = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenu(false); };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
@@ -336,6 +469,35 @@ function NegoRow({ n, conflicts, sharedItemId, onChanged, onPushed }: { n: Negot
           {menu && (
             // Mobile : feuille ancrée en bas d'écran — uniquement des ajouts max-md: (inertes sur PC).
             <div className="absolute right-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-56 text-sm max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:w-auto max-md:z-50 max-md:rounded-t-2xl max-md:rounded-b-none max-md:shadow-2xl max-md:max-h-[70vh] max-md:overflow-y-auto max-md:py-2">
+              {pickFolder ? (
+                <>
+                  <button onClick={() => setPickFolder(false)} className="w-full text-left px-4 py-2 max-md:py-3 text-xs font-semibold text-slate-500 hover:bg-slate-50 flex items-center gap-1">
+                    <ArrowLeft className="w-3 h-3" /> Ranger dans un dossier
+                  </button>
+                  <MenuBtn onClick={() => moveTo(null)}>
+                    <span className="flex items-center gap-2"><span className="w-4 shrink-0">{!n.folder_id && <Check className="w-4 h-4 text-brand-ocean" />}</span><span className="text-slate-500">Sans dossier</span></span>
+                  </MenuBtn>
+                  {folders.map((f) => (
+                    <MenuBtn key={f.id} onClick={() => moveTo(f.id)}>
+                      <span className="flex items-center gap-2"><span className="w-4 shrink-0">{n.folder_id === f.id && <Check className="w-4 h-4 text-brand-ocean" />}</span><Folder className="w-4 h-4 text-amber-500 shrink-0" /><span className="truncate">{f.name}</span></span>
+                    </MenuBtn>
+                  ))}
+                  <MenuBtn onClick={async () => {
+                    setMenu(false); setPickFolder(false);
+                    const id = await onNewFolder();
+                    if (id) await moveTo(id);
+                  }}>
+                    <span className="flex items-center gap-2 text-brand-ocean"><FolderPlus className="w-4 h-4 shrink-0" /> Nouveau dossier…</span>
+                  </MenuBtn>
+                </>
+              ) : (
+              <>
+              <MenuBtn onClick={() => setPickFolder(true)}>
+                <span className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2"><Folder className="w-4 h-4 text-amber-500 shrink-0" /> Ranger dans un dossier</span>
+                  <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                </span>
+              </MenuBtn>
               {!pushed && (
                 <MenuBtn onClick={async () => {
                   setMenu(false);
@@ -383,6 +545,8 @@ function NegoRow({ n, conflicts, sharedItemId, onChanged, onPushed }: { n: Negot
                 if (p != null && p.trim() !== '') { await updateNegotiation(n.id, { negotiated_price: Number(p) || null }); onChanged(); }
               }}>Modifier le prix négocié</MenuBtn>
               <MenuBtn danger onClick={() => { setMenu(false); setAskDelete(true); }}>Supprimer</MenuBtn>
+              </>
+              )}
             </div>
           )}
         </div>

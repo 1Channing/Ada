@@ -127,8 +127,18 @@ export interface Negotiation {
   transaction_id: string | null;
   /** URLs ORDONNÉES (storage admin-documents) — l'ordre = les pages du PDF. */
   photos: string[];
+  /** Dossier personnel (10/09) — null = « sans dossier ». */
+  folder_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Dossier de négociations, personnel, nommé librement (10/09). */
+export interface NegotiationFolder {
+  id: string;
+  name: string;
+  position: number;
+  created_at: string;
 }
 
 function uid(): string {
@@ -413,8 +423,58 @@ export async function listNegotiations(): Promise<Negotiation[]> {
     .neq('status', 'closed')
     .order('updated_at', { ascending: false });
   if (error) throw new Error(error.message);
-  // photos absent (migration pas encore passée) ou null → toujours un tableau.
-  return (data ?? []).map((r) => ({ ...r, photos: Array.isArray((r as { photos?: unknown }).photos) ? (r as { photos: string[] }).photos : [] })) as Negotiation[];
+  // photos absent (migration pas encore passée) ou null → toujours un tableau ;
+  // folder_id absent (SQL du 10/09 pas encore collé) → null.
+  return (data ?? []).map((r) => ({
+    ...r,
+    photos: Array.isArray((r as { photos?: unknown }).photos) ? (r as { photos: string[] }).photos : [],
+    folder_id: (r as { folder_id?: string | null }).folder_id ?? null,
+  })) as Negotiation[];
+}
+
+// ── Dossiers de négociation (10/09) ─────────────────────────────────────────
+// Personnels, nommés librement. Fail-open : table absente → liste vide et
+// message explicite à la première écriture (jamais de plantage de l'onglet).
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const sbAny = supabase as any;
+const FOLDERS_SQL_HINT = "Dossiers : SQL du 10/09 (negotiation_folders) à coller.";
+const folderErr = (e: { message: string } | null): string | null =>
+  !e ? null : /does not exist|schema cache|column/i.test(e.message) ? FOLDERS_SQL_HINT : e.message;
+
+export async function listNegotiationFolders(): Promise<NegotiationFolder[]> {
+  const { data, error } = await sbAny.from('negotiation_folders').select('id, name, position, created_at')
+    .order('position', { ascending: true }).order('created_at', { ascending: true });
+  if (error) return [];
+  return (data ?? []) as NegotiationFolder[];
+}
+
+export async function createNegotiationFolder(name: string): Promise<{ id: string | null; error: string | null }> {
+  const clean = name.trim();
+  if (!clean) return { id: null, error: 'Nom de dossier vide' };
+  const existing = await listNegotiationFolders();
+  const position = existing.reduce((m, f) => Math.max(m, f.position), -1) + 1;
+  const { data, error } = await sbAny.from('negotiation_folders').insert({ user_id: uid(), name: clean, position }).select('id').single();
+  return { id: (data as { id?: string } | null)?.id ?? null, error: folderErr(error) };
+}
+
+export async function renameNegotiationFolder(id: string, name: string): Promise<string | null> {
+  const clean = name.trim();
+  if (!clean) return 'Nom de dossier vide';
+  const { error } = await sbAny.from('negotiation_folders').update({ name: clean }).eq('id', id);
+  return folderErr(error);
+}
+
+/** Supprimer un dossier : ses négociations reviennent « sans dossier » (on delete set null). */
+export async function deleteNegotiationFolder(id: string): Promise<string | null> {
+  const { error } = await sbAny.from('negotiation_folders').delete().eq('id', id);
+  return folderErr(error);
+}
+
+/** Ranger une négociation dans un dossier (null = la sortir de son dossier). */
+export async function moveNegotiationToFolder(negotiationId: string, folderId: string | null): Promise<string | null> {
+  const { error } = await sbAny.from('negotiations').update({ folder_id: folderId, updated_at: new Date().toISOString() }).eq('id', negotiationId);
+  return folderErr(error);
 }
 
 export async function createNegotiation(
