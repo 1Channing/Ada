@@ -304,6 +304,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   études touchées repassent UNE fois en série 3 min après la vague, et le
   bilan de seconde chance est loggé. Rappel du samedi 12/09 : relire les 520
   après ces trois changements avant de toucher DAILY_CONCURRENCY.
+  RE-CONTRÔLE 12/09 (rappel tenu) : Zyte 520 par vague 386 (10/09) → 24
+  (11/09) → 18 (12/09), TOUS absorbés par les nouvelles attentes (aucun
+  « EN ÉCHEC », aucune seconde chance déclenchée, 69/69 études passées les
+  deux matins, 171 puis 175 nouvelles annonces contre 80 le 10/09) ;
+  AbortError 0 depuis le 08/09. VERDICT : on ne touche ni DAILY_CONCURRENCY
+  ni les heures. Trace résiduelle : /rav-4 → /rav4 encore 2×/vague (slug
+  APPRIS de la taxonomie « RAV 4 » qui reprenait le dessus faute de graine
+  humaine) — graine explicite rav4 → rav4 posée.
 - **BADGE « À SURVEILLER » SUR TOUTES LES COROLLA (question Channing 09/09)** :
   5 dossiers « profondeur en variation » (LC, LBC, MP, Gaspedaal, AS24 NL)
   nés de la mise à jour MI du 07/09 (Corolla GR Sport 2024 break : 10-12

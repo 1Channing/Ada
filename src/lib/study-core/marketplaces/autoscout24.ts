@@ -112,9 +112,13 @@ function brandToSlug(raw: string): string {
 // Gaps get filled empirically as ingestions learn real slugs (BACKLOG 2bis).
 const MODEL_SLUG_BY_ALNUM: Record<string, string> = {
   chr: 'c-hr',
-  // rav4 : plus de tiret — le site renvoie /rav-4 en 308 vers /rav4 EN
+  // rav4 : PAS de tiret — le site renvoie /rav-4 en 308 vers /rav4 EN
   // JETANT les filtres (fregfrom/fregto/fuel), preuve curl 09/09 sur .fr,
-  // .nl, .de. Le slug naïf est le bon.
+  // .nl, .de. Graine EXPLICITE (et non simple absence) : la taxonomie
+  // embarquée du site libelle le modèle « RAV 4 », dont le slug appris
+  // (rav-4) reprenait le dessus dès que la graine manquait — constat des
+  // logs du 12/09 (2 redirections par vague, rejouées sans perte).
+  rav4: 'rav4',
   landcruiser: 'land-cruiser',
   cx3: 'cx-3', cx5: 'cx-5', cx30: 'cx-30', cx60: 'cx-60',
   cclass: 'c-class', eclass: 'e-class', sclass: 's-class',
