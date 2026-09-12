@@ -17,9 +17,11 @@
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@supabase/supabase-js": "^2.57.4",
+    "express": "^5.1.0",
     "zod": "^4.2.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.3",
     "@types/node": "^20.17.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
