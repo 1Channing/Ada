@@ -282,6 +282,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **LEADS ÉQUIPE : DATE RÉELLE DE LA BAISSE** (constat Channing 12/09 : « je
+  n'avais pas 19 leads à traiter ce matin »). Le compteur datait une baisse
+  par last_seen_at, que le worker retouche à CHAQUE vague où l'annonce est
+  revue : une baisse vieille de huit jours, déjà traitée, ressortait comme
+  lead « du jour » tant que l'annonce restait en ligne (16 des 19). CLASSE :
+  la date d'un événement ne doit jamais être un champ qui bouge. Colonne
+  `dropped_at` posée par le worker quand la baisse fait rentrer l'annonce
+  dans la boîte (fail-open sans la colonne), RPC et front datent par
+  coalesce(dropped_at, first_seen_at). Un lead compte UNE fois, à la date du
+  dernier événement qui l'a mis dans la boîte. Anciennes baisses : datées de
+  leur première vue (transitoire). SQL : 20260912100000_leads_date_de_baisse.sql.
 - **DOSSIERS DE NÉGOCIATION** (demande Channing 10/09 : « classer mes
   négociations en cours par dossiers que je nommerai selon mes besoins »).
   Table `negotiation_folders` (personnelle, RLS own, nom libre, ordre) +

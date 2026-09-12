@@ -66,9 +66,14 @@ interface TeamLead {
   listing_url: string; title: string; price: number | null; previous_price: number | null;
   target_median: number | null; price_gap: number | null; site: string; kind: string;
   status: string; resolution: string | null; first_seen_at: string; last_seen_at: string;
+  /** SQL du 12/09 : date de la baisse qui a fait rentrer l'annonce dans la boîte. */
+  dropped_at?: string | null; lead_at?: string | null;
 }
-/** Date d'apparition du lead : première vue, ou dernière vue pour une baisse. */
-const leadAt = (l: TeamLead) => (l.kind === 'price_drop' ? l.last_seen_at : l.first_seen_at);
+/** Date d'entrée du lead dans la boîte : la baisse (dropped_at) sinon la
+ *  première vue. Jamais last_seen_at : il bouge à chaque vague où l'annonce
+ *  est revue, et datait « du jour » des baisses vieilles de huit jours
+ *  (constat Channing 12/09 : « je n'avais pas 19 leads à traiter »). */
+const leadAt = (l: TeamLead) => l.lead_at ?? l.dropped_at ?? l.first_seen_at;
 const dayKey = (iso: string) => new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris' }).format(new Date(iso));
 const LEAD_STATUS: Record<string, string> = { inbox: 'à traiter', saved: 'en négociation', cleared: 'vidée', dismissed: 'traitée' };
 const LEAD_RES: Record<string, string> = { trop_chere: 'trop chère', hors_criteres: 'hors critères', plus_disponible: 'plus disponible', pas_de_deal: 'pas de deal' };

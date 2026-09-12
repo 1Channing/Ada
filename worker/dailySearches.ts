@@ -707,11 +707,20 @@ async function runDailySearch(s: SearchRow): Promise<{ failedSites: string[] }> 
         // « pas de deal » (négociation supprimée en archivant, 07/09) : définitif aussi.
         const canReturn = prior.resolution !== 'hors_criteres' && prior.resolution !== 'pas_de_deal' && prior.status !== 'saved';
         const status = inRange && canReturn ? 'inbox' : prior.status;
-        await supabase.from('daily_search_hits').update({
+        const dropPatch = {
           kind: 'price_drop', previous_price: prior.price, price,
           target_median: median, price_gap: gap, status, last_seen_at: nowIso,
           ...(status === 'inbox' ? { resolution: null } : {}),
-        }).eq('id', prior.id);
+        };
+        // `dropped_at` (12/09) : la DATE de la baisse qui fait rentrer
+        // l'annonce dans la boîte — jamais retouchée ensuite (last_seen_at,
+        // lui, bouge à chaque vague : il faussait le compteur de leads).
+        // Colonne absente (SQL du 12/09 pas collé) → même écriture sans elle.
+        const withDate = status === 'inbox' ? { ...dropPatch, dropped_at: nowIso } : dropPatch;
+        const dropRes = await supabase.from('daily_search_hits').update(withDate as never).eq('id', prior.id);
+        if (dropRes.error && withDate !== dropPatch && /dropped_at|column|schema cache/i.test(dropRes.error.message)) {
+          await supabase.from('daily_search_hits').update(dropPatch).eq('id', prior.id);
+        }
         seen.set(listingUrl, { ...prior, price, status, resolution: status === 'inbox' ? null : prior.resolution });
         if (status === 'inbox') drops++;
       } else if (prior.resolution === 'plus_disponible' && prior.status === 'dismissed') {
