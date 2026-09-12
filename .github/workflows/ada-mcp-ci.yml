@@ -1,6 +1,12 @@
 name: ADA MCP CI
 
 on:
+  push:
+    branches:
+      - 'feat/ada-mcp-readonly-v1'
+    paths:
+      - 'ada-mcp/**'
+      - '.github/workflows/ada-mcp-ci.yml'
   pull_request:
     paths:
       - 'ada-mcp/**'
