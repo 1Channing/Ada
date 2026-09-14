@@ -39,7 +39,10 @@ Fail-open sur le schéma : si le SQL des dossiers (10/09) ou de la date de baiss
 ## Modèle de sécurité
 
 - La clé service-role Supabase ne vit que dans ce service (variable d'environnement Railway), jamais côté client ni dans GitHub.
-- Jeton dédié `ADA_MCP_API_KEY` obligatoire : sans lui le service **refuse de démarrer** ; toute requête `/mcp` sans le bon `Authorization: Bearer …` reçoit 401 (comparaison en temps constant).
+- Jeton dédié `ADA_MCP_API_KEY` obligatoire : sans lui le service **refuse de démarrer**. Deux portes, même secret, comparaison en temps constant :
+  - `POST /mcp` avec `Authorization: Bearer <ADA_MCP_API_KEY>` ;
+  - `POST /mcp/<ADA_MCP_API_KEY>` (URL secrète) pour les clients qui ne savent poser ni en-tête ni OAuth, comme le connecteur ChatGPT en « sans authentification ». L'URL vaut alors un mot de passe.
+  Tout le reste reçoit 401.
 - `ADA_MCP_ALLOWED_HOSTS` obligatoire (protection contre le rebinding DNS), `ADA_MCP_ALLOWED_ORIGINS` facultatif.
 - Aucun SQL libre, aucun accès générique aux tables, aucune écriture.
 - Le jeton statique est une porte pour UN usage interne. Si le connecteur doit servir plusieurs personnes, remplacer cette couche par OAuth/OIDC et une autorisation par utilisateur, sans toucher aux outils.
@@ -81,8 +84,8 @@ Renseigner les variables ci-dessus. Une fois le domaine attribué, mettre son no
 
 1. Déployer le service.
 2. Dans ChatGPT, activer le mode développeur / applications personnalisées (selon le plan).
-3. Créer le connecteur sur `https://<domaine>/mcp`.
-4. **Authentification** : le serveur attend un jeton Bearer. Les connecteurs ChatGPT n'acceptent pas toujours un en-tête statique (souvent « sans authentification » ou OAuth). Si c'est le cas dans ton espace, ne change que la couche d'authentification (`app.use('/mcp', …)`), jamais les outils.
+3. Créer le connecteur. Si ChatGPT propose un champ d'en-tête ou de jeton : URL `https://<domaine>/mcp` + jeton Bearer. Sinon (« sans authentification ») : URL `https://<domaine>/mcp/<ADA_MCP_API_KEY>`.
+4. Si ton espace exige OAuth, ne change que la couche d'authentification (`guardedMcp`), jamais les outils.
 5. Tester `ada_health`, puis une question étroite : « Quelles sont les annonces à traiter d'Antoine ce matin ? »
 
 ## Ce que la V1 ne fait pas, volontairement

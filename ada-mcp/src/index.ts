@@ -647,25 +647,35 @@ app.get('/health', (_req, res) => {
   });
 });
 
-app.use('/mcp', (req, res, next) => {
+/**
+ * Deux portes, même secret, même comparaison en temps constant :
+ *   - en-tête `Authorization: Bearer <ADA_MCP_API_KEY>` sur /mcp ;
+ *   - URL secrète /mcp/<ADA_MCP_API_KEY> — pour les clients qui ne savent
+ *     poser ni en-tête ni OAuth (connecteur ChatGPT en « sans
+ *     authentification »). L'URL vaut alors un mot de passe : ne la coller
+ *     que dans la configuration du connecteur.
+ */
+function tokenFromRequest(req: { header(name: string): string | undefined; params: Record<string, string | undefined> }): string {
   const authorization = req.header('authorization') || '';
   const prefix = 'Bearer ';
-  const token = authorization.startsWith(prefix) ? authorization.slice(prefix.length).trim() : '';
-
-  if (!token || !constantTimeTokenMatch(token, ADA_MCP_API_KEY)) {
-    res.setHeader('WWW-Authenticate', 'Bearer realm="ada-mcp"');
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  next();
-});
+  if (authorization.startsWith(prefix)) return authorization.slice(prefix.length).trim();
+  return (req.params.token || '').trim();
+}
 
 const handler = createMcpHandler(() => buildServer());
 const nodeHandler = toNodeHandler(handler);
 
-app.all('/mcp', (req, res) => {
+const guardedMcp = (req: Parameters<typeof nodeHandler>[0] & { header(name: string): string | undefined; params: Record<string, string | undefined>; body?: unknown }, res: Parameters<typeof nodeHandler>[1] & { setHeader(n: string, v: string): unknown; status(c: number): { json(b: unknown): unknown } }) => {
+  const token = tokenFromRequest(req);
+  if (!token || !constantTimeTokenMatch(token, ADA_MCP_API_KEY)) {
+    res.setHeader('WWW-Authenticate', 'Bearer realm="ada-mcp"');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
   void nodeHandler(req, res, req.body);
-});
+};
+
+app.all('/mcp', guardedMcp);
+app.all('/mcp/:token', guardedMcp);
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[ADA_MCP] Read-only MCP service listening on 0.0.0.0:${PORT}`);
