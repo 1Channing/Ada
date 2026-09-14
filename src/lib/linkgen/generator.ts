@@ -1,4 +1,5 @@
 import { getSiteAdapter } from '../study-core/marketplaces';
+import { canonicalizeAutoscoutModelPath } from '../study-core/marketplaces/autoscout24';
 import { resolveYearRange } from '../study-core/marketplaces/urlTemplate';
 import { sharedSupabase as supabase } from '../supabaseShared';
 import { ensureLearnedTaxonomy } from './taxonomy';
@@ -438,6 +439,9 @@ export async function generateSearchUrlsWithMemory(
       if (validatedUrl && scopeMatches && mapping) {
         let url = overrideVariableParams(validatedUrl, mapping, params);
         url = enforcePriceSort(url);
+        // AS24 : le chemin modèle d'une URL apprise passe par les graines
+        // humaines (/rav-4 → /rav4 : le site jette les filtres au 308, 14/09).
+        url = canonicalizeAutoscoutModelPath(url);
         // AS24: even a trim-scoped learned URL can predate kwd= (daily report:
         // GR SPORT study reused a kwd-less URL → 6% trim match). Setting kwd is
         // idempotent, so guarantee it. Marktplaats keeps the trim-less-row-only

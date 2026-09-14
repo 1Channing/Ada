@@ -273,6 +273,34 @@ function modelToSlug(raw: string): string {
   return MODEL_SLUG_BY_ALNUM[alnum] ?? LEARNED_MODEL_SLUG[alnum] ?? slug(raw);
 }
 
+/**
+ * Une URL AutoScout APPRISE (mémoire humaine) garde le chemin du jour de son
+ * ingestion : /lst/toyota/rav-4 était valide avant que le site ne le renvoie
+ * en 308 vers /rav4 en jetant les filtres (constat 09/09, encore 2
+ * redirections par vague le 14/09 malgré la graine posée sur la voie native).
+ * Même savoir pour les deux voies : le segment modèle d'une URL apprise
+ * passe par la table des graines humaines (et seulement elle — jamais un
+ * slug appris ou deviné, l'URL humaine reste la référence pour le reste).
+ */
+export function canonicalizeAutoscoutModelPath(url: string): string {
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)autoscout24\.[a-z]+$/i.test(u.hostname)) return url;
+    const segs = u.pathname.split('/');
+    const i = segs.indexOf('lst');
+    if (i < 0 || i + 2 >= segs.length || !segs[i + 2]) return url;
+    const current = segs[i + 2];
+    const alnum = current.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const seed = MODEL_SLUG_BY_ALNUM[alnum];
+    if (!seed || seed === current) return url;
+    segs[i + 2] = seed;
+    u.pathname = segs.join('/');
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 function mapFuel(raw: string): string {
   return FUEL_MAP[raw.trim().toUpperCase()] ?? '';
 }

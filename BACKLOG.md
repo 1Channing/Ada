@@ -282,6 +282,28 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **RELECTURE DES VAGUES 13-14/09 (demande Channing 14/09)** : 69/69 études
+  passées les deux matins, aucun site « ✗ », seconde chance jamais
+  déclenchée, Zyte 520 = 14 puis 20 (tous absorbés), AbortError 0.
+  (1) /rav-4 → /rav4 persistait (2×/vague) malgré la graine du 12/09 : la
+  voie MÉMOIRE réutilise l'URL humaine apprise avec son chemin d'avant le
+  308. Classe : `canonicalizeAutoscoutModelPath` (graines humaines
+  seulement) appliqué aux URLs apprises AS24 dans generator.ts.
+  (2) AutoScout FR à 0 sur 22 études : PREUVE curl — AS24 FR classe la
+  Suzuki Ignis 1.2 Dualjet Hybrid en « Essence »/« Autres », jamais
+  « Hybride » : fuel=2 → 0, sans fuel → 3. Les études Ignis (×6) en
+  « hybride » ne verront jamais AS24 FR ; décision Channing (carburant
+  « toutes » ou essence pour les micro-hybrides). Même famille probable :
+  Tucson / Sportage / RAV4 hybrides simples selon le site.
+  (3) Études qui ne montrent RIEN faute de médiane cible : YARIS CROSS
+  COLLECTION (trim_target « 1.5 Hybrid Executive » écarte 100 % des NL),
+  TOYOTA YARIS CROSS (« PREMIÈRE »), YARIS CROSS TRAIL (« 1.5 Hybrid
+  Adventure »), LEXUS NX EXECUTIVE (5 prix cibles < MEDIAN_SAMPLE 6 et
+  aucune observation MI) ; HYUNDAI TUCSON ×2 : puissance mini 325 ch (erreur
+  de saisie, aucun Tucson). Le bilan disait « fail-open : tout est
+  montré » alors que rien ne l'est → texte corrigé.
+  (4) Marktplaats « no listings via looksLikeListing » 19×/2 j sans
+  incidence sur les comptes (pages sans total déclaré) — bruit à dépiler.
 - **LEADS ÉQUIPE : DATE RÉELLE DE LA BAISSE** (constat Channing 12/09 : « je
   n'avais pas 19 leads à traiter ce matin »). Le compteur datait une baisse
   par last_seen_at, que le worker retouche à CHAQUE vague où l'annonce est

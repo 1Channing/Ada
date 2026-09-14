@@ -755,7 +755,7 @@ async function runDailySearch(s: SearchRow): Promise<{ failedSites: string[] }> 
   console.warn(
     `[DAILY] « ${name} » (${s.source_country}→${s.target_country}) : source ${sourceScrape.length} site(s)/${scanned} annonces [${perSite(sourceScrape)}], `
     + `cible ${targetScrape.length} site(s)/${targetPrices.length} prix [${perSite(targetScrape)}], ${fresh} nouvelle(s), ${drops} baisse(s)`
-    + (median != null ? ` · médiane cible ${median.toLocaleString('fr-FR')} € (${medianSource})` : ' · médiane cible inconnue (fail-open : tout est montré)')
+    + (median != null ? ` · médiane cible ${median.toLocaleString('fr-FR')} € (${medianSource})` : ' · médiane cible inconnue (RIEN de montré : annonces gardées hors écart jusqu\'à ce que la cible parle)')
     + (noUrl > 0 ? ` · ${noUrl} sans URL ignorées` : '')
     + (failedSites.length ? ` · ✗ ${failedSites.length} site(s) en échec` : ''),
   );
