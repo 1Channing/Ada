@@ -639,7 +639,8 @@ function buildServer(): McpServer {
       // segment : sinon on mélangerait des années et finitions différentes.
       const segKeys = new Set(kept.map(({ criteria }) => JSON.stringify([criteria.yearMin, criteria.yearMax, criteria.mileageMax, (criteria.trim || '').toLowerCase(), (criteria.fuel || '').toLowerCase()])));
       const medians = kept.map(({ row }) => row.price_median).filter((p): p is number => typeof p === 'number').sort((a, b) => a - b);
-      const homogeneous = segKeys.size === 1;
+      // Critères inconnus (étude supprimée, lecture bloquée) ≠ critères égaux : pas de cote unique.
+      const homogeneous = segKeys.size === 1 && kept.every(({ criteria }) => !criteria.scope.includes('inconnus'));
       return jsonToolResult({
         vehicle: `${brand.trim().toUpperCase()} ${model.trim().toUpperCase()}`,
         country: country.toUpperCase(),
@@ -648,7 +649,9 @@ function buildServer(): McpServer {
         overallMedianOfMedians: homogeneous && medians.length ? medians[Math.floor((medians.length - 1) / 2)] : null,
         overallNote: homogeneous
           ? 'Tous les relevés partagent les mêmes critères : la médiane des médianes est comparable.'
-          : `Relevés sur ${segKeys.size} jeux de critères différents (années, finitions, km) : pas de cote unique, lire chaque relevé avec ses critères.`,
+          : segKeys.size === 1
+            ? 'Critères des relevés non lisibles : pas de cote unique, lire chaque relevé avec son URL.'
+            : `Relevés sur ${segKeys.size} jeux de critères différents (années, finitions, km) : pas de cote unique, lire chaque relevé avec ses critères.`,
         snapshots: kept.map(({ row: r, criteria }) => ({
           site: r.site, scrapedAt: r.scraped_at,
           criteria,
