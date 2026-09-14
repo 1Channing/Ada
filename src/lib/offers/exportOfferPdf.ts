@@ -10,6 +10,11 @@ const ENCRE: [number, number, number] = [0x22, 0x34, 0x6e];
 const OCEAN: [number, number, number] = [0x2c, 0x5f, 0x9e];
 const GRIS: [number, number, number] = [0x64, 0x74, 0x8b];
 
+/** Nombres pour le PDF : l'espace fine insécable du format français (U+202F)
+ *  n'existe pas dans la police Helvetica de jsPDF et sortait en « / »
+ *  (constat Channing 14/09 : « 10/700 ») — espace normale à la place. */
+const pdfNum = (n: number) => Math.round(n).toLocaleString('fr-FR').replace(/[\u202f\u00a0]/g, ' ');
+
 async function loadLogo(): Promise<string | null> {
   try {
     const res = await fetch('/logo-mark.png');
@@ -30,13 +35,13 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
     { key: 'vin', label: 'Châssis (VIN)', w: 40, get: (v) => v.vin ?? '—' },
     { key: 'veh', label: 'Véhicule', w: 62, get: (v) => `${labelOf(v)}${bodyOf(v) ? ` · ${bodyOf(v)}` : ''}${v.color ? ` · ${v.color}` : ''}` },
     { key: 'reg', label: '1re immat.', w: 22, get: (v) => fmtDate(v.reg_date) },
-    { key: 'km', label: 'Km', w: 22, align: 'right', get: (v) => (v.km == null ? '—' : Math.round(v.km).toLocaleString('fr-FR')) },
+    { key: 'km', label: 'Km', w: 22, align: 'right', get: (v) => (v.km == null ? '—' : pdfNum(v.km)) },
     { key: 'pow', label: 'Ch', w: 14, align: 'right', get: (v) => (v.power_ch == null ? '—' : String(v.power_ch)) },
     { key: 'gb', label: 'Boîte', w: 20, get: (v) => (v.gearbox ? (v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox) : '—') },
     { key: 'co2', label: 'CO₂', w: 14, align: 'right', get: (v) => (v.co2 == null ? '—' : String(v.co2)) },
-    ...(doc.showDamages ? [{ key: 'dmg', label: 'Dommages (€)', w: 24, align: 'right' as const, get: (v: OfferVehicle) => (v.damages == null ? '—' : Math.round(v.damages).toLocaleString('fr-FR')) }] : []),
-    { key: 'price', label: 'Prix HT (€)', w: 26, align: 'right', get: (v) => (v.sale_price == null ? '—' : Math.round(v.sale_price).toLocaleString('fr-FR')) },
-    { key: 'rep', label: 'Inspection', w: 26, get: (v) => (v.report_url ? 'Voir le rapport' : '—') },
+    ...(doc.showDamages ? [{ key: 'dmg', label: 'Dommages (€)', w: 24, align: 'right' as const, get: (v: OfferVehicle) => (v.damages == null ? '—' : pdfNum(v.damages)) }] : []),
+    { key: 'price', label: 'Prix HT (€)', w: 30, align: 'right', get: (v) => (v.sale_price == null ? '—' : pdfNum(v.sale_price)) },
+    { key: 'rep', label: 'Inspection', w: 30, get: (v) => (v.report_url ? 'Voir le rapport' : '—') },
   ];
   const tableW = cols.reduce((a, c) => a + c.w, 0);
   const scale = Math.min(1, (W - 2 * margin) / tableW);
@@ -84,7 +89,7 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
       if (c.key === 'price') { pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...ENCRE); }
       if (c.key === 'rep' && v.report_url) {
         pdf.setTextColor(...OCEAN);
-        pdf.textWithLink(txt, x + 2, y + 6, { url: v.report_url });
+        pdf.textWithLink(txt, x + 4, y + 6, { url: v.report_url });
       } else {
         pdf.text(txt, c.align === 'right' ? x + c.w - 2 : x + 2, y + 6, { align: c.align === 'right' ? 'right' : 'left' });
       }
