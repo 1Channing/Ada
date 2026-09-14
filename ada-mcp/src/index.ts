@@ -103,38 +103,68 @@ const sinceIso = (days: number) => new Date(Date.now() - Math.max(0.05, days) * 
 
 // ── Personnes ────────────────────────────────────────────────────────────────
 
-interface Person { id: string; name: string; isAdmin: boolean }
-
-async function listPeople(): Promise<Person[]> {
-  const { data, error } = await supabase.from('profiles').select('id, display_name, is_admin').limit(200);
-  assertDb(error, 'Unable to list people');
-  return (data || []).map((p) => ({
-    id: String(p.id),
-    name: String((p as { display_name?: string }).display_name || '').trim() || 'sans nom',
-    isAdmin: Boolean((p as { is_admin?: boolean }).is_admin),
-  }));
+interface Person {
+  id: string; name: string; isAdmin: boolean;
+  /** Libellé UNIQUE : « Antoine » devient « Antoine (f27d) » quand deux comptes portent le même nom. */
+  label: string;
+  activity: { studies: number; inbox: number; openNegotiations: number };
 }
 
-/** « Antoine », « channing »… → identifiant de compte (insensible à la casse, préfixe accepté). */
-async function resolvePerson(person?: string): Promise<{ people: Person[]; match: Person | null; error?: string }> {
+/**
+ * Les comptes, avec leur ACTIVITÉ (études, annonces à traiter, négociations)
+ * et un libellé unique. Constat GPT 14/09 : deux profils « Antoine » ; le
+ * premier trouvé était le compte vide, « Antoine a zéro annonce » était faux.
+ */
+async function listPeople(): Promise<Person[]> {
+  const [profiles, studies, inbox, negos] = await Promise.all([
+    supabase.from('profiles').select('id, display_name, is_admin').limit(200),
+    supabase.from('daily_searches').select('user_id').eq('active', true).limit(5000),
+    supabase.from('daily_search_hits').select('user_id').eq('status', 'inbox').limit(5000),
+    supabase.from('negotiations').select('user_id').neq('status', 'closed').limit(5000),
+  ]);
+  assertDb(profiles.error, 'Unable to list people');
+  const count = (rows: Array<{ user_id?: unknown }> | null) => {
+    const m = new Map<string, number>();
+    for (const r of rows || []) { const k = String(r.user_id); m.set(k, (m.get(k) ?? 0) + 1); }
+    return m;
+  };
+  const cs = count(studies.data), ci = count(inbox.data), cn = count(negos.data);
+  const people: Person[] = (profiles.data || []).map((p) => {
+    const id = String(p.id);
+    return {
+      id,
+      name: String((p as { display_name?: string }).display_name || '').trim() || 'sans nom',
+      isAdmin: Boolean((p as { is_admin?: boolean }).is_admin),
+      label: '',
+      activity: { studies: cs.get(id) ?? 0, inbox: ci.get(id) ?? 0, openNegotiations: cn.get(id) ?? 0 },
+    };
+  });
+  const byName = new Map<string, number>();
+  for (const p of people) byName.set(p.name.toLowerCase(), (byName.get(p.name.toLowerCase()) ?? 0) + 1);
+  for (const p of people) p.label = (byName.get(p.name.toLowerCase()) ?? 0) > 1 ? `${p.name} (${p.id.slice(0, 4)})` : p.name;
+  return people;
+}
+
+/**
+ * « Antoine », « channing », « Antoine (f27d) »… → TOUS les comptes qui
+ * correspondent (homonymes compris : le filtre porte sur l'union, chaque
+ * ligne garde son libellé unique). Insensible à la casse, partiel accepté.
+ */
+async function resolvePerson(person?: string): Promise<{ people: Person[]; ids: string[] | null; matched: Person[]; error?: string }> {
   const people = await listPeople();
   const wanted = normalizeText(person)?.toLowerCase();
-  if (!wanted) return { people, match: null };
-  const exact = people.find((p) => p.name.toLowerCase() === wanted);
-  const partial = people.filter((p) => p.name.toLowerCase().includes(wanted));
-  const match = exact ?? (partial.length === 1 ? partial[0] : null);
-  if (!match) {
-    return {
-      people, match: null,
-      error: partial.length > 1
-        ? `Plusieurs personnes correspondent à « ${person} » : ${partial.map((p) => p.name).join(', ')}`
-        : `Personne inconnue : « ${person} ». Comptes : ${people.map((p) => p.name).join(', ')}`,
-    };
+  if (!wanted) return { people, ids: null, matched: [] };
+  const byLabel = people.filter((p) => p.label.toLowerCase() === wanted);
+  const exact = byLabel.length ? byLabel : people.filter((p) => p.name.toLowerCase() === wanted);
+  const matched = exact.length ? exact : people.filter((p) => p.name.toLowerCase().includes(wanted) || p.label.toLowerCase().includes(wanted));
+  if (matched.length === 0) {
+    return { people, ids: null, matched, error: `Personne inconnue : « ${person} ». Comptes : ${people.map((p) => p.label).join(', ')}` };
   }
-  return { people, match };
+  return { people, ids: matched.map((p) => p.id), matched };
 }
 
-const nameOf = (people: Person[], id: string) => people.find((p) => p.id === id)?.name ?? 'inconnu';
+const nameOf = (people: Person[], id: string) => people.find((p) => p.id === id)?.label ?? 'inconnu';
+const describePerson = (p: Person) => ({ name: p.label, admin: p.isAdmin, activeStudies: p.activity.studies, inboxToProcess: p.activity.inbox, openNegotiations: p.activity.openNegotiations });
 
 // ── Études quotidiennes ──────────────────────────────────────────────────────
 
@@ -289,10 +319,13 @@ function buildServer(): McpServer {
     'list_people',
     {
       title: 'ADA : les comptes',
-      description: "Liste les personnes de l'équipe ADA (nom d'affichage) pour filtrer les autres outils par personne.",
+      description: "Liste les comptes de l'équipe ADA avec leur activité (études actives, annonces à traiter, négociations en cours). Deux comptes peuvent porter le même prénom : le libellé unique les distingue.",
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async () => jsonToolResult({ people: (await listPeople()).map((p) => ({ name: p.name, admin: p.isAdmin })) }),
+    async () => jsonToolResult({
+      note: 'Deux comptes peuvent porter le même prénom : le libellé entre parenthèses les distingue ; l\'activité dit lequel est utilisé.',
+      people: (await listPeople()).map(describePerson),
+    }),
   );
 
   server.registerTool(
@@ -315,7 +348,7 @@ function buildServer(): McpServer {
       const who = await resolvePerson(person);
       if (who.error) return jsonToolResult({ error: who.error, count: 0, studies: [] });
       let query = supabase.from('daily_searches').select(STUDY_COLUMNS).order('label', { ascending: true }).limit(limit);
-      if (who.match) query = query.eq('user_id', who.match.id);
+      if (who.ids) query = query.in('user_id', who.ids);
       if (!includeInactive) query = query.eq('active', true);
       const b = normalizeText(brand); const m = normalizeText(model);
       if (b) query = query.ilike('brand', `%${b}%`);
@@ -352,7 +385,7 @@ function buildServer(): McpServer {
       let query = supabase.from('daily_searches').select(STUDY_COLUMNS).limit(10);
       if (studyId) query = query.eq('id', studyId);
       if (label) query = query.ilike('label', `%${label.trim()}%`);
-      if (who.match) query = query.eq('user_id', who.match.id);
+      if (who.ids) query = query.in('user_id', who.ids);
       const { data, error } = await query;
       assertDb(error, 'Unable to get study');
       const rows = (data || []) as unknown as StudyRow[];
@@ -418,14 +451,14 @@ function buildServer(): McpServer {
       }
       let query = supabase.from('daily_search_hits').select(HIT_COLUMNS).eq('status', 'inbox').neq('kind', 'seed')
         .order('last_seen_at', { ascending: false }).limit(limit);
-      if (who.match) query = query.eq('user_id', who.match.id);
+      if (who.ids) query = query.in('user_id', who.ids);
       if (studyId) query = query.eq('search_id', studyId);
       if (studyIds) query = query.in('search_id', studyIds);
       const { data, error } = await query;
       assertDb(error, 'Unable to list inbox');
       const rows = (data || []) as Record<string, unknown>[];
       const studies = await loadStudies(rows.map((r) => String(r.search_id)));
-      return jsonToolResult({ count: rows.length, hits: rows.map((h) => describeHit(h, studies, who.people)) });
+      return jsonToolResult({ accounts: who.matched.map(describePerson), count: rows.length, hits: rows.map((h) => describeHit(h, studies, who.people)) });
     },
   );
 
@@ -448,7 +481,7 @@ function buildServer(): McpServer {
       const shownFilter = 'status.in.(inbox,saved,cleared),and(status.eq.dismissed,resolution.not.is.null)';
       const base = () => {
         let q = supabase.from('daily_search_hits').select(HIT_COLUMNS_DATED).neq('kind', 'seed').or(shownFilter).limit(limit);
-        if (who.match) q = q.eq('user_id', who.match.id);
+        if (who.ids) q = q.in('user_id', who.ids);
         return q;
       };
       // Date d'entrée = dropped_at (baisse) sinon first_seen_at. Colonne
@@ -460,7 +493,7 @@ function buildServer(): McpServer {
         dated = false;
         let q2 = supabase.from('daily_search_hits').select(HIT_COLUMNS).neq('kind', 'seed').or(shownFilter)
           .gte('first_seen_at', since).order('first_seen_at', { ascending: false }).limit(limit);
-        if (who.match) q2 = q2.eq('user_id', who.match.id);
+        if (who.ids) q2 = q2.in('user_id', who.ids);
         const plainRes = await q2;
         assertDb(plainRes.error, 'Unable to list leads');
         rows = (plainRes.data || []) as Record<string, unknown>[];
@@ -471,7 +504,7 @@ function buildServer(): McpServer {
       const leads = rows.map((h) => describeHit(h, studies, who.people)).sort((a, b) => String(b.enteredAt).localeCompare(String(a.enteredAt)));
       const perPerson: Record<string, { total: number; priceDrops: number }> = {};
       for (const l of leads) { const p = perPerson[l.owner] ?? (perPerson[l.owner] = { total: 0, priceDrops: 0 }); p.total++; if (l.kind === 'baisse de prix') p.priceDrops++; }
-      return jsonToolResult({ since, count: leads.length, dropDatesReliable: dated, perPerson, leads });
+      return jsonToolResult({ accounts: who.matched.map(describePerson), since, count: leads.length, dropDatesReliable: dated, perPerson, leads });
     },
   );
 
@@ -499,13 +532,13 @@ function buildServer(): McpServer {
         .select('id,user_id,title,listing_url,asking_price,negotiated_price,notes,status,folder_id,created_at,updated_at')
         .order('created_at', { ascending: false }).limit(limit);
       if (!includeClosed) query = query.neq('status', 'closed');
-      if (who.match) query = query.eq('user_id', who.match.id);
+      if (who.ids) query = query.in('user_id', who.ids);
       let res = await query;
       if (res.error && isMissingSchema(res.error)) {
         let q2 = supabase.from('negotiations').select('id,user_id,title,listing_url,asking_price,negotiated_price,notes,status,created_at,updated_at')
           .order('created_at', { ascending: false }).limit(limit);
         if (!includeClosed) q2 = q2.neq('status', 'closed');
-        if (who.match) q2 = q2.eq('user_id', who.match.id);
+        if (who.ids) q2 = q2.in('user_id', who.ids);
         res = await q2 as typeof res;
       }
       assertDb(res.error, 'Unable to list negotiations');
@@ -540,19 +573,20 @@ function buildServer(): McpServer {
     'market_prices',
     {
       title: 'ADA : prix du marché (Market Intelligence)',
-      description: "Les derniers relevés de prix d'un véhicule sur un pays, site par site (médiane, quartiles, mini/maxi, taille d'échantillon, URL du relevé), depuis les tableaux du Market Intelligence et les vagues d'études. Utile pour « combien vaut une Yaris Cross aux Pays-Bas ».",
+      description: "Les derniers relevés de prix d'un véhicule sur un pays, site par site, CHACUN avec ses critères (années, finition, km, carburant), médiane, quartiles, échantillon et URL. Une cote unique n'est donnée que si tous les relevés partagent les mêmes critères. Utile pour « combien vaut une Yaris Cross 2022 aux Pays-Bas ».",
       inputSchema: z.object({
         brand: z.string().trim().min(1),
         model: z.string().trim().min(1),
         country: z.string().trim().min(2).max(3).describe('Code pays ISO (FR, NL, DE, DK, ES, IT, BE, SE, LT, HU…)'),
         fuel: z.string().trim().min(1).optional(),
         trim: z.string().trim().min(1).optional().describe('Finition du relevé (vide = relevé toutes finitions)'),
+        year: z.number().int().min(1990).max(2100).optional().describe('Ne garder que les relevés dont les critères couvrent cette année'),
         days: z.number().int().min(1).max(120).default(30),
         limit: z.number().int().min(1).max(100).default(30),
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ brand, model, country, fuel, trim, days, limit }) => {
+    async ({ brand, model, country, fuel, trim, year, days, limit }) => {
       let query = supabase.from('market_snapshots')
         .select('site,country,brand,model,fuel,trim,scraped_at,listing_count,sample_size,price_min,price_p25,price_median,price_p75,price_max,price_avg,currency,source_url,submitted_by,segment_key')
         .ilike('brand', brand.trim()).ilike('model', `%${model.trim()}%`).eq('country', country.toUpperCase())
@@ -569,20 +603,58 @@ function buildServer(): McpServer {
         const key = [row.site, row.fuel, row.trim, row.segment_key ?? ''].join('|');
         if (seen.has(key)) continue;
         seen.add(key); latest.push(row);
-        if (latest.length >= limit) break;
       }
-      const medians = latest.map((r) => r.price_median).filter((p): p is number => typeof p === 'number').sort((a, b) => a - b);
+      // CRITÈRES DU RELEVÉ explicites (constat GPT 14/09 : trim/fuel vides
+      // alors que l'URL portait année, finition, km). Segment 'study:<id>' →
+      // les critères de l'étude ; 'mi:a=…&b=…&km=…&t=…' → décodés ; '' →
+      // modèle entier.
+      const studyIds = latest.map((r) => String(r.segment_key ?? '')).filter((k) => k.startsWith('study:')).map((k) => k.slice(6));
+      const studies = studyIds.length ? await loadStudies(studyIds) : new Map<string, StudyRow>();
+      const criteriaOf = (r: Record<string, unknown>) => {
+        const key = String(r.segment_key ?? '');
+        if (key.startsWith('study:')) {
+          const st = studies.get(key.slice(6));
+          if (!st) return { scope: 'étude (critères inconnus)', yearMin: null, yearMax: null, mileageMax: null, trim: null, fuel: null, gearbox: null };
+          return {
+            scope: `étude « ${st.label} »`, yearMin: st.year_min, yearMax: st.year_max, mileageMax: st.mileage_max,
+            trim: (String(r.country) === st.target_country ? st.trim_target || st.trim : st.trim) || null,
+            fuel: st.fuel || null, gearbox: st.gearbox || null,
+          };
+        }
+        if (key.startsWith('mi:')) {
+          const p = new URLSearchParams(key.slice(3));
+          const num = (k: string) => (p.get(k) != null && /^\d+$/.test(p.get(k)!) ? Number(p.get(k)) : null);
+          return { scope: 'mise à jour MI à critères', yearMin: num('a'), yearMax: num('b'), mileageMax: num('km'), trim: p.get('t'), fuel: p.get('f'), gearbox: p.get('g') };
+        }
+        return { scope: 'modèle entier (toutes années, toutes finitions)', yearMin: null, yearMax: null, mileageMax: null, trim: String(r.trim || '') || null, fuel: String(r.fuel || '') || null, gearbox: null };
+      };
+      const described = latest.map((r) => ({ row: r, criteria: criteriaOf(r) }));
+      const kept = described.filter(({ criteria }) => {
+        if (year == null) return true;
+        if (criteria.yearMin != null && year < criteria.yearMin) return false;
+        if (criteria.yearMax != null && year > criteria.yearMax) return false;
+        return true;
+      }).slice(0, limit);
+      // Médiane globale UNIQUEMENT si tous les relevés partagent le même
+      // segment : sinon on mélangerait des années et finitions différentes.
+      const segKeys = new Set(kept.map(({ criteria }) => JSON.stringify([criteria.yearMin, criteria.yearMax, criteria.mileageMax, (criteria.trim || '').toLowerCase(), (criteria.fuel || '').toLowerCase()])));
+      const medians = kept.map(({ row }) => row.price_median).filter((p): p is number => typeof p === 'number').sort((a, b) => a - b);
+      const homogeneous = segKeys.size === 1;
       return jsonToolResult({
         vehicle: `${brand.trim().toUpperCase()} ${model.trim().toUpperCase()}`,
         country: country.toUpperCase(),
-        count: latest.length,
-        overallMedianOfMedians: medians.length ? medians[Math.floor((medians.length - 1) / 2)] : null,
-        snapshots: latest.map((r) => ({
-          site: r.site, fuel: r.fuel, trim: r.trim, scrapedAt: r.scraped_at,
+        count: kept.length,
+        segments: segKeys.size,
+        overallMedianOfMedians: homogeneous && medians.length ? medians[Math.floor((medians.length - 1) / 2)] : null,
+        overallNote: homogeneous
+          ? 'Tous les relevés partagent les mêmes critères : la médiane des médianes est comparable.'
+          : `Relevés sur ${segKeys.size} jeux de critères différents (années, finitions, km) : pas de cote unique, lire chaque relevé avec ses critères.`,
+        snapshots: kept.map(({ row: r, criteria }) => ({
+          site: r.site, scrapedAt: r.scraped_at,
+          criteria,
           listingCount: r.listing_count, sampleSize: r.sample_size,
           priceMin: r.price_min, priceP25: r.price_p25, priceMedian: r.price_median, priceP75: r.price_p75, priceMax: r.price_max, priceAvg: r.price_avg,
           currency: r.currency, sourceUrl: r.source_url, origin: r.submitted_by,
-          segment: r.segment_key ? String(r.segment_key) : 'modèle entier',
         })),
       });
     },
