@@ -282,6 +282,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **CONNECTEUR MCP LECTURE SEULE (PR #1 de Channing, réécrite 14/09)** :
+  la V1 faite avec ChatGPT lisait studies_v2 / study_runs (dernière ligne
+  17/07) → réponses vocales fausses. Recâblée dans `ada-mcp/` sur la
+  branche déployée : 9 outils sur daily_searches (+ bilan de vague depuis
+  worker_logs), daily_search_hits (à traiter, leads N jours = même compte
+  que la carte Équipe), negotiations + dossiers, market_snapshots,
+  truth_dossiers, profiles. Transport/auth de la PR gardés (jeton dédié
+  fail-closed, hôtes autorisés, service-role serveur). Fail-open sur les
+  colonnes dont le SQL n'est pas collé. Testé en local (clé anon : 401 sans
+  jeton, initialize, tools/list, market_prices, truth_status, ada_health).
+  À FAIRE PAR CHANNING : service Railway root /ada-mcp sur la branche
+  déployée ; vérifier que ChatGPT accepte un Bearer statique (sinon OAuth) ;
+  fermer/recibler la PR #1 (base main = 452 commits de retard).
 - **RELECTURE DES VAGUES 13-14/09 (demande Channing 14/09)** : 69/69 études
   passées les deux matins, aucun site « ✗ », seconde chance jamais
   déclenchée, Zyte 520 = 14 puis 20 (tous absorbés), AbortError 0.
