@@ -484,7 +484,15 @@ export function Equipe() {
                       );
                     })()}
                     {negos && (() => {
-                      const open = negos.filter((n) => n.user_id === a.id && n.status !== 'closed');
+                      // Date d'ajout visible (demande 14/09), plus récentes en premier.
+                      const open = negos.filter((n) => n.user_id === a.id && n.status !== 'closed')
+                        .sort((x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime());
+                      const addedOn = (iso: string) => {
+                        const d = new Date(iso);
+                        const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+                        const when = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                        return days <= 0 ? `ajoutée aujourd'hui` : days === 1 ? `ajoutée hier` : `ajoutée le ${when} · ${days} j`;
+                      };
                       const done = negos.filter((n) => n.user_id === a.id && n.status === 'closed').length;
                       if (open.length === 0) return (
                         <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">
@@ -513,6 +521,7 @@ export function Equipe() {
                                   <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5 shrink-0">envoyée en vente</span>
                                 )}
                               </div>
+                              <p className="text-[11px] text-slate-400" title={`Ajoutée le ${new Date(n.created_at).toLocaleString('fr-FR')}`}>{addedOn(n.created_at)}</p>
                               {n.notes?.trim() && (
                                 <p className="text-[11px] text-slate-500 whitespace-pre-wrap">{n.notes.trim().slice(0, 400)}</p>
                               )}
