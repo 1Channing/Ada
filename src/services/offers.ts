@@ -6,6 +6,7 @@
 import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import type { ColumnMapping, OfferVehicle } from '../lib/offers/parseSupplierFile';
+import type { OfferMarket } from '../lib/offers/marketCheck';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -16,6 +17,8 @@ export interface PriceRule { mode: 'margin' | 'fixed'; margin: number }
 export interface SupplierOffer {
   id: string; user_id: string; title: string; supplier: string; source_filename: string; layout: string;
   mappings: ColumnMapping[]; vehicles: OfferVehicle[]; price_rule: PriceRule; countries: string[];
+  /** Relevés « où vendre » : lot → pays → résultat (SQL du 15/09). */
+  market?: OfferMarket;
   notes: string; status: 'draft' | 'sent' | 'closed'; created_at: string; updated_at: string;
 }
 
@@ -33,8 +36,11 @@ export async function saveOffer(o: Partial<SupplierOffer> & { id?: string }): Pr
     mappings: o.mappings ?? [], vehicles: o.vehicles ?? [], price_rule: o.price_rule ?? { mode: 'margin', margin: 500 },
     countries: o.countries ?? [], notes: o.notes ?? '', status: o.status ?? 'draft', updated_at: new Date().toISOString(),
   };
+  const withMarket = o.market ? { ...payload, market: o.market } : payload;
   if (o.id) {
-    const { error } = await sb.from('supplier_offers').update(payload).eq('id', o.id);
+    let { error } = await sb.from('supplier_offers').update(withMarket).eq('id', o.id);
+    // Colonne market absente (SQL du 15/09 pas collé) : on enregistre le reste.
+    if (error && o.market && /market|column|schema cache/i.test(error.message ?? '')) ({ error } = await sb.from('supplier_offers').update(payload).eq('id', o.id));
     return { id: error ? null : o.id, error: error ? (isMissing(error) ? OFFERS_SQL_HINT : error.message) : null };
   }
   const { data, error } = await sb.from('supplier_offers').insert({ ...payload, user_id: useAuth.getState().userId }).select('id').single();

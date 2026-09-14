@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, FileSpreadsheet, FileText, Trash2, Loader2, ChevronDown, ChevronRight, ExternalLink, Check, CloudOff } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Upload, FileSpreadsheet, FileText, Trash2, Loader2, ChevronDown, ChevronRight, ExternalLink, Check, CloudOff, Search } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listRefBrandModels } from '../services/workflow';
 import {
@@ -9,6 +9,10 @@ import {
 import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
+import {
+  lotsOf, lotTargets, startLotJob, awaitLotJob, mergeCountry, verdictOf, COUNTRY_CAVEAT,
+  type OfferMarket, type OfferLot, type LotTarget, type SiteResult,
+} from '../lib/offers/marketCheck';
 
 /**
  * OFFRES FOURNISSEUR (page test, 14/09 — droit « offres » sur autorisation
@@ -16,14 +20,23 @@ import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, ty
  * un tableau ou un autre en un clic, bien organiser ») : la liste des offres
  * à gauche, l'offre ouverte à droite, ENREGISTREMENT AUTOMATIQUE à chaque
  * modification (plus de bouton à ne pas oublier). Import → nouvelle offre
- * ouverte et déjà enregistrée. L'étage « où vendre » (relevé des marchés)
- * s'active après validation de l'étalon humain.
+ * ouverte et déjà enregistrée. Étage « OÙ VENDRE » (demande Channing 14/09
+ * soir) : les véhicules retenus sont regroupés en lots, chaque lot a ses URLs
+ * de recherche par pays coché (vérifiables avant de lancer), le relevé part
+ * dans la file du worker et le verdict par pays (médiane TTC → HT équivalent
+ * face à notre HT) s'enregistre avec l'offre.
  */
 
 interface Draft {
   id?: string; title: string; supplier: string; source_filename: string; layout: string;
   mappings: ColumnMapping[]; vehicles: OfferVehicle[]; price_rule: PriceRule; countries: string[]; notes: string; status: SupplierOffer['status'];
+  market?: OfferMarket;
 }
+const VERDICT_CLASS: Record<string, string> = {
+  good: 'bg-emerald-50 text-emerald-800 border-emerald-200', warn: 'bg-amber-50 text-amber-800 border-amber-200',
+  bad: 'bg-red-50 text-red-800 border-red-200', idle: 'bg-slate-50 text-slate-500 border-slate-200',
+};
+const SITE_LABEL = (key: string) => key.replace(/^autoscout24_/, 'AS24 ').replace(/_/g, ' ');
 const EMPTY: Draft = { title: '', supplier: '', source_filename: '', layout: 'flat', mappings: [], vehicles: [], price_rule: { mode: 'margin', margin: 500 }, countries: ['FR', 'NL', 'DK'], notes: '', status: 'draft' };
 const todayFr = () => new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 const STATUS_LABEL: Record<SupplierOffer['status'], string> = { draft: 'brouillon', sent: 'envoyée', closed: 'clôturée' };
@@ -107,7 +120,8 @@ export function Offres() {
   /** Bascule d'une offre à l'autre en un clic — l'offre quittée est déjà enregistrée (ou le sera dans la seconde). */
   const open = (o: SupplierOffer) => {
     if (saveTimer.current && draft && dirty.current) { window.clearTimeout(saveTimer.current); dirty.current = false; void persist(draft); }
-    setDraft({ ...o }); setParsed(null); setFileBuf(null); setOverrides({}); setMsg(null); setSaveState({ kind: 'idle' });
+    setDraft({ ...o }); setParsed(null); setFileBuf(null); setOverrides({}); setMsg(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null);
+    setSurvey((s) => (s && s.done < s.total && s.current !== 'arrêté' ? s : null));
   };
   const remove = async (o: SupplierOffer) => {
     if (!confirm(`Supprimer l'offre « ${o.title || 'sans titre'} » ?`)) return;
@@ -126,6 +140,77 @@ export function Offres() {
   });
   const exportXlsx = () => { if (!draft) return; downloadBlob(buildOfferWorkbook(docOf()), `MC_Export_${slugFile(draft.title)}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); };
   const exportPdf = async () => { if (!draft) return; setBusy('pdf'); try { downloadBlob(await buildOfferPdf(docOf()), `MC_Export_${slugFile(draft.title)}.pdf`, 'application/pdf'); } catch (e) { setMsg(`PDF : ${e instanceof Error ? e.message : String(e)}`); } setBusy(null); };
+
+  // ── OÙ VENDRE ────────────────────────────────────────────────────────────
+  // Lots = véhicules retenus regroupés (marque, modèle, année, énergie, boîte).
+  // Les URLs par pays/site sont générées à la demande (cache par lot + pays
+  // cochés) et VISIBLES avant tout relevé. Le relevé enchaîne les lots un par
+  // un (les sites d'un lot en parallèle) pour ne pas noyer la file du worker,
+  // et écrit le résultat dans l'offre au fil de l'eau (autosave).
+  const lots = useMemo(() => (draft ? lotsOf(draft.vehicles) : []), [draft]);
+  const [targets, setTargets] = useState<Record<string, LotTarget[]>>({});
+  const targetsRef = useRef<Record<string, LotTarget[]>>({});
+  const [targetsOpen, setTargetsOpen] = useState<string | null>(null);
+  const [survey, setSurvey] = useState<{ done: number; total: number; current: string; errors: string[] } | null>(null);
+  const cancelSurvey = useRef(false);
+  const surveyRunning = !!survey && survey.done < survey.total && survey.current !== 'arrêté';
+  const targetKey = (lot: OfferLot) => `${lot.key}#${(draft?.countries ?? []).join(',')}`;
+  const ensureTargets = async (lot: OfferLot): Promise<LotTarget[]> => {
+    const k = targetKey(lot);
+    if (targetsRef.current[k]) return targetsRef.current[k];
+    const t = await lotTargets(lot, draft?.countries ?? []);
+    targetsRef.current = { ...targetsRef.current, [k]: t };
+    setTargets(targetsRef.current);
+    return t;
+  };
+  const toggleTargets = async (lot: OfferLot) => {
+    if (targetsOpen === lot.key) { setTargetsOpen(null); return; }
+    setTargetsOpen(lot.key);
+    await ensureTargets(lot);
+  };
+  const runSurvey = async (list: OfferLot[]) => {
+    if (!draft?.id) { setMsg('Offre pas encore enregistrée — réessaie dans une seconde.'); return; }
+    if (draft.countries.length === 0) { setMsg('Coche au moins un pays à relever.'); return; }
+    const offerId = draft.id;
+    const plan: Array<{ lot: OfferLot; t: LotTarget }> = [];
+    const skipped: string[] = [];
+    setSurvey({ done: 0, total: 0, current: 'préparation des URLs…', errors: [] });
+    for (const lot of list) {
+      const ts = await ensureTargets(lot);
+      for (const t of ts) {
+        if (t.url) plan.push({ lot, t });
+        else skipped.push(`${lot.label} · ${t.country} ${SITE_LABEL(t.site)} : pas d'URL${t.warnings[0] ? ` (${t.warnings[0]})` : ''}`);
+      }
+    }
+    if (plan.length === 0) { setSurvey(null); setMsg(`Aucune URL à relever. ${skipped[0] ?? ''}`.trim()); return; }
+    if (plan.length > 30 && !confirm(`${plan.length} recherches vont partir dans la file du worker (compte ≈ ${Math.ceil(plan.length / 2)} min au minimum). Continuer ?`)) { setSurvey(null); return; }
+    cancelSurvey.current = false;
+    setSurvey({ done: 0, total: plan.length, current: '', errors: skipped });
+    const byLot = new Map<string, Array<{ lot: OfferLot; t: LotTarget }>>();
+    for (const p of plan) byLot.set(p.lot.key, [...(byLot.get(p.lot.key) ?? []), p]);
+    let done = 0;
+    for (const items of byLot.values()) {
+      if (cancelSurvey.current) break;
+      setSurvey((s) => s && { ...s, current: items[0].lot.label });
+      await Promise.all(items.map(async ({ lot, t }) => {
+        const url = t.url as string;
+        let r: SiteResult;
+        try { const jobId = await startLotJob(url, lot); r = await awaitLotJob(jobId, t.site, url, { model: lot.model, strict: t.brandPageOnly }); }
+        catch (e) { r = { site: t.site, url, at: new Date().toISOString(), count: 0, total: null, median: null, p25: null, min: null, error: e instanceof Error ? e.message : String(e) }; }
+        done += 1;
+        setSurvey((s) => s && { ...s, done, errors: r.error ? [...s.errors, `${lot.label} · ${t.country} ${SITE_LABEL(t.site)} : ${r.error}`] : s.errors });
+        update((d) => (d.id !== offerId ? d : {
+          ...d,
+          market: { ...(d.market ?? {}), [lot.key]: { ...(d.market?.[lot.key] ?? {}), [t.country]: mergeCountry(d.market?.[lot.key]?.[t.country], t.country, r) } },
+        }));
+      }));
+    }
+    setSurvey((s) => s && { ...s, current: cancelSurvey.current ? 'arrêté' : 'terminé', done: cancelSurvey.current ? s.total : s.done });
+  };
+  const lastSurveyAt = useMemo(() => {
+    const dates = Object.values(draft?.market ?? {}).flatMap((byCountry) => Object.values(byCountry).map((c) => c.at)).sort();
+    return dates.length ? new Date(dates[dates.length - 1]) : null;
+  }, [draft]);
 
   return (
     <div className="space-y-4">
@@ -265,7 +350,7 @@ export function Offres() {
                     return <button key={c.code} onClick={() => update({ countries: on ? draft.countries.filter((x) => x !== c.code) : [...draft.countries, c.code] })} className={`text-xs px-2.5 py-1 rounded-full border ${on ? 'bg-brand-ocean text-white border-brand-ocean' : 'bg-white text-slate-600 border-slate-300'}`}>{c.label}</button>;
                   })}
                 </div>
-                <p className="text-[11px] text-amber-700 mt-1.5">Relevé des marchés par ADA (médiane par pays, concurrentes, où vendre) : s'active après validation de l'étalon humain.</p>
+                <p className="text-[11px] text-slate-500 mt-1.5">Le relevé se lance dans la section « Où vendre » ci-dessous, lot par lot, après vérification des recherches.</p>
               </div>
             </div>
 
@@ -309,6 +394,112 @@ export function Offres() {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            {/* Où vendre : lots × pays, URLs vérifiables, relevé, verdict */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+              <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+                <span className="text-sm font-semibold text-slate-800">Où vendre</span>
+                <span className="text-xs text-slate-500">
+                  {lots.length} lot{lots.length > 1 ? 's' : ''} · {draft.countries.length} pays
+                  {lastSurveyAt ? ` · dernier relevé ${lastSurveyAt.toLocaleDateString('fr-FR')} ${lastSurveyAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ' · aucun relevé'}
+                </span>
+                <div className="ml-auto flex items-center gap-2">
+                  {surveyRunning && <button onClick={() => { cancelSurvey.current = true; }} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600">Arrêter après ce lot</button>}
+                  <button onClick={() => void runSurvey(lots)} disabled={surveyRunning || lots.length === 0 || draft.countries.length === 0} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white font-medium disabled:opacity-50">
+                    {surveyRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} Relever tous les lots
+                  </button>
+                </div>
+              </div>
+              {survey && (
+                <div className="px-4 py-2 border-b border-slate-100 text-xs text-slate-600">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-brand-ocean transition-all" style={{ width: `${survey.total ? Math.round((survey.done / survey.total) * 100) : 0}%` }} /></div>
+                    <span className="tabular-nums">{survey.done}/{survey.total} recherches</span>
+                    <span className="text-slate-500 truncate max-w-[40%]">{survey.current}</span>
+                  </div>
+                  {survey.errors.length > 0 && (
+                    <details className="mt-1"><summary className="text-amber-700 cursor-pointer">{survey.errors.length} recherche{survey.errors.length > 1 ? 's' : ''} sans résultat</summary>
+                      {survey.errors.map((e, i) => <p key={i} className="text-amber-800 mt-0.5">{e}</p>)}
+                    </details>
+                  )}
+                </div>
+              )}
+              {lots.length === 0 ? (
+                <p className="px-4 py-6 text-xs text-slate-400 text-center">Retiens des véhicules ci-dessus : ils seront regroupés en lots (marque, modèle, année, énergie, boîte).</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="text-xs w-full min-w-[900px]">
+                    <thead><tr className="text-left text-slate-400 border-b border-slate-100">
+                      <th className="py-1.5 px-3">Lot</th><th className="py-1.5 pr-3 text-right">Véh.</th><th className="py-1.5 pr-3 text-right">Notre HT</th>
+                      {draft.countries.map((c) => <th key={c} className="py-1.5 pr-3">{OFFER_COUNTRIES.find((x) => x.code === c)?.label ?? c}{COUNTRY_CAVEAT[c] ? <span title={COUNTRY_CAVEAT[c]}> ⚠</span> : null}</th>)}
+                      <th className="py-1.5 pr-3"></th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {lots.map((lot) => {
+                        const opened = targetsOpen === lot.key;
+                        const ts = targets[targetKey(lot)];
+                        return (
+                          <Fragment key={lot.key}>
+                            <tr>
+                              <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{lot.label}</td>
+                              <td className="py-2 pr-3 text-right tabular-nums text-slate-600">{lot.count}</td>
+                              <td className="py-2 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(lot.ourPriceMin)} – ${fmtEur(lot.ourPriceMax)}` : fmtEur(lot.ourPriceAvg)}</td>
+                              {draft.countries.map((c) => {
+                                const res = draft.market?.[lot.key]?.[c];
+                                const v = verdictOf(lot.ourPriceAvg, res, c);
+                                return (
+                                  <td key={c} className="py-2 pr-3 align-top">
+                                    <span className={`inline-block px-1.5 py-0.5 rounded border text-[11px] ${VERDICT_CLASS[v.tone]}`}>{v.text}</span>
+                                    {res && res.medianTtc != null && (
+                                      <span className="block text-[10px] text-slate-500 mt-0.5 whitespace-nowrap">méd. {fmtEur(res.medianTtc)} TTC · {fmtEur(res.medianHt)} HT · {res.competitors} conc.</span>
+                                    )}
+                                    {res && res.medianTtc == null && Object.values(res.sites).some((s) => s.error) && (
+                                      <span className="block text-[10px] text-amber-700 mt-0.5">{Object.values(res.sites).find((s) => s.error)?.error}</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                              <td className="py-2 pr-3 whitespace-nowrap text-right">
+                                <button onClick={() => void toggleTargets(lot)} className="text-brand-ocean hover:underline mr-3">{opened ? 'Masquer' : 'Voir les recherches'}</button>
+                                <button onClick={() => void runSurvey([lot])} disabled={surveyRunning || draft.countries.length === 0} className="text-slate-700 hover:underline disabled:opacity-40">Relever ce lot</button>
+                              </td>
+                            </tr>
+                            {opened && (
+                              <tr className="bg-slate-50/60">
+                                <td colSpan={4 + draft.countries.length} className="px-3 py-2">
+                                  {!ts ? <span className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> génération des URLs…</span> : ts.length === 0 ? <span className="text-slate-400">Aucun site pour les pays cochés.</span> : (
+                                    <div className="grid md:grid-cols-2 gap-x-6 gap-y-1">
+                                      {ts.map((t) => {
+                                        const sr = draft.market?.[lot.key]?.[t.country]?.sites[t.site];
+                                        return (
+                                          <div key={`${t.country}-${t.site}`} className="flex items-start gap-2 min-w-0">
+                                            <span className="w-24 shrink-0 text-slate-500">{t.country} · {SITE_LABEL(t.site)}</span>
+                                            <div className="min-w-0 flex-1">
+                                              {t.url ? <a href={t.url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline break-all inline-flex items-center gap-1">{t.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 110)}{t.url.length > 118 ? '…' : ''} <ExternalLink className="w-3 h-3 shrink-0" /></a> : <span className="text-red-700">pas d'URL</span>}
+                                              {t.warnings.map((w, i) => <span key={i} className="block text-[10px] text-amber-700">{w}</span>)}
+                                              {t.brandPageOnly && <span className="block text-[10px] text-slate-500">page marque : seules les annonces dont le titre nomme « {lot.model} » comptent</span>}
+                                              {sr && <span className="block text-[10px] text-slate-500">{sr.error ? <span className="text-amber-700">{sr.error}</span> : <>{sr.count} annonce{sr.count > 1 ? 's' : ''}{sr.total != null && sr.total !== sr.count ? ` sur ${sr.total}` : ''} · méd. {fmtEur(sr.median)} · 1er quart {fmtEur(sr.p25)} · mini {fmtEur(sr.min)}</>} · {new Date(sr.at).toLocaleDateString('fr-FR')}</span>}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
+                Verdict = médiane des annonces du pays (TTC → HT avec la TVA locale) face à notre prix HT moyen du lot : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous.
+                {draft.countries.some((c) => COUNTRY_CAVEAT[c]) && <> ⚠ Danemark : {COUNTRY_CAVEAT.DK}.</>} Les recherches passent par la même file que le Market Intelligence : compte quelques minutes par lot.
+              </p>
             </div>
 
             <label className="block bg-white rounded-xl border border-slate-200 shadow-sm p-4 text-xs text-slate-600">Notes internes (jamais exportées)

@@ -297,10 +297,27 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   export Excel (deux feuilles, comme le livrable validé) et PDF paysage à
   la charte (logo-mark, encre/océan, liens rapports) — générés depuis les
   données, jamais rédigés. Table supplier_offers (document d'équipe, SQL
-  20260914230000). RESTE (après validation de l'étalon) : l'étage « où
-  vendre » — relevé ciblé des pays cochés (profondeur réduite), médiane
-  et concurrentes par pays et par véhicule, suivi envoyée/vendue → prix
-  réel contre médiane prédite. Jeux d'essai : les deux fichiers du 14/09.
+  20260914230000). Enregistrement automatique (1,2 s), liste à gauche /
+  offre à droite, en-têtes reconnus par contenu (3e fichier FCM, 240 véh.).
+  **ÉTAGE « OÙ VENDRE » LIVRÉ (14/09 nuit, demande Channing « lancer des
+  scrapings ciblés, vérifier les recherches, confronter les pays aux
+  besoins »)** : `lib/offers/marketCheck.ts` — véhicules retenus regroupés
+  en LOTS (marque, modèle, année, énergie, boîte ; km maxi = max × 1,1),
+  une URL par site des pays cochés générée par le MÊME générateur que les
+  études (mémoire + taxonomie), VISIBLE et cliquable avant tout relevé
+  (« Voir les recherches »), relevé lot par lot dans la file du worker
+  (edge ingest-url, criteria → snapshot MI au passage), stats sur les
+  annonces reconnues du modèle (même identité que le snapshot serveur ;
+  page MARQUE → le titre doit nommer le modèle, total du site ignoré),
+  médiane TTC → HT avec la TVA du pays face à notre HT moyen du lot :
+  bon ≥ 15 %, juste 5–15 %, trop cher en dessous. Danemark : taxe
+  d'immatriculation comprise, dit à l'écran (⚠), jamais caché. Résultat
+  enregistré dans l'offre (colonne `market`, SQL 20260915000000 — fail-open
+  sans elle). Preuves 14/09 : lots/identité/verdict/URLs FR-NL-DK en script
+  Node. RESTE : suivi envoyée/vendue → prix réel contre médiane prédite ;
+  seuil de marge réglable par pays ; relevé profondeur réduite (aujourd'hui
+  même profondeur que le MI, ≈ 1–3 min par site). Jeux d'essai : les trois
+  fichiers du 14/09.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
