@@ -19,6 +19,7 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { createClient } from '@supabase/supabase-js';
+import express from 'express';
 import * as z from 'zod/v4';
 
 const PORT = Number.parseInt(process.env.PORT || '3002', 10);
@@ -632,13 +633,13 @@ function constantTimeTokenMatch(provided: string, expected: string): boolean {
   return timingSafeEqual(providedBuffer, expectedBuffer);
 }
 
-const app = createMcpExpressApp({
-  host: '0.0.0.0',
-  allowedHosts: ALLOWED_HOSTS,
-  ...(ALLOWED_ORIGINS.length > 0 ? { allowedOrigins: ALLOWED_ORIGINS } : {}),
-});
-
-app.get('/health', (_req, res) => {
+// /health vit HORS de la protection Host/Origin de l'adaptateur MCP : le
+// contrôle de santé de Railway se présente avec son propre nom d'hôte
+// (healthcheck.railway.app) et restait bloqué en « Invalid Host » — le
+// déploiement ne devenait jamais actif (constat 14/09). La protection
+// couvre tout le reste, /mcp compris.
+const outer = express();
+outer.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'ada-mcp-readonly',
@@ -646,6 +647,13 @@ app.get('/health', (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+const app = createMcpExpressApp({
+  host: '0.0.0.0',
+  allowedHosts: ALLOWED_HOSTS,
+  ...(ALLOWED_ORIGINS.length > 0 ? { allowedOrigins: ALLOWED_ORIGINS } : {}),
+});
+outer.use(app);
 
 /**
  * Deux portes, même secret, même comparaison en temps constant :
@@ -677,7 +685,7 @@ const guardedMcp = (req: Parameters<typeof nodeHandler>[0] & { header(name: stri
 app.all('/mcp', guardedMcp);
 app.all('/mcp/:token', guardedMcp);
 
-app.listen(PORT, '0.0.0.0', () => {
+outer.listen(PORT, '0.0.0.0', () => {
   console.log(`[ADA_MCP] Read-only MCP service listening on 0.0.0.0:${PORT}`);
   console.log(`[ADA_MCP] Allowed hosts: ${ALLOWED_HOSTS.join(', ')}`);
   console.log(`[ADA_MCP] Database configured: true`);
