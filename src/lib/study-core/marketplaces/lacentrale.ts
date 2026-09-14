@@ -274,7 +274,9 @@ function readTotalCount(html: string): number | null {
 
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const warnings: string[] = [];
-  const brandLabel = (params.brand ?? '').trim().toUpperCase();
+  // Sans diacritiques : « ŠKODA » (référentiel) est inconnu de La Centrale,
+  // qui n'a que SKODA — étalon Elroq 14/09 : 0 annonce avec le Š.
+  const brandLabel = (params.brand ?? '').trim().toUpperCase().normalize('NFD').replace(/\p{M}/gu, '');
   const modelLabel = params.model ? modelLabelFor(params.brand ?? '', params.model) : null;
   if (params.model && !modelLabel) {
     warnings.push(`[LINKGEN_WARNING] LaCentrale: modèle "${params.model}" sans libellé commercial prouvé (lc:model:* à apprendre) — page marque, tri structuré en aval`);
@@ -450,7 +452,7 @@ export const lacentraleAdapter: SiteAdapter = {
   domain: 'lacentrale.fr',
   urlTemplate: URL_TEMPLATE,
 
-  mapBrand: (raw) => raw.trim().toUpperCase(),
+  mapBrand: (raw) => raw.trim().toUpperCase().normalize('NFD').replace(/\p{M}/gu, ''),
   mapModel: (raw) => modelLabelFor('', raw) ?? raw.trim(),
   mapFuel: (raw) => FUEL_CODE[raw.trim().toUpperCase()] ?? '',
   supportsParam: (p) => p === 'minPower',

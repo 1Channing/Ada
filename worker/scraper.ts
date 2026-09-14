@@ -1008,7 +1008,13 @@ function extractMarktplaatsL2(html: string): string | null {
 function buildLrpUrl(l2: string | null, h: Record<string, string>, offset: number, facetIds: string[] = []): string {
   const api = new URL('https://www.marktplaats.nl/lrp/api/search');
   api.searchParams.set('l1CategoryId', MARKTPLAATS_L1_CARS);
-  if (l2) api.searchParams.set('l2CategoryId', l2);
+  // « l2CategoryIds » (PLURIEL) — prouvé en direct le 14/09 (étalon humain,
+  // Ignis : ADA 8 910 vs humain 9). Au singulier, l'API IGNORE la marque ET
+  // les attributs : toute la catégorie autos revient (265 318), seule la
+  // requête texte filtrait encore — les études sans mot-clé (Ignis, RAV4
+  // PHEV) recevaient toutes les voitures des Pays-Bas dans leur médiane
+  // cible. Pluriel : Ignis 9 = 9, RAV4 PHEV 6 = 6 (même page que l'humain).
+  if (l2) api.searchParams.set('l2CategoryIds', l2);
   // Facette modèle du path (/f/{slug}/{id}/) — le filtre modèle exact du
   // site ; le q du hash reste alors la FINITION.
   for (const id of facetIds) api.searchParams.append('attributesById[]', id);

@@ -118,15 +118,26 @@ export function normalizeMarktplaatsListing(item: any): ScrapedListing | null {
 
   if (!title || !priceValue || priceValue <= 0) return null;
 
-  const attributes = item.attributes || [];
-  const mileageAttr =
-    attributes.find?.((a: any) => a.key === 'mileage' || a.key === 'kilometer-stand') || {};
-  const yearAttr = attributes.find?.((a: any) => a.key === 'year' || a.key === 'bouwjaar') || {};
-
-  const mileage = mileageAttr.value
-    ? parseInt(String(mileageAttr.value).replace(/\D/g, ''))
-    : null;
-  const year = yearAttr.value ? parseInt(String(yearAttr.value).replace(/\D/g, '')) : null;
+  // Attributs de l'API LRP (prouvés 14/09 sur un listing brut) : clés
+  // constructionYear, mileage, fuel, transmission, body, model. L'année ne
+  // s'appelle jamais « year » ici : elle restait nulle, donc le post-filtre
+  // année ne pouvait rien écarter ; sans « model », le post-filtre modèle
+  // structuré était fail-open — l'étalon Ignis a montré la médiane cible
+  // bâtie sur toutes les voitures des Pays-Bas.
+  const attributes: Array<{ key?: string; value?: unknown }> = Array.isArray(item.attributes) ? item.attributes : [];
+  const attr = (...keys: string[]): string | null => {
+    const found = attributes.find((a) => typeof a?.key === 'string' && keys.includes(a.key));
+    const v = found?.value;
+    return v == null || v === '' ? null : String(v);
+  };
+  const mileageRaw = attr('mileage', 'kilometer-stand');
+  const yearRaw = attr('constructionYear', 'year', 'bouwjaar');
+  const mileage = mileageRaw ? parseInt(mileageRaw.replace(/\D/g, ''), 10) || null : null;
+  const year = yearRaw ? parseInt(yearRaw.replace(/\D/g, ''), 10) || null : null;
+  const model = attr('model');
+  const fuel = attr('fuel');
+  const gearbox = attr('transmission');
+  const vehicleType = attr('body');
 
   const listingUrl =
     item.vipUrl ||
@@ -144,6 +155,10 @@ export function normalizeMarktplaatsListing(item: any): ScrapedListing | null {
     listing_url: listingUrl,
     description: item.description || '',
     price_type: 'one-off',
+    ...(model ? { model } : {}),
+    ...(fuel ? { fuel } : {}),
+    ...(gearbox ? { gearbox } : {}),
+    ...(vehicleType ? { vehicleType } : {}),
   };
 }
 

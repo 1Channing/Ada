@@ -282,6 +282,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
+  — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
+  (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
+  l'API interne LRP ignore `l2CategoryId` (singulier) — marque ET attributs
+  non appliqués, toute la catégorie autos (265 318) ; seule la requête
+  texte filtrait, donc les études à mot-clé passaient et celles sans
+  (Ignis, RAV4) recevaient toutes les voitures NL dans leur médiane cible
+  (Ignis : 3 501 €). Prouvé et corrigé : `l2CategoryIds` (pluriel) → Ignis
+  9 = 9, RAV4 6 = 6 avec les paramètres exacts d'ADA. (2) Le parseur LRP ne
+  lisait ni l'année (clé constructionYear, pas year) ni le modèle : post-
+  filtres année et modèle structuré fail-open sur Marktplaats → désormais
+  année, km, modèle, carburant, boîte, carrosserie lus dans attributes[].
+  (3) LA CENTRALE Elroq 0 = 0 : faux accord, l'humain avait recopié l'URL
+  d'ADA, brand « ŠKODA » avec Š inconnu du site → diacritiques retirés.
+  (4) YARIS CROSS COLLECTION / AutoScout NL : URL du RAV4 collée par erreur
+  avec 0 — à ressaisir. Sportage MP 14 vs 13 : un boost, acceptable.
+  Les URLs humaines AutoScout (grammaire chemin /kw_…/re_…/ft_…) donnent
+  les mêmes comptes que la grammaire requête d'ADA (6=6, 4=4, 16=16, 1=1).
 - **FIABILISER AVANT DE DÉVELOPPER AUTOUR (décision Channing 14/09, en
   réponse à « la fiabilité est-elle vraiment bonne ? » : mécanique fiable,
   vérité des résultats non mesurée — six défauts en sept jours, tous trouvés
