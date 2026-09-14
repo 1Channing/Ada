@@ -61,6 +61,7 @@ const LAYER_LABELS: Record<string, string> = {
 /** Étude quotidienne (Workflow) : les critères D'ORIGINE de la recherche
  *  mise en doute — affichés avant toute validation (demande Channing 26/08). */
 interface StudyRow {
+  id: string;
   label: string;
   brand: string;
   model: string | null;
@@ -77,6 +78,15 @@ interface StudyRow {
 }
 
 function studyForDossier(studies: StudyRow[], d: Dossier): StudyRow | null {
+  // 14/09 : un dossier né d'une vague porte l'étude EXACTE dans son segment
+  // (« study:<id> ») — la ressemblance marque/modèle affichait les critères
+  // d'une autre étude du même modèle (« Yaris Cross Trail » pour un dossier
+  // de « Yaris Cross Collection », constat Channing).
+  const seg = String((d.details as { segment_key?: unknown } | undefined)?.segment_key ?? '');
+  if (seg.startsWith('study:')) {
+    const exact = studies.find((s) => s.id === seg.slice(6));
+    if (exact) return exact;
+  }
   if (!d.brand) return null;
   const bk = brandKey(d.brand);
   const mk = d.model ? refModelKey(d.brand, d.model) : '';
@@ -170,7 +180,7 @@ export function TruthCenter() {
     } else {
       const st = await supabase
         .from('daily_searches')
-        .select('label, brand, model, fuel, trim, trim_target, year_min, year_max, mileage_max, gearbox, power_min, source_country, target_country')
+        .select('id, label, brand, model, fuel, trim, trim_target, year_min, year_max, mileage_max, gearbox, power_min, source_country, target_country')
         .eq('active', true)
         .limit(500);
       setStudies(((st.data ?? []) as unknown as StudyRow[]));

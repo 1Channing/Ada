@@ -282,6 +282,34 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **MCP V2 — EN ATTENTE (décision Channing 14/09 : « on se le garde au
+  chaud, il nous faut d'abord s'assurer des résultats »)**. Quand le GO
+  viendra, dans cet ordre : (1) `run_study` = relance d'une étude EXISTANTE
+  par le drapeau force_requested_at (même mécanisme que « Lancer
+  maintenant ») avec garde-fous : pas si dernière vague < 3 min, pas pendant
+  la vague du matin, N relances/heure max, trace « via connecteur » dans
+  worker_logs ; (2) `trace_listing` (URL → études qui l'ont vue / écartée,
+  RPC trace_listing_url existante, lecture seule) ; (3) PAS de création
+  d'étude à la voix sans confirmation explicite avec relecture des critères
+  (Tucson 325 ch, finition cible à trois mots) ; (4) pas de scrape à la
+  demande avant un compteur de quota Zyte lisible. Un seul jeton = pas
+  d'identité par personne : OAuth avant toute écriture multi-comptes.
+- **MARKTPLAATS : DÉGRAISSAGE DES URLS APPRISES (constat Channing 14/09,
+  Truth Center)** : (a) le dossier « profondeur » du segment
+  study:57301a51 (« YARIS CROSS COLLECTION », finition cible « 1.5 Hybrid
+  Executive ») affichait les critères de « Yaris Cross Trail 2022 » —
+  studyForDossier choisissait par marque/modèle ; désormais par l'id du
+  segment. (b) L'URL apprise portait la facette modèle (13882) mais PAS le
+  carburant (13838) que la native sait poser → « carburant non exprimé ».
+  CLASSE : sur Marktplaats la native gagne dès qu'elle exprime strictement
+  plus de facettes serveur que l'URL apprise (`mpFacetIds`), en plus de la
+  forme morte « #q: ». (c) Suzuki Ignis ×4 et Lexus NX ×6 servis en forme
+  morte « #q:suzuki+ignis » (page toutes-autos, hash jamais envoyé) faute
+  de slug marque : 21 marques ajoutées à BRAND_MAP, chacune PROUVÉE en direct
+  le 14/09 (/l/auto-s/<slug>/ = page marque filtrée avec facettes). Native
+  Ignis désormais /l/auto-s/suzuki/q/ignis/f/hybride-elektrisch-benzine/
+  13838/ (63 résultats en direct). Note : mpNormalize écrit « 1.5 » en
+  « 15 » — prouvé équivalent sur le site (83 = 83), laissé tel quel.
 - **CONNECTEUR MCP LECTURE SEULE (PR #1 de Channing, réécrite 14/09)** :
   la V1 faite avec ChatGPT lisait studies_v2 / study_runs (dernière ligne
   17/07) → réponses vocales fausses. Recâblée dans `ada-mcp/` sur la

@@ -58,6 +58,15 @@ const BRAND_MAP: Record<string, string> = {
   SEAT: 'seat',
   CITROEN: 'citroen',
   OPEL: 'opel',
+  // 14/09 (constat Channing : Ignis servi en forme morte « #q:suzuki+ignis »
+  // — le hash n'atteint jamais le serveur, page « toutes autos »). Chaque
+  // slug ci-dessous a été PROUVÉ en direct le 14/09 : /l/auto-s/<slug>/ rend
+  // une page marque filtrée (compte < 30 000) avec ses facettes /f/.
+  SUZUKI: 'suzuki', LEXUS: 'lexus', CUPRA: 'cupra', DACIA: 'dacia', DS: 'ds',
+  FIAT: 'fiat', 'ALFA ROMEO': 'alfa-romeo', 'ALFA-ROMEO': 'alfa-romeo', JEEP: 'jeep',
+  MAZDA: 'mazda', MITSUBISHI: 'mitsubishi', SUBARU: 'subaru', POLESTAR: 'polestar',
+  TESLA: 'tesla', PORSCHE: 'porsche', MINI: 'mini', 'LAND ROVER': 'land-rover',
+  'LAND-ROVER': 'land-rover', JAGUAR: 'jaguar', BYD: 'byd', MG: 'mg', SMART: 'smart',
 };
 
 const MODEL_MAP: Record<string, string> = {

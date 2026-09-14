@@ -112,6 +112,20 @@ export function generateSearchUrls(params: LinkGenParams): LinkGenUrlResult[] {
 
 interface MpFacet { slug: string; id: string }
 
+/** Identifiants des facettes de chemin d'une URL Marktplaats (/f/slugs/ids/). */
+export function mpFacetIds(url: string): string[] {
+  try {
+    const u = new URL(url);
+    if (!u.hostname.includes('marktplaats.nl')) return [];
+    const segs = u.pathname.split('/').filter(Boolean);
+    const f = segs.indexOf('f');
+    if (f < 0 || f + 2 >= segs.length) return [];
+    return segs[f + 2].split('+').filter((id) => /^\d+$/.test(id));
+  } catch {
+    return [];
+  }
+}
+
 export function extractMarktplaatsModelFacet(rows: Array<Record<string, unknown>>): MpFacet | null {
   for (const row of rows) {
     const mapping = (row.validated_mapping ?? row.inferred_mapping) as InferredMapping | null;
@@ -471,10 +485,26 @@ export async function generateSearchUrlsWithMemory(
         // sait poser le modèle en FACETTE (13882 appris) et le carburant
         // (13838). Constat Bibliothèque : hybride + Yaris Cross rendait
         // « #q:yaris+cross » nu. La native ne gagne que si elle porte /f/.
-        if (site === 'MARKTPLAATS' && /#(?:[^|]*\|)*q:/.test(url) && !/\/f\//.test(url)) {
+        // 14/09 (constat Channing, Truth Center Yaris Cross) : l'URL apprise
+        // portait la facette modèle mais PAS la facette carburant (13838)
+        // que la native sait poser — carburant « non exprimé », profondeur
+        // incomparable. CLASSE : la native gagne dès qu'elle exprime
+        // STRICTEMENT PLUS de facettes serveur que l'URL apprise (les
+        // facettes apprises restant toutes présentes dans la native).
+        if (site === 'MARKTPLAATS') {
           const native = generateSearchUrl({ ...params, site }).url;
-          if (native && /\/f\//.test(native)) {
-            logs.push({ level: 'MAPPING', message: '[MAPPING_MEMORY] URL apprise en #q: texte remplacée par la voie native à facettes de chemin', data: { learned: url, native } });
+          const learnedIds = mpFacetIds(url);
+          const nativeIds = mpFacetIds(native);
+          const deadForm = /#(?:[^|]*\|)*q:/.test(url) && learnedIds.length === 0;
+          const nativeKnowsMore = nativeIds.length > learnedIds.length && learnedIds.every((id) => nativeIds.includes(id));
+          if (native && nativeIds.length > 0 && (deadForm || nativeKnowsMore)) {
+            logs.push({
+              level: 'MAPPING',
+              message: deadForm
+                ? '[MAPPING_MEMORY] URL apprise en #q: texte remplacée par la voie native à facettes de chemin'
+                : `[MAPPING_MEMORY] URL apprise remplacée par la voie native : facettes ${nativeIds.join('+')} contre ${learnedIds.join('+') || 'aucune'}`,
+              data: { learned: url, native },
+            });
             url = native;
           }
         }
