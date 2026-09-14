@@ -75,7 +75,7 @@ Créer un **nouveau service** Railway depuis le dépôt `1Channing/Ada`, sur la 
 - Root directory : `/ada-mcp`
 - Build : `npm install && npm run build`
 - Start : `npm start`
-- Node 20+
+- Node **22+** (imposé par `engines` et `.nvmrc` ; supabase-js ≥ 2.9x exige le WebSocket natif de Node 22 — sur Node 20 le service plante au démarrage). Si Railway garde Node 20, ajouter la variable `NIXPACKS_NODE_VERSION=22`.
 - Réseau public activé, health check `/health`
 
 Renseigner les variables ci-dessus. Une fois le domaine attribué, mettre son nom d'hôte (sans `https://`, sans chemin) dans `ADA_MCP_ALLOWED_HOSTS` et redéployer. Le point d'entrée MCP est `https://<domaine>/mcp`.
