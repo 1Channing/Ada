@@ -21,36 +21,47 @@ import * as XLSX from 'xlsx';
 
 export type OfferField =
   | 'vin' | 'brand' | 'model' | 'version' | 'reg_date' | 'km' | 'color' | 'fuel' | 'engine' | 'power'
-  | 'gearbox' | 'co2' | 'damages' | 'report_url' | 'location' | 'price_ht' | 'price_ttc' | 'vat' | 'import' | 'ignore';
+  | 'gearbox' | 'co2' | 'damages' | 'report_url' | 'location' | 'price_ht' | 'price_ttc' | 'vat' | 'import' | 'plate' | 'ignore';
 
 export const OFFER_FIELD_LABELS: Record<OfferField, string> = {
   vin: 'VIN / châssis', brand: 'Marque', model: 'Modèle', version: 'Version / ligne libre', reg_date: '1re immatriculation',
   km: 'Kilométrage', color: 'Couleur', fuel: 'Énergie', engine: 'Motorisation', power: 'Puissance (ch)', gearbox: 'Boîte',
   co2: 'CO₂ (g/km)', damages: 'Dommages / frais (€)', report_url: 'Rapport (lien)', location: 'Lieu de stockage',
-  price_ht: 'Prix fournisseur HT (€)', price_ttc: 'Prix fournisseur TTC (€)', vat: 'TVA récupérable', import: 'Import', ignore: '— ignorer —',
+  price_ht: 'Prix fournisseur HT (€)', price_ttc: 'Prix fournisseur TTC (€)', vat: 'TVA récupérable', import: 'Import', plate: 'Immatriculation (plaque)', ignore: '— ignorer —',
 };
 
-/** Synonymes d'en-tête → champ. Ordre = priorité (le premier qui matche gagne). */
+/** En-tête normalisé : minuscules, sans diacritiques ni ponctuation superflue. */
+const normHeader = (h: string) => h.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[()€:.]/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * Synonymes d'en-tête → champ, testés sur l'en-tête normalisé et en
+ * « contient » (troisième fichier réel, FCM Export 14/09 : « No. de
+ * chassis », « 1ière immatriculation », « Wholesale local (ttc) »,
+ * « Exportation Netto € », « Site de stockage » n'étaient pas reconnus par
+ * des règles en « commence par »). Ordre = priorité, le premier gagne.
+ */
 const HEADER_RULES: Array<[OfferField, RegExp]> = [
-  ['vin', /^(vin|vh ?code|ch[âa]ssis|chassis|n[°o] ?de ?s[ée]rie|serial)/i],
-  ['price_ht', /^(proposal|prix ?ht|price ?ht|prix ?net|net ?price|ht$|prix ?vente ?ht|prix ?achat ?ht)/i],
-  ['price_ttc', /^(prix ?ttc|price ?ttc|ttc$|prix ?public|gross ?price|prix$|price$)/i],
-  ['damages', /^(damages?|dommages?|estimation ?fre|fre ?ht|frais|remise ?en ?[ée]tat|schaden)/i],
-  ['report_url', /^(appraisal|rapport|report|inspection|expertise|dekra|url|lien)/i],
-  ['reg_date', /^(reg\.? ?date|date ?mec|mec|mise ?en ?circ|1[èe]?re? ?immat|first ?reg|immatriculation|ez$|erstzulassung)/i],
-  ['km', /^(km|kilom[ée]trage|mileage|kilometerstand|kilometers?)/i],
-  ['color', /^(colou?r|couleur|farbe|teinte)/i],
-  ['fuel', /^(energy|[ée]nergie|carburant|fuel|kraftstoff)/i],
-  ['engine', /^(engine|moteur|motorisation|motor)$/i],
-  ['power', /^(power|puissance|ch$|kw$|hp$|ps$|leistung)/i],
-  ['gearbox', /^(gearbox|bo[îi]te|transmission|getriebe|bv$)/i],
-  ['co2', /^co2/i],
-  ['location', /^(location|lieu|stock|storage|standort|d[ée]p[ôo]t|parc)/i],
-  ['vat', /^(tva|vat|mwst)/i],
-  ['import', /^(import|origine|origin)/i],
-  ['brand', /^(brand|marque|make|marke|constructeur)/i],
-  ['model', /^(model|mod[èe]le)$/i],
-  ['version', /^(version|mod[èe]le|modele|d[ée]signation|description|variante|ausf[üu]hrung|v[ée]hicule|vehicle)/i],
+  ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie)\b/],
+  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|erstzulassung|\bez\b|immatriculation)/],
+  ['plate', /(\bimmat|plaque|\bplate\b|kennzeichen|registration)/],
+  ['km', /(\bkm\b|kilom|mileage|kilometer)/],
+  ['co2', /co2/],
+  // Dommages AVANT les prix : « ESTIMATION FRE HT » (MeltingCars) contient « ht ».
+  ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden)/],
+  ['price_ht', /(proposal|\bht\b|\bnett?o?\b|export)/],
+  ['price_ttc', /(\bttc\b|wholesale|public|gross|\bprix\b|\bprice\b|\bpreis\b)/],
+  ['report_url', /(appraisal|rapport|report|inspection|expertise|dekra|\burl\b|\blien\b)/],
+  ['color', /(colou?r|couleur|farbe|teinte)/],
+  ['fuel', /(energy|energie|carburant|fuel|kraftstoff)/],
+  ['engine', /^(engine|moteur|motorisation|motor)$/],
+  ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung)/],
+  ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$)/],
+  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b)/],
+  ['vat', /(\btva\b|\bvat\b|mwst)/],
+  ['import', /(\bimport|origine|origin)/],
+  ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur)/],
+  ['model', /^(model|modele)$/],
+  ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle)/],
 ];
 
 /** Énergies telles qu'ADA les nomme (les fichiers parlent anglais, allemand, français). */
@@ -138,10 +149,27 @@ const yesNo = (v: unknown): boolean | null => {
 };
 
 export function guessField(header: string): OfferField {
-  const h = header.trim();
+  const h = normHeader(header);
   if (!h) return 'ignore';
   for (const [field, re] of HEADER_RULES) if (re.test(h)) return field;
   return 'ignore';
+}
+
+/**
+ * Marque depuis une ligne libre qui commence par elle (« BMW SERIE 2 218i… »,
+ * « CITROËN C3 Aircross… », « ALFA ROMEO TONALE… ») : la plus longue marque
+ * connue du référentiel qui ouvre la ligne ; sinon le premier mot. Rend la
+ * marque et le reste de la ligne.
+ */
+export function splitBrand(line: string, knownBrands: string[]): { brand: string; rest: string } {
+  const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/\s+/g, ' ').trim();
+  const up = norm(line);
+  const candidates = [...new Set(knownBrands.map(norm).filter(Boolean))].sort((a, b) => b.length - a.length);
+  for (const b of candidates) {
+    if (up === b || up.startsWith(`${b} `) || up.startsWith(`${b}-`)) return { brand: b, rest: line.trim().slice(b.length).replace(/^[\s-]+/, '') };
+  }
+  const first = up.split(' ')[0] ?? '';
+  return { brand: first, rest: line.trim().split(/\s+/).slice(1).join(' ') };
 }
 
 /** Décomposition d'une ligne libre « 600 T-GEN3 1.2 HYBRID TURBO 145CH PACK BVA » — règles lisibles, rien de deviné au-delà. */
@@ -233,7 +261,7 @@ export function parseSupplierWorkbook(buf: ArrayBuffer, knownModelsByBrand: Reco
       const f = fields[ci];
       if (!h) return;
       if (!mappingsByHeader.has(h)) mappingsByHeader.set(h, { header: h, field: f, sample: cell(v).slice(0, 40) });
-      if (f === 'ignore') { extras[h] = cell(v); return; }
+      if (f === 'ignore' || f === 'plate') { extras[h] = cell(v); return; }
       // Deux colonnes pour le même champ : la PREMIÈRE gagne (« Version » avant
       // « Trim »), la seconde est gardée en extras — rien n'est perdu.
       if (rec[f] != null) { extras[h] = cell(v); return; }
@@ -242,9 +270,13 @@ export function parseSupplierWorkbook(buf: ArrayBuffer, knownModelsByBrand: Reco
     if (Object.keys(rec).length === 0) continue;
     if (layout === 'flat' && rec.brand == null && rec.model == null && rec.version == null && rec.vin == null) continue;
 
-    const brand = cell(rec.brand) || currentBrand;
-    const versionLine = cell(rec.version) || cell(rec.model) || '';
-    const known = knownModelsByBrand[brand.toUpperCase()] ?? [];
+    let versionLine = cell(rec.version) || cell(rec.model) || '';
+    let brand = cell(rec.brand) || currentBrand;
+    if (!brand && versionLine) {
+      const sp = splitBrand(versionLine, Object.keys(knownModelsByBrand));
+      brand = sp.brand; versionLine = sp.rest || versionLine;
+    }
+    const known = knownModelsByBrand[brand.toUpperCase()] ?? knownModelsByBrand[brand.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()] ?? [];
     let model = cell(rec.model);
     // Colonne modèle du fournisseur (« ASTRA L », « DS 7 CROSSBACK / DS 7 »)
     // rapprochée du référentiel ADA quand il connaît la marque ; sinon la
@@ -256,6 +288,7 @@ export function parseSupplierWorkbook(buf: ArrayBuffer, knownModelsByBrand: Reco
     const power = toNumber(rec.power);
     const vin = cell(rec.vin) || null;
     if (!brand) warnings.push(`Ligne ${i + 1} : marque introuvable (${versionLine.slice(0, 40)}).`);
+    if (warnings.length > 12) { warnings.length = 12; warnings.push('… (avertissements suivants masqués)'); }
     vehicles.push({
       id: vin ?? `row-${i + 1}`,
       vin,
