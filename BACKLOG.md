@@ -307,6 +307,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   humain » compté à part (mapping trop large). Historique par semaine et par
   site. Channing fait les 5 recherches chaque semaine.
   truth_active_studies() rend désormais l'id (dossier ↔ étude exacte).
+  Ajouts du soir (retour Channing) : TOUS les critères de chaque étude tirée
+  affichés en puces (via truth_active_studies) ; RESCRAPE AUTOMATIQUE des 5
+  études au tirage et sur bouton (RPC truth_benchmark_force_run, SQL
+  20260914210000 : drapeau « Lancer maintenant » posable par tout compte,
+  seulement sur une étude de l'étalon en cours), guet des relevés frais
+  toutes les 15 s pendant 8 min, comptes ADA mis à jour au fil de l'eau,
+  fraîcheur du relevé affichée sur chaque ligne (« il y a 12 min »).
 - **MCP V2 — EN ATTENTE (décision Channing 14/09 : « on se le garde au
   chaud, il nous faut d'abord s'assurer des résultats »)**. Quand le GO
   viendra, dans cet ordre : (1) `run_study` = relance d'une étude EXISTANTE

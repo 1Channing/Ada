@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Loader2, RefreshCw, Check } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ExternalLink, Loader2, Check, Zap } from 'lucide-react';
 import {
-  BenchRow, isoWeek, listBenchWeek, drawBenchWeek, refreshAdaCounts, saveHumanCount, listBenchHistory, scoreWeeks,
+  BenchRow, BenchCriteria, isoWeek, listBenchWeek, drawBenchWeek, refreshAdaCounts, saveHumanCount, listBenchHistory, scoreWeeks,
+  loadBenchCriteria, forceRescrape,
 } from '../services/truthBenchmark';
 
 /**
@@ -17,6 +18,11 @@ export function TruthBenchmark() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Critères COMPLETS des études (toute l'équipe) pour vérifier avec les bons.
+  const [criteria, setCriteria] = useState<Map<string, BenchCriteria>>(new Map());
+  // Rescrape en cours : l'heure de la demande, les études déjà revenues.
+  const [rescrape, setRescrape] = useState<{ since: string; total: number; done: string[] } | null>(null);
+  const pollRef = useRef<number | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -26,7 +32,35 @@ export function TruthBenchmark() {
     setHistory(await listBenchHistory());
     setLoading(false);
   };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); void loadBenchCriteria().then(setCriteria); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current); }, []);
+
+  /**
+   * Rescrape automatique (demande 14/09) : les études tirées repartent tout de
+   * suite (le worker sonde le drapeau toutes les 30 s), puis on guette leurs
+   * relevés frais toutes les 15 s pendant 8 min et on met les comptes à jour
+   * au fur et à mesure. Le compte ADA est ainsi du même moment que le tien.
+   */
+  const launchRescrape = async () => {
+    const r = await forceRescrape(week);
+    if (r.error) setError(r.error);
+    if (!r.studies.length) return;
+    setRescrape({ since: r.requestedAt, total: r.studies.length, done: [] });
+    if (pollRef.current) window.clearInterval(pollRef.current);
+    const started = Date.now();
+    pollRef.current = window.setInterval(async () => {
+      const res = await refreshAdaCounts(week, r.requestedAt);
+      const w = await listBenchWeek(week);
+      if (!w.error) setRows(w.rows);
+      setRescrape((prev) => (prev ? { ...prev, done: res.fresh } : prev));
+      if (res.fresh.length >= r.studies.length || Date.now() - started > 8 * 60_000) {
+        if (pollRef.current) window.clearInterval(pollRef.current);
+        pollRef.current = null;
+        setRescrape((prev) => (prev ? { ...prev, done: res.fresh, total: prev.total } : prev));
+        window.setTimeout(() => setRescrape(null), 60_000);
+      }
+    }, 15_000);
+  };
 
   const draw = async () => {
     setBusy(true);
@@ -34,12 +68,11 @@ export function TruthBenchmark() {
     if (r.error) setError(r.error);
     await load();
     setBusy(false);
+    if (!r.error) await launchRescrape();
   };
   const refresh = async () => {
     setBusy(true);
-    const err = await refreshAdaCounts(week);
-    if (err) setError(err);
-    await load();
+    await launchRescrape();
     setBusy(false);
   };
 
@@ -64,8 +97,8 @@ export function TruthBenchmark() {
         </div>
         <div className="flex items-center gap-2">
           {rows.length > 0 && (
-            <button onClick={refresh} disabled={busy} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-300 hover:border-brand-ocean text-slate-700 disabled:opacity-50">
-              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Comptes ADA du jour
+            <button onClick={refresh} disabled={busy || !!rescrape} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-300 hover:border-brand-ocean text-slate-700 disabled:opacity-50" title="Relance les 5 études maintenant et met les comptes ADA à jour dès que leurs relevés arrivent">
+              {busy || rescrape ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />} Rescraper les 5 études maintenant
             </button>
           )}
           {rows.length === 0 && !loading && !error && (
@@ -77,6 +110,13 @@ export function TruthBenchmark() {
       </div>
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+      {rescrape && (
+        <p className={`text-xs rounded-lg px-3 py-2 border ${rescrape.done.length >= rescrape.total ? 'text-emerald-800 bg-emerald-50 border-emerald-200' : 'text-amber-800 bg-amber-50 border-amber-200'}`}>
+          {rescrape.done.length >= rescrape.total
+            ? `Rescrape terminé : ${rescrape.total} étude(s) avec des relevés frais — les comptes ADA sont de maintenant, tu peux comparer.`
+            : `Rescrape en cours — ${rescrape.done.length}/${rescrape.total} étude(s) revenue(s) (le worker part dans les 30 s, chaque étude prend 1 à 3 min). Les comptes se mettent à jour tout seuls.`}
+        </p>
+      )}
 
       {thisWeek && (
         <div className="grid sm:grid-cols-3 gap-3">
@@ -95,9 +135,22 @@ export function TruthBenchmark() {
           <div className="space-y-3">
             {byStudy.map(([searchId, list]) => (
               <div key={searchId} className="bg-white rounded-xl border border-slate-200 shadow-sm">
-                <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-2">
-                  <span className="font-semibold text-slate-800 text-sm">{list[0].search_label}</span>
-                  <span className="text-xs text-slate-400">{list.filter((r) => r.human_count != null).length}/{list.length} sites remplis</span>
+                <div className="px-4 py-2.5 border-b border-slate-100 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-800 text-sm">{list[0].search_label}</span>
+                    <span className="text-xs text-slate-400">{list.filter((r) => r.human_count != null).length}/{list.length} sites remplis</span>
+                    {rescrape && <span className={`text-[11px] ${rescrape.done.includes(searchId) ? 'text-emerald-700' : 'text-amber-700'}`}>{rescrape.done.includes(searchId) ? '· relevé frais' : '· rescrape…'}</span>}
+                  </div>
+                  {/* TOUS les critères, pour refaire la même recherche (demande 14/09). */}
+                  {(() => {
+                    const c = criteria.get(searchId);
+                    if (!c) return <p className="text-[11px] text-slate-400">Critères indisponibles (SQL du 14/09 : truth_active_studies avec id).</p>;
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {criteriaChips(c).map((chip) => <span key={chip} className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">{chip}</span>)}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="divide-y divide-slate-100">
                   {list.map((r) => <BenchLine key={r.id} row={r} onSaved={load} />)}
@@ -132,6 +185,22 @@ export function TruthBenchmark() {
   );
 }
 
+/** Chaque critère de l'étude, tel que le worker l'applique — rien d'omis. */
+function criteriaChips(c: BenchCriteria): string[] {
+  const out: string[] = [];
+  out.push(`${c.source_country} → ${c.target_country}`);
+  out.push(`Marque ${c.brand}`);
+  if (c.model) out.push(`Modèle ${c.model}`);
+  out.push(c.fuel ? `Carburant ${c.fuel}` : 'Carburant : tous');
+  out.push(c.year_min || c.year_max ? `Années ${c.year_min ?? '…'} – ${c.year_max ?? '…'}` : 'Années : toutes');
+  out.push(c.mileage_max != null ? `≤ ${c.mileage_max.toLocaleString('fr-FR')} km` : 'Km : sans limite');
+  out.push(c.power_min != null ? `≥ ${c.power_min} ch` : 'Puissance : toutes');
+  out.push(c.gearbox ? `Boîte ${c.gearbox}` : 'Boîte : toutes');
+  out.push(c.trim ? `Finition source « ${c.trim} »` : 'Finition source : aucune');
+  out.push(c.trim_target ? `Finition cible « ${c.trim_target} »` : c.trim ? `Finition cible : comme la source` : 'Finition cible : aucune');
+  return out;
+}
+
 function Tile({ label, value, sub, tone }: { label: string; value: string; sub: string; tone: 'good' | 'warn' | 'bad' | 'idle' }) {
   const cls = tone === 'good' ? 'border-emerald-200 bg-emerald-50/60 text-emerald-800' : tone === 'warn' ? 'border-amber-300 bg-amber-50/60 text-amber-800' : tone === 'bad' ? 'border-rose-300 bg-rose-50/60 text-rose-800' : 'border-slate-200 bg-white text-slate-700';
   return (
@@ -142,6 +211,11 @@ function Tile({ label, value, sub, tone }: { label: string; value: string; sub: 
     </div>
   );
 }
+
+const ageLabel = (iso: string) => {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  return min < 60 ? `il y a ${min} min` : min < 48 * 60 ? `il y a ${Math.round(min / 60)} h` : `il y a ${Math.round(min / 1440)} j`;
+};
 
 function BenchLine({ row, onSaved }: { row: BenchRow; onSaved: () => Promise<void> }) {
   const [count, setCount] = useState(row.human_count == null ? '' : String(row.human_count));
@@ -168,6 +242,7 @@ function BenchLine({ row, onSaved }: { row: BenchRow; onSaved: () => Promise<voi
         <span className="text-slate-400">ADA </span>
         <span className="font-semibold tabular-nums text-slate-800">{row.ada_count ?? '—'}</span>
         {row.ada_url && <a href={row.ada_url} target="_blank" rel="noreferrer" title={`Relevé ${row.ada_at ? new Date(row.ada_at).toLocaleString('fr-FR') : ''}`} className="inline-flex ml-1 text-brand-ocean align-middle"><ExternalLink className="w-3 h-3" /></a>}
+        {row.ada_at && <span className="ml-1 text-[10px] text-slate-400" title={new Date(row.ada_at).toLocaleString('fr-FR')}>{ageLabel(row.ada_at)}</span>}
       </div>
       <div className="flex items-center gap-1 whitespace-nowrap">
         <span className="text-slate-400">Toi</span>

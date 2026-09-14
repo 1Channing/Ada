@@ -10,7 +10,7 @@
  */
 import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
-import { listStudyUrls, listDailySearches, type DailySearch } from './workflow';
+import { listStudyUrls, listDailySearches, forceRunDailySearch, type DailySearch } from './workflow';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -47,9 +47,48 @@ async function candidateStudies(): Promise<DailySearch[]> {
   return rows.filter((s) => s.active);
 }
 
-/** Dernier relevé ADA par site pour une étude (segment study:<id>), dans les 3 derniers jours. */
-async function adaCounts(searchId: string): Promise<Map<string, { count: number; url: string | null; at: string }>> {
-  const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
+/** Critères COMPLETS des études actives (toute l'équipe, sans propriétaire) — pour vérifier à la main avec les bons critères. */
+export interface BenchCriteria {
+  id: string; label: string; brand: string; model: string | null; fuel: string | null; trim: string | null; trim_target: string | null;
+  year_min: number | null; year_max: number | null; mileage_max: number | null; gearbox: string | null; power_min: number | null;
+  source_country: string; target_country: string;
+}
+export async function loadBenchCriteria(): Promise<Map<string, BenchCriteria>> {
+  const { data, error } = await sb.rpc('truth_active_studies');
+  const out = new Map<string, BenchCriteria>();
+  if (error || !Array.isArray(data)) return out;
+  for (const r of data as BenchCriteria[]) if (r.id) out.set(r.id, r);
+  return out;
+}
+
+/**
+ * RESCRAPE des études tirées (demande 14/09 : des données fraîches, sinon
+ * trois véhicules vendus passent pour des erreurs). Pose le drapeau
+ * « Lancer maintenant » via la fonction d'équipe (n'importe quel compte,
+ * uniquement sur une étude de l'étalon en cours) ; repli sur mes propres
+ * études si le SQL n'est pas collé. Le worker sonde le drapeau toutes les 30 s.
+ */
+export async function forceRescrape(week: string): Promise<{ requestedAt: string; studies: string[]; error: string | null }> {
+  const { rows, error } = await listBenchWeek(week);
+  if (error) return { requestedAt: '', studies: [], error };
+  const ids = [...new Set(rows.map((r) => r.search_id))];
+  const requestedAt = new Date().toISOString();
+  const failed: string[] = [];
+  for (const id of ids) {
+    const r = await sb.rpc('truth_benchmark_force_run', { p_search: id, p_week: week });
+    if (!r.error && r.data === true) continue;
+    const err = await forceRunDailySearch(id);
+    if (err || r.error) failed.push(id);
+  }
+  return {
+    requestedAt, studies: ids,
+    error: failed.length ? `${failed.length} étude(s) non relançable(s) (SQL truth_benchmark_force_run du 14/09 à coller pour relancer celles des autres).` : null,
+  };
+}
+
+/** Dernier relevé ADA par site pour une étude (segment study:<id>) — depuis `since`, sinon 3 jours. */
+async function adaCounts(searchId: string, sinceIso?: string): Promise<Map<string, { count: number; url: string | null; at: string }>> {
+  const since = sinceIso ?? new Date(Date.now() - 3 * 86_400_000).toISOString();
   const { data } = await sb.from('market_snapshots').select('site,listing_count,source_url,scraped_at')
     .eq('segment_key', `study:${searchId}`).gte('scraped_at', since).order('scraped_at', { ascending: false }).limit(200);
   const out = new Map<string, { count: number; url: string | null; at: string }>();
@@ -102,21 +141,30 @@ export async function drawBenchWeek(week: string, count = 5): Promise<{ created:
   return { created: inserts.length, error: null };
 }
 
-/** Rafraîchit les comptes ADA de la semaine depuis les derniers relevés (l'humain compare au même jour). */
-export async function refreshAdaCounts(week: string): Promise<string | null> {
+/**
+ * Rafraîchit les comptes ADA de la semaine depuis les relevés postérieurs à
+ * `sinceIso` (le rescrape demandé) — ou les derniers relevés sans borne.
+ * Renvoie les études dont un relevé frais a été trouvé.
+ */
+export async function refreshAdaCounts(week: string, sinceIso?: string): Promise<{ fresh: string[]; error: string | null }> {
   const { rows, error } = await listBenchWeek(week);
-  if (error) return error;
+  if (error) return { fresh: [], error };
   const byStudy = new Map<string, BenchRow[]>();
   for (const r of rows) byStudy.set(r.search_id, [...(byStudy.get(r.search_id) ?? []), r]);
+  const fresh: string[] = [];
   for (const [searchId, list] of byStudy) {
-    const counts = await adaCounts(searchId);
+    const counts = await adaCounts(searchId, sinceIso);
+    if (counts.size === 0) continue;
+    fresh.push(searchId);
     for (const r of list) {
       const c = counts.get(r.site);
+      // Site absent du relevé frais (en échec) : on garde l'ancien compte mais
+      // on ne le date pas du jour — l'humain voit qu'il est vieux.
       if (!c) continue;
       await sb.from('truth_benchmarks').update({ ada_count: c.count, ada_url: c.url, ada_at: c.at }).eq('id', r.id);
     }
   }
-  return null;
+  return { fresh, error: null };
 }
 
 export async function saveHumanCount(id: string, humanCount: number | null, humanUrl: string, note: string): Promise<string | null> {
