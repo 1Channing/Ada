@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet } from 'lucide-react';
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
 import { canSeeTab, canSeeWorkflow, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
@@ -84,6 +84,7 @@ export function Layout({ children }: LayoutProps) {
     { path: '/market', label: 'Market Intelligence', icon: <LineChart className="w-4 h-4" />, tab: 'market' },
     { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" />, tab: 'veille' },
     { path: '/carte', label: 'Carte', icon: <MapIcon className="w-4 h-4" />, tab: 'carte' },
+    { path: '/offres', label: 'Offres', icon: <FileSpreadsheet className="w-4 h-4" />, tab: 'offres' },
   ];
   // Le Workflow reste visible dès qu'un de ses cinq onglets est permis —
   // la page masque elle-même les autres.

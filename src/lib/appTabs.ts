@@ -33,6 +33,9 @@ export const APP_TABS = [
   // Pas un onglet : le PANNEAU « Opportunités à contrôler » (Accueil + MI)
   // — même mécanisme de droits, le composant s'auto-masque (demande 30/08).
   { key: 'opportunites', label: 'Opportunités à contrôler', hint: 'Panneau de l’Accueil et du Market Intelligence — sur autorisation explicite, personne ne l’a par défaut' },
+  // Offres fournisseur (14/09) : import, normalisation, prix MC Export,
+  // export Excel/PDF à la charte — sur autorisation explicite (page test).
+  { key: 'offres', label: 'Offres fournisseur', hint: 'Importer une liste fournisseur, la normaliser, y poser nos prix et rééditer Excel/PDF à la charte — sur autorisation explicite' },
 ] as const;
 
 export type AppTabKey = (typeof APP_TABS)[number]['key'];
@@ -49,7 +52,7 @@ const LEGACY_GRANTS: Record<string, AppTabKey[]> = {
 /** Droits SUR AUTORISATION EXPLICITE (demande Channing 07/09 : « je ne veux
  *  pas que tout le monde ait accès aux opportunités ») : « rien d'enregistré
  *  = tout » ne les inclut PAS — seule une liste qui les nomme les accorde. */
-export const OPT_IN_TABS: AppTabKey[] = ['opportunites', 'carte:edition'];
+export const OPT_IN_TABS: AppTabKey[] = ['opportunites', 'carte:edition', 'offres'];
 
 /** Droits effectifs d'un compte non admin : NULL = tout sauf les droits sur
  *  autorisation explicite ; liste = ses clés fines (historiques développées). */
@@ -83,6 +86,7 @@ export function tabKeyOfPageKey(pageKey: string): AppTabKey | null {
     case 'market': return 'market';
     case 'veille': return 'veille';
     case 'carte': return 'carte';
+    case 'offres': return 'offres';
     default: return null;
   }
 }

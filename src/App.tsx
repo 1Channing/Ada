@@ -9,6 +9,7 @@ import { IngestionHistory } from './pages/IngestionHistory';
 import { MarketIntelligence } from './pages/MarketIntelligence';
 import { Workflow } from './pages/Workflow';
 import { Carte } from './pages/Carte';
+import { Offres } from './pages/Offres';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Veille } from './pages/Veille';
 import { TruthCenter } from './pages/TruthCenter';
@@ -82,6 +83,7 @@ function App() {
     if (p === '/market') return 'market';
     if (p === '/etudes' || p === '/workflow') return 'workflow';
     if (p === '/carte') return 'carte';
+    if (p === '/offres') return 'offres';
     if (p === '/veille') return 'veille';
     if (p === '/verite') return 'truth';
     if (p === '/telemetrie') return 'telemetrie';
@@ -97,6 +99,7 @@ function App() {
       case 'market': return <MarketIntelligence />;
       case 'workflow': return <Workflow />;
       case 'carte': return <Carte />;
+      case 'offres': return <Offres />;
       case 'veille': return <Veille />;
       case 'truth': return <TruthCenter />;
       case 'telemetrie': return <Telemetrie />;

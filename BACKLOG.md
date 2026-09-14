@@ -282,6 +282,25 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **OFFRES FOURNISSEUR — V0 LIVRÉE (14/09 soir, GO Channing « lance le code
+  seulement si tu es confiant que c'est LA solution »)**. Onglet « Offres »
+  (/offres) sur AUTORISATION EXPLICITE (clé `offres`, OPT_IN, page Équipe).
+  Import de n'importe quel Excel fournisseur (parseSupplierFile.ts,
+  déterministe et visible) : tableau plat OU blocs par marque avec en-tête
+  répétée et variable, colonnes reconnues par synonymes FR/EN/DE et
+  corrigeables à l'écran, ligne libre « MODELE » décomposée (puissance,
+  boîte, énergie) et modèle rapproché du référentiel ADA, énergies
+  canonisées, TVA récupérable / import / dommages lus, colonnes inconnues
+  gardées en extras. Éprouvé sur les deux fichiers réels du 14/09 (27 et 52
+  véhicules, 0 avertissement). Règle de prix (HT fournisseur + marge, TTC
+  → HT si TVA récupérable), sélection, prix modifiables, pays à relever,
+  export Excel (deux feuilles, comme le livrable validé) et PDF paysage à
+  la charte (logo-mark, encre/océan, liens rapports) — générés depuis les
+  données, jamais rédigés. Table supplier_offers (document d'équipe, SQL
+  20260914230000). RESTE (après validation de l'étalon) : l'étage « où
+  vendre » — relevé ciblé des pays cochés (profondeur réduite), médiane
+  et concurrentes par pays et par véhicule, suivi envoyée/vendue → prix
+  réel contre médiane prédite. Jeux d'essai : les deux fichiers du 14/09.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
