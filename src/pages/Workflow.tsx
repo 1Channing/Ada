@@ -11,6 +11,7 @@ import {
   checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
   traceListing, type ListingTrace,
 } from '../services/workflow';
+import { studyChecks } from '../lib/study-core/studyChecks';
 import { BODY_TYPES, bodyLabel } from '../lib/study-core/bodyTypes';
 import { humanListingUrl } from '../services/marketData';
 import { loadConfidence, CONFIDENCE_LABEL, type ConfidenceRow } from '../services/truthLoop';
@@ -202,6 +203,14 @@ function DailySearchesTab() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editing) return;
+    // Contrôle de paramétrage (14/09) : ce qui est PROUVÉ vider une étude
+    // arrête ou demande confirmation — avant que l'étude ne tourne à vide
+    // chaque matin (Tucson 325 ch, finition cible à trois mots, Ignis hybride).
+    const checks = studyChecks(editing);
+    const blocks = checks.filter((c) => c.level === 'block');
+    if (blocks.length) { setError(blocks.map((c) => c.text).join(' ')); return; }
+    const warns = checks.filter((c) => c.level === 'warn');
+    if (warns.length && !confirm(`Avant d'enregistrer :\n\n${warns.map((c) => `• ${c.text}`).join('\n\n')}\n\nEnregistrer quand même ?`)) return;
     const err = await saveDailySearch(editing as DailySearch);
     if (err) { setError(err); return; }
     setEditing(null); setError(null); reload();

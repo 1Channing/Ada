@@ -282,6 +282,31 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   et si le chemin change en perdant des paramètres, REJOUE sur le chemin
   final avec la requête d'origine + dossier « url_redirigee » (Truth Center).
   Mercedes `c-class` → 308 `classe-c` sur .fr (localisé, déjà géré).
+- **FIABILISER AVANT DE DÉVELOPPER AUTOUR (décision Channing 14/09, en
+  réponse à « la fiabilité est-elle vraiment bonne ? » : mécanique fiable,
+  vérité des résultats non mesurée — six défauts en sept jours, tous trouvés
+  par un humain). Trois briques LIVRÉES le 14/09 :
+  (1) QUATRE COMPTEURS À ZÉRO OBLIGATOIRE dans le digest du matin
+  (payload.fiabilite + résumé) : sites en ✗, études « médiane inconnue »,
+  dossiers url_incomplete vus le jour, URLs Marktplaats en forme morte.
+  Tuiles vert/rouge en tête du Truth Center + courbe 14 jours. Le 14/09 ils
+  valaient 0 / 4 / 4 / 10 ; attendus 0 / ≤4 / 0 / 0 dès la vague du 15.
+  (2) CONTRÔLE DE PARAMÉTRAGE À LA SAISIE (studyChecks.ts, form Workflow) :
+  bloque années/écart inversés et puissance ≥ 600 ch ; demande confirmation
+  pour puissance ≥ 300 ch, finition de ≥ 3 mots ou avec cylindrée, et
+  carburant hybride sur un modèle PROUVÉ classé essence par un site
+  (MILD_HYBRID_AS_PETROL : Suzuki Ignis / AutoScout FR). Sans preuve, pas
+  de règle. À faire : puissance maxi RÉELLE par modèle depuis les
+  observations MI (la requête dépasse le timeout, index à poser).
+  (3) ÉTALON HUMAIN HEBDOMADAIRE (onglet Truth Center « Étalon humain »,
+  table truth_benchmarks, SQL 20260914200000) : 5 études tirées au sort par
+  semaine ISO (tirage déterministe, modèles distincts, mêmes pour toute
+  l'équipe), une ligne par site et par côté avec le compte ADA du dernier
+  relevé (market_snapshots segment study:<id>) ; l'humain saisit son compte,
+  son URL, une remarque. Rappel = min(ADA, humain) / humain ; « ADA >
+  humain » compté à part (mapping trop large). Historique par semaine et par
+  site. Channing fait les 5 recherches chaque semaine.
+  truth_active_studies() rend désormais l'id (dossier ↔ étude exacte).
 - **MCP V2 — EN ATTENTE (décision Channing 14/09 : « on se le garde au
   chaud, il nous faut d'abord s'assurer des résultats »)**. Quand le GO
   viendra, dans cet ordre : (1) `run_study` = relance d'une étude EXISTANTE

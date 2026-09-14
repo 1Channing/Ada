@@ -310,6 +310,19 @@ export async function runDigest(reason: string): Promise<void> {
   const zyte = logs.filter((l) => /Zyte API error/.test(l.message)).length;
   const blocked = logs.filter((l) => /Blocked:|page de blocage/.test(l.message)).length;
   const legalFail = logs.filter((l) => /LEGAL_WATCH\].*(échec|credit)/.test(l.message)).length;
+  // QUATRE COMPTEURS À ZÉRO OBLIGATOIRE (décision Channing 14/09 : « on
+  // fiabilise avant de développer autour ») — chacun est un défaut trouvé par
+  // un humain cette semaine, jamais par ADA ; désormais ADA les compte
+  // elle-même chaque matin, et le Truth Center en garde la courbe.
+  const bilans = logs.filter((l) => /^\[DAILY\] « .+? » \(\w+→\w+\) : source/.test(l.message));
+  const sitesEnEchec = bilans.reduce((n, l) => n + (l.message.match(/\S+ ✗/g)?.length ?? 0), 0);
+  const medianesInconnues = bilans.filter((l) => /médiane cible inconnue/.test(l.message)).length;
+  const urlIncompletes = await q('truth_dossiers', (b) => b.select('id').eq('signal', 'url_incomplete').is('resolved_at', null).gte('last_seen_at', since));
+  const snapsDuJour = await q('market_snapshots', (b) => b.select('site,source_url').gte('scraped_at', since).like('segment_key', 'study:%').limit(3000));
+  const formesMortes = snapsDuJour.filter((r) => /marktplaats\.nl/.test(String(r.source_url ?? '')) && /#(?:[^|]*\|)*q:/.test(String(r.source_url)) && !/\/f\//.test(String(r.source_url))).length;
+  const fiabilite = { sites_en_echec: sitesEnEchec, medianes_inconnues: medianesInconnues, criteres_non_exprimes: urlIncompletes.length, formes_mortes: formesMortes };
+  const fiabiliteTotal = sitesEnEchec + medianesInconnues + urlIncompletes.length + formesMortes;
+
   const taxo = await q('linkgen_enum_mappings', (b) => b.select('site').gte('created_at', since).limit(2000));
   const taxoBySite: Record<string, number> = {};
   for (const t of taxo) taxoBySite[t.site] = (taxoBySite[t.site] ?? 0) + 1;
@@ -321,6 +334,7 @@ export async function runDigest(reason: string): Promise<void> {
     segments_douteux: doubtful.map((d) => ({ segment: `${d.brand} ${d.model} · ${d.site} ${d.country}`, score: d.score })),
     cas_dores_en_echec: golden.map((g) => `${g.site} · ${g.label} — ${g.last_detail}`),
     sites: { erreurs_zyte: zyte, pages_bloquees: blocked },
+    fiabilite,
     taxonomie_apprise: taxoBySite,
     veille_legale: legalFail > 0 ? `${legalFail} échec(s) (crédits API ?)` : 'ok',
     // Plafonds atteints non acquittés (règle Channing 07/09) — répétés ici
@@ -334,6 +348,9 @@ export async function runDigest(reason: string): Promise<void> {
     `${doubtful.length} segment(s) douteux`,
     golden.length ? `${golden.length} cas doré(s) EN ÉCHEC` : 'cas dorés OK',
     zyte + blocked ? `${zyte} erreur(s) Zyte, ${blocked} blocage(s)` : 'sites OK',
+    fiabiliteTotal === 0
+      ? 'fiabilité 0/0/0/0 OK'
+      : `FIABILITÉ ✗ sites ${sitesEnEchec} · médiane inconnue ${medianesInconnues} · critère non exprimé ${urlIncompletes.length} · forme morte ${formesMortes}`,
     ...(capacity.length ? [`${capacity.length} PLAFOND(S) ATTEINT(S)`] : []),
   ].join(' · ');
   const { error } = await sb.from('truth_digests').upsert({ day, generated_at: new Date().toISOString(), summary, payload }, { onConflict: 'day' });

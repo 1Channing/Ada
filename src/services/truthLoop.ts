@@ -17,6 +17,8 @@ export interface TruthDigest {
     annonces?: { nouvelles: number; baisses: number; par_site: Record<string, number> };
     dossiers?: { ouverts: number; nouveaux: string[]; resolus: number };
     segments_douteux?: Array<{ segment: string; score: number }>;
+    /** Quatre compteurs à zéro obligatoire (14/09). */
+    fiabilite?: { sites_en_echec: number; medianes_inconnues: number; criteres_non_exprimes: number; formes_mortes: number };
     cas_dores_en_echec?: string[];
     sites?: { erreurs_zyte: number; pages_bloquees: number };
     taxonomie_apprise?: Record<string, number>;
@@ -48,6 +50,14 @@ export async function loadLatestDigest(): Promise<TruthDigest | null> {
   const { data, error } = await (supabase as any).from('truth_digests').select('*').order('day', { ascending: false }).limit(1);
   if (error || !data?.length) return null;
   return data[0] as TruthDigest;
+}
+
+/** Les N derniers digests (courbe des compteurs de fiabilité), du plus récent au plus ancien. */
+export async function loadDigestHistory(days = 14): Promise<TruthDigest[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).from('truth_digests').select('*').order('day', { ascending: false }).limit(days);
+  if (error || !data?.length) return [];
+  return data as TruthDigest[];
 }
 
 /** Badge par segment, clé `${site}|${country}|${BRAND}|${MODEL}`. */

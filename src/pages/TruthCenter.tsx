@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw, BookOpen, AlertTriangle, Sunrise, Star, Trash2 } from 'lucide-react';
-import { loadLatestDigest, loadGolden, deleteGolden, type TruthDigest, type GoldenRow } from '../services/truthLoop';
+import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw, BookOpen, AlertTriangle, Sunrise, Star, Trash2, ClipboardCheck } from 'lucide-react';
+import { loadLatestDigest, loadDigestHistory, loadGolden, deleteGolden, type TruthDigest, type GoldenRow } from '../services/truthLoop';
+import { TruthBenchmark } from '../components/TruthBenchmark';
 import { capped } from '../services/capacity';
 import { SiteLibrary } from '../components/SiteLibrary';
 import { supabase } from '../lib/supabase';
@@ -149,10 +150,12 @@ export function TruthCenter() {
   // et qu'un humain doit confirmer ; « Bibliothèque » (03/09, ex-Lacunes) =
   // le savoir d'un site à plat — registre des critères, marques/modèles vs
   // référentiel, santé — et le geste pour combler à l'endroit du trou.
-  const [tab, setTab] = useState<'doutes' | 'lacunes' | 'dores'>('doutes');
+  const [tab, setTab] = useState<'doutes' | 'lacunes' | 'dores' | 'etalon'>('doutes');
   // Briques 3b/4 (GO 03/09) : digest du matin + cas dorés — écrits par le
   // worker en fin de vague, lus ici ; null tant que la migration n'est pas collée.
   const [digest, setDigest] = useState<TruthDigest | null>(null);
+  // Quatre compteurs à zéro obligatoire (14/09) + leur courbe sur 14 jours.
+  const [digestHistory, setDigestHistory] = useState<TruthDigest[]>([]);
   const [golden, setGolden] = useState<GoldenRow[]>([]);
   const [digestOpen, setDigestOpen] = useState(false);
 
@@ -160,6 +163,7 @@ export function TruthCenter() {
     setLoading(true);
     setError(null);
     void loadLatestDigest().then(setDigest);
+    void loadDigestHistory(14).then(setDigestHistory);
     void loadGolden().then(setGolden);
     const { data, error: err } = await supabase
       .from('truth_dossiers')
@@ -278,12 +282,54 @@ export function TruthCenter() {
         );
       })()}
 
-      {/* Les deux visages de la vérité : doutes remarqués / lacunes assumées. */}
-      <div className="flex gap-1 border-b border-slate-200">
+      {/* QUATRE COMPTEURS À ZÉRO OBLIGATOIRE (décision Channing 14/09) : un
+          site en échec, une étude sans médiane, une URL à critère non
+          exprimé, une URL en forme morte = une étude qui ment ou se tait.
+          Le worker les compte chaque matin ; ici la valeur du jour et la
+          courbe sur 14 jours. Absent tant que le worker n'a pas redéployé. */}
+      {digest?.payload?.fiabilite && (() => {
+        const f = digest.payload.fiabilite;
+        const tiles: Array<[string, number, string]> = [
+          ['Sites en échec', f.sites_en_echec, 'un site en ✗ au bilan : ses annonces manquent'],
+          ['Médianes inconnues', f.medianes_inconnues, 'sans prix cible, l\'étude ne montre RIEN'],
+          ['Critères non exprimés', f.criteres_non_exprimes, 'URL plus large que l\'étude (dossiers url_incomplete)'],
+          ['Formes mortes', f.formes_mortes, 'Marktplaats « #q: » : le serveur ne voit pas le modèle'],
+        ];
+        const hist = [...digestHistory].filter((d) => d.payload?.fiabilite).sort((a, b) => a.day.localeCompare(b.day));
+        return (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {tiles.map(([label, v, sub]) => (
+                <div key={label} className={`rounded-xl border p-3 ${v === 0 ? 'border-emerald-200 bg-emerald-50/60 text-emerald-800' : 'border-rose-300 bg-rose-50/60 text-rose-800'}`}>
+                  <p className="text-[11px] uppercase tracking-wide opacity-70">{label}</p>
+                  <p className="text-2xl font-bold tabular-nums">{v}</p>
+                  <p className="text-[11px] opacity-80">{sub}</p>
+                </div>
+              ))}
+            </div>
+            {hist.length > 1 && (
+              <div className="overflow-x-auto">
+                <table className="text-[11px]">
+                  <thead><tr className="text-slate-400"><th className="pr-3 text-left">Jour</th>{hist.map((d) => <th key={d.day} className="px-1.5 font-normal">{d.day.slice(5)}</th>)}</tr></thead>
+                  <tbody>
+                    {(['sites_en_echec', 'medianes_inconnues', 'criteres_non_exprimes', 'formes_mortes'] as const).map((k, i) => (
+                      <tr key={k}><td className="pr-3 text-slate-500 whitespace-nowrap">{tiles[i][0]}</td>{hist.map((d) => { const v = d.payload!.fiabilite![k]; return <td key={d.day} className={`px-1.5 text-center tabular-nums ${v === 0 ? 'text-emerald-700' : 'text-rose-700 font-semibold'}`}>{v}</td>; })}</tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Les visages de la vérité : doutes remarqués / lacunes assumées / cas dorés / étalon humain. */}
+      <div className="flex gap-1 border-b border-slate-200 flex-wrap">
         {([
           ['doutes', AlertTriangle, `Doutes remarqués${open.length ? ` (${open.length})` : ''}`],
           ['lacunes', BookOpen, 'Bibliothèque'],
           ['dores', Star, `Cas dorés${golden.length ? ` (${golden.filter((g) => g.last_status === 'fail').length ? `${golden.filter((g) => g.last_status === 'fail').length} en échec` : `${golden.length}`})` : ''}`],
+          ['etalon', ClipboardCheck, 'Étalon humain'],
         ] as const).map(([id, Icon, label]) => (
           <button
             key={id}
@@ -298,6 +344,7 @@ export function TruthCenter() {
       </div>
 
       {tab === 'lacunes' && <SiteLibrary studies={studies} />}
+      {tab === 'etalon' && <TruthBenchmark />}
 
       {tab === 'dores' && (
         <div className="bg-white border border-slate-200 rounded-xl p-4">
