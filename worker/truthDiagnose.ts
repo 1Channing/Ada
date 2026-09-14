@@ -208,6 +208,49 @@ export async function runTruthDiagnose(reason: string): Promise<void> {
       }
       if (d.status !== 'detected' && d.status !== 'needs_evidence') continue;
 
+      // R-ÉTALON (14/09) — écart entre le compte d'ADA et la recherche à la
+      // main : la preuve est l'URL humaine. On compare les deux URLs : tout
+      // paramètre (requête, hash Marktplaats, segment de chemin) présent chez
+      // l'humain et absent chez ADA est une cause candidate. Sans URL
+      // humaine, on demande la preuve. ADA > humain à URL équivalente =
+      // pagination/mapping trop large, pas un trou d'URL.
+      if (d.signal === 'etalon_ecart') {
+        if (alreadyByEngine) continue;
+        const humanUrl = typeof d.details?.human_url === 'string' ? String(d.details.human_url) : '';
+        const adaUrl = typeof d.details?.ada_url === 'string' ? String(d.details.ada_url) : '';
+        const ada = Number(d.details?.ada_count ?? NaN);
+        const human = Number(d.details?.human_count ?? NaN);
+        if (!humanUrl.startsWith('http')) {
+          await writeDiagnosis(d, 'Preuve incomplète : colle l’URL de ta recherche à la main (onglet Étalon humain, colonne URL) — sans elle, impossible de comparer les critères.', { status: 'needs_evidence', layer: 'etalon' });
+          acted++;
+          continue;
+        }
+        const tokens = (u: string): Set<string> => {
+          const out = new Set<string>();
+          try {
+            const x = new URL(u);
+            for (const [k, v] of x.searchParams) out.add(`${k}=${v}`);
+            for (const seg of x.pathname.split('/').filter(Boolean)) out.add(`/${seg}`);
+            for (const part of x.hash.replace(/^#/, '').split('|').filter(Boolean)) out.add(`#${part}`);
+          } catch { /* URL illisible */ }
+          return out;
+        };
+        const h = tokens(humanUrl), a = tokens(adaUrl);
+        const onlyHuman = [...h].filter((t) => !a.has(t));
+        const onlyAda = [...a].filter((t) => !h.has(t));
+        if (Number.isFinite(ada) && Number.isFinite(human) && ada > human) {
+          await writeDiagnosis(d,
+            `ADA voit ${ada} là où l’humain voit ${human} : critère(s) posé(s) par l’humain et absents chez ADA → ${onlyHuman.length ? onlyHuman.slice(0, 8).join(' ') : 'aucun (URLs équivalentes : profondeur/pagination ou mapping trop large à vérifier)'}.`,
+            { layer: onlyHuman.length ? 'url' : 'profondeur' });
+        } else {
+          await writeDiagnosis(d,
+            `ADA voit ${Number.isFinite(ada) ? ada : '—'} là où l’humain voit ${human}. Présent chez l’humain, absent chez ADA : ${onlyHuman.length ? onlyHuman.slice(0, 8).join(' ') : 'rien'}. Présent chez ADA seulement : ${onlyAda.length ? onlyAda.slice(0, 8).join(' ') : 'rien'}.${onlyHuman.length === 0 && onlyAda.length === 0 ? ' URLs équivalentes : annonces vendues entre les deux relevés, ou lecture de page incomplète (pagination).' : ''}`,
+            { layer: onlyHuman.length || onlyAda.length ? 'url' : 'parsing' });
+        }
+        acted++;
+        continue;
+      }
+
       // R3 — AUTO-GUÉRISON des dossiers URL/dictionnaire : on regénère l'URL
       // du jour ; complète = le trou est résorbé (registre ou apprentissage).
       if (d.signal === 'url_incomplete' || d.signal === 'dictionnaire') {

@@ -48,6 +48,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   dictionnaire: 'Dictionnaire à apprendre',
   url_incomplete: 'URL incomplète',
   url_redirigee: 'Redirection du site (filtres perdus)',
+  etalon_ecart: 'Écart avec l’étalon humain',
 };
 
 const LAYER_LABELS: Record<string, string> = {
@@ -56,6 +57,7 @@ const LAYER_LABELS: Record<string, string> = {
   parsing: 'lecture des annonces',
   canonicalisation: 'canonicalisation',
   profondeur: 'profondeur de marché',
+  etalon: 'étalon humain (recherche à la main)',
   inconnue: 'à déterminer',
 };
 

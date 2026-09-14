@@ -49,15 +49,21 @@ export function TruthBenchmark() {
     if (pollRef.current) window.clearInterval(pollRef.current);
     const started = Date.now();
     pollRef.current = window.setInterval(async () => {
-      const res = await refreshAdaCounts(week, r.requestedAt);
+      await refreshAdaCounts(week, r.requestedAt);
       const w = await listBenchWeek(week);
-      if (!w.error) setRows(w.rows);
-      setRescrape((prev) => (prev ? { ...prev, done: res.fresh } : prev));
-      if (res.fresh.length >= r.studies.length || Date.now() - started > 8 * 60_000) {
+      if (w.error) return;
+      setRows(w.rows);
+      // Une étude est « revenue » quand TOUS ses sites ont un relevé
+      // postérieur à la demande (le worker écrit site par site — la capture
+      // du 14/09 montrait AutoScout à 0 min et les autres à 15 h).
+      const byStudy = new Map<string, BenchRow[]>();
+      for (const row of w.rows) byStudy.set(row.search_id, [...(byStudy.get(row.search_id) ?? []), row]);
+      const done = [...byStudy.entries()].filter(([, list]) => list.every((row) => row.ada_at && row.ada_at >= r.requestedAt)).map(([id]) => id);
+      setRescrape((prev) => (prev ? { ...prev, done } : prev));
+      if (done.length >= r.studies.length || Date.now() - started > 8 * 60_000) {
         if (pollRef.current) window.clearInterval(pollRef.current);
         pollRef.current = null;
-        setRescrape((prev) => (prev ? { ...prev, done: res.fresh, total: prev.total } : prev));
-        window.setTimeout(() => setRescrape(null), 60_000);
+        window.setTimeout(() => setRescrape(null), 90_000);
       }
     }, 15_000);
   };
@@ -113,8 +119,8 @@ export function TruthBenchmark() {
       {rescrape && (
         <p className={`text-xs rounded-lg px-3 py-2 border ${rescrape.done.length >= rescrape.total ? 'text-emerald-800 bg-emerald-50 border-emerald-200' : 'text-amber-800 bg-amber-50 border-amber-200'}`}>
           {rescrape.done.length >= rescrape.total
-            ? `Rescrape terminé : ${rescrape.total} étude(s) avec des relevés frais — les comptes ADA sont de maintenant, tu peux comparer.`
-            : `Rescrape en cours — ${rescrape.done.length}/${rescrape.total} étude(s) revenue(s) (le worker part dans les 30 s, chaque étude prend 1 à 3 min). Les comptes se mettent à jour tout seuls.`}
+            ? `Rescrape terminé : ${rescrape.total} étude(s) avec des relevés frais sur tous leurs sites — les comptes ADA sont de maintenant, tu peux comparer.`
+            : `Rescrape en cours — ${rescrape.done.length}/${rescrape.total} étude(s) revenue(s) sur tous leurs sites (le worker part dans les 30 s, chaque étude prend 1 à 3 min). Les comptes se mettent à jour site par site ; un site qui garde une vieille date était en échec.`}
         </p>
       )}
 
@@ -139,7 +145,10 @@ export function TruthBenchmark() {
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-slate-800 text-sm">{list[0].search_label}</span>
                     <span className="text-xs text-slate-400">{list.filter((r) => r.human_count != null).length}/{list.length} sites remplis</span>
-                    {rescrape && <span className={`text-[11px] ${rescrape.done.includes(searchId) ? 'text-emerald-700' : 'text-amber-700'}`}>{rescrape.done.includes(searchId) ? '· relevé frais' : '· rescrape…'}</span>}
+                    {rescrape && (() => {
+                      const fresh = list.filter((row) => row.ada_at && row.ada_at >= rescrape.since).length;
+                      return <span className={`text-[11px] ${fresh === list.length ? 'text-emerald-700' : 'text-amber-700'}`}>{fresh === list.length ? '· relevés frais' : `· rescrape… ${fresh}/${list.length} sites frais`}</span>;
+                    })()}
                   </div>
                   {/* TOUS les critères, pour refaire la même recherche (demande 14/09). */}
                   {(() => {

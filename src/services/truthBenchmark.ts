@@ -172,7 +172,12 @@ export async function saveHumanCount(id: string, humanCount: number | null, huma
     human_count: humanCount, human_url: humanUrl.trim() || null, note: note.trim(),
     filled_by: useAuth.getState().userId, filled_at: humanCount == null ? null : new Date().toISOString(),
   }).eq('id', id);
-  return error ? (isMissing(error) ? BENCH_SQL_HINT : error.message) : null;
+  if (error) return isMissing(error) ? BENCH_SQL_HINT : error.message;
+  // La correction part d'ici : un écart ouvre (ou met à jour) un dossier
+  // « etalon_ecart » dans Doutes remarqués ; un écart résorbé le referme.
+  // Fail-open : SQL du 14/09 pas collé → la ligne est enregistrée quand même.
+  await sb.rpc('truth_benchmark_report', { p_benchmark: id });
+  return null;
 }
 
 export interface BenchScore { week: string; filled: number; total: number; recall: number | null; overcount: number; bySite: Record<string, { recall: number | null; n: number; over: number }> }

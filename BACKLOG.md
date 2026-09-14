@@ -314,6 +314,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   seulement sur une étude de l'étalon en cours), guet des relevés frais
   toutes les 15 s pendant 8 min, comptes ADA mis à jour au fil de l'eau,
   fraîcheur du relevé affichée sur chaque ligne (« il y a 12 min »).
+  BOUCLE DE CORRECTION (question « comment la correction se fait-elle ? »)
+  : chaque ligne enregistrée avec un écart (ADA < 90 % de l'humain, ou ADA
+  > humain) ouvre d'elle-même un dossier « etalon_ecart » dans Doutes
+  remarqués (RPC truth_benchmark_report, SQL 20260914220000) avec les deux
+  comptes et les deux URLs ; le moteur (R-ÉTALON, truthDiagnose) compare les
+  URLs — paramètre/hash/segment présent chez l'humain et absent chez ADA =
+  cause candidate, URLs équivalentes = vendu entre-temps ou pagination,
+  sans URL humaine = « preuve incomplète » ; l'écart résorbé referme le
+  dossier. L'étalon est lisible en anon (rituel de relecture). Le rescrape
+  ne dit une étude « revenue » que quand TOUS ses sites ont un relevé frais.
 - **MCP V2 — EN ATTENTE (décision Channing 14/09 : « on se le garde au
   chaud, il nous faut d'abord s'assurer des résultats »)**. Quand le GO
   viendra, dans cet ordre : (1) `run_study` = relance d'une étude EXISTANTE
