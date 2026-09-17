@@ -115,6 +115,20 @@ export interface ParsedSupplierFile {
   mappings: ColumnMapping[];          // union des en-têtes vues (blocs compris)
   vehicles: OfferVehicle[];
   warnings: string[];
+  /** Grille brute de la feuille (cellules JSON : dates en ISO) — conservée
+   *  dans l'offre pour que la correspondance des colonnes reste modifiable
+   *  après réouverture (constat Channing 17/09 : « rien ne se passe »). */
+  grid: unknown[][];
+}
+
+/** Grille JSON-sûre : dates → « AAAA-MM-JJ », lignes vides de fin retirées. */
+export function readSupplierGrid(buf: ArrayBuffer): { sheet: string; grid: unknown[][] } {
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const sheet = wb.SheetNames[0];
+  const raw: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, raw: true, defval: null }) as unknown[][];
+  const grid = raw.map((r) => r.map((c) => (c instanceof Date ? (Number.isNaN(c.getTime()) ? null : c.toISOString().slice(0, 10)) : c)));
+  while (grid.length && grid[grid.length - 1].every((c) => c == null || c === '')) grid.pop();
+  return { sheet, grid };
 }
 
 const cell = (v: unknown): string => (v == null ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim());
@@ -191,9 +205,27 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
 }
 
 /**
+ * Marqueur de GÉNÉRATION en fin de modèle fournisseur (constat Channing 17/09 :
+ * « ASTRA L » cherché tel quel → page introuvable, lot faussé) : lettre seule
+ * (Astra J/K/L, Corsa F, Mokka B), chiffre romain (Clio V, Golf VIII, 308 III)
+ * ou chiffre seul (Golf 8, Polo 6). Jamais quand le premier mot est un
+ * préfixe de gamme où ce jeton EST le modèle (Classe A, Model 3, Série 1,
+ * DS 7, ID 3), ni sur un modèle d'un seul jeton (X1, Q5, 308).
+ */
+const RANGE_PREFIXES = new Set(['CLASSE', 'CLASS', 'KLASSE', 'MODEL', 'SERIE', 'SERIES', 'DS', 'ID', 'TYPE', 'TYPO', 'RANGE']);
+export function stripGenerationSuffix(model: string): string {
+  const tokens = model.toUpperCase().replace(/\s+/g, ' ').trim().split(' ');
+  if (tokens.length < 2 || RANGE_PREFIXES.has(tokens[0])) return tokens.join(' ');
+  const last = tokens[tokens.length - 1];
+  if (/^[A-Z]$/.test(last) || /^(I{1,3}|IV|VI{0,3}|IX|X)$/.test(last) || /^[1-9]$/.test(last)) return tokens.slice(0, -1).join(' ');
+  return tokens.join(' ');
+}
+
+/**
  * Modèle depuis une ligne libre, rapproché des modèles connus de la marque
- * (référentiel ADA) — le plus long libellé qui commence la ligne gagne ;
- * sans référentiel, les premiers jetons avant la cylindrée/puissance.
+ * (référentiel ADA + taxonomie moissonnée) — le plus long libellé qui
+ * commence la ligne gagne ; sans référentiel, les premiers jetons avant la
+ * cylindrée/puissance, marqueur de génération retiré.
  */
 export function guessModel(_brand: string, line: string, knownModels: string[]): string {
   const up = line.toUpperCase().replace(/\s+/g, ' ').trim();
@@ -211,15 +243,15 @@ export function guessModel(_brand: string, line: string, knownModels: string[]):
     out.push(t);
     if (out.length >= 2) break;
   }
-  return out.join(' ') || up.split(' ')[0];
+  const guess = out.join(' ') || up.split(' ')[0];
+  const base = stripGenerationSuffix(guess);
+  // Génération retirée seulement si le résultat est connu, ou si rien n'est connu de la marque.
+  return base !== guess && (candidates.length === 0 || candidates.includes(base)) ? base : guess;
 }
 
-/** Lit un classeur (ArrayBuffer) et rend les véhicules normalisés. */
-export function parseSupplierWorkbook(buf: ArrayBuffer, knownModelsByBrand: Record<string, string[]> = {}, mappingOverride?: Record<string, OfferField>): ParsedSupplierFile {
-  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-  const sheetName = wb.SheetNames[0];
-  const ws = wb.Sheets[sheetName];
-  const grid: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }) as unknown[][];
+/** Lit un classeur (ArrayBuffer) ou une grille déjà conservée, et rend les véhicules normalisés. */
+export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid: unknown[][] }, knownModelsByBrand: Record<string, string[]> = {}, mappingOverride?: Record<string, OfferField>): ParsedSupplierFile {
+  const { sheet: sheetName, grid } = input instanceof ArrayBuffer ? readSupplierGrid(input) : input;
   const warnings: string[] = [];
   const isHeaderRow = (r: unknown[]) => r.filter((c) => typeof c === 'string' && c.trim()).length >= 5
     && r.filter((c) => c != null && c !== '').every((c) => typeof c === 'string');
@@ -232,7 +264,7 @@ export function parseSupplierWorkbook(buf: ArrayBuffer, knownModelsByBrand: Reco
   const headerRows = grid.map((r, i) => (isHeaderRow(r) ? i : -1)).filter((i) => i >= 0);
   const layout: ParsedSupplierFile['layout'] = headerRows.length > 1 ? 'blocks' : 'flat';
   if (headerRows.length === 0) {
-    return { sheet: sheetName, layout, mappings: [], vehicles: [], warnings: ["Aucune ligne d'en-tête reconnue (il faut au moins 5 intitulés de colonnes sur une ligne)."] };
+    return { sheet: sheetName, layout, mappings: [], vehicles: [], warnings: ["Aucune ligne d'en-tête reconnue (il faut au moins 5 intitulés de colonnes sur une ligne)."], grid };
   }
 
   const mappingsByHeader = new Map<string, ColumnMapping>();
@@ -279,10 +311,10 @@ export function parseSupplierWorkbook(buf: ArrayBuffer, knownModelsByBrand: Reco
     const known = knownModelsByBrand[brand.toUpperCase()] ?? knownModelsByBrand[brand.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()] ?? [];
     let model = cell(rec.model);
     // Colonne modèle du fournisseur (« ASTRA L », « DS 7 CROSSBACK / DS 7 »)
-    // rapprochée du référentiel ADA quand il connaît la marque ; sinon la
-    // ligne libre est décomposée.
+    // rapprochée des modèles connus (référentiel + taxonomie) et débarrassée
+    // de son marqueur de génération ; sans colonne, la ligne libre est décomposée.
     if (!model || model === versionLine) model = guessModel(brand, versionLine || model, known);
-    else if (known.length) model = guessModel(brand, model, known);
+    else model = guessModel(brand, model, known);
     const free = parseFreeLine(`${versionLine} ${cell(rec.engine)} ${cell(rec.gearbox)}`);
     const reg = toIsoDate(rec.reg_date);
     const power = toNumber(rec.power);
@@ -319,7 +351,7 @@ export function parseSupplierWorkbook(buf: ArrayBuffer, knownModelsByBrand: Reco
   if (vehicles.length === 0) warnings.push('Aucune ligne de véhicule lue sous les en-têtes reconnus.');
   const noPrice = vehicles.filter((v) => v.price_ht == null && v.price_ttc == null).length;
   if (noPrice) warnings.push(`${noPrice} véhicule(s) sans prix fournisseur (ni HT ni TTC) — à vérifier dans la correspondance des colonnes.`);
-  return { sheet: sheetName, layout, mappings: [...mappingsByHeader.values()], vehicles, warnings };
+  return { sheet: sheetName, layout, mappings: [...mappingsByHeader.values()], vehicles, warnings, grid };
 }
 
 /** Prix fournisseur HT de référence : HT si présent, sinon TTC / (1 + TVA) quand la TVA est récupérable. */

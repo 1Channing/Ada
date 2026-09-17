@@ -314,10 +314,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   d'immatriculation comprise, dit à l'écran (⚠), jamais caché. Résultat
   enregistré dans l'offre (colonne `market`, SQL 20260915000000 — fail-open
   sans elle). Preuves 14/09 : lots/identité/verdict/URLs FR-NL-DK en script
-  Node. RESTE : suivi envoyée/vendue → prix réel contre médiane prédite ;
-  seuil de marge réglable par pays ; relevé profondeur réduite (aujourd'hui
-  même profondeur que le MI, ≈ 1–3 min par site). Jeux d'essai : les trois
-  fichiers du 14/09.
+  Node. **RETOUR TERRAIN 17/09 : 4 ventes grâce à l'outil.** Première
+  limite (Channing) : « ASTRA L » cherché tel quel → page introuvable, lot
+  faussé. Trois corrections livrées le 17/09 : (1) modèles connus = référentiel
+  des études + TAXONOMIE moissonnée (AS24/mobile.de/Marktplaats,
+  `lib/offers/knownModels.ts`, 92 marques) — le référentiel seul ignorait
+  Astra (aucune étude) ; marqueur de GÉNÉRATION retiré (Astra L, Corsa F,
+  Golf VIII, Clio V) sauf préfixes de gamme (Classe A, Model 3, Série 1,
+  DS 7, ID 3) et modèles connus tels quels (Grandland X, C4 X) ; (2) CRITÈRES
+  DE RECHERCHE RÉGLABLES PAR LOT (marque, modèle avec liste, années de/à,
+  km maxi, énergie, boîte — colonne `lot_criteria`) : un réglage efface le
+  relevé du lot et régénère les URLs, l'offre exportée ne change pas ;
+  (3) la GRILLE du fichier est conservée dans l'offre (`source_grid`) : la
+  correspondance des colonnes reste modifiable après réouverture (elle
+  était figée : « rien ne se passe »), sélection et prix saisis gardés.
+  SQL 20260917100000. RESTE : suivi envoyée/vendue → prix réel contre
+  médiane prédite ; seuil de marge réglable par pays ; relevé profondeur
+  réduite (aujourd'hui même profondeur que le MI, ≈ 1–3 min par site).
+  Jeux d'essai : les trois fichiers du 14/09.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

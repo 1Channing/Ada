@@ -6,7 +6,7 @@
 import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import type { ColumnMapping, OfferVehicle } from '../lib/offers/parseSupplierFile';
-import type { OfferMarket } from '../lib/offers/marketCheck';
+import type { OfferMarket, LotCriteria } from '../lib/offers/marketCheck';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -19,6 +19,10 @@ export interface SupplierOffer {
   mappings: ColumnMapping[]; vehicles: OfferVehicle[]; price_rule: PriceRule; countries: string[];
   /** Relevés « où vendre » : lot → pays → résultat (SQL du 15/09). */
   market?: OfferMarket;
+  /** Critères de recherche réglés à la main par lot (SQL du 17/09). */
+  lot_criteria?: Record<string, LotCriteria>;
+  /** Grille brute du fichier fournisseur — correspondance des colonnes modifiable après réouverture (SQL du 17/09). */
+  source_grid?: unknown[][] | null;
   notes: string; status: 'draft' | 'sent' | 'closed'; created_at: string; updated_at: string;
 }
 
@@ -30,21 +34,33 @@ export async function listOffers(): Promise<{ rows: SupplierOffer[]; error: stri
   return { rows: (data ?? []) as SupplierOffer[], error: null };
 }
 
+/** Colonnes ajoutées après la table (SQL du 15/09 et du 17/09) : envoyées si présentes, retirées une à une si la base ne les a pas encore. */
+const EXTRA_COLUMNS = ['market', 'lot_criteria', 'source_grid'] as const;
+
 export async function saveOffer(o: Partial<SupplierOffer> & { id?: string }): Promise<{ id: string | null; error: string | null }> {
-  const payload = {
+  const payload: Record<string, unknown> = {
     title: o.title ?? '', supplier: o.supplier ?? '', source_filename: o.source_filename ?? '', layout: o.layout ?? 'flat',
     mappings: o.mappings ?? [], vehicles: o.vehicles ?? [], price_rule: o.price_rule ?? { mode: 'margin', margin: 500 },
     countries: o.countries ?? [], notes: o.notes ?? '', status: o.status ?? 'draft', updated_at: new Date().toISOString(),
   };
-  const withMarket = o.market ? { ...payload, market: o.market } : payload;
-  if (o.id) {
-    let { error } = await sb.from('supplier_offers').update(withMarket).eq('id', o.id);
-    // Colonne market absente (SQL du 15/09 pas collé) : on enregistre le reste.
-    if (error && o.market && /market|column|schema cache/i.test(error.message ?? '')) ({ error } = await sb.from('supplier_offers').update(payload).eq('id', o.id));
-    return { id: error ? null : o.id, error: error ? (isMissing(error) ? OFFERS_SQL_HINT : error.message) : null };
-  }
-  const { data, error } = await sb.from('supplier_offers').insert({ ...payload, user_id: useAuth.getState().userId }).select('id').single();
-  return { id: (data as { id?: string } | null)?.id ?? null, error: error ? (isMissing(error) ? OFFERS_SQL_HINT : error.message) : null };
+  for (const c of EXTRA_COLUMNS) if (o[c] !== undefined) payload[c] = o[c];
+  const missingColumn = (msg: string) => EXTRA_COLUMNS.find((c) => new RegExp(`\\b${c}\\b`).test(msg) && /column|schema cache/i.test(msg));
+  // Une colonne absente (SQL pas encore collé) : on la retire et on réessaie — le reste s'enregistre.
+  let insertedId: string | null = null;
+  const run = async (): Promise<{ error: { message?: string } | null }> => {
+    for (let i = 0; i <= EXTRA_COLUMNS.length; i++) {
+      const r = o.id
+        ? await sb.from('supplier_offers').update(payload).eq('id', o.id)
+        : await sb.from('supplier_offers').insert({ ...payload, user_id: useAuth.getState().userId }).select('id').single();
+      const col = r.error ? missingColumn(r.error.message ?? '') : undefined;
+      if (!col || !(col in payload)) { if (!o.id && r.data) insertedId = (r.data as { id?: string }).id ?? null; return r; }
+      delete payload[col];
+    }
+    return { error: { message: 'colonnes manquantes' } };
+  };
+  const { error } = await run();
+  if (error) return { id: null, error: isMissing(error) ? OFFERS_SQL_HINT : error.message ?? 'enregistrement en échec' };
+  return { id: o.id ?? insertedId, error: null };
 }
 
 export async function deleteOffer(id: string): Promise<string | null> {

@@ -28,6 +28,37 @@ import type { OfferVehicle } from './parseSupplierFile';
 export interface OfferLot {
   key: string; label: string; brand: string; model: string; year: number | null; fuel: string | null; gearbox: string | null;
   kmMax: number | null; count: number; vehicleIds: string[]; ourPriceMin: number | null; ourPriceMax: number | null; ourPriceAvg: number | null;
+  /** Fenêtre d'années cherchée (par défaut l'année du lot, réglable). */
+  yearFrom: number | null; yearTo: number | null;
+  /** Critères ajustés à la main (constat Channing 17/09 : « ASTRA L » faussait la recherche). */
+  adjusted: boolean;
+}
+
+/** Critères de recherche d'un lot réglés à la main — stockés dans l'offre (lot_criteria, clé = lot). */
+export interface LotCriteria {
+  brand?: string; model?: string; yearFrom?: number | null; yearTo?: number | null; kmMax?: number | null; fuel?: string | null; gearbox?: string | null;
+}
+
+export function lotLabel(l: Pick<OfferLot, 'brand' | 'model' | 'yearFrom' | 'yearTo' | 'fuel' | 'gearbox' | 'kmMax'>): string {
+  const years = l.yearFrom != null && l.yearTo != null && l.yearFrom !== l.yearTo ? `${l.yearFrom}–${l.yearTo}` : l.yearFrom ?? l.yearTo ?? '';
+  return [`${l.brand} ${l.model}`, years, l.fuel ?? '', l.gearbox === 'AUTOMATIQUE' ? 'auto' : l.gearbox === 'MANUELLE' ? 'manuelle' : '', l.kmMax ? `≤ ${l.kmMax.toLocaleString('fr-FR')} km` : ''].filter(Boolean).join(' · ');
+}
+
+/** Applique les critères réglés à la main (clé inchangée : le lot reste celui des véhicules). */
+export function applyLotCriteria(lot: OfferLot, c: LotCriteria | undefined): OfferLot {
+  if (!c) return lot;
+  const next: OfferLot = {
+    ...lot,
+    brand: c.brand?.trim() ? c.brand.trim().toUpperCase() : lot.brand,
+    model: c.model?.trim() ? c.model.trim().toUpperCase() : lot.model,
+    yearFrom: c.yearFrom !== undefined ? c.yearFrom : lot.yearFrom,
+    yearTo: c.yearTo !== undefined ? c.yearTo : lot.yearTo,
+    kmMax: c.kmMax !== undefined ? c.kmMax : lot.kmMax,
+    fuel: c.fuel !== undefined ? c.fuel : lot.fuel,
+    gearbox: c.gearbox !== undefined ? c.gearbox : lot.gearbox,
+    adjusted: true,
+  };
+  return { ...next, label: lotLabel(next) };
 }
 
 /** TVA par pays de revente (taux normal, 2026). DK : les prix affichés incluent aussi la taxe d'immatriculation. */
@@ -49,9 +80,9 @@ export function lotsOf(vehicles: OfferVehicle[]): OfferLot[] {
     const kms = list.map((v) => v.km).filter((k): k is number => k != null);
     const prices = list.map((v) => v.sale_price).filter((p): p is number => p != null);
     const kmMax = kms.length ? Math.ceil((Math.max(...kms) * 1.1) / 10_000) * 10_000 : null;
+    const base = { brand: v0.brand, model: v0.model, yearFrom: v0.year, yearTo: v0.year, fuel: v0.fuel, gearbox: v0.gearbox, kmMax };
     return {
-      key, brand: v0.brand, model: v0.model, year: v0.year, fuel: v0.fuel, gearbox: v0.gearbox, kmMax,
-      label: [`${v0.brand} ${v0.model}`, v0.year ?? '', v0.fuel ?? '', v0.gearbox === 'AUTOMATIQUE' ? 'auto' : v0.gearbox === 'MANUELLE' ? 'manuelle' : '', kmMax ? `≤ ${kmMax.toLocaleString('fr-FR')} km` : ''].filter(Boolean).join(' · '),
+      key, ...base, year: v0.year, label: lotLabel(base), adjusted: false,
       count: list.length, vehicleIds: list.map((v) => v.id),
       ourPriceMin: prices.length ? Math.min(...prices) : null, ourPriceMax: prices.length ? Math.max(...prices) : null,
       ourPriceAvg: prices.length ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : null,
@@ -62,7 +93,7 @@ export function lotsOf(vehicles: OfferVehicle[]): OfferLot[] {
 function criteriaOf(lot: OfferLot) {
   return {
     brand: lot.brand, model: lot.model,
-    yearFrom: lot.year != null ? String(lot.year) : undefined, yearTo: lot.year != null ? String(lot.year) : undefined,
+    yearFrom: lot.yearFrom != null ? String(lot.yearFrom) : undefined, yearTo: lot.yearTo != null ? String(lot.yearTo) : undefined,
     mileage: lot.kmMax != null ? String(lot.kmMax) : undefined,
     fuel: lot.fuel ? FUEL_CRITERIA[lot.fuel] ?? lot.fuel : undefined,
     gearbox: lot.gearbox === 'AUTOMATIQUE' || lot.gearbox === 'MANUELLE' ? lot.gearbox : undefined,

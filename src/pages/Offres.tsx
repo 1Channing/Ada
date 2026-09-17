@@ -1,17 +1,18 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, FileSpreadsheet, FileText, Trash2, Loader2, ChevronDown, ChevronRight, ExternalLink, Check, CloudOff, Search } from 'lucide-react';
+import { Upload, FileSpreadsheet, FileText, Trash2, Loader2, ChevronDown, ChevronRight, ExternalLink, Check, CloudOff, Search, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listRefBrandModels } from '../services/workflow';
 import {
-  parseSupplierWorkbook, supplierHt, OFFER_FIELD_LABELS,
+  parseSupplierWorkbook, readSupplierGrid, supplierHt, OFFER_FIELD_LABELS,
   type ParsedSupplierFile, type OfferVehicle, type OfferField, type ColumnMapping,
 } from '../lib/offers/parseSupplierFile';
+import { loadLearnedModelsByBrand, mergeKnownModels } from '../lib/offers/knownModels';
 import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
 import {
-  lotsOf, lotTargets, startLotJob, awaitLotJob, mergeCountry, verdictOf, COUNTRY_CAVEAT,
-  type OfferMarket, type OfferLot, type LotTarget, type SiteResult,
+  lotsOf, lotTargets, startLotJob, awaitLotJob, mergeCountry, verdictOf, applyLotCriteria, COUNTRY_CAVEAT,
+  type OfferMarket, type OfferLot, type LotTarget, type SiteResult, type LotCriteria,
 } from '../lib/offers/marketCheck';
 
 /**
@@ -31,7 +32,10 @@ interface Draft {
   id?: string; title: string; supplier: string; source_filename: string; layout: string;
   mappings: ColumnMapping[]; vehicles: OfferVehicle[]; price_rule: PriceRule; countries: string[]; notes: string; status: SupplierOffer['status'];
   market?: OfferMarket;
+  lot_criteria?: Record<string, LotCriteria>;
+  source_grid?: unknown[][] | null;
 }
+const FUEL_OPTIONS = ['ESSENCE', 'DIESEL', 'HYBRIDE', 'HYBRIDE RECHARGEABLE', 'ELECTRIQUE', 'GPL'];
 const VERDICT_CLASS: Record<string, string> = {
   good: 'bg-emerald-50 text-emerald-800 border-emerald-200', warn: 'bg-amber-50 text-amber-800 border-amber-200',
   bad: 'bg-red-50 text-red-800 border-red-200', idle: 'bg-slate-50 text-slate-500 border-slate-200',
@@ -47,9 +51,7 @@ export function Offres() {
   const [listError, setListError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [known, setKnown] = useState<Record<string, string[]>>({});
-  const [fileBuf, setFileBuf] = useState<ArrayBuffer | null>(null);
   const [parsed, setParsed] = useState<ParsedSupplierFile | null>(null);
-  const [overrides, setOverrides] = useState<Record<string, OfferField>>({});
   const [mappingOpen, setMappingOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -59,7 +61,15 @@ export function Offres() {
   const dirty = useRef(false);
 
   const reload = async () => { const r = await listOffers(); setOffers(r.rows); setListError(r.error); return r.rows; };
-  useEffect(() => { void reload(); void listRefBrandModels().then((r) => setKnown(r.modelsByBrand)).catch(() => undefined); }, []);
+  // Modèles connus = référentiel des études + taxonomie moissonnée des sites
+  // (le référentiel seul ignorait « ASTRA » : aucune étude Astra, 16/09).
+  useEffect(() => {
+    void reload();
+    void Promise.all([
+      listRefBrandModels().then((r) => r.modelsByBrand).catch(() => ({} as Record<string, string[]>)),
+      loadLearnedModelsByBrand().catch(() => ({} as Record<string, string[]>)),
+    ]).then(([ref, learned]) => setKnown(mergeKnownModels(ref, learned)));
+  }, []);
 
   // ENREGISTREMENT AUTOMATIQUE : toute modification du brouillon part en base
   // 1,2 s après la dernière frappe ; la première sauvegarde crée l'offre.
@@ -83,17 +93,21 @@ export function Offres() {
   };
   useEffect(() => () => { if (saveTimer.current) window.clearTimeout(saveTimer.current); }, []);
 
-  const buildDraftFromFile = (buf: ArrayBuffer, name: string, ov: Record<string, OfferField>, base: Draft): Draft => {
-    const p = parseSupplierWorkbook(buf, known, ov);
+  /** (Re)lecture d'une grille : nouvelle offre, ou correspondance modifiée sur une offre existante
+   *  (la grille est conservée dans l'offre ; sélection et prix saisis sont gardés véhicule par véhicule). */
+  const buildDraftFromGrid = (src: { sheet: string; grid: unknown[][] }, name: string, ov: Record<string, OfferField>, base: Draft): Draft => {
+    const p = parseSupplierWorkbook(src, known, ov);
     setParsed(p);
-    const vehicles = applyPriceRule(p.vehicles, base.price_rule, (v) => supplierHt(v), true);
+    const prev = new Map(base.vehicles.map((v) => [v.id, v]));
+    const vehicles = applyPriceRule(p.vehicles, base.price_rule, (v) => supplierHt(v), true)
+      .map((v) => { const o = prev.get(v.id); return o ? { ...v, selected: o.selected, sale_price: o.sale_price } : v; });
     const models = [...new Set(vehicles.map((v) => `${v.brand} ${v.model}`))];
     const firstBrand = vehicles[0]?.brand ?? '';
     return {
       ...base,
       title: base.title || (models.length === 1 ? `${models[0]} — SÉLECTION PROFESSIONNELLE` : `${firstBrand ? firstBrand + ' & AUTRES' : 'SÉLECTION'} — OFFRE MC EXPORT`),
       supplier: base.supplier || name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 40),
-      source_filename: name, layout: p.layout, mappings: p.mappings.map((m) => ({ ...m, field: ov[m.header] ?? m.field })), vehicles,
+      source_filename: name, layout: p.layout, mappings: p.mappings.map((m) => ({ ...m, field: ov[m.header] ?? m.field })), vehicles, source_grid: p.grid,
     };
   };
 
@@ -101,18 +115,18 @@ export function Offres() {
   const onFile = async (f: File) => {
     setBusy('lecture'); setMsg(null);
     try {
-      const buf = await f.arrayBuffer();
-      setFileBuf(buf); setOverrides({});
-      const d = buildDraftFromFile(buf, f.name, {}, { ...EMPTY });
+      const src = readSupplierGrid(await f.arrayBuffer());
+      const d = buildDraftFromGrid(src, f.name, {}, { ...EMPTY });
       setDraft(d);
       await persist(d);
     } catch (e) { setMsg(`Lecture impossible : ${e instanceof Error ? e.message : String(e)}`); }
     setBusy(null);
   };
+  /** Changement de correspondance : toutes les correspondances actuelles sont rejouées, plus la nouvelle. */
   const remap = (header: string, field: OfferField) => {
-    const ov = { ...overrides, [header]: field };
-    setOverrides(ov);
-    if (fileBuf && draft) update((d) => buildDraftFromFile(fileBuf, d.source_filename, ov, d));
+    if (!draft?.source_grid) return;
+    const ov: Record<string, OfferField> = { ...Object.fromEntries(draft.mappings.map((m) => [m.header, m.field])), [header]: field };
+    update((d) => (d.source_grid ? buildDraftFromGrid({ sheet: d.source_filename, grid: d.source_grid }, d.source_filename, ov, d) : d));
   };
   const setVehicle = (id: string, patch: Partial<OfferVehicle>) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, ...patch } : v)) }));
   const applyRule = (rule: PriceRule) => update((d) => ({ ...d, price_rule: rule, vehicles: applyPriceRule(d.vehicles, rule, (v) => supplierHt(v), true) }));
@@ -120,7 +134,7 @@ export function Offres() {
   /** Bascule d'une offre à l'autre en un clic — l'offre quittée est déjà enregistrée (ou le sera dans la seconde). */
   const open = (o: SupplierOffer) => {
     if (saveTimer.current && draft && dirty.current) { window.clearTimeout(saveTimer.current); dirty.current = false; void persist(draft); }
-    setDraft({ ...o }); setParsed(null); setFileBuf(null); setOverrides({}); setMsg(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null);
+    setDraft({ ...o }); setParsed(null); setMsg(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null); setEditLot(null);
     setSurvey((s) => (s && s.done < s.total && s.current !== 'arrêté' ? s : null));
   };
   const remove = async (o: SupplierOffer) => {
@@ -147,14 +161,27 @@ export function Offres() {
   // cochés) et VISIBLES avant tout relevé. Le relevé enchaîne les lots un par
   // un (les sites d'un lot en parallèle) pour ne pas noyer la file du worker,
   // et écrit le résultat dans l'offre au fil de l'eau (autosave).
-  const lots = useMemo(() => (draft ? lotsOf(draft.vehicles) : []), [draft]);
+  const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, draft.lot_criteria?.[l.key])) : []), [draft]);
+  const [editLot, setEditLot] = useState<string | null>(null);
+  /** Critères réglés à la main : le relevé du lot est effacé (il répondait à d'autres critères) et ses URLs se régénèrent. */
+  const setLotCriteria = (lot: OfferLot, patch: LotCriteria | null) => {
+    targetsRef.current = Object.fromEntries(Object.entries(targetsRef.current).filter(([k]) => !k.startsWith(`${lot.key}#`)));
+    setTargets(targetsRef.current);
+    update((d) => {
+      const lot_criteria = { ...(d.lot_criteria ?? {}) };
+      if (patch === null) delete lot_criteria[lot.key]; else lot_criteria[lot.key] = { ...(lot_criteria[lot.key] ?? {}), ...patch };
+      const market = { ...(d.market ?? {}) }; delete market[lot.key];
+      return { ...d, lot_criteria, market };
+    });
+  };
   const [targets, setTargets] = useState<Record<string, LotTarget[]>>({});
   const targetsRef = useRef<Record<string, LotTarget[]>>({});
   const [targetsOpen, setTargetsOpen] = useState<string | null>(null);
   const [survey, setSurvey] = useState<{ done: number; total: number; current: string; errors: string[] } | null>(null);
   const cancelSurvey = useRef(false);
   const surveyRunning = !!survey && survey.done < survey.total && survey.current !== 'arrêté';
-  const targetKey = (lot: OfferLot) => `${lot.key}#${(draft?.countries ?? []).join(',')}`;
+  // Clé de cache = lot + critères (le libellé les porte tous) + pays cochés.
+  const targetKey = (lot: OfferLot) => `${lot.key}#${lot.label}#${(draft?.countries ?? []).join(',')}`;
   const ensureTargets = async (lot: OfferLot): Promise<LotTarget[]> => {
     const k = targetKey(lot);
     if (targetsRef.current[k]) return targetsRef.current[k];
@@ -315,13 +342,13 @@ export function Offres() {
                         <div key={m.header} className="flex items-center gap-2 text-xs">
                           <span className="w-36 truncate font-medium text-slate-700" title={m.header}>{m.header}</span>
                           <span className="w-24 truncate text-slate-400" title={m.sample}>{m.sample}</span>
-                          <select value={overrides[m.header] ?? m.field} onChange={(e) => remap(m.header, e.target.value as OfferField)} disabled={!fileBuf} className="flex-1 px-2 py-1 rounded border border-slate-300 bg-white">
+                          <select value={m.field} onChange={(e) => remap(m.header, e.target.value as OfferField)} disabled={!draft.source_grid} className="flex-1 px-2 py-1 rounded border border-slate-300 bg-white">
                             {(Object.keys(OFFER_FIELD_LABELS) as OfferField[]).map((f) => <option key={f} value={f}>{OFFER_FIELD_LABELS[f]}</option>)}
                           </select>
                         </div>
                       ))}
                     </div>
-                    {!fileBuf && <p className="text-[11px] text-slate-400 mt-2">Offre rouverte : pour changer la correspondance, dépose de nouveau le fichier (nouvelle offre).</p>}
+                    {!draft.source_grid && <p className="text-[11px] text-amber-700 mt-2">Offre créée avant le 17/09 : le fichier n'a pas été conservé — dépose-le de nouveau (nouvelle offre) pour changer la correspondance. Les offres importées désormais restent modifiables.</p>}
                   </div>
                 )}
               </div>
@@ -442,7 +469,10 @@ export function Offres() {
                         return (
                           <Fragment key={lot.key}>
                             <tr>
-                              <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{lot.label}</td>
+                              <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">
+                                {lot.label}
+                                {lot.adjusted && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full border bg-blue-50 text-brand-encre border-blue-200 font-normal">critères réglés</span>}
+                              </td>
                               <td className="py-2 pr-3 text-right tabular-nums text-slate-600">{lot.count}</td>
                               <td className="py-2 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(lot.ourPriceMin)} – ${fmtEur(lot.ourPriceMax)}` : fmtEur(lot.ourPriceAvg)}</td>
                               {draft.countries.map((c) => {
@@ -455,16 +485,55 @@ export function Offres() {
                                       <span className="block text-[10px] text-slate-500 mt-0.5 whitespace-nowrap">méd. {fmtEur(res.medianTtc)} TTC · {fmtEur(res.medianHt)} HT · {res.competitors} conc.</span>
                                     )}
                                     {res && res.medianTtc == null && Object.values(res.sites).some((s) => s.error) && (
-                                      <span className="block text-[10px] text-amber-700 mt-0.5">{Object.values(res.sites).find((s) => s.error)?.error}</span>
+                                      <span className="block text-[10px] text-amber-700 mt-0.5">{(() => { const s = Object.values(res.sites).find((x) => x.error); return s ? `${SITE_LABEL(s.site)} : ${s.error}` : ''; })()}</span>
                                     )}
                                   </td>
                                 );
                               })}
                               <td className="py-2 pr-3 whitespace-nowrap text-right">
+                                <button onClick={() => setEditLot(editLot === lot.key ? null : lot.key)} className={`inline-flex items-center gap-1 mr-3 ${editLot === lot.key ? 'text-brand-encre font-medium' : 'text-brand-ocean'} hover:underline`}><SlidersHorizontal className="w-3 h-3" /> {editLot === lot.key ? 'Fermer' : 'Régler les critères'}</button>
                                 <button onClick={() => void toggleTargets(lot)} className="text-brand-ocean hover:underline mr-3">{opened ? 'Masquer' : 'Voir les recherches'}</button>
                                 <button onClick={() => void runSurvey([lot])} disabled={surveyRunning || draft.countries.length === 0} className="text-slate-700 hover:underline disabled:opacity-40">Relever ce lot</button>
                               </td>
                             </tr>
+                            {editLot === lot.key && (
+                              <tr className="bg-blue-50/40">
+                                <td colSpan={4 + draft.countries.length} className="px-3 py-2">
+                                  <div className="flex flex-wrap items-end gap-3 text-xs">
+                                    <label className="text-slate-600">Marque
+                                      <input list="offer-brands" value={lot.brand} onChange={(e) => setLotCriteria(lot, { brand: e.target.value })} className="block mt-0.5 w-32 px-2 py-1 rounded border border-slate-300 bg-white uppercase" />
+                                    </label>
+                                    <label className="text-slate-600">Modèle
+                                      <input list={`offer-models-${lot.key}`} value={lot.model} onChange={(e) => setLotCriteria(lot, { model: e.target.value })} className="block mt-0.5 w-40 px-2 py-1 rounded border border-slate-300 bg-white uppercase" />
+                                      <datalist id={`offer-models-${lot.key}`}>{(known[lot.brand] ?? []).map((m) => <option key={m} value={m} />)}</datalist>
+                                    </label>
+                                    <label className="text-slate-600">Année de
+                                      <input type="number" value={lot.yearFrom ?? ''} onChange={(e) => setLotCriteria(lot, { yearFrom: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-20 px-2 py-1 rounded border border-slate-300 bg-white" />
+                                    </label>
+                                    <label className="text-slate-600">à
+                                      <input type="number" value={lot.yearTo ?? ''} onChange={(e) => setLotCriteria(lot, { yearTo: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-20 px-2 py-1 rounded border border-slate-300 bg-white" />
+                                    </label>
+                                    <label className="text-slate-600">Km maxi
+                                      <input type="number" step={10000} value={lot.kmMax ?? ''} onChange={(e) => setLotCriteria(lot, { kmMax: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-24 px-2 py-1 rounded border border-slate-300 bg-white" />
+                                    </label>
+                                    <label className="text-slate-600">Énergie
+                                      <select value={lot.fuel ?? ''} onChange={(e) => setLotCriteria(lot, { fuel: e.target.value || null })} className="block mt-0.5 px-2 py-1 rounded border border-slate-300 bg-white">
+                                        <option value="">— toutes —</option>
+                                        {FUEL_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
+                                        {lot.fuel && !FUEL_OPTIONS.includes(lot.fuel) && <option value={lot.fuel}>{lot.fuel}</option>}
+                                      </select>
+                                    </label>
+                                    <label className="text-slate-600">Boîte
+                                      <select value={lot.gearbox ?? ''} onChange={(e) => setLotCriteria(lot, { gearbox: e.target.value || null })} className="block mt-0.5 px-2 py-1 rounded border border-slate-300 bg-white">
+                                        <option value="">— toutes —</option><option value="AUTOMATIQUE">Automatique</option><option value="MANUELLE">Manuelle</option>
+                                      </select>
+                                    </label>
+                                    {lot.adjusted && <button onClick={() => setLotCriteria(lot, null)} className="text-slate-500 hover:underline pb-1.5">Rétablir les critères du fichier</button>}
+                                    <span className="text-[11px] text-slate-500 pb-1.5 basis-full">Ces critères ne changent que la recherche de marché (pas l'offre exportée). Un changement efface le relevé du lot ; vérifie les recherches puis relance.</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
                             {opened && (
                               <tr className="bg-slate-50/60">
                                 <td colSpan={4 + draft.countries.length} className="px-3 py-2">
@@ -496,6 +565,7 @@ export function Offres() {
                   </table>
                 </div>
               )}
+              <datalist id="offer-brands">{Object.keys(known).map((b) => <option key={b} value={b} />)}</datalist>
               <p className="px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
                 Verdict = médiane des annonces du pays (TTC → HT avec la TVA locale) face à notre prix HT moyen du lot : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous.
                 {draft.countries.some((c) => COUNTRY_CAVEAT[c]) && <> ⚠ Danemark : {COUNTRY_CAVEAT.DK}.</>} Les recherches passent par la même file que le Market Intelligence : compte quelques minutes par lot.
