@@ -201,9 +201,16 @@ async function syncOnce(creds: string): Promise<void> {
     .filter((t) => { const m = monthOfTab(t); return m != null && m >= since; });
   if (tabs.length === 0) { console.warn(`[SHEET_SYNC] aucun onglet mensuel ≥ ${since}`); return; }
 
-  // Références déjà connues d'ADA — jamais dupliquées.
-  const { data: existing } = await supabase.from('transactions_admin').select('reference').not('reference', 'is', null).limit(10000);
-  const known = new Set(((existing ?? []) as Array<{ reference: string | null }>).map((r) => (r.reference ?? '').trim().toUpperCase()).filter(Boolean));
+  // Références déjà connues d'ADA — jamais dupliquées. Depuis le 18/09 une
+  // vente poussée depuis une négociation porte sa REF (fenêtre « référence »)
+  // : la ligne du tableur la RETROUVE et la COMPLÈTE (champs vides seulement,
+  // le dossier ADA fait toujours foi) au lieu de créer un deuxième dossier.
+  type Known = { id: string; reference: string | null; notes: string | null; purchase_price: number | null; sale_price: number | null; fees: number | null; commission_ht: number | null; commercial: string | null; buyer_contact_id: string | null; transaction_date: string | null; status: string | null; closed_at: string | null; transaction_type: string | null };
+  const { data: existing } = await supabase.from('transactions_admin')
+    .select('id, reference, notes, purchase_price, sale_price, fees, commission_ht, commercial, buyer_contact_id, transaction_date, status, closed_at, transaction_type')
+    .not('reference', 'is', null).limit(10000);
+  const known = new Map<string, Known>();
+  for (const r of ((existing ?? []) as unknown as Known[])) { const k = (r.reference ?? '').trim().toUpperCase(); if (k && !known.has(k)) known.set(k, r); }
 
   // Contacts ADA pour l'attribution automatique du client acheteur. Clé =
   // mots triés et canonisés : « AUTOGROEP OOSTENDORP » ↔ « OOSTENDORP
@@ -222,15 +229,48 @@ async function syncOnce(creds: string): Promise<void> {
     }
   }
 
-  let inserted = 0, skipped = 0, matched = 0;
+  let inserted = 0, skipped = 0, matched = 0, completed = 0;
   for (const tab of tabs) {
     const res = (await sheetsGet(token, `${cfg.spreadsheetId}/values/${encodeURIComponent(`'${tab}'!A1:AH1050`)}`)) as { values?: string[][] };
     for (const s of parseTab(res.values ?? [])) {
-      if (known.has(s.ref)) { skipped++; continue; }
       const closed = s.paiement && s.livre;
       const buyerId = contactByKey.get(canonName(s.client)) ?? null;
+      const tableurNotes = [
+        `[Tableur ${tab}]`,
+        s.vehicule && `Véhicule : ${s.vehicule}`, s.vin && `VIN (fin) : ${s.vin}`,
+        s.ville && `Ville : ${s.ville}`,
+        s.client && `Client : ${s.client}${buyerId ? '' : ' (contact ADA introuvable)'}`,
+        s.convoyeur && `Convoyeur : ${s.convoyeur}`,
+        s.facture && `Facture : ${s.facture}`, s.modePaiement && `Paiement : ${s.modePaiement}`,
+        s.commissions != null && `Commission : ${s.commissions} €`,
+        s.commissionHt != null && `Commission HT (marge) : ${s.commissionHt} €`,
+      ].filter(Boolean).join('\n');
+      const prev = known.get(s.ref);
+      if (prev) {
+        // COMPLÉTION sans écrasement : seuls les champs vides du dossier ADA
+        // reçoivent la valeur du tableur ; le bloc « [Tableur] » n'est ajouté
+        // aux notes qu'une fois ; un dossier « achat » (négociation) devient
+        // une vente dès que le tableur donne un prix de vente.
+        const patch: Record<string, unknown> = {};
+        if (prev.sale_price == null && s.prixVente != null) patch.sale_price = s.prixVente;
+        if (prev.purchase_price == null && s.prixAchat != null) patch.purchase_price = s.prixAchat;
+        if (prev.fees == null && s.fraisHt != null) patch.fees = s.fraisHt;
+        if (prev.commission_ht == null && s.commissionHt != null) patch.commission_ht = s.commissionHt;
+        if (!prev.commercial && s.seller) patch.commercial = s.seller;
+        if (!prev.buyer_contact_id && buyerId) patch.buyer_contact_id = buyerId;
+        if (!prev.transaction_date && s.dateAchat) patch.transaction_date = s.dateAchat;
+        if (closed && prev.status !== 'cloturee') { patch.status = 'cloturee'; if (!prev.closed_at && s.dateLivraison) patch.closed_at = `${s.dateLivraison}T12:00:00Z`; }
+        if (prev.transaction_type === 'purchase' && s.prixVente != null) patch.transaction_type = 'sale';
+        if (!(prev.notes ?? '').includes('[Tableur')) patch.notes = [prev.notes, tableurNotes].filter(Boolean).join('\n');
+        if (Object.keys(patch).length === 0) { skipped++; continue; }
+        const { error } = await supabase.from('transactions_admin').update(patch as never).eq('id', prev.id);
+        if (error) { console.warn(`[SHEET_SYNC] complétion ${s.ref} impossible: ${error.message}`); continue; }
+        Object.assign(prev, patch);
+        completed++;
+        continue;
+      }
       if (buyerId) matched++;
-      const { error } = await supabase.from('transactions_admin').insert({
+      const { data: ins, error } = await supabase.from('transactions_admin').insert({
         transaction_type: 'sale',
         reference: s.ref,
         status: closed ? 'cloturee' : 'en_cours',
@@ -243,23 +283,14 @@ async function syncOnce(creds: string): Promise<void> {
         commercial: s.seller || null,
         buyer_contact_id: buyerId,
         transaction_date: s.dateAchat,
-        notes: [
-          `[Tableur ${tab}]`,
-          s.vehicule && `Véhicule : ${s.vehicule}`, s.vin && `VIN (fin) : ${s.vin}`,
-          s.ville && `Ville : ${s.ville}`,
-          s.client && `Client : ${s.client}${buyerId ? '' : ' (contact ADA introuvable)'}`,
-          s.convoyeur && `Convoyeur : ${s.convoyeur}`,
-          s.facture && `Facture : ${s.facture}`, s.modePaiement && `Paiement : ${s.modePaiement}`,
-          s.commissions != null && `Commission : ${s.commissions} €`,
-          s.commissionHt != null && `Commission HT (marge) : ${s.commissionHt} €`,
-        ].filter(Boolean).join('\n'),
-      });
+        notes: tableurNotes,
+      }).select('id').single();
       if (error) { console.warn(`[SHEET_SYNC] insert ${s.ref} impossible: ${error.message}`); continue; }
-      known.add(s.ref);
+      known.set(s.ref, { id: (ins as { id: string }).id, reference: s.ref, notes: tableurNotes, purchase_price: s.prixAchat, sale_price: s.prixVente, fees: s.fraisHt, commission_ht: s.commissionHt, commercial: s.seller || null, buyer_contact_id: buyerId, transaction_date: s.dateAchat, status: closed ? 'cloturee' : 'en_cours', closed_at: null, transaction_type: 'sale' });
       inserted++;
     }
   }
-  if (inserted > 0 || skipped === 0) {
-    console.warn(`[SHEET_SYNC] ${tabs.length} onglet(s) ≥ ${since} : ${inserted} vente(s) créée(s) (${matched} clients rattachés), ${skipped} déjà connues (REF)`);
+  if (inserted > 0 || completed > 0 || skipped === 0) {
+    console.warn(`[SHEET_SYNC] ${tabs.length} onglet(s) ≥ ${since} : ${inserted} vente(s) créée(s) (${matched} clients rattachés), ${completed} dossier(s) complété(s) par REF, ${skipped} déjà à jour (REF)`);
   }
 }

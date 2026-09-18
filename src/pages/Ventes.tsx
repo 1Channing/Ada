@@ -4,7 +4,7 @@ import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
 import {
   Negotiation, listNegotiations, createNegotiation, updateNegotiation,
-  deleteNegotiation, pushNegotiationToSale,
+  deleteNegotiation, pushNegotiationToSale, normalizeSaleReference,
   NegoConflict, listNegotiationConflicts,
   NegotiationFolder, listNegotiationFolders, createNegotiationFolder, renameNegotiationFolder,
   deleteNegotiationFolder, moveNegotiationToFolder,
@@ -338,6 +338,23 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
   conflicts: NegoConflict[]; sharedItemId: string | null; onChanged: () => void; onPushed: () => void;
 }) {
   const [askDelete, setAskDelete] = useState(false);
+  // Passage en vente SOUS RÉFÉRENCE (18/09) : petite fenêtre qui demande la
+  // REF du tableau — clé anti-doublon partagée avec la synchro du tableur.
+  const [askRef, setAskRef] = useState(false);
+  const [refInput, setRefInput] = useState('');
+  const [refBusy, setRefBusy] = useState(false);
+  const [refError, setRefError] = useState<string | null>(null);
+  const submitRef = async () => {
+    const ref = normalizeSaleReference(refInput);
+    if (!ref) { setRefError('Lettres et chiffres, comme dans le tableau : YC575, BM191.'); return; }
+    setRefBusy(true); setRefError(null);
+    const r = await pushNegotiationToSale(n, ref);
+    setRefBusy(false);
+    if (r.error) { setRefError(r.error); return; }
+    setAskRef(false); setRefInput('');
+    if (r.linked) alert(`Vente ${ref} déjà connue (tableur ou collègue) : la négociation a été rattachée à ce dossier, sans doublon.`);
+    onChanged(); onPushed();
+  };
   const [menu, setMenu] = useState(false);
   // Sous-menu « Ranger dans un dossier » : la liste des dossiers remplace le
   // menu principal (une seule feuille sur mobile).
@@ -499,12 +516,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
                 </span>
               </MenuBtn>
               {!pushed && (
-                <MenuBtn onClick={async () => {
-                  setMenu(false);
-                  const { error } = await pushNegotiationToSale(n);
-                  if (error) alert(error);
-                  else { onChanged(); onPushed(); }
-                }}>Ajouter aux ventes (dossier)</MenuBtn>
+                <MenuBtn onClick={() => { setMenu(false); setRefInput(''); setRefError(null); setAskRef(true); }}>Ajouter aux ventes (dossier)</MenuBtn>
               )}
               {n.listing_url?.startsWith('http') && (
                 <MenuBtn onClick={async () => {
@@ -551,6 +563,23 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
           )}
         </div>
       </div>
+      {askRef && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 grid place-items-center p-4" onClick={() => !refBusy && setAskRef(false)}>
+          <form onSubmit={(e) => { e.preventDefault(); void submitRef(); }} className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-slate-900">Ajouter aux ventes « {n.title} »</h3>
+            <p className="text-sm text-slate-600">Référence de la vente, la même que dans le tableau des ventes. C'est elle qui évite les doublons : la synchro du tableur retrouvera ce dossier au lieu d'en créer un deuxième.</p>
+            <label className="block text-xs text-slate-600">Référence (REF du tableau)
+              <input autoFocus value={refInput} onChange={(e) => { setRefInput(e.target.value.toUpperCase()); setRefError(null); }} placeholder="YC575" className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono uppercase tracking-wide" />
+            </label>
+            {refError && <p className="text-xs text-red-600">{refError}</p>}
+            <div className="flex items-center gap-2 pt-1">
+              <button type="submit" disabled={refBusy || !refInput.trim()} className="flex-1 bg-brand-ocean hover:bg-brand-encre text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50">{refBusy ? 'Enregistrement…' : 'Créer la vente'}</button>
+              <button type="button" onClick={() => setAskRef(false)} disabled={refBusy} className="text-sm text-slate-500 hover:text-slate-700 px-3 py-2">Annuler</button>
+            </div>
+            <p className="text-[11px] text-slate-500">Pas encore de REF ? Attribue-la d'abord dans le tableau, puis reviens : sans référence, la vente ne peut pas être créée depuis une négociation.</p>
+          </form>
+        </div>
+      )}
       {askDelete && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 grid place-items-center p-4" onClick={() => setAskDelete(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>

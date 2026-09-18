@@ -343,6 +343,22 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   pause » / « Tout réactiver » (`setDailySearchesActive(ids, active)`).
   Une étude en pause garde résultats, annonces et historique ; « Lancer
   maintenant » marche toujours (forçage hors drapeau). Pas de SQL.
+- **VENTES SOUS RÉFÉRENCE — ANTI-DOUBLON NÉGO ↔ TABLEUR (18/09, demande
+  Channing : « plein de doublons qui polluent »)**. Cause : « Ajouter aux
+  ventes » créait un dossier SANS référence ; la synchro du tableur (clé =
+  REF) ne pouvait pas le reconnaître et recréait la même vente. Livré :
+  (1) fenêtre « Référence de la vente » au passage en vente (REF du tableau,
+  lettres + chiffres, obligatoire) ; (2) `pushNegotiationToSale(n, ref)` :
+  si la REF existe déjà (tableur ou collègue) la négociation est RATTACHÉE
+  au dossier existant et le complète (prix d'achat, notes) — jamais un
+  deuxième dossier ; (3) worker/salesSheetSync : une REF connue n'est plus
+  ignorée mais COMPLÉTÉE sans écrasement (champs vides seulement, bloc
+  « [Tableur] » ajouté une fois, dossier « achat » → « vente » dès qu'un
+  prix de vente arrive, clôture quand paiement + livré). Pas de SQL.
+  RESTE : nettoyage des doublons DÉJÀ créés (dossiers sans REF issus des
+  négociations à côté de leur jumeau tableur) — à la main dans Ventes, ou
+  outil « fusionner » si Channing le demande ; index unique sur la REF une
+  fois le stock assaini.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

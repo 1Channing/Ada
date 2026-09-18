@@ -583,22 +583,59 @@ export async function deleteNegotiation(id: string, disposition: 'flux' | 'archi
   await supabase.from('daily_search_hits').update(patch).eq('user_id', uid()).eq('listing_url', url).eq('status', 'saved');
 }
 
-/** Pipeline : la négo devient une vente (transaction admin pré-remplie). */
-export async function pushNegotiationToSale(n: Negotiation): Promise<{ transactionId: string | null; error: string | null }> {
+/** REF de vente telle que dans le tableur (YC575, BM191) : lettres ET chiffres, majuscules. */
+export function normalizeSaleReference(raw: string): string | null {
+  const ref = (raw ?? '').trim().toUpperCase().replace(/\s+/g, '');
+  return ref.length >= 2 && /[A-Z]/.test(ref) && /\d/.test(ref) ? ref : null;
+}
+
+/**
+ * Pipeline : la négo devient une vente (transaction admin pré-remplie) SOUS
+ * UNE RÉFÉRENCE (demande Channing 18/09) — la même REF que dans le tableau
+ * des ventes. C'est la clé anti-doublon partagée avec la synchro du tableur
+ * (worker/salesSheetSync : REF ↔ transactions_admin.reference) : si la REF
+ * existe déjà (vente importée du tableur, ou poussée par un collègue), la
+ * négociation est RATTACHÉE à ce dossier et le complète (prix d'achat,
+ * notes) au lieu d'en créer un deuxième.
+ */
+export async function pushNegotiationToSale(n: Negotiation, referenceRaw: string): Promise<{ transactionId: string | null; linked: boolean; error: string | null }> {
+  const reference = normalizeSaleReference(referenceRaw);
+  if (!reference) return { transactionId: null, linked: false, error: 'Référence invalide : lettres et chiffres, comme dans le tableau (YC575).' };
+  const negoNotes = [`[Négociation] ${n.title}`, n.listing_url, n.notes].filter(Boolean).join('\n');
+  const price = n.negotiated_price ?? n.asking_price;
+  const { data: found, error: findErr } = await supabase
+    .from('transactions_admin')
+    .select('id, notes, purchase_price')
+    .ilike('reference', reference)
+    .limit(1);
+  if (findErr) return { transactionId: null, linked: false, error: findErr.message };
+  const existing = (found ?? [])[0] as { id: string; notes: string | null; purchase_price: number | null } | undefined;
+  if (existing) {
+    const patch: Record<string, unknown> = {};
+    if (existing.purchase_price == null && price != null) patch.purchase_price = price;
+    if (!(existing.notes ?? '').includes(n.listing_url || '[Négociation]')) patch.notes = [existing.notes, negoNotes].filter(Boolean).join('\n');
+    if (Object.keys(patch).length) {
+      const { error } = await supabase.from('transactions_admin').update(patch).eq('id', existing.id);
+      if (error) return { transactionId: null, linked: false, error: error.message };
+    }
+    await updateNegotiation(n.id, { status: 'pushed_to_sale', transaction_id: existing.id } as Partial<Negotiation>);
+    return { transactionId: existing.id, linked: true, error: null };
+  }
   const { data, error } = await supabase
     .from('transactions_admin')
     .insert({
       transaction_type: 'purchase',
       status: 'en_cours',
-      notes: [n.title, n.listing_url, n.notes].filter(Boolean).join('\n'),
-      purchase_price: n.negotiated_price ?? n.asking_price,
+      reference,
+      notes: negoNotes,
+      purchase_price: price,
       owner_user_id: uid(),
     })
     .select('id')
     .single();
-  if (error) return { transactionId: null, error: error.message };
+  if (error) return { transactionId: null, linked: false, error: error.message };
   await updateNegotiation(n.id, { status: 'pushed_to_sale', transaction_id: data.id } as Partial<Negotiation>);
-  return { transactionId: data.id, error: null };
+  return { transactionId: data.id, linked: false, error: null };
 }
 
 // ── « Vérifier une annonce » (09/09) ──────────────────────────────────────────
