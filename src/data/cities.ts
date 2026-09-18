@@ -9,7 +9,7 @@ export const COUNTRY_NAMES: Record<string, string> = {
   FR: 'France', NL: 'Pays-Bas', BE: 'Belgique', DE: 'Allemagne', DK: 'Danemark', SE: 'Suède', IT: 'Italie', ES: 'Espagne',
   HU: 'Hongrie', LT: 'Lituanie', LU: 'Luxembourg', AT: 'Autriche', CH: 'Suisse', PL: 'Pologne', CZ: 'Tchéquie', PT: 'Portugal',
   NO: 'Norvège', FI: 'Finlande', IE: 'Irlande', GB: 'Royaume-Uni', EE: 'Estonie', LV: 'Lettonie', RO: 'Roumanie', SK: 'Slovaquie',
-  SI: 'Slovénie', HR: 'Croatie', BG: 'Bulgarie', GR: 'Grèce', MA: 'Maroc', TR: 'Turquie', UA: 'Ukraine', RS: 'Serbie',
+  SI: 'Slovénie', HR: 'Croatie', BG: 'Bulgarie', GR: 'Grèce', MA: 'Maroc', TR: 'Turquie', UA: 'Ukraine', RS: 'Serbie', GE: 'Géorgie',
 };
 
 /** Pays du réseau (10 pays / 16 sites) — mis en avant sur la carte. */
@@ -21,6 +21,8 @@ export const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   ES: [40.2, -3.7], HU: [47.1, 19.4], LT: [55.3, 23.9], LU: [49.8, 6.1], AT: [47.6, 14.2], CH: [46.8, 8.2], PL: [52.0, 19.3],
   CZ: [49.8, 15.5], PT: [39.6, -8.2], NO: [61.5, 9.0], FI: [63.0, 26.0], IE: [53.3, -8.0], GB: [53.5, -2.0], EE: [58.7, 25.5],
   LV: [56.9, 24.9], RO: [45.9, 25.0], SK: [48.7, 19.5], SI: [46.1, 14.8], HR: [45.3, 16.0], BG: [42.7, 25.3], GR: [39.0, 22.0],
+  // Hors réseau (18/09 : Géorgie demandée pour un contact) — l'épingle « à placer » tombe au centre du pays, plus à [50, 10].
+  RS: [44.2, 20.9], MA: [31.8, -7.1], TR: [39.0, 35.2], UA: [48.4, 31.2], GE: [42.2, 43.5],
 };
 
 export const CITIES: CityEntry[] = [
@@ -358,6 +360,12 @@ export const CITIES: CityEntry[] = [
   { name: 'Sofia', country: 'BG', lat: 42.698, lng: 23.322 },
   { name: 'Athènes', country: 'GR', lat: 37.984, lng: 23.728, aliases: ['Athens', 'Athina'] },
   { name: 'Belgrade', country: 'RS', lat: 44.787, lng: 20.457, aliases: ['Beograd'] },
+  // ── Géorgie (18/09) ──
+  { name: 'Tbilissi', country: 'GE', lat: 41.716, lng: 44.783, aliases: ['Tbilisi'] },
+  { name: 'Batoumi', country: 'GE', lat: 41.640, lng: 41.640, aliases: ['Batumi'] },
+  { name: 'Koutaïssi', country: 'GE', lat: 42.268, lng: 42.718, aliases: ['Kutaisi'] },
+  { name: 'Roustavi', country: 'GE', lat: 41.549, lng: 45.010, aliases: ['Rustavi'] },
+  { name: 'Poti', country: 'GE', lat: 42.146, lng: 41.673 },
 ];
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();

@@ -55,7 +55,7 @@ interface CountryGeo { id: string; name: string; rings: Array<Array<[number, num
 interface View { k: number; tx: number; ty: number }
 const ROLE_COLOR: Record<ContactRole, string> = { vendeur: '#2C5F9E', acheteur: '#EA7A2B', les_deux: '#0f9d8a' };
 const RELATION_COLOR: Record<string, string> = { chaud: '#ef4444', tiede: '#f59e0b', froid: '#94a3b8', nouveau: '#8b5cf6' };
-const FLAG: Record<string, string> = { FR: '🇫🇷', NL: '🇳🇱', BE: '🇧🇪', DE: '🇩🇪', DK: '🇩🇰', SE: '🇸🇪', IT: '🇮🇹', ES: '🇪🇸', HU: '🇭🇺', LT: '🇱🇹', LU: '🇱🇺', AT: '🇦🇹', CH: '🇨🇭', PL: '🇵🇱', CZ: '🇨🇿', PT: '🇵🇹', NO: '🇳🇴', FI: '🇫🇮', IE: '🇮🇪', GB: '🇬🇧', EE: '🇪🇪', LV: '🇱🇻', RO: '🇷🇴', SK: '🇸🇰', SI: '🇸🇮', HR: '🇭🇷', BG: '🇧🇬', GR: '🇬🇷', RS: '🇷🇸' };
+const FLAG: Record<string, string> = { FR: '🇫🇷', NL: '🇳🇱', BE: '🇧🇪', DE: '🇩🇪', DK: '🇩🇰', SE: '🇸🇪', IT: '🇮🇹', ES: '🇪🇸', HU: '🇭🇺', LT: '🇱🇹', LU: '🇱🇺', AT: '🇦🇹', CH: '🇨🇭', PL: '🇵🇱', CZ: '🇨🇿', PT: '🇵🇹', NO: '🇳🇴', FI: '🇫🇮', IE: '🇮🇪', GB: '🇬🇧', EE: '🇪🇪', LV: '🇱🇻', RO: '🇷🇴', SK: '🇸🇰', SI: '🇸🇮', HR: '🇭🇷', BG: '🇧🇬', GR: '🇬🇷', RS: '🇷🇸', MA: '🇲🇦', TR: '🇹🇷', UA: '🇺🇦', GE: '🇬🇪' };
 
 const emptyInput = (country = 'NL'): ContactInput => ({
   name: '', kind: 'concession', role: 'vendeur', country, city: '', lat: null, lng: null,
@@ -810,7 +810,7 @@ const ISO_BY_NAME: Record<string, string> = {
   France: 'FR', Netherlands: 'NL', Belgium: 'BE', Germany: 'DE', Denmark: 'DK', Sweden: 'SE', Italy: 'IT', Spain: 'ES', Hungary: 'HU', Lithuania: 'LT',
   Luxembourg: 'LU', Austria: 'AT', Switzerland: 'CH', Poland: 'PL', Czechia: 'CZ', Portugal: 'PT', Norway: 'NO', Finland: 'FI', Ireland: 'IE',
   'United Kingdom': 'GB', Estonia: 'EE', Latvia: 'LV', Romania: 'RO', Slovakia: 'SK', Slovenia: 'SI', Croatia: 'HR', Bulgaria: 'BG', Greece: 'GR',
-  Serbia: 'RS', Morocco: 'MA', Turkey: 'TR', Ukraine: 'UA',
+  Serbia: 'RS', Morocco: 'MA', Turkey: 'TR', Ukraine: 'UA', Georgia: 'GE',
 };
 const isoOf = (name: string): string | null => ISO_BY_NAME[name] ?? null;
 const isNetworkCountry = (name: string): boolean => { const iso = isoOf(name); return Boolean(iso && NETWORK_COUNTRIES.includes(iso)); };
