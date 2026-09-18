@@ -332,6 +332,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   médiane prédite ; seuil de marge réglable par pays ; relevé profondeur
   réduite (aujourd'hui même profondeur que le MI, ≈ 1–3 min par site).
   Jeux d'essai : les trois fichiers du 14/09.
+- **ÉTUDES QUOTIDIENNES — ACTIVATION VISIBLE (18/09, demande Channing :
+  « garder les études en mémoire sans tout scraper tout le temps, limiter le
+  coût Zyte »)**. La pause existait (colonne `active`, respectée par la vague
+  du worker et par `truth_active_studies()` — étalon compris) mais vivait
+  dans le menu ⋮ de chaque carte : invisible. Livré : bascule Active / En
+  pause sur chaque carte, bascule de GROUPE marque·modèle dans l'en-tête de
+  l'accordéon (tout en pause ↔ tout actif, un seul update), compteur global
+  « n actives pour le prochain passage · m en pause » avec « Tout mettre en
+  pause » / « Tout réactiver » (`setDailySearchesActive(ids, active)`).
+  Une étude en pause garde résultats, annonces et historique ; « Lancer
+  maintenant » marche toujours (forçage hors drapeau). Pas de SQL.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

@@ -213,6 +213,19 @@ export async function listDailySearches(): Promise<DailySearch[]> {
   return (data ?? []) as DailySearch[];
 }
 
+/**
+ * ACTIVATION pour les prochains passages (demande Channing 18/09 : garder les
+ * études en mémoire sans tout scraper chaque matin — coût Zyte). Une étude en
+ * pause n'est pas prise par la vague quotidienne (worker : active = true) ;
+ * ses résultats, ses annonces et son historique restent ; « Lancer
+ * maintenant » marche toujours. Un seul update pour un groupe entier.
+ */
+export async function setDailySearchesActive(ids: string[], active: boolean): Promise<string | null> {
+  if (!ids.length) return null;
+  const { error } = await supabase.from('daily_searches').update({ active, updated_at: new Date().toISOString() }).in('id', ids);
+  return error ? error.message : null;
+}
+
 export async function saveDailySearch(s: Partial<DailySearch> & { source_country: string; target_country: string; brand: string }): Promise<string | null> {
   // Une étude compare DEUX marchés : source = pays d'achat, cible = pays de
   // revente. Source = cible n'a pas de sens (l'étude « YARIS CROSS TRAIL »

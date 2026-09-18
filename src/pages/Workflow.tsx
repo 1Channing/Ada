@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause } from 'lucide-react';
 import { NegotiationsTab } from './Ventes';
 import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import type { AppTabKey } from '../lib/appTabs';
 import {
-  DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch,
+  DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch, setDailySearchesActive,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
   checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
   traceListing, type ListingTrace,
@@ -220,8 +220,19 @@ function DailySearchesTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-600">{rows.length} étude{rows.length > 1 ? 's' : ''}</p>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-sm text-slate-600 flex items-center gap-3 flex-wrap">
+          <span>
+            {rows.length} étude{rows.length > 1 ? 's' : ''}
+            {rows.length > 0 && <> · <span className="text-emerald-700 font-medium">{rows.filter((s) => s.active).length} active{rows.filter((s) => s.active).length > 1 ? 's' : ''}</span> pour le prochain passage{rows.some((s) => !s.active) ? <> · <span className="text-slate-500">{rows.filter((s) => !s.active).length} en pause</span></> : null}</>}
+          </span>
+          {rows.length > 1 && (
+            <span className="flex items-center gap-2 text-xs">
+              <button onClick={async () => { const err = await setDailySearchesActive(rows.filter((s) => s.active).map((s) => s.id), false); if (err) setError(err); reload(); }} disabled={!rows.some((s) => s.active)} className="px-2 py-1 rounded-lg border border-slate-300 text-slate-600 hover:border-slate-400 disabled:opacity-40">Tout mettre en pause</button>
+              <button onClick={async () => { const err = await setDailySearchesActive(rows.filter((s) => !s.active).map((s) => s.id), true); if (err) setError(err); reload(); }} disabled={!rows.some((s) => !s.active)} className="px-2 py-1 rounded-lg border border-slate-300 text-slate-600 hover:border-slate-400 disabled:opacity-40">Tout réactiver</button>
+            </span>
+          )}
+        </div>
         <button
           onClick={() => setEditing({ ...EMPTY })}
           className="flex items-center gap-2 bg-brand-ocean hover:bg-brand-encre text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -229,6 +240,7 @@ function DailySearchesTab() {
           <Plus className="w-4 h-4" /> Nouvelle étude
         </button>
       </div>
+      <p className="text-[11px] text-slate-500 -mt-2">Une étude en pause n'est pas scrapée par le passage quotidien (aucun coût Zyte) ; ses résultats, ses annonces et son historique restent, et « Lancer maintenant » marche toujours.</p>
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
 
@@ -442,11 +454,13 @@ function GroupedSearchList({ rows, coverage, onEdit, onDuplicate, onChanged }: {
           // des cartes (leçon bande photo négociations 29/08) — les arrondis
           // du survol vivent sur le bouton d'en-tête lui-même.
           <div key={k} className="bg-white rounded-xl border border-slate-200 shadow-sm">
-            <button onClick={() => toggle(k)} className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors ${isOpen ? 'rounded-t-xl' : 'rounded-xl'}`}>
-              <ChevronRight className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
-              <span className="font-semibold text-slate-900 truncate">{k}</span>
-              <span className="text-xs text-slate-500 shrink-0">{pairs.join(' · ')}</span>
-              <span className="ml-auto flex items-center gap-2 shrink-0">
+            <div className={`flex items-center gap-3 pr-4 hover:bg-slate-50 transition-colors ${isOpen ? 'rounded-t-xl' : 'rounded-xl'}`}>
+              <button onClick={() => toggle(k)} className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left">
+                <ChevronRight className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                <span className={`font-semibold truncate ${actives === 0 ? 'text-slate-400' : 'text-slate-900'}`}>{k}</span>
+                <span className="text-xs text-slate-500 shrink-0">{pairs.join(' · ')}</span>
+              </button>
+              <span className="flex items-center gap-2 shrink-0">
                 {dups > 0 && (
                   <span title="Études aux critères STRICTEMENT identiques dans ce groupe" className="text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
                     {dups} doublon{dups > 1 ? 's' : ''}
@@ -462,8 +476,16 @@ function GroupedSearchList({ rows, coverage, onEdit, onDuplicate, onChanged }: {
                 <span className="text-xs text-slate-500">
                   {list.length} étude{list.length > 1 ? 's' : ''}{actives < list.length ? ` · ${list.length - actives} en pause` : ''}
                 </span>
+                {/* Bascule du GROUPE pour le prochain passage (18/09) : tout en pause ↔ tout actif. */}
+                <button
+                  onClick={async (e) => { e.stopPropagation(); const err = await setDailySearchesActive(list.map((s) => s.id), actives === 0); if (err) window.alert(err); onChanged(); }}
+                  title={actives === 0 ? 'Réactiver toutes les études du groupe' : 'Mettre en pause toutes les études du groupe (aucun scrape au prochain passage)'}
+                  className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border ${actives === 0 ? 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-slate-100 hover:text-slate-600'}`}
+                >
+                  {actives === 0 ? <><Play className="w-3 h-3" /> en pause</> : <><Pause className="w-3 h-3" /> {actives === list.length ? 'actif' : `${actives}/${list.length} actives`}</>}
+                </button>
               </span>
-            </button>
+            </div>
             {isOpen && (
               <div className="grid md:grid-cols-2 gap-3 p-3 pt-0 border-t border-slate-100">
                 {list.map((s) => (
@@ -592,6 +614,14 @@ function SearchCard({ s, gaps, onEdit, onDuplicate, onChanged }: {
           </p>
         </div>
         <div className="relative shrink-0 flex items-center gap-1" ref={menuRef}>
+          {/* Bascule VISIBLE (18/09) : active ↔ en pause pour le prochain passage — plus besoin d'ouvrir le menu ⋮. */}
+          <button
+            onClick={async () => { const err = await setDailySearchesActive([s.id], !s.active); if (err) window.alert(err); onChanged(); }}
+            title={s.active ? 'Mettre en pause : plus scrapée au passage quotidien (aucun coût Zyte), résultats conservés' : 'Réactiver pour le prochain passage'}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border ${s.active ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-slate-100 hover:text-slate-600 hover:border-slate-200' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200'}`}
+          >
+            {s.active ? <><Pause className="w-3 h-3" /> Active</> : <><Play className="w-3 h-3" /> En pause</>}
+          </button>
           <button
             onClick={toggleLinks}
             title="Voir les liens de l'étude (source et cible, par site)"
