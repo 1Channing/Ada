@@ -375,6 +375,25 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   script : `u_car_brand=SKODA&regdate=…`). L'accent de « ŠKODA » n'a jamais
   gêné : chaque adaptateur retire les diacritiques (Enyaq 2025 FR→DK ce
   matin : LBC 11 · La Centrale 7 · AS24 2 · Bilbasen 76).
+- **RENOMMER UNE CATÉGORIE D'ÉTUDES (21/09, groupe « SKODA » chez
+  Achille)**. La catégorie de l'accordéon = marque + modèle des études ; un
+  groupe nommé par la marque seule = étude créée sans modèle. Crayon dans
+  l'en-tête du groupe → fenêtre marque (référentiel) + modèle (référentiel
+  ∪ sites), appliquée à toutes les études du groupe
+  (`renameDailySearches`) ; la recherche du lendemain suit.
+- **RÈGLE « URL REDIRIGÉE » CORRIGÉE POUR AUTOSCOUT (21/09, GO Channing
+  « prends la règle pour les RAV4 »)**. AutoScout24 réécrit désormais ses
+  filtres dans le chemin (`kw_`, `re_AAAA`, `ft_`, `tr_`). Preuve en direct :
+  `/re_2023` = 71 annonces = `fregfrom=2023&fregto=2023` (71) alors que
+  `fregfrom=2023` seul = 168 → la facette est « année exacte », rien n'est
+  perdu. worker/scraper `lostQueryParams` reconnaît ces segments (plus de
+  rejeu inutile, plus de dossier) ; truthDiagnose R-REDIR clôt les dossiers
+  dont les paramètres « perdus » sont dans le chemin, et ceux dont la
+  redirection n'est plus observée depuis 3 j (rav-4 → rav4 corrigé le
+  14/09). Effet attendu : scores « à surveiller » du RAV4 remontent après le
+  prochain diagnostic (≤ 20 h). Reste : le dossier « profondeur en
+  variation » Marktplaats RAV4 (historique 432 pollué par l'ancienne URL
+  large) se résorbera avec l'historique.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

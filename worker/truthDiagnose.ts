@@ -110,6 +110,25 @@ function diffUrls(adaUrl: string, humanUrl: string): string[] {
   return out;
 }
 
+/** AutoScout24 : le paramètre demandé est-il exprimé dans le chemin d'arrivée ? (même règle que worker/scraper pathEncodedParam) */
+function autoscoutPathEncodes(from: string, to: string, key: string): boolean {
+  try {
+    const a = new URL(from), b = new URL(to);
+    if (!/autoscout24\./.test(b.hostname)) return false;
+    const segs = b.pathname.split('/').filter(Boolean);
+    const has = (prefix: string) => segs.some((s) => s.startsWith(prefix));
+    const yearSeg = segs.find((s) => /^re_\d{4}$/.test(s));
+    switch (key) {
+      case 'kwd': return has('kw_');
+      case 'fuel': return has('ft_');
+      case 'gear': return has('tr_');
+      case 'body': return has('bt_');
+      case 'fregfrom': case 'fregto': return !!yearSeg && yearSeg === `re_${a.searchParams.get(key)}`;
+      default: return false;
+    }
+  } catch { return false; }
+}
+
 async function writeDiagnosis(
   d: Dossier,
   diagnosis: string,
@@ -207,6 +226,32 @@ export async function runTruthDiagnose(reason: string): Promise<void> {
         continue;
       }
       if (d.status !== 'detected' && d.status !== 'needs_evidence') continue;
+
+      // R-REDIR (21/09) — « URL redirigée » : AutoScout24 réécrit ses filtres
+      // dans le chemin (kw_/re_/ft_/tr_/bt_). Preuve en direct 21/09 sur
+      // Yaris Cross FR : /re_2023 = 71 = fregfrom+fregto 2023, fregfrom seul
+      // = 168. Un dossier dont tous les paramètres « perdus » sont exprimés
+      // dans le chemin d'arrivée est une fausse alerte : clos. Un dossier
+      // dont la redirection n'est plus observée depuis 3 j (slug corrigé à
+      // la source, ex. rav-4 → rav4 le 14/09) est clos aussi — R5 le rouvre
+      // si elle réapparaît.
+      if (d.signal === 'url_redirigee') {
+        const det = (d.details ?? {}) as Record<string, unknown>;
+        const to = typeof det.to === 'string' ? det.to : '';
+        const from = typeof det.from === 'string' ? det.from : '';
+        const lost = Array.isArray(det.lost) ? det.lost.map(String) : [];
+        if (to && from && lost.length > 0 && lost.every((k) => autoscoutPathEncodes(from, to, k))) {
+          await writeDiagnosis(d, `Rien de perdu : le site exprime ${lost.join(', ')} dans le chemin (${new URL(to).pathname}) — facette équivalente prouvée le 21/09 (re_2023 = 71 annonces = fregfrom/fregto 2023). Détection corrigée, dossier clos.`, { status: 'verified', resolve: true });
+          acted++;
+          continue;
+        }
+        const silentDays = (Date.now() - new Date(d.last_seen_at).getTime()) / 86_400_000;
+        if (silentDays >= 3) {
+          await writeDiagnosis(d, `Redirection plus observée depuis ${Math.floor(silentDays)} j : slug corrigé à la source — dossier clos (rouvert automatiquement si elle réapparaît).`, { status: 'verified', resolve: true });
+          acted++;
+        }
+        continue;
+      }
 
       // R-ÉTALON (14/09) — écart entre le compte d'ADA et la recherche à la
       // main : la preuve est l'URL humaine. On compare les deux URLs : tout

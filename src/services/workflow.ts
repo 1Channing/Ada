@@ -226,6 +226,21 @@ export async function setDailySearchesActive(ids: string[], active: boolean): Pr
   return error ? error.message : null;
 }
 
+/**
+ * RENOMMER UNE CATÉGORIE (21/09, constat Channing chez Achille : groupe
+ * « SKODA » au lieu de « Skoda Elroq »). La catégorie n'est pas un nom libre :
+ * c'est marque + modèle des études. Renommer = poser la bonne marque et le
+ * bon modèle sur toutes les études du groupe ; la recherche du lendemain
+ * suit (URLs régénérées à partir des critères).
+ */
+export async function renameDailySearches(ids: string[], brand: string, model: string): Promise<string | null> {
+  const b = brand.trim().toUpperCase();
+  if (!ids.length) return null;
+  if (!b) return 'La marque est obligatoire.';
+  const { error } = await supabase.from('daily_searches').update({ brand: b, model: model.trim().toUpperCase(), updated_at: new Date().toISOString() }).in('id', ids);
+  return error ? error.message : null;
+}
+
 export async function saveDailySearch(s: Partial<DailySearch> & { source_country: string; target_country: string; brand: string }): Promise<string | null> {
   // Une étude compare DEUX marchés : source = pays d'achat, cible = pays de
   // revente. Source = cible n'a pas de sens (l'étude « YARIS CROSS TRAIL »

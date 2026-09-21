@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil } from 'lucide-react';
 import { NegotiationsTab } from './Ventes';
 import { loadLearnedModelsByBrand } from '../lib/offers/knownModels';
 import { Administrative } from './Administrative';
@@ -7,7 +7,7 @@ import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import type { AppTabKey } from '../lib/appTabs';
 import {
-  DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch, setDailySearchesActive,
+  DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch, setDailySearchesActive, renameDailySearches,
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
   checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
   traceListing, type ListingTrace,
@@ -398,6 +398,8 @@ function DailySearchesTab() {
             onEdit={setEditing}
             onDuplicate={(s) => setEditing({ ...s, id: undefined, label: `${s.label || `${s.brand} ${s.model}`.trim()} (copie)`, last_run_at: null })}
             onChanged={reload}
+            brands={ref.brands}
+            modelsFor={(b) => [...(ref.modelsByBrand[b] ?? []), ...extraModels(b)]}
           />
         )}
     </div>
@@ -422,14 +424,26 @@ function searchSignature(s: DailySearch): string {
   ].join('|');
 }
 
-function GroupedSearchList({ rows, coverage, onEdit, onDuplicate, onChanged }: {
+function GroupedSearchList({ rows, coverage, onEdit, onDuplicate, onChanged, brands, modelsFor }: {
   rows: DailySearch[];
   coverage: Record<string, UrlGap[] | null>;
   onEdit: (s: DailySearch) => void;
   onDuplicate: (s: DailySearch) => void;
   onChanged: () => void;
+  brands: string[];
+  modelsFor: (brand: string) => string[];
 }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  // Renommer une catégorie = corriger marque + modèle de toutes ses études
+  // (21/09 : groupe « SKODA » chez Achille, étude créée sans modèle).
+  const [rename, setRename] = useState<{ key: string; ids: string[]; brand: string; model: string; busy: boolean; error: string | null } | null>(null);
+  const submitRename = async () => {
+    if (!rename) return;
+    setRename({ ...rename, busy: true, error: null });
+    const err = await renameDailySearches(rename.ids, rename.brand, rename.model);
+    if (err) { setRename({ ...rename, busy: false, error: err }); return; }
+    setRename(null); onChanged();
+  };
 
   // Groupes marque·modèle, triés alphabétiquement ; à l'intérieur, années
   // récentes d'abord puis nom — l'œil retrouve « Yaris Cross 2024 » d'un
@@ -460,6 +474,33 @@ function GroupedSearchList({ rows, coverage, onEdit, onDuplicate, onChanged }: {
 
   return (
     <div className="space-y-2">
+      {rename && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 grid place-items-center p-4" onClick={() => !rename.busy && setRename(null)}>
+          <form onSubmit={(e) => { e.preventDefault(); void submitRename(); }} className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-slate-900">Renommer la catégorie « {rename.key} »</h3>
+            <p className="text-sm text-slate-600">La catégorie, c'est la marque et le modèle des études. Le changement s'applique aux {rename.ids.length} étude{rename.ids.length > 1 ? 's' : ''} du groupe et la recherche de demain suit.</p>
+            <label className="block text-xs text-slate-600">Marque
+              <select value={rename.brand} onChange={(e) => setRename({ ...rename, brand: e.target.value, model: '' })} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+                {!brands.includes(rename.brand) && rename.brand && <option value={rename.brand}>{rename.brand}</option>}
+                {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs text-slate-600">Modèle
+              <select value={rename.model} onChange={(e) => setRename({ ...rename, model: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+                <option value="">Toute la marque</option>
+                {rename.model && !modelsFor(rename.brand).includes(rename.model) && <option value={rename.model}>{rename.model}</option>}
+                {modelsFor(rename.brand).map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+            {!rename.model && <p className="text-xs text-amber-700">Sans modèle, l'étude scrute toute la marque : c'est ce qui donne un groupe nommé par la marque seule.</p>}
+            {rename.error && <p className="text-xs text-red-600">{rename.error}</p>}
+            <div className="flex items-center gap-2 pt-1">
+              <button type="submit" disabled={rename.busy || !rename.brand} className="flex-1 bg-brand-ocean hover:bg-brand-encre text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50">{rename.busy ? 'Enregistrement…' : 'Renommer'}</button>
+              <button type="button" onClick={() => setRename(null)} disabled={rename.busy} className="text-sm text-slate-500 hover:text-slate-700 px-3 py-2">Annuler</button>
+            </div>
+          </form>
+        </div>
+      )}
       {keys.length > 1 && (
         <div className="flex justify-end gap-3 text-xs text-slate-500">
           <button onClick={() => setOpen(new Set(keys))} className="hover:text-slate-700">Tout déplier</button>
@@ -502,6 +543,14 @@ function GroupedSearchList({ rows, coverage, onEdit, onDuplicate, onChanged }: {
                 <span className="text-xs text-slate-500">
                   {list.length} étude{list.length > 1 ? 's' : ''}{actives < list.length ? ` · ${list.length - actives} en pause` : ''}
                 </span>
+                {/* Renommer la catégorie = corriger marque + modèle des études du groupe. */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setRename({ key: k, ids: list.map((s) => s.id), brand: list[0].brand, model: list[0].model ?? '', busy: false, error: null }); }}
+                  title="Renommer la catégorie (marque et modèle de toutes les études du groupe)"
+                  className="p-1 rounded-lg text-slate-400 hover:text-brand-ocean hover:bg-blue-50"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
                 {/* Bascule du GROUPE pour le prochain passage (18/09) : tout en pause ↔ tout actif. */}
                 <button
                   onClick={async (e) => { e.stopPropagation(); const err = await setDailySearchesActive(list.map((s) => s.id), actives === 0); if (err) window.alert(err); onChanged(); }}

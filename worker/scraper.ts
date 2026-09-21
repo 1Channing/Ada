@@ -1690,9 +1690,35 @@ function lostQueryParams(requested: string, final: string): string[] {
     const a = new URL(requested), b = new URL(final);
     if (a.origin !== b.origin || a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '')) return [];
     const out: string[] = [];
-    for (const k of a.searchParams.keys()) if (!b.searchParams.has(k)) out.push(k);
+    for (const k of a.searchParams.keys()) if (!b.searchParams.has(k) && !pathEncodedParam(a, b, k)) out.push(k);
     return [...new Set(out)];
   } catch { return []; }
+}
+
+/**
+ * AUTOSCOUT24 RÉÉCRIT SES FILTRES DANS LE CHEMIN (constat 18/09, preuve en
+ * direct 21/09 sur Yaris Cross FR : `/re_2023` = 71 annonces, exactement
+ * comme `fregfrom=2023&fregto=2023` = 71, alors que `fregfrom=2023` ouvert
+ * en rend 168 ; `/ft_electrique-essence` + fuel=2 = 70). Le paramètre n'est
+ * pas perdu, il est exprimé autrement : kwd → kw_…, fregfrom/fregto → re_AAAA
+ * (facette « année exacte », couverte seulement si la borne demandée est
+ * cette année-là), fuel → ft_…, gear → tr_…, body → bt_…. Avant : cinq
+ * dossiers « URL redirigée » ouverts à tort en une semaine (RAV4, Ignis,
+ * Yaris, Yaris Cross) et un rejeu inutile à chaque page.
+ */
+function pathEncodedParam(requested: URL, final: URL, key: string): boolean {
+  if (!/autoscout24\./.test(final.hostname)) return false;
+  const segs = final.pathname.split('/').filter(Boolean);
+  const has = (prefix: string) => segs.some((s) => s.startsWith(prefix));
+  const yearSeg = segs.find((s) => /^re_\d{4}$/.test(s));
+  switch (key) {
+    case 'kwd': return has('kw_');
+    case 'fuel': return has('ft_');
+    case 'gear': return has('tr_');
+    case 'body': return has('bt_');
+    case 'fregfrom': case 'fregto': return !!yearSeg && yearSeg === `re_${requested.searchParams.get(key)}`;
+    default: return false;
+  }
 }
 
 function urlHasMileageHint(url: string): boolean {
