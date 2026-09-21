@@ -31,6 +31,7 @@ const SITE_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
   AUTOSCOUT_IT: { label: 'AS24 IT', bg: '#FFCC00', fg: '#1e293b' },
   AUTOSCOUT_ES: { label: 'AS24 ES', bg: '#FFCC00', fg: '#1e293b' },
   AUTOSCOUT_BE: { label: 'AS24 BE', bg: '#FFCC00', fg: '#1e293b' },
+  COCHES: { label: 'CN', bg: '#E4002B', fg: '#fff' },
 };
 
 export function SiteBadge({ site }: { site: string }) {

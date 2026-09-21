@@ -714,6 +714,42 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
     },
   },
   {
+    // ── Coches.net (ES) — grammaire prouvée 21/09 (table FILTER_NAMES du
+    // bundle du site + vérification en direct de chaque paramètre) ───────────
+    host: 'coches.net',
+    year: (url, from, to) => {
+      const out = setQueryParamRaw(url, 'MinYear', from || null);
+      return setQueryParamRaw(out, 'MaxYear', to || null);
+    },
+    mileage: (url, km) => setQueryParamRaw(url, 'MaxKms', km ? String(km) : null),
+    // PowerHpFrom en CV ≈ ch DIN (PowerHpFrom=200 → annonces ≥ 218 hp).
+    power: (url, ch) => setQueryParamRaw(url, 'PowerHpFrom', ch ? String(ch) : null),
+    // TransmissionTypeId : 1 automatique (114 RAV4 ≥ 2023 toutes eCVT), 2 manuelle.
+    gearbox: (url, params) => {
+      const g = String(params.gearbox ?? '').trim().toUpperCase();
+      const code = /^AUTOMAT/.test(g) ? '1' : /^MANUEL|^MANUAL/.test(g) ? '2' : null;
+      return setQueryParamRaw(url, 'TransmissionTypeId', code);
+    },
+    // Fueltype2List SCALAIRE (un seul carburant par URL) — 5 = rechargeable NATIF.
+    fuel: (url, params) => {
+      const code = {
+        DIESEL: '1', ESSENCE: '2', PETROL: '2', GASOLINE: '2',
+        ELECTRIQUE: '3', ELECTRIC: '3',
+        HYBRIDE: '4', HYBRID: '4', MILD_HYBRID: '4',
+        PLUG_IN_HYBRID: '5', PHEV: '5', GPL: '6', LPG: '6', CNG: '7',
+      }[String(params.fuel ?? '').trim().toUpperCase()];
+      return setQueryParamRaw(url, 'Fueltype2List', code ?? null);
+    },
+    trimSlot: (url, t) => setQueryParamRaw(url, 'KeyWords', t),
+    // ArrBodyType — huit URLs humaines 21/09 : 1 Berlina, 2 Coupe, 3 Cabrio,
+    // 4 Familiar, 5 Monovolumen, 6 SUV, 7 Pick Up, 8 Furgoneta.
+    vehicleType: (url, params) => {
+      const tok = canonicalizeBody(String(params.vehicleType ?? ''));
+      const code = tok ? { berline: '1', coupe: '2', cabriolet: '3', break: '4', monospace: '5', suv: '6' }[tok as string] : undefined;
+      return setQueryParamRaw(url, 'ArrBodyType', code ?? null);
+    },
+  },
+  {
     // ── Jófogás ──────────────────────────────────────────────────────────────
     host: 'jofogas.hu',
     // rs TOUJOURS posé (constat Channing 01/08 : sans lui le site bloque la
@@ -767,13 +803,13 @@ export function grammarForUrl(url: string): SiteGrammar | undefined {
 // des études quotidiennes (une URL qui n'exprime pas un critère demandé ne
 // mérite pas 5 pages : on scraperait large ce qu'on croit précis).
 export const CRITERIA_DETECTORS: Record<string, RegExp> = {
-  année: /regdate=|fregfrom=|fregto=|bmin=|bmax=|regfrom=|regto=|[?&]fr=|year_from=|year_to=|constructionYear|[?&]ys=|[?&]ye=|[?&]rs=|[?&]re=|year_min=[^&]|year_max=[^&]|yearMin=|yearMax=/i,
-  km: /mileage=min|kmto=|kmax=|mileageto=|[?&]ml=|mileage_to=|mileageTo|[?&]me=|mileage_max=[^&]|mileageMax=|mileageMin=/i,
-  puissance: /powerfrom=|hpfrom=|[?&]pw=|vmin=|engine_effect_from=|power_min=[^&]|[?&]hps=|horse_power_din=|powerDINMin=/i,
-  boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534/i,
-  finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;|versions=[^&]/i,
-  carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|energies=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
-  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_|[?&]c=[^&]|crs=|cartype=|body_type=|body(?:%5B%5D|\[\])=[^&]|[#|]f:[\d+,]*\b48[123468]\b|\/(?:cabriolet|hatchback|mpv|sedan|stationwagen|suv|bedrijfswagen|berlina|station-wagon|monovolume|cabrio|city-car|suv-fuoristrada|ferdehatu|kisbusz|kombi|coupe-10|cabrio-3)(\/|\?|$)|\/suv\+terepjaro|\/coupe(\/|\?|$)/i,
+  année: /regdate=|fregfrom=|fregto=|bmin=|bmax=|regfrom=|regto=|[?&]fr=|year_from=|year_to=|constructionYear|[?&]ys=|[?&]ye=|[?&]rs=|[?&]re=|year_min=[^&]|year_max=[^&]|yearMin=|yearMax=|MinYear=|MaxYear=/i,
+  km: /mileage=min|kmto=|kmax=|mileageto=|[?&]ml=|mileage_to=|mileageTo|[?&]me=|mileage_max=[^&]|mileageMax=|mileageMin=|MaxKms=|MinKms=/i,
+  puissance: /powerfrom=|hpfrom=|[?&]pw=|vmin=|engine_effect_from=|power_min=[^&]|[?&]hps=|horse_power_din=|powerDINMin=|PowerHpFrom=/i,
+  boîte: /[?&]gear=|gearbox=[^&]|[?&]tr=|trns=|transmission=|[?&]gr=|534|TransmissionTypeId=/i,
+  finition: /text=|kwd=|trefw=|free=|\/q\/|[?&#]q[:=]|keywords=[^&]|%3B%3B|;;|versions=[^&]|KeyWords=[^&]/i,
+  carburant: /fuel=|fuel%5B%5D=[^&]|[?&]ft=|[?&]fe=|energies=|Fueltype2List=|13838|473|474|\/hybride|\/elektr|\/elettric|\/ibrida|\/benzina|\/hibrid|\/dizel|\/elektromos|\/benzin\b|\/diesel|\/essence/i,
+  carrosserie: /vehicle_type=[^&]|categories=[^&]|[?&]body=[^&]|\/bt_|[?&]c=[^&]|crs=|cartype=|body_type=|ArrBodyType=|body(?:%5B%5D|\[\])=[^&]|[#|]f:[\d+,]*\b48[123468]\b|\/(?:cabriolet|hatchback|mpv|sedan|stationwagen|suv|bedrijfswagen|berlina|station-wagon|monovolume|cabrio|city-car|suv-fuoristrada|ferdehatu|kisbusz|kombi|coupe-10|cabrio-3)(\/|\?|$)|\/suv\+terepjaro|\/coupe(\/|\?|$)/i,
 };
 
 /**

@@ -60,6 +60,7 @@ const SITE_SPECS: SiteSpec[] = [
   { site: 'AUTOSCOUT_IT', country: 'IT', modelNeed: 'dérivé', modelFields: ['as:model'], modelScoped: false, brandFields: ['as:make'], fuelDict: [], bodyFields: [] },
   { site: 'SUBITO', country: 'IT', modelNeed: 'requis', modelFields: ['sb:model:'], modelScoped: true, brandFields: ['sb:brand'], fuelDict: ['sb:fuel'], bodyFields: [] },
   { site: 'AUTOSCOUT_ES', country: 'ES', modelNeed: 'dérivé', modelFields: ['as:model'], modelScoped: false, brandFields: ['as:make'], fuelDict: [], bodyFields: [] },
+  { site: 'COCHES', country: 'ES', modelNeed: 'requis', modelFields: ['cn:model:'], modelScoped: true, brandFields: ['cn:make'], fuelDict: ['cn:fuel'], bodyFields: ['cn:body'] },
   { site: 'AUTOSCOUT_BE', country: 'BE', modelNeed: 'dérivé', modelFields: ['as:model'], modelScoped: false, brandFields: ['as:make'], fuelDict: [], bodyFields: [] },
   { site: 'BILBASEN', country: 'DK', modelNeed: 'dérivé', modelFields: ['bb:model'], modelScoped: false, brandFields: [], fuelDict: [], bodyFields: [] },
   { site: 'BLOCKET', country: 'SE', modelNeed: 'requis', modelFields: ['bl:modelcode:', 'bl:model:'], modelScoped: true, brandFields: ['bl:brand', 'bl:brandcode'], fuelDict: ['bl:fuel'], bodyFields: [] },

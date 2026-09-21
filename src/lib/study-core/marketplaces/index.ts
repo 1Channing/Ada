@@ -16,6 +16,7 @@ import { jofogasAdapter } from './jofogas';
 import { blocketAdapter } from './blocket';
 import { skelbiuAdapter } from './skelbiu';
 import { lacentraleAdapter } from './lacentrale';
+import { cochesAdapter } from './coches';
 
 siteRegistry.register(leboncoinAdapter);
 siteRegistry.register(marktplaatsAdapter);
@@ -32,6 +33,9 @@ siteRegistry.register(skelbiuAdapter);
 // 16e site (29/08) : La Centrale (FR), v1 sur corpus d'URLs-preuves Channing
 // + dissection du __PRELOADED_STATE_LISTING__ (recon durci du même jour).
 siteRegistry.register(lacentraleAdapter);
+// 17e site (21/09) : Coches.net (ES), v1 sur URLs humaines Channing + reconnaissance
+// directe (page JSON __INITIAL_PROPS__, catalogue complet marques/modèles).
+siteRegistry.register(cochesAdapter);
 // AutoScout24: one instance per country (FR/DE/NL/IT/ES/BE), same taxonomy.
 for (const adapter of autoscout24Adapters) siteRegistry.register(adapter);
 

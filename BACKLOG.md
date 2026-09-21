@@ -487,6 +487,27 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   direct depuis le conteneur : ouvert. Prochaine étape : adaptateur v1
   (lecteur __INITIAL_PROPS__, grammaire, taxonomie moissonnée, pro/privé,
   baisses de prix, dates) — pays ES, 3e site après AutoScout ES.
+- **COCHES.NET — ADAPTATEUR V1 LIVRÉ (21/09 soir, GO Channing + 8 URLs
+  humaines : boîte `TransmissionTypeId=1`, carrosseries `ArrBodyType=1..8`
+  sur Mercedes Clase C)**. `marketplaces/coches.ts` (clé COCHES, ES, 17e
+  site) : lecteur JSON __INITIAL_PROPS__ (30 annonces/page — année, km,
+  carburant, marque/modèle structurés, hp 43 %, carrosserie 43 %, pro/
+  particulier 100 %, date de mise en ligne 100 %, baisse de prix et nombre de
+  photos dans la description), catalogue COMPLET moissonné à chaque scrape
+  (cn:make 165 marques, cn:model:<makeId> 1 687 modèles, cn:fuel, cn:body)
+  et injecté dans l'adaptateur (ids marque/modèle, BYD Dolphin Surf posé
+  après une seule page), grammaire entière (registre + détecteurs +
+  matrice du gate), prefill/segments d'ingestion, marché vide prouvé
+  (totalResults 0), total pour le worker (`"totalPages":N,"totalResults":N`),
+  profil Zyte navigateur ES. Famille Mercedes : « CLASSE C » ADA ↔ « Clase C »
+  site ↔ « C-Class » ramenés à la lettre. Libellés boîte non lus dans le
+  bundle (traductions chargées à part) : 1 = automatique prouvé par le
+  compte (RAV4 ≥ 2023 tous eCVT, 3 028/4 122 Clase C). Non porté par le
+  modèle d'annonce ADA : photos (URLs disponibles) et prix d'origine avant
+  baisse (disponible) — champs à ajouter à ScrapedListing si on veut les
+  exploiter. Preuves Node sur la page réelle + gate + build worker. Pas de
+  SQL. Effet : les études FR→ES / ES→x et le MI Espagne scrutent AutoScout
+  ES + Coches.net dès le prochain passage.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

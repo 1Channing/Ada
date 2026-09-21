@@ -646,8 +646,11 @@ function extractTotalCount(html: string): number | null {
   // sur 9 relevés sur 10, la profondeur MI et le Truth Center jugeaient à
   // l'aveugle). Clés PROUVÉES sur pages vives : AutoScout24
   // "numberOfResults":213 (liste FR/DE), Leboncoin searchData "total":2544.
-  // Clés spécifiques seulement — jamais un "count" générique.
-  for (const re of [/"numberOfResults":\s*(\d+)/, /"totalResultCount":\s*(\d+)/, /"searchData":\{[^{}]{0,400}?"total":\s*(\d+)/]) {
+  // Clés spécifiques seulement — jamais un "count" générique. Coches.net :
+  // `"totalPages":41,"totalResults":1204` dans la chaîne JSON échappée
+  // (`\"…\"`) — l'ordre des deux clés est prouvé ; « totalResults » seul
+  // existe aussi par facette d'agrégation (piège).
+  for (const re of [/"numberOfResults":\s*(\d+)/, /"totalResultCount":\s*(\d+)/, /"searchData":\{[^{}]{0,400}?"total":\s*(\d+)/, /\\?"totalPages\\?":\s*\d+,\s*\\?"totalResults\\?":\s*(\d+)/]) {
     const m = html.match(re);
     if (m) {
       const n = parseInt(m[1], 10);

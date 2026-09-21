@@ -75,6 +75,10 @@ const EXPECTED_NATIVE: Record<string, Record<Crit, boolean>> = {
   // Channing 29/08 — yearMin/yearMax, mileageMax, powerDINMin, gearbox=AUTO|
   // MANUAL, energies=, versions=).
   LACENTRALE: { année: true, km: true, puissance: true, boîte: true, finition: true, carburant: true },
+  // Coches.net : grammaire ENTIÈRE prouvée d'un bloc (table FILTER_NAMES du
+  // bundle du site + 30 URLs vérifiées en direct le 21/09 — MinYear/MaxYear,
+  // MaxKms, PowerHpFrom, TransmissionTypeId=1|2, Fueltype2List=, KeyWords=).
+  COCHES: { année: true, km: true, puissance: true, boîte: true, finition: true, carburant: true },
 };
 
 console.log('=== 1. VOIE NATIVE (matrice attendue vs URL construite) ===');

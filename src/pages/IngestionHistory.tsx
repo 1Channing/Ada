@@ -16,6 +16,7 @@ const SITE_FLAG: Record<string, string> = {
   JOFOGAS: '🇭🇺', BLOCKET: '🇸🇪', SKELBIU: '🇱🇹',
   AUTOSCOUT_FR: '🇫🇷', AUTOSCOUT_DE: '🇩🇪', AUTOSCOUT_NL: '🇳🇱',
   AUTOSCOUT_IT: '🇮🇹', AUTOSCOUT_ES: '🇪🇸', AUTOSCOUT_BE: '🇧🇪',
+  COCHES: '🇪🇸',
 };
 
 const ACTION_BADGE: Record<string, { text: string; cls: string }> = {
