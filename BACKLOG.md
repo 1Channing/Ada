@@ -369,6 +369,12 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   « autres » écartées, libellés de marque du référentiel intacts (ŠKODA).
   Le pipeline n'utilise pas les fenêtres du référentiel : une étude AYGO X
   passe comme une étude MI (snapshots des 6 sites prouvés le 21/09).
+- **LEBONCOIN SANS MODÈLE (21/09, journal : `u_car_model=SKODA_` → total 0)**.
+  Une recherche « toute la marque » envoyait un paramètre modèle vide et
+  Leboncoin ne rendait rien. Sans modèle, le paramètre est retiré (preuve
+  script : `u_car_brand=SKODA&regdate=…`). L'accent de « ŠKODA » n'a jamais
+  gêné : chaque adaptateur retire les diacritiques (Enyaq 2025 FR→DK ce
+  matin : LBC 11 · La Centrale 7 · AS24 2 · Bilbasen 76).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

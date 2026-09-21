@@ -246,7 +246,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const mappedFuel = params.fuel ? mapFuel(params.fuel) : null;
   const { yearFrom, yearTo } = resolveYearRange(params);
 
-  const vars: Record<string, string> = { brand: mappedBrand, model: modelParamCandidates(mappedBrand, mappedModel) };
+  // Sans modèle (« toute la marque ») : pas de u_car_model — « SKODA_ » vide
+  // rendait total=0 (journal du 21/09) ; placeholder laissé → paramètre retiré.
+  const vars: Record<string, string> = { brand: mappedBrand };
+  if (mappedModel) vars['model'] = modelParamCandidates(mappedBrand, mappedModel);
   // Formes regdate prouvées par URLs humaines : '2021-2021' (borné) et
   // '2021-max' (ouvert vers le haut) — mêmes règles que enforceYearParams.
   // Avant : yearTo absent → placeholder vide → regdate ENTIER supprimé par
