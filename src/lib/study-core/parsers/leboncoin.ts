@@ -9,6 +9,7 @@
 
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from './shared';
+import { fiscalTerritoryOf } from '../business-logic';
 
 /**
  * Read one attribute from a Leboncoin ad, tolerant of both shapes seen in
@@ -259,6 +260,8 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       const seats = attrNumber(attributes, ['seats', 'nb_seats', 'number_of_seats']);
       const color = attrLabel(attributes, ['vehicle_color', 'color', 'couleur']);
       const vehicleType = attrLabel(attributes, ['vehicle_type', 'vehicule_type', 'body_type', 'carrosserie']);
+      const lbcZipRaw = ad.location?.zipcode ?? ad.location?.zip_code ?? ad.zipcode ?? null;
+      const lbcZip = lbcZipRaw == null ? null : String(lbcZipRaw).trim() || null;
 
       listings.push({
         title: ad.subject || ad.title || ad.name || 'Untitled',
@@ -283,6 +286,10 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
         seats,
         color,
         vehicleType,
+        // Localisation de l'annonce (`location.zipcode` de l'API Leboncoin,
+        // fail-open si absente) → exclusion des DOM-COM (hors TVA UE).
+        postalCode: lbcZip,
+        fiscalTerritory: fiscalTerritoryOf('FR', lbcZip),
       });
     }
   } catch (error) {

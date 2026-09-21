@@ -124,6 +124,14 @@ export async function recordStudyMarketSnapshot(
       && !titleContradictsModel(segment.model, l.title ?? '');
     const contradicted = listings.filter((l) => !identityOk(l)).length;
     if (contradicted > 0) console.warn(`[MARKET_SNAPSHOT] ${contradicted} annonce(s) écartée(s) — titre d'un autre modèle que ${segment.brand} ${segment.model} (${segment.site})`);
+    // HORS TVA UE (décision Channing 21/09) : compte visible dans worker_logs
+    // — Coches.net RAV4 : 7/30 annonces Canarias sur la page test, on doit
+    // voir ce que la médiane espagnole a laissé dehors.
+    const offshore = listings.filter((l) => l.fiscalTerritory);
+    if (offshore.length > 0) {
+      const byTerritory = [...new Set(offshore.map((l) => l.fiscalTerritory))].join(', ');
+      console.warn(`[MARKET_SNAPSHOT] ${offshore.length}/${listings.length} annonce(s) écartée(s) — hors territoire TVA UE : ${byTerritory} (${segment.site} ${segment.brand} ${segment.model})`);
+    }
     const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetail(l) && identityOk(l));
     // Insertion dégradante : tant que la migration 20260905100000 n'est pas
     // collée, la colonne segment_key manque — on réinsère sans elle plutôt

@@ -19,6 +19,7 @@
  */
 
 import type { ScrapedListing } from '../types';
+import { fiscalTerritoryOf } from '../business-logic';
 
 function str(v: unknown): string | null {
   if (typeof v !== 'string') return null;
@@ -208,6 +209,12 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
     const gearbox = str(ve?.transmissionType) ?? str(tr?.gearBox) ?? detailByIcon(rows, ['transmission', 'gear']);
     const powerDin = extractHp(tr?.powerHp ?? tr?.rawPowerInKw ?? detailByIcon(rows, ['engine', 'speed', 'power']));
     const bodyType = str(ve?.bodyType) ?? str(tr?.bodyType);
+    // Localisation : `location.zip` + `location.countryCode` (preuve 21/09,
+    // autoscout24.es : 38626 Arona sur la page RAV4 la moins chère) — nourrit
+    // l'exclusion des territoires hors TVA UE (Canaries, DOM…).
+    const loc = (ad as { location?: { zip?: unknown; countryCode?: unknown } })?.location;
+    const postalCode = str(loc?.zip);
+    const fiscalTerritory = fiscalTerritoryOf(str(loc?.countryCode), postalCode);
 
     listings.push({
       title: [make, model, version].filter(Boolean).join(' ') || (str(ad?.title) ?? 'Autoscout24 listing'),
@@ -234,6 +241,8 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       sellerType: str((ad as { seller?: { type?: unknown; companyName?: unknown } })?.seller?.type)
         ?? ((ad as { seller?: { companyName?: unknown } })?.seller?.companyName ? 'Dealer' : null),
       priceType: str((ad as { price?: { priceType?: unknown } })?.price?.priceType),
+      postalCode,
+      fiscalTerritory,
     });
   }
 

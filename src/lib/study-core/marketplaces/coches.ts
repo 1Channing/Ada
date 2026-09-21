@@ -43,7 +43,7 @@ import type {
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
-import { modelKeyLoose } from '../business-logic';
+import { modelKeyLoose, fiscalTerritoryOf } from '../business-logic';
 import { bodyLabel, canonicalizeBody } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://www.coches.net/search/?MakeIds%5B0%5D={brand}&ModelIds%5B0%5D={model}&MinYear={yearFrom}&MaxYear={yearTo}&MaxKms={mileage}&fi=Price&or=1';
@@ -121,6 +121,12 @@ interface CnItem {
   publicationDate?: string; creationDate?: string; photos?: string[]; img?: string;
   priceDrop?: { originalPrice?: number; percentage?: number; daysSinceUpdate?: number };
   offerType?: { id?: number; literal?: string }; includesTaxes?: boolean;
+  /** Régime fiscal déclaré (preuve 21/09 sur 60 annonces : 1 = IVA
+   *  continent, 2 = IGIC — les 18 annonces Canarias, aucune autre). */
+  taxTypeId?: number;
+  /** N° de province INE = préfixe postal (35 Las Palmas, 38 Tenerife, 51 Ceuta, 52 Melilla). */
+  provinceId?: number;
+  location?: { mainProvince?: string; regionLiteral?: string; mainProvinceId?: number };
 }
 interface CnProps {
   initialResults?: { items?: CnItem[]; totalResults?: number; totalPages?: number };
@@ -161,6 +167,8 @@ function parseSearchResults(html: string): ScrapedListing[] {
     const catalogModel = it.makeId != null && it.modelId != null ? LEARNED_MODEL_LABEL.get(`${it.makeId}|${it.modelId}`) : undefined;
     const model = (catalogModel ?? it.model ?? '').trim() || null;
     const offer = it.offerType?.literal ?? '';
+    const provinceId = it.provinceId ?? it.location?.mainProvinceId;
+    const provincePrefix = Number.isFinite(Number(provinceId)) && Number(provinceId) > 0 ? String(provinceId).padStart(2, '0') : null;
     const drop = it.priceDrop && Number.isFinite(Number(it.priceDrop.originalPrice))
       ? `Baisse de prix : ${it.priceDrop.originalPrice} € → ${price} € (−${it.priceDrop.percentage ?? '?'} %, il y a ${it.priceDrop.daysSinceUpdate ?? '?'} j)` : '';
     out.push({
@@ -181,6 +189,11 @@ function parseSearchResults(html: string): ScrapedListing[] {
       vehicleType: bodyToken ? bodyLabel(bodyToken) : null,
       sellerType: it.isProfessional == null ? null : it.isProfessional ? 'Profesional' : 'Particular',
       publishedAt: parsePublishedAt(it.publicationDate ?? it.creationDate),
+      postalCode: provincePrefix,
+      // Hors TVA UE (décision Channing 21/09) : le régime fiscal du site fait
+      // foi (taxTypeId 2 = IGIC → Canaries), la province en repli (35/38
+      // Canaries, 51/52 Ceuta / Melilla — IPSI, que le site range sous IVA).
+      fiscalTerritory: it.taxTypeId === 2 ? 'Canaries (IGIC)' : fiscalTerritoryOf('ES', provincePrefix),
     });
   }
   return out;

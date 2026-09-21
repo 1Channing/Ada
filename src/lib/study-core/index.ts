@@ -58,6 +58,7 @@ export {
   toEur,
   matchesBrandModel,
   shouldFilterListing,
+  fiscalTerritoryOf,
   filterListingsByStudy,
   computeTargetMarketStats,
   detectOpportunity,

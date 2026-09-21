@@ -62,6 +62,15 @@ export interface ScrapedListing {
    *  pas pu le poser (adaptateurs v1). Null quand le site ne le donne pas. */
   model?: string | null;
   priceType?: string | null;
+  /** Code postal (ou préfixe) déclaré par le site, brut. AutoScout
+   *  `location.zip`, Leboncoin `location.zipcode`, coches.net n° de province. */
+  postalCode?: string | null;
+  /** TERRITOIRE HORS TVA UE (21/09, décision Channing) : « Canaries (IGIC) »,
+   *  « Ceuta / Melilla (IPSI) », « DOM (octroi de mer) »… Une annonce ainsi
+   *  marquée n'entre NI dans une médiane NI dans un lead : prix hors régime
+   *  TVA UE (achat = importation), incomparable au continent. Null = territoire
+   *  TVA ordinaire ou localisation inconnue (fail-open). */
+  fiscalTerritory?: string | null;
 }
 
 /**

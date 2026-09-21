@@ -132,8 +132,10 @@ const soft = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
  * MARQUE, exigence que le titre NOMME le modèle (sinon la médiane Astra
  * serait celle de toute la gamme Opel).
  */
-export function listingIsLot(l: { title?: string | null; model?: string | null; priceType?: string | null }, model: string, strict: boolean): boolean {
+export function listingIsLot(l: { title?: string | null; model?: string | null; priceType?: string | null; fiscalTerritory?: string | null }, model: string, strict: boolean): boolean {
   if (/withouttax|without tax|engros|wholesale|excl/.test((l.priceType ?? '').toLowerCase())) return false;
+  // Hors TVA UE (Canaries / IGIC, DOM…) : pas un débouché comparable.
+  if (l.fiscalTerritory) return false;
   if (!structuredModelMatches(l.model, model)) return false;
   if (titleContradictsModel(model, l.title ?? '')) return false;
   if (!strict) return true;

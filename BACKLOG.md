@@ -525,13 +525,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   écart sur ≥ 4 annonces est toléré (la barre des 90 % reprend d'elle-même à
   10). Preuves sur la page réelle : 6/6 confirmés ; 1 écart/6 confirmé,
   2 écarts/6 rejeté.
-- **CANARIES / IGIC — PARQUÉ (décision Channing 21/09 : « complexe, on
-  passe »)**. Coches.net porte `taxTypeId` (1 IVA, 2 IGIC) et `includesTaxes`
-  par annonce ; les annonces canariennes (IGIC 7 % au lieu d'IVA 21 %, hors
-  territoire TVA UE, achat = importation) entrent aujourd'hui dans les
-  médianes espagnoles comme les autres (1/30 sur la page RAV4). Reprendre
-  si un segment ES paraît trop bas : marquer le régime fiscal, exclure IGIC
-  / IPSI des médianes (mécanisme Bilbasen « engros »), mention visible.
+- **TERRITOIRES HORS TVA UE EXCLUS (21/09, décision Channing « on enlève
+  dès maintenant tout ce qui vient des Canaries »)**. Champ
+  `fiscalTerritory` sur l'annonce, posé par le parseur quand le site donne
+  la localisation, et règle commune `fiscalTerritoryOf(pays, code postal)`
+  (ES 35/38 Canaries IGIC, 51/52 Ceuta / Melilla IPSI ; FR 97x/98x DOM-COM ;
+  DE Heligoland, Büsingen ; IT Livigno, Campione). Exclusion partout où un
+  prix compte : `shouldFilterListing` (études, leads, snapshot MI worker),
+  `isRetailPrice` (snapshot front), `listingIsLot` (« Où vendre »). Sites
+  câblés : coches.net (`taxTypeId` 2 = IGIC fait foi, province en repli),
+  AutoScout tous pays (`location.zip` + `countryCode`), Leboncoin
+  (`location.zipcode`, fail-open si absent). Preuves : coches RAV4 page
+  test 7/30 Canarias (18/60 sur les deux pages sauvées), AutoScout ES
+  38626 Arona sur la page la moins chère — tous marqués et écartés par le
+  parseur réel ; FR 35000 (Rennes) n'est pas confondu avec ES 35000.
+  worker_logs trace « n/N annonce(s) écartée(s) — hors territoire TVA UE ».
+  Reste : les observations déjà en base d'aujourd'hui (Mach-E ES, RAV4 ES
+  via coches) gardent leurs Canariens jusqu'au prochain passage ; aucun
+  autre site du réseau ne donne la localisation dans ce que nous lisons
+  (Marktplaats, mobile.de, Bilbasen, Blocket, Subito… : pas de territoire
+  hors TVA notable de toute façon).
 - **OPPORTUNITÉS À CONTRÔLER : FILTRES ET TRI (21/09, demande Channing)**.
   Le panneau (Accueil + MI) se filtre par pays source, pays cible, marque,
   modèle et carburant, et se trie (priorité écart × volume, écart, marque /

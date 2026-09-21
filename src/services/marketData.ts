@@ -71,6 +71,9 @@ export interface MarketSegmentKey {
  * enter a median or an opportunity. Unknown/absent price types stay in.
  */
 function isRetailPrice(l: ScrapedListing): boolean {
+  // Territoire hors TVA UE (Canaries / IGIC, DOM…) posé par le parseur :
+  // prix incomparable, jamais dans une médiane (décision Channing 21/09).
+  if (l.fiscalTerritory) return false;
   const t = (l.priceType ?? '').toLowerCase();
   return !/withouttax|without tax|engros|wholesale|excl/.test(t);
 }

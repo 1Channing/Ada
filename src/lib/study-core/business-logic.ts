@@ -260,15 +260,62 @@ export function matchesBrandModel(
 }
 
 /**
+ * TERRITOIRES HORS TVA UE (21/09, décision Channing « on enlève dès
+ * maintenant tout ce qui vient des Canaries »). Une annonce qui s'y trouve
+ * est vendue sous un autre régime fiscal (IGIC 7 % au lieu d'IVA 21 %,
+ * IPSI, octroi de mer) et son achat est une IMPORTATION : son prix ne se
+ * compare pas au continent — il n'entre ni dans une médiane ni dans un
+ * lead. Table par pays, préfixe postal → libellé. Preuves : coches.net
+ * 18/60 annonces Canarias (taxTypeId 2, provinces 35/38) ; AutoScout ES
+ * `location.zip` 38626 Arona sur la page RAV4 la moins chère.
+ * Pays sans territoire connu → null (fail-open).
+ */
+const FISCAL_TERRITORIES: Record<string, Array<{ prefixes: string[]; label: string }>> = {
+  ES: [
+    { prefixes: ['35', '38'], label: 'Canaries (IGIC)' },
+    { prefixes: ['51', '52'], label: 'Ceuta / Melilla (IPSI)' },
+  ],
+  FR: [
+    { prefixes: ['971', '972', '973', '974', '975', '976', '977', '978', '984', '986', '987', '988'], label: 'DOM-COM (hors TVA UE)' },
+  ],
+  DE: [
+    { prefixes: ['27498'], label: 'Heligoland (hors TVA UE)' },
+    { prefixes: ['78266'], label: 'Büsingen (hors TVA UE)' },
+  ],
+  IT: [
+    { prefixes: ['23041'], label: 'Livigno (hors TVA UE)' },
+    { prefixes: ['22061'], label: 'Campione d’Italia (hors TVA UE)' },
+  ],
+};
+
+/** Libellé du territoire hors TVA UE pour un pays + code postal, sinon null. */
+export function fiscalTerritoryOf(countryCode: string | null | undefined, postalCode: string | number | null | undefined): string | null {
+  const cc = String(countryCode ?? '').trim().toUpperCase();
+  const zip = String(postalCode ?? '').replace(/\s+/g, '').trim();
+  if (!cc || !zip) return null;
+  const rules = FISCAL_TERRITORIES[cc];
+  if (!rules) return null;
+  for (const r of rules) if (r.prefixes.some((p) => zip.startsWith(p))) return r.label;
+  return null;
+}
+
+/**
  * FIRST PASS FILTER: Check if listing should be filtered out due to:
  * - Price too low (≤2000€) - likely leasing or scam
  * - Monthly/leasing pricing
  * - Damaged vehicle
+ * - Territoire hors TVA UE (Canaries, Ceuta/Melilla, DOM…) déclaré par le parseur
  *
  * @param listing - Listing to check
  * @returns true if listing should be filtered out
  */
 export function shouldFilterListing(listing: ScrapedListing): boolean {
+  // Filter 0: territoire hors TVA UE — posé par le parseur quand le site
+  // donne la localisation (voir fiscalTerritoryOf) ; absent = on garde.
+  if (listing.fiscalTerritory) {
+    return true;
+  }
+
   const text = `${listing.title} ${listing.description}`;
   const textLower = text.toLowerCase();
 
