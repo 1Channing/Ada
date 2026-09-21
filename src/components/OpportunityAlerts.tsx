@@ -12,8 +12,9 @@
  * le Workflow (elle tourne chaque matin et reste affinable).
  */
 
-import { useEffect, useRef, useState } from 'react';
-import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { COUNTRY_NAMES } from '../data/cities';
 import {
   loadMarketOpportunities, loadOpportunityAcks, ackOpportunity, opportunityKey, fuelLabel,
   brandKey, FUEL_TOKEN_TO_CRITERIA, wasLastOpportunitiesLoadPartial, getDashboardsRefreshedAt,
@@ -53,6 +54,47 @@ function defaultName(): string {
 
 const PAGE_SIZE = 10;
 
+/**
+ * Filtres de lecture (demande Channing 21/09) : la liste dépasse la centaine
+ * d'écarts, on veut la restreindre par pays source (où l'on achète), pays
+ * cible (où l'on revend), marque, modèle et carburant — puis la trier.
+ * Purement local : les opportunités chargées ne changent pas, seule la vue.
+ */
+interface OppFilters { source: string; target: string; brand: string; model: string; fuel: string }
+const NO_FILTERS: OppFilters = { source: '', target: '', brand: '', model: '', fuel: '' };
+type OppSort = 'priority' | 'delta' | 'brand' | 'source' | 'target';
+const SORT_LABEL: Record<OppSort, string> = {
+  priority: 'Priorité (écart × volume)',
+  delta: 'Écart décroissant',
+  brand: 'Marque / modèle A → Z',
+  source: 'Pays source',
+  target: 'Pays cible',
+};
+
+const countryLabel = (iso: string) => `${COUNTRY_FLAG[iso] ?? ''} ${COUNTRY_NAMES[iso] ?? iso}`.trim();
+const uniqSorted = (values: string[]) => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+
+function matchesFilters(o: MarketOpportunity, f: OppFilters): boolean {
+  if (f.source && o.lowCountry !== f.source) return false;
+  if (f.target && o.highCountry !== f.target) return false;
+  if (f.brand && o.brand !== f.brand) return false;
+  if (f.model && o.model !== f.model) return false;
+  if (f.fuel && o.fuel !== f.fuel) return false;
+  return true;
+}
+
+function sortOpportunities(list: MarketOpportunity[], sort: OppSort): MarketOpportunity[] {
+  if (sort === 'priority') return list; // ordre serveur : écart × volume
+  const byName = (a: MarketOpportunity, b: MarketOpportunity) =>
+    a.brand.localeCompare(b.brand, 'fr') || a.model.localeCompare(b.model, 'fr') || b.deltaEur - a.deltaEur;
+  const sorted = [...list];
+  if (sort === 'delta') sorted.sort((a, b) => b.deltaEur - a.deltaEur || byName(a, b));
+  else if (sort === 'brand') sorted.sort(byName);
+  else if (sort === 'source') sorted.sort((a, b) => countryLabel(a.lowCountry).localeCompare(countryLabel(b.lowCountry), 'fr') || b.deltaEur - a.deltaEur);
+  else sorted.sort((a, b) => countryLabel(a.highCountry).localeCompare(countryLabel(b.highCountry), 'fr') || b.deltaEur - a.deltaEur);
+  return sorted;
+}
+
 export function OpportunityAlerts({ onInspect, touchedSince }: {
   onInspect: (o: MarketOpportunity) => void;
   /** Accueil : ne montrer que les opportunités touchées par la dernière campagne. */
@@ -72,6 +114,8 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
   // le doigt pendant le chargement.
   const [collapsed, setCollapsed] = useState(true);
   const [shown, setShown] = useState(PAGE_SIZE);
+  const [filters, setFilters] = useState<OppFilters>(NO_FILTERS);
+  const [sort, setSort] = useState<OppSort>('priority');
   // Un radar tronqué (timeout serveur en cours de pagination) s'AFFICHE
   // désormais — trois chasses au fantôme sur des comptes silencieusement
   // partiels (95, 34, 36 écarts : 02/08, 25-26/08).
@@ -97,13 +141,46 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (allowed) void refresh(threshold); }, [threshold, touchedSince, allowed]);
 
-  if (!allowed) return null;
-
-  const visible = opps.filter((o) => {
+  const visible = useMemo(() => opps.filter((o) => {
     const acked = acks.get(opportunityKey(o));
     return acked == null || Math.abs(o.deltaEur - acked) >= 1000;
-  });
+  }), [opps, acks]);
   const ackedCount = opps.length - visible.length;
+
+  // Valeurs proposées par les filtres = ce que la liste contient réellement
+  // (pas de liste fixe de pays ou de marques : un choix sans résultat serait
+  // un mensonge). Le modèle se restreint à la marque choisie ; le carburant
+  // et les pays se restreignent au reste de la sélection pour ne proposer
+  // que des combinaisons existantes.
+  const options = useMemo(() => {
+    const within = (skip: keyof OppFilters) => visible.filter((o) => matchesFilters(o, { ...filters, [skip]: '' }));
+    // Un choix devenu orphelin (seuil changé, liste rechargée) reste affiché
+    // dans son menu : la ligne « aucun écart » + « Effacer » disent pourquoi.
+    const keep = (key: keyof OppFilters, list: string[]) =>
+      filters[key] && !list.includes(filters[key]) ? [...list, filters[key]] : list;
+    return {
+      source: keep('source', uniqSorted(within('source').map((o) => o.lowCountry))),
+      target: keep('target', uniqSorted(within('target').map((o) => o.highCountry))),
+      brand: keep('brand', uniqSorted(within('brand').map((o) => o.brand))),
+      model: keep('model', uniqSorted(within('model').map((o) => o.model))),
+      fuel: keep('fuel', uniqSorted(within('fuel').map((o) => o.fuel)).sort((a, b) => fuelLabel(a).localeCompare(fuelLabel(b), 'fr'))),
+    };
+  }, [visible, filters]);
+  const filtered = useMemo(() => sortOpportunities(visible.filter((o) => matchesFilters(o, filters)), sort), [visible, filters, sort]);
+  const filtersActive = Object.values(filters).some(Boolean);
+
+  if (!allowed) return null;
+
+  const setFilter = (key: keyof OppFilters, value: string) => {
+    setFilters((f) => {
+      const next = { ...f, [key]: value };
+      // Changer de marque invalide le modèle choisi (il appartenait à l'autre marque).
+      if (key === 'brand' && value !== f.brand) next.model = '';
+      return next;
+    });
+    setShown(PAGE_SIZE);
+  };
+  const resetFilters = () => { setFilters(NO_FILTERS); setShown(PAGE_SIZE); };
 
   const handleAck = async (o: MarketOpportunity) => {
     const by = window.prompt('Contrôlée par (votre nom) :', defaultName())?.trim();
@@ -177,7 +254,8 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
   if (loading && opps.length === 0) return null;
   if (visible.length === 0 && ackedCount === 0) return null;
 
-  const rows = visible.slice(0, shown);
+  const rows = filtered.slice(0, shown);
+  const selectCls = 'bg-white border border-slate-300 rounded px-2 py-1 text-xs max-w-[11rem]';
 
   return (
     <div className="bg-white border border-amber-300 rounded-xl p-5 space-y-3">
@@ -189,7 +267,7 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
         >
           {collapsed ? <ChevronRight className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
           <Bell className="w-4 h-4 text-amber-600" />
-          Opportunités à contrôler — {visible.length} écart(s) inter-pays
+          Opportunités à contrôler — {filtersActive ? `${filtered.length} / ${visible.length}` : visible.length} écart(s) inter-pays
           {ackedCount > 0 && <span className="text-slate-500 font-normal">· {ackedCount} contrôlée(s)</span>}
           {partial && (
             <span
@@ -232,6 +310,44 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
             écart × volume. « Inspecter » ouvre la comparaison des deux marchés en dessous.
           </p>
           {notice && <p className="text-xs text-emerald-600">{notice}</p>}
+
+          {visible.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              <span className="text-slate-500">Filtrer</span>
+              <select value={filters.source} onChange={(e) => setFilter('source', e.target.value)} className={selectCls} title="Pays source — où l'on achète (le moins cher)">
+                <option value="">Source : tous</option>
+                {options.source.map((c) => <option key={c} value={c}>{countryLabel(c)}</option>)}
+              </select>
+              <select value={filters.target} onChange={(e) => setFilter('target', e.target.value)} className={selectCls} title="Pays cible — où l'on revend (le plus cher)">
+                <option value="">Cible : tous</option>
+                {options.target.map((c) => <option key={c} value={c}>{countryLabel(c)}</option>)}
+              </select>
+              <select value={filters.brand} onChange={(e) => setFilter('brand', e.target.value)} className={selectCls} title="Marque">
+                <option value="">Marque : toutes</option>
+                {options.brand.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+              <select value={filters.model} onChange={(e) => setFilter('model', e.target.value)} className={selectCls} title={filters.brand ? `Modèles ${filters.brand} présents dans la liste` : 'Modèle (choisis d’abord une marque pour raccourcir la liste)'}>
+                <option value="">Modèle : tous</option>
+                {options.model.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <select value={filters.fuel} onChange={(e) => setFilter('fuel', e.target.value)} className={selectCls} title="Carburant">
+                <option value="">Carburant : tous</option>
+                {options.fuel.map((f) => <option key={f} value={f}>{fuelLabel(f)}</option>)}
+              </select>
+              {filtersActive && (
+                <button onClick={resetFilters} className="flex items-center gap-1 text-slate-500 hover:text-slate-800" title="Retirer tous les filtres">
+                  <X className="w-3.5 h-3.5" /> Effacer
+                </button>
+              )}
+              <span className="flex-1" />
+              <label className="flex items-center gap-1.5 text-slate-500">
+                Trier
+                <select value={sort} onChange={(e) => { setSort(e.target.value as OppSort); setShown(PAGE_SIZE); }} className={selectCls}>
+                  {(Object.keys(SORT_LABEL) as OppSort[]).map((k) => <option key={k} value={k}>{SORT_LABEL[k]}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             {rows.map((o) => {
@@ -279,12 +395,18 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
             {visible.length === 0 && (
               <p className="text-xs text-slate-500">Toutes les opportunités actuelles ont été contrôlées.</p>
             )}
-            {visible.length > shown && (
+            {visible.length > 0 && filtered.length === 0 && (
+              <p className="text-xs text-slate-500">
+                Aucun écart ne correspond à ces filtres.{' '}
+                <button onClick={resetFilters} className="text-blue-600 hover:text-blue-700 underline">Effacer les filtres</button>
+              </p>
+            )}
+            {filtered.length > shown && (
               <button
                 onClick={() => setShown((n) => n + PAGE_SIZE)}
                 className="w-full text-xs text-slate-600 hover:text-slate-800 py-1.5 rounded-lg border border-dashed border-slate-200 hover:border-slate-300"
               >
-                Afficher plus ({visible.length - shown} restantes)
+                Afficher plus ({filtered.length - shown} restantes)
               </button>
             )}
           </div>

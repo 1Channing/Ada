@@ -532,6 +532,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   médianes espagnoles comme les autres (1/30 sur la page RAV4). Reprendre
   si un segment ES paraît trop bas : marquer le régime fiscal, exclure IGIC
   / IPSI des médianes (mécanisme Bilbasen « engros »), mention visible.
+- **OPPORTUNITÉS À CONTRÔLER : FILTRES ET TRI (21/09, demande Channing)**.
+  Le panneau (Accueil + MI) se filtre par pays source, pays cible, marque,
+  modèle et carburant, et se trie (priorité écart × volume, écart, marque /
+  modèle, pays source, pays cible). Les menus ne proposent que les valeurs
+  présentes dans la liste chargée (et se restreignent au reste de la
+  sélection : le modèle suit la marque) ; compteur « n / N » dès qu'un
+  filtre est actif, « Afficher plus » et l'état vide portent sur la liste
+  filtrée, bouton « Effacer ». Purement local : rien ne change au calcul
+  serveur ni aux acquittements.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
