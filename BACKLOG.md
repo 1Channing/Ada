@@ -525,6 +525,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   écart sur ≥ 4 annonces est toléré (la barre des 90 % reprend d'elle-même à
   10). Preuves sur la page réelle : 6/6 confirmés ; 1 écart/6 confirmé,
   2 écarts/6 rejeté.
+- **CANARIES / IGIC — PARQUÉ (décision Channing 21/09 : « complexe, on
+  passe »)**. Coches.net porte `taxTypeId` (1 IVA, 2 IGIC) et `includesTaxes`
+  par annonce ; les annonces canariennes (IGIC 7 % au lieu d'IVA 21 %, hors
+  territoire TVA UE, achat = importation) entrent aujourd'hui dans les
+  médianes espagnoles comme les autres (1/30 sur la page RAV4). Reprendre
+  si un segment ES paraît trop bas : marquer le régime fiscal, exclure IGIC
+  / IPSI des médianes (mécanisme Bilbasen « engros »), mention visible.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
