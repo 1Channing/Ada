@@ -217,9 +217,18 @@ export function modelFamilyKey(raw: string | null | undefined): string {
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean)
-    // « 500e » → « 500 » : lettre e collée à un nombre.
-    .map((t) => (/^\d+e$/.test(t) ? t.slice(0, -1) : t));
-  const kept = tokens.filter((t) => !ELECTRIC_MARKER_TOKENS.has(t));
+    // « 500e » → « 500 », « e2008 » → « 2008 » : lettre e collée à un nombre
+    // (référentiel « E2008 » contre site « e-2008 », constat campagne 21/09).
+    .map((t) => (/^\d+e$/.test(t) ? t.slice(0, -1) : /^e\d+$/.test(t) ? t.slice(1) : t));
+  // Marqueurs composés : Renault « E-Tech » (Kangoo E-Tech = Kangoo
+  // électrique), Audi « e-tron » (Q8 e-tron = Q8 électrique) — le jeton qui
+  // suit le « e » tombe avec lui.
+  const flat: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] === 'e' && (tokens[i + 1] === 'tech' || tokens[i + 1] === 'tron')) { i++; continue; }
+    flat.push(tokens[i]);
+  }
+  const kept = flat.filter((t) => !ELECTRIC_MARKER_TOKENS.has(t));
   // Tout n'était que marqueur (« E », « EV ») : on garde la clé d'origine.
   return (kept.length ? kept : tokens).sort().join('');
 }
