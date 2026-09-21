@@ -453,6 +453,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   (3) profondeur MI = par site, max(total conforme, annonces lues) — un total
   ne peut pas être inférieur à ce qu'on a lu ; site sans scan conforme mais
   avec annonces lues compté par ses annonces. Pas de SQL.
+  **Portée (question Channing « pour tous les sites ? »)** : la règle de
+  confirmation est commune ; elle s'applique dès que le lecteur du site
+  pose le modèle structuré sur l'annonce. Après le 21/09 : Leboncoin
+  (u_car_model), AutoScout ×6 (vehicle.model, ajouté), mobile.de et
+  Bilbasen (lecteur Next-data générique, `model` ajouté), Marktplaats
+  (attribut model LRP), Blocket, Gaspedaal, La Centrale, Subito, Jofogas
+  (déjà). Reste au titre : Skelbiu (aucun champ structuré par carte).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

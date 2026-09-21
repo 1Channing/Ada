@@ -220,6 +220,9 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       description: (str(ad?.teaser) ?? str(ad?.description) ?? '').slice(0, 500),
       price_type: 'one-off',
       brand: make,
+      // Modèle STRUCTURÉ du site (vehicle.model) — 21/09 : la confirmation du
+      // modèle juge sur lui quand il est là (titres libres trompeurs).
+      ...(model ? { model } : {}),
       fuel,
       gearbox,
       powerDin,

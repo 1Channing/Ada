@@ -377,6 +377,9 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
       description: (str(readField(ad, ['description', 'teaser', 'body'], [])) ?? '').slice(0, 300),
       price_type: 'one-off',
       brand: make,
+      // Modèle STRUCTURÉ quand la page le donne — 21/09 : la confirmation du
+      // modèle juge sur lui (titres libres trompeurs, Mustang Mach-E).
+      ...(model ? { model } : {}),
       fuel,
       gearbox,
       powerDin,
