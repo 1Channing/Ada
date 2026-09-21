@@ -422,6 +422,22 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   navigateur et à chaque navigation interne ; remis à zéro à l'ouverture de
   l'Open space) lu par trois endroits : entrée Workflow du bandeau (PC et
   mobile), onglet Négociations, bouton Open space. Pas de SQL.
+- **BYD INVISIBLE (21/09, constat Channing « ajouté du BYD dans l'atelier,
+  pas dans le MI ni le workflow »)**. Deux classes. (1) MI : l'ingestion
+  Leboncoin Dolphin Surf a lu 16 annonces, modèle confirmé 16/16, mais la
+  MARQUE rejetée « 0/16 annonces = byd » → aucun relevé. Preuve par un
+  scrape de diagnostic : Leboncoin range BYD sous « Autres » dans l'attribut
+  générique `brand` des annonces, alors que `u_car_brand` dit BYD ; le
+  lecteur lisait `brand` en premier. Désormais u_car_brand d'abord, un
+  libellé « Autres » cède la place au code puis à la clé suivante
+  (parsers/leboncoin `brandFromAttributes`). (2) Workflow : Teoalida ne
+  liste PAS BYD (aucune ligne) → marque impossible à choisir. Le menu Marque
+  ajoute « Vues sur les sites (hors référentiel) » ; la taxonomie lue
+  s'étend à Leboncoin (u_car_brand / u_car_model « BYD_Dolphin Surf ») et
+  garde les marques sans modèle appris (BYD sur AutoScout) : 321 marques,
+  BYD = Atto 2, Dolphin Surf, Seal, Seal 6. Preuves Node. À surveiller :
+  d'autres marques récentes que Leboncoin range sous « Autres » (MG, Leapmotor,
+  Xpeng…) suivent la même règle.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

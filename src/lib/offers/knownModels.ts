@@ -34,11 +34,15 @@ export function loadLearnedModelsByBrand(): Promise<Record<string, string[]>> {
   if (cache) return cache;
   cache = (async () => {
     const byBrand: Record<string, Set<string>> = {};
+    // Une marque connue d'un site existe même sans modèle appris (BYD sur
+    // AutoScout : code marque seul, 21/09) — elle doit pouvoir être choisie.
+    const ensure = (brand: string) => { const b = fold(brand); if (b) byBrand[b] ??= new Set(); };
     const add = (brand: string, model: string) => { const b = fold(brand), m = fold(model); if (b && m) (byBrand[b] ??= new Set()).add(m); };
     for (const s of CODED_SITES) {
       try {
         const rows = await readSite(s.site, [s.make, s.model]);
         const makes = new Map(rows.filter((r) => r.field === s.make).map((r) => [r.code, r.label]));
+        for (const label of makes.values()) ensure(label);
         for (const r of rows) {
           if (r.field !== s.model) continue;
           const makeCode = r.code.split(';')[0];
@@ -52,6 +56,18 @@ export function loadLearnedModelsByBrand(): Promise<Record<string, string[]>> {
       // (slug gardé tel quel : « mercedes-benz » rejoint « Mercedes-Benz » d'AS24).
       const rows = await readSite('MARKTPLAATS', ['model_facet']);
       for (const r of rows) { const [brandSlug] = r.code.split(';'); if (brandSlug) add(brandSlug, r.label); }
+    } catch { /* idem */ }
+    try {
+      // Leboncoin : u_car_brand (code = marque) et u_car_model « BYD_Dolphin Surf »
+      // (code = MARQUE_Modèle ; la marque est le plus long code de marque qui préfixe).
+      const rows = await readSite('LEBONCOIN', ['u_car_brand', 'u_car_model']);
+      const brands = rows.filter((r) => r.field === 'u_car_brand').map((r) => r.code).sort((a, b) => b.length - a.length);
+      for (const b of brands) ensure(b);
+      for (const r of rows) {
+        if (r.field !== 'u_car_model') continue;
+        const brand = brands.find((b) => r.code.toUpperCase().startsWith(`${b.toUpperCase()}_`));
+        if (brand) add(brand, r.label);
+      }
     } catch { /* idem */ }
     return Object.fromEntries(Object.entries(byBrand).map(([b, set]) => [b, [...set].sort()]));
   })();

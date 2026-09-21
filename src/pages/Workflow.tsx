@@ -212,6 +212,11 @@ function DailySearchesTab() {
     // Facettes « autres » des sites : pas des modèles.
     return (siteModels[fold(brand)] ?? []).filter((m) => !refSet.has(fold(m)) && !/^(AUTRES?|OTHERS?|ANDERE|OVERIGE?|SONSTIGES?|ALTRI|OTROS)$/.test(m));
   };
+  /** Marques connues des sites et absentes du référentiel (BYD : Teoalida ne la liste pas, 21/09). */
+  const extraBrands = (): string[] => {
+    const refSet = new Set(ref.brands.map(fold));
+    return Object.keys(siteModels).filter((b) => !refSet.has(b) && !/^(AUTRES?|OTHERS?|ANDERE|OVERIGE?|SONSTIGES?|ALTRI|OTROS)$/.test(b) && b.length >= 2).sort();
+  };
 
   // Suggestions de finitions dès que marque/modèle/pays changent.
   useEffect(() => {
@@ -302,6 +307,12 @@ function DailySearchesTab() {
               >
                 <option value="">— choisir —</option>
                 {ref.brands.map((b) => <option key={b} value={b}>{b}</option>)}
+                {extraBrands().length > 0 && (
+                  <optgroup label="Vues sur les sites (hors référentiel)">
+                    {extraBrands().map((b) => <option key={`site:${b}`} value={b}>{b}</option>)}
+                  </optgroup>
+                )}
+                {editing.brand && !ref.brands.includes(editing.brand) && !extraBrands().includes(editing.brand) && <option value={editing.brand}>{editing.brand}</option>}
               </select>
             </Field>
             <Field label="Modèle">

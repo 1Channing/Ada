@@ -60,6 +60,26 @@ function attrLabel(attributes: any, keys: string[]): string | null {
   return label && label.trim() ? label.trim() : null;
 }
 
+/** Libellés-poubelle du site : jamais une marque. */
+const GENERIC_BRAND = /^(autres?|others?|autre marque|sans marque)$/i;
+
+/**
+ * Marque d'une annonce : u_car_brand d'abord, puis brand/make ; un libellé
+ * générique (« Autres ») cède la place au code de l'attribut (BYD) puis à la
+ * clé suivante. Preuve 21/09 : BYD Dolphin Surf, `brand` = « Autres » ×16.
+ */
+function brandFromAttributes(attributes: any): string | null {
+  for (const k of ['u_car_brand', 'brand', 'make']) {
+    const a = readAttr(attributes, [k]);
+    if (!a) continue;
+    const label = (a.label ?? '').trim();
+    if (label && !GENERIC_BRAND.test(label)) return label;
+    const code = a.value != null ? String(a.value).trim() : '';
+    if (code && !GENERIC_BRAND.test(code) && /[a-z]/i.test(code)) return code;
+  }
+  return null;
+}
+
 /**
  * Parse Leboncoin search results HTML into listings
  *
@@ -204,7 +224,12 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       }
 
       // Secondary structured attributes (enum fields keep the human label)
-      const brandLabel = attrLabel(attributes, ['brand', 'u_car_brand', 'make']);
+      // MARQUE : u_car_brand AVANT l'attribut générique `brand` (preuve 21/09,
+      // BYD Dolphin Surf : `brand` = « Autres » sur les 16 annonces alors que
+      // u_car_brand = BYD — la confirmation rejetait la marque 0/16, aucun
+      // relevé MI). Un libellé « Autres » n'est jamais une marque : on passe
+      // à la clé suivante, et à défaut au code brut.
+      const brandLabel = brandFromAttributes(attributes);
       const fuelLabel = attrLabel(attributes, ['fuel', 'energie', 'carburant', 'energy']);
       const trimLabel = attrLabel(attributes, ['version', 'finition', 'trim', 'model_variant', 'u_car_version']);
       const gearbox = attrLabel(attributes, ['gearbox', 'boite_vitesse', 'transmission']);
