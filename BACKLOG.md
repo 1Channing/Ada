@@ -460,6 +460,33 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   Bilbasen (lecteur Next-data générique, `model` ajouté), Marktplaats
   (attribut model LRP), Blocket, Gaspedaal, La Centrale, Subito, Jofogas
   (déjà). Reste au titre : Skelbiu (aucun champ structuré par carte).
+- **COCHES.NET (ES) — RECONNAISSANCE 21/09 (URLs Channing : sans filtre,
+  Toyota RAV4 `MakeIds[0]=46&ModelIds[0]=131&fi=Price&or=1`)**. Tout est
+  dans `window.__INITIAL_PROPS__` (JSON, ~1 Mo) : `initialResults.items`
+  30 annonces/page, `totalResults` (273 642 au total, 1 204 RAV4),
+  `totalPages`, pagination `pg=N`. Par annonce : prix, km, année, carburant
+  (id + libellé), marque/modèle STRUCTURÉS avec ids, hp (43 %), bodyTypeId
+  (43 %), isProfessional + `seller` (nom, note), `photos[]` (URLs pleine
+  taille) + `imgUrl`, `publicationDate` et `creationDate`, `priceDrop`
+  {originalPrice, percentage, daysSinceUpdate}, offerType (Ocasión / Nuevo /
+  Km0 / Demostración), province/région, téléphone, includesTaxes/taxTypeId
+  (IVA/IGIC), hasWarranty, isCertified. PAS de boîte ni de finition par
+  annonce (titre = marque + modèle + version quand le vendeur la donne).
+  TAXONOMIE COMPLÈTE en une page : `listFiltersOptions.vehicles` = 165
+  marques × modèles avec ids. GRAMMAIRE D'URL prouvée par le code du site
+  (table FILTER_NAMES du bundle) puis en direct : `MinYear`/`MaxYear`,
+  `MinKms`/`MaxKms`, `PowerHpFrom`/`PowerHpTo`, `MinPrice`/`MaxPrice`,
+  `Fueltype2List=N` (scalaire ; 1 Diésel, 2 Gasolina, 3 Eléctrico,
+  4 Híbrido, 5 Híbrido enchufable, 6 GLP, 7 GNC ; multi-valeur : ni virgule
+  ni répétition), `st` (1 pro, 2 particulier), `TransmissionTypeId`
+  (1 = automatique — 114 RAV4 ≥ 2023 tous eCVT ; 2 = manuelle), `OfferType`
+  (0 Ocasión, 1 Nuevo, 2 Km0), `hasPriceDrop=true`, `KeyWords=` (texte),
+  `ArrBodyType`, `arrProvince`, tri `fi=Price|SortDate|Kilometers|Year` +
+  `or=1|-1`. ZYTE : mode navigateur avec `geolocation: 'ES'` OBLIGATOIRE
+  (1,4 Mo lus) ; mode brut (`httpResponseBody`) → 520 systématique ; accès
+  direct depuis le conteneur : ouvert. Prochaine étape : adaptateur v1
+  (lecteur __INITIAL_PROPS__, grammaire, taxonomie moissonnée, pro/privé,
+  baisses de prix, dates) — pays ES, 3e site après AutoScout ES.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
