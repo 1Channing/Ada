@@ -30,6 +30,7 @@ import type { SearchCriteria, SiteAdapter, CandidateSegment } from './marketplac
 import { normalizeForMatch } from './marketplaces/normalizer';
 import { collectCandidateSegments } from './marketplaces/paramDictionary';
 import { canonicalizeBody } from './bodyTypes';
+import { modelKeyLoose } from './business-logic';
 
 // Minimum priced sample to confirm a mapping. Kept low (3) so RARE vehicles —
 // often where the best arbitrage margins hide — still get captured. The ≥90%
@@ -410,7 +411,19 @@ export function confirmCriteriaAgainstSample(
     }
   }
   const model = declared(criteria.model);
-  if (model) pushMatch('model', model, (l) => modelMatchesTitle(l.title ?? '', model));
+  if (model) {
+    // MODÈLE STRUCTURÉ D'ABORD (21/09, Mustang Mach-E sur Leboncoin) : le site
+    // a filtré sur SON modèle (u_car_model) mais 2 titres sur 11 ne disaient
+    // pas « Mustang » — le texte jetait le modèle 9/11 et le relevé MI avec.
+    // Quand les annonces portent le modèle structuré, c'est lui qui juge
+    // (même barre que la marque) ; le titre ne sert que sans structure.
+    const structuredModelCount = listings.filter((l) => (l.model ?? '').trim().length > 0).length;
+    if (structuredModelCount >= INGESTION_MIN_SAMPLE) {
+      out.push({ ...confirmStructuredLabel('model', model, listings, (l) => l.model ?? null, n, modelKeyLoose), declaredValue: model });
+    } else {
+      pushMatch('model', model, (l) => modelMatchesTitle(l.title ?? '', model));
+    }
+  }
   // trim — title + description (same sources as the study pipeline's matchesTrim).
   // Graphie compacte vs éclatée, comme les modèles : « m sport » déclaré vs
   // « MSport » écrit collé par les vendeurs (Subito 02/08 — la confirmation

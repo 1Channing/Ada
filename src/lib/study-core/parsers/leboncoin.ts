@@ -81,6 +81,22 @@ function brandFromAttributes(attributes: any): string | null {
 }
 
 /**
+ * Modèle structuré : libellé de u_car_model (« Mustang Mach-E »), sinon le
+ * code « FORD_Mustang Mach-E » débarrassé du préfixe marque. Libellé
+ * générique (« Autres ») : idem, code sans préfixe.
+ */
+function modelFromAttributes(attributes: any, brand: string | null): string | null {
+  const a = readAttr(attributes, ['u_car_model', 'model']);
+  if (!a) return null;
+  const label = (a.label ?? '').trim();
+  if (label && !GENERIC_BRAND.test(label)) return label;
+  const code = a.value != null ? String(a.value).trim() : '';
+  if (!code) return null;
+  const stripped = brand && code.toUpperCase().startsWith(`${brand.toUpperCase()}_`) ? code.slice(brand.length + 1) : code.replace(/^[^_]+_/, '');
+  return stripped && !GENERIC_BRAND.test(stripped) ? stripped : null;
+}
+
+/**
  * Parse Leboncoin search results HTML into listings
  *
  * Leboncoin uses __NEXT_DATA__ JSON embedded in the page
@@ -230,6 +246,11 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       // relevé MI). Un libellé « Autres » n'est jamais une marque : on passe
       // à la clé suivante, et à défaut au code brut.
       const brandLabel = brandFromAttributes(attributes);
+      // MODÈLE STRUCTURÉ du site (u_car_model, libellé « Mustang Mach-E ») —
+      // 21/09 : sur 11 Mach-E filtrées PAR LE SITE, 2 titres ne disaient pas
+      // « Mustang » (« FORD MACH E… ») et la confirmation texte jetait le
+      // modèle 9/11 → aucun relevé MI. Le filtre structuré du site fait foi.
+      const modelLabel = modelFromAttributes(attributes, brandLabel);
       const fuelLabel = attrLabel(attributes, ['fuel', 'energie', 'carburant', 'energy']);
       const trimLabel = attrLabel(attributes, ['version', 'finition', 'trim', 'model_variant', 'u_car_version']);
       const gearbox = attrLabel(attributes, ['gearbox', 'boite_vitesse', 'transmission']);
@@ -254,6 +275,7 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
         description: ad.body || ad.description || ad.text || '',
         price_type: 'one-off',
         brand: brandLabel,
+        ...(modelLabel ? { model: modelLabel } : {}),
         fuel: fuelLabel,
         gearbox,
         powerDin,

@@ -438,6 +438,21 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   BYD = Atto 2, Dolphin Surf, Seal, Seal 6. Preuves Node. À surveiller :
   d'autres marques récentes que Leboncoin range sous « Autres » (MG, Leapmotor,
   Xpeng…) suivent la même règle.
+- **MUSTANG MACH-E : 7 ANNONCES ADA vs 11 HUMAIN, PROFONDEUR 6 (21/09,
+  constat Channing)**. Journal d'ingestion : l'URL d'ADA était identique à
+  l'URL humaine et lisait bien 11 annonces, mais le MODÈLE était rejeté
+  « 9/11 titres contiennent MUSTANG MACH-E (82 % < 90 %) » — deux vendeurs
+  écrivent « FORD MACH E… » / « Ford mach e electric… » sans « Mustang ».
+  Relevé non enregistré → le MI ne voyait Leboncoin qu'à travers le scan
+  marque+modèle sans critères (1 annonce sur les 100 lues passait le filtre)
+  → 3 + 3 + 1 = 7 annonces, profondeur 3 + 3 = 6. Classe corrigée : (1) le
+  lecteur Leboncoin lit le MODÈLE STRUCTURÉ de l'annonce (u_car_model, comme
+  la marque) ; (2) la confirmation du modèle juge sur le structuré quand les
+  annonces le portent (≥ 3), le titre ne sert que sans structure — preuve
+  sur les 11 titres réels : texte 9/11 rejeté, structuré 11/11 confirmé ;
+  (3) profondeur MI = par site, max(total conforme, annonces lues) — un total
+  ne peut pas être inférieur à ce qu'on a lu ; site sans scan conforme mais
+  avec annonces lues compté par ses annonces. Pas de SQL.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

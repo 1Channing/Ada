@@ -87,13 +87,13 @@ function studyLabel(f: MarketFilters, i: number): string {
  * DÉCODÉS de son source_url par l'adaptateur du site (prefillCriteriaFromUrl)
  * — indécodable = accepté (fail-open), repli : dernier snapshot du segment.
  */
-function computeRealDepth(snapshots: Snapshot[], f: MarketFilters): number | null {
+function computeRealDepth(snapshots: Snapshot[], f: MarketFilters, latest: Array<{ site: string }> = []): number | null {
   if (!f.brand || !f.model) return null;
   const matching = snapshots.filter((s) =>
     (!f.site || s.site === f.site) && (!f.country || s.country === f.country) &&
     s.brand === f.brand && s.model === f.model && s.listing_count != null)
     .sort((a, b) => b.scraped_at.localeCompare(a.scraped_at));
-  if (matching.length === 0) return null;
+  if (matching.length === 0) return latest.length > 0 ? latest.length : null;
   const adapters = allSiteAdapters();
   const criteriaCompatible = (s: Snapshot): boolean => {
     // Carburant : le filtre MI parle en TOKEN ('hybrid'), le snapshot en
@@ -141,9 +141,18 @@ function computeRealDepth(snapshots: Snapshot[], f: MarketFilters): number | nul
     if (!criteriaCompatible(s)) continue;
     bySite.set(s.site, s.listing_count as number);
   }
+  // PROFONDEUR COHÉRENTE AVEC LES ANNONCES (constat Channing 21/09 :
+  // « profondeur 6, 7 annonces trouvées »). Un site peut avoir des annonces
+  // LUES (relevés du modèle) sans scan conforme portant son total (Leboncoin
+  // Mach-E : relevé non enregistré, modèle rejeté) : son total manquait et la
+  // profondeur passait SOUS le nombre d'annonces. Un total ne peut pas être
+  // inférieur à ce qu'on a lu : par site, max(total conforme, annonces lues).
+  const readBySite = new Map<string, number>();
+  for (const o of latest) readBySite.set(o.site, (readBySite.get(o.site) ?? 0) + 1);
+  for (const [site, read] of readBySite) bySite.set(site, Math.max(bySite.get(site) ?? 0, read));
   if (bySite.size > 0) return [...bySite.values()].reduce((a, b) => a + b, 0);
   const compatible = matching.find(criteriaCompatible);
-  return (compatible ?? matching[0]).listing_count;
+  return Math.max((compatible ?? matching[0]).listing_count as number, latest.length);
 }
 
 function loadStudies(): MarketFilters[] {
@@ -545,7 +554,7 @@ export function MarketIntelligence() {
       idx: i, filters: f, color, label: studyLabel(f, i),
       filtered, latestObs, stats: priceStats(latestObs), series: timeSeries(filtered),
       attack: attackPrice(latestObs),
-      realDepth: computeRealDepth(data.snapshots, f),
+      realDepth: computeRealDepth(data.snapshots, f, latestObs),
     };
   }), [studies, obs, data.snapshots]);
 
