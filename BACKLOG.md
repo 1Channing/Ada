@@ -414,6 +414,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   même règle sur tous les sites. Médiane Born 2025 : 359 900 kr au lieu de
   3 280. `engine_effect_to` (puissance maxi) : registre à faire avec la
   taxonomie km mini / puissance max / places (backlog).
+- **PASTILLE « NOUVEAUTÉS OPEN SPACE » PARTOUT (21/09, demande Channing)**.
+  Le badge existait sur le bouton Open space mais ne vivait que sur l'onglet
+  Négociations : invisible ailleurs. Store module `hooks/useOpenSpaceUnseen`
+  (compteur = annonces poussées ou notes écrites par les AUTRES depuis ma
+  dernière visite ; rafraîchi toutes les 60 s, au retour sur l'onglet du
+  navigateur et à chaque navigation interne ; remis à zéro à l'ouverture de
+  l'Open space) lu par trois endroits : entrée Workflow du bandeau (PC et
+  mobile), onglet Négociations, bouton Open space. Pas de SQL.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

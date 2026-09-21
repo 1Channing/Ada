@@ -3,6 +3,7 @@ import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, Lo
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
 import { canSeeTab, canSeeWorkflow, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
+import { useOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
 import { NotificationCenter } from './NotificationCenter';
 import { FeedbackCenter } from './FeedbackCenter';
 import { useAuth, signOut } from '../services/auth';
@@ -49,6 +50,13 @@ function useNewVersionAvailable(): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const activeCount = useActiveUsersCount();
+  // Nouveautés Open space (21/09) : pastille sur l'entrée Workflow, visible
+  // depuis n'importe quelle page — le badge du bouton ne vivait que sur
+  // l'onglet Négociations.
+  const openSpaceNew = useOpenSpaceUnseen();
+  const navBadge = (it: { workflow?: boolean }) => (it.workflow && openSpaceNew > 0
+    ? <span title={`${openSpaceNew} nouveauté${openSpaceNew > 1 ? 's' : ''} dans l'Open space`} className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold grid place-items-center shadow">{openSpaceNew > 99 ? '99+' : openSpaceNew}</span>
+    : null);
   // Menu dépliant MOBILE (demande Channing 07/09 : la barre défilante cachait
   // « Carte » hors écran). Se referme à chaque navigation.
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -138,6 +146,7 @@ export function Layout({ children }: LayoutProps) {
             >
               {it.icon}
               {it.label}
+              {navBadge(it)}
             </button>
           ))}
           {/* Mobile : page courante + bouton de menu, à la place de la liste. */}
@@ -176,6 +185,7 @@ export function Layout({ children }: LayoutProps) {
               >
                 {it.icon}
                 {it.label}
+                {navBadge(it)}
               </button>
             ))}
           </div>

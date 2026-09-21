@@ -11,8 +11,9 @@ import {
 } from '../services/workflow';
 import {
   OpenSpaceItem, OpenSpaceNote, listOpenSpace, listOpenSpaceNotes, pushToOpenSpace, removeFromOpenSpace,
-  addOpenSpaceNote, deleteOpenSpaceNote, openSpaceUnseenCount, markOpenSpaceSeen,
+  addOpenSpaceNote, deleteOpenSpaceNote,
 } from '../services/openSpace';
+import { useOpenSpaceUnseen, clearOpenSpaceUnseen, refreshOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
 import { NegotiationPhotosModal } from '../components/NegotiationPhotos';
 import { contactSeller } from '../services/contactSeller';
 import { resumeNegoExtractions, subscribeNegoExtractions, isExtracting, extractingCount, extractionError, startNegoExtraction } from '../services/negoExtraction';
@@ -69,7 +70,8 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   // Open space (05/09) : l'espace partagé, son badge de nouveautés et la
   // carte « quelle négo est déjà poussée » (menu ⋯ : partager / retirer).
   const [openSpace, setOpenSpace] = useState(false);
-  const [unseen, setUnseen] = useState(0);
+  // Compteur partagé avec le bandeau et l'onglet (hooks/useOpenSpaceUnseen).
+  const openSpaceNew = useOpenSpaceUnseen();
   const [shared, setShared] = useState<Map<string, string>>(new Map()); // negotiation_id → item id
 
   const [conflicts, setConflicts] = useState<NegoConflict[]>([]);
@@ -100,14 +102,9 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
     listNegotiationFolders().then(setFolders);
     listNegotiationConflicts().then(setConflicts);
     listOpenSpace().then((items) => setShared(new Map(items.map((i) => [i.negotiation_id, i.id]))));
-    openSpaceUnseenCount().then(setUnseen);
+    void refreshOpenSpaceUnseen();
   };
   useEffect(reload, []);
-  // Badge Open space : rafraîchi toutes les 2 min tant que l'onglet est monté.
-  useEffect(() => {
-    const t = window.setInterval(() => { openSpaceUnseenCount().then(setUnseen); }, 120_000);
-    return () => window.clearInterval(t);
-  }, []);
   // Extractions d'arrière-plan : reprise des jobs interrompus (navigation,
   // rechargement) + re-render à chaque changement d'état (spinner de ligne,
   // compteur de photos à l'arrivée).
@@ -166,14 +163,14 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
             <FolderPlus className="w-4 h-4" /> Nouveau dossier
           </button>
           <button
-            onClick={() => { setOpenSpace(true); setUnseen(0); void markOpenSpaceSeen(); }}
+            onClick={() => { setOpenSpace(true); clearOpenSpaceUnseen(); }}
             title="L'espace partagé de l'équipe : les négociations poussées par chacun, avec les notes de tous"
             className="relative flex items-center gap-2 bg-white border border-slate-300 hover:border-brand-ocean text-slate-700 hover:text-brand-ocean px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           >
             <Users className="w-4 h-4" /> Open space
-            {unseen > 0 && (
+            {openSpaceNew > 0 && (
               <span className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1.5 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center shadow">
-                {unseen > 99 ? '99+' : unseen}
+                {openSpaceNew > 99 ? '99+' : openSpaceNew}
               </span>
             )}
           </button>

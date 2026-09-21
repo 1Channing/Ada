@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil } from 'lucide-react';
 import { NegotiationsTab } from './Ventes';
 import { loadLearnedModelsByBrand } from '../lib/offers/knownModels';
+import { useOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
 import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
@@ -82,6 +83,8 @@ const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations'
 
 export function Workflow() {
   const { allowedTabs, isAdmin } = useAuth();
+  // Pastille « nouveautés Open space » sur l'onglet Négociations (21/09).
+  const openSpaceNew = useOpenSpaceUnseen();
   // Négociations et Ventes vivent ici depuis le 05/09 (demande Channing),
   // à la suite des études ; depuis le 07/09 chaque onglet a son droit (Équipe).
   const see = (k: AppTabKey) => canSeeTab(allowedTabs, isAdmin, k);
@@ -125,6 +128,9 @@ export function Workflow() {
             >
               <Icon size={18} />
               {label}
+              {id === 'negotiations' && openSpaceNew > 0 && (
+                <span title={`${openSpaceNew} nouveauté${openSpaceNew > 1 ? 's' : ''} dans l'Open space`} className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold grid place-items-center">{openSpaceNew > 99 ? '99+' : openSpaceNew}</span>
+              )}
             </button>
           ))}
         </nav>
