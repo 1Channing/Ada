@@ -153,28 +153,67 @@ function jsonLdCollection(html: string): { items: BlProduct[]; total: number | n
   return { items: [], total: null };
 }
 
-/** Ligne carte « 2023 ∙ 7 989 mil ∙ Hybrid bensin ∙ Automatisk » par id. */
+/** Carburants suédois de la légende (libellés vus sur les cartes, 21/09). */
+const SV_FUEL = /^(El|Bensin|Diesel|Hybrid bensin|Hybrid diesel|Laddhybrid|Elhybrid|Gas|Etanol|Miljöbränsle\/Hybrid)$/i;
+const SV_GEARBOX = /^(Automatisk|Manuell)$/i;
+
+/**
+ * Légende de carte « 2023 ∙ 7 989 mil ∙ Hybrid bensin ∙ Automatisk » par id.
+ * Réécrite le 21/09 (dossier Truth Center « complétude en chute 74→20 % »,
+ * page réelle Cupra Born) : les jetons sont lus UN PAR UN, plus par position,
+ * car la légende varie — neuve sans kilométrage « 2026 ∙ El ∙ Automatisk »,
+ * électrique avec autonomie à la place de la boîte « 2025 ∙ 4 588 mil ∙ El
+ * ∙ 425 km räckvidd ». L'ancienne forme fixe rendait tout vide sur ces
+ * cartes (ou, pire, la légende de la carte SUIVANTE) et « 425 km räckvidd »
+ * passait pour une boîte. Kilométrage absent = inconnu, jamais 0.
+ */
 function htmlCaptionById(html: string, id: string): { year: number | null; mileageKm: number | null; fuel: string | null; gearbox: string | null } {
   const empty = { year: null, mileageKm: null, fuel: null, gearbox: null };
-  const i = html.indexOf(`id="${id}"`);
+  // Deux formes d'id sur la page (21/09) : id="search-ad-<id>-…" (titre) et id="<id>" nu.
+  let i = html.indexOf(`id="search-ad-${id}`);
+  if (i < 0) i = html.indexOf(`id="${id}"`);
   if (i < 0) return empty;
-  // La légende suit le CARROUSEL de la carte (jusqu'à 19 photos, boutons et
-  // points inclus) : sondée le 05/09 de 4 000 à 11 300 caractères après
-  // l'id — la fenêtre de 6 000 la manquait sur 6 cartes sur 10 (complétude
-  // année/km tombée de 80 % à 37 %, dossier Truth Center). On lit jusqu'à la
-  // carte SUIVANTE (prochain id numérique), 40 000 caractères au plus.
-  const nextCard = html.slice(i + 10, i + 40_000).search(/id="\d{6,}"/);
-  const end = nextCard >= 0 ? i + 10 + nextCard : i + 40_000;
-  const seg = html.slice(i, end).replace(/&nbsp;/g, ' ');
-  const m = seg.match(/>\s*(\d{4})\s*∙\s*([\d\s ]+)\s*mil\s*∙\s*([^∙<]+?)\s*∙\s*([^<]+?)\s*</);
+  // Jusqu'à la carte SUIVANTE (prochain id de carte), 40 000 caractères au plus.
+  const rest = html.slice(i + 10, i + 40_000);
+  const nextCard = rest.search(/id="search-ad-\d{6,}|id="\d{6,}"/);
+  const seg = html.slice(i, nextCard >= 0 ? i + 10 + nextCard : i + 40_000).replace(/&nbsp;/g, ' ');
+  const m = seg.match(/>\s*(\d{4}\s*∙[^<]*)</);
   if (!m) return empty;
-  const mil = Number(m[2].replace(/[\s ]/g, ''));
-  return {
-    year: Number(m[1]),
-    // MIL SUÉDOIS : 1 mil = 10 km (preuve : filtre 90 000 km → mileage_to=9000).
-    mileageKm: Number.isFinite(mil) ? mil * 10 : null,
-    fuel: m[3].trim(), gearbox: m[4].trim(),
-  };
+  const out: { year: number | null; mileageKm: number | null; fuel: string | null; gearbox: string | null } = { ...empty };
+  for (const tok of m[1].split('∙').map((t) => t.trim()).filter(Boolean)) {
+    if (/^\d{4}$/.test(tok)) out.year = Number(tok);
+    else if (/^[\d\s  ]+mil$/i.test(tok)) { const mil = Number(tok.replace(/[^\d]/g, '')); if (Number.isFinite(mil)) out.mileageKm = mil * 10; } // MIL SUÉDOIS : 1 mil = 10 km
+    else if (SV_FUEL.test(tok)) out.fuel = tok;
+    else if (SV_GEARBOX.test(tok)) out.gearbox = tok;
+    // « 425 km räckvidd » (autonomie) : ni boîte ni carburant — ignoré.
+  }
+  // Électrique sans jeton de boîte (la légende met l'autonomie à sa place) :
+  // automatique — fait physique, pas une supposition (aucune électrique manuelle).
+  if (!out.gearbox && out.fuel && /^El$/i.test(out.fuel)) out.gearbox = 'Automatisk';
+  return out;
+}
+
+/** Puissance dans la description JSON-LD (« 59 kWh 204 hk », « 58 kWh 190 hk, FACELIFT ») — hk ≈ ch DIN, convention du site. */
+function powerFromText(s: string | undefined): number | null {
+  const m = (s ?? '').match(/(\d{2,3})\s*hk\b/i);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Type de prix d'une carte (21/09, page réelle Cupra Born triée prix
+ * croissant) : 10 cartes « 3 280 kr/månad » = leasing privé, puis 5 cartes
+ * « 4 198 kr » sans mention = leasing (entreprise) affiché au mois — un
+ * Born 2025 ne vaut pas 4 198 kr. Libellé « kr/månad » → mensuel ; prix
+ * inférieur à 15 000 kr sur une voiture → inconnu (leasing sans libellé,
+ * épave ou faute de frappe : jamais un prix de marché). Le reste : vente.
+ */
+function priceTypeOf(html: string, id: string, price: number): ScrapedListing['price_type'] {
+  let i = html.indexOf(`id="search-ad-${id}`);
+  if (i < 0) i = html.indexOf(`id="${id}"`);
+  const seg = i >= 0 ? html.slice(i, i + 12_000) : '';
+  if (/kr\s*\/\s*m[åa]n/i.test(seg)) return 'per-month';
+  if (price < 15_000) return 'unknown';
+  return 'one-off';
 }
 
 function parseSearchResults(html: string): ScrapedListing[] {
@@ -189,12 +228,13 @@ function parseSearchResults(html: string): ScrapedListing[] {
     out.push({
       title: [it.name, it.description].filter(Boolean).join(' '),
       description: '',
-      price, currency: 'SEK', price_type: 'one-off',
+      price, currency: 'SEK', price_type: id ? priceTypeOf(html, id, price) : (price < 15_000 ? 'unknown' : 'one-off'),
       year: cap.year, mileage: cap.mileageKm,
       trim: it.description?.trim() || null,
       listing_url: url,
       brand: it.brand?.name ?? null, model: it.model ?? null,
       fuel: cap.fuel, gearbox: cap.gearbox,
+      powerDin: powerFromText(it.description),
     });
   }
   return out;
@@ -367,7 +407,8 @@ export const blocketAdapter: SiteAdapter = {
   learnEnumValues,
   mapModel: (raw) => raw.trim(),
   mapFuel: (raw) => (FUEL_CODE[raw.trim().toUpperCase()] ?? []).join(','),
-  supportsParam: () => false,
+  // engine_effect_from — PROUVÉ URLs humaines 26/08 et 21/09 (Cupra Born ≥ 200 ch).
+  supportsParam: (p) => p === 'minPower',
 
   buildSearchUrl,
   // Pagination page=N — PROUVÉE par paire d'URLs humaines (page 2 : &page=2).

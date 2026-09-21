@@ -394,6 +394,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   prochain diagnostic (≤ 20 h). Reste : le dossier « profondeur en
   variation » Marktplaats RAV4 (historique 432 pollué par l'ancienne URL
   large) se résorbera avec l'historique.
+- **BLOCKET : PUISSANCE, LÉGENDE, LEASING (21/09, URLs-preuves Channing
+  Cupra Born ≥ 200 ch : `engine_effect_from=200`, `engine_effect_to=300`)**.
+  L'URL savait déjà poser la puissance (registre grammaire + voie native,
+  prouvé sur les deux voies) mais `supportsParam` disait non et surtout le
+  LECTEUR ne lisait jamais la puissance (0 %) → la confirmation jetait le
+  critère et l'URL n'était pas mémorisée. Page réelle analysée (34 cartes) :
+  (1) puissance lue dans la description JSON-LD (« 59 kWh 204 hk »), 72 % ;
+  (2) légende relue jeton par jeton — neuve sans « mil » (« 2026 ∙ El ∙
+  Automatisk ») et électrique avec autonomie à la place de la boîte
+  (« 2025 ∙ 4 588 mil ∙ El ∙ 425 km räckvidd ») rendaient tout vide, ou la
+  légende de la carte SUIVANTE (id passé en `search-ad-<id>`) — c'était le
+  dossier « complétude en chute 74→20 % » : année 69→100 %, énergie
+  69→100 %, boîte 100 % (électrique = automatique, fait physique) ;
+  (3) LEASING : 10 cartes « kr/månad » + 5 leasing sans libellé (4 198 kr)
+  en tête du tri prix croissant entraient dans la médiane MI —
+  `price_type` per-month / unknown (< 15 000 kr), et le snapshot MI applique
+  désormais le PREMIER FILTRE des études (≤ 2 000 €, mensualité, accidenté),
+  même règle sur tous les sites. Médiane Born 2025 : 359 900 kr au lieu de
+  3 280. `engine_effect_to` (puissance maxi) : registre à faire avec la
+  taxonomie km mini / puissance max / places (backlog).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

@@ -27,7 +27,7 @@ import {
 } from '../src/lib/study-core/index';
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
 import { titleContradictsModel } from '../src/services/marketData';
-import { structuredModelMatches } from '../src/lib/study-core/business-logic';
+import { structuredModelMatches, shouldFilterListing } from '../src/lib/study-core/business-logic';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import { mpSlugOfLabel } from '../src/lib/study-core/marketplaces/marktplaats';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
@@ -105,7 +105,13 @@ export async function recordStudyMarketSnapshot(
   try {
     if (!segment.brand || !segment.model || !segment.country) return;
     // Non-retail guard: "WithoutTax"/engros prices never enter a median.
-    const isRetail = (l: ScrapedListing) => !/withouttax|without tax|engros|wholesale|excl/.test(((l as { priceType?: string | null }).priceType ?? '').toLowerCase());
+    // + PREMIER FILTRE des études (21/09, Blocket Cupra Born : 10 cartes
+    // « 3 280 kr/månad » et 5 leasing sans libellé à 4 198 kr en tête du tri
+    // prix croissant — elles entraient dans la médiane MI) : prix ≤ 2 000 €,
+    // mensualité (price_type per-month / texte), véhicule accidenté — la même
+    // règle que la voie études, jamais une autre.
+    const isRetail = (l: ScrapedListing) => !/withouttax|without tax|engros|wholesale|excl/.test(((l as { priceType?: string | null }).priceType ?? l.price_type ?? '').toLowerCase())
+      && l.price_type !== 'per-month' && l.price_type !== 'unknown' && !shouldFilterListing(l);
     // Identité modèle : l'observation hérite du modèle du SEGMENT — un titre
     // qui le CONTREDIT lisiblement (« Yaris » sans « Cross » sur une page
     // Yaris Cross, constat 01/09 : recherche texte Marktplaats) n'entre pas.
