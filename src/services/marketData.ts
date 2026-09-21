@@ -120,6 +120,13 @@ export async function writeMarketSnapshot(params: {
   if (contradicted > 0) {
     console.warn(`[MARKET_SNAPSHOT] ${contradicted} annonce(s) écartée(s) — identité structurée contraire au segment ${segment.brand} ${segment.model} (${segment.site})`);
   }
+  // HORS TVA UE (décision Channing 21/09) : compte visible (worker_logs côté
+  // worker, console côté navigateur) — preuve du 21/09, coches RAV4 : 7/97
+  // annonces Canarias sur la page du site.
+  const offshore = listings.filter((l) => l.fiscalTerritory);
+  if (offshore.length > 0) {
+    console.warn(`[MARKET_SNAPSHOT] ${offshore.length}/${listings.length} annonce(s) écartée(s) — hors territoire TVA UE : ${[...new Set(offshore.map((l) => l.fiscalTerritory))].join(', ')} (${segment.site} ${segment.brand} ${segment.model})`);
+  }
   const priced = listings.filter((l) => typeof l.price === 'number' && l.price > 0 && isRetailPrice(l) && identityOk(l));
   if (priced.length === 0) {
     // MARCHÉ VIDE VÉRIFIÉ (constat cloche re-scan 27/08) : un scan qui prouve
