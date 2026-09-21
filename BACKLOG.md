@@ -359,6 +359,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   négociations à côté de leur jumeau tableur) — à la main dans Ventes, ou
   outil « fusionner » si Channing le demande ; index unique sur la REF une
   fois le stock assaini.
+- **MODÈLES DU FORMULAIRE D'ÉTUDE = RÉFÉRENTIEL ∪ SITES (21/09, constat
+  Achille : « Aygo X dans le MI, pas dans le Workflow »)**. Le formulaire ne
+  proposait que le référentiel Teoalida, qui range l'Aygo X sous « Aygo 3e
+  génération » ; les sites (AutoScout `aygo-x`, Marktplaats, Leboncoin) et
+  le MI le connaissent comme modèle à part. Le menu Modèle ajoute désormais
+  un groupe « Vus sur les sites (hors référentiel) » tiré de la taxonomie
+  moissonnée (`loadLearnedModelsByBrand`, 111 modèles Toyota), facettes
+  « autres » écartées, libellés de marque du référentiel intacts (ŠKODA).
+  Le pipeline n'utilise pas les fenêtres du référentiel : une étude AYGO X
+  passe comme une étude MI (snapshots des 6 sites prouvés le 21/09).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

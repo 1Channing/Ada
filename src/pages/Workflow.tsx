@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause } from 'lucide-react';
 import { NegotiationsTab } from './Ventes';
+import { loadLearnedModelsByBrand } from '../lib/offers/knownModels';
 import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
@@ -187,7 +188,24 @@ function DailySearchesTab() {
       .finally(() => setLoading(false));
   };
   useEffect(reload, []);
-  useEffect(() => { void listRefBrandModels().then(setRef); }, []);
+  // Modèles proposés = RÉFÉRENTIEL (Teoalida, fenêtres d'années) ∪ modèles
+  // que les SITES connaissent (taxonomie moissonnée). Constat Achille 21/09 :
+  // « Aygo X » existe sur AutoScout, Marktplaats, Leboncoin et dans le MI,
+  // mais Teoalida le range sous « Aygo 3e génération » — le formulaire
+  // d'étude ne le proposait pas. Marques : libellés du référentiel gardés
+  // tels quels (« ŠKODA » reste « ŠKODA » : les études existantes en dépendent).
+  const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/\s+/g, ' ').trim();
+  const [siteModels, setSiteModels] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    void listRefBrandModels().then(setRef);
+    void loadLearnedModelsByBrand().then(setSiteModels).catch(() => undefined);
+  }, []);
+  /** Modèles vus sur les sites et absents du référentiel, pour la marque choisie. */
+  const extraModels = (brand: string): string[] => {
+    const refSet = new Set((ref.modelsByBrand[brand] ?? []).map(fold));
+    // Facettes « autres » des sites : pas des modèles.
+    return (siteModels[fold(brand)] ?? []).filter((m) => !refSet.has(fold(m)) && !/^(AUTRES?|OTHERS?|ANDERE|OVERIGE?|SONSTIGES?|ALTRI|OTROS)$/.test(m));
+  };
 
   // Suggestions de finitions dès que marque/modèle/pays changent.
   useEffect(() => {
@@ -289,6 +307,14 @@ function DailySearchesTab() {
               >
                 <option value="">Toute la marque</option>
                 {(ref.modelsByBrand[editing.brand ?? ''] ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
+                {extraModels(editing.brand ?? '').length > 0 && (
+                  <optgroup label="Vus sur les sites (hors référentiel)">
+                    {extraModels(editing.brand ?? '').map((m) => <option key={`site:${m}`} value={m}>{m}</option>)}
+                  </optgroup>
+                )}
+                {editing.model && !(ref.modelsByBrand[editing.brand ?? ''] ?? []).includes(editing.model) && !extraModels(editing.brand ?? '').includes(editing.model) && (
+                  <option value={editing.model}>{editing.model}</option>
+                )}
               </select>
             </Field>
             <Field label="Année min">
