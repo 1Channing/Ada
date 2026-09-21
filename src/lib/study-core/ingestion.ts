@@ -694,7 +694,13 @@ function confirmStructuredLabel(
     return lNorm.includes(declaredNorm) || declaredNorm.includes(lNorm);
   }).length;
   const rate = matchCount / present.length;
-  if (rate >= INGESTION_CONFIRM_THRESHOLD) {
+  // Petit échantillon (21/09, Mach-E ES : 6 annonces, une seule étiquetée
+  // « Mustang MachE » par le site lui-même → 83 % < 90 %, modèle jeté, relevé
+  // perdu) : sur un champ STRUCTURÉ, un seul écart sur ≥ 4 annonces ne
+  // contredit pas le filtre du site — toléré ; dès 10 annonces, la barre des
+  // 90 % reprend d'elle-même (9/10).
+  const oneStrayTolerated = present.length >= 4 && matchCount >= present.length - 1;
+  if (rate >= INGESTION_CONFIRM_THRESHOLD || oneStrayTolerated) {
     return { field, declaredValue: declaredLabel, status: 'confirmed', matchCount, sampleSize: present.length, method: 'structured' };
   }
   return {

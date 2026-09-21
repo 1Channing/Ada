@@ -86,6 +86,11 @@ export async function persistTaxonomyHarvest(site: string, entries: TaxonomyEntr
 }
 
 let taxonomyLoaded = false;
+let taxonomyLoadedAt = 0;
+/** Âge du dictionnaire en session (ms) — Infinity tant qu'il n'a jamais été chargé. */
+export function learnedTaxonomyAgeMs(): number {
+  return taxonomyLoaded ? Date.now() - taxonomyLoadedAt : Number.POSITIVE_INFINITY;
+}
 
 /**
  * Variante « une fois par session » pour le FRONT (prefill d'ingestion,
@@ -93,9 +98,14 @@ let taxonomyLoaded = false;
  * humaines et ignore les 178 marques + modèles moissonnés (constat 26/07 :
  * prefill sans marque sur ms=25xxx). Le worker, lui, recharge à chaque
  * campagne via loadLearnedTaxonomy.
+ *
+ * RAFRAÎCHI au-delà de `maxAgeMs` (21/09 : un onglet MI ouvert avant
+ * l'apprentissage de Coches.net générait toute la session des URLs sans
+ * marque ni modèle, alors que le dictionnaire les connaissait — « une fois par
+ * session » figeait une copie vide). 10 min par défaut ; 0 = recharge forcée.
  */
-export async function ensureLearnedTaxonomy(): Promise<void> {
-  if (taxonomyLoaded) return;
+export async function ensureLearnedTaxonomy(maxAgeMs = 10 * 60_000): Promise<void> {
+  if (taxonomyLoaded && Date.now() - taxonomyLoadedAt < maxAgeMs) return;
   await loadLearnedTaxonomy();
 }
 
@@ -129,6 +139,7 @@ function rememberLearnedCode(site: string, field: string, code: string, label: s
 
 export async function loadLearnedTaxonomy(): Promise<void> {
   taxonomyLoaded = true;
+  taxonomyLoadedAt = Date.now();
   for (const adapter of allSiteAdapters()) {
     if (!adapter.learnEnumValues) continue;
     // TOUS les champs du site — chaque adaptateur ignore ceux qu'il ne

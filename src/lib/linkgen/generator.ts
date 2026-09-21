@@ -2,7 +2,7 @@ import { getSiteAdapter } from '../study-core/marketplaces';
 import { canonicalizeAutoscoutModelPath } from '../study-core/marketplaces/autoscout24';
 import { resolveYearRange } from '../study-core/marketplaces/urlTemplate';
 import { sharedSupabase as supabase } from '../supabaseShared';
-import { ensureLearnedTaxonomy } from './taxonomy';
+import { ensureLearnedTaxonomy, learnedTaxonomyAgeMs } from './taxonomy';
 import { applyVariableCriteria, injectTrimIntoUrl, mpNormalize, setQueryParamRaw } from './grammar';
 
 // Le REGISTRE UNIQUE des grammaires (année/km/puissance/boîte/finition par
@@ -385,7 +385,8 @@ async function applyLearnedSecondaryParams(
  * The original generateSearchUrls() is NOT modified — it stays synchronous.
  */
 export async function generateSearchUrlsWithMemory(
-  params: LinkGenParams
+  params: LinkGenParams,
+  opts: { retried?: boolean } = {},
 ): Promise<LinkGenUrlResult[]> {
   // Codes taxonomie moissonnés (marques/modèles mobile.de) → adaptateurs,
   // une fois par session : sans ça le FRONT ne connaît que les graines.
@@ -591,6 +592,17 @@ export async function generateSearchUrlsWithMemory(
         : 'invalid',
       mappingSource: 'default_template',
     });
+  }
+
+  // DICTIONNAIRE PÉRIMÉ (21/09) : une URL rendue « sans id / code / slug /
+  // libellé appris » alors que le dictionnaire de la session a plus d'une
+  // minute → il a pu être enrichi depuis (site fraîchement moissonné, autre
+  // onglet) : on le recharge UNE fois et on regénère. Sinon, l'avertissement
+  // reste et dit vrai.
+  const dictionaryGap = results.some((r) => r.warnings.some((w) => /sans (id|code|slug|libellé)[^—]*(appris|apprendre|moissonn)|ID marque inconnu/i.test(w)));
+  if (dictionaryGap && !opts.retried && learnedTaxonomyAgeMs() > 60_000) {
+    await ensureLearnedTaxonomy(0).catch(() => undefined);
+    return generateSearchUrlsWithMemory(params, { retried: true });
   }
 
   return results;

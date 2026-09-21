@@ -140,7 +140,12 @@ function extractInitialProps(html: string): CnProps | null {
 
 function parseSearchResults(html: string): ScrapedListing[] {
   const props = extractInitialProps(html);
-  const items = props?.initialResults?.items ?? [];
+  if (!props) return [];
+  // Le catalogue de la page nourrit l'adaptateur AVANT la lecture des
+  // annonces : les libellés modèle sont ceux du catalogue (par id), pas ceux
+  // écrits sur chaque annonce.
+  learnFromEntries(catalogEntries(props));
+  const items = props.initialResults?.items ?? [];
   const out: ScrapedListing[] = [];
   for (const it of items) {
     const price = Number(it.price);
@@ -149,6 +154,12 @@ function parseSearchResults(html: string): ScrapedListing[] {
     if (!url) continue;
     const year = Number(it.year), km = Number(it.km), hp = Number(it.hp);
     const bodyToken = it.bodyTypeId != null ? BODY_TOKEN[String(it.bodyTypeId)] : undefined;
+    // MODÈLE : libellé du CATALOGUE pour l'id de l'annonce quand on le
+    // connaît (constat 21/09, Mach-E ES : le site écrit « Mustang MachE » sur
+    // une annonce et « Mustang Mach-E » sur les autres pour le même modelId
+    // 1326 — la confirmation structurée tombait à 5/6). L'id fait foi.
+    const catalogModel = it.makeId != null && it.modelId != null ? LEARNED_MODEL_LABEL.get(`${it.makeId}|${it.modelId}`) : undefined;
+    const model = (catalogModel ?? it.model ?? '').trim() || null;
     const offer = it.offerType?.literal ?? '';
     const drop = it.priceDrop && Number.isFinite(Number(it.priceDrop.originalPrice))
       ? `Baisse de prix : ${it.priceDrop.originalPrice} € → ${price} € (−${it.priceDrop.percentage ?? '?'} %, il y a ${it.priceDrop.daysSinceUpdate ?? '?'} j)` : '';
@@ -164,7 +175,7 @@ function parseSearchResults(html: string): ScrapedListing[] {
       trim: null,
       listing_url: url,
       brand: it.make?.trim() || null,
-      model: it.model?.trim() || null,
+      model,
       fuel: it.fuelType?.trim() || (it.fuelTypeId != null ? FUEL_LABEL[String(it.fuelTypeId)] ?? null : null),
       powerDin: Number.isFinite(hp) && hp > 0 ? hp : null,
       vehicleType: bodyToken ? bodyLabel(bodyToken) : null,
@@ -318,9 +329,7 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
 /** Catalogue COMPLET de la page (listFiltersOptions.vehicles : 165 marques ×
  *  modèles avec ids) + ids portés par les annonces. Champs : cn:make (id →
  *  libellé), cn:model:<makeId> (id → libellé), cn:fuel, cn:body. */
-function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
-  const props = extractInitialProps(html);
-  if (!props) return [];
+function catalogEntries(props: CnProps): Array<{ field: string; code: string; label: string }> {
   const out: Array<{ field: string; code: string; label: string }> = [];
   const seen = new Set<string>();
   const push = (field: string, code: string, label: string) => {
@@ -341,6 +350,13 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
     if (it.fuelTypeId != null && it.fuelType) push('cn:fuel', String(it.fuelTypeId), it.fuelType);
     if (it.bodyTypeId != null && BODY_LABEL[String(it.bodyTypeId)]) push('cn:body', String(it.bodyTypeId), BODY_LABEL[String(it.bodyTypeId)]);
   }
+  return out;
+}
+
+function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
+  const props = extractInitialProps(html);
+  if (!props) return [];
+  const out = catalogEntries(props);
   // La moisson nourrit aussi l'adaptateur en session (même scrape).
   learnFromEntries(out);
   return out;

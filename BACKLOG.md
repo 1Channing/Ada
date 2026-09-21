@@ -508,6 +508,23 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   exploiter. Preuves Node sur la page réelle + gate + build worker. Pas de
   SQL. Effet : les études FR→ES / ES→x et le MI Espagne scrutent AutoScout
   ES + Coches.net dès le prochain passage.
+- **PREMIER TEST CHANNING SUR COCHES.NET (21/09 soir, Mach-E électrique
+  2023 ≥ 320 ch) — deux classes corrigées**. (1) L'onglet MI générait une
+  URL SANS marque ni modèle alors que l'Atelier pré-remplissait Ford /
+  Mach-E depuis la même URL : le dictionnaire des sites était chargé « une
+  fois par session » d'onglet, donc figé dans une copie antérieure à
+  l'apprentissage de Coches.net. Désormais : rechargé au-delà de 10 min, et
+  rechargé puis regénéré UNE fois quand une URL sort « sans id / code / slug
+  / libellé appris » avec un dictionnaire de plus d'une minute
+  (`ensureLearnedTaxonomy(maxAge)`, `learnedTaxonomyAgeMs`, generator).
+  (2) Le relevé MI (URL correcte, 6 annonces) jetait le modèle « 5/6 = 83 %
+  < 90 % » : le site lui-même écrit « Mustang MachE » sur une annonce et
+  « Mustang Mach-E » sur les cinq autres, même modelId 1326. Deux remèdes :
+  le lecteur Coches.net pose le libellé du CATALOGUE par id (l'id fait foi,
+  plus l'orthographe de l'annonce) ; et sur tout champ STRUCTURÉ, un seul
+  écart sur ≥ 4 annonces est toléré (la barre des 90 % reprend d'elle-même à
+  10). Preuves sur la page réelle : 6/6 confirmés ; 1 écart/6 confirmé,
+  2 écarts/6 rejeté.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
