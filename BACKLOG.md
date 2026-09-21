@@ -597,6 +597,31 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   l'ingestion, le snapshot MI et les scores des adaptateurs. Reste :
   Leboncoin / La Centrale / Subito / Jófogás / Skelbiu n'ont pas de jumeau
   dans leur dictionnaire (électrique sous le modèle de base).
+- **PREUVE DE MARCHÉ « MODÈLE × CARBURANT » (21/09, décision Channing :
+  campagne électrique FR/DK qui étudiait BMW 2-Series Gran Coupé, Gran
+  Tourer, SL en électrique)**. Le référentiel constructeur ne connaît pas
+  les carburants ; deux sites exposent, pour un carburant et une marque, la
+  liste des modèles AVEC leur volume : coches.net (agrégations `makeId` puis
+  `model` — 64 marques, 218 modèles, 4 456 annonces électriques 2023+ ES ;
+  Opel : Corsa-e 25, Mokka-e 23, Frontera Electric 29…) et Marktplaats (API
+  LRP, facette `model` avec histogramCount par marque — 61 marques, 218
+  modèles, 11 835 annonces NL). Bilbasen (13 415 électriques DK) et
+  Leboncoin n'exposent pas de facette lisible dans ce qu'on lit : à
+  sonder autrement. AutoScout : catalogue non filtré, pas de compte.
+  Livré : table `vehicle_fuel_evidence` (migration 20260921200000,
+  additive, upsert par site × carburant × marque × id modèle du site,
+  jamais de suppression), moissonneur worker `fuelEvidence.ts` (première
+  moisson dès que la table existe, rafraîchissement mensuel, déclenchement
+  manuel `mode: fuel_evidence_harvest` via l'edge), lecture front
+  `marketFuelEvidence.ts` (verdict prouvé / absent / improbable / inconnu,
+  clé marque × famille de modèle : Mokka-e ≡ Mokka), planificateur de
+  campagne : au ciblage carburant forcé, un modèle absent du carburant sur
+  ≥ 2 sites où la marque est couverte n'est plus planifié (tracé
+  `[CAMPAIGN_PLAN]`), un modèle prouvé passe devant le verdict EEA, un seul
+  site → dépriorisé. Seuil « validé » : ≥ 3 annonces sur un site ou présence
+  sur deux sites. Première moisson faite depuis le bac à sable le 21/09 :
+  302 familles, 258 validées, 128 vues sur les deux sites — en base dès que
+  la migration est collée (le worker moissonne seul dans les 30 min).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

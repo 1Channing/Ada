@@ -21,6 +21,7 @@ import { analyzeIngestion, INGESTION_MIN_SAMPLE, canonicalizeFuel, refineFuelTok
 import { modelKeyLoose } from '../study-core/business-logic';
 import { persistIngestionResult } from './ingestion';
 import { persistTaxonomyHarvest, loadLearnedTaxonomy } from './taxonomy';
+import { loadMarketFuelEvidence } from './marketFuelEvidence';
 import { generateSearchUrlsWithMemory } from './generator';
 import { readAllPages } from '../readAllPages';
 import type { SiteKey } from './types';
@@ -273,6 +274,16 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     console.warn('[CAMPAIGN_KNOWLEDGE] calcul du ban marché vide échoué (fail-open, aucun ban):', e instanceof Error ? e.message : e);
   }
 
+  // PREUVE DE MARCHÉ modèle × carburant (21/09) : agrégations de sites
+  // moissonnées par le worker. Table absente → null, fail-open.
+  let marketFuel: Awaited<ReturnType<typeof loadMarketFuelEvidence>> = null;
+  try {
+    marketFuel = await loadMarketFuelEvidence();
+    console.warn(`[CAMPAIGN_KNOWLEDGE] preuve de marché modèle×carburant : ${marketFuel ? `${marketFuel.rows} ligne(s), ${Object.keys(marketFuel.byCombo).length} modèle(s)` : 'table absente (fail-open)'}`);
+  } catch (e) {
+    console.warn('[CAMPAIGN_KNOWLEDGE] preuve de marché illisible (fail-open):', e instanceof Error ? e.message : e);
+  }
+
   return {
     brands: [...brands].sort(),
     modelsByBrand: toRec(modelsByBrand),
@@ -282,6 +293,7 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
     refWindows,
     refCombos,
     motorisations,
+    marketFuel,
     provenEmptyCombos,
     observedFuelCombos,
   };

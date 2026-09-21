@@ -244,7 +244,7 @@ function zyteRelease(): void {
   if (next) next();
 }
 
-async function fetchHtmlWithZyte(url: string, profileLevel: number, profileOverride?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides, signal?: AbortSignal): Promise<FetchResult> {
+export async function fetchHtmlWithZyte(url: string, profileLevel: number, profileOverride?: import('../src/lib/study-core/marketplaces/types').ZyteProfileOverrides, signal?: AbortSignal): Promise<FetchResult> {
   await zyteAcquire();
   try {
     if (signal?.aborted) return { html: null, mode: 'browser', status: null };

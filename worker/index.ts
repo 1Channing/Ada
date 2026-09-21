@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { executeStudy, scrapeSearch, reconScrape, scrapeListingDetailCard, fetchBinaryWithZyte } from './scraper';
+import { runFuelEvidenceHarvest, startFuelEvidenceScheduler } from './fuelEvidence';
 import { findSiteAdapterByDomain, decomposeUrl } from '../src/lib/study-core/marketplaces';
 import type { SearchCriteria } from '../src/lib/study-core/marketplaces';
 import { analyzeIngestion } from '../src/lib/study-core/ingestion';
@@ -119,6 +120,14 @@ app.post('/ingest-url', async (req, res) => {
     if (job.status === 'running') return res.json({ jobStatus: 'running' });
     if (job.status === 'error') return res.json({ jobStatus: 'error', error: 'INGEST_FAILED', message: job.message });
     return res.json({ jobStatus: 'done', ...(job.payload as Record<string, unknown>) });
+  }
+
+  // MOISSON « MODÈLE × CARBURANT » (21/09) : déclenchement manuel de la
+  // moisson des agrégations de sites (coches.net, Marktplaats) — même canal
+  // que les autres jobs, sans URL ; jamais de Zyte sans la table en place.
+  if ((req.body ?? {}).mode === 'fuel_evidence_harvest') {
+    const wanted = Array.isArray((req.body ?? {}).sites) ? (req.body.sites as unknown[]).map((s) => String(s).toUpperCase()).filter((s) => ['COCHES', 'MARKTPLAATS'].includes(s)) : undefined;
+    return res.json(await runFuelEvidenceHarvest(wanted && wanted.length ? wanted : undefined, submittedBy ?? 'manuel'));
   }
 
   if (!url || typeof url !== 'string') {
@@ -637,6 +646,9 @@ app.listen(PORT, "0.0.0.0", () => {
     startDailySearchScheduler();
     startSalesSheetSync();
     startLegalWatchCollector();
+    // Preuve de marché modèle × carburant : première moisson dès que la
+    // table existe, puis rafraîchissement mensuel (garde 30 min).
+    startFuelEvidenceScheduler();
     // Tableaux MI précalculés (étage 1) : rattrapage au boot (les scrapes
     // arrivés pendant un redéploiement n'ont pas déclenché de recalcul),
     // puis garde horaire — filet si une vague d'écriture a raté son hook.

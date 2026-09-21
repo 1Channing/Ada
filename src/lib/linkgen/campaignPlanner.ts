@@ -23,6 +23,7 @@
 import { refComboKey, refModelKey } from '../../services/vehicleRef';
 import { brandKey, canonKey } from '../../services/marketData';
 import { comboMotoVerdict, motoFuelTotal, type MotoMap } from '../../services/vehicleMotorisations';
+import { fuelEvidenceVerdict, type MarketFuelEvidence } from './marketFuelEvidence';
 
 export interface CampaignKnowledge {
   brands: string[];
@@ -51,6 +52,14 @@ export interface CampaignKnowledge {
    * Phase 1 : sert uniquement à DÉPRIORISER les combos improbables.
    */
   motorisations?: MotoMap;
+  /**
+   * PREUVE DE MARCHÉ modèle × carburant (21/09) : agrégations des sites
+   * (coches.net, Marktplaats). Au ciblage carburant forcé, un modèle absent
+   * du carburant sur ≥ 2 sites où la marque est couverte n'est PAS planifié
+   * (BMW 2-Series Gran Coupé électrique…) ; un modèle prouvé passe devant
+   * tout verdict EEA. null / absent = fail-open.
+   */
+  marketFuel?: MarketFuelEvidence | null;
   /**
    * BAN « marché prouvé vide » (règle Channing 28/07) : clés emptyComboKey
    * des modèle×carburant vidés par ≥ 3 SITES DISTINCTS (vide CONFIRMÉ par
@@ -244,6 +253,8 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   // Combos improbables (motorisations EEA) : JAMAIS exclus — mis de côté, ils
   // ne consomment le budget que s'il reste de la place (phase 1 : dépriorisation).
   const unlikelyPool: Array<{ atom: Atom; kind: CampaignPlanItem['kind'] }> = [];
+  // Combos écartés par la preuve de marché (ciblage forcé) — tracés, jamais silencieux.
+  const marketExcluded: string[] = [];
   for (const site of opts.sites) {
     const covered = k.coveredBySite[site] ?? new Set<string>();
     for (const c of combos) {
@@ -261,6 +272,23 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
       for (const year of comboYears) {
         for (const fuel of fuelChoices) {
           const atom: Atom = { site, ...c, year, fuel };
+          // PREUVE DE MARCHÉ (21/09) avant tout verdict statistique : les
+          // sites disent eux-mêmes quels modèles existent dans ce carburant.
+          const market = fuel ? fuelEvidenceVerdict(k.marketFuel, c.brand, c.model, fuel) : { kind: 'unknown' as const };
+          if (market.kind === 'proven') {
+            atom.note = `prouvé par le marché : ${market.detail}`;
+            bucket.push(atom);
+            continue;
+          }
+          if (market.kind === 'absent' && forcedFuels.length > 0) {
+            marketExcluded.push(`${c.brand} ${c.model} — ${market.detail}`);
+            continue;
+          }
+          if (market.kind === 'unlikely') {
+            atom.moto = market.detail;
+            unlikelyPool.push({ atom, kind: bucketKind });
+            continue;
+          }
           // Motorisations (EEA) : un combo carburant×année jamais immatriculé
           // est mis de côté avec sa raison chiffrée — jamais supprimé.
           const verdict = k.motorisations && fuel
@@ -301,6 +329,11 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
         }
       }
     }
+  }
+
+  if (marketExcluded.length > 0) {
+    const distinct = [...new Set(marketExcluded)];
+    console.warn(`[CAMPAIGN_PLAN] preuve de marché : ${distinct.length} modèle(s) non planifié(s) au ciblage ${forcedFuels.join('/')} — ${distinct.slice(0, 12).join(' · ')}${distinct.length > 12 ? ' · …' : ''}`);
   }
 
   // Narrow campaign whose FULL space fits the budget → exhaustive enumeration
