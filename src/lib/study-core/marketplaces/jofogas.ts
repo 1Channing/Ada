@@ -31,7 +31,7 @@ import type {
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
-import { modelKeyLoose } from '../business-logic';
+import { modelFamilyKey } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://auto.jofogas.hu/magyarorszag/auto/{brand}/{fuel}?me={mileage}&rs={yearFrom}&re={yearTo}';
@@ -154,8 +154,8 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const wantBrand = (params.brand ?? '').trim().toLowerCase();
   const brandHits = wantBrand ? listings.filter((l) => (l.brand ?? '').toLowerCase().includes(wantBrand)).length : listings.length;
   const brandOk = listings.length > 0 && brandHits / listings.length >= 0.8;
-  const wantModelKey = params.model ? modelKeyLoose(params.model) : '';
-  const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
+  const wantModelKey = params.model ? modelFamilyKey(params.model) : '';
+  const modelHits = wantModelKey ? listings.filter((l) => modelFamilyKey(l.model) === wantModelKey).length : 0;
   const issues: SiteValidationResult['issues'] = [];
   if (!brandOk && wantBrand) issues.push({ type: 'brand_missing' });
   const modelPosed = Boolean(params.model

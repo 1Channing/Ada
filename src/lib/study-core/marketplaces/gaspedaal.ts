@@ -32,7 +32,7 @@ import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { defaultBuildPaginatedUrl } from './registry';
 import { resolveYearRange } from './urlTemplate';
-import { modelKeyLoose } from '../business-logic';
+import { modelKeyLoose, modelFamilyKey, electricSiblingLabels } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://www.gaspedaal.nl/{brand}/{model}/{fuel}?bmin={yearFrom}&bmax={yearTo}&kmax={mileage}&srt=df-a';
@@ -287,6 +287,17 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   if (params.model && !modelSlug) {
     warnings.push(`[LINKGEN_WARNING] Gaspedaal: modèle "${params.model}" sans slug moissonné — page marque, tri en aval`);
   }
+  // JUMEAU ÉLECTRIQUE (21/09, constat Channing) : le chemin ne porte QU'UN
+  // modèle, et le site range l'électrique à part — /opel/mokka/elektrisch → 0,
+  // /opel/mokka-e/elektrisch → 46. Étude ÉLECTRIQUE + slug jumeau appris :
+  // le jumeau prend le chemin. Sans carburant, le modèle demandé reste.
+  let electricSibling: string | undefined;
+  if (params.model && String(params.fuel ?? '').trim().toUpperCase() === 'ELECTRIQUE') {
+    for (const cand of electricSiblingLabels(String(params.model))) {
+      const sib = LEARNED_MODEL_SLUG.get(brandSlug)?.get(modelKeyLoose(cand));
+      if (sib && sib !== modelSlug) { modelSlug = sib; electricSibling = cand; break; }
+    }
+  }
   const qs = new URLSearchParams();
   const { yearFrom, yearTo } = resolveYearRange(params);
   if (yearFrom) qs.set('bmin', yearFrom);
@@ -312,6 +323,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   return {
     url: `https://www.gaspedaal.nl/${path}?${qs.toString()}`, warnings,
     modelExpressed: !params.model || Boolean(modelSlug),
+    ...(electricSibling ? { electricSibling } : {}),
   };
 }
 
@@ -323,8 +335,8 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   // Modèle posé en URL (slug moissonné trouvé) → vérification par le modèle
   // STRUCTURÉ des annonces ; sans slug → page marque, honnêtement non appliqué.
   const modelPosed = Boolean(params.model && (modelSlugFor(brandSlugFor(params.brand), params.model) || params.derivedModelSlug));
-  const wantModelKey = params.model ? modelKeyLoose(params.model) : '';
-  const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
+  const wantModelKey = params.model ? modelFamilyKey(params.model) : '';
+  const modelHits = wantModelKey ? listings.filter((l) => modelFamilyKey(l.model) === wantModelKey).length : 0;
   const modelOk = modelPosed && listings.length > 0 && modelHits / listings.length >= 0.8;
   const issues: SiteValidationResult['issues'] = [];
   if (!brandOk && wantBrand) issues.push({ type: 'brand_missing' });

@@ -14,6 +14,7 @@
  */
 
 import { parseListings } from '../parsers/bilbasen';
+import { electricSiblingLabels } from '../business-logic';
 import { normalizeForMatch } from './normalizer';
 import { bodyLabel } from '../bodyTypes';
 import { resolveYearRange } from './urlTemplate';
@@ -323,7 +324,21 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const mercSlug = params.model ? mercedesModelSlug(params.brand, String(params.model)) : null;
   // Mercedes (URL humaine) > slug de recherche APPRIS (dérivé du label natif)
   // > dérivation naïve déburrée (les labels du site sont d'ordinaire ASCII).
+  // JUMEAU ÉLECTRIQUE (21/09) : Bilbasen range « Mokka-e » à part de
+  // « Mokka » (bb:model opel;mokka-e appris). Chemin à un seul modèle : sur
+  // une étude ÉLECTRIQUE, le jumeau appris prend le chemin.
+  let electricSibling: string | undefined;
+  const electricSlug = !mercSlug && params.model && String(params.fuel ?? '').trim().toUpperCase() === 'ELECTRIQUE'
+    ? (() => {
+      for (const cand of electricSiblingLabels(String(params.model))) {
+        const s = LEARNED_MODEL_SLUG[canonSlug(cand)];
+        if (s) { electricSibling = cand; return s; }
+      }
+      return undefined;
+    })()
+    : undefined;
   const modelSlug = mercSlug
+    ?? electricSlug
     ?? (params.model ? LEARNED_MODEL_SLUG[canonSlug(params.model)] : undefined)
     ?? pathSlug(mapModel(params.model || ''));
   const segs = ['https://www.bilbasen.dk/brugt/bil'];
@@ -368,7 +383,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
     qs.set('sortorder', 'asc');
   }
 
-  return { url: `${segs.join('/')}?${qs.toString()}`, warnings };
+  return { url: `${segs.join('/')}?${qs.toString()}`, warnings, ...(electricSibling ? { electricSibling } : {}) };
 }
 
 // H1: fuel suspect → drop fuel; else regenerate structured

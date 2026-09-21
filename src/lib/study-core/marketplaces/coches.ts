@@ -43,7 +43,7 @@ import type {
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
-import { modelKeyLoose, fiscalTerritoryOf } from '../business-logic';
+import { modelKeyLoose, fiscalTerritoryOf, isElectricSiblingOf, wantsElectricSibling } from '../business-logic';
 import { bodyLabel, canonicalizeBody } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://www.coches.net/search/?MakeIds%5B0%5D={brand}&ModelIds%5B0%5D={model}&MinYear={yearFrom}&MaxYear={yearTo}&MaxKms={mileage}&fi=Price&or=1';
@@ -221,6 +221,22 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
     warnings.push(`[LINKGEN_WARNING] Coches.net: modèle "${params.model}" sans id appris (cn:model:${makeId}) — page marque, tri structuré en aval`);
   }
   if (modelId) pairs.push(['ModelIds[0]', modelId]);
+  // JUMEAU ÉLECTRIQUE (21/09) : paires index-alignées MakeIds[1]/ModelIds[1]
+  // — seule forme prouvée (Mokka 1036 + Mokka-e 1333 → 3 annonces ; les
+  // formes « 1036,1333 » ou ModelIds[1] seul font TOMBER le filtre modèle :
+  // 20 Opel de tous modèles). Jamais sans id appris.
+  let electricSibling: string | undefined;
+  if (makeId && modelId && params.model && wantsElectricSibling(params.fuel)) {
+    for (const [k, label] of LEARNED_MODEL_LABEL) {
+      if (!k.startsWith(`${makeId}|`)) continue;
+      const sibId = k.slice(makeId.length + 1);
+      if (sibId !== modelId && isElectricSiblingOf(label, String(params.model))) {
+        pairs.push(['MakeIds[1]', makeId], ['ModelIds[1]', sibId]);
+        electricSibling = label;
+        break;
+      }
+    }
+  }
   const { yearFrom, yearTo } = resolveYearRange(params);
   if (yearFrom) pairs.push(['MinYear', yearFrom]);
   if (yearTo) pairs.push(['MaxYear', yearTo]);
@@ -247,6 +263,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
     url: `https://www.coches.net/search/${qs ? `?${qs}` : ''}`,
     warnings,
     modelExpressed: !params.model || Boolean(modelId),
+    ...(electricSibling ? { electricSibling } : {}),
   };
 }
 

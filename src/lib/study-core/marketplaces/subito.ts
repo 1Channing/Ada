@@ -28,7 +28,7 @@ import type {
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
-import { modelKeyLoose } from '../business-logic';
+import { modelKeyLoose, modelFamilyKey } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE =
@@ -262,8 +262,8 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const modelPosed = Boolean(params.model && (
     modelSlugFor(slugify(params.brand || ''), params.model)
     || (params.derivedModelSlug && !(params.trim && String(params.trim).trim()))));
-  const wantModelKey = params.model ? modelKeyLoose(params.model) : '';
-  const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
+  const wantModelKey = params.model ? modelFamilyKey(params.model) : '';
+  const modelHits = wantModelKey ? listings.filter((l) => modelFamilyKey(l.model) === wantModelKey).length : 0;
   const modelOk = modelPosed && listings.length > 0 && modelHits / listings.length >= 0.8;
   const issues: SiteValidationResult['issues'] = [];
   if (!brandOk && wantBrand) issues.push({ type: 'brand_missing' });

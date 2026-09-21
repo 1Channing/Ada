@@ -573,6 +573,30 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   « relevé le jj/mm » sous chaque étude et « 0 annonce au dernier relevé »
   quand tous les sites relevés depuis 14 j ont rendu 0. Gaspedaal (total
   illisible) n'écrit rien : vide non prouvé.
+- **JUMEAU ÉLECTRIQUE D'UN MODÈLE (21/09, constat Channing : Mokka
+  électrique NL « 0 » alors que Gaspedaal montre 46 « Mokka-e »)**. Les
+  sites rangent la version électrique sous un modèle À PART : AutoScout
+  (Mokka-E 75751 ≠ Mokka 20148, NL : 0 + 35), Marktplaats (mokka-e 443363),
+  mobile.de (Mokka-e 49 ≠ Mokka 37 — et les vendeurs se répartissent : 27 +
+  24 = 51), coches.net (Mokka-e 1333), Gaspedaal (mokka-e), Bilbasen,
+  Blocket. Règle commune (business-logic) : `electricSiblingLabels` (graphies
+  du jumeau cherchées dans le DICTIONNAIRE de chaque site, jamais devinées),
+  `modelFamilyKey` (marqueurs électriques neutres : Mokka-e ≡ Mokka, e-208 ≡
+  208, 500e ≡ 500, Kona Electric ≡ Kona ; Mach-E ≠ Mustang, EV6 ≠ EV9,
+  Classe E ≠ Classe C), `wantsElectricSibling` (électrique ou sans
+  carburant). URLs d'UNION prouvées site par site : AutoScout `/lst?mmvmk0
+  &mmvmd0&mmvmk1&mmvmd1` (35), coches `MakeIds[1]/ModelIds[1]` index-alignés
+  (3 ; les formes « 1036,1333 » ou ModelIds[1] seul FONT TOMBER le filtre :
+  20 Opel), Marktplaats `/f/mokka+mokka-e+elektrisch/` (20), mobile.de
+  `ms=…;37&ms=…;49` (51). Sites à un seul modèle par URL (Gaspedaal,
+  Bilbasen, Blocket) : sur une étude ÉLECTRIQUE, le jumeau appris prend le
+  chemin (Gaspedaal prouvé 0 → 46 ; Bilbasen/Blocket non prouvés en
+  volume, slugs/codes du site eux-mêmes). Le générateur préfère la voie
+  native à une URL apprise quand elle pose le jumeau. Confirmation : la clé
+  de famille juge le modèle structuré (« Mokka-e » confirme MOKKA) dans
+  l'ingestion, le snapshot MI et les scores des adaptateurs. Reste :
+  Leboncoin / La Centrale / Subito / Jófogás / Skelbiu n'ont pas de jumeau
+  dans leur dictionnaire (électrique sous le modèle de base).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

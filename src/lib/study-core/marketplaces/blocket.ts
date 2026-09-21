@@ -29,7 +29,7 @@ import type {
 } from './types';
 import type { ScrapedListing } from '../types';
 import { resolveYearRange } from './urlTemplate';
-import { modelKeyLoose } from '../business-logic';
+import { modelKeyLoose, modelFamilyKey, electricSiblingLabels } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://www.blocket.se/mobility/search/car?variant={brand}&year_from={yearFrom}&year_to={yearTo}';
@@ -299,7 +299,21 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
     ? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(params.model + ' plug in hybrid')}`]
       ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(params.model + ' laddhybrid')}`]
     : undefined;
-  const modelId = phevId ?? (params.model
+  // JUMEAU ÉLECTRIQUE (21/09) — même classe que la série PHEV ci-dessus :
+  // Blocket range « Mokka-e » (2.795.2741.2003116) à part de « Mokka ».
+  // Étude électrique + code appris → le jumeau prend le variant. Un seul
+  // variant par URL sur ce site : pas d'union possible, on le dit.
+  let electricSibling: string | undefined;
+  const electricId = params.model && String(params.fuel ?? '').trim().toUpperCase() === 'ELECTRIQUE'
+    ? (() => {
+      for (const cand of electricSiblingLabels(String(params.model))) {
+        const id = LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(cand)}`];
+        if (id) { electricSibling = cand; return id; }
+      }
+      return undefined;
+    })()
+    : undefined;
+  const modelId = phevId ?? electricId ?? (params.model
     ? MODEL_ID[`${bk}|${(params.model || '').trim().toUpperCase()}`]
       ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(params.model)}`]
       ?? LEARNED_MODEL_ID[`${bk}|${modelKeyLoose(stripSeriesWords(params.model))}`]
@@ -320,6 +334,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
     url: `https://www.blocket.se/mobility/search/car?${qs.toString()}`, warnings,
     // Jeton complet : le modèle est exprimé même sans code marque (il l'embarque).
     modelExpressed: !params.model || Boolean(modelId && (modelId.includes('.') || brandId)),
+    ...(electricSibling ? { electricSibling } : {}),
   };
 }
 
@@ -328,8 +343,8 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const wantBrand = (params.brand ?? '').trim().toLowerCase();
   const brandHits = wantBrand ? listings.filter((l) => (l.brand ?? '').toLowerCase().includes(wantBrand)).length : listings.length;
   const brandOk = listings.length > 0 && brandHits / listings.length >= 0.8;
-  const wantModelKey = params.model ? modelKeyLoose(params.model) : '';
-  const modelHits = wantModelKey ? listings.filter((l) => modelKeyLoose(l.model) === wantModelKey).length : 0;
+  const wantModelKey = params.model ? modelFamilyKey(params.model) : '';
+  const modelHits = wantModelKey ? listings.filter((l) => modelFamilyKey(l.model) === wantModelKey).length : 0;
   const modelOk = Boolean(wantModelKey) && listings.length > 0 && modelHits / listings.length >= 0.8;
   const issues: SiteValidationResult['issues'] = [];
   if (!brandOk && wantBrand) issues.push({ type: 'brand_missing' });

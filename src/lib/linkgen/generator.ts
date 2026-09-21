@@ -47,7 +47,14 @@ export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): Li
     },
   });
 
-  const { url, warnings } = adapter.buildSearchUrl(params);
+  const { url, warnings, electricSibling } = adapter.buildSearchUrl(params);
+  if (electricSibling) {
+    logs.push({
+      level: 'MAPPING',
+      message: `[LINKGEN_MAPPING] Jumeau électrique posé par le site : « ${electricSibling} » (le site range la version électrique sous un modèle à part)`,
+      data: { model: params.model ?? '', electricSibling },
+    });
+  }
 
   for (const w of warnings) {
     logs.push({ level: 'WARNING', message: w, data: { minPower: params.minPower } });
@@ -68,7 +75,7 @@ export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): Li
     data: { url },
   });
 
-  return { url, site: params.site, debugLogs: logs };
+  return { url, site: params.site, debugLogs: logs, ...(electricSibling ? { electricSibling } : {}) };
 }
 
 export function generateSearchUrls(params: LinkGenParams): LinkGenUrlResult[] {
@@ -507,6 +514,22 @@ export async function generateSearchUrlsWithMemory(
               data: { learned: url, native },
             });
             url = native;
+          }
+        }
+        // JUMEAU ÉLECTRIQUE (21/09) : une URL apprise ne connaît qu'UN modèle ;
+        // quand la voie native sait poser le jumeau (Mokka + Mokka-e — AS24
+        // paires mmv, Marktplaats facettes, mobile.de ms×2, coches paires ;
+        // Gaspedaal/Bilbasen/Blocket : jumeau à la place), elle gagne — sinon
+        // l'étude « Mokka électrique NL » restait à 0 pour toujours.
+        {
+          const nativeSib = generateSearchUrl({ ...params, site });
+          if (nativeSib.electricSibling && nativeSib.url.length > 10) {
+            logs.push({
+              level: 'MAPPING',
+              message: `[MAPPING_MEMORY] URL apprise remplacée par la voie native : jumeau électrique « ${nativeSib.electricSibling} » posé`,
+              data: { learned: url, native: nativeSib.url },
+            });
+            url = nativeSib.url;
           }
         }
         logs.push({

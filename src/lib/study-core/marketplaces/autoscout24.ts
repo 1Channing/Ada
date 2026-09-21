@@ -15,6 +15,7 @@
  */
 
 import { parseListings } from '../parsers/autoscout24';
+import { isElectricSiblingOf, wantsElectricSibling } from '../business-logic';
 import { normalizeForMatch } from './normalizer';
 import { canonicalizeBody, bodyLabel } from '../bodyTypes';
 import { resolveYearRange } from './urlTemplate';
@@ -216,6 +217,12 @@ function mercedesClassSlug(raw: string): string | null {
 // humaines (MODEL_SLUG_BY_ALNUM) gardent la priorité. Partagé par les 6
 // adaptateurs pays (les IDs/labels AS24 sont globaux, prouvé mmmv 21/07).
 const LEARNED_MODEL_SLUG: Record<string, string> = {};
+const alnumKey = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+/** IDs appris (as:make / as:model) — nécessaires à l'URL multi-modèles
+ *  `mmvmk0/mmvmd0/mmvmk1/mmvmd1` (jumeau électrique, preuve 21/09 : NL Mokka
+ *  0 + Mokka-E 35 → 35 dans une seule URL). */
+const LEARNED_MAKE_ID: Record<string, string> = {};                               // alnum(label) → makeId
+const LEARNED_MODELS_BY_MAKE: Record<string, Array<{ id: string; label: string }>> = {}; // makeId → modèles
 
 function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
   const out: Array<{ field: string; code: string; label: string }> = [];
@@ -254,15 +261,41 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
 }
 
 function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field === 'as:make') {
+    for (const p of pairs) {
+      const k = alnumKey(p.label.trim());
+      if (k && /^\d+$/.test(p.code) && !LEARNED_MAKE_ID[k]) LEARNED_MAKE_ID[k] = p.code;
+    }
+    return;
+  }
   if (field !== 'as:model') return;
   for (const p of pairs) {
     const label = p.label.trim();
     if (!label) continue;
-    const alnum = label.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const alnum = alnumKey(label);
     if (alnum && !MODEL_SLUG_BY_ALNUM[alnum] && !LEARNED_MODEL_SLUG[alnum]) {
       LEARNED_MODEL_SLUG[alnum] = slug(label);
     }
+    const m = p.code.match(/^(\d+);(\d+)$/);
+    if (m) {
+      const list = LEARNED_MODELS_BY_MAKE[m[1]] ?? (LEARNED_MODELS_BY_MAKE[m[1]] = []);
+      if (!list.some((x) => x.id === m[2])) list.push({ id: m[2], label });
+    }
   }
+}
+
+/**
+ * Modèle demandé + son JUMEAU ÉLECTRIQUE, en IDs du site — quand la marque
+ * et les deux modèles sont connus du dictionnaire. Rien d'inventé : sans
+ * l'un des trois ids, on rend null et l'URL classique (chemin) s'applique.
+ */
+function electricPairFor(brand: string, model: string): { makeId: string; primary: { id: string; label: string }; sibling: { id: string; label: string } } | null {
+  const makeId = LEARNED_MAKE_ID[alnumKey(brand)];
+  if (!makeId) return null;
+  const models = LEARNED_MODELS_BY_MAKE[makeId] ?? [];
+  const primary = models.find((x) => alnumKey(x.label) === alnumKey(model));
+  const sibling = models.find((x) => isElectricSiblingOf(x.label, model));
+  return primary && sibling && primary.id !== sibling.id ? { makeId, primary, sibling } : null;
 }
 
 /** Model → AutoScout URL slug, resolving common no-separator variants first. */
@@ -411,13 +444,24 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
       ? lineForCriteria(params.brand ? String(params.brand) : undefined, String(params.model))
       : null;
 
+    // JUMEAU ÉLECTRIQUE (21/09) : Mokka + Mokka-E dans UNE URL par paires
+    // mmvmk/mmvmd — prouvé autoscout24.nl (Mokka seule : 0, paire : 35).
+    // Seulement quand marque et les deux modèles ont un id appris.
+    const pair = !line && !overrides?.modelSlug && params.model && wantsElectricSibling(params.fuel)
+      ? electricPairFor(String(params.brand ?? ''), String(params.model))
+      : null;
+
     const segs = ['lst'];
-    if (brandSlug && !line) segs.push(brandSlug);
-    if (brandSlug && modelSlug && !line) segs.push(modelSlug);
+    if (brandSlug && !line && !pair) segs.push(brandSlug);
+    if (brandSlug && modelSlug && !line && !pair) segs.push(modelSlug);
     const path = (cfg.pathPrefix ?? '') + '/' + segs.join('/');
 
     const qs = new URLSearchParams();
     if (line) qs.set('mmmv', `${line.makeId}||${line.lineId}|`);
+    if (pair) {
+      qs.set('mmvmk0', pair.makeId); qs.set('mmvmd0', pair.primary.id);
+      qs.set('mmvmk1', pair.makeId); qs.set('mmvmd1', pair.sibling.id);
+    }
     qs.set('atype', 'C');
     qs.set('cy', cfg.cy);
     const { yearFrom, yearTo } = resolveYearRange(params);
@@ -467,7 +511,7 @@ function makeAutoscout24Adapter(cfg: CountryCfg): SiteAdapter {
       qs.set('kwd', kwdParts.join(' '));
     }
 
-    return { url: `https://www.${cfg.domain}${path}?${qs.toString()}`, warnings };
+    return { url: `https://www.${cfg.domain}${path}?${qs.toString()}`, warnings, ...(pair ? { electricSibling: pair.sibling.label } : {}) };
   }
 
   function generateCorrectionHypotheses(params: SearchCriteria, issueTypes: Set<string>):

@@ -30,7 +30,7 @@ import type { SearchCriteria, SiteAdapter, CandidateSegment } from './marketplac
 import { normalizeForMatch } from './marketplaces/normalizer';
 import { collectCandidateSegments } from './marketplaces/paramDictionary';
 import { canonicalizeBody } from './bodyTypes';
-import { modelKeyLoose } from './business-logic';
+import { modelFamilyKey } from './business-logic';
 
 // Minimum priced sample to confirm a mapping. Kept low (3) so RARE vehicles —
 // often where the best arbitrage margins hide — still get captured. The ≥90%
@@ -419,7 +419,9 @@ export function confirmCriteriaAgainstSample(
     // (même barre que la marque) ; le titre ne sert que sans structure.
     const structuredModelCount = listings.filter((l) => (l.model ?? '').trim().length > 0).length;
     if (structuredModelCount >= INGESTION_MIN_SAMPLE) {
-      out.push({ ...confirmStructuredLabel('model', model, listings, (l) => l.model ?? null, n, modelKeyLoose), declaredValue: model });
+      // Clé de FAMILLE : « Mokka-e » structuré confirme une étude « MOKKA »
+      // (21/09 : Gaspedaal/AutoScout NL rangent l'électrique à part).
+      out.push({ ...confirmStructuredLabel('model', model, listings, (l) => l.model ?? null, n, modelFamilyKey), declaredValue: model });
     } else {
       pushMatch('model', model, (l) => modelMatchesTitle(l.title ?? '', model));
     }

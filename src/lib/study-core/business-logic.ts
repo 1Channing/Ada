@@ -192,6 +192,58 @@ export function modelKeyLoose(raw: string | null | undefined): string {
 }
 
 /**
+ * JUMEAU ÉLECTRIQUE D'UN MODÈLE (21/09, constat Channing : Mokka électrique
+ * NL « 0 annonce » alors que Gaspedaal en montre 46 — le site range la
+ * version électrique sous un modèle À PART, « Mokka-e »). Même classe sur
+ * AutoScout (Mokka-E 75751 ≠ Mokka 20148), Marktplaats (mokka-e 443363),
+ * mobile.de (Mokka-e 49 ≠ Mokka 37, et les vendeurs se répartissent : 27 +
+ * 24), coches.net (Mokka-e 1333), Bilbasen, Blocket. Deux outils :
+ *  - electricSiblingLabels(model) : les graphies sous lesquelles un site
+ *    peut nommer la version électrique (« Mokka-e », « e-Mokka », « Mokka
+ *    Electric », « Mokka EV », « 500e ») — chaque adaptateur les cherche
+ *    dans SON dictionnaire appris, jamais devinées dans une URL ;
+ *  - modelFamilyKey(label) : clé de modèle où les marqueurs électriques
+ *    sont neutres (« Mokka-e » ≡ « Mokka »), pour la CONFIRMATION des
+ *    annonces (une Mokka-e est une Mokka électrique, pas un autre modèle).
+ * Quand poser le jumeau : carburant électrique demandé, ou aucun carburant
+ * (une étude « Mokka tous carburants » veut aussi les électriques).
+ */
+const ELECTRIC_MARKER_TOKENS = new Set(['e', 'ev', 'bev', 'electric', 'electrique', 'elektrisch', 'elektro', 'elettrica', 'electrico', 'elektrisk', 'elektromos', 'elektra']);
+export function modelFamilyKey(raw: string | null | undefined): string {
+  const tokens = String(raw ?? '')
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\d+ª\s*serie/gi, ' ')
+    .normalize('NFD').replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    // « 500e » → « 500 » : lettre e collée à un nombre.
+    .map((t) => (/^\d+e$/.test(t) ? t.slice(0, -1) : t));
+  const kept = tokens.filter((t) => !ELECTRIC_MARKER_TOKENS.has(t));
+  // Tout n'était que marqueur (« E », « EV ») : on garde la clé d'origine.
+  return (kept.length ? kept : tokens).sort().join('');
+}
+export function electricSiblingLabels(model: string | null | undefined): string[] {
+  const m = String(model ?? '').trim();
+  if (!m) return [];
+  const out = [`${m}-e`, `${m} e`, `e-${m}`, `${m} Electric`, `${m} EV`, `${m} Elektrisch`, `${m} Électrique`];
+  if (/\d$/.test(m)) out.push(`${m}e`);
+  return out;
+}
+/** Le carburant demandé appelle-t-il le jumeau électrique ? (électrique, ou aucun carburant) */
+export function wantsElectricSibling(fuel: string | null | undefined): boolean {
+  const f = String(fuel ?? '').trim().toUpperCase();
+  return f === '' || f === 'ELECTRIQUE' || f === 'ELECTRIC' || f === 'EV';
+}
+/** `candidate` est-il le jumeau électrique de `model` (même famille, clé différente) ? */
+export function isElectricSiblingOf(candidate: string, model: string): boolean {
+  const a = modelKeyLoose(candidate), b = modelKeyLoose(model);
+  if (!a || !b || a === b) return false;
+  const fa = modelFamilyKey(candidate);
+  return fa !== '' && fa === modelFamilyKey(model);
+}
+
+/**
  * Un modèle structuré d'annonce correspond-il au modèle d'étude ?
  * Fail-open : une annonce SANS modèle structuré est conservée (LBC, AS24…
  * ne le renseignent pas) — seul un modèle porté ET différent écarte.
@@ -209,6 +261,8 @@ export function structuredModelMatches(structured: string | null | undefined, wa
   if (!got) return true;
   if (got === modelKeyLoose(wanted)) return true;
   if (familyKey(structured) && familyKey(structured) === familyKey(wanted)) return true;
+  // Jumeau électrique : « Mokka-e » structuré sur une étude « MOKKA » (21/09).
+  if (modelFamilyKey(structured) && modelFamilyKey(structured) === modelFamilyKey(wanted)) return true;
   // Forme COMPACTE (espaces et tirets retirés, ordre conservé) : La Centrale
   // écrit « RAV 4 » là où l'étude dit « RAV4 » — la clé à jetons triés
   // donnait « 4rav » ≠ « rav4 » et jetait 115 annonces (constat 07/09).

@@ -28,6 +28,7 @@ import type {
 // le ré-exporter, donc l'importer d'ici privait ce fichier de tout contrôle de
 // type sur ses quatre parseurs.
 import type { ScrapedListing } from '../types';
+import { electricSiblingLabels, wantsElectricSibling } from '../business-logic';
 import { resolveYearRange } from './urlTemplate';
 import { decomposeUrl } from './urlDecompose';
 import { bodyLabel } from '../bodyTypes';
@@ -281,6 +282,20 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   qs.set('ms', modelId
     ? (trim ? `${makeId};${modelId};;${trim}` : `${makeId};${modelId}`)
     : makeId);
+  // JUMEAU ÉLECTRIQUE (21/09) : second `ms=` — prouvé mobile.de Mokka 2026
+  // électrique : ms=19000;37 → 27, ms=19000;49 (Mokka-e) → 24, les deux →
+  // 51. Les vendeurs se répartissent entre les deux modèles du site.
+  let electricSibling: string | undefined;
+  if (modelId && params.model && wantsElectricSibling(params.fuel)) {
+    for (const cand of electricSiblingLabels(String(params.model))) {
+      const sib = LEARNED_MODEL_ID[`${makeId}|${canon(cand)}`];
+      if (sib && sib.id !== modelId) {
+        qs.append('ms', trim ? `${makeId};${sib.id};;${trim}` : `${makeId};${sib.id}`);
+        electricSibling = sib.label;
+        break;
+      }
+    }
+  }
   // Sans véhicules ENDOMMAGÉS, à la source — dam=false prouvé par la même
   // URL humaine (backlog 4sexies : les accidentées trustaient le bas du tri
   // prix et gaspillaient les pages scrapées).
@@ -301,7 +316,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   qs.set('sb', 'p');
   qs.set('od', 'up');
 
-  return { url: `https://www.mobile.de/fr/voiture/recherche.html?${qs.toString()}`, warnings };
+  return { url: `https://www.mobile.de/fr/voiture/recherche.html?${qs.toString()}`, warnings, ...(electricSibling ? { electricSibling } : {}) };
 }
 
 /**

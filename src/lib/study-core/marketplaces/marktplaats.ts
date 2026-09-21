@@ -13,6 +13,7 @@
  */
 
 import { parseListings } from '../parsers/marktplaats';
+import { electricSiblingLabels, wantsElectricSibling } from '../business-logic';
 import { normalizeForMatch } from './normalizer';
 import { bodyLabel } from '../bodyTypes';
 import { resolveYearRange } from './urlTemplate';
@@ -320,7 +321,18 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const modelFacet = MODEL_FACET[(params.model ?? '').trim().toUpperCase()]
     ?? (brandSlug ? LEARNED_MODEL_FACET[`${brandSlug}|${canonFacet(params.model ?? '')}`] : undefined);
   const fuelFacet = params.fuel ? FUEL_FACET[params.fuel.trim().toUpperCase()] : undefined;
-  const facets = [modelFacet, fuelFacet].filter((f): f is { slug: string; id: string } => Boolean(f));
+  // JUMEAU ÉLECTRIQUE (21/09) : facette du modèle « -e » apprise, composée
+  // dans le même chemin — prouvé /f/mokka+mokka-e+elektrisch/10773+443363+
+  // 11756/ → 20 Mokka-e 2026 (mokka seule : 0). Jamais sans facette apprise.
+  let electricSibling: string | undefined;
+  let siblingFacet: { slug: string; id: string } | undefined;
+  if (modelFacet && brandSlug && params.model && wantsElectricSibling(params.fuel)) {
+    for (const cand of electricSiblingLabels(params.model)) {
+      const f = LEARNED_MODEL_FACET[`${brandSlug}|${canonFacet(cand)}`];
+      if (f && f.id !== modelFacet.id) { siblingFacet = f; electricSibling = cand; break; }
+    }
+  }
+  const facets = [modelFacet, siblingFacet, fuelFacet].filter((f): f is { slug: string; id: string } => Boolean(f));
 
   const qText = modelFacet
     ? (params.trim?.trim() ? normalizeToken(params.trim) : '')
@@ -365,7 +377,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const base = brandSlug
     ? `https://www.marktplaats.nl/l/auto-s/${brandSlug}/${qPath}${facetPath}`
     : 'https://www.marktplaats.nl/l/auto-s/';
-  return { url: `${base}#${hashParts.join('|')}`, warnings };
+  return { url: `${base}#${hashParts.join('|')}`, warnings, ...(electricSibling ? { electricSibling } : {}) };
 }
 
 // H1: fuel suspect → drop fuel; else regenerate

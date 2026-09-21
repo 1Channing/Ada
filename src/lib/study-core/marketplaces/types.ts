@@ -138,6 +138,11 @@ export interface BuildUrlResult {
    *  garde d'exprimabilité des campagnes précision : pas de scrape payé pour
    *  une page qu'on sait incapable de confirmer le modèle (Channing 02/08). */
   modelExpressed?: boolean;
+  /** Libellé du JUMEAU ÉLECTRIQUE posé dans l'URL en plus (ou à la place)
+   *  du modèle demandé — « Mokka-e » pour une étude Mokka électrique (21/09).
+   *  Le générateur préfère alors la voie native à une URL apprise qui
+   *  l'ignore. Absent = aucun jumeau connu du site. */
+  electricSibling?: string;
 }
 
 export interface ZyteProfileOverrides {

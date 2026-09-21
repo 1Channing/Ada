@@ -78,6 +78,8 @@ export interface LinkGenResult {
   url: string;
   site: SiteKey;
   debugLogs: LinkGenLogEntry[];
+  /** Jumeau électrique posé par l'adaptateur (« Mokka-e ») — voir BuildUrlResult. */
+  electricSibling?: string;
 }
 
 export interface LinkGenDiagnostics {
