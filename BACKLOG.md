@@ -554,6 +554,25 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   filtre est actif, « Afficher plus » et l'état vide portent sur la liste
   filtrée, bouton « Effacer ». Purement local : rien ne change au calcul
   serveur ni aux acquittements.
+- **MOKKA ÉLECTRIQUE 2026 : ES « rien trouvé », NL « pas mis à jour »
+  (21/09, test Channing)**. (1) ES : l'URL coches.net générée par ADA
+  (MakeIds 32 / ModelIds 1036 / 2026 / Fueltype2List 3) rend bien les 3
+  annonces vues par Channing (vérifié en direct) ; le job coches a été TUÉ
+  par le redémarrage du worker à 18 h 38 (déploiement lancé sur « worker
+  silencieux » : les jobs d'ingestion ne laissaient aucune trace dans
+  worker_logs avant leur premier warn), et le MI traitait le 404 du job
+  perdu comme un scrape terminé, sans un mot. Corrigé : warn « job
+  démarré » à chaque ingestion (battement de cœur, le script de push
+  attend 240 s de silence), et le MI dit « scrape interrompu par un
+  redémarrage du worker — relance ». (2) NL : AutoScout NL, Marktplaats et
+  Gaspedaal ont rendu 0 aux deux passages (AutoScout NL vérifié en direct :
+  0 Mokka électrique 2026, 0 en 2025-2026) ; un scan à 0 n'écrivait aucun
+  snapshot et le tableau montrait les 21 annonces du 24/08 sans date.
+  Corrigé : vide PROUVÉ par le site (total 0 lu, ou marqueur de vide) →
+  snapshot profondeur 0 daté du jour ; le tableau de comparaison affiche
+  « relevé le jj/mm » sous chaque étude et « 0 annonce au dernier relevé »
+  quand tous les sites relevés depuis 14 j ont rendu 0. Gaspedaal (total
+  illisible) n'écrit rien : vide non prouvé.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

@@ -87,6 +87,32 @@ function studyLabel(f: MarketFilters, i: number): string {
  * DÉCODÉS de son source_url par l'adaptateur du site (prefillCriteriaFromUrl)
  * — indécodable = accepté (fail-open), repli : dernier snapshot du segment.
  */
+/**
+ * DERNIER RELEVÉ d'une étude (21/09, Mokka NL : le tableau affichait 21
+ * annonces et 36 920 € du 24/08 alors que deux scans du jour avaient trouvé
+ * 0 — rien ne datait le chiffre). Par site du pays : son snapshot le plus
+ * récent pour la marque/modèle ; date = le plus récent de tous ; « vide » =
+ * tous les sites relevés depuis 14 j ont rendu 0 (vide prouvé par le site).
+ */
+interface LastScan { at: string; empty: boolean; emptySites: string[] }
+function lastScanOf(snapshots: Snapshot[], f: MarketFilters): LastScan | null {
+  if (!f.brand || !f.model) return null;
+  const newestBySite = new Map<string, Snapshot>();
+  for (const s of snapshots) {
+    if ((f.site && s.site !== f.site) || (f.country && s.country !== f.country)) continue;
+    if (s.brand !== f.brand || s.model !== f.model) continue;
+    const cur = newestBySite.get(s.site);
+    if (!cur || String(s.scraped_at) > String(cur.scraped_at)) newestBySite.set(s.site, s);
+  }
+  if (newestBySite.size === 0) return null;
+  const FRESH_MS = 14 * 86_400_000;
+  const fresh = [...newestBySite.values()].filter((s) => Date.now() - new Date(s.scraped_at).getTime() <= FRESH_MS);
+  const dates = [...newestBySite.values()].map((s) => String(s.scraped_at)).sort();
+  const at = dates[dates.length - 1];
+  const emptySites = fresh.filter((s) => s.sample_size === 0 && (s.listing_count ?? 0) === 0).map((s) => s.site);
+  return { at, empty: fresh.length > 0 && emptySites.length === fresh.length, emptySites };
+}
+
 function computeRealDepth(snapshots: Snapshot[], f: MarketFilters, latest: Array<{ site: string }> = []): number | null {
   if (!f.brand || !f.model) return null;
   const matching = snapshots.filter((s) =>
@@ -339,6 +365,11 @@ export function MarketIntelligence() {
     void (async () => {
       const remaining = new Map(pu.jobs.map((j) => [j.jobId, j.site]));
       const errors: string[] = [];
+      // Jobs PERDUS : 404 pendant le suivi = le worker a redémarré (déploiement)
+      // et sa file en mémoire avec lui — le scrape n'a pas abouti. Avant le
+      // 21/09 c'était un silence (Mokka ES : coches.net tué en plein scrape,
+      // ligne ES à 0 sans explication). On le dit et on invite à relancer.
+      const lost: string[] = [];
       // 20 min : les mises à jour partagent la file Zyte avec les campagnes —
       // pendant une campagne active, un scrape MI passe derrière et peut
       // légitimement dépasser les 12 min de l'ancien délai (constat 04/08 :
@@ -357,8 +388,13 @@ export function MarketIntelligence() {
           const poll = await supabase.functions.invoke('ingest-url', { body: { jobId } });
           if (poll.error) {
             const status = ((poll.error as { context?: unknown }).context as { status?: number } | undefined)?.status;
-            // 404 = job purgé/worker redémarré : le scrape a pu aboutir — fail-open.
-            if (status === 404) remaining.delete(jobId);
+            // 404 = job inconnu du worker : purgé après 15 min (le scrape a pu
+            // aboutir) ou worker redémarré (le scrape est mort avec lui). Sous
+            // 15 min de suivi, c'est un redémarrage : on le signale.
+            if (status === 404) {
+              if (Date.now() - pu.startedAt < 14 * 60 * 1000) lost.push(site);
+              remaining.delete(jobId);
+            }
             // 502 = worker injoignable (redéploiement Railway en cours) : le
             // spinner semblait mouliner sans raison pendant ces fenêtres —
             // on AFFICHE l'état au lieu de laisser croire à un blocage.
@@ -389,6 +425,9 @@ export function MarketIntelligence() {
       }
       removePendingUpdate(pu.scope);
       trackedScopes.current.delete(pu.scope);
+      if (lost.length > 0) {
+        errors.push(`${lost.join(', ')} : scrape interrompu par un redémarrage du worker (déploiement) — relance « Mettre à jour l'étude »`);
+      }
       if (errors.length > 0) setUpd(pu.scope, { label: pu.label, msg: `échec : ${errors.join(' · ')}` });
       else if (stillRunning.length > 0) {
         setUpd(pu.scope, { label: pu.label, msg: `scrapes toujours en cours côté serveur (${stillRunning.join(', ')}) — les données s'ajouteront d'elles-mêmes, utilise Rafraîchir dans quelques minutes` });
@@ -555,6 +594,7 @@ export function MarketIntelligence() {
       filtered, latestObs, stats: priceStats(latestObs), series: timeSeries(filtered),
       attack: attackPrice(latestObs),
       realDepth: computeRealDepth(data.snapshots, f, latestObs),
+      lastScan: lastScanOf(data.snapshots, f),
     };
   }), [studies, obs, data.snapshots]);
 
@@ -906,6 +946,8 @@ interface StudyDerived {
   /** Médiane des N moins chères (N adaptatif) — le prix pour être compétitif. */
   attack: ReturnType<typeof attackPrice>;
   realDepth: number | null;
+  /** Date du dernier relevé de l'étude et vide prouvé par les sites, s'il y a lieu. */
+  lastScan: LastScan | null;
 }
 
 function SingleStudyView({ study, filters, priceBand, setPriceBand }:
@@ -1152,6 +1194,16 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                       <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />
                       <span className="text-slate-800">{s.label}</span>
                     </span>
+                    {s.lastScan && (
+                      <div className="text-xs mt-0.5">
+                        <span className="text-slate-400" title="Date du relevé le plus récent parmi les sites du pays">relevé le {fmtDate(s.lastScan.at)}</span>
+                        {s.lastScan.empty && (
+                          <span className="ml-1.5 text-amber-700" title={`Dernier relevé de chaque site : 0 annonce (${s.lastScan.emptySites.join(', ')}). Les chiffres de la ligne viennent des relevés précédents encore dans la fenêtre de 30 jours.`}>
+                            · 0 annonce au dernier relevé
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="py-2 pr-3 text-slate-700">{s.stats.count}</td>
                   <td className="py-2 pr-3 text-slate-600">{s.realDepth != null ? s.realDepth : '—'}</td>

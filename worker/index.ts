@@ -236,6 +236,12 @@ app.post('/ingest-url', async (req, res) => {
   }
 
   console.log(`[INGEST] Discovery scrape site=${adapter.key} async=${!!wantAsync} serverPipeline=${serverPipeline} url=${url.slice(0, 150)}`);
+  // BATTEMENT DE CŒUR dans worker_logs (21/09) : les jobs d'ingestion (mises
+  // à jour MI, page Ingestion, « Où vendre ») n'y laissaient AUCUNE trace
+  // avant leur premier warn — un déploiement lancé sur « worker silencieux »
+  // a tué le scrape coches.net de Channing (Mokka ES, 18 h 38). Une ligne au
+  // départ de chaque job : le silence du journal veut de nouveau dire repos.
+  console.warn(`[INGEST] job démarré — ${adapter.key} pour ${submittedBy ?? 'inconnu'} : ${url.slice(0, 160)}`);
 
   const runScrape = async () => {
     // 'full' mode → up to 3 retries with per-site profile escalation; a
@@ -329,6 +335,32 @@ app.post('/ingest-url', async (req, res) => {
               submittedBy,
               segmentKey: criteriaSegmentKey(criteria),
             }).catch((e) => console.warn('[INGEST] snapshot write failed:', e?.message ?? e));
+          } else if (result.listings.length === 0 && String(criteria.model ?? '').trim()
+            && (result.totalCount === 0 || (diag as { emptyConfirmed?: unknown } | null)?.emptyConfirmed === true)) {
+            // MARCHÉ VIDE PROUVÉ PAR LE SITE (21/09, Mokka électrique 2026 NL :
+            // AutoScout NL « 0 résultat », Marktplaats total 0 — deux passages,
+            // et le MI montrait toujours les 21 annonces du 24/08 sans dire que
+            // le dernier scan n'avait rien trouvé). Le vide est une information
+            // de marché : snapshot profondeur 0, daté d'aujourd'hui — le
+            // tableau montre la date du relevé et « 0 annonce ». Réservé au
+            // vide PROUVÉ (total 0 lu sur la page ou marqueur du site) ; un
+            // total illisible (Gaspedaal) n'écrit rien.
+            await writeMarketSnapshot({
+              segment: {
+                site: adapter.key, country: adapter.countryCode,
+                brand: String(criteria.brand ?? '').trim().toUpperCase(),
+                model: String(criteria.model ?? '').trim().toUpperCase(),
+                fuel: String(criteria.fuel ?? '').trim().toUpperCase(),
+                trim: String(criteria.trim ?? '').trim(),
+              },
+              listings: [],
+              totalCount: 0,
+              sourceUrl: url,
+              submittedBy,
+              segmentKey: criteriaSegmentKey(criteria),
+              verifiedEmpty: true,
+            }).catch((e) => console.warn('[INGEST] snapshot (vide prouvé) write failed:', e?.message ?? e));
+            console.warn(`[INGEST] marché vide prouvé par le site — snapshot profondeur 0 (${adapter.key} ${String(criteria.brand ?? '')} ${String(criteria.model ?? '')})`);
           }
           payload.persisted = true;
           payload.persistOutcome = outcome;
