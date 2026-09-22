@@ -650,6 +650,20 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   Corrigé : colonne « Motorisation » (Engine tel quel, sinon la ligne
   version d'origine, jamais rédigée) et « Énergie » dans le PDF, en feuille
   1 de l'Excel et dans le tableau à l'écran.
+- **EXPORTS OFFRES : COLONNES SELON LES DONNÉES, TEXTE ENTIER, SORENTO
+  (22/09, deux retours Channing)**. (1) PDF Opel : « 1.2 MHEV 100 kW (136 »
+  coupé, « Hybride r », en-têtes « C O » et « Dommages () », tirets vides —
+  la police Helvetica de jsPDF n'a ni €, ni ₂, ni le tiret cadratin, et
+  chaque cellule tenait sur une ligne. Corrigé : libellés ASCII (CO2, EUR),
+  vide = « - », cellules véhicule / motorisation / énergie sur deux lignes,
+  hauteur de ligne et pagination calculées. (2) Sorento Flexivan : « 1st
+  Reg. » non reconnu comme date de première immatriculation (règle
+  ajoutée : « 1st reg », « reg »), marque devenue « SORENTO » faute de
+  colonne marque (la marque est désormais celle du modèle connu d'une seule
+  marque : KIA), « SORENTO F/L » → SORENTO (suffixe F/L, FL, FACELIFT, MYxx
+  retiré). (3) Décision : PDF et Excel n'impriment plus les colonnes vides
+  pour tous les véhicules (puissance, boîte, CO₂, dommages, rapport… selon
+  le fichier) ; véhicule et prix toujours.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

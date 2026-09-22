@@ -42,7 +42,9 @@ const normHeader = (h: string) => h.normalize('NFD').replace(/\p{M}/gu, '').toLo
  */
 const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie)\b/],
-  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|erstzulassung|\bez\b|immatriculation)/],
+  // « 1st Reg. » (Flexivan Sorento 22/09) : normalisé en « 1st reg », ni
+  // « reg date » ni « first reg » ne le voyaient — la date restait vide.
+  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation)/],
   ['plate', /(\bimmat|plaque|\bplate\b|kennzeichen|registration)/],
   ['km', /(\bkm\b|kilom|mileage|kilometer)/],
   ['co2', /co2/],
@@ -186,6 +188,22 @@ export function splitBrand(line: string, knownBrands: string[]): { brand: string
   return { brand: first, rest: line.trim().split(/\s+/).slice(1).join(' ') };
 }
 
+/** Marque dont le premier (ou les deux premiers) mot(s) de la ligne est un
+ *  modèle connu — et d'UNE seule marque ; sinon null (rien de deviné). */
+export function brandOfModelWord(line: string, knownModelsByBrand: Record<string, string[]>): string | null {
+  const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+  const words = norm(line).split(' ').filter(Boolean);
+  if (words.length === 0) return null;
+  const heads = [words.slice(0, 2).join(' '), words[0]].filter(Boolean);
+  for (const head of heads) {
+    const brands = Object.entries(knownModelsByBrand)
+      .filter(([, models]) => models.some((m) => norm(m) === head))
+      .map(([b]) => b);
+    if (brands.length === 1) return brands[0];
+  }
+  return null;
+}
+
 /** Décomposition d'une ligne libre « 600 T-GEN3 1.2 HYBRID TURBO 145CH PACK BVA » — règles lisibles, rien de deviné au-delà. */
 export function parseFreeLine(line: string): { power_ch: number | null; gearbox: string | null; fuel: string | null; engine: string | null } {
   const s = ` ${line} `;
@@ -217,7 +235,9 @@ export function stripGenerationSuffix(model: string): string {
   const tokens = model.toUpperCase().replace(/\s+/g, ' ').trim().split(' ');
   if (tokens.length < 2 || RANGE_PREFIXES.has(tokens[0])) return tokens.join(' ');
   const last = tokens[tokens.length - 1];
-  if (/^[A-Z]$/.test(last) || /^(I{1,3}|IV|VI{0,3}|IX|X)$/.test(last) || /^[1-9]$/.test(last)) return tokens.slice(0, -1).join(' ');
+  // Lettre, numéral romain, chiffre de génération — et « F/L » / « FL » /
+  // « FACELIFT » / « MY24 » (Flexivan Sorento 22/09 : « SORENTO F/L »).
+  if (/^[A-Z]$/.test(last) || /^(I{1,3}|IV|VI{0,3}|IX|X)$/.test(last) || /^[1-9]$/.test(last) || /^(F\/L|FL|FACELIFT|MY\d{2,4})$/.test(last)) return tokens.slice(0, -1).join(' ');
   return tokens.join(' ');
 }
 
@@ -306,7 +326,13 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     let brand = cell(rec.brand) || currentBrand;
     if (!brand && versionLine) {
       const sp = splitBrand(versionLine, Object.keys(knownModelsByBrand));
-      brand = sp.brand; versionLine = sp.rest || versionLine;
+      // Ligne SANS marque qui commence par un MODÈLE connu d'une seule marque
+      // (« Sorento f/l PHEV… », Flexivan 22/09 : la marque devenait « SORENTO »
+      // et le modèle « SORENTO ») : la marque est celle du modèle, la ligne
+      // reste entière pour le modèle.
+      const byModel = brandOfModelWord(versionLine, knownModelsByBrand);
+      if (byModel && !knownModelsByBrand[sp.brand]) { brand = byModel; }
+      else { brand = sp.brand; versionLine = sp.rest || versionLine; }
     }
     const known = knownModelsByBrand[brand.toUpperCase()] ?? knownModelsByBrand[brand.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()] ?? [];
     let model = cell(rec.model);
