@@ -21,7 +21,8 @@ import { sharedSupabase as supabase } from '../supabaseShared';
 import { generateSearchUrlsWithMemory } from '../linkgen/generator';
 import type { SiteKey } from '../linkgen/types';
 import { allSiteAdapters } from '../study-core/marketplaces';
-import { structuredModelMatches } from '../study-core/business-logic';
+import { structuredModelMatches, toEur } from '../study-core/business-logic';
+import type { Currency } from '../study-core/types';
 import { titleContradictsModel } from '../../services/marketData';
 import type { OfferVehicle } from './parseSupplierFile';
 
@@ -204,12 +205,18 @@ export async function awaitLotJob(jobId: string, site: string, url: string, iden
       if (status === 404) return { site, url, at: new Date().toISOString(), count: 0, total: null, median: null, p25: null, min: null, error: 'suivi perdu (worker redémarré) — le relevé a pu aboutir, relance pour le lire' };
       continue;
     }
-    const d = poll.data as { jobStatus?: string; message?: string; listings?: Array<{ price?: number | null; title?: string | null; model?: string | null; priceType?: string | null; trim?: string | null; powerDin?: number | null; fiscalTerritory?: string | null }>; totalCount?: number | null; error?: string | null } | null;
+    const d = poll.data as { jobStatus?: string; message?: string; listings?: Array<{ price?: number | null; currency?: string | null; title?: string | null; model?: string | null; priceType?: string | null; trim?: string | null; powerDin?: number | null; fiscalTerritory?: string | null }>; totalCount?: number | null; error?: string | null } | null;
     if (d?.jobStatus === 'running') continue;
     if (d?.jobStatus === 'error') return { site, url, at: new Date().toISOString(), count: 0, total: null, median: null, p25: null, min: null, error: d.message ?? 'échec' };
     const all = d?.listings ?? [];
     const kept = all.filter((l) => listingIsLot(l, identity.model, identity.strict, { trim: identity.trim, powerMin: identity.powerMin }));
-    const prices = kept.map((l) => (typeof l.price === 'number' ? l.price : null)).filter((p): p is number => p != null && p >= 1000).sort((a, b) => a - b);
+    // EN EUROS (22/09, constat Channing : Suède « méd. 579 900 € », +1144 %
+    // sous le marché — c'étaient des couronnes). Blocket rend SEK, Jófogás
+    // HUF, Bilbasen déjà converti (EUR) : même table de change que le MI.
+    const prices = kept
+      .map((l) => (typeof l.price === 'number' ? Math.round(toEur(l.price, (l.currency ?? 'EUR') as Currency)) : null))
+      .filter((p): p is number => p != null && p >= 1000)
+      .sort((a, b) => a - b);
     const q = (f: number) => (prices.length ? prices[Math.min(prices.length - 1, Math.floor((prices.length - 1) * f))] : null);
     // Total du site : seulement quand l'échantillon est bien celui du modèle
     // (page marque → le total du site compte toute la gamme, on s'en tient

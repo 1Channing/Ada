@@ -633,7 +633,11 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   puissance inconnue conservée (fail-open, l'URL a déjà filtré quand le
   site le permet). Libellé du lot : « KIA EV6 · GT · 2024 · ELECTRIQUE ·
   ≥ 325 ch · ≤ 50 000 km ». Stocké dans lot_criteria comme les autres
-  réglages (colonne existante, aucun SQL).
+  réglages (colonne existante, aucun SQL). Même jour, constat Channing :
+  Suède « méd. 579 900 € · +1144 % sous le marché » — les prix Blocket
+  (SEK) et Jófogás (HUF) entraient sans conversion dans le relevé des lots
+  (Bilbasen arrive déjà en euros). Corrigé : conversion en euros avec la
+  table de change du MI avant médiane et seuil des 1 000 €.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
