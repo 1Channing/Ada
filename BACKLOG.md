@@ -622,6 +622,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur deux sites. Première moisson faite depuis le bac à sable le 21/09 :
   302 familles, 258 validées, 128 vues sur les deux sites — en base dès que
   la migration est collée (le worker moissonne seul dans les 30 min).
+- **OÙ VENDRE : FINITION ET PUISSANCE MINI PAR LOT (22/09, demande
+  Channing : EV6 GT AWD 325 ch)**. Deux critères de plus dans l'éditeur du
+  lot : finition (« GT ») et puissance minimale en ch, pré-remplie depuis
+  le fichier (la plus faible du lot, arrondie aux 5 ch). Posés dans l'URL
+  par le registre de grammaire quand le site sait (kwd=/trefw=/free=,
+  powerfrom=/vmin=/hpfrom=/PowerHpFrom…), et TOUJOURS vérifiés sur les
+  annonces lues : chaque mot de la finition dans le titre ou la version
+  (« GT » écarte les GT-Line), puissance connue sous le seuil écartée,
+  puissance inconnue conservée (fail-open, l'URL a déjà filtré quand le
+  site le permet). Libellé du lot : « KIA EV6 · GT · 2024 · ELECTRIQUE ·
+  ≥ 325 ch · ≤ 50 000 km ». Stocké dans lot_criteria comme les autres
+  réglages (colonne existante, aucun SQL).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

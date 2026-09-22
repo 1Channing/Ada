@@ -222,7 +222,7 @@ export function Offres() {
       await Promise.all(items.map(async ({ lot, t }) => {
         const url = t.url as string;
         let r: SiteResult;
-        try { const jobId = await startLotJob(url, lot); r = await awaitLotJob(jobId, t.site, url, { model: lot.model, strict: t.brandPageOnly }); }
+        try { const jobId = await startLotJob(url, lot); r = await awaitLotJob(jobId, t.site, url, { model: lot.model, strict: t.brandPageOnly, trim: lot.trim, powerMin: lot.powerMin }); }
         catch (e) { r = { site: t.site, url, at: new Date().toISOString(), count: 0, total: null, median: null, p25: null, min: null, error: e instanceof Error ? e.message : String(e) }; }
         done += 1;
         setSurvey((s) => s && { ...s, done, errors: r.error ? [...s.errors, `${lot.label} · ${t.country} ${SITE_LABEL(t.site)} : ${r.error}`] : s.errors });
@@ -527,6 +527,12 @@ export function Offres() {
                                       <select value={lot.gearbox ?? ''} onChange={(e) => setLotCriteria(lot, { gearbox: e.target.value || null })} className="block mt-0.5 px-2 py-1 rounded border border-slate-300 bg-white">
                                         <option value="">— toutes —</option><option value="AUTOMATIQUE">Automatique</option><option value="MANUELLE">Manuelle</option>
                                       </select>
+                                    </label>
+                                    <label className="text-slate-600" title="Chaque mot doit figurer dans le titre ou la version de l'annonce (« GT » écarte les GT-Line)">Finition
+                                      <input value={lot.trim ?? ''} placeholder="GT, Sportline…" onChange={(e) => setLotCriteria(lot, { trim: e.target.value })} className="block mt-0.5 w-32 px-2 py-1 rounded border border-slate-300 bg-white" />
+                                    </label>
+                                    <label className="text-slate-600" title="Posée dans l'URL des sites qui la filtrent, et vérifiée sur chaque annonce dont la puissance est lue">Puissance mini (ch)
+                                      <input type="number" step={5} value={lot.powerMin ?? ''} onChange={(e) => setLotCriteria(lot, { powerMin: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-24 px-2 py-1 rounded border border-slate-300 bg-white" />
                                     </label>
                                     {lot.adjusted && <button onClick={() => setLotCriteria(lot, null)} className="text-slate-500 hover:underline pb-1.5">Rétablir les critères du fichier</button>}
                                     <span className="text-[11px] text-slate-500 pb-1.5 basis-full">Ces critères ne changent que la recherche de marché (pas l'offre exportée). Un changement efface le relevé du lot ; vérifie les recherches puis relance.</span>

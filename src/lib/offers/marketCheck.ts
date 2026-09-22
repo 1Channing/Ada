@@ -30,6 +30,11 @@ export interface OfferLot {
   kmMax: number | null; count: number; vehicleIds: string[]; ourPriceMin: number | null; ourPriceMax: number | null; ourPriceAvg: number | null;
   /** Fenêtre d'années cherchée (par défaut l'année du lot, réglable). */
   yearFrom: number | null; yearTo: number | null;
+  /** Finition cherchée (« GT ») et puissance minimale en ch (« 325 ») —
+   *  demande Channing 22/09 (EV6 GT AWD 325 ch : sans eux, la médiane
+   *  mélangeait GT-Line 229 ch et GT). Posés dans l'URL quand le site sait,
+   *  et toujours vérifiés sur les annonces lues (titre / puissance). */
+  trim: string | null; powerMin: number | null;
   /** Critères ajustés à la main (constat Channing 17/09 : « ASTRA L » faussait la recherche). */
   adjusted: boolean;
 }
@@ -37,11 +42,12 @@ export interface OfferLot {
 /** Critères de recherche d'un lot réglés à la main — stockés dans l'offre (lot_criteria, clé = lot). */
 export interface LotCriteria {
   brand?: string; model?: string; yearFrom?: number | null; yearTo?: number | null; kmMax?: number | null; fuel?: string | null; gearbox?: string | null;
+  trim?: string | null; powerMin?: number | null;
 }
 
-export function lotLabel(l: Pick<OfferLot, 'brand' | 'model' | 'yearFrom' | 'yearTo' | 'fuel' | 'gearbox' | 'kmMax'>): string {
+export function lotLabel(l: Pick<OfferLot, 'brand' | 'model' | 'yearFrom' | 'yearTo' | 'fuel' | 'gearbox' | 'kmMax'> & Partial<Pick<OfferLot, 'trim' | 'powerMin'>>): string {
   const years = l.yearFrom != null && l.yearTo != null && l.yearFrom !== l.yearTo ? `${l.yearFrom}–${l.yearTo}` : l.yearFrom ?? l.yearTo ?? '';
-  return [`${l.brand} ${l.model}`, years, l.fuel ?? '', l.gearbox === 'AUTOMATIQUE' ? 'auto' : l.gearbox === 'MANUELLE' ? 'manuelle' : '', l.kmMax ? `≤ ${l.kmMax.toLocaleString('fr-FR')} km` : ''].filter(Boolean).join(' · ');
+  return [`${l.brand} ${l.model}`, l.trim ? l.trim.toUpperCase() : '', years, l.fuel ?? '', l.gearbox === 'AUTOMATIQUE' ? 'auto' : l.gearbox === 'MANUELLE' ? 'manuelle' : '', l.powerMin ? `≥ ${l.powerMin} ch` : '', l.kmMax ? `≤ ${l.kmMax.toLocaleString('fr-FR')} km` : ''].filter(Boolean).join(' · ');
 }
 
 /** Applique les critères réglés à la main (clé inchangée : le lot reste celui des véhicules). */
@@ -56,6 +62,8 @@ export function applyLotCriteria(lot: OfferLot, c: LotCriteria | undefined): Off
     kmMax: c.kmMax !== undefined ? c.kmMax : lot.kmMax,
     fuel: c.fuel !== undefined ? c.fuel : lot.fuel,
     gearbox: c.gearbox !== undefined ? c.gearbox : lot.gearbox,
+    trim: c.trim !== undefined ? (c.trim?.trim() || null) : lot.trim,
+    powerMin: c.powerMin !== undefined ? c.powerMin : lot.powerMin,
     adjusted: true,
   };
   return { ...next, label: lotLabel(next) };
@@ -80,7 +88,11 @@ export function lotsOf(vehicles: OfferVehicle[]): OfferLot[] {
     const kms = list.map((v) => v.km).filter((k): k is number => k != null);
     const prices = list.map((v) => v.sale_price).filter((p): p is number => p != null);
     const kmMax = kms.length ? Math.ceil((Math.max(...kms) * 1.1) / 10_000) * 10_000 : null;
-    const base = { brand: v0.brand, model: v0.model, yearFrom: v0.year, yearTo: v0.year, fuel: v0.fuel, gearbox: v0.gearbox, kmMax };
+    // Puissance mini pré-remplie depuis le fichier : la plus faible du lot,
+    // arrondie aux 5 ch en dessous — réglable. Finition : à poser à la main.
+    const powers = list.map((v) => v.power_ch).filter((p): p is number => p != null && p > 0);
+    const powerMin = powers.length === list.length && powers.length > 0 ? Math.floor(Math.min(...powers) / 5) * 5 : null;
+    const base = { brand: v0.brand, model: v0.model, yearFrom: v0.year, yearTo: v0.year, fuel: v0.fuel, gearbox: v0.gearbox, kmMax, trim: null as string | null, powerMin };
     return {
       key, ...base, year: v0.year, label: lotLabel(base), adjusted: false,
       count: list.length, vehicleIds: list.map((v) => v.id),
@@ -97,6 +109,11 @@ function criteriaOf(lot: OfferLot) {
     mileage: lot.kmMax != null ? String(lot.kmMax) : undefined,
     fuel: lot.fuel ? FUEL_CRITERIA[lot.fuel] ?? lot.fuel : undefined,
     gearbox: lot.gearbox === 'AUTOMATIQUE' || lot.gearbox === 'MANUELLE' ? lot.gearbox : undefined,
+    // Finition et puissance mini : le registre de grammaire les pose sur les
+    // sites qui savent (kwd=, trefw=, powerfrom=, vmin=…), le post-filtre
+    // des annonces lues fait le reste (listingIsLot).
+    trim: lot.trim ?? undefined,
+    minPower: lot.powerMin != null ? String(lot.powerMin) : undefined,
   };
 }
 
@@ -132,15 +149,33 @@ const soft = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
  * MARQUE, exigence que le titre NOMME le modèle (sinon la médiane Astra
  * serait celle de toute la gamme Opel).
  */
-export function listingIsLot(l: { title?: string | null; model?: string | null; priceType?: string | null; fiscalTerritory?: string | null }, model: string, strict: boolean): boolean {
+export interface LotIdentity { model: string; strict: boolean; trim?: string | null; powerMin?: number | null }
+export function listingIsLot(
+  l: { title?: string | null; model?: string | null; priceType?: string | null; fiscalTerritory?: string | null; trim?: string | null; powerDin?: number | null; description?: string | null },
+  model: string, strict: boolean, extra?: Pick<LotIdentity, 'trim' | 'powerMin'>,
+): boolean {
   if (/withouttax|without tax|engros|wholesale|excl/.test((l.priceType ?? '').toLowerCase())) return false;
   // Hors TVA UE (Canaries / IGIC, DOM…) : pas un débouché comparable.
   if (l.fiscalTerritory) return false;
   if (!structuredModelMatches(l.model, model)) return false;
   if (titleContradictsModel(model, l.title ?? '')) return false;
-  if (!strict) return true;
   const t = ` ${soft(l.title ?? '')} `;
-  return soft(model).split(' ').filter(Boolean).every((w) => t.includes(` ${w} `));
+  if (strict && !soft(model).split(' ').filter(Boolean).every((w) => t.includes(` ${w} `))) return false;
+  // FINITION (22/09, EV6 GT 325 ch) : chaque mot de la finition doit être
+  // dans le titre ou la version structurée de l'annonce — une « GT-Line »
+  // ne contient pas le mot « GT » seul, elle est écartée.
+  const trim = (extra?.trim ?? '').trim();
+  if (trim) {
+    const hay = ` ${soft(`${l.title ?? ''} ${l.trim ?? ''}`)} `;
+    if (!soft(trim).split(' ').filter(Boolean).every((w) => hay.includes(` ${w} `))) return false;
+  }
+  // PUISSANCE MINI : puissance connue en dessous → écartée ; inconnue →
+  // conservée seulement si la finition (quand demandée) l'a déjà qualifiée,
+  // sinon on la garde (fail-open — l'URL du site a déjà posé le seuil quand
+  // il le sait).
+  const pmin = extra?.powerMin ?? null;
+  if (pmin != null && pmin > 0 && typeof l.powerDin === 'number' && l.powerDin > 0 && l.powerDin < pmin) return false;
+  return true;
 }
 
 export async function startLotJob(url: string, lot: OfferLot): Promise<string> {
@@ -159,7 +194,7 @@ export interface CountryResult { sites: Record<string, SiteResult>; medianTtc: n
 export type OfferMarket = Record<string, Record<string, CountryResult>>;
 
 /** Interroge un job jusqu'à sa fin (4 s, 20 min) et en tire les statistiques de prix. */
-export async function awaitLotJob(jobId: string, site: string, url: string, identity: { model: string; strict: boolean }): Promise<SiteResult> {
+export async function awaitLotJob(jobId: string, site: string, url: string, identity: LotIdentity): Promise<SiteResult> {
   const deadline = Date.now() + 20 * 60_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 4000));
@@ -169,11 +204,11 @@ export async function awaitLotJob(jobId: string, site: string, url: string, iden
       if (status === 404) return { site, url, at: new Date().toISOString(), count: 0, total: null, median: null, p25: null, min: null, error: 'suivi perdu (worker redémarré) — le relevé a pu aboutir, relance pour le lire' };
       continue;
     }
-    const d = poll.data as { jobStatus?: string; message?: string; listings?: Array<{ price?: number | null; title?: string | null; model?: string | null; priceType?: string | null }>; totalCount?: number | null; error?: string | null } | null;
+    const d = poll.data as { jobStatus?: string; message?: string; listings?: Array<{ price?: number | null; title?: string | null; model?: string | null; priceType?: string | null; trim?: string | null; powerDin?: number | null; fiscalTerritory?: string | null }>; totalCount?: number | null; error?: string | null } | null;
     if (d?.jobStatus === 'running') continue;
     if (d?.jobStatus === 'error') return { site, url, at: new Date().toISOString(), count: 0, total: null, median: null, p25: null, min: null, error: d.message ?? 'échec' };
     const all = d?.listings ?? [];
-    const kept = all.filter((l) => listingIsLot(l, identity.model, identity.strict));
+    const kept = all.filter((l) => listingIsLot(l, identity.model, identity.strict, { trim: identity.trim, powerMin: identity.powerMin }));
     const prices = kept.map((l) => (typeof l.price === 'number' ? l.price : null)).filter((p): p is number => p != null && p >= 1000).sort((a, b) => a - b);
     const q = (f: number) => (prices.length ? prices[Math.min(prices.length - 1, Math.floor((prices.length - 1) * f))] : null);
     // Total du site : seulement quand l'échantillon est bien celui du modèle
