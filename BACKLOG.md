@@ -637,7 +637,11 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   Suède « méd. 579 900 € · +1144 % sous le marché » — les prix Blocket
   (SEK) et Jófogás (HUF) entraient sans conversion dans le relevé des lots
   (Bilbasen arrive déjà en euros). Corrigé : conversion en euros avec la
-  table de change du MI avant médiane et seuil des 1 000 €.
+  table de change du MI avant médiane et seuil des 1 000 €. Puis décision
+  Channing (« on veut des données brutes ») : plus AUCUN calcul de taxe
+  dans le verdict — ni TVA retirée, ni estimation de taxe d'immatriculation
+  danoise. Le verdict compare notre HT au prix affiché médian, en euros,
+  tel quel ; la note Danemark reste informative (affiché taxe comprise).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

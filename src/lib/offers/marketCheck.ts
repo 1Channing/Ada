@@ -13,9 +13,10 @@
  *    (edge ingest-url, pipeline serveur, relevé en base avec sa clé de
  *    segment) ; ici on lit le résultat du job (jusqu'à 100 annonces) pour
  *    la médiane, le premier quartile et le nombre de concurrentes.
- * 4. VERDICT : prix de marché TTC ramené en HT avec la TVA du pays, comparé
- *    à notre prix HT. Le Danemark inclut la taxe d'immatriculation : dit
- *    explicitement, jamais caché derrière un chiffre.
+ * 4. VERDICT : prix AFFICHÉ médian du pays (brut, en euros, aucun calcul de
+ *    taxe — décision Channing 22/09) comparé à notre prix HT. Le Danemark
+ *    affiche taxe d'immatriculation comprise : dit explicitement, jamais
+ *    recalculé.
  */
 import { sharedSupabase as supabase } from '../supabaseShared';
 import { generateSearchUrlsWithMemory } from '../linkgen/generator';
@@ -71,8 +72,11 @@ export function applyLotCriteria(lot: OfferLot, c: LotCriteria | undefined): Off
 }
 
 /** TVA par pays de revente (taux normal, 2026). DK : les prix affichés incluent aussi la taxe d'immatriculation. */
-export const VAT_RATE: Record<string, number> = { FR: 0.20, DE: 0.19, NL: 0.21, BE: 0.21, DK: 0.25, SE: 0.25, ES: 0.21, IT: 0.22, LT: 0.21, HU: 0.27 };
-export const COUNTRY_CAVEAT: Record<string, string> = { DK: 'prix danois taxe d’immatriculation comprise — HT équivalent surestimé' };
+// AUCUN CALCUL DE TAXE (décision Channing 22/09 : « on veut des données
+// brutes ») : le relevé compare notre prix HT au prix AFFICHÉ par les sites,
+// converti en euros et rien d'autre — plus de TVA retirée, plus d'estimation
+// de taxe d'immatriculation danoise. La note par pays reste informative.
+export const COUNTRY_CAVEAT: Record<string, string> = { DK: 'prix danois affichés taxe d’immatriculation comprise' };
 
 const FUEL_CRITERIA: Record<string, string> = {
   ESSENCE: 'ESSENCE', DIESEL: 'DIESEL', HYBRIDE: 'HYBRIDE', 'HYBRIDE RECHARGEABLE': 'PLUG_IN_HYBRID', ELECTRIQUE: 'ELECTRIQUE', GPL: 'GPL',
@@ -190,7 +194,10 @@ export async function startLotJob(url: string, lot: OfferLot): Promise<string> {
 }
 
 export interface SiteResult { site: string; url: string; at: string; count: number; total: number | null; median: number | null; p25: number | null; min: number | null; error: string | null }
-export interface CountryResult { sites: Record<string, SiteResult>; medianTtc: number | null; medianHt: number | null; competitors: number; at: string }
+/** medianTtc = médiane des prix AFFICHÉS (en euros, taxes locales telles
+ *  quelles). medianHt : ancien HT calculé, plus produit ni utilisé depuis le
+ *  22/09 — gardé optionnel pour lire les relevés déjà enregistrés. */
+export interface CountryResult { sites: Record<string, SiteResult>; medianTtc: number | null; medianHt?: number | null; competitors: number; at: string }
 /** offer.market : lotKey → country → résultat. */
 export type OfferMarket = Record<string, Record<string, CountryResult>>;
 
@@ -231,17 +238,17 @@ export function mergeCountry(prev: CountryResult | undefined, country: string, r
   const sites = { ...(prev?.sites ?? {}), [r.site]: r };
   const medians = Object.values(sites).map((s) => s.median).filter((m): m is number => m != null).sort((a, b) => a - b);
   const medianTtc = medians.length ? medians[Math.floor((medians.length - 1) / 2)] : null;
-  const vat = VAT_RATE[country] ?? 0.2;
+  void country; // plus aucune règle fiscale par pays (données brutes)
   const competitors = Object.values(sites).reduce((a, s) => a + (s.total ?? s.count), 0);
-  return { sites, medianTtc, medianHt: medianTtc != null ? Math.round(medianTtc / (1 + vat)) : null, competitors, at: new Date().toISOString() };
+  return { sites, medianTtc, competitors, at: new Date().toISOString() };
 }
 
 export type Verdict = { tone: 'good' | 'warn' | 'bad' | 'idle'; text: string; marginPct: number | null };
-/** Notre prix HT face au marché HT équivalent du pays. */
+/** Notre prix HT face au prix AFFICHÉ médian du pays — brut, sans calcul de taxe. */
 export function verdictOf(ourHt: number | null, c: CountryResult | undefined, country: string): Verdict {
-  if (!c || c.medianHt == null) return { tone: 'idle', text: 'pas de relevé', marginPct: null };
+  if (!c || c.medianTtc == null) return { tone: 'idle', text: 'pas de relevé', marginPct: null };
   if (ourHt == null) return { tone: 'idle', text: 'prix MC Export manquant', marginPct: null };
-  const margin = (c.medianHt - ourHt) / ourHt;
+  const margin = (c.medianTtc - ourHt) / ourHt;
   const pct = Math.round(margin * 100);
   const caveat = COUNTRY_CAVEAT[country] ? ' ⚠' : '';
   if (c.competitors === 0) return { tone: 'warn', text: `marché vide${caveat}`, marginPct: pct };

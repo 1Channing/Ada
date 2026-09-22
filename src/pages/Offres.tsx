@@ -24,8 +24,8 @@ import {
  * ouverte et déjà enregistrée. Étage « OÙ VENDRE » (demande Channing 14/09
  * soir) : les véhicules retenus sont regroupés en lots, chaque lot a ses URLs
  * de recherche par pays coché (vérifiables avant de lancer), le relevé part
- * dans la file du worker et le verdict par pays (médiane TTC → HT équivalent
- * face à notre HT) s'enregistre avec l'offre.
+ * dans la file du worker et le verdict par pays (médiane des prix affichés,
+ * bruts, face à notre HT) s'enregistre avec l'offre.
  */
 
 interface Draft {
@@ -482,7 +482,7 @@ export function Offres() {
                                   <td key={c} className="py-2 pr-3 align-top">
                                     <span className={`inline-block px-1.5 py-0.5 rounded border text-[11px] ${VERDICT_CLASS[v.tone]}`}>{v.text}</span>
                                     {res && res.medianTtc != null && (
-                                      <span className="block text-[10px] text-slate-500 mt-0.5 whitespace-nowrap">méd. {fmtEur(res.medianTtc)} TTC · {fmtEur(res.medianHt)} HT · {res.competitors} conc.</span>
+                                      <span className="block text-[10px] text-slate-500 mt-0.5 whitespace-nowrap">méd. affichée {fmtEur(res.medianTtc)} · {res.competitors} conc.</span>
                                     )}
                                     {res && res.medianTtc == null && Object.values(res.sites).some((s) => s.error) && (
                                       <span className="block text-[10px] text-amber-700 mt-0.5">{(() => { const s = Object.values(res.sites).find((x) => x.error); return s ? `${SITE_LABEL(s.site)} : ${s.error}` : ''; })()}</span>
@@ -573,7 +573,7 @@ export function Offres() {
               )}
               <datalist id="offer-brands">{Object.keys(known).map((b) => <option key={b} value={b} />)}</datalist>
               <p className="px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
-                Verdict = médiane des annonces du pays (TTC → HT avec la TVA locale) face à notre prix HT moyen du lot : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous.
+                Verdict = médiane des prix affichés par les sites du pays (bruts, en euros, aucun calcul de taxe) face à notre prix HT moyen du lot : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous.
                 {draft.countries.some((c) => COUNTRY_CAVEAT[c]) && <> ⚠ Danemark : {COUNTRY_CAVEAT.DK}.</>} Les recherches passent par la même file que le Market Intelligence : compte quelques minutes par lot.
               </p>
             </div>
