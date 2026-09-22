@@ -674,6 +674,28 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   bouton « Relire le fichier avec les règles du jour » (sélection et prix
   MC Export conservés). Vérifié : Sorento 20/20 dates, marque KIA, même
   avec l'ancienne correspondance figée.
+- **SENTINELLE DES PARSEURS ET DES RELEVÉS (22/09, idée Channing « droid
+  factory » — retenue sous forme de RÈGLES, pas d'un agent qui juge)**. Le
+  besoin : un site change sa page et le parseur rend 0 ou du faux sans
+  bruit ; une donnée absurde entre dans une médiane (Suède en couronnes,
+  Canaries) ; une régression introduite dans un parseur n'est vue qu'en
+  production. Trois étages déterministes, à faire dans cet ordre :
+  (1) TESTS SUR PAGES GELÉES AU GATE — pages réelles déjà sauvegardées
+  (coches, AutoScout, Leboncoin, Bilbasen…) + `truth_golden` ; chaque
+  parseur rejoué à chaque push avec résultat attendu (nombre d'annonces,
+  prix, année, modèle structuré, devise). Zéro Zyte, attrape les
+  régressions avant déploiement. (2) PLAUSIBILITÉ DE CHAQUE RELEVÉ à
+  l'écriture — médiane qui bouge de plus de 40 % d'un passage à l'autre,
+  prix hors fourchette du segment, années hors fenêtre du référentiel, deux
+  sites du même pays qui divergent de moitié : rien n'est bloqué, le relevé
+  est marqué et un dossier Truth Center s'ouvre avec la preuve. (3) CANARIS
+  VIVANTS quotidiens — une URL de référence par site, ordre de grandeur
+  connu (RAV4 ES, Mokka NL…) ; invariants : ≥ N annonces, champs présents
+  ≥ 90 %, devise cohérente, total lisible, modèle structuré posé ; 17
+  appels Zyte par jour ; en échec, dossier « site cassé » et études du site
+  en « douteux » jusqu'à réparation. Le modèle de langage n'intervient
+  qu'en bout de chaîne pour le résumé du matin (crédits Anthropic à
+  recharger). Ordre proposé : étage 1, puis 2 (touche l'argent), puis 3.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
