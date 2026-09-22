@@ -642,6 +642,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   dans le verdict — ni TVA retirée, ni estimation de taxe d'immatriculation
   danoise. Le verdict compare notre HT au prix affiché médian, en euros,
   tel quel ; la note Danemark reste informative (affiché taxe comprise).
+- **OFFRES : MOTORISATION SUR LA LISTE RÉÉDITÉE (22/09, constat Channing sur
+  « OPEL AUTRES OFFRE MC EXPORT 22_09 »)**. Le fichier fournisseur porte
+  une colonne Engine (« 1.2 Turbo. 96 kW (130 PS). S/S »), ADA la lisait
+  bien (champ engine, puissance 130 ch dérivée) mais le PDF n'imprimait que
+  « Opel ASTRA L · Break · Grey » et l'Excel la reléguait en feuille 2.
+  Corrigé : colonne « Motorisation » (Engine tel quel, sinon la ligne
+  version d'origine, jamais rédigée) et « Énergie » dans le PDF, en feuille
+  1 de l'Excel et dans le tableau à l'écran.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

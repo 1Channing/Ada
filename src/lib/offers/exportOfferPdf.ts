@@ -4,7 +4,7 @@
  */
 import jsPDF from 'jspdf';
 import type { OfferVehicle } from './parseSupplierFile';
-import { fmtDate, bodyOf, labelOf, type OfferDocument } from './exportOfferXlsx';
+import { fmtDate, bodyOf, labelOf, engineOf, fuelLabel, type OfferDocument } from './exportOfferXlsx';
 
 const ENCRE: [number, number, number] = [0x22, 0x34, 0x6e];
 const OCEAN: [number, number, number] = [0x2c, 0x5f, 0x9e];
@@ -33,7 +33,13 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
 
   const cols: Array<{ key: string; label: string; w: number; align?: 'right'; get: (v: OfferVehicle) => string }> = [
     { key: 'vin', label: 'Châssis (VIN)', w: 40, get: (v) => v.vin ?? '—' },
-    { key: 'veh', label: 'Véhicule', w: 62, get: (v) => `${labelOf(v)}${bodyOf(v) ? ` · ${bodyOf(v)}` : ''}${v.color ? ` · ${v.color}` : ''}` },
+    { key: 'veh', label: 'Véhicule', w: 46, get: (v) => `${labelOf(v)}${bodyOf(v) ? ` · ${bodyOf(v)}` : ''}${v.color ? ` · ${v.color}` : ''}` },
+    // MOTORISATION (demande Channing 22/09 : « les motorisations n'apparaissent
+    // pas sur la liste re-créée par ADA ») : la colonne Engine du fournisseur
+    // telle quelle (« 1.2 Turbo. 96 kW (130 PS). S/S »), sinon la ligne
+    // version d'origine — jamais rédigée, jamais perdue.
+    { key: 'eng', label: 'Motorisation', w: 44, get: (v) => engineOf(v) },
+    { key: 'fuel', label: 'Énergie', w: 20, get: (v) => fuelLabel(v.fuel) },
     { key: 'reg', label: '1re immat.', w: 22, get: (v) => fmtDate(v.reg_date) },
     { key: 'km', label: 'Km', w: 22, align: 'right', get: (v) => (v.km == null ? '—' : pdfNum(v.km)) },
     { key: 'pow', label: 'Ch', w: 14, align: 'right', get: (v) => (v.power_ch == null ? '—' : String(v.power_ch)) },

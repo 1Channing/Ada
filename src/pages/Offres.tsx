@@ -392,7 +392,7 @@ export function Offres() {
               <div className="overflow-x-auto">
                 <table className="text-xs w-full min-w-[1100px]">
                   <thead><tr className="text-left text-slate-400 border-b border-slate-100">
-                    <th className="py-1.5 px-3"></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3">Version</th><th className="py-1.5 pr-3">Immat.</th>
+                    <th className="py-1.5 px-3"></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3">Motorisation</th><th className="py-1.5 pr-3">Version</th><th className="py-1.5 pr-3">Immat.</th>
                     <th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3">Énergie</th><th className="py-1.5 pr-3 text-right">Ch</th><th className="py-1.5 pr-3">Boîte</th>
                     <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur HT</th><th className="py-1.5 pr-3 text-right">MC Export HT</th><th className="py-1.5 pr-3">Rapport</th>
                   </tr></thead>
@@ -403,6 +403,7 @@ export function Offres() {
                         <tr key={v.id} className={v.selected ? '' : 'opacity-50'}>
                           <td className="py-1.5 px-3"><input type="checkbox" checked={v.selected} onChange={(e) => setVehicle(v.id, { selected: e.target.checked })} /></td>
                           <td className="py-1.5 pr-3 whitespace-nowrap"><span className="font-medium text-slate-800">{v.brand} {v.model}</span>{v.vin && <span className="block text-[10px] text-slate-400">{v.vin}</span>}</td>
+                          <td className="py-1.5 pr-3 max-w-[200px] truncate text-slate-700" title={v.engine ?? ''}>{v.engine || '—'}</td>
                           <td className="py-1.5 pr-3 max-w-[260px] truncate text-slate-600" title={v.version}>{v.version}{v.color ? ` · ${v.color}` : ''}</td>
                           <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">{v.reg_date ? new Date(v.reg_date).toLocaleDateString('fr-FR') : '—'}</td>
                           <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtKm(v.km)}</td>
