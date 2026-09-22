@@ -663,7 +663,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   marque : KIA), « SORENTO F/L » → SORENTO (suffixe F/L, FL, FACELIFT, MYxx
   retiré). (3) Décision : PDF et Excel n'impriment plus les colonnes vides
   pour tous les véhicules (puissance, boîte, CO₂, dommages, rapport… selon
-  le fichier) ; véhicule et prix toujours.
+  le fichier) ; véhicule et prix toujours. Suite (22/09, « il manque
+  toujours la première mise en circulation ») : l'offre Sorento avait été
+  importée AVANT la règle « 1st Reg. » et sa correspondance des colonnes,
+  enregistrée avec l'offre, gardait « ignoré » — la relecture la respectait
+  à la lettre. Classe corrigée : un « ignoré » hérité d'une lecture
+  automatique cède la place à la règle du jour quand elle reconnaît la
+  colonne et qu'aucune autre ne porte le champ (un choix explicite vers un
+  autre champ reste respecté) ; le panneau affiche le champ réellement lu ;
+  bouton « Relire le fichier avec les règles du jour » (sélection et prix
+  MC Export conservés). Vérifié : Sorento 20/20 dates, marque KIA, même
+  avec l'ancienne correspondance figée.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

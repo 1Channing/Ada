@@ -298,7 +298,25 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     if (isBlockTitle(r)) { currentBrand = String(r[0]).trim(); continue; }
     if (isHeaderRow(r)) {
       header = r.map((c) => cell(c));
-      fields = header.map((h) => (mappingOverride && h in mappingOverride ? mappingOverride[h] : guessField(h)));
+      // Correspondance ENREGISTRÉE avec l'offre (mappingOverride) : elle prime,
+      // SAUF un « ignoré » hérité d'une ancienne lecture automatique quand la
+      // règle actuelle reconnaît la colonne et qu'aucune autre ne porte déjà
+      // ce champ (constat Channing 22/09 : offre Sorento importée avant la
+      // règle « 1st Reg. », relue avec sa correspondance figée → toujours
+      // sans date). Un choix explicite vers un autre champ reste respecté.
+      const guesses = header.map((h) => guessField(h));
+      const claimed = new Set<OfferField>();
+      header.forEach((h, idx) => {
+        const ov = mappingOverride && h in mappingOverride ? mappingOverride[h] : undefined;
+        const f = ov ?? guesses[idx];
+        if (f !== 'ignore') claimed.add(f);
+      });
+      fields = header.map((h, idx) => {
+        const ov = mappingOverride && h in mappingOverride ? mappingOverride[h] : undefined;
+        if (ov === undefined) return guesses[idx];
+        if (ov === 'ignore' && guesses[idx] !== 'ignore' && !claimed.has(guesses[idx])) { claimed.add(guesses[idx]); return guesses[idx]; }
+        return ov;
+      });
       continue;
     }
     if (!header) continue;

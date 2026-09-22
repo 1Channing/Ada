@@ -107,7 +107,10 @@ export function Offres() {
       ...base,
       title: base.title || (models.length === 1 ? `${models[0]} — SÉLECTION PROFESSIONNELLE` : `${firstBrand ? firstBrand + ' & AUTRES' : 'SÉLECTION'} — OFFRE MC EXPORT`),
       supplier: base.supplier || name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 40),
-      source_filename: name, layout: p.layout, mappings: p.mappings.map((m) => ({ ...m, field: ov[m.header] ?? m.field })), vehicles, source_grid: p.grid,
+      // Champ EFFECTIF du parseur (il honore la correspondance enregistrée et
+      // répare un « ignoré » hérité) — sinon le panneau affichait « ignoré »
+      // pour une colonne réellement lue.
+      source_filename: name, layout: p.layout, mappings: p.mappings, vehicles, source_grid: p.grid,
     };
   };
 
@@ -334,6 +337,20 @@ export function Offres() {
                   <span className="text-xs text-slate-500">{draft.mappings.filter((m) => m.field !== 'ignore').length} reconnues · {draft.mappings.filter((m) => m.field === 'ignore').length} gardées telles quelles</span>
                   {parsed?.warnings.length ? <span className="ml-auto text-xs text-amber-700">{parsed.warnings.length} avertissement{parsed.warnings.length > 1 ? 's' : ''}</span> : null}
                 </button>
+                {/* RELIRE LE FICHIER (22/09) : une offre importée avant une règle
+                    de lecture (« 1st Reg. », marque depuis le modèle) se relit avec
+                    le parseur du jour, sélection et prix saisis conservés. */}
+                {draft.source_grid && (
+                  <div className="px-4 pb-2 -mt-1">
+                    <button
+                      onClick={() => update((d) => (d.source_grid ? buildDraftFromGrid({ sheet: d.source_filename, grid: d.source_grid }, d.source_filename, Object.fromEntries(d.mappings.map((m) => [m.header, m.field])), d) : d))}
+                      className="text-xs text-brand-ocean hover:underline"
+                      title="Relit le fichier conservé avec les règles de lecture actuelles (dates, marques, modèles) — sélection et prix MC Export gardés"
+                    >
+                      Relire le fichier avec les règles du jour
+                    </button>
+                  </div>
+                )}
                 {mappingOpen && (
                   <div className="px-4 pb-3 border-t border-slate-100">
                     {parsed?.warnings.map((w, i) => <p key={i} className="text-xs text-amber-800 mt-2">{w}</p>)}
