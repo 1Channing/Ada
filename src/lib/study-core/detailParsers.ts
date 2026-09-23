@@ -541,22 +541,30 @@ function extractLeboncoinImages(html: string, listingUrl: string): string[] {
  */
 function extractMarktplaatsImages(html: string): string[] {
   const images: string[] = [];
+  const push = (u: string) => { if (u && !images.includes(u)) images.push(u); };
 
+  // HÔTE ACTUEL (sonde 23/09, demande Channing « photos floues ») :
+  // `images.marktplaats.com/api/v1/hz-mp-pro-listing/images/{uuid}?rule=
+  // ecg_mp_eps$_NN.jpg` — $_14 = 64 px, $_82 = 147 px, $_86 = 358 px,
+  // $_57 = 726 px et `$_#` = l'ORIGINAL (1 918 × 1 439, 766 Ko, prouvé sur
+  // l'API LRP). Une entrée par uuid, ordre d'apparition, variante originale.
+  const norm = html.replace(/\\u002F/g, '/').replace(/\\\//g, '/');
+  const seen = new Set<string>();
+  for (const m of norm.matchAll(/https:\/\/images\.marktplaats\.com\/api\/v1\/([a-z0-9-]+)\/images\/([0-9a-f-]{36})\?rule=ecg_mp_eps\$_[0-9#]+\.jpg/gi)) {
+    if (seen.has(m[2])) continue;
+    seen.add(m[2]);
+    push(`https://images.marktplaats.com/api/v1/${m[1]}/images/${m[2]}?rule=ecg_mp_eps$_%23.jpg`);
+  }
+  if (images.length > 0) return images.slice(0, 20);
+
+  // Ancien hôte eBay (pages d'avant 2025) — gardé tel quel.
   const patterns = [
     /https:\/\/i\.ebayimg\.com\/[^"'\s]+/gi,
     /"largeImageUrl":"([^"]+)"/gi,
   ];
-
   for (const pattern of patterns) {
-    const matches = html.matchAll(pattern);
-    for (const match of matches) {
-      const url = match[1] || match[0];
-      if (url && !images.includes(url)) {
-        images.push(url);
-      }
-    }
+    for (const match of html.matchAll(pattern)) push(match[1] || match[0]);
   }
-
   return images.slice(0, 20);
 }
 

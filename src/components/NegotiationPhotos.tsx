@@ -16,8 +16,11 @@ import { startNegoExtraction, isExtracting, extractionError, clearExtractionErro
 
 const BUCKET = 'admin-documents';
 
-/** Ré-encode côté client en JPEG ≤1600 px (poids du PDF, formats exotiques). */
-async function toJpeg(file: Blob, maxEdge = 1600): Promise<Blob> {
+/** Ré-encode côté client en JPEG ≤2400 px, qualité 0,92 (formats exotiques,
+ *  ajouts manuels). Plafond relevé de 1600 à 2400 le 23/09 (demande Channing :
+ *  « un peu flou ») — le PDF embarque les octets tels quels, la netteté se
+ *  joue ici et à la source (variantes de taille par site). */
+async function toJpeg(file: Blob, maxEdge = 2400): Promise<Blob> {
   const bmp = await createImageBitmap(file);
   const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
   const w = Math.round(bmp.width * scale);
