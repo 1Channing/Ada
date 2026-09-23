@@ -702,6 +702,20 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   temps et nombre de sessions par personne, total de la semaine. Même
   découpage en sessions (événements espacés de moins de 15 min), chaque
   session comptée au jour de son début, heure locale. Jours à venir grisés.
+- **NÉGOCIATIONS : PHOTOS PLUS NETTES (23/09, demande Channing « un peu
+  flou », PDF de 24 photos = 2,4 Mo)**. Diagnostic sur les photos stockées :
+  le PDF embarque les octets tels quels (pdf-lib, une page = l'image), la
+  perte est à la SOURCE — beaucoup de dossiers en 613 × 460 ou 575 × 383,
+  50 à 65 Ko par photo. Sondes par site (23/09) : Marktplaats — l'extracteur
+  ne connaissait que l'ancien hôte eBay et retombait sur la couverture
+  (og:image) ; l'hôte actuel images.marktplaats.com sert l'ORIGINAL 1 918 ×
+  1 439 (766 Ko) avec la règle `$_#` (%23), $_57 idem, $_86 = 1 024 px →
+  corrigé. Blocket — 7 classes (default = 575 × 383 … 1600w = 1 280 × 853)
+  → classe 1600w. Plafond du ré-encodage client (ajouts manuels, webp) relevé
+  de 1 600 à 2 400 px. Restent à sonder : Leboncoin (règle ad-image vs
+  ad-large), La Centrale (src1_5x = 1 096 × 829, existe-t-il src2x ?),
+  Bilbasen (`?class=S960X960` → S1200/S1600 ?), Subito (page robot sans
+  galerie), Gaspedaal. AutoScout est déjà à 1 440 × 1 080 (variante 1920x1080).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

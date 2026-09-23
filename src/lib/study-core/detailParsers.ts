@@ -620,9 +620,14 @@ function extractMobiledeImages(html: string): string[] {
 function extractBlocketImages(html: string, listingUrl: string): string[] {
   const itemId = listingUrl.match(/\/item\/(\d+)/)?.[1];
   const images: string[] = [];
-  for (const m of html.matchAll(/https:\/\/images\.blocketcdn\.se\/dynamic\/default\/item\/(\d+)\/[0-9a-f-]{36}/g)) {
+  // TAILLE (sonde 23/09, demande Channing « photos floues ») : la page
+  // référence chaque photo en 7 classes (default, 142w … 1600w) ; `default`
+  // = 575 × 383, `1600w` = la plus grande servie (1 280 × 853). Une entrée
+  // par uuid, classe 1600w, ordre d'apparition.
+  for (const m of html.matchAll(/https:\/\/images\.blocketcdn\.se\/dynamic\/[a-z0-9]+\/item\/(\d+)\/([0-9a-f-]{36})/g)) {
     if (itemId && m[1] !== itemId) continue;
-    if (!images.includes(m[0])) images.push(m[0]);
+    const best = `https://images.blocketcdn.se/dynamic/1600w/item/${m[1]}/${m[2]}`;
+    if (!images.includes(best)) images.push(best);
   }
   return images.slice(0, 20);
 }
