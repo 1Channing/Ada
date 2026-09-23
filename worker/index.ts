@@ -158,7 +158,14 @@ app.post('/ingest-url', async (req, res) => {
             const primary = card.imageUrls[i];
             const candidates = /autoscout24\.net\/listing-images\/.+\/1920x1080\.jpg$/.test(primary)
               ? [primary, primary.replace(/1920x1080\.jpg$/, '1280x960.jpg'), primary.replace(/1920x1080\.jpg$/, '800x600.jpg')]
-              : [primary];
+              // Leboncoin (23/09) : ad-large (1 067 × 800) demandée, ad-image
+              // (613 × 460) en repli si la grande variante manque.
+              : /img\.leboncoin\.fr\/.+\?rule=ad-large$/.test(primary)
+                ? [primary, primary.replace(/\?rule=ad-large$/, '?rule=ad-image')]
+                // Blocket (23/09) : classe 1600w demandée, `default` en repli.
+                : /images\.blocketcdn\.se\/dynamic\/1600w\//.test(primary)
+                  ? [primary, primary.replace('/dynamic/1600w/', '/dynamic/default/')]
+                  : [primary];
             // Direct d'abord ; CDN protégé (img.leboncoin.fr / Datadome…) →
             // repli Zyte en corps binaire. Fail-open par image.
             let got: { buf: Buffer; contentType: string } | null = null;

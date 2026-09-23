@@ -712,10 +712,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   1 439 (766 Ko) avec la règle `$_#` (%23), $_57 idem, $_86 = 1 024 px →
   corrigé. Blocket — 7 classes (default = 575 × 383 … 1600w = 1 280 × 853)
   → classe 1600w. Plafond du ré-encodage client (ajouts manuels, webp) relevé
-  de 1 600 à 2 400 px. Restent à sonder : Leboncoin (règle ad-image vs
-  ad-large), La Centrale (src1_5x = 1 096 × 829, existe-t-il src2x ?),
-  Bilbasen (`?class=S960X960` → S1200/S1600 ?), Subito (page robot sans
-  galerie), Gaspedaal. AutoScout est déjà à 1 440 × 1 080 (variante 1920x1080).
+  de 1 600 à 2 400 px. Leboncoin (sonde 23/09 sur une annonce réelle) :
+  `rule=ad-image` = 613 × 460 (54 Ko), `rule=ad-large` = 1 067 × 800 (139 Ko),
+  ad-original / sans règle = 404 / 400 → ad-large demandée, ad-image en
+  repli côté worker. La Centrale : URLs SIGNÉES, la plus grande servie est
+  déjà src1_5x = 1 096 × 829 (webp) — changer size= casse la signature (403),
+  rien à gagner. AutoScout déjà à 1 440 × 1 080. Restent à sonder : Bilbasen
+  (`?class=S960X960` → S1200 ? recon bloquée « not a robot » sans profil),
+  Subito (page robot sans galerie), Gaspedaal. Le poids du PDF suivra la
+  source : 24 photos Marktplaats à l'original ≈ 18 Mo, Leboncoin ≈ 3,3 Mo.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

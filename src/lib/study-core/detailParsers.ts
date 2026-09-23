@@ -499,8 +499,15 @@ function extractDefects(description: string): { defects_summary: string; evidenc
  */
 function extractLeboncoinImages(html: string, listingUrl: string): string[] {
   const images: string[] = [];
+  // TAILLE (sonde 23/09, demande Channing « photos floues ») : l'annonce
+  // déclare ses images en `rule=ad-image` = 613 × 460 (54 Ko) ; la même
+  // image en `rule=ad-large` = 1 067 × 800 (139 Ko), la plus grande servie
+  // (ad-original / sans règle : 404 / 400). On demande ad-large, le worker
+  // retombe sur ad-image si elle manque.
   const push = (u: unknown) => {
-    if (typeof u === 'string' && u.startsWith('https://') && !images.includes(u)) images.push(u);
+    if (typeof u !== 'string' || !u.startsWith('https://')) return;
+    const best = u.replace(/\?rule=ad-image\b/, '?rule=ad-large');
+    if (!images.includes(best)) images.push(best);
   };
 
   // Voie 1 : l'annonce déclare ses images dans __NEXT_DATA__
