@@ -75,6 +75,8 @@ export function Telemetrie() {
   const [allEvents, setAllEvents] = useState<Ev[]>([]);
   const [profileNames, setProfileNames] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
+  /** Semaine dépliée (index dans weekStarts) : détail du temps par jour. */
+  const [openWeek, setOpenWeek] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -132,16 +134,28 @@ export function Telemetrie() {
       cur.labels.set(label, (cur.labels.get(label) ?? 0) + 1);
       byId.set(key, cur);
     }
-    const rows = new Map<string, { name: string; minutes: number[]; sessions: number }>();
+    // DÉTAIL PAR JOUR (demande Channing 23/09 : cliquer une semaine) : même
+    // découpage en sessions, chaque session comptée au jour de son DÉBUT
+    // (lundi = 0 … dimanche = 6, heure locale), minutes et nombre de sessions.
+    const rows = new Map<string, { name: string; minutes: number[]; sessions: number; days: number[][]; daySessions: number[][] }>();
     for (const [key, d] of byId) {
       const name = identityName(key, d.labels);
       const k = name.toLowerCase();
-      const row = rows.get(k) ?? { name, minutes: new Array<number>(WEEKS).fill(0), sessions: 0 };
+      const row = rows.get(k) ?? {
+        name, minutes: new Array<number>(WEEKS).fill(0), sessions: 0,
+        days: Array.from({ length: WEEKS }, () => new Array<number>(7).fill(0)),
+        daySessions: Array.from({ length: WEEKS }, () => new Array<number>(7).fill(0)),
+      };
       const times = [...d.times].sort((a, b) => a - b);
       let start = times[0], last = times[0];
       const close = () => {
         const w = weekIndex(start);
-        if (w >= 0) { row.minutes[w] += Math.max(1, (last - start) / 60_000); row.sessions += 1; }
+        if (w >= 0) {
+          const dur = Math.max(1, (last - start) / 60_000);
+          row.minutes[w] += dur; row.sessions += 1;
+          const dow = (new Date(start).getDay() + 6) % 7;
+          row.days[w][dow] += dur; row.daySessions[w][dow] += 1;
+        }
       };
       for (let i = 1; i < times.length; i++) {
         if (times[i] - last > SESSION_GAP_MS) { close(); start = times[i]; }
@@ -290,7 +304,13 @@ export function Telemetrie() {
                     <th className="py-2 pr-3">Utilisateur</th>
                     {weekly.weekStarts.map((w, i) => (
                       <th key={w} className="py-2 pr-3 tabular-nums whitespace-nowrap">
-                        {i === weekly.weekStarts.length - 1 ? 'Cette semaine' : `Sem. du ${new Date(w).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`}
+                        <button
+                          onClick={() => setOpenWeek(openWeek === i ? null : i)}
+                          className={`hover:text-brand-ocean hover:underline ${openWeek === i ? 'text-brand-ocean underline' : ''}`}
+                          title="Voir le temps de connexion par jour de cette semaine"
+                        >
+                          {i === weekly.weekStarts.length - 1 ? 'Cette semaine' : `Sem. du ${new Date(w).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`}
+                        </button>
                       </th>
                     ))}
                     <th className="py-2 pr-3">Total</th>
@@ -307,13 +327,17 @@ export function Telemetrie() {
                       <tr key={r.name} className="border-b border-slate-100">
                         <td className="py-2 pr-3 font-medium text-slate-900">{r.name}</td>
                         {r.minutes.map((m, i) => (
-                          <td key={i} className="py-2 pr-3">
-                            <div className="flex items-center gap-2">
+                          <td key={i} className={`py-2 pr-3 ${openWeek === i ? 'bg-blue-50/60' : ''}`}>
+                            <button
+                              onClick={() => setOpenWeek(openWeek === i ? null : i)}
+                              className="flex items-center gap-2 rounded px-1 -mx-1 hover:bg-slate-100"
+                              title="Voir le détail par jour"
+                            >
                               <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden shrink-0">
                                 <div className="h-full bg-brand-ocean rounded-full" style={{ width: `${(m / max) * 100}%` }} />
                               </div>
                               <span className="tabular-nums text-slate-700 whitespace-nowrap">{fmtMinutes(m)}</span>
-                            </div>
+                            </button>
                           </td>
                         ))}
                         <td className="py-2 pr-3 tabular-nums font-semibold text-slate-900 whitespace-nowrap">{fmtMinutes(r.total)}</td>
@@ -324,6 +348,65 @@ export function Telemetrie() {
                 </tbody>
               </table>
             </div>
+
+            {/* DÉTAIL PAR JOUR de la semaine cliquée (demande Channing 23/09). */}
+            {openWeek != null && weekly.weekStarts[openWeek] != null && (() => {
+              const w0 = weekly.weekStarts[openWeek];
+              const dayLabels = Array.from({ length: 7 }, (_, d) => new Date(w0 + d * 86_400_000));
+              const rowsWeek = weekly.rows.filter((r) => r.minutes[openWeek] > 0);
+              const maxDay = Math.max(1, ...rowsWeek.flatMap((r) => r.days[openWeek]));
+              const today = new Date(); today.setHours(0, 0, 0, 0);
+              return (
+                <div className="mt-4 border-t border-slate-200 pt-3">
+                  <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+                    <h3 className="text-sm font-semibold text-slate-800">
+                      Temps par jour — {openWeek === weekly.weekStarts.length - 1 ? 'cette semaine' : `semaine du ${new Date(w0).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`}
+                    </h3>
+                    <button onClick={() => setOpenWeek(null)} className="text-xs text-slate-500 hover:text-slate-800">Fermer</button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                          <th className="py-2 pr-3">Utilisateur</th>
+                          {dayLabels.map((d, i) => (
+                            <th key={i} className={`py-2 pr-3 whitespace-nowrap ${d > today ? 'text-slate-300' : ''}`}>
+                              {d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                            </th>
+                          ))}
+                          <th className="py-2">Semaine</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rowsWeek.length === 0 && (
+                          <tr><td colSpan={9} className="py-3 text-center text-slate-400">Aucune activité cette semaine-là.</td></tr>
+                        )}
+                        {rowsWeek.map((r) => (
+                          <tr key={r.name} className="border-b border-slate-100">
+                            <td className="py-2 pr-3 font-medium text-slate-900">{r.name}</td>
+                            {r.days[openWeek].map((m, d) => (
+                              <td key={d} className="py-2 pr-3">
+                                {m > 0 ? (
+                                  <div className="flex items-center gap-2" title={`${r.daySessions[openWeek][d]} session${r.daySessions[openWeek][d] > 1 ? 's' : ''}`}>
+                                    <div className="w-12 h-2 bg-slate-100 rounded-full overflow-hidden shrink-0">
+                                      <div className="h-full bg-brand-ocean rounded-full" style={{ width: `${(m / maxDay) * 100}%` }} />
+                                    </div>
+                                    <span className="tabular-nums text-slate-700 whitespace-nowrap">{fmtMinutes(m)}</span>
+                                    <span className="text-[10px] text-slate-400 tabular-nums">·{r.daySessions[openWeek][d]}</span>
+                                  </div>
+                                ) : <span className="text-slate-300">—</span>}
+                              </td>
+                            ))}
+                            <td className="py-2 tabular-nums font-semibold text-slate-900 whitespace-nowrap">{fmtMinutes(r.minutes[openWeek])}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-2">Chaque session est comptée au jour où elle commence ; le petit chiffre après le temps est le nombre de sessions du jour.</p>
+                </div>
+              );
+            })()}
           </section>
 
           <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">

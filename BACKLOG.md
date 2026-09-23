@@ -696,6 +696,12 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   en « douteux » jusqu'à réparation. Le modèle de langage n'intervient
   qu'en bout de chaîne pour le résumé du matin (crédits Anthropic à
   recharger). Ordre proposé : étage 1, puis 2 (touche l'argent), puis 3.
+- **TÉLÉMÉTRIE : TEMPS PAR JOUR AU CLIC SUR UNE SEMAINE (23/09, demande
+  Channing)**. En-têtes de semaine et cases du tableau cliquables : un
+  second tableau s'ouvre dessous, un jour par colonne (lun. → dim., dates),
+  temps et nombre de sessions par personne, total de la semaine. Même
+  découpage en sessions (événements espacés de moins de 15 min), chaque
+  session comptée au jour de son début, heure locale. Jours à venir grisés.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
