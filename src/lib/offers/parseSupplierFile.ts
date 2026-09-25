@@ -143,14 +143,40 @@ function toNumber(v: unknown): number | null {
   return Number.isFinite(n) && s !== '' ? n : null;
 }
 
-function toIsoDate(v: unknown): string | null {
+/** Ordre jour/mois d'une date TEXTE : « 16/06/2025 » (Europe) ou « 6/16/2025 »
+ *  (États-Unis, fichier Opel 25/09 : 24 cellules texte m/j/aaaa mêlées à 23
+ *  vraies dates — « 2025-16-06 » puis « Invalid Date » à l'affichage). Une
+ *  cellule tranche seule quand une des parts dépasse 12 ; sinon l'ordre du
+ *  FICHIER (detectDateOrder) fait foi, Europe par défaut. */
+export type DateOrder = 'dmy' | 'mdy';
+export function detectDateOrder(values: unknown[]): DateOrder {
+  let dmy = 0, mdy = 0;
+  for (const v of values) {
+    if (typeof v !== 'string') continue;
+    const m = v.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/);
+    if (!m) continue;
+    const a = Number(m[1]), b = Number(m[2]);
+    if (a > 12 && b <= 12) dmy++;
+    else if (b > 12 && a <= 12) mdy++;
+  }
+  return mdy > dmy ? 'mdy' : 'dmy';
+}
+
+function toIsoDate(v: unknown, order: DateOrder = 'dmy'): string | null {
   if (v == null || v === '') return null;
   if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
   const s = String(v).trim();
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/);
-  if (m) { const y = m[3].length === 2 ? `20${m[3]}` : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+  if (m) {
+    const y = m[3].length === 2 ? `20${m[3]}` : m[3];
+    const a = Number(m[1]), b = Number(m[2]);
+    const monthFirst = a > 12 ? false : b > 12 ? true : order === 'mdy';
+    const [day, month] = monthFirst ? [b, a] : [a, b];
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
   m = s.match(/^(\d{4})[/.-](\d{1,2})$/);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-01`;
   return null;
@@ -293,6 +319,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
   let header: string[] | null = null;
   let fields: OfferField[] = [];
 
+  const rawRegs: unknown[] = [];
   for (let i = 0; i < grid.length; i++) {
     const r = grid[i] ?? [];
     if (isBlockTitle(r)) { currentBrand = String(r[0]).trim(); continue; }
@@ -361,6 +388,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     else model = guessModel(brand, model, known);
     const free = parseFreeLine(`${versionLine} ${cell(rec.engine)} ${cell(rec.gearbox)}`);
     const reg = toIsoDate(rec.reg_date);
+    rawRegs.push(rec.reg_date);
     const power = toNumber(rec.power);
     const vin = cell(rec.vin) || null;
     if (!brand) warnings.push(`Ligne ${i + 1} : marque introuvable (${versionLine.slice(0, 40)}).`);
@@ -395,6 +423,16 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
   if (vehicles.length === 0) warnings.push('Aucune ligne de véhicule lue sous les en-têtes reconnus.');
   const noPrice = vehicles.filter((v) => v.price_ht == null && v.price_ttc == null).length;
   if (noPrice) warnings.push(`${noPrice} véhicule(s) sans prix fournisseur (ni HT ni TTC) — à vérifier dans la correspondance des colonnes.`);
+  // Ordre jour/mois décidé sur TOUT le fichier : une cellule ambiguë
+  // (« 6/2/2025 ») suit les cellules qui tranchent (« 6/16/2025 »).
+  const order = detectDateOrder(rawRegs);
+  if (order === 'mdy') {
+    vehicles.forEach((v, i) => {
+      const iso = toIsoDate(rawRegs[i], 'mdy');
+      v.reg_date = iso;
+      v.year = iso ? Number(iso.slice(0, 4)) : null;
+    });
+  }
   return { sheet: sheetName, layout, mappings: [...mappingsByHeader.values()], vehicles, warnings, grid };
 }
 

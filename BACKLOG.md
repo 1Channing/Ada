@@ -721,6 +721,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   (`?class=S960X960` → S1200 ? recon bloquée « not a robot » sans profil),
   Subito (page robot sans galerie), Gaspedaal. Le poids du PDF suivra la
   source : 24 photos Marktplaats à l'original ≈ 18 Mo, Leboncoin ≈ 3,3 Mo.
+- **OFFRES : « INVALID DATE » SUR LES PREMIÈRES IMMATRICULATIONS (25/09,
+  fichier Opel Astra / Grandland)**. Le fichier mêle 23 vraies dates Excel
+  et 24 cellules TEXTE au format américain « 6/16/2025 » ; le parseur lisait
+  jour/mois à l'européenne → « 2025-16-06 » → « Invalid Date » à l'écran et
+  dans le PDF. Corrigé : ordre jour/mois décidé sur tout le fichier (une
+  cellule tranche seule quand une part dépasse 12, les ambiguës suivent
+  l'ordre du fichier, Europe par défaut), mois/jour hors bornes → vide ; les
+  afficheurs (écran, PDF, Excel) rendent « — » au lieu d'« Invalid Date ».
+  Vérifié : 42/42 dates sur le fichier du 25/09.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

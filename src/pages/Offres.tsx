@@ -7,7 +7,7 @@ import {
   type ParsedSupplierFile, type OfferVehicle, type OfferField, type ColumnMapping,
 } from '../lib/offers/parseSupplierFile';
 import { loadLearnedModelsByBrand, mergeKnownModels } from '../lib/offers/knownModels';
-import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm } from '../lib/offers/exportOfferXlsx';
+import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
 import {
@@ -422,7 +422,7 @@ export function Offres() {
                           <td className="py-1.5 pr-3 whitespace-nowrap"><span className="font-medium text-slate-800">{v.brand} {v.model}</span>{v.vin && <span className="block text-[10px] text-slate-400">{v.vin}</span>}</td>
                           <td className="py-1.5 pr-3 max-w-[200px] truncate text-slate-700" title={v.engine ?? ''}>{v.engine || '—'}</td>
                           <td className="py-1.5 pr-3 max-w-[260px] truncate text-slate-600" title={v.version}>{v.version}{v.color ? ` · ${v.color}` : ''}</td>
-                          <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">{v.reg_date ? new Date(v.reg_date).toLocaleDateString('fr-FR') : '—'}</td>
+                          <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">{fmtDate(v.reg_date)}</td>
                           <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtKm(v.km)}</td>
                           <td className="py-1.5 pr-3 text-slate-600">{v.fuel ?? '—'}</td>
                           <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{v.power_ch ?? '—'}</td>

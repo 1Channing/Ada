@@ -20,7 +20,7 @@ export interface OfferDocument {
 
 export const fmtEur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
 export const fmtKm = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} km`);
-export const fmtDate = (iso: string | null | undefined) => (!iso ? '—' : new Date(iso).toLocaleDateString('fr-FR'));
+export const fmtDate = (iso: string | null | undefined) => { if (!iso) return '—'; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fr-FR'); };
 export const bodyOf = (v: OfferVehicle) => /tourer|break|sw|estate|touring|kombi|combi/i.test(v.version) ? 'Break' : /fgn|fourgon|van|cargo/i.test(v.version) ? 'Utilitaire' : '';
 export const labelOf = (v: OfferVehicle) => `${v.brand[0]}${v.brand.slice(1).toLowerCase()} ${v.model}`.trim();
 /** Motorisation telle que le fournisseur l'écrit (colonne Engine), sinon la ligne version d'origine. */
