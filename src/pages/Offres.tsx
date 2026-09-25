@@ -137,7 +137,18 @@ export function Offres() {
   /** Bascule d'une offre à l'autre en un clic — l'offre quittée est déjà enregistrée (ou le sera dans la seconde). */
   const open = (o: SupplierOffer) => {
     if (saveTimer.current && draft && dirty.current) { window.clearTimeout(saveTimer.current); dirty.current = false; void persist(draft); }
-    setDraft({ ...o }); setParsed(null); setMsg(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null); setEditLot(null);
+    // RÉPARATION À L'OUVERTURE (25/09) : une offre lue avec d'anciennes règles
+    // peut porter des dates impossibles (« 2025-16-06 », fichier Opel en
+    // format américain). Si le fichier est conservé, on la relit avec les
+    // règles du jour, sélection et prix gardés, et on enregistre — plus
+    // besoin de penser au bouton « Relire le fichier ».
+    const stale = Boolean(o.source_grid) && o.vehicles.some((v) => v.reg_date && Number.isNaN(new Date(v.reg_date).getTime()));
+    const next: Draft = stale && o.source_grid
+      ? buildDraftFromGrid({ sheet: o.source_filename, grid: o.source_grid }, o.source_filename, Object.fromEntries(o.mappings.map((m) => [m.header, m.field])), { ...o })
+      : { ...o };
+    if (stale) { setMsg('Dates relues avec les règles du jour (fichier au format américain) — offre enregistrée.'); void persist(next); }
+    setDraft(next); if (!stale) setParsed(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null); setEditLot(null);
+    if (!stale) setMsg(null);
     setSurvey((s) => (s && s.done < s.total && s.current !== 'arrêté' ? s : null));
   };
   const remove = async (o: SupplierOffer) => {
