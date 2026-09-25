@@ -888,7 +888,7 @@ function TraceListingBox() {
           {rows && rows.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead><tr className="text-left text-slate-400"><th className="py-1 pr-3">Étude</th><th className="py-1 pr-3">Compte</th><th className="py-1 pr-3">Vue ?</th><th className="py-1 pr-3">Statut</th><th className="py-1 pr-3">Prix · médiane · écart</th><th className="py-1 pr-3">Critères</th><th className="py-1">Dernier passage</th></tr></thead>
+                <thead><tr className="text-left text-slate-400"><th className="py-1 pr-3">Étude</th><th className="py-1 pr-3">Compte</th><th className="py-1 pr-3" title="Vue par l'ÉTUDE lors de ses passages — pas par la personne">Vue par l'étude ?</th><th className="py-1 pr-3">Statut</th><th className="py-1 pr-3">Prix · médiane · écart</th><th className="py-1 pr-3">Critères</th><th className="py-1">Dernier passage</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {rows.filter((r) => r.seen || showUnseen).map((r) => {
                     const gapOk = r.price_gap != null && r.price_gap >= r.price_gap_min && r.price_gap <= r.price_gap_max;
@@ -897,7 +897,7 @@ function TraceListingBox() {
                         <td className="py-1.5 pr-3 font-medium text-slate-800">{r.search_label || `${r.brand} ${r.model}`}{!r.active && <span className="ml-1 text-[10px] text-slate-400">(en pause)</span>}</td>
                         <td className="py-1.5 pr-3">{r.owner_name}</td>
                         <td className="py-1.5 pr-3">{r.seen ? <span className="text-emerald-700 font-medium">oui</span> : 'jamais'}</td>
-                        <td className="py-1.5 pr-3">{r.seen ? <>{STATUS[r.status ?? ''] ?? r.status}{r.resolution ? ` · ${RES[r.resolution] ?? r.resolution}` : ''}{r.kind === 'price_drop' ? ' · baisse' : ''}</> : '—'}</td>
+                        <td className="py-1.5 pr-3">{r.seen ? <>{STATUS[r.status ?? ''] ?? r.status}{r.resolution ? ` · ${RES[r.resolution] ?? r.resolution}` : r.status === 'dismissed' && r.target_median == null ? ' · médiane cible inconnue, jamais montrée' : r.status === 'dismissed' ? ' · hors écart, jamais montrée' : ''}{r.kind === 'price_drop' ? ' · baisse' : ''}</> : '—'}</td>
                         <td className="py-1.5 pr-3">{r.seen ? <>{fmtEur(r.price)}{r.previous_price != null ? ` (avant ${fmtEur(r.previous_price)})` : ''} · {r.target_median != null ? fmtEur(r.target_median) : 'médiane inconnue'} · <span className={gapOk ? 'text-emerald-700' : 'text-amber-700'}>{r.price_gap != null ? `${r.price_gap.toLocaleString('fr-FR')} €` : '—'}{r.price_gap != null && !gapOk ? ` hors [${r.price_gap_min.toLocaleString('fr-FR')}–${r.price_gap_max.toLocaleString('fr-FR')}]` : ''}</span></> : '—'}</td>
                         <td className="py-1.5 pr-3">{[r.year_min || r.year_max ? `années ${r.year_min ?? '…'}–${r.year_max ?? '…'}` : 'toutes années', r.mileage_max != null ? `≤ ${r.mileage_max.toLocaleString('fr-FR')} km` : null, r.trim ? `« ${r.trim} »` : null, `écart ${r.price_gap_min.toLocaleString('fr-FR')}–${r.price_gap_max.toLocaleString('fr-FR')} €`].filter(Boolean).join(' · ')}</td>
                         <td className="py-1.5">{r.seen && r.last_seen_at ? `vue le ${new Date(r.last_seen_at).toLocaleDateString('fr-FR')}` : r.last_run_at ? `étude passée le ${new Date(r.last_run_at).toLocaleDateString('fr-FR')}` : 'jamais passée'}</td>
@@ -911,7 +911,7 @@ function TraceListingBox() {
                   {showUnseen ? 'Masquer' : 'Afficher'} les {rows.filter((r) => !r.seen).length} étude(s) qui ne l'ont jamais vue
                 </button>
               )}
-              <p className="text-[11px] text-slate-400 mt-2">« Jamais » avec des critères compatibles = l'annonce n'était pas dans les pages scrapées de l'étude (tri prix croissant, 3 à 5 pages) ou son URL diffère selon le site. « Écartée » sans motif = vue hors écart de prix ; une baisse réelle la ramènera.</p>
+              <p className="text-[11px] text-slate-400 mt-2">« Jamais » avec des critères compatibles = l'annonce n'était pas dans les pages scrapées de l'étude (tri prix croissant, 3 à 5 pages) ou son URL diffère selon le site. « Écartée » sans motif = mémorisée par l'étude mais JAMAIS montrée à la personne : hors écart de prix, ou médiane cible inconnue (le marché cible n'a pas donné de prix — élargis les critères cibles) ; une baisse réelle ou une médiane retrouvée la ramènera.</p>
             </div>
           )}
         </div>
