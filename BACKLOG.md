@@ -730,6 +730,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   l'ordre du fichier, Europe par défaut), mois/jour hors bornes → vide ; les
   afficheurs (écran, PDF, Excel) rendent « — » au lieu d'« Invalid Date ».
   Vérifié : 42/42 dates sur le fichier du 25/09.
+- **NÉGOCIATIONS : NOM LIBRE DU PDF PHOTOS (26/09, demande Channing)**. Champ
+  « Nom du PDF » dans la modale photos, valeur de départ = titre de la
+  ligne, sans jamais la renommer. Enregistré dans `negotiations.pdf_title`
+  (migration 20260926100000, additive) ; tant que le SQL n'est pas collé, ou
+  pour la négociation d'un collègue (Open space), le nom reste sur le
+  navigateur (repli local, dit à l'écran). Le PDF photos n'a pas de texte :
+  le nom est celui du fichier téléchargé.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

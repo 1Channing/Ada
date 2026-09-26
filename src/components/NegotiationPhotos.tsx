@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Crop, Download, FlipHorizontal2, ImagePlus, Loader2, Paintbrush, RefreshCw, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Negotiation, saveNegotiationPhotos } from '../services/workflow';
+import { Negotiation, saveNegotiationPhotos, saveNegotiationPdfTitle } from '../services/workflow';
 import { startNegoExtraction, isExtracting, extractionError, clearExtractionError, subscribeNegoExtractions } from '../services/negoExtraction';
 
 /**
@@ -68,6 +68,22 @@ interface Props { nego: Negotiation; onClose: () => void; onChanged: () => void 
 
 export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
   const [photos, setPhotos] = useState<string[]>(nego.photos ?? []);
+  // NOM DU PDF (demande Channing 26/09) : libre, indépendant du titre de la
+  // ligne. Base (colonne pdf_title) quand elle existe, sinon mémoire du
+  // navigateur ; le titre de la négociation sert de valeur de départ.
+  const localKey = `ada_pdf_title_${nego.id}`;
+  const [pdfTitle, setPdfTitle] = useState<string>(() => {
+    if (nego.pdf_title?.trim()) return nego.pdf_title;
+    try { return localStorage.getItem(localKey) || nego.title; } catch { return nego.title; }
+  });
+  const [pdfTitleNote, setPdfTitleNote] = useState<string | null>(null);
+  const savePdfTitle = async () => {
+    const v = pdfTitle.trim();
+    const r = await saveNegotiationPdfTitle(nego.id, v && v !== nego.title ? v : null);
+    if (r === 'ok') { try { localStorage.removeItem(localKey); } catch { /* ignore */ } setPdfTitleNote(null); onChanged(); return; }
+    try { if (v && v !== nego.title) localStorage.setItem(localKey, v); else localStorage.removeItem(localKey); } catch { /* ignore */ }
+    setPdfTitleNote(r === 'column_missing' ? 'Nom gardé sur ce navigateur (SQL du 26/09 à coller pour le partager).' : r === 'not_mine' ? 'Négociation d\'un collègue : nom gardé sur ce navigateur.' : r);
+  };
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [maskIdx, setMaskIdx] = useState<number | null>(null);
@@ -149,7 +165,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
     const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${(nego.title || 'photos').replace(/[^\p{L}\p{N} _.-]/gu, '').trim() || 'photos'}.pdf`;
+    a.download = `${(pdfTitle.trim() || nego.title || 'photos').replace(/[^\p{L}\p{N} _.-]/gu, '').trim() || 'photos'}.pdf`;
     a.click();
     URL.revokeObjectURL(a.href);
   });
@@ -161,6 +177,19 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
           <div className="min-w-0">
             <h3 className="font-semibold text-slate-900 truncate">Photos — {nego.title}</h3>
             <p className="text-xs text-slate-500">{photos.length} photo{photos.length > 1 ? 's' : ''} · l'ordre affiché = l'ordre du PDF</p>
+            <label className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
+              <span className="whitespace-nowrap">Nom du PDF</span>
+              <input
+                value={pdfTitle}
+                onChange={(e) => setPdfTitle(e.target.value)}
+                onBlur={() => void savePdfTitle()}
+                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                placeholder={nego.title}
+                title="Nom du fichier PDF photos — ne change pas le titre de la négociation"
+                className="flex-1 min-w-0 px-2 py-1 rounded border border-slate-300 bg-white text-slate-800"
+              />
+            </label>
+            {pdfTitleNote && <p className="text-[11px] text-amber-700 mt-0.5">{pdfTitleNote}</p>}
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><X className="w-5 h-5" /></button>
         </div>

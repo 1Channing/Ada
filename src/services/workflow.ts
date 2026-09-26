@@ -129,6 +129,9 @@ export interface Negotiation {
   photos: string[];
   /** Dossier personnel (10/09) — null = « sans dossier ». */
   folder_id: string | null;
+  /** Nom du PDF photos (26/09) — libre, indépendant du titre de la ligne.
+   *  Absent tant que la colonne n'existe pas (SQL du 26/09) : repli local. */
+  pdf_title?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -568,6 +571,16 @@ export async function updateNegotiation(id: string, patch: Partial<Negotiation>)
  * qui n'ouvre à l'équipe que la colonne photos. Renvoie un message d'erreur
  * ou null.
  */
+/** Nom du PDF photos, sans toucher au titre de la négociation (demande
+ *  Channing 26/09). 'column_missing' = SQL du 26/09 pas encore collé : la
+ *  modale garde alors le nom sur le navigateur. Négociation d'un collègue
+ *  (Open space) : non enregistrable côté serveur → repli local aussi. */
+export async function saveNegotiationPdfTitle(id: string, pdfTitle: string | null): Promise<'ok' | 'column_missing' | 'not_mine' | string> {
+  const { data, error } = await supabase.from('negotiations').update({ pdf_title: pdfTitle } as never).eq('id', id).select('id');
+  if (error) return /pdf_title|column/i.test(error.message) ? 'column_missing' : error.message;
+  return (data ?? []).length > 0 ? 'ok' : 'not_mine';
+}
+
 export async function saveNegotiationPhotos(id: string, photos: string[]): Promise<string | null> {
   const direct = await supabase.from('negotiations').update({ photos, updated_at: new Date().toISOString() } as never).eq('id', id).select('id');
   if (!direct.error && (direct.data ?? []).length > 0) return null;
