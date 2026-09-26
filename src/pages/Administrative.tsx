@@ -17,6 +17,12 @@ const withoutSignatureLocation = <T extends { signature_location?: string | null
   return copy as Omit<T, 'signature_location'>;
 };
 
+type DealSort = 'date' | 'commercial' | 'client' | 'prix';
+const DEAL_SORTS: Array<[DealSort, string]> = [['date', 'Date'], ['commercial', 'Commercial'], ['client', 'Client'], ['prix', 'Prix']];
+/** Clé d'un commercial : « ANTOINE » ≡ « Antoine » ; vide → « (sans) ». */
+const commercialKey = (v: string | null | undefined) => (v ?? '').trim().toUpperCase();
+const commercialLabel = (k: string) => (k ? k.charAt(0) + k.slice(1).toLowerCase() : 'Sans commercial');
+
 // DB columns are nullable — mirror that so typed Supabase rows fit directly.
 type Contact = {
   id: string;
@@ -313,6 +319,18 @@ export function Administrative() {
   // Deals list workflow: land on the list, open a deal into the editor.
   const [mode, setMode] = useState<'list' | 'editor'>('list');
   const [deals, setDeals] = useState<DealRow[]>([]);
+  // VUE PAR COMMERCIAL (26/09, demande Channing : « trier les ventes par
+  // commerciaux pour ne pas s'y perdre ») : un filtre (Tous / Antoine /
+  // Channing / Achille…) + un tri, mémorisés sur ce navigateur. « ANTOINE »
+  // et « Antoine » sont la même personne (clé en majuscules).
+  const [commercialFilter, setCommercialFilter] = useState<string>(() => {
+    try { return localStorage.getItem('ada_admin_commercial_filter') ?? ''; } catch { return ''; }
+  });
+  const [dealSort, setDealSort] = useState<DealSort>(() => {
+    try { return (localStorage.getItem('ada_admin_deal_sort') as DealSort) || 'date'; } catch { return 'date'; }
+  });
+  const pickCommercialFilter = (k: string) => { setCommercialFilter(k); try { localStorage.setItem('ada_admin_commercial_filter', k); } catch { /* navigation privée */ } };
+  const pickDealSort = (k: DealSort) => { setDealSort(k); try { localStorage.setItem('ada_admin_deal_sort', k); } catch { /* navigation privée */ } };
   const [dealsLoading, setDealsLoading] = useState(false);
   const [dealStatus, setDealStatus] = useState<'en_cours' | 'cloturee'>('en_cours');
   const [showQuickCreate, setShowQuickCreate] = useState(false);
@@ -1811,8 +1829,25 @@ export function Administrative() {
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const enCours = deals.filter((d) => d.status !== 'cloturee');
-  const cloturees = deals.filter((d) => d.status === 'cloturee');
+
+  // Commerciaux présents (avec compte), filtre et tri appliqués à TOUT ce qui
+  // s'affiche : tableaux, historique et indicateurs suivent la vue choisie.
+  const commercialCounts = new Map<string, number>();
+  for (const d of deals) { const k = commercialKey(d.commercial); commercialCounts.set(k, (commercialCounts.get(k) ?? 0) + 1); }
+  const commercialOptions = [...commercialCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const dealDate = (d: DealRow) => d.transaction_date || d.created_at || '';
+  const sortDeals = (rows: DealRow[]): DealRow[] => {
+    const byDate = (a: DealRow, b: DealRow) => dealDate(b).localeCompare(dealDate(a));
+    const out = [...rows];
+    if (dealSort === 'commercial') out.sort((a, b) => commercialKey(a.commercial).localeCompare(commercialKey(b.commercial)) || byDate(a, b));
+    else if (dealSort === 'client') out.sort((a, b) => dealClient(a).localeCompare(dealClient(b), 'fr') || byDate(a, b));
+    else if (dealSort === 'prix') out.sort((a, b) => (b.transaction_price ?? b.sale_price ?? -1) - (a.transaction_price ?? a.sale_price ?? -1) || byDate(a, b));
+    else out.sort(byDate);
+    return out;
+  };
+  const viewed = sortDeals(commercialFilter === '' ? deals : deals.filter((d) => commercialKey(d.commercial) === commercialFilter));
+  const enCours = viewed.filter((d) => d.status !== 'cloturee');
+  const cloturees = viewed.filter((d) => d.status === 'cloturee');
 
   const dealMargin = (d: DealRow) => (d.sale_price ?? 0) - (d.purchase_price ?? 0) - (d.fees ?? 0);
   const sum = (arr: DealRow[], f: (d: DealRow) => number) => arr.reduce((s, d) => s + (f(d) || 0), 0);
@@ -1919,6 +1954,36 @@ export function Administrative() {
 
   const renderDealsList = () => (
     <div className="space-y-6">
+      {/* Vue par commercial + tri */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-xs uppercase tracking-wide text-slate-500 mr-1">Commercial</span>
+        <button
+          onClick={() => pickCommercialFilter('')}
+          className={`px-3 py-1 rounded-full border text-xs ${commercialFilter === '' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'}`}
+        >
+          Tous · {deals.length}
+        </button>
+        {commercialOptions.map(([k, n]) => (
+          <button
+            key={k || '(sans)'}
+            onClick={() => pickCommercialFilter(k)}
+            className={`px-3 py-1 rounded-full border text-xs ${commercialFilter === k ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'}`}
+          >
+            {commercialLabel(k)} · {n}
+          </button>
+        ))}
+        <span className="ml-auto flex items-center gap-2 text-xs text-slate-500">
+          Trier par
+          <select
+            value={dealSort}
+            onChange={(e) => pickDealSort(e.target.value as DealSort)}
+            className="px-2 py-1 bg-white border border-slate-300 rounded text-xs text-slate-700"
+          >
+            {DEAL_SORTS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+        </span>
+      </div>
+
       {/* Tableau de bord */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {kpi("Chiffre d'affaires en cours", eur(caEnCours), `${enCours.length} vente${enCours.length > 1 ? 's' : ''} en cours`, 'text-blue-700')}
@@ -1929,7 +1994,7 @@ export function Administrative() {
 
       {dealsLoading && <p className="text-sm text-slate-500">Chargement…</p>}
 
-      {renderDealsTable('Ventes en cours', enCours, 'bg-blue-400')}
+      {renderDealsTable(commercialFilter === '' ? 'Ventes en cours' : `Ventes en cours · ${commercialLabel(commercialFilter)}`, enCours, 'bg-blue-400')}
 
       {/* Historique mensuel */}
       {historiqueMonths.length > 0 && (

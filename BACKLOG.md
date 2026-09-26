@@ -793,6 +793,11 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   plus que la fiche d'enlèvement ; « Lieu de la vente » retiré de Delivery.
   Dossiers antérieurs : colonne vide → le siège (le lieu d'enlèvement n'est
   jamais repris). Sans le SQL : enregistrement sans la colonne + avertissement.
+- **VENTES PAR COMMERCIAL (26/09, demande Channing)** : au-dessus de la
+  liste, pastilles « Tous · n / Antoine · n / Channing · n / Achille · n »
+  (« ANTOINE » et « Antoine » = même personne) + tri Date / Commercial /
+  Client / Prix ; tableaux, historique mensuel et indicateurs suivent la
+  vue ; choix mémorisé sur le navigateur.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
