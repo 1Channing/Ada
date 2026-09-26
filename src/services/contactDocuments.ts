@@ -34,6 +34,25 @@ export function contactDuplicateKey(c: { company_name?: string | null; first_nam
   return `${words.join('')}|${(c.postal_code ?? '').replace(/\s+/g, '')}`;
 }
 
+/** Identité d'une fiche : les mots du nom (société, sinon prénom + nom), canonisés
+ *  et triés, sans le code postal. Sert à savoir si le formulaire parle ENCORE de la
+ *  fiche sélectionnée ou d'une autre entreprise / personne. */
+export function contactIdentityKey(c: { company_name?: string | null; first_name?: string | null; last_name?: string | null }): string {
+  const name = (c.company_name ?? '').trim() || `${c.first_name ?? ''} ${c.last_name ?? ''}`;
+  return name.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join('');
+}
+
+/** Vrai quand le formulaire désigne la même entité que la fiche (même nom ; l'adresse
+ *  peut différer, c'est la correction d'adresse voulue). Faux dès que le nom change :
+ *  la fiche ne doit alors JAMAIS être réécrite (Oostendorp devenu van Ekris, 26/09). */
+export function sameContactIdentity(
+  a: { company_name?: string | null; first_name?: string | null; last_name?: string | null },
+  b: { company_name?: string | null; first_name?: string | null; last_name?: string | null },
+): boolean {
+  const ka = contactIdentityKey(a), kb = contactIdentityKey(b);
+  return ka !== '' && ka === kb;
+}
+
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export async function listContactDocuments(contactId: string): Promise<{ docs: ContactDocument[]; error: string | null }> {

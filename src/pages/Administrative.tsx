@@ -5,7 +5,8 @@ import { generateAdminDocument } from '../lib/adminDocGenerator';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
 import {
   contactCategory, contactDuplicateKey, listContactDocuments, listContactDocumentsFor, uploadContactDocument,
-  deleteContactDocument, renameContactDocument, contactDocumentUrl, mergeContactDocumentsPdf, type ContactDocument, type ContactCategory,
+  deleteContactDocument, renameContactDocument, contactDocumentUrl, mergeContactDocumentsPdf, sameContactIdentity,
+  type ContactDocument, type ContactCategory,
 } from '../services/contactDocuments';
 
 // DB columns are nullable — mirror that so typed Supabase rows fit directly.
@@ -609,7 +610,15 @@ export function Administrative() {
   ): Promise<string | null> => {
     const hasName = form.first_name || form.last_name || form.company_name;
     const clean = nullifyBlanks(form);
-    if (selected) {
+    // GARDE D'IDENTITÉ (26/09, constat Channing : « Autogroep Oostendorp »
+    // devenu « Automobielbedrijf van Ekris » avec ses 41 dossiers). Le
+    // brouillon re-sélectionne la fiche du dossier précédent ; l'opérateur
+    // tape par-dessus le nom et l'adresse d'un AUTRE client ; le save
+    // réécrivait la fiche sélectionnée. Règle : une fiche sélectionnée n'est
+    // mise à jour que si le formulaire porte encore SON nom (adresse, SIREN…
+    // corrigés librement). Nom différent = autre entité → on cherche ou on
+    // crée, la fiche d'origine reste intacte.
+    if (selected && sameContactIdentity(selected, form)) {
       await supabase.from('contacts').update(clean).eq('id', selected.id);
       return selected.id;
     }
@@ -1603,11 +1612,19 @@ export function Administrative() {
   ) => {
     return (
       <div className="space-y-4">
-        {selectedContact && (
+        {selectedContact && sameContactIdentity(selectedContact, form) && (
           <div className="px-3 py-2 bg-blue-50 border border-blue-300 rounded text-sm">
-            Using existing contact: <span className="font-medium">
+            Fiche existante : <span className="font-medium">
               {selectedContact.company_name || `${selectedContact.first_name} ${selectedContact.last_name}`}
             </span>
+            <span className="text-slate-500"> — adresse, SIREN… modifiés ici seront enregistrés sur cette fiche.</span>
+          </div>
+        )}
+        {selectedContact && !sameContactIdentity(selectedContact, form) && (
+          <div className="px-3 py-2 bg-amber-50 border border-amber-300 rounded text-sm text-amber-800">
+            Le nom saisi n'est plus celui de la fiche <span className="font-medium">
+              {selectedContact.company_name || `${selectedContact.first_name} ${selectedContact.last_name}`}
+            </span> : elle ne sera pas modifiée. À l'enregistrement, ADA relie la fiche qui porte ce nom, ou en crée une.
           </div>
         )}
 

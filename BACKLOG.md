@@ -762,6 +762,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
   annule), seul `contact_documents.label` change, le fichier et son chemin
   restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
+- **FICHE OOSTENDORP RÉÉCRITE EN VAN EKRIS (26/09, constat Channing : « plus
+  aucun dossier Oostendorp, trop de van Ekris »)**. Preuve : la fiche
+  a5711c59, créée le 23/07 à la seconde du dossier YC507 (vente Oostendorp
+  d'après le tableur), s'appelle aujourd'hui « Automobielbedrijf van Ekris
+  Mijdrecht B.V » ; 41 dossiers pointent sur elle, 30 portent en notes
+  « Client : AUTOGROEP OOSTENDORP », un seul (C070, Corolla du 16/09) est
+  une vraie vente van Ekris ; la synchro tableur retrouvait encore une fiche
+  « AUTOGROEP OOSTENDORP » le 18/09 08:40. Pas une suppression (FK ON DELETE
+  SET NULL : les dossiers auraient perdu leur acheteur). CLASSE : le
+  brouillon re-sélectionne la fiche du dossier précédent (correctif Louwman
+  du 31/08) ; l'opérateur saisit un autre client par-dessus ; le save
+  mettait à jour la fiche sélectionnée avec le nouveau nom. Corrigé :
+  `sameContactIdentity` — une fiche sélectionnée n'est réécrite que si le
+  formulaire porte encore son nom (adresse/SIREN libres) ; nom différent →
+  bandeau ambre « elle ne sera pas modifiée », puis filet SIREN / nom + CP
+  ou création. Réparation des données : migration 20260926150000 (recrée
+  Oostendorp, adresse à ressaisir ; rattache les 40 dossiers, C070 reste
+  van Ekris).
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
