@@ -802,6 +802,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   dossier ancien range son prix unique du côté de son sens) ; véhicule du
   tableur en repli (italique) quand le dossier n'a pas encore de fiche
   véhicule.
+- **MARGE HT (26/09, question Channing « les frais ne sont pas pris en
+  charge ou marge TTC ? »)**. Vérifié sur 68 dossiers du tableur : la
+  « commission HT » vaut (vente − achat) / 1,2 − frais HT, pour les
+  véhicules en TVA sur la marge comme pour ceux à TVA récupérable (« * »
+  en fin de nom : la fiscalité change, pas l'arithmétique quand les deux
+  prix sont TTC à 20 %) — 54 exacts, 13 au centime près (frais arrondis),
+  1 écart réel (YC784 : prix d'achat ADA 22 700 ≠ tableur). ADA calculait
+  vente − achat − frais (marge TTC, frais HT). Corrigé : tuiles « Marge HT »
+  = commission HT du tableur quand elle existe, sinon la même formule ;
+  info-bulle « * = TVA récupérable » sur le véhicule.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

@@ -104,6 +104,7 @@ type DealRow = {
   purchase_price: number | null;
   sale_price: number | null;
   fees: number | null;
+  commission_ht?: number | null;
   transaction_date: string | null;
   created_at: string;
   closed_at: string | null;
@@ -727,7 +728,7 @@ export function Administrative() {
       .from('transactions_admin')
       .select(`
         id, transaction_type, status, reference, commercial, transaction_price,
-        purchase_price, sale_price, fees, transaction_date, created_at, closed_at, notes,
+        purchase_price, sale_price, fees, commission_ht, transaction_date, created_at, closed_at, notes,
         vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(brand, model, plate_number),
         seller:contacts!transactions_admin_seller_contact_id_fkey(company_name, first_name, last_name),
         buyer:contacts!transactions_admin_buyer_contact_id_fkey(company_name, first_name, last_name)
@@ -1862,7 +1863,19 @@ export function Administrative() {
   const enCours = viewed.filter((d) => d.status !== 'cloturee');
   const cloturees = viewed.filter((d) => d.status === 'cloturee');
 
-  const dealMargin = (d: DealRow) => (d.sale_price ?? 0) - (d.purchase_price ?? 0) - (d.fees ?? 0);
+  // MARGE HT (26/09, vérifié sur 68 dossiers du tableur) : la « commission
+  // HT » du tableur vaut (vente − achat) / 1,2 − frais HT, pour les véhicules
+  // en TVA sur la marge COMME pour ceux à TVA récupérable (« * » : la
+  // fiscalité change, pas l'arithmétique quand les deux prix sont TTC à
+  // 20 %). On lit la valeur du tableur quand elle existe, sinon la même
+  // formule. L'ancien calcul vente − achat − frais mélangeait une marge TTC
+  // et des frais HT (E717 : 1 010 au lieu de 808,33).
+  const dealMargin = (d: DealRow) => {
+    if (d.commission_ht != null) return d.commission_ht;
+    const v = dealSale(d), a = dealPurchase(d);
+    if (v == null || a == null) return 0;
+    return (v - a) / 1.2 - (d.fees ?? 0);
+  };
   const sum = (arr: DealRow[], f: (d: DealRow) => number) => arr.reduce((s, d) => s + (f(d) || 0), 0);
 
   // KPIs
@@ -1898,7 +1911,7 @@ export function Administrative() {
           </span>
         </td>
         <td className="px-3 py-2.5 text-slate-800 truncate max-w-[180px]">{dealClient(d)}</td>
-        <td className={`px-3 py-2.5 truncate max-w-[160px] ${veh.fromSheet ? 'text-slate-500 italic' : 'text-slate-600'}`} title={veh.fromSheet ? 'Véhicule du tableur (pas encore de fiche véhicule)' : undefined}>{veh.label}</td>
+        <td className={`px-3 py-2.5 truncate max-w-[160px] ${veh.fromSheet ? 'text-slate-500 italic' : 'text-slate-600'}`} title={`${veh.fromSheet ? 'Véhicule du tableur (pas encore de fiche véhicule). ' : ''}${veh.label.endsWith('*') ? '* = TVA récupérable (hors TVA sur la marge)' : ''}`.trim() || undefined}>{veh.label}</td>
         <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{eur(dealPurchase(d))}</td>
         <td className="px-3 py-2.5 text-slate-900 font-medium whitespace-nowrap">{eur(dealSale(d))}</td>
         <td className="px-3 py-2.5 text-slate-600">{d.commercial || '—'}</td>
@@ -2002,9 +2015,9 @@ export function Administrative() {
       {/* Tableau de bord */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {kpi("Chiffre d'affaires en cours", eur(caEnCours), `${enCours.length} vente${enCours.length > 1 ? 's' : ''} en cours`, 'text-blue-700')}
-        {kpi('Marge en cours (est.)', eur(margeEnCours), 'vente − achat − frais')}
+        {kpi('Marge HT en cours', eur(Math.round(margeEnCours)), 'commission HT du tableur, sinon (vente − achat) / 1,2 − frais')}
         {kpi("CA du mois", eur(caMois), `${closedThisMonth.length} vente${closedThisMonth.length > 1 ? 's' : ''} clôturée${closedThisMonth.length > 1 ? 's' : ''}`, 'text-emerald-700')}
-        {kpi('Marge du mois', eur(margeMois), monthFmt.format(now))}
+        {kpi('Marge HT du mois', eur(Math.round(margeMois)), monthFmt.format(now))}
       </div>
 
       {dealsLoading && <p className="text-sm text-slate-500">Chargement…</p>}
