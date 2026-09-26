@@ -737,6 +737,27 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   pour la négociation d'un collègue (Open space), le nom reste sur le
   navigateur (repli local, dit à l'écran). Le PDF photos n'a pas de texte :
   le nom est celui du fichier téléchargé.
+- **CONTACTS : PRO / PARTICULIER, DOUBLONS, DOCUMENTS DES PROS (26/09, trois
+  demandes Channing)**. (1) DOUBLONS — cause prouvée : `persistContactSlot`
+  recréait une fiche à chaque génération de document quand la sélection du
+  contact s'était perdue (brouillon d'une autre machine) et que le
+  particulier n'avait pas de SIREN ; 13 groupes, 30 fiches en trop le
+  26/09 (Roudier ×6 le 18/09, Laurent-Lemetais ×6, Vernaelde ×5). Filet
+  ajouté : même nom (mots triés) + même code postal = même fiche, la plus
+  ancienne, mise à jour ; même garde sur « Ajouter un contact ». Bouton
+  « Fusionner les doublons » : garde la plus ancienne, rattache les 6
+  colonnes contact des dossiers (vendeur, vendeur 2, acheteur, acheteur 2,
+  fournisseur, client), supprime les autres, rend le compte ; MC Export
+  jamais fusionné. (2) PRO / PARTICULIER — `contacts.category` (migration
+  20260926120000), déduite tant qu'elle n'est pas posée (société ou SIREN
+  → pro) ; deux onglets avec compteurs, choix explicite dans le formulaire ;
+  sans la colonne, on écrit sans elle. (3) DOCUMENTS DES PROS — table
+  `contact_documents` + fichiers dans admin-documents/contacts/{id}/ : dépôt
+  (PDF, JPG, PNG), ouverture, suppression depuis la fiche ; dans un dossier,
+  section « Pièces de {pro} » à côté des documents (certificat de cession,
+  DA…) avec chaque pièce ouvrable et « Imprimer toutes les pièces » = un
+  seul PDF assemblé (pdf-lib : PDF recopiés page à page, images une page
+  chacune), affiché dans l'aperçu. SQL à coller : migration 20260926120000.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

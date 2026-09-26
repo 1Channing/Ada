@@ -3,6 +3,10 @@ import { Search, Plus, X, UserPlus, FileText, Download, History, Trash2, Pencil 
 import { supabase } from '../lib/supabase';
 import { generateAdminDocument } from '../lib/adminDocGenerator';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
+import {
+  contactCategory, contactDuplicateKey, listContactDocuments, listContactDocumentsFor, uploadContactDocument,
+  deleteContactDocument, contactDocumentUrl, mergeContactDocumentsPdf, type ContactDocument, type ContactCategory,
+} from '../services/contactDocuments';
 
 // DB columns are nullable — mirror that so typed Supabase rows fit directly.
 type Contact = {
@@ -22,6 +26,8 @@ type Contact = {
   phone?: string | null;
   email?: string | null;
   notes?: string | null;
+  /** 'pro' | 'particulier' — null = déduit (société ou SIREN → pro). */
+  category?: string | null;
 };
 
 type VehicleForm = {
@@ -272,6 +278,18 @@ export function Administrative() {
   const [mcExport, setMcExport] = useState<Contact | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+  // PRO / PARTICULIER (26/09, demande Channing) : deux listes, une catégorie
+  // par fiche (déduite tant qu'elle n'est pas posée), documents des pros.
+  const [contactTab, setContactTab] = useState<ContactCategory>('pro');
+  const [newContactCategory, setNewContactCategory] = useState<ContactCategory | null>(null);
+  const [contactDocs, setContactDocs] = useState<ContactDocument[]>([]);
+  const [contactDocsError, setContactDocsError] = useState<string | null>(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [docsCountByContact, setDocsCountByContact] = useState<Record<string, number>>({});
+  const [partyDocs, setPartyDocs] = useState<Record<string, ContactDocument[]>>({});
+  const [mergingDocsFor, setMergingDocsFor] = useState<string | null>(null);
+  const [mergeReport, setMergeReport] = useState<string | null>(null);
+  const [mergingDuplicates, setMergingDuplicates] = useState(false);
 
   // Deals list workflow: land on the list, open a deal into the editor.
   const [mode, setMode] = useState<'list' | 'editor'>('list');
@@ -334,7 +352,63 @@ export function Administrative() {
 
     if (!error && data) {
       setContacts(data);
+      const pros = (data as Contact[]).filter((c) => contactCategory(c) === 'pro').map((c) => c.id);
+      const byId = await listContactDocumentsFor(pros);
+      setDocsCountByContact(Object.fromEntries(Object.entries(byId).map(([k, v]) => [k, v.length])));
     }
+  };
+
+  // Pièces des contreparties du dossier (vendeur / acheteur pros) — rechargées
+  // à chaque changement de sélection, pour la section « Documents ».
+  useEffect(() => {
+    const ids = [selectedSellerContact, selectedBuyerContact]
+      .filter((c): c is Contact => Boolean(c) && contactCategory(c as Contact) === 'pro' && (c as Contact).siren !== MC_EXPORT_SIREN)
+      .map((c) => c.id);
+    if (ids.length === 0) { setPartyDocs({}); return; }
+    let alive = true;
+    void listContactDocumentsFor(ids).then((r) => { if (alive) setPartyDocs(r); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSellerContact?.id, selectedBuyerContact?.id]);
+
+  /**
+   * FUSION DES DOUBLONS (26/09, constat Channing : 15 groupes, 32 fiches en
+   * trop — Roudier ×6 le 18/09). Même nom (mots triés) et même code postal
+   * = même personne ; la plus ANCIENNE fiche fait foi (l'historique la
+   * référence), les dossiers qui pointaient sur les autres sont rattachés à
+   * elle, puis les autres sont supprimées. MC Export n'est jamais fusionné.
+   */
+  const mergeDuplicateContacts = async () => {
+    const groups = new Map<string, Contact[]>();
+    for (const c of contacts) {
+      if (c.id === mcExport?.id || c.siren === MC_EXPORT_SIREN) continue;
+      const k = contactDuplicateKey(c);
+      if (!k) continue;
+      (groups.get(k) ?? groups.set(k, []).get(k)!).push(c);
+    }
+    const dupGroups = [...groups.values()].filter((g) => g.length > 1);
+    if (dupGroups.length === 0) { setMergeReport('Aucun doublon : même nom et même code postal nulle part.'); return; }
+    const extra = dupGroups.reduce((a, g) => a + g.length - 1, 0);
+    if (!confirm(`${dupGroups.length} groupe(s) de doublons, ${extra} fiche(s) en trop. Fusionner ? La fiche la plus ancienne est gardée, les dossiers sont rattachés à elle, les autres fiches sont supprimées.`)) return;
+    setMergingDuplicates(true);
+    let merged = 0, relinked = 0;
+    const cols = ['seller_contact_id', 'seller_contact_id_2', 'buyer_contact_id', 'buyer_contact_id_2', 'supplier_contact_id', 'client_contact_id'];
+    try {
+      for (const g of dupGroups) {
+        const sorted = [...g].sort((a, b) => String((a as { created_at?: string }).created_at ?? '').localeCompare(String((b as { created_at?: string }).created_at ?? '')));
+        const keeper = sorted[0];
+        for (const dup of sorted.slice(1)) {
+          for (const col of cols) {
+            const { data } = await supabase.from('transactions_admin').update({ [col]: keeper.id } as never).eq(col, dup.id).select('id');
+            relinked += (data ?? []).length;
+          }
+          const { error } = await supabase.from('contacts').delete().eq('id', dup.id);
+          if (!error) merged++;
+        }
+      }
+      setMergeReport(`${merged} fiche(s) fusionnée(s), ${relinked} dossier(s) rattaché(s) à la fiche conservée.`);
+      await loadContacts();
+    } finally { setMergingDuplicates(false); }
   };
 
   const contactToForm = (c: Contact): ContactForm => ({
@@ -549,6 +623,20 @@ export function Administrative() {
         return bySiren.id;
       }
     }
+    // Filet anti-doublon par NOM + CODE POSTAL (26/09, constat Channing :
+    // Roudier ×6, Pilon ×4 — chaque génération de document sans sélection
+    // recréait le particulier). Même personne = la fiche existante, la plus
+    // ancienne, mise à jour avec ce que l'opérateur voit.
+    const key = contactDuplicateKey(form);
+    if (key) {
+      const same = contacts
+        .filter((c) => contactDuplicateKey(c) === key)
+        .sort((a, b) => String((a as { created_at?: string }).created_at ?? '').localeCompare(String((b as { created_at?: string }).created_at ?? '')))[0];
+      if (same) {
+        await supabase.from('contacts').update(clean).eq('id', same.id);
+        return same.id;
+      }
+    }
     if (hasName) {
       const { data, error } = await supabase
         .from('contacts').insert({ type, ...clean }).select('id').single();
@@ -653,12 +741,52 @@ export function Administrative() {
   const startEditContact = (c: Contact) => {
     setEditingContactId(c.id);
     setNewContact(contactToForm(c));
+    setNewContactCategory(contactCategory(c));
     setContactNotice(null);
+    setContactDocs([]); setContactDocsError(null);
+    if (contactCategory(c) === 'pro') void listContactDocuments(c.id).then((r) => { setContactDocs(r.docs); setContactDocsError(r.error); });
   };
   const cancelEditContact = () => {
     setEditingContactId(null);
     setNewContact(EMPTY_CONTACT);
+    setNewContactCategory(null);
     setContactNotice(null);
+    setContactDocs([]); setContactDocsError(null);
+  };
+  /** Catégorie effective du formulaire : choix explicite, sinon déduite de la société / du SIREN. */
+  const formCategory: ContactCategory = newContactCategory ?? contactCategory({ company_name: newContact.company_name, siren: newContact.siren });
+  const uploadDocForEditing = async (files: FileList | null) => {
+    if (!editingContactId || !files?.length) return;
+    setUploadingDoc(true); setContactDocsError(null);
+    try {
+      for (const f of Array.from(files)) {
+        const r = await uploadContactDocument(editingContactId, f);
+        if (r.error) { setContactDocsError(r.error); break; }
+        if (r.doc) setContactDocs((d) => [...d, r.doc!]);
+      }
+      setDocsCountByContact((m) => ({ ...m, [editingContactId]: (m[editingContactId] ?? 0) + 1 }));
+    } finally { setUploadingDoc(false); }
+  };
+  const removeDoc = async (doc: ContactDocument) => {
+    if (!confirm(`Supprimer « ${doc.label} » ?`)) return;
+    const err = await deleteContactDocument(doc);
+    if (err) { setContactDocsError(err); return; }
+    setContactDocs((d) => d.filter((x) => x.id !== doc.id));
+    setDocsCountByContact((m) => ({ ...m, [doc.contact_id]: Math.max(0, (m[doc.contact_id] ?? 1) - 1) }));
+  };
+  /** Pièces d'un pro du dossier → un seul PDF, dans l'aperçu documents. */
+  const printPartyDocs = async (c: Contact) => {
+    const docs = partyDocs[c.id] ?? [];
+    if (docs.length === 0) return;
+    setMergingDocsFor(c.id);
+    try {
+      const { blob, pages, skipped } = await mergeContactDocumentsPdf(docs);
+      const name = c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim();
+      setDocPreview((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url);
+        return { url: URL.createObjectURL(blob), docType: `Pièces — ${name} (${pages} page${pages > 1 ? 's' : ''})`, fileName: `pieces_${name.replace(/[^A-Za-z0-9]+/g, '_')}.pdf`, missing: skipped.map((l) => `illisible : ${l}`) };
+      });
+    } finally { setMergingDocsFor(null); }
   };
 
   const addContact = async () => {
@@ -670,16 +798,33 @@ export function Administrative() {
       const label = newContact.company_name
         || `${newContact.first_name} ${newContact.last_name}`.trim()
         || 'Contact';
+      // Catégorie enregistrée quand la colonne existe (SQL du 26/09) ; sans
+      // elle, on écrit sans — la catégorie reste déduite, rien ne bloque.
+      const withCat = { ...clean, category: formCategory } as Record<string, unknown>;
+      const write = async (payload: Record<string, unknown>) => {
+        const r = editingContactId
+          ? await supabase.from('contacts').update(payload as never).eq('id', editingContactId)
+          : await supabase.from('contacts').insert({ type: 'client', ...payload } as never);
+        return r.error;
+      };
+      if (!editingContactId) {
+        const key = contactDuplicateKey(newContact);
+        const same = key ? contacts.find((c) => contactDuplicateKey(c) === key) : undefined;
+        if (same) {
+          setContactNotice({ ok: false, text: `« ${label} » existe déjà (même nom, même code postal) — utilise « Modifier » sur la fiche existante.` });
+          return;
+        }
+      }
+      let error = await write(withCat);
+      if (error && /category/i.test(error.message)) error = await write(clean as unknown as Record<string, unknown>);
+      if (error) throw new Error(error.message);
       if (editingContactId) {
-        const { error } = await supabase.from('contacts').update(clean).eq('id', editingContactId);
-        if (error) throw new Error(error.message);
         setContactNotice({ ok: true, text: `« ${label} » mis à jour.` });
         setEditingContactId(null);
       } else {
-        const { error } = await supabase.from('contacts').insert({ type: 'client', ...clean });
-        if (error) throw new Error(error.message);
-        setContactNotice({ ok: true, text: `« ${label} » ajouté.` });
+        setContactNotice({ ok: true, text: `« ${label} » ajouté (${formCategory === 'pro' ? 'professionnel' : 'particulier'}).` });
       }
+      setNewContactCategory(null); setContactDocs([]);
       // Formulaire vidé UNIQUEMENT après une écriture réussie.
       setNewContact(EMPTY_CONTACT);
       await loadContacts();
@@ -1875,14 +2020,39 @@ export function Administrative() {
               <h2 className="text-xl font-semibold text-slate-900">Contacts enregistrés</h2>
               <p className="text-sm text-slate-500">Faites le propre : supprimez les doublons. MC Export ne peut pas être supprimé.</p>
             </div>
-            <span className="text-sm text-slate-500">{contacts.length} contact(s)</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-500">{contacts.length} contact(s)</span>
+              <button
+                onClick={() => void mergeDuplicateContacts()}
+                disabled={mergingDuplicates}
+                className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50"
+                title="Même nom (mots triés) et même code postal = même personne : la fiche la plus ancienne est gardée, les dossiers rattachés, les autres supprimées"
+              >
+                {mergingDuplicates ? 'Fusion…' : 'Fusionner les doublons'}
+              </button>
+            </div>
           </div>
+          {mergeReport && <p className="text-sm text-emerald-700 mb-3">{mergeReport}</p>}
 
           {/* Ajout / modification d'un contact */}
           <div className={`mb-5 p-4 border rounded-lg space-y-3 ${editingContactId ? 'bg-blue-50 border-blue-300' : 'bg-slate-100 border-slate-200'}`}>
-            <p className="text-sm font-medium text-slate-700">
-              {editingContactId ? 'Modifier le contact' : 'Ajouter un contact'}
-            </p>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-sm font-medium text-slate-700">
+                {editingContactId ? 'Modifier le contact' : 'Ajouter un contact'}
+              </p>
+              <div className="flex items-center gap-1 text-xs" role="radiogroup" aria-label="Catégorie">
+                {(['pro', 'particulier'] as const).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setNewContactCategory(k)}
+                    className={`px-2.5 py-1 rounded-full border ${formCategory === k ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+                  >
+                    {k === 'pro' ? 'Professionnel' : 'Particulier'}
+                  </button>
+                ))}
+                {newContactCategory == null && <span className="text-slate-400 ml-1">(déduit)</span>}
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <input
                 value={newContact.company_name}
@@ -1934,6 +2104,29 @@ export function Administrative() {
                 {contactNotice.text}
               </p>
             )}
+            {/* DOCUMENTS DU PROFESSIONNEL (26/09) : Kbis, pièce d'identité du
+                gérant, RIB, mandat… rangés dans ADA, imprimables avec les
+                documents du dossier (certificat de cession, DA…). */}
+            {editingContactId && formCategory === 'pro' && (
+              <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-xs font-medium text-slate-700">Documents du professionnel <span className="text-slate-400 font-normal">— Kbis, pièce d'identité, RIB, mandat…</span></p>
+                  <label className={`text-xs px-2.5 py-1 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 cursor-pointer ${uploadingDoc ? 'opacity-50' : ''}`}>
+                    {uploadingDoc ? 'Dépôt…' : '+ Déposer (PDF, JPG, PNG)'}
+                    <input type="file" accept="application/pdf,image/jpeg,image/png" multiple className="hidden" disabled={uploadingDoc} onChange={(e) => { void uploadDocForEditing(e.target.files); e.target.value = ''; }} />
+                  </label>
+                </div>
+                {contactDocsError && <p className="text-xs text-amber-700">{contactDocsError}</p>}
+                {contactDocs.length === 0 && !contactDocsError && <p className="text-xs text-slate-400">Aucun document pour l'instant.</p>}
+                {contactDocs.map((d) => (
+                  <div key={d.id} className="flex items-center justify-between gap-3 text-xs">
+                    <a href={contactDocumentUrl(d.path)} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate">{d.label}</a>
+                    <span className="text-slate-400 whitespace-nowrap">{new Date(d.created_at).toLocaleDateString('fr-FR')}{d.size_bytes ? ` · ${Math.round(d.size_bytes / 1024)} Ko` : ''}</span>
+                    <button onClick={() => void removeDoc(d)} className="text-red-600 hover:text-red-700 whitespace-nowrap">Supprimer</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex items-center justify-end gap-3">
               {/* La condition du bouton est ÉCRITE, plus seulement subie. */}
               {!newContact.company_name && !newContact.first_name && !newContact.last_name && (
@@ -1955,10 +2148,22 @@ export function Administrative() {
             </div>
           </div>
 
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            {(['pro', 'particulier'] as const).map((k) => {
+              const n = contacts.filter((c) => contactCategory(c) === k).length;
+              return (
+                <button key={k} onClick={() => setContactTab(k)} className={`px-3 py-1.5 rounded-lg text-sm border ${contactTab === k ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}>
+                  {k === 'pro' ? 'Professionnels' : 'Particuliers'} <span className={contactTab === k ? 'text-slate-300' : 'text-slate-400'}>{n}</span>
+                </button>
+              );
+            })}
+            <span className="text-xs text-slate-400 ml-2">Sans catégorie posée : société ou SIREN renseigné = professionnel.</span>
+          </div>
           <div className="max-h-96 overflow-y-auto divide-y divide-slate-200">
             {contacts.length === 0 && <p className="text-sm text-slate-500 py-4">Aucun contact pour l'instant.</p>}
-            {contacts.map((c) => {
+            {contacts.filter((c) => contactCategory(c) === contactTab).map((c) => {
               const isMc = c.id === mcExport?.id || c.siren === MC_EXPORT_SIREN;
+              const nDocs = docsCountByContact[c.id] ?? 0;
               const name = c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || '(sans nom)';
               const loc = [c.postal_code, c.city].filter(Boolean).join(' ');
               return (
@@ -1967,6 +2172,7 @@ export function Administrative() {
                     <div className="text-sm text-slate-800 truncate flex items-center gap-2">
                       {name}
                       {isMc && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">MC Export</span>}
+                      {nDocs > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600" title="Documents enregistrés">{nDocs} doc{nDocs > 1 ? 's' : ''}</span>}
                     </div>
                     <div className="text-xs text-slate-500 truncate">
                       {[c.address_line1, loc, c.siren && `SIREN ${c.siren}`].filter(Boolean).join(' · ')}
@@ -2543,6 +2749,34 @@ export function Administrative() {
               </button>
             ))}
           </div>
+          {/* PIÈCES DU PROFESSIONNEL (26/09) : à côté des documents du dossier,
+              les documents enregistrés sur la fiche du vendeur / acheteur pro
+              — chacun ouvrable, et tous en un seul PDF à imprimer. */}
+          {[selectedSellerContact, selectedBuyerContact]
+            .filter((c): c is Contact => Boolean(c) && contactCategory(c as Contact) === 'pro' && (c as Contact).siren !== MC_EXPORT_SIREN)
+            .map((c) => {
+              const docs = partyDocs[c.id] ?? [];
+              const name = c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim();
+              return (
+                <div key={c.id} className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <p className="text-sm font-medium text-slate-800">Pièces de {name} <span className="text-slate-400 font-normal">({docs.length})</span></p>
+                    {docs.length > 0 && (
+                      <button onClick={() => void printPartyDocs(c)} disabled={mergingDocsFor === c.id} className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white disabled:opacity-50">
+                        {mergingDocsFor === c.id ? 'Assemblage…' : 'Imprimer toutes les pièces (un PDF)'}
+                      </button>
+                    )}
+                  </div>
+                  {docs.length === 0
+                    ? <p className="text-xs text-slate-500 mt-1">Aucun document sur cette fiche — dépose-les depuis « Contacts enregistrés » → Modifier.</p>
+                    : (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {docs.map((d) => <a key={d.id} href={contactDocumentUrl(d.path)} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg bg-white border border-slate-300 text-blue-700 hover:bg-blue-50">{d.label}</a>)}
+                      </div>
+                    )}
+                </div>
+              );
+            })}
         </section>
 
         {/* Aperçu + rapport de complétude du dernier document généré */}
