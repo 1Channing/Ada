@@ -2,12 +2,20 @@ import { useState, useEffect, useCallback } from 'react';
 import { Search, Plus, X, UserPlus, FileText, Download, History, Trash2, Pencil } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { generateAdminDocument } from '../lib/adminDocGenerator';
+import { DEFAULT_SIGNATURE_LOCATION } from '../lib/templateEngine';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
 import {
   contactCategory, contactDuplicateKey, listContactDocuments, listContactDocumentsFor, uploadContactDocument,
   deleteContactDocument, renameContactDocument, contactDocumentUrl, mergeContactDocumentsPdf, sameContactIdentity,
   type ContactDocument, type ContactCategory,
 } from '../services/contactDocuments';
+
+const isMissingSignatureColumn = (e: { message?: string } | null) => /signature_location/.test(e?.message ?? '');
+const withoutSignatureLocation = <T extends { signature_location?: string | null }>(p: T): Omit<T, 'signature_location'> => {
+  const copy: Record<string, unknown> = { ...p };
+  delete copy.signature_location;
+  return copy as Omit<T, 'signature_location'>;
+};
 
 // DB columns are nullable — mirror that so typed Supabase rows fit directly.
 type Contact = {
@@ -75,6 +83,8 @@ type TransactionForm = {
   pickup_datetime: string;
   destination: string;
   transporter: string;
+  /** « Fait à » des cessions — distinct du lieu d'enlèvement (26/09). */
+  signature_location: string;
 };
 
 // A deal row for the list view (transaction + joined vehicle/parties).
@@ -240,6 +250,7 @@ export function Administrative() {
     pickup_datetime: '',
     destination: '',
     transporter: '',
+    signature_location: DEFAULT_SIGNATURE_LOCATION,
   });
 
   const [showSecondSeller, setShowSecondSeller] = useState(false);
@@ -279,6 +290,9 @@ export function Administrative() {
   const [mcExport, setMcExport] = useState<Contact | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+  // Colonne signature_location (SQL du 26/09) absente : enregistrement sans
+  // elle, avertissement dans la section « Date et lieu de la cession ».
+  const [signatureColumnMissing, setSignatureColumnMissing] = useState(false);
   // PRO / PARTICULIER (26/09, demande Channing) : deux listes, une catégorie
   // par fiche (déduite tant qu'elle n'est pas posée), documents des pros.
   const [contactTab, setContactTab] = useState<ContactCategory>('pro');
@@ -320,7 +334,7 @@ export function Administrative() {
       setSellerForm2(draft.sellerForm2);
       setBuyerForm(draft.buyerForm);
       setBuyerForm2(draft.buyerForm2);
-      setTransactionForm({ reference: '', commercial: '', notes: '', purchase_price: '', sale_price: '', fees: '', ...draft.transactionForm });
+      setTransactionForm({ reference: '', commercial: '', notes: '', purchase_price: '', sale_price: '', fees: '', signature_location: DEFAULT_SIGNATURE_LOCATION, ...draft.transactionForm });
       setShowSecondSeller(draft.showSecondSeller);
       setShowSecondBuyer(draft.showSecondBuyer);
       setLastSavedTransactionId(draft.lastSavedTransactionId);
@@ -923,6 +937,8 @@ export function Administrative() {
       transaction_date: tx.transaction_date ?? '', transaction_time: tx.transaction_time ?? '',
       pickup_location: tx.pickup_location ?? '', pickup_contact: tx.pickup_contact ?? '',
       pickup_datetime: tx.pickup_datetime ?? '', destination: tx.destination ?? '', transporter: tx.transporter ?? '',
+      // Dossiers d'avant le 26/09 (colonne vide) : le siège, jamais le lieu d'enlèvement.
+      signature_location: ((tx as { signature_location?: string | null }).signature_location ?? '').trim() || DEFAULT_SIGNATURE_LOCATION,
     });
 
     setLastSavedTransactionId(id);
@@ -1097,6 +1113,7 @@ export function Administrative() {
       pickup_datetime: '',
       destination: '',
       transporter: '',
+      signature_location: DEFAULT_SIGNATURE_LOCATION,
     });
     setShowSecondSeller(false);
     setShowSecondBuyer(false);
@@ -1251,9 +1268,7 @@ export function Administrative() {
           selectedBuyer2Contact, buyerForm2, transactionType === 'sale' ? 'buyer' : 'seller');
       }
 
-      const { data: transactionData, error: transactionError } = await supabase
-        .from('transactions_admin')
-        .insert({
+      const insertPayload = {
           transaction_type: transactionType,
           vehicle_id: vehicleData.id,
           seller_contact_id: sellerId,
@@ -1276,11 +1291,20 @@ export function Administrative() {
           pickup_datetime: transactionForm.pickup_datetime || null,
           destination: transactionForm.destination || null,
           transporter: transactionForm.transporter || null,
-        })
-        .select()
-        .single();
+          signature_location: transactionForm.signature_location.trim() || null,
+      };
+      let { data: transactionData, error: transactionError } = await supabase
+        .from('transactions_admin').insert(insertPayload).select().single();
+      if (transactionError && isMissingSignatureColumn(transactionError)) {
+        // SQL du 26/09 pas encore collé : on enregistre sans le lieu de
+        // signature (les documents imprimeront le siège) et on le dit.
+        setSignatureColumnMissing(true);
+        ({ data: transactionData, error: transactionError } = await supabase
+          .from('transactions_admin').insert(withoutSignatureLocation(insertPayload)).select().single());
+      }
 
       if (transactionError) throw transactionError;
+      if (!transactionData) throw new Error('Dossier enregistré sans identifiant renvoyé');
 
       const savedTransactionId = transactionData.id;
       setLastSavedTransactionId(savedTransactionId);
@@ -1371,9 +1395,7 @@ export function Administrative() {
           selectedBuyer2Contact, buyerForm2, transactionType === 'sale' ? 'buyer' : 'seller');
       }
 
-      const { error: transactionError } = await supabase
-        .from('transactions_admin')
-        .update({
+      const updatePayload = {
           transaction_type: transactionType,
           seller_contact_id: sellerId,
           seller_contact_id_2: sellerContactId2,
@@ -1395,8 +1417,15 @@ export function Administrative() {
           pickup_datetime: transactionForm.pickup_datetime || null,
           destination: transactionForm.destination || null,
           transporter: transactionForm.transporter || null,
-        })
-        .eq('id', lastSavedTransactionId);
+          signature_location: transactionForm.signature_location.trim() || null,
+      };
+      let { error: transactionError } = await supabase
+        .from('transactions_admin').update(updatePayload).eq('id', lastSavedTransactionId);
+      if (transactionError && isMissingSignatureColumn(transactionError)) {
+        setSignatureColumnMissing(true);
+        ({ error: transactionError } = await supabase
+          .from('transactions_admin').update(withoutSignatureLocation(updatePayload)).eq('id', lastSavedTransactionId));
+      }
 
       if (transactionError) throw transactionError;
 
@@ -2662,9 +2691,30 @@ export function Administrative() {
         </section>
 
         <section className="bg-white border border-slate-200 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-slate-900">Date de la transaction</h2>
+          <h2 className="text-xl font-semibold mb-1 text-slate-900">Date et lieu de la cession</h2>
+          {/* UNE seule source pour les documents (certificat de cession,
+              déclaration d'achat) : date, heure, « Fait à ». Le lieu
+              d'enlèvement (section Pickup) n'y entre plus — constat Channing
+              26/09 : un dossier basculé achat → vente imprimait la consigne
+              d'enlèvement comme lieu de signature. */}
+          <p className="text-sm text-slate-500 mb-4">Ces trois champs remplissent le certificat de cession et la déclaration d'achat. Le lieu d'enlèvement n'y entre pas.</p>
+          {signatureColumnMissing && (
+            <p className="text-xs text-amber-700 mb-3">SQL du 26/09 (signature_location) à coller : le lieu de signature n'est pas enregistré, les documents imprimeront « {DEFAULT_SIGNATURE_LOCATION} ».</p>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className="block text-sm font-medium mb-1 text-slate-700">
+                Lieu de la cession <span className="text-slate-500 font-normal">(« Fait à » du certificat de cession — par défaut le siège)</span>
+              </label>
+              <input
+                type="text"
+                value={transactionForm.signature_location}
+                onChange={(e) => updateTransactionForm({ signature_location: e.target.value })}
+                placeholder={DEFAULT_SIGNATURE_LOCATION}
+                className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium mb-1 text-slate-700">Transaction Date</label>
               <input
@@ -2689,11 +2739,12 @@ export function Administrative() {
 
         {transactionType === 'purchase' && (
           <section className="bg-white border border-slate-200 rounded-xl p-6">
-            <h2 className="text-xl font-semibold mb-4 text-slate-900">Pickup</h2>
+            <h2 className="text-xl font-semibold mb-1 text-slate-900">Pickup</h2>
+            <p className="text-sm text-slate-500 mb-4">Enlèvement du véhicule — fiche d'enlèvement uniquement, jamais le certificat de cession.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Pickup Location</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Pickup Location <span className="text-slate-500 font-normal">(lieu d'enlèvement)</span></label>
                 <input
                   type="text"
                   value={transactionForm.pickup_location}
@@ -2730,22 +2781,8 @@ export function Administrative() {
             <h2 className="text-xl font-semibold mb-4 text-slate-900">Delivery</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Lieu de la vente → « Fait à » du certificat de cession. Même
-                  champ de données que le lieu de signature côté achat
-                  (pickup_location), qui n'était saisissable QUE côté achat —
-                  une vente laissait le « Fait à » vide (signalement 21/07). */}
-              <div className="col-span-2">
-                <label className="block text-sm font-medium mb-1 text-slate-700">
-                  Lieu de la vente <span className="text-slate-500">(« Fait à » du certificat de cession)</span>
-                </label>
-                <input
-                  type="text"
-                  value={transactionForm.pickup_location}
-                  onChange={(e) => updateTransactionForm({ pickup_location: e.target.value })}
-                  placeholder="ANGERS"
-                  className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
-                />
-              </div>
+              {/* Le « Fait à » du certificat vit dans « Date et lieu de la
+                  cession » (26/09) — ici seulement la logistique. */}
               <div>
                 <label className="block text-sm font-medium mb-1 text-slate-700">Destination</label>
                 <input

@@ -927,6 +927,7 @@ export type Database = {
           pickup_datetime: string | null
           destination: string | null
           transporter: string | null
+          signature_location?: string | null
           owner_user_id?: string | null
           commission_ht?: number | null
         }
@@ -957,6 +958,7 @@ export type Database = {
           pickup_datetime?: string | null
           destination?: string | null
           transporter?: string | null
+          signature_location?: string | null
           owner_user_id?: string | null
           commission_ht?: number | null
         }
@@ -987,6 +989,7 @@ export type Database = {
           pickup_datetime?: string | null
           destination?: string | null
           transporter?: string | null
+          signature_location?: string | null
           owner_user_id?: string | null
           commission_ht?: number | null
         }

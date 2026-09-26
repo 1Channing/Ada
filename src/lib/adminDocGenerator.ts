@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { generatePDFFromTemplate, DocumentData } from './templateEngine';
+import { generatePDFFromTemplate, DocumentData, signatureLocationOf } from './templateEngine';
 
 export interface AdminDocResult {
   blob: Blob;
@@ -38,7 +38,7 @@ const DOC_FIELD_SPECS: Record<string, FieldSpec[]> = {
     ['Ville acheteur', (d) => d.buyer?.city],
     ['Date de vente', (d) => d.transaction.transaction_date],
     ['Heure de vente', (d) => d.transaction.transaction_time],
-    ['Lieu (signature)', (d) => d.transaction.pickup_location],
+    ['Lieu (signature)', (d) => signatureLocationOf(d.transaction)],
   ],
   "Déclaration d'achat": [
     ['Immatriculation', (d) => d.vehicle.plate_number],
@@ -153,6 +153,8 @@ export async function generateAdminDocument(
       pickup_datetime: transaction.pickup_datetime,
       destination: transaction.destination,
       transporter: transaction.transporter,
+      // Colonne du 26/09 ; absente tant que le SQL n'est pas collé → siège.
+      signature_location: (transaction as { signature_location?: string | null }).signature_location ?? null,
     },
     seller: transaction.seller ? {
       company_name: transaction.seller.company_name,

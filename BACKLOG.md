@@ -780,6 +780,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   ou création. Réparation des données : migration 20260926150000 (recrée
   Oostendorp, adresse à ressaisir ; rattache les 40 dossiers, C070 reste
   van Ekris).
+- **LIEU DE SIGNATURE DES CESSIONS ≠ LIEU D'ENLÈVEMENT (26/09, demande
+  Channing : « le pickup location devient le lieu dans Delivery, ça a faussé
+  plusieurs cessions »)**. Preuve en base : `pickup_location` porte côté
+  vente « TE RÉCUPÈRE À LA GARE DE VANNES », « GARE DE BIARRITZ », « VD2L »,
+  « MEAILLES »… — consignes d'enlèvement saisies côté achat, imprimées comme
+  « Fait à » du certificat après bascule achat → vente (un seul champ pour
+  les deux usages depuis le 21/07). Corrigé : colonne `signature_location`
+  (migration 20260926160000), section unique « Date et lieu de la cession »
+  (date, heure, lieu « Fait à », par défaut « Les Ponts-de-Cé ») qui seule
+  nourrit certificat de cession et déclaration d'achat ; Pickup ne nourrit
+  plus que la fiche d'enlèvement ; « Lieu de la vente » retiré de Delivery.
+  Dossiers antérieurs : colonne vide → le siège (le lieu d'enlèvement n'est
+  jamais repris). Sans le SQL : enregistrement sans la colonne + avertissement.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :

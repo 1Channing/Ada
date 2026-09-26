@@ -1,5 +1,5 @@
 import { PDFDocument, PDFForm, PDFTextField, PDFCheckBox, PDFRadioGroup } from 'pdf-lib';
-import { DocumentData } from '../templateEngine';
+import { DocumentData, signatureLocationOf } from '../templateEngine';
 import { parseAddressLine } from './utils/fieldHelpers';
 
 function normalizeBoxedValue(fieldName: string, value: string): string {
@@ -317,12 +317,13 @@ export async function renderCertificatCession(
     fillFieldSafely(form, `${prefix}.ckb_ValidationDéclarationA2[0]`, 'yes', `buyer.validation.informe (${page})`, errors);
 
     // Signature fields - Location
-    if (data.transaction?.pickup_location?.trim()) {
-      fillFieldSafely(form, `topmostSubform[0].${page}[0].txt_LieuDéclaration1[0]`, data.transaction.pickup_location, 'seller.signature.location', errors, false);
-      fillFieldSafely(form, `topmostSubform[0].${page}[0].txt_LieuDéclaration2[0]`, data.transaction.pickup_location, 'buyer.signature.location', errors, false);
-      console.log(`[CESSION] Filled signature location`);
-    } else {
-      console.log(`[CESSION] Signature location missing (allowed)`);
+    // « Fait à » = lieu de signature (signature_location, sinon le siège) —
+    // plus JAMAIS le lieu d'enlèvement (constat Channing 26/09).
+    {
+      const signatureLocation = signatureLocationOf(data.transaction);
+      fillFieldSafely(form, `topmostSubform[0].${page}[0].txt_LieuDéclaration1[0]`, signatureLocation, 'seller.signature.location', errors, false);
+      fillFieldSafely(form, `topmostSubform[0].${page}[0].txt_LieuDéclaration2[0]`, signatureLocation, 'buyer.signature.location', errors, false);
+      console.log(`[CESSION] Filled signature location = "${signatureLocation}"`);
     }
 
     // Signature fields - Date

@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { DocumentData } from '../templateEngine';
+import { DocumentData, signatureLocationOf } from '../templateEngine';
 import {
   fillFieldSafely,
   fillSplitDateFields,
@@ -70,7 +70,8 @@ function fillVehicleFields(form: any, data: DocumentData, errors: string[]): voi
 function fillTransactionFields(form: any, data: DocumentData, errors: string[]): void {
   const transactionDate = data.transaction?.transaction_date;
   const transactionTime = data.transaction?.transaction_time;
-  const transactionLocation = data.transaction?.pickup_location;
+  // Lieu de la transaction = lieu de signature (jamais le lieu d'enlèvement, 26/09).
+  const transactionLocation = signatureLocationOf(data.transaction);
 
   if (transactionDate) {
     fillSplitDateFields(

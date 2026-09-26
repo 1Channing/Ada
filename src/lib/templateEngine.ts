@@ -52,6 +52,9 @@ export type DocumentData = {
     pickup_datetime?: Maybe<string>;
     destination?: Maybe<string>;
     transporter?: Maybe<string>;
+    /** « Fait à » du certificat de cession et de la déclaration d'achat — distinct
+     *  du lieu d'enlèvement depuis le 26/09 (voir signatureLocationOf). */
+    signature_location?: Maybe<string>;
   };
   seller?: ContactData;
   seller2?: ContactData;
@@ -131,4 +134,21 @@ export async function generatePDFFromTemplate(
   console.log(`[TEMPLATE_ENGINE] PDF exported successfully (${(pdfBytes.length / 1024).toFixed(2)} KB)`);
 
   return pdfBytes;
+}
+
+/** Siège de MC Export : lieu de signature par défaut des cessions (règle Channing 26/09). */
+export const DEFAULT_SIGNATURE_LOCATION = 'Les Ponts-de-Cé';
+
+/**
+ * Lieu « Fait à » des certificats de cession et déclarations d'achat. Constat
+ * Channing 26/09 : le même champ servait de lieu d'ENLÈVEMENT côté achat
+ * (« TE RÉCUPÈRE À LA GARE DE VANNES », « GARE DE BIARRITZ »…) et de lieu de
+ * SIGNATURE côté vente — un dossier basculé achat → vente imprimait la consigne
+ * d'enlèvement sur le certificat. Désormais : la colonne signature_location,
+ * et sinon le siège. Le lieu d'enlèvement ne nourrit plus que la fiche
+ * d'enlèvement.
+ */
+export function signatureLocationOf(t: DocumentData['transaction'] | null | undefined): string {
+  const v = (t?.signature_location ?? '').trim();
+  return v || DEFAULT_SIGNATURE_LOCATION;
 }

@@ -77,6 +77,7 @@ export type AdminFormDraft = {
     pickup_datetime: string;
     destination: string;
     transporter: string;
+    signature_location?: string;
   };
   showSecondSeller: boolean;
   showSecondBuyer: boolean;
