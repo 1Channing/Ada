@@ -107,6 +107,7 @@ type DealRow = {
   transaction_date: string | null;
   created_at: string;
   closed_at: string | null;
+  notes?: string | null;
   vehicle: { brand: string | null; model: string | null; plate_number: string | null } | null;
   seller: { company_name: string | null; first_name: string | null; last_name: string | null } | null;
   buyer: { company_name: string | null; first_name: string | null; last_name: string | null } | null;
@@ -726,7 +727,7 @@ export function Administrative() {
       .from('transactions_admin')
       .select(`
         id, transaction_type, status, reference, commercial, transaction_price,
-        purchase_price, sale_price, fees, transaction_date, created_at, closed_at,
+        purchase_price, sale_price, fees, transaction_date, created_at, closed_at, notes,
         vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(brand, model, plate_number),
         seller:contacts!transactions_admin_seller_contact_id_fkey(company_name, first_name, last_name),
         buyer:contacts!transactions_admin_buyer_contact_id_fkey(company_name, first_name, last_name)
@@ -1826,6 +1827,18 @@ export function Administrative() {
   const dealClient = (d: DealRow) =>
     d.transaction_type === 'purchase' ? contactLabel(d.seller) : contactLabel(d.buyer);
   const eur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
+  // DEUX PRIX (26/09, demande Channing) : achat et vente côte à côte, comme
+  // dans le tableur. Un dossier ancien qui n'a que le « prix » unique le
+  // range du côté de son sens (achat → prix d'achat, vente → prix de vente).
+  const dealPurchase = (d: DealRow) => d.purchase_price ?? (d.transaction_type === 'purchase' ? d.transaction_price : null);
+  const dealSale = (d: DealRow) => d.sale_price ?? (d.transaction_type === 'sale' ? d.transaction_price : null);
+  // Véhicule : la fiche véhicule, sinon la ligne « Véhicule : … » du tableur.
+  const dealVehicle = (d: DealRow): { label: string; fromSheet: boolean } => {
+    const own = d.vehicle ? [d.vehicle.brand, d.vehicle.model].filter(Boolean).join(' ') || d.vehicle.plate_number || '' : '';
+    if (own) return { label: own, fromSheet: false };
+    const m = /Véhicule : ([^\n]+)/.exec(d.notes ?? '');
+    return m ? { label: m[1].trim(), fromSheet: true } : { label: '—', fromSheet: false };
+  };
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
@@ -1841,7 +1854,7 @@ export function Administrative() {
     const out = [...rows];
     if (dealSort === 'commercial') out.sort((a, b) => commercialKey(a.commercial).localeCompare(commercialKey(b.commercial)) || byDate(a, b));
     else if (dealSort === 'client') out.sort((a, b) => dealClient(a).localeCompare(dealClient(b), 'fr') || byDate(a, b));
-    else if (dealSort === 'prix') out.sort((a, b) => (b.transaction_price ?? b.sale_price ?? -1) - (a.transaction_price ?? a.sale_price ?? -1) || byDate(a, b));
+    else if (dealSort === 'prix') out.sort((a, b) => (dealSale(b) ?? dealPurchase(b) ?? -1) - (dealSale(a) ?? dealPurchase(a) ?? -1) || byDate(a, b));
     else out.sort(byDate);
     return out;
   };
@@ -1870,7 +1883,7 @@ export function Administrative() {
   const historiqueMonths = [...historique.entries()].sort((a, b) => b[0].localeCompare(a[0]));
 
   const renderDealRow = (d: DealRow) => {
-    const veh = d.vehicle ? [d.vehicle.brand, d.vehicle.model].filter(Boolean).join(' ') || d.vehicle.plate_number || '—' : '—';
+    const veh = dealVehicle(d);
     const closed = d.status === 'cloturee';
     return (
       <tr key={d.id} className="border-t border-slate-200 hover:bg-slate-100">
@@ -1885,8 +1898,9 @@ export function Administrative() {
           </span>
         </td>
         <td className="px-3 py-2.5 text-slate-800 truncate max-w-[180px]">{dealClient(d)}</td>
-        <td className="px-3 py-2.5 text-slate-600 truncate max-w-[160px]">{veh}</td>
-        <td className="px-3 py-2.5 text-slate-700">{eur(d.transaction_price)}</td>
+        <td className={`px-3 py-2.5 truncate max-w-[160px] ${veh.fromSheet ? 'text-slate-500 italic' : 'text-slate-600'}`} title={veh.fromSheet ? 'Véhicule du tableur (pas encore de fiche véhicule)' : undefined}>{veh.label}</td>
+        <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{eur(dealPurchase(d))}</td>
+        <td className="px-3 py-2.5 text-slate-900 font-medium whitespace-nowrap">{eur(dealSale(d))}</td>
         <td className="px-3 py-2.5 text-slate-600">{d.commercial || '—'}</td>
         <td className="px-3 py-2.5 text-slate-500 text-xs">{(d.transaction_date || d.created_at || '').slice(0, 10)}</td>
         <td className="px-3 py-2.5 text-right">
@@ -1931,7 +1945,8 @@ export function Administrative() {
                 <th className="px-3 py-2 font-medium">Sens</th>
                 <th className="px-3 py-2 font-medium">Client</th>
                 <th className="px-3 py-2 font-medium">Véhicule</th>
-                <th className="px-3 py-2 font-medium">Prix</th>
+                <th className="px-3 py-2 font-medium">Achat</th>
+                <th className="px-3 py-2 font-medium">Vente</th>
                 <th className="px-3 py-2 font-medium">Commercial</th>
                 <th className="px-3 py-2 font-medium">Date</th>
                 <th className="px-3 py-2" />

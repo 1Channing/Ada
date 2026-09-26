@@ -798,6 +798,10 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   (« ANTOINE » et « Antoine » = même personne) + tri Date / Commercial /
   Client / Prix ; tableaux, historique mensuel et indicateurs suivent la
   vue ; choix mémorisé sur le navigateur.
+  Suite : colonnes « Achat » et « Vente » à la place du prix unique (un
+  dossier ancien range son prix unique du côté de son sens) ; véhicule du
+  tableur en repli (italique) quand le dossier n'a pas encore de fiche
+  véhicule.
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
