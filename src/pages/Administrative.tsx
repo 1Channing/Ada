@@ -5,7 +5,7 @@ import { generateAdminDocument } from '../lib/adminDocGenerator';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
 import {
   contactCategory, contactDuplicateKey, listContactDocuments, listContactDocumentsFor, uploadContactDocument,
-  deleteContactDocument, contactDocumentUrl, mergeContactDocumentsPdf, type ContactDocument, type ContactCategory,
+  deleteContactDocument, renameContactDocument, contactDocumentUrl, mergeContactDocumentsPdf, type ContactDocument, type ContactCategory,
 } from '../services/contactDocuments';
 
 // DB columns are nullable — mirror that so typed Supabase rows fit directly.
@@ -285,6 +285,10 @@ export function Administrative() {
   const [contactDocs, setContactDocs] = useState<ContactDocument[]>([]);
   const [contactDocsError, setContactDocsError] = useState<string | null>(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
+  // Renommage d'une pièce (26/09, demande Channing) : le libellé seul change,
+  // le fichier et son chemin dans le bucket restent tels quels.
+  const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const [docsCountByContact, setDocsCountByContact] = useState<Record<string, number>>({});
   const [partyDocs, setPartyDocs] = useState<Record<string, ContactDocument[]>>({});
   const [mergingDocsFor, setMergingDocsFor] = useState<string | null>(null);
@@ -743,7 +747,7 @@ export function Administrative() {
     setNewContact(contactToForm(c));
     setNewContactCategory(contactCategory(c));
     setContactNotice(null);
-    setContactDocs([]); setContactDocsError(null);
+    setContactDocs([]); setContactDocsError(null); setRenamingDocId(null);
     if (contactCategory(c) === 'pro') void listContactDocuments(c.id).then((r) => { setContactDocs(r.docs); setContactDocsError(r.error); });
   };
   const cancelEditContact = () => {
@@ -751,7 +755,7 @@ export function Administrative() {
     setNewContact(EMPTY_CONTACT);
     setNewContactCategory(null);
     setContactNotice(null);
-    setContactDocs([]); setContactDocsError(null);
+    setContactDocs([]); setContactDocsError(null); setRenamingDocId(null);
   };
   /** Catégorie effective du formulaire : choix explicite, sinon déduite de la société / du SIREN. */
   const formCategory: ContactCategory = newContactCategory ?? contactCategory({ company_name: newContact.company_name, siren: newContact.siren });
@@ -773,6 +777,17 @@ export function Administrative() {
     if (err) { setContactDocsError(err); return; }
     setContactDocs((d) => d.filter((x) => x.id !== doc.id));
     setDocsCountByContact((m) => ({ ...m, [doc.contact_id]: Math.max(0, (m[doc.contact_id] ?? 1) - 1) }));
+  };
+  const startRenameDoc = (doc: ContactDocument) => { setRenamingDocId(doc.id); setRenameValue(doc.label); setContactDocsError(null); };
+  const cancelRenameDoc = () => { setRenamingDocId(null); setRenameValue(''); };
+  const commitRenameDoc = async (doc: ContactDocument) => {
+    const label = renameValue.trim();
+    if (!label || label === doc.label) { cancelRenameDoc(); return; }
+    const err = await renameContactDocument(doc.id, label);
+    if (err) { setContactDocsError(`Renommage en échec : ${err}`); return; }
+    setContactDocs((d) => d.map((x) => (x.id === doc.id ? { ...x, label } : x)));
+    setPartyDocs((m) => (m[doc.contact_id] ? { ...m, [doc.contact_id]: m[doc.contact_id].map((x) => (x.id === doc.id ? { ...x, label } : x)) } : m));
+    cancelRenameDoc();
   };
   /** Pièces d'un pro du dossier → un seul PDF, dans l'aperçu documents. */
   const printPartyDocs = async (c: Contact) => {
@@ -2120,9 +2135,30 @@ export function Administrative() {
                 {contactDocs.length === 0 && !contactDocsError && <p className="text-xs text-slate-400">Aucun document pour l'instant.</p>}
                 {contactDocs.map((d) => (
                   <div key={d.id} className="flex items-center justify-between gap-3 text-xs">
-                    <a href={contactDocumentUrl(d.path)} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate">{d.label}</a>
+                    {renamingDocId === d.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void commitRenameDoc(d); } else if (e.key === 'Escape') { e.preventDefault(); cancelRenameDoc(); } }}
+                        placeholder="Nom de la pièce"
+                        className="flex-1 min-w-0 px-2 py-1 border border-blue-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <a href={contactDocumentUrl(d.path)} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate">{d.label}</a>
+                    )}
                     <span className="text-slate-400 whitespace-nowrap">{new Date(d.created_at).toLocaleDateString('fr-FR')}{d.size_bytes ? ` · ${Math.round(d.size_bytes / 1024)} Ko` : ''}</span>
-                    <button onClick={() => void removeDoc(d)} className="text-red-600 hover:text-red-700 whitespace-nowrap">Supprimer</button>
+                    {renamingDocId === d.id ? (
+                      <span className="flex items-center gap-2 whitespace-nowrap">
+                        <button type="button" onClick={() => void commitRenameDoc(d)} className="text-blue-600 hover:text-blue-700 font-medium">Enregistrer</button>
+                        <button type="button" onClick={cancelRenameDoc} className="text-slate-500 hover:text-slate-700">Annuler</button>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2 whitespace-nowrap">
+                        <button type="button" onClick={() => startRenameDoc(d)} className="text-slate-600 hover:text-slate-800 inline-flex items-center gap-1" title="Renommer la pièce (le fichier ne change pas)"><Pencil className="w-3 h-3" />Renommer</button>
+                        <button type="button" onClick={() => void removeDoc(d)} className="text-red-600 hover:text-red-700">Supprimer</button>
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>

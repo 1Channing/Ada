@@ -758,6 +758,10 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   DA…) avec chaque pièce ouvrable et « Imprimer toutes les pièces » = un
   seul PDF assemblé (pdf-lib : PDF recopiés page à page, images une page
   chacune), affiché dans l'aperçu. SQL à coller : migration 20260926120000.
+  Suite (26/09, après test Channing sur SaleCar Nokia Oy) : « Renommer »
+  sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
+  annule), seul `contact_documents.label` change, le fichier et son chemin
+  restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
 - **PREMIER ÉTALON HUMAIN (14/09 soir, 23/28 lignes remplies par Channing)
   — 16 lignes exactes, 3 vrais écarts, 1 saisie erronée, 1 faux accord** :
   (1) MARKTPLAATS Ignis ADA 8 910 vs humain 9, RAV4 PHEV 1 352 vs 6 :
