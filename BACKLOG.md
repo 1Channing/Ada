@@ -762,6 +762,29 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
   annule), seul `contact_documents.label` change, le fichier et son chemin
   restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
+- **CHANTIER E-MAILS — ÉTAPE 1 : DONNÉES PROTÉGÉES, RIEN N'EST PLUS EFFACÉ,
+  PIÈCES DU DOSSIER (27/09, priorité Channing)**. Constats : 114 règles
+  d'accès ouvertes au rôle anon (clé du navigateur) ; bucket admin-documents
+  PUBLIC — la pièce d'identité du gérant de SaleCar se téléchargeait sans
+  clé (HTTP 200, 2,2 Mo) ; purge à 30 jours de l'historique des documents.
+  Livré : migration 20260927100000 (anon/public → authenticated à condition
+  égale, RLS partout, bucket privé, table dossier_documents) ; URL signées
+  1 h partout (`storageAccess.ts` : documents des pros, pièces, photos de
+  négociations, vignettes Ventes, PDF photos, éditeurs masque/rognage —
+  URL publiques en base = identifiants) ; fonction de purge supprimée ;
+  section « Pièces du dossier » (types carte grise / cession achat / DA /
+  cession revente / Kbis / récépissé DA / accusé DC, dépôt multiple, packs
+  « prestataire » et « retours » avec les manques) ; champ e-mail sur les
+  contacts. Flux acté avec les envois réels GF-922-WT : cessions à
+  l'acheteur → retour signé → signature + tampon MC Export via ADA →
+  pack prestataire (CG, cession achat, DA, cession revente, Kbis) → DA et
+  DC renvoyées. Suite : (2) signature + tampon sur PDF ; (3) e-mail 1 via
+  Gmail API (Google Workspace, compte de service existant + délégation à
+  activer par Channing), journal + état du dossier ; (4) e-mail 2 pack
+  prestataire ; (5) rattachement automatique des réponses par threadId.
+  Résiduel à vérifier après collage : fonctions security definer
+  appelables par anon (admin_*, open_space_set_photos… — toutes contrôlent
+  auth.uid()).
 - **FICHE OOSTENDORP RÉÉCRITE EN VAN EKRIS (26/09, constat Channing : « plus
   aucun dossier Oostendorp, trop de van Ekris »)**. Preuve : la fiche
   a5711c59, créée le 23/07 à la seconde du dossier YC507 (vente Oostendorp

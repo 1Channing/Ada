@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Crop, Download, FlipHorizontal2, ImagePlus, Loader2, Paintbrush, RefreshCw, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { signedUrl, signedUrls, useSignedUrls } from '../services/storageAccess';
 import { Negotiation, saveNegotiationPhotos, saveNegotiationPdfTitle } from '../services/workflow';
 import { startNegoExtraction, isExtracting, extractionError, clearExtractionError, subscribeNegoExtractions } from '../services/negoExtraction';
 
@@ -42,7 +43,8 @@ async function uploadPhoto(negoId: string, blob: Blob, label: string): Promise<s
 async function buildPhotosPdf(photoUrls: string[]): Promise<Uint8Array> {
   const { PDFDocument } = await import('pdf-lib');
   const doc = await PDFDocument.create();
-  for (const url of photoUrls) {
+  // Bucket privé (27/09) : les URL en base sont des identifiants, on signe.
+  for (const url of await signedUrls(photoUrls)) {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`Photo inaccessible (${resp.status})`);
     const blob = await resp.blob();
@@ -68,6 +70,8 @@ interface Props { nego: Negotiation; onClose: () => void; onChanged: () => void 
 
 export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
   const [photos, setPhotos] = useState<string[]>(nego.photos ?? []);
+  // URL signées pour l'affichage et l'édition (bucket privé depuis le 27/09).
+  const shown = useSignedUrls(photos);
   // NOM DU PDF (demande Channing 26/09) : libre, indépendant du titre de la
   // ligne. Base (colonne pdf_title) quand elle existe, sinon mémoire du
   // navigateur ; le titre de la négociation sert de valeur de départ.
@@ -145,7 +149,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
   // Miroir horizontal (demande 29/08 : tous les nez de voitures dans le même
   // sens sur la liste des négos). Nouvelle image — l'originale intacte.
   const flip = (i: number) => run('flip', async () => {
-    const resp = await fetch(photos[i]);
+    const resp = await fetch(await signedUrl(photos[i]));
     if (!resp.ok) throw new Error(`Photo inaccessible (${resp.status})`);
     const bmp = await createImageBitmap(await resp.blob());
     const c = document.createElement('canvas');
@@ -215,7 +219,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {photos.map((url, i) => (
                 <div key={url} className="relative group rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-                  <img src={url} alt={`photo ${i + 1}`} loading="lazy" className="w-full h-36 object-cover" />
+                  <img src={shown[i] ?? url} alt={`photo ${i + 1}`} loading="lazy" className="w-full h-36 object-cover" />
                   <span className="absolute top-1.5 left-1.5 text-[11px] font-semibold bg-black/60 text-white rounded px-1.5 py-0.5">{i + 1}</span>
                   <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <IconBtn title="Reculer" onClick={() => move(i, -1)} disabled={i === 0}><ArrowLeft className="w-4 h-4" /></IconBtn>
@@ -234,7 +238,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
 
       {maskIdx != null && photos[maskIdx] && (
         <MaskEditor
-          url={photos[maskIdx]}
+          url={shown[maskIdx] ?? photos[maskIdx]}
           onCancel={() => setMaskIdx(null)}
           onSave={async (blob) => {
             const masked = await uploadPhoto(nego.id, blob, 'masked');
@@ -246,7 +250,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
       )}
       {cropIdx != null && photos[cropIdx] && (
         <CropEditor
-          url={photos[cropIdx]}
+          url={shown[cropIdx] ?? photos[cropIdx]}
           onCancel={() => setCropIdx(null)}
           onSave={async (blob) => {
             const cropped = await uploadPhoto(nego.id, blob, 'crop');

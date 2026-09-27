@@ -6,9 +6,14 @@ import { DEFAULT_SIGNATURE_LOCATION } from '../lib/templateEngine';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
 import {
   contactCategory, contactDuplicateKey, listContactDocuments, listContactDocumentsFor, uploadContactDocument,
-  deleteContactDocument, renameContactDocument, contactDocumentUrl, mergeContactDocumentsPdf, sameContactIdentity,
+  deleteContactDocument, renameContactDocument, mergeContactDocumentsPdf, sameContactIdentity,
   type ContactDocument, type ContactCategory,
 } from '../services/contactDocuments';
+import { StorageLink } from '../components/StorageLink';
+import {
+  DOSSIER_DOC_KINDS, PACK_PRESTATAIRE, PACK_RETOUR, kindLabel, listDossierDocuments, uploadDossierDocument,
+  updateDossierDocument, deleteDossierDocument, missingForPack, type DossierDocument, type DossierDocKind,
+} from '../services/dossierDocuments';
 
 const isMissingSignatureColumn = (e: { message?: string } | null) => /signature_location/.test(e?.message ?? '');
 const withoutSignatureLocation = <T extends { signature_location?: string | null }>(p: T): Omit<T, 'signature_location'> => {
@@ -72,6 +77,8 @@ type ContactForm = {
   city: string;
   country: string;
   siren: string;
+  /** E-mail du contact (27/09) : destinataire des cessions à signer. */
+  email?: string;
 };
 
 type TransactionForm = {
@@ -301,6 +308,39 @@ export function Administrative() {
   // Colonne signature_location (SQL du 26/09) absente : enregistrement sans
   // elle, avertissement dans la section « Date et lieu de la cession ».
   const [signatureColumnMissing, setSignatureColumnMissing] = useState(false);
+  // PIÈCES DU DOSSIER (27/09) : carte grise, cessions signées, DA, Kbis,
+  // retours du prestataire — déposées dans le dossier, jamais purgées.
+  const [dossierDocs, setDossierDocs] = useState<DossierDocument[]>([]);
+  const [dossierDocsError, setDossierDocsError] = useState<string | null>(null);
+  const [dossierDocKind, setDossierDocKind] = useState<DossierDocKind>('carte_grise');
+  const [uploadingDossierDoc, setUploadingDossierDoc] = useState(false);
+  const loadDossierDocs = async (transactionId: string | null) => {
+    if (!transactionId) { setDossierDocs([]); setDossierDocsError(null); return; }
+    const r = await listDossierDocuments(transactionId);
+    setDossierDocs(r.docs); setDossierDocsError(r.error);
+  };
+  const uploadDossierDocs = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !lastSavedTransactionId) return;
+    setUploadingDossierDoc(true); setDossierDocsError(null);
+    try {
+      for (const f of Array.from(files)) {
+        const r = await uploadDossierDocument(lastSavedTransactionId, f, dossierDocKind);
+        if (r.error) { setDossierDocsError(r.error); break; }
+        if (r.doc) setDossierDocs((d) => [...d, r.doc!]);
+      }
+    } finally { setUploadingDossierDoc(false); }
+  };
+  const changeDossierDocKind = async (doc: DossierDocument, kind: DossierDocKind) => {
+    const err = await updateDossierDocument(doc.id, { kind });
+    if (err) { setDossierDocsError(err); return; }
+    setDossierDocs((d) => d.map((x) => (x.id === doc.id ? { ...x, kind } : x)));
+  };
+  const removeDossierDoc = async (doc: DossierDocument) => {
+    if (!confirm(`Retirer « ${doc.label} » du dossier ?`)) return;
+    const err = await deleteDossierDocument(doc);
+    if (err) { setDossierDocsError(err); return; }
+    setDossierDocs((d) => d.filter((x) => x.id !== doc.id));
+  };
   // PRO / PARTICULIER (26/09, demande Channing) : deux listes, une catégorie
   // par fiche (déduite tant qu'elle n'est pas posée), documents des pros.
   const [contactTab, setContactTab] = useState<ContactCategory>('pro');
@@ -462,6 +502,7 @@ export function Administrative() {
     city: c.city || '',
     country: c.country || 'FR',
     siren: c.siren || '',
+    email: c.email || '',
   });
 
   // Reconcile MC Export to a SINGLE contact (find by SIREN, else create) so
@@ -749,6 +790,7 @@ export function Administrative() {
   const backToList = () => {
     setMode('list');
     setLastSavedTransactionId(null);
+    setDossierDocs([]); setDossierDocsError(null);
     loadDeals();
   };
 
@@ -962,6 +1004,7 @@ export function Administrative() {
     });
 
     setLastSavedTransactionId(id);
+    void loadDossierDocs(id);
     setIsDirty(false);
     setMode('editor');
     window.scrollTo(0, 0);
@@ -1021,6 +1064,7 @@ export function Administrative() {
       city: contact.city || '',
       country: contact.country || 'FR',
       siren: contact.siren || '',
+      email: contact.email || '',
     };
 
     if (type === 'seller') {
@@ -1142,6 +1186,7 @@ export function Administrative() {
     setSelectedBuyerContact(null);
     setSelectedBuyer2Contact(null);
     setLastSavedTransactionId(null);
+    setDossierDocs([]); setDossierDocsError(null);
     setSaveMessage(null);
     setGeneratingDoc(null);
     setIsDirty(false);
@@ -1328,6 +1373,7 @@ export function Administrative() {
 
       const savedTransactionId = transactionData.id;
       setLastSavedTransactionId(savedTransactionId);
+      setDossierDocs([]); setDossierDocsError(null);
       setIsDirty(false);
 
       console.log('[ADMIN_SAVE] Transaction saved successfully, id:', savedTransactionId, 'isDirty=false');
@@ -1701,6 +1747,16 @@ export function Administrative() {
             type="text"
             value={form.siren}
             onChange={(e) => setForm({ ...form, siren: e.target.value })}
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
+          />
+        </div>}
+
+        {!compact && <div>
+          <label className="block text-sm font-medium mb-1 text-slate-700">E-mail <span className="text-slate-500 font-normal">(envoi des cessions)</span></label>
+          <input
+            type="email"
+            value={form.email ?? ''}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
             className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>}
@@ -2263,6 +2319,13 @@ export function Administrative() {
                 placeholder="SIREN (optionnel)"
                 className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
               />
+              <input
+                type="email"
+                value={newContact.email ?? ''}
+                onChange={(e) => setNewContact((c) => ({ ...c, email: e.target.value }))}
+                placeholder="E-mail (envoi des cessions)"
+                className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
+              />
             </div>
             {/* Retour d'écriture explicite : succès confirmé, échec expliqué et
                 saisie conservée — plus de clic dans le vide. */}
@@ -2297,7 +2360,7 @@ export function Administrative() {
                         className="flex-1 min-w-0 px-2 py-1 border border-blue-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     ) : (
-                      <a href={contactDocumentUrl(d.path)} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate">{d.label}</a>
+                      <StorageLink path={d.path} className="text-blue-600 hover:underline truncate">{d.label}</StorageLink>
                     )}
                     <span className="text-slate-400 whitespace-nowrap">{new Date(d.created_at).toLocaleDateString('fr-FR')}{d.size_bytes ? ` · ${Math.round(d.size_bytes / 1024)} Ko` : ''}</span>
                     {renamingDocId === d.id ? (
@@ -2967,12 +3030,63 @@ export function Administrative() {
                     ? <p className="text-xs text-slate-500 mt-1">Aucun document sur cette fiche — dépose-les depuis « Contacts enregistrés » → Modifier.</p>
                     : (
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {docs.map((d) => <a key={d.id} href={contactDocumentUrl(d.path)} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg bg-white border border-slate-300 text-blue-700 hover:bg-blue-50">{d.label}</a>)}
+                        {docs.map((d) => <StorageLink key={d.id} path={d.path} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-slate-300 text-blue-700 hover:bg-blue-50">{d.label}</StorageLink>)}
                       </div>
                     )}
                 </div>
               );
             })}
+        </section>
+
+        {/* PIÈCES DU DOSSIER (27/09) : ce qui circule pour cette voiture —
+            carte grise, cessions signées, DA, Kbis, retours du prestataire.
+            Le pack « prestataire » dit ce qui manque avant l'envoi. */}
+        <section className="bg-white border border-slate-200 rounded-xl p-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+            <h2 className="text-xl font-semibold text-slate-900">Pièces du dossier <span className="text-sm font-normal text-slate-400">· {dossierDocs.length}</span></h2>
+            {lastSavedTransactionId && (
+              <div className="flex items-center gap-2">
+                <select value={dossierDocKind} onChange={(e) => setDossierDocKind(e.target.value as DossierDocKind)} className="px-2 py-1.5 bg-white border border-slate-300 rounded text-xs text-slate-700">
+                  {DOSSIER_DOC_KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                </select>
+                <label className={`text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 cursor-pointer ${uploadingDossierDoc ? 'opacity-50' : ''}`}>
+                  {uploadingDossierDoc ? 'Dépôt…' : '+ Déposer (PDF, JPG, PNG)'}
+                  <input type="file" accept="application/pdf,image/jpeg,image/png" multiple className="hidden" disabled={uploadingDossierDoc} onChange={(e) => { void uploadDossierDocs(e.target.files); e.target.value = ''; }} />
+                </label>
+              </div>
+            )}
+          </div>
+          <p className="text-sm text-slate-500 mb-4">Scanne avec l'iPhone (Fichiers → Scanner des documents), AirDrop, dépose ici. Rien n'est jamais effacé.</p>
+          {!lastSavedTransactionId && <p className="text-sm text-slate-400">Enregistre le dossier pour y déposer des pièces.</p>}
+          {dossierDocsError && <p className="text-xs text-amber-700 mb-2">{dossierDocsError}</p>}
+          {lastSavedTransactionId && dossierDocs.length === 0 && !dossierDocsError && <p className="text-sm text-slate-400">Aucune pièce pour l'instant.</p>}
+          {dossierDocs.length > 0 && (
+            <div className="space-y-1.5">
+              {dossierDocs.map((d) => (
+                <div key={d.id} className="flex items-center gap-3 text-sm">
+                  <select value={d.kind} onChange={(e) => void changeDossierDocKind(d, e.target.value as DossierDocKind)} className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs text-slate-700 shrink-0" title="Type de pièce">
+                    {DOSSIER_DOC_KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                  </select>
+                  <StorageLink path={d.path} className="text-blue-600 hover:underline truncate">{d.label}</StorageLink>
+                  <span className="text-xs text-slate-400 whitespace-nowrap ml-auto">{new Date(d.created_at).toLocaleDateString('fr-FR')}{d.size_bytes ? ` · ${Math.round(d.size_bytes / 1024)} Ko` : ''}</span>
+                  <button type="button" onClick={() => void removeDossierDoc(d)} className="text-xs text-red-600 hover:text-red-700 whitespace-nowrap">Retirer</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {lastSavedTransactionId && (
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              {[['Pack prestataire (DA + DC en une fois)', PACK_PRESTATAIRE], ['Retours du prestataire', PACK_RETOUR]].map(([title, pack]) => {
+                const missing = missingForPack(dossierDocs, pack as DossierDocKind[]);
+                return (
+                  <div key={title as string} className={`rounded-lg border p-3 ${missing.length === 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                    <p className="font-medium">{title as string}{missing.length === 0 ? ' — complet' : ''}</p>
+                    {missing.length > 0 && <p className="mt-1">Manque : {missing.map(kindLabel).join(', ')}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* Aperçu + rapport de complétude du dernier document généré */}

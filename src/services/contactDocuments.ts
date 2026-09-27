@@ -9,6 +9,7 @@
  * l'upload dit pourquoi, rien ne casse ailleurs.
  */
 import { supabase } from '../lib/supabase';
+import { signedUrl } from './storageAccess';
 
 const BUCKET = 'admin-documents';
 
@@ -71,6 +72,7 @@ export async function listContactDocumentsFor(contactIds: string[]): Promise<Rec
   return out;
 }
 
+/** URL publique — ne sert plus qu'en repli : le bucket est privé depuis le 27/09, on ouvre par `signedUrl`. */
 export function contactDocumentUrl(path: string): string {
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
@@ -115,7 +117,7 @@ export async function mergeContactDocumentsPdf(docs: ContactDocument[]): Promise
   const skipped: string[] = [];
   for (const d of docs) {
     try {
-      const resp = await fetch(contactDocumentUrl(d.path));
+      const resp = await fetch(await signedUrl(d.path));
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const bytes = new Uint8Array(await resp.arrayBuffer());
       const ct = (d.content_type ?? '').toLowerCase();

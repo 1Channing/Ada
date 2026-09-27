@@ -15,6 +15,7 @@ import {
 } from '../services/openSpace';
 import { useOpenSpaceUnseen, clearOpenSpaceUnseen, refreshOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
 import { NegotiationPhotosModal } from '../components/NegotiationPhotos';
+import { StorageBg } from '../components/StorageLink';
 import { contactSeller } from '../services/contactSeller';
 import { resumeNegoExtractions, subscribeNegoExtractions, isExtracting, extractingCount, extractionError, startNegoExtraction } from '../services/negoExtraction';
 
@@ -402,10 +403,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
         <div aria-hidden className="absolute inset-0 overflow-hidden group-first:rounded-t-xl group-last:rounded-b-xl">
           {/* Photo tout à gauche sous voile blanc — l'essai « décalée à
               droite » du 29/08 n'a pas plu, retour au premier placement. */}
-          <div
-            className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-cover bg-center"
-            style={{ backgroundImage: `url(${n.photos[0]})` }}
-          />
+          <StorageBg path={n.photos[0]} className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-cover bg-center" />
           <div className="absolute inset-y-0 left-0 w-72 max-w-[45%] bg-gradient-to-r from-white/65 via-white/85 to-white" />
         </div>
       )}
@@ -699,7 +697,7 @@ function OpenSpaceCard({ item, notes, onChanged, onError }: { item: OpenSpaceIte
           className="relative w-28 h-20 rounded-lg shrink-0 border border-slate-200 overflow-hidden bg-slate-100 flex items-center justify-center text-slate-300 hover:ring-2 hover:ring-brand-ocean disabled:opacity-60"
         >
           {n?.photos[0]
-            ? <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${n.photos[0]})` }} />
+            ? <StorageBg path={n.photos[0]} className="absolute inset-0 bg-cover bg-center" />
             : <Images className="w-6 h-6" />}
           {n && n.photos.length > 0 && (
             <span className="absolute bottom-1 right-1 flex items-center gap-1 text-[10px] font-semibold text-white bg-black/60 rounded px-1.5 py-0.5"><Images className="w-3 h-3" />{n.photos.length}</span>
