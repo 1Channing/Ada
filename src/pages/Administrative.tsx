@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, Plus, X, UserPlus, FileText, Download, History, Trash2, Pencil } from 'lucide-react';
+import { Search, Plus, X, UserPlus, FileText, Download, History, Trash2, Pencil, Info } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { generateAdminDocument } from '../lib/adminDocGenerator';
 import { DEFAULT_SIGNATURE_LOCATION } from '../lib/templateEngine';
@@ -1972,13 +1972,26 @@ export function Administrative() {
     </section>
   );
 
-  const kpi = (label: string, value: string, sub?: string, accent = 'text-slate-900') => (
+  // Un petit « i » à côté du titre (27/09, demande Channing) : l'explication
+  // du calcul s'affiche au survol au lieu d'encombrer la tuile.
+  const kpi = (label: string, value: string, sub?: string, accent = 'text-slate-900', info?: string) => (
     <div className="bg-white border border-slate-200 rounded-xl px-5 py-4">
-      <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-[11px] uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+        {label}
+        {info && (
+          <span className="relative group inline-flex normal-case tracking-normal">
+            <Info size={13} className="text-slate-400 group-hover:text-blue-600 cursor-help" aria-label={info} />
+            <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1.5 w-64 -translate-x-1/2 rounded-lg bg-slate-800 px-3 py-2 text-[11px] leading-snug text-white shadow-lg opacity-0 transition-opacity group-hover:opacity-100">
+              {info}
+            </span>
+          </span>
+        )}
+      </p>
       <p className={`mt-1 text-2xl font-semibold ${accent}`}>{value}</p>
       {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
     </div>
   );
+  const MARGE_INFO = 'Commission HT du tableur quand elle existe, sinon (prix de vente − prix d\'achat) / 1,2 − frais. Même formule pour les véhicules à TVA récupérable (« * »).';
 
   const renderDealsList = () => (
     <div className="space-y-6">
@@ -2015,9 +2028,9 @@ export function Administrative() {
       {/* Tableau de bord */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {kpi("Chiffre d'affaires en cours", eur(caEnCours), `${enCours.length} vente${enCours.length > 1 ? 's' : ''} en cours`, 'text-blue-700')}
-        {kpi('Marge HT en cours', eur(Math.round(margeEnCours)), 'commission HT du tableur, sinon (vente − achat) / 1,2 − frais')}
+        {kpi('Marge HT en cours', eur(Math.round(margeEnCours)), `${enCours.length} vente${enCours.length > 1 ? 's' : ''} en cours`, 'text-slate-900', MARGE_INFO)}
         {kpi("CA du mois", eur(caMois), `${closedThisMonth.length} vente${closedThisMonth.length > 1 ? 's' : ''} clôturée${closedThisMonth.length > 1 ? 's' : ''}`, 'text-emerald-700')}
-        {kpi('Marge HT du mois', eur(Math.round(margeMois)), monthFmt.format(now))}
+        {kpi('Marge HT du mois', eur(Math.round(margeMois)), monthFmt.format(now), 'text-slate-900', MARGE_INFO)}
       </div>
 
       {dealsLoading && <p className="text-sm text-slate-500">Chargement…</p>}
