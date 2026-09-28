@@ -715,6 +715,10 @@ export interface ScrapeDiagnostics {
    *  {label,id}) — persisté puis RETIRÉ des diagnostics par l'appelant
    *  (dossiers légers). */
   taxonomyHarvest?: Array<{ field: string; code: string; label: string }> | null;
+  /** Dernier code HTTP renvoyé par Zyte (28/09) : lisible dans le dossier du
+   *  job sans accès aux journaux — 401 clé refusée, 402/403 plan ou crédits
+   *  épuisés, 520/429/503 saturation, null = pas de réponse (réseau). */
+  zyteStatus?: number | null;
 }
 
 export interface ScrapeSearchResult {
@@ -1226,6 +1230,7 @@ export async function scrapeSearch(
 
   let lastMode: 'raw' | 'browser' | null = null;
   let lastLen = 0;
+  let lastZyteStatus: number | null = null;
 
   const finalize = (r: Omit<ScrapeSearchResult, 'diagnostics'>, d: Partial<ScrapeDiagnostics>, cache: boolean): ScrapeSearchResult => {
     const result: ScrapeSearchResult = {
@@ -1239,6 +1244,7 @@ export async function scrapeSearch(
         fieldsPresent: fieldCoverage(r.listings),
         silentFallback: d.silentFallback ?? null,
         taxonomyHarvest: d.taxonomyHarvest ?? null,
+        zyteStatus: lastZyteStatus,
       },
     };
     if (cache) SCRAPE_CACHE.set(url, { at: Date.now(), result });
@@ -1292,6 +1298,7 @@ export async function scrapeSearch(
     const hedge = attempt === 0 && findSiteAdapterByDomain(activeUrl)?.hedgeFirstAttempt === true;
     const { html, mode, finalUrl, status } = hedge ? await fetchHtmlHedged(activeUrl, [1, 3]) : await fetchHtmlWithZyte(activeUrl, profileLevel);
     lastMode = mode;
+    if (status != null) lastZyteStatus = status;
     // REDIRECTION QUI PERD LES FILTRES (constat 09/09, AutoScout24 : le slug
     // /rav-4 renvoie en 308 vers /rav4 en JETANT fregfrom/fregto/fuel —
     // page « toutes années », 110 annonces au lieu de 15, les pages les moins
@@ -1322,9 +1329,22 @@ export async function scrapeSearch(
       // (8 s, 20 s, 40 s, 60 s) et un essai de plus ; le site n'est déclaré
       // en échec qu'après ~2 min de patience.
       const saturated = status === 520 || status === 429 || status === 503;
+      // COMPTE ZYTE (28/09, constat Channing « plus aucun scraping ») : 401 =
+      // clé refusée, 402/403 = plan ou crédits épuisés. Réessayer n'y change
+      // rien — on le dit tout de suite, avec le code, au lieu de « Failed to
+      // fetch HTML after retries » quatre fois par site.
+      const account = status === 401 || status === 402 || status === 403;
+      if (account) {
+        const why = status === 401 ? 'Zyte 401 : clé API refusée (ZYTE_API_KEY sur Railway)' : `Zyte ${status} : plan ou crédits Zyte épuisés — vérifier le compte Zyte`;
+        console.error(`[WORKER_SCRAPER] ${why}`);
+        return finalize({ listings: [], error: 'SCRAPER_FAILED', errorReason: why }, { attempts: attempt + 1, htmlLength: 0 }, false);
+      }
       const maxTries = saturated ? Math.max(MAX_RETRIES, 4) : MAX_RETRIES;
       if (attempt >= maxTries) {
-        return finalize({ listings: [], error: 'SCRAPER_FAILED', errorReason: saturated ? `Zyte ${status} après ${attempt + 1} essais` : 'Failed to fetch HTML after retries' }, { attempts: attempt + 1, htmlLength: 0 }, false);
+        const reason = saturated ? `Zyte ${status} après ${attempt + 1} essais`
+          : status != null ? `Zyte HTTP ${status} après ${attempt + 1} essais`
+          : `Aucune réponse de Zyte après ${attempt + 1} essais (réseau / délai)`;
+        return finalize({ listings: [], error: 'SCRAPER_FAILED', errorReason: reason }, { attempts: attempt + 1, htmlLength: 0 }, false);
       }
       const wait = saturated ? [8000, 20000, 40000, 60000][Math.min(attempt, 3)] : 1000 * (attempt + 1);
       await new Promise((resolve) => setTimeout(resolve, wait));
