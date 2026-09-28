@@ -222,7 +222,7 @@ export async function recordStudyMarketSnapshot(
 /**
  * Fetch HTML from Zyte API with retries
  */
-interface FetchResult { html: string | null; mode: 'raw' | 'browser'; status: number | null; /** URL finale rendue par Zyte (après redirections). */ finalUrl?: string | null; }
+interface FetchResult { html: string | null; mode: 'raw' | 'browser'; status: number | null; /** URL finale rendue par Zyte (après redirections). */ finalUrl?: string | null; /** Message d'erreur de Zyte (type + titre + détail), quand la réponse n'est pas OK. */ zyteError?: string | null; }
 
 // PLAFOND GLOBAL de requêtes Zyte simultanées (05/09). Les études, les
 // mises à jour MI, les campagnes et la pagination parallélisent chacune de
@@ -355,8 +355,18 @@ async function fetchHtmlWithZyteUnbounded(url: string, profileLevel: number, pro
     });
 
     if (!response.ok) {
-      console.error(`[WORKER_SCRAPER] Zyte API error: ${response.status}`);
-      return { html: null, mode, status: response.status };
+      // Le corps d'erreur Zyte dit POURQUOI (type « /limits/over-spending-limit »,
+      // « /auth/key-not-found »…) — on le remonte tel quel (28/09).
+      let zyteError: string | null = null;
+      try {
+        const txt = (await response.text()).slice(0, 600);
+        try {
+          const j = JSON.parse(txt) as { type?: string; title?: string; detail?: string };
+          zyteError = [j.type, j.title, j.detail].filter(Boolean).join(' — ') || txt;
+        } catch { zyteError = txt.replace(/\s+/g, ' ').trim() || null; }
+      } catch { /* corps illisible */ }
+      console.error(`[WORKER_SCRAPER] Zyte API error: ${response.status}${zyteError ? ` — ${zyteError}` : ''}`);
+      return { html: null, mode, status: response.status, zyteError };
     }
 
     const data = await response.json() as { browserHtml?: string; httpResponseBody?: string; url?: string };
@@ -1296,7 +1306,7 @@ export async function scrapeSearch(
     // Site derrière Datadome (hedgeFirstAttempt) : au premier essai, brut ET
     // navigateur en course — la première page exploitable gagne.
     const hedge = attempt === 0 && findSiteAdapterByDomain(activeUrl)?.hedgeFirstAttempt === true;
-    const { html, mode, finalUrl, status } = hedge ? await fetchHtmlHedged(activeUrl, [1, 3]) : await fetchHtmlWithZyte(activeUrl, profileLevel);
+    const { html, mode, finalUrl, status, zyteError } = hedge ? await fetchHtmlHedged(activeUrl, [1, 3]) : await fetchHtmlWithZyte(activeUrl, profileLevel);
     lastMode = mode;
     if (status != null) lastZyteStatus = status;
     // REDIRECTION QUI PERD LES FILTRES (constat 09/09, AutoScout24 : le slug
@@ -1335,7 +1345,7 @@ export async function scrapeSearch(
       // fetch HTML after retries » quatre fois par site.
       const account = status === 401 || status === 402 || status === 403;
       if (account) {
-        const why = status === 401 ? 'Zyte 401 : clé API refusée (ZYTE_API_KEY sur Railway)' : `Zyte ${status} : plan ou crédits Zyte épuisés — vérifier le compte Zyte`;
+        const why = (status === 401 ? 'Zyte 401 : clé API refusée (ZYTE_API_KEY sur Railway)' : `Zyte ${status} : plan ou crédits Zyte épuisés — vérifier le compte Zyte`) + (zyteError ? ` [${zyteError}]` : '');
         console.error(`[WORKER_SCRAPER] ${why}`);
         return finalize({ listings: [], error: 'SCRAPER_FAILED', errorReason: why }, { attempts: attempt + 1, htmlLength: 0 }, false);
       }
