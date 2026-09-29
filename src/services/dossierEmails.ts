@@ -32,6 +32,18 @@ export async function queueDossierEmail(input: {
   return { mail: data as DossierEmail, error: null };
 }
 
+/** Retire une ligne en file ou en échec (jamais un envoi parti). */
+export async function deleteDossierEmail(id: string): Promise<string | null> {
+  const { error } = await untyped.from('dossier_emails').delete().eq('id', id).neq('status', 'sent');
+  return error ? error.message : null;
+}
+
+/** Remet en file un envoi en échec — le worker le reprend dans les 20 s. */
+export async function retryDossierEmail(id: string): Promise<string | null> {
+  const { error } = await untyped.from('dossier_emails').update({ status: 'queued', error: null }).eq('id', id).eq('status', 'failed');
+  return error ? error.message : null;
+}
+
 /** Dernier document généré d'un type pour ce dossier (certificat de cession…). */
 export async function latestGeneratedDocument(transactionId: string, documentType: string): Promise<{ path: string; created_at: string } | null> {
   const { data } = await untyped.from('documents_admin_history').select('storage_path, created_at')

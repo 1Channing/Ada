@@ -11,7 +11,7 @@ import {
 } from '../services/contactDocuments';
 import { StorageLink } from '../components/StorageLink';
 import { useAuth } from '../services/auth';
-import { listDossierEmails, queueDossierEmail, latestGeneratedDocument, buyerCessionTemplate, type DossierEmail } from '../services/dossierEmails';
+import { listDossierEmails, queueDossierEmail, deleteDossierEmail, retryDossierEmail, latestGeneratedDocument, buyerCessionTemplate, type DossierEmail } from '../services/dossierEmails';
 import {
   DOSSIER_DOC_KINDS, PACK_PRESTATAIRE, PACK_RETOUR, kindLabel, listDossierDocuments, uploadDossierDocument,
   updateDossierDocument, deleteDossierDocument, missingForPack, type DossierDocument, type DossierDocKind,
@@ -390,6 +390,21 @@ export function Administrative() {
     setMailSubject(t.subject); setMailBody(t.body);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transactionType, vehicleForm.brand, vehicleForm.model, vehicleForm.plate_number, vehicleForm.vin, myName]);
+  // Journal : une ligne en file ou en échec se retire ; un échec se relance.
+  // Un envoi parti ne se touche plus. Rien ne repart tout seul : le worker
+  // n'envoie que « queued ».
+  const removeMail = async (m: DossierEmail) => {
+    if (!lastSavedTransactionId) return;
+    const err = await deleteDossierEmail(m.id);
+    if (err) { setMailError(err); return; }
+    await refreshMailJournal(lastSavedTransactionId);
+  };
+  const retryMail = async (m: DossierEmail) => {
+    if (!lastSavedTransactionId) return;
+    const err = await retryDossierEmail(m.id);
+    if (err) { setMailError(err); return; }
+    await refreshMailJournal(lastSavedTransactionId);
+  };
   const sendBuyerMail = async () => {
     if (!lastSavedTransactionId || !myEmail) { setMailError('Connecte-toi avec ton compte Google Workspace pour envoyer.'); return; }
     const to = (mailToSelf ? myEmail : mailTo).trim();
@@ -3150,6 +3165,8 @@ export function Administrative() {
                           <span className={`ml-auto whitespace-nowrap px-1.5 py-0.5 rounded ${m.status === 'sent' ? 'bg-emerald-50 text-emerald-700' : m.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
                             {m.status === 'sent' ? 'envoyé' : m.status === 'failed' ? 'échec' : 'en file…'}
                           </span>
+                          {m.status === 'failed' && <button type="button" onClick={() => void retryMail(m)} className="text-blue-600 hover:text-blue-700 whitespace-nowrap">Réessayer</button>}
+                          {m.status !== 'sent' && <button type="button" onClick={() => void removeMail(m)} className="text-slate-500 hover:text-red-600 whitespace-nowrap">Supprimer</button>}
                         </div>
                       ))}
                       {dossierMails.filter((m) => m.status === 'failed' && m.error).slice(0, 1).map((m) => <p key={m.id} className="text-xs text-red-600">{m.error}</p>)}
