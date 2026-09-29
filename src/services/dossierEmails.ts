@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 
 export interface DossierEmail {
   id: string; transaction_id: string; kind: string; to_email: string; subject: string; body: string;
-  attachments: Array<{ path: string; name?: string }>; status: 'queued' | 'sent' | 'failed'; error: string | null;
+  attachments: Array<{ path: string; name?: string }>; status: 'queued' | 'sending' | 'sent' | 'failed'; error: string | null;
   sender_email: string; sender_name: string | null; gmail_message_id: string | null; created_at: string; sent_at: string | null;
 }
 

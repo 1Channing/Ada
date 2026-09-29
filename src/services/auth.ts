@@ -104,6 +104,14 @@ export function startAuthWatcher(): void {
     if (u) void loadProfile(u.id);
     useAuth.getState().setReady();
   });
+  // DROITS À EFFET RAPIDE (29/09, question Channing : « Achille est
+  // connecté, effet immédiat ou au rechargement ? ») : le profil est relu
+  // toutes les 60 s et au retour sur l'onglet — un droit retiré ferme la
+  // page en moins d'une minute sans rechargement (App recalcule la page
+  // active à chaque changement de allowedTabs).
+  const refresh = () => { const id = useAuth.getState().userId; if (id) void loadProfile(id); };
+  setInterval(refresh, 60_000);
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
   supabase.auth.onAuthStateChange((event, session) => {
     const u = session?.user ?? null;
     useAuth.getState().setSession(u?.id ?? null, u?.email ?? null);

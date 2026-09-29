@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, Plus, X, UserPlus, FileText, Download, History, Trash2, Pencil, Info } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { generateAdminDocument } from '../lib/adminDocGenerator';
@@ -359,6 +359,7 @@ export function Administrative() {
   const [mailError, setMailError] = useState<string | null>(null);
   const [dossierMails, setDossierMails] = useState<DossierEmail[]>([]);
   const [latestCession, setLatestCession] = useState<{ path: string; created_at: string } | null>(null);
+  const mailPrefilledFor = useRef<string | null>(null);
   const refreshMailJournal = async (transactionId: string) => {
     const r = await listDossierEmails(transactionId);
     setDossierMails(r.mails); if (r.error) setMailError(r.error);
@@ -377,10 +378,14 @@ export function Administrative() {
   // Préremplissage : destinataire = e-mail du client ; objet et texte d'après
   // le véhicule, une seule fois (l'opérateur peut tout retoucher).
   useEffect(() => {
+    // Préremplissage UNE fois par dossier : ce que l'opérateur tape ensuite
+    // fait foi, y compris un champ vidé (29/09, « si on change l'adresse,
+    // jamais l'ancienne »).
+    if (mailPrefilledFor.current === lastSavedTransactionId) return;
     const clientMail = (selectedBuyerContact?.email ?? buyerForm.email ?? '').trim();
-    if (clientMail && !mailTo) setMailTo(clientMail);
+    if (clientMail) { setMailTo(clientMail); mailPrefilledFor.current = lastSavedTransactionId; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBuyerContact?.email, buyerForm.email]);
+  }, [selectedBuyerContact?.email, buyerForm.email, lastSavedTransactionId]);
   useEffect(() => {
     if (transactionType !== 'sale' || mailSubject || mailBody) return;
     const t = buyerCessionTemplate({
@@ -407,8 +412,16 @@ export function Administrative() {
   };
   const sendBuyerMail = async () => {
     if (!lastSavedTransactionId || !myEmail) { setMailError('Connecte-toi avec ton compte Google Workspace pour envoyer.'); return; }
+    // Le destinataire est CE QUI EST DANS LE CHAMP au clic — jamais l'adresse
+    // initiale de la fiche.
     const to = (mailToSelf ? myEmail : mailTo).trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { setMailError('Adresse du destinataire invalide.'); return; }
+    // PAS DE DOUBLON : un envoi déjà en file pour ce dossier bloque ; un envoi
+    // déjà parti au même destinataire avec le même objet demande confirmation.
+    if (dossierMails.some((m) => m.status === 'queued' || m.status === 'sending')) { setMailError('Un envoi est déjà en file pour ce dossier — attends son résultat ou supprime-le dans le journal.'); return; }
+    const already = dossierMails.find((m) => m.status === 'sent' && m.to_email.toLowerCase() === to.toLowerCase() && m.subject === mailSubject.trim());
+    if (already && !confirm(`Déjà envoyé à ${to} le ${new Date(already.sent_at ?? already.created_at).toLocaleString('fr-FR')}. Renvoyer quand même ?`)) return;
+    if (!mailToSelf && !confirm(`Envoyer à ${to} depuis ${myEmail} ?`)) return;
     const attachments: Array<{ path: string; name?: string }> = [];
     if (mailAttachCession) {
       if (!latestCession) { setMailError('Génère d\'abord le certificat de cession (bouton ci-dessus).'); return; }
@@ -3163,7 +3176,7 @@ export function Administrative() {
                           <span className="text-slate-500 whitespace-nowrap">{new Date(m.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                           <span className="truncate">{m.kind === 'test' ? 'Test → ' : '→ '}{m.to_email} · {m.subject}</span>
                           <span className={`ml-auto whitespace-nowrap px-1.5 py-0.5 rounded ${m.status === 'sent' ? 'bg-emerald-50 text-emerald-700' : m.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
-                            {m.status === 'sent' ? 'envoyé' : m.status === 'failed' ? 'échec' : 'en file…'}
+                            {m.status === 'sent' ? 'envoyé' : m.status === 'failed' ? 'échec' : m.status === 'sending' ? 'envoi…' : 'en file…'}
                           </span>
                           {m.status === 'failed' && <button type="button" onClick={() => void retryMail(m)} className="text-blue-600 hover:text-blue-700 whitespace-nowrap">Réessayer</button>}
                           {m.status !== 'sent' && <button type="button" onClick={() => void removeMail(m)} className="text-slate-500 hover:text-red-600 whitespace-nowrap">Supprimer</button>}

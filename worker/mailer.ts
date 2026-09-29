@@ -25,8 +25,10 @@ interface Creds { client_email: string; private_key: string; client_id?: string 
 interface Attachment { path: string; name?: string }
 interface QueuedMail {
   id: string; to_email: string; subject: string; body: string; attachments: Attachment[];
-  sender_email: string; sender_name: string | null;
+  sender_email: string; sender_name: string | null; sent_by: string | null;
 }
+const ALLOWED_PREFIXES = ['transactions/', 'dossiers/', 'contacts/'];
+const STUCK_MS = 10 * 60 * 1000;
 
 let running = false;
 
@@ -46,12 +48,35 @@ async function tick(creds: Creds): Promise<void> {
   if (running) return;
   running = true;
   try {
+    // Une ligne « sending » depuis plus de 10 min = envoi interrompu par un
+    // redémarrage : on ne sait pas si Gmail l'a reçue → JAMAIS rejouée
+    // d'office (pas de doublon), échec explicite pour l'opérateur.
+    await supabase.from('dossier_emails')
+      .update({ status: 'failed', error: 'Envoi interrompu par un redémarrage du worker — non renvoyé pour éviter un doublon. Vérifie ta boîte « Messages envoyés » avant de réessayer.' } as never)
+      .eq('status', 'sending').lt('sent_at', new Date(Date.now() - STUCK_MS).toISOString());
     const { data, error } = await supabase.from('dossier_emails')
-      .select('id, to_email, subject, body, attachments, sender_email, sender_name')
+      .select('id, to_email, subject, body, attachments, sender_email, sender_name, sent_by')
       .eq('status', 'queued').order('created_at', { ascending: true }).limit(5);
     if (error) { if (!/does not exist|schema cache/i.test(error.message)) console.warn(`[MAIL] lecture de la file impossible: ${error.message}`); return; }
     for (const m of (data ?? []) as unknown as QueuedMail[]) {
+      // RÉSERVATION : seule la mise à jour queued → sending qui touche la
+      // ligne autorise l'envoi. Deux workers (redéploiement) ne peuvent pas
+      // envoyer le même e-mail. sent_at sert d'horodatage de réservation.
+      const { data: claimed } = await supabase.from('dossier_emails')
+        .update({ status: 'sending', sent_at: new Date().toISOString() } as never)
+        .eq('id', m.id).eq('status', 'queued').select('id');
+      if (!claimed || (claimed as unknown[]).length === 0) continue;
       try {
+        // EXPÉDITEUR = COMPTE CONNECTÉ : l'adresse From doit être celle du
+        // compte qui a déposé la ligne — personne n'écrit au nom d'un autre.
+        if (!m.sent_by) throw new Error('expéditeur inconnu (sent_by vide) — envoi refusé');
+        const { data: u, error: uErr } = await supabase.auth.admin.getUserById(m.sent_by);
+        const accountEmail = (u?.user?.email ?? '').trim().toLowerCase();
+        if (uErr || !accountEmail) throw new Error(`compte expéditeur introuvable — envoi refusé`);
+        if (accountEmail !== m.sender_email.trim().toLowerCase()) throw new Error(`expéditeur ${m.sender_email} ≠ compte connecté ${accountEmail} — envoi refusé`);
+        for (const a of m.attachments ?? []) {
+          if (!ALLOWED_PREFIXES.some((p) => a.path.startsWith(p)) || a.path.includes('..')) throw new Error(`pièce jointe hors du dossier refusée : ${a.path}`);
+        }
         const { id, threadId } = await sendOne(creds, m);
         await supabase.from('dossier_emails').update({ status: 'sent', sent_at: new Date().toISOString(), gmail_message_id: id, gmail_thread_id: threadId, error: null } as never).eq('id', m.id);
         console.warn(`[MAIL] envoyé : « ${m.subject} » → ${m.to_email} de ${m.sender_email} (${(m.attachments ?? []).length} pièce(s))`);
