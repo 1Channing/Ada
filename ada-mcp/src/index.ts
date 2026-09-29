@@ -277,7 +277,7 @@ async function loadStudies(ids?: string[]): Promise<Map<string, StudyRow>> {
 function buildServer(): McpServer {
   const server = new McpServer({
     name: 'ada-readonly',
-    version: '0.2.0',
+    version: '0.3.0',
   });
 
   server.registerTool(
@@ -693,6 +693,154 @@ function buildServer(): McpServer {
         top: open.slice(0, limit).map((d) => ({
           site: d.site, country: d.country, vehicle: `${d.brand} ${d.model}`.trim(), fuel: d.fuel,
           signal: d.signal, layer: d.layer, doubt: d.doubt_score, priority: d.priority, status: d.status, summary: d.summary, since: d.first_detected_at, lastSeenAt: d.last_seen_at,
+        })),
+      });
+    },
+  );
+
+  // ── Offres fournisseur (29/09, demande Channing : « donne-lui l'accès aux
+  //    offres et au tableau édité ») ────────────────────────────────────────
+  server.registerTool(
+    'list_offers',
+    {
+      title: 'ADA : offres fournisseur',
+      description: "Liste les offres fournisseur importées dans ADA (page Offres) : titre, fournisseur, statut (draft / sent / closed), pays visés, règle de prix (marge ajoutée au HT fournisseur ou prix fixe), nombre de véhicules et de véhicules retenus, propriétaire, dates. Pour le tableau des véhicules avec nos prix : get_offer.",
+      inputSchema: z.object({
+        person: z.string().trim().min(1).optional().describe('Propriétaire de l\'offre (prénom)'),
+        status: z.enum(['draft', 'sent', 'closed']).optional(),
+        supplier: z.string().trim().min(1).optional().describe('Filtre sur le nom du fournisseur (contient)'),
+        days: z.number().int().min(1).max(365).default(90).describe('Offres modifiées dans les N derniers jours'),
+        limit: z.number().int().min(1).max(100).default(30),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ person, status, supplier, days, limit }) => {
+      const who = await resolvePerson(person);
+      if (who.error) return jsonToolResult({ error: who.error, count: 0, offers: [] });
+      let q = supabase.from('supplier_offers')
+        .select('id,user_id,title,supplier,source_filename,status,countries,price_rule,vehicles,notes,created_at,updated_at')
+        .gte('updated_at', sinceIso(days)).order('updated_at', { ascending: false }).limit(limit);
+      if (who.ids) q = q.in('user_id', who.ids);
+      if (status) q = q.eq('status', status);
+      const sup = normalizeText(supplier); if (sup) q = q.ilike('supplier', `%${sup}%`);
+      const { data, error } = await q;
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Table supplier_offers absente (SQL du 14/09 non collé).', count: 0, offers: [] });
+      assertDb(error, 'Unable to list offers');
+      const rows = (data || []) as Array<Record<string, unknown>>;
+      return jsonToolResult({
+        count: rows.length,
+        offers: rows.map((o) => {
+          const vehicles = Array.isArray(o.vehicles) ? (o.vehicles as Array<Record<string, unknown>>) : [];
+          const rule = (o.price_rule ?? {}) as { mode?: string; margin?: number };
+          return {
+            id: o.id, title: o.title, supplier: o.supplier, sourceFile: o.source_filename, status: o.status,
+            countries: o.countries, priceRule: rule.mode === 'fixed' ? `prix fixe ${rule.margin} €` : `HT fournisseur + ${rule.margin} €`,
+            vehicles: vehicles.length, selected: vehicles.filter((v) => v.selected !== false).length,
+            owner: nameOf(who.people, String(o.user_id)), notes: o.notes || null, createdAt: o.created_at, updatedAt: o.updated_at,
+          };
+        }),
+      });
+    },
+  );
+
+  server.registerTool(
+    'get_offer',
+    {
+      title: 'ADA : une offre et son tableau',
+      description: "Le tableau édité d'une offre fournisseur : chaque véhicule avec VIN, marque, modèle, version, première immatriculation, km, énergie, motorisation, puissance, boîte, couleur, dommages, lieu, prix fournisseur HT / TTC, TVA récupérable, et NOTRE prix de vente HT (sale_price, règle appliquée puis éventuellement corrigé à la main). Ajoute, s'il existe, le relevé « Où vendre » : par lot et par pays, la médiane des prix affichés et le nombre de concurrents, site par site.",
+      inputSchema: z.object({
+        id: z.string().trim().min(1).optional().describe('Identifiant de l\'offre (list_offers)'),
+        title: z.string().trim().min(1).optional().describe('Sinon : titre de l\'offre (contient)'),
+        onlySelected: z.boolean().default(true).describe('Ne garder que les véhicules retenus (cochés)'),
+        limit: z.number().int().min(1).max(1000).default(300),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ id, title, onlySelected, limit }) => {
+      let q = supabase.from('supplier_offers').select('*').limit(1);
+      if (id) q = q.eq('id', id);
+      else if (normalizeText(title)) q = q.ilike('title', `%${normalizeText(title)}%`).order('updated_at', { ascending: false });
+      else return jsonToolResult({ error: 'Donne id ou title.' });
+      const { data, error } = await q.maybeSingle();
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Table supplier_offers absente (SQL du 14/09 non collé).' });
+      assertDb(error, 'Unable to read offer');
+      if (!data) return jsonToolResult({ error: 'Offre introuvable.' });
+      const o = data as Record<string, unknown>;
+      const people = (await resolvePerson()).people;
+      const all = Array.isArray(o.vehicles) ? (o.vehicles as Array<Record<string, unknown>>) : [];
+      const kept = (onlySelected ? all.filter((v) => v.selected !== false) : all).slice(0, limit);
+      const rule = (o.price_rule ?? {}) as { mode?: string; margin?: number };
+      const supplierHt = (v: Record<string, unknown>) => (typeof v.price_ht === 'number' ? Math.round(v.price_ht)
+        : typeof v.price_ttc === 'number' && v.vat_recoverable !== false ? Math.round(v.price_ttc / 1.2) : null);
+      const market = (o.market ?? null) as Record<string, Record<string, { medianTtc?: number | null; competitors?: number; at?: string; sites?: Record<string, { site: string; count: number; total: number | null; median: number | null; error: string | null; url: string }> }>> | null;
+      return jsonToolResult({
+        id: o.id, title: o.title, supplier: o.supplier, sourceFile: o.source_filename, status: o.status, countries: o.countries,
+        priceRule: rule.mode === 'fixed' ? `prix fixe ${rule.margin} €` : `HT fournisseur + ${rule.margin} €`,
+        owner: nameOf(people, String(o.user_id)), notes: o.notes || null, createdAt: o.created_at, updatedAt: o.updated_at,
+        vehiclesTotal: all.length, vehiclesSelected: all.filter((v) => v.selected !== false).length, returned: kept.length,
+        pricesNote: 'Prix en euros. supplierHt = HT fournisseur (TTC / 1,2 si TVA récupérable). ourPriceHt = notre prix de vente HT (sale_price). Les prix TTC fournisseur sont ceux du fichier, taxes locales telles quelles.',
+        vehicles: kept.map((v) => ({
+          vin: v.vin, brand: v.brand, model: v.model, version: v.version, firstRegistration: v.reg_date, year: v.year, km: v.km,
+          fuel: v.fuel, engine: v.engine, powerCh: v.power_ch, gearbox: v.gearbox, color: v.color, damages: v.damages, location: v.location,
+          supplierPriceHt: v.price_ht, supplierPriceTtc: v.price_ttc, supplierHt: supplierHt(v), vatRecoverable: v.vat_recoverable, imported: v.imported,
+          ourPriceHt: v.sale_price, selected: v.selected !== false, reportUrl: v.report_url || null, extras: v.extras && Object.keys(v.extras as object).length ? v.extras : undefined,
+        })),
+        whereToSell: market ? Object.entries(market).map(([lot, byCountry]) => ({
+          lot,
+          countries: Object.entries(byCountry).map(([country, r]) => ({
+            country, medianDisplayedPrice: r.medianTtc ?? null, competitors: r.competitors ?? null, at: r.at ?? null,
+            sites: Object.values(r.sites ?? {}).map((s) => ({ site: s.site, listings: s.count, total: s.total, median: s.median, error: s.error, url: s.url })),
+          })),
+        })) : null,
+        lotCriteria: o.lot_criteria ?? null,
+      });
+    },
+  );
+
+  // ── Carte du réseau (29/09 : « la carte, les données et coordonnées ») ───
+  server.registerTool(
+    'network_contacts',
+    {
+      title: 'ADA : carte du réseau',
+      description: "Les contacts de la carte Europe du réseau MC Export : nom, type (concession, loueur, trader, convoyeur, autre), rôle (vendeur, acheteur, les deux), pays, ville, coordonnées GPS, personne de contact, téléphone, e-mail, site web, relation, types de véhicules, volume mensuel, opportunité, marge, fiabilité, commentaires, part de marché, stock, et les modèles travaillés. Filtres : pays, type, rôle, texte libre.",
+      inputSchema: z.object({
+        country: z.string().trim().min(2).max(3).optional().describe('Code ISO-2 (FR, NL, DK, ES…)'),
+        kind: z.string().trim().min(1).optional().describe('concession | loueur | trader | convoyeur | autre'),
+        role: z.string().trim().min(1).optional().describe('vendeur | acheteur | les_deux'),
+        query: z.string().trim().min(1).optional().describe('Texte cherché dans le nom, la ville, le contact, la relation ou le commentaire'),
+        withModels: z.boolean().default(true),
+        limit: z.number().int().min(1).max(500).default(200),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ country, kind, role, query, withModels, limit }) => {
+      let q = supabase.from('network_contacts').select('*').order('country', { ascending: true }).order('name', { ascending: true }).limit(limit);
+      if (country) q = q.eq('country', country.toUpperCase());
+      if (normalizeText(kind)) q = q.eq('kind', normalizeText(kind));
+      if (normalizeText(role)) q = q.eq('role', normalizeText(role));
+      const text = normalizeText(query);
+      if (text) q = q.or(`name.ilike.%${text}%,city.ilike.%${text}%,contact_name.ilike.%${text}%,relation.ilike.%${text}%,comment.ilike.%${text}%,notes.ilike.%${text}%`);
+      const { data, error } = await q;
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Table network_contacts absente (SQL du 07/09 non collé).', count: 0, contacts: [] });
+      assertDb(error, 'Unable to read network contacts');
+      const rows = (data || []) as Array<Record<string, unknown>>;
+      const models = new Map<string, Array<{ brand: string; model: string; qty: number | null; note: string }>>();
+      if (withModels && rows.length > 0) {
+        const { data: mrows } = await supabase.from('network_contact_models').select('contact_id,brand,model,qty,note').in('contact_id', rows.map((r) => String(r.id))).limit(5000);
+        for (const m of (mrows || []) as Array<{ contact_id: string; brand: string; model: string; qty: number | null; note: string }>) {
+          const list = models.get(m.contact_id) ?? []; list.push({ brand: m.brand, model: m.model, qty: m.qty, note: m.note }); models.set(m.contact_id, list);
+        }
+      }
+      return jsonToolResult({
+        count: rows.length,
+        contacts: rows.map((c) => ({
+          id: c.id, name: c.name, kind: c.kind, role: c.role, country: c.country, city: c.city,
+          coordinates: typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : null,
+          contactName: c.contact_name || null, phone: c.phone || null, email: c.email || null, website: c.website || null,
+          relation: c.relation || null, vehicleTypes: c.vehicle_types || null, monthlyVolume: c.monthly_volume || null,
+          opportunity: c.opportunity || null, margin: c.margin || null, reliability: c.reliability || null,
+          comment: c.comment || null, notes: c.notes || null, marketShare: c.market_share, stockTotal: c.stock_total,
+          models: models.get(String(c.id)) ?? [], updatedAt: c.updated_at,
         })),
       });
     },

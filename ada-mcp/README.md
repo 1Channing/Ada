@@ -15,6 +15,8 @@ Depuis fin juillet 2026, la vérité d'ADA vit dans ces tables. Le connecteur ne
 | Dossiers de vérité | `truth_dossiers` | `truth_status` |
 | Boîte noire du worker (bilans de vague, résumé du matin) | `worker_logs` | `ada_health`, `list_studies`, `get_study`, `truth_status` |
 | Comptes | `profiles` | `list_people` (et filtre `person` partout) |
+| Offres fournisseur (tableau édité, nos prix, relevés « où vendre ») | `supplier_offers` | `list_offers`, `get_offer` |
+| Carte du réseau (contacts, coordonnées GPS, modèles travaillés) | `network_contacts`, `network_contact_models` | `network_contacts` |
 
 Les tables `studies_v2` / `study_runs` / `study_run_results` / `study_source_listings` de l'ancienne architecture (dernière écriture le 17/07/2026) **ne sont pas lues** : elles ne reflètent plus ADA.
 
@@ -31,6 +33,9 @@ Les tables `studies_v2` / `study_runs` / `study_run_results` / `study_source_lis
 | `list_negotiations` | Les négociations en cours avec propriétaire, dossier, prix affiché et négocié, notes, date d'ajout et ancienneté |
 | `market_prices` | Les derniers relevés de prix d'un véhicule sur un pays, site par site (médiane, quartiles, échantillon, URL du relevé) |
 | `truth_status` | Résumés des dernières vagues, dossiers de vérité ouverts par signal et par site, les plus prioritaires |
+| `list_offers` | Les offres fournisseur (titre, fournisseur, statut, pays, règle de prix, véhicules / retenus, propriétaire, dates) |
+| `get_offer` | Le tableau édité d'une offre : chaque véhicule avec VIN, modèle, version, 1re immat, km, énergie, puissance, prix fournisseur HT / TTC, TVA récupérable et **notre prix HT** ; plus le relevé « Où vendre » par lot et par pays quand il existe |
+| `network_contacts` | La carte du réseau : contacts avec coordonnées GPS, téléphone, e-mail, site, relation, volumes, opportunité, fiabilité, commentaires et modèles travaillés ; filtres pays / type / rôle / texte |
 
 Tous les outils sont déclarés lecture seule, non destructifs, idempotents, à monde fermé, et bornés par une limite.
 

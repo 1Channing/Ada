@@ -762,6 +762,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
   annule), seul `contact_documents.label` change, le fichier et son chemin
   restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
+- **MCP : OFFRES, TABLEAU ÉDITÉ, CARTE DU RÉSEAU (29/09, demande Channing)**.
+  Trois outils lecture seule ajoutés au connecteur ChatGPT (`ada-mcp`,
+  v0.3.0) : `list_offers` (offres fournisseur, règle de prix, comptes),
+  `get_offer` (tableau des véhicules avec prix fournisseur HT / TTC, TVA
+  récupérable et notre prix HT, relevé « où vendre » par lot et pays),
+  `network_contacts` (carte : coordonnées GPS, téléphone, e-mail, relation,
+  volumes, fiabilité, modèles travaillés). Le service lit avec la clé
+  service : la fermeture des accès anonymes du 27/09 ne le touche pas.
+  Redéploiement Railway du service ada-mcp au push (branche de prod).
 - **CHANTIER E-MAILS — ÉTAPE 3 : E-MAIL 1 À L'ACHETEUR VIA GMAIL (29/09)**.
   Table `dossier_emails` (migration 20260929100000) = journal + file : le
   front dépose « queued » (destinataire, objet, texte, pièces = dernier
