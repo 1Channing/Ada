@@ -277,7 +277,7 @@ async function loadStudies(ids?: string[]): Promise<Map<string, StudyRow>> {
 function buildServer(): McpServer {
   const server = new McpServer({
     name: 'ada-readonly',
-    version: '0.3.0',
+    version: MCP_VERSION,
   });
 
   server.registerTool(
@@ -862,11 +862,19 @@ function constantTimeTokenMatch(provided: string, expected: string): boolean {
 // déploiement ne devenait jamais actif (constat 14/09). La protection
 // couvre tout le reste, /mcp compris.
 const outer = express();
+// /health dit QUELLE version tourne et QUELS outils elle publie (29/09 :
+// ChatGPT ne voyait que 9 outils — impossible de savoir, depuis le
+// navigateur, si le service avait redéployé ou si le connecteur gardait
+// une liste en cache). Aucune donnée, aucun secret.
+const MCP_VERSION = '0.3.0';
+const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts'];
 outer.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'ada-mcp-readonly',
+    version: MCP_VERSION,
     mode: 'read-only',
+    tools: TOOL_NAMES,
     timestamp: new Date().toISOString(),
   });
 });
