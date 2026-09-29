@@ -10,6 +10,8 @@ import {
   type ContactDocument, type ContactCategory,
 } from '../services/contactDocuments';
 import { StorageLink } from '../components/StorageLink';
+import { useAuth } from '../services/auth';
+import { listDossierEmails, queueDossierEmail, latestGeneratedDocument, buyerCessionTemplate, type DossierEmail } from '../services/dossierEmails';
 import {
   DOSSIER_DOC_KINDS, PACK_PRESTATAIRE, PACK_RETOUR, kindLabel, listDossierDocuments, uploadDossierDocument,
   updateDossierDocument, deleteDossierDocument, missingForPack, type DossierDocument, type DossierDocKind,
@@ -340,6 +342,74 @@ export function Administrative() {
     const err = await deleteDossierDocument(doc);
     if (err) { setDossierDocsError(err); return; }
     setDossierDocs((d) => d.filter((x) => x.id !== doc.id));
+  };
+
+  // E-MAIL 1 — CESSIONS À L'ACHETEUR (29/09, étape 3 du chantier e-mails).
+  // Le front dépose une ligne dans dossier_emails ; le worker l'envoie par
+  // Gmail au nom de la personne connectée ; le journal ci-dessous suit
+  // l'état. « À moi-même » = test : même mécanique, destinataire = moi.
+  const { email: myEmail, displayName: myName, userId: myUserId } = useAuth();
+  const [mailTo, setMailTo] = useState('');
+  const [mailToSelf, setMailToSelf] = useState(false);
+  const [mailSubject, setMailSubject] = useState('');
+  const [mailBody, setMailBody] = useState('');
+  const [mailAttachCession, setMailAttachCession] = useState(true);
+  const [mailPieceIds, setMailPieceIds] = useState<string[]>([]);
+  const [mailSending, setMailSending] = useState(false);
+  const [mailError, setMailError] = useState<string | null>(null);
+  const [dossierMails, setDossierMails] = useState<DossierEmail[]>([]);
+  const [latestCession, setLatestCession] = useState<{ path: string; created_at: string } | null>(null);
+  const refreshMailJournal = async (transactionId: string) => {
+    const r = await listDossierEmails(transactionId);
+    setDossierMails(r.mails); if (r.error) setMailError(r.error);
+    setLatestCession(await latestGeneratedDocument(transactionId, 'Certificat de cession'));
+  };
+  useEffect(() => {
+    if (!lastSavedTransactionId || transactionType !== 'sale') { setDossierMails([]); setLatestCession(null); return; }
+    void refreshMailJournal(lastSavedTransactionId);
+  }, [lastSavedTransactionId, transactionType]);
+  // Sondage tant qu'un envoi est en file (le worker passe toutes les 20 s).
+  useEffect(() => {
+    if (!lastSavedTransactionId || !dossierMails.some((m) => m.status === 'queued')) return;
+    const t = setInterval(() => void refreshMailJournal(lastSavedTransactionId), 5000);
+    return () => clearInterval(t);
+  }, [dossierMails, lastSavedTransactionId]);
+  // Préremplissage : destinataire = e-mail du client ; objet et texte d'après
+  // le véhicule, une seule fois (l'opérateur peut tout retoucher).
+  useEffect(() => {
+    const clientMail = (selectedBuyerContact?.email ?? buyerForm.email ?? '').trim();
+    if (clientMail && !mailTo) setMailTo(clientMail);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBuyerContact?.email, buyerForm.email]);
+  useEffect(() => {
+    if (transactionType !== 'sale' || mailSubject || mailBody) return;
+    const t = buyerCessionTemplate({
+      vehicle: [vehicleForm.brand, vehicleForm.model].filter(Boolean).join(' '), plate: vehicleForm.plate_number, vin: vehicleForm.vin,
+      senderFirstName: (myName || myEmail || '').split(/[\s@]/)[0] || 'MC Export',
+    });
+    setMailSubject(t.subject); setMailBody(t.body);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactionType, vehicleForm.brand, vehicleForm.model, vehicleForm.plate_number, vehicleForm.vin, myName]);
+  const sendBuyerMail = async () => {
+    if (!lastSavedTransactionId || !myEmail) { setMailError('Connecte-toi avec ton compte Google Workspace pour envoyer.'); return; }
+    const to = (mailToSelf ? myEmail : mailTo).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { setMailError('Adresse du destinataire invalide.'); return; }
+    const attachments: Array<{ path: string; name?: string }> = [];
+    if (mailAttachCession) {
+      if (!latestCession) { setMailError('Génère d\'abord le certificat de cession (bouton ci-dessus).'); return; }
+      attachments.push({ path: latestCession.path, name: `Cession ${transactionForm.reference || vehicleForm.plate_number || ''}.pdf`.replace(/\s+\./, '.') });
+    }
+    for (const d of dossierDocs) if (mailPieceIds.includes(d.id)) attachments.push({ path: d.path, name: `${d.label}.${(d.path.split('.').pop() || 'pdf')}` });
+    if (attachments.length === 0) { setMailError('Aucune pièce jointe : coche au moins le certificat de cession ou une pièce du dossier.'); return; }
+    setMailSending(true); setMailError(null);
+    try {
+      const r = await queueDossierEmail({
+        transactionId: lastSavedTransactionId, kind: mailToSelf ? 'test' : 'cessions_acheteur', to, subject: mailSubject, body: mailBody,
+        attachments, senderEmail: myEmail, senderName: myName || null, sentBy: myUserId,
+      });
+      if (r.error) { setMailError(r.error); return; }
+      await refreshMailJournal(lastSavedTransactionId);
+    } finally { setMailSending(false); }
   };
   // PRO / PARTICULIER (26/09, demande Channing) : deux listes, une catégorie
   // par fiche (déduite tant qu'elle n'est pas posée), documents des pros.
@@ -743,9 +813,12 @@ export function Administrative() {
     const ext = currentExternalParty();
     const sup = transactionType === 'purchase' ? ext : supplier;
     const cli = transactionType === 'sale' ? ext : client;
-    const supplierId = await persistContactSlot(sup.selected, sup.form, 'seller');
-    const clientId = await persistContactSlot(cli.selected, cli.form, 'buyer');
     const mcId = mcExport?.id ?? null;
+    // On ne se vend pas à soi-même (29/09) : une contrepartie externe qui
+    // serait MC Export vaut « pas de contrepartie ».
+    const isMcForm = (p: Party) => (p.selected && (p.selected.id === mcId || p.selected.siren === MC_EXPORT_SIREN)) || (p.form.siren ?? '').replace(/\s+/g, '') === MC_EXPORT_SIREN;
+    const supplierId = isMcForm(sup) ? null : await persistContactSlot(sup.selected, sup.form, 'seller');
+    const clientId = isMcForm(cli) ? null : await persistContactSlot(cli.selected, cli.form, 'buyer');
     const sellerId = transactionType === 'purchase' ? supplierId : mcId;
     const buyerId = transactionType === 'purchase' ? mcId : clientId;
     return { supplierId, clientId, sellerId, buyerId };
@@ -960,10 +1033,16 @@ export function Administrative() {
 
     // The two persistent counterparties. Legacy deals (no columns) fall back to
     // whichever external party the active direction carried.
-    const supplierC = (tx.supplier as unknown as Contact | null)
-      ?? (dir === 'purchase' ? (tx.seller as unknown as Contact | null) : null);
-    const clientC = (tx.client as unknown as Contact | null)
-      ?? (dir === 'sale' ? (tx.buyer as unknown as Contact | null) : null);
+    // MC EXPORT N'EST JAMAIS UNE CONTREPARTIE EXTERNE (29/09, dossier I776 :
+    // « MC Export vend à MC Export »). Classe : la synchro du tableur passait
+    // un dossier « achat » en « vente » sans changer les parties — l'acheteur
+    // restait MC Export, et le repli « acheteur = client » l'installait comme
+    // client. Une fiche MC Export dans un slot externe vaut « vide ».
+    const notMc = (c: Contact | null): Contact | null => (c && (c.siren === MC_EXPORT_SIREN || c.id === mcExport?.id) ? null : c);
+    const supplierC = notMc((tx.supplier as unknown as Contact | null)
+      ?? (dir === 'purchase' ? (tx.seller as unknown as Contact | null) : null));
+    const clientC = notMc((tx.client as unknown as Contact | null)
+      ?? (dir === 'sale' ? (tx.buyer as unknown as Contact | null) : null));
     setSupplier(supplierC ? { form: contactToForm(supplierC), selected: supplierC } : emptyParty());
     setClient(clientC ? { form: contactToForm(clientC), selected: clientC } : emptyParty());
 
@@ -983,12 +1062,22 @@ export function Administrative() {
       if (c) { setForm(contactToForm(c as Contact)); setSel(c as Contact); }
       else { setForm(EMPTY_CONTACT); setSel(null); }
     };
-    seat(tx.seller as Record<string, unknown> | null, setSellerForm, setSelectedSellerContact);
-    seat(tx.buyer as Record<string, unknown> | null, setBuyerForm, setSelectedBuyerContact);
-    seat(tx.seller2 as Record<string, unknown> | null, setSellerForm2, setSelectedSeller2Contact);
-    seat(tx.buyer2 as Record<string, unknown> | null, setBuyerForm2, setSelectedBuyer2Contact);
-    setShowSecondSeller(Boolean(tx.seller2));
-    setShowSecondBuyer(Boolean(tx.buyer2));
+    // Le côté MC Export est TOUJOURS MC Export (jamais ce que la ligne porte
+    // après une bascule), et son co-titulaire n'existe pas : le co-vendeur
+    // d'un achat (Ramon Yola sur I776) ne suit pas MC Export en revente.
+    const seller2 = dir === 'purchase' ? (tx.seller2 as Record<string, unknown> | null) : null;
+    const buyer2 = dir === 'sale' ? (tx.buyer2 as Record<string, unknown> | null) : null;
+    if (dir === 'purchase') {
+      seat((supplierC ?? tx.seller) as Record<string, unknown> | null, setSellerForm, setSelectedSellerContact);
+      seat((mcExport ?? tx.buyer) as Record<string, unknown> | null, setBuyerForm, setSelectedBuyerContact);
+    } else {
+      seat((mcExport ?? tx.seller) as Record<string, unknown> | null, setSellerForm, setSelectedSellerContact);
+      seat(clientC as Record<string, unknown> | null, setBuyerForm, setSelectedBuyerContact);
+    }
+    seat(seller2, setSellerForm2, setSelectedSeller2Contact);
+    seat(buyer2, setBuyerForm2, setSelectedBuyer2Contact);
+    setShowSecondSeller(Boolean(seller2));
+    setShowSecondBuyer(Boolean(buyer2));
 
     setTransactionForm({
       transaction_price: tx.transaction_price != null ? String(tx.transaction_price) : '',
@@ -1337,9 +1426,9 @@ export function Administrative() {
           transaction_type: transactionType,
           vehicle_id: vehicleData.id,
           seller_contact_id: sellerId,
-          seller_contact_id_2: sellerContactId2,
+          seller_contact_id_2: transactionType === 'purchase' ? sellerContactId2 : null,
           buyer_contact_id: buyerId,
-          buyer_contact_id_2: buyerContactId2,
+          buyer_contact_id_2: transactionType === 'sale' ? buyerContactId2 : null,
           supplier_contact_id: supplierId,
           client_contact_id: clientId,
           transaction_price: transactionForm.transaction_price ? parsePriceInput(transactionForm.transaction_price) : null,
@@ -1464,9 +1553,9 @@ export function Administrative() {
       const updatePayload = {
           transaction_type: transactionType,
           seller_contact_id: sellerId,
-          seller_contact_id_2: sellerContactId2,
+          seller_contact_id_2: transactionType === 'purchase' ? sellerContactId2 : null,
           buyer_contact_id: buyerId,
-          buyer_contact_id_2: buyerContactId2,
+          buyer_contact_id_2: transactionType === 'sale' ? buyerContactId2 : null,
           supplier_contact_id: supplierId,
           client_contact_id: clientId,
           transaction_price: transactionForm.transaction_price ? parsePriceInput(transactionForm.transaction_price) : null,
@@ -1611,6 +1700,7 @@ export function Administrative() {
           ? `${documentType} généré — ${missing.length} champ(s) vide(s), voir l'aperçu ci-dessous.`
           : `${documentType} généré — toutes les données étaient présentes.`
       });
+      if (documentType === 'Certificat de cession') setLatestCession(await latestGeneratedDocument(transactionId, 'Certificat de cession'));
 
       setTimeout(() => setSaveMessage(null), 6000);
     } catch (error) {
@@ -3008,6 +3098,67 @@ export function Administrative() {
               </button>
             ))}
           </div>
+
+          {/* E-MAIL 1 (29/09) : les cessions à signer, envoyées à l'acheteur
+              depuis l'adresse Google de la personne connectée. */}
+          {transactionType === 'sale' && (
+            <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-sm font-medium text-slate-800">Envoyer les cessions à l'acheteur <span className="text-slate-400 font-normal">— depuis {myEmail || 'ton adresse'}</span></p>
+                {latestCession
+                  ? <span className="text-xs text-emerald-700">Certificat prêt · généré le {new Date(latestCession.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                  : <span className="text-xs text-amber-700">Génère d'abord le certificat de cession</span>}
+              </div>
+              {!lastSavedTransactionId && <p className="text-xs text-slate-500">Enregistre le dossier pour pouvoir envoyer.</p>}
+              {lastSavedTransactionId && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-600 mb-1">Destinataire</label>
+                      <input type="email" value={mailToSelf ? (myEmail ?? '') : mailTo} disabled={mailToSelf} onChange={(e) => setMailTo(e.target.value)} placeholder="e-mail de l'acheteur (fiche contact)" className="w-full px-3 py-2 bg-white border border-slate-300 rounded text-sm disabled:text-slate-500" />
+                      <label className="mt-1.5 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={mailToSelf} onChange={(e) => setMailToSelf(e.target.checked)} /> M'envoyer à moi-même pour tester</label>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-600 mb-1">Objet</label>
+                      <input value={mailSubject} onChange={(e) => setMailSubject(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-600 mb-1">Message</label>
+                    <textarea value={mailBody} onChange={(e) => setMailBody(e.target.value)} rows={6} className="w-full px-3 py-2 bg-white border border-slate-300 rounded text-sm font-mono" />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-slate-700">
+                    <span className="text-slate-500">Pièces jointes :</span>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={mailAttachCession} onChange={(e) => setMailAttachCession(e.target.checked)} disabled={!latestCession} /> Certificat de cession (dernier généré)</label>
+                    {dossierDocs.map((d) => (
+                      <label key={d.id} className="flex items-center gap-1.5"><input type="checkbox" checked={mailPieceIds.includes(d.id)} onChange={(e) => setMailPieceIds((ids) => e.target.checked ? [...ids, d.id] : ids.filter((x) => x !== d.id))} /> {d.label}</label>
+                    ))}
+                  </div>
+                  {mailError && <p className="text-xs text-red-600">{mailError}</p>}
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => void sendBuyerMail()} disabled={mailSending} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-slate-300 text-white text-sm font-medium">
+                      {mailSending ? 'Envoi…' : mailToSelf ? 'M\'envoyer le test' : 'Envoyer à l\'acheteur'}
+                    </button>
+                    <span className="text-xs text-slate-500">Parti de ta boîte Gmail : la réponse de l'acheteur arrive dans ton fil.</span>
+                  </div>
+                  {dossierMails.length > 0 && (
+                    <div className="border-t border-blue-100 pt-2 space-y-1">
+                      {dossierMails.map((m) => (
+                        <div key={m.id} className="flex items-center gap-3 text-xs">
+                          <span className="text-slate-500 whitespace-nowrap">{new Date(m.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="truncate">{m.kind === 'test' ? 'Test → ' : '→ '}{m.to_email} · {m.subject}</span>
+                          <span className={`ml-auto whitespace-nowrap px-1.5 py-0.5 rounded ${m.status === 'sent' ? 'bg-emerald-50 text-emerald-700' : m.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                            {m.status === 'sent' ? 'envoyé' : m.status === 'failed' ? 'échec' : 'en file…'}
+                          </span>
+                        </div>
+                      ))}
+                      {dossierMails.filter((m) => m.status === 'failed' && m.error).slice(0, 1).map((m) => <p key={m.id} className="text-xs text-red-600">{m.error}</p>)}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           {/* PIÈCES DU PROFESSIONNEL (26/09) : à côté des documents du dossier,
               les documents enregistrés sur la fiche du vendeur / acheteur pro
               — chacun ouvrable, et tous en un seul PDF à imprimer. */}

@@ -205,10 +205,13 @@ async function syncOnce(creds: string): Promise<void> {
   // vente poussée depuis une négociation porte sa REF (fenêtre « référence »)
   // : la ligne du tableur la RETROUVE et la COMPLÈTE (champs vides seulement,
   // le dossier ADA fait toujours foi) au lieu de créer un deuxième dossier.
-  type Known = { id: string; reference: string | null; notes: string | null; purchase_price: number | null; sale_price: number | null; fees: number | null; commission_ht: number | null; commercial: string | null; buyer_contact_id: string | null; transaction_date: string | null; status: string | null; closed_at: string | null; transaction_type: string | null };
+  type Known = { id: string; reference: string | null; notes: string | null; purchase_price: number | null; sale_price: number | null; fees: number | null; commission_ht: number | null; commercial: string | null; buyer_contact_id: string | null; seller_contact_id: string | null; seller_contact_id_2: string | null; supplier_contact_id: string | null; client_contact_id: string | null; transaction_date: string | null; status: string | null; closed_at: string | null; transaction_type: string | null };
   const { data: existing } = await supabase.from('transactions_admin')
-    .select('id, reference, notes, purchase_price, sale_price, fees, commission_ht, commercial, buyer_contact_id, transaction_date, status, closed_at, transaction_type')
+    .select('id, reference, notes, purchase_price, sale_price, fees, commission_ht, commercial, buyer_contact_id, seller_contact_id, seller_contact_id_2, supplier_contact_id, client_contact_id, transaction_date, status, closed_at, transaction_type')
     .not('reference', 'is', null).limit(10000);
+  // Fiche MC Export : le côté qui change de rôle à la bascule achat → vente.
+  const { data: mcRow } = await supabase.from('contacts').select('id').eq('siren', '93033811600013').order('created_at', { ascending: true }).limit(1).maybeSingle();
+  const mcId = (mcRow as { id?: string } | null)?.id ?? null;
   const known = new Map<string, Known>();
   for (const r of ((existing ?? []) as unknown as Known[])) { const k = (r.reference ?? '').trim().toUpperCase(); if (k && !known.has(k)) known.set(k, r); }
 
@@ -260,7 +263,19 @@ async function syncOnce(creds: string): Promise<void> {
         if (!prev.buyer_contact_id && buyerId) patch.buyer_contact_id = buyerId;
         if (!prev.transaction_date && s.dateAchat) patch.transaction_date = s.dateAchat;
         if (closed && prev.status !== 'cloturee') { patch.status = 'cloturee'; if (!prev.closed_at && s.dateLivraison) patch.closed_at = `${s.dateLivraison}T12:00:00Z`; }
-        if (prev.transaction_type === 'purchase' && s.prixVente != null) patch.transaction_type = 'sale';
+        if (prev.transaction_type === 'purchase' && s.prixVente != null) {
+          // BASCULE ACHAT → VENTE AVEC LES PARTIES (29/09, dossier I776 : le
+          // type changeait seul, MC Export restait acheteur et le co-vendeur
+          // du particulier suivait MC Export sur le certificat de revente).
+          patch.transaction_type = 'sale';
+          const prevSeller = prev.seller_contact_id && prev.seller_contact_id !== mcId ? prev.seller_contact_id : null;
+          if (!prev.supplier_contact_id && prevSeller) patch.supplier_contact_id = prevSeller;
+          if (mcId) patch.seller_contact_id = mcId;
+          patch.seller_contact_id_2 = null;
+          const client = buyerId ?? prev.client_contact_id ?? null;
+          patch.buyer_contact_id = client && client !== mcId ? client : null;
+          if (!prev.client_contact_id && client && client !== mcId) patch.client_contact_id = client;
+        }
         if (!(prev.notes ?? '').includes('[Tableur')) patch.notes = [prev.notes, tableurNotes].filter(Boolean).join('\n');
         if (Object.keys(patch).length === 0) { skipped++; continue; }
         const { error } = await supabase.from('transactions_admin').update(patch as never).eq('id', prev.id);

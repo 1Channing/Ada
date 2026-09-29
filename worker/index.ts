@@ -16,6 +16,7 @@ import { initWorkerLogCapture } from './logStore';
 import { startDailySearchScheduler } from './dailySearches';
 import { startSalesSheetSync } from './salesSheetSync';
 import { startLegalWatchCollector } from './legalWatchCollector';
+import { startMailer } from './mailer';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -653,6 +654,8 @@ app.listen(PORT, "0.0.0.0", () => {
     startDailySearchScheduler();
     startSalesSheetSync();
     startLegalWatchCollector();
+    // E-mails depuis un dossier (Gmail au nom de l'expéditeur) — 29/09.
+    startMailer();
     // Preuve de marché modèle × carburant : première moisson dès que la
     // table existe, puis rafraîchissement mensuel (garde 30 min).
     startFuelEvidenceScheduler();

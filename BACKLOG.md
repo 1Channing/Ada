@@ -762,6 +762,35 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
   annule), seul `contact_documents.label` change, le fichier et son chemin
   restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
+- **CHANTIER E-MAILS — ÉTAPE 3 : E-MAIL 1 À L'ACHETEUR VIA GMAIL (29/09)**.
+  Table `dossier_emails` (migration 20260929100000) = journal + file : le
+  front dépose « queued » (destinataire, objet, texte, pièces = dernier
+  certificat de cession généré + pièces du dossier cochées, expéditeur =
+  compte connecté), le worker (`mailer.ts`, poll 20 s) envoie par l'API
+  Gmail AU NOM de l'expéditeur (JWT du compte de service avec `sub`,
+  droit gmail.send) et note « sent » (id + thread Gmail) ou « failed » avec
+  la raison Google. Bloc « Envoyer les cessions à l'acheteur » côté vente,
+  case « à moi-même pour tester », journal sous le bloc. PRÉREQUIS
+  CHANNING : Google Admin → Sécurité → Contrôle des API → Délégation au
+  niveau du domaine → ajouter le client_id du compte de service (journalisé
+  au boot du worker, ligne `[MAIL]`) avec le droit
+  https://www.googleapis.com/auth/gmail.send. Sans ça : « failed —
+  délégation domaine non accordée ». Étape 2 (signature + tampon) reste à
+  faire ; étape 4 (pack prestataire) réutilise le même bloc ; étape 5
+  (retours) lira le thread Gmail (gmail_thread_id conservé).
+- **MC EXPORT JAMAIS CONTREPARTIE, CO-TITULAIRE PAR CÔTÉ (29/09, dossier
+  I776 : « MC-EXPORT / RAMON YOLA » vendeur et MC Export acheteur de MC
+  Export)**. Classe : la synchro du tableur passait un dossier achat en
+  vente en ne changeant que le type ; l'acheteur restait MC Export (repli
+  « acheteur = client » à l'ouverture) et le co-vendeur du particulier
+  restait dans seller_contact_id_2. Corrigé aux quatre étages : synchro
+  (bascule avec re-placement des parties : fournisseur ← vendeur, vendeur
+  ← MC Export, acheteur ← client du tableur, co-vendeur effacé) ;
+  ouverture (une fiche MC Export dans un slot externe vaut vide ; côté MC
+  toujours MC ; co-titulaire seulement du côté externe) ; enregistrement
+  (contrepartie = MC Export → null ; co-titulaire du côté MC → null) ;
+  générateur (MC des deux côtés → refus explicite ; co-titulaire du côté MC
+  ignoré).
 - **CHANTIER E-MAILS — ÉTAPE 1 : DONNÉES PROTÉGÉES, RIEN N'EST PLUS EFFACÉ,
   PIÈCES DU DOSSIER (27/09, priorité Channing)**. Constats : 114 règles
   d'accès ouvertes au rôle anon (clé du navigateur) ; bucket admin-documents

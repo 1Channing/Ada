@@ -210,6 +210,17 @@ export async function generateAdminDocument(
     } : undefined,
   };
 
+  // GARDE-FOUS (29/09, dossier I776) : jamais MC Export des deux côtés, et
+  // pas de co-titulaire sur le côté MC Export (le co-vendeur d'un achat ne
+  // suit pas MC Export en revente — « MC-EXPORT / RAMON YOLA » sur le CERFA).
+  const MC_SIREN = '93033811600013';
+  const isMc = (c?: { siren?: string | null }) => !!c && (c.siren ?? '').replace(/\s+/g, '') === MC_SIREN;
+  if (isMc(documentData.seller) && isMc(documentData.buyer)) {
+    throw new Error('Vendeur ET acheteur = MC Export : choisis le client dans le dossier avant de générer le document.');
+  }
+  if (isMc(documentData.seller)) documentData.seller2 = undefined;
+  if (isMc(documentData.buyer)) documentData.buyer2 = undefined;
+
   console.log(`[ADMIN_DOC_GEN:${correlationId}] Calling template engine for "${documentType}"`);
   const pdfBytes = await generatePDFFromTemplate(documentType, documentData);
   const pdfSizeKB = (pdfBytes.length / 1024).toFixed(2);
