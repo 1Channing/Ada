@@ -762,6 +762,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
   annule), seul `contact_documents.label` change, le fichier et son chemin
   restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
+- **OFFRES : EXCEL MIS EN FORME (30/09, constat Channing sur l'offre Allemagne
+  pour un client : « les lignes se chevauchent »)**. L'export SheetJS
+  communautaire n'écrit aucun style : textes longs (version, rapport) ni à
+  la ligne ni bornés, hauteurs par défaut, rien pour distinguer l'en-tête.
+  Passage à xlsx-js-style (même API + styles) : titres fusionnés sur la
+  largeur, en-tête gras sur fond sombre, retour à la ligne sur véhicule /
+  motorisation / version / couleur / rapport avec hauteur de ligne calculée
+  (≤ 6 lignes), lignes alternées, bordures fines, prix « 12 600 € » et km
+  formatés, prix de vente en gras, rapport DEKRA en lien cliquable, filtre
+  automatique sur l'en-tête ; même traitement sur « Caractéristiques ».
+  Vérifié à la relecture du fichier produit (fusions, hauteurs, styles,
+  liens). Volets figés non supportés par la bibliothèque.
 - **OFFRES : « A6 AVANT » SORTAIT EN UTILITAIRE (30/09, constat Channing sur
   le PDF)**. Classe : la carrosserie était déduite par « contient » — « van »
   se trouvait dans « Avant ». Mots entiers seulement ; breaks reconnus par
