@@ -360,6 +360,10 @@ export function Administrative() {
   const [dossierMails, setDossierMails] = useState<DossierEmail[]>([]);
   const [latestCession, setLatestCession] = useState<{ path: string; created_at: string } | null>(null);
   const mailPrefilledFor = useRef<string | null>(null);
+  // Bloc replié par défaut (30/09, demande Channing) : on l'ouvre quand on en
+  // a besoin ; il se referme au changement de dossier.
+  const [mailOpen, setMailOpen] = useState(false);
+  const mailTemplatedFor = useRef<string | null>(null);
   const refreshMailJournal = async (transactionId: string) => {
     const r = await listDossierEmails(transactionId);
     setDossierMails(r.mails); if (r.error) setMailError(r.error);
@@ -386,15 +390,26 @@ export function Administrative() {
     if (clientMail) { setMailTo(clientMail); mailPrefilledFor.current = lastSavedTransactionId; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBuyerContact?.email, buyerForm.email, lastSavedTransactionId]);
+  // OBJET ET TEXTE PAR DOSSIER (30/09, constat Channing : l'objet « Suzuki
+  // Ignis » collait au dossier Skoda Elroq — le préremplissage ne se faisait
+  // qu'une fois, jamais au changement de dossier). Règle : à chaque dossier
+  // ouvert, tout le bloc repart de zéro (destinataire, objet, texte, pièces,
+  // test, replié) et se remplit avec CE véhicule ; tant qu'on reste sur le
+  // même dossier, ce que l'opérateur a tapé est conservé.
   useEffect(() => {
-    if (transactionType !== 'sale' || mailSubject || mailBody) return;
+    if (transactionType !== 'sale' || !lastSavedTransactionId) return;
+    if (mailTemplatedFor.current === lastSavedTransactionId && (mailSubject || mailBody)) return;
     const t = buyerCessionTemplate({
       vehicle: [vehicleForm.brand, vehicleForm.model].filter(Boolean).join(' '), plate: vehicleForm.plate_number, vin: vehicleForm.vin,
       senderFirstName: (myName || myEmail || '').split(/[\s@]/)[0] || 'MC Export',
     });
+    if (mailTemplatedFor.current !== lastSavedTransactionId) {
+      setMailTo(''); mailPrefilledFor.current = null; setMailToSelf(false); setMailPieceIds([]); setMailError(null); setMailOpen(false);
+    }
+    mailTemplatedFor.current = lastSavedTransactionId;
     setMailSubject(t.subject); setMailBody(t.body);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactionType, vehicleForm.brand, vehicleForm.model, vehicleForm.plate_number, vehicleForm.vin, myName]);
+  }, [transactionType, lastSavedTransactionId, vehicleForm.brand, vehicleForm.model, vehicleForm.plate_number, vehicleForm.vin, myName]);
   // Journal : une ligne en file ou en échec se retire ; un échec se relance.
   // Un envoi parti ne se touche plus. Rien ne repart tout seul : le worker
   // n'envoie que « queued ».
@@ -3132,13 +3147,19 @@ export function Administrative() {
           {transactionType === 'sale' && (
             <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3">
               <div className="flex items-center justify-between gap-3 flex-wrap">
-                <p className="text-sm font-medium text-slate-800">Envoyer les cessions à l'acheteur <span className="text-slate-400 font-normal">— depuis {myEmail || 'ton adresse'}</span></p>
-                {latestCession
-                  ? <span className="text-xs text-emerald-700">Certificat prêt · généré le {new Date(latestCession.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                  : <span className="text-xs text-amber-700">Génère d'abord le certificat de cession</span>}
+                <button type="button" onClick={() => setMailOpen((o) => !o)} className="text-sm font-medium text-slate-800 hover:text-blue-700 inline-flex items-center gap-2">
+                  <span className="text-slate-400">{mailOpen ? '▾' : '▸'}</span>
+                  Envoyer les cessions à l'acheteur <span className="text-slate-400 font-normal">— depuis {myEmail || 'ton adresse'}</span>
+                </button>
+                <span className="flex items-center gap-3 text-xs">
+                  {dossierMails.length > 0 && <span className="text-slate-500">{dossierMails.filter((m) => m.status === 'sent').length} envoyé{dossierMails.filter((m) => m.status === 'sent').length > 1 ? 's' : ''}{dossierMails.some((m) => m.status === 'queued' || m.status === 'sending') ? ' · un en cours' : ''}{dossierMails.some((m) => m.status === 'failed') ? ' · un échec' : ''}</span>}
+                  {latestCession
+                    ? <span className="text-emerald-700">Certificat prêt · généré le {new Date(latestCession.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                    : <span className="text-amber-700">Génère d'abord le certificat de cession</span>}
+                </span>
               </div>
-              {!lastSavedTransactionId && <p className="text-xs text-slate-500">Enregistre le dossier pour pouvoir envoyer.</p>}
-              {lastSavedTransactionId && (
+              {mailOpen && !lastSavedTransactionId && <p className="text-xs text-slate-500">Enregistre le dossier pour pouvoir envoyer.</p>}
+              {mailOpen && lastSavedTransactionId && (
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
