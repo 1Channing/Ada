@@ -65,6 +65,28 @@ const withPage = (url: string, page: number): string => {
   return u.toString();
 };
 
+/**
+ * Marque + modèle depuis le titre d'une vitrine qui ne les sépare pas
+ * (autodata : « Toyota Yaris 1.5 Hybrid Sport », « Mercedes-Benz G-Klasse 63
+ * AMG », « Land Rover Range Rover Evoque »). Sans modèle, le résumé par
+ * modèle de l'outil MCP groupait par marque seule (constat 30/09).
+ */
+const TWO_WORD_BRANDS = ['alfa romeo', 'land rover', 'aston martin', 'rolls royce', 'rolls-royce', 'lynk & co', 'mercedes benz', 'great wall', 'mg motor'];
+const TWO_WORD_MODELS = ['model', 'range', 'grand', 'serie', 'série', 'classe', 'klasse', 'santa', 'ds', 'id.', 'e-', 'c-', 'a-', 'b-', 'v-', 'x-', 'ioniq'];
+export function splitTitle(title: string): { brand: string | null; model: string | null } {
+  const words = title.replace(/\s+/g, ' ').trim().split(' ');
+  if (words.length === 0 || !words[0]) return { brand: null, model: null };
+  const two = words.length >= 2 ? `${words[0]} ${words[1]}`.toLowerCase() : '';
+  const brandLen = TWO_WORD_BRANDS.includes(two) ? 2 : 1;
+  const brand = words.slice(0, brandLen).join(' ');
+  const rest = words.slice(brandLen);
+  if (rest.length === 0) return { brand, model: null };
+  const first = rest[0].toLowerCase();
+  const numberedSeries = /^\d$/.test(rest[0]) && /^(serie|series|série|reeks)$/i.test(rest[1] ?? ''); // « BMW 3 Serie 320i »
+  const modelLen = rest.length >= 2 && (TWO_WORD_MODELS.includes(first) || numberedSeries || /^[a-z]-$/i.test(rest[0])) ? 2 : 1;
+  return { brand, model: rest.slice(0, modelLen).join(' ') };
+}
+
 // ── Détection ───────────────────────────────────────────────────────────────
 export function detectDealerProvider(html: string): DealerProvider | null {
   if (/id="vehicle-overview-initial-state"/.test(html)) return 'dvnl';
@@ -153,7 +175,7 @@ async function scrapeDatamotive(url: string, firstHtml: string): Promise<DealerS
       seen.add(id); added++;
       const name = String(item.name ?? '').split('|')[0].trim();
       out.push({
-        external_id: id, url: u || null, title: name, brand: brand || null, model: item.model ? String(item.model) : null,
+        external_id: id, url: u || null, title: name, brand: brand || splitTitle(name).brand, model: item.model ? String(item.model) : splitTitle(name).model,
         price: num(offers.price), km: null, year: null, fuel: null, gearbox: null, plate: null, vin: null, body: null,
         image: Array.isArray(item.image) ? String(item.image[0] ?? '') || null : item.image ? String(item.image) : null, listed_at: null,
       });
@@ -202,8 +224,8 @@ async function scrapeAutodata(url: string, firstHtml: string, firstHeaders: Head
       const km = num(text.match(/([\d.]+)\s*km/i)?.[1]);
       const year = num(text.match(/km\s*-\s*(\d{4})/)?.[1] ?? text.match(/\b(19|20)\d{2}\b(?!.*\b(19|20)\d{2}\b)/)?.[0]);
       const image = card.match(/(?:data-src|src)="((?:https?:)?\/\/[^"]+\.(?:jpe?g|webp|png)[^"]*)"/i)?.[1] ?? null;
-      const brandGuess = title.split(' ')[0] || null;
-      out.push({ external_id: id, url: href ? (href.startsWith('http') ? href : origin + href) : null, title, brand: brandGuess, model: null, price, km, year, fuel: null, gearbox: null, plate: null, vin: null, body: null, image, listed_at: null });
+      const { brand, model } = splitTitle(title);
+      out.push({ external_id: id, url: href ? (href.startsWith('http') ? href : origin + href) : null, title, brand, model, price, km, year, fuel: null, gearbox: null, plate: null, vin: null, body: null, image, listed_at: null });
     }
     if (added === 0) break;
     if (total != null && out.length >= total) break;

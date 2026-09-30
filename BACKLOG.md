@@ -782,6 +782,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   les stocks relevés (même modèle + x prix) ; (4) fiche détaillée
   datamotive pour km / année ; (5) outil MCP. Site inconnu → message clair,
   à reconnaître avant d'ajouter.
+- **STOCK DES CONCESSIONS — ÉTAPE 5 : OUTIL MCP `dealer_stock` (30/09, demande
+  Channing : « ajouter à GPT l'accès au stock des vitrines pour comparer
+  avec ce qu'on a dans le MI »)**. Serveur MCP 0.4.0, 13 outils. Sans
+  contact : vue d'ensemble des vitrines relevées (dernier relevé, total,
+  arrivées, départs) ou, avec marque / modèle, qui a ce modèle en stock et à
+  quel prix médian. Avec un contact : ses relevés, sa liste (en stock /
+  arrivés depuis N jours / partis / prix changés), la vélocité, et un
+  RÉSUMÉ PAR MODÈLE (nombre, prix min / médian / max, km médian, années) que
+  GPT compare au MI avec `market_prices(brand, model, country)`. Classe
+  corrigée au passage : le fournisseur autodata ne séparait pas le modèle
+  du titre (résumé groupé par marque seule) → `splitTitle` dans le worker
+  (marques à deux mots, « Model 3 », « G-Klasse », « Range Rover », « 3
+  Serie ») ; les lignes déjà en base sont complétées au prochain relevé et,
+  d'ici là, l'outil déduit le modèle du titre. Vérifié en local sur le code
+  du serveur avec le compte de test : 13 outils, Krimpenerwaard 362 en
+  stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
+  Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
+  ChatGPT / Claude.ai (liste d'outils en cache côté client).
 - **OFFRES : EXCEL MIS EN FORME (30/09, constat Channing sur l'offre Allemagne
   pour un client : « les lignes se chevauchent »)**. L'export SheetJS
   communautaire n'écrit aucun style : textes longs (version, rapport) ni à

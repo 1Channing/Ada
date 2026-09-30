@@ -846,6 +846,155 @@ function buildServer(): McpServer {
     },
   );
 
+  // ── Stock des vitrines relevées (30/09 : « comparer les stocks avec ce
+  //    qu'on a dans le MI ») ─────────────────────────────────────────────────
+  server.registerTool(
+    'dealer_stock',
+    {
+      title: 'ADA : stock relevé des concessions',
+      description: "Le stock des concessions de la carte dont ADA a relevé la vitrine (bouton « Stock relevé » de la carte) : chaque voiture avec prix, prix précédent, km, année, énergie, boîte, plaque, VIN, date de mise en ligne ou de première vue, disparue ou non. Sans contact : vue d'ensemble des concessions relevées (dernier relevé, total, arrivées, départs) ou, avec brand/model, qui a ce modèle en stock. Avec un contact : sa liste, plus un résumé par modèle (nombre, prix médian, km médian, années) prêt à comparer au Market Intelligence via market_prices(brand, model, country du contact).",
+      inputSchema: z.object({
+        contact: z.string().trim().min(1).optional().describe('Nom de la concession (contient), tel que sur la carte'),
+        contactId: z.string().trim().min(1).optional().describe('Identifiant du contact (network_contacts)'),
+        country: z.string().trim().min(2).max(3).optional().describe('Code ISO-2 (NL, FR, DE…)'),
+        brand: z.string().trim().min(1).optional().describe('Marque (contient)'),
+        model: z.string().trim().min(1).optional().describe('Modèle (contient, cherché aussi dans le titre de l\'annonce)'),
+        view: z.enum(['stock', 'new', 'gone', 'price_changed', 'all']).default('stock').describe('stock = en stock aujourd\'hui ; new = arrivés depuis N jours ; gone = partis (vendus ?) depuis N jours ; price_changed = prix modifié au dernier relevé ; all = tout'),
+        days: z.number().int().min(1).max(365).default(30).describe('Fenêtre pour new / gone'),
+        limit: z.number().int().min(1).max(1000).default(200),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ contact, contactId, country, brand, model, view, days, limit }) => {
+      const missingNote = { note: 'Tables network_stock_* absentes (SQL du 30/09 non collé).', count: 0, vehicles: [] };
+      type Run = { id: string; contact_id: string; url: string; provider: string | null; status: string; total: number | null; new_count: number | null; gone_count: number | null; price_changes: number | null; warnings: string[] | null; error: string | null; started_at: string; finished_at: string | null };
+      type Vehicle = Record<string, unknown> & { contact_id: string; brand: string | null; model: string | null; title: string | null; price: number | null; price_prev: number | null; km: number | null; year: number | null; gone_at: string | null; first_seen_at: string; listed_at: string | null };
+      const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
+      // Lignes relevées avant le 30/09 soir : le fournisseur autodata ne
+      // séparait pas le modèle du titre. Même déduction que le worker
+      // (splitTitle), en repli seulement.
+      const modelOf = (v: Vehicle): string | null => {
+        if (v.model) return String(v.model);
+        const words = String(v.title ?? '').replace(/\s+/g, ' ').trim().split(' ');
+        const two = words.length >= 2 ? `${words[0]} ${words[1]}`.toLowerCase() : '';
+        const rest = words.slice(['alfa romeo', 'land rover', 'aston martin', 'rolls royce', 'rolls-royce', 'lynk & co', 'mercedes benz', 'great wall', 'mg motor'].includes(two) ? 2 : 1);
+        if (!rest.length) return null;
+        const twoWord = ['model', 'range', 'grand', 'serie', 'série', 'classe', 'klasse', 'santa', 'ds', 'id.', 'ioniq'].includes(rest[0].toLowerCase()) || /^[a-z]-$/i.test(rest[0])
+          || (/^\d$/.test(rest[0]) && /^(serie|series|série|reeks)$/i.test(rest[1] ?? ''));
+        return rest.slice(0, twoWord && rest.length >= 2 ? 2 : 1).join(' ');
+      };
+      const contactCard = (c: Record<string, unknown>) => ({ id: c.id, name: c.name, kind: c.kind, country: c.country, city: c.city, website: c.website || null, phone: c.phone || null, email: c.email || null, stockTotal: c.stock_total ?? null });
+      const runCard = (r: Run) => ({ at: r.started_at, provider: r.provider, status: r.status, total: r.total, newCount: r.new_count, goneCount: r.gone_count, priceChanges: r.price_changes, url: r.url, warnings: r.warnings ?? [], error: r.error });
+      const vehicleCard = (v: Vehicle) => ({
+        title: v.title, brand: v.brand, model: modelOf(v), price: v.price, pricePrev: v.price_prev, km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox,
+        plate: v.plate, vin: v.vin, body: v.body, url: v.url, listedAt: v.listed_at, firstSeenAt: v.first_seen_at, lastSeenAt: v.last_seen_at, goneAt: v.gone_at,
+        daysListed: Math.floor(((v.gone_at ? new Date(v.gone_at).getTime() : Date.now()) - new Date(String(v.listed_at ?? v.first_seen_at)).getTime()) / 86_400_000),
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const applyFilters = (q: any) => {
+        const b = normalizeText(brand); const m = normalizeText(model);
+        if (b) q = q.ilike('brand', `%${b}%`);
+        if (m) q = q.or(`model.ilike.%${m}%,title.ilike.%${m}%`); // le titre couvre les lignes sans modèle
+        if (view === 'stock' || view === 'price_changed') q = q.is('gone_at', null);
+        if (view === 'new') q = q.is('gone_at', null).gte('first_seen_at', sinceIso(days));
+        if (view === 'gone') q = q.gte('gone_at', sinceIso(days));
+        if (view === 'price_changed') q = q.not('price_prev', 'is', null);
+        return q;
+      };
+
+      // Résolution du contact (aucun, un seul, plusieurs).
+      let contactsPool: Array<Record<string, unknown>> = [];
+      if (contactId || normalizeText(contact)) {
+        let cq = supabase.from('network_contacts').select('*').limit(10);
+        cq = contactId ? cq.eq('id', contactId) : cq.ilike('name', `%${normalizeText(contact)}%`);
+        if (country) cq = cq.eq('country', country.toUpperCase());
+        const { data, error } = await cq;
+        assertDb(error, 'Unable to resolve contact');
+        contactsPool = (data || []) as Array<Record<string, unknown>>;
+        if (contactsPool.length === 0) return jsonToolResult({ error: 'Contact introuvable sur la carte.', count: 0, vehicles: [] });
+        if (contactsPool.length > 1) return jsonToolResult({ error: 'Plusieurs contacts correspondent : précise contactId.', choices: contactsPool.map(contactCard), count: 0, vehicles: [] });
+      }
+
+      if (contactsPool.length === 0) {
+        // Vue d'ensemble : concessions relevées, dernier relevé chacune ;
+        // avec brand/model : qui a ce modèle (vue demandée).
+        const runsRes = await supabase.from('network_stock_runs').select('*').eq('status', 'done').order('started_at', { ascending: false }).limit(2000);
+        if (isMissingSchema(runsRes.error)) return jsonToolResult(missingNote);
+        assertDb(runsRes.error, 'Unable to read stock runs');
+        const lastRun = new Map<string, Run>();
+        for (const r of (runsRes.data || []) as Run[]) if (!lastRun.has(r.contact_id)) lastRun.set(r.contact_id, r);
+        const ids = [...lastRun.keys()];
+        if (ids.length === 0) return jsonToolResult({ note: 'Aucune vitrine relevée pour l\'instant : lancer « Stock relevé » sur une concession de la carte.', count: 0, dealers: [] });
+        let cq = supabase.from('network_contacts').select('*').in('id', ids).limit(ids.length);
+        if (country) cq = cq.eq('country', country.toUpperCase());
+        const { data: crows, error: cerr } = await cq;
+        assertDb(cerr, 'Unable to read contacts');
+        const contacts = (crows || []) as Array<Record<string, unknown>>;
+        const wantedIds = contacts.map((c) => String(c.id));
+        let vq = applyFilters(supabase.from('network_stock_vehicles').select('*').in('contact_id', wantedIds).order('last_seen_at', { ascending: false }).limit(20000));
+        const { data: vrows, error: verr } = await vq;
+        if (isMissingSchema(verr)) return jsonToolResult(missingNote);
+        assertDb(verr, 'Unable to read stock vehicles');
+        const byContact = new Map<string, Vehicle[]>();
+        for (const v of (vrows || []) as Vehicle[]) { const l = byContact.get(v.contact_id) ?? []; l.push(v); byContact.set(v.contact_id, l); }
+        const filtered = !!(normalizeText(brand) || normalizeText(model));
+        return jsonToolResult({
+          view, filter: filtered ? { brand: normalizeText(brand) ?? null, model: normalizeText(model) ?? null } : null,
+          count: contacts.length,
+          note: filtered
+            ? 'Pour chaque concession : ses véhicules qui correspondent (bornés par limit). Comparer au MI avec market_prices(brand, model, country).'
+            : 'Vue d\'ensemble. Pour la liste d\'une concession : rappeler avec contact ou contactId.',
+          dealers: contacts.map((c) => {
+            const list = byContact.get(String(c.id)) ?? [];
+            const prices = list.map((v) => v.price).filter((p): p is number => typeof p === 'number');
+            return {
+              ...contactCard(c), lastRun: runCard(lastRun.get(String(c.id))!),
+              matching: list.length, medianPrice: median(prices),
+              vehicles: filtered ? list.slice(0, limit).map(vehicleCard) : undefined,
+            };
+          }).filter((d) => !filtered || d.matching > 0).sort((a, b) => b.matching - a.matching),
+        });
+      }
+
+      // Une concession : ses relevés, sa liste, son résumé par modèle.
+      const c = contactsPool[0];
+      const [runsRes, vehRes] = await Promise.all([
+        supabase.from('network_stock_runs').select('*').eq('contact_id', String(c.id)).order('started_at', { ascending: false }).limit(10),
+        applyFilters(supabase.from('network_stock_vehicles').select('*').eq('contact_id', String(c.id)).order('price', { ascending: false, nullsFirst: false }).limit(5000)),
+      ]);
+      if (isMissingSchema(runsRes.error) || isMissingSchema(vehRes.error)) return jsonToolResult(missingNote);
+      assertDb(runsRes.error, 'Unable to read stock runs');
+      assertDb(vehRes.error, 'Unable to read stock vehicles');
+      const runs = (runsRes.data || []) as Run[];
+      const vehicles = (vehRes.data || []) as Vehicle[];
+      const groups = new Map<string, Vehicle[]>();
+      for (const v of vehicles) { const k = `${(v.brand ?? '?').toString().toUpperCase()} ${modelOf(v) ?? '?'}`; const l = groups.get(k) ?? []; l.push(v); groups.set(k, l); }
+      const byModel = [...groups.entries()].map(([key, list]) => {
+        const prices = list.map((v) => v.price).filter((p): p is number => typeof p === 'number');
+        const kms = list.map((v) => v.km).filter((k): k is number => typeof k === 'number');
+        const years = list.map((v) => v.year).filter((y): y is number => typeof y === 'number');
+        return {
+          vehicle: key, brand: list[0].brand, model: modelOf(list[0]), count: list.length,
+          priceMin: prices.length ? Math.min(...prices) : null, priceMedian: median(prices), priceMax: prices.length ? Math.max(...prices) : null,
+          kmMedian: median(kms), yearMin: years.length ? Math.min(...years) : null, yearMax: years.length ? Math.max(...years) : null,
+        };
+      }).sort((a, b) => b.count - a.count);
+      const gone = vehicles.filter((v) => v.gone_at);
+      const stayDays = gone.map((v) => vehicleCard(v).daysListed).filter((d) => d >= 0);
+      return jsonToolResult({
+        contact: contactCard(c),
+        view, days,
+        lastRun: runs.find((r) => r.status === 'done') ? runCard(runs.find((r) => r.status === 'done')!) : null,
+        runs: runs.map(runCard),
+        count: vehicles.length, returned: Math.min(vehicles.length, limit),
+        velocityDaysMedian: stayDays.length >= 3 ? median(stayDays) : null,
+        note: `Prix affichés en euros TTC sur le site de la concession (pays ${c.country}). Pour comparer au Market Intelligence : market_prices(brand, model, country="${c.country}"). Les dates listedAt viennent du site quand il les donne, sinon firstSeenAt = première vue par ADA.`,
+        byModel,
+        vehicles: vehicles.slice(0, limit).map(vehicleCard),
+      });
+    },
+  );
+
   return server;
 }
 
@@ -866,8 +1015,8 @@ const outer = express();
 // ChatGPT ne voyait que 9 outils — impossible de savoir, depuis le
 // navigateur, si le service avait redéployé ou si le connecteur gardait
 // une liste en cache). Aucune donnée, aucun secret.
-const MCP_VERSION = '0.3.0';
-const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts'];
+const MCP_VERSION = '0.4.0';
+const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts', 'dealer_stock'];
 outer.get('/health', (_req, res) => {
   res.json({
     status: 'ok',

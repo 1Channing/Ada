@@ -17,6 +17,7 @@ Depuis fin juillet 2026, la vérité d'ADA vit dans ces tables. Le connecteur ne
 | Comptes | `profiles` | `list_people` (et filtre `person` partout) |
 | Offres fournisseur (tableau édité, nos prix, relevés « où vendre ») | `supplier_offers` | `list_offers`, `get_offer` |
 | Carte du réseau (contacts, coordonnées GPS, modèles travaillés) | `network_contacts`, `network_contact_models` | `network_contacts` |
+| Stock relevé des vitrines de concession (arrivées, départs, prix) | `network_stock_runs`, `network_stock_vehicles` | `dealer_stock` |
 
 Les tables `studies_v2` / `study_runs` / `study_run_results` / `study_source_listings` de l'ancienne architecture (dernière écriture le 17/07/2026) **ne sont pas lues** : elles ne reflètent plus ADA.
 
@@ -36,6 +37,7 @@ Les tables `studies_v2` / `study_runs` / `study_run_results` / `study_source_lis
 | `list_offers` | Les offres fournisseur (titre, fournisseur, statut, pays, règle de prix, véhicules / retenus, propriétaire, dates) |
 | `get_offer` | Le tableau édité d'une offre : chaque véhicule avec VIN, modèle, version, 1re immat, km, énergie, puissance, prix fournisseur HT / TTC, TVA récupérable et **notre prix HT** ; plus le relevé « Où vendre » par lot et par pays quand il existe |
 | `network_contacts` | La carte du réseau : contacts avec coordonnées GPS, téléphone, e-mail, site, relation, volumes, opportunité, fiabilité, commentaires et modèles travaillés ; filtres pays / type / rôle / texte |
+| `dealer_stock` | Le stock relevé des concessions de la carte (bouton « Stock relevé ») : sans contact, vue d'ensemble des vitrines relevées ou « qui a ce modèle en stock » ; avec un contact, ses relevés, sa liste (en stock / arrivés / partis / prix changés) et un **résumé par modèle** (nombre, prix médian, km médian, années) à comparer au Market Intelligence via `market_prices` |
 
 Tous les outils sont déclarés lecture seule, non destructifs, idempotents, à monde fermé, et bornés par une limite.
 
