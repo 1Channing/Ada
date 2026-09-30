@@ -111,6 +111,9 @@ export function Offres() {
       // répare un « ignoré » hérité) — sinon le panneau affichait « ignoré »
       // pour une colonne réellement lue.
       source_filename: name, layout: p.layout, mappings: p.mappings, vehicles, source_grid: p.grid,
+      // Conditions écrites dans le fichier (« Minimum order: 4 cars », lieu
+      // d'enlèvement…) → notes de l'offre, si rien n'y est encore (30/09).
+      notes: base.notes || p.notes || '',
     };
   };
 

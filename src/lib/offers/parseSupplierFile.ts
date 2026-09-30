@@ -41,29 +41,31 @@ const normHeader = (h: string) => h.normalize('NFD').replace(/\p{M}/gu, '').toLo
  * des règles en « commence par »). Ordre = priorité, le premier gagne.
  */
 const HEADER_RULES: Array<[OfferField, RegExp]> = [
-  ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie)\b/],
+  // Italien (offre Audi A6 / Q6 e-tron du 30/09) : « N° Telaio » = châssis,
+  // « Targa » = plaque, « Immatricolazione », « Colore », « Cambio », « Danni »…
+  ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie|telaio)\b/],
   // « 1st Reg. » (Flexivan Sorento 22/09) : normalisé en « 1st reg », ni
   // « reg date » ni « first reg » ne le voyaient — la date restait vide.
-  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation)/],
-  ['plate', /(\bimmat|plaque|\bplate\b|kennzeichen|registration)/],
-  ['km', /(\bkm\b|kilom|mileage|kilometer)/],
+  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr)/],
+  ['plate', /(\bimmat|plaque|\bplate\b|kennzeichen|registration|\btarga\b)/],
+  ['km', /(\bkm\b|kilom|mileage|kilometer|chilometr)/],
   ['co2', /co2/],
   // Dommages AVANT les prix : « ESTIMATION FRE HT » (MeltingCars) contient « ht ».
-  ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden)/],
-  ['price_ht', /(proposal|\bht\b|\bnett?o?\b|export)/],
-  ['price_ttc', /(\bttc\b|wholesale|public|gross|\bprix\b|\bprice\b|\bpreis\b)/],
-  ['report_url', /(appraisal|rapport|report|inspection|expertise|dekra|\burl\b|\blien\b)/],
-  ['color', /(colou?r|couleur|farbe|teinte)/],
-  ['fuel', /(energy|energie|carburant|fuel|kraftstoff)/],
-  ['engine', /^(engine|moteur|motorisation|motor)$/],
-  ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung)/],
-  ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$)/],
-  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b)/],
-  ['vat', /(\btva\b|\bvat\b|mwst)/],
+  ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b)/],
+  ['price_ht', /(proposal|\bht\b|\bnett?o?\b|export|imponibile)/],
+  ['price_ttc', /(\bttc\b|wholesale|public|gross|\bprix\b|\bprice\b|\bpreis\b|prezzo|lordo)/],
+  ['report_url', /(appraisal|rapport|report|inspection|expertise|dekra|\burl\b|\blien\b|perizia)/],
+  ['color', /(colou?r|couleur|farbe|teinte|colore)/],
+  ['fuel', /(energy|energie|carburant|fuel|kraftstoff|carburante|alimentazione)/],
+  ['engine', /^(engine|moteur|motorisation|motor|motore)$/],
+  ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung|potenza)/],
+  ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$|cambio)/],
+  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo)/],
+  ['vat', /(\btva\b|\bvat\b|mwst|\biva\b)/],
   ['import', /(\bimport|origine|origin)/],
-  ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur)/],
-  ['model', /^(model|modele)$/],
-  ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle)/],
+  ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur|\bmarca\b)/],
+  ['model', /^(model|modele|modello)$/],
+  ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo)/],
 ];
 
 /** Énergies telles qu'ADA les nomme (les fichiers parlent anglais, allemand, français). */
@@ -121,6 +123,10 @@ export interface ParsedSupplierFile {
    *  dans l'offre pour que la correspondance des colonnes reste modifiable
    *  après réouverture (constat Channing 17/09 : « rien ne se passe »). */
   grid: unknown[][];
+  /** Conditions écrites dans le fichier (« Terms & Conditions », puces) — 30/09. */
+  notes?: string;
+  /** Lieu d'enlèvement écrit hors tableau (« Pick-up location: … ») — 30/09. */
+  location?: string | null;
 }
 
 /** Grille JSON-sûre : dates → « AAAA-MM-JJ », lignes vides de fin retirées. */
@@ -239,9 +245,9 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
   const gearbox = /\b(bva|automati(que|c|k)|automaat|dct\d?|eat\d|e-?dcs?\d?|edc|cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
     : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) ? 'MANUELLE' : null;
-  const fuel = /\b(phev|plug-?in|e-?tense 4x4|rechargeable)\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
+  const fuel = /\b(phev|plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid)\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
     : /\b(hybrid|hybride|e-?tech|e-?power|mhev|bsg)\b/i.test(s) ? 'HYBRIDE'
-    : /\b([ée]lectri(que|c)|ev|e-?208|e-?2008|electric|kwh)\b/i.test(s) ? 'ELECTRIQUE'
+    : /\b([ée]lectri(que|c)|ev|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs)\b/i.test(s) ? 'ELECTRIQUE'
     : /\b(diesel|hdi|bluehdi|dci|tdi|cdi|crdi|d\b|multijet)/i.test(s) ? 'DIESEL'
     : /\b(essence|petrol|benzin|puretech|tce|tsi|tfsi|turbo|1\.[0-9]|dig-t)\b/i.test(s) ? 'ESSENCE' : null;
   const e = s.match(/\b(\d\.\d\s?(?:turbo|puretech|tce|tsi|hybrid|hdi|bluehdi|dci|e-?hybrid|t\d)?[^,|]{0,20}?)(?=\s\d{2,3}\s?(?:ch|cv|kw)|$)/i);
@@ -301,9 +307,36 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
   const warnings: string[] = [];
   const isHeaderRow = (r: unknown[]) => r.filter((c) => typeof c === 'string' && c.trim()).length >= 5
     && r.filter((c) => c != null && c !== '').every((c) => typeof c === 'string');
+  const knownBrands = Object.keys(knownModelsByBrand).map((b) => b.toUpperCase()).sort((a, b) => b.length - a.length);
+  // Titre de bloc : une seule cellule, TOUT en majuscules (« OPEL »), OU qui
+  // COMMENCE par une marque (offre Audi 30/09 : « AUDI A6 e-tron  (21 units) »
+  // — marque + modèle + compte d'unités, à lire, pas à ignorer).
   const isBlockTitle = (r: unknown[]) => {
     const filled = r.filter((c) => c != null && c !== '');
-    return filled.length === 1 && typeof r[0] === 'string' && r[0].trim() === r[0].trim().toUpperCase() && r[0].trim().length <= 30 && /[A-Z]/.test(r[0]);
+    if (filled.length !== 1 || typeof r[0] !== 'string') return false;
+    const t = r[0].trim();
+    if (t === t.toUpperCase() && t.length <= 30 && /[A-Z]/.test(t)) return true;
+    const first = t.split(/\s+/)[0] ?? '';
+    return t.length <= 60 && /^[A-Z][A-Z-]{1,}$/.test(first) && !/^(TERMS|CONDITIONS|CONDIZIONI|NOTE|NOTES)$/.test(first);
+  };
+  const parseBlockTitle = (t: string): { brand: string; modelHint: string; units: number | null } => {
+    const up = t.toUpperCase().replace(/\s+/g, ' ').trim();
+    const units = (() => { const m = up.match(/\((\d+)\s*(?:UNITS?|UNITA|PCS|VEHICLES?|VEHICULES?|AUTOS?|CARS?)/); return m ? Number(m[1]) : null; })();
+    const body = up.replace(/\(.*?\)?$/, '').trim();
+    const brand = knownBrands.find((b) => body === b || body.startsWith(`${b} `)) ?? body.split(' ')[0];
+    const modelHint = body.slice(brand.length).trim();
+    return { brand, modelHint, units };
+  };
+  // Hors tableau : lieu d'enlèvement et conditions (une cellule, texte libre).
+  let sheetLocation: string | null = null;
+  const conditions: string[] = [];
+  const readLooseLine = (r: unknown[]) => {
+    const filled = r.filter((c) => c != null && c !== '');
+    if (filled.length !== 1 || typeof filled[0] !== 'string') return;
+    const t = filled[0].trim();
+    const loc = t.match(/(?:pick-?up location|lieu d'enl[eè]vement|luogo di ritiro|abholort|location)\s*[:\-]\s*(.+)$/i);
+    if (loc) { sheetLocation = loc[1].trim(); }
+    if (/^[•\-*·]\s*/.test(t) || /^(terms|conditions|condizioni)/i.test(t)) conditions.push(t.replace(/^[•\-*·]\s*/, '').trim());
   };
 
   // Détection de structure : plusieurs en-têtes = blocs.
@@ -316,13 +349,26 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
   const mappingsByHeader = new Map<string, ColumnMapping>();
   const vehicles: OfferVehicle[] = [];
   let currentBrand = '';
+  let currentModelHint = '';
+  let currentUnits: number | null = null;
+  let currentBlockRows = 0;
+  let currentTitle = '';
+  const checkUnits = () => {
+    if (currentUnits != null && currentBlockRows !== currentUnits) warnings.push(`Bloc « ${currentTitle} » : ${currentUnits} unités annoncées, ${currentBlockRows} ligne(s) lue(s).`);
+  };
   let header: string[] | null = null;
   let fields: OfferField[] = [];
 
   const rawRegs: unknown[] = [];
   for (let i = 0; i < grid.length; i++) {
     const r = grid[i] ?? [];
-    if (isBlockTitle(r)) { currentBrand = String(r[0]).trim(); continue; }
+    if (isBlockTitle(r)) {
+      checkUnits();
+      const t = parseBlockTitle(String(r[0]));
+      currentBrand = t.brand; currentModelHint = t.modelHint; currentUnits = t.units; currentBlockRows = 0; currentTitle = String(r[0]).trim();
+      continue;
+    }
+    readLooseLine(r);
     if (isHeaderRow(r)) {
       header = r.map((c) => cell(c));
       // Correspondance ENREGISTRÉE avec l'offre (mappingOverride) : elle prime,
@@ -386,6 +432,15 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     // de son marqueur de génération ; sans colonne, la ligne libre est décomposée.
     if (!model || model === versionLine) model = guessModel(brand, versionLine || model, known);
     else model = guessModel(brand, model, known);
+    // Le titre du bloc précise le modèle (« A6 e-tron » alors que la ligne dit
+    // « A6 Avant e-tron… ») : on le prend quand il est connu de la marque, ou
+    // quand rien n'est connu et qu'il prolonge le modèle de la ligne.
+    if (currentModelHint) {
+      const hinted = guessModel(brand, currentModelHint, known);
+      const knownUp = known.map((k) => k.toUpperCase());
+      if (hinted && hinted !== model && (knownUp.includes(hinted) || (knownUp.length === 0 && hinted.startsWith(model)))) model = hinted;
+    }
+    currentBlockRows++;
     const free = parseFreeLine(`${versionLine} ${cell(rec.engine)} ${cell(rec.gearbox)}`);
     const reg = toIsoDate(rec.reg_date);
     rawRegs.push(rec.reg_date);
@@ -406,7 +461,9 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       fuel: canonFuel(cell(rec.fuel)) ?? free.fuel,
       engine: cell(rec.engine) || free.engine,
       power_ch: power != null ? Math.round(power) : free.power_ch,
-      gearbox: (cell(rec.gearbox) ? parseFreeLine(cell(rec.gearbox)).gearbox ?? cell(rec.gearbox).toUpperCase() : free.gearbox),
+      // Une électrique n'a pas de boîte manuelle : automatique quand rien n'est dit.
+      gearbox: (cell(rec.gearbox) ? parseFreeLine(cell(rec.gearbox)).gearbox ?? cell(rec.gearbox).toUpperCase() : free.gearbox)
+        ?? ((canonFuel(cell(rec.fuel)) ?? free.fuel) === 'ELECTRIQUE' ? 'AUTOMATIQUE' : null),
       co2: toNumber(rec.co2),
       damages: toNumber(rec.damages),
       report_url: cell(rec.report_url).startsWith('http') ? cell(rec.report_url) : null,
@@ -420,6 +477,8 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       sale_price: null,
     });
   }
+  checkUnits();
+  if (sheetLocation) for (const v of vehicles) if (!v.location) v.location = sheetLocation;
   if (vehicles.length === 0) warnings.push('Aucune ligne de véhicule lue sous les en-têtes reconnus.');
   const noPrice = vehicles.filter((v) => v.price_ht == null && v.price_ttc == null).length;
   if (noPrice) warnings.push(`${noPrice} véhicule(s) sans prix fournisseur (ni HT ni TTC) — à vérifier dans la correspondance des colonnes.`);
@@ -433,7 +492,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       v.year = iso ? Number(iso.slice(0, 4)) : null;
     });
   }
-  return { sheet: sheetName, layout, mappings: [...mappingsByHeader.values()], vehicles, warnings, grid };
+  return { sheet: sheetName, layout, mappings: [...mappingsByHeader.values()], vehicles, warnings, grid, notes: conditions.join('\n') || undefined, location: sheetLocation };
 }
 
 /** Prix fournisseur HT de référence : HT si présent, sinon TTC / (1 + TVA) quand la TVA est récupérable. */

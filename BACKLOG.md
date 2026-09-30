@@ -762,6 +762,20 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
   annule), seul `contact_documents.label` change, le fichier et son chemin
   restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
+- **OFFRES : FICHIER ITALIEN AUDI A6 / Q6 E-TRON (30/09, demande Channing
+  « apprends à ADA à traiter cette liste, toutes les data »)**. Avant : 58
+  véhicules lus mais VIN perdu (« N° Telaio » ignoré), énergie vide
+  (e-tron), marque « A6 » sans référentiel, lieu et conditions ignorés.
+  Corrigé (classe) : synonymes italiens dans les règles d'en-tête (telaio,
+  targa, immatricolazione, colore, cambio, danni, prezzo, potenza, sede,
+  IVA, marca, modello, versione…) ; titre de bloc « MARQUE modèle (n
+  units) » lu : marque, indice de modèle (A6 e-tron plutôt que A6 quand le
+  référentiel le connaît) et compte d'unités contrôlé contre les lignes
+  lues (avertissement si écart) ; e-tron / ID.x / EQx = électrique, « TFSI
+  e » = rechargeable ; électrique sans boîte = automatique ; « Pick-up
+  location: … » hors tableau → lieu de chaque véhicule ; lignes « Terms &
+  Conditions » et puces → notes de l'offre. Régression : les 4 fichiers
+  reçus depuis le 22/09 lisent 100 % VIN, dates et prix.
 - **TVA RÉCUPÉRABLE = DONNÉE DU DOSSIER (30/09, constat Channing : « je ne
   vois pas les * à côté de mes ventes »)**. L'astérisque ne vivait que dans
   le libellé véhicule du tableur, affiché seulement pour les dossiers sans
