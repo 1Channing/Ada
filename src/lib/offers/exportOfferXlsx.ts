@@ -21,7 +21,16 @@ export interface OfferDocument {
 export const fmtEur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
 export const fmtKm = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} km`);
 export const fmtDate = (iso: string | null | undefined) => { if (!iso) return '—'; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fr-FR'); };
-export const bodyOf = (v: OfferVehicle) => /tourer|break|sw|estate|touring|kombi|combi/i.test(v.version) ? 'Break' : /fgn|fourgon|van|cargo/i.test(v.version) ? 'Utilitaire' : '';
+/**
+ * Carrosserie déduite de la ligne libre. Constat Channing 30/09 : « A6 Avant »
+ * sortait en « Utilitaire » — « van » se trouvait DANS « Avant ». Mots entiers
+ * seulement ; les noms de breaks des marques (Avant, Variant, Touring,
+ * Sportbrake, Shooting Brake, Sports Tourer, SW, ST…) et les utilitaires
+ * sans équivoque (fourgon, cargo, Transit, Sprinter, Ducato…).
+ */
+const BREAK_RE = /\b(avant|variant|touring|sports? ?tourer|break|estate|station ?wagon|shooting ?brake|sportbrake|kombi|combi|sw|st|rs\d? ?avant|allroad)\b/i;
+const VAN_RE = /\b(fgn|fourgon|van|cargo|utilitaire|kasten(wagen)?|furgone|bestel(wagen)?|l[1-4]h[1-3]|transit(?! connect| courier)|trafic|vivaro|sprinter|crafter|ducato|boxer|jumper|master|movano|daily|tge|expert|jumpy|proace(?! city verso)|vito|nv[1-4]00|primastar|interstar)\b/i;
+export const bodyOf = (v: OfferVehicle) => BREAK_RE.test(v.version) ? 'Break' : VAN_RE.test(`${v.model} ${v.version}`) ? 'Utilitaire' : '';
 export const labelOf = (v: OfferVehicle) => `${v.brand[0]}${v.brand.slice(1).toLowerCase()} ${v.model}`.trim();
 /** Motorisation telle que le fournisseur l'écrit (colonne Engine), sinon la ligne version d'origine. */
 export const engineOf = (v: OfferVehicle) => (v.engine ?? '').trim() || (v.version ?? '').trim() || '—';

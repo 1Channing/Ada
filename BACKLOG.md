@@ -762,6 +762,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
   annule), seul `contact_documents.label` change, le fichier et son chemin
   restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
+- **OFFRES : « A6 AVANT » SORTAIT EN UTILITAIRE (30/09, constat Channing sur
+  le PDF)**. Classe : la carrosserie était déduite par « contient » — « van »
+  se trouvait dans « Avant ». Mots entiers seulement ; breaks reconnus par
+  leurs noms de marque (Avant, Variant, Touring, Sports Tourer, SW, ST,
+  Sportbrake, Shooting Brake, allroad…) ; utilitaires par mots et modèles
+  sans équivoque (fourgon, cargo, L1H1, Transit, Trafic, Sprinter,
+  Ducato…). Sportback = voiture. Même règle pour le PDF et l'Excel.
 - **OFFRES : FICHIER ITALIEN AUDI A6 / Q6 E-TRON (30/09, demande Channing
   « apprends à ADA à traiter cette liste, toutes les data »)**. Avant : 58
   véhicules lus mais VIN perdu (« N° Telaio » ignoré), énergie vide
