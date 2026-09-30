@@ -762,6 +762,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
   annule), seul `contact_documents.label` change, le fichier et son chemin
   restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
+- **STOCK DES CONCESSIONS DE LA CARTE — ÉTAPE 1 : ADAPTATEUR + FENÊTRE (30/09,
+  demande Channing : « un bouton quand un site vitrine peut être scrappé, la
+  liste de leurs voitures et ce qui manque depuis le dernier relevé —
+  vélocité et force de proposition »)**. Trois fournisseurs de sites de
+  concession reconnus SUR PREUVE, sans navigateur ni Zyte (`worker/
+  dealerStock.ts`) : dvnl (Auto Smeeing : JSON embarqué, 896/896, plaque,
+  VIN, km, année, énergie, boîte, date de mise en ligne), datamotive
+  (Century, Next.js : JSON-LD ItemList, 1 155/1 161, ni km ni année en
+  liste), autodata (Krimpenerwaard : POST + cookie + jeton CSRF, 362/362).
+  Tables `network_stock_vehicles` (first_seen / last_seen / gone_at /
+  price_prev, unique contact × id) et `network_stock_runs` (bilan) —
+  migration 20260930120000. Mode `dealer_stock` de l'edge ingest-url.
+  Carte : bouton « Stock relevé » sur un contact avec vitrine → fenêtre
+  (en stock / nouveaux / disparus / prix changés, filtre, « Relever
+  maintenant », vélocité = médiane des jours en stock des disparus). Suites
+  décidées : (2) relevé automatique quotidien des contacts suivis ;
+  (3) « tu peux proposer ici » — croiser offres / négociations / MI avec
+  les stocks relevés (même modèle + x prix) ; (4) fiche détaillée
+  datamotive pour km / année ; (5) outil MCP. Site inconnu → message clair,
+  à reconnaître avant d'ajouter.
 - **OFFRES : EXCEL MIS EN FORME (30/09, constat Channing sur l'offre Allemagne
   pour un client : « les lignes se chevauchent »)**. L'export SheetJS
   communautaire n'écrit aucun style : textes longs (version, rapport) ni à

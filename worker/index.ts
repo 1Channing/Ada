@@ -17,6 +17,7 @@ import { startDailySearchScheduler } from './dailySearches';
 import { startSalesSheetSync } from './salesSheetSync';
 import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
+import { runDealerStock } from './dealerStock';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -133,6 +134,23 @@ app.post('/ingest-url', async (req, res) => {
 
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'Missing required parameter: url' });
+  }
+
+  // MODE STOCK DE CONCESSION (carte du réseau, 30/09) : la page « aanbod »
+  // d'un site vitrine reconnu → toutes ses voitures, comparées au relevé
+  // précédent (nouveaux, disparus, prix). Job asynchrone, même mécanique.
+  if ((req.body ?? {}).mode === 'dealer_stock') {
+    const contactId = typeof (req.body ?? {}).contactId === 'string' ? String(req.body.contactId) : '';
+    if (!/^[0-9a-f-]{36}$/i.test(contactId)) return res.status(400).json({ error: 'contactId requis (contact de la carte)' });
+    purgeOldIngestJobs();
+    const stockJobId = `stock_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    INGEST_JOBS.set(stockJobId, { status: 'running', at: Date.now() });
+    res.json({ jobId: stockJobId, jobStatus: 'running' });
+    void runDealerStock(contactId, url, submittedBy ?? 'carte').then(
+      (summary) => INGEST_JOBS.set(stockJobId, { status: 'done', payload: { summary }, at: Date.now() }),
+      (e) => INGEST_JOBS.set(stockJobId, { status: 'error', message: e instanceof Error ? e.message : String(e), at: Date.now() }),
+    );
+    return;
   }
 
   // MODE FICHE ANNONCE (négociations, 28/08) : une page de DÉTAIL — titre,

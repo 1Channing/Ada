@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
+import { DealerStockModal } from '../components/DealerStockModal';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
   KIND_LABEL, ROLE_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS,
@@ -72,6 +73,8 @@ export function Carte() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // STOCK DE LA VITRINE (30/09) : fenêtre avec les voitures relevées et le diff.
+  const [stockFor, setStockFor] = useState<{ id: string; name: string; url: string } | null>(null);
   const [hoverCountry, setHoverCountry] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'tous' | ContactRole>('tous');
@@ -491,9 +494,10 @@ export function Carte() {
       <aside className={`w-[400px] max-md:w-full max-md:h-[46vh] shrink-0 bg-white border-l max-md:border-l-0 max-md:border-t border-slate-200 flex flex-col ${panelOpen ? '' : 'max-md:hidden'}`}>
         {editing ? (
           <ContactForm value={editing} models={editModels} onChange={setEditing} onModels={setEditModels} onPlace={() => setPlacing('form')} onCancel={() => { setEditing(null); setPlacing(null); }} onSubmit={submit} busy={busy} />
-        ) : selected ? (
-          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} />
-        ) : (
+        ) : selected ? (<>
+          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onStock={() => selected.website && setStockFor({ id: selected.id, name: selected.name, url: selected.website })} />
+          {stockFor && <DealerStockModal contactId={stockFor.id} name={stockFor.name} url={stockFor.url} onClose={() => setStockFor(null)} />}
+        </>) : (
           <>
             <div className="p-4 border-b border-slate-100 space-y-3">
               <div className="flex items-center gap-2">
@@ -577,8 +581,8 @@ const LandLayer = memo(function LandLayer({ paths, activeIso, onHover }: {
 });
 
 // ── Détail ──────────────────────────────────────────────────────────────────
-function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand }: {
-  c: NetworkContact; canEdit: boolean; busy: boolean; onClose: () => void; onEdit: () => void; onMove: () => void; onDelete: () => void; onFilterBrand: (b: string) => void;
+function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onStock }: {
+  c: NetworkContact; canEdit: boolean; busy: boolean; onClose: () => void; onEdit: () => void; onMove: () => void; onDelete: () => void; onFilterBrand: (b: string) => void; onStock: () => void;
 }) {
   const rows: Array<[string, string]> = [
     ['Véhicules', c.vehicle_types], ['Volume mensuel', c.monthly_volume], ['Opportunité', c.opportunity],
@@ -606,7 +610,14 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
           {c.contact_name && <p className="text-slate-800 font-medium">{c.contact_name}</p>}
           {c.phone && <a href={`tel:${c.phone.replace(/\s/g, '')}`} className="flex items-center gap-2 text-brand-ocean hover:underline"><Phone className="w-4 h-4" /> {c.phone}</a>}
           {c.email && <a href={`mailto:${c.email}`} className="flex items-center gap-2 text-brand-ocean hover:underline break-all"><Mail className="w-4 h-4 shrink-0" /> {c.email}</a>}
-          {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-brand-ocean hover:underline"><ExternalLink className="w-4 h-4 shrink-0" /> Vitrine du stock</a>}
+          {c.website && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <a href={c.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-brand-ocean hover:underline"><ExternalLink className="w-4 h-4 shrink-0" /> Vitrine du stock</a>
+              {/* STOCK RELEVÉ PAR ADA (30/09) : la liste de leurs voitures et ce
+                  qui a bougé depuis le dernier relevé (vélocité, propositions). */}
+              <button onClick={onStock} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700" title="Lire la vitrine et comparer au relevé précédent"><Car className="w-3.5 h-3.5" /> Stock relevé</button>
+            </div>
+          )}
         </div>
         {rows.length > 0 && (
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
