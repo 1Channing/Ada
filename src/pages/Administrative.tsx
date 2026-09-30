@@ -17,11 +17,17 @@ import {
   updateDossierDocument, deleteDossierDocument, missingForPack, type DossierDocument, type DossierDocKind,
 } from '../services/dossierDocuments';
 
-const isMissingSignatureColumn = (e: { message?: string } | null) => /signature_location/.test(e?.message ?? '');
-const withoutSignatureLocation = <T extends { signature_location?: string | null }>(p: T): Omit<T, 'signature_location'> => {
-  const copy: Record<string, unknown> = { ...p };
-  delete copy.signature_location;
-  return copy as Omit<T, 'signature_location'>;
+// Colonnes du dossier ajoutées par SQL à coller (26/09 signature_location,
+// 30/09 vat_recoverable) : si la base ne les a pas encore, on enregistre
+// sans elles et on le dit, au lieu de bloquer le dossier.
+const OPTIONAL_TX_COLUMNS = ['signature_location', 'vat_recoverable'] as const;
+const missingOptionalColumn = (e: { message?: string } | null): string | null => OPTIONAL_TX_COLUMNS.find((c) => (e?.message ?? '').includes(c)) ?? null;
+const isMissingSignatureColumn = (e: { message?: string } | null) => missingOptionalColumn(e) != null;
+const withoutSignatureLocation = <T extends object>(p: T, e?: { message?: string } | null): Partial<T> => {
+  const copy: Record<string, unknown> = { ...(p as Record<string, unknown>) };
+  const col = missingOptionalColumn(e ?? null);
+  if (col) delete copy[col]; else { delete copy.signature_location; delete copy.vat_recoverable; }
+  return copy as Partial<T>;
 };
 
 type DealSort = 'date' | 'commercial' | 'client' | 'prix';
@@ -100,6 +106,8 @@ type TransactionForm = {
   transporter: string;
   /** « Fait à » des cessions — distinct du lieu d'enlèvement (26/09). */
   signature_location: string;
+  /** Véhicule à TVA récupérable (« * » du tableur) — 30/09. */
+  vat_recoverable?: boolean;
 };
 
 // A deal row for the list view (transaction + joined vehicle/parties).
@@ -114,6 +122,7 @@ type DealRow = {
   sale_price: number | null;
   fees: number | null;
   commission_ht?: number | null;
+  vat_recoverable?: boolean | null;
   transaction_date: string | null;
   created_at: string;
   closed_at: string | null;
@@ -881,17 +890,20 @@ export function Administrative() {
   // ─── Deals list ───────────────────────────────────────────────────────────
   const loadDeals = async () => {
     setDealsLoading(true);
-    const { data } = await supabase
+    const dealsQuery = (withVat: boolean) => supabase
       .from('transactions_admin')
       .select(`
         id, transaction_type, status, reference, commercial, transaction_price,
-        purchase_price, sale_price, fees, commission_ht, transaction_date, created_at, closed_at, notes,
+        purchase_price, sale_price, fees, commission_ht, transaction_date, created_at, closed_at, notes,${withVat ? ' vat_recoverable,' : ''}
         vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(brand, model, plate_number),
         seller:contacts!transactions_admin_seller_contact_id_fkey(company_name, first_name, last_name),
         buyer:contacts!transactions_admin_buyer_contact_id_fkey(company_name, first_name, last_name)
       `)
       .order('created_at', { ascending: false })
       .limit(500);
+    // Colonne vat_recoverable absente (SQL du 30/09 pas collé) → même liste sans elle.
+    let { data, error } = await dealsQuery(true);
+    if (error && /vat_recoverable/.test(error.message)) ({ data, error } = await dealsQuery(false));
     setDeals((data ?? []) as unknown as DealRow[]);
     setDealsLoading(false);
   };
@@ -1133,6 +1145,7 @@ export function Administrative() {
       pickup_datetime: tx.pickup_datetime ?? '', destination: tx.destination ?? '', transporter: tx.transporter ?? '',
       // Dossiers d'avant le 26/09 (colonne vide) : le siège, jamais le lieu d'enlèvement.
       signature_location: ((tx as { signature_location?: string | null }).signature_location ?? '').trim() || DEFAULT_SIGNATURE_LOCATION,
+      vat_recoverable: (tx as { vat_recoverable?: boolean | null }).vat_recoverable === true,
     });
 
     setLastSavedTransactionId(id);
@@ -1489,15 +1502,17 @@ export function Administrative() {
           destination: transactionForm.destination || null,
           transporter: transactionForm.transporter || null,
           signature_location: transactionForm.signature_location.trim() || null,
+          vat_recoverable: !!transactionForm.vat_recoverable,
       };
       let { data: transactionData, error: transactionError } = await supabase
         .from('transactions_admin').insert(insertPayload).select().single();
-      if (transactionError && isMissingSignatureColumn(transactionError)) {
-        // SQL du 26/09 pas encore collé : on enregistre sans le lieu de
-        // signature (les documents imprimeront le siège) et on le dit.
+      let insertBody: Record<string, unknown> = insertPayload;
+      for (let tries = 0; tries < OPTIONAL_TX_COLUMNS.length && transactionError && isMissingSignatureColumn(transactionError); tries++) {
+        // SQL pas encore collé pour cette colonne : on enregistre sans elle et on le dit.
         setSignatureColumnMissing(true);
+        insertBody = withoutSignatureLocation(insertBody, transactionError) as Record<string, unknown>;
         ({ data: transactionData, error: transactionError } = await supabase
-          .from('transactions_admin').insert(withoutSignatureLocation(insertPayload)).select().single());
+          .from('transactions_admin').insert(insertBody as never).select().single());
       }
 
       if (transactionError) throw transactionError;
@@ -1616,13 +1631,16 @@ export function Administrative() {
           destination: transactionForm.destination || null,
           transporter: transactionForm.transporter || null,
           signature_location: transactionForm.signature_location.trim() || null,
+          vat_recoverable: !!transactionForm.vat_recoverable,
       };
       let { error: transactionError } = await supabase
         .from('transactions_admin').update(updatePayload).eq('id', lastSavedTransactionId);
-      if (transactionError && isMissingSignatureColumn(transactionError)) {
+      let updateBody: Record<string, unknown> = updatePayload;
+      for (let tries = 0; tries < OPTIONAL_TX_COLUMNS.length && transactionError && isMissingSignatureColumn(transactionError); tries++) {
         setSignatureColumnMissing(true);
+        updateBody = withoutSignatureLocation(updateBody, transactionError) as Record<string, unknown>;
         ({ error: transactionError } = await supabase
-          .from('transactions_admin').update(withoutSignatureLocation(updatePayload)).eq('id', lastSavedTransactionId));
+          .from('transactions_admin').update(updateBody as never).eq('id', lastSavedTransactionId));
       }
 
       if (transactionError) throw transactionError;
@@ -2100,7 +2118,10 @@ export function Administrative() {
           </span>
         </td>
         <td className="px-3 py-2.5 text-slate-800 truncate max-w-[180px]">{dealClient(d)}</td>
-        <td className={`px-3 py-2.5 truncate max-w-[160px] ${veh.fromSheet ? 'text-slate-500 italic' : 'text-slate-600'}`} title={`${veh.fromSheet ? 'Véhicule du tableur (pas encore de fiche véhicule). ' : ''}${veh.label.endsWith('*') ? '* = TVA récupérable (hors TVA sur la marge)' : ''}`.trim() || undefined}>{veh.label}</td>
+        <td className={`px-3 py-2.5 max-w-[200px] ${veh.fromSheet ? 'text-slate-500 italic' : 'text-slate-600'}`} title={veh.fromSheet ? 'Véhicule du tableur (pas encore de fiche véhicule)' : undefined}>
+          <span className="truncate align-middle inline-block max-w-[150px]">{veh.label.replace(/\*\s*$/, '')}</span>
+          {(d.vat_recoverable === true || veh.label.endsWith('*')) && <span className="ml-1.5 align-middle text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 not-italic whitespace-nowrap" title="TVA récupérable (« * » du tableur) — hors TVA sur la marge">TVA*</span>}
+        </td>
         <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{eur(dealPurchase(d))}</td>
         <td className="px-3 py-2.5 text-slate-900 font-medium whitespace-nowrap">{eur(dealSale(d))}</td>
         <td className="px-3 py-2.5 text-slate-600">{d.commercial || '—'}</td>
@@ -2754,6 +2775,16 @@ export function Administrative() {
               />
               <label htmlFor="registration-cert" className="text-sm font-medium text-slate-700">
                 Registration Certificate Present
+              </label>
+              <input
+                type="checkbox"
+                id="vat-recoverable"
+                checked={!!transactionForm.vat_recoverable}
+                onChange={(e) => updateTransactionForm({ vat_recoverable: e.target.checked })}
+                className="ml-6 w-4 h-4 rounded border-slate-300 bg-slate-200 text-blue-600 focus:ring-blue-500"
+              />
+              <label htmlFor="vat-recoverable" className="text-sm font-medium text-slate-700" title="Véhicule marqué « * » dans le tableur : TVA récupérable, hors régime de la TVA sur la marge">
+                TVA récupérable <span className="text-slate-400 font-normal">(« * » du tableur)</span>
               </label>
             </div>
 

@@ -928,6 +928,7 @@ export type Database = {
           destination: string | null
           transporter: string | null
           signature_location?: string | null
+          vat_recoverable?: boolean | null
           owner_user_id?: string | null
           commission_ht?: number | null
         }
@@ -959,6 +960,7 @@ export type Database = {
           destination?: string | null
           transporter?: string | null
           signature_location?: string | null
+          vat_recoverable?: boolean | null
           owner_user_id?: string | null
           commission_ht?: number | null
         }
@@ -990,6 +992,7 @@ export type Database = {
           destination?: string | null
           transporter?: string | null
           signature_location?: string | null
+          vat_recoverable?: boolean | null
           owner_user_id?: string | null
           commission_ht?: number | null
         }

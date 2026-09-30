@@ -205,9 +205,14 @@ async function syncOnce(creds: string): Promise<void> {
   // vente poussée depuis une négociation porte sa REF (fenêtre « référence »)
   // : la ligne du tableur la RETROUVE et la COMPLÈTE (champs vides seulement,
   // le dossier ADA fait toujours foi) au lieu de créer un deuxième dossier.
-  type Known = { id: string; reference: string | null; notes: string | null; purchase_price: number | null; sale_price: number | null; fees: number | null; commission_ht: number | null; commercial: string | null; buyer_contact_id: string | null; seller_contact_id: string | null; seller_contact_id_2: string | null; supplier_contact_id: string | null; client_contact_id: string | null; transaction_date: string | null; status: string | null; closed_at: string | null; transaction_type: string | null };
+  type Known = { id: string; reference: string | null; notes: string | null; purchase_price: number | null; sale_price: number | null; fees: number | null; commission_ht: number | null; commercial: string | null; buyer_contact_id: string | null; seller_contact_id: string | null; seller_contact_id_2: string | null; supplier_contact_id: string | null; client_contact_id: string | null; transaction_date: string | null; status: string | null; closed_at: string | null; transaction_type: string | null; vat_recoverable?: boolean | null };
+  // TVA RÉCUPÉRABLE (30/09) : l'astérisque en fin de véhicule du tableur
+  // devient une donnée du dossier, relue à CHAQUE passage (un « * » ajouté
+  // après coup est pris). Colonne absente tant que le SQL n'est pas collé.
+  const vatProbe = await supabase.from('transactions_admin').select('vat_recoverable').limit(1);
+  const hasVat = !vatProbe.error;
   const { data: existing } = await supabase.from('transactions_admin')
-    .select('id, reference, notes, purchase_price, sale_price, fees, commission_ht, commercial, buyer_contact_id, seller_contact_id, seller_contact_id_2, supplier_contact_id, client_contact_id, transaction_date, status, closed_at, transaction_type')
+    .select(`id, reference, notes, purchase_price, sale_price, fees, commission_ht, commercial, buyer_contact_id, seller_contact_id, seller_contact_id_2, supplier_contact_id, client_contact_id, transaction_date, status, closed_at, transaction_type${hasVat ? ', vat_recoverable' : ''}`)
     .not('reference', 'is', null).limit(10000);
   // Fiche MC Export : le côté qui change de rôle à la bascule achat → vente.
   const { data: mcRow } = await supabase.from('contacts').select('id').eq('siren', '93033811600013').order('created_at', { ascending: true }).limit(1).maybeSingle();
@@ -260,6 +265,11 @@ async function syncOnce(creds: string): Promise<void> {
         if (prev.fees == null && s.fraisHt != null) patch.fees = s.fraisHt;
         if (prev.commission_ht == null && s.commissionHt != null) patch.commission_ht = s.commissionHt;
         if (!prev.commercial && s.seller) patch.commercial = s.seller;
+        if (hasVat) {
+          const star = /\*\s*$/.test(s.vehicule ?? '');
+          if (star && prev.vat_recoverable !== true) patch.vat_recoverable = true;
+          else if (!star && prev.vat_recoverable == null) patch.vat_recoverable = false;
+        }
         if (!prev.buyer_contact_id && buyerId) patch.buyer_contact_id = buyerId;
         if (!prev.transaction_date && s.dateAchat) patch.transaction_date = s.dateAchat;
         if (closed && prev.status !== 'cloturee') { patch.status = 'cloturee'; if (!prev.closed_at && s.dateLivraison) patch.closed_at = `${s.dateLivraison}T12:00:00Z`; }
@@ -296,6 +306,7 @@ async function syncOnce(creds: string): Promise<void> {
         // Le commercial est le TITRE du bloc (ANTOINE, CHANNING…), jamais le
         // convoyeur — celui-ci reste tracé dans les notes.
         commercial: s.seller || null,
+        ...(hasVat ? { vat_recoverable: /\*\s*$/.test(s.vehicule ?? '') } : {}),
         buyer_contact_id: buyerId,
         transaction_date: s.dateAchat,
         notes: tableurNotes,

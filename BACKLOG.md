@@ -762,6 +762,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   sur chaque pièce — libellé édité en place (Entrée enregistre, Échap
   annule), seul `contact_documents.label` change, le fichier et son chemin
   restent ; le nouveau nom est repris aussitôt dans « Pièces de {pro} ».
+- **TVA RÉCUPÉRABLE = DONNÉE DU DOSSIER (30/09, constat Channing : « je ne
+  vois pas les * à côté de mes ventes »)**. L'astérisque ne vivait que dans
+  le libellé véhicule du tableur, affiché seulement pour les dossiers sans
+  fiche véhicule ; les dossiers de Channing ont tous une fiche, et sa
+  feuille du tableur ne porte pas d'astérisque (vérifié en base : TRANSIT
+  CUSTOM, IGNIS… sans « * »). Corrigé : colonne `vat_recoverable`
+  (migration 20260930100000, reprise des « Véhicule : …* » déjà en notes),
+  posée par la synchro à chaque passage (un « * » ajouté après coup est
+  pris), case « TVA récupérable » dans la fiche véhicule du dossier, badge
+  « TVA* » dans la liste quelle que soit l'origine du nom. Sans le SQL :
+  enregistrement sans la colonne, liste sans le badge.
 - **MCP : OFFRES, TABLEAU ÉDITÉ, CARTE DU RÉSEAU (29/09, demande Channing)**.
   Trois outils lecture seule ajoutés au connecteur ChatGPT (`ada-mcp`,
   v0.3.0) : `list_offers` (offres fournisseur, règle de prix, comptes),
