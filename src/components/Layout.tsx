@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet, GraduationCap } from 'lucide-react';
+import { listLearningCases } from '../services/learningCases';
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
 import { canSeeTab, canSeeWorkflow, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
@@ -168,6 +169,7 @@ export function Layout({ children }: LayoutProps) {
             <FeedbackCenter />
             <NotificationCenter />
             <AdminTruthButton />
+            <AdminLearnButton />
             <AdminTelemetryButton />
             <AdminTeamButton />
             <UserChip />
@@ -226,6 +228,36 @@ function AdminTruthButton() {
       className={`p-1.5 rounded-lg transition-colors ${active ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
     >
       <ShieldCheck className="w-4 h-4" />
+    </button>
+  );
+}
+
+/** Admin uniquement : la boîte à apprendre (01/10, demande Channing), avec
+ *  le compte des cas ouverts en pastille — relu toutes les 60 s et à chaque
+ *  navigation, pour qu'une vitrine inconnue rencontrée sur la carte se voie
+ *  tout de suite ici. Table absente → pas de pastille, rien ne casse. */
+function AdminLearnButton() {
+  const { isAdmin } = useAuth();
+  const [open, setOpen] = useState(0);
+  const active = window.location.pathname === '/apprendre';
+  useEffect(() => {
+    if (!isAdmin) return;
+    let alive = true;
+    const refresh = () => { void listLearningCases('open').then((r) => { if (alive) setOpen(r.error ? 0 : r.cases.length); }); };
+    refresh();
+    const t = setInterval(refresh, 60_000);
+    window.addEventListener('popstate', refresh);
+    return () => { alive = false; clearInterval(t); window.removeEventListener('popstate', refresh); };
+  }, [isAdmin, active]);
+  if (!isAdmin) return null;
+  return (
+    <button
+      title={`Boîte à apprendre (admin)${open ? ` — ${open} cas à traiter` : ''}`}
+      onClick={() => { window.history.pushState({}, '', '/apprendre'); }}
+      className={`relative p-1.5 rounded-lg transition-colors ${active ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
+    >
+      <GraduationCap className="w-4 h-4" />
+      {open > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-amber-400 text-slate-900 text-[10px] font-bold grid place-items-center leading-none">{open > 99 ? '99+' : open}</span>}
     </button>
   );
 }

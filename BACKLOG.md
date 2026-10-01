@@ -800,6 +800,12 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **BOÎTE À APPRENDRE : ACCÈS ADMIN DANS L'EN-TÊTE (01/10, demande Channing :
+  « un accès spécial admin parmi ces options »)**. Icône « chapeau de
+  diplômé » entre le Truth Center et la télémétrie, admin seul, avec la
+  pastille du nombre de cas ouverts (relue toutes les 60 s et à chaque
+  navigation) ; page `/apprendre` dédiée (même contenu que l'onglet du
+  Centre de vérité, réservée à l'admin). Table absente → pas de pastille.
 - **BOÎTE À APPRENDRE + 5e FOURNISSEUR « dvapi » (HEDIN) (01/10, demande
   Channing : « ajoute ce type de vitrine ; et pour toute vitrine inconnue,
   un endroit où tu les enregistres pour les traiter ensemble »)**. Hedin

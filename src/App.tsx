@@ -14,6 +14,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Veille } from './pages/Veille';
 import { TruthCenter } from './pages/TruthCenter';
 import { Telemetrie } from './pages/Telemetrie';
+import { Apprendre } from './pages/Apprendre';
 import { Login, ResetPassword } from './pages/Login';
 import { Equipe } from './pages/Equipe';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
@@ -88,6 +89,7 @@ function App() {
     if (p === '/verite') return 'truth';
     if (p === '/telemetrie') return 'telemetrie';
     if (p === '/equipe') return 'equipe';
+    if (p === '/apprendre') return 'apprendre';
     return 'home';
   };
   const renderPageFor = (key: string) => {
@@ -104,6 +106,7 @@ function App() {
       case 'truth': return <TruthCenter />;
       case 'telemetrie': return <Telemetrie />;
       case 'equipe': return <Equipe />;
+      case 'apprendre': return <Apprendre />;
       default: return <Home />;
     }
   };
