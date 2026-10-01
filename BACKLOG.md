@@ -800,6 +800,23 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **STOCK DES CONCESSIONS : 4e FOURNISSEUR « listerpage » — BROEKHUIS GROEP
+  (01/10, constat Channing : « site vitrine non reconnu »)**. Preuve : la
+  page HTML ne contient aucune annonce ; le stock vient d'un POST JSON sur
+  l'URL `listerpage.ajax_url` des drupalSettings (corps facets / search /
+  geo_search / sort / pager lu dans listerpage.min.js), 72 par page, pager
+  {total, pages}. Détection : `"listerpage":{…"ajax_url"…}` dans la page.
+  Lecture : facettes imposées par la page (status = Gebruikt + Demo via
+  l'alias d'URL → champ de facette), tri repris de l'URL, id = ecommerce.
+  item_id, marque / modèle = ecommerce.item_brand / item_variant, prix =
+  product.price.price, statut = product.status.label (« Op voorraad »,
+  « Verwacht » → attendue, « Verkocht » → vendue), specs → km (format
+  kilometerstand), année, boîte, énergie ; pas de plaque ni de VIN en
+  liste ; les 2 lignes vides par page (bannières) ignorées. Vérifié en
+  direct : 4 698 / 4 698 véhicules, 68 pages en 101 s, 0 avertissement,
+  144 attendues, 56 vendues, 0 manquant sur prix / km / année / marque /
+  modèle. C'est un GROUPE (toutes les concessions Broekhuis) : le diff
+  reste utile, la vélocité par site non.
 - **STOCK DES CONCESSIONS : PLUS JAMAIS « 0 € » — STATUT D'ANNONCE (01/10,
   constat Channing sur Auto Smeeing : Audi A1 « Op aanvraag » / « Binnenkort
   verwacht » à 0 € dans le relevé)**. Classe : un prix absent était écrit 0

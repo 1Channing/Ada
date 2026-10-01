@@ -27,7 +27,7 @@
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 
-export type DealerProvider = 'dvnl' | 'datamotive' | 'autodata';
+export type DealerProvider = 'dvnl' | 'datamotive' | 'autodata' | 'listerpage';
 
 /**
  * STATUT D'UNE ANNONCE (01/10, constat Channing sur Auto Smeeing : « 0 € »
@@ -120,6 +120,7 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/id="vehicle-overview-initial-state"/.test(html)) return 'dvnl';
   if (/find-autodata-vehicle-data/.test(html)) return 'autodata';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
+  if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   return null;
 }
 
@@ -281,13 +282,115 @@ async function scrapeAutodata(url: string, firstHtml: string, firstHeaders: Head
 }
 
 // ── Point d'entrée ──────────────────────────────────────────────────────────
+// ── listerpage (Broekhuis Groep — Drupal « listerpage », preuve 01/10) ──────
+// La page HTML ne contient aucune annonce : le stock vient d'un POST JSON sur
+// drupalSettings.broekhuis_listerpages.listerpage.ajax_url, corps
+// { facets, search, geo_search, sort, pager:{page,size} } (lu dans
+// listerpage.min.js). Réponse : { pager:{page,size,total,pages}, items[] } ;
+// chaque item porte title/subtitle, href, product.price.price,
+// product.status.label (« Op voorraad » / « Verwacht »), product.specs
+// (kilometerstand, boîte, année, énergie), ecommerce.item_brand / item_variant.
+// 4 698 véhicules en 68 pages de 72 le 01/10 — un groupe entier, pas une
+// concession : les relevés servent le diff, pas la vélocité fine.
+interface ListerSettings {
+  listerpage?: { ajax_url?: string; required_values?: Record<string, string | string[]> };
+  facets?: Record<string, { childFacet?: { field?: string; config?: { urlAlias?: string } } | null; config?: { urlAlias?: string } }>;
+}
+interface ListerItem {
+  id?: string; href?: string; title?: string; subtitle?: string; images?: string[];
+  product?: { specs?: Array<{ value?: unknown; numberFormat?: string | null }>; price?: { price?: unknown }; status?: { label?: string } | null };
+  ecommerce?: { item_id?: string; item_brand?: string; item_variant?: string; item_category?: string };
+}
+function parseListerSettings(html: string): ListerSettings | null {
+  for (const m of html.matchAll(/<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/g)) {
+    if (!m[1].includes('"listerpage"')) continue;
+    try {
+      const d = JSON.parse(m[1]) as Record<string, unknown>;
+      for (const v of Object.values(d)) {
+        if (v && typeof v === 'object' && (v as ListerSettings).listerpage?.ajax_url) return v as ListerSettings;
+      }
+    } catch { /* script suivant */ }
+  }
+  return null;
+}
+async function scrapeListerpage(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const settings = parseListerSettings(firstHtml);
+  if (!settings?.listerpage?.ajax_url) return { provider: 'listerpage', total: null, vehicles: [], pages: 0, warnings: ['configuration listerpage introuvable dans la page'] };
+  // Facettes imposées par la page (ex. status = Gebruikt + Demo) : l'alias
+  // d'URL de la configuration → le champ de la facette.
+  const facets: Record<string, string[]> = {};
+  const fieldByAlias = new Map<string, string>();
+  for (const [field, f] of Object.entries(settings.facets ?? {})) {
+    if (f?.config?.urlAlias) fieldByAlias.set(f.config.urlAlias, field);
+    if (f?.childFacet?.field && f.childFacet.config?.urlAlias) fieldByAlias.set(f.childFacet.config.urlAlias, f.childFacet.field);
+  }
+  for (const [alias, val] of Object.entries(settings.listerpage.required_values ?? {})) {
+    const field = fieldByAlias.get(alias);
+    if (field) facets[field] = Array.isArray(val) ? val : [val];
+  }
+  const u = new URL(url);
+  const sortBy = u.searchParams.get('sort_by'), sortOrder = u.searchParams.get('sort_order');
+  const sort = sortBy ? { [sortBy]: sortOrder || 'DESC' } : undefined;
+  const ajax = settings.listerpage.ajax_url.startsWith('http') ? settings.listerpage.ajax_url : origin + settings.listerpage.ajax_url;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let total: number | null = null;
+  let page = 1;
+  for (; page <= MAX_PAGES; page++) {
+    const res = await getText(ajax, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json', referer: url },
+      body: JSON.stringify({ facets, search: '', geo_search: '', ...(sort ? { sort } : {}), pager: { page, size: 72 } }),
+    });
+    if (res.status !== 200) { warnings.push(`page ${page} : HTTP ${res.status}`); break; }
+    let d: { pager?: { total?: number; pages?: number }; items?: ListerItem[] };
+    try { d = JSON.parse(res.text); } catch { warnings.push(`page ${page} : réponse illisible`); break; }
+    total = num(d.pager?.total) ?? total;
+    const items = d.items ?? [];
+    if (items.length === 0) break;
+    let added = 0;
+    for (const it of items) {
+      const href = it.href ?? '';
+      const id = String(it.ecommerce?.item_id ?? href.match(/\/(\d{5,})\/?$/)?.[1] ?? it.id ?? '').trim();
+      if (!id || !href || seen.has(id)) continue; // les 2 lignes vides par page (bannières) n'ont ni href ni titre
+      seen.add(id); added++;
+      const specs = (it.product?.specs ?? []).map((s) => ({ v: String(s.value ?? '').trim(), f: s.numberFormat ?? null }));
+      const km = num(specs.find((s) => s.f === 'kilometerstand')?.v);
+      const year = num(specs.find((s) => /^(19|20)\d{2}$/.test(s.v))?.v);
+      const gearbox = specs.find((s) => /automaat|handgeschakeld|automatic|manual/i.test(s.v))?.v ?? null;
+      const fuel = specs.find((s) => /benzine|diesel|elektrisch|hybride|lpg|cng|waterstof/i.test(s.v))?.v ?? null;
+      const price = priceOrNull(it.product?.price?.price);
+      const title = [it.title, it.subtitle].filter(Boolean).join(' ').trim();
+      const guess = splitTitle(title);
+      const statusLabel = it.product?.status?.label ?? '';
+      const status: DealerVehicleStatus | null = /voorraad/i.test(statusLabel) ? (price == null ? 'price_on_request' : null)
+        : (statusFromText(statusLabel) ?? (price == null ? 'price_on_request' : null));
+      out.push({
+        external_id: id, url: href.startsWith('http') ? href : origin + href, title,
+        brand: it.ecommerce?.item_brand || guess.brand, model: it.ecommerce?.item_variant || guess.model,
+        price, km, year, fuel, gearbox, plate: null, vin: null, body: null,
+        image: it.images?.[0] ?? null, listed_at: null, status,
+      });
+    }
+    if (added === 0) break;
+    const pages = num(d.pager?.pages);
+    if (pages != null && page >= pages) break;
+    if (total != null && out.length >= total) break;
+    await sleep(PAGE_DELAY_MS);
+  }
+  return { provider: 'listerpage', total: total ?? out.length, vehicles: out, pages: page, warnings };
+}
+
 export async function fetchDealerStock(url: string): Promise<DealerStockResult> {
   const first = await getText(url);
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
   const provider = detectDealerProvider(first.text);
-  if (!provider) throw new Error('site vitrine non reconnu (ni dvnl, ni datamotive, ni autodata) — à reconnaître avant de l\'ajouter');
+  if (!provider) throw new Error('site vitrine non reconnu (ni dvnl, ni datamotive, ni autodata, ni listerpage) — à reconnaître avant de l\'ajouter');
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text);
+  if (provider === 'listerpage') return scrapeListerpage(url, first.text);
   return scrapeAutodata(url, first.text, first.headers);
 }
 
