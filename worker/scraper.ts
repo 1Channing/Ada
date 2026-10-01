@@ -31,6 +31,7 @@ import { structuredModelMatches, shouldFilterListing } from '../src/lib/study-co
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import { mpSlugOfLabel } from '../src/lib/study-core/marketplaces/marktplaats';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
+import { recordLearningCase } from './learningBox';
 import { canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { StudyLogger } from './studyLogger';
 
@@ -1347,6 +1348,9 @@ export async function scrapeSearch(
       if (account) {
         const why = (status === 401 ? 'Zyte 401 : clé API refusée (ZYTE_API_KEY sur Railway)' : `Zyte ${status} : plan ou crédits Zyte épuisés — vérifier le compte Zyte`) + (zyteError ? ` [${zyteError}]` : '');
         console.error(`[WORKER_SCRAPER] ${why}`);
+        // Boîte à apprendre (01/10) : un service bloqué attend une action de
+        // l'équipe (recharger, vérifier la clé) — un seul cas « zyte », compté.
+        void recordLearningCase({ kind: 'service_blocked', key: 'zyte', title: `Zyte bloqué (HTTP ${status}) : plus aucun scraping`, actor: 'equipe', link: '/verite', detail: { status, zyteError: zyteError ?? null, why } });
         return finalize({ listings: [], error: 'SCRAPER_FAILED', errorReason: why }, { attempts: attempt + 1, htmlLength: 0 }, false);
       }
       const maxTries = saturated ? Math.max(MAX_RETRIES, 4) : MAX_RETRIES;

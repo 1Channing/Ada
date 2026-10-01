@@ -800,6 +800,31 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **BOÎTE À APPRENDRE : TOUT CE QUI ATTEND UNE CORRECTION (02/10, décision
+  Channing : « tout ce qui peut nécessiter une action de correction va dans
+  la boîte, y compris les signalements »)**. Règle : un cas entre quand ADA
+  a buté ET sait dire quoi faire ensuite ; un cas par sujet (kind + key),
+  compté ; jamais les erreurs passagères ni les journaux. Deux champs :
+  `actor` (equipe | dev) et `link` (où aller) — migration 20261002100000,
+  avec droit d'écriture pour les comptes connectés. Module worker
+  `learningBox.ts` (recordLearningCase + resolveLearningCase : un cas se
+  ferme SEUL quand la réalité l'a réglé). Familles branchées :
+  dealer_site_unknown (dev, fermé par un relevé réussi) ; dealer_scan_empty
+  (dev, idem) ; service_blocked zyte 401/402/403 (equipe) et
+  anthropic_credits veille (equipe) ; site_failing = site ✗ sur ≥ 3 études
+  le même matin (dev, fermé un matin sans échec) ; sheet_row_unmatched =
+  client du tableur introuvable (equipe, fermé quand rattaché) ;
+  mail_failed (equipe) ; offer_file_unparsed depuis la page Offres (dev :
+  0 véhicule ou ni marque / modèle / VIN, ou fichier illisible). Lus sans
+  être copiés : signalements (ada_feedback, capture visible, Fait écrit
+  dans leur table) et lacunes de campagne des 10 dernières campagnes
+  (Fait = resolved_at de l'item). Boîte : filtres Équipe / Développement,
+  bouton « Ouvrir » vers la page, pastille de l'en-tête toutes sources. MCP
+  learning_cases rend actor et link. Au passage : la fenêtre Stock garde
+  l'échec du dernier relevé affiché jusqu'à sa fermeture (constat Channing
+  sur Louwman : le message disparaissait, effacé par le rechargement).
+  Louwman (www.louwman.nl) est dans la boîte, vu 2 fois, sans indice
+  technique : à sonder.
 - **BOÎTE À APPRENDRE : ACCÈS ADMIN DANS L'EN-TÊTE (01/10, demande Channing :
   « un accès spécial admin parmi ces options »)**. Icône « chapeau de
   diplômé » entre le Truth Center et la télémétrie, admin seul, avec la

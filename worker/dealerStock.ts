@@ -26,6 +26,7 @@
  * Accès direct (fetch) : ces sites ne bloquent pas ; jamais de Zyte ici.
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
+import { recordLearningCase, resolveLearningCase } from './learningBox';
 
 export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'autodata' | 'listerpage';
 
@@ -493,7 +494,12 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     // c'est une lecture ratée — on n'écrit rien et on ne marque rien disparu.
     // Seul un total 0 annoncé par le site lui-même vaut stock vide.
     if (stock.vehicles.length === 0 && stock.total !== 0) {
-      throw new Error(`relevé vide alors que le site est reconnu (${stock.provider})${stock.warnings.length ? ` — ${stock.warnings.join(' ; ')}` : ''} : rien n'a été écrit ni marqué disparu`);
+      const saved = await recordLearningCase({
+        kind: 'dealer_scan_empty', key: new URL(url).hostname, url, link: '/carte', actor: 'dev', contactId, submittedBy,
+        title: `Relevé vide sur un site reconnu : ${new URL(url).hostname} (${stock.provider})`,
+        detail: { provider: stock.provider, warnings: stock.warnings, pages: stock.pages },
+      });
+      throw new Error(`relevé vide alors que le site est reconnu (${stock.provider})${stock.warnings.length ? ` — ${stock.warnings.join(' ; ')}` : ''} : rien n'a été écrit ni marqué disparu${saved ? ' — cas enregistré dans la boîte à apprendre' : ''}`);
     }
     // Prix précédents : pour compter les changements et garder price_prev.
     // Historique des prix (SQL du 01/10 soir) : lu s'il existe, sinon reconstruit
@@ -566,13 +572,17 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     const goneCount = ((gone ?? []) as unknown[]).length;
     await sb.from('network_stock_runs').update({ status: 'done', provider: stock.provider, total: stock.vehicles.length, new_count: newCount, gone_count: goneCount, price_changes: priceChanges, pages: stock.pages, warnings: stock.warnings, finished_at: new Date().toISOString() }).eq('id', runId);
     await sb.from('network_contacts').update({ stock_total: stock.vehicles.length }).eq('id', contactId);
+    // Un relevé réussi ferme seul les cas « vitrine inconnue » / « relevé vide » de cet hôte.
+    const host = new URL(url).hostname;
+    void resolveLearningCase('dealer_site_unknown', host, `relevé réussi (${stock.provider}, ${stock.vehicles.length} véhicules)`);
+    void resolveLearningCase('dealer_scan_empty', host, `relevé réussi (${stock.provider}, ${stock.vehicles.length} véhicules)`);
     console.warn(`[DEALER_STOCK] ${url} : ${stock.provider}, ${stock.vehicles.length} véhicules (${newCount} nouveaux, ${goneCount} disparus, ${priceChanges} prix changés) — ${submittedBy}`);
     return { provider: stock.provider, total: stock.vehicles.length, newCount, goneCount, priceChanges, pages: stock.pages, warnings: stock.warnings, runId };
   } catch (e) {
     let msg = e instanceof Error ? e.message : String(e);
     if (e instanceof UnknownDealerSiteError) {
       const saved = await recordLearningCase({
-        kind: 'dealer_site_unknown', key: e.site.host, url: e.site.url, contactId, submittedBy,
+        kind: 'dealer_site_unknown', key: e.site.host, url: e.site.url, link: '/carte', actor: 'dev', contactId, submittedBy,
         title: `Vitrine non reconnue : ${e.site.host}`,
         detail: { pageTitle: e.site.title, hints: e.site.hints, providersKnown: ['dvnl', 'dvapi', 'datamotive', 'autodata', 'listerpage'] },
       });
@@ -584,23 +594,3 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
   }
 }
 
-/**
- * BOÎTE À APPRENDRE — écriture (01/10). Un cas = (kind, key) ; revu plusieurs
- * fois → seen_count + 1, jamais de doublon. Fail-open : table absente ou
- * erreur → false, le relevé garde son message d'erreur normal.
- */
-export async function recordLearningCase(c: { kind: string; key: string; url: string | null; contactId?: string | null; submittedBy?: string | null; title: string; detail: Record<string, unknown> }): Promise<boolean> {
-  const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
-  try {
-    const now = new Date().toISOString();
-    const { data: existing, error: selErr } = await sb.from('learning_cases').select('id, seen_count, status').eq('kind', c.kind).eq('key', c.key).maybeSingle();
-    if (selErr) return false;
-    if (existing) {
-      const reopen = existing.status === 'done' ? { status: 'open', resolved_at: null, resolution: null } : {};
-      const { error } = await sb.from('learning_cases').update({ seen_count: (existing.seen_count ?? 1) + 1, last_seen_at: now, url: c.url, contact_id: c.contactId ?? null, detail: c.detail, ...reopen }).eq('id', existing.id);
-      return !error;
-    }
-    const { error } = await sb.from('learning_cases').insert({ kind: c.kind, key: c.key, url: c.url, contact_id: c.contactId ?? null, submitted_by: c.submittedBy ?? null, title: c.title, detail: c.detail, status: 'open', seen_count: 1, last_seen_at: now });
-    return !error;
-  } catch { return false; }
-}

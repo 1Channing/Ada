@@ -56,7 +56,13 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
 
   const load = async () => {
     const [r, v] = await Promise.all([listStockRuns(contactId), listStockVehicles(contactId)]);
-    setRuns(r.runs); setVehicles(v.vehicles); setError(r.error ?? v.error);
+    setRuns(r.runs); setVehicles(v.vehicles);
+    // Ne JAMAIS effacer un message d'échec par un rechargement (constat
+    // Channing 01/10 sur Louwman : « le message s'affiche et disparaît
+    // directement ») : le rechargement n'écrit que ses propres erreurs de
+    // lecture ; l'échec du dernier relevé est affiché à part, tant que la
+    // fenêtre est ouverte (lastFailure ci-dessous).
+    if (r.error ?? v.error) setError(r.error ?? v.error);
     const running = r.runs.find((x) => x.status === 'running' && Date.now() - new Date(x.started_at).getTime() < 20 * 60_000);
     setServerRunning(!!running && !isDealerScanning(contactId));
     setLoading(false);
@@ -84,6 +90,9 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
   }, [serverRunning]);
 
   const lastRun = runs.find((r) => r.status === 'done') ?? null;
+  // Dernier relevé en ÉCHEC, s'il est plus récent que le dernier réussi :
+  // affiché tant que la fenêtre est ouverte, jamais effacé par un rechargement.
+  const lastFailure = runs[0]?.status === 'failed' ? runs[0] : null;
   const inStock = useMemo(() => vehicles.filter((v) => !v.gone_at), [vehicles]);
   const fresh = useMemo(() => (lastRun ? inStock.filter((v) => v.last_run_id === lastRun.id && v.first_seen_at >= lastRun.started_at) : []), [inStock, lastRun]);
   const gone = useMemo(() => vehicles.filter((v) => v.gone_at).sort((a, b) => (b.gone_at ?? '').localeCompare(a.gone_at ?? '')), [vehicles]);
@@ -144,6 +153,11 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrer : modèle, plaque…" className="ml-auto px-3 py-1.5 rounded-lg border border-slate-300 text-sm w-56" />
         </div>
         {(error || notice) && <p className={`mx-5 mt-2 text-xs ${error ? 'text-red-600' : 'text-emerald-700'}`}>{error ?? notice}</p>}
+        {lastFailure && !scanning && lastFailure.error !== error && (
+          <p className="mx-5 mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            Dernier relevé en échec le {new Date(lastFailure.started_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} : {lastFailure.error ?? 'sans détail'}
+          </p>
+        )}
         {scanning && <p className="mx-5 mt-2 text-xs text-brand-ocean flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Relevé en cours sur le serveur : tu peux fermer cette fenêtre ou changer de page, la carte garde l'indicateur et le résultat t'attend ici.</p>}
         <div className="flex-1 overflow-y-auto">
           {loading ? <p className="p-6 text-sm text-slate-500">Chargement…</p> : rows.length === 0 ? (

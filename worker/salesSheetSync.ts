@@ -25,6 +25,7 @@
  */
 import { createSign } from 'node:crypto';
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
+import { recordLearningCase, resolveLearningCase } from './learningBox';
 
 const POLL_MS = 10 * 60 * 1000;
 
@@ -254,6 +255,16 @@ async function syncOnce(creds: string): Promise<void> {
         s.commissionHt != null && `Commission HT (marge) : ${s.commissionHt} €`,
       ].filter(Boolean).join('\n');
       const prev = known.get(s.ref);
+      // Boîte à apprendre (02/10) : client du tableur introuvable dans les
+      // contacts → cas « equipe » (créer le contact ou corriger le nom) ;
+      // retrouvé plus tard → le cas se ferme seul.
+      if (s.client && s.ref) {
+        if (!buyerId && !prev?.buyer_contact_id) {
+          void recordLearningCase({ kind: 'sheet_row_unmatched', key: s.ref, title: `Tableur ${tab} : client « ${s.client} » introuvable dans les contacts (REF ${s.ref})`, actor: 'equipe', link: '/ventes', detail: { tab, client: s.client, vehicule: s.vehicule ?? null, seller: s.seller ?? null } });
+        } else if (buyerId) {
+          void resolveLearningCase('sheet_row_unmatched', s.ref, `client « ${s.client} » rattaché`);
+        }
+      }
       if (prev) {
         // COMPLÉTION sans écrasement : seuls les champs vides du dossier ADA
         // reçoivent la valeur du tableur ; le bloc « [Tableur] » n'est ajouté

@@ -16,6 +16,7 @@
  */
 import { createSign } from 'node:crypto';
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
+import { recordLearningCase } from './learningBox';
 
 const POLL_MS = 20_000;
 const BUCKET = 'admin-documents';
@@ -84,6 +85,9 @@ async function tick(creds: Creds): Promise<void> {
         const msg = e instanceof Error ? e.message : String(e);
         await supabase.from('dossier_emails').update({ status: 'failed', error: msg.slice(0, 1000) } as never).eq('id', m.id);
         console.warn(`[MAIL] échec « ${m.subject} » → ${m.to_email} : ${msg}`);
+        // Boîte à apprendre (02/10) : un e-mail en échec attend une action de
+        // l'équipe (adresse, pièce, droits Gmail) — un cas par e-mail.
+        void recordLearningCase({ kind: 'mail_failed', key: m.id, title: `E-mail en échec : « ${m.subject} » → ${m.to_email}`, actor: 'equipe', link: '/ventes', detail: { error: msg.slice(0, 500), to: m.to_email, from: m.sender_email, transactionId: (m as { transaction_id?: string }).transaction_id ?? null } });
       }
     }
   } finally { running = false; }

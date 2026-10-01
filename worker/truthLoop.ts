@@ -25,6 +25,7 @@ import { missingUrlCriteria, CRITERIA_DETECTORS } from '../src/lib/linkgen/gramm
 import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import { brandKey, refModelKey } from '../src/services/marketData';
 import { capped } from './dashboards';
+import { recordLearningCase, resolveLearningCase } from './learningBox';
 import type { SiteKey, LinkGenParams } from '../src/lib/linkgen/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -316,6 +317,20 @@ export async function runDigest(reason: string): Promise<void> {
   // elle-même chaque matin, et le Truth Center en garde la courbe.
   const bilans = logs.filter((l) => /^\[DAILY\] « .+? » \(\w+→\w+\) : source/.test(l.message));
   const sitesEnEchec = bilans.reduce((n, l) => n + (l.message.match(/\S+ ✗/g)?.length ?? 0), 0);
+  // Boîte à apprendre (02/10) : un site en échec sur ≥ 3 études le même matin
+  // est un cas « dev » (grammaire, blocage, site changé) ; un site sans échec
+  // ferme seul son cas.
+  {
+    const failsBySite: Record<string, number> = {};
+    for (const l of bilans) for (const m of l.message.matchAll(/(\S+) ✗/g)) failsBySite[m[1]] = (failsBySite[m[1]] ?? 0) + 1;
+    const allSites = new Set<string>();
+    for (const l of bilans) for (const m of l.message.matchAll(/(\S+) [✓✗]/g)) allSites.add(m[1]);
+    for (const site of allSites) {
+      const n = failsBySite[site] ?? 0;
+      if (n >= 3) void recordLearningCase({ kind: 'site_failing', key: site, title: `${site} en échec sur ${n} étude(s) ce matin`, actor: 'dev', link: '/verite', detail: { day, failures: n, studies: bilans.length } });
+      else if (n === 0) void resolveLearningCase('site_failing', site, `aucun échec le ${day}`);
+    }
+  }
   const medianesInconnues = bilans.filter((l) => /médiane cible inconnue/.test(l.message)).length;
   const urlIncompletes = await q('truth_dossiers', (b) => b.select('id').eq('signal', 'url_incomplete').is('resolved_at', null).gte('last_seen_at', since));
   const snapsDuJour = await q('market_snapshots', (b) => b.select('site,source_url').gte('scraped_at', since).like('segment_key', 'study:%').limit(3000));

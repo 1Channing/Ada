@@ -1043,7 +1043,7 @@ function buildServer(): McpServer {
       return jsonToolResult({
         count: rows.length, status,
         cases: rows.map((c) => ({
-          id: c.id, kind: c.kind, key: c.key, title: c.title, url: c.url, contactId: c.contact_id, submittedBy: c.submitted_by,
+          id: c.id, kind: c.kind, key: c.key, title: c.title, url: c.url, link: c.link ?? null, actor: c.actor ?? null, contactId: c.contact_id, submittedBy: c.submitted_by,
           detail: c.detail, status: c.status, seenCount: c.seen_count, resolution: c.resolution, createdAt: c.created_at, lastSeenAt: c.last_seen_at, resolvedAt: c.resolved_at,
         })),
       });

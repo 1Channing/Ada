@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, FileSpreadsheet, FileText, Trash2, Loader2, ChevronDown, ChevronRight, ExternalLink, Check, CloudOff, Search, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '../services/auth';
+import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
 import {
   parseSupplierWorkbook, readSupplierGrid, supplierHt, OFFER_FIELD_LABELS,
@@ -46,7 +47,7 @@ const todayFr = () => new Date().toLocaleDateString('fr-FR', { day: 'numeric', m
 const STATUS_LABEL: Record<SupplierOffer['status'], string> = { draft: 'brouillon', sent: 'envoyée', closed: 'clôturée' };
 
 export function Offres() {
-  const { userId } = useAuth();
+  const { userId, displayName, email } = useAuth();
   const [offers, setOffers] = useState<SupplierOffer[]>([]);
   const [listError, setListError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -125,7 +126,22 @@ export function Offres() {
       const d = buildDraftFromGrid(src, f.name, {}, { ...EMPTY });
       setDraft(d);
       await persist(d);
-    } catch (e) { setMsg(`Lecture impossible : ${e instanceof Error ? e.message : String(e)}`); }
+      // Boîte à apprendre (02/10) : un fichier qui ne donne aucun véhicule, ou
+      // sans marque ni modèle reconnus, est un format à enseigner au parseur.
+      const fields = new Set(d.mappings.map((m) => m.field));
+      if (d.vehicles.length === 0 || !(fields.has('brand') || fields.has('model') || fields.has('vin'))) {
+        const saved = await recordLearningCaseFromApp({
+          kind: 'offer_file_unparsed', key: f.name, title: `Fichier fournisseur mal lu : ${f.name} (${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''})`,
+          link: '/offres', actor: 'dev', submittedBy: displayName || email || null,
+          detail: { headers: d.mappings.map((m) => m.header).slice(0, 40), mapped: [...fields], vehicles: d.vehicles.length, layout: d.layout },
+        });
+        setMsg(`Fichier lu mais ${d.vehicles.length === 0 ? 'aucun véhicule reconnu' : 'ni marque, ni modèle, ni VIN reconnus'}${saved ? ' — enregistré dans la boîte à apprendre pour enseigner ce format' : ''}.`);
+      }
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      const saved = await recordLearningCaseFromApp({ kind: 'offer_file_unparsed', key: f.name, title: `Fichier fournisseur illisible : ${f.name}`, link: '/offres', actor: 'dev', submittedBy: displayName || email || null, detail: { error: why.slice(0, 300) } });
+      setMsg(`Lecture impossible : ${why}${saved ? ' — fichier enregistré dans la boîte à apprendre' : ''}`);
+    }
     setBusy(null);
   };
   /** Changement de correspondance : toutes les correspondances actuelles sont rejouées, plus la nouvelle. */

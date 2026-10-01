@@ -24,6 +24,7 @@
  * pattern zéro-dépendance que salesSheetSync).
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
+import { recordLearningCase } from './learningBox';
 
 const POLL_MS = 24 * 3600 * 1000;
 const DEFAULT_MODEL = 'claude-opus-5';
@@ -211,6 +212,8 @@ async function collectOnce(): Promise<void> {
       if (/credit balance|insufficient_quota|billing/i.test(msg)) {
         creditPauseUntil = Date.now() + 24 * 3600 * 1000;
         console.warn(`[LEGAL_WATCH] crédits API épuisés (${profile.country}) — veille en pause 24 h, reprise automatique. Recharger les crédits Anthropic.`);
+        // Boîte à apprendre (01/10) : action équipe = recharger les crédits.
+        void recordLearningCase({ kind: 'service_blocked', key: 'anthropic_credits', title: 'Crédits API Anthropic épuisés : veille juridique en pause', actor: 'equipe', link: '/veille', detail: { country: profile.country } });
         return;
       }
       console.warn(`[LEGAL_WATCH] ${profile.country} en échec:`, msg);
