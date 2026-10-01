@@ -800,6 +800,20 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **NÉGOCIATIONS : PHOTOS DEPUIS UN PDF (01/10, demande Channing avec un
+  dossier d'exemple : Toyota Yaris Cross Trail, 43 pages, une photo
+  1066 × 800 par page)**. « Ajouter des photos » accepte maintenant aussi un
+  PDF : chaque page est rendue dans le navigateur (pdf.js, build legacy
+  avec polyfills — le build moderne exige Safari 17.4+), exportée en JPEG
+  (plus grand côté 1 600 px, jamais sous la taille native, fond blanc) et
+  envoyée comme une photo ajoutée à la main, dans l'ordre du PDF, enregistrée
+  page après page (une coupure ne perd pas ce qui est fait) ; le bouton
+  affiche « page 12/43 » puis « envoi 12/43 ». PDF mixte (texte, scans) :
+  chaque page devient une photo, à retirer si inutile ; masquage et rognage
+  existants pour le bandeau Leboncoin ou le logo vendeur. pdf.js chargé à
+  la demande (module séparé de 514 ko, rien tant qu'on n'ajoute pas de
+  PDF). Vérifié sur le PDF fourni dans Chromium : 43 pages en 4,4 s,
+  1 600 × 1 201 chacune, 11,5 Mo au total, page 1 = la Yaris Cross.
 - **OFFRES : EXCEL MIS EN FORME (30/09, constat Channing sur l'offre Allemagne
   pour un client : « les lignes se chevauchent »)**. L'export SheetJS
   communautaire n'écrit aucun style : textes longs (version, rapport) ni à

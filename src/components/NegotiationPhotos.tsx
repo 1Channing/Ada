@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { signedUrl, signedUrls, useSignedUrls } from '../services/storageAccess';
 import { Negotiation, saveNegotiationPhotos, saveNegotiationPdfTitle } from '../services/workflow';
 import { startNegoExtraction, isExtracting, extractionError, clearExtractionError, subscribeNegoExtractions } from '../services/negoExtraction';
+import { isPdfFile, pdfPagesToJpegs } from '../lib/pdfToImages';
 
 /**
  * Photos d'une négociation → PDF « photos seules » (28/08).
@@ -89,6 +90,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
     setPdfTitleNote(r === 'column_missing' ? 'Nom gardé sur ce navigateur (SQL du 26/09 à coller pour le partager).' : r === 'not_mine' ? 'Négociation d\'un collègue : nom gardé sur ce navigateur.' : r);
   };
   const [busy, setBusy] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [maskIdx, setMaskIdx] = useState<number | null>(null);
   const [cropIdx, setCropIdx] = useState<number | null>(null);
@@ -114,7 +116,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label); setError(null);
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    setBusy(null);
+    setBusy(null); setProgress(null);
   };
 
   // L'extraction vit dans le SERVICE d'arrière-plan (negoExtraction) : fermer
@@ -137,13 +139,33 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
     await startNegoExtraction(nego.id, nego.listing_url);
   });
 
+  // Images ET PDF (01/10, demande Channing : les dossiers photos des vendeurs
+  // arrivent en PDF « une photo par page ») : chaque page devient une photo,
+  // dans l'ordre du PDF, enregistrée au fur et à mesure pour qu'une coupure
+  // en cours de route ne perde pas les pages déjà faites.
   const addFiles = (files: FileList | null) => run('add', async () => {
     if (!files || files.length === 0) return;
-    const added: string[] = [];
+    let current = photos;
+    const add = async (blob: Blob, label: string) => {
+      current = [...current, await uploadPhoto(nego.id, blob, label)];
+      setPhotos(current);
+    };
     for (const f of Array.from(files)) {
-      added.push(await uploadPhoto(nego.id, await toJpeg(f), 'upload'));
+      if (isPdfFile(f)) {
+        setProgress(`${f.name} : lecture…`);
+        const pages = await pdfPagesToJpegs(f, { onProgress: (done, total) => setProgress(`${f.name} : page ${done}/${total}`) });
+        if (pages.length === 0) throw new Error(`${f.name} : aucune page`);
+        for (let i = 0; i < pages.length; i++) {
+          setProgress(`${f.name} : envoi ${i + 1}/${pages.length}`);
+          await add(pages[i], 'pdf');
+        }
+      } else {
+        setProgress(f.name);
+        await add(await toJpeg(f), 'upload');
+      }
     }
-    await persist([...photos, ...added]);
+    setProgress(null);
+    await persist(current);
   });
 
   // Miroir horizontal (demande 29/08 : tous les nez de voitures dans le même
@@ -204,8 +226,8 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
               {extracting ? 'Extraction en cours…' : "Extraire de l'annonce"}
             </ActionBtn>
           )}
-          <ActionBtn onClick={() => fileRef.current?.click()} busy={busy === 'add'} icon={ImagePlus}>Ajouter des photos</ActionBtn>
-          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+          <ActionBtn onClick={() => fileRef.current?.click()} busy={busy === 'add'} icon={ImagePlus}>{busy === 'add' && progress ? progress : 'Ajouter des photos ou un PDF'}</ActionBtn>
+          <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" multiple className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
           <ActionBtn onClick={genPdf} busy={busy === 'pdf'} icon={Download} primary>Générer le PDF</ActionBtn>
         </div>
         {error && <p className="mx-5 mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
@@ -213,7 +235,7 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
         <div className="p-5 overflow-y-auto">
           {photos.length === 0 ? (
             <p className="text-sm text-slate-500 text-center py-10">
-              Aucune photo. « Extraire de l'annonce » va chercher celles de l'annonce ; tu peux aussi en ajouter depuis ton appareil.
+              Aucune photo. « Extraire de l'annonce » va chercher celles de l'annonce ; tu peux aussi ajouter des images ou un PDF de photos (une page = une photo) depuis ton appareil.
             </p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
