@@ -638,7 +638,7 @@ function buildServer(): McpServer {
       // Médiane globale UNIQUEMENT si tous les relevés partagent le même
       // segment : sinon on mélangerait des années et finitions différentes.
       const segKeys = new Set(kept.map(({ criteria }) => JSON.stringify([criteria.yearMin, criteria.yearMax, criteria.mileageMax, (criteria.trim || '').toLowerCase(), (criteria.fuel || '').toLowerCase()])));
-      const medians = kept.map(({ row }) => row.price_median).filter((p): p is number => typeof p === 'number').sort((a, b) => a - b);
+      const medians = kept.map(({ row }) => row.price_median).filter((p): p is number => typeof p === 'number' && p > 0).sort((a, b) => a - b);
       // Critères inconnus (étude supprimée, lecture bloquée) ≠ critères égaux : pas de cote unique.
       const homogeneous = segKeys.size === 1 && kept.every(({ criteria }) => !criteria.scope.includes('inconnus'));
       return jsonToolResult({
@@ -868,7 +868,7 @@ function buildServer(): McpServer {
     async ({ contact, contactId, country, brand, model, view, days, limit }) => {
       const missingNote = { note: 'Tables network_stock_* absentes (SQL du 30/09 non collé).', count: 0, vehicles: [] };
       type Run = { id: string; contact_id: string; url: string; provider: string | null; status: string; total: number | null; new_count: number | null; gone_count: number | null; price_changes: number | null; warnings: string[] | null; error: string | null; started_at: string; finished_at: string | null };
-      type Vehicle = Record<string, unknown> & { contact_id: string; brand: string | null; model: string | null; title: string | null; price: number | null; price_prev: number | null; km: number | null; year: number | null; gone_at: string | null; first_seen_at: string; listed_at: string | null };
+      type Vehicle = Record<string, unknown> & { contact_id: string; brand: string | null; model: string | null; title: string | null; price: number | null; price_prev: number | null; km: number | null; year: number | null; gone_at: string | null; first_seen_at: string; listed_at: string | null; status?: string | null };
       const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
       // Lignes relevées avant le 30/09 soir : le fournisseur autodata ne
       // séparait pas le modèle du titre. Même déduction que le worker
@@ -886,7 +886,9 @@ function buildServer(): McpServer {
       const contactCard = (c: Record<string, unknown>) => ({ id: c.id, name: c.name, kind: c.kind, country: c.country, city: c.city, website: c.website || null, phone: c.phone || null, email: c.email || null, stockTotal: c.stock_total ?? null });
       const runCard = (r: Run) => ({ at: r.started_at, provider: r.provider, status: r.status, total: r.total, newCount: r.new_count, goneCount: r.gone_count, priceChanges: r.price_changes, url: r.url, warnings: r.warnings ?? [], error: r.error });
       const vehicleCard = (v: Vehicle) => ({
-        title: v.title, brand: v.brand, model: modelOf(v), price: v.price, pricePrev: v.price_prev, km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox,
+        title: v.title, brand: v.brand, model: modelOf(v),
+        // Prix absent = null, jamais 0 ; status dit pourquoi (price_on_request / expected / reserved / sold).
+        price: typeof v.price === 'number' && v.price > 0 ? v.price : null, pricePrev: v.price_prev, status: v.status ?? null, km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox,
         plate: v.plate, vin: v.vin, body: v.body, url: v.url, listedAt: v.listed_at, firstSeenAt: v.first_seen_at, lastSeenAt: v.last_seen_at, goneAt: v.gone_at,
         daysListed: Math.floor(((v.gone_at ? new Date(v.gone_at).getTime() : Date.now()) - new Date(String(v.listed_at ?? v.first_seen_at)).getTime()) / 86_400_000),
       });
@@ -946,7 +948,7 @@ function buildServer(): McpServer {
             : 'Vue d\'ensemble. Pour la liste d\'une concession : rappeler avec contact ou contactId.',
           dealers: contacts.map((c) => {
             const list = byContact.get(String(c.id)) ?? [];
-            const prices = list.map((v) => v.price).filter((p): p is number => typeof p === 'number');
+            const prices = list.map((v) => v.price).filter((p): p is number => typeof p === 'number' && p > 0);
             return {
               ...contactCard(c), lastRun: runCard(lastRun.get(String(c.id))!),
               matching: list.length, medianPrice: median(prices),
@@ -970,7 +972,7 @@ function buildServer(): McpServer {
       const groups = new Map<string, Vehicle[]>();
       for (const v of vehicles) { const k = `${(v.brand ?? '?').toString().toUpperCase()} ${modelOf(v) ?? '?'}`; const l = groups.get(k) ?? []; l.push(v); groups.set(k, l); }
       const byModel = [...groups.entries()].map(([key, list]) => {
-        const prices = list.map((v) => v.price).filter((p): p is number => typeof p === 'number');
+        const prices = list.map((v) => v.price).filter((p): p is number => typeof p === 'number' && p > 0);
         const kms = list.map((v) => v.km).filter((k): k is number => typeof k === 'number');
         const years = list.map((v) => v.year).filter((y): y is number => typeof y === 'number');
         return {

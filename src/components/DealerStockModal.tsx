@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink, RefreshCw, X, Loader2 } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listStockRuns, listStockVehicles, scanDealerStock, type StockRun, type StockVehicle } from '../services/dealerStock';
+import { listStockRuns, listStockVehicles, scanDealerStock, STATUS_LABEL, type StockRun, type StockVehicle } from '../services/dealerStock';
+
+/** Prix absent (01/10) : le statut du site plutôt qu'un 0 € ; sans statut (SQL
+ *  du 01/10 pas collé) : « sans prix ». */
+function PriceCell({ v }: { v: StockVehicle }) {
+  if (v.price != null && v.price > 0) return <>{`${Math.round(v.price).toLocaleString('fr-FR')} €`}</>;
+  const s = v.status ? STATUS_LABEL[v.status] : undefined;
+  return <span title={s?.title ?? 'Le site n\'affiche pas de prix pour cette annonce'} className={`inline-block px-1.5 py-0.5 rounded border text-[11px] font-medium ${s?.cls ?? 'bg-amber-50 text-amber-700 border-amber-200'}`}>{s?.label ?? 'sans prix'}</span>;
+}
 
 /**
  * STOCK D'UNE CONCESSION DE LA CARTE (30/09, demande Channing) : la liste de
@@ -10,7 +18,6 @@ import { listStockRuns, listStockVehicles, scanDealerStock, type StockRun, type 
  * prix changés. « Relever maintenant » relance le worker.
  */
 type Tab = 'stock' | 'new' | 'gone' | 'price';
-const fmtEur = (n: number | null) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
 const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
 const days = (a: string | null, b: string | null) => (a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000)) : null);
 
@@ -37,6 +44,7 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
   const fresh = useMemo(() => (lastRun ? inStock.filter((v) => v.last_run_id === lastRun.id && v.first_seen_at >= lastRun.started_at) : []), [inStock, lastRun]);
   const gone = useMemo(() => vehicles.filter((v) => v.gone_at).sort((a, b) => (b.gone_at ?? '').localeCompare(a.gone_at ?? '')), [vehicles]);
   const priced = useMemo(() => (lastRun ? inStock.filter((v) => v.price_prev != null && v.last_run_id === lastRun.id) : []), [inStock, lastRun]);
+  const noPrice = useMemo(() => inStock.filter((v) => v.price == null || v.price <= 0).length, [inStock]);
   // Vélocité : durée médiane en stock des voitures disparues (mise en ligne
   // quand le site la donne, sinon première vue par ADA).
   const velocity = useMemo(() => {
@@ -111,8 +119,9 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
                       {v.url ? <a href={v.url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline inline-flex items-center gap-1">{v.title || v.external_id}<ExternalLink className="w-3 h-3 shrink-0" /></a> : (v.title || v.external_id)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                      {fmtEur(v.price)}
-                      {v.price_prev != null && v.price != null && v.price_prev !== v.price && <span className={`ml-1 text-[11px] ${v.price < v.price_prev ? 'text-emerald-700' : 'text-amber-700'}`}>({v.price < v.price_prev ? '−' : '+'}{Math.abs(Math.round(v.price - v.price_prev)).toLocaleString('fr-FR')})</span>}
+                      <PriceCell v={v} />
+                      {v.price_prev != null && v.price_prev > 0 && v.price != null && v.price > 0 && v.price_prev !== v.price && <span className={`ml-1 text-[11px] ${v.price < v.price_prev ? 'text-emerald-700' : 'text-amber-700'}`}>({v.price < v.price_prev ? '−' : '+'}{Math.abs(Math.round(v.price - v.price_prev)).toLocaleString('fr-FR')})</span>}
+                      {v.status && v.price != null && v.price > 0 && STATUS_LABEL[v.status] && <span title={STATUS_LABEL[v.status].title} className={`ml-1 inline-block px-1 py-0.5 rounded border text-[10px] ${STATUS_LABEL[v.status].cls}`}>{STATUS_LABEL[v.status].label}</span>}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{v.km != null ? v.km.toLocaleString('fr-FR') : '—'}</td>
                     <td className="px-3 py-2">{v.year ?? '—'}</td>
@@ -129,7 +138,10 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
             </table>
           )}
         </div>
-        <p className="px-5 py-2 border-t border-slate-100 text-[11px] text-slate-400">Lecture directe du site vitrine, sans Zyte. « Disparus » = présents au relevé précédent, absents de celui-ci : vendus ou retirés. Les dates marquées * sont la première vue par ADA, pas la mise en ligne.</p>
+        <p className="px-5 py-2 border-t border-slate-100 text-[11px] text-slate-400">
+          Lecture directe du site vitrine, sans Zyte. « Disparus » = présents au relevé précédent, absents de celui-ci : vendus ou retirés. Les dates marquées * sont la première vue par ADA, pas la mise en ligne.
+          {noPrice > 0 && <> · <span className="text-amber-700">{noPrice} annonce{noPrice > 1 ? 's' : ''} sans prix affiché</span> (sur demande, attendue, réservée ou vendue : le site ne donne pas de prix, ADA n'invente pas de 0 €).</>}
+        </p>
       </div>
     </div>
   );

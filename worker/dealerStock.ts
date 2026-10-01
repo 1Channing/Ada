@@ -29,10 +29,38 @@ import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 
 export type DealerProvider = 'dvnl' | 'datamotive' | 'autodata';
 
+/**
+ * STATUT D'UNE ANNONCE (01/10, constat Channing sur Auto Smeeing : « 0 € »
+ * dans le relevé pour des voitures « Op aanvraag » / « Binnenkort verwacht »).
+ * Un prix absent n'est JAMAIS 0 € : price = null et le statut dit pourquoi,
+ * sur TOUS les fournisseurs :
+ *   price_on_request — le site n'affiche pas de prix (« op aanvraag »)
+ *   expected         — annoncée, pas encore livrée (« binnenkort verwacht »)
+ *   reserved         — réservée (« gereserveerd »)
+ *   sold             — vendue mais encore affichée (« verkocht »)
+ * null = en vente, prix affiché.
+ */
+export type DealerVehicleStatus = 'price_on_request' | 'expected' | 'reserved' | 'sold';
+
 export interface DealerVehicle {
   external_id: string; url: string | null; title: string; brand: string | null; model: string | null;
   price: number | null; km: number | null; year: number | null; fuel: string | null; gearbox: string | null;
   plate: string | null; vin: string | null; body: string | null; image: string | null; listed_at: string | null;
+  status: DealerVehicleStatus | null;
+}
+
+/** Prix > 0 sinon null — un 0 € de site est un prix absent, pas un prix. */
+const priceOrNull = (v: unknown): number | null => { const n = num(v); return n != null && n > 0 ? n : null; };
+
+/** Statut depuis un texte libre du site (libellé de sticker, texte de carte). */
+function statusFromText(text: string | null | undefined): DealerVehicleStatus | null {
+  const t = String(text ?? '').toLowerCase();
+  if (!t) return null;
+  if (/verkocht|vendu|sold|venduto|vendido/.test(t)) return 'sold';
+  if (/gereserveerd|réservé|reserve[dr]|riservat|reservad/.test(t)) return 'reserved';
+  if (/verwacht|binnenkort|expected|coming soon|in arrivo|próximamente|bientôt/.test(t)) return 'expected';
+  if (/op aanvraag|on request|sur demande|su richiesta|a consultar|prijs n\.?o\.?t\.?k/.test(t)) return 'price_on_request';
+  return null;
 }
 
 export interface DealerStockResult { provider: DealerProvider; total: number | null; vehicles: DealerVehicle[]; pages: number; warnings: string[] }
@@ -99,6 +127,7 @@ export function detectDealerProvider(html: string): DealerProvider | null {
 interface DvItem {
   id: string; brand?: string; model?: string; type?: string; price?: number; url?: string; createdAt?: string;
   images?: Array<{ path?: string }>; attributes?: Record<string, { value?: unknown }>;
+  enrichedValues?: { reserved?: boolean; sticker?: { name?: string } };
 }
 function parseDv(html: string): { items: DvItem[]; total: number | null; pages: number | null } | null {
   const m = html.match(/<script[^>]*id="vehicle-overview-initial-state"[^>]*>([\s\S]*?)<\/script>/);
@@ -126,13 +155,21 @@ async function scrapeDv(url: string, firstHtml: string): Promise<DealerStockResu
       const id = String(a('voertuignr') ?? it.id ?? '').trim();
       if (!id || seen.has(id)) continue;
       seen.add(id);
+      // Statut : « gereserveerd » (attribut), sticker autre que « Beschikbaar »
+      // (Gereserveerd / Verkocht / Binnenkort verwacht), sinon prix absent =
+      // « op aanvraag » (preuve 01/10 : Audi A1 price 0, page « Op aanvraag »).
+      const price = priceOrNull(it.price);
+      const sticker = it.enrichedValues?.sticker?.name;
+      const status: DealerVehicleStatus | null = a('gereserveerd') === true || it.enrichedValues?.reserved === true ? 'reserved'
+        : (statusFromText(sticker) ?? (price == null ? 'price_on_request' : null));
       out.push({
         external_id: id, url: it.url ? (it.url.startsWith('http') ? it.url : origin + it.url) : null,
         title: [it.brand, it.model, it.type].filter(Boolean).join(' ').trim(), brand: it.brand ?? null, model: it.model ?? null,
-        price: num(it.price), km: num(a('tellerstand')), year: num(a('bouwjaar')), fuel: a('brandstof') ? String(a('brandstof')) : null,
+        price, km: num(a('tellerstand')), year: num(a('bouwjaar')), fuel: a('brandstof') ? String(a('brandstof')) : null,
         gearbox: a('transmissie') ? String(a('transmissie')) : null, plate: a('kenteken') ? String(a('kenteken')) : null,
         vin: a('vin') ? String(a('vin')) : null, body: a('carrosserie') ? String(a('carrosserie')) : null,
         image: it.images?.[0]?.path ?? null, listed_at: it.createdAt ? new Date(it.createdAt).toISOString() : null,
+        status,
       });
     }
     if (total != null && out.length >= total) break;
@@ -176,8 +213,13 @@ async function scrapeDatamotive(url: string, firstHtml: string): Promise<DealerS
       const name = String(item.name ?? '').split('|')[0].trim();
       out.push({
         external_id: id, url: u || null, title: name, brand: brand || splitTitle(name).brand, model: item.model ? String(item.model) : splitTitle(name).model,
-        price: num(offers.price), km: null, year: null, fuel: null, gearbox: null, plate: null, vin: null, body: null,
+        price: priceOrNull(offers.price), km: null, year: null, fuel: null, gearbox: null, plate: null, vin: null, body: null,
         image: Array.isArray(item.image) ? String(item.image[0] ?? '') || null : item.image ? String(item.image) : null, listed_at: null,
+        // schema.org : InStock = en vente ; PreOrder = attendue ; SoldOut /
+        // OutOfStock = vendue ; prix absent = sur demande.
+        status: /preorder/i.test(String(offers.availability ?? '')) ? 'expected'
+          : /soldout|outofstock|discontinued/i.test(String(offers.availability ?? '')) ? 'sold'
+            : priceOrNull(offers.price) == null ? 'price_on_request' : null,
       });
     }
     if (added === 0) break;
@@ -225,7 +267,11 @@ async function scrapeAutodata(url: string, firstHtml: string, firstHeaders: Head
       const year = num(text.match(/km\s*-\s*(\d{4})/)?.[1] ?? text.match(/\b(19|20)\d{2}\b(?!.*\b(19|20)\d{2}\b)/)?.[0]);
       const image = card.match(/(?:data-src|src)="((?:https?:)?\/\/[^"]+\.(?:jpe?g|webp|png)[^"]*)"/i)?.[1] ?? null;
       const { brand, model } = splitTitle(title);
-      out.push({ external_id: id, url: href ? (href.startsWith('http') ? href : origin + href) : null, title, brand, model, price, km, year, fuel: null, gearbox: null, plate: null, vin: null, body: null, image, listed_at: null });
+      // Statut : mots de la carte (« Gereserveerd », « Verkocht », « Verwacht »,
+      // « Op aanvraag »), sinon prix absent = sur demande.
+      const price0 = price != null && price > 0 ? price : null;
+      const status: DealerVehicleStatus | null = statusFromText(text) ?? (price0 == null ? 'price_on_request' : null);
+      out.push({ external_id: id, url: href ? (href.startsWith('http') ? href : origin + href) : null, title, brand, model, price: price0, km, year, fuel: null, gearbox: null, plate: null, vin: null, body: null, image, listed_at: null, status });
     }
     if (added === 0) break;
     if (total != null && out.length >= total) break;
@@ -280,10 +326,20 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
         price: v.price, price_prev: changed ? before : (p?.price_prev ?? null), km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox,
         plate: v.plate, vin: v.vin, body: v.body, image: v.image, listed_at: v.listed_at,
         first_seen_at: p?.first_seen_at ?? startedAt, last_seen_at: startedAt, gone_at: null, last_run_id: runId,
+        status: v.status,
       };
     });
+    // Colonne `status` (SQL du 01/10) : tant qu'elle n'est pas collée, on
+    // écrit sans elle — le relevé passe, le statut attend la migration.
+    let withStatus = true;
     for (let i = 0; i < rows.length; i += 200) {
-      const { error } = await sb.from('network_stock_vehicles').upsert(rows.slice(i, i + 200), { onConflict: 'contact_id,external_id' });
+      const chunk = rows.slice(i, i + 200);
+      let { error } = await sb.from('network_stock_vehicles').upsert(withStatus ? chunk : chunk.map(({ status: _s, ...r }) => r), { onConflict: 'contact_id,external_id' });
+      if (error && withStatus && /status/.test(error.message) && /column|schema cache/i.test(error.message)) {
+        withStatus = false;
+        stock.warnings.push('colonne status absente (SQL du 01/10 à coller) : statuts non enregistrés');
+        ({ error } = await sb.from('network_stock_vehicles').upsert(chunk.map(({ status: _s, ...r }) => r), { onConflict: 'contact_id,external_id' }));
+      }
       if (error) throw new Error(`écriture des véhicules : ${error.message}`);
     }
     // Disparus : vus avant, absents de ce relevé, pas encore marqués.

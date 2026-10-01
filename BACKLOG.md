@@ -800,6 +800,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **STOCK DES CONCESSIONS : PLUS JAMAIS « 0 € » — STATUT D'ANNONCE (01/10,
+  constat Channing sur Auto Smeeing : Audi A1 « Op aanvraag » / « Binnenkort
+  verwacht » à 0 € dans le relevé)**. Classe : un prix absent était écrit 0
+  et affiché 0 €, et il entrait dans les médianes de l'outil MCP. Désormais,
+  sur les TROIS fournisseurs : prix ≤ 0 → null, et une colonne `status`
+  dit pourquoi — price_on_request (« op aanvraag »), expected (« binnenkort
+  verwacht », schema.org PreOrder), reserved (« gereserveerd », attribut ou
+  sticker dvnl), sold (« verkocht », SoldOut) ; null = en vente. dvnl :
+  attribut gereserveerd / enrichedValues.reserved / sticker ≠ Beschikbaar ;
+  datamotive : offers.availability ; autodata : mots de la carte. Fenêtre :
+  pastille « sur demande / attendue / réservée / vendue » à la place du
+  prix, compteur « n annonces sans prix affiché » en pied, écart de prix
+  jamais calculé contre un 0 ; MCP dealer_stock : price null + status,
+  médianes sur prix > 0 seulement. Colonne absente (SQL pas collé) → le
+  relevé écrit sans statut et le dit dans les avertissements. Vérifié en
+  direct sur Auto Smeeing : 907 véhicules, 0 à zéro, les sans-prix sortent
+  en price_on_request. SQL à coller : migration 20261001120000 (ajoute la
+  colonne, passe les 0 € déjà relevés à null + sur demande).
 - **STOCK DES CONCESSIONS : « null value in column first_seen_at » AU RELEVÉ
   (01/10, constat Channing sur Krimpenerwaard)**. Classe : l'upsert groupé
   posait first_seen_at seulement sur les véhicules nouveaux et price_prev

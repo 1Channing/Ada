@@ -10,7 +10,17 @@ export interface StockVehicle {
   price: number | null; price_prev: number | null; km: number | null; year: number | null; fuel: string | null; gearbox: string | null;
   plate: string | null; vin: string | null; body: string | null; image: string | null; listed_at: string | null;
   first_seen_at: string; last_seen_at: string; gone_at: string | null; last_run_id: string | null; gone_run_id: string | null;
+  /** price_on_request · expected · reserved · sold · null = en vente (01/10). Absent tant que le SQL du 01/10 n'est pas collé. */
+  status?: string | null;
 }
+
+/** Libellé court du statut d'une annonce sans prix affiché. */
+export const STATUS_LABEL: Record<string, { label: string; title: string; cls: string }> = {
+  price_on_request: { label: 'sur demande', title: 'Le site n\'affiche pas de prix (« op aanvraag »)', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  expected: { label: 'attendue', title: 'Annoncée, pas encore livrée (« binnenkort verwacht »)', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  reserved: { label: 'réservée', title: 'Réservée par un client (« gereserveerd »)', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+  sold: { label: 'vendue', title: 'Vendue mais encore affichée (« verkocht »)', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
+};
 export interface StockRun {
   id: string; contact_id: string; url: string; provider: string | null; status: string; total: number | null; new_count: number | null;
   gone_count: number | null; price_changes: number | null; pages: number | null; warnings: string[] | null; error: string | null;
