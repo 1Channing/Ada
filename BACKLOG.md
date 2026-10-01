@@ -800,6 +800,25 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **TÂCHES PAR UTILISATEUR (02/10, demande Channing : « une interface dans
+  l'accueil pour chaque utilisateur où je pourrai leur donner des tâches via
+  la boîte admin »)**. Table `user_tasks` (assignee, créateur, clé stable,
+  titre, note, lien, statut, vue le, faite le ; RLS : chacun voit les
+  siennes, l'admin tout ; création et suppression admin ; validation par la
+  personne ou l'admin) — migration 20261002120000, qui insère aussi les 6
+  lacunes réelles de campagne dans la liste de Channing (quoi fournir +
+  lien de la page en échec). Boîte à apprendre : panneau « Confier une
+  tâche » (compte, tâche, note, lien) + liste de toutes les tâches par
+  compte (à faire / faites, « pas encore vue », supprimer) ; bouton
+  « Confier à… » sur chaque cas ouvert, prérempli (ex. client du tableur →
+  « à créer dans les contacts »). Accueil : carte « Mes tâches » en tête
+  (coche = validée, faites visibles 7 jours barrées, lien « Ouvrir »
+  interne ou externe) ; pastille ambre sur « Accueil » dans l'en-tête,
+  relue toutes les 60 s, à chaque navigation et au retour sur l'onglet.
+  Au passage : tableur, un client d'un seul mot (≥ 5 lettres) porté par UN
+  SEUL contact est rattaché (ligne RV464 « LOUWMAN » → LOUWMAN OCCASION
+  CENTER B.V). Vérifié : colonnes actor / link bien en base (SQL du 02/10
+  collé) ; crédits Anthropic laissés tels quels (décision Channing).
 - **BOÎTE À APPRENDRE : PREMIÈRE TOURNÉE DE CORRECTIONS (02/10, demande
   Channing : « que peux-tu régler là ? »)**. Contenu lu en base : 1 vitrine
   inconnue (Louwman), 1 service bloqué (crédits Anthropic), 7 lignes du

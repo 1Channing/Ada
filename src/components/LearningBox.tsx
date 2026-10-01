@@ -3,6 +3,7 @@ import { ExternalLink, Check, EyeOff, RotateCcw, Loader2, GraduationCap, ArrowUp
 import { listLearningCases, setLearningCaseStatus, KIND_LABEL, ACTOR_LABEL, type LearningCase, type LearningActor } from '../services/learningCases';
 import { startCampaign } from '../services/campaignRunner';
 import { useAuth } from '../services/auth';
+import { AssignTask } from './AssignTask';
 
 /**
  * BOÎTE À APPRENDRE (01/10 → 02/10, décision Channing) : tout ce qui attend
@@ -20,6 +21,8 @@ export function LearningBox() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [shot, setShot] = useState<string | null>(null);
+  // « Confier à… » depuis un cas : préremplit le panneau des tâches (02/10).
+  const [prefill, setPrefill] = useState<{ title: string; note?: string; link?: string | null } | null>(null);
 
   const load = async (f = filter) => {
     setLoading(true);
@@ -117,6 +120,7 @@ export function LearningBox() {
                     <div className="flex flex-wrap gap-1.5 shrink-0">
                       {c.screenshot && <button onClick={() => setShot(c.screenshot!)} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><ImageIcon className="w-3.5 h-3.5" /> Capture</button>}
                       {c.link && <button onClick={() => go(c.link!)} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"><ArrowUpRight className="w-3.5 h-3.5" /> Ouvrir</button>}
+                      {c.status === 'open' && <button onClick={() => { setPrefill({ title: c.title, note: (c.detail as { client?: string } | null)?.client ? `Client « ${(c.detail as { client?: string }).client} » à créer dans les contacts (ou corriger le nom dans le tableur).` : '', link: c.url ?? c.link ?? null }); document.getElementById('assign-task-title')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} title="Préremplit « Confier une tâche » en bas de page" className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100">Confier à…</button>}
                       {c.status !== 'done' && <button disabled={busy === c.id} onClick={() => void act(c, 'done')} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"><Check className="w-3.5 h-3.5" /> Fait</button>}
                       {c.status === 'open' && c.source === 'box' && <button disabled={busy === c.id} onClick={() => void act(c, 'ignored')} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><EyeOff className="w-3.5 h-3.5" /> Ignorer</button>}
                       {c.status !== 'open' && c.source !== 'campaign' && <button disabled={busy === c.id} onClick={() => void act(c, 'open')} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><RotateCcw className="w-3.5 h-3.5" /> Rouvrir</button>}
@@ -126,6 +130,10 @@ export function LearningBox() {
               })}
             </ul>
           )}
+      {/* Tâches par compte (02/10) : confier, suivre, supprimer. */}
+      <div className="pt-4 border-t border-slate-200">
+        <AssignTask prefill={prefill} onPrefillUsed={() => setPrefill(null)} />
+      </div>
       {shot && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShot(null)}>
           <img src={shot} alt="capture du signalement" className="max-w-full max-h-full rounded-lg shadow-2xl" />

@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet, GraduationCap } from 'lucide-react';
 import { listLearningCases } from '../services/learningCases';
+import { countMyOpenTasks } from '../services/userTasks';
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
 import { canSeeTab, canSeeWorkflow, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
@@ -49,15 +50,37 @@ function useNewVersionAvailable(): boolean {
   return stale;
 }
 
+/** Nombre de tâches à faire du compte connecté (pastille « Accueil »). */
+function useMyOpenTasks(): number {
+  const { userId } = useAuth();
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!userId) return;
+    let alive = true;
+    const refresh = () => { void countMyOpenTasks().then((c) => { if (alive) setN(c); }).catch(() => undefined); };
+    refresh();
+    const t = setInterval(refresh, 60_000);
+    window.addEventListener('popstate', refresh);
+    window.addEventListener('focus', refresh);
+    return () => { alive = false; clearInterval(t); window.removeEventListener('popstate', refresh); window.removeEventListener('focus', refresh); };
+  }, [userId]);
+  return n;
+}
+
 export function Layout({ children }: LayoutProps) {
   const activeCount = useActiveUsersCount();
   // Nouveautés Open space (21/09) : pastille sur l'entrée Workflow, visible
   // depuis n'importe quelle page — le badge du bouton ne vivait que sur
   // l'onglet Négociations.
   const openSpaceNew = useOpenSpaceUnseen();
-  const navBadge = (it: { workflow?: boolean }) => (it.workflow && openSpaceNew > 0
+  // Tâches confiées par l'admin (02/10) : pastille sur « Accueil », relue
+  // toutes les 60 s et à chaque navigation — la personne la voit où qu'elle soit.
+  const myTasks = useMyOpenTasks();
+  const navBadge = (it: { workflow?: boolean; path?: string }) => (it.workflow && openSpaceNew > 0
     ? <span title={`${openSpaceNew} nouveauté${openSpaceNew > 1 ? 's' : ''} dans l'Open space`} className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold grid place-items-center shadow">{openSpaceNew > 99 ? '99+' : openSpaceNew}</span>
-    : null);
+    : it.path === '/' && myTasks > 0
+      ? <span title={`${myTasks} tâche${myTasks > 1 ? 's' : ''} à faire`} className="min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-slate-900 text-[10px] font-bold grid place-items-center shadow">{myTasks > 99 ? '99+' : myTasks}</span>
+      : null);
   // Menu dépliant MOBILE (demande Channing 07/09 : la barre défilante cachait
   // « Carte » hors écran). Se referme à chaque navigation.
   const [mobileOpen, setMobileOpen] = useState(false);

@@ -8,6 +8,7 @@ import { OpportunityAlerts } from '../components/OpportunityAlerts';
 import { inspectOpportunityInMarket } from '../services/marketData';
 import { DailyHit, DailySearch, listInboxHits, listDailySearches, inboxToProcess } from '../services/workflow';
 import { useAuth } from '../services/auth';
+import { MyTasks } from '../components/MyTasks';
 
 interface DealRow {
   id: string;
@@ -126,6 +127,8 @@ export function Home() {
 
   return (
     <div className="w-full space-y-6">
+      {/* Tâches confiées par l'admin (02/10) — en tête, avant les chiffres. */}
+      <MyTasks />
       {/* Chiffres du jour */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <button onClick={() => navigateTo('/admin')} className="text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-blue-300 transition-colors">

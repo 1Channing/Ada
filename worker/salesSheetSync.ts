@@ -254,7 +254,10 @@ async function syncOnce(creds: string): Promise<void> {
     const exact = contactByKey.get(canonName(client));
     if (exact) return exact;
     const want = tokensOf(client);
-    if (want.size < 2) return null;
+    if (want.size === 0) return null;
+    // Un seul mot (« LOUWMAN », ligne RV464) : accepté s'il fait ≥ 5 lettres
+    // et qu'UN SEUL contact le porte — sinon rien.
+    if (want.size === 1 && [...want][0].length < 5) return null;
     const hits = new Set(contactTokens.filter((c) => [...want].every((t) => c.tokens.has(t))).map((c) => c.id));
     return hits.size === 1 ? [...hits][0] : null;
   };
