@@ -1,7 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink, RefreshCw, X, Loader2 } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listStockRuns, listStockVehicles, scanDealerStock, STATUS_LABEL, type StockRun, type StockVehicle } from '../services/dealerStock';
+import { listStockRuns, listStockVehicles, scanDealerStock, STATUS_LABEL, priceMoves, type StockRun, type StockVehicle } from '../services/dealerStock';
+
+const eur = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} €`;
+const shortDate = (s: string) => new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+
+/** MOUVEMENTS DE PRIX (01/10 soir) : sous le prix courant, le chemin depuis le
+ *  premier prix vu (« 32 900 → 31 500 → 29 900 ») et l'écart total. À la
+ *  disparition, c'est la réponse à « ont-ils dû baisser pour vendre ? ». */
+function PriceMovesLine({ v }: { v: StockVehicle }) {
+  const m = priceMoves(v);
+  if (m.steps.length < 2 || m.delta == null) return null;
+  const down = m.delta < 0;
+  return (
+    <div className="mt-0.5 text-[11px] leading-tight whitespace-nowrap" title={m.steps.map((s) => `${shortDate(s.at)} : ${eur(s.price)}`).join(' · ')}>
+      <span className="text-slate-400">{m.steps.map((s) => Math.round(s.price).toLocaleString('fr-FR')).join(' → ')}</span>
+      <span className={`ml-1 font-medium ${down ? 'text-emerald-700' : 'text-amber-700'}`}>{down ? '−' : '+'}{Math.abs(Math.round(m.delta)).toLocaleString('fr-FR')} € ({m.pct != null ? `${m.pct > 0 ? '+' : ''}${m.pct.toLocaleString('fr-FR')} %` : ''}{m.drops > 0 ? `, ${m.drops} baisse${m.drops > 1 ? 's' : ''}` : ''}{m.raises > 0 ? `, ${m.raises} hausse${m.raises > 1 ? 's' : ''}` : ''})</span>
+    </div>
+  );
+}
 
 /** Prix absent (01/10) : le statut du site plutôt qu'un 0 € ; sans statut (SQL
  *  du 01/10 pas collé) : « sans prix ». */
@@ -43,8 +61,17 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
   const inStock = useMemo(() => vehicles.filter((v) => !v.gone_at), [vehicles]);
   const fresh = useMemo(() => (lastRun ? inStock.filter((v) => v.last_run_id === lastRun.id && v.first_seen_at >= lastRun.started_at) : []), [inStock, lastRun]);
   const gone = useMemo(() => vehicles.filter((v) => v.gone_at).sort((a, b) => (b.gone_at ?? '').localeCompare(a.gone_at ?? '')), [vehicles]);
-  const priced = useMemo(() => (lastRun ? inStock.filter((v) => v.price_prev != null && v.last_run_id === lastRun.id) : []), [inStock, lastRun]);
+  // Prix changés = au moins un mouvement depuis l'arrivée (01/10 soir : plus
+  // seulement le dernier relevé — l'historique porte toute la vie de l'annonce).
+  const priced = useMemo(() => inStock.filter((v) => priceMoves(v).steps.length > 1), [inStock]);
   const noPrice = useMemo(() => inStock.filter((v) => v.price == null || v.price <= 0).length, [inStock]);
+  // Bilan des disparus : combien avaient baissé avant de partir, et de combien.
+  const goneMoves = useMemo(() => {
+    const ms = gone.map(priceMoves).filter((m) => m.first != null && m.last != null);
+    const dropped = ms.filter((m) => m.drops > 0);
+    const pcts = dropped.map((m) => m.pct).filter((p): p is number => p != null).sort((a, b) => a - b);
+    return { total: ms.length, dropped: dropped.length, medianPct: pcts.length ? pcts[Math.floor(pcts.length / 2)] : null };
+  }, [gone]);
   // Vélocité : durée médiane en stock des voitures disparues (mise en ligne
   // quand le site la donne, sinon première vue par ADA).
   const velocity = useMemo(() => {
@@ -79,6 +106,7 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
               <a href={url} target="_blank" rel="noreferrer" className="hover:underline">{url}</a>
               {lastRun && <> · dernier relevé {new Date(lastRun.started_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} ({lastRun.provider}, {lastRun.total} véhicules)</>}
               {velocity != null && <> · <span className="text-emerald-700">vélocité : {velocity} j en stock (médiane des {gone.length} disparus)</span></>}
+              {goneMoves.total > 0 && <> · <span className="text-slate-700" title="Parmi les véhicules disparus (vendus ou retirés), ceux dont le prix avait baissé au moins une fois entre l'arrivée et la disparition">{goneMoves.dropped}/{goneMoves.total} disparus avaient baissé{goneMoves.medianPct != null ? ` (baisse médiane ${goneMoves.medianPct.toLocaleString('fr-FR')} %)` : ''}</span></>}
             </p>
           </div>
           <button onClick={() => void scan()} disabled={scanning} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre disabled:opacity-60 text-white text-sm font-medium">
@@ -90,7 +118,7 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
           {tabBtn('stock', 'En stock', inStock.length)}
           {tabBtn('new', 'Nouveaux depuis le relevé précédent', fresh.length)}
           {tabBtn('gone', 'Disparus (vendus ?)', gone.length)}
-          {tabBtn('price', 'Prix changés', priced.length)}
+          {tabBtn('price', 'Prix bougé depuis l\'arrivée', priced.length)}
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrer : modèle, plaque…" className="ml-auto px-3 py-1.5 rounded-lg border border-slate-300 text-sm w-56" />
         </div>
         {(error || notice) && <p className={`mx-5 mt-2 text-xs ${error ? 'text-red-600' : 'text-emerald-700'}`}>{error ?? notice}</p>}
@@ -120,8 +148,8 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
                       <PriceCell v={v} />
-                      {v.price_prev != null && v.price_prev > 0 && v.price != null && v.price > 0 && v.price_prev !== v.price && <span className={`ml-1 text-[11px] ${v.price < v.price_prev ? 'text-emerald-700' : 'text-amber-700'}`}>({v.price < v.price_prev ? '−' : '+'}{Math.abs(Math.round(v.price - v.price_prev)).toLocaleString('fr-FR')})</span>}
                       {v.status && v.price != null && v.price > 0 && STATUS_LABEL[v.status] && <span title={STATUS_LABEL[v.status].title} className={`ml-1 inline-block px-1 py-0.5 rounded border text-[10px] ${STATUS_LABEL[v.status].cls}`}>{STATUS_LABEL[v.status].label}</span>}
+                      <PriceMovesLine v={v} />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{v.km != null ? v.km.toLocaleString('fr-FR') : '—'}</td>
                     <td className="px-3 py-2">{v.year ?? '—'}</td>

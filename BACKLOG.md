@@ -800,6 +800,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **STOCK DES CONCESSIONS : MOUVEMENTS DE PRIX PAR VÉHICULE (01/10 soir,
+  demande Channing : « enregistrer pour chaque véhicule les baisses, pour
+  voir quand ils vendent s'ils ont dû baisser ou non »)**. Colonnes
+  `price_first` (premier prix vu) et `price_history` (chaque prix daté, du
+  premier au courant) sur network_stock_vehicles ; le worker ajoute une
+  entrée à chaque changement, reconstruit l'historique des lignes d'avant
+  depuis price_prev / price, et écrit sans les colonnes tant que le SQL
+  n'est pas collé (colonne absente lue dans le message PostgREST, retirée,
+  réessai ; avertissement dans le bilan). Fenêtre : sous le prix, le chemin
+  « 32 900 → 31 500 → 29 900  −3 000 € (−9,1 %, 2 baisses) » ; onglet
+  « Prix bougé depuis l'arrivée » (toute la vie de l'annonce, plus
+  seulement le dernier relevé) ; en-tête « n/m disparus avaient baissé
+  (baisse médiane x %) ». MCP dealer_stock : priceFirst, priceHistory,
+  priceDrops, priceRaises, priceDelta(Pct) par véhicule, goneWithPriceDrops
+  par concession. Vérifié : 5 vecteurs (historique, repli price_prev, sans
+  mouvement, hausse puis baisse, sans prix). SQL à coller : migration
+  20261001150000. Décision Channing : Broekhuis reste sur l'occasion (pas
+  de tri du neuf pour l'instant).
 - **STOCK DES CONCESSIONS : 4e FOURNISSEUR « listerpage » — BROEKHUIS GROEP
   (01/10, constat Channing : « site vitrine non reconnu »)**. Preuve : la
   page HTML ne contient aucune annonce ; le stock vient d'un POST JSON sur

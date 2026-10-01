@@ -868,7 +868,21 @@ function buildServer(): McpServer {
     async ({ contact, contactId, country, brand, model, view, days, limit }) => {
       const missingNote = { note: 'Tables network_stock_* absentes (SQL du 30/09 non collé).', count: 0, vehicles: [] };
       type Run = { id: string; contact_id: string; url: string; provider: string | null; status: string; total: number | null; new_count: number | null; gone_count: number | null; price_changes: number | null; warnings: string[] | null; error: string | null; started_at: string; finished_at: string | null };
-      type Vehicle = Record<string, unknown> & { contact_id: string; brand: string | null; model: string | null; title: string | null; price: number | null; price_prev: number | null; km: number | null; year: number | null; gone_at: string | null; first_seen_at: string; listed_at: string | null; status?: string | null };
+      type Vehicle = Record<string, unknown> & { contact_id: string; brand: string | null; model: string | null; title: string | null; price: number | null; price_prev: number | null; km: number | null; year: number | null; gone_at: string | null; first_seen_at: string; last_seen_at?: string; listed_at: string | null; status?: string | null; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
+      const priceMovesOf = (v: Vehicle) => {
+        let steps = Array.isArray(v.price_history) ? v.price_history.filter((s) => s && typeof s.price === 'number' && s.price > 0) : [];
+        if (steps.length === 0) {
+          if (v.price_prev != null && v.price_prev > 0) steps.push({ at: v.first_seen_at, price: v.price_prev });
+          if (v.price != null && v.price > 0) steps.push({ at: v.last_seen_at ?? v.first_seen_at, price: v.price });
+        }
+        steps = [...steps].sort((a, b) => a.at.localeCompare(b.at));
+        let drops = 0, raises = 0;
+        for (let i = 1; i < steps.length; i++) { if (steps[i].price < steps[i - 1].price) drops++; else if (steps[i].price > steps[i - 1].price) raises++; }
+        const first = v.price_first ?? steps[0]?.price ?? null;
+        const last = steps.length ? steps[steps.length - 1].price : null;
+        const delta = first != null && last != null ? last - first : null;
+        return { priceFirst: first, priceHistory: steps, priceDrops: drops, priceRaises: raises, priceDelta: delta, priceDeltaPct: delta != null && first ? Math.round((delta / first) * 1000) / 10 : null };
+      };
       const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
       // Lignes relevées avant le 30/09 soir : le fournisseur autodata ne
       // séparait pas le modèle du titre. Même déduction que le worker
@@ -889,6 +903,8 @@ function buildServer(): McpServer {
         title: v.title, brand: v.brand, model: modelOf(v),
         // Prix absent = null, jamais 0 ; status dit pourquoi (price_on_request / expected / reserved / sold).
         price: typeof v.price === 'number' && v.price > 0 ? v.price : null, pricePrev: v.price_prev, status: v.status ?? null, km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox,
+        // Mouvements de prix (01/10 soir) : premier prix, chaque prix daté, baisses comptées — « ont-ils dû baisser pour vendre ? »
+        ...priceMovesOf(v),
         plate: v.plate, vin: v.vin, body: v.body, url: v.url, listedAt: v.listed_at, firstSeenAt: v.first_seen_at, lastSeenAt: v.last_seen_at, goneAt: v.gone_at,
         daysListed: Math.floor(((v.gone_at ? new Date(v.gone_at).getTime() : Date.now()) - new Date(String(v.listed_at ?? v.first_seen_at)).getTime()) / 86_400_000),
       });
@@ -990,6 +1006,12 @@ function buildServer(): McpServer {
         runs: runs.map(runCard),
         count: vehicles.length, returned: Math.min(vehicles.length, limit),
         velocityDaysMedian: stayDays.length >= 3 ? median(stayDays) : null,
+        // « Ont-ils dû baisser pour vendre ? » : parmi les disparus, part avec ≥ 1 baisse et baisse médiane en %.
+        goneWithPriceDrops: (() => {
+          const ms = gone.map(priceMovesOf).filter((m) => m.priceFirst != null);
+          const dropped = ms.filter((m) => m.priceDrops > 0);
+          return { gone: ms.length, dropped: dropped.length, medianDropPct: median(dropped.map((m) => m.priceDeltaPct).filter((p): p is number => p != null)) };
+        })(),
         note: `Prix affichés en euros TTC sur le site de la concession (pays ${c.country}). Pour comparer au Market Intelligence : market_prices(brand, model, country="${c.country}"). Les dates listedAt viennent du site quand il les donne, sinon firstSeenAt = première vue par ADA.`,
         byModel,
         vehicles: vehicles.slice(0, limit).map(vehicleCard),

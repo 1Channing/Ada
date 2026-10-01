@@ -12,6 +12,30 @@ export interface StockVehicle {
   first_seen_at: string; last_seen_at: string; gone_at: string | null; last_run_id: string | null; gone_run_id: string | null;
   /** price_on_request · expected · reserved · sold · null = en vente (01/10). Absent tant que le SQL du 01/10 n'est pas collé. */
   status?: string | null;
+  /** Premier prix vu et chaque prix daté (01/10 soir). Absents tant que le SQL n'est pas collé. */
+  price_first?: number | null;
+  price_history?: Array<{ at: string; price: number }> | null;
+}
+
+/**
+ * MOUVEMENTS DE PRIX d'un véhicule : premier prix, prix courant (ou dernier
+ * avant disparition), baisses et hausses comptées, écart total. Repli sur
+ * price_prev quand l'historique n'est pas encore en base.
+ */
+export interface PriceMoves { first: number | null; last: number | null; steps: Array<{ at: string; price: number }>; drops: number; raises: number; delta: number | null; pct: number | null }
+export function priceMoves(v: StockVehicle): PriceMoves {
+  let steps = Array.isArray(v.price_history) ? v.price_history.filter((s) => s && typeof s.price === 'number' && s.price > 0) : [];
+  if (steps.length === 0) {
+    if (v.price_prev != null && v.price_prev > 0) steps.push({ at: v.first_seen_at, price: v.price_prev });
+    if (v.price != null && v.price > 0) steps.push({ at: v.last_seen_at, price: v.price });
+  }
+  steps = steps.sort((a, b) => a.at.localeCompare(b.at));
+  let drops = 0, raises = 0;
+  for (let i = 1; i < steps.length; i++) { if (steps[i].price < steps[i - 1].price) drops++; else if (steps[i].price > steps[i - 1].price) raises++; }
+  const first = v.price_first ?? steps[0]?.price ?? null;
+  const last = steps.length ? steps[steps.length - 1].price : (v.price ?? null);
+  const delta = first != null && last != null ? last - first : null;
+  return { first, last, steps, drops, raises, delta, pct: delta != null && first ? Math.round((delta / first) * 1000) / 10 : null };
 }
 
 /** Libellé court du statut d'une annonce sans prix affiché. */

@@ -408,8 +408,17 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
   try {
     const stock = await fetchDealerStock(url);
     // Prix précédents : pour compter les changements et garder price_prev.
-    const { data: prevRows } = await sb.from('network_stock_vehicles').select('external_id, price, price_prev, first_seen_at').eq('contact_id', contactId);
-    type Prev = { external_id: string; price: number | null; price_prev: number | null; first_seen_at: string };
+    // Historique des prix (SQL du 01/10 soir) : lu s'il existe, sinon reconstruit
+    // depuis price_prev / price — la lecture ne doit jamais bloquer le relevé.
+    type Prev = { external_id: string; price: number | null; price_prev: number | null; first_seen_at: string; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
+    let prevRows: Prev[] | null = null;
+    {
+      const full = await sb.from('network_stock_vehicles').select('external_id, price, price_prev, first_seen_at, price_first, price_history').eq('contact_id', contactId);
+      if (full.error) {
+        const lite = await sb.from('network_stock_vehicles').select('external_id, price, price_prev, first_seen_at').eq('contact_id', contactId);
+        prevRows = (lite.data ?? null) as Prev[] | null;
+      } else prevRows = (full.data ?? null) as Prev[] | null;
+    }
     const prev = new Map<string, Prev>(((prevRows ?? []) as Prev[]).map((r) => [r.external_id, r]));
     let newCount = 0, priceChanges = 0;
     // MÊMES CLÉS SUR TOUTES LES LIGNES (constat Channing 01/10 : « null value
@@ -424,24 +433,42 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       const before = p?.price ?? null;
       const changed = !!p && before != null && v.price != null && before !== v.price;
       if (changed) priceChanges++;
+      // MOUVEMENTS DE PRIX (01/10, demande Channing : « enregistrer pour
+      // chaque véhicule les baisses, pour voir à la vente s'ils ont dû
+      // baisser »). price_first = premier prix vu ; price_history = chaque
+      // prix daté, du premier au courant. Ligne sans historique (relevés
+      // d'avant le SQL) : reconstruit depuis price_prev / price.
+      const seeded: Array<{ at: string; price: number }> = p?.price_history?.length ? [...p.price_history]
+        : p ? [
+          ...(p.price_prev != null && p.price_prev > 0 ? [{ at: p.first_seen_at, price: p.price_prev }] : []),
+          ...(p.price != null && p.price > 0 ? [{ at: p.first_seen_at, price: p.price }] : []),
+        ] : [];
+      const history = [...seeded];
+      if (v.price != null && v.price > 0 && (history.length === 0 || history[history.length - 1].price !== v.price)) history.push({ at: startedAt, price: v.price });
+      const priceFirst = p?.price_first ?? history[0]?.price ?? null;
       return {
         contact_id: contactId, external_id: v.external_id, url: v.url, title: v.title, brand: v.brand, model: v.model,
         price: v.price, price_prev: changed ? before : (p?.price_prev ?? null), km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox,
         plate: v.plate, vin: v.vin, body: v.body, image: v.image, listed_at: v.listed_at,
         first_seen_at: p?.first_seen_at ?? startedAt, last_seen_at: startedAt, gone_at: null, last_run_id: runId,
-        status: v.status,
+        status: v.status, price_first: priceFirst, price_history: history,
       };
     });
-    // Colonne `status` (SQL du 01/10) : tant qu'elle n'est pas collée, on
-    // écrit sans elle — le relevé passe, le statut attend la migration.
-    let withStatus = true;
+    // Colonnes récentes (status 01/10, price_first / price_history 01/10 soir) :
+    // tant que leur SQL n'est pas collé, on écrit sans elles — le relevé
+    // passe, la colonne attend la migration. La colonne absente est lue dans
+    // le message PostgREST, retirée de toutes les lignes, et on réessaie.
+    const dropped = new Set<string>();
+    const strip = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([k]) => !dropped.has(k)));
     for (let i = 0; i < rows.length; i += 200) {
-      const chunk = rows.slice(i, i + 200);
-      let { error } = await sb.from('network_stock_vehicles').upsert(withStatus ? chunk : chunk.map(({ status: _s, ...r }) => r), { onConflict: 'contact_id,external_id' });
-      if (error && withStatus && /status/.test(error.message) && /column|schema cache/i.test(error.message)) {
-        withStatus = false;
-        stock.warnings.push('colonne status absente (SQL du 01/10 à coller) : statuts non enregistrés');
-        ({ error } = await sb.from('network_stock_vehicles').upsert(chunk.map(({ status: _s, ...r }) => r), { onConflict: 'contact_id,external_id' }));
+      const chunk = rows.slice(i, i + 200) as Array<Record<string, unknown>>;
+      let error: { message: string } | null = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        ({ error } = await sb.from('network_stock_vehicles').upsert(chunk.map(strip), { onConflict: 'contact_id,external_id' }));
+        const missing = error && /schema cache|does not exist/i.test(error.message) ? error.message.match(/'([a-z_]+)' column/)?.[1] ?? error.message.match(/column "?([a-z_]+)"? /)?.[1] : null;
+        if (!missing || dropped.has(missing)) break;
+        dropped.add(missing);
+        stock.warnings.push(`colonne ${missing} absente (SQL du 01/10 à coller) : non enregistrée`);
       }
       if (error) throw new Error(`écriture des véhicules : ${error.message}`);
     }
