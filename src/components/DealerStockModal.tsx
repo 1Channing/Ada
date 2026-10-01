@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink, RefreshCw, X, Loader2 } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listStockRuns, listStockVehicles, scanDealerStock, STATUS_LABEL, priceMoves, type StockRun, type StockVehicle } from '../services/dealerStock';
+import { listStockRuns, listStockVehicles, STATUS_LABEL, priceMoves, startDealerScan, isDealerScanning, subscribeDealerScans, takeDealerScanOutcome, type StockRun, type StockVehicle } from '../services/dealerStock';
 
 const eur = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} €`;
 const shortDate = (s: string) => new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
@@ -44,18 +44,44 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
   const [vehicles, setVehicles] = useState<StockVehicle[]>([]);
   const [runs, setRuns] = useState<StockRun[]>([]);
   const [loading, setLoading] = useState(true);
-  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('stock');
   const [query, setQuery] = useState('');
+  // Relevé en cours : lancé depuis cette page (service d'arrière-plan) OU
+  // encore « running » côté base (page rechargée pendant le relevé).
+  const [localScan, setLocalScan] = useState(() => isDealerScanning(contactId));
+  const [serverRunning, setServerRunning] = useState(false);
+  const scanning = localScan || serverRunning;
 
   const load = async () => {
     const [r, v] = await Promise.all([listStockRuns(contactId), listStockVehicles(contactId)]);
     setRuns(r.runs); setVehicles(v.vehicles); setError(r.error ?? v.error);
+    const running = r.runs.find((x) => x.status === 'running' && Date.now() - new Date(x.started_at).getTime() < 20 * 60_000);
+    setServerRunning(!!running && !isDealerScanning(contactId));
     setLoading(false);
   };
   useEffect(() => { void load(); }, [contactId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Le suivi vit dans le service : la fenêtre ne fait que refléter son état
+  // et récupérer le bilan quand il arrive (même si elle a été fermée entre-temps).
+  useEffect(() => subscribeDealerScans(() => {
+    const now = isDealerScanning(contactId);
+    setLocalScan(now);
+    if (now) return;
+    const o = takeDealerScanOutcome(contactId);
+    if (o?.error) setError(o.error);
+    if (o?.summary) { const s = o.summary; setNotice(`${s.total} véhicules relevés (${s.provider}) · ${s.newCount} nouveau${s.newCount > 1 ? 'x' : ''} · ${s.goneCount} disparu${s.goneCount > 1 ? 's' : ''} · ${s.priceChanges} prix changé${s.priceChanges > 1 ? 's' : ''}${s.warnings.length ? ` · ${s.warnings.join(' ; ')}` : ''}`); }
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [contactId]);
+  // Relevé « running » en base sans suivi local (page rechargée) : on relit
+  // la table toutes les 5 s jusqu'à sa fin.
+  useEffect(() => {
+    if (!serverRunning) return;
+    const t = setInterval(() => { void load(); }, 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverRunning]);
 
   const lastRun = runs.find((r) => r.status === 'done') ?? null;
   const inStock = useMemo(() => vehicles.filter((v) => !v.gone_at), [vehicles]);
@@ -83,13 +109,9 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
     .filter((v) => !query.trim() || `${v.title ?? ''} ${v.brand ?? ''} ${v.model ?? ''} ${v.plate ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()));
 
   const scan = async () => {
-    setScanning(true); setError(null); setNotice(null);
-    try {
-      const s = await scanDealerStock(contactId, url, displayName || email || 'carte');
-      setNotice(`${s.total} véhicules relevés (${s.provider}) · ${s.newCount} nouveau${s.newCount > 1 ? 'x' : ''} · ${s.goneCount} disparu${s.goneCount > 1 ? 's' : ''} · ${s.priceChanges} prix changé${s.priceChanges > 1 ? 's' : ''}${s.warnings.length ? ` · ${s.warnings.join(' ; ')}` : ''}`);
-      await load();
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    setScanning(false);
+    setError(null); setNotice(null);
+    startDealerScan(contactId, name, url, displayName || email || 'carte');
+    setLocalScan(true);
   };
 
   const tabBtn = (t: Tab, label: string, n: number) => (
@@ -122,6 +144,7 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrer : modèle, plaque…" className="ml-auto px-3 py-1.5 rounded-lg border border-slate-300 text-sm w-56" />
         </div>
         {(error || notice) && <p className={`mx-5 mt-2 text-xs ${error ? 'text-red-600' : 'text-emerald-700'}`}>{error ?? notice}</p>}
+        {scanning && <p className="mx-5 mt-2 text-xs text-brand-ocean flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Relevé en cours sur le serveur : tu peux fermer cette fenêtre ou changer de page, la carte garde l'indicateur et le résultat t'attend ici.</p>}
         <div className="flex-1 overflow-y-auto">
           {loading ? <p className="p-6 text-sm text-slate-500">Chargement…</p> : rows.length === 0 ? (
             <p className="p-6 text-sm text-slate-500">

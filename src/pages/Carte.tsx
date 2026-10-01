@@ -21,7 +21,7 @@ import {
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import { DealerStockModal } from '../components/DealerStockModal';
-import { listLatestStockRuns, type LatestStockRun } from '../services/dealerStock';
+import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDealerScanning, activeDealerScans, type LatestStockRun } from '../services/dealerStock';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
   KIND_LABEL, ROLE_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS,
@@ -94,13 +94,27 @@ export function Carte() {
   // s'affichaient pareil, « en stock », et les chiffres déclarés passaient
   // pour des mesures.
   const [lastRuns, setLastRuns] = useState<Map<string, LatestStockRun>>(new Map());
+  // Relevés en cours : suivis par le service (lancés depuis cette page) ou
+  // encore « running » en base (page rechargée pendant le relevé).
+  const [serverRunning, setServerRunning] = useState<Map<string, { at: string }>>(new Map());
+  const [, scanTick] = useState(0);
   const reload = useCallback(async () => {
-    const [r, runs] = await Promise.all([loadNetwork(), listLatestStockRuns()]);
+    const [r, runs, running] = await Promise.all([loadNetwork(), listLatestStockRuns(), listRunningStockRuns()]);
     setContacts(r.contacts);
     setLastRuns(runs);
+    setServerRunning(running);
     setLoadError(r.error);
     setLoading(false);
   }, []);
+  useEffect(() => subscribeDealerScans(() => { scanTick((n) => n + 1); void reload(); }), [reload]);
+  // Relevé « running » en base sans suivi local : on relit toutes les 10 s jusqu'à sa fin.
+  useEffect(() => {
+    const pending = [...serverRunning.keys()].some((id) => !isDealerScanning(id));
+    if (!pending) return;
+    const t = setInterval(() => { void reload(); }, 10_000);
+    return () => clearInterval(t);
+  }, [serverRunning, reload]);
+  const scanningIds = new Set<string>([...activeDealerScans().map((s) => s.contactId), ...serverRunning.keys()]);
   useEffect(() => {
     void reload();
     const off = subscribeNetwork(() => { void reload(); });
@@ -502,7 +516,7 @@ export function Carte() {
         {editing ? (
           <ContactForm value={editing} models={editModels} onChange={setEditing} onModels={setEditModels} onPlace={() => setPlacing('form')} onCancel={() => { setEditing(null); setPlacing(null); }} onSubmit={submit} busy={busy} />
         ) : selected ? (<>
-          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onStock={() => selected.website && setStockFor({ id: selected.id, name: selected.name, url: selected.website })} run={lastRuns.get(selected.id)} />
+          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onStock={() => selected.website && setStockFor({ id: selected.id, name: selected.name, url: selected.website })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
           {stockFor && <DealerStockModal contactId={stockFor.id} name={stockFor.name} url={stockFor.url} onClose={() => { setStockFor(null); void reload(); }} />}
         </>) : (
           <>
@@ -531,6 +545,11 @@ export function Carte() {
                 <button onClick={startCreate} className="w-full flex items-center justify-center gap-1.5 bg-brand-ocean hover:bg-brand-encre text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors"><Plus className="w-4 h-4" /> Ajouter un contact</button>
               )}
               {loadError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{loadError}</p>}
+              {scanningIds.size > 0 && (
+                <p className="text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 animate-pulse" title="Les relevés tournent sur le serveur : changer de page ou fermer la fenêtre n'interrompt rien">
+                  {scanningIds.size} relevé{scanningIds.size > 1 ? 's' : ''} en cours : {[...scanningIds].map((id) => contacts.find((c) => c.id === id)?.name ?? '…').join(', ')}
+                </p>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
               {filtered.length === 0 && !loading && <p className="text-sm text-slate-400 text-center py-10">Aucun contact ne correspond.</p>}
@@ -544,7 +563,7 @@ export function Carte() {
                   <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
                     <span>{FLAG[c.country] ?? ''} {c.city ?? <em className="text-amber-600 not-italic">à placer</em>}</span>
                     <span>·</span><span>{KIND_LABEL[c.kind]}</span>
-                    <StockFigure c={c} run={lastRuns.get(c.id)} />
+                    <StockFigure c={c} run={lastRuns.get(c.id)} scanning={scanningIds.has(c.id)} />
                     {/* StockFigure rend « · n relevés le jj/mm » ou « · n déclarés », rien sans donnée. */}
                   </div>
                   {c.models.length > 0 && (
@@ -594,7 +613,16 @@ const LandLayer = memo(function LandLayer({ paths, activeIso, onHover }: {
  * DÉCLARATION (stock_total saisi à la main) — jamais le même mot pour les
  * deux. Rien sans donnée.
  */
-function StockFigure({ c, run, chip }: { c: { stock_total: number | null }; run?: LatestStockRun; chip?: boolean }) {
+function StockFigure({ c, run, chip, scanning }: { c: { stock_total: number | null }; run?: LatestStockRun; chip?: boolean; scanning?: boolean }) {
+  // INDICATEUR DE RELEVÉ ACTIF (01/10) : visible depuis la liste et la fiche,
+  // fenêtre fermée ou page rechargée, tant que le worker n'a pas fini.
+  if (scanning) {
+    const text = 'relevé en cours…';
+    const title = 'ADA lit la vitrine sur le serveur ; le résultat apparaît ici à la fin, même si tu changes de page';
+    return chip
+      ? <span title={title} className="text-[11px] bg-sky-50 text-sky-700 border border-sky-200 rounded-full px-2 py-0.5 animate-pulse">{text}</span>
+      : <><span>·</span><span title={title} className="text-sky-700 animate-pulse">{text}</span></>;
+  }
   if (run && run.total != null) {
     const when = new Date(run.at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
     const text = `${run.total.toLocaleString('fr-FR')} relevés le ${when}`;
@@ -613,8 +641,8 @@ function StockFigure({ c, run, chip }: { c: { stock_total: number | null }; run?
   return null;
 }
 
-function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onStock, run }: {
-  run?: LatestStockRun;
+function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onStock, run, scanning }: {
+  run?: LatestStockRun; scanning?: boolean;
   c: NetworkContact; canEdit: boolean; busy: boolean; onClose: () => void; onEdit: () => void; onMove: () => void; onDelete: () => void; onFilterBrand: (b: string) => void; onStock: () => void;
 }) {
   const rows: Array<[string, string]> = [
@@ -635,7 +663,7 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
         <div className="flex flex-wrap gap-1.5 mt-3">
           {c.relation && <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 text-white" style={{ background: RELATION_COLOR[c.relation] ?? '#64748b' }}>{RELATION_LABEL[c.relation] ?? c.relation}</span>}
           {c.market_share != null && <span className="text-[11px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">{c.market_share.toLocaleString('fr-FR')} % du panel</span>}
-          <StockFigure c={c} run={run} chip />
+          <StockFigure c={c} run={run} chip scanning={scanning} />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-sm">

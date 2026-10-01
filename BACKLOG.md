@@ -800,6 +800,22 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **STOCK DES CONCESSIONS : SUIVI EN ARRIÈRE-PLAN + INDICATEUR (01/10, demande
+  Channing : « si je vais faire autre chose je ne vois plus la recherche se
+  faire ; il faut un indicateur et maintenir le relevé même si on ferme la
+  page »)**. Le relevé tournait déjà sur le worker, mais son SUIVI vivait
+  dans la fenêtre : fermée, plus rien ne l'observait ni n'affichait le
+  résultat. Désormais le suivi vit dans le service (startDealerScan /
+  subscribeDealerScans / takeDealerScanOutcome, même mécanique que
+  l'extraction de photos des négociations) : fermer la fenêtre ou changer
+  de page n'arrête rien ; la carte affiche « relevé en cours… » sur la
+  ligne et la fiche du contact, plus une ligne d'ensemble au-dessus de la
+  liste ; la fenêtre rouverte retrouve l'état, reçoit le bilan et se
+  recharge. Page RECHARGÉE pendant le relevé : la table network_stock_runs
+  (status running, lancé il y a < 20 min) est relue toutes les 10 s par la
+  carte et 5 s par la fenêtre jusqu'à la fin — le relevé lui-même n'a
+  jamais dépendu du navigateur. Message dans la fenêtre : « tu peux fermer
+  cette fenêtre ou changer de page ».
 - **CARTE : « RELEVÉS » ≠ « DÉCLARÉS » (01/10, constat Channing : « les
   stocks affichés ne correspondent pas aux stocks réels »)**. Classe : la
   liste et la fiche affichaient « n en stock » pour deux choses différentes

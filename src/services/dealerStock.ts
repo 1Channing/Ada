@@ -84,6 +84,48 @@ export async function listStockVehicles(contactId: string): Promise<{ vehicles: 
   return { vehicles: (data ?? []) as StockVehicle[], error: null };
 }
 
+/**
+ * SUIVI EN ARRIÈRE-PLAN (01/10, demande Channing : « si je vais faire autre
+ * chose je ne vois plus la recherche se faire ; indicateur + maintenir le
+ * relevé même si on ferme la page »). Le relevé lui-même tourne sur le
+ * worker ; ici on garde son SUIVI hors de la fenêtre : fermer la modale ou
+ * changer de page n'arrête rien, la carte montre « relevé en cours » et la
+ * fenêtre, rouverte, retrouve l'état. Après un rechargement complet du
+ * navigateur, c'est la table network_stock_runs (status running, < 20 min)
+ * qui dit qu'un relevé tourne encore (listLatestStockRuns → running).
+ */
+interface ActiveScan { contactId: string; name: string; startedAt: number }
+const activeScans = new Map<string, ActiveScan>();
+const scanOutcomes = new Map<string, { summary?: StockSummary; error?: string; at: number }>();
+const scanListeners = new Set<() => void>();
+const notifyScans = () => { for (const l of scanListeners) l(); };
+export function subscribeDealerScans(cb: () => void): () => void { scanListeners.add(cb); return () => { scanListeners.delete(cb); }; }
+export function isDealerScanning(contactId: string): boolean { return activeScans.has(contactId); }
+export function activeDealerScans(): ActiveScan[] { return [...activeScans.values()]; }
+/** Dernier bilan (ou erreur) d'un relevé lancé depuis cette page, consommé une fois. */
+export function takeDealerScanOutcome(contactId: string): { summary?: StockSummary; error?: string } | null {
+  const o = scanOutcomes.get(contactId); if (o) scanOutcomes.delete(contactId); return o ?? null;
+}
+export function startDealerScan(contactId: string, name: string, url: string, submittedBy: string): void {
+  if (activeScans.has(contactId)) return;
+  activeScans.set(contactId, { contactId, name, startedAt: Date.now() });
+  notifyScans();
+  void scanDealerStock(contactId, url, submittedBy)
+    .then((summary) => scanOutcomes.set(contactId, { summary, at: Date.now() }))
+    .catch((e) => scanOutcomes.set(contactId, { error: e instanceof Error ? e.message : String(e), at: Date.now() }))
+    .finally(() => { activeScans.delete(contactId); notifyScans(); });
+}
+
+/** Relevés encore en statut running côté base (lancés < 20 min) : visibles même après un rechargement du navigateur. */
+export async function listRunningStockRuns(): Promise<Map<string, { at: string }>> {
+  const map = new Map<string, { at: string }>();
+  const since = new Date(Date.now() - 20 * 60_000).toISOString();
+  const { data, error } = await untyped.from('network_stock_runs').select('contact_id, started_at').eq('status', 'running').gte('started_at', since).order('started_at', { ascending: false }).limit(200);
+  if (error) return map;
+  for (const r of (data ?? []) as Array<{ contact_id: string; started_at: string }>) if (!map.has(r.contact_id)) map.set(r.contact_id, { at: r.started_at });
+  return map;
+}
+
 /** Lance le relevé et attend son bilan (4 s de sondage, 15 min au plus). */
 export async function scanDealerStock(contactId: string, url: string, submittedBy: string): Promise<StockSummary> {
   const start = await supabase.functions.invoke('ingest-url', { body: { mode: 'dealer_stock', url, contactId, submittedBy, async: true } });
