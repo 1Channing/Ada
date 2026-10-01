@@ -800,6 +800,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **BOÎTE À APPRENDRE : PON CENTER ET MENGELERS RECONNUS (02/10, « nouvelles
+  vitrines à corriger dans la boîte »)**. Deux familles de plus, sur preuve :
+  (7) « dmapi » — Pon Center : data-vehicle-overview porte dmUpdateUrl
+  (api.datamotive.nl/…/vehicle-list/3188) et dmFilterSetId ; GET avec
+  filterId, page, pageSize=48 (plafond du service, « Page size mag niet
+  groter zijn dan 48 »), sort, et vehicleState[used]=1 quand la page
+  demande les occasions (format trouvé par sondes : vehicleState[]=used
+  rend 0, vehicleState=used ignore le filtre) ; fiche = /p/<slug> (lu dans
+  le chunk VehicleOverview) ; prix = prices.purchase.value. Ni km, ni
+  année, ni plaque en liste (même limite que Century). Vérifié : 647 / 647
+  occasions (614 neuves exclues), 14 pages en 11 s. (8) « cartelcaw » —
+  Mengelers (client Cartel CAW de uname-it) : pages rendues, cartes
+  productList__item (titre, version, année · km · énergie · boîte, prix
+  « € 25.950,- », lien avec _occasion_ / _demo_ / _nieuw_ et plaque),
+  max=96 et pagina=N (trouvé par sondes : page / offset ignorés), total
+  dans la page. Vérifié : 685 / 685, 9 pages en 11 s, 22 sur demande ;
+  126 sans plaque = les neufs que leur page « occasions » affiche aussi.
+  Classe au passage : num() lisait « 25.950,- » comme NaN (le « ,- »
+  néerlandais) → prix null partout ; corrigé pour tous les fournisseurs.
+  Les deux cas se fermeront seuls au prochain relevé réussi.
 - **TÂCHES PAR UTILISATEUR (02/10, demande Channing : « une interface dans
   l'accueil pour chaque utilisateur où je pourrai leur donner des tâches via
   la boîte admin »)**. Table `user_tasks` (assignee, créateur, clé stable,
