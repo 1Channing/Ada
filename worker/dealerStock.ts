@@ -28,7 +28,7 @@
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { recordLearningCase, resolveLearningCase } from './learningBox';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'autodata' | 'listerpage';
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'autodata' | 'listerpage' | 'cmsms';
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -142,6 +142,7 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
+  if (/id="advancedSearchForm"/.test(html) && /returnid" value="\d+"/.test(html)) return 'cmsms';
   return null;
 }
 
@@ -457,6 +458,73 @@ async function scrapeListerpage(url: string, firstHtml: string): Promise<DealerS
   return { provider: 'listerpage', total: total ?? out.length, vehicles: out, pages: page, warnings };
 }
 
+// ── cmsms (Louwman — CMS Made Simple, module « Occasions », preuve 02/10) ───
+// La page ne porte que le formulaire ; le stock vient d'un POST sur
+// index.php?mact=Occasions,cntnt01,ajaxDoAdvancedSearch,0&cntnt01returnid=N
+// &pagina=P avec request=xmlhttp&data=<formulaire sérialisé>&pagina=P →
+// { total, occasions_html }. 24 cartes par page ; chaque carte porte un
+// div.favAuto avec data-id / data-merk / data-model / data-uitvoering /
+// data-prijs / data-kenteken / data-url / data-thumb, et un bloc texte
+// « 2026 · Electra · 852 km ». 3 908 « gebruikt » le 02/10 (3 062 occasions).
+async function scrapeCmsms(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const returnid = firstHtml.match(/returnid" value="(\d+)"/)?.[1];
+  if (!returnid) return { provider: 'cmsms', total: null, vehicles: [], pages: 0, warnings: ['returnid introuvable dans la page'] };
+  // Filtre repris du chemin de l'URL : /aanbod/filters/gebruikt/ → gebruikt ;
+  // /occasion/ → occasion ; sinon tout l'aanbod.
+  const path = new URL(url).pathname.toLowerCase();
+  const cond = /gebruikt/.test(path) ? 'gebruikt' : /occasion/.test(path) ? 'occasion' : /nieuw/.test(path) ? 'nieuw' : '';
+  const data = `${cond ? `new_or_occasion%5B%5D=${cond}&` : ''}orderby=default&sortorder=DESC`;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let total: number | null = null;
+  let page = 1;
+  // 24 cartes par page : 3 908 véhicules = 163 pages, au-delà du plafond
+  // commun (150) — plafond propre à ce fournisseur.
+  const CMSMS_MAX_PAGES = 250;
+  for (; page <= CMSMS_MAX_PAGES; page++) {
+    const body = `request=xmlhttp&data=${encodeURIComponent(data)}&pagina=${page}`;
+    const res = await getText(`${origin}/index.php?mact=Occasions,cntnt01,ajaxDoAdvancedSearch,0&cntnt01returnid=${returnid}&pagina=${page}${page > 1 ? '&type=scroll' : ''}`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-requested-with': 'XMLHttpRequest', referer: url }, body,
+    });
+    if (res.status !== 200) { warnings.push(`page ${page} : HTTP ${res.status}`); break; }
+    let d: { total?: number | string; occasions_html?: string };
+    try { d = JSON.parse(res.text); } catch { warnings.push(`page ${page} : réponse illisible`); break; }
+    total = num(d.total) ?? total;
+    const cards = (d.occasions_html ?? '').split(/(?=<div class="occasion grid")/).filter((c) => c.includes('favAuto'));
+    if (cards.length === 0) break;
+    let added = 0;
+    for (const card of cards) {
+      // Les attributs data-* vivent sur la balise favAuto UNIQUEMENT (le bloc
+      // « labels » porte aussi un data-id : « label_tao » — constat 02/10,
+      // 1 358 relevés au lieu de 3 908 par collision d'identifiants).
+      const fav = card.match(/<div class="favAuto"[^>]*>/)?.[0] ?? '';
+      const attr = (k: string) => decode(fav.match(new RegExp(`data-${k}="([^"]*)"`))?.[1] ?? '').trim();
+      const id = attr('id') || attr('kenteken');
+      if (!id || seen.has(id)) continue;
+      seen.add(id); added++;
+      const text = stripTags(card.match(/<div class="grid-info">([\s\S]*?)<div class="locatie">/)?.[1] ?? '');
+      const year = num(text.match(/\b(19|20)\d{2}\b/)?.[0]);
+      const km = num(text.match(/([\d.]+)\s*km/i)?.[1]);
+      const fuel = text.match(/\b(Benzine|Diesel|Electra|Elektrisch|Hybride|LPG|CNG|Waterstof)\b/i)?.[1] ?? null;
+      const labels = stripTags(card.match(/<div class="labels">([\s\S]*?)<\/div>/)?.[1] ?? '');
+      const price = priceOrNull(attr('prijs'));
+      const status: DealerVehicleStatus | null = statusFromText(labels) ?? (price == null ? 'price_on_request' : null);
+      const brand = attr('merk') || null, model = attr('model') || null;
+      out.push({
+        external_id: id, url: attr('url') || null, title: [brand, model, attr('uitvoering')].filter(Boolean).join(' ').trim(),
+        brand, model, price, km, year, fuel, gearbox: null, plate: attr('kenteken') || null, vin: null, body: null,
+        image: attr('thumb') || null, listed_at: null, status,
+      });
+    }
+    if (added === 0) break;
+    if (total != null && out.length >= total) break;
+    await sleep(PAGE_DELAY_MS);
+  }
+  return { provider: 'cmsms', total: total ?? out.length, vehicles: out, pages: page, warnings };
+}
+
 export async function fetchDealerStock(url: string): Promise<DealerStockResult> {
   const first = await getText(url);
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -465,7 +533,7 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
     const title = first.text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim() ?? null;
     const hints = siteHints(first.text);
     throw new UnknownDealerSiteError(
-      `site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni autodata, ni listerpage)${hints.length ? ` — indices : ${hints.join(', ')}` : ''}`,
+      `site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni autodata, ni listerpage, ni cmsms)${hints.length ? ` — indices : ${hints.join(', ')}` : ''}`,
       { host: new URL(url).hostname, url, title, hints },
     );
   }
@@ -473,6 +541,7 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text);
   if (provider === 'listerpage') return scrapeListerpage(url, first.text);
+  if (provider === 'cmsms') return scrapeCmsms(url, first.text);
   return scrapeAutodata(url, first.text, first.headers);
 }
 

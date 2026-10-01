@@ -280,6 +280,38 @@ export function structuredModelMatches(structured: string | null | undefined, wa
 }
 
 /**
+ * MODÈLE STRUCTURÉ « PLUS PRÉCIS » QUE LE MODÈLE D'ÉTUDE (02/10, boîte à
+ * apprendre : 146 lacunes « 0/35 annonces = CLASSE CLA » sur AutoScout et
+ * Marktplaats). Les sites structurent souvent la VERSION : « CLA 200 » pour
+ * CLA, « E 220 d » pour Classe E, « NX 300h » pour NX, « 745 » pour Série 7,
+ * « EQV 300 » pour EQV. L'égalité de famille jetait tout. Règle : même clé
+ * compacte, ou clé du site = clé d'étude suivie d'un CHIFFRE (CLA200 ⊃ CLA,
+ * jamais EQV ⊃ E), ou série BMW / Mercedes à un chiffre suivie de deux
+ * chiffres (745 ⊃ 7). Famille (« Classe », « -Class », « -Series », « er »)
+ * neutralisée des deux côtés.
+ */
+export function modelPrefixMatches(structured: string | null | undefined, wanted: string): boolean {
+  const key = (s: string | null | undefined) => String(s ?? '')
+    .normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+    .replace(MODEL_FAMILY_WORDS, ' ')
+    .replace(/\b(\d)[- ]?(?:series|serie|reeks|er)\b/g, '$1')
+    .replace(/\b(?:serie|series)\s+(\w{1,3})\b/g, '$1')
+    .replace(/[^a-z0-9]+/g, '');
+  const w = key(wanted), g = key(structured);
+  if (!w || !g) return false;
+  if (g === w) return true;
+  if (g.startsWith(w) && /^\d/.test(g.slice(w.length))) return true;
+  if (/^\d$/.test(w)) {
+    if (new RegExp(`^${w}\\d\\d`).test(g)) return true;
+    // « 2 Serie Gran Coupé » structuré pour une étude « 2-SERIES » : le site
+    // nomme lui-même la série, la carrosserie qui suit ne change pas la famille.
+    const series = String(structured ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().match(/\b(\d)[- ]?(?:series|serie|reeks|er)\b/);
+    if (series && series[1] === w) return true;
+  }
+  return false;
+}
+
+/**
  * Check if listing title matches expected brand and model.
  * Uses token-based matching for flexibility with naming variations.
  *

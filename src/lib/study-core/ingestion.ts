@@ -30,7 +30,7 @@ import type { SearchCriteria, SiteAdapter, CandidateSegment } from './marketplac
 import { normalizeForMatch } from './marketplaces/normalizer';
 import { collectCandidateSegments } from './marketplaces/paramDictionary';
 import { canonicalizeBody } from './bodyTypes';
-import { modelFamilyKey } from './business-logic';
+import { modelFamilyKey, structuredModelMatches, modelPrefixMatches } from './business-logic';
 
 // Minimum priced sample to confirm a mapping. Kept low (3) so RARE vehicles —
 // often where the best arbitrage margins hide — still get captured. The ≥90%
@@ -421,7 +421,12 @@ export function confirmCriteriaAgainstSample(
     if (structuredModelCount >= INGESTION_MIN_SAMPLE) {
       // Clé de FAMILLE : « Mokka-e » structuré confirme une étude « MOKKA »
       // (21/09 : Gaspedaal/AutoScout NL rangent l'électrique à part).
-      out.push({ ...confirmStructuredLabel('model', model, listings, (l) => l.model ?? null, n, modelFamilyKey), declaredValue: model });
+      // Juge par annonce (02/10, 146 lacunes « 0/35 annonces = CLASSE CLA ») :
+      // même famille électrique, OU même règle que les études (famille
+      // « Classe » neutre, forme compacte), OU version plus précise que
+      // l'étude (« CLA 200 » ⊃ CLA, « 745 » ⊃ Série 7, « NX 300h » ⊃ NX).
+      const modelOk = (raw: string) => modelFamilyKey(raw) === modelFamilyKey(model) || structuredModelMatches(raw, model) || modelPrefixMatches(raw, model);
+      out.push({ ...confirmStructuredLabel('model', model, listings, (l) => l.model ?? null, n, modelFamilyKey, modelOk), declaredValue: model });
     } else {
       pushMatch('model', model, (l) => modelMatchesTitle(l.title ?? '', model));
     }
@@ -670,6 +675,8 @@ function confirmStructuredLabel(
   read: (l: ScrapedListing) => string | null,
   _fullSize: number,
   canon?: (s: string) => string,
+  /** Juge PAR ANNONCE (02/10) : prime sur canon / includes quand fourni — le modèle structuré « CLA 200 » confirme « CLASSE CLA ». */
+  matcher?: (raw: string) => boolean,
 ): FieldConfirmation {
   const declaredNorm = normalizeForMatch(declaredLabel);
   // When a canonicaliser is given (e.g. gearbox), compare canonical tokens so
@@ -688,6 +695,7 @@ function confirmStructuredLabel(
   }
   const matchCount = present.filter((l) => {
     const raw = read(l) as string;
+    if (matcher) return matcher(raw);
     if (canon && declaredCanon) {
       const lc = canon(raw);
       return lc !== '' && lc === declaredCanon;

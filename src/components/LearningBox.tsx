@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ExternalLink, Check, EyeOff, RotateCcw, Loader2, GraduationCap, ArrowUpRight, Image as ImageIcon } from 'lucide-react';
 import { listLearningCases, setLearningCaseStatus, KIND_LABEL, ACTOR_LABEL, type LearningCase, type LearningActor } from '../services/learningCases';
+import { startCampaign } from '../services/campaignRunner';
 import { useAuth } from '../services/auth';
 
 /**
@@ -38,6 +39,27 @@ export function LearningBox() {
   };
 
   const go = (link: string) => { window.history.pushState({}, '', link); window.dispatchEvent(new PopStateEvent('popstate')); };
+
+  // RE-TEST DES LACUNES (02/10) : après une correction de classe (ex. le
+  // modèle structuré « CLA 200 » confirme « CLASSE CLA »), toutes les lacunes
+  // ouvertes repartent en campagne, telles quelles (plan explicite, pas de
+  // planificateur) ; celles qui se confirment écrivent la mémoire et
+  // disparaissent d'elles-mêmes de la boîte.
+  const gaps = cases.filter((c) => c.source === 'campaign' && c.status === 'open');
+  const [retesting, setRetesting] = useState(false);
+  const retestGaps = async () => {
+    if (gaps.length === 0) return;
+    if (!window.confirm(`Relancer ${gaps.length} lacune${gaps.length > 1 ? 's' : ''} en campagne ? (~${Math.round(gaps.length * 18 / 60)} min, ${gaps.length} appels Zyte)`)) return;
+    setRetesting(true);
+    const plan = gaps.map((c) => {
+      const d = c.detail as { site: string; brand: string; model: string; fuel: string | null; year: number | null; trim: string | null };
+      return { site: d.site, brand: d.brand, model: d.model, ...(d.fuel ? { fuel: d.fuel } : {}), ...(d.year ? { year: d.year } : {}), ...(d.trim ? { trim: d.trim } : {}), kind: 'exploration' as const, reason: 're-test boîte à apprendre' };
+    });
+    const r = await startCampaign({ sites: [...new Set(plan.map((p) => p.site))], total: plan.length, plan, label: `Re-test boîte à apprendre ${new Date().toISOString().slice(0, 16)}` });
+    setRetesting(false);
+    if (!r.started) setError(r.reason ?? 'Lancement impossible');
+    else go('/link-generator');
+  };
   const fmt = (s: string) => new Date(s).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const shown = cases.filter((c) => actor === 'tous' || c.actor === actor);
   const nEquipe = cases.filter((c) => c.actor === 'equipe').length;
@@ -48,6 +70,12 @@ export function LearningBox() {
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs text-slate-500 flex items-center gap-1.5"><GraduationCap className="w-4 h-4 text-emerald-600" /> Tout ce qui attend une action de correction : cas rencontrés par ADA, signalements de l'équipe, lacunes de campagne.</p>
         <div className="ml-auto flex flex-wrap gap-1">
+          {gaps.length > 0 && filter === 'open' && (
+            <button onClick={() => void retestGaps()} disabled={retesting} title="Relance toutes les lacunes de campagne ouvertes, telles quelles ; celles qui se confirment disparaissent de la boîte" className="px-2.5 py-1 rounded-full text-xs border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 disabled:opacity-60 flex items-center gap-1">
+              {retesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Re-tester les {gaps.length} lacunes en campagne
+            </button>
+          )}
+          <span className="w-px bg-slate-200 mx-1" />
           {(['tous', 'equipe', 'dev'] as const).map((a) => (
             <button key={a} onClick={() => setActor(a)} className={`px-2.5 py-1 rounded-full text-xs border ${actor === a ? 'bg-emerald-700 border-emerald-700 text-white' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
               {a === 'tous' ? 'Tous' : a === 'equipe' ? `Équipe · ${nEquipe}` : `Développement · ${nDev}`}

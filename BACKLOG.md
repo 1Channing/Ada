@@ -800,6 +800,34 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **BOÎTE À APPRENDRE : PREMIÈRE TOURNÉE DE CORRECTIONS (02/10, demande
+  Channing : « que peux-tu régler là ? »)**. Contenu lu en base : 1 vitrine
+  inconnue (Louwman), 1 service bloqué (crédits Anthropic), 7 lignes du
+  tableur non rapprochées, 0 signalement, 241 lacunes de campagne (10
+  dernières campagnes). Réglé par CLASSE : (1) 146 lacunes « 0/35 annonces
+  = CLASSE CLA » — la confirmation du modèle structuré exigeait l'égalité
+  de famille ; les sites structurent la VERSION (« CLA 200 », « E 220 d »,
+  « 745 », « NX 300h », « EQV 300 », « 2 Serie Gran Coupé ») →
+  modelPrefixMatches (même clé, ou clé d'étude suivie d'un chiffre, ou
+  série à un chiffre) + structuredModelMatches des études, passés en juge
+  par annonce à confirmStructuredLabel — 16 vecteurs ; (2) 88 lacunes
+  Mercedes « X-CLASS » : même classe ; (3) 3 lacunes TESLA « MODEL » :
+  modèle générique, masquées (identité v4) ; (4) lacunes déjà comblées en
+  mémoire masquées ; (5) bouton « Re-tester les n lacunes en campagne »
+  (plan explicite, celles qui se confirment écrivent la mémoire et
+  disparaissent) ; (6) tableur : rapprochement TOLÉRANT des clients
+  (formes juridiques retirées, jetons du tableur tous présents dans UN
+  SEUL contact) — règle VAN EKRIS MIJDRECHT, BELLON MOTORSPORT, LOUWMAN
+  OCCASION CENTER (3 des 7), jamais de devinette à deux candidats ;
+  (7) Louwman : 6e fournisseur « cmsms » (CMS Made Simple, module
+  Occasions : POST ajaxDoAdvancedSearch, 24 cartes par page, data-* du
+  favAuto, texte « 2026 · Electra · 852 km », plafond 250 pages) — vérifié
+  en direct : 3 904 / 3 908, 164 pages en 95 s, 99 réservées, 68 attendues,
+  0 manquant. Reste à Channing : recharger les crédits Anthropic ;
+  créer le contact MUSTIÈRE AUTOMOBILES (3 lignes) et « LOUWMAN » seul (1
+  jeton, 2 contacts possibles) ; cliquer « Re-tester » ; relever Louwman
+  (ferme son cas seul). Restent côté dev : BLOCKET X3 carburant illisible,
+  JOFOGAS année non structurée, 3 slugs AutoScout FR, 2 slugs Bilbasen.
 - **BOÎTE À APPRENDRE : TOUT CE QUI ATTEND UNE CORRECTION (02/10, décision
   Channing : « tout ce qui peut nécessiter une action de correction va dans
   la boîte, y compris les signalements »)**. Règle : un cas entre quand ADA

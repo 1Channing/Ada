@@ -231,19 +231,40 @@ async function syncOnce(creds: string): Promise<void> {
   const { data: contactRows } = await supabase.from('contacts')
     .select('id, company_name, first_name, last_name').limit(5000);
   const contactByKey = new Map<string, string>();
+  // RAPPROCHEMENT TOLÉRANT (02/10, boîte à apprendre : « VAN EKRIS MIJDRECHT »
+  // vs « Automobielbedrijf van Ekris Mijdrecht B.V », « BELLON MOTORSPORT »
+  // vs « BELLON MOTORSPORT DI GIACOMO BELLON », « LOUWMAN OCCASION CENTER »
+  // vs « LOUWMAN OCCASION CENTER B.V »). Après l'égalité stricte : les
+  // jetons du tableur (≥ 2, formes juridiques retirées) tous présents dans
+  // UN SEUL contact → rattaché ; deux candidats ou plus → rien (jamais de
+  // devinette sur un acheteur).
+  const LEGAL = new Set(['BV', 'B', 'V', 'NV', 'N', 'GMBH', 'SARL', 'SAS', 'SA', 'SRL', 'LTD', 'LIMITED', 'AG', 'KG', 'CO', 'SPA', 'SL', 'SLU', 'EURL', 'SASU', 'DI', 'DE', 'VAN', 'DER', 'DEN', 'THE', 'AND', 'EN']);
+  const tokensOf = (label: string) => new Set(label.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim().split(/\s+/).filter((t) => t && !LEGAL.has(t)));
+  const contactTokens: Array<{ id: string; tokens: Set<string> }> = [];
   for (const ct of (contactRows ?? []) as Array<{ id: string; company_name: string | null; first_name: string | null; last_name: string | null }>) {
     for (const label of [ct.company_name, `${ct.first_name ?? ''} ${ct.last_name ?? ''}`]) {
       const key = canonName(label ?? '');
       if (key && !contactByKey.has(key)) contactByKey.set(key, ct.id);
+      const toks = tokensOf(label ?? '');
+      if (toks.size > 0) contactTokens.push({ id: ct.id, tokens: toks });
     }
   }
+  const resolveContact = (client: string | null | undefined): string | null => {
+    if (!client) return null;
+    const exact = contactByKey.get(canonName(client));
+    if (exact) return exact;
+    const want = tokensOf(client);
+    if (want.size < 2) return null;
+    const hits = new Set(contactTokens.filter((c) => [...want].every((t) => c.tokens.has(t))).map((c) => c.id));
+    return hits.size === 1 ? [...hits][0] : null;
+  };
 
   let inserted = 0, skipped = 0, matched = 0, completed = 0;
   for (const tab of tabs) {
     const res = (await sheetsGet(token, `${cfg.spreadsheetId}/values/${encodeURIComponent(`'${tab}'!A1:AH1050`)}`)) as { values?: string[][] };
     for (const s of parseTab(res.values ?? [])) {
       const closed = s.paiement && s.livre;
-      const buyerId = contactByKey.get(canonName(s.client)) ?? null;
+      const buyerId = resolveContact(s.client);
       const tableurNotes = [
         `[Tableur ${tab}]`,
         s.vehicule && `Véhicule : ${s.vehicule}`, s.vin && `VIN (fin) : ${s.vin}`,

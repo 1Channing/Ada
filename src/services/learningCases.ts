@@ -16,6 +16,7 @@
 import { supabase } from '../lib/supabase';
 import { setFeedbackStatus } from './feedback';
 import { markItemResolved } from './campaignRunner';
+import { isGenericModelName, brandKey, refModelKey } from './marketData';
 
 export type LearningActor = 'equipe' | 'dev';
 export type LearningSource = 'box' | 'feedback' | 'campaign';
@@ -93,13 +94,24 @@ async function fromCampaigns(status: string): Promise<LearningCase[]> {
   const { data, error } = await q;
   if (error) return [];
   const labelOf = new Map(((camps ?? []) as Array<{ id: string; label: string | null }>).map((c) => [c.id, c.label ?? '']));
-  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
+  const rows = ((data ?? []) as Array<Record<string, unknown>>)
+    // Un modèle générique (« MODEL » né de « tesla model ») n'est pas une lacune : identité v4 l'a retiré.
+    .filter((r) => !isGenericModelName(String(r.brand ?? ''), String(r.model ?? '')));
+  // Lacune déjà comblée : le site × marque × modèle est maintenant VALIDE en
+  // mémoire (ré-ingestion, campagne suivante) → elle ne s'affiche plus.
+  const validated = new Set<string>();
+  if (rows.length > 0) {
+    const brands = [...new Set(rows.map((r) => String(r.brand ?? '').trim().toUpperCase()).filter(Boolean))];
+    const { data: mem } = await untyped.from('linkgen_mapping_memory').select('site, brand, model').eq('validation_status', 'valid').in('brand', brands).limit(5000);
+    for (const m of (mem ?? []) as Array<{ site: string; brand: string | null; model: string | null }>) validated.add(`${m.site}|${brandKey(m.brand ?? '')}|${refModelKey(m.brand ?? '', m.model ?? '')}`);
+  }
+  return rows.filter((r) => !validated.has(`${r.site}|${brandKey(String(r.brand ?? ''))}|${refModelKey(String(r.brand ?? ''), String(r.model ?? ''))}`)).map((r) => {
     const crit = (r.criteria ?? {}) as { fuel?: string | null; year?: number | null; trim?: string | null };
     return {
       id: `cg:${r.campaign_id}:${r.seq}`, source: 'campaign' as const, kind: 'mapping_gap', key: `${r.site}|${r.brand}|${r.model}`,
       title: `${r.site} · ${r.brand} ${r.model || '(page marque)'}${crit.fuel ? ' · ' + crit.fuel : ''}${crit.year ? ' · ' + crit.year : ''} — ${r.outcome === 'taxonomy_gap' ? 'lacune taxonomie' : 'lacune critère'}`,
       url: (r.url as string | null) ?? null, link: '/link-generator', actor: 'dev' as const, contact_id: null, submitted_by: labelOf.get(String(r.campaign_id)) || null,
-      detail: { detail: r.detail ?? null, outcome: r.outcome, campaignId: r.campaign_id, seq: r.seq },
+      detail: { detail: r.detail ?? null, outcome: r.outcome, campaignId: r.campaign_id, seq: r.seq, site: r.site, brand: r.brand, model: r.model, fuel: crit.fuel ?? null, year: crit.year ?? null, trim: crit.trim ?? null },
       status: r.resolved_at ? 'done' as const : 'open' as const, seen_count: 1, resolution: r.resolved_at ? 'résolue' : null,
       created_at: String(r.created_at), last_seen_at: String(r.created_at), resolved_at: (r.resolved_at as string | null) ?? null,
     };
