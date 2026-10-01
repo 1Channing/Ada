@@ -259,20 +259,27 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
   try {
     const stock = await fetchDealerStock(url);
     // Prix précédents : pour compter les changements et garder price_prev.
-    const { data: prevRows } = await sb.from('network_stock_vehicles').select('external_id, price').eq('contact_id', contactId);
-    const prev = new Map<string, number | null>(((prevRows ?? []) as Array<{ external_id: string; price: number | null }>).map((r) => [r.external_id, r.price]));
+    const { data: prevRows } = await sb.from('network_stock_vehicles').select('external_id, price, price_prev, first_seen_at').eq('contact_id', contactId);
+    type Prev = { external_id: string; price: number | null; price_prev: number | null; first_seen_at: string };
+    const prev = new Map<string, Prev>(((prevRows ?? []) as Prev[]).map((r) => [r.external_id, r]));
     let newCount = 0, priceChanges = 0;
+    // MÊMES CLÉS SUR TOUTES LES LIGNES (constat Channing 01/10 : « null value
+    // in column first_seen_at »). Un upsert groupé prend l'union des clés du
+    // lot : une clé absente sur une ligne y vaut null. Hier les lots étaient
+    // homogènes (tout nouveau, puis tout connu) ; au premier lot MIXTE, les
+    // véhicules connus recevaient first_seen_at = null. On pose donc
+    // explicitement first_seen_at (gardée) et price_prev (gardée ou nouvelle).
     const rows = stock.vehicles.map((v) => {
-      const had = prev.has(v.external_id);
-      if (!had) newCount++;
-      const before = prev.get(v.external_id) ?? null;
-      const changed = had && before != null && v.price != null && before !== v.price;
+      const p = prev.get(v.external_id);
+      if (!p) newCount++;
+      const before = p?.price ?? null;
+      const changed = !!p && before != null && v.price != null && before !== v.price;
       if (changed) priceChanges++;
       return {
         contact_id: contactId, external_id: v.external_id, url: v.url, title: v.title, brand: v.brand, model: v.model,
-        price: v.price, ...(changed ? { price_prev: before } : {}), km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox,
+        price: v.price, price_prev: changed ? before : (p?.price_prev ?? null), km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox,
         plate: v.plate, vin: v.vin, body: v.body, image: v.image, listed_at: v.listed_at,
-        last_seen_at: startedAt, gone_at: null, last_run_id: runId, ...(had ? {} : { first_seen_at: startedAt }),
+        first_seen_at: p?.first_seen_at ?? startedAt, last_seen_at: startedAt, gone_at: null, last_run_id: runId,
       };
     });
     for (let i = 0; i < rows.length; i += 200) {

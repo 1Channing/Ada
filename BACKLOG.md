@@ -800,6 +800,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **STOCK DES CONCESSIONS : « null value in column first_seen_at » AU RELEVÉ
+  (01/10, constat Channing sur Krimpenerwaard)**. Classe : l'upsert groupé
+  posait first_seen_at seulement sur les véhicules nouveaux et price_prev
+  seulement sur les prix changés ; PostgREST prend l'UNION des clés du lot,
+  une clé absente sur une ligne y vaut null. Les deux relevés du 30/09
+  passaient parce que leurs lots étaient homogènes (tout nouveau, puis tout
+  connu) ; le premier lot MIXTE (arrivages + stock connu) mettait
+  first_seen_at à null sur les connus. Désormais chaque ligne porte les
+  mêmes clés : first_seen_at gardée (ou posée), price_prev gardée (ou
+  remplacée par le prix d'avant quand il change).
 - **IDENTITÉ MODÈLE v4 : UNE LETTRE SEULE N'EST PAS UNE GÉNÉRATION (01/10,
   constat Channing : campagne « Model x » sur 17 sites → 4 pages marque TESLA
   2026 ; MI sans Model X au menu)**. Classe : la clé d'identité retirait tout
