@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { ShieldCheck, ExternalLink, ChevronDown, ChevronRight, Check, EyeOff, Loader2, RefreshCw, BookOpen, AlertTriangle, Sunrise, Star, Trash2, ClipboardCheck } from 'lucide-react';
 import { loadLatestDigest, loadDigestHistory, loadGolden, deleteGolden, type TruthDigest, type GoldenRow } from '../services/truthLoop';
 import { TruthBenchmark } from '../components/TruthBenchmark';
+import { LearningBox } from '../components/LearningBox';
+import { listLearningCases } from '../services/learningCases';
 import { capped } from '../services/capacity';
 import { SiteLibrary } from '../components/SiteLibrary';
 import { supabase } from '../lib/supabase';
@@ -152,7 +154,10 @@ export function TruthCenter() {
   // et qu'un humain doit confirmer ; « Bibliothèque » (03/09, ex-Lacunes) =
   // le savoir d'un site à plat — registre des critères, marques/modèles vs
   // référentiel, santé — et le geste pour combler à l'endroit du trou.
-  const [tab, setTab] = useState<'doutes' | 'lacunes' | 'dores' | 'etalon'>('doutes');
+  const [tab, setTab] = useState<'doutes' | 'lacunes' | 'dores' | 'etalon' | 'apprendre'>('doutes');
+  // Boîte à apprendre (01/10) : le compte des cas ouverts dans l'onglet.
+  const [toLearn, setToLearn] = useState(0);
+  useEffect(() => { void listLearningCases('open').then((r) => setToLearn(r.cases.length)); }, [tab]);
   // Briques 3b/4 (GO 03/09) : digest du matin + cas dorés — écrits par le
   // worker en fin de vague, lus ici ; null tant que la migration n'est pas collée.
   const [digest, setDigest] = useState<TruthDigest | null>(null);
@@ -332,6 +337,7 @@ export function TruthCenter() {
           ['lacunes', BookOpen, 'Bibliothèque'],
           ['dores', Star, `Cas dorés${golden.length ? ` (${golden.filter((g) => g.last_status === 'fail').length ? `${golden.filter((g) => g.last_status === 'fail').length} en échec` : `${golden.length}`})` : ''}`],
           ['etalon', ClipboardCheck, 'Étalon humain'],
+          ['apprendre', BookOpen, `À apprendre${toLearn ? ` (${toLearn})` : ''}`],
         ] as const).map(([id, Icon, label]) => (
           <button
             key={id}
@@ -347,6 +353,7 @@ export function TruthCenter() {
 
       {tab === 'lacunes' && <SiteLibrary studies={studies} />}
       {tab === 'etalon' && <TruthBenchmark />}
+      {tab === 'apprendre' && <LearningBox />}
 
       {tab === 'dores' && (
         <div className="bg-white border border-slate-200 rounded-xl p-4">

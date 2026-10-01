@@ -1019,6 +1019,37 @@ function buildServer(): McpServer {
     },
   );
 
+  // ── Boîte à apprendre (01/10 : les cas qu'ADA ne sait pas encore traiter) ─
+  server.registerTool(
+    'learning_cases',
+    {
+      title: 'ADA : boîte à apprendre',
+      description: "Les cas rencontrés par ADA sans savoir les traiter, enregistrés par le worker au moment où ils se présentent : d'abord les vitrines de concession non reconnues (hôte, URL, titre de page, indices techniques repérés : wordpress, nextjs, typesense…). Chaque cas est unique (kind + key), compté à chaque rencontre, avec un statut open / done / ignored et la résolution notée. Sert à préparer les adaptateurs à écrire ; aucune écriture possible par cet outil.",
+      inputSchema: z.object({
+        status: z.enum(['open', 'done', 'ignored', 'all']).default('open'),
+        kind: z.string().trim().min(1).optional().describe('dealer_site_unknown…'),
+        limit: z.number().int().min(1).max(500).default(100),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ status, kind, limit }) => {
+      let q = supabase.from('learning_cases').select('*').order('last_seen_at', { ascending: false }).limit(limit);
+      if (status !== 'all') q = q.eq('status', status);
+      if (normalizeText(kind)) q = q.eq('kind', normalizeText(kind));
+      const { data, error } = await q;
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Table learning_cases absente (SQL du 01/10 non collé).', count: 0, cases: [] });
+      assertDb(error, 'Unable to read learning cases');
+      const rows = (data || []) as Array<Record<string, unknown>>;
+      return jsonToolResult({
+        count: rows.length, status,
+        cases: rows.map((c) => ({
+          id: c.id, kind: c.kind, key: c.key, title: c.title, url: c.url, contactId: c.contact_id, submittedBy: c.submitted_by,
+          detail: c.detail, status: c.status, seenCount: c.seen_count, resolution: c.resolution, createdAt: c.created_at, lastSeenAt: c.last_seen_at, resolvedAt: c.resolved_at,
+        })),
+      });
+    },
+  );
+
   return server;
 }
 
@@ -1039,8 +1070,8 @@ const outer = express();
 // ChatGPT ne voyait que 9 outils — impossible de savoir, depuis le
 // navigateur, si le service avait redéployé ou si le connecteur gardait
 // une liste en cache). Aucune donnée, aucun secret.
-const MCP_VERSION = '0.4.0';
-const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts', 'dealer_stock'];
+const MCP_VERSION = '0.5.0';
+const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts', 'dealer_stock', 'learning_cases'];
 outer.get('/health', (_req, res) => {
   res.json({
     status: 'ok',

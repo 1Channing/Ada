@@ -800,6 +800,30 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **BOÎTE À APPRENDRE + 5e FOURNISSEUR « dvapi » (HEDIN) (01/10, demande
+  Channing : « ajoute ce type de vitrine ; et pour toute vitrine inconnue,
+  un endroit où tu les enregistres pour les traiter ensemble »)**. Hedin
+  Automotive : même famille que Auto Smeeing (items dvnl) mais servie par
+  une API JSON `data-update-url="/voorraad-api/vehiclelist/76/vehicles.json"`
+  (limit=100&page=N, pages.total, count) ; mapping dvnl factorisé
+  (dvItemToVehicle) + statuts verkocht / verwacht / gereserveerd en
+  attributs. Vérifié en direct : 4 376 / 4 380, 44 pages en 37 s, 20
+  réservées, 11 attendues, 1 sur demande, 0 avertissement (4 doublons de
+  numéro Hexon, 70 sans plaque). BOÎTE À APPRENDRE : table `learning_cases`
+  (kind + key uniques, seen_count, detail, status open / done / ignored,
+  resolution) ; le worker y enregistre une vitrine non reconnue avec l'hôte,
+  le titre de la page et les indices techniques repérés (wordpress, nextjs,
+  nuxt, drupal, typesense, algolia, hexon, dvnl-media, iframe…), et le
+  message du relevé le dit (« vitrine enregistrée dans la boîte à
+  apprendre ») ; Centre de vérité → onglet « À apprendre » (compte, liste,
+  Fait avec résolution / Ignorer / Rouvrir) ; outil MCP `learning_cases`
+  (0.5.0, 14 outils) pour qu'une session Claude prépare les adaptateurs.
+  Différent de la boîte noire technique (worker_logs). Vérifié :
+  vakgarage.nl → « non reconnu — indices : hexon, dvnl-media, iframe ».
+  Garde-fou au passage (constat Van Mossel : reconnu datamotive, 0
+  véhicule) : un relevé vide sur un site reconnu n'écrit rien et ne marque
+  rien disparu — Van Mossel à revoir (cas pour la boîte). SQL à coller :
+  migration 20261001170000.
 - **STOCK DES CONCESSIONS : SUIVI EN ARRIÈRE-PLAN + INDICATEUR (01/10, demande
   Channing : « si je vais faire autre chose je ne vois plus la recherche se
   faire ; il faut un indicateur et maintenir le relevé même si on ferme la

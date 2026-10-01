@@ -27,7 +27,26 @@
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 
-export type DealerProvider = 'dvnl' | 'datamotive' | 'autodata' | 'listerpage';
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'autodata' | 'listerpage';
+
+/**
+ * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
+ * pas qu'une erreur, c'est un cas à traiter ensemble plus tard. Le relevé
+ * échoue (rien d'inventé) ET le cas est enregistré dans learning_cases avec
+ * l'hôte, le titre de la page et les indices techniques repérés.
+ */
+export class UnknownDealerSiteError extends Error {
+  constructor(message: string, public readonly site: { host: string; url: string; title: string | null; hints: string[] }) { super(message); }
+}
+const SITE_HINTS: Array<[string, RegExp]> = [
+  ['wordpress', /wp-content|wp-json/i], ['hexon', /hexon/i], ['nextjs', /__NEXT_DATA__|_next\/static/i], ['nuxt', /__NUXT__|_nuxt\//i],
+  ['drupal', /drupalSettings|\/sites\/default\/files/i], ['typesense', /typesense/i], ['algolia', /algolia/i], ['elastic', /elasticsearch|appbase/i],
+  ['dvnl-media', /export\.dv\.nl|doorlinkenvoorraad/i], ['autotrack', /autotrack/i], ['shopify', /cdn\.shopify/i], ['wix', /wixstatic|wix\.com/i],
+  ['angular', /ng-version=/i], ['react', /data-reactroot|react-dom/i], ['vue', /data-v-[0-9a-f]{6,}|vue\.runtime/i], ['json-ld', /ld\+json/i], ['iframe', /<iframe[^>]+src="https?:\/\/(?!www\.)[^"]+"/i],
+];
+export function siteHints(html: string): string[] {
+  return SITE_HINTS.filter(([, re]) => re.test(html)).map(([name]) => name);
+}
 
 /**
  * STATUT D'UNE ANNONCE (01/10, constat Channing sur Auto Smeeing : « 0 € »
@@ -121,6 +140,7 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/find-autodata-vehicle-data/.test(html)) return 'autodata';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
+  if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
   return null;
 }
 
@@ -138,6 +158,75 @@ function parseDv(html: string): { items: DvItem[]; total: number | null; pages: 
     return { items: d.items ?? [], total: typeof d.count === 'number' ? d.count : null, pages: d.pages?.total ?? null };
   } catch { return null; }
 }
+/** Un item dvnl (JSON de page ou de l'API /voorraad-api) → véhicule ADA. */
+function dvItemToVehicle(it: DvItem, origin: string): DealerVehicle | null {
+  const a = (k: string) => it.attributes?.[k]?.value;
+  const id = String(a('voertuignr') ?? a('voertuignr_hexon') ?? it.id ?? '').trim();
+  if (!id) return null;
+  const truthy = (v: unknown) => v === true || v === 1 || v === '1' || v === 'Ja';
+  // Statut : « gereserveerd » (attribut), sticker autre que « Beschikbaar »
+  // (Gereserveerd / Verkocht / Binnenkort verwacht), attributs verkocht /
+  // verwacht (API Hedin), sinon prix absent = « op aanvraag » (preuve 01/10 :
+  // Audi A1 price 0, page « Op aanvraag »).
+  const price = priceOrNull(it.price);
+  const sticker = it.enrichedValues?.sticker?.name;
+  const status: DealerVehicleStatus | null = truthy(a('verkocht')) ? 'sold'
+    : truthy(a('gereserveerd')) || it.enrichedValues?.reserved === true || it.enrichedValues?.reserved === 1 ? 'reserved'
+      : truthy(a('verwacht')) ? 'expected'
+        : (statusFromText(sticker) ?? (price == null ? 'price_on_request' : null));
+  return {
+    external_id: id, url: it.url ? (it.url.startsWith('http') ? it.url : origin + it.url) : null,
+    title: [it.brand, it.model, it.type].filter(Boolean).join(' ').trim(), brand: it.brand ?? null, model: it.model ?? null,
+    price, km: num(a('tellerstand')), year: num(a('bouwjaar')), fuel: a('brandstof') ? String(a('brandstof')) : null,
+    gearbox: a('transmissie') ? String(a('transmissie')) : null, plate: a('kenteken') ? String(a('kenteken')) : null,
+    vin: a('vin') ? String(a('vin')) : null, body: a('carrosserie') ? String(a('carrosserie')) : null,
+    image: it.images?.[0]?.path ?? null, listed_at: it.createdAt ? new Date(it.createdAt).toISOString() : null,
+    status,
+  };
+}
+
+// ── dvapi (Hedin Automotive — même famille dvnl, servie par une API JSON,
+//    preuve 01/10) : la page porte data-update-url="/voorraad-api/vehiclelist/
+//    76/vehicles.json?limit=21&sort=…" ; GET avec limit=100&page=N →
+//    { items[], pages:{current,next,total,limit}, count }. Items identiques
+//    au JSON dvnl (brand/model/type/price/url/createdAt/attributes/images),
+//    plus verkocht / verwacht / gereserveerd en attributs. 4 380 occasions en
+//    44 pages le 01/10.
+async function scrapeDvApi(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const raw = firstHtml.match(/data-update-url="([^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json[^"]*)"/)?.[1];
+  if (!raw) return { provider: 'dvapi', total: null, vehicles: [], pages: 0, warnings: ['data-update-url introuvable'] };
+  const api = new URL(raw.replace(/&amp;/g, '&'), origin);
+  api.searchParams.set('limit', '100');
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let total: number | null = null;
+  let page = 1;
+  for (; page <= MAX_PAGES; page++) {
+    api.searchParams.set('page', String(page));
+    const res = await getText(api.toString(), { headers: { accept: 'application/json', referer: url } });
+    if (res.status !== 200) { warnings.push(`page ${page} : HTTP ${res.status}`); break; }
+    let d: { items?: DvItem[]; pages?: { total?: number }; count?: number };
+    try { d = JSON.parse(res.text); } catch { warnings.push(`page ${page} : réponse illisible`); break; }
+    total = num(d.count) ?? total;
+    const items = d.items ?? [];
+    if (items.length === 0) break;
+    let added = 0;
+    for (const it of items) {
+      const v = dvItemToVehicle(it, origin);
+      if (!v || seen.has(v.external_id)) continue;
+      seen.add(v.external_id); added++; out.push(v);
+    }
+    if (added === 0) break;
+    const pagesTotal = num(d.pages?.total);
+    if (pagesTotal != null && page >= pagesTotal) break;
+    if (total != null && out.length >= total) break;
+    await sleep(PAGE_DELAY_MS);
+  }
+  return { provider: 'dvapi', total: total ?? out.length, vehicles: out, pages: page, warnings };
+}
+
 async function scrapeDv(url: string, firstHtml: string): Promise<DealerStockResult> {
   const origin = new URL(url).origin;
   const warnings: string[] = [];
@@ -152,26 +241,10 @@ async function scrapeDv(url: string, firstHtml: string): Promise<DealerStockResu
     if (!parsed) { warnings.push(`page ${page} : JSON absent`); break; }
     if (parsed.items.length === 0) break;
     for (const it of parsed.items) {
-      const a = (k: string) => it.attributes?.[k]?.value;
-      const id = String(a('voertuignr') ?? it.id ?? '').trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      // Statut : « gereserveerd » (attribut), sticker autre que « Beschikbaar »
-      // (Gereserveerd / Verkocht / Binnenkort verwacht), sinon prix absent =
-      // « op aanvraag » (preuve 01/10 : Audi A1 price 0, page « Op aanvraag »).
-      const price = priceOrNull(it.price);
-      const sticker = it.enrichedValues?.sticker?.name;
-      const status: DealerVehicleStatus | null = a('gereserveerd') === true || it.enrichedValues?.reserved === true ? 'reserved'
-        : (statusFromText(sticker) ?? (price == null ? 'price_on_request' : null));
-      out.push({
-        external_id: id, url: it.url ? (it.url.startsWith('http') ? it.url : origin + it.url) : null,
-        title: [it.brand, it.model, it.type].filter(Boolean).join(' ').trim(), brand: it.brand ?? null, model: it.model ?? null,
-        price, km: num(a('tellerstand')), year: num(a('bouwjaar')), fuel: a('brandstof') ? String(a('brandstof')) : null,
-        gearbox: a('transmissie') ? String(a('transmissie')) : null, plate: a('kenteken') ? String(a('kenteken')) : null,
-        vin: a('vin') ? String(a('vin')) : null, body: a('carrosserie') ? String(a('carrosserie')) : null,
-        image: it.images?.[0]?.path ?? null, listed_at: it.createdAt ? new Date(it.createdAt).toISOString() : null,
-        status,
-      });
+      const v = dvItemToVehicle(it, origin);
+      if (!v || seen.has(v.external_id)) continue;
+      seen.add(v.external_id);
+      out.push(v);
     }
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
@@ -387,8 +460,16 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
   const first = await getText(url);
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
   const provider = detectDealerProvider(first.text);
-  if (!provider) throw new Error('site vitrine non reconnu (ni dvnl, ni datamotive, ni autodata, ni listerpage) — à reconnaître avant de l\'ajouter');
+  if (!provider) {
+    const title = first.text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim() ?? null;
+    const hints = siteHints(first.text);
+    throw new UnknownDealerSiteError(
+      `site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni autodata, ni listerpage)${hints.length ? ` — indices : ${hints.join(', ')}` : ''}`,
+      { host: new URL(url).hostname, url, title, hints },
+    );
+  }
   if (provider === 'dvnl') return scrapeDv(url, first.text);
+  if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text);
   if (provider === 'listerpage') return scrapeListerpage(url, first.text);
   return scrapeAutodata(url, first.text, first.headers);
@@ -407,6 +488,13 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
   const runId = (run as { id: string }).id;
   try {
     const stock = await fetchDealerStock(url);
+    // GARDE-FOU (01/10, constat Van Mossel : reconnu « datamotive », 0
+    // véhicule) : un relevé vide sur un site reconnu n'est pas un stock vide,
+    // c'est une lecture ratée — on n'écrit rien et on ne marque rien disparu.
+    // Seul un total 0 annoncé par le site lui-même vaut stock vide.
+    if (stock.vehicles.length === 0 && stock.total !== 0) {
+      throw new Error(`relevé vide alors que le site est reconnu (${stock.provider})${stock.warnings.length ? ` — ${stock.warnings.join(' ; ')}` : ''} : rien n'a été écrit ni marqué disparu`);
+    }
     // Prix précédents : pour compter les changements et garder price_prev.
     // Historique des prix (SQL du 01/10 soir) : lu s'il existe, sinon reconstruit
     // depuis price_prev / price — la lecture ne doit jamais bloquer le relevé.
@@ -481,9 +569,38 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     console.warn(`[DEALER_STOCK] ${url} : ${stock.provider}, ${stock.vehicles.length} véhicules (${newCount} nouveaux, ${goneCount} disparus, ${priceChanges} prix changés) — ${submittedBy}`);
     return { provider: stock.provider, total: stock.vehicles.length, newCount, goneCount, priceChanges, pages: stock.pages, warnings: stock.warnings, runId };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    let msg = e instanceof Error ? e.message : String(e);
+    if (e instanceof UnknownDealerSiteError) {
+      const saved = await recordLearningCase({
+        kind: 'dealer_site_unknown', key: e.site.host, url: e.site.url, contactId, submittedBy,
+        title: `Vitrine non reconnue : ${e.site.host}`,
+        detail: { pageTitle: e.site.title, hints: e.site.hints, providersKnown: ['dvnl', 'dvapi', 'datamotive', 'autodata', 'listerpage'] },
+      });
+      msg += saved ? ' — vitrine enregistrée dans la boîte à apprendre (Centre de vérité → À apprendre) pour la traiter ensemble' : ' — boîte à apprendre indisponible (SQL du 01/10 à coller)';
+    }
     await sb.from('network_stock_runs').update({ status: 'failed', error: msg.slice(0, 500), finished_at: new Date().toISOString() }).eq('id', runId);
     console.warn(`[DEALER_STOCK] ${url} : échec — ${msg}`);
-    throw e;
+    throw new Error(msg);
   }
+}
+
+/**
+ * BOÎTE À APPRENDRE — écriture (01/10). Un cas = (kind, key) ; revu plusieurs
+ * fois → seen_count + 1, jamais de doublon. Fail-open : table absente ou
+ * erreur → false, le relevé garde son message d'erreur normal.
+ */
+export async function recordLearningCase(c: { kind: string; key: string; url: string | null; contactId?: string | null; submittedBy?: string | null; title: string; detail: Record<string, unknown> }): Promise<boolean> {
+  const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  try {
+    const now = new Date().toISOString();
+    const { data: existing, error: selErr } = await sb.from('learning_cases').select('id, seen_count, status').eq('kind', c.kind).eq('key', c.key).maybeSingle();
+    if (selErr) return false;
+    if (existing) {
+      const reopen = existing.status === 'done' ? { status: 'open', resolved_at: null, resolution: null } : {};
+      const { error } = await sb.from('learning_cases').update({ seen_count: (existing.seen_count ?? 1) + 1, last_seen_at: now, url: c.url, contact_id: c.contactId ?? null, detail: c.detail, ...reopen }).eq('id', existing.id);
+      return !error;
+    }
+    const { error } = await sb.from('learning_cases').insert({ kind: c.kind, key: c.key, url: c.url, contact_id: c.contactId ?? null, submitted_by: c.submittedBy ?? null, title: c.title, detail: c.detail, status: 'open', seen_count: 1, last_seen_at: now });
+    return !error;
+  } catch { return false; }
 }
