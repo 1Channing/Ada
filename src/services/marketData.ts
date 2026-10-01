@@ -374,6 +374,22 @@ export function brandKey(v: string): string {
   return BRAND_KEY_ALIASES[k] ?? k;
 }
 
+/** Génération en chiffres romains, II à IX seulement — répliqué à l'identique
+ *  dans ada_model_key (SQL, migration 20261001100000) et les importeurs Python. */
+export const ROMAN_GENERATION_RE = /\s+(?:II|III|IV|VI{1,3}|IX)$/i;
+
+/**
+ * Noms de modèle GÉNÉRIQUES : jamais un modèle. « MODEL » est né d'une
+ * recherche texte libre « tesla model » validée deux fois à la main (29/07,
+ * 30/08) ; « SERIE », « CLASSE » sont des familles, pas des modèles. Refusés
+ * à l'écriture mémoire et au centre de résolution (01/10).
+ */
+const GENERIC_MODEL_NAMES = new Set(['MODEL', 'MODELE', 'MODELO', 'MODELLO', 'SERIE', 'SERIES', 'CLASS', 'CLASSE', 'CLASE', 'KLASSE', 'GAMME', 'RANGE', 'AUTRE', 'OTHER', 'ALL', 'TOUS', 'TOUT']);
+export function isGenericModelName(brand: string, model: string): boolean {
+  const k = canonKey(model);
+  return !k || GENERIC_MODEL_NAMES.has(k) || k === brandKey(brand);
+}
+
 /**
  * Clé d'IDENTITÉ modèle du système (chantier nommage 02/08) : canonKey plus
  * les conventions d'écriture qui polluent l'identité :
@@ -390,7 +406,13 @@ export function brandKey(v: string): string {
 export function refModelKey(brand: string, model: string): string {
   let m = String(model ?? '').trim();
   // Numéral romain de génération en fin de nom (Golf IV, C4 III, Ignis II).
-  m = m.replace(/\s+(?:I{1,3}|IV|V|VI{0,3}|IX|X{1,2})$/i, '');
+  // JAMAIS une lettre seule (constat 01/10) : « X » valait 10 et « Model X »
+  // devenait « Model » (référentiel importé sous ce nom, mapping Marktplaats
+  // « tesla model » né de là, campagne Model X réduite à 4 pages marque, MI
+  // sans Model X au menu) ; « Aygo X » (386 relevés) fondu dans « Aygo »,
+  // « 500 X » dans « 500 ». Une lettre seule est un NOM de modèle avant
+  // d'être une génération : on ne retire que II à IX.
+  m = m.replace(ROMAN_GENERATION_RE, '');
   // Mercedes : X-Class / Classe X / X-Klasse → code nu.
   const bk = brandKey(brand);
   if (bk === 'MERCEDES') {

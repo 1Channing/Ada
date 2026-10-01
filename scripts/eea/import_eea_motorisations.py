@@ -67,7 +67,7 @@ TABLES = {
 }
 
 # ── Clés canoniques : MÊME logique que scripts/teoalida/import_teoalida.py ──
-ROMAN_RE = re.compile(r'\s+(?:I{1,3}|IV|V|VI{0,3}|IX|X{1,2})$', re.I)
+ROMAN_RE = re.compile(r'\s+(?:II|III|IV|VI{1,3}|IX)$', re.I)  # II à IX seulement (01/10, « Model X »)
 PAREN_RE = re.compile(r'\s*\([^)]*\)\s*$')
 MERC_CLASS_RE = [
     re.compile(r'^([A-Z]{1,3})[- ]?(?:CLASS|KLASSE)$', re.I),

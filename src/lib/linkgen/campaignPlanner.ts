@@ -102,6 +102,38 @@ export interface CampaignPlanItem {
   /** Item de campagne DÉCOUVERTE : tri pertinence (jamais prix croissant,
    *  décision Channing 02/08) + hypothèse de slug modèle autorisée. */
   discovery?: boolean;
+  /** HYPOTHÈSE OPÉRATEUR (01/10) : modèle tapé, inconnu de la mémoire et du
+   *  référentiel, planifié tel quel — c'est au site de dire s'il existe. */
+  hypothesis?: boolean;
+}
+
+/** Résumé d'un plan, pour l'aperçu avant lancement (01/10). */
+export interface CampaignPlanSummary {
+  planned: number;
+  exploration: number;
+  reinforcement: number;
+  discovery: number;
+  hypothesis: number;
+  sites: number;
+  /** Modèles tapés par l'opérateur planifiés en hypothèse (inconnus d'ADA). */
+  hypothesisModels: string[];
+  /** Quelques raisons, telles qu'elles apparaîtront dans le fil. */
+  sample: string[];
+}
+
+export function summarizePlan(plan: CampaignPlanItem[]): CampaignPlanSummary {
+  const hyp = new Set<string>();
+  for (const it of plan) if (it.hypothesis) hyp.add(`${it.brand} ${it.model}`);
+  return {
+    planned: plan.length,
+    exploration: plan.filter((it) => it.kind === 'exploration' && it.model && !it.hypothesis).length,
+    reinforcement: plan.filter((it) => it.kind === 'reinforcement').length,
+    discovery: plan.filter((it) => !it.model).length,
+    hypothesis: plan.filter((it) => it.hypothesis).length,
+    sites: new Set(plan.map((it) => it.site)).size,
+    hypothesisModels: [...hyp].sort(),
+    sample: plan.slice(0, 6).map((it) => `${it.site} · ${it.brand} ${it.model || '(page marque)'}${it.fuel ? ' · ' + it.fuel : ''}${it.year ? ' · ' + it.year : ''}`),
+  };
 }
 
 /**
@@ -222,7 +254,7 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
 
   // All known brand|model combos (from any site's validated memory),
   // narrowed by the brand/model targeting when provided.
-  const combos: Array<{ brand: string; model: string; fromRef?: boolean }> = [];
+  const combos: Array<{ brand: string; model: string; fromRef?: boolean; hypothesis?: boolean }> = [];
   for (const brand of k.brands) {
     if (!brandMatches(brand)) continue;
     for (const model of k.modelsByBrand[brand] ?? []) {
@@ -236,6 +268,32 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
     if (!modelMatches(c.brand, c.model)) continue;
     combos.push({ brand: c.brand, model: c.model, fromRef: true });
   }
+  // HYPOTHÈSE OPÉRATEUR (01/10) : un modèle tapé explicitement qui ne matche
+  // ni la mémoire ni le référentiel n'est plus abandonné en silence (campagne
+  // « Model x » du 01/10 : 0 étude précise, 4 pages marque — le modèle
+  // n'existait nulle part sous ce nom). Il est planifié tel quel, en
+  // exploration, sur chaque site demandé : c'est au site de dire s'il existe.
+  // Une marque ciblée est nécessaire — sans elle, impossible de savoir à qui
+  // appartient le modèle : tracé, jamais inventé.
+  const hypothesisModels: string[] = [];
+  for (const requested of f.models ?? []) {
+    const r = requested.trim();
+    if (!r) continue;
+    const known = combos.some((c) => canonKey(c.model) === canonKey(r) || refModelKey(c.brand, c.model) === refModelKey(c.brand, r));
+    if (known) continue;
+    const targetBrands = (f.brands ?? []).map((b) => k.brands.find((kb) => brandKey(kb) === brandKey(b)) ?? U(b)).filter(Boolean);
+    if (targetBrands.length === 0) {
+      console.warn(`[CAMPAIGN_PLAN] modèle « ${r} » inconnu de la mémoire et du référentiel, aucune marque ciblée : non planifié (cocher la marque pour le tester en hypothèse)`);
+      continue;
+    }
+    for (const b of targetBrands) {
+      combos.push({ brand: b, model: U(r), hypothesis: true });
+      hypothesisModels.push(`${b} ${U(r)}`);
+    }
+  }
+  if (hypothesisModels.length > 0) {
+    console.warn(`[CAMPAIGN_PLAN] hypothèse opérateur : ${hypothesisModels.join(' · ')} — inconnu(s) de la mémoire et du référentiel, planifié(s) en exploration sur ${opts.sites.length} site(s)`);
+  }
   if (combos.length === 0 || opts.sites.length === 0) return [];
 
   // The ATOMIC study space is site × combo × YEAR (× forced fuel): the year
@@ -246,7 +304,7 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   for (let y = pinMin; y <= pinMax; y++) years.push(y);
   const fuelChoices: Array<string | null> = forcedFuels.length > 0 ? forcedFuels : [null];
 
-  type Atom = { site: string; brand: string; model: string; year: number; fuel: string | null; fromRef?: boolean; moto?: string; note?: string };
+  type Atom = { site: string; brand: string; model: string; year: number; fuel: string | null; fromRef?: boolean; hypothesis?: boolean; moto?: string; note?: string };
   const exploration: Atom[] = [];
   const explorationRef: Atom[] = [];
   const reinforcement: Atom[] = [];
@@ -393,17 +451,23 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   const DISCOVERY_SHARE = 0.1;
   const discovery: Atom[] = [];
   const brandsInScope = [...new Set(combos.map((c) => c.brand))];
-  const discoveryYear = years.length ? years[years.length - 1] : new Date().getFullYear();
+  // TOUTE la fenêtre d'années (01/10), plus seulement la dernière : une page
+  // marque 2026 n'enseigne que les modèles vendus en 2026 (campagne Model X
+  // du 01/10 : 4 pages marque, toutes 2026). Même logique que le mode
+  // découverte pur ; la part DISCOVERY_SHARE borne le volume.
+  const discoveryYears = years.length ? years : [new Date().getFullYear()];
   for (const site of opts.sites) {
     const covered = k.coveredBySite[site] ?? new Set<string>();
     for (const brand of brandsInScope) {
       const models = k.modelsByBrand[brand] ?? [];
       const coveredCount = models.filter((mo) => covered.has(`${brand}|${mo}`)).length;
       if (models.length === 0 || coveredCount < models.length / 2) {
-        discovery.push({
-          site, brand, model: '', year: discoveryYear, fuel: null,
-          note: `découverte gamme — ${models.length - coveredCount}/${models.length || '?'} modèle(s) non validé(s), la page marque apprend la taxonomie du site`,
-        });
+        for (const y of discoveryYears) {
+          discovery.push({
+            site, brand, model: '', year: y, fuel: null,
+            note: `découverte gamme — ${models.length - coveredCount}/${models.length || '?'} modèle(s) non validé(s), la page marque apprend la taxonomie du site`,
+          });
+        }
       }
     }
   }
@@ -420,11 +484,14 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
     const item: CampaignPlanItem = {
       site: atom.site, brand: atom.brand, model: atom.model,
       kind,
-      reason: atom.fromRef
-        ? `${atom.brand} ${atom.model} — nouveau modèle (référentiel), jamais étudié`
-        : kind === 'exploration'
-          ? `${atom.brand} ${atom.model} jamais validé sur ${atom.site}`
-          : `renforcement ${atom.brand} ${atom.model} sur ${atom.site}`,
+      reason: atom.hypothesis
+        ? `${atom.brand} ${atom.model} — hypothèse opérateur (inconnu de la mémoire et du référentiel), à tester sur ${atom.site}`
+        : atom.fromRef
+          ? `${atom.brand} ${atom.model} — nouveau modèle (référentiel), jamais étudié`
+          : kind === 'exploration'
+            ? `${atom.brand} ${atom.model} jamais validé sur ${atom.site}`
+            : `renforcement ${atom.brand} ${atom.model} sur ${atom.site}`,
+      ...(atom.hypothesis ? { hypothesis: true } : {}),
     };
     if (atom.fuel) {
       // Fuel targeting: EVERY item carries one of the requested fuels — this is

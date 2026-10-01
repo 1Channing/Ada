@@ -15,7 +15,29 @@
 
 import { supabase } from '../lib/supabase';
 import type { CampaignItemResult, CampaignOutcome } from '../lib/linkgen/campaignEngine';
-import type { CampaignFilters, CampaignPlanItem } from '../lib/linkgen/campaignPlanner';
+import type { CampaignFilters, CampaignPlanItem, CampaignPlanSummary } from '../lib/linkgen/campaignPlanner';
+
+/**
+ * APERÇU DU PLAN (01/10) : même configuration, même planificateur côté
+ * worker, mais rien n'est créé ni dépensé — on voit « 4 études » AVANT de
+ * lancer « 1 140 » (campagne Model X du 01/10).
+ */
+export async function previewCampaign(opts: Omit<StartCampaignOptions, 'plan'>): Promise<{ summary: CampaignPlanSummary | null; reason: string | null }> {
+  try {
+    const { data, error } = await supabase.functions.invoke('campaign-start', { body: { ...opts, dryRun: true } });
+    if (error) {
+      let reason = error.message ?? 'aperçu impossible';
+      const ctx = (error as { context?: unknown } | null)?.context;
+      if (ctx instanceof Response) { try { const b = await ctx.clone().json(); reason = b?.reason ?? reason; } catch { /* keep */ } }
+      return { summary: null, reason: String(reason) };
+    }
+    const d = data as { dryRun?: boolean; summary?: CampaignPlanSummary; reason?: string } | null;
+    if (!d?.dryRun) return { summary: null, reason: 'Le worker ne connaît pas encore l\'aperçu (redéploiement en cours) — relance dans deux minutes.' };
+    return { summary: d.summary ?? null, reason: d.reason ?? null };
+  } catch (e) {
+    return { summary: null, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
 import { useCampaignStore, EMPTY_COUNTS } from '../store/campaignStore';
 
 const POLL_MS = 5000;

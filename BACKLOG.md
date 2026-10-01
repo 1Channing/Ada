@@ -800,6 +800,41 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **IDENTITÉ MODÈLE v4 : UNE LETTRE SEULE N'EST PAS UNE GÉNÉRATION (01/10,
+  constat Channing : campagne « Model x » sur 17 sites → 4 pages marque TESLA
+  2026 ; MI sans Model X au menu)**. Classe : la clé d'identité retirait tout
+  numéral romain final (« Golf IV » → « Golf ») ; « X » = 10 donc « Model X »
+  → « Model », dans les TROIS copies de la règle (TS, Python des importeurs,
+  SQL ada_model_key). Dégâts prouvés : référentiel Tesla importé sous
+  « Model » ; mapping Marktplaats TESLA « MODEL » né d'une recherche texte
+  libre « tesla model », validé « humain » 2× avec 2 relevés MI qui mélangent
+  toutes les Tesla ; planificateur : le filtre « Model x » ne trouvait que ce
+  combo, écarté par la preuve de marché → 0 étude précise, 4 pages marque
+  (part découverte, dernière année seule) ; « Aygo X » (386 relevés, modèle
+  distinct depuis 2022) fondu dans « Aygo ». Correctifs, dans l'ordre du
+  plan validé : (1) règle : seuls II à IX sont retirés — ROMAN_GENERATION_RE,
+  importeurs Python, ada_model_key v4 ; colonnes brand_key / model_key de
+  market_listing_observations : générées → ordinaires + trigger (recalcul
+  des seules lignes touchées, pas de réécriture de table) ; (2) données :
+  référentiel « Model » → « Model X », « Aygo » 2022→ → « Aygo X »,
+  motorisations EEA TESLA MODEL → MODELX, fichiers seed patchés ; mapping
+  Marktplaats « MODEL » + 2 relevés + observations supprimés ; (3) planifi-
+  cateur : un modèle tapé inconnu de la mémoire et du référentiel devient
+  une HYPOTHÈSE OPÉRATEUR planifiée telle quelle (site × année × carburant)
+  sur les marques cochées — sans marque cochée : tracé, et « no_plan » dit
+  pourquoi ; (4) APERÇU avant lancement : « Préparer » calcule le plan côté
+  worker sans rien créer (dryRun), affiche « N études : exploration /
+  renforcement / pages marque / hypothèse, ~min, appels Zyte », puis
+  « Confirmer » lance ; tout changement de réglage invalide l'aperçu ;
+  (5) découverte de gamme sur toute la fenêtre d'années ; (6) garde-fou :
+  un modèle générique (MODEL, SERIE, CLASSE… ou égal à la marque) n'entre
+  plus en mémoire, ni à l'ingestion ni au centre de résolution. Vérifié :
+  12 vecteurs de clé, scénario Channing rejoué → 119 études (17 sites × 2020
+  à 2026, électrique), 0 étude + raison sans marque. SQL à coller :
+  migration 20261001100000 (tant qu'il n'est pas collé, le MI liste Model X
+  au menu mais ses observations Leboncoin restent sous l'ancienne clé).
+  Vu au passage : « Clio V » et consorts ne sont plus fondus dans « Clio »
+  (aucun relevé concerné aujourd'hui).
 - **NÉGOCIATIONS : PHOTOS DEPUIS UN PDF (01/10, demande Channing avec un
   dossier d'exemple : Toyota Yaris Cross Trail, 43 pages, une photo
   1066 × 800 par page)**. « Ajouter des photos » accepte maintenant aussi un

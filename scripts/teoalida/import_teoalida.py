@@ -34,7 +34,10 @@ SOURCE = 'teoalida_eu_2026_07'
 # ── Réplique de canonKey / brandKey / refModelKey (vehicleRef.ts) ────────────
 
 BRAND_KEY_ALIASES = {'VW': 'VOLKSWAGEN', 'MERCEDESBENZ': 'MERCEDES'}
-ROMAN_RE = re.compile(r'\s+(?:I{1,3}|IV|V|VI{0,3}|IX|X{1,2})$', re.I)
+# II à IX seulement (01/10) : une lettre seule est un NOM de modèle avant
+# d'être une génération — « Model X » sortait « Model », « Aygo X » « Aygo ».
+# Jumeau de ROMAN_GENERATION_RE (marketData.ts) et d'ada_model_key (SQL).
+ROMAN_RE = re.compile(r'\s+(?:II|III|IV|VI{1,3}|IX)$', re.I)
 PAREN_RE = re.compile(r'\s*\([^)]*\)\s*$')
 MERC_CLASS_RE = [
     re.compile(r'^([A-Z]{1,3})[- ]?(?:CLASS|KLASSE)$', re.I),

@@ -13,8 +13,20 @@
 
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { refreshDashboards } from './dashboards';
-import { planCampaign } from '../src/lib/linkgen/campaignPlanner';
-import type { CampaignPlanItem, CampaignPlanOptions } from '../src/lib/linkgen/campaignPlanner';
+import { planCampaign, summarizePlan } from '../src/lib/linkgen/campaignPlanner';
+import type { CampaignPlanItem, CampaignPlanOptions, CampaignPlanSummary } from '../src/lib/linkgen/campaignPlanner';
+
+/** Pourquoi le plan est vide — DIT ce qui manque au lieu d'un « no_plan » muet. */
+function noPlanReason(opts: WorkerCampaignStart): string {
+  const f = opts.filters ?? {};
+  if ((f.models ?? []).length > 0 && (f.brands ?? []).length === 0) {
+    return `no_plan — modèle(s) « ${(f.models ?? []).join(', ')} » inconnu(s) de la mémoire et du référentiel : coche la marque pour les tester en hypothèse sur les sites choisis`;
+  }
+  if ((f.models ?? []).length > 0 || (f.brands ?? []).length > 0) {
+    return 'no_plan — aucun combo marque × modèle ne correspond au ciblage (fenêtre d\'années, carburant ou preuve de marché l\'excluent)';
+  }
+  return 'no_plan — la mémoire ne contient pas encore de mapping validé';
+}
 import {
   loadCampaignKnowledge, executeCampaignItem, insertCampaignItemRow,
 } from '../src/lib/linkgen/campaignEngine';
@@ -65,9 +77,31 @@ export interface WorkerCampaignStart extends Omit<CampaignPlanOptions, 'rng'> {
    * segments the operator ticked; the planner is bypassed entirely.
    */
   plan?: CampaignPlanItem[];
+  /**
+   * APERÇU (01/10) : planifie et rend le résumé SANS créer de campagne ni
+   * dépenser une requête — l'opérateur voit « 4 études » avant de lancer
+   * « 1 140 » (campagne Model X du 01/10). Ne prend pas le verrou.
+   */
+  dryRun?: boolean;
 }
 
-export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<{ started: boolean; campaignId?: string; reason?: string }> {
+export interface WorkerCampaignStartResult {
+  started: boolean;
+  campaignId?: string;
+  reason?: string;
+  /** Rendu seulement en aperçu. */
+  dryRun?: boolean;
+  summary?: CampaignPlanSummary;
+}
+
+export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<WorkerCampaignStartResult> {
+  if (opts.dryRun) {
+    const knowledge = await loadCampaignKnowledge();
+    const plan = Array.isArray(opts.plan) && opts.plan.length > 0 ? opts.plan : planCampaign(knowledge, opts);
+    const summary = summarizePlan(plan);
+    console.log(`[CAMPAIGN_WORKER] aperçu : ${summary.planned} étude(s) (${summary.exploration} exploration, ${summary.reinforcement} renforcement, ${summary.discovery} découverte, ${summary.hypothesis} hypothèse) sur ${summary.sites} site(s)`);
+    return { started: false, dryRun: true, summary, reason: plan.length === 0 ? noPlanReason(opts) : undefined };
+  }
   if (loopBusy) {
     // Holder unknown = another start request is mid-planning: genuinely busy.
     if (!lockHolderCampaignId) return { started: false, reason: 'campaign_already_running' };
@@ -97,7 +131,7 @@ export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<{ 
       plan = planCampaign(knowledge, opts);
     }
     if (plan.length === 0) {
-      return { started: false, reason: 'no_plan — la mémoire ne contient pas encore de mapping validé' };
+      return { started: false, reason: noPlanReason(opts) };
     }
 
     const { data: row, error } = await supabase

@@ -15,7 +15,8 @@ import { readAllPages } from '../lib/readAllPages';
 import { supabase } from '../lib/supabase';
 import { brandKey } from '../services/marketData';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
-import { startCampaign, stopCampaign, markItemResolved } from '../services/campaignRunner';
+import { startCampaign, stopCampaign, markItemResolved, previewCampaign } from '../services/campaignRunner';
+import type { CampaignPlanSummary } from '../lib/linkgen/campaignPlanner';
 import { validateEmptyMarketForCampaignItem } from '../services/resolutionCenter';
 import { useCampaignStore } from '../store/campaignStore';
 import type { CampaignItemResult, CampaignOutcome } from '../store/campaignStore';
@@ -178,8 +179,7 @@ export function CampaignPanel() {
   const toggleSite = (key: string) =>
     setSites((prev) => prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key]);
 
-  const handleStart = async () => {
-    setStartError(null);
+  const buildOptions = () => {
     const models = filterModels.split(',').map((s) => s.trim()).filter(Boolean);
     const filters = {
       ...(filterBrands.length > 0 ? { brands: filterBrands } : {}),
@@ -188,15 +188,38 @@ export function CampaignPanel() {
       ...(yearMin.trim() ? { yearMin: Number(yearMin) } : {}),
       ...(yearMax.trim() ? { yearMax: Number(yearMax) } : {}),
     };
-    const res = await startCampaign({
+    return {
       sites, total,
       reinforceShare: reinforcePct / 100,
       variantShare: variantPct / 100,
       ...(Object.keys(filters).length > 0 ? { filters } : {}),
       ...(deepScan ? { deepScan: true } : {}),
       ...(discoveryOnly ? { discoveryOnly: true } : {}),
-    });
+    };
+  };
+
+  // APERÇU AVANT LANCEMENT (01/10, campagne Model X : 4 études planifiées
+  // pour 1 140 demandées, découvert une fois lancée). « Lancer » calcule
+  // d'abord le plan côté worker sans rien créer, l'affiche (nombre, nature,
+  // modèles en hypothèse), et c'est « Confirmer » qui lance vraiment. Toute
+  // modification de la configuration invalide l'aperçu.
+  const [preview, setPreview] = useState<{ summary: CampaignPlanSummary | null; reason: string | null } | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const configKey = JSON.stringify(buildOptions());
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const previewFresh = preview != null && previewKey === configKey;
+
+  const handlePreview = async () => {
+    setStartError(null); setPreviewing(true);
+    const res = await previewCampaign(buildOptions());
+    setPreview(res); setPreviewKey(configKey); setPreviewing(false);
+  };
+
+  const handleStart = async () => {
+    setStartError(null);
+    const res = await startCampaign(buildOptions());
     if (!res.started) setStartError(res.reason ?? 'Lancement impossible');
+    else { setPreview(null); setPreviewKey(null); }
   };
 
   const openInIngestion = (url: string) => {
@@ -438,19 +461,63 @@ export function CampaignPanel() {
         </div>
       )}
 
+      {/* Aperçu du plan : ce que le worker ferait, avant de dépenser quoi que ce soit. */}
+      {!running && previewFresh && preview && (
+        <div className={`rounded-lg border px-4 py-3 text-xs space-y-1.5 ${preview.summary && preview.summary.planned > 0 ? 'border-violet-200 bg-violet-50' : 'border-amber-300 bg-amber-50'}`}>
+          {preview.summary && preview.summary.planned > 0 ? (
+            <>
+              <p className="text-slate-800">
+                <span className="font-semibold">{preview.summary.planned} étude{preview.summary.planned > 1 ? 's' : ''} prévue{preview.summary.planned > 1 ? 's' : ''}</span> sur {preview.summary.sites} site{preview.summary.sites > 1 ? 's' : ''}
+                {preview.summary.planned < total && <span className="text-slate-500"> (demandé : {total} — l'espace de recherche est plus petit)</span>}
+                {' '}· ~{Math.round((preview.summary.planned * SECONDS_PER_ITEM) / 60)} min, {preview.summary.planned} appels Zyte
+              </p>
+              <p className="text-slate-600">
+                {preview.summary.exploration} exploration · {preview.summary.reinforcement} renforcement · {preview.summary.discovery} page{preview.summary.discovery > 1 ? 's' : ''} marque (découverte)
+                {preview.summary.hypothesis > 0 && <> · <span className="text-amber-700">{preview.summary.hypothesis} en hypothèse</span></>}
+              </p>
+              {preview.summary.hypothesisModels.length > 0 && (
+                <p className="text-amber-700">
+                  Inconnu{preview.summary.hypothesisModels.length > 1 ? 's' : ''} de la mémoire et du référentiel, testé{preview.summary.hypothesisModels.length > 1 ? 's' : ''} tel{preview.summary.hypothesisModels.length > 1 ? 's' : ''} quel{preview.summary.hypothesisModels.length > 1 ? 's' : ''} : {preview.summary.hypothesisModels.join(', ')}
+                </p>
+              )}
+              {preview.summary.sample.length > 0 && (
+                <p className="text-slate-500">Par ex. {preview.summary.sample.slice(0, 4).join(' ; ')}{preview.summary.planned > 4 ? ' ; …' : ''}</p>
+              )}
+            </>
+          ) : (
+            <p className="text-amber-800">Aucune étude ne serait planifiée{preview.reason ? ` — ${preview.reason}` : ''}</p>
+          )}
+        </div>
+      )}
+
       {/* Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         {!running ? (
-          <button
-            onClick={handleStart}
-            disabled={sites.length === 0}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg disabled:opacity-40 text-white text-sm font-medium transition-colors ${
-              discoveryOnly ? 'bg-amber-500 hover:bg-amber-400' : 'bg-violet-600 hover:bg-violet-500'
-            }`}
-          >
-            <Rocket className="w-4 h-4" />
-            {discoveryOnly ? `Lancer la découverte taxonomie (${total})` : `Lancer la campagne précision (${total})`}
-          </button>
+          previewFresh && preview?.summary && preview.summary.planned > 0 ? (
+            <>
+              <button
+                onClick={handleStart}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors ${
+                  discoveryOnly ? 'bg-amber-500 hover:bg-amber-400' : 'bg-violet-600 hover:bg-violet-500'
+                }`}
+              >
+                <Rocket className="w-4 h-4" />
+                Confirmer le lancement ({preview.summary.planned})
+              </button>
+              <button onClick={() => { setPreview(null); setPreviewKey(null); }} className="px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100">Annuler</button>
+            </>
+          ) : (
+            <button
+              onClick={handlePreview}
+              disabled={sites.length === 0 || previewing}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg disabled:opacity-40 text-white text-sm font-medium transition-colors ${
+                discoveryOnly ? 'bg-amber-500 hover:bg-amber-400' : 'bg-violet-600 hover:bg-violet-500'
+              }`}
+            >
+              {previewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+              {previewing ? 'Calcul du plan…' : discoveryOnly ? `Préparer la découverte taxonomie (${total})` : `Préparer la campagne précision (${total})`}
+            </button>
+          )
         ) : (
           <button
             onClick={stopCampaign}

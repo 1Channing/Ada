@@ -21,6 +21,7 @@
  */
 
 import { sharedSupabase as supabase } from '../supabaseShared';
+import { isGenericModelName } from '../../services/marketData';
 import { healOpenGaps } from './gapHealing';
 import type { Json } from '../database.types';
 import type { SearchCriteria } from '../study-core/marketplaces/types';
@@ -123,7 +124,17 @@ export async function persistIngestionResult(
   };
 
   const confirmed = new Set(analysis?.confirmedFields ?? []);
-  const canWriteMemory = !scrapeError && analysis !== null && confirmed.has('brand') && confirmed.has('model');
+  let canWriteMemory = !scrapeError && analysis !== null && confirmed.has('brand') && confirmed.has('model');
+
+  // GARDE-FOU (01/10) : un nom de modèle GÉNÉRIQUE n'entre jamais en mémoire.
+  // « MODEL » (recherche texte libre « tesla model ») y est entré deux fois
+  // « vérifié humain » : le planificateur l'a pris pour le Model X, et le MI a
+  // mélangé toutes les Tesla dessous. Le scrape reste affiché, la mémoire
+  // n'écrit pas, et la raison est dite.
+  if (canWriteMemory && isGenericModelName(String(criteria.brand ?? ''), String(criteria.model ?? ''))) {
+    canWriteMemory = false;
+    outcome.memoryError = `Modèle « ${String(criteria.model ?? '').trim()} » trop générique pour la mémoire : précise le modèle (ex. Model 3, Model X), pas la famille.`;
+  }
 
   if (canWriteMemory && analysis) {
     const keyBrand = String(criteria.brand ?? '').trim().toUpperCase();

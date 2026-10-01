@@ -14,6 +14,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { isGenericModelName } from './marketData';
 import { healOpenGaps } from '../lib/linkgen/gapHealing';
 import { getSiteAdapter } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/study-core/marketplaces';
@@ -181,6 +182,8 @@ async function learnEmptyMarketMapping(
   const brand = item.brand.trim().toUpperCase();
   const model = item.model.trim().toUpperCase();
   if (!brand || !model) return { ok: false, error: 'marque/modèle manquants sur cette lacune' };
+  // Même garde-fou que l'ingestion (01/10) : « MODEL », « SERIE »… ne sont pas des modèles.
+  if (isGenericModelName(brand, model)) return { ok: false, error: `modèle « ${model} » trop générique pour la mémoire — précise le modèle` };
 
   let country = '';
   try { country = getSiteAdapter(item.site as SiteKey)?.countryCode ?? ''; } catch { /* site inconnu */ }
