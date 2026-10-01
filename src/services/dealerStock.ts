@@ -61,6 +61,23 @@ export async function listStockRuns(contactId: string): Promise<{ runs: StockRun
   return { runs: (data ?? []) as StockRun[], error: null };
 }
 
+/**
+ * Dernier relevé RÉUSSI par contact (01/10, constat Channing : « les stocks
+ * affichés ne correspondent pas aux stocks réels »). Sur la carte, un
+ * stock relevé par ADA se distingue d'un stock saisi à la main le 07/09 :
+ * seul le premier est une mesure, et il porte sa date.
+ */
+export interface LatestStockRun { at: string; total: number | null; provider: string | null }
+export async function listLatestStockRuns(): Promise<Map<string, LatestStockRun>> {
+  const map = new Map<string, LatestStockRun>();
+  const { data, error } = await untyped.from('network_stock_runs').select('contact_id, started_at, total, provider').eq('status', 'done').order('started_at', { ascending: false }).limit(2000);
+  if (error) return map; // table absente : rien de relevé, l'affichage reste « déclaré »
+  for (const r of (data ?? []) as Array<{ contact_id: string; started_at: string; total: number | null; provider: string | null }>) {
+    if (!map.has(r.contact_id)) map.set(r.contact_id, { at: r.started_at, total: r.total, provider: r.provider });
+  }
+  return map;
+}
+
 export async function listStockVehicles(contactId: string): Promise<{ vehicles: StockVehicle[]; error: string | null }> {
   const { data, error } = await untyped.from('network_stock_vehicles').select('*').eq('contact_id', contactId).order('last_seen_at', { ascending: false }).limit(5000);
   if (error) return { vehicles: [], error: missing(error.message) ? 'SQL du 30/09 (network_stock_*) à coller.' : error.message };

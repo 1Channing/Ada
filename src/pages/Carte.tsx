@@ -21,6 +21,7 @@ import {
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import { DealerStockModal } from '../components/DealerStockModal';
+import { listLatestStockRuns, type LatestStockRun } from '../services/dealerStock';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
   KIND_LABEL, ROLE_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS,
@@ -88,9 +89,15 @@ export function Carte() {
   const [panelOpen, setPanelOpen] = useState(true);
 
   // ── Données ──
+  // Dernier relevé réussi par contact : « 4 698 relevés le 01/10 » ≠ « 114
+  // déclarés » (saisie du 07/09). Constat Channing 01/10 : les deux
+  // s'affichaient pareil, « en stock », et les chiffres déclarés passaient
+  // pour des mesures.
+  const [lastRuns, setLastRuns] = useState<Map<string, LatestStockRun>>(new Map());
   const reload = useCallback(async () => {
-    const r = await loadNetwork();
+    const [r, runs] = await Promise.all([loadNetwork(), listLatestStockRuns()]);
     setContacts(r.contacts);
+    setLastRuns(runs);
     setLoadError(r.error);
     setLoading(false);
   }, []);
@@ -495,8 +502,8 @@ export function Carte() {
         {editing ? (
           <ContactForm value={editing} models={editModels} onChange={setEditing} onModels={setEditModels} onPlace={() => setPlacing('form')} onCancel={() => { setEditing(null); setPlacing(null); }} onSubmit={submit} busy={busy} />
         ) : selected ? (<>
-          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onStock={() => selected.website && setStockFor({ id: selected.id, name: selected.name, url: selected.website })} />
-          {stockFor && <DealerStockModal contactId={stockFor.id} name={stockFor.name} url={stockFor.url} onClose={() => setStockFor(null)} />}
+          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onStock={() => selected.website && setStockFor({ id: selected.id, name: selected.name, url: selected.website })} run={lastRuns.get(selected.id)} />
+          {stockFor && <DealerStockModal contactId={stockFor.id} name={stockFor.name} url={stockFor.url} onClose={() => { setStockFor(null); void reload(); }} />}
         </>) : (
           <>
             <div className="p-4 border-b border-slate-100 space-y-3">
@@ -537,7 +544,8 @@ export function Carte() {
                   <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
                     <span>{FLAG[c.country] ?? ''} {c.city ?? <em className="text-amber-600 not-italic">à placer</em>}</span>
                     <span>·</span><span>{KIND_LABEL[c.kind]}</span>
-                    {c.stock_total != null && <><span>·</span><span>{c.stock_total} en stock</span></>}
+                    <StockFigure c={c} run={lastRuns.get(c.id)} />
+                    {/* StockFigure rend « · n relevés le jj/mm » ou « · n déclarés », rien sans donnée. */}
                   </div>
                   {c.models.length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1">
@@ -581,7 +589,32 @@ const LandLayer = memo(function LandLayer({ paths, activeIso, onHover }: {
 });
 
 // ── Détail ──────────────────────────────────────────────────────────────────
-function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onStock }: {
+/**
+ * CHIFFRE DE STOCK (01/10) : une MESURE (dernier relevé réussi, datée) ou une
+ * DÉCLARATION (stock_total saisi à la main) — jamais le même mot pour les
+ * deux. Rien sans donnée.
+ */
+function StockFigure({ c, run, chip }: { c: { stock_total: number | null }; run?: LatestStockRun; chip?: boolean }) {
+  if (run && run.total != null) {
+    const when = new Date(run.at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+    const text = `${run.total.toLocaleString('fr-FR')} relevés le ${when}`;
+    const title = `Stock lu par ADA sur la vitrine le ${when} (${run.provider ?? 'site'})`;
+    return chip
+      ? <span title={title} className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">{text}</span>
+      : <><span>·</span><span title={title} className="text-emerald-700">{text}</span></>;
+  }
+  if (c.stock_total != null) {
+    const text = `${c.stock_total.toLocaleString('fr-FR')} déclarés`;
+    const title = 'Chiffre saisi à la main sur la fiche, pas relevé sur la vitrine — « Stock relevé » pour mesurer';
+    return chip
+      ? <span title={title} className="text-[11px] bg-slate-100 text-slate-500 rounded-full px-2 py-0.5">{text}</span>
+      : <><span>·</span><span title={title} className="text-slate-400">{text}</span></>;
+  }
+  return null;
+}
+
+function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onStock, run }: {
+  run?: LatestStockRun;
   c: NetworkContact; canEdit: boolean; busy: boolean; onClose: () => void; onEdit: () => void; onMove: () => void; onDelete: () => void; onFilterBrand: (b: string) => void; onStock: () => void;
 }) {
   const rows: Array<[string, string]> = [
@@ -602,7 +635,7 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
         <div className="flex flex-wrap gap-1.5 mt-3">
           {c.relation && <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 text-white" style={{ background: RELATION_COLOR[c.relation] ?? '#64748b' }}>{RELATION_LABEL[c.relation] ?? c.relation}</span>}
           {c.market_share != null && <span className="text-[11px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">{c.market_share.toLocaleString('fr-FR')} % du panel</span>}
-          {c.stock_total != null && <span className="text-[11px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">{c.stock_total} véhicules en stock</span>}
+          <StockFigure c={c} run={run} chip />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-sm">

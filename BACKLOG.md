@@ -800,6 +800,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **CARTE : « RELEVÉS » ≠ « DÉCLARÉS » (01/10, constat Channing : « les
+  stocks affichés ne correspondent pas aux stocks réels »)**. Classe : la
+  liste et la fiche affichaient « n en stock » pour deux choses différentes
+  — la MESURE du worker (stock_total mis à jour par un relevé) et la
+  DÉCLARATION saisie à la main le 07/09 (Broekhuis 114, Century 26, Emil
+  Frey 119…), indiscernables. Désormais la carte lit le dernier relevé
+  réussi par contact (network_stock_runs) : « 4 698 relevés le 01/10 » en
+  vert avec la date et le fournisseur, sinon « 114 déclarés » en gris avec
+  l'explication au survol ; rien sans donnée. Fermer la fenêtre « Stock
+  relevé » recharge la carte. Les chiffres déclarés restent modifiables sur
+  la fiche ; seul un relevé les remplace à l'affichage.
 - **STOCK DES CONCESSIONS : MOUVEMENTS DE PRIX PAR VÉHICULE (01/10 soir,
   demande Channing : « enregistrer pour chaque véhicule les baisses, pour
   voir quand ils vendent s'ils ont dû baisser ou non »)**. Colonnes
