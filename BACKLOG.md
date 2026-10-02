@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : RELEVÉ MAL LU → BOÎTE À APPRENDRE (02/10 soir, « j'ai
+  ajouté les relevés, semble y avoir des erreurs pourtant les relevés sont
+  bien lisibles »)**. Les tables bank_* sont admin seulement : le compte de
+  test ne voit rien, le dev ne peut pas constater. Désormais chaque dépôt en
+  erreur ou avec avertissements écrit un cas « bank_statement_issue »
+  (fichier, banque, mois, message, avertissements ; pour un format inconnu
+  les 25 premières lignes du PDF, montants masqués) — la preuve arrive
+  seule, sans redemander le fichier. Le cas se lit dans la boîte.
 - **TRÉSORERIE : GRILLE DES RELEVÉS (02/10 soir, demande Channing : « voir
   l'ensemble des relevés ajoutés pour voir ce qu'il manque »)**. Vue
   « Relevés » : banques × mois depuis janvier 2026 (ou le premier relevé

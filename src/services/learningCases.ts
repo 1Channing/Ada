@@ -40,6 +40,7 @@ export const KIND_LABEL: Record<string, string> = {
   sheet_row_incoherent: 'Ligne du tableur incohérente (colonnes décalées)',
   mail_failed: 'E-mail de dossier en échec',
   offer_file_unparsed: 'Fichier fournisseur mal lu',
+  bank_statement_issue: 'Relevé de compte mal lu',
   signalement_probleme: 'Signalement : problème',
   signalement_suggestion: 'Signalement : suggestion',
   mapping_gap: 'Lacune de campagne',

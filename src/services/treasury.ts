@@ -6,7 +6,8 @@
 import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { pdfToLines } from '../lib/pdfText';
-import { parseStatement, matchLine, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite } from '../lib/bankStatements';
+import { recordLearningCaseFromApp } from './learningCases';
+import { parseStatement, matchLine, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
 export { matchLine, type DealLite } from '../lib/bankStatements';
 
 export interface BankStatementRow {
@@ -71,11 +72,32 @@ export const dealMonth = (d: DealLite) => d.tab_month ?? d.transaction_date?.sli
 export interface UploadResult { file: string; account?: BankAccount; month?: string; lines?: number; matched?: number; replaced?: boolean; warnings?: string[]; error?: string }
 
 /** Dépose un relevé PDF : lecture, classement, rapprochement, écriture (remplace le même compte × mois). */
+/**
+ * RELEVÉ MAL LU → BOÎTE À APPRENDRE (02/10 soir, « semble y avoir des
+ * erreurs pourtant les relevés sont bien lisibles ») : l'erreur ou les
+ * avertissements du parseur sont enregistrés avec, pour un format inconnu,
+ * les premières lignes du PDF (montants masqués) — la preuve nécessaire
+ * pour corriger la classe sans redemander le fichier.
+ */
+async function reportStatementIssue(file: File, lines: Array<{ text: string }>, st: { account?: string; period_month?: string } | null, error: string | null, warnings: string[]): Promise<void> {
+  const mask = (t: string) => t.replace(/\d[\d\s\u00a0.,]*\d/g, (m) => (m.replace(/\D/g, '').length >= 3 ? '###' : m)).slice(0, 160);
+  const head = error && /non reconnu|aucun texte/.test(error) ? lines.slice(0, 25).map((l) => mask(l.text)) : undefined;
+  await recordLearningCaseFromApp({
+    kind: 'bank_statement_issue', key: `${file.name}`, actor: 'dev', link: '/tresorerie',
+    title: `Relevé « ${file.name} »${st?.account ? ` (${st.account} ${st.period_month ?? ''})` : ''} : ${error ?? `${warnings.length} avertissement(s)`}`,
+    detail: { file: file.name, size: file.size, account: st?.account ?? null, month: st?.period_month ?? null, error, warnings, pages_text_lines: lines.length, head },
+  });
+}
+
 export async function uploadStatement(file: File, deals: DealLite[]): Promise<UploadResult> {
   const res: UploadResult = { file: file.name };
+  let lines: TextLine[] = [];
+  let parsed: { account: string; period_month: string } | null = null;
   try {
-    const lines = await pdfToLines(file);
+    lines = await pdfToLines(file);
     const st = parseStatement(lines);
+    parsed = st;
+    if (st.warnings.length > 0) void reportStatementIssue(file, lines, st, null, st.warnings);
     if (!st.period_month) throw new Error('mois du relevé introuvable dans le PDF');
     res.account = st.account; res.month = st.period_month; res.warnings = st.warnings;
     // Catégories corrigées à la main sur la version précédente : conservées.
@@ -109,6 +131,7 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
     return res;
   } catch (e) {
     res.error = e instanceof Error ? e.message : String(e);
+    void reportStatementIssue(file, lines, parsed, res.error, []);
     return res;
   }
 }
