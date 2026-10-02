@@ -158,18 +158,44 @@ export function accountIdentity(texts: string[]): { ref: string; name: string | 
 }
 
 /** Abscisse de la colonne Crédit sur la ligne d'en-tête : un montant à droite de ce repère est un crédit. */
-function creditColumnX(lines: TextLine[], headerRe: RegExp): number | null {
+function columnX(lines: TextLine[], headerRe: RegExp, fragRe: RegExp): number | null {
   const h = lines.find((l) => headerRe.test(l.text));
-  const f = h?.frags.find((fr) => /cr[ée]dit/i.test(fr.s));
+  const f = h?.frags.find((fr) => fragRe.test(fr.s));
   return f ? f.x : null;
 }
+const creditColumnX = (lines: TextLine[], headerRe: RegExp) => columnX(lines, headerRe, /cr[ée]dit/i);
 const isAmountFrag = (s: string) => FR_AMOUNT.test(s.trim());
 
 // ── Shine (compte principal, preuve 02/10) ──────────────────────────────────
 // Un mouvement = un paquet de lignes serrées (≤ 8 pt) : la ligne qui porte la
 // date, et autour d'elle le type qui déborde (« Virement » / « instantané »),
 // le libellé qui déborde, « De : … ». Colonnes Débit / Crédit distinguées par
-// l'abscisse du montant. Lignes du plus ancien au plus récent.
+// l'abscisse du montant. Lignes du plus ancien à plus récent.
+// Colonne « Type » : mots du vocabulaire Shine seulement (constat 03/10 : sur
+// les relevés de juillet à septembre, tout le libellé tombait à gauche de
+// l'abscisse fixe 170 et finissait dans le type ; « REMB. DGFiP … De : SIE
+// ANGERS » devenait une vente sans libellé). La frontière est lue sur
+// l'en-tête (« Opération ») et un mot n'est un type que s'il en a l'air.
+const SHINE_TYPE_WORD = /^(Virement|instantané|Carte|Prélèvement|Retrait|Dépôt|Chèque)$/i;
+/** Libellé Shine → tiers + description (« X - Y », « … De : Z », carte = tiers seul). */
+export function splitShineOp(kind: string, opText: string): { counterparty: string; description: string } {
+  let counterparty = '', description = opText;
+  const de = opText.match(/De : (.+)$/);
+  if (de) { counterparty = de[1].trim(); description = opText.slice(0, de.index).trim(); }
+  else if (/^Carte$/i.test(kind)) { counterparty = opText; description = ''; }
+  else { const sep = opText.indexOf(' - '); if (sep > 0) { counterparty = opText.slice(0, sep).trim(); description = opText.slice(sep + 3).trim(); } else { counterparty = opText; description = ''; } }
+  description = description.replace(/ - Creditor Name SEPA : .*$/i, '').trim();
+  return { counterparty, description };
+}
+/** Ligne Shine déjà en base dont le libellé est parti dans le type (tiers et
+ *  description vides) : sépare les mots du type du libellé. null = rien à réparer. */
+export function repairShineKind(kind: string): { kind: string; counterparty: string; description: string } | null {
+  const words = kind.split(/\s+/).filter(Boolean);
+  const type = words.filter((w) => SHINE_TYPE_WORD.test(w)), op = words.filter((w) => !SHINE_TYPE_WORD.test(w));
+  if (op.length === 0) return null;
+  const k = type.join(' ') || 'Virement';
+  return { kind: k, ...splitShineOp(k, op.join(' ').replace(/\s+/g, ' ').trim()) };
+}
 function parseShine(lines: TextLine[]): ParsedStatement {
   const warnings: string[] = [];
   const texts = lines.map((l) => l.text);
@@ -181,6 +207,8 @@ function parseShine(lines: TextLine[]): ParsedStatement {
   const ns = texts.findIndex((t) => /^Nouveau solde/.test(t));
   if (ns >= 0) { const m = texts.slice(ns, ns + 3).join(' ').match(/([\d\s\u00a0]+,\d{2}) €/); if (m) closing = moneyFr(m[1]); }
   const creditX = creditColumnX(lines, /^Date Type Opération Débit/);
+  const opX = columnX(lines, /^Date Type Opération Débit/, /^Op[ée]ration$/i);
+  const typeMaxX = opX != null ? opX - 4 : 170;
   // Lignes du tableau : entre chaque en-tête et le pied de page.
   type Row = { date: string; type: string[]; op: string[]; amount: number | null; credit: boolean };
   const rows: Row[] = [];
@@ -194,7 +222,7 @@ function parseShine(lines: TextLine[]): ParsedStatement {
       for (const l of cluster) for (const f of l.frags) {
         if (f === dateFrag) continue;
         if (isAmountFrag(f.s) && f.x > 400) { amount = moneyFr(f.s); credit = creditX != null ? f.x >= creditX - 12 : false; }
-        else if (f.x < 170) type.push(f.s);
+        else if (f.x < typeMaxX && SHINE_TYPE_WORD.test(f.s.trim())) type.push(f.s);
         else op.push(f.s);
       }
       rows.push({ date: frDate(dateFrag.s)!, type, op, amount, credit });
@@ -214,12 +242,7 @@ function parseShine(lines: TextLine[]): ParsedStatement {
     if (r.amount == null) { warnings.push(`${r.date} : montant illisible (« ${r.op.join(' ').slice(0, 40)} »)`); return; }
     const kind = r.type.join(' ').trim() || 'Virement';
     const opText = r.op.join(' ').replace(/\s+/g, ' ').trim();
-    let counterparty = '', description = opText;
-    const de = opText.match(/De : (.+)$/);
-    if (de) { counterparty = de[1].trim(); description = opText.slice(0, de.index).trim(); }
-    else if (/^Carte$/i.test(kind)) { counterparty = opText; description = ''; }
-    else { const sep = opText.indexOf(' - '); if (sep > 0) { counterparty = opText.slice(0, sep).trim(); description = opText.slice(sep + 3).trim(); } else counterparty = opText; }
-    description = description.replace(/ - Creditor Name SEPA : .*$/i, '').trim();
+    const { counterparty, description } = splitShineOp(kind, opText);
     const flow = /^Carte/i.test(kind) ? 'card' : r.credit ? 'transfer_in' : 'transfer_out';
     const full = `${counterparty} ${description}`;
     out.push({ booked_on: r.date, kind, counterparty, description, amount_out: r.credit ? null : r.amount, amount_in: r.credit ? r.amount : null, balance: null, currency: 'EUR',

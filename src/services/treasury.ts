@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { pdfToLinesEx } from '../lib/pdfText';
 import { recordLearningCaseFromApp } from './learningCases';
-import { parseStatement, matchLine, matchComplements, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
+import { parseStatement, matchLine, matchComplements, repairShineKind, classify, extractPlate, extractVin, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
 export { matchLine, type DealLite } from '../lib/bankStatements';
 
 export interface BankStatementRow {
@@ -57,6 +57,31 @@ const numOrNull = (v: unknown) => (v == null || v === '' ? null : Number(v));
 export async function deleteStatement(id: string): Promise<string | null> {
   const { error } = await untyped.from('bank_statements').delete().eq('id', id);
   return error ? error.message : null;
+}
+
+/**
+ * Réparation des lignes Shine déjà en base dont le libellé est parti dans le
+ * type (constat 03/10 : juillet → septembre, 198 lignes sans tiers ni
+ * description, les remboursements DGFiP comptés comme des ventes). Idempotent,
+ * lancé au chargement : tiers, description, plaque, VIN et catégorie auto
+ * recalculés ; une catégorie choisie à la main est conservée.
+ */
+export async function repairLines(lines: BankLineRow[]): Promise<{ repaired: number; error: string | null }> {
+  let repaired = 0;
+  for (const l of lines) {
+    if (l.account !== 'shine' || l.counterparty || l.description) continue;
+    const fix = repairShineKind(l.kind);
+    if (!fix) continue;
+    const full = `${fix.counterparty} ${fix.description}`;
+    const flow = /^Carte/i.test(fix.kind) ? 'card' : l.amount_in != null ? 'transfer_in' : 'transfer_out';
+    const auto = classify(flow, fix.counterparty, fix.description, l.amount_out, l.amount_in);
+    const manual = l.category_auto != null && l.category !== l.category_auto;
+    const patch = { kind: fix.kind, counterparty: fix.counterparty, description: fix.description, plate: l.plate ?? extractPlate(full), vin: l.vin ?? extractVin(full), category_auto: auto, category: manual ? l.category : auto };
+    const { error } = await untyped.from('bank_lines').update(patch).eq('id', l.id);
+    if (error) return { repaired, error: error.message };
+    repaired++;
+  }
+  return { repaired, error: null };
 }
 
 export async function setLineCategory(id: string, category: BankCategory): Promise<string | null> {

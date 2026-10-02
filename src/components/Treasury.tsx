@@ -3,7 +3,7 @@ import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide
 import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, expectedCash, isStarDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
 import { TreasuryVat } from './TreasuryVat';
 import {
-  listStatements, listLines, deleteStatement, setLineCategory, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
+  listStatements, listLines, deleteStatement, setLineCategory, repairLines, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
   type BankStatementRow, type BankLineRow, type DealLite, type UploadResult,
 } from '../services/treasury';
 
@@ -22,6 +22,7 @@ export function Treasury() {
   const [lines, setLines] = useState<BankLineRow[]>([]);
   const [deals, setDeals] = useState<DealLite[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [results, setResults] = useState<UploadResult[]>([]);
@@ -35,8 +36,12 @@ export function Treasury() {
 
   const reload = async () => {
     setLoading(true);
-    const [s, l, d] = await Promise.all([listStatements(), listLines(), loadDeals()]);
-    setStatements(s.rows); setLines(l.rows); setDeals(d); setError(s.error ?? l.error);
+    const [s, l0, d] = await Promise.all([listStatements(), listLines(), loadDeals()]);
+    // Lignes Shine dont le libellé était parti dans le type (03/10) : réparées puis relues.
+    const rep = l0.error ? { repaired: 0, error: null } : await repairLines(l0.rows);
+    const l = rep.repaired > 0 ? await listLines() : l0;
+    if (rep.repaired > 0) setNotice(`${rep.repaired} ligne(s) Shine relue(s) : tiers et libellé retrouvés, catégories recalculées.`);
+    setStatements(s.rows); setLines(l.rows); setDeals(d); setError(s.error ?? l.error ?? rep.error);
     setLoading(false);
   };
   useEffect(() => { void reload(); }, []);
@@ -208,6 +213,7 @@ export function Treasury() {
       </div>
       {busy && <div className="text-sm text-slate-600 inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> {busy}</div>}
       {error && <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>}
+      {notice && <div className="p-3 rounded-lg bg-emerald-50 text-emerald-800 text-sm">{notice}</div>}
       {results.length > 0 && (
         <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm space-y-1">
           {results.map((r, i) => (

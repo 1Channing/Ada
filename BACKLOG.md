@@ -832,6 +832,29 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **RELEVÉS SHINE : LE LIBELLÉ PARTAIT DANS LE TYPE, 198 LIGNES SANS TIERS NI
+  DESCRIPTION, LES REMBOURSEMENTS DGFiP COMPTÉS COMME DES VENTES (03/10,
+  Channing : « je te joins l'ensemble des remboursements perçus, tu devrais
+  les voir sur les relevés, sinon notre fonction trésorerie n'est pas
+  fiable »)**. Constat en base : les 93 188 + 46 000 (01/07), 42 000
+  (27/07) et 26 000 (21/08) de SIE ANGERS étaient bien lus (dates, montants,
+  comptes) mais rangés en « vente encaissée » : tiers et description vides,
+  tout le libellé (« REMB. DGFiP - 930338116 … Virement De : SIE ANGERS »)
+  dans la colonne type. Cause : le lecteur Shine coupait les colonnes à
+  l'abscisse fixe 170 ; sur les relevés de juillet à septembre (et avril du
+  compte secondaire) le libellé commence avant → 198 lignes touchées
+  (Shine principal juillet 50/50, août 37/37, septembre 84/84 ; secondaire
+  avril 6, juillet 12, août 6, septembre 2). Correction de la classe : la
+  frontière est lue sur l'en-tête (abscisse du mot « Opération ») et un
+  fragment n'est un type que s'il appartient au vocabulaire Shine (Virement,
+  instantané, Carte, Prélèvement, Retrait, Dépôt, Chèque) ; juin relu : 68
+  lignes, 0 vide, soldes au centime. Réparation sans redépôt : au chargement
+  de la trésorerie, chaque ligne Shine sans tiers ni description est
+  re-séparée (type / tiers / description), plaque, VIN et catégorie auto
+  recalculés, catégorie manuelle conservée ; bandeau « N lignes Shine
+  relues ». Effet attendu : TVA remboursée juillet 181 188, août 26 000 ;
+  demandes de mai (46 000), avril (93 188), juin (42 000), juillet (26 000)
+  passent « reçue » ; seule celle d'août (16 195) reste en attente.
 - **TVA : VENTES HT = INTRACOM + EXPORT, REMBOURSEMENTS RAPPROCHÉS DEMANDE
   PAR DEMANDE, IMPÔTS MIEUX CLASSÉS (03/10, retour Channing : « le calcul
   des ventes intracom HT n'apparaît pas sur toutes les lignes », « la ligne
