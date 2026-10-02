@@ -29,10 +29,26 @@ export async function listStatements(): Promise<{ rows: BankStatementRow[]; erro
   return { rows: (data ?? []) as BankStatementRow[], error: null };
 }
 
+/** Supabase ne rend jamais plus de 1 000 lignes par requête (constat 02/10 :
+ *  1 300 lignes de relevés, mai tronqué en silence) : lecture par pages. */
+async function fetchAll(table: string, select: string, order: Array<[string, boolean]>): Promise<{ data: Array<Record<string, unknown>>; error: string | null }> {
+  const out: Array<Record<string, unknown>> = [];
+  for (let from = 0; ; from += 1000) {
+    let q = untyped.from(table).select(select);
+    for (const [col, asc] of order) q = q.order(col, { ascending: asc });
+    const { data, error } = await q.range(from, from + 999);
+    if (error) return { data: out, error: error.message };
+    const batch = (data ?? []) as Array<Record<string, unknown>>;
+    out.push(...batch);
+    if (batch.length < 1000 || out.length >= 50_000) break;
+  }
+  return { data: out, error: null };
+}
+
 export async function listLines(): Promise<{ rows: BankLineRow[]; error: string | null }> {
-  const { data, error } = await untyped.from('bank_lines').select('*').order('booked_on', { ascending: false }).order('line_no').limit(5000);
-  if (error) return { rows: [], error: missing(error.message) ? MISSING_MSG : error.message };
-  return { rows: ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({ ...r, amount_out: numOrNull(r.amount_out), amount_in: numOrNull(r.amount_in), balance: numOrNull(r.balance) })) as BankLineRow[], error: null };
+  const { data, error } = await fetchAll('bank_lines', '*', [['booked_on', false], ['line_no', true]]);
+  if (error) return { rows: [], error: missing(error) ? MISSING_MSG : error };
+  return { rows: data.map((r) => ({ ...r, amount_out: numOrNull(r.amount_out), amount_in: numOrNull(r.amount_in), balance: numOrNull(r.balance) })) as BankLineRow[], error: null };
 }
 const numOrNull = (v: unknown) => (v == null || v === '' ? null : Number(v));
 
@@ -48,10 +64,8 @@ export async function setLineCategory(id: string, category: BankCategory): Promi
 
 /** Dossiers de vente avec plaque / VIN / mois du tableur, pour le rapprochement. */
 export async function loadDeals(): Promise<DealLite[]> {
-  const { data } = await supabase.from('transactions_admin')
-    .select('id, reference, purchase_price, sale_price, fees, commission_ht, transaction_date, status, commercial, notes, vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(plate_number, vin, brand, model)')
-    .order('created_at', { ascending: false }).limit(3000);
-  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => {
+  const { data } = await fetchAll('transactions_admin', 'id, reference, purchase_price, sale_price, fees, commission_ht, transaction_date, status, commercial, notes, vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(plate_number, vin, brand, model)', [['created_at', false]]);
+  return data.map((r) => {
     const v = (r.vehicle ?? null) as { plate_number?: string | null; vin?: string | null; brand?: string | null; model?: string | null } | null;
     const notes = (r.notes as string | null) ?? null;
     const tab = notes?.match(/\[Tableur ([A-ZÉÛ]+) (\d{4})\]/);

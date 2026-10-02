@@ -832,6 +832,10 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : LECTURE PAR PAGES (02/10 soir)**. Supabase ne rend jamais
+  plus de 1 000 lignes par requête : avec 1 300 lignes de relevés, mai
+  était tronqué en silence dans les tableaux. Lignes et dossiers lus par
+  pages de 1 000 (fetchAll), plafond 50 000.
 - **TRÉSORERIE : LE MOIS D'UN RELEVÉ = CELUI DE SON DERNIER MOUVEMENT
   (02/10 soir, « semble y avoir des erreurs pourtant les relevés sont bien
   lisibles »)**. Constat sur les 21 relevés déposés (compte de test passé
