@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
 import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, type BankCategory, type BankAccount } from '../lib/bankStatements';
 import {
-  listStatements, listLines, deleteStatement, setLineCategory, loadDeals, uploadStatement, rematchAll, dealMonth,
+  listStatements, listLines, deleteStatement, setLineCategory, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
   type BankStatementRow, type BankLineRow, type DealLite, type UploadResult,
 } from '../services/treasury';
 
@@ -54,7 +54,7 @@ export function Treasury() {
     await reload();
   };
   const onDelete = async (s: BankStatementRow) => {
-    if (!window.confirm(`Supprimer le relevé ${ACCOUNT_LABEL[s.account]} ${monthLabel(s.period_month)} (${s.line_count} lignes) ?`)) return;
+    if (!window.confirm(`Supprimer le relevé ${ACCOUNT_LABEL[s.account]}${s.account_ref ? ` …${s.account_ref}` : ''} ${monthLabel(s.period_month)} (${s.line_count} lignes) ?`)) return;
     setBusy('Suppression…'); const e = await deleteStatement(s.id); setBusy(null);
     if (e) setError(e); else await reload();
   };
@@ -86,23 +86,44 @@ export function Treasury() {
     for (let d = new Date(Number(first.slice(0, 4)), Number(first.slice(5, 7)) - 1, 1); d <= now; d.setMonth(d.getMonth() + 1)) out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     return out;
   }, [statements]);
-  const gridAccounts = useMemo(() => {
-    const seen = new Set<BankAccount>(statements.map((s) => s.account));
-    return (Object.keys(ACCOUNT_LABEL) as BankAccount[]).filter((a) => seen.has(a)).concat((Object.keys(ACCOUNT_LABEL) as BankAccount[]).filter((a) => !seen.has(a)));
+  // Une ligne de grille = (banque, numéro de compte) : Shine principal et
+  // Shine secondaire sont deux lignes (02/10 soir).
+  type GridRow = { account: BankAccount; ref: string; label: string };
+  const rowLabel = (s: { account: BankAccount; account_ref?: string | null; account_name?: string | null }) =>
+    `${ACCOUNT_LABEL[s.account]}${s.account_name ? ` · ${s.account_name}` : ''}${s.account_ref ? ` · …${s.account_ref}` : ''}`;
+  const gridRows = useMemo<GridRow[]>(() => {
+    const rows = new Map<string, GridRow>();
+    for (const s of statements) { const k = `${s.account}|${s.account_ref ?? ''}`; if (!rows.has(k)) rows.set(k, { account: s.account, ref: s.account_ref ?? '', label: rowLabel(s) }); }
+    const order = Object.keys(ACCOUNT_LABEL) as BankAccount[];
+    const out = [...rows.values()].sort((a, b) => order.indexOf(a.account) - order.indexOf(b.account) || a.label.localeCompare(b.label));
+    for (const a of order) if (!out.some((r) => r.account === a)) out.push({ account: a, ref: '', label: ACCOUNT_LABEL[a] });
+    return out;
   }, [statements]);
-  const cell = (a: BankAccount, m: string) => statements.filter((s) => s.account === a && s.period_month.slice(0, 7) === m);
-  // Un mois manque quand une banque déjà déposée n'a rien entre son premier et son dernier relevé, ou jusqu'au mois précédent.
+  const stmtsOf = (r: GridRow) => statements.filter((s) => s.account === r.account && (s.account_ref ?? '') === r.ref);
+  const cell = (r: GridRow, m: string) => stmtsOf(r).filter((s) => s.period_month.slice(0, 7) === m);
+  const stmtById = useMemo(() => new Map(statements.map((s) => [s.id, s])), [statements]);
+  // Un mois manque quand un compte déjà déposé n'a rien entre son premier relevé et le mois précédent.
   const missingCount = useMemo(() => {
     let n = 0;
     const prevMonth = gridMonths[gridMonths.length - 2];
-    for (const a of gridAccounts) {
-      const mine = statements.filter((s) => s.account === a).map((s) => s.period_month.slice(0, 7));
+    for (const r of gridRows) {
+      const mine = stmtsOf(r).map((s) => s.period_month.slice(0, 7));
       if (mine.length === 0) continue;
       const lo = mine.reduce((x, y) => (y < x ? y : x)), hi = prevMonth && prevMonth > mine.reduce((x, y) => (y > x ? y : x)) ? prevMonth : mine.reduce((x, y) => (y > x ? y : x));
       for (const m of gridMonths) if (m >= lo && m <= hi && !mine.includes(m)) n++;
     }
     return n;
-  }, [statements, gridMonths, gridAccounts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statements, gridMonths, gridRows]);
+  // Lien posé à la main (REF) sur une ou plusieurs lignes.
+  const onLink = async (lineIds: string[], ref: string) => {
+    const ds = deals.length ? deals : await loadDeals();
+    for (const id of lineIds) {
+      const r = await setLineMatch(id, ref, ds);
+      if (r.error) { setError(r.error); return; }
+      setLines((prev) => prev.map((x) => (x.id === id ? { ...x, transaction_id: r.deal?.id ?? null, match_how: r.deal ? 'manuel' : null } : x)));
+    }
+  };
 
   // ── Frais mensuels par catégorie ──
   const matrix = useMemo(() => {
@@ -222,14 +243,14 @@ export function Treasury() {
                 </tr>
               </thead>
               <tbody>
-                {gridAccounts.map((a) => {
-                  const mine = statements.filter((s) => s.account === a).map((s) => s.period_month.slice(0, 7));
+                {gridRows.map((row) => {
+                  const mine = stmtsOf(row).map((s) => s.period_month.slice(0, 7));
                   const lo = mine.length ? mine.reduce((x, y) => (y < x ? y : x)) : null;
                   return (
-                    <tr key={a} className="border-b border-slate-100">
-                      <td className="py-2 pr-4 whitespace-nowrap font-medium text-slate-800">{ACCOUNT_LABEL[a]}{mine.length === 0 && <span className="ml-1 text-xs font-normal text-slate-400">(aucun relevé)</span>}</td>
+                    <tr key={`${row.account}|${row.ref}`} className="border-b border-slate-100">
+                      <td className="py-2 pr-4 whitespace-nowrap font-medium text-slate-800">{row.label}{mine.length === 0 && <span className="ml-1 text-xs font-normal text-slate-400">(aucun relevé)</span>}</td>
                       {gridMonths.map((m) => {
-                        const sts = cell(a, m);
+                        const sts = cell(row, m);
                         const isLast = m === gridMonths[gridMonths.length - 1];
                         const expected = lo != null && m >= lo && !isLast;
                         return (
@@ -324,14 +345,14 @@ export function Treasury() {
                   {purchases.map((g) => {
                     const d = g.deal; const ecart = d?.purchase_price != null ? g.paid - d.purchase_price : null;
                     return (
-                      <tr key={g.key} className={`border-b border-slate-100 ${!d ? 'bg-amber-50' : ecart && Math.abs(ecart) > 1 ? 'bg-rose-50' : ''}`}>
+                      <tr key={g.key} className={`border-b border-slate-100 ${!d ? 'bg-amber-50' : ecart != null && ecart > 1 ? 'bg-rose-50' : ecart != null && ecart < -1 ? 'bg-amber-50/60' : ''}`}>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{g.first}</td>
                         <td className="py-1.5 pr-3 font-mono text-xs">{g.plate ?? '—'}</td>
                         <td className="py-1.5 pr-3 max-w-[22rem] truncate" title={g.lines.map((l) => `${l.booked_on} ${l.counterparty} — ${l.description} : ${eur(l.amount_out, 2)}`).join('\n')}>{g.lines[0]?.counterparty}{g.lines.length > 1 && <span className="text-xs text-slate-500"> (+{g.lines.length - 1})</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(g.paid)}</td>
-                        <td className="py-1.5 pr-3 whitespace-nowrap">{d ? <span title={g.lines[0]?.match_how ?? ''}>{d.reference} · {d.vehicle_label ?? `${d.brand ?? ''} ${d.model ?? ''}`.trim()}</span> : <span className="text-amber-700">sans dossier</span>}</td>
+                        <td className="py-1.5 pr-3 whitespace-nowrap">{d ? <span title={g.lines.map((l) => l.match_how).filter(Boolean).join(', ')}>{d.reference} · {d.vehicle_label ?? `${d.brand ?? ''} ${d.model ?? ''}`.trim()}</span> : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.purchase_price)}</td>
-                        <td className={`py-1.5 pr-3 text-right tabular-nums font-medium ${ecart == null ? '' : ecart > 1 ? 'text-rose-700' : ecart < -1 ? 'text-emerald-700' : 'text-slate-400'}`}>{ecart == null ? '—' : eur(ecart)}</td>
+                        <td className={`py-1.5 pr-3 text-right tabular-nums font-medium ${ecart == null ? '' : ecart > 1 ? 'text-rose-700' : ecart < -1 ? 'text-amber-700' : 'text-slate-400'}`} title={ecart != null && ecart < -1 ? 'Payé moins que le tableur : acompte ou complément sur un relevé pas encore déposé, ou prix du tableur à vérifier' : ecart != null && ecart > 1 ? 'Payé plus que le tableur' : ''}>{ecart == null ? '—' : eur(ecart)}{ecart != null && ecart < -1 && <span className="ml-1 text-[10px] font-normal">à compléter</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.sale_price)}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.commission_ht, 2)}</td>
                       </tr>
@@ -341,7 +362,7 @@ export function Treasury() {
                 </tbody>
               </table>
             </div>
-            <p className="text-xs text-slate-500 mt-1">Écart = payé (acomptes compris) − prix d'achat du tableur. Rouge : payé plus que le tableur ; vert : moins. Jaune : aucun dossier trouvé (plaque absente du tableur, ou REF différente).</p>
+            <p className="text-xs text-slate-500 mt-1">Écart = payé (acomptes compris) − prix d'achat du tableur. Rouge : payé plus que le tableur. Ambre « à compléter » : payé moins, le reste est sans doute un acompte sur un relevé pas encore déposé ; l'écart se referme seul quand il arrive. Jaune : aucun dossier trouvé — tape la REF du dossier pour poser le lien à la main.</p>
           </div>
           <div>
             <h3 className="font-medium text-slate-900 mb-2">Encaissements de ventes <span className="text-xs text-slate-500">({receipts.length} · reçu {eur(sum(receipts, (g) => g.received))} · prix de vente tableur {eur(sum(receipts, (g) => g.deal?.sale_price ?? 0))})</span></h3>
@@ -359,7 +380,7 @@ export function Treasury() {
                         <td className="py-1.5 pr-3">{g.lines[0]?.counterparty}</td>
                         <td className="py-1.5 pr-3 max-w-[22rem] truncate" title={g.lines.map((l) => l.description).join('\n')}>{g.lines[0]?.description}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(g.received)}</td>
-                        <td className="py-1.5 pr-3 whitespace-nowrap">{d ? `${d.reference} · ${d.vehicle_label ?? ''}` : <span className="text-amber-700">sans dossier</span>}</td>
+                        <td className="py-1.5 pr-3 whitespace-nowrap">{d ? `${d.reference} · ${d.vehicle_label ?? ''}` : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.sale_price)}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{ecart == null ? '—' : eur(ecart)}</td>
                       </tr>
@@ -393,7 +414,7 @@ export function Treasury() {
                   return (
                     <tr key={l.id} className="border-b border-slate-100">
                       <td className="py-1 pr-3 whitespace-nowrap">{l.booked_on}</td>
-                      <td className="py-1 pr-3 text-xs">{ACCOUNT_LABEL[l.account]}</td>
+                      <td className="py-1 pr-3 text-xs whitespace-nowrap" title={stmtById.get(l.statement_id) ? rowLabel(stmtById.get(l.statement_id)!) : ''}>{ACCOUNT_LABEL[l.account]}{stmtById.get(l.statement_id)?.account_ref ? <span className="text-slate-400"> …{stmtById.get(l.statement_id)!.account_ref}</span> : null}</td>
                       <td className="py-1 pr-3 text-xs font-mono">{l.kind}</td>
                       <td className="py-1 pr-3 max-w-[14rem] truncate" title={l.counterparty}>{l.counterparty}</td>
                       <td className="py-1 pr-3 max-w-[22rem] truncate" title={l.description}>{l.description}{l.plate && <span className="ml-1 font-mono text-[10px] text-slate-500">{l.plate}</span>}</td>
@@ -404,7 +425,10 @@ export function Treasury() {
                           {BANK_CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}
                         </select>
                       </td>
-                      <td className="py-1 pr-3 whitespace-nowrap text-xs">{d ? <span title={l.match_how ?? ''}>{d.reference}</span> : ''}</td>
+                      <td className="py-1 pr-3 whitespace-nowrap text-xs">
+                        {d ? <span title={l.match_how ?? ''} className={l.match_how === 'manuel' ? 'text-sky-700' : ''}>{d.reference}{l.match_how === 'manuel' && <button onClick={() => void onLink([l.id], '')} className="ml-1 text-slate-400 hover:text-red-600" title="Retirer le lien">×</button>}</span>
+                          : ['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(l.category) ? <RefInput onSubmit={(ref) => void onLink([l.id], ref)} /> : ''}
+                      </td>
                     </tr>
                   );
                 })}
@@ -415,5 +439,16 @@ export function Treasury() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Saisie d'une REF de dossier pour poser un lien à la main (Entrée pour valider). */
+function RefInput({ onSubmit }: { onSubmit: (ref: string) => void }) {
+  const [v, setV] = useState('');
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="text-amber-700 text-xs">sans dossier</span>
+      <input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && v.trim()) { onSubmit(v); setV(''); } }} placeholder="REF ↵" className="w-20 px-1.5 py-0.5 rounded border border-amber-300 bg-white text-xs font-mono" title="REF du dossier (ex. RV667), Entrée pour relier" />
+    </span>
   );
 }

@@ -7,11 +7,11 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { pdfToLines } from '../lib/pdfText';
 import { recordLearningCaseFromApp } from './learningCases';
-import { parseStatement, matchLine, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
+import { parseStatement, matchLine, matchComplements, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
 export { matchLine, type DealLite } from '../lib/bankStatements';
 
 export interface BankStatementRow {
-  id: string; account: BankAccount; period_month: string; file_name: string | null; currency: string;
+  id: string; account: BankAccount; account_ref?: string | null; account_name?: string | null; period_month: string; file_name: string | null; currency: string;
   opening_balance: number | null; closing_balance: number | null; line_count: number; warnings: string[] | null; created_at: string;
 }
 export interface BankLineRow extends Omit<ParsedLine, 'category'> {
@@ -115,7 +115,14 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
     if (!st.period_month) throw new Error('mois du relevé introuvable dans le PDF');
     res.account = st.account; res.month = st.period_month; res.warnings = st.warnings;
     // Catégories corrigées à la main sur la version précédente : conservées.
-    const { data: prev } = await untyped.from('bank_statements').select('id').eq('account', st.account).eq('period_month', st.period_month).maybeSingle();
+    // Un relevé = (banque, numéro de compte, mois) : le même relevé redéposé
+    // (même sous un autre nom de fichier) REMPLACE, jamais de doublon ; deux
+    // comptes d'une même banque (Shine principal / secondaire) cohabitent.
+    // Colonne account_ref absente (SQL du 02/10 soir pas collé) : clé (banque, mois).
+    let prevQ = untyped.from('bank_statements').select('id').eq('account', st.account).eq('period_month', st.period_month);
+    let hasRef = true;
+    let { data: prev, error: prevErr } = await prevQ.eq('account_ref', st.account_ref ?? '').maybeSingle();
+    if (prevErr && /account_ref/.test(prevErr.message)) { hasRef = false; ({ data: prev } = await untyped.from('bank_statements').select('id').eq('account', st.account).eq('period_month', st.period_month).maybeSingle()); }
     const manual = new Map<string, string>();
     if (prev?.id) {
       const { data: old } = await untyped.from('bank_lines').select('booked_on, amount_out, amount_in, description, category, category_auto').eq('statement_id', prev.id);
@@ -127,6 +134,7 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
     const uid = useAuth.getState().userId;
     const { data: ins, error: insErr } = await untyped.from('bank_statements').insert({
       account: st.account, period_month: st.period_month, file_name: file.name, uploaded_by: uid, currency: st.currency,
+      ...(hasRef ? { account_ref: st.account_ref ?? '', account_name: st.account_name ?? null } : {}),
       opening_balance: st.opening_balance, closing_balance: st.closing_balance, line_count: st.lines.length, warnings: st.warnings,
     }).select('id').single();
     if (insErr) throw new Error(missing(insErr.message) ? MISSING_MSG : insErr.message);
@@ -142,6 +150,8 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
       if (error) throw new Error(error.message);
     }
     res.lines = rows.length; res.matched = matched;
+    // Second passage (acomptes sans plaque qui comblent l'écart d'un dossier) sur tout le compte.
+    try { const all = await listLines(); await applyComplements(all.rows, deals); } catch { /* fail-open */ }
     return res;
   } catch (e) {
     res.error = e instanceof Error ? e.message : String(e);
@@ -156,12 +166,39 @@ const lineKey = (o: { booked_on?: unknown; amount_out?: unknown; amount_in?: unk
 export async function rematchAll(lines: BankLineRow[], deals: DealLite[]): Promise<{ changed: number; error: string | null }> {
   let changed = 0;
   for (const l of lines) {
+    if (l.match_how === 'manuel') continue; // un lien posé à la main n'est jamais défait par l'automate
     const m = matchLine(l, deals);
     const id = m?.id ?? null, how = m?.how ?? null;
-    if (id === l.transaction_id && how === l.match_how) continue;
+    if (id === l.transaction_id && how === l.match_how) { continue; }
+    if (!m && l.match_how === 'tiers + complément') continue; // posé par le second passage, revérifié ci-dessous
     const { error } = await untyped.from('bank_lines').update({ transaction_id: id, match_how: how }).eq('id', l.id);
     if (error) return { changed, error: error.message };
-    changed++;
+    l.transaction_id = id; l.match_how = how; changed++;
   }
-  return { changed, error: null };
+  const c = await applyComplements(lines, deals);
+  return { changed: changed + c, error: null };
+}
+
+async function applyComplements(lines: BankLineRow[], deals: DealLite[]): Promise<number> {
+  const found = matchComplements(lines, deals);
+  let n = 0;
+  for (const [lineId, m] of found) {
+    const { error } = await untyped.from('bank_lines').update({ transaction_id: m.id, match_how: m.how }).eq('id', lineId);
+    if (!error) { n++; const l = lines.find((x) => x.id === lineId); if (l) { l.transaction_id = m.id; l.match_how = m.how; } }
+  }
+  return n;
+}
+
+/** Lien posé à la main : REF du dossier (vide = retirer le lien). */
+export async function setLineMatch(lineId: string, reference: string, deals: DealLite[]): Promise<{ error: string | null; deal: DealLite | null }> {
+  const ref = reference.trim().toUpperCase();
+  if (!ref) {
+    const { error } = await untyped.from('bank_lines').update({ transaction_id: null, match_how: null }).eq('id', lineId);
+    return { error: error ? error.message : null, deal: null };
+  }
+  const cands = deals.filter((d) => (d.reference ?? '').toUpperCase() === ref);
+  if (cands.length === 0) return { error: `aucun dossier avec la REF ${ref}`, deal: null };
+  const deal = cands.find((d) => d.plate && d.purchase_price != null) ?? cands.find((d) => d.purchase_price != null) ?? cands[0];
+  const { error } = await untyped.from('bank_lines').update({ transaction_id: deal.id, match_how: 'manuel' }).eq('id', lineId);
+  return { error: error ? error.message : null, deal };
 }

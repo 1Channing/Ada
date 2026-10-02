@@ -47,6 +47,9 @@ export interface BankLine {
 
 export interface ParsedStatement {
   account: BankAccount;
+  /** Numéro de compte (fin d'IBAN ou n° de compte) : deux comptes d'une même banque cohabitent (Shine principal / secondaire). */
+  account_ref?: string;
+  account_name?: string | null;
   period_month: string;         // YYYY-MM
   opening_balance: number | null;
   closing_balance: number | null;
@@ -111,13 +114,27 @@ export function parseStatement(lines: TextLine[]): ParsedStatement {
   if (lines.length === 0) throw new Error('ce PDF ne contient aucun texte (relevé scanné en image) — exporter le relevé depuis la banque en PDF natif ou en CSV');
   const account = detectBank(lines);
   const texts = lines.map((l) => l.text);
-  if (account === 'revolut') return parseRevolut(texts);
-  if (account === 'airwallex') return parseAirwallex(texts);
-  if (account === 'shine') return parseShine(lines);
-  if (account === 'pennylane') return parseSwan(texts);
-  if (account === 'cic') return parseCic(lines);
-  if (account === 'caisse_epargne') return parseCaisseEpargne(texts);
-  throw new Error("relevé non reconnu — formats connus : Revolut Business, Airwallex, Shine, Pennylane (Swan), CIC, Caisse d'Épargne");
+  let st: ParsedStatement;
+  if (account === 'revolut') st = parseRevolut(texts);
+  else if (account === 'airwallex') st = parseAirwallex(texts);
+  else if (account === 'shine') st = parseShine(lines);
+  else if (account === 'pennylane') st = parseSwan(texts);
+  else if (account === 'cic') st = parseCic(lines);
+  else if (account === 'caisse_epargne') st = parseCaisseEpargne(texts);
+  else throw new Error("relevé non reconnu — formats connus : Revolut Business, Airwallex, Shine, Pennylane (Swan), CIC, Caisse d'Épargne");
+  const id = accountIdentity(texts);
+  st.account_ref = id.ref; st.account_name = id.name;
+  return st;
+}
+
+/** Numéro de compte du relevé : 5 derniers caractères de l'IBAN (toutes banques), sinon du n° de compte (CIC) ; nom du compte quand il est écrit (Shine). */
+export function accountIdentity(texts: string[]): { ref: string; name: string | null } {
+  const head = texts.slice(0, 120).join('\n');
+  const iban = head.match(/IBAN\s*:?\s*([A-Z]{2}\d{2}(?:\s?[A-Z0-9]{2,4}){3,8})/)?.[1]?.replace(/\s/g, '');
+  const num = head.match(/COMPTE[^\n]*N°\s*([\d ]{8,})/i)?.[1]?.replace(/\s/g, '') ?? head.match(/N°\s*(\d{8,})/)?.[1];
+  const ref = (iban ?? num ?? '').slice(-5);
+  const name = head.match(/Nom du compte\s*:\s*([^\n]+)/)?.[1]?.trim() ?? head.match(/Account name\s+([^\n]+?)(?:\s+Currency|$)/m)?.[1]?.trim() ?? null;
+  return { ref, name };
 }
 
 /** Abscisse de la colonne Crédit sur la ligne d'en-tête : un montant à droite de ce repère est un crédit. */
@@ -560,6 +577,10 @@ export function matchLine(line: { plate: string | null; vin: string | null; coun
       if (byModel.length === 1) return { id: byModel[0].id, how: 'montant + modèle' };
       const byClient = line.amount_in != null ? byAmount.filter((d) => d.notes && words.some((w) => new RegExp(`Client : [^\\n]*\\b${w}\\b`, 'i').test(d.notes!))) : [];
       if (byClient.length === 1) return { id: byClient[0].id, how: 'montant + client' };
+      // Montant exact porté par UN SEUL dossier (paiement via un prestataire,
+      // Fintecture 35 500 € = RAV4 RV667, constat Channing 02/10 soir) : les
+      // prix répétés (Swift 15 900 € × 20) ne passent pas ce filtre.
+      if (byAmount.length === 1 && amt >= 3000) return { id: byAmount[0].id, how: 'montant unique' };
     }
   }
   // Numéro de facture (NENA S.R.L. « Saldo fattura FAC00000517 » ↔ dossier
@@ -585,3 +606,31 @@ export function matchLine(line: { plate: string | null; vin: string | null; coun
   return null;
 }
 
+
+/**
+ * SECOND PASSAGE (02/10 soir, « des écarts de 1 000 € et c'est souvent des
+ * acomptes ») : une ligne véhicule sans dossier dont le TIERS a déjà une
+ * ligne reliée, et dont le montant comble exactement l'écart entre le payé
+ * et le prix d'achat du tableur → même dossier. Rend les affectations
+ * trouvées (id de ligne → dossier), à écrire par l'appelant.
+ */
+export function matchComplements<L extends { id: string; counterparty: string; amount_out: number | null; category: string; transaction_id: string | null }>(lines: L[], deals: DealLite[]): Map<string, { id: string; how: string }> {
+  const out = new Map<string, { id: string; how: string }>();
+  const key = (c: string) => c.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+  const paidByDeal = new Map<string, number>();
+  const dealsByCp = new Map<string, Set<string>>();
+  for (const l of lines) {
+    if (!l.transaction_id || !l.amount_out) continue;
+    paidByDeal.set(l.transaction_id, (paidByDeal.get(l.transaction_id) ?? 0) + l.amount_out);
+    const k = key(l.counterparty); if (!k) continue;
+    (dealsByCp.get(k) ?? dealsByCp.set(k, new Set()).get(k)!).add(l.transaction_id);
+  }
+  for (const l of lines) {
+    if (l.transaction_id || !l.amount_out || !['achat_vehicule', 'acompte_vehicule'].includes(l.category)) continue;
+    const cands = [...(dealsByCp.get(key(l.counterparty)) ?? [])]
+      .map((id) => deals.find((d) => d.id === id)).filter((d): d is DealLite => !!d && d.purchase_price != null)
+      .filter((d) => Math.abs((paidByDeal.get(d.id) ?? 0) + (l.amount_out ?? 0) - (d.purchase_price as number)) <= 1);
+    if (cands.length === 1) { out.set(l.id, { id: cands[0].id, how: 'tiers + complément' }); paidByDeal.set(cands[0].id, (paidByDeal.get(cands[0].id) ?? 0) + l.amount_out); }
+  }
+  return out;
+}

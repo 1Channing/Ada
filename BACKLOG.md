@@ -832,6 +832,27 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : COMPTES PAR IBAN, DOUBLONS, ÉCARTS D'ACOMPTE, LIENS À LA
+  MAIN (02/10 soir, six points de Channing)**. (1) Un relevé = (banque,
+  numéro de compte, mois) : fin d'IBAN ou n° de compte lu dans le PDF
+  (accountIdentity), nom du compte quand il est écrit (Shine « Compte
+  principal ») ; le même relevé redéposé sous un autre nom REMPLACE (jamais
+  de doublon), deux comptes d'une même banque cohabitent (Shine
+  secondaire) ; SQL 20261002200000 (colonnes account_ref / account_name,
+  unicité (banque, compte, mois)), repli sur (banque, mois) tant qu'il
+  n'est pas collé. (2) Plafond silencieux : c'était le plafond PostgREST,
+  levé l'après-midi ; bornes restantes 50 000 lignes de relevés / 100 000
+  ailleurs, dites. (3) Écarts négatifs = ambre « à compléter » (acompte sur
+  un relevé pas encore déposé), rouge seulement si payé plus ; second
+  passage « tiers + complément » : une ligne achat / acompte sans dossier
+  dont le tiers a déjà une ligne reliée et dont le montant comble
+  exactement l'écart du dossier → même dossier. (4) Fintecture 35 500 € =
+  RV667 : règle « montant unique » (montant ≥ 3 000 € porté par un seul
+  dossier). (5) Lien à la main : champ REF sur toute ligne véhicule sans
+  dossier (vues Véhicules et Lignes), jamais défait par le re-rapprochement,
+  retirable. (6) Dates : le tableur est rangé par mois de FACTURATION, un
+  véhicule facturé en juillet peut être payé en août — le rapprochement ne
+  contraint pas le mois, les totaux « dossiers du mois » suivent l'onglet.
 - **PLAFOND POSTGREST 1 000 LIGNES : CLASSE CORRIGÉE PARTOUT OÙ ÇA COMPTE
   (02/10 soir, constat Channing : « deuxième relevé Louwman, aucun véhicule
   disparu »)**. Mesure : le 2e relevé Louwman dit 3 917 véhicules, 2 928
