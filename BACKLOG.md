@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : IBAN CHERCHÉ SUR TOUT LE RELEVÉ (02/10 soir, « il y a
+  deux CIC ? »)**. Preuve sur le CIC de septembre : l'IBAN est en pied de
+  page (« IBAN : FR76 3004 7142 9300 0205 3370 287 »), lu seulement sur les
+  relevés courts (≤ 120 lignes) → clé « 70287 » pour janvier, février, mai,
+  septembre, et « 33702 » (n° de compte) pour les longs. Un seul compte
+  (février se clôture à 37 201 €, mars s'ouvre à 37 201 €). L'IBAN est
+  désormais cherché sur tout le texte ; vérifié : CIC juin et septembre →
+  70287, les cinq autres banques inchangées. SQL donné : clé CIC = 70287.
 - **TRÉSORERIE : NUMÉRO DE COMPTE LU LIGNE PAR LIGNE (02/10 soir, « j'en ai
   pas mal en erreur »)**. Constat en base après le redépôt : Revolut
   « CREVO », Pennylane « CSWNB », Caisse d'Épargne « 87BIC », Airwallex

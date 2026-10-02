@@ -132,9 +132,12 @@ export function parseStatement(lines: TextLine[]): ParsedStatement {
 export function accountIdentity(texts: string[]): { ref: string; name: string | null } {
   const head = texts.slice(0, 120);
   let iban: string | null = null;
-  for (let i = 0; i < head.length && !iban; i++) {
-    if (!/\bIBAN\b/.test(head[i])) continue;
-    const src = /[A-Z]{2}\d{2}/.test(head[i].replace(/^.*IBAN\s*:?\s*/, '')) ? head[i] : (head[i + 1] ?? '');
+  // L'IBAN peut être en pied de page (CIC : « IBAN : FR76 3004 7142 9300 0205
+  // 3370 287 » tout en bas, constat 02/10 soir — lu sur les relevés courts
+  // seulement, d'où deux clés pour un même compte) : cherché sur TOUT le texte.
+  for (let i = 0; i < texts.length && !iban; i++) {
+    if (!/\bIBAN\b/.test(texts[i])) continue;
+    const src = /[A-Z]{2}\d{2}/.test(texts[i].replace(/^.*IBAN\s*:?\s*/, '')) ? texts[i] : (texts[i + 1] ?? '');
     const m = src.replace(/^.*IBAN\s*:?\s*/, '').match(/^([A-Z]{2}\d{2}(?: ?[A-Z0-9]{2,4})+)/);
     if (!m) continue;
     const groups = m[1].split(' ');
