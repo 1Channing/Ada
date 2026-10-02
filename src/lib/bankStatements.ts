@@ -695,13 +695,30 @@ export function extractVin(text: string): string | null {
 
 // ── Classement ──────────────────────────────────────────────────────────────
 const norm = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+/**
+ * Règles qui ne dépendent ni de la banque ni du type de ligne (reprises par
+ * la réparation des lignes déjà en base, 03/10 soir) :
+ * - tiers = la société elle-même (« SAS MC EXPORT », « MC EXPORT 2 C26W… »
+ *   du CIC, « MC EXPORT SAS » de Finom) = virement entre ses propres comptes,
+ *   même si le libellé dit « Achat Aygo » : l'achat est sur l'autre compte.
+ *   Constat : 72 326 € BPGO → Shine comptés en facture fournisseur ET en
+ *   vente encaissée, 10 000 € CIC → Shine comptés en achats de véhicules.
+ * - Deel = paie (plateforme de salaires), 19 968 € en « factures ».
+ */
+export function classifyAny(counterparty: string, description: string): BankCategory | null {
+  const cp = norm(counterparty), ds = norm(description), all = `${cp} ${ds}`;
+  if (/transfert interne/.test(all) || /\bmc export\b/.test(cp)) return 'transfert_interne';
+  if (/revolut business fee|airwallex|frais bancaires|commission d'intervention|abonnement shine|frais paiement|frais de tenue|cotisation carte/.test(all)) return 'frais_bancaires';
+  if (/impots|impot[ .]|dgfip|finances publiques|tresor public|\btva\b|urssaf|93033811600013|douane|\bsie\b|\bis\b.*rejet|rejet.*\bis\b|\bis[1-4]-\d{6}|\brcm1-\d{6}|\bcfe\b|\bcvae\b/.test(all)) return 'impots_tva';
+  if (/bulletin de salaire|\bsalaire|\bpaie\b|\bdeel\b/.test(all)) return 'salaire';
+  return null;
+}
 export function classify(kind: string, counterparty: string, description: string, out: number | null, inn: number | null): BankCategory {
   const cp = norm(counterparty), ds = norm(description), all = `${cp} ${ds}`;
-  if (/transfert interne/.test(all) || /^mc export$/.test(cp.trim())) return 'transfert_interne';
   if (kind === 'ATM' || /^RETRAIT/i.test(kind)) return 'retrait_especes';
-  if (kind === 'FEE' || kind === 'Fee' || kind === 'fee' || (kind === 'Adjustment' && /fees|invoice number/.test(all)) || /revolut business fee|airwallex|frais bancaires|commission d'intervention|abonnement shine|frais paiement|frais de tenue|cotisation carte/.test(all)) return 'frais_bancaires';
-  if (/impots|impot[ .]|dgfip|finances publiques|tresor public|\btva\b|urssaf|93033811600013|douane|\bsie\b|\bis\b.*rejet|rejet.*\bis\b|\bis[1-4]-\d{6}|\brcm1-\d{6}|\bcfe\b|\bcvae\b/.test(all)) return 'impots_tva';
-  if (/bulletin de salaire|\bsalaire|\bpaie\b/.test(all)) return 'salaire';
+  if (kind === 'FEE' || kind === 'Fee' || kind === 'fee' || (kind === 'Adjustment' && /fees|invoice number/.test(all))) return 'frais_bancaires';
+  const any = classifyAny(counterparty, description);
+  if (any) return any;
   const isIn = inn != null && (kind === 'MOA' || kind === 'MOR' || kind === 'Deposit' || kind === 'transfer_in');
   const isOutTransfer = out != null && (kind === 'MOS' || kind === 'Payout' || kind === 'Transfer' || kind === 'transfer_out');
   if (isIn) {
@@ -710,7 +727,7 @@ export function classify(kind: string, counterparty: string, description: string
   }
   if (isOutTransfer) {
     if (/acompte|anticipo|arrhes|deposit/.test(ds)) return 'acompte_vehicule';
-    if (/achat|acquisto|solde|vehicule|voiture|\b(yaris|ignis|kona|tucson|sprinter|transit|transporter|porsche|rav ?4|elroq|enyaq|corolla|swift|aygo|tge|crafter|vito|id\.?3|911|997)\b/.test(ds) || extractPlate(description)) return 'achat_vehicule';
+    if (/achat|acquisto|solde|vehicule|voiture|\b(yaris|ignis|kona|tucson|sprinter|transit|transporter|porsche|rav ?4|elroq|enyaq|corolla|swift|aygo|tge|crafter|vito|id\.?3|911|997|ds ?7|astra|tayron|bz4x|c-?hr|mach-?e|q4)\b/.test(ds) || extractPlate(description)) return 'achat_vehicule';
     if (/assur/.test(all)) return 'assurance';
     if (/convoy|transport|livraison|plaque|carte grise|immat|w garage|depann|remorqu/.test(all)) return 'logistique';
     if (/facture|invoice|fac\d|\beurl\b|\bsarl\b|\bsas\b|\bsrl\b|\bbv\b/.test(all)) return 'facture_fournisseur';

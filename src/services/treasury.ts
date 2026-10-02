@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { pdfToLinesEx } from '../lib/pdfText';
 import { recordLearningCaseFromApp } from './learningCases';
-import { parseStatement, matchLineParts, matchComplements, repairShineKind, classify, extractPlate, extractVin, expectedCash, type LinkPart, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
+import { parseStatement, matchLineParts, matchComplements, repairShineKind, classify, classifyAny, extractPlate, extractVin, expectedCash, type LinkPart, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
 export { matchLine, type DealLite, type LinkPart } from '../lib/bankStatements';
 
 export interface BankStatementRow {
@@ -82,6 +82,18 @@ export async function deleteStatement(id: string): Promise<string | null> {
 export async function repairLines(lines: BankLineRow[], deals: DealLite[]): Promise<{ repaired: number; error: string | null }> {
   let repaired = 0;
   for (const l of lines) {
+    // Règles indépendantes de la banque (virement entre ses propres comptes, paie, impôts) : reclassées
+    // en base quand la catégorie n'a pas été choisie à la main ; le lien au dossier est refait (un
+    // virement interne n'achète aucun véhicule).
+    const manualCat = l.category_auto != null && l.category !== l.category_auto;
+    const any = classifyAny(l.counterparty, l.description);
+    if (any && any !== l.category_auto && !manualCat && !(l.account === 'shine' && !l.counterparty && !l.description)) {
+      const { error } = await untyped.from('bank_lines').update({ category: any, category_auto: any }).eq('id', l.id);
+      if (error) return { repaired, error: error.message };
+      l.category = any; l.category_auto = any; repaired++;
+      if (l.match_how !== 'manuel') { const err = await writeLink(l.id, matchLineParts(l, deals)); if (err) return { repaired, error: err }; }
+      continue;
+    }
     if (l.account !== 'shine' || l.counterparty || l.description) continue;
     const fix = repairShineKind(l.kind);
     if (!fix) continue;

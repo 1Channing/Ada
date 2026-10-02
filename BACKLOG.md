@@ -832,6 +832,25 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **FRAIS : VIREMENTS ENTRE SES PROPRES COMPTES ET PAIE DEEL SORTIS DES
+  FRAIS, DES ACHATS ET DES VENTES (03/10 soir, Channing : « quels sont ces
+  frais exactement ? », « la marge que je calcule sur le sheet est
+  absolument fausse ? »)**. Les 354 318 € de « frais réels » janvier →
+  septembre contenaient 72 326 € BPGO → Shine (tiers « SAS MC EXPORT »,
+  compté en facture fournisseur, et 72 291 € reçus côté Shine comptés en
+  vente encaissée), 10 000 € × 6 CIC → Shine (« MC EXPORT C26W… », comptés
+  en achats de véhicules), Finom → Shine « Achat Aygo » 14 990 €, Deel
+  (paie) 19 968 € en factures. Règle de classe : tiers = la société
+  elle-même → virement interne quel que soit le libellé ; Deel → salaire ;
+  règles indépendantes de la banque isolées dans `classifyAny`, rejouées
+  au chargement sur les lignes non corrigées à la main (lien au dossier
+  refait). Effet attendu : −69 814 € d'achats, −80 943 € de ventes,
+  −89 010 € de factures fournisseurs. DS7 × 2 Consilcar 29 800 € (« INVOICE
+  PROFORMA … DS7 x2 ») : modèle ajouté à la règle d'achat. Reste en frais
+  (à nommer avec Channing) : UAB Axis Auto 42 800 € (26 lignes),
+  Antoine Dissais 35 492 €, Christian Cloirec 34 147 € (49 lignes),
+  M Cars 12 970 €, Geo Conseils 12 421 €, SNCF 10 397 €, Garage des
+  Ardoisières 8 784 €, GF Holding 7 680 €, Achille 5 902 €.
 - **TVA « * » : IMPORTS EXCLUS, LE TABLEUR NE VOIT QUE LES VÉHICULES VENDUS
   (03/10 soir, Channing : « la TVA dans le tableur est uniquement sur la
   colonne véhicule ; tout ce qui est en achat sur la ligne d'un véhicule
