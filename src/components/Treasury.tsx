@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
 import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, type BankCategory, type BankAccount } from '../lib/bankStatements';
+import { TreasuryVat } from './TreasuryVat';
 import {
   listStatements, listLines, deleteStatement, setLineCategory, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
   type BankStatementRow, type BankLineRow, type DealLite, type UploadResult,
@@ -14,7 +15,7 @@ import {
  */
 const eur = (n: number | null | undefined, dec = 0) => (n == null ? '—' : `${n.toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec })} €`);
 const monthLabel = (m: string) => { const [ym, part] = m.split('~'); const [y, mo] = ym.split('-'); return new Intl.DateTimeFormat('fr-FR', { month: 'short', year: '2-digit' }).format(new Date(Number(y), Number(mo) - 1, 1)) + (part ? ` (${part.replace('-', '→')})` : ''); };
-type View = 'releves' | 'frais' | 'vehicules' | 'lignes';
+type View = 'releves' | 'frais' | 'vehicules' | 'lignes' | 'tva';
 
 export function Treasury() {
   const [statements, setStatements] = useState<BankStatementRow[]>([]);
@@ -100,6 +101,8 @@ export function Treasury() {
     return out;
   }, [statements]);
   const stmtsOf = (r: GridRow) => statements.filter((s) => s.account === r.account && (s.account_ref ?? '') === r.ref);
+  // Compte clôturé : le dernier relevé se termine à (presque) zéro → rien n'est attendu après (Finom, Pennylane).
+  const closedAfter = (sts: BankStatementRow[]) => { const last = [...sts].sort((a, b) => b.period_month.localeCompare(a.period_month))[0]; return !!last && last.closing_balance != null && Math.abs(last.closing_balance) < 50; };
   const cell = (r: GridRow, m: string) => stmtsOf(r).filter((s) => s.period_month.slice(0, 7) === m);
   const stmtById = useMemo(() => new Map(statements.map((s) => [s.id, s])), [statements]);
   // Un mois manque quand un compte déjà déposé n'a rien entre son premier relevé et le mois précédent.
@@ -107,9 +110,10 @@ export function Treasury() {
     let n = 0;
     const prevMonth = gridMonths[gridMonths.length - 2];
     for (const r of gridRows) {
-      const mine = stmtsOf(r).map((s) => s.period_month.slice(0, 7));
+      const sts = stmtsOf(r); const mine = sts.map((s) => s.period_month.slice(0, 7));
       if (mine.length === 0) continue;
-      const lo = mine.reduce((x, y) => (y < x ? y : x)), hi = prevMonth && prevMonth > mine.reduce((x, y) => (y > x ? y : x)) ? prevMonth : mine.reduce((x, y) => (y > x ? y : x));
+      const last = mine.reduce((x, y) => (y > x ? y : x));
+      const lo = mine.reduce((x, y) => (y < x ? y : x)), hi = !closedAfter(sts) && prevMonth && prevMonth > last ? prevMonth : last;
       for (const m of gridMonths) if (m >= lo && m <= hi && !mine.includes(m)) n++;
     }
     return n;
@@ -224,7 +228,7 @@ export function Treasury() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {tabBtn('releves', `Relevés (${statements.length})`)}{tabBtn('frais', 'Frais mensuels')}{tabBtn('vehicules', 'Véhicules : payé vs tableau')}{tabBtn('lignes', `Lignes (${scoped.length})`)}
+        {tabBtn('releves', `Relevés (${statements.length})`)}{tabBtn('frais', 'Frais mensuels')}{tabBtn('vehicules', 'Véhicules : payé vs tableau')}{tabBtn('tva', 'TVA & point de départ')}{tabBtn('lignes', `Lignes (${scoped.length})`)}
         <span className="mx-2 text-slate-300">|</span>
         <select value={account} onChange={(e) => setAccount(e.target.value as typeof account)} className="px-2 py-1.5 rounded-lg border border-slate-300 text-sm bg-white">
           <option value="all">Tous les comptes</option>
@@ -252,7 +256,8 @@ export function Treasury() {
                       {gridMonths.map((m) => {
                         const sts = cell(row, m);
                         const isLast = m === gridMonths[gridMonths.length - 1];
-                        const expected = lo != null && m >= lo && !isLast;
+                        const last = mine.length ? mine.reduce((x, y) => (y > x ? y : x)) : null;
+                        const expected = lo != null && m >= lo && !isLast && !(closedAfter(stmtsOf(row)) && last != null && m > last);
                         return (
                           <td key={m} className="py-1.5 px-2 text-center align-top">
                             {sts.length > 0 ? sts.map((st) => (
@@ -275,9 +280,10 @@ export function Treasury() {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-slate-500">« manque » : la banque a des relevés avant et rien pour ce mois (le mois en cours n'est jamais compté). Un relevé en plusieurs parties montre ses jours (01→15). Survole une case pour le fichier, les soldes et les avertissements.</p>
+          <p className="text-xs text-slate-500">« manque » : la banque a des relevés avant et rien pour ce mois (le mois en cours n'est jamais compté ; un compte dont le dernier relevé finit à zéro est tenu pour clôturé). Un relevé en plusieurs parties montre ses jours (01→15). Survole une case pour le fichier, les soldes et les avertissements.</p>
         </div>
       )}
+      {view === 'tva' && <TreasuryVat lines={lines} deals={deals} statements={statements} />}
       {view === 'frais' && (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">

@@ -832,6 +832,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : TVA & POINT DE DÉPART (03/10, « je valide ton plan, go »,
+  « j'ai le relevé de demande de TVA depuis janvier 2026, ajoute un
+  onglet »)**. Vue « TVA & point de départ » : bilan au 31/12/2025 chargé
+  depuis app_config 'treasury_opening' (SQL 20261003100000, avec la table
+  vat_returns, admin) ; contrôle = somme des soldes d'ouverture de janvier
+  déposés contre 99 540 € de disponibilités ; TVA déclarée mois par mois
+  (collectée, déductible, nette, remboursement demandé, crédit reporté)
+  saisie à la main ou pré-remplie depuis un PDF (lecture au mieux des
+  libellés CA3 / demandes de remboursement, lignes brutes affichées) ;
+  reçu / payé à l'État depuis les lignes bancaires impots_tva ; créance de
+  TVA cumulée = crédit 31/12 + (déductible − collectée) − reçu + payé ;
+  « TVA attendue sur achats * » = achat / 6 des véhicules à TVA récupérable
+  du tableur (règle Channing : * = acheté avec TVA récupérable, vendu HT).
+  Grille : un compte dont le dernier relevé finit à ~0 est tenu pour
+  clôturé (Finom, Pennylane 22/05) → plus de faux « manque » après.
+  Pennylane mai en ANGLAIS (dates MM/JJ, « 3,701.01 », « Credit Transfer »)
+  lu ; chaîne des soldes : un solde du milieu mal lu entre deux défauts
+  consécutifs est corrigé (Finom « 53 237,91 » pour 51 237,91).
 - **TRÉSORERIE : MONTANTS OCR CORRIGÉS PAR LA CHAÎNE DES SOLDES (02/10 soir,
   « il semble y avoir des problèmes avec Finom »)**. Le site lisait Finom
   mars à 101 lignes, 3 défauts, écart 62,37 € ; en local 103 lignes, 1

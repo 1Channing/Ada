@@ -233,22 +233,34 @@ function parseShine(lines: TextLine[]): ParsedStatement {
 // (colonnes Crédit puis Débit, toutes deux présentes).
 function parseSwan(texts: string[]): ParsedStatement {
   const warnings: string[] = [];
-  const per = texts.map((t) => t.match(/^Du (\d{2}\/\d{2}\/\d{4}) au (\d{2}\/\d{2}\/\d{4})(?: ([\d\s\u00a0]+,\d{2}))?/)).find(Boolean);
-  const start = per ? frDate(per[1]) : null, end = per ? frDate(per[2]) : null;
-  const opening = per?.[3] ? moneyFr(per[3]) : null;
-  const cl = texts.map((t) => t.match(/^Solde de clôture ([\d\s\u00a0-]+,\d{2})$/)).find(Boolean);
-  const closing = cl ? moneyFr(cl[1]) : null;
+  // Français (« Du 01/04/2026 au 30/04/2026 41 124,57 », dates JJ/MM) ou anglais
+  // (mai 2026 : « From 05/01/2026 to 05/22/2026 3,701.01 », dates MM/JJ, « Credit Transfer »).
+  const perFr = texts.map((t) => t.match(/^Du (\d{2}\/\d{2}\/\d{4}) au (\d{2}\/\d{2}\/\d{4})(?: ([\d\s\u00a0]+,\d{2}))?/)).find(Boolean);
+  const perEn = texts.map((t) => t.match(/^From (\d{2}\/\d{2}\/\d{4}) to (\d{2}\/\d{2}\/\d{4})(?: ([\d,]+\.\d{2}))?/)).find(Boolean);
+  const en = !perFr && !!perEn;
+  const per = perFr ?? perEn;
+  const usDate = (d: string) => { const m = d.match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[1]}-${m[2]}` : null; };
+  const toDate = en ? usDate : frDate;
+  const toMoney = en ? money : moneyFr;
+  const start = per ? toDate(per[1]) : null, end = per ? toDate(per[2]) : null;
+  const opening = per?.[3] ? toMoney(per[3]) : null;
+  const cl = texts.map((t) => t.match(en ? /^Closing balance ([\d,-]+\.\d{2})$/ : /^Solde de clôture ([\d\s\u00a0-]+,\d{2})$/)).find(Boolean);
+  const closing = cl ? toMoney(cl[1]) : null;
   const out: BankLine[] = [];
-  const ROW = /^(\d{2}\/\d{2}\/\d{4}) (\S+) (.*?) ([\d\s\u00a0.]+,\d{2}) ([\d\s\u00a0.]+,\d{2})$/; // « 32.000,00 » (OCR) accepté
+  const ROW = en
+    ? /^(\d{2}\/\d{2}\/\d{4}) (Card|Credit Transfer|Direct Debit|Fee|Fees|Check|\S+) (.*?) ([\d,]+\.\d{2}) ([\d,]+\.\d{2})$/
+    : /^(\d{2}\/\d{2}\/\d{4}) (\S+) (.*?) ([\d\s\u00a0.]+,\d{2}) ([\d\s\u00a0.]+,\d{2})$/; // « 32.000,00 » (OCR) accepté
+  const KIND_FR: Record<string, string> = { Card: 'Carte', 'Credit Transfer': 'Virement', 'Direct Debit': 'Prélèvement', Fee: 'Frais', Fees: 'Frais' };
   let inTable = false;
   for (const t of texts) {
     if (/^Date Type Description/.test(t)) { inTable = true; continue; }
-    if (/^(Frais|Total|Solde de clôture)\b/.test(t)) { inTable = false; continue; }
+    if (/^(Frais|Fees|Total|Solde de clôture|Closing balance)\b/.test(t)) { inTable = false; continue; }
     if (!inTable) continue;
     const m = t.match(ROW);
     if (!m) continue;
-    const [, d, type, desc, cr, db] = m;
-    const credit = moneyFr(cr), debit = moneyFr(db);
+    const [, d, typeRaw, desc, cr, db] = m;
+    const type = KIND_FR[typeRaw] ?? typeRaw;
+    const credit = toMoney(cr), debit = toMoney(db);
     const isIn = credit > 0 && debit === 0;
     let counterparty = desc.trim(), description = '';
     const card = desc.match(/^(.*?) - Channing/);
@@ -256,15 +268,15 @@ function parseSwan(texts: string[]): ParsedStatement {
     else if (!/^Carte$/i.test(type)) { counterparty = ''; description = desc.trim(); }
     const flow = /^Carte/i.test(type) ? 'card' : isIn ? 'transfer_in' : 'transfer_out';
     const full = `${counterparty} ${description}`;
-    out.push({ booked_on: frDate(d)!, kind: type, counterparty, description, amount_out: isIn ? null : debit, amount_in: isIn ? credit : null, balance: null, currency: 'EUR',
+    out.push({ booked_on: toDate(d)!, kind: type, counterparty, description, amount_out: isIn ? null : debit, amount_in: isIn ? credit : null, balance: null, currency: 'EUR',
       plate: extractPlate(full), vin: extractVin(full), category: classify(flow, counterparty, description, isIn ? null : debit, isIn ? credit : null), line_no: out.length + 1 });
   }
   const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
   // Ligne « Total <crédits> <débits> » : si les lignes lues la recoupent au
   // centime, elles sont justes et c'est le solde de clôture qui est mal lu
   // (OCR : « 4124,57 » pour 41 124,57, constat 02/10 soir) → recalculé.
-  const tot = texts.map((t) => t.match(/^Total ([\d\s\u00a0.]+,\d{2}) ([\d\s\u00a0.]+,\d{2})$/)).find(Boolean);
-  const totalsOk = !!tot && Math.abs(moneyFr(tot[1]) - sumIn) < 0.011 && Math.abs(moneyFr(tot[2]) - sumOut) < 0.011;
+  const tot = texts.map((t) => t.match(en ? /^Total ([\d,]+\.\d{2}) ([\d,]+\.\d{2})$/ : /^Total ([\d\s\u00a0.]+,\d{2}) ([\d\s\u00a0.]+,\d{2})$/)).find(Boolean);
+  const totalsOk = !!tot && Math.abs(toMoney(tot[1]) - sumIn) < 0.011 && Math.abs(toMoney(tot[2]) - sumOut) < 0.011;
   let closingOut = closing;
   if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) {
     if (totalsOk) { closingOut = round2(opening + sumIn - sumOut); warnings.push(`solde de clôture lu « ${closing} » mais les lignes recoupent les totaux du relevé au centime : clôture recalculée à ${closingOut} €`); }
@@ -372,6 +384,13 @@ function parseCaisseEpargne(texts: string[]): ParsedStatement {
 function reconcileChain<R extends { date: string; amount: number; balance: number | null }>(rows: R[], labelOf: (r: R) => string, warnings: string[]): void {
   const bad = (i: number) => i + 1 < rows.length && rows[i].balance != null && rows[i + 1].balance != null && Math.abs(round2((rows[i + 1].balance as number) + rows[i].amount) - (rows[i].balance as number)) > 0.011;
   const fixed: string[] = [], left: string[] = [];
+  // Deux défauts consécutifs (i et i+1) : si un seul solde — celui du milieu —
+  // explique les deux (OCR « 53 237,91 » pour 51 237,91), on corrige ce solde.
+  for (let i = 0; i + 2 < rows.length; i++) {
+    if (!bad(i) || !bad(i + 1) || rows[i].balance == null || rows[i + 2].balance == null) continue;
+    const mid = round2((rows[i].balance as number) - rows[i].amount);
+    if (Math.abs(round2((rows[i + 2].balance as number) + rows[i + 1].amount) - mid) <= 0.011) { fixed.push(`${rows[i + 1].date} ${labelOf(rows[i + 1])} : solde lu ${rows[i + 1].balance} €, corrigé à ${mid} €`); rows[i + 1].balance = mid; }
+  }
   for (let i = 0; i + 1 < rows.length; i++) {
     if (!bad(i)) continue;
     const implied = round2((rows[i].balance as number) - (rows[i + 1].balance as number));
