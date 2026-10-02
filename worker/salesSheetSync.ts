@@ -162,13 +162,19 @@ export function parseTab(values: string[][]): SheetSale[] {
     if (factureNoCol < 0 && factureCols.length > 0) {
       factureNoCol = factureCols.find((i) => /^FAC/i.test(get(cells, i))) ?? -1;
     }
+    // Ligne sans prix d'achat NI prix de vente (YC334 janvier, 03/10 soir : commission
+    // 69 139 € et commission HT 57 616 € = cellules de total du bloc) : la ligne est
+    // gardée (véhicule, VIN, client) mais ses montants de commission et de frais ne
+    // valent rien sans prix — ignorés, sinon la marge du mois est fausse.
+    const priced = num(get(cells, cols.prixAchat)) != null && num(get(cells, cols.prixVente)) != null;
+    if (!priced && (num(get(cells, cols.commissions)) != null || numDec(get(cells, cols.commissionHt)) != null)) console.warn(`[SHEET_SYNC] ${ref} : commission sans prix d'achat / de vente — ignorée (cellule de total ?)`);
     out.push({
       ref, facture: factureNoCol >= 0 ? get(cells, factureNoCol) : '',
       vehicule: get(cells, cols.vehicule), vin: get(cells, cols.vin), ville: get(cells, cols.ville),
       prixAchat: num(get(cells, cols.prixAchat)), prixVente: num(get(cells, cols.prixVente)),
-      commissions: num(get(cells, cols.commissions)),
-      commissionHt: numDec(get(cells, cols.commissionHt)),
-      fraisHt: num(get(cells, cols.fraisHt)),
+      commissions: priced ? num(get(cells, cols.commissions)) : null,
+      commissionHt: priced ? numDec(get(cells, cols.commissionHt)) : null,
+      fraisHt: priced ? num(get(cells, cols.fraisHt)) : null,
       modePaiement: get(cells, cols.mode), dateAchat: frDate(get(cells, cols.dateAchat)),
       dateLivraison: frDate(get(cells, cols.dateLivraison)),
       convoyeur: get(cells, cols.convoyeur), client: get(cells, cols.client),
@@ -325,6 +331,8 @@ async function syncOnce(creds: string): Promise<void> {
         if (prev.purchase_price == null && s.prixAchat != null) patch.purchase_price = s.prixAchat;
         if (prev.fees == null && s.fraisHt != null) patch.fees = s.fraisHt;
         if (prev.commission_ht == null && s.commissionHt != null) patch.commission_ht = s.commissionHt;
+        // Commission posée avant la règle « sans prix » (YC334) : retirée tant que la ligne n'a pas de prix.
+        if (prev.commission_ht != null && s.prixAchat == null && s.prixVente == null && prev.purchase_price == null && prev.sale_price == null) patch.commission_ht = null;
         if (!prev.commercial && s.seller) patch.commercial = s.seller;
         if (hasVat) {
           const star = /\*\s*$/.test(s.vehicule ?? '');

@@ -832,6 +832,23 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **COMMISSION HT DU TABLEUR : CELLULE DE TOTAL PRISE POUR UNE COMMISSION,
+  REF EN DOUBLE COMPTÉES DEUX FOIS (03/10 soir, Channing : « pourquoi cette
+  ligne ne correspond pas avec ce que j'ai sur le tableur ? »)**. Janvier
+  affichait 84 898 € de commission HT pour 45 828 € de marge brute : la
+  ligne YC334 (Yaris Cross Trail, sans prix d'achat ni de vente) portait
+  commission 69 139 € et commission HT 57 615,95 € — des cellules de total
+  du bloc. Juillet 27 dossiers pour 24 REF, août 16 pour 14 (K861 ×2) :
+  commissions comptées deux fois. Règles : (1) sync — une ligne sans prix
+  d'achat ni de vente garde le véhicule mais ses commissions / frais sont
+  ignorés (avertissement worker), et une commission déjà posée sur un tel
+  dossier est retirée ; (2) front — une REF en double dans le même onglet
+  ne compte qu'une fois (celle qui porte des prix), une commission sans
+  prix ne compte pas. Résultat (commission HT par onglet, REF
+  dédoublonnée) : janv. 27 283, févr. 50 041, mars 46 053, avr. 44 382, mai
+  28 408, juin 27 716, juil. 28 799, août 19 110, sept. 39 259 — à comparer
+  aux totaux du tableur. SQL immédiat pour YC334 donné à Channing (le
+  worker le fera aussi à la prochaine synchro).
 - **FRAIS : VIREMENTS ENTRE SES PROPRES COMPTES ET PAIE DEEL SORTIS DES
   FRAIS, DES ACHATS ET DES VENTES (03/10 soir, Channing : « quels sont ces
   frais exactement ? », « la marge que je calcule sur le sheet est

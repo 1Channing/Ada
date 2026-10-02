@@ -169,12 +169,16 @@ export function Treasury() {
   }, [scoped]);
   const marginByMonth = useMemo(() => {
     const r = new Map<string, { n: number; brute: number; comm: number; fees: number }>();
-    for (const d of deals) {
-      const mo = dealMonth(d); if (!mo) continue;
+    // Une REF en double dans le même onglet (K861 ×2 en août, 3 doublons en juillet, 03/10 soir) ne compte
+    // qu'une fois : le dossier qui porte des prix. Une commission sans prix (cellule de total) ne compte pas.
+    const seen = new Map<string, DealLite>();
+    for (const d of deals) { const mo = dealMonth(d); if (!mo) continue; const k = `${mo}|${d.reference ?? d.id}`; const prev = seen.get(k); if (!prev || (prev.purchase_price == null && d.purchase_price != null)) seen.set(k, d); }
+    for (const d of seen.values()) {
+      const mo = dealMonth(d)!;
       const cur = r.get(mo) ?? { n: 0, brute: 0, comm: 0, fees: 0 };
       cur.n++;
-      if (d.sale_price != null && d.purchase_price != null) cur.brute += (d.sale_price - d.purchase_price) / 1.2;
-      cur.comm += d.commission_ht ?? 0; cur.fees += d.fees ?? 0;
+      const priced = d.sale_price != null && d.purchase_price != null;
+      if (priced) { cur.brute += (d.sale_price! - d.purchase_price!) / 1.2; cur.comm += d.commission_ht ?? 0; cur.fees += d.fees ?? 0; }
       r.set(mo, cur);
     }
     return r;
