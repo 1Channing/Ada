@@ -840,7 +840,11 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   de doublon), deux comptes d'une même banque cohabitent (Shine
   secondaire) ; SQL 20261002200000 (colonnes account_ref / account_name,
   unicité (banque, compte, mois)), repli sur (banque, mois) tant qu'il
-  n'est pas collé. (2) Plafond silencieux : c'était le plafond PostgREST,
+  n'est pas collé. Suite immédiate (« ça sent le doublon ») : un relevé
+  redéposé doit aussi remplacer ceux déposés AVANT le SQL (numéro de compte
+  vide) — fait ; SQL de nettoyage du doublon Shine février donné ; libellé
+  « Shine » sans « (compte principal) », le nom du compte vient du relevé.
+  (2) Plafond silencieux : c'était le plafond PostgREST,
   levé l'après-midi ; bornes restantes 50 000 lignes de relevés / 100 000
   ailleurs, dites. (3) Écarts négatifs = ambre « à compléter » (acompte sur
   un relevé pas encore déposé), rouge seulement si payé plus ; second

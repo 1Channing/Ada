@@ -24,7 +24,7 @@
  */
 
 export type BankAccount = 'revolut' | 'airwallex' | 'shine' | 'pennylane' | 'cic' | 'caisse_epargne';
-export const ACCOUNT_LABEL: Record<BankAccount, string> = { revolut: 'Revolut', airwallex: 'Airwallex', shine: 'Shine (compte principal)', pennylane: 'Pennylane / Swan', cic: 'CIC', caisse_epargne: "Caisse d'Épargne" };
+export const ACCOUNT_LABEL: Record<BankAccount, string> = { revolut: 'Revolut', airwallex: 'Airwallex', shine: 'Shine', pennylane: 'Pennylane / Swan', cic: 'CIC', caisse_epargne: "Caisse d'Épargne" };
 
 /** Une ligne de texte d'un PDF : texte reconstitué, page, hauteur, fragments avec leur abscisse (colonnes Débit / Crédit). */
 export interface TextLine { text: string; page: number; y: number; frags: Array<{ x: number; s: string }> }

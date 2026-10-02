@@ -119,12 +119,19 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
     // (même sous un autre nom de fichier) REMPLACE, jamais de doublon ; deux
     // comptes d'une même banque (Shine principal / secondaire) cohabitent.
     // Colonne account_ref absente (SQL du 02/10 soir pas collé) : clé (banque, mois).
-    let prevQ = untyped.from('bank_statements').select('id').eq('account', st.account).eq('period_month', st.period_month);
+    // Relevés précédents du même compte × mois : celui qui porte le même
+    // numéro de compte, ET ceux déposés avant le SQL du 02/10 soir (numéro
+    // vide — « ça sent le doublon », constat Channing) : tous remplacés.
     let hasRef = true;
-    let { data: prev, error: prevErr } = await prevQ.eq('account_ref', st.account_ref ?? '').maybeSingle();
-    if (prevErr && /account_ref/.test(prevErr.message)) { hasRef = false; ({ data: prev } = await untyped.from('bank_statements').select('id').eq('account', st.account).eq('period_month', st.period_month).maybeSingle()); }
+    let prevRows: Array<{ id: string }> = [];
+    {
+      const r = await untyped.from('bank_statements').select('id').eq('account', st.account).eq('period_month', st.period_month).in('account_ref', [st.account_ref ?? '', '']);
+      if (r.error && /account_ref/.test(r.error.message)) { hasRef = false; const r2 = await untyped.from('bank_statements').select('id').eq('account', st.account).eq('period_month', st.period_month); prevRows = (r2.data ?? []) as Array<{ id: string }>; }
+      else if (r.error) throw new Error(r.error.message);
+      else prevRows = (r.data ?? []) as Array<{ id: string }>;
+    }
     const manual = new Map<string, string>();
-    if (prev?.id) {
+    for (const prev of prevRows) {
       const { data: old } = await untyped.from('bank_lines').select('booked_on, amount_out, amount_in, description, category, category_auto').eq('statement_id', prev.id);
       for (const o of (old ?? []) as Array<Record<string, unknown>>) if (o.category !== o.category_auto) manual.set(lineKey(o), String(o.category));
       const { error: delErr } = await untyped.from('bank_statements').delete().eq('id', prev.id);
