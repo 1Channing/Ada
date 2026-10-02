@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : NUMÉRO DE COMPTE LU LIGNE PAR LIGNE (02/10 soir, « j'en ai
+  pas mal en erreur »)**. Constat en base après le redépôt : Revolut
+  « CREVO », Pennylane « CSWNB », Caisse d'Épargne « 87BIC », Airwallex
+  « 37788 », CIC tantôt « 33702 » tantôt « 70287 » : l'IBAN était lu sur le
+  texte joint, la ligne suivante (« BIC REVO… », « 88 B AVENUE ») collée à
+  la fin. Désormais ligne par ligne, groupes finaux en lettres retirés,
+  IBAN sur la ligne suivante accepté (Swan), CIC par son n° à 11 chiffres.
+  Vérifié sur les 6 relevés locaux : 72377 / 82987 / 33702 / 23411 / 69396
+  / 54432. SQL de correction des clés déjà en base donné (pas de redépôt).
+  Les premières lignes (masquées) sont jointes à TOUTE erreur dans la boîte.
+  Reste : 10 relevés Banque Populaire Grand Ouest (format inconnu, fichier
+  demandé), Revolut mai / juin « mois introuvable » (fichier demandé),
+  Pennylane janvier → mars et Finom scannés (export natif demandé).
 - **TRÉSORERIE : RELEVÉS D'AVANT JANVIER 2026 REFUSÉS (02/10 soir, demande
   Channing)**. TREASURY_FROM = 2026-01 : un relevé dont le mois est
   antérieur est refusé au dépôt avec un message clair, rien n'est écrit.

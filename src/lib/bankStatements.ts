@@ -127,13 +127,24 @@ export function parseStatement(lines: TextLine[]): ParsedStatement {
   return st;
 }
 
-/** Numéro de compte du relevé : 5 derniers caractères de l'IBAN (toutes banques), sinon du n° de compte (CIC) ; nom du compte quand il est écrit (Shine). */
+/** Numéro de compte du relevé : 5 derniers caractères de l'IBAN (toutes banques), sinon du n° de compte (CIC) ; nom du compte quand il est écrit (Shine, Revolut).
+ *  Lu LIGNE PAR LIGNE (02/10 soir : « 411 » + « BIC REVO » de la ligne suivante donnaient « CREVO », « 2377 » + « 88 B AVENUE » donnaient « 37788 »). */
 export function accountIdentity(texts: string[]): { ref: string; name: string | null } {
-  const head = texts.slice(0, 120).join('\n');
-  const iban = head.match(/IBAN\s*:?\s*([A-Z]{2}\d{2}(?:\s?[A-Z0-9]{2,4}){3,8})/)?.[1]?.replace(/\s/g, '');
-  const num = head.match(/COMPTE[^\n]*N°\s*([\d ]{8,})/i)?.[1]?.replace(/\s/g, '') ?? head.match(/N°\s*(\d{8,})/)?.[1];
+  const head = texts.slice(0, 120);
+  let iban: string | null = null;
+  for (let i = 0; i < head.length && !iban; i++) {
+    if (!/\bIBAN\b/.test(head[i])) continue;
+    const src = /[A-Z]{2}\d{2}/.test(head[i].replace(/^.*IBAN\s*:?\s*/, '')) ? head[i] : (head[i + 1] ?? '');
+    const m = src.replace(/^.*IBAN\s*:?\s*/, '').match(/^([A-Z]{2}\d{2}(?: ?[A-Z0-9]{2,4})+)/);
+    if (!m) continue;
+    const groups = m[1].split(' ');
+    while (groups.length > 1 && /^[A-Z]+$/.test(groups[groups.length - 1])) groups.pop(); // « BIC », « BIC CEPAFRPP » collés à la fin
+    iban = groups.join('');
+  }
+  const joined = head.join('\n');
+  const num = joined.match(/N°\s*(\d{11})\b/)?.[1] ?? joined.match(/COMPTE[^\n]*N°\s*([\d ]{8,}?)\s{2,}/i)?.[1]?.replace(/\s/g, '') ?? joined.match(/N°\s*(\d{8,})/)?.[1];
   const ref = (iban ?? num ?? '').slice(-5);
-  const name = head.match(/Nom du compte\s*:\s*([^\n]+)/)?.[1]?.trim() ?? head.match(/Account name\s+([^\n]+?)(?:\s+Currency|$)/m)?.[1]?.trim() ?? null;
+  const name = joined.match(/Nom du compte\s*:\s*([^\n]+)/)?.[1]?.trim() ?? joined.match(/Account name\s+([^\n]+?)(?:\s+Currency|$)/m)?.[1]?.trim() ?? null;
   return { ref, name };
 }
 

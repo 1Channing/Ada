@@ -97,7 +97,9 @@ export interface UploadResult { file: string; account?: BankAccount; month?: str
  */
 async function reportStatementIssue(file: File, lines: Array<{ text: string }>, st: { account?: string; period_month?: string } | null, error: string | null, warnings: string[]): Promise<void> {
   const mask = (t: string) => t.replace(/\d[\d\s\u00a0.,]*\d/g, (m) => (m.replace(/\D/g, '').length >= 3 ? '###' : m)).slice(0, 160);
-  const head = error && /non reconnu|aucun texte/.test(error) ? lines.slice(0, 25).map((l) => mask(l.text)) : undefined;
+  // Premières lignes (montants masqués) pour TOUTE erreur : « mois introuvable »
+  // sur Revolut mai / juin (02/10 soir) n'en avait pas, impossible de voir pourquoi.
+  const head = error ? lines.slice(0, 80).map((l) => mask(l.text)) : undefined;
   await recordLearningCaseFromApp({
     kind: 'bank_statement_issue', key: `${file.name}`, actor: 'dev', link: '/tresorerie',
     title: `Relevé « ${file.name} »${st?.account ? ` (${st.account} ${st.period_month ?? ''})` : ''} : ${error ?? `${warnings.length} avertissement(s)`}`,
