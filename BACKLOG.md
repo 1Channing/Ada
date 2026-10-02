@@ -832,6 +832,36 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TVA LISIBLE, MARGE NETTE SANS LES REMBOURSEMENTS DE TVA, CA3 PLUS
+  ANCIENNE N'ÉCRASE PLUS LA CORRECTIVE, CONTRÔLE DES DOUBLONS (03/10 soir,
+  Channing : « le tableau de TVA est imbuvable, refais-le propre », « je
+  n'ai jamais fait autant de marge cette année », « les relevés se
+  cumulent ou quoi ? vérifie les doublons »)**. (1) TVA : quatre chiffres
+  en tête (l'État doit fin de mois, demandé pas reçu, déclaré pas demandé,
+  à déclarer d'après le tableur), une table à trois blocs (Déclaré sur la
+  CA3 · Remboursement · D'après le tableur), colonnes vides cachées (nette
+  due, payée), montants arrondis à l'euro, « reçu 01/07 · 93 188 € » ou
+  pastille « en attente », première colonne fixe, point de départ et
+  mouvements avec l'État repliés. (2) Marge nette : « impôts / TVA » sort
+  des frais (les remboursements de TVA entraient en négatif : juillet
+  −146 350 € de « frais », marge nette 190 838 € > marge brute 44 488 €) ;
+  ligne « Variation de trésorerie du mois (comptes déposés) » = entrées −
+  sorties hors transferts internes. (3) CA3 : une déclaration initiale
+  redéposée après la corrective (janvier 18/02 puis 23/03, février 17/03
+  puis 23/03, PDF reçus de Channing) ne remplace plus la plus récente.
+  (4) Vérifié en base, 2 273 lignes : aucun relevé en double (clé banque ×
+  compte × mois), 30 paires de lignes identiques dont 27 < 1 000 € (frais,
+  péages) et 3 plausibles (CIC 11/02 20 490 € ×2 sans libellé ; transfert
+  2 000 € vu des deux côtés Pennylane / Shine) ; encaissements de ventes
+  janvier→septembre 6,38 M€ contre 6,06 M€ attendus du tableur (acomptes
+  d'octobre, décalages de mois) ; achats payés 6,10 M€ contre 5,95 M€. Les
+  CA3 de mai (A1 46 080, A3 86 540, ni F2 ni E1) et de janvier / février
+  (initiales + correctives) relus : identiques à la base. TVA « * » du
+  tableur (achat / 6) par onglet : 60 233, 65 259, 58 877, 71 426, 47 131,
+  29 119, 11 207, 9 998, 61 547 (414 797 €) contre les 529 491 € du calcul
+  de Channing : son tableau compte plus de véhicules (tous les libellés
+  étoilés finissent par « * » en base, 109 sur 270) — à éclaircir avec lui
+  (colonne de l'étoile, formule).
 - **TVA : UNE SEULE TABLE, DEMANDÉ ↔ REÇU SUR LA LIGNE DE LA DÉCLARATION,
   TABLEUR − CA3, CRÉANCE PAR LA CHAÎNE CA3 (03/10, Channing : « je veux que
   ces deux tableaux n'en fassent qu'un, le tableau du dessous ne sert à

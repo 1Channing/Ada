@@ -37,6 +37,11 @@ export async function listVatReturns(): Promise<{ rows: VatReturn[]; error: stri
 }
 export async function upsertVatReturn(r: VatReturn): Promise<string | null> {
   const { id: _id, ...rest } = r; void _id;
+  // Déclaration initiale redéposée après la corrective (janvier 18/02 puis 23/03, constat 03/10) : la plus récente reste.
+  if (r.declared_on) {
+    const { data: prev } = await untyped.from('vat_returns').select('declared_on').eq('period_month', r.period_month).maybeSingle();
+    if (prev?.declared_on && String(prev.declared_on) > r.declared_on) return null;
+  }
   const row: Record<string, unknown> = { ...rest, updated_at: new Date().toISOString() };
   let { error } = await untyped.from('vat_returns').upsert(row, { onConflict: 'period_month' });
   if (error && EXTRA_COLS.some((c) => error.message.includes(c))) {

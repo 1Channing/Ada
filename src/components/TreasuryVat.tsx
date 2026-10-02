@@ -134,18 +134,141 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
   const num = (v: number | null) => (v == null ? '' : String(v));
   const fmtDate = (d: string) => d.split('-').reverse().join('/');
   const field = (r: VatReturn, k: keyof VatReturn, placeholder: string) => (
-    <input value={num(r[k] as number | null)} placeholder={placeholder} onChange={(e) => setDraft({ ...r, [k]: e.target.value === '' ? null : Number(e.target.value.replace(',', '.')) })} className="w-24 px-1.5 py-1 rounded border border-slate-300 text-xs text-right" />
+    <input value={num(r[k] as number | null)} placeholder={placeholder} onChange={(e) => setDraft({ ...r, [k]: e.target.value === '' ? null : Number(e.target.value.replace(',', '.')) })} className="w-20 px-1.5 py-1 rounded border border-slate-300 text-xs text-right" />
   );
+  // Colonnes vides sur tous les mois : cachées (nette due, TVA payée) — « imbuvable » sinon (Channing 03/10).
+  const showNetDue = rows.some((x) => (x.r?.net_due ?? 0) > 0);
+  const showPaid = rows.some((x) => x.paid > 0);
+  const n = 'py-2 px-2 text-right tabular-nums whitespace-nowrap';
+  const declaredCount = rows.filter((x) => x.r).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {error && <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>}
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-medium text-slate-900">TVA : déclaré, demandé, reçu, attendu <span className="text-xs text-slate-500 font-normal">— {declaredCount} mois déclarés</span></h3>
+        <div className="flex items-center gap-2">
+          <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple className="hidden" onChange={(e) => void onFiles(e.target.files)} />
+          <button onClick={() => fileRef.current?.click()} disabled={!!busy} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Déposer une CA3 (PDF)</button>
+          <button onClick={() => setDraft(EMPTY(new Date().toISOString().slice(0, 7)))} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50"><Plus size={14} /> Saisir un mois</button>
+        </div>
+      </div>
+      {busy && <div className="text-sm text-slate-600 inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> {busy}</div>}
+
+      {/* L'essentiel en quatre chiffres */}
+      {last && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { k: `L'État doit fin ${monthLabel(last.m)}`, v: last.credit, c: 'text-emerald-800', t: 'Demandes de remboursement pas encore reçues + crédit reporté de la dernière déclaration' },
+            { k: 'Demandé, pas encore reçu', v: totals.pending, c: totals.pending > 0 ? 'text-amber-700' : 'text-slate-700', t: 'Lignes 26 des CA3 sans virement DGFiP / SIE du même montant sur un relevé déposé' },
+            { k: 'Déclaré, pas demandé', v: last.carried ?? 0, c: 'text-slate-700', t: 'Ligne 27 (crédit reporté) de la dernière déclaration' },
+            { k: 'À déclarer d\'après le tableur', v: totals.undeclared, c: totals.undeclared > 50 ? 'text-amber-700' : 'text-slate-700', t: 'Mois sans CA3 : déductible attendue (achats *) − collectée attendue (marge)' },
+          ].map((x) => (
+            <div key={x.k} className="rounded-xl border border-slate-200 bg-white px-4 py-3" title={x.t}>
+              <div className="text-xs text-slate-500">{x.k}</div>
+              <div className={`text-xl font-semibold tabular-nums ${x.c}`}>{eur(x.v)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Une seule table, trois blocs : déclaré (CA3) · remboursement · tableur */}
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="text-[11px] uppercase tracking-wide text-slate-500">
+              <th className="py-2 px-3 text-left sticky left-0 bg-white"></th>
+              <th colSpan={4 + (showNetDue ? 1 : 0)} className="py-2 px-2 text-center bg-slate-50 border-x border-slate-200">Déclaré sur la CA3</th>
+              <th colSpan={3 + (showPaid ? 1 : 0)} className="py-2 px-2 text-center bg-emerald-50/60 border-r border-slate-200">Remboursement</th>
+              <th colSpan={3} className="py-2 px-2 text-center bg-amber-50/60 border-r border-slate-200">D'après le tableur</th>
+              <th className="py-2 px-2 text-center">Bilan</th><th></th>
+            </tr>
+            <tr className="text-xs text-slate-600 border-b border-slate-200">
+              <th className="py-2 px-3 text-left sticky left-0 bg-white">Mois</th>
+              <th className={n} title="Lignes F2 (livraisons intracom B2B) + E1 (exportations hors UE)">Ventes HT</th><th className={n} title="Ligne 16">Collectée</th><th className={n} title="Ligne 23">Déductible</th>{showNetDue && <th className={n} title="Ligne 28">Nette due</th>}<th className={n} title="Déductible − collectée">Crédit du mois</th>
+              <th className={n} title="Ligne 26">Demandé</th><th className="py-2 px-2 text-left whitespace-nowrap" title="Virement DGFiP / SIE du même montant, reçu après le mois déclaré">Reçu</th><th className={n} title="Ligne 27 : déclaré mais pas demandé">Reporté</th>{showPaid && <th className={n} title="TVA payée (hors IS, RCM, URSSAF)">Payée</th>}
+              <th className={n} title="Véhicules * : achat / 6">Déductible (achats *)</th><th className={n} title="Véhicules sans * : (vente − achat) / 6">Collectée (marge)</th><th className={n} title="(déductible − collectée) du tableur − (déductible − collectée) de la CA3. Ambre : de la TVA du tableur n'est pas dans la CA3 du mois. Mois sans CA3 : tout reste à déclarer.">Tableur − CA3</th>
+              <th className={n} title="Demandes pas encore reçues à la fin du mois + crédit reporté de la dernière déclaration">L'État doit</th><th className="py-2 px-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {opening && (
+              <tr className="border-b border-slate-100 bg-slate-50/70 text-slate-600 text-xs">
+                <td className="py-2 px-3 whitespace-nowrap font-medium sticky left-0 bg-slate-50">31/12/2025 <span className="text-[10px] text-slate-400">bilan</span></td>
+                <td colSpan={4 + (showNetDue ? 1 : 0)} className="py-2 px-2 text-right">crédit de TVA au bilan {eur(opening.vat_credit)}</td>
+                <td className={n} title="CA3 de décembre 2025 (absente d'ADA) : déduit du virement reçu, sinon crédit du bilan − report de janvier">{openingDemand ? eur(openingDemand) : '—'}</td>
+                <td className="py-2 px-2 whitespace-nowrap">{refundMatch.openingReceived ? <span className="text-emerald-700">{fmtDate(refundMatch.openingReceived.booked_on)} · {eur(refundMatch.openingReceived.amount_in)}</span> : openingDemand ? <span className="text-amber-700">en attente</span> : ''}</td>
+                <td className={n} title="Ligne 22 de la déclaration de janvier">{firstCreditIn != null ? eur(firstCreditIn) : '—'}</td>{showPaid && <td></td>}
+                <td colSpan={3}></td>
+                <td className={`${n} font-semibold text-emerald-800`}>{eur(opening.vat_credit)}</td><td></td>
+              </tr>
+            )}
+            {rows.map(({ m, r, paid, received, star, credit, gap, sheetCredit, declaredCredit }) => {
+              const editing = draft && draft.period_month === m ? draft : null;
+              const row = editing ?? r ?? null;
+              const requested = r?.credit_requested ?? 0;
+              return (
+                <tr key={m} className="border-b border-slate-100 odd:bg-slate-50/40">
+                  <td className="py-2 px-3 whitespace-nowrap sticky left-0 bg-white"><span className="font-medium text-slate-900">{monthLabel(m)}</span>{row?.declared_on && <span className="block text-[10px] text-slate-400">déposée le {fmtDate(row.declared_on)}</span>}{!r && !editing && <span className="block text-[10px] text-amber-600">pas de CA3</span>}</td>
+                  <td className={`${n} text-slate-600`} title={r ? `F2 intracom ${eur(r.sales_intracom)} · E1 export ${eur(r.sales_export)} · A1 ventes taxées ${eur(r.sales_taxed)}` : ''}>{r && (r.sales_intracom != null || r.sales_export != null) ? eur((r.sales_intracom ?? 0) + (r.sales_export ?? 0)) : r ? <span className="text-amber-600" title="Ni F2 ni E1 sur cette CA3">0 €</span> : ''}{r?.sales_export ? <span className="block text-[10px] text-slate-400">export</span> : null}</td>
+                  {editing ? (
+                    <>
+                      <td className={n}>{field(editing, 'collected', 'collectée')}</td><td className={n}>{field(editing, 'deductible', 'déductible')}</td>{showNetDue && <td className={n}>{field(editing, 'net_due', 'nette')}</td>}<td></td>
+                      <td className={n}>{field(editing, 'credit_requested', 'demandé')}</td><td></td><td className={n}>{field(editing, 'credit_carried', 'reporté')}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className={n}>{r ? eur(r.collected) : ''}</td><td className={n}>{r ? eur(r.deductible) : ''}</td>{showNetDue && <td className={n}>{r ? eur(r.net_due) : ''}</td>}<td className={`${n} font-medium`}>{declaredCredit != null ? eur(declaredCredit) : ''}</td>
+                      <td className={`${n} font-medium`}>{requested ? eur(requested) : r ? '—' : ''}</td>
+                      <td className="py-2 px-2 whitespace-nowrap">{received ? <span className="text-emerald-700">{fmtDate(received.booked_on)} · {eur(received.amount_in)}</span> : requested > 0 ? <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-medium">en attente</span> : ''}</td>
+                      <td className={n}>{r ? eur(r.credit_carried ?? 0) : ''}</td>
+                    </>
+                  )}
+                  {showPaid && <td className={n}>{paid ? eur(paid) : ''}</td>}
+                  <td className={`${n} text-slate-600`} title={star ? `${star.n} véhicule(s) *` : ''}>{star?.vat ? eur(star.vat) : ''}</td>
+                  <td className={`${n} text-slate-600`} title={star ? `${star.nMargin} véhicule(s) en TVA sur la marge` : ''}>{star?.collected ? eur(star.collected) : ''}</td>
+                  <td className={`${n} ${!r ? 'text-amber-700' : Math.abs(gap) <= 50 ? 'text-slate-400' : gap > 0 ? 'text-amber-700' : 'text-sky-700'}`} title={!r ? 'Mois pas encore déclaré : TVA du tableur à déclarer' : `tableur ${eur(sheetCredit)} − CA3 ${eur(declaredCredit)}`}>{!r ? (sheetCredit ? <>{eur(sheetCredit)}<span className="block text-[10px]">à déclarer</span></> : '') : eur(gap)}</td>
+                  <td className={`${n} font-semibold ${credit >= 0 ? 'text-emerald-800' : 'text-rose-700'}`}>{eur(credit)}</td>
+                  <td className="py-1 px-2 whitespace-nowrap text-xs">
+                    {editing ? <button onClick={() => void save(editing)} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-900 text-white"><Save size={12} /> OK</button>
+                      : <><button onClick={() => setDraft(r ?? EMPTY(m))} className="text-sky-700 hover:underline">{r ? 'modifier' : 'saisir'}</button>{r && <button onClick={() => void remove(m)} className="ml-2 text-slate-400 hover:text-red-600" title="Supprimer"><Trash2 size={12} /></button>}</>}
+                  </td>
+                </tr>
+              );
+            })}
+            {draft && !months.includes(draft.period_month) && (
+              <tr className="border-b border-slate-100 bg-sky-50/40">
+                <td className="py-1 px-3 sticky left-0 bg-sky-50"><input value={draft.period_month} onChange={(e) => setDraft({ ...draft, period_month: e.target.value })} placeholder="2026-01" className="w-20 px-1.5 py-1 rounded border border-slate-300 text-xs font-mono" /></td><td></td>
+                <td className={n}>{field(draft, 'collected', 'collectée')}</td><td className={n}>{field(draft, 'deductible', 'déductible')}</td>{showNetDue && <td className={n}>{field(draft, 'net_due', 'nette')}</td>}<td></td>
+                <td className={n}>{field(draft, 'credit_requested', 'demandé')}</td><td></td><td className={n}>{field(draft, 'credit_carried', 'reporté')}</td>
+                <td colSpan={4 + (showPaid ? 1 : 0)}></td>
+                <td className="py-1 px-2"><button onClick={() => void save(draft)} disabled={!/^\d{4}-\d{2}$/.test(draft.period_month)} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-slate-900 text-white disabled:opacity-50"><Save size={12} /> OK</button></td>
+              </tr>
+            )}
+            {refundMatch.unmatched.map((l) => (
+              <tr key={l.id} className="border-b border-slate-100 text-slate-500 text-xs"><td className="py-1.5 px-3 sticky left-0 bg-white" colSpan={1}>virement de l'État sans demande connue</td><td colSpan={5 + (showNetDue ? 1 : 0)}></td><td className="py-1.5 px-2 whitespace-nowrap text-emerald-700">{fmtDate(l.booked_on)} · {eur(l.amount_in)} <span className="text-slate-400">{l.account}</span></td><td colSpan={6 + (showPaid ? 1 : 0)}></td></tr>
+            ))}
+            <tr className="border-t-2 border-slate-300 font-semibold text-slate-900 bg-slate-50">
+              <td className="py-2 px-3 sticky left-0 bg-slate-50">Total</td><td></td><td className={n}>{eur(rows.reduce((s, x) => s + (x.r?.collected ?? 0), 0))}</td><td className={n}>{eur(rows.reduce((s, x) => s + (x.r?.deductible ?? 0), 0))}</td>{showNetDue && <td></td>}<td className={n}>{eur(rows.reduce((s, x) => s + (x.declaredCredit ?? 0), 0))}</td>
+              <td className={n}>{eur(totals.requested)}</td><td className="py-2 px-2 whitespace-nowrap text-xs">reçu {eur(totals.received)}{totals.pending > 0 && <span className="block text-amber-700">en attente {eur(totals.pending)}</span>}</td><td className={n}>{last ? eur(last.carried ?? 0) : ''}</td>{showPaid && <td className={n}>{eur(totals.paid)}</td>}
+              <td className={n}>{eur(totals.expectedDed)}</td><td className={n}>{eur(totals.expectedCol)}</td><td className={n} title={`mois déclarés ${eur(totals.declaredGap)} · à déclarer ${eur(totals.undeclared)}`}>{eur(totals.declaredGap + totals.undeclared)}</td><td className={`${n} text-emerald-800`}>{last ? eur(last.credit) : ''}</td><td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-slate-500">
+        « L'État doit » est un solde à la fin de chaque mois : demandes de remboursement pas encore reçues à cette date + crédit reporté. « Reçu » = virement DGFiP / SIE du montant exact de la demande, sur un relevé déposé.
+        Tableur (tout en TTC) : déductible attendue = achat / 6 des véhicules « * » ; collectée attendue = (vente − achat) / 6 des véhicules sans « * » (TVA sur la marge), par onglet de facturation. « Tableur − CA3 » = TVA du tableur − TVA de la CA3 du même mois.
+      </p>
+
       {/* Point de départ */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <h3 className="font-medium text-slate-900">Point de départ : bilan au {opening ? opening.as_of.split('-').reverse().join('/') : '31/12/2025'}{opening?.fiscal_year && <span className="text-xs text-slate-500 font-normal"> · exercice {opening.fiscal_year}</span>}</h3>
-        {!opening ? <p className="text-sm text-slate-500 mt-1">SQL du 03/10 à coller pour charger le bilan.</p> : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 mt-2 text-sm">
+      <details className="rounded-xl border border-slate-200 bg-white p-4 text-sm" open={!opening}>
+        <summary className="cursor-pointer font-medium text-slate-900">Point de départ : bilan au {opening ? fmtDate(opening.as_of) : '31/12/2025'}{opening?.fiscal_year && <span className="text-xs text-slate-500 font-normal"> · exercice {opening.fiscal_year}</span>}
+          {opening?.cash_by_account && Math.abs(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0) - opening.cash) <= 1 && <span className="ml-2 text-xs text-emerald-700 font-normal">disponibilités prouvées au centime par les relevés</span>}
+        </summary>
+        {!opening ? <p className="text-slate-500 mt-1">SQL du 03/10 à coller pour charger le bilan.</p> : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 mt-2">
             {[['Disponibilités', opening.cash], ['TVA due par l\'État', opening.vat_credit], ['IS à payer', opening.corporate_tax_due], ['Stock de véhicules', opening.stock], ['Acomptes versés', opening.advances_paid], ['Clients à encaisser', opening.receivables_clients], ['Fournisseurs à payer', opening.payables_suppliers], ['Acomptes reçus', opening.advances_received]].map(([k, v]) => (
               <div key={String(k)} className="flex justify-between gap-2"><span className="text-slate-600">{k}</span><span className="tabular-nums font-medium text-slate-900">{eur(v as number)}</span></div>
             ))}
@@ -154,118 +277,27 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
         {opening?.cash_by_account && (
           <p className={`text-xs mt-3 ${Math.abs(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0) - opening.cash) <= 1 ? 'text-emerald-700' : 'text-amber-700'}`}>
             Disponibilités au 31/12/2025 par compte (relevés) : {Object.entries(opening.cash_by_account).map(([k, v]) => `${k} ${eur(v, 2)}`).join(' + ')} = {eur(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0), 2)} contre {eur(opening.cash)} au bilan
-            {Math.abs(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0) - opening.cash) <= 1 ? ' ✓ le point de départ est prouvé au centime.' : ` — écart ${eur(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0) - opening.cash, 2)}.`}
+            {Math.abs(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0) - opening.cash) <= 1 ? ' ✓' : ` — écart ${eur(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0) - opening.cash, 2)}.`}
           </p>
         )}
         {opening && !opening.cash_by_account && (
           <p className={`text-xs mt-3 ${Math.abs(janSum - opening.cash) <= 1 ? 'text-emerald-700' : 'text-amber-700'}`}>
             Contrôle : soldes d'ouverture de janvier 2026 déposés = {eur(janSum, 2)} ({janOpenings.map((x) => `${x.s.account_name ?? x.s.account} ${eur(x.v)}`).join(', ') || 'aucun relevé de janvier'}) contre {eur(opening.cash)} au bilan
-            {Math.abs(janSum - opening.cash) > 1 && <> — écart {eur(janSum - opening.cash)} : il manque des relevés de janvier (Finom ?) ou un compte.</>}
+            {Math.abs(janSum - opening.cash) > 1 && <> — écart {eur(janSum - opening.cash)} : il manque des relevés de janvier ou un compte.</>}
           </p>
         )}
-      </div>
-
-      {/* Déclarations */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-medium text-slate-900">TVA déclarée, mois par mois</h3>
-        <div className="flex items-center gap-2">
-          <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple className="hidden" onChange={(e) => void onFiles(e.target.files)} />
-          <button onClick={() => fileRef.current?.click()} disabled={!!busy} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Déposer un relevé de TVA (PDF)</button>
-          <button onClick={() => setDraft(EMPTY(new Date().toISOString().slice(0, 7)))} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50"><Plus size={14} /> Saisir un mois</button>
-        </div>
-      </div>
-      {busy && <div className="text-sm text-slate-600 inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> {busy}</div>}
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-            <th className="py-2 pr-3">Mois</th><th className="py-2 pr-3 text-right" title="CA3 lignes F2 (livraisons intracommunautaires B2B) + E1 (exportations hors UE) : ventes HT">Ventes HT (intracom + export)</th><th className="py-2 pr-3 text-right" title="Ligne 16 : total de la TVA brute due">Collectée</th><th className="py-2 pr-3 text-right" title="Ligne 23">Déductible</th><th className="py-2 pr-3 text-right" title="Ligne 28">Nette due</th>
-            <th className="py-2 pr-3 text-right" title="Ligne 26 : remboursement demandé sur cette déclaration">Rembours. demandé</th><th className="py-2 pr-3" title="Virement DGFiP / SIE du même montant, reçu après le mois déclaré">Reçu pour cette demande</th><th className="py-2 pr-3 text-right" title="Ligne 27 : crédit déclaré mais pas (encore) demandé en remboursement">Crédit reporté (déclaré, pas demandé)</th><th className="py-2 pr-3 text-right" title="TVA payée (hors IS, RCM, URSSAF)">TVA payée</th>
-            <th className="py-2 pr-3 text-right" title="Tableur, véhicules sans * (TVA sur la marge) : (vente − achat) / 6">Collectée attendue (marge)</th><th className="py-2 pr-3 text-right" title="Tableur, véhicules « * » : achat / 6">Déductible attendue (achats *)</th><th className="py-2 pr-3 text-right" title="(déductible attendue − collectée attendue) du tableur − (déductible − collectée) déclarées. Positif : de la TVA du tableur n'est pas dans la CA3 du mois (décalage de mois ou oubli). Mois sans déclaration : tout reste à déclarer.">Tableur − CA3</th><th className="py-2 pr-3 text-right" title="Demandes pas encore reçues à la fin du mois + crédit reporté de la dernière déclaration">Créance de TVA fin de mois</th><th className="py-2"></th>
-          </tr></thead>
-          <tbody>
-            {opening && (
-              <tr className="border-b border-slate-100 bg-slate-50/60 text-slate-600">
-                <td className="py-1.5 pr-3 whitespace-nowrap font-medium">31/12/2025 <span className="text-[10px] text-slate-400 ml-1">bilan</span></td>
-                <td colSpan={4} className="py-1.5 pr-3 text-right tabular-nums text-xs">crédit de TVA au bilan {eur(opening.vat_credit)}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums" title="CA3 de décembre 2025 (absente d'ADA) : déduit du virement reçu, sinon crédit du bilan − report de janvier">{openingDemand ? eur(openingDemand) : '—'}</td>
-                <td className="py-1.5 pr-3 whitespace-nowrap">{refundMatch.openingReceived ? <span className="text-emerald-700">reçu le {fmtDate(refundMatch.openingReceived.booked_on)} · {eur(refundMatch.openingReceived.amount_in, 2)} <span className="text-[10px] text-slate-400">{refundMatch.openingReceived.account}</span></span> : openingDemand ? <span className="text-amber-700">en attente</span> : ''}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums" title="Ligne 22 de la déclaration de janvier">{firstCreditIn != null ? eur(firstCreditIn, 2) : '—'}</td>
-                <td colSpan={4}></td>
-                <td className="py-1.5 pr-3 text-right tabular-nums font-semibold text-emerald-800">{eur(opening.vat_credit)}</td><td></td>
-              </tr>
-            )}
-            {rows.map(({ m, r, paid, received, star, credit, gap, sheetCredit }) => {
-              const editing = draft && draft.period_month === m ? draft : null;
-              const row = editing ?? r ?? null;
-              const requested = r?.credit_requested ?? 0;
-              return (
-                <tr key={m} className="border-b border-slate-100">
-                  <td className="py-1.5 pr-3 whitespace-nowrap font-medium">{monthLabel(m)}{row?.declared_on && <span className="text-[10px] text-slate-400 ml-1">déclarée le {fmtDate(row.declared_on)}</span>}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={r ? `F2 livraisons intracom ${eur(r.sales_intracom)} + E1 exportations hors UE ${eur(r.sales_export)}` : ''}>{r && (r.sales_intracom != null || r.sales_export != null) ? eur((r.sales_intracom ?? 0) + (r.sales_export ?? 0)) : '—'}{r?.sales_export ? <span className="ml-1 text-[10px] text-slate-400">dont export {eur(r.sales_export)}</span> : null}</td>
-                  {editing ? (
-                    <>
-                      <td className="py-1 pr-3 text-right">{field(editing, 'collected', 'collectée')}</td><td className="py-1 pr-3 text-right">{field(editing, 'deductible', 'déductible')}</td>
-                      <td className="py-1 pr-3 text-right">{field(editing, 'net_due', 'nette')}</td><td className="py-1 pr-3 text-right">{field(editing, 'credit_requested', 'demandé')}</td><td></td><td className="py-1 pr-3 text-right">{field(editing, 'credit_carried', 'reporté')}</td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="py-1.5 pr-3 text-right tabular-nums">{eur(r?.collected, 2)}</td><td className="py-1.5 pr-3 text-right tabular-nums">{eur(r?.deductible, 2)}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums">{eur(r?.net_due, 2)}</td><td className="py-1.5 pr-3 text-right tabular-nums">{eur(r?.credit_requested, 2)}</td>
-                      <td className="py-1.5 pr-3 whitespace-nowrap">{received ? <span className="text-emerald-700">reçu le {fmtDate(received.booked_on)} · {eur(received.amount_in, 2)} <span className="text-[10px] text-slate-400">{received.account}</span></span> : requested > 0 ? <span className="text-amber-700 font-medium">en attente</span> : ''}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums">{eur(r?.credit_carried, 2)}</td>
-                    </>
-                  )}
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{paid ? eur(paid, 2) : ''}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={star ? `${star.nMargin} véhicule(s) en TVA sur la marge` : ''}>{star?.collected ? eur(star.collected) : ''}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={star ? `${star.n} véhicule(s) *` : ''}>{star?.vat ? eur(star.vat) : ''}</td>
-                  <td className={`py-1.5 pr-3 text-right tabular-nums ${!r ? 'text-amber-700' : Math.abs(gap) <= 50 ? 'text-slate-400' : gap > 0 ? 'text-amber-700' : 'text-sky-700'}`} title={!r ? 'Mois pas encore déclaré : TVA du tableur à déclarer' : `tableur ${eur(sheetCredit)} − déclaré ${eur((r.deductible ?? 0) - (r.collected ?? 0))}`}>{!r ? (sheetCredit ? <>{eur(sheetCredit)} <span className="text-[10px]">à déclarer</span></> : '') : eur(gap)}</td>
-                  <td className={`py-1.5 pr-3 text-right tabular-nums font-semibold ${credit >= 0 ? 'text-emerald-800' : 'text-rose-700'}`}>{eur(credit)}</td>
-                  <td className="py-1 whitespace-nowrap">
-                    {editing ? <button onClick={() => void save(editing)} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-slate-900 text-white"><Save size={12} /> Enregistrer</button>
-                      : <><button onClick={() => setDraft(r ?? EMPTY(m))} className="text-xs text-sky-700 hover:underline">{r ? 'modifier' : 'saisir'}</button>{r && <button onClick={() => void remove(m)} className="ml-2 text-slate-400 hover:text-red-600" title="Supprimer"><Trash2 size={12} /></button>}</>}
-                  </td>
-                </tr>
-              );
-            })}
-            {draft && !months.includes(draft.period_month) && (
-              <tr className="border-b border-slate-100 bg-sky-50/40">
-                <td className="py-1 pr-3"><input value={draft.period_month} onChange={(e) => setDraft({ ...draft, period_month: e.target.value })} placeholder="2026-01" className="w-24 px-1.5 py-1 rounded border border-slate-300 text-xs font-mono" /></td><td></td>
-                <td className="py-1 pr-3 text-right">{field(draft, 'collected', 'collectée')}</td><td className="py-1 pr-3 text-right">{field(draft, 'deductible', 'déductible')}</td>
-                <td className="py-1 pr-3 text-right">{field(draft, 'net_due', 'nette')}</td><td className="py-1 pr-3 text-right">{field(draft, 'credit_requested', 'demandé')}</td><td></td><td className="py-1 pr-3 text-right">{field(draft, 'credit_carried', 'reporté')}</td>
-                <td colSpan={5}></td>
-                <td className="py-1"><button onClick={() => void save(draft)} disabled={!/^\d{4}-\d{2}$/.test(draft.period_month)} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-slate-900 text-white disabled:opacity-50"><Save size={12} /> Enregistrer</button></td>
-              </tr>
-            )}
-            {refundMatch.unmatched.map((l) => (
-              <tr key={l.id} className="border-b border-slate-100 text-slate-500 text-xs"><td className="py-1 pr-3" colSpan={6}>virement de l'État sans demande connue</td><td className="py-1 pr-3 whitespace-nowrap text-emerald-700">reçu le {fmtDate(l.booked_on)} · {eur(l.amount_in, 2)} <span className="text-slate-400">{l.account}</span></td><td colSpan={7}></td></tr>
-            ))}
-            <tr className="border-t border-slate-300 font-medium text-slate-800">
-              <td className="py-2 pr-3">Total</td><td></td><td className="py-2 pr-3 text-right tabular-nums">{eur(rows.reduce((s, x) => s + (x.r?.collected ?? 0), 0))}</td><td className="py-2 pr-3 text-right tabular-nums">{eur(rows.reduce((s, x) => s + (x.r?.deductible ?? 0), 0))}</td><td></td>
-              <td className="py-2 pr-3 text-right tabular-nums">{eur(totals.requested)}</td><td className="py-2 pr-3 whitespace-nowrap">reçu {eur(totals.received)}{totals.pending > 0 && <span className="text-amber-700"> · en attente {eur(totals.pending)}</span>}</td><td className="py-2 pr-3 text-right tabular-nums">{last ? eur(last.carried ?? 0) : ''}</td><td className="py-2 pr-3 text-right tabular-nums">{eur(totals.paid)}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{eur(totals.expectedCol)}</td><td className="py-2 pr-3 text-right tabular-nums">{eur(totals.expectedDed)}</td><td className="py-2 pr-3 text-right tabular-nums" title={`écart cumulé sur les mois déclarés ${eur(totals.declaredGap)} ; mois pas encore déclarés ${eur(totals.undeclared)}`}>{eur(totals.declaredGap + totals.undeclared)}</td><td className="py-2 pr-3 text-right tabular-nums text-emerald-800">{last ? eur(last.credit) : ''}</td><td></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      {last && (
-        <p className="text-sm text-slate-800">
-          Fin {monthLabel(last.m)}, l'État doit <strong>{eur(last.credit)}</strong> : {eur(last.pendingAt)} demandés et pas encore reçus, {eur(last.carried ?? 0)} déclarés mais pas demandés.
-          {totals.undeclared > 50 && <> D'après le tableur, <strong>{eur(totals.undeclared)}</strong> de TVA restent à déclarer sur les mois sans CA3.</>}
-          {Math.abs(totals.declaredGap) > 50 && <> Sur les mois déclarés, le tableur donne {eur(totals.declaredGap)} de plus que les CA3 ({totals.declaredGap > 0 ? 'de la TVA du tableur n\'est pas déclarée, ou pas encore ce mois-là' : 'les CA3 déclarent plus que le tableur'}).</>}
-        </p>
-      )}
-      <p className="text-xs text-slate-500">Créance fin de mois = demandes de remboursement pas encore reçues à cette date + crédit reporté de la dernière déclaration. « Reçu » = virement DGFiP / SIE du montant exact de la demande, sur un relevé déposé ; un relevé manquant laisse une demande « en attente » à tort. Le tableur est tout en TTC : « Déductible attendue » = achat / 6 des véhicules marqués * (TVA récupérable, vendus HT), « Collectée attendue » = (vente − achat) / 6 des véhicules sans * (TVA sur la marge), par mois de facturation ; « Tableur − CA3 » compare les deux, mois par mois.</p>
+      </details>
 
       {taxLines.length > 0 && (
-        <div>
-          <h3 className="font-medium text-slate-900 mb-2">Mouvements bancaires avec l'État ({taxLines.length}) <span className="text-xs font-normal text-slate-500">— seules les lignes TVA (en gras) entrent dans la créance ; IS, RCM, URSSAF, retraite sont à part</span></h3>
-          <table className="min-w-full text-sm">
+        <details className="text-sm">
+          <summary className="cursor-pointer font-medium text-slate-900">Mouvements bancaires avec l'État ({taxLines.length}) <span className="text-xs font-normal text-slate-500">— seules les lignes TVA (en gras) entrent dans le calcul ; IS, RCM, URSSAF, retraite sont à part</span></summary>
+          <table className="min-w-full text-sm mt-2">
             <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Compte</th><th className="py-2 pr-3">Tiers</th><th className="py-2 pr-3">Libellé</th><th className="py-2 pr-3 text-right">Payé</th><th className="py-2 pr-3 text-right">Reçu</th></tr></thead>
             <tbody>{taxLines.map((l) => (
               <tr key={l.id} className={`border-b border-slate-100 ${isVat(l) ? 'font-medium' : 'text-slate-500'}`}><td className="py-1 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-1 pr-3 text-xs">{l.account}</td><td className="py-1 pr-3">{l.counterparty}</td><td className="py-1 pr-3 max-w-[22rem] truncate" title={l.description}>{l.description}</td><td className="py-1 pr-3 text-right tabular-nums">{l.amount_out != null ? eur(l.amount_out, 2) : ''}</td><td className="py-1 pr-3 text-right tabular-nums text-emerald-700">{l.amount_in != null ? eur(l.amount_in, 2) : ''}</td></tr>
             ))}</tbody>
           </table>
-        </div>
+        </details>
       )}
 
       {raw && (

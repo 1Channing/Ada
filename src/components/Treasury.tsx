@@ -156,9 +156,17 @@ export function Treasury() {
   }, [scoped]);
   const expensesByMonth = useMemo(() => {
     const r = new Map<string, number>();
-    for (const [cat, row] of matrix) if (!NON_EXPENSE.has(cat)) for (const [mo, v] of row) r.set(mo, (r.get(mo) ?? 0) + v);
+    // Impôts / TVA hors frais (03/10, « je n'ai jamais fait autant de marge ») : les remboursements de TVA
+    // (181 188 € en juillet) entraient en négatif dans les frais et gonflaient la marge nette.
+    for (const [cat, row] of matrix) if (!NON_EXPENSE.has(cat) && cat !== 'impots_tva') for (const [mo, v] of row) r.set(mo, (r.get(mo) ?? 0) + v);
     return r;
   }, [matrix]);
+  // Variation de trésorerie du mois sur les comptes déposés (entrées − sorties, transferts internes exclus).
+  const cashByMonth = useMemo(() => {
+    const r = new Map<string, { in: number; out: number }>();
+    for (const l of scoped) { if (l.category === 'transfert_interne') continue; const mo = l.booked_on.slice(0, 7); const c = r.get(mo) ?? { in: 0, out: 0 }; c.in += l.amount_in ?? 0; c.out += l.amount_out ?? 0; r.set(mo, c); }
+    return r;
+  }, [scoped]);
   const marginByMonth = useMemo(() => {
     const r = new Map<string, { n: number; brute: number; comm: number; fees: number }>();
     for (const d of deals) {
@@ -319,7 +327,7 @@ export function Treasury() {
             <tbody>
               {matrix.map(([cat, row]) => {
                 const tot = [...row.values()].reduce((s, v) => s + v, 0);
-                const capital = NON_EXPENSE.has(cat);
+                const capital = NON_EXPENSE.has(cat) || cat === 'impots_tva';
                 return (
                   <tr key={cat} className={`border-b border-slate-100 ${capital ? 'text-slate-500' : 'text-slate-800'}`}>
                     <td className="py-1.5 pr-4 whitespace-nowrap">{CATEGORY_LABEL[cat]}{capital && <span className="ml-1 text-[10px] text-slate-400">(hors frais)</span>}</td>
@@ -348,14 +356,19 @@ export function Treasury() {
                 {months.map((m) => <td key={m} className="py-1.5 px-2 text-right tabular-nums">{eur(marginByMonth.get(m)?.comm ?? 0)}</td>)}
                 <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => marginByMonth.get(m)?.comm ?? 0))}</td>
               </tr>
+              <tr className="text-slate-700">
+                <td className="py-1.5 pr-4" title="Entrées − sorties de toutes les lignes des comptes déposés, transferts internes exclus">Variation de trésorerie du mois (comptes déposés)</td>
+                {months.map((m) => { const c = cashByMonth.get(m); const v = c ? c.in - c.out : 0; return <td key={m} className={`py-1.5 px-2 text-right tabular-nums ${v < 0 ? 'text-rose-700' : ''}`}>{eur(v)}</td>; })}
+                <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => { const c = cashByMonth.get(m); return c ? c.in - c.out : 0; }))}</td>
+              </tr>
               <tr className="font-semibold text-emerald-800 bg-emerald-50">
-                <td className="py-2 pr-4" title="Marge brute HT − frais réels des relevés (hors achats de véhicules, transferts internes, encaissements)">Marge nette réelle = brute − frais des relevés</td>
+                <td className="py-2 pr-4" title="Marge brute HT − frais réels des relevés (hors achats de véhicules, transferts internes, encaissements, impôts et TVA)">Marge nette réelle = brute − frais des relevés</td>
                 {months.map((m) => <td key={m} className="py-2 px-2 text-right tabular-nums">{eur((marginByMonth.get(m)?.brute ?? 0) - (expensesByMonth.get(m) ?? 0))}</td>)}
                 <td className="py-2 pl-2 text-right tabular-nums">{eur(sum(months, (m) => (marginByMonth.get(m)?.brute ?? 0) - (expensesByMonth.get(m) ?? 0)))}</td>
               </tr>
             </tbody>
           </table>
-          <p className="text-xs text-slate-500 mt-2">Les frais ne couvrent que les comptes déposés : tant que le compte principal manque, la marge nette est surestimée. Les montants entrants (encaissements, transferts) apparaissent en négatif dans leur catégorie.</p>
+          <p className="text-xs text-slate-500 mt-2">Les frais ne couvrent que les comptes déposés. Lignes « hors frais » : achats et acomptes de véhicules, encaissements, transferts internes, impôts et TVA (les remboursements de TVA et l'IS ne sont ni des frais ni de la marge). Un montant entrant apparaît en négatif dans sa catégorie.</p>
         </div>
       )}
 
