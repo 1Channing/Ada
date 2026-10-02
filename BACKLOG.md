@@ -855,8 +855,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   S423, YC696, Y802, Y158) avec « prix achat » 175 € et « véhicule »
   FILLINGE. Désormais un achat sous 20 % de la vente n'est pas écrit (ni
   achat, ni vente, ni frais ; la commission HT reste) et le cas va dans la
-  boîte avec l'en-tête du bloc en preuve (sheet_row_incoherent). Les 6
-  lignes déjà écrites : SQL de remise à null donné à Channing.
+  boîte avec l'en-tête du bloc en preuve (sheet_row_incoherent). Suite
+  (02/10 soir, « j'avais des erreurs dans le sheet (brouillon) ») : l'en-tête
+  était normal, c'étaient des cellules décalées sur un brouillon laissé À
+  CÔTÉ des lignes corrigées → la synchro lisait les deux. Désormais la
+  ligne cohérente d'une REF gagne, le brouillon est ignoré et le cas se
+  ferme seul. Dégât mesuré sur les 6 dossiers : frais HT remplis avec la
+  valeur de la commission (fees = commission_ht) et notes du brouillon ;
+  frais réels retrouvés par (vente − achat) / 1,2 − commission HT, égaux
+  au centime aux valeurs décalées du brouillon (850,25 ; 1 216,33 ;
+  1 466,67 ; 907,78 ; 1 415,63 ; 1 196,36) → SQL de réparation donné.
 - **STOCK DES CONCESSIONS : BYMYCAR LU (JSON-LD IMBRIQUÉ) + GARDE-FOU
   RÉPARÉ (02/10, constat Channing : « pour la vitrine bymycar il trouve
   rien »)**. Preuve : bymycar.fr/voiture-occasion porte un JSON-LD

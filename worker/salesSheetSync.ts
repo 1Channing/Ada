@@ -269,13 +269,23 @@ async function syncOnce(creds: string): Promise<void> {
   let inserted = 0, skipped = 0, matched = 0, completed = 0;
   for (const tab of tabs) {
     const res = (await sheetsGet(token, `${cfg.spreadsheetId}/values/${encodeURIComponent(`'${tab}'!A1:AH1050`)}`)) as { values?: string[][] };
-    for (const s of parseTab(res.values ?? [])) {
-      // LIGNE INCOHÉRENTE (02/10, onglet JANVIER 2026 : un bloc dont l'en-tête
-      // ne porte pas les mêmes noms → « prix achat » 175 €, « véhicule »
-      // FILLINGE). Un achat sous 20 % de la vente n'est pas un prix : on ne
-      // l'écrit PAS (données fausses < zéro donnée), on garde la commission HT
-      // et on met le cas dans la boîte avec l'en-tête du bloc comme preuve.
-      if (s.prixAchat != null && s.prixVente != null && s.prixAchat < s.prixVente * 0.2) {
+    // LIGNE INCOHÉRENTE (02/10, onglet JANVIER 2026 : cellules décalées sur
+    // un brouillon → « prix achat » 175 €, « véhicule » FILLINGE). Un achat
+    // sous 20 % de la vente n'est pas un prix. Si la MÊME REF a aussi une
+    // ligne cohérente dans l'onglet (brouillon laissé à côté de la ligne
+    // corrigée, constat Channing 02/10 soir), le brouillon est ignoré et le
+    // cas se ferme ; sinon rien n'est écrit (données fausses < zéro donnée),
+    // la commission HT reste, et le cas va dans la boîte avec l'en-tête.
+    const incoherent = (s: SheetSale) => s.prixAchat != null && s.prixVente != null && s.prixAchat < s.prixVente * 0.2;
+    const parsed = parseTab(res.values ?? []);
+    const okRefs = new Set(parsed.filter((s) => !incoherent(s)).map((s) => s.ref));
+    const rows = parsed.filter((s) => {
+      if (!incoherent(s) || !okRefs.has(s.ref)) return true;
+      void resolveLearningCase('sheet_row_incoherent', `${tab}|${s.ref}`, 'ligne corrigée dans le tableur — brouillon ignoré');
+      return false;
+    });
+    for (const s of rows) {
+      if (incoherent(s)) {
         void recordLearningCase({ kind: 'sheet_row_incoherent', key: `${tab}|${s.ref}`, actor: 'dev', link: '/admin', title: `Tableur ${tab} : ligne ${s.ref} incohérente (achat ${s.prixAchat} €, vente ${s.prixVente} €) — colonnes du bloc à vérifier`, detail: { tab, ref: s.ref, header: s.header, vehicule: s.vehicule, prixAchat: s.prixAchat, prixVente: s.prixVente, fraisHt: s.fraisHt, commissionHt: s.commissionHt } });
         s.prixAchat = null; s.prixVente = null; s.fraisHt = null;
       }
