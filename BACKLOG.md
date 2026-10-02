@@ -832,6 +832,28 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TVA : VENTES HT = INTRACOM + EXPORT, REMBOURSEMENTS RAPPROCHÉS DEMANDE
+  PAR DEMANDE, IMPÔTS MIEUX CLASSÉS (03/10, retour Channing : « le calcul
+  des ventes intracom HT n'apparaît pas sur toutes les lignes », « la ligne
+  TVA remboursée ne match pas avec ce qu'on a réellement reçu », « il
+  manque des paiements DGFiP via Shine, on a payé des avances d'IS tous les
+  trois mois »)**. (1) Constat en base : juin et août déclarent leurs
+  ventes en ligne E1 (exportations hors UE : 611 465 et 368 750) et non en
+  F2 ; mai n'a ni F2 ni E1 (A1 46 080 seulement) → la colonne devient
+  « Ventes HT (intracom + export) » = F2 + E1 avec « dont export » ; mai
+  reste vide tant que son CA3 n'est pas redéposé. (2) Un même mois déposé
+  plusieurs fois dans un PDF : la dernière déclaration déposée gagne
+  (ca3.ts). (3) Nouveau bloc « Ce que l'État doit, demande par demande » :
+  chaque ligne 26 (remboursement demandé) est rapprochée d'un virement
+  DGFiP / SIE entrant du même montant (± 1 €) postérieur au mois déclaré ;
+  reçu (date, compte) ou « en attente » ; total en attente ; virements
+  reçus sans demande connue listés (49 000 du 06/02 = crédit 2025). Constat :
+  27 796, 62 880, 49 559 reçus ; 93 188, 46 000, 42 000, 26 000, 16 195 en
+  attente (≈ 223 383 €). (4) Classement « impôts / TVA » élargi : « finances
+  publiques », IS1-… / IS2-… (acomptes d'IS), RCM1-…, CFE, CVAE. Constat :
+  les relevés déposés ne contiennent que IS1 8 445 (18/03) et le rejet IS
+  31 514 ; aucun autre acompte trimestriel → ils sont sur un compte dont
+  les relevés manquent (Banque Populaire 2026 : seul JANVIER, clôturé à 0).
 - **TRÉSORERIE : CA3 LU SUR PREUVE, BANQUE POPULAIRE LUE, POINT DE DÉPART
   PROUVÉ AU CENTIME (03/10)**. (1) Formulaire 3310-CA3 exporté
   d'impots.gouv (11 pages) : « Période déclarée : 01/01/2026 au

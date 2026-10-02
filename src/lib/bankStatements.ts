@@ -677,7 +677,7 @@ export function classify(kind: string, counterparty: string, description: string
   if (/transfert interne/.test(all) || /^mc export$/.test(cp.trim())) return 'transfert_interne';
   if (kind === 'ATM' || /^RETRAIT/i.test(kind)) return 'retrait_especes';
   if (kind === 'FEE' || kind === 'Fee' || kind === 'fee' || (kind === 'Adjustment' && /fees|invoice number/.test(all)) || /revolut business fee|airwallex|frais bancaires|commission d'intervention|abonnement shine|frais paiement|frais de tenue|cotisation carte/.test(all)) return 'frais_bancaires';
-  if (/impots|impot |dgfip|tresor public|\btva\b|urssaf|93033811600013|douane|\bsie\b|\bis\b.*rejet|rejet.*\bis\b/.test(all)) return 'impots_tva';
+  if (/impots|impot[ .]|dgfip|finances publiques|tresor public|\btva\b|urssaf|93033811600013|douane|\bsie\b|\bis\b.*rejet|rejet.*\bis\b|\bis[1-4]-\d{6}|\brcm1-\d{6}|\bcfe\b|\bcvae\b/.test(all)) return 'impots_tva';
   if (/bulletin de salaire|\bsalaire|\bpaie\b/.test(all)) return 'salaire';
   const isIn = inn != null && (kind === 'MOA' || kind === 'MOR' || kind === 'Deposit' || kind === 'transfer_in');
   const isOutTransfer = out != null && (kind === 'MOS' || kind === 'Payout' || kind === 'Transfer' || kind === 'transfer_out');

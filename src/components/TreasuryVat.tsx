@@ -86,6 +86,21 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
       return { m, r, refunds, paid, delta, credit, star: starByMonth.get(m) };
     });
   }, [months, byMonth, vatLines, opening, starByMonth]);
+  // DEMANDES DE REMBOURSEMENT ↔ VIREMENTS REÇUS (03/10, « la TVA remboursée ne
+  // matche pas avec ce qu'on a réellement reçu ») : chaque demande (ligne 26)
+  // est rapprochée d'un virement DGFiP / SIE du même montant ; le reste est
+  // « en attente » = ce que l'État doit vraiment, demande par demande.
+  const refundMatch = useMemo(() => {
+    const refunds = vatLines.filter((l) => l.amount_in).map((l) => ({ l, used: false }));
+    const requests = returns.filter((r) => r.credit_requested).sort((a, b) => a.period_month.localeCompare(b.period_month)).map((r) => {
+      const hit = refunds.find((x) => !x.used && x.l.booked_on >= r.period_month && Math.abs((x.l.amount_in ?? 0) - (r.credit_requested ?? 0)) <= 1);
+      if (hit) hit.used = true;
+      return { r, received: hit?.l ?? null };
+    });
+    const unmatchedRefunds = refunds.filter((x) => !x.used).map((x) => x.l);
+    const pending = requests.filter((q) => !q.received).reduce((s, q) => s + (q.r.credit_requested ?? 0), 0);
+    return { requests, unmatchedRefunds, pending };
+  }, [returns, vatLines]);
   // Point de départ : soldes d'ouverture de janvier 2026 par compte vs disponibilités du bilan.
   const janOpenings = useMemo(() => statements.filter((s) => s.period_month.slice(0, 7) === '2026-01').map((s) => ({ s, v: s.opening_balance ?? 0 })), [statements]);
   const janSum = janOpenings.reduce((s, x) => s + x.v, 0);
@@ -136,7 +151,7 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-            <th className="py-2 pr-3">Mois</th><th className="py-2 pr-3 text-right" title="Ligne F2 du CA3 : livraisons intracommunautaires B2B, vendues HT">Ventes HT intracom</th><th className="py-2 pr-3 text-right" title="Ligne 16 : total de la TVA brute due">Collectée</th><th className="py-2 pr-3 text-right">Déductible</th><th className="py-2 pr-3 text-right">Nette due</th><th className="py-2 pr-3 text-right">Rembours. demandé</th><th className="py-2 pr-3 text-right">Crédit reporté</th>
+            <th className="py-2 pr-3">Mois</th><th className="py-2 pr-3 text-right" title="CA3 lignes F2 (livraisons intracommunautaires B2B) + E1 (exportations hors UE) : ventes HT">Ventes HT (intracom + export)</th><th className="py-2 pr-3 text-right" title="Ligne 16 : total de la TVA brute due">Collectée</th><th className="py-2 pr-3 text-right">Déductible</th><th className="py-2 pr-3 text-right">Nette due</th><th className="py-2 pr-3 text-right">Rembours. demandé</th><th className="py-2 pr-3 text-right">Crédit reporté</th>
             <th className="py-2 pr-3 text-right" title="Remboursements de TVA reçus (DGFiP / SIE)">TVA remboursée</th><th className="py-2 pr-3 text-right" title="TVA payée (hors IS, RCM, URSSAF)">TVA payée</th>
             <th className="py-2 pr-3 text-right" title="Véhicules sans * (TVA sur la marge) : (vente − achat) / 6">Collectée attendue (marge)</th><th className="py-2 pr-3 text-right" title="Véhicules « * » du tableur : achat / 6">Déductible attendue (achats *)</th><th className="py-2 pr-3 text-right">Créance de TVA fin de mois</th><th className="py-2"></th>
           </tr></thead>
@@ -147,7 +162,7 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
               return (
                 <tr key={m} className="border-b border-slate-100">
                   <td className="py-1.5 pr-3 whitespace-nowrap font-medium">{monthLabel(m)}{row?.declared_on && <span className="text-[10px] text-slate-400 ml-1">déclarée le {row.declared_on.split('-').reverse().join('/')}</span>}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={r?.sales_export ? `+ exportations hors UE ${eur(r.sales_export)}` : ''}>{eur(r?.sales_intracom)}</td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={r ? `F2 livraisons intracom ${eur(r.sales_intracom)} + E1 exportations hors UE ${eur(r.sales_export)}` : ''}>{r && (r.sales_intracom != null || r.sales_export != null) ? eur((r.sales_intracom ?? 0) + (r.sales_export ?? 0)) : '—'}{r?.sales_export ? <span className="ml-1 text-[10px] text-slate-400">dont export {eur(r.sales_export)}</span> : null}</td>
                   {editing ? (
                     <>
                       <td className="py-1 pr-3 text-right">{field(editing, 'collected', 'collectée')}</td><td className="py-1 pr-3 text-right">{field(editing, 'deductible', 'déductible')}</td>
@@ -184,6 +199,29 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
         </table>
       </div>
       <p className="text-xs text-slate-500">Créance = crédit au 31/12/2025 + (déductible − collectée) déclarées − TVA remboursée + TVA payée, cumulé. Le tableur est tout en TTC : « Déductible attendue » = achat / 6 des véhicules marqués * (TVA récupérable, vendus HT), « Collectée attendue » = (vente − achat) / 6 des véhicules sans * (TVA sur la marge), par mois de facturation — à comparer aux montants déclarés.</p>
+
+      {/* Demandes de remboursement, une par une */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="font-medium text-slate-900">Ce que l'État doit, demande par demande <span className="ml-2 text-sm font-semibold text-emerald-800">{eur(refundMatch.pending)} en attente</span></h3>
+        <table className="min-w-full text-sm mt-2">
+          <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200"><th className="py-1.5 pr-3">Déclaration</th><th className="py-1.5 pr-3 text-right">Demandé (ligne 26)</th><th className="py-1.5 pr-3">Reçu</th><th className="py-1.5 pr-3">Compte</th></tr></thead>
+          <tbody>
+            {refundMatch.requests.map(({ r, received }) => (
+              <tr key={r.period_month} className="border-b border-slate-100">
+                <td className="py-1 pr-3">{monthLabel(r.period_month)}{r.declared_on && <span className="text-[10px] text-slate-400 ml-1">déposée le {r.declared_on.split('-').reverse().join('/')}</span>}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{eur(r.credit_requested)}</td>
+                <td className="py-1 pr-3">{received ? <span className="text-emerald-700">reçu le {received.booked_on.split('-').reverse().join('/')} · {eur(received.amount_in, 2)}</span> : <span className="text-amber-700">en attente</span>}</td>
+                <td className="py-1 pr-3 text-xs">{received?.account ?? ''}</td>
+              </tr>
+            ))}
+            {refundMatch.unmatchedRefunds.map((l) => (
+              <tr key={l.id} className="border-b border-slate-100 text-slate-500"><td className="py-1 pr-3">virement sans demande 2026 (crédit 2025 ?)</td><td className="py-1 pr-3"></td><td className="py-1 pr-3">reçu le {l.booked_on.split('-').reverse().join('/')} · {eur(l.amount_in, 2)}</td><td className="py-1 pr-3 text-xs">{l.account}</td></tr>
+            ))}
+            {refundMatch.requests.length === 0 && <tr><td colSpan={4} className="py-2 text-slate-500">Aucune demande de remboursement enregistrée.</td></tr>}
+          </tbody>
+        </table>
+        <p className="text-xs text-slate-500 mt-2">Un virement DGFiP / SIE est rapproché d'une demande quand il en porte le montant exact. Les relevés manquants (un compte de réception non déposé) laissent une demande « en attente » à tort.</p>
+      </div>
 
       {taxLines.length > 0 && (
         <div>

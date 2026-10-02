@@ -41,5 +41,9 @@ export function extractCa3(lines: TextLine[], source: string): VatReturn[] {
     if (!amounts.length) continue;
     if (cur[field] == null) (cur as unknown as Record<string, unknown>)[field] = amounts[amounts.length - 1];
   }
-  return out.filter((r) => r.collected != null || r.deductible != null || r.credit_requested != null || r.credit_carried != null);
+  const filled = out.filter((r) => r.collected != null || r.deductible != null || r.credit_requested != null || r.credit_carried != null);
+  // Un même mois présent plusieurs fois (déclaration initiale puis rectificative) : la dernière déposée fait foi.
+  const byMonth = new Map<string, VatReturn>();
+  for (const r of filled) { const prev = byMonth.get(r.period_month); if (!prev || (r.declared_on ?? '') >= (prev.declared_on ?? '')) byMonth.set(r.period_month, r); }
+  return [...byMonth.values()];
 }
