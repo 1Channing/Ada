@@ -82,10 +82,17 @@ const moneyFr = (s: string) => Number(s.replace(/[€\s\u00a0\u202f.]/g, '').rep
 const FR_AMOUNT = /^[\d\s\u00a0\u202f.]*\d,\d{2}$/;
 const frDate = (d: string) => { const m = d.match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; };
 /** Clé de période : le mois si le relevé le couvre en entier, sinon « 2026-06~01-15 » (relevés en plusieurs parties). */
-const periodKey = (start: string | null, end: string | null) => {
-  if (!start || !end) return (end ?? start ?? '').slice(0, 7);
-  const full = start.slice(0, 7) === end.slice(0, 7) && Number(end.slice(8)) >= 28;
-  return full ? start.slice(0, 7) : `${start.slice(0, 7)}~${start.slice(8)}-${end.slice(8)}`;
+// Le mois du relevé est celui de son DERNIER MOUVEMENT : CIC et Caisse
+// d'Épargne ouvrent sur le solde du dernier jour du mois précédent (« SOLDE
+// AU 30/05 » pour juin) et CIC date parfois sa clôture au 1er du mois
+// suivant (constat 02/10 : relevés rangés dans le mauvais mois de la
+// grille). Partiel (« 2026-06~01-15 ») seulement quand début et fin sont
+// dans le même mois et que la fin tombe avant le 28 (relevés en deux parties).
+const periodKey = (start: string | null, end: string | null, lines: Array<{ booked_on: string }>) => {
+  const last = lines.reduce<string | null>((m, l) => (m == null || l.booked_on > m ? l.booked_on : m), null);
+  const month = (last ?? end ?? start ?? '').slice(0, 7);
+  if (start && end && start.slice(0, 7) === end.slice(0, 7) && Number(end.slice(8)) < 28) return `${month}~${start.slice(8)}-${end.slice(8)}`;
+  return month;
 };
 
 // ── Détection ───────────────────────────────────────────────────────────────
@@ -183,7 +190,7 @@ function parseShine(lines: TextLine[]): ParsedStatement {
   });
   const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
   if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
-  return { account: 'shine', period_month: periodKey(start, end), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
+  return { account: 'shine', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
 }
 
 // ── Pennylane / Swan (preuve 02/10) : une ligne par mouvement ───────────────
@@ -219,7 +226,7 @@ function parseSwan(texts: string[]): ParsedStatement {
   }
   const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
   if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
-  return { account: 'pennylane', period_month: periodKey(start, end), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
+  return { account: 'pennylane', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
 }
 
 // ── CIC (preuve 02/10) ──────────────────────────────────────────────────────
@@ -268,7 +275,7 @@ function parseCic(lines: TextLine[]): ParsedStatement {
   });
   const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
   if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
-  return { account: 'cic', period_month: periodKey(start, end), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
+  return { account: 'cic', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
 }
 
 // ── Caisse d'Épargne (preuve 02/10) ─────────────────────────────────────────
@@ -307,7 +314,7 @@ function parseCaisseEpargne(texts: string[]): ParsedStatement {
   });
   const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
   if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
-  return { account: 'caisse_epargne', period_month: periodKey(start, end), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
+  return { account: 'caisse_epargne', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
 }
 
 // ── Revolut ─────────────────────────────────────────────────────────────────

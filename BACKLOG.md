@@ -832,6 +832,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : LE MOIS D'UN RELEVÉ = CELUI DE SON DERNIER MOUVEMENT
+  (02/10 soir, « semble y avoir des erreurs pourtant les relevés sont bien
+  lisibles »)**. Constat sur les 21 relevés déposés (compte de test passé
+  admin) : aucun avertissement, tout se recoupe ; mais CIC et Caisse
+  d'Épargne ouvrent sur le solde du dernier jour du mois précédent (« SOLDE
+  AU 30/05 » pour juin) et CIC date parfois sa clôture au 1er du mois
+  suivant → clés « 2026-05~30-30 », « 2026-04~30-01 », relevés rangés dans
+  le mauvais mois de la grille et faux « manque ». Désormais le mois est
+  celui du dernier mouvement ; partiel seulement si début et fin sont dans
+  le même mois avec une fin avant le 28. SQL de re-clé donné pour les 21
+  relevés déjà déposés.
 - **TRÉSORERIE : RELEVÉ MAL LU → BOÎTE À APPRENDRE (02/10 soir, « j'ai
   ajouté les relevés, semble y avoir des erreurs pourtant les relevés sont
   bien lisibles »)**. Les tables bank_* sont admin seulement : le compte de
