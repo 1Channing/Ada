@@ -21,6 +21,8 @@ export interface BankLineRow extends Omit<ParsedLine, 'category'> {
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 const missing = (m: string) => /does not exist|relation|schema cache/i.test(m);
 export const MISSING_MSG = 'SQL du 02/10 (bank_statements) à coller.';
+/** Premier mois suivi : un relevé antérieur est refusé au dépôt. */
+export const TREASURY_FROM = '2026-01';
 const normPlate = (p: string | null | undefined) => (p ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '') || null;
 
 export async function listStatements(): Promise<{ rows: BankStatementRow[]; error: string | null }> {
@@ -113,6 +115,8 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
     parsed = st;
     if (st.warnings.length > 0) void reportStatementIssue(file, lines, st, null, st.warnings);
     if (!st.period_month) throw new Error('mois du relevé introuvable dans le PDF');
+    // Avant janvier 2026 : refusé (décision Channing 02/10 soir, la trésorerie suivie démarre au 1er janvier 2026).
+    if (st.period_month.slice(0, 7) < TREASURY_FROM) throw new Error(`relevé de ${st.period_month.slice(0, 7)} : la trésorerie démarre en ${TREASURY_FROM}, les relevés antérieurs ne sont pas intégrés`);
     res.account = st.account; res.month = st.period_month; res.warnings = st.warnings;
     // Catégories corrigées à la main sur la version précédente : conservées.
     // Un relevé = (banque, numéro de compte, mois) : le même relevé redéposé

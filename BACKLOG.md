@@ -832,6 +832,9 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : RELEVÉS D'AVANT JANVIER 2026 REFUSÉS (02/10 soir, demande
+  Channing)**. TREASURY_FROM = 2026-01 : un relevé dont le mois est
+  antérieur est refusé au dépôt avec un message clair, rien n'est écrit.
 - **TRÉSORERIE : COMPTES PAR IBAN, DOUBLONS, ÉCARTS D'ACOMPTE, LIENS À LA
   MAIN (02/10 soir, six points de Channing)**. (1) Un relevé = (banque,
   numéro de compte, mois) : fin d'IBAN ou n° de compte lu dans le PDF
