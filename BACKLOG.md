@@ -832,6 +832,33 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **UN VIREMENT POUR PLUSIEURS VÉHICULES, FACTURE AVANT MONTANT (03/10,
+  Channing : « on a des paiements client sur virement unique qui paient
+  plusieurs véhicules, il faut lier les dossiers grâce aux numéros de
+  factures présents dans le sheet ; et parfois aussi sans que ce soit des
+  virements pour plusieurs véhicules »)**. Constat sur Shine septembre
+  (après réparation des libellés) : 15 lignes « sans dossier » alors que le
+  libellé cite la facture (« FAC00000576 / WF0RXXTA3RRB09531 De : Wilar
+  B.V. » ↔ TC817 « Facture : FAC576 »), 9 liens « montant unique » posés
+  avant que le libellé soit lisible. Deux causes : (1) la règle facture
+  venait APRÈS les règles de montant (deux Transit à 27 500 € : aucune ne
+  tranchait) → facture passe avant les montants ; (2) un seul dossier par
+  ligne. Nouveau : `matchLineParts` — plusieurs numéros FAC dans le libellé
+  (« Factuur:FAC00000560.FAC00000559 », 44 800 €) → chaque dossier trouvé
+  reçoit sa part (prorata des encaissements attendus quand tous sont
+  trouvés, sinon son attendu et le reste « sans dossier » visible) ;
+  stockée dans bank_lines.parts (SQL 20261003150000, repli : premier
+  dossier seul, dit dans « comment »). Lien manuel « TC659 + TC817 ».
+  Vue Véhicules : chaque dossier reçoit sa part d'une ligne partagée.
+  Rejoué sur les 30 encaissements Shine ≥ 3 000 € de septembre : 24 liés
+  (14 par facture, 7 montant + client, 2 VIN, 1 montant + modèle, 2
+  partiels « factures (1/2) »), 6 sans dossier à raison (FAC586/587/588 pas
+  encore dans le tableur, remboursement de vente annulée, Deel, Tesla
+  ABF6). Rapprochement rejoué une fois par session au chargement (les
+  liens manuels restent) ; la réparation des libellés Shine refait aussi
+  le lien. Constat au passage : les acomptes d'IS « manquants » étaient dans
+  les lignes Shine réparées (7 879 le 10/07, 8 445 le 28/09, libellés
+  « Rejet … IS » du compte secondaire), désormais en impôts / TVA.
 - **RELEVÉS SHINE : LE LIBELLÉ PARTAIT DANS LE TYPE, 198 LIGNES SANS TIERS NI
   DESCRIPTION, LES REMBOURSEMENTS DGFiP COMPTÉS COMME DES VENTES (03/10,
   Channing : « je te joins l'ensemble des remboursements perçus, tu devrais

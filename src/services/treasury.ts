@@ -7,8 +7,8 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { pdfToLinesEx } from '../lib/pdfText';
 import { recordLearningCaseFromApp } from './learningCases';
-import { parseStatement, matchLine, matchComplements, repairShineKind, classify, extractPlate, extractVin, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
-export { matchLine, type DealLite } from '../lib/bankStatements';
+import { parseStatement, matchLineParts, matchComplements, repairShineKind, classify, extractPlate, extractVin, expectedCash, type LinkPart, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
+export { matchLine, type DealLite, type LinkPart } from '../lib/bankStatements';
 
 export interface BankStatementRow {
   id: string; account: BankAccount; account_ref?: string | null; account_name?: string | null; period_month: string; file_name: string | null; currency: string;
@@ -17,6 +17,19 @@ export interface BankStatementRow {
 export interface BankLineRow extends Omit<ParsedLine, 'category'> {
   id: string; statement_id: string; account: BankAccount; category: BankCategory; category_auto: BankCategory | null;
   transaction_id: string | null; match_how: string | null;
+  /** Un virement pour plusieurs véhicules (03/10) : part de chaque dossier. null = lien simple (transaction_id). */
+  parts: LinkPart[] | null;
+}
+/** Dossiers liés à une ligne, avec le montant attribué à chacun. */
+export const lineParts = (l: BankLineRow): LinkPart[] => (l.parts?.length ? l.parts : l.transaction_id ? [{ id: l.transaction_id, how: l.match_how ?? '', amount: l.amount_out ?? l.amount_in ?? 0 }] : []);
+const sameParts = (a: LinkPart[] | null, b: LinkPart[] | null) => JSON.stringify((a ?? []).map((p) => [p.id, p.amount])) === JSON.stringify((b ?? []).map((p) => [p.id, p.amount]));
+/** Écrit un lien (simple ou multi-dossiers) ; colonne parts absente (SQL du 03/10 quater) : premier dossier seul. */
+async function writeLink(lineId: string, parts: LinkPart[] | null): Promise<string | null> {
+  const multi = parts != null && parts.length > 1;
+  const row = { transaction_id: multi ? null : parts?.[0]?.id ?? null, match_how: parts?.[0]?.how ?? null, parts: multi ? parts : null };
+  let { error } = await untyped.from('bank_lines').update(row).eq('id', lineId);
+  if (error && /parts/.test(error.message)) ({ error } = await untyped.from('bank_lines').update({ transaction_id: parts?.[0]?.id ?? null, match_how: parts ? `${parts[0].how} (1/${parts.length}, SQL du 03/10 quater à coller)` : null }).eq('id', lineId));
+  return error ? error.message : null;
 }
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 const missing = (m: string) => /does not exist|relation|schema cache/i.test(m);
@@ -50,7 +63,7 @@ async function fetchAll(table: string, select: string, order: Array<[string, boo
 export async function listLines(): Promise<{ rows: BankLineRow[]; error: string | null }> {
   const { data, error } = await fetchAll('bank_lines', '*', [['booked_on', false], ['line_no', true]]);
   if (error) return { rows: [], error: missing(error) ? MISSING_MSG : error };
-  return { rows: data.map((r) => ({ ...r, amount_out: numOrNull(r.amount_out), amount_in: numOrNull(r.amount_in), balance: numOrNull(r.balance) })) as BankLineRow[], error: null };
+  return { rows: data.map((r) => ({ ...r, amount_out: numOrNull(r.amount_out), amount_in: numOrNull(r.amount_in), balance: numOrNull(r.balance), parts: Array.isArray(r.parts) && (r.parts as LinkPart[]).length ? (r.parts as LinkPart[]) : null })) as BankLineRow[], error: null };
 }
 const numOrNull = (v: unknown) => (v == null || v === '' ? null : Number(v));
 
@@ -66,7 +79,7 @@ export async function deleteStatement(id: string): Promise<string | null> {
  * lancé au chargement : tiers, description, plaque, VIN et catégorie auto
  * recalculés ; une catégorie choisie à la main est conservée.
  */
-export async function repairLines(lines: BankLineRow[]): Promise<{ repaired: number; error: string | null }> {
+export async function repairLines(lines: BankLineRow[], deals: DealLite[]): Promise<{ repaired: number; error: string | null }> {
   let repaired = 0;
   for (const l of lines) {
     if (l.account !== 'shine' || l.counterparty || l.description) continue;
@@ -80,6 +93,12 @@ export async function repairLines(lines: BankLineRow[]): Promise<{ repaired: num
     const { error } = await untyped.from('bank_lines').update(patch).eq('id', l.id);
     if (error) return { repaired, error: error.message };
     repaired++;
+    // Libellé retrouvé → le rapprochement refait sur ce libellé (un lien manuel reste).
+    if (l.match_how !== 'manuel') {
+      const parts = matchLineParts({ ...l, ...patch }, deals);
+      const err = await writeLink(l.id, parts);
+      if (err) return { repaired, error: err };
+    }
   }
   return { repaired, error: null };
 }
@@ -180,13 +199,17 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
     if (insErr) throw new Error(missing(insErr.message) ? MISSING_MSG : insErr.message);
     let matched = 0;
     const rows = st.lines.map((l) => {
-      const m = matchLine(l, deals);
+      const m = matchLineParts(l, deals);
       if (m) matched++;
       const key = lineKey({ booked_on: l.booked_on, amount_out: l.amount_out, amount_in: l.amount_in, description: l.description });
-      return { ...l, statement_id: ins.id, account: st.account, category_auto: l.category, category: manual.get(key) ?? l.category, transaction_id: m?.id ?? null, match_how: m?.how ?? null };
+      const multi = m != null && m.length > 1;
+      return { ...l, statement_id: ins.id, account: st.account, category_auto: l.category, category: manual.get(key) ?? l.category, transaction_id: multi ? null : m?.[0]?.id ?? null, match_how: m?.[0]?.how ?? null, parts: multi ? m : null };
     });
+    let hasParts = true;
     for (let i = 0; i < rows.length; i += 200) {
-      const { error } = await untyped.from('bank_lines').insert(rows.slice(i, i + 200));
+      const batch = rows.slice(i, i + 200);
+      let { error } = await untyped.from('bank_lines').insert(hasParts ? batch : batch.map(({ parts, ...r }) => ({ ...r, transaction_id: parts?.[0]?.id ?? r.transaction_id })));
+      if (error && hasParts && /parts/.test(error.message)) { hasParts = false; ({ error } = await untyped.from('bank_lines').insert(batch.map(({ parts, ...r }) => ({ ...r, transaction_id: parts?.[0]?.id ?? r.transaction_id })))); }
       if (error) throw new Error(error.message);
     }
     res.lines = rows.length; res.matched = matched;
@@ -207,13 +230,14 @@ export async function rematchAll(lines: BankLineRow[], deals: DealLite[]): Promi
   let changed = 0;
   for (const l of lines) {
     if (l.match_how === 'manuel') continue; // un lien posé à la main n'est jamais défait par l'automate
-    const m = matchLine(l, deals);
-    const id = m?.id ?? null, how = m?.how ?? null;
-    if (id === l.transaction_id && how === l.match_how) { continue; }
+    const m = matchLineParts(l, deals);
+    const how = m?.[0]?.how ?? null;
+    if (sameParts(m, lineParts(l).length ? lineParts(l) : null) && how === l.match_how) { continue; }
     if (!m && l.match_how === 'tiers + complément') continue; // posé par le second passage, revérifié ci-dessous
-    const { error } = await untyped.from('bank_lines').update({ transaction_id: id, match_how: how }).eq('id', l.id);
-    if (error) return { changed, error: error.message };
-    l.transaction_id = id; l.match_how = how; changed++;
+    const err = await writeLink(l.id, m);
+    if (err) return { changed, error: err };
+    const multi = m != null && m.length > 1;
+    l.transaction_id = multi ? null : m?.[0]?.id ?? null; l.match_how = how; l.parts = multi ? m : null; changed++;
   }
   const c = await applyComplements(lines, deals);
   return { changed: changed + c, error: null };
@@ -229,16 +253,24 @@ async function applyComplements(lines: BankLineRow[], deals: DealLite[]): Promis
   return n;
 }
 
-/** Lien posé à la main : REF du dossier (vide = retirer le lien). */
-export async function setLineMatch(lineId: string, reference: string, deals: DealLite[]): Promise<{ error: string | null; deal: DealLite | null }> {
-  const ref = reference.trim().toUpperCase();
-  if (!ref) {
-    const { error } = await untyped.from('bank_lines').update({ transaction_id: null, match_how: null }).eq('id', lineId);
-    return { error: error ? error.message : null, deal: null };
+/** Lien posé à la main : REF du dossier (vide = retirer le lien) ; « TC659 + TC817 » = un virement pour plusieurs véhicules, montant réparti au prorata des prix. */
+export async function setLineMatch(lineId: string, reference: string, deals: DealLite[], line?: BankLineRow): Promise<{ error: string | null; deal: DealLite | null; parts: LinkPart[] | null }> {
+  const refs = [...new Set(reference.toUpperCase().split(/[\s+,;/]+/).map((r) => r.trim()).filter(Boolean))];
+  if (refs.length === 0) {
+    const err = await writeLink(lineId, null);
+    return { error: err, deal: null, parts: null };
   }
-  const cands = deals.filter((d) => (d.reference ?? '').toUpperCase() === ref);
-  if (cands.length === 0) return { error: `aucun dossier avec la REF ${ref}`, deal: null };
-  const deal = cands.find((d) => d.plate && d.purchase_price != null) ?? cands.find((d) => d.purchase_price != null) ?? cands[0];
-  const { error } = await untyped.from('bank_lines').update({ transaction_id: deal.id, match_how: 'manuel' }).eq('id', lineId);
-  return { error: error ? error.message : null, deal };
+  const chosen: DealLite[] = [];
+  for (const ref of refs) {
+    const cands = deals.filter((d) => (d.reference ?? '').toUpperCase() === ref);
+    if (cands.length === 0) return { error: `aucun dossier avec la REF ${ref}`, deal: null, parts: null };
+    chosen.push(cands.find((d) => d.plate && d.purchase_price != null) ?? cands.find((d) => d.purchase_price != null) ?? cands[0]);
+  }
+  const amt = line ? line.amount_out ?? line.amount_in ?? 0 : 0;
+  const field = line?.amount_out != null ? 'purchase_price' : 'sale_price';
+  const exp = chosen.map((d) => (d[field] != null ? expectedCash(d, field) : 0)), total = exp.reduce((a, b) => a + b, 0);
+  let left = amt;
+  const parts: LinkPart[] = chosen.map((d, i) => { const share = chosen.length === 1 ? amt : i === chosen.length - 1 ? left : total > 0 ? Math.round((amt * exp[i]) / total * 100) / 100 : Math.round((amt / chosen.length) * 100) / 100; left = Math.round((left - share) * 100) / 100; return { id: d.id, how: 'manuel', amount: share }; });
+  const err = await writeLink(lineId, parts);
+  return { error: err, deal: chosen[0], parts: parts.length > 1 ? parts : null };
 }

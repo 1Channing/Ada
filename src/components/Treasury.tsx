@@ -3,7 +3,7 @@ import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide
 import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, expectedCash, isStarDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
 import { TreasuryVat } from './TreasuryVat';
 import {
-  listStatements, listLines, deleteStatement, setLineCategory, repairLines, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
+  listStatements, listLines, deleteStatement, setLineCategory, repairLines, lineParts, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
   type BankStatementRow, type BankLineRow, type DealLite, type UploadResult,
 } from '../services/treasury';
 
@@ -38,9 +38,17 @@ export function Treasury() {
     setLoading(true);
     const [s, l0, d] = await Promise.all([listStatements(), listLines(), loadDeals()]);
     // Lignes Shine dont le libellé était parti dans le type (03/10) : réparées puis relues.
-    const rep = l0.error ? { repaired: 0, error: null } : await repairLines(l0.rows);
-    const l = rep.repaired > 0 ? await listLines() : l0;
+    const rep = l0.error ? { repaired: 0, error: null } : await repairLines(l0.rows, d);
+    let l = rep.repaired > 0 ? await listLines() : l0;
     if (rep.repaired > 0) setNotice(`${rep.repaired} ligne(s) Shine relue(s) : tiers et libellé retrouvés, catégories recalculées.`);
+    // Rapprochement rejoué une fois par session (nouvelles règles : factures, un virement pour plusieurs véhicules).
+    try {
+      if (!l.error && d.length && !sessionStorage.getItem('treasury_rematched')) {
+        sessionStorage.setItem('treasury_rematched', '1');
+        const r = await rematchAll(l.rows, d);
+        if (r.changed > 0) { l = await listLines(); setNotice((n) => `${n ? `${n} ` : ''}${r.changed} lien(s) ligne ↔ dossier mis à jour.`); }
+      }
+    } catch { /* fail-open */ }
     setStatements(s.rows); setLines(l.rows); setDeals(d); setError(s.error ?? l.error ?? rep.error);
     setLoading(false);
   };
@@ -70,7 +78,7 @@ export function Treasury() {
     const r = await rematchAll(lines, ds);
     setBusy(null);
     if (r.error) setError(r.error);
-    setResults([{ file: 'Rapprochement', lines: lines.length, matched: lines.filter((l) => l.transaction_id).length + r.changed }]);
+    setResults([{ file: 'Rapprochement', lines: lines.length, matched: lines.filter((l) => lineParts(l).length > 0).length + r.changed }]);
     await reload();
   };
   const onCategory = async (l: BankLineRow, c: BankCategory) => {
@@ -128,9 +136,9 @@ export function Treasury() {
   const onLink = async (lineIds: string[], ref: string) => {
     const ds = deals.length ? deals : await loadDeals();
     for (const id of lineIds) {
-      const r = await setLineMatch(id, ref, ds);
+      const r = await setLineMatch(id, ref, ds, lines.find((x) => x.id === id));
       if (r.error) { setError(r.error); return; }
-      setLines((prev) => prev.map((x) => (x.id === id ? { ...x, transaction_id: r.deal?.id ?? null, match_how: r.deal ? 'manuel' : null } : x)));
+      setLines((prev) => prev.map((x) => (x.id === id ? { ...x, transaction_id: r.parts ? null : r.deal?.id ?? null, match_how: r.deal ? 'manuel' : null, parts: r.parts } : x)));
     }
   };
 
@@ -170,12 +178,20 @@ export function Treasury() {
     const g = new Map<string, Group>();
     for (const l of scoped) {
       if (!['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(l.category)) continue;
-      const key = l.transaction_id ?? (l.plate ? `plaque:${l.plate}` : l.vin ? `vin:${l.vin}` : `ligne:${l.id}`);
-      const cur = g.get(key) ?? { key, deal: l.transaction_id ? dealById.get(l.transaction_id) ?? null : null, plate: l.plate, label: `${l.counterparty} — ${l.description}`.slice(0, 80), paid: 0, received: 0, lines: [], first: l.booked_on };
-      cur.paid += l.amount_out ?? 0; cur.received += l.amount_in ?? 0; cur.lines.push(l);
-      if (l.booked_on < cur.first) cur.first = l.booked_on;
-      if (!cur.plate && l.plate) cur.plate = l.plate;
-      g.set(key, cur);
+      // Un virement pour plusieurs véhicules (03/10) : chaque dossier reçoit sa part ; le reste sans dossier reste visible.
+      const parts = lineParts(l);
+      const assigned = parts.reduce((s, p) => s + p.amount, 0);
+      const rest = Math.round(((l.amount_out ?? l.amount_in ?? 0) - assigned) * 100) / 100;
+      const slots: Array<{ key: string; dealId: string | null; amount: number }> = parts.map((p) => ({ key: p.id, dealId: p.id, amount: p.amount }));
+      if (parts.length === 0 || rest > 1) slots.push({ key: parts.length ? `ligne:${l.id}` : l.plate ? `plaque:${l.plate}` : l.vin ? `vin:${l.vin}` : `ligne:${l.id}`, dealId: null, amount: parts.length ? rest : (l.amount_out ?? l.amount_in ?? 0) });
+      for (const sl of slots) {
+        const cur = g.get(sl.key) ?? { key: sl.key, deal: sl.dealId ? dealById.get(sl.dealId) ?? null : null, plate: l.plate, label: `${l.counterparty} — ${l.description}`.slice(0, 80), paid: 0, received: 0, lines: [], first: l.booked_on };
+        if (l.amount_out != null) cur.paid += sl.amount; else cur.received += sl.amount;
+        if (!cur.lines.includes(l)) cur.lines.push(l);
+        if (l.booked_on < cur.first) cur.first = l.booked_on;
+        if (!cur.plate && l.plate) cur.plate = l.plate;
+        g.set(sl.key, cur);
+      }
     }
     return [...g.values()].sort((a, b) => b.first.localeCompare(a.first));
   }, [scoped, dealById]);
@@ -186,7 +202,7 @@ export function Treasury() {
   // ── Lignes ──
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return scoped.filter((l) => (!month || l.booked_on.startsWith(month)) && (!category || l.category === category) && (!onlyUnmatched || (!l.transaction_id && ['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(l.category)))
+    return scoped.filter((l) => (!month || l.booked_on.startsWith(month)) && (!category || l.category === category) && (!onlyUnmatched || (lineParts(l).length === 0 && ['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(l.category)))
       && (!q || `${l.counterparty} ${l.description} ${l.plate ?? ''} ${l.kind}`.toLowerCase().includes(q)));
   }, [scoped, month, category, query, onlyUnmatched]);
 
@@ -422,7 +438,10 @@ export function Treasury() {
               </tr></thead>
               <tbody>
                 {filtered.map((l) => {
-                  const d = l.transaction_id ? dealById.get(l.transaction_id) : null;
+                  const parts = lineParts(l);
+                  const d = parts.length ? dealById.get(parts[0].id) : null;
+                  const refs = parts.map((p) => dealById.get(p.id)?.reference ?? '?').join(' + ');
+                  const partsTitle = parts.length > 1 ? parts.map((p) => `${dealById.get(p.id)?.reference ?? '?'} : ${eur(p.amount, 2)}`).join('\n') : l.match_how ?? '';
                   return (
                     <tr key={l.id} className="border-b border-slate-100">
                       <td className="py-1 pr-3 whitespace-nowrap">{l.booked_on}</td>
@@ -438,7 +457,7 @@ export function Treasury() {
                         </select>
                       </td>
                       <td className="py-1 pr-3 whitespace-nowrap text-xs">
-                        {d ? <span title={l.match_how ?? ''} className={l.match_how === 'manuel' ? 'text-sky-700' : ''}>{d.reference}{l.match_how === 'manuel' && <button onClick={() => void onLink([l.id], '')} className="ml-1 text-slate-400 hover:text-red-600" title="Retirer le lien">×</button>}</span>
+                        {d ? <span title={partsTitle} className={l.match_how === 'manuel' ? 'text-sky-700' : ''}>{refs}{l.match_how === 'manuel' && <button onClick={() => void onLink([l.id], '')} className="ml-1 text-slate-400 hover:text-red-600" title="Retirer le lien">×</button>}</span>
                           : ['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(l.category) ? <RefInput onSubmit={(ref) => void onLink([l.id], ref)} /> : ''}
                       </td>
                     </tr>
@@ -460,7 +479,7 @@ function RefInput({ onSubmit }: { onSubmit: (ref: string) => void }) {
   return (
     <span className="inline-flex items-center gap-1">
       <span className="text-amber-700 text-xs">sans dossier</span>
-      <input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && v.trim()) { onSubmit(v); setV(''); } }} placeholder="REF ↵" className="w-20 px-1.5 py-0.5 rounded border border-amber-300 bg-white text-xs font-mono" title="REF du dossier (ex. RV667), Entrée pour relier" />
+      <input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && v.trim()) { onSubmit(v); setV(''); } }} placeholder="REF ↵" className="w-24 px-1.5 py-0.5 rounded border border-amber-300 bg-white text-xs font-mono" title="REF du dossier (ex. RV667) ; plusieurs véhicules payés d'un coup : TC659 + TC817. Entrée pour relier" />
     </span>
   );
 }

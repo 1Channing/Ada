@@ -760,6 +760,49 @@ export const expectedCash = (d: DealLite, field: 'purchase_price' | 'sale_price'
   const v = d[field] as number;
   return field === 'sale_price' && isStarDeal(d) ? Math.round((v / 1.2) * 100) / 100 : v;
 };
+/** Part d'une ligne attribuée à un dossier (un virement peut payer plusieurs véhicules). */
+export interface LinkPart { id: string; how: string; amount: number }
+/**
+ * UN VIREMENT, PLUSIEURS VÉHICULES (03/10, Channing : « on a des paiements
+ * client sur virement unique qui paient plusieurs véhicules, il faut lier
+ * les dossiers grâce aux numéros de factures présents dans le sheet »).
+ * « Factuur:FAC00000586.FAC00000587 » : chaque numéro cité ↔ le dossier dont
+ * le tableur porte « Facture : FAC586 » ; le montant de la ligne est réparti
+ * au prorata des encaissements attendus (vente / 1,2 pour un véhicule *).
+ * Un seul numéro, ou aucun : règle habituelle (matchLine).
+ */
+export function matchLineParts(line: Parameters<typeof matchLine>[0], deals: DealLite[]): LinkPart[] | null {
+  const amt = line.amount_in ?? line.amount_out ?? 0;
+  if (['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(line.category)) {
+    const text = `${line.counterparty} ${line.description}`;
+    const nums = [...new Set([...text.matchAll(/\bFAC0*(\d{2,})\b/gi)].map((m) => m[1]))];
+    if (nums.length >= 2) {
+      const field = line.amount_out != null ? 'purchase_price' : 'sale_price';
+      const found: DealLite[] = [];
+      for (const n of nums) {
+        const re = new RegExp(`Facture : FAC0*${n}\\b`, 'i');
+        const cands = deals.filter((d) => d.notes && re.test(d.notes));
+        const best = cands.length === 1 ? cands[0] : cands.length > 1 && new Set(cands.map((d) => d.reference)).size === 1 ? (cands.find((d) => d.plate && d.sale_price != null) ?? cands[0]) : null;
+        if (best && !found.includes(best)) found.push(best);
+      }
+      if (found.length >= 1) {
+        const how = `factures (${found.length}/${nums.length})`;
+        const exp = found.map((d) => (d[field] != null ? expectedCash(d, field) : 0));
+        const total = exp.reduce((a, b) => a + b, 0);
+        // Tous les dossiers trouvés et montant attendu connu : prorata ; sinon chaque dossier prend son attendu, le reste est sans dossier.
+        const prorata = found.length === nums.length && total > 0;
+        let left = amt;
+        return found.map((d, i) => {
+          const share = prorata ? (i === found.length - 1 ? left : Math.round((amt * exp[i]) / total * 100) / 100) : Math.min(exp[i], left);
+          left = Math.round((left - share) * 100) / 100;
+          return { id: d.id, how, amount: share };
+        });
+      }
+    }
+  }
+  const m = matchLine(line, deals);
+  return m ? [{ ...m, amount: amt }] : null;
+}
 export function matchLine(line: { plate: string | null; vin: string | null; counterparty: string; description: string; amount_out: number | null; amount_in: number | null; category: string }, deals: DealLite[]): { id: string; how: string } | null {
   if (!['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(line.category)) return null;
   const text = `${line.counterparty} ${line.description}`;
@@ -782,6 +825,18 @@ export function matchLine(line: { plate: string | null; vin: string | null; coun
       }
     }
   }
+  // Numéro de facture (NENA S.R.L. « Saldo fattura FAC00000517 » ↔ dossier
+  // « Facture : FAC517 » du tableur) : les zéros de tête ne comptent pas.
+  const fac = text.match(/\bFAC0*(\d{2,})\b/i);
+  if (fac) {
+    const re = new RegExp(`Facture : FAC0*${fac[1]}\\b`, 'i');
+    const cands = deals.filter((d) => d.notes && re.test(d.notes));
+    if (cands.length === 1) return { id: cands[0].id, how: 'facture' };
+    if (cands.length > 1 && new Set(cands.map((d) => d.reference)).size === 1) {
+      const best = cands.find((d) => d.plate && d.sale_price != null) ?? cands[0];
+      return { id: best.id, how: 'facture (doublon)' };
+    }
+  }
   // Montant exact + modèle cité (Tayron sans plaque, 26 800 € = prix d'achat
   // du dossier TAYRON) ou montant exact + client cité (Oostendorp 22 750 € =
   // prix de vente d'un seul dossier au client AUTOGROEP OOSTENDORP).
@@ -802,18 +857,6 @@ export function matchLine(line: { plate: string | null; vin: string | null; coun
       // Fintecture 35 500 € = RAV4 RV667, constat Channing 02/10 soir) : les
       // prix répétés (Swift 15 900 € × 20) ne passent pas ce filtre.
       if (byAmount.length === 1 && amt >= 3000) return { id: byAmount[0].id, how: 'montant unique' };
-    }
-  }
-  // Numéro de facture (NENA S.R.L. « Saldo fattura FAC00000517 » ↔ dossier
-  // « Facture : FAC517 » du tableur) : les zéros de tête ne comptent pas.
-  const fac = text.match(/\bFAC0*(\d{2,})\b/i);
-  if (fac) {
-    const re = new RegExp(`Facture : FAC0*${fac[1]}\\b`, 'i');
-    const cands = deals.filter((d) => d.notes && re.test(d.notes));
-    if (cands.length === 1) return { id: cands[0].id, how: 'facture' };
-    if (cands.length > 1 && new Set(cands.map((d) => d.reference)).size === 1) {
-      const best = cands.find((d) => d.plate && d.sale_price != null) ?? cands[0];
-      return { id: best.id, how: 'facture (doublon)' };
     }
   }
   if (line.vin) {
