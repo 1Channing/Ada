@@ -5,7 +5,7 @@
  */
 import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
-import { pdfToLines } from '../lib/pdfText';
+import { pdfToLinesEx } from '../lib/pdfText';
 import { recordLearningCaseFromApp } from './learningCases';
 import { parseStatement, matchLine, matchComplements, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
 export { matchLine, type DealLite } from '../lib/bankStatements';
@@ -112,8 +112,10 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
   let lines: TextLine[] = [];
   let parsed: { account: string; period_month: string } | null = null;
   try {
-    lines = await pdfToLines(file);
+    const read = await pdfToLinesEx(file);
+    lines = read.lines;
     const st = parseStatement(lines);
+    if (read.ocr) st.warnings.unshift('PDF sans texte : lu par reconnaissance de caractères (chiffres à vérifier, le contrôle du solde ci-dessous fait foi)');
     parsed = st;
     if (st.warnings.length > 0) void reportStatementIssue(file, lines, st, null, st.warnings);
     if (!st.period_month) throw new Error('mois du relevé introuvable dans le PDF');

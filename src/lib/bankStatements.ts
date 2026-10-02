@@ -235,7 +235,7 @@ function parseSwan(texts: string[]): ParsedStatement {
   const cl = texts.map((t) => t.match(/^Solde de clôture ([\d\s\u00a0-]+,\d{2})$/)).find(Boolean);
   const closing = cl ? moneyFr(cl[1]) : null;
   const out: BankLine[] = [];
-  const ROW = /^(\d{2}\/\d{2}\/\d{4}) (\S+) (.*?) ([\d\s\u00a0]+,\d{2}) ([\d\s\u00a0]+,\d{2})$/;
+  const ROW = /^(\d{2}\/\d{2}\/\d{4}) (\S+) (.*?) ([\d\s\u00a0.]+,\d{2}) ([\d\s\u00a0.]+,\d{2})$/; // « 32.000,00 » (OCR) accepté
   let inTable = false;
   for (const t of texts) {
     if (/^Date Type Description/.test(t)) { inTable = true; continue; }

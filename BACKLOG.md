@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : PDF SANS TEXTE LU PAR OCR (02/10 soir, « les relevés
+  Pennylane ne passent pas »)**. Preuve : le fichier de janvier a 2 pages,
+  0 caractère de texte, 1 737 tracés vectoriels et le seul bitmap est le
+  logo — « Imprimer en PDF » depuis la visionneuse Pennylane dans Safari
+  convertit le texte en tracés (celui d'avril, imprimé depuis le PDF Swan
+  ouvert seul, garde son texte). Repli : pages rendues par pdf.js (échelle
+  3) puis tesseract.js (fra + eng, modèles depuis le CDN), mots avec
+  abscisse → mêmes TextLine, lignes fusionnées à ±12 px, O/0 corrigés dans
+  plaques et montants, « 32.000,00 » accepté (point de milliers). Vérifié
+  sur janvier (= février 13 → 28/02) : 28 lignes sur 29, écart 0,11 € = la
+  ligne de frais illisible, dit par le contrôle du solde. Le dépôt
+  l'indique (« lu par reconnaissance de caractères »). Dépendance ajoutée :
+  tesseract.js 6 (chargée à la demande seulement).
 - **TRÉSORERIE : IBAN CHERCHÉ SUR TOUT LE RELEVÉ (02/10 soir, « il y a
   deux CIC ? »)**. Preuve sur le CIC de septembre : l'IBAN est en pied de
   page (« IBAN : FR76 3004 7142 9300 0205 3370 287 »), lu seulement sur les
