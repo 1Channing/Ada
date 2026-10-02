@@ -832,6 +832,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : REVOLUT EN FRANÇAIS (02/10 soir, « ces deux relevés Revolut
+  ne passent pas non plus »)**. Preuve : mai et juin 2026 sont générés en
+  français (« 29 mai 2026 MOS À X • Achat … », « Recharge par MC EXPORT »,
+  « Solde d'ouverture », « Transactions de 5 mai 2026 à 31 mai 2026 »,
+  « Types de transactions »), juillet et août en anglais. Mois français
+  acceptés partout (monthNo : « juil » ≠ « juin », accents retirés),
+  préfixes de tiers À / Recharge par / De, repères d'arrêt et de bruit
+  bilingues, nom du compte sans deux-points. Vérifié : mai 25 lignes 0 →
+  34 955,32 ; juin 113 lignes 34 955,32 → 9 972,06 (= ouverture de
+  juillet) ; juillet inchangé. Tous au centime.
 - **TRÉSORERIE : FINOM LU, PENNYLANE VÉRIFIÉ (02/10 soir, « je ne vois pas
   le compte Finom, vérifie les data des relevés Pennylane »)**. Finom :
   relevé scanné (9 pages, 0 caractère) → OCR puis parseur propre (« Du: /

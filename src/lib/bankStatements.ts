@@ -74,8 +74,10 @@ export const CATEGORY_LABEL: Record<BankCategory, string> = {
 /** Catégories qui ne sont PAS des frais : véhicules (capital), transferts entre nos comptes, encaissements. */
 export const NON_EXPENSE: ReadonlySet<BankCategory> = new Set<BankCategory>(['achat_vehicule', 'acompte_vehicule', 'vente_encaissee', 'transfert_interne']);
 
-const MONTHS: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
-const ymd = (d: string, mon: string, y: string) => `${y}-${String(MONTHS[mon.toLowerCase().slice(0, 3)] ?? 0).padStart(2, '0')}-${d.padStart(2, '0')}`;
+const MONTHS: Record<string, number> = { jan: 1, feb: 2, fev: 2, mar: 3, apr: 4, avr: 4, may: 5, mai: 5, jun: 6, jui: 6, jul: 7, aug: 8, aou: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+/** « Aug » / « août » / « juil. » → numéro de mois (anglais et français, accents retirés ; « juil » ≠ « juin »). */
+const monthNo = (mon: string) => { const m = mon.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\.$/, ''); if (m.startsWith('juil')) return 7; if (m.startsWith('juin')) return 6; return MONTHS[m.slice(0, 3)] ?? 0; };
+const ymd = (d: string, mon: string, y: string) => `${y}-${String(monthNo(mon)).padStart(2, '0')}-${d.padStart(2, '0')}`;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 /** « €26 300.00 » / « 1,005.37 » → 26300 / 1005.37 */
 const money = (s: string) => Number(s.replace(/[€$£,\s  ]/g, ''));
@@ -149,7 +151,7 @@ export function accountIdentity(texts: string[]): { ref: string; name: string | 
   const joined = head.join('\n');
   const num = joined.match(/N°\s*(\d{11})\b/)?.[1] ?? joined.match(/COMPTE[^\n]*N°\s*([\d ]{8,}?)\s{2,}/i)?.[1]?.replace(/\s/g, '') ?? joined.match(/N°\s*(\d{8,})/)?.[1];
   const ref = (iban ?? num ?? '').slice(-5);
-  const name = joined.match(/Nom du compte\s*:\s*([^\n]+)/)?.[1]?.trim() ?? joined.match(/Account name\s+([^\n]+?)(?:\s+Currency|$)/m)?.[1]?.trim() ?? null;
+  const name = joined.match(/Nom du compte\s*:?\s*([^\n]+?)(?:\s+(?:Currency|Devise)|$)/m)?.[1]?.trim() ?? joined.match(/Account name\s+([^\n]+?)(?:\s+Currency|$)/m)?.[1]?.trim() ?? null;
   return { ref, name };
 }
 
@@ -402,9 +404,12 @@ function parseFinom(texts: string[]): ParsedStatement {
 }
 
 // ── Revolut ─────────────────────────────────────────────────────────────────
-const REV_ROW = /^(\d{1,2}) ([A-Z][a-z]{2}) (\d{4}) ([A-Z]{3}) (.*)$/;
-const REV_STOP = /^(Transaction types|Report lost or stolen card|Account statement|Generated on the|©|Balance summary|Your funds are held|Account name|There were no transactions|For transactions to and from)/;
-const REV_NOISE = /^(\+370|Get help directly|Scan the QR code|out to us via|Konstitucijos|Authority and whose|\d+\/\d+$|FX Rate |[$£]\s?[\d ,.]+$)/;
+// Anglais (juillet, août 2026) ET français (mai, juin 2026 : « 29 mai 2026 MOS À X • Achat … », « Recharge par »,
+// « Solde d'ouverture », « Transactions de 5 mai 2026 à 31 mai 2026 », « Types de transactions »).
+const REV_ROW = /^(\d{1,2}) ([A-Za-zéû]+\.?) (\d{4}) ([A-Z]{3}) (.*)$/;
+const REV_STOP = /^(Transaction types|Types de transactions|Report lost or stolen card|Signaler une carte|Account statement|Relevé de compte|Generated on the|Relevé généré|©|Balance summary|Résumé du solde|Your funds are held|Vos fonds sont|Account name|Nom du compte|There were no transactions|Aucune transaction|For transactions to and from)/;
+const REV_NOISE = /^(\+370|Get help directly|Obtenir de l'aide|Scan the QR code|Scanner le QR|out to us via|questions bancaires|Lituanie\.|garantie des dépôts|draudimas|Konstitucijos|Authority and whose|\d+\/\d+$|FX Rate |Taux de change|[$£]\s?[\d ,.]+$)/;
+const REV_CP_PREFIX = /^(To|À|A|Money added from|Recharge par|From|De)\s+/i;
 const EUR_TOKEN = /€\s?[\d   ]*\d\.\d{2}/g;
 const REV_OUT = new Set(['MOS', 'CAR', 'FEE', 'ATM', 'EXO']);
 
@@ -420,13 +425,13 @@ function parseRevolut(lines: string[]): ParsedStatement {
   for (const raw of lines) {
     const line = raw.replace(/\s+/g, ' ').trim();
     if (!line) continue;
-    const curM = line.match(/^Currency ([A-Z]{3})$/) ?? line.match(/Currency ([A-Z]{3})$/);
+    const curM = line.match(/(?:Currency|Devise) ([A-Z]{3})$/);
     if (curM) { currency = curM[1]; cur = null; inTable = false; continue; }
-    const per = line.match(/^Transactions from (\d{1,2}) ([A-Z][a-z]+) (\d{4}) to/);
+    const per = line.match(/^Transactions (?:from|de|du) (\d{1,2}) ([A-Za-zéû]+\.?) (\d{4}) (?:to|à|au)/);
     if (per) { if (!period) period = ymd(per[1], per[2], per[3]).slice(0, 7); inTable = true; cur = null; continue; }
     if (currency === 'EUR') {
-      const ob = line.match(/^Opening balance €([\d ,.]+)$/); if (ob) opening = money(ob[1]);
-      const cb = line.match(/^Closing balance €([\d ,.]+)$/); if (cb) closing = money(cb[1]);
+      const ob = line.match(/^(?:Opening balance|Solde d'ouverture) €([\d ,.]+)$/); if (ob) opening = money(ob[1]);
+      const cb = line.match(/^(?:Closing balance|Solde de clôture) €([\d ,.]+)$/); if (cb) closing = money(cb[1]);
     }
     if (/^Date \(UTC\) Description/.test(line)) { inTable = true; cur = null; continue; }
     if (REV_STOP.test(line)) { cur = null; if (/^Transaction types/.test(line)) inTable = false; continue; }
@@ -457,9 +462,9 @@ function parseRevolut(lines: string[]): ParsedStatement {
     // Description « To X • motif » / « Money added from X • motif »
     let counterparty = '', description = r.text;
     const sep = r.text.indexOf('•');
-    if (sep >= 0) { counterparty = r.text.slice(0, sep).replace(/^(To|Money added from|From)\s+/i, '').trim(); description = r.text.slice(sep + 1).trim(); }
+    if (sep >= 0) { counterparty = r.text.slice(0, sep).replace(REV_CP_PREFIX, '').trim(); description = r.text.slice(sep + 1).trim(); }
     else if (r.kind === 'CAR') { counterparty = r.text.trim(); description = ''; }
-    else { counterparty = r.text.replace(/^(To|Money added from|From)\s+/i, '').trim(); description = ''; }
+    else { counterparty = r.text.replace(REV_CP_PREFIX, '').trim(); description = ''; }
     const full = `${counterparty} ${description}`;
     out.push({
       booked_on: r.date, kind: r.kind, counterparty, description, amount_out: isOut ? amount : null, amount_in: isOut ? null : amount,
