@@ -832,6 +832,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TVA « * » : IMPORTS EXCLUS, LE TABLEUR NE VOIT QUE LES VÉHICULES VENDUS
+  (03/10 soir, Channing : « la TVA dans le tableur est uniquement sur la
+  colonne véhicule ; tout ce qui est en achat sur la ligne d'un véhicule
+  avec TVA, on récupère 20 % ; sauf les Astra en décembre et les DS7 en
+  février, ce sont des imports (prix TTC) »)**. Un véhicule étoilé dont le
+  libellé contient « import » n'est plus compté (DS625, DS776 « DS7
+  RIVOLI* » de février : 2 × 17 880 / 6 = 5 960 € à retirer dès que le
+  libellé le dit ; Astra A489/A853/A860/A644 de septembre : à confirmer).
+  Pourquoi le calcul de Channing (529 491 €) dépasse celui d'ADA
+  (414 797 €) chaque mois : ADA ne lit que les onglets de VENTES, par mois
+  de facturation ; la TVA se déduit au mois d'ACHAT (CA3 ligne 20) et les
+  véhicules achetés mais pas encore vendus (stock) n'apparaissent dans
+  aucun onglet. Preuve : janvier, CA3 déductible 29 475 contre 60 233 de
+  véhicules étoilés facturés (achetés en décembre 2025, TVA déjà
+  remboursée par les 49 000 du 06/02) ; avril à août, CA3 au-dessus du
+  tableur (−26 819, −18 965, −22 731, −11 299 : achats du mois pas encore
+  facturés). La colonne DATE ACHAT du tableur est vide sur 97 des 109
+  lignes étoilées : impossible de recaler par mois d'achat tant qu'elle
+  n'est pas remplie. Formules essayées sans retrouver ses chiffres :
+  achat / 6, achat × 0,2, + frais HT × 0,2 (étoilés ou tous).
 - **TVA LISIBLE, MARGE NETTE SANS LES REMBOURSEMENTS DE TVA, CA3 PLUS
   ANCIENNE N'ÉCRASE PLUS LA CORRECTIVE, CONTRÔLE DES DOUBLONS (03/10 soir,
   Channing : « le tableau de TVA est imbuvable, refais-le propre », « je

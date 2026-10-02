@@ -754,7 +754,8 @@ const MODEL_PREFIX: Array<[RegExp, string[]]> = [
   [/id\.? ?3/i, ['ID']], [/mach/i, ['M']], [/c-?hr/i, ['CHR']], [/vitara/i, ['V']], [/panda/i, ['FP']], [/bz4x/i, ['B']], [/q4/i, ['QF']], [/model 3|tesla/i, ['T']], [/\bnx\b/i, ['NX']], [/astra/i, ['A']], [/tayron/i, ['TAYRON']],
 ];
 /** Vrai pour un véhicule « * » du tableur (TVA récupérable : acheté TTC avec TVA déductible, vendu HT). */
-export const isStarDeal = (d: DealLite) => /\*\s*$/.test(d.vehicle_label ?? '');
+/** Un véhicule importé (prix TTC sans TVA récupérable : DS7 de février, Astra de décembre, Channing 03/10 soir) n'est pas compté même étoilé : écrire « import » dans son libellé. */
+export const isStarDeal = (d: DealLite) => /\*\s*$/.test(d.vehicle_label ?? '') && !/\bimport/i.test(d.vehicle_label ?? '');
 /** Montant attendu en banque : prix du tableur, sauf la VENTE d'un véhicule « * » = prix / 1,2 (vendu HT). */
 export const expectedCash = (d: DealLite, field: 'purchase_price' | 'sale_price'): number => {
   const v = d[field] as number;
