@@ -109,7 +109,13 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
             ))}
           </div>
         )}
-        {opening && (
+        {opening?.cash_by_account && (
+          <p className={`text-xs mt-3 ${Math.abs(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0) - opening.cash) <= 1 ? 'text-emerald-700' : 'text-amber-700'}`}>
+            Disponibilités au 31/12/2025 par compte (relevés) : {Object.entries(opening.cash_by_account).map(([k, v]) => `${k} ${eur(v, 2)}`).join(' + ')} = {eur(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0), 2)} contre {eur(opening.cash)} au bilan
+            {Math.abs(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0) - opening.cash) <= 1 ? ' ✓ le point de départ est prouvé au centime.' : ` — écart ${eur(Object.values(opening.cash_by_account).reduce((a, b) => a + b, 0) - opening.cash, 2)}.`}
+          </p>
+        )}
+        {opening && !opening.cash_by_account && (
           <p className={`text-xs mt-3 ${Math.abs(janSum - opening.cash) <= 1 ? 'text-emerald-700' : 'text-amber-700'}`}>
             Contrôle : soldes d'ouverture de janvier 2026 déposés = {eur(janSum, 2)} ({janOpenings.map((x) => `${x.s.account_name ?? x.s.account} ${eur(x.v)}`).join(', ') || 'aucun relevé de janvier'}) contre {eur(opening.cash)} au bilan
             {Math.abs(janSum - opening.cash) > 1 && <> — écart {eur(janSum - opening.cash)} : il manque des relevés de janvier (Finom ?) ou un compte.</>}
@@ -130,7 +136,7 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-            <th className="py-2 pr-3">Mois</th><th className="py-2 pr-3 text-right">Collectée</th><th className="py-2 pr-3 text-right">Déductible</th><th className="py-2 pr-3 text-right">Nette due</th><th className="py-2 pr-3 text-right">Rembours. demandé</th><th className="py-2 pr-3 text-right">Crédit reporté</th>
+            <th className="py-2 pr-3">Mois</th><th className="py-2 pr-3 text-right" title="Ligne F2 du CA3 : livraisons intracommunautaires B2B, vendues HT">Ventes HT intracom</th><th className="py-2 pr-3 text-right" title="Ligne 16 : total de la TVA brute due">Collectée</th><th className="py-2 pr-3 text-right">Déductible</th><th className="py-2 pr-3 text-right">Nette due</th><th className="py-2 pr-3 text-right">Rembours. demandé</th><th className="py-2 pr-3 text-right">Crédit reporté</th>
             <th className="py-2 pr-3 text-right" title="Remboursements de TVA reçus (DGFiP / SIE)">TVA remboursée</th><th className="py-2 pr-3 text-right" title="TVA payée (hors IS, RCM, URSSAF)">TVA payée</th>
             <th className="py-2 pr-3 text-right" title="Véhicules sans * (TVA sur la marge) : (vente − achat) / 6">Collectée attendue (marge)</th><th className="py-2 pr-3 text-right" title="Véhicules « * » du tableur : achat / 6">Déductible attendue (achats *)</th><th className="py-2 pr-3 text-right">Créance de TVA fin de mois</th><th className="py-2"></th>
           </tr></thead>
@@ -141,6 +147,7 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
               return (
                 <tr key={m} className="border-b border-slate-100">
                   <td className="py-1.5 pr-3 whitespace-nowrap font-medium">{monthLabel(m)}{row?.declared_on && <span className="text-[10px] text-slate-400 ml-1">déclarée le {row.declared_on.split('-').reverse().join('/')}</span>}</td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={r?.sales_export ? `+ exportations hors UE ${eur(r.sales_export)}` : ''}>{eur(r?.sales_intracom)}</td>
                   {editing ? (
                     <>
                       <td className="py-1 pr-3 text-right">{field(editing, 'collected', 'collectée')}</td><td className="py-1 pr-3 text-right">{field(editing, 'deductible', 'déductible')}</td>
@@ -166,7 +173,7 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
             })}
             {draft && !months.includes(draft.period_month) && (
               <tr className="border-b border-slate-100 bg-sky-50/40">
-                <td className="py-1 pr-3"><input value={draft.period_month} onChange={(e) => setDraft({ ...draft, period_month: e.target.value })} placeholder="2026-01" className="w-24 px-1.5 py-1 rounded border border-slate-300 text-xs font-mono" /></td>
+                <td className="py-1 pr-3"><input value={draft.period_month} onChange={(e) => setDraft({ ...draft, period_month: e.target.value })} placeholder="2026-01" className="w-24 px-1.5 py-1 rounded border border-slate-300 text-xs font-mono" /></td><td></td>
                 <td className="py-1 pr-3 text-right">{field(draft, 'collected', 'collectée')}</td><td className="py-1 pr-3 text-right">{field(draft, 'deductible', 'déductible')}</td>
                 <td className="py-1 pr-3 text-right">{field(draft, 'net_due', 'nette')}</td><td className="py-1 pr-3 text-right">{field(draft, 'credit_requested', 'demandé')}</td><td className="py-1 pr-3 text-right">{field(draft, 'credit_carried', 'reporté')}</td>
                 <td colSpan={5}></td>

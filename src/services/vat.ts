@@ -15,14 +15,15 @@
 import { supabase } from '../lib/supabase';
 import { pdfToLinesEx } from '../lib/pdfText';
 import type { TextLine } from '../lib/bankStatements';
+import { extractCa3, type VatReturn } from '../lib/ca3';
+export { extractCa3, type VatReturn } from '../lib/ca3';
 
-export interface VatReturn {
-  id?: string; period_month: string; declared_on: string | null; collected: number | null; deductible: number | null; net_due: number | null;
-  credit_requested: number | null; credit_carried: number | null; source: string | null; notes: string | null;
-}
+const EXTRA_COLS = ['sales_taxed', 'sales_intracom', 'sales_export', 'purchases_intracom', 'credit_in', 'credit'] as const;
 export interface TreasuryOpening {
   as_of: string; fiscal_year?: string; cash: number; vat_credit: number; corporate_tax_due: number; stock: number; advances_paid: number;
   receivables_clients: number; payables_suppliers: number; advances_received: number; revenue?: number; result?: number; other_debts?: number;
+  /** Soldes au 31/12/2025 par compte, lus sur les relevés (SQL du 03/10 ter). */
+  cash_by_account?: Record<string, number>;
 }
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 const missing = (m: string) => /does not exist|relation|schema cache/i.test(m);
@@ -32,11 +33,16 @@ const numOrNull = (v: unknown) => (v == null || v === '' ? null : Number(v));
 export async function listVatReturns(): Promise<{ rows: VatReturn[]; error: string | null }> {
   const { data, error } = await untyped.from('vat_returns').select('*').order('period_month');
   if (error) return { rows: [], error: missing(error.message) ? VAT_MISSING_MSG : error.message };
-  return { rows: ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({ ...r, collected: numOrNull(r.collected), deductible: numOrNull(r.deductible), net_due: numOrNull(r.net_due), credit_requested: numOrNull(r.credit_requested), credit_carried: numOrNull(r.credit_carried) })) as VatReturn[], error: null };
+  return { rows: ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({ ...r, collected: numOrNull(r.collected), deductible: numOrNull(r.deductible), net_due: numOrNull(r.net_due), credit_requested: numOrNull(r.credit_requested), credit_carried: numOrNull(r.credit_carried), sales_taxed: numOrNull(r.sales_taxed), sales_intracom: numOrNull(r.sales_intracom), sales_export: numOrNull(r.sales_export), purchases_intracom: numOrNull(r.purchases_intracom), credit_in: numOrNull(r.credit_in), credit: numOrNull(r.credit) })) as VatReturn[], error: null };
 }
 export async function upsertVatReturn(r: VatReturn): Promise<string | null> {
   const { id: _id, ...rest } = r; void _id;
-  const { error } = await untyped.from('vat_returns').upsert({ ...rest, updated_at: new Date().toISOString() }, { onConflict: 'period_month' });
+  const row: Record<string, unknown> = { ...rest, updated_at: new Date().toISOString() };
+  let { error } = await untyped.from('vat_returns').upsert(row, { onConflict: 'period_month' });
+  if (error && EXTRA_COLS.some((c) => error.message.includes(c))) {
+    for (const c of EXTRA_COLS) delete row[c]; // colonnes du SQL du 03/10 bis absentes : on écrit sans elles
+    ({ error } = await untyped.from('vat_returns').upsert(row, { onConflict: 'period_month' }));
+  }
   return error ? (missing(error.message) ? VAT_MISSING_MSG : error.message) : null;
 }
 export async function deleteVatReturn(periodMonth: string): Promise<string | null> {
@@ -57,8 +63,10 @@ export async function loadOpening(): Promise<TreasuryOpening | null> {
  */
 export async function parseVatPdf(file: File): Promise<{ returns: VatReturn[]; raw: string[]; ocr: boolean }> {
   const { lines, ocr } = await pdfToLinesEx(file);
-  return { returns: extractVatReturns(lines, file.name), raw: lines.map((l) => l.text), ocr };
+  const ca3 = extractCa3(lines, file.name);
+  return { returns: ca3.length ? ca3 : extractVatReturns(lines, file.name), raw: lines.map((l) => l.text), ocr };
 }
+
 const FR_MONTHS: Record<string, number> = { janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6, juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11, decembre: 12 };
 const norm = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const amountIn = (t: string): number | null => {

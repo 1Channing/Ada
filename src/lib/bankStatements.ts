@@ -23,8 +23,8 @@
  * catégorie reste modifiable à la main dans ADA.
  */
 
-export type BankAccount = 'revolut' | 'airwallex' | 'shine' | 'pennylane' | 'cic' | 'caisse_epargne' | 'finom';
-export const ACCOUNT_LABEL: Record<BankAccount, string> = { revolut: 'Revolut', airwallex: 'Airwallex', shine: 'Shine', pennylane: 'Pennylane / Swan', cic: 'CIC', caisse_epargne: "Caisse d'Épargne", finom: 'Finom' };
+export type BankAccount = 'revolut' | 'airwallex' | 'shine' | 'pennylane' | 'cic' | 'caisse_epargne' | 'finom' | 'bpgo';
+export const ACCOUNT_LABEL: Record<BankAccount, string> = { revolut: 'Revolut', airwallex: 'Airwallex', shine: 'Shine', pennylane: 'Pennylane / Swan', cic: 'CIC', caisse_epargne: "Caisse d'Épargne", finom: 'Finom', bpgo: 'Banque Populaire' };
 
 /** Une ligne de texte d'un PDF : texte reconstitué, page, hauteur, fragments avec leur abscisse (colonnes Débit / Crédit). */
 export interface TextLine { text: string; page: number; y: number; frags: Array<{ x: number; s: string }> }
@@ -103,6 +103,7 @@ const periodKey = (start: string | null, end: string | null, lines: Array<{ book
 // ── Détection ───────────────────────────────────────────────────────────────
 export function detectBank(lines: TextLine[]): BankAccount | null {
   const head = lines.slice(0, 80).map((l) => l.text).join('\n');
+  if (/CCBPFRPP|Banque Populaire Grand Ouest/.test(head)) return 'bpgo';
   if (/FNOMFRP2|^finom$/m.test(head)) return 'finom'; // avant Revolut : les IBAN / BIC des tiers (REVOFRP2) y figurent
   if (/Revolut Bank UAB|REVOFRP2/.test(head)) return 'revolut';
   if (/airwallex\.com|Airwallex \(Netherlands\)/i.test(head)) return 'airwallex';
@@ -125,7 +126,8 @@ export function parseStatement(lines: TextLine[]): ParsedStatement {
   else if (account === 'cic') st = parseCic(lines);
   else if (account === 'caisse_epargne') st = parseCaisseEpargne(texts);
   else if (account === 'finom') st = parseFinom(texts);
-  else throw new Error("relevé non reconnu — formats connus : Revolut Business, Airwallex, Shine, Pennylane (Swan), CIC, Caisse d'Épargne, Finom");
+  else if (account === 'bpgo') st = parseBpgo(lines);
+  else throw new Error("relevé non reconnu — formats connus : Revolut Business, Airwallex, Shine, Pennylane (Swan), CIC, Caisse d'Épargne, Finom, Banque Populaire");
   const id = accountIdentity(texts);
   st.account_ref = id.ref; st.account_name = id.name;
   return st;
@@ -401,6 +403,82 @@ function reconcileChain<R extends { date: string; amount: number; balance: numbe
   }
   if (fixed.length) warnings.push(`${fixed.length} montant(s) corrigé(s) par la chaîne des soldes : ${fixed.slice(0, 5).join(' ; ')}`);
   if (left.length) warnings.push(`${left.length} endroit(s) où le solde ne suit pas (ligne manquante ou solde mal lu) : ${left.slice(0, 5).join(' ; ')}`);
+}
+
+// ── Banque Populaire Grand Ouest (preuve 03/10, relevé n°9 au 02/01/2026) ──
+// « Votre relevé de compte n°9 au 02/01/2026 » (l'année vient de là : les
+// dates des lignes sont « 01/12 » sans année) ; « SOLDE CREDITEUR AU
+// 28/11/2025 42 341,58 € » en tête, un solde intermédiaire au 31/12, le
+// solde final marqué « * ». Ligne = date compta (x ≈ 51), libellé (x ≈ 102),
+// référence, date opération, date valeur, montant à droite (« - 20,77 € »
+// = débit, sans signe = crédit) ; détails en dessous (x ≈ 108), dont une
+// ligne de change « 20,77EUR 1 EURO = 1,000000 » ignorée. Le tableau
+// s'arrête à « TOTAL DES MOUVEMENTS » ; la section « DETAIL DE VOS
+// MOUVEMENTS SEPA » qui suit répète les virements, elle est ignorée.
+function parseBpgo(lines: TextLine[]): ParsedStatement {
+  const warnings: string[] = [];
+  const texts = lines.map((l) => l.text);
+  const endM = texts.map((t) => t.match(/relev[ée] de compte n°\s*\d+ au (\d{2})\/(\d{2})\/(\d{4})/i) ?? t.match(/RELEVE N° ?\d+ AU (\d{2})\/(\d{2})\/(\d{4})/)).find(Boolean);
+  const endYear = endM ? Number(endM[3]) : new Date().getFullYear(), endMonth = endM ? Number(endM[2]) : 12;
+  const yearOf = (mm: number) => (mm > endMonth ? endYear - 1 : endYear);
+  let opening: number | null = null, closing: number | null = null, end: string | null = null;
+  let totalDebit: number | null = null, totalCredit: number | null = null;
+  type Row = { date: string; label: string; amount: number; credit: boolean; more: string[] };
+  const rows: Row[] = [];
+  let cur: Row | null = null, inTable = false, done = false;
+  for (const l of lines) {
+    if (done) break;
+    const t = l.text;
+    const sold = t.match(/^SOLDE (CREDITEUR|DEBITEUR) AU (\d{2})\/(\d{2})\/(\d{4})(\*?) ([\d\s\u00a0]+,\d{2}) €$/);
+    if (sold) {
+      const v = moneyFr(sold[6]) * (sold[1] === 'DEBITEUR' ? -1 : 1);
+      if (opening == null) { opening = v; inTable = true; }
+      else { closing = v; end = `${sold[4]}-${sold[3]}-${sold[2]}`; if (sold[5] === '*') done = true; }
+      cur = null; continue;
+    }
+    const td = t.match(/^TOTAL DES MOUVEMENTS (DEBITEURS|CREDITEURS) -? ?([\d\s\u00a0]+,\d{2}) €$/);
+    if (td) { if (td[1] === 'DEBITEURS') totalDebit = moneyFr(td[2]); else totalCredit = moneyFr(td[2]); cur = null; continue; }
+    if (/^DETAIL DE VOS (MOUVEMENTS|PRELEVEMENTS|VIREMENTS) SEPA/.test(t)) { done = true; break; }
+    if (!inTable) continue;
+    // Marques de marge (« 0001 », « 0002 » à x ≈ 9) devant la date sur certaines lignes : ignorées.
+    const frags = l.frags.filter((f) => f.x >= 20);
+    const first = frags[0], last = frags[frags.length - 1];
+    const isRow = first && first.x <= 60 && /^\d{2}\/\d{2}$/.test(first.s) && last && last.x >= 495 && /^-?\s?[\d\s\u00a0]+,\d{2} €$/.test(last.s);
+    if (isRow) {
+      const [dd, mm] = first.s.split('/').map(Number);
+      const label = frags.filter((f) => f.x > 60 && f.x < 300).map((f) => f.s).join(' ').replace(/\s+/g, ' ').trim();
+      const credit = !last.s.trim().startsWith('-');
+      cur = { date: `${yearOf(mm)}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`, label, amount: moneyFr(last.s.replace(/[-€]/g, '')), credit, more: [] };
+      rows.push(cur); continue;
+    }
+    if (!cur || !first || first.x < 90 || first.x > 115) continue;
+    if (/^[\d\s\u00a0]+,\d{2}EUR 1 EURO =/.test(t) || /^0000\d OPERATION$/.test(t) || /^X[A-Z]{4}\d{3} \d{20,}/.test(t)) continue;
+    cur.more.push(t);
+  }
+  const out: BankLine[] = rows.map((r, i) => {
+    const km = r.label.match(/^(\d{6} CB\*{4}\d{4}|VIR INST|VIR DE|EUROVIR SEPA|VIR|PRLV SEPA|FRAIS VIREMENT|FRAIS CHEQUE BANQUE|FRAIS ACHAT ETRANGER\w*|FRAIS \w+|CHEQUE BANQUE|COTIS \w+|REJET TECHNIQUE|REMISE \w+|RETRAIT \w*|COMMISSION\w*)\s*(.*)$/i);
+    const rawKind = km ? km[1] : r.label.split(' ').slice(0, 2).join(' ');
+    const kind = /CB\*{4}/.test(rawKind) ? 'CB' : rawKind.toUpperCase();
+    const rest = km ? km[2].trim() : r.label;
+    const details = r.more.map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    let counterparty = rest, description = details.join(' · ');
+    if (kind === 'CB') { counterparty = (details[0] ?? '').replace(/\s*(FR|ES|NL|DE|BE|IT|LU|PT|GB|CH)\s+[\dA-Z][^·]*$/, '').trim() || rest; description = details.slice(1).join(' · '); }
+    else if (kind === 'EUROVIR SEPA') { counterparty = (details[0] ?? '').replace(/^VIR\s+/, '').trim() || rest; description = details.slice(1).join(' · '); }
+    else if (kind === 'VIR DE') { counterparty = details[1] ?? rest; description = details[0] ?? ''; }
+    const flow = kind === 'CB' ? 'card' : /^(FRAIS|COTIS|COMMISSION)/.test(kind) ? 'fee' : r.credit ? 'transfer_in' : 'transfer_out';
+    const full = `${counterparty} ${description}`;
+    return { booked_on: r.date, kind, counterparty, description, amount_out: r.credit ? null : r.amount, amount_in: r.credit ? r.amount : null, balance: null, currency: 'EUR',
+      plate: extractPlate(full), vin: extractVin(full), category: classify(flow, counterparty, description, r.credit ? null : r.amount, r.credit ? r.amount : null), line_no: i + 1 };
+  });
+  const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
+  if (totalCredit != null && Math.abs(totalCredit - sumIn) > 0.011) warnings.push(`crédits lus ${round2(sumIn)} € ≠ total des mouvements créditeurs ${totalCredit} €`);
+  if (totalDebit != null && Math.abs(totalDebit - sumOut) > 0.011) warnings.push(`débits lus ${round2(sumOut)} € ≠ total des mouvements débiteurs ${totalDebit} €`);
+  if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
+  // Mois du relevé : celui de la majorité des mouvements (le relevé va du 2 au 2 du mois suivant).
+  const counts = new Map<string, number>();
+  for (const l of out) counts.set(l.booked_on.slice(0, 7), (counts.get(l.booked_on.slice(0, 7)) ?? 0) + 1);
+  const month = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? (end ?? '').slice(0, 7);
+  return { account: 'bpgo', period_month: month, opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
 }
 
 // ── Finom (preuve 02/10 soir, relevé OCR : PDF scanné) ─────────────────────

@@ -832,6 +832,35 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : CA3 LU SUR PREUVE, BANQUE POPULAIRE LUE, POINT DE DÉPART
+  PROUVÉ AU CENTIME (03/10)**. (1) Formulaire 3310-CA3 exporté
+  d'impots.gouv (11 pages) : « Période déclarée : 01/01/2026 au
+  31/01/2026 », « Date de dépôt », une ligne par case avec son code en tête
+  (x < 40) et le montant à droite (x ≥ 440) ; la ligne 27 porte code et
+  montant seuls sous son libellé ; ligne 08 base puis taxe. Lecture par
+  codes (16 collectée, 23 déductible, 22 report, 25 crédit, 26
+  remboursement demandé, 27 crédit reporté, 28 nette due, A1 ventes
+  taxées, F2 livraisons intracom B2B = ventes HT, E1 exportations, B2
+  acquisitions intracom) dans src/lib/ca3.ts (pur). Janvier vérifié :
+  collectée 1 558, déductible 29 354, crédit 27 796 demandé, ventes
+  intracom 575 550. L'ancienne lecture par libellés prenait les numéros de
+  lignes pour des montants (« nette due 5 », « crédit reporté 26 »). SQL
+  20261003120000 : colonnes CA3 (repli sans elles tant qu'il n'est pas
+  collé). Colonne « Ventes HT intracom » dans la vue. (2) Banque
+  Populaire Grand Ouest (relevé n°9 au 02/01/2026, 11 pages) : année
+  déduite de la date du relevé (lignes datées « 01/12 »), solde en tête,
+  solde intermédiaire au 31/12, solde final « * », montants « - 20,77 € »
+  = débit, détails dessous (ligne de change ignorée), marques de marge
+  « 0001 » devant la date ignorées (7 lignes sautaient, 11 507,89 € de
+  débits), arrêt à « TOTAL DES MOUVEMENTS » (la section « DETAIL DE VOS
+  MOUVEMENTS SEPA » répète les virements) ; contrôle contre les totaux
+  débiteurs / créditeurs ; mois = majorité des mouvements (relevé du 2 au
+  2). Vérifié : 209 lignes, 42 341,58 → 45 372,10 au centime. (3) Point de
+  départ : Shine 25 063,72 + Shine ESSENCE 800 + Banque Populaire
+  73 676,60 (solde au 31/12 du relevé n°9) = 99 540,32 € = 99 540 € de
+  disponibilités au bilan → SQL 20261003130000 (cash_by_account), affiché
+  « prouvé au centime ». Shine janvier → septembre présents sur les deux
+  comptes ; Finom n'a existé qu'en mars.
 - **TRÉSORERIE : RÈGLE « * » APPLIQUÉE (03/10, réponse Channing : « tout est
   en TTC dans le tableau ; ce qu'on vend hors taxe est en TTC dans le
   tableau, il faut enlever 20 % pour le prix de vente réel »)**. Marge HT
