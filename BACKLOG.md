@@ -832,6 +832,21 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : QUATRE BANQUES DE PLUS (02/10 soir, « d'autres relevés
+  dont les écritures sont à intégrer »)**. Shine (compte principal : un
+  mouvement = un paquet de lignes serrées autour de la date, type et
+  libellé débordant au-dessus et en dessous ; Débit / Crédit par
+  l'abscisse du montant), Pennylane / Swan (une ligne par mouvement,
+  colonnes Crédit puis Débit toutes deux présentes), CIC (ligne date +
+  ligne de détail dessous, marques de marge « 0 » / « X » ignorées,
+  Débit / Crédit par abscisse), Caisse d'Épargne (signe + / −, VIN coupé
+  par le retour à la ligne recollé). Les lignes de pdf.js portent
+  désormais page, hauteur et abscisse des fragments (TextLine). Finom :
+  PDF scanné sans texte → refus avec consigne (exporter en PDF natif ou
+  CSV). Vérifié : les 9 relevés lisibles se recoupent au centime ; 91 / 102
+  lignes véhicule reliées (plaque, REF, VIN, facture, et deux repli
+  nouveaux : montant exact + modèle cité, montant exact + client cité dans
+  les notes du dossier). Catégories ajoutées : hébergement, salaires.
 - **TABLEUR : IMPORT DEPUIS JANVIER + LIGNES INCOHÉRENTES (02/10)**.
   sinceMonth 2026-01 collé par Channing : 183 ventes créées en un passage,
   273 dossiers, commission HT cumulée 376 k€ depuis janvier (« plus de

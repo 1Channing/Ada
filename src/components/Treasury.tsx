@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
-import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, type BankCategory } from '../lib/bankStatements';
+import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, type BankCategory } from '../lib/bankStatements';
 import {
   listStatements, listLines, deleteStatement, setLineCategory, loadDeals, uploadStatement, rematchAll, dealMonth,
   type BankStatementRow, type BankLineRow, type DealLite, type UploadResult,
@@ -13,8 +13,7 @@ import {
  * REF), marge recalculée avec les frais réels. « Voir où il y a une fuite. »
  */
 const eur = (n: number | null | undefined, dec = 0) => (n == null ? '—' : `${n.toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec })} €`);
-const monthLabel = (m: string) => { const [y, mo] = m.split('-'); return new Intl.DateTimeFormat('fr-FR', { month: 'short', year: '2-digit' }).format(new Date(Number(y), Number(mo) - 1, 1)); };
-const ACCOUNT_LABEL: Record<string, string> = { revolut: 'Revolut', airwallex: 'Airwallex' };
+const monthLabel = (m: string) => { const [ym, part] = m.split('~'); const [y, mo] = ym.split('-'); return new Intl.DateTimeFormat('fr-FR', { month: 'short', year: '2-digit' }).format(new Date(Number(y), Number(mo) - 1, 1)) + (part ? ` (${part.replace('-', '→')})` : ''); };
 type View = 'frais' | 'vehicules' | 'lignes';
 
 export function Treasury() {
@@ -26,7 +25,7 @@ export function Treasury() {
   const [busy, setBusy] = useState<string | null>(null);
   const [results, setResults] = useState<UploadResult[]>([]);
   const [view, setView] = useState<View>('frais');
-  const [account, setAccount] = useState<'all' | 'revolut' | 'airwallex'>('all');
+  const [account, setAccount] = useState<string>('all');
   const [month, setMonth] = useState<string>('');
   const [category, setCategory] = useState<string>('');
   const [query, setQuery] = useState('');
@@ -55,7 +54,7 @@ export function Treasury() {
     await reload();
   };
   const onDelete = async (s: BankStatementRow) => {
-    if (!window.confirm(`Supprimer le relevé ${ACCOUNT_LABEL[s.account] ?? s.account} ${monthLabel(s.period_month)} (${s.line_count} lignes) ?`)) return;
+    if (!window.confirm(`Supprimer le relevé ${ACCOUNT_LABEL[s.account]} ${monthLabel(s.period_month)} (${s.line_count} lignes) ?`)) return;
     setBusy('Suppression…'); const e = await deleteStatement(s.id); setBusy(null);
     if (e) setError(e); else await reload();
   };
@@ -143,7 +142,7 @@ export function Treasury() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Trésorerie <span className="text-xs font-normal text-slate-500 align-middle">admin</span></h2>
-          <p className="text-sm text-slate-600 mt-1">Dépose les relevés PDF (Revolut, Airwallex) : chaque ligne est classée, les achats de véhicules sont rapprochés du tableau de ventes par la plaque, et la marge est recalculée avec les frais réels.</p>
+          <p className="text-sm text-slate-600 mt-1">Dépose les relevés PDF (Revolut, Airwallex, Shine, Pennylane, CIC, Caisse d'Épargne) : chaque ligne est classée, les achats de véhicules sont rapprochés du tableau de ventes par la plaque, et la marge est recalculée avec les frais réels.</p>
         </div>
         <div className="flex items-center gap-2">
           <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple className="hidden" onChange={(e) => void onFiles(e.target.files)} />
@@ -162,7 +161,7 @@ export function Treasury() {
           {results.map((r, i) => (
             <div key={i} className={r.error ? 'text-red-700' : 'text-slate-700'}>
               <span className="font-medium">{r.file}</span>{' '}
-              {r.error ? `: ${r.error}` : `→ ${ACCOUNT_LABEL[r.account ?? ''] ?? r.account} ${r.month ? monthLabel(r.month) : ''} : ${r.lines ?? 0} lignes, ${r.matched ?? 0} reliées à un dossier${r.replaced ? ' (relevé remplacé)' : ''}`}
+              {r.error ? `: ${r.error}` : `→ ${r.account ? ACCOUNT_LABEL[r.account] : ''} ${r.month ? monthLabel(r.month) : ''} : ${r.lines ?? 0} lignes, ${r.matched ?? 0} reliées à un dossier${r.replaced ? ' (relevé remplacé)' : ''}`}
               {r.warnings?.map((w, j) => <div key={j} className="text-amber-700 text-xs pl-4">⚠ {w}</div>)}
             </div>
           ))}
@@ -174,7 +173,7 @@ export function Treasury() {
         {statements.length === 0 && !loading && <span className="text-sm text-slate-500">Aucun relevé déposé.</span>}
         {statements.map((s) => (
           <span key={s.id} className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-white border border-slate-200 text-xs text-slate-700">
-            <span className="font-medium">{ACCOUNT_LABEL[s.account] ?? s.account}</span> {monthLabel(s.period_month)} · {s.line_count} lignes · {eur(s.opening_balance, 2)} → {eur(s.closing_balance, 2)}
+            <span className="font-medium">{ACCOUNT_LABEL[s.account]}</span> {monthLabel(s.period_month)} · {s.line_count} lignes · {eur(s.opening_balance, 2)} → {eur(s.closing_balance, 2)}
             {s.warnings && s.warnings.length > 0 && <AlertTriangle size={12} className="text-amber-600" aria-label={s.warnings.join(' ; ')} />}
             <button onClick={() => void onDelete(s)} className="text-slate-400 hover:text-red-600" title="Supprimer ce relevé"><Trash2 size={12} /></button>
           </span>
@@ -186,7 +185,8 @@ export function Treasury() {
         {tabBtn('frais', 'Frais mensuels')}{tabBtn('vehicules', 'Véhicules : payé vs tableau')}{tabBtn('lignes', `Lignes (${scoped.length})`)}
         <span className="mx-2 text-slate-300">|</span>
         <select value={account} onChange={(e) => setAccount(e.target.value as typeof account)} className="px-2 py-1.5 rounded-lg border border-slate-300 text-sm bg-white">
-          <option value="all">Tous les comptes</option><option value="revolut">Revolut</option><option value="airwallex">Airwallex</option>
+          <option value="all">Tous les comptes</option>
+          {[...new Set(statements.map((s) => s.account))].map((a) => <option key={a} value={a}>{ACCOUNT_LABEL[a]}</option>)}
         </select>
       </div>
 
@@ -326,7 +326,7 @@ export function Treasury() {
                   return (
                     <tr key={l.id} className="border-b border-slate-100">
                       <td className="py-1 pr-3 whitespace-nowrap">{l.booked_on}</td>
-                      <td className="py-1 pr-3 text-xs">{ACCOUNT_LABEL[l.account] ?? l.account}</td>
+                      <td className="py-1 pr-3 text-xs">{ACCOUNT_LABEL[l.account]}</td>
                       <td className="py-1 pr-3 text-xs font-mono">{l.kind}</td>
                       <td className="py-1 pr-3 max-w-[14rem] truncate" title={l.counterparty}>{l.counterparty}</td>
                       <td className="py-1 pr-3 max-w-[22rem] truncate" title={l.description}>{l.description}{l.plate && <span className="ml-1 font-mono text-[10px] text-slate-500">{l.plate}</span>}</td>
