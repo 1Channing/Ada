@@ -361,6 +361,29 @@ function parseCaisseEpargne(texts: string[]): ParsedStatement {
   return { account: 'caisse_epargne', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
 }
 
+/**
+ * CHAÎNE DES SOLDES (relevés qui donnent le solde après chaque mouvement :
+ * Finom, Revolut), lignes du plus récent au plus ancien : solde[i] =
+ * solde[i+1] + montant[i]. Une ligne seule en défaut dont les voisines
+ * tiennent = son montant est mal lu (OCR « 36,02 » pour 48,12) → corrigé
+ * d'après les soldes, et dit. Deux défauts consécutifs = un solde mal lu, ou
+ * une ligne manquante : rien n'est changé, l'endroit est nommé.
+ */
+function reconcileChain<R extends { date: string; amount: number; balance: number | null }>(rows: R[], labelOf: (r: R) => string, warnings: string[]): void {
+  const bad = (i: number) => i + 1 < rows.length && rows[i].balance != null && rows[i + 1].balance != null && Math.abs(round2((rows[i + 1].balance as number) + rows[i].amount) - (rows[i].balance as number)) > 0.011;
+  const fixed: string[] = [], left: string[] = [];
+  for (let i = 0; i + 1 < rows.length; i++) {
+    if (!bad(i)) continue;
+    const implied = round2((rows[i].balance as number) - (rows[i + 1].balance as number));
+    const prevOk = i === 0 || !bad(i - 1), nextOk = !bad(i + 1);
+    const sameSign = Math.sign(implied) === Math.sign(rows[i].amount) || rows[i].amount === 0;
+    if (prevOk && nextOk && sameSign && Math.abs(implied) < 1_000_000) { fixed.push(`${rows[i].date} ${labelOf(rows[i])} : lu ${rows[i].amount} €, corrigé à ${implied} € d'après les soldes`); rows[i].amount = implied; }
+    else left.push(`${rows[i].date} ${labelOf(rows[i])} (lu ${rows[i].amount} €, solde ${rows[i].balance} → ${rows[i + 1].balance})`);
+  }
+  if (fixed.length) warnings.push(`${fixed.length} montant(s) corrigé(s) par la chaîne des soldes : ${fixed.slice(0, 5).join(' ; ')}`);
+  if (left.length) warnings.push(`${left.length} endroit(s) où le solde ne suit pas (ligne manquante ou solde mal lu) : ${left.slice(0, 5).join(' ; ')}`);
+}
+
 // ── Finom (preuve 02/10 soir, relevé OCR : PDF scanné) ─────────────────────
 // « Du: 01/03/2026 » / « Au: 31/03/2026 », « Solde d'ouverture : 0,00€ »,
 // lignes du plus récent au plus ancien : « 27/03/2026 Mc export - 149 435,35 €
@@ -385,6 +408,7 @@ function parseFinom(texts: string[]): ParsedStatement {
     if (/^(finom|\d{1,2}|Terminé Description|MC EXPORT RELEVÉ|Numéro de TVA|Main$|Du\s*:|Au\s*:|Solde d)/i.test(t)) { cur = null; continue; }
     cur.more.push(t);
   }
+  reconcileChain(rows, (r) => r.cp, warnings);
   const out: BankLine[] = rows.map((r, i) => {
     const description = r.more.join(' ').replace(/\s+/g, ' ').trim();
     const isIn = r.amount > 0;
@@ -394,10 +418,6 @@ function parseFinom(texts: string[]): ParsedStatement {
     return { booked_on: r.date, kind, counterparty: r.cp, description, amount_out: isIn ? null : Math.abs(r.amount), amount_in: isIn ? r.amount : null, balance: r.balance, currency: 'EUR',
       plate: extractPlate(full), vin: extractVin(full), category: classify(flow, r.cp, description, isIn ? null : Math.abs(r.amount), isIn ? r.amount : null), line_no: i + 1 };
   });
-  // Contrôle par le solde (du plus récent au plus ancien) : solde[i] = solde[i+1] + montant[i].
-  const bad: string[] = [];
-  for (let i = 0; i + 1 < rows.length; i++) if (Math.abs(round2(rows[i + 1].balance + rows[i].amount) - rows[i].balance) > 0.011) bad.push(`${rows[i].date} ${rows[i].cp} (${rows[i].amount} €)`);
-  if (bad.length > 0) warnings.push(`${bad.length} ligne(s) dont le solde ne suit pas le mouvement précédent — chiffres à vérifier : ${bad.slice(0, 5).join(' ; ')}`);
   const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
   if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
   return { account: 'finom', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };

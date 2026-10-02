@@ -832,6 +832,20 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : MONTANTS OCR CORRIGÉS PAR LA CHAÎNE DES SOLDES (02/10 soir,
+  « il semble y avoir des problèmes avec Finom »)**. Le site lisait Finom
+  mars à 101 lignes, 3 défauts, écart 62,37 € ; en local 103 lignes, 1
+  défaut (TOTAL « 36,02 » pour 48,12), écart 12,10 €. Les relevés qui
+  donnent le solde après chaque mouvement (Finom, Revolut) portent une
+  information redondante : reconcileChain corrige le montant d'une ligne
+  seule en défaut dont les voisines tiennent (même signe, écart dit), et
+  nomme les endroits à deux défauts consécutifs (solde mal lu ou ligne
+  manquante) sans rien changer. Finom mars en local : 0 → 0 au centime,
+  566 035,86 € entrés = sortis, compte clôturé. Bilan 2024-2025 reçu
+  (exercice 01/06/2024 → 31/12/2025) : disponibilités 99 540 €, créance de
+  TVA 49 954 €, IS dû 31 514 €, stock 46 034 €, acomptes versés 49 410 €,
+  clients 15 840 €, fournisseurs 69 754 €, avances reçues 45 940 €, CA
+  5 909 867 €, résultat 120 608 € → point de départ proposé à Channing.
 - **TRÉSORERIE : REVOLUT EN FRANÇAIS (02/10 soir, « ces deux relevés Revolut
   ne passent pas non plus »)**. Preuve : mai et juin 2026 sont générés en
   français (« 29 mai 2026 MOS À X • Achat … », « Recharge par MC EXPORT »,
