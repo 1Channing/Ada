@@ -5,7 +5,7 @@ import { generateAdminDocument } from '../lib/adminDocGenerator';
 import { DEFAULT_SIGNATURE_LOCATION } from '../lib/templateEngine';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
 import {
-  contactCategory, contactDuplicateKey, listContactDocuments, listContactDocumentsFor, uploadContactDocument,
+  contactCategory, contactDuplicateKey, contactIdentityKey, listContactDocuments, listContactDocumentsFor, uploadContactDocument,
   deleteContactDocument, renameContactDocument, mergeContactDocumentsPdf, sameContactIdentity,
   type ContactDocument, type ContactCategory,
 } from '../services/contactDocuments';
@@ -56,7 +56,28 @@ type Contact = {
   notes?: string | null;
   /** 'pro' | 'particulier' — null = déduit (société ou SIREN → pro). */
   category?: string | null;
+  created_at?: string | null;
 };
+
+/**
+ * UNE entrée par identité de contact dans un menu déroulant (02/10) : les
+ * sauvegardes de dossier d'avant le 26/09 inséraient un contact à chaque
+ * passage (ROUDIER LIONEL ×6, LE PAGE ×6, VERNAELDE ×5…). On garde le plus
+ * ancien, ou celui déjà choisi dans le dossier (sinon le menu « perdrait » la
+ * valeur sélectionnée), trié par nom. Le SQL du 02/10 fusionne les lignes.
+ */
+function dedupeContactsForList(list: Contact[], keepId: string): Contact[] {
+  const byKey = new Map<string, Contact>();
+  const oldestFirst = [...list].sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')));
+  for (const c of oldestFirst) {
+    const k = contactIdentityKey(c);
+    const cur = byKey.get(k);
+    if (!cur || c.id === keepId) byKey.set(k, c);
+  }
+  return [...byKey.values()].sort((a, b) => contactLabel(a).localeCompare(contactLabel(b), 'fr'));
+}
+// `contactLabel` est défini plus bas (hoisting d'une const : la fonction
+// ci-dessus ne s'exécute qu'au rendu, bien après l'initialisation du module).
 
 type VehicleForm = {
   plate_number: string;
@@ -2282,8 +2303,12 @@ export function Administrative() {
         className="w-full mb-2 px-3 py-2 bg-slate-200 border border-slate-300 rounded text-sm"
       >
         <option value="">— nouveau contact (saisir le nom) —</option>
-        {contacts.filter((c) => c.id !== mcExport?.id).map((c) => (
-          <option key={c.id} value={c.id}>{c.company_name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim()}</option>
+        {/* UNE entrée par identité (02/10, constat Channing : ROUDIER LIONEL ×6,
+            LE PAGE ×6…) : doublons créés par les sauvegardes d'avant le 26/09 ;
+            la liste n'en montre qu'un (le plus ancien, ou celui déjà choisi),
+            triée par nom. Le SQL du 02/10 fusionne les lignes en base. */}
+        {dedupeContactsForList(contacts.filter((c) => c.id !== mcExport?.id), contactId).map((c) => (
+          <option key={c.id} value={c.id}>{contactLabel(c)}</option>
         ))}
       </select>
       {!contactId && (

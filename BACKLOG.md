@@ -800,6 +800,33 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **CONTACTS EN DOUBLON : CAUSE, MENU DÉDOUBLONNÉ, FUSION SQL (02/10, constat
+  Channing : « pourquoi j'ai autant de doublons dans les contacts ? »)**.
+  Mesure en base : 65 contacts, 11 groupes au contenu strictement identique
+  (type, noms, téléphone, e-mail, SIREN, adresse, CP, ville), 28 lignes de
+  trop (LE PAGE / METAIS ×6, ROUDIER ×6, VERNAELDE ×5, PILON ×4, RAMON ×4,
+  EHRET ×3, MAINGRET ×3, DANEAU, MILLOT / RATHQUEBER, ESSALHI, GHEZALI ×2),
+  chaque groupe créé dans la même minute, toutes avant le 26/09. Classe : la
+  sauvegarde du dossier insérait un nouveau contact à chaque passage ;
+  corrigée le 26/09 (sameContactIdentity → mise à jour, jamais d'insertion),
+  aucun doublon depuis. Livré : (1) les menus déroulants des parties du
+  dossier ne montrent qu'UNE entrée par identité (le plus ancien, ou celui
+  déjà choisi), triée par nom ; (2) SQL 20261002140000_contacts_dedupe :
+  survivant = plus ancien, dossiers (6 colonnes de transactions_admin) et
+  pièces (contact_documents) repointés AVANT suppression, groupes au contenu
+  différent laissés tels quels, contrôle final en booléen. Simulé sur
+  l'export réel : 28 supprimées, 37 restantes. Vérification après collage :
+  aucun dossier ne pointe vers une ligne absente.
+- **STOCK DES CONCESSIONS : SITE DERRIÈRE CLOUDFLARE → ZYTE (02/10, constat
+  Channing sur Vallei Auto Groep : « page du stock : HTTP 403 »)**. Preuve :
+  en-tête cf-mitigated: challenge et page « Just a moment… » quels que
+  soient les en-têtes envoyés. Repli dans getText : sur 403/503 de défi, la
+  page est demandée à Zyte (débloqueur brut, puis navigateur), chaque appel
+  compté et dit dans le bilan du relevé (« n page(s) lue(s) via Zyte —
+  relevé payant ») ; arrêt immédiat si Zyte répond 401/402/403 (compte).
+  Si Zyte ne rend pas la page non plus : cas « dealer_site_blocked » dans la
+  boîte (actor dev). Non testable ici (pas de clé Zyte en local) : à
+  vérifier par un « Premier relevé » de Vallei après déploiement.
 - **BOÎTE À APPRENDRE : PON CENTER ET MENGELERS RECONNUS (02/10, « nouvelles
   vitrines à corriger dans la boîte »)**. Deux familles de plus, sur preuve :
   (7) « dmapi » — Pon Center : data-vehicle-overview porte dmUpdateUrl

@@ -27,6 +27,7 @@
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { recordLearningCase, resolveLearningCase } from './learningBox';
+import { fetchHtmlWithZyte } from './scraper';
 
 export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw';
 
@@ -90,13 +91,45 @@ const MAX_PAGES = 150;
 const PAGE_DELAY_MS = 250;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * SITE DERRIÈRE CLOUDFLARE (02/10, Vallei Auto Groep : « page du stock :
+ * HTTP 403 », en-tête cf-mitigated: challenge, page « Just a moment… »).
+ * La lecture directe est refusée quels que soient les en-têtes. Repli :
+ * Zyte (débloqueur brut d'abord, navigateur ensuite) — payant, donc compté
+ * et dit dans le bilan du relevé. Sans clé Zyte ou si Zyte échoue aussi :
+ * DealerSiteBlockedError → cas « dealer_site_blocked » dans la boîte.
+ */
+export class DealerSiteBlockedError extends Error {
+  constructor(message: string, public readonly site: { host: string; url: string; guard: string }) { super(message); }
+}
+let zyteCallsThisRun = 0;
+const isChallenge = (status: number, headers: Headers, text: string) =>
+  (status === 403 || status === 503) && (headers.get('cf-mitigated') === 'challenge' || /just a moment|cf-chl|challenge-platform|_cf_chl/i.test(text.slice(0, 20_000)));
+
 async function getText(url: string, init?: RequestInit): Promise<{ status: number; text: string; headers: Headers }> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 30_000);
+  let direct: { status: number; text: string; headers: Headers };
   try {
     const res = await fetch(url, { ...init, headers: { 'user-agent': UA, 'accept-language': 'nl,en;q=0.8,fr;q=0.6', ...(init?.headers as Record<string, string> | undefined) }, signal: ctrl.signal, redirect: 'follow' });
-    return { status: res.status, text: await res.text(), headers: res.headers };
+    direct = { status: res.status, text: await res.text(), headers: res.headers };
   } finally { clearTimeout(t); }
+  const method = (init?.method ?? 'GET').toUpperCase();
+  if (method !== 'GET' || !isChallenge(direct.status, direct.headers, direct.text)) return direct;
+  // Repli Zyte : brut (débloqueur, le plus efficace sur les pages servies),
+  // puis navigateur. Chaque appel est compté pour le bilan.
+  for (const override of [{ httpResponseBody: true as const, geolocation: 'NL' }, { javascript: true as const, geolocation: 'NL' }]) {
+    zyteCallsThisRun++;
+    const r = await fetchHtmlWithZyte(url, 1, override as never);
+    if (r.html && !/just a moment|cf-chl|challenge-platform/i.test(r.html.slice(0, 20_000))) {
+      return { status: 200, text: r.html, headers: new Headers({ 'x-ada-via': 'zyte' }) };
+    }
+    if (r.status === 401 || r.status === 402 || r.status === 403) break; // compte Zyte bloqué : inutile d'insister
+  }
+  throw new DealerSiteBlockedError(
+    `page du stock : HTTP ${direct.status} — site protégé par Cloudflare, lecture directe refusée et Zyte n'a pas rendu la page`,
+    { host: new URL(url).hostname, url, guard: 'cloudflare' },
+  );
 }
 
 const num = (v: unknown): number | null => {
@@ -680,7 +713,9 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
   if (runErr) throw new Error(/does not exist|schema cache/i.test(runErr.message) ? 'SQL du 30/09 (network_stock_*) à coller.' : runErr.message);
   const runId = (run as { id: string }).id;
   try {
+    zyteCallsThisRun = 0;
     const stock = await fetchDealerStock(url);
+    if (zyteCallsThisRun > 0) stock.warnings.push(`${zyteCallsThisRun} page(s) lue(s) via Zyte (site protégé par Cloudflare) — relevé payant`);
     // GARDE-FOU (01/10, constat Van Mossel : reconnu « datamotive », 0
     // véhicule) : un relevé vide sur un site reconnu n'est pas un stock vide,
     // c'est une lecture ratée — on n'écrit rien et on ne marque rien disparu.
@@ -772,6 +807,14 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     return { provider: stock.provider, total: stock.vehicles.length, newCount, goneCount, priceChanges, pages: stock.pages, warnings: stock.warnings, runId };
   } catch (e) {
     let msg = e instanceof Error ? e.message : String(e);
+    if (e instanceof DealerSiteBlockedError) {
+      const saved = await recordLearningCase({
+        kind: 'dealer_site_blocked', key: e.site.host, url: e.site.url, link: '/carte', actor: 'dev', contactId, submittedBy,
+        title: `Vitrine protégée (${e.site.guard}) : ${e.site.host}`,
+        detail: { guard: e.site.guard, hint: 'lecture directe refusée (403) ; Zyte n\'a pas rendu la page ou n\'est pas disponible' },
+      });
+      msg += saved ? ' — cas enregistré dans la boîte à apprendre' : '';
+    }
     if (e instanceof UnknownDealerSiteError) {
       const saved = await recordLearningCase({
         kind: 'dealer_site_unknown', key: e.site.host, url: e.site.url, link: '/carte', actor: 'dev', contactId, submittedBy,

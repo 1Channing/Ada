@@ -33,6 +33,7 @@ export interface LearningCase {
 export const KIND_LABEL: Record<string, string> = {
   dealer_site_unknown: 'Vitrine de concession non reconnue',
   dealer_scan_empty: 'Relevé vide sur un site reconnu',
+  dealer_site_blocked: 'Vitrine protégée (Cloudflare…)',
   service_blocked: 'Service bloqué',
   site_failing: 'Site d\'étude en échec',
   sheet_row_unmatched: 'Ligne du tableur non rapprochée',
