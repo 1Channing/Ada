@@ -832,6 +832,32 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRANSFERTS INTERNES VUS CÔTÉ RÉCEPTION, TRANSPORT DE VÉHICULES NOMMÉ
+  (03/10 soir, Channing : « quels virements en transferts internes sont
+  sortis sans arriver ? », « UAB Axis et Christian c'est du transport de
+  véhicule »)**. Les 204 360 € « partis sans arriver » étaient surtout des
+  arrivées mal classées : Pennylane écrit le virement reçu sans tiers
+  (« Transferts interne de fonds » 60 000, « Transfert de fonds » 40 000,
+  « Tranferts de fonds interne » 15 000, « VIR DE MC EXPORT » 10 000 ×2,
+  « Transfert MC EXPORT » 50 000, « Virement pour MC EXPORT » 25 022) :
+  126 000 € comptés en ventes encaissées, 109 000 € en achats de
+  véhicules. Règle : libellé « transfert(s) interne / de fonds », « vir
+  de / pour MC EXPORT » → transfert interne ; tiers = la société mais
+  libellé avec une plaque (« Achat Aygo x HA134RA » depuis Finom, « Achat
+  yaris cross gf922wt » depuis Revolut) → achat de véhicule ; un paiement
+  à un tiers avec « MC EXPORT » en référence (Toyota Kreditbank 26 184,
+  « INTERVENTION … - MC EXPORT ») reste ce qu'il est. Résultat : écart
+  sortis − arrivés par mois = 0 de janvier à août (février 5 000), et
+  112 906 € en septembre = Shine → Revolut (30 000 le 01/09, 40 000 le
+  10/09, 50 000 le 16/09), relevé Revolut de septembre absent (compte
+  clôturé, Channing ne l'a pas). UAB Axis Auto, Christian Cloirec, Mol
+  Transporting → logistique (transport de véhicules, case frais du
+  tableur). Chiffres janvier → septembre après règles : ventes encaissées
+  6 170 760, achats payés 5 960 793, marge encaissée 209 967, TVA reçue
+  396 423, impôts payés 89 839, frais véhicules ≈ 204 000, fonctionnement
+  ≈ 64 000, déplacements 29 394, autre 23 520 ; trésorerie attendue fin
+  septembre sur les comptes déposés 181 799 (bilan 99 540 + 200 151 −
+  117 892 partis vers Revolut).
 - **PONT DE TRÉSORERIE : DU BILAN AU DERNIER RELEVÉ, OÙ VA L'ARGENT (03/10
   soir, Channing : « j'ai 104 836 € + 46 700 € de stock + la TVA pas
   perçue, je ne me paie pas, tout est sur les relevés, j'ai l'impression

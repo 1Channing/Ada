@@ -713,13 +713,20 @@ const norm = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCas
  */
 export function classifyAny(counterparty: string, description: string): BankCategory | null {
   const cp = norm(counterparty), ds = norm(description), all = `${cp} ${ds}`;
-  if (/transfert interne/.test(all) || /\bmc export\b/.test(cp)) return 'transfert_interne';
+  // Tiers = la société, sauf si le libellé porte une plaque (« Achat Aygo x HA134RA » payé depuis Finom,
+  // « Achat yaris cross gf922wt » depuis Revolut : l'argent a acheté une voiture, il n'est arrivé sur aucun autre compte).
+  if (/\bmc export\b/.test(cp) && !extractPlate(description)) return 'transfert_interne';
   if (/revolut business fee|airwallex|frais bancaires|commission d'intervention|abonnement shine|frais paiement|frais de tenue|cotisation carte/.test(all)) return 'frais_bancaires';
   if (/impots|impot[ .]|dgfip|finances publiques|tresor public|\btva\b|urssaf|93033811600013|douane|\bsie\b|\bis\b.*rejet|rejet.*\bis\b|\bis[1-4]-\d{6}|\brcm1-\d{6}|\bcfe\b|\bcvae\b/.test(all)) return 'impots_tva';
   if (/bulletin de salaire|\bsalaire|\bpaie\b|\bdeel\b/.test(all)) return 'salaire';
   if (/gf holding/.test(cp)) return 'loyer'; // loyer = GF Holding (Channing 03/10 soir)
   if (/geo conseils/.test(cp)) return 'comptable';
-  if (/mol ?\*? ?transport/.test(all)) return 'logistique';
+  if (/mol ?\*? ?transport|uab axis auto|christian cloirec/.test(all)) return 'logistique'; // transport de véhicules (Channing 03/10 soir)
+  // Virement entre nos comptes écrit côté réception sans tiers (Pennylane « Transferts interne de fonds »,
+  // « VIR DE MC EXPORT », « Virement pour MC EXPORT » : 126 000 € comptés en ventes, 109 000 € en achats, 03/10 soir).
+  // Un paiement à un tiers qui met « MC EXPORT » en référence (Toyota Kreditbank, « INTERVENTION … - MC EXPORT ») n'en est pas un.
+  if (/tran?sferts? ?(interne|de fonds)|transferts? internes?|vir(ement)? (de|pour) mc export|transfert mc export/.test(ds)) return 'transfert_interne';
+  if (/\bmc export\b/.test(cp)) return 'achat_vehicule';
   return null;
 }
 export function classify(kind: string, counterparty: string, description: string, out: number | null, inn: number | null): BankCategory {
