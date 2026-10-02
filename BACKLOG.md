@@ -800,6 +800,27 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **STOCK DES CONCESSIONS : BYMYCAR LU (JSON-LD IMBRIQUÉ) + GARDE-FOU
+  RÉPARÉ (02/10, constat Channing : « pour la vitrine bymycar il trouve
+  rien »)**. Preuve : bymycar.fr/voiture-occasion porte un JSON-LD
+  CollectionPage → mainEntity → ItemList de Car (le lecteur n'acceptait
+  qu'un ItemList en tête de bloc → 0 item) ; numberOfItems = 24 = taille
+  de page, le vrai total est dans la page (« 6489 véhicules correspondent
+  à votre recherche »), 271 pages de 24 (?page=N ; limit / perPage /
+  itemsPerPage / nb / size ignorés, sondés). Km, carburant, prix,
+  disponibilité dans le JSON-LD ; année dans l'URL (-occasion-2023-),
+  modelDate « 1970 » = bouche-trou ignoré ; nom « Q3 Sportback … - 1970 »
+  nettoyé et préfixé de la marque. Deuxième classe : le garde-fou « relevé
+  vide » ne tirait pas (total inconnu replié sur 0 = « le site annonce 0 »)
+  → champ `declared` (total annoncé par le site, null = inconnu) sur tous
+  les fournisseurs, seul declared === 0 vaut stock vide. Plafond de pages
+  calculé depuis le total (≤ 400) au lieu de 150. Troisième classe : une
+  page en échec arrêtait la lecture SANS LE DIRE (Century lu à 986 / 1 189
+  en test) → relecture une fois après pause, sinon avertissement « relevé
+  partiel » ; un 404 après la dernière page est une fin normale. Vérifié en
+  local : BYMYCAR 6 489 / 6 489 en 271 pages (12 min 48, prix 6 489, km
+  6 476, année 6 489, carburant 6 482) ; Century 1 176 / 1 189 en 101
+  pages (1 143 au relevé du 01/10).
 - **CONTACTS EN DOUBLON : CAUSE, MENU DÉDOUBLONNÉ, FUSION SQL (02/10, constat
   Channing : « pourquoi j'ai autant de doublons dans les contacts ? »)**.
   Mesure en base : 65 contacts, 11 groupes au contenu strictement identique

@@ -84,7 +84,10 @@ function statusFromText(text: string | null | undefined): DealerVehicleStatus | 
   return null;
 }
 
-export interface DealerStockResult { provider: DealerProvider; total: number | null; vehicles: DealerVehicle[]; pages: number; warnings: string[] }
+/** `declared` = total annoncé par le site lui-même (null = inconnu) ; `total` y
+ *  replie sur le nombre lu. Seul `declared === 0` vaut « stock vide » (BYMYCAR
+ *  02/10 : total inconnu → 0 → le garde-fou se taisait). */
+export interface DealerStockResult { provider: DealerProvider; total: number | null; declared: number | null; vehicles: DealerVehicle[]; pages: number; warnings: string[] }
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
 const MAX_PAGES = 150;
@@ -263,7 +266,7 @@ async function scrapeDvApi(url: string, firstHtml: string): Promise<DealerStockR
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
-  return { provider: 'dvapi', total: total ?? out.length, vehicles: out, pages: page, warnings };
+  return { provider: 'dvapi', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
 }
 
 async function scrapeDv(url: string, firstHtml: string): Promise<DealerStockResult> {
@@ -288,31 +291,77 @@ async function scrapeDv(url: string, firstHtml: string): Promise<DealerStockResu
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
-  return { provider: 'dvnl', total: total ?? out.length, vehicles: out, pages: pagesTotal, warnings };
+  return { provider: 'dvnl', total: total ?? out.length, declared: total, vehicles: out, pages: pagesTotal, warnings };
 }
 
-// ── datamotive (Century) ────────────────────────────────────────────────────
+// ── datamotive (Century) — en fait toute vitrine à JSON-LD ItemList de Car ──
+// Deux formes prouvées : Century = ItemList en tête de bloc, numberOfItems =
+// total du stock (1 161), 12 par page ; BYMYCAR (02/10, « il trouve rien ») =
+// CollectionPage → mainEntity → ItemList, numberOfItems = 24 = la TAILLE DE
+// PAGE, le vrai total est dans la page (« 6489 véhicules correspondent à votre
+// recherche »), 271 pages ; km / carburant dans le JSON-LD, année dans l'URL
+// (-occasion-2023-), modelDate « 1970 » = valeur bouche-trou.
+type LdList = { '@type'?: string; numberOfItems?: number; itemListElement?: Array<Record<string, unknown>>; mainEntity?: unknown; '@graph'?: unknown };
+function findItemList(d: unknown, depth = 0): LdList | null {
+  if (!d || typeof d !== 'object' || depth > 4) return null;
+  if (Array.isArray(d)) { for (const x of d) { const r = findItemList(x, depth + 1); if (r) return r; } return null; }
+  const o = d as LdList;
+  if (o['@type'] === 'ItemList' && Array.isArray(o.itemListElement)) return o;
+  return findItemList(o.mainEntity, depth + 1) ?? findItemList(o['@graph'], depth + 1);
+}
 function parseItemList(html: string): { items: Array<Record<string, unknown>>; total: number | null } | null {
   for (const m of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
     try {
-      const d = JSON.parse(m[1]) as { '@type'?: string; numberOfItems?: number; itemListElement?: Array<Record<string, unknown>> };
-      if (d['@type'] === 'ItemList' && Array.isArray(d.itemListElement)) return { items: d.itemListElement, total: typeof d.numberOfItems === 'number' ? d.numberOfItems : null };
+      const list = findItemList(JSON.parse(m[1]));
+      if (list) return { items: list.itemListElement ?? [], total: typeof list.numberOfItems === 'number' ? list.numberOfItems : null };
     } catch { /* bloc suivant */ }
   }
   return null;
+}
+/** Total affiché dans la page (« 6489 véhicules correspondent », « 362 occasions », « 1.161 resultaten »). */
+function pageTotal(html: string): number | null {
+  const text = html.replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const n = '(\\d{1,3}(?:[\\s\\u00a0\\u202f.]\\d{3})*|\\d+)';
+  // D'abord un compteur de résultats explicite (« 6489 véhicules correspondent »,
+  // « 362 occasions gevonden », « 1.161 resultaten »), sinon rien : un chiffre
+  // marketing (« plus de 9 000 véhicules ») ne vaut pas total.
+  const m = text.match(new RegExp(`${n}\\s*(?:véhicules?|voitures?|occasions?|voertuigen|auto'?s)\\s*(?:correspondent|trouvés?|gevonden|disponibles?|beschikbaar)`, 'i'))
+    ?? text.match(new RegExp(`${n}\\s*(?:resultaten|résultats?)\\b`, 'i'));
+  return m ? num(m[1].replace(/[\s  .]/g, '')) : null;
 }
 async function scrapeDatamotive(url: string, firstHtml: string): Promise<DealerStockResult> {
   const warnings: string[] = [];
   const out: DealerVehicle[] = [];
   const seen = new Set<string>();
   let first: ReturnType<typeof parseItemList> = parseItemList(firstHtml);
-  const total = first?.total ?? null;
+  const perPage = first?.items.length ?? 0;
+  // numberOfItems égal au nombre d'items de la page = taille de page, pas total.
+  const declaredLd = first?.total != null && first.total > perPage ? first.total : null;
+  const total = declaredLd ?? pageTotal(firstHtml) ?? (first?.total === 0 ? 0 : null);
+  const pagesCap = total != null && perPage > 0 ? Math.min(400, Math.ceil(total / perPage) + 1) : MAX_PAGES;
   let pages = 0;
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const parsed = page === 1 ? first : parseItemList((await getText(withPage(url, page))).text);
+  // Une page qui échoue (HTTP ≠ 200, JSON-LD absent) est relue une fois après
+  // une pause ; sinon on s'arrête EN LE DISANT (constat 02/10 : Century lu à
+  // 986 / 1 189, arrêt muet à la page 84 alors que la page sert 12 items).
+  const readPage = async (page: number): Promise<{ parsed: ReturnType<typeof parseItemList>; status: number }> => {
+    let status = 0;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await sleep(1500);
+      const r = await getText(withPage(url, page));
+      status = r.status;
+      const parsed = r.status === 200 ? parseItemList(r.text) : null;
+      if (parsed) return { parsed, status };
+    }
+    return { parsed: null, status };
+  };
+  for (let page = 1; page <= pagesCap; page++) {
+    const got = page === 1 ? { parsed: first, status: 200 } : await readPage(page);
+    const parsed = got.parsed;
     first = null;
     pages = page;
-    if (!parsed || parsed.items.length === 0) break;
+    // 404 = au-delà de la dernière page (Century : page 101 sur 100), fin normale.
+    if (!parsed) { if (got.status !== 404) warnings.push(`arrêt à la page ${page} : HTTP ${got.status} ou JSON-LD absent — relevé partiel`); break; }
+    if (parsed.items.length === 0) break;
     let added = 0;
     for (const el of parsed.items) {
       const item = (el.item ?? {}) as Record<string, unknown>;
@@ -323,10 +372,18 @@ async function scrapeDatamotive(url: string, firstHtml: string): Promise<DealerS
       const id = String(item.sku ?? idFromUrl ?? u).trim();
       if (!id || seen.has(id)) continue;
       seen.add(id); added++;
-      const name = String(item.name ?? '').split('|')[0].trim();
+      const rawName = String(item.name ?? '').split('|')[0].replace(/\s+-\s+\d{4}$/, '').trim();
+      const name = brand && !rawName.toLowerCase().startsWith(brand.toLowerCase()) ? `${brand} ${rawName}` : rawName;
+      const odo = item.mileageFromOdometer as { value?: unknown } | number | undefined;
+      const km = num(typeof odo === 'object' && odo ? odo.value : odo);
+      const yearFromUrl = num(u.match(/-(?:occasion|used|gebruikt)-((?:19|20)\d{2})-/)?.[1]);
+      const modelDate = num(String(item.modelDate ?? item.productionDate ?? item.vehicleModelDate ?? '').slice(0, 4));
+      const year = yearFromUrl ?? (modelDate != null && modelDate > 1980 ? modelDate : null);
       out.push({
         external_id: id, url: u || null, title: name, brand: brand || splitTitle(name).brand, model: item.model ? String(item.model) : splitTitle(name).model,
-        price: priceOrNull(offers.price), km: null, year: null, fuel: null, gearbox: null, plate: null, vin: null, body: null,
+        price: priceOrNull(offers.price), km, year, fuel: item.fuelType ? String(item.fuelType) : null,
+        gearbox: item.vehicleTransmission ? String(item.vehicleTransmission) : null, plate: null,
+        vin: item.vehicleIdentificationNumber ? String(item.vehicleIdentificationNumber) : null, body: item.bodyType ? String(item.bodyType) : null,
         image: Array.isArray(item.image) ? String(item.image[0] ?? '') || null : item.image ? String(item.image) : null, listed_at: null,
         // schema.org : InStock = en vente ; PreOrder = attendue ; SoldOut /
         // OutOfStock = vendue ; prix absent = sur demande.
@@ -335,12 +392,12 @@ async function scrapeDatamotive(url: string, firstHtml: string): Promise<DealerS
             : priceOrNull(offers.price) == null ? 'price_on_request' : null,
       });
     }
-    if (added === 0) break;
+    if (added === 0) { if (total != null && out.length < total) warnings.push(`page ${page} : aucun véhicule nouveau — arrêt à ${out.length} / ${total}`); break; }
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
   if (out.length > 0 && out.every((v) => v.km == null)) warnings.push('Ce fournisseur ne publie ni km ni année dans la liste (fiche détaillée seulement).');
-  return { provider: 'datamotive', total: total ?? out.length, vehicles: out, pages, warnings };
+  return { provider: 'datamotive', total: total ?? out.length, declared: total, vehicles: out, pages, warnings };
 }
 
 // ── autodata (Krimpenerwaard) ───────────────────────────────────────────────
@@ -390,7 +447,7 @@ async function scrapeAutodata(url: string, firstHtml: string, firstHeaders: Head
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
-  return { provider: 'autodata', total: total ?? out.length, vehicles: out, pages: page, warnings };
+  return { provider: 'autodata', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
 }
 
 // ── Point d'entrée ──────────────────────────────────────────────────────────
@@ -492,7 +549,7 @@ async function scrapeListerpage(url: string, firstHtml: string): Promise<DealerS
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
-  return { provider: 'listerpage', total: total ?? out.length, vehicles: out, pages: page, warnings };
+  return { provider: 'listerpage', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
 }
 
 // ── cmsms (Louwman — CMS Made Simple, module « Occasions », preuve 02/10) ───
@@ -559,7 +616,7 @@ async function scrapeCmsms(url: string, firstHtml: string): Promise<DealerStockR
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
-  return { provider: 'cmsms', total: total ?? out.length, vehicles: out, pages: page, warnings };
+  return { provider: 'cmsms', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
 }
 
 // ── dmapi (Pon Center — API Datamotive, preuve 02/10) ───────────────────────
@@ -622,7 +679,7 @@ async function scrapeDmApi(url: string, firstHtml: string): Promise<DealerStockR
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
-  return { provider: 'dmapi', total: total ?? out.length, vehicles: out, pages: page, warnings };
+  return { provider: 'dmapi', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
 }
 
 // ── cartelcaw (Mengelers — « Cartel CAW client » de uname-it, preuve 02/10) ──
@@ -676,7 +733,7 @@ async function scrapeCartelCaw(url: string, firstHtml: string): Promise<DealerSt
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
-  return { provider: 'cartelcaw', total: total ?? out.length, vehicles: out, pages: page, warnings };
+  return { provider: 'cartelcaw', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
 }
 
 export async function fetchDealerStock(url: string): Promise<DealerStockResult> {
@@ -719,8 +776,9 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     // GARDE-FOU (01/10, constat Van Mossel : reconnu « datamotive », 0
     // véhicule) : un relevé vide sur un site reconnu n'est pas un stock vide,
     // c'est une lecture ratée — on n'écrit rien et on ne marque rien disparu.
-    // Seul un total 0 annoncé par le site lui-même vaut stock vide.
-    if (stock.vehicles.length === 0 && stock.total !== 0) {
+    // Seul un total 0 annoncé par le site lui-même vaut stock vide (BYMYCAR
+    // 02/10 : total inconnu replié sur 0 → le garde-fou se taisait).
+    if (stock.vehicles.length === 0 && stock.declared !== 0) {
       const saved = await recordLearningCase({
         kind: 'dealer_scan_empty', key: new URL(url).hostname, url, link: '/carte', actor: 'dev', contactId, submittedBy,
         title: `Relevé vide sur un site reconnu : ${new URL(url).hostname} (${stock.provider})`,
