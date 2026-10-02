@@ -832,6 +832,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TVA : UNE SEULE TABLE, DEMANDÉ ↔ REÇU SUR LA LIGNE DE LA DÉCLARATION,
+  TABLEUR − CA3, CRÉANCE PAR LA CHAÎNE CA3 (03/10, Channing : « je veux que
+  ces deux tableaux n'en fassent qu'un, le tableau du dessous ne sert à
+  rien », « 181 000 € de juin ? je n'ai jamais reçu ça », « je veux voir
+  ici ce que je ne vois pas sur les comptes, ce qu'il me manque »)**. La
+  colonne « TVA remboursée » additionnait les virements par mois de
+  réception (juillet : 93 188 + 46 000 + 42 000 = 181 188 €, trois
+  demandes d'avril, mai et juin) : remplacée par « Reçu pour cette
+  demande » sur la ligne de la déclaration qui l'a demandé (date, montant,
+  compte) ou « en attente ». Ligne « 31/12/2025 bilan » : crédit du bilan,
+  demande de décembre 2025 (déduite du virement de 49 000 reçu le 06/02),
+  report de janvier (ligne 22). Colonne « Tableur − CA3 » = (déductible −
+  collectée attendues du tableur) − (déductible − collectée déclarées) ;
+  mois sans CA3 : « à déclarer ». Créance fin de mois = demandes pas encore
+  reçues à cette date + crédit reporté de la dernière déclaration (chaîne
+  CA3 vérifiée : ligne 22 + déductible − collectée = ligne 25 = 26 + 27 sur
+  les 8 mois). Ligne Total (demandé, reçu, en attente, payé, attendu,
+  écart) et phrase de synthèse : fin août l'État doit 16 195 € (demande
+  d'août), 0 reporté ; septembre à déclarer d'après le tableur. Le bloc
+  « demande par demande » est supprimé (tout est dans la table).
 - **UN VIREMENT POUR PLUSIEURS VÉHICULES, FACTURE AVANT MONTANT (03/10,
   Channing : « on a des paiements client sur virement unique qui paient
   plusieurs véhicules, il faut lier les dossiers grâce aux numéros de
