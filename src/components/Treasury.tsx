@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
-import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, expectedCash, isStarDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
+import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, OVERHEAD, VEHICLE_COSTS, TRAVEL, ACCOUNT_LABEL, expectedCash, isStarDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
+import { loadOpening, type TreasuryOpening } from '../services/vat';
 import { TreasuryVat } from './TreasuryVat';
 import {
   listStatements, listLines, deleteStatement, setLineCategory, repairLines, lineParts, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
@@ -15,7 +16,7 @@ import {
  */
 const eur = (n: number | null | undefined, dec = 0) => (n == null ? '—' : `${n.toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec })} €`);
 const monthLabel = (m: string) => { const [ym, part] = m.split('~'); const [y, mo] = ym.split('-'); return new Intl.DateTimeFormat('fr-FR', { month: 'short', year: '2-digit' }).format(new Date(Number(y), Number(mo) - 1, 1)) + (part ? ` (${part.replace('-', '→')})` : ''); };
-type View = 'releves' | 'frais' | 'vehicules' | 'lignes' | 'tva';
+type View = 'releves' | 'pont' | 'frais' | 'vehicules' | 'lignes' | 'tva';
 
 export function Treasury() {
   const [statements, setStatements] = useState<BankStatementRow[]>([]);
@@ -27,6 +28,8 @@ export function Treasury() {
   const [busy, setBusy] = useState<string | null>(null);
   const [results, setResults] = useState<UploadResult[]>([]);
   const [view, setView] = useState<View>('frais');
+  const [opening, setOpening] = useState<TreasuryOpening | null>(null);
+  useEffect(() => { void loadOpening().then(setOpening); }, []);
   const [account, setAccount] = useState<string>('all');
   const [month, setMonth] = useState<string>('');
   const [category, setCategory] = useState<string>('');
@@ -167,6 +170,35 @@ export function Treasury() {
     for (const l of scoped) { if (l.category === 'transfert_interne') continue; const mo = l.booked_on.slice(0, 7); const c = r.get(mo) ?? { in: 0, out: 0 }; c.in += l.amount_in ?? 0; c.out += l.amount_out ?? 0; r.set(mo, c); }
     return r;
   }, [scoped]);
+  // ── PONT DE TRÉSORERIE (03/10 soir, Channing : « j'ai l'impression que ça ne colle pas ») :
+  //    du bilan au dernier relevé, mois par mois, où va l'argent — et ce qui est parti vers
+  //    des comptes dont le relevé manque (transferts internes sortis et jamais arrivés).
+  const bridge = useMemo(() => {
+    const sumCat = (m: string, pred: (c: BankCategory) => boolean, side: 'in' | 'out') => scoped.filter((l) => l.booked_on.startsWith(m) && pred(l.category)).reduce((s, l) => s + ((side === 'in' ? l.amount_in : l.amount_out) ?? 0), 0);
+    const rows = months.map((m) => {
+      const sales = sumCat(m, (c) => c === 'vente_encaissee', 'in');
+      const purchases = sumCat(m, (c) => c === 'achat_vehicule' || c === 'acompte_vehicule', 'out');
+      const vatIn = sumCat(m, (c) => c === 'impots_tva', 'in'), taxOut = sumCat(m, (c) => c === 'impots_tva', 'out');
+      const vehicleCosts = sumCat(m, (c) => VEHICLE_COSTS.has(c), 'out') - sumCat(m, (c) => VEHICLE_COSTS.has(c), 'in');
+      const overhead = sumCat(m, (c) => OVERHEAD.has(c), 'out') - sumCat(m, (c) => OVERHEAD.has(c), 'in');
+      const travel = sumCat(m, (c) => TRAVEL.has(c), 'out') - sumCat(m, (c) => TRAVEL.has(c), 'in');
+      const other = sumCat(m, (c) => c === 'autre' || c === 'retrait_especes', 'out') - sumCat(m, (c) => c === 'autre' || c === 'retrait_especes', 'in');
+      const transfers = sumCat(m, (c) => c === 'transfert_interne', 'in') - sumCat(m, (c) => c === 'transfert_interne', 'out');
+      const delta = sales - purchases + vatIn - taxOut - vehicleCosts - overhead - travel - other + transfers;
+      return { m, sales, purchases, vatIn, taxOut, vehicleCosts, overhead, travel, other, transfers, delta };
+    });
+    // Trésorerie attendue = disponibilités du bilan + variations ; soldes réels = dernier solde connu de chaque compte à la fin du mois.
+    let cash = opening?.cash ?? 0;
+    const byAcc = new Map<string, Array<{ m: string; close: number }>>();
+    for (const st of statements) { const k = `${st.account}/${st.account_ref ?? ''}`; const a = byAcc.get(k) ?? []; a.push({ m: st.period_month.slice(0, 7), close: st.closing_balance ?? 0 }); byAcc.set(k, a); }
+    const out = rows.map((r) => {
+      cash += r.delta;
+      let real = 0, missing: string[] = [];
+      for (const [k, arr] of byAcc) { const known = arr.filter((x) => x.m <= r.m).sort((a, b) => a.m.localeCompare(b.m)); const lastKnown = known[known.length - 1]; if (lastKnown) { real += lastKnown.close; if (lastKnown.m !== r.m && lastKnown.close > 50) missing.push(k); } }
+      return { ...r, cash, real, missing };
+    });
+    return out;
+  }, [scoped, months, statements, opening]);
   const marginByMonth = useMemo(() => {
     const r = new Map<string, { n: number; brute: number; comm: number; fees: number }>();
     // Une REF en double dans le même onglet (K861 ×2 en août, 3 doublons en juillet, 03/10 soir) ne compte
@@ -262,7 +294,7 @@ export function Treasury() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {tabBtn('releves', `Relevés (${statements.length})`)}{tabBtn('frais', 'Frais mensuels')}{tabBtn('vehicules', 'Véhicules : payé vs tableau')}{tabBtn('tva', 'TVA & point de départ')}{tabBtn('lignes', `Lignes (${scoped.length})`)}
+        {tabBtn('releves', `Relevés (${statements.length})`)}{tabBtn('pont', 'Pont de trésorerie')}{tabBtn('frais', 'Frais mensuels')}{tabBtn('vehicules', 'Véhicules : payé vs tableau')}{tabBtn('tva', 'TVA & point de départ')}{tabBtn('lignes', `Lignes (${scoped.length})`)}
         <span className="mx-2 text-slate-300">|</span>
         <select value={account} onChange={(e) => setAccount(e.target.value as typeof account)} className="px-2 py-1.5 rounded-lg border border-slate-300 text-sm bg-white">
           <option value="all">Tous les comptes</option>
@@ -318,6 +350,41 @@ export function Treasury() {
         </div>
       )}
       {view === 'tva' && <TreasuryVat lines={lines} deals={deals} statements={statements} />}
+      {view === 'pont' && (() => {
+        const tot = (f: (r: (typeof bridge)[number]) => number) => bridge.reduce((s, r) => s + f(r), 0);
+        const cell = (v: number, cls = '') => <td className={`py-1.5 px-2 text-right tabular-nums whitespace-nowrap ${cls} ${v < 0 ? 'text-rose-700' : ''}`}>{v ? eur(v) : ''}</td>;
+        const line = (label: string, f: (r: (typeof bridge)[number]) => number, cls = '', title = '') => (
+          <tr className={`border-b border-slate-100 ${cls}`}><td className="py-1.5 pr-4 whitespace-nowrap" title={title}>{label}</td>{bridge.map((r) => <Fragment key={r.m}>{cell(f(r))}</Fragment>)}{cell(tot(f), 'font-medium')}</tr>
+        );
+        return (
+          <div className="space-y-3">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200"><th className="py-2 pr-4">Depuis le bilan ({opening ? eur(opening.cash) : '—'} au 31/12/2025)</th>{bridge.map((r) => <th key={r.m} className="py-2 px-2 text-right whitespace-nowrap">{monthLabel(r.m)}</th>)}<th className="py-2 px-2 text-right">Total</th></tr></thead>
+                <tbody>
+                  {line('Ventes encaissées', (r) => r.sales, 'text-emerald-800')}
+                  {line('Achats et acomptes de véhicules', (r) => -r.purchases)}
+                  {line('= Marge encaissée sur les véhicules', (r) => r.sales - r.purchases, 'font-semibold bg-slate-50', 'Ce qui reste des ventes une fois les véhicules payés, en caisse (pas en facturation)')}
+                  {line('TVA remboursée', (r) => r.vatIn, 'text-emerald-800')}
+                  {line('Impôts, IS, flat tax, URSSAF payés', (r) => -r.taxOut)}
+                  {line('Frais véhicules (prestataires, transport, préparation)', (r) => -r.vehicleCosts, '', 'La case « frais » du tableur')}
+                  {line('Fonctionnement (loyer, comptable, salaires, abonnements, assurance, banque)', (r) => -r.overhead, '', 'Ce que le tableur ne compte pas')}
+                  {line('Déplacements (train, carburant, péages, repas, hébergement, courses)', (r) => -r.travel)}
+                  {line('Autre / retraits', (r) => -r.other)}
+                  {line('Transferts internes : arrivés − partis', (r) => r.transfers, 'text-amber-700', 'Négatif = de l\'argent est parti vers un compte dont le relevé manque (ou n\'est pas encore déposé)')}
+                  {line('= Variation de trésorerie du mois', (r) => r.delta, 'font-semibold bg-emerald-50 text-emerald-900')}
+                  <tr className="border-t-2 border-slate-300 font-semibold text-slate-900"><td className="py-2 pr-4">Trésorerie attendue fin de mois (bilan + variations)</td>{bridge.map((r) => <td key={r.m} className="py-2 px-2 text-right tabular-nums">{eur(r.cash)}</td>)}<td></td></tr>
+                  <tr className="text-slate-700"><td className="py-1.5 pr-4">Soldes des relevés fin de mois (dernier connu par compte)</td>{bridge.map((r) => <td key={r.m} className="py-1.5 px-2 text-right tabular-nums" title={r.missing.length ? `relevé manquant ce mois : ${r.missing.join(', ')}` : ''}>{eur(r.real)}{r.missing.length > 0 && <span className="text-amber-600"> *</span>}</td>)}<td></td></tr>
+                  <tr className="text-slate-700"><td className="py-1.5 pr-4">Écart (attendu − relevés)</td>{bridge.map((r) => <td key={r.m} className={`py-1.5 px-2 text-right tabular-nums ${Math.abs(r.cash - r.real) > 500 ? 'text-amber-700' : 'text-slate-400'}`}>{eur(r.cash - r.real)}</td>)}<td></td></tr>
+                  <tr className="border-t border-slate-200 text-slate-600"><td className="py-1.5 pr-4">Pour comparer : marge brute HT du tableur (dossiers du mois)</td>{bridge.map((r) => <td key={r.m} className="py-1.5 px-2 text-right tabular-nums">{eur(marginByMonth.get(r.m)?.brute ?? 0)}</td>)}<td className="py-1.5 px-2 text-right tabular-nums">{eur(sum(months, (m) => marginByMonth.get(m)?.brute ?? 0))}</td></tr>
+                  <tr className="text-slate-600"><td className="py-1.5 pr-4">Pour comparer : commission HT du tableur</td>{bridge.map((r) => <td key={r.m} className="py-1.5 px-2 text-right tabular-nums">{eur(marginByMonth.get(r.m)?.comm ?? 0)}</td>)}<td className="py-1.5 px-2 text-right tabular-nums">{eur(sum(months, (m) => marginByMonth.get(m)?.comm ?? 0))}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-slate-500">Tout vient des relevés déposés, transferts entre tes comptes neutralisés. La marge encaissée n'est pas la marge facturée : un véhicule acheté ce mois et vendu le mois prochain pèse ici en négatif, puis en positif. Un « * » marque un mois où un compte n'a pas de relevé : son dernier solde connu est repris, l'écart dit ce qu'il manque.</p>
+          </div>
+        );
+      })()}
       {view === 'frais' && (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">

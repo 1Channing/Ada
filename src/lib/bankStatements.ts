@@ -61,7 +61,7 @@ export interface ParsedStatement {
 export const BANK_CATEGORIES = [
   'achat_vehicule', 'acompte_vehicule', 'vente_encaissee', 'transfert_interne', 'impots_tva', 'frais_bancaires',
   'carburant', 'peage', 'train_transport', 'hebergement', 'repas', 'courses', 'logistique', 'facture_fournisseur', 'assurance',
-  'logiciel_abonnement', 'entretien_vehicule', 'salaire', 'retrait_especes', 'autre',
+  'logiciel_abonnement', 'entretien_vehicule', 'salaire', 'loyer', 'comptable', 'retrait_especes', 'autre',
 ] as const;
 export type BankCategory = typeof BANK_CATEGORIES[number];
 
@@ -69,8 +69,14 @@ export const CATEGORY_LABEL: Record<BankCategory, string> = {
   achat_vehicule: 'Achat véhicule', acompte_vehicule: 'Acompte véhicule', vente_encaissee: 'Vente encaissée', transfert_interne: 'Transfert interne',
   impots_tva: 'Impôts / TVA', frais_bancaires: 'Frais bancaires', carburant: 'Carburant', peage: 'Péages', train_transport: 'Train / transports',
   hebergement: 'Hébergement', repas: 'Repas', courses: 'Courses', logistique: 'Logistique (poste, colis, dépannage)', facture_fournisseur: 'Factures prestataires', assurance: 'Assurance',
-  logiciel_abonnement: 'Logiciels / abonnements', entretien_vehicule: 'Entretien véhicule', salaire: 'Salaires', retrait_especes: 'Retraits', autre: 'Autre',
+  logiciel_abonnement: 'Logiciels / abonnements', entretien_vehicule: 'Entretien véhicule', salaire: 'Salaires', loyer: 'Loyer (GF Holding)', comptable: 'Comptable (Geo Conseils)', retrait_especes: 'Retraits', autre: 'Autre',
 };
+/** Frais de fonctionnement (ce que le tableur ne compte PAS dans sa case frais, Channing 03/10 soir). */
+export const OVERHEAD: ReadonlySet<BankCategory> = new Set<BankCategory>(['loyer', 'comptable', 'salaire', 'logiciel_abonnement', 'assurance', 'frais_bancaires']);
+/** Frais liés aux véhicules (transport, préparation, prestataires) : la case frais du tableur. */
+export const VEHICLE_COSTS: ReadonlySet<BankCategory> = new Set<BankCategory>(['facture_fournisseur', 'logistique', 'entretien_vehicule']);
+/** Déplacements. */
+export const TRAVEL: ReadonlySet<BankCategory> = new Set<BankCategory>(['train_transport', 'carburant', 'peage', 'repas', 'hebergement', 'courses']);
 /** Catégories qui ne sont PAS des frais : véhicules (capital), transferts entre nos comptes, encaissements. */
 export const NON_EXPENSE: ReadonlySet<BankCategory> = new Set<BankCategory>(['achat_vehicule', 'acompte_vehicule', 'vente_encaissee', 'transfert_interne']);
 
@@ -711,6 +717,9 @@ export function classifyAny(counterparty: string, description: string): BankCate
   if (/revolut business fee|airwallex|frais bancaires|commission d'intervention|abonnement shine|frais paiement|frais de tenue|cotisation carte/.test(all)) return 'frais_bancaires';
   if (/impots|impot[ .]|dgfip|finances publiques|tresor public|\btva\b|urssaf|93033811600013|douane|\bsie\b|\bis\b.*rejet|rejet.*\bis\b|\bis[1-4]-\d{6}|\brcm1-\d{6}|\bcfe\b|\bcvae\b/.test(all)) return 'impots_tva';
   if (/bulletin de salaire|\bsalaire|\bpaie\b|\bdeel\b/.test(all)) return 'salaire';
+  if (/gf holding/.test(cp)) return 'loyer'; // loyer = GF Holding (Channing 03/10 soir)
+  if (/geo conseils/.test(cp)) return 'comptable';
+  if (/mol ?\*? ?transport/.test(all)) return 'logistique';
   return null;
 }
 export function classify(kind: string, counterparty: string, description: string, out: number | null, inn: number | null): BankCategory {

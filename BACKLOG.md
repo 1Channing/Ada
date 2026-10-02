@@ -832,6 +832,30 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **PONT DE TRÉSORERIE : DU BILAN AU DERNIER RELEVÉ, OÙ VA L'ARGENT (03/10
+  soir, Channing : « j'ai 104 836 € + 46 700 € de stock + la TVA pas
+  perçue, je ne me paie pas, tout est sur les relevés, j'ai l'impression
+  que ça ne colle pas », « on a bossé dans le vent »)**. Nouvel onglet
+  « Pont de trésorerie » : par mois, ventes encaissées − achats de
+  véhicules = marge encaissée ; TVA remboursée ; impôts payés ; frais
+  véhicules (la case frais du tableur : prestataires, transport,
+  préparation) ; fonctionnement (loyer GF Holding, comptable Geo
+  Conseils, salaires, abonnements, assurance, banque — ce que le tableur
+  ne compte pas) ; déplacements ; autre ; transferts internes arrivés −
+  partis ; = variation ; trésorerie attendue (bilan + variations) contre
+  soldes des relevés (dernier connu par compte, « * » si le mois manque)
+  et écart. Catégories « loyer » et « comptable » ajoutées (règles
+  indépendantes de la banque, rejouées au chargement). Constat janvier →
+  septembre, comptes déposés : ventes encaissées 6 296 760, achats payés
+  6 029 525 → marge encaissée 267 235 ; TVA reçue 396 423 ; impôts payés
+  89 839 (IS 56 283, flat tax 30 000, URSSAF) ; frais ≈ 300 000 ;
+  transferts internes partis 4 088 281 contre arrivés 3 883 921 : 204 360 €
+  sortis vers des comptes dont le relevé manque (Revolut septembre,
+  Pennylane après le 22 mai) — « tout est sur les relevés » est faux de ce
+  montant. Marge brute du tableur 468 493 contre marge encaissée 267 235 :
+  l'écart = TVA avancée pas encore remboursée (≈ 67 000), achats payés
+  sans vente encore (stock), fournisseurs 2025 payés en janvier (69 754 au
+  bilan), acomptes 2025 déjà encaissés (45 940).
 - **COMMISSION HT DU TABLEUR : CELLULE DE TOTAL PRISE POUR UNE COMMISSION,
   REF EN DOUBLE COMPTÉES DEUX FOIS (03/10 soir, Channing : « pourquoi cette
   ligne ne correspond pas avec ce que j'ai sur le tableur ? »)**. Janvier
