@@ -832,6 +832,20 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : FINOM LU, PENNYLANE VÉRIFIÉ (02/10 soir, « je ne vois pas
+  le compte Finom, vérifie les data des relevés Pennylane »)**. Finom :
+  relevé scanné (9 pages, 0 caractère) → OCR puis parseur propre (« Du: /
+  Au: », « Solde d'ouverture : », lignes « date tiers montant signé solde »
+  du plus récent au plus ancien, motif dessous, IBAN / BIC du tiers
+  ignorés) ; détecté AVANT Revolut car les BIC des tiers (REVOFRP2) y
+  figurent ; sens vérifié par la chaîne des soldes, lignes fautives
+  nommées. Mars 2026 : 103 lignes, écart 12,10 € sur une ligne OCR, compte
+  clôturé le 27/03 (149 435,35 € virés vers Shine). Pennylane : le fichier
+  « JANVIER » couvre le 13 → 28 février (ouverture du compte), « FEVRIER »
+  et « MARS » sont le même relevé de mars (67 lignes OCR identiques) → rien
+  ne manque de février à avril ; solde de clôture de mars lu « 4124,57 »
+  pour 41 124,57 alors que les 39 lignes recoupent la ligne « Total » au
+  centime → clôture recalculée et dit, au lieu d'un faux « ligne mal lue ».
 - **TRÉSORERIE : PDF SANS TEXTE LU PAR OCR (02/10 soir, « les relevés
   Pennylane ne passent pas »)**. Preuve : le fichier de janvier a 2 pages,
   0 caractère de texte, 1 737 tracés vectoriels et le seul bitmap est le

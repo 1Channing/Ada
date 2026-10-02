@@ -23,8 +23,8 @@
  * catégorie reste modifiable à la main dans ADA.
  */
 
-export type BankAccount = 'revolut' | 'airwallex' | 'shine' | 'pennylane' | 'cic' | 'caisse_epargne';
-export const ACCOUNT_LABEL: Record<BankAccount, string> = { revolut: 'Revolut', airwallex: 'Airwallex', shine: 'Shine', pennylane: 'Pennylane / Swan', cic: 'CIC', caisse_epargne: "Caisse d'Épargne" };
+export type BankAccount = 'revolut' | 'airwallex' | 'shine' | 'pennylane' | 'cic' | 'caisse_epargne' | 'finom';
+export const ACCOUNT_LABEL: Record<BankAccount, string> = { revolut: 'Revolut', airwallex: 'Airwallex', shine: 'Shine', pennylane: 'Pennylane / Swan', cic: 'CIC', caisse_epargne: "Caisse d'Épargne", finom: 'Finom' };
 
 /** Une ligne de texte d'un PDF : texte reconstitué, page, hauteur, fragments avec leur abscisse (colonnes Débit / Crédit). */
 export interface TextLine { text: string; page: number; y: number; frags: Array<{ x: number; s: string }> }
@@ -101,6 +101,7 @@ const periodKey = (start: string | null, end: string | null, lines: Array<{ book
 // ── Détection ───────────────────────────────────────────────────────────────
 export function detectBank(lines: TextLine[]): BankAccount | null {
   const head = lines.slice(0, 80).map((l) => l.text).join('\n');
+  if (/FNOMFRP2|^finom$/m.test(head)) return 'finom'; // avant Revolut : les IBAN / BIC des tiers (REVOFRP2) y figurent
   if (/Revolut Bank UAB|REVOFRP2/.test(head)) return 'revolut';
   if (/airwallex\.com|Airwallex \(Netherlands\)/i.test(head)) return 'airwallex';
   if (/Shine \(www\.shine\.fr\)|SNNNFR22/.test(head)) return 'shine';
@@ -121,7 +122,8 @@ export function parseStatement(lines: TextLine[]): ParsedStatement {
   else if (account === 'pennylane') st = parseSwan(texts);
   else if (account === 'cic') st = parseCic(lines);
   else if (account === 'caisse_epargne') st = parseCaisseEpargne(texts);
-  else throw new Error("relevé non reconnu — formats connus : Revolut Business, Airwallex, Shine, Pennylane (Swan), CIC, Caisse d'Épargne");
+  else if (account === 'finom') st = parseFinom(texts);
+  else throw new Error("relevé non reconnu — formats connus : Revolut Business, Airwallex, Shine, Pennylane (Swan), CIC, Caisse d'Épargne, Finom");
   const id = accountIdentity(texts);
   st.account_ref = id.ref; st.account_name = id.name;
   return st;
@@ -256,8 +258,17 @@ function parseSwan(texts: string[]): ParsedStatement {
       plate: extractPlate(full), vin: extractVin(full), category: classify(flow, counterparty, description, isIn ? null : debit, isIn ? credit : null), line_no: out.length + 1 });
   }
   const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
-  if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
-  return { account: 'pennylane', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
+  // Ligne « Total <crédits> <débits> » : si les lignes lues la recoupent au
+  // centime, elles sont justes et c'est le solde de clôture qui est mal lu
+  // (OCR : « 4124,57 » pour 41 124,57, constat 02/10 soir) → recalculé.
+  const tot = texts.map((t) => t.match(/^Total ([\d\s\u00a0.]+,\d{2}) ([\d\s\u00a0.]+,\d{2})$/)).find(Boolean);
+  const totalsOk = !!tot && Math.abs(moneyFr(tot[1]) - sumIn) < 0.011 && Math.abs(moneyFr(tot[2]) - sumOut) < 0.011;
+  let closingOut = closing;
+  if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) {
+    if (totalsOk) { closingOut = round2(opening + sumIn - sumOut); warnings.push(`solde de clôture lu « ${closing} » mais les lignes recoupent les totaux du relevé au centime : clôture recalculée à ${closingOut} €`); }
+    else warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
+  }
+  return { account: 'pennylane', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closingOut, currency: 'EUR', lines: out, warnings };
 }
 
 // ── CIC (preuve 02/10) ──────────────────────────────────────────────────────
@@ -346,6 +357,48 @@ function parseCaisseEpargne(texts: string[]): ParsedStatement {
   const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
   if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
   return { account: 'caisse_epargne', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
+}
+
+// ── Finom (preuve 02/10 soir, relevé OCR : PDF scanné) ─────────────────────
+// « Du: 01/03/2026 » / « Au: 31/03/2026 », « Solde d'ouverture : 0,00€ »,
+// lignes du plus récent au plus ancien : « 27/03/2026 Mc export - 149 435,35 €
+// 13,63 € » (montant signé puis solde APRÈS le mouvement), puis le motif, puis
+// « IBAN: … » / « BIC: … » du tiers (ignorés). Sens vérifié par le solde.
+function parseFinom(texts: string[]): ParsedStatement {
+  const warnings: string[] = [];
+  const g = (re: RegExp) => texts.map((t) => t.match(re)).find(Boolean);
+  const start = frDate(g(/^Du\s*:\s*(\d{2}\/\d{2}\/\d{4})/)?.[1] ?? ''), end = frDate(g(/^Au\s*:\s*(\d{2}\/\d{2}\/\d{4})/)?.[1] ?? '');
+  const ob = g(/^Solde d'ouverture\s*:\s*(-?\s?[\d\s\u00a0.]*\d,\d{2})\s?€/), cb = g(/^Solde de cl[oô]ture\s*:\s*(-?\s?[\d\s\u00a0.]*\d,\d{2})\s?€/);
+  const signed = (sgn: string | undefined, v: string) => moneyFr(v) * (sgn ? -1 : 1);
+  const opening = ob ? moneyFr(ob[1].replace(/\s/g, '')) : null, closing = cb ? moneyFr(cb[1].replace(/\s/g, '')) : null;
+  const ROW = /^(\d{2}\/\d{2}\/\d{4}) (.+?) (-\s?)?(\d[\d\s\u00a0.]*,\d{2})\s?€\s*(-\s?)?(\d[\d\s\u00a0.]*,\d{2})\s?€$/;
+  type Row = { date: string; cp: string; amount: number; balance: number; more: string[]; hasIban: boolean };
+  const rows: Row[] = [];
+  let cur: Row | null = null;
+  for (const t of texts) {
+    const m = t.match(ROW);
+    if (m) { cur = { date: frDate(m[1])!, cp: m[2].trim(), amount: signed(m[3], m[4]), balance: signed(m[5], m[6]), more: [], hasIban: false }; rows.push(cur); continue; }
+    if (!cur) continue;
+    if (/^(IBAN|BIC)\s*:/i.test(t)) { if (/^IBAN/i.test(t)) cur.hasIban = true; continue; }
+    if (/^(finom|\d{1,2}|Terminé Description|MC EXPORT RELEVÉ|Numéro de TVA|Main$|Du\s*:|Au\s*:|Solde d)/i.test(t)) { cur = null; continue; }
+    cur.more.push(t);
+  }
+  const out: BankLine[] = rows.map((r, i) => {
+    const description = r.more.join(' ').replace(/\s+/g, ' ').trim();
+    const isIn = r.amount > 0;
+    const kind = r.hasIban || /transfert|virement|facture|acompte|achat/i.test(description) ? 'Virement' : 'Carte';
+    const flow = kind === 'Carte' ? 'card' : isIn ? 'transfer_in' : 'transfer_out';
+    const full = `${r.cp} ${description}`;
+    return { booked_on: r.date, kind, counterparty: r.cp, description, amount_out: isIn ? null : Math.abs(r.amount), amount_in: isIn ? r.amount : null, balance: r.balance, currency: 'EUR',
+      plate: extractPlate(full), vin: extractVin(full), category: classify(flow, r.cp, description, isIn ? null : Math.abs(r.amount), isIn ? r.amount : null), line_no: i + 1 };
+  });
+  // Contrôle par le solde (du plus récent au plus ancien) : solde[i] = solde[i+1] + montant[i].
+  const bad: string[] = [];
+  for (let i = 0; i + 1 < rows.length; i++) if (Math.abs(round2(rows[i + 1].balance + rows[i].amount) - rows[i].balance) > 0.011) bad.push(`${rows[i].date} ${rows[i].cp} (${rows[i].amount} €)`);
+  if (bad.length > 0) warnings.push(`${bad.length} ligne(s) dont le solde ne suit pas le mouvement précédent — chiffres à vérifier : ${bad.slice(0, 5).join(' ; ')}`);
+  const sumIn = out.reduce((s, l) => s + (l.amount_in ?? 0), 0), sumOut = out.reduce((s, l) => s + (l.amount_out ?? 0), 0);
+  if (opening != null && closing != null && Math.abs(round2(opening + sumIn - sumOut) - closing) > 0.011) warnings.push(`solde d'ouverture + entrées − sorties ≠ solde de clôture (écart ${round2(opening + sumIn - sumOut - closing)} €) — une ligne mal lue`);
+  return { account: 'finom', period_month: periodKey(start, end, out), opening_balance: opening, closing_balance: closing, currency: 'EUR', lines: out, warnings };
 }
 
 // ── Revolut ─────────────────────────────────────────────────────────────────
