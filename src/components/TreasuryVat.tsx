@@ -47,6 +47,10 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
 
   // Lignes bancaires impôts : remboursements reçus (DGFiP / SIE) et TVA / IS payés.
   const taxLines = useMemo(() => lines.filter((l) => l.category === 'impots_tva').sort((a, b) => a.booked_on.localeCompare(b.booked_on)), [lines]);
+  // Seule la TVA entre dans la créance : remboursements DGFiP / SIE entrants, paiements mentionnant la TVA.
+  // IS, RCM, URSSAF, retraite sont des impôts, pas de la TVA (constat 03/10 : « RCM1 » 30 000 €, IS 8 445 €).
+  const isVat = (l: BankLineRow) => { const t = `${l.counterparty} ${l.description}`.toLowerCase(); return (l.amount_in != null && /dgfip|sie\b|impot|tresor/.test(t) && !/urssaf|retraite/.test(t)) || /\btva\b|remb\. dgfip/.test(t); };
+  const vatLines = useMemo(() => taxLines.filter(isVat), [taxLines]);
   const months = useMemo(() => {
     const s = new Set<string>(returns.map((r) => r.period_month));
     for (const l of taxLines) s.add(l.booked_on.slice(0, 7));
@@ -55,14 +59,18 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
   }, [returns, taxLines, deals]);
   const byMonth = useMemo(() => new Map(returns.map((r) => [r.period_month, r])), [returns]);
   // Véhicules « * » : TVA déductible attendue = achat / 6 (prix TTC à 20 %), par mois de facturation du tableur.
+  // Règle Channing 03/10 : tout le tableur est en TTC. Véhicule « * » = TVA
+  // récupérable : déductible attendue = achat / 6, vendu HT (collectée 0).
+  // Véhicule sans * = TVA sur la marge : collectée attendue = (vente − achat) / 6.
   const starByMonth = useMemo(() => {
-    const m = new Map<string, { n: number; vat: number; sales: number }>();
+    const m = new Map<string, { n: number; vat: number; sales: number; collected: number; nMargin: number }>();
     for (const d of deals) {
-      const mo = dealMonth(d); if (!mo) continue;
+      const mo = dealMonth(d); if (!mo || d.purchase_price == null) continue;
       const star = /\*\s*$/.test(d.vehicle_label ?? '');
-      if (!star || d.purchase_price == null) continue;
-      const cur = m.get(mo) ?? { n: 0, vat: 0, sales: 0 };
-      cur.n++; cur.vat += d.purchase_price / 6; cur.sales += d.sale_price ?? 0; m.set(mo, cur);
+      const cur = m.get(mo) ?? { n: 0, vat: 0, sales: 0, collected: 0, nMargin: 0 };
+      if (star) { cur.n++; cur.vat += d.purchase_price / 6; cur.sales += (d.sale_price ?? 0) / 1.2; }
+      else if (d.sale_price != null && d.sale_price > d.purchase_price) { cur.nMargin++; cur.collected += (d.sale_price - d.purchase_price) / 6; }
+      m.set(mo, cur);
     }
     return m;
   }, [deals]);
@@ -71,13 +79,13 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
     let credit = opening?.vat_credit ?? 0;
     return months.map((m) => {
       const r = byMonth.get(m);
-      const refunds = taxLines.filter((l) => l.booked_on.startsWith(m) && l.amount_in).reduce((s, l) => s + (l.amount_in ?? 0), 0);
-      const paid = taxLines.filter((l) => l.booked_on.startsWith(m) && l.amount_out).reduce((s, l) => s + (l.amount_out ?? 0), 0);
+      const refunds = vatLines.filter((l) => l.booked_on.startsWith(m) && l.amount_in).reduce((s, l) => s + (l.amount_in ?? 0), 0);
+      const paid = vatLines.filter((l) => l.booked_on.startsWith(m) && l.amount_out).reduce((s, l) => s + (l.amount_out ?? 0), 0);
       const delta = (r?.deductible ?? 0) - (r?.collected ?? 0);
       credit = credit + delta - refunds + paid;
       return { m, r, refunds, paid, delta, credit, star: starByMonth.get(m) };
     });
-  }, [months, byMonth, taxLines, opening, starByMonth]);
+  }, [months, byMonth, vatLines, opening, starByMonth]);
   // Point de départ : soldes d'ouverture de janvier 2026 par compte vs disponibilités du bilan.
   const janOpenings = useMemo(() => statements.filter((s) => s.period_month.slice(0, 7) === '2026-01').map((s) => ({ s, v: s.opening_balance ?? 0 })), [statements]);
   const janSum = janOpenings.reduce((s, x) => s + x.v, 0);
@@ -123,8 +131,8 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
         <table className="min-w-full text-sm">
           <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200">
             <th className="py-2 pr-3">Mois</th><th className="py-2 pr-3 text-right">Collectée</th><th className="py-2 pr-3 text-right">Déductible</th><th className="py-2 pr-3 text-right">Nette due</th><th className="py-2 pr-3 text-right">Rembours. demandé</th><th className="py-2 pr-3 text-right">Crédit reporté</th>
-            <th className="py-2 pr-3 text-right" title="Lignes bancaires DGFiP / SIE entrantes">Reçu de l'État</th><th className="py-2 pr-3 text-right" title="Lignes bancaires impôts sortantes (TVA, IS)">Payé à l'État</th>
-            <th className="py-2 pr-3 text-right" title="Véhicules « * » du tableur : achat / 6">TVA attendue sur achats *</th><th className="py-2 pr-3 text-right">Créance de TVA fin de mois</th><th className="py-2"></th>
+            <th className="py-2 pr-3 text-right" title="Remboursements de TVA reçus (DGFiP / SIE)">TVA remboursée</th><th className="py-2 pr-3 text-right" title="TVA payée (hors IS, RCM, URSSAF)">TVA payée</th>
+            <th className="py-2 pr-3 text-right" title="Véhicules sans * (TVA sur la marge) : (vente − achat) / 6">Collectée attendue (marge)</th><th className="py-2 pr-3 text-right" title="Véhicules « * » du tableur : achat / 6">Déductible attendue (achats *)</th><th className="py-2 pr-3 text-right">Créance de TVA fin de mois</th><th className="py-2"></th>
           </tr></thead>
           <tbody>
             {rows.map(({ m, r, refunds, paid, star, credit }) => {
@@ -146,7 +154,8 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
                   )}
                   <td className="py-1.5 pr-3 text-right tabular-nums text-emerald-700">{refunds ? eur(refunds, 2) : ''}</td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{paid ? eur(paid, 2) : ''}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={star ? `${star.n} véhicule(s) *` : ''}>{star ? eur(star.vat) : ''}</td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={star ? `${star.nMargin} véhicule(s) en TVA sur la marge` : ''}>{star?.collected ? eur(star.collected) : ''}</td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={star ? `${star.n} véhicule(s) *` : ''}>{star?.vat ? eur(star.vat) : ''}</td>
                   <td className={`py-1.5 pr-3 text-right tabular-nums font-semibold ${credit >= 0 ? 'text-emerald-800' : 'text-rose-700'}`}>{eur(credit)}</td>
                   <td className="py-1 whitespace-nowrap">
                     {editing ? <button onClick={() => void save(editing)} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-slate-900 text-white"><Save size={12} /> Enregistrer</button>
@@ -160,22 +169,22 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
                 <td className="py-1 pr-3"><input value={draft.period_month} onChange={(e) => setDraft({ ...draft, period_month: e.target.value })} placeholder="2026-01" className="w-24 px-1.5 py-1 rounded border border-slate-300 text-xs font-mono" /></td>
                 <td className="py-1 pr-3 text-right">{field(draft, 'collected', 'collectée')}</td><td className="py-1 pr-3 text-right">{field(draft, 'deductible', 'déductible')}</td>
                 <td className="py-1 pr-3 text-right">{field(draft, 'net_due', 'nette')}</td><td className="py-1 pr-3 text-right">{field(draft, 'credit_requested', 'demandé')}</td><td className="py-1 pr-3 text-right">{field(draft, 'credit_carried', 'reporté')}</td>
-                <td colSpan={4}></td>
+                <td colSpan={5}></td>
                 <td className="py-1"><button onClick={() => void save(draft)} disabled={!/^\d{4}-\d{2}$/.test(draft.period_month)} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-slate-900 text-white disabled:opacity-50"><Save size={12} /> Enregistrer</button></td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-slate-500">Créance = crédit au 31/12/2025 + (déductible − collectée) déclarées − reçu de l'État + payé à l'État, cumulé. « TVA attendue sur achats * » = prix d'achat / 6 des véhicules marqués * dans le tableur, à comparer à la TVA déductible déclarée du mois de facturation.</p>
+      <p className="text-xs text-slate-500">Créance = crédit au 31/12/2025 + (déductible − collectée) déclarées − TVA remboursée + TVA payée, cumulé. Le tableur est tout en TTC : « Déductible attendue » = achat / 6 des véhicules marqués * (TVA récupérable, vendus HT), « Collectée attendue » = (vente − achat) / 6 des véhicules sans * (TVA sur la marge), par mois de facturation — à comparer aux montants déclarés.</p>
 
       {taxLines.length > 0 && (
         <div>
-          <h3 className="font-medium text-slate-900 mb-2">Mouvements bancaires avec l'État ({taxLines.length})</h3>
+          <h3 className="font-medium text-slate-900 mb-2">Mouvements bancaires avec l'État ({taxLines.length}) <span className="text-xs font-normal text-slate-500">— seules les lignes TVA (en gras) entrent dans la créance ; IS, RCM, URSSAF, retraite sont à part</span></h3>
           <table className="min-w-full text-sm">
             <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Compte</th><th className="py-2 pr-3">Tiers</th><th className="py-2 pr-3">Libellé</th><th className="py-2 pr-3 text-right">Payé</th><th className="py-2 pr-3 text-right">Reçu</th></tr></thead>
             <tbody>{taxLines.map((l) => (
-              <tr key={l.id} className="border-b border-slate-100"><td className="py-1 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-1 pr-3 text-xs">{l.account}</td><td className="py-1 pr-3">{l.counterparty}</td><td className="py-1 pr-3 max-w-[22rem] truncate" title={l.description}>{l.description}</td><td className="py-1 pr-3 text-right tabular-nums">{l.amount_out != null ? eur(l.amount_out, 2) : ''}</td><td className="py-1 pr-3 text-right tabular-nums text-emerald-700">{l.amount_in != null ? eur(l.amount_in, 2) : ''}</td></tr>
+              <tr key={l.id} className={`border-b border-slate-100 ${isVat(l) ? 'font-medium' : 'text-slate-500'}`}><td className="py-1 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-1 pr-3 text-xs">{l.account}</td><td className="py-1 pr-3">{l.counterparty}</td><td className="py-1 pr-3 max-w-[22rem] truncate" title={l.description}>{l.description}</td><td className="py-1 pr-3 text-right tabular-nums">{l.amount_out != null ? eur(l.amount_out, 2) : ''}</td><td className="py-1 pr-3 text-right tabular-nums text-emerald-700">{l.amount_in != null ? eur(l.amount_in, 2) : ''}</td></tr>
             ))}</tbody>
           </table>
         </div>

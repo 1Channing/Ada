@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
-import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, type BankCategory, type BankAccount } from '../lib/bankStatements';
+import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, expectedCash, isStarDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
 import { TreasuryVat } from './TreasuryVat';
 import {
   listStatements, listLines, deleteStatement, setLineCategory, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
@@ -371,15 +371,15 @@ export function Treasury() {
             <p className="text-xs text-slate-500 mt-1">Écart = payé (acomptes compris) − prix d'achat du tableur. Rouge : payé plus que le tableur. Ambre « à compléter » : payé moins, le reste est sans doute un acompte sur un relevé pas encore déposé ; l'écart se referme seul quand il arrive. Jaune : aucun dossier trouvé — tape la REF du dossier pour poser le lien à la main.</p>
           </div>
           <div>
-            <h3 className="font-medium text-slate-900 mb-2">Encaissements de ventes <span className="text-xs text-slate-500">({receipts.length} · reçu {eur(sum(receipts, (g) => g.received))} · prix de vente tableur {eur(sum(receipts, (g) => g.deal?.sale_price ?? 0))})</span></h3>
+            <h3 className="font-medium text-slate-900 mb-2">Encaissements de ventes <span className="text-xs text-slate-500">({receipts.length} · reçu {eur(sum(receipts, (g) => g.received))} · attendu {eur(sum(receipts, (g) => (g.deal?.sale_price != null ? expectedCash(g.deal, 'sale_price') : 0)))} — un véhicule * est vendu HT : prix du tableur / 1,2)</span></h3>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-                  <th className="py-2 pr-3">Date</th><th className="py-2 pr-3">De</th><th className="py-2 pr-3">Libellé</th><th className="py-2 pr-3 text-right">Reçu</th><th className="py-2 pr-3">Dossier</th><th className="py-2 pr-3 text-right">Vente tableur</th><th className="py-2 pr-3 text-right">Écart</th>
+                  <th className="py-2 pr-3">Date</th><th className="py-2 pr-3">De</th><th className="py-2 pr-3">Libellé</th><th className="py-2 pr-3 text-right">Reçu</th><th className="py-2 pr-3">Dossier</th><th className="py-2 pr-3 text-right">Encaissement attendu</th><th className="py-2 pr-3 text-right">Écart</th>
                 </tr></thead>
                 <tbody>
                   {receipts.map((g) => {
-                    const d = g.deal; const ecart = d?.sale_price != null ? g.received - d.sale_price : null;
+                    const d = g.deal; const expected = d?.sale_price != null ? expectedCash(d, 'sale_price') : null; const ecart = expected != null ? g.received - expected : null;
                     return (
                       <tr key={g.key} className={`border-b border-slate-100 ${!d ? 'bg-amber-50' : ''}`}>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{g.first}</td>
@@ -387,7 +387,7 @@ export function Treasury() {
                         <td className="py-1.5 pr-3 max-w-[22rem] truncate" title={g.lines.map((l) => l.description).join('\n')}>{g.lines[0]?.description}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(g.received)}</td>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{d ? `${d.reference} · ${d.vehicle_label ?? ''}` : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.sale_price)}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums" title={d && isStarDeal(d) ? `tableur ${eur(d.sale_price)} TTC → vendu HT ${eur(expected)}` : ''}>{eur(expected)}{d && isStarDeal(d) && <span className="ml-1 text-[10px] text-sky-700">HT</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{ecart == null ? '—' : eur(ecart)}</td>
                       </tr>
                     );

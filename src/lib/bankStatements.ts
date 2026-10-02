@@ -652,6 +652,13 @@ const MODEL_PREFIX: Array<[RegExp, string[]]> = [
   [/rav ?4/i, ['RV']], [/elroq/i, ['E']], [/enyaq/i, ['E', 'EN']], [/corolla/i, ['C']], [/swift/i, ['SW']], [/aygo/i, ['AX']], [/ds ?7/i, ['DS']],
   [/id\.? ?3/i, ['ID']], [/mach/i, ['M']], [/c-?hr/i, ['CHR']], [/vitara/i, ['V']], [/panda/i, ['FP']], [/bz4x/i, ['B']], [/q4/i, ['QF']], [/model 3|tesla/i, ['T']], [/\bnx\b/i, ['NX']], [/astra/i, ['A']], [/tayron/i, ['TAYRON']],
 ];
+/** Vrai pour un véhicule « * » du tableur (TVA récupérable : acheté TTC avec TVA déductible, vendu HT). */
+export const isStarDeal = (d: DealLite) => /\*\s*$/.test(d.vehicle_label ?? '');
+/** Montant attendu en banque : prix du tableur, sauf la VENTE d'un véhicule « * » = prix / 1,2 (vendu HT). */
+export const expectedCash = (d: DealLite, field: 'purchase_price' | 'sale_price'): number => {
+  const v = d[field] as number;
+  return field === 'sale_price' && isStarDeal(d) ? Math.round((v / 1.2) * 100) / 100 : v;
+};
 export function matchLine(line: { plate: string | null; vin: string | null; counterparty: string; description: string; amount_out: number | null; amount_in: number | null; category: string }, deals: DealLite[]): { id: string; how: string } | null {
   if (!['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(line.category)) return null;
   const text = `${line.counterparty} ${line.description}`;
@@ -680,7 +687,9 @@ export function matchLine(line: { plate: string | null; vin: string | null; coun
   const amt = line.amount_out ?? line.amount_in ?? 0;
   if (amt > 0) {
     const field = line.amount_out != null ? 'purchase_price' : 'sale_price';
-    const byAmount = deals.filter((d) => d[field] != null && Math.abs((d[field] as number) - amt) <= 1);
+    // Règle Channing 03/10 : le tableur est tout en TTC ; un véhicule « * »
+    // (TVA récupérable) est vendu HT en réalité → encaissement attendu = vente / 1,2.
+    const byAmount = deals.filter((d) => d[field] != null && Math.abs(expectedCash(d, field) - amt) <= 1);
     if (byAmount.length > 0) {
       const prefixes = MODEL_PREFIX.find(([re]) => re.test(text))?.[1] ?? [];
       const words = text.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w.length >= 4 && !['SPRINTER', 'YARIS', 'CROSS', 'ACHAT', 'VENTE', 'FACTURE', 'FACTUUR', 'VIREMENT', 'TRANSFERT', 'HOLDING', 'AUTOMOBILES', 'AUTOMOBIELBEDRIJF', 'MOTORSPORT', 'INVOICE', 'SALDO', 'FATTURA', 'EXPORT'].includes(w));

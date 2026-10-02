@@ -832,6 +832,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : RÈGLE « * » APPLIQUÉE (03/10, réponse Channing : « tout est
+  en TTC dans le tableau ; ce qu'on vend hors taxe est en TTC dans le
+  tableau, il faut enlever 20 % pour le prix de vente réel »)**. Marge HT
+  du tableur inchangée : (vente − achat) / 1,2 vaut pour les deux régimes
+  (deux prix TTC). Ce qui change : encaissement attendu d'un véhicule * =
+  vente / 1,2 (rapprochement par montant et vue Encaissements, « HT »
+  affiché) ; TVA attendue par mois = déductible achat / 6 des *, collectée
+  (vente − achat) / 6 des sans-* (marge). Créance de TVA : seules les lignes
+  TVA (remboursements DGFiP / SIE, paiements TVA) comptent, IS / RCM /
+  URSSAF / retraite à part. Lecture des PDF de TVA fausse (« nette due 5 »,
+  « crédit reporté 26 » = numéros de lignes, « 9 101 188 » collé) :
+  fichier demandé à Channing pour écrire le lecteur sur preuve.
 - **TRÉSORERIE : TVA & POINT DE DÉPART (03/10, « je valide ton plan, go »,
   « j'ai le relevé de demande de TVA depuis janvier 2026, ajoute un
   onglet »)**. Vue « TVA & point de départ » : bilan au 31/12/2025 chargé
