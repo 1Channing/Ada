@@ -26,6 +26,7 @@
 import { createSign } from 'node:crypto';
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { recordLearningCase, resolveLearningCase } from './learningBox';
+import { pageAll } from '../src/lib/pageAll';
 
 const POLL_MS = 10 * 60 * 1000;
 
@@ -216,9 +217,11 @@ async function syncOnce(creds: string): Promise<void> {
   // après coup est pris). Colonne absente tant que le SQL n'est pas collé.
   const vatProbe = await supabase.from('transactions_admin').select('vat_recoverable').limit(1);
   const hasVat = !vatProbe.error;
-  const { data: existing } = await supabase.from('transactions_admin')
+  // Par pages de 1 000 (plafond PostgREST, constat 02/10) : au-delà de 1 000
+  // dossiers, une REF connue serait réinsérée en double.
+  const { data: existing } = await pageAll((from, to) => supabase.from('transactions_admin')
     .select(`id, reference, notes, purchase_price, sale_price, fees, commission_ht, commercial, buyer_contact_id, seller_contact_id, seller_contact_id_2, supplier_contact_id, client_contact_id, transaction_date, status, closed_at, transaction_type${hasVat ? ', vat_recoverable' : ''}`)
-    .not('reference', 'is', null).limit(10000);
+    .not('reference', 'is', null).order('id').range(from, to));
   // Fiche MC Export : le côté qui change de rôle à la bascule achat → vente.
   const { data: mcRow } = await supabase.from('contacts').select('id').eq('siren', '93033811600013').order('created_at', { ascending: true }).limit(1).maybeSingle();
   const mcId = (mcRow as { id?: string } | null)?.id ?? null;
@@ -232,8 +235,8 @@ async function syncOnce(creds: string): Promise<void> {
   const canonName = (v: string) => String(v ?? '')
     .normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()
     .replace(/[^A-Z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join('');
-  const { data: contactRows } = await supabase.from('contacts')
-    .select('id, company_name, first_name, last_name').limit(5000);
+  const { data: contactRows } = await pageAll((from, to) => supabase.from('contacts')
+    .select('id, company_name, first_name, last_name').order('id').range(from, to));
   const contactByKey = new Map<string, string>();
   // RAPPROCHEMENT TOLÉRANT (02/10, boîte à apprendre : « VAN EKRIS MIJDRECHT »
   // vs « Automobielbedrijf van Ekris Mijdrecht B.V », « BELLON MOTORSPORT »

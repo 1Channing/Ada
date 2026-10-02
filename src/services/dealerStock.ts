@@ -79,9 +79,17 @@ export async function listLatestStockRuns(): Promise<Map<string, LatestStockRun>
 }
 
 export async function listStockVehicles(contactId: string): Promise<{ vehicles: StockVehicle[]; error: string | null }> {
-  const { data, error } = await untyped.from('network_stock_vehicles').select('*').eq('contact_id', contactId).order('last_seen_at', { ascending: false }).limit(5000);
-  if (error) return { vehicles: [], error: missing(error.message) ? 'SQL du 30/09 (network_stock_*) à coller.' : error.message };
-  return { vehicles: (data ?? []) as StockVehicle[], error: null };
+  // Par pages de 1 000 : PostgREST plafonne chaque requête (Louwman 3 917
+  // véhicules affichés « En stock · 1000 », constat Channing 02/10).
+  const vehicles: StockVehicle[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await untyped.from('network_stock_vehicles').select('*').eq('contact_id', contactId).order('last_seen_at', { ascending: false }).order('external_id').range(from, from + 999);
+    if (error) return { vehicles: [], error: missing(error.message) ? 'SQL du 30/09 (network_stock_*) à coller.' : error.message };
+    const batch = (data ?? []) as StockVehicle[];
+    vehicles.push(...batch);
+    if (batch.length < 1000 || vehicles.length >= 100_000) break;
+  }
+  return { vehicles, error: null };
 }
 
 /**

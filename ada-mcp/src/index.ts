@@ -83,6 +83,19 @@ function jsonToolResult(value: unknown) {
   };
 }
 
+/** Lit TOUTES les lignes d'une requête, par pages de 1 000 (plafond PostgREST), via un constructeur (from, to) → requête. */
+async function pageAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>, max = 100_000): Promise<{ data: T[]; error: { message: string } | null }> {
+  const out: T[] = [];
+  for (let from = 0; from < max; from += 1000) {
+    const { data, error } = await build(from, Math.min(from + 999, max - 1));
+    if (error) return { data: out, error };
+    const batch = data ?? [];
+    out.push(...batch);
+    if (batch.length < 1000) break;
+  }
+  return { data: out, error: null };
+}
+
 function assertDb(error: { message?: string } | null, context: string): void {
   if (error) {
     throw new Error(`[ADA_MCP] ${context}: ${error.message || 'database error'}`);
@@ -186,13 +199,14 @@ interface StudyRow {
  */
 async function lastBilans(hours = 48): Promise<Map<string, { at: string; bilan: string }>> {
   const out = new Map<string, { at: string; bilan: string }>();
-  const { data, error } = await supabase
+  const { data, error } = await pageAll((from, to) => supabase
     .from('worker_logs')
     .select('created_at, message')
     .gte('created_at', sinceIso(hours / 24))
     .like('message', '[DAILY] « %')
     .order('created_at', { ascending: false })
-    .limit(2000);
+    .order('id')
+    .range(from, to), 5000);
   if (error) return out; // boîte noire indisponible → pas de bilan, jamais d'échec
   for (const row of data || []) {
     const m = String(row.message).match(/^\[DAILY\] « (.+?) » \(\w+→\w+\) : (.*)$/);
@@ -399,7 +413,7 @@ function buildServer(): McpServer {
       }
       const s = rows[0];
       const [hits, logs] = await Promise.all([
-        supabase.from('daily_search_hits').select(HIT_COLUMNS).eq('search_id', s.id).neq('kind', 'seed').order('first_seen_at', { ascending: false }).limit(2000),
+        pageAll((from, to) => supabase.from('daily_search_hits').select(HIT_COLUMNS).eq('search_id', s.id).neq('kind', 'seed').order('first_seen_at', { ascending: false }).order('id').range(from, to), 5000),
         supabase.from('worker_logs').select('created_at, message').gte('created_at', sinceIso(7)).like('message', `[DAILY] « ${s.label}%`).order('created_at', { ascending: false }).limit(40),
       ]);
       assertDb(hits.error, 'Unable to read study hits');
@@ -949,8 +963,9 @@ function buildServer(): McpServer {
         assertDb(cerr, 'Unable to read contacts');
         const contacts = (crows || []) as Array<Record<string, unknown>>;
         const wantedIds = contacts.map((c) => String(c.id));
-        let vq = applyFilters(supabase.from('network_stock_vehicles').select('*').in('contact_id', wantedIds).order('last_seen_at', { ascending: false }).limit(20000));
-        const { data: vrows, error: verr } = await vq;
+        // Par pages de 1 000 : PostgREST plafonne chaque requête (Louwman
+        // 3 917 véhicules, constat 02/10) — un relevé entier, jamais tronqué.
+        const { data: vrows, error: verr } = await pageAll((from, to) => applyFilters(supabase.from('network_stock_vehicles').select('*').in('contact_id', wantedIds).order('last_seen_at', { ascending: false }).order('external_id')).range(from, to));
         if (isMissingSchema(verr)) return jsonToolResult(missingNote);
         assertDb(verr, 'Unable to read stock vehicles');
         const byContact = new Map<string, Vehicle[]>();
@@ -978,7 +993,7 @@ function buildServer(): McpServer {
       const c = contactsPool[0];
       const [runsRes, vehRes] = await Promise.all([
         supabase.from('network_stock_runs').select('*').eq('contact_id', String(c.id)).order('started_at', { ascending: false }).limit(10),
-        applyFilters(supabase.from('network_stock_vehicles').select('*').eq('contact_id', String(c.id)).order('price', { ascending: false, nullsFirst: false }).limit(5000)),
+        pageAll((from, to) => applyFilters(supabase.from('network_stock_vehicles').select('*').eq('contact_id', String(c.id)).order('price', { ascending: false, nullsFirst: false }).order('external_id')).range(from, to)),
       ]);
       if (isMissingSchema(runsRes.error) || isMissingSchema(vehRes.error)) return jsonToolResult(missingNote);
       assertDb(runsRes.error, 'Unable to read stock runs');

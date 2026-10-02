@@ -7,6 +7,7 @@
  */
 import { supabase } from '../lib/supabase';
 import { capped } from './capacity';
+import { pageAll } from '../lib/pageAll';
 
 export interface TruthDigest {
   day: string;
@@ -64,7 +65,7 @@ export async function loadDigestHistory(days = 14): Promise<TruthDigest[]> {
 export async function loadConfidence(): Promise<Map<string, ConfidenceRow>> {
   const out = new Map<string, ConfidenceRow>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).from('truth_confidence').select('*').limit(2000);
+  const { data, error } = await pageAll<ConfidenceRow>((from, to) => (supabase as any).from('truth_confidence').select('*').order('site').order('country').order('brand').order('model').range(from, to), 5000);
   if (error) return out;
   for (const r of capped((data ?? []) as ConfidenceRow[], 2000, 'confiance.segments', 'Le badge de confiance lit 2 000 segments au plus : des études peuvent rester sans badge.')) out.set(`${r.site}|${r.country}|${r.brand}|${r.model}`, r);
   return out;

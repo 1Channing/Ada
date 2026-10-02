@@ -6,6 +6,7 @@ import { brandKey, canonKey } from './marketData';
 import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/linkgen/types';
+import { pageAll } from '../lib/pageAll';
 
 /**
  * Workflow personnel : études quotidiennes + nouvelles annonces + négociations.
@@ -71,11 +72,12 @@ export async function listKnownTrims(brand: string, model: string, country?: str
     .from('market_listing_observations')
     .select('trim, brand, model')
     .neq('trim', '')
-    .limit(4000);
+    .order('id');
   if (country) q = q.eq('country', country);
+  // Par pages de 1 000 (plafond PostgREST, constat 02/10).
   const [{ data: obs }, { data: mem }] = await Promise.all([
-    q,
-    supabase.from('linkgen_mapping_memory').select('trim, brand, model').neq('trim', '').limit(2000),
+    pageAll((from, to) => q.range(from, to), 4000),
+    pageAll((from, to) => supabase.from('linkgen_mapping_memory').select('trim, brand, model').neq('trim', '').order('id').range(from, to), 4000),
   ]);
   capped(obs, 4000, 'finitions.observations', 'La liste des finitions connues lit 4 000 observations au plus : des finitions peuvent manquer dans les suggestions.');
   capped(mem, 2000, 'finitions.memoire', 'La liste des finitions connues lit 2 000 lignes de mémoire au plus : des finitions peuvent manquer dans les suggestions.');

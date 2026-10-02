@@ -790,13 +790,26 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     // Historique des prix (SQL du 01/10 soir) : lu s'il existe, sinon reconstruit
     // depuis price_prev / price — la lecture ne doit jamais bloquer le relevé.
     type Prev = { external_id: string; price: number | null; price_prev: number | null; first_seen_at: string; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
+    // PAR PAGES DE 1 000 (constat Channing 02/10 : « deuxième relevé Louwman,
+    // aucun véhicule disparu ») : PostgREST ne rend jamais plus de 1 000
+    // lignes. Le relevé précédent lu tronqué → 2 904 véhicules connus pris
+    // pour nouveaux, first_seen_at et historique des prix écrasés.
+    const readPrev = async (cols: string): Promise<{ rows: Prev[]; error: string | null }> => {
+      const rows: Prev[] = [];
+      for (let from = 0; ; from += 1000) {
+        const r = await sb.from('network_stock_vehicles').select(cols).eq('contact_id', contactId).order('external_id').range(from, from + 999);
+        if (r.error) return { rows, error: r.error.message as string };
+        const batch = (r.data ?? []) as Prev[];
+        rows.push(...batch);
+        if (batch.length < 1000 || rows.length >= 100_000) break;
+      }
+      return { rows, error: null };
+    };
     let prevRows: Prev[] | null = null;
     {
-      const full = await sb.from('network_stock_vehicles').select('external_id, price, price_prev, first_seen_at, price_first, price_history').eq('contact_id', contactId);
-      if (full.error) {
-        const lite = await sb.from('network_stock_vehicles').select('external_id, price, price_prev, first_seen_at').eq('contact_id', contactId);
-        prevRows = (lite.data ?? null) as Prev[] | null;
-      } else prevRows = (full.data ?? null) as Prev[] | null;
+      const full = await readPrev('external_id, price, price_prev, first_seen_at, price_first, price_history');
+      if (full.error) prevRows = (await readPrev('external_id, price, price_prev, first_seen_at')).rows;
+      else prevRows = full.rows;
     }
     const prev = new Map<string, Prev>(((prevRows ?? []) as Prev[]).map((r) => [r.external_id, r]));
     let newCount = 0, priceChanges = 0;

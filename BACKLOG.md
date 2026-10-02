@@ -832,6 +832,27 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **PLAFOND POSTGREST 1 000 LIGNES : CLASSE CORRIGÉE PARTOUT OÙ ÇA COMPTE
+  (02/10 soir, constat Channing : « deuxième relevé Louwman, aucun véhicule
+  disparu »)**. Mesure : le 2e relevé Louwman dit 3 917 véhicules, 2 928
+  nouveaux, 50 disparus ; en base 1 039 lignes gardent leur first_seen du
+  01/10, 2 928 l'ont au 02/10. Cause : PostgREST ne rend jamais plus de
+  1 000 lignes quel que soit `.limit(n)` ; le worker lisait le relevé
+  précédent (3 904 lignes) tronqué à 1 000 → 2 904 voitures connues prises
+  pour nouvelles, first_seen_at et historique de prix écrasés ; la fenêtre
+  affichait « En stock · 1000 » ; l'outil MCP était tronqué pareil. Seul
+  Louwman est touché (seule grande vitrine relevée deux fois). Correctif :
+  helper `pageAll` (src/lib/pageAll.ts, ordre déterministe obligatoire)
+  appliqué au relevé précédent du worker, à la fenêtre de stock, aux deux
+  lectures MCP du stock, et aux autres lectures qui dépassent ou dépasseront
+  1 000 lignes : dossiers connus du tableur (sinon REF réinsérées en
+  double), mémoire des annonces d'une étude (sinon annonces vues revenant
+  en nouveautés), observations du repli médiane, mémoire validée des
+  lacunes (3 417 lignes, lue tronquée depuis le début → lacunes comblées
+  encore affichées), finitions connues, badges de confiance, bilans
+  worker_logs et annonces d'étude dans le MCP. Réparation Louwman : SQL
+  donné (first_seen_at et historique remis au 01/10 pour les 2 928 lignes ;
+  63 vraiment nouvelles seront datées d'un jour trop tôt, dit à Channing).
 - **TRÉSORERIE : LECTURE PAR PAGES (02/10 soir)**. Supabase ne rend jamais
   plus de 1 000 lignes par requête : avec 1 300 lignes de relevés, mai
   était tronqué en silence dans les tableaux. Lignes et dossiers lus par

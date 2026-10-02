@@ -17,6 +17,7 @@ import { supabase } from '../lib/supabase';
 import { setFeedbackStatus } from './feedback';
 import { markItemResolved } from './campaignRunner';
 import { isGenericModelName, brandKey, refModelKey } from './marketData';
+import { pageAll } from '../lib/pageAll';
 
 export type LearningActor = 'equipe' | 'dev';
 export type LearningSource = 'box' | 'feedback' | 'campaign';
@@ -105,7 +106,8 @@ async function fromCampaigns(status: string): Promise<LearningCase[]> {
   const validated = new Set<string>();
   if (rows.length > 0) {
     const brands = [...new Set(rows.map((r) => String(r.brand ?? '').trim().toUpperCase()).filter(Boolean))];
-    const { data: mem } = await untyped.from('linkgen_mapping_memory').select('site, brand, model').eq('validation_status', 'valid').in('brand', brands).limit(5000);
+    // Par pages de 1 000 (plafond PostgREST, constat 02/10 : 3 417 lignes de mémoire, lues tronquées → lacunes déjà comblées encore affichées).
+    const { data: mem } = await pageAll<{ site: string; brand: string | null; model: string | null }>((from, to) => untyped.from('linkgen_mapping_memory').select('site, brand, model').eq('validation_status', 'valid').in('brand', brands).order('id').range(from, to));
     for (const m of (mem ?? []) as Array<{ site: string; brand: string | null; model: string | null }>) validated.add(`${m.site}|${brandKey(m.brand ?? '')}|${refModelKey(m.brand ?? '', m.model ?? '')}`);
   }
   return rows.filter((r) => !validated.has(`${r.site}|${brandKey(String(r.brand ?? ''))}|${refModelKey(String(r.brand ?? ''), String(r.model ?? ''))}`)).map((r) => {

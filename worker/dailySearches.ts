@@ -35,6 +35,7 @@ import { runTruthDiagnose } from './truthDiagnose';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
 import { persistTaxonomyHarvest } from '../src/lib/linkgen/taxonomy';
 import { runTruthLoop } from './truthLoop';
+import { pageAll } from '../src/lib/pageAll';
 
 const TICK_MS = 10 * 60 * 1000;
 // Profondeur des quotidiennes — règle Channing 26/08 : 5 pages À CONDITION
@@ -547,9 +548,9 @@ async function targetCheapMedian(s: SearchRow): Promise<number | null> {
     .eq('country', s.target_country)
     .gte('scraped_at', new Date(Date.now() - 45 * 86_400_000).toISOString())
     .gt('price', MIN_PRICE_EUR)
-    .limit(4000);
+    .order('id');
   if (token) q = q.eq('fuel', token);
-  const { data } = await q;
+  const { data } = await pageAll((from, to) => q.range(from, to), 4000);
   capped(data, 4000, 'etudes.mediane_observations', `La médiane cible de repli lit 4 000 observations au plus (pays ${s.target_country}) : elle peut ignorer une partie du marché.`);
   const bk = brandKey(s.brand);
   const mk = canonKey(s.model);
@@ -572,11 +573,14 @@ async function runDailySearch(s: SearchRow): Promise<{ failedSites: string[] }> 
   const name = s.label || `${s.brand} ${s.model}`.trim();
 
   // Mémoire anti-doublon de la recherche (url → dernier prix vu).
-  const { data: known } = await supabase
+  // Par pages de 1 000 (plafond PostgREST, constat 02/10) : tronquée, la
+  // mémoire ferait revenir des annonces déjà vues en nouveautés.
+  const { data: known } = await pageAll((from, to) => supabase
     .from('daily_search_hits')
     .select('id, listing_url, price, status, resolution, mileage, year')
     .eq('search_id', s.id)
-    .limit(10000);
+    .order('id')
+    .range(from, to), 10000);
   capped(known, 10000, 'etudes.memoire_annonces', `L'étude « ${name} » a plus de 10 000 annonces en mémoire : au-delà, des annonces déjà vues reviendraient en nouveautés.`);
   const seen = new Map<string, { id: string; price: number | null; status: string; resolution?: string | null }>();
   for (const k of (known ?? []) as Array<{ id: string; listing_url: string; price: number | null; status: string; resolution: string | null }>) {
