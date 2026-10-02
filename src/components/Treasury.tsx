@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
-import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, type BankCategory } from '../lib/bankStatements';
+import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, ACCOUNT_LABEL, type BankCategory, type BankAccount } from '../lib/bankStatements';
 import {
   listStatements, listLines, deleteStatement, setLineCategory, loadDeals, uploadStatement, rematchAll, dealMonth,
   type BankStatementRow, type BankLineRow, type DealLite, type UploadResult,
@@ -14,7 +14,7 @@ import {
  */
 const eur = (n: number | null | undefined, dec = 0) => (n == null ? '—' : `${n.toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec })} €`);
 const monthLabel = (m: string) => { const [ym, part] = m.split('~'); const [y, mo] = ym.split('-'); return new Intl.DateTimeFormat('fr-FR', { month: 'short', year: '2-digit' }).format(new Date(Number(y), Number(mo) - 1, 1)) + (part ? ` (${part.replace('-', '→')})` : ''); };
-type View = 'frais' | 'vehicules' | 'lignes';
+type View = 'releves' | 'frais' | 'vehicules' | 'lignes';
 
 export function Treasury() {
   const [statements, setStatements] = useState<BankStatementRow[]>([]);
@@ -76,6 +76,33 @@ export function Treasury() {
   const dealById = useMemo(() => new Map(deals.map((d) => [d.id, d])), [deals]);
   const scoped = useMemo(() => lines.filter((l) => account === 'all' || l.account === account), [lines, account]);
   const months = useMemo(() => [...new Set(scoped.map((l) => l.booked_on.slice(0, 7)))].sort(), [scoped]);
+
+  // ── Grille des relevés : banques × mois depuis janvier 2026 jusqu'au mois
+  //    courant (demande Channing 02/10 : « voir ce qu'il manque »).
+  const gridMonths = useMemo(() => {
+    const out: string[] = [];
+    const now = new Date();
+    const first = statements.reduce((m, s) => (s.period_month.slice(0, 7) < m ? s.period_month.slice(0, 7) : m), '2026-01');
+    for (let d = new Date(Number(first.slice(0, 4)), Number(first.slice(5, 7)) - 1, 1); d <= now; d.setMonth(d.getMonth() + 1)) out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    return out;
+  }, [statements]);
+  const gridAccounts = useMemo(() => {
+    const seen = new Set<BankAccount>(statements.map((s) => s.account));
+    return (Object.keys(ACCOUNT_LABEL) as BankAccount[]).filter((a) => seen.has(a)).concat((Object.keys(ACCOUNT_LABEL) as BankAccount[]).filter((a) => !seen.has(a)));
+  }, [statements]);
+  const cell = (a: BankAccount, m: string) => statements.filter((s) => s.account === a && s.period_month.slice(0, 7) === m);
+  // Un mois manque quand une banque déjà déposée n'a rien entre son premier et son dernier relevé, ou jusqu'au mois précédent.
+  const missingCount = useMemo(() => {
+    let n = 0;
+    const prevMonth = gridMonths[gridMonths.length - 2];
+    for (const a of gridAccounts) {
+      const mine = statements.filter((s) => s.account === a).map((s) => s.period_month.slice(0, 7));
+      if (mine.length === 0) continue;
+      const lo = mine.reduce((x, y) => (y < x ? y : x)), hi = prevMonth && prevMonth > mine.reduce((x, y) => (y > x ? y : x)) ? prevMonth : mine.reduce((x, y) => (y > x ? y : x));
+      for (const m of gridMonths) if (m >= lo && m <= hi && !mine.includes(m)) n++;
+    }
+    return n;
+  }, [statements, gridMonths, gridAccounts]);
 
   // ── Frais mensuels par catégorie ──
   const matrix = useMemo(() => {
@@ -168,21 +195,15 @@ export function Treasury() {
         </div>
       )}
 
-      {/* Relevés déposés */}
-      <div className="flex flex-wrap gap-2 items-center">
-        {statements.length === 0 && !loading && <span className="text-sm text-slate-500">Aucun relevé déposé.</span>}
-        {statements.map((s) => (
-          <span key={s.id} className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-white border border-slate-200 text-xs text-slate-700">
-            <span className="font-medium">{ACCOUNT_LABEL[s.account]}</span> {monthLabel(s.period_month)} · {s.line_count} lignes · {eur(s.opening_balance, 2)} → {eur(s.closing_balance, 2)}
-            {s.warnings && s.warnings.length > 0 && <AlertTriangle size={12} className="text-amber-600" aria-label={s.warnings.join(' ; ')} />}
-            <button onClick={() => void onDelete(s)} className="text-slate-400 hover:text-red-600" title="Supprimer ce relevé"><Trash2 size={12} /></button>
-          </span>
-        ))}
+      {/* Relevés déposés : résumé ici, grille complète dans la vue « Relevés » */}
+      <div className="text-sm text-slate-600 flex items-center gap-2">
         {loading && <Loader2 size={14} className="animate-spin text-slate-400" />}
+        {!loading && (statements.length === 0 ? 'Aucun relevé déposé.' : `${statements.length} relevé${statements.length > 1 ? 's' : ''} déposé${statements.length > 1 ? 's' : ''} · ${[...new Set(statements.map((s) => s.account))].map((a) => ACCOUNT_LABEL[a]).join(', ')}`)}
+        {!loading && missingCount > 0 && <span className="text-amber-700">· {missingCount} mois manquant{missingCount > 1 ? 's' : ''} (voir « Relevés »)</span>}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {tabBtn('frais', 'Frais mensuels')}{tabBtn('vehicules', 'Véhicules : payé vs tableau')}{tabBtn('lignes', `Lignes (${scoped.length})`)}
+        {tabBtn('releves', `Relevés (${statements.length})`)}{tabBtn('frais', 'Frais mensuels')}{tabBtn('vehicules', 'Véhicules : payé vs tableau')}{tabBtn('lignes', `Lignes (${scoped.length})`)}
         <span className="mx-2 text-slate-300">|</span>
         <select value={account} onChange={(e) => setAccount(e.target.value as typeof account)} className="px-2 py-1.5 rounded-lg border border-slate-300 text-sm bg-white">
           <option value="all">Tous les comptes</option>
@@ -190,6 +211,52 @@ export function Treasury() {
         </select>
       </div>
 
+      {view === 'releves' && (
+        <div className="space-y-3">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                  <th className="py-2 pr-4">Banque</th>
+                  {gridMonths.map((m) => <th key={m} className="py-2 px-2 text-center whitespace-nowrap">{monthLabel(m)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {gridAccounts.map((a) => {
+                  const mine = statements.filter((s) => s.account === a).map((s) => s.period_month.slice(0, 7));
+                  const lo = mine.length ? mine.reduce((x, y) => (y < x ? y : x)) : null;
+                  return (
+                    <tr key={a} className="border-b border-slate-100">
+                      <td className="py-2 pr-4 whitespace-nowrap font-medium text-slate-800">{ACCOUNT_LABEL[a]}{mine.length === 0 && <span className="ml-1 text-xs font-normal text-slate-400">(aucun relevé)</span>}</td>
+                      {gridMonths.map((m) => {
+                        const sts = cell(a, m);
+                        const isLast = m === gridMonths[gridMonths.length - 1];
+                        const expected = lo != null && m >= lo && !isLast;
+                        return (
+                          <td key={m} className="py-1.5 px-2 text-center align-top">
+                            {sts.length > 0 ? sts.map((st) => (
+                              <div key={st.id} className="inline-flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 m-0.5" title={`${st.file_name ?? ''}\n${st.line_count} lignes · ${eur(st.opening_balance, 2)} → ${eur(st.closing_balance, 2)}${st.warnings?.length ? '\n⚠ ' + st.warnings.join('\n⚠ ') : ''}`}>
+                                <span className="font-medium">{st.period_month.includes('~') ? st.period_month.split('~')[1].replace('-', '→') : '✓'} · {st.line_count} l.</span>
+                                <span className="text-[10px] text-emerald-700 whitespace-nowrap">{eur(st.opening_balance)} → {eur(st.closing_balance)}</span>
+                                <span className="flex items-center gap-1">
+                                  {st.warnings && st.warnings.length > 0 && <AlertTriangle size={11} className="text-amber-600" />}
+                                  <button onClick={() => void onDelete(st)} className="text-emerald-600/60 hover:text-red-600" title="Supprimer ce relevé"><Trash2 size={11} /></button>
+                                </span>
+                              </div>
+                            )) : expected ? <span className="inline-block px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700" title="Aucun relevé déposé pour ce mois">manque</span>
+                              : <span className="text-slate-300">—</span>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-500">« manque » : la banque a des relevés avant et rien pour ce mois (le mois en cours n'est jamais compté). Un relevé en plusieurs parties montre ses jours (01→15). Survole une case pour le fichier, les soldes et les avertissements.</p>
+        </div>
+      )}
       {view === 'frais' && (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">

@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : GRILLE DES RELEVÉS (02/10 soir, demande Channing : « voir
+  l'ensemble des relevés ajoutés pour voir ce qu'il manque »)**. Vue
+  « Relevés » : banques × mois depuis janvier 2026 (ou le premier relevé
+  déposé) jusqu'au mois courant ; case verte = relevé (lignes, soldes,
+  avertissements au survol, suppression), « manque » en ambre quand la
+  banque a des relevés avant et rien pour ce mois (mois en cours exclu),
+  relevé partiel affiché avec ses jours. Compteur des mois manquants en
+  tête de l'onglet.
 - **TRÉSORERIE : QUATRE BANQUES DE PLUS (02/10 soir, « d'autres relevés
   dont les écritures sont à intégrer »)**. Shine (compte principal : un
   mouvement = un paquet de lignes serrées autour de la date, type et
