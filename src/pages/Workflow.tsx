@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil, Landmark } from 'lucide-react';
 import { NegotiationsTab } from './Ventes';
+import { Treasury } from '../components/Treasury';
 import { loadLearnedModelsByBrand } from '../lib/offers/knownModels';
 import { useOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
 import { Administrative } from './Administrative';
@@ -77,10 +78,10 @@ const FUELS = [
 const flagOf = (code: string) => COUNTRIES.find((c) => c.code === code)?.flag ?? code;
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 
-type Tab = 'searches' | 'results' | 'archives' | 'negotiations' | 'sales';
+type Tab = 'searches' | 'results' | 'archives' | 'negotiations' | 'sales' | 'tresorerie';
 
-/** /ventes → Négociations, /admin → Ventes (anciens chemins, mêmes onglets). */
-const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations' : p === '/admin' ? 'sales' : null);
+/** /ventes → Négociations, /admin → Ventes, /tresorerie → Trésorerie (anciens chemins, mêmes onglets). */
+const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations' : p === '/admin' ? 'sales' : p === '/tresorerie' ? 'tresorerie' : null);
 
 export function Workflow() {
   const { allowedTabs, isAdmin } = useAuth();
@@ -95,6 +96,8 @@ export function Workflow() {
     ...(see('wf:archives') ? [{ id: 'archives' as Tab, label: 'Archives', icon: Archive }] : []),
     ...(see('wf:negociations') ? [{ id: 'negotiations' as Tab, label: 'Négociations', icon: MessageSquare }] : []),
     ...(see('wf:ventes') ? [{ id: 'sales' as Tab, label: 'Ventes', icon: FileText }] : []),
+    // Trésorerie (02/10) : relevés de compte, frais, marge réelle — admin seulement.
+    ...(isAdmin ? [{ id: 'tresorerie' as Tab, label: 'Trésorerie', icon: Landmark }] : []),
   ];
   const firstTab = tabs[0]?.id ?? 'searches';
   const allowedTab = (t: Tab | null): Tab | null => (t && tabs.some((x) => x.id === t) ? t : null);
@@ -141,6 +144,7 @@ export function Workflow() {
       {tab === 'archives' && see('wf:archives') && <ArchivesTab />}
       {tab === 'negotiations' && see('wf:negociations') && <NegotiationsTab onPushed={() => { if (see('wf:ventes')) setTab('sales'); }} />}
       {tab === 'sales' && see('wf:ventes') && <Administrative />}
+      {tab === 'tresorerie' && isAdmin && <Treasury />}
     </div>
   );
 }

@@ -37,6 +37,7 @@ export const KIND_LABEL: Record<string, string> = {
   service_blocked: 'Service bloqué',
   site_failing: 'Site d\'étude en échec',
   sheet_row_unmatched: 'Ligne du tableur non rapprochée',
+  sheet_row_incoherent: 'Ligne du tableur incohérente (colonnes décalées)',
   mail_failed: 'E-mail de dossier en échec',
   offer_file_unparsed: 'Fichier fournisseur mal lu',
   signalement_probleme: 'Signalement : problème',

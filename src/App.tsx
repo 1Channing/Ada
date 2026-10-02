@@ -76,7 +76,7 @@ function App() {
   const pageKeyOf = (p: string): string => {
     // Négociations et Ventes vivent dans le Workflow depuis le 05/09 — les
     // anciens chemins y mènent (l'onglet suit le chemin dans la page).
-    if (p === '/admin' || p === '/ventes') return 'workflow';
+    if (p === '/admin' || p === '/ventes' || p === '/tresorerie') return 'workflow';
     if (p === '/admin/history') return 'admin-history';
     if (p === '/link-generator') return 'atelier-linkgen';
     if (p === '/ingestion') return 'atelier-ingestion';

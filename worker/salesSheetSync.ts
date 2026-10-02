@@ -81,6 +81,8 @@ interface SheetSale {
   commissionHt: number | null; fraisHt: number | null; modePaiement: string;
   dateAchat: string | null; dateLivraison: string | null; convoyeur: string;
   client: string; seller: string; paiement: boolean; livre: boolean;
+  /** En-tête du bloc (noms de colonnes) : preuve à joindre quand une ligne est incohérente. */
+  header: string[];
 }
 
 const truthy = (v: string) => /^(true|vrai|oui|1|x)$/i.test((v ?? '').trim());
@@ -113,6 +115,7 @@ export function parseTab(values: string[][]): SheetSale[] {
   let factureCols: number[] = [];
   let seller = '';
   let pendingTitle = '';
+  let headerNames: string[] = [];
   const get = (r: string[], i: number) => (i >= 0 ? String(r[i] ?? '').trim() : '');
 
   for (const row of values) {
@@ -131,6 +134,7 @@ export function parseTab(values: string[][]): SheetSale[] {
         client: col('CLIENT', 'NOTES'), paiement: col('PAIEMENT'), livre: col('LIVRÉ', 'LIVRE'),
       };
       factureCols = header.map((h, i) => (h === 'FACTURE' ? i : -1)).filter((i) => i >= 0);
+      headerNames = header.filter(Boolean);
       factureNoCol = -1; // désambiguïsé sur les premières lignes du bloc
       seller = pendingTitle;
       if (!seller) {
@@ -167,7 +171,7 @@ export function parseTab(values: string[][]): SheetSale[] {
       modePaiement: get(cells, cols.mode), dateAchat: frDate(get(cells, cols.dateAchat)),
       dateLivraison: frDate(get(cells, cols.dateLivraison)),
       convoyeur: get(cells, cols.convoyeur), client: get(cells, cols.client),
-      seller,
+      seller, header: headerNames,
       paiement: truthy(get(cells, cols.paiement)), livre: truthy(get(cells, cols.livre)),
     });
   }
@@ -266,6 +270,15 @@ async function syncOnce(creds: string): Promise<void> {
   for (const tab of tabs) {
     const res = (await sheetsGet(token, `${cfg.spreadsheetId}/values/${encodeURIComponent(`'${tab}'!A1:AH1050`)}`)) as { values?: string[][] };
     for (const s of parseTab(res.values ?? [])) {
+      // LIGNE INCOHÉRENTE (02/10, onglet JANVIER 2026 : un bloc dont l'en-tête
+      // ne porte pas les mêmes noms → « prix achat » 175 €, « véhicule »
+      // FILLINGE). Un achat sous 20 % de la vente n'est pas un prix : on ne
+      // l'écrit PAS (données fausses < zéro donnée), on garde la commission HT
+      // et on met le cas dans la boîte avec l'en-tête du bloc comme preuve.
+      if (s.prixAchat != null && s.prixVente != null && s.prixAchat < s.prixVente * 0.2) {
+        void recordLearningCase({ kind: 'sheet_row_incoherent', key: `${tab}|${s.ref}`, actor: 'dev', link: '/admin', title: `Tableur ${tab} : ligne ${s.ref} incohérente (achat ${s.prixAchat} €, vente ${s.prixVente} €) — colonnes du bloc à vérifier`, detail: { tab, ref: s.ref, header: s.header, vehicule: s.vehicule, prixAchat: s.prixAchat, prixVente: s.prixVente, fraisHt: s.fraisHt, commissionHt: s.commissionHt } });
+        s.prixAchat = null; s.prixVente = null; s.fraisHt = null;
+      }
       const closed = s.paiement && s.livre;
       const buyerId = resolveContact(s.client);
       const tableurNotes = [

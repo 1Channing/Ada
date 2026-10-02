@@ -800,6 +800,48 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   stock, « qui a une Yaris » → 2 à 13 445 € médian, top modèles 3008 ×14,
   Golf ×11. Après déploiement : supprimer puis recréer l'app ADA dans
   ChatGPT / Claude.ai (liste d'outils en cache côté client).
+- **TRÉSORERIE : RELEVÉS DE COMPTE, FRAIS MENSUELS, ACHATS RAPPROCHÉS DU
+  TABLEAU DE VENTES (02/10, demande Channing : « plus de 300 000 € de marge
+  mais je n'en vois pas la couleur… prendre les lignes de chaque relevé, en
+  faire un tableau de frais mensuel, les classer, faire le lien avec les
+  achats »)**. Onglet « Trésorerie » du Workflow, admin seulement. Dépôt de
+  relevés PDF : Revolut Business et Airwallex, formats prouvés sur les 5
+  relevés réels (juin → août 2026), lus par pdf.js dans le navigateur
+  (lignes regroupées par hauteur, src/lib/pdfText.ts), parseur pur
+  src/lib/bankStatements.ts : Revolut « 31 Aug 2026 MOS To X • Achat yaris
+  cross HC- €26 300.00 €14 212.33 » + suite sur la ligne d'après, codes
+  MOS/CAR/FEE sorties et MOA/MOR entrées ; Airwallex « Card » / « Deposit »
+  puis « Jun 01 2026 20.02 EUR 985.35 EUR », sens VÉRIFIÉ par le solde.
+  Preuve : les 5 relevés se recoupent au centime (ouverture + entrées −
+  sorties = clôture). Classement par motifs (18 catégories : achat / acompte
+  véhicule, vente encaissée, transfert interne, impôts, frais bancaires,
+  carburant, péages, train, repas, courses, logistique, factures,
+  assurance, logiciels, entretien…), corrigeable à la main et conservé si
+  le relevé est redéposé. Rapprochement ligne ↔ dossier : plaque = plaque
+  du véhicule ; sinon 3 chiffres de la plaque = chiffres de la REF (règle
+  prouvée : YC328 ↔ GK-328-EJ, PC440 ↔ ER-440-BB), départagé par le modèle
+  cité ; VIN complet ou « VIN (fin) » + montant ; numéro de facture (NENA
+  « Saldo fattura FAC00000517 » ↔ « Facture : FAC517 »). Vérifié : 37 / 37
+  lignes véhicule des relevés Revolut reliées. Tables bank_statements /
+  bank_lines (SQL 20261002160000, admin). Vues : frais mensuels par
+  catégorie + marge brute HT des dossiers du mois − frais réels = marge
+  nette ; achats payés vs prix d'achat du tableur (écart par véhicule, sans
+  dossier en jaune) ; encaissements vs prix de vente ; toutes les lignes
+  avec filtre et catégorie modifiable. Constats sur juin → août : REF en
+  double dans ADA (PC440, YC328, YC665, K861, Y217, I454) ; YC665 saisie
+  GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
+  les ventes arrivent sur le compte principal (absent) qui alimente Revolut
+  par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TABLEUR : IMPORT DEPUIS JANVIER + LIGNES INCOHÉRENTES (02/10)**.
+  sinceMonth 2026-01 collé par Channing : 183 ventes créées en un passage,
+  273 dossiers, commission HT cumulée 376 k€ depuis janvier (« plus de
+  300 000 € » confirmé sur le papier). Classe trouvée : l'onglet JANVIER
+  2026 contient un bloc dont l'en-tête diffère → 6 lignes (I080, S231,
+  S423, YC696, Y802, Y158) avec « prix achat » 175 € et « véhicule »
+  FILLINGE. Désormais un achat sous 20 % de la vente n'est pas écrit (ni
+  achat, ni vente, ni frais ; la commission HT reste) et le cas va dans la
+  boîte avec l'en-tête du bloc en preuve (sheet_row_incoherent). Les 6
+  lignes déjà écrites : SQL de remise à null donné à Channing.
 - **STOCK DES CONCESSIONS : BYMYCAR LU (JSON-LD IMBRIQUÉ) + GARDE-FOU
   RÉPARÉ (02/10, constat Channing : « pour la vitrine bymycar il trouve
   rien »)**. Preuve : bymycar.fr/voiture-occasion porte un JSON-LD
