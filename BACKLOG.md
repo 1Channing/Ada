@@ -832,6 +832,20 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **DU RÉSULTAT À LA TRÉSORERIE (04/10, Channing : « ce chiffre représente
+  notre trésorerie actuelle… on devrait avoir plus de trésorerie ou moins
+  de résultat, y'a un truc qui cloche »)**. Bloc en tête du Pont de
+  trésorerie : trésorerie au bilan 99 540 + résultat avant IS ≈ 205 700 −
+  impôts payés 88 479 (IS 2025 31 514, acomptes 24 769, flat tax 30 000,
+  SIE 2 196) − dettes et acomptes 2025 réglés 53 496 (fournisseurs 69 754
+  + autres 3 052 − clients 15 840 + acomptes reçus 45 940 − acomptes
+  versés 49 410) ± TVA (reçue 396 423 − avancée sur les « * » du tableur
+  ≈ 407 000) = trésorerie attendue ≈ 153 000, contre 153 495 de soldes
+  (Revolut à fin août). Rien ne cloche : 142 000 € du résultat sont
+  partis en impôts, dettes 2025 et TVA. Réserve : 117 892 € envoyés vers
+  Revolut en septembre (relevé absent, compte clôturé) ont sans doute
+  payé des achats de septembre absents des relevés ; les 104 836 € « à
+  ce jour » de Channing sont après les achats d'octobre.
 - **« RÉSULTAT NET DE 200 000 € ? C'EST FIABLE ? » (04/10)**. Réponse
   donnée : c'est un résultat AVANT IS, en caisse, à ± 10 %. La ligne est
   renommée « Résultat avant IS estimé », une ligne « Résultat après IS

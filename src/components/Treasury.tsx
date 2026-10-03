@@ -397,12 +397,42 @@ export function Treasury() {
       {view === 'tva' && <TreasuryVat lines={lines} deals={deals} statements={statements} />}
       {view === 'pont' && (() => {
         const tot = (f: (r: (typeof bridge)[number]) => number) => bridge.reduce((s, r) => s + f(r), 0);
+        // DU RÉSULTAT À LA TRÉSORERIE (04/10, Channing : « ce chiffre représente notre trésorerie actuelle… y'a un truc
+        // qui cloche ») : ce que le résultat ne contient pas mais que la caisse a payé (impôts, dettes 2025, TVA avancée).
+        const resultBefore = sum(months, (m) => (marginByMonth.get(m)?.brute ?? 0) - (expensesByMonth.get(m) ?? 0));
+        const taxesPaid = tot((r) => r.taxOut), vatIn = tot((r) => r.vatIn);
+        const vatAdvanced = deals.filter((d) => !d.sheet_missing && isStarDeal(d) && d.purchase_price != null && (dealMonth(d) ?? '') >= '2026-01').reduce((s, d) => s + (d.purchase_price as number) / 6, 0);
+        const prior = opening ? (opening.payables_suppliers + (opening.other_debts ?? 0) - opening.receivables_clients + opening.advances_received - opening.advances_paid) : 0;
+        const lastRow = bridge[bridge.length - 1];
+        const expectedCash = (opening?.cash ?? 0) + resultBefore - taxesPaid + (vatIn - vatAdvanced) - prior;
+        const leak = tot((r) => -r.transfers);
+        const rowsR: Array<[string, number, string]> = [
+          ['Trésorerie au bilan (31/12/2025)', opening?.cash ?? 0, ''],
+          ['+ Résultat avant IS estimé (marge brute du tableur − frais des relevés)', resultBefore, 'Onglet Frais mensuels'],
+          ['− Impôts payés en 2026 (IS 2025, acomptes d\'IS, flat tax sur dividendes, SIE)', -taxesPaid, 'Pas dans le résultat : l\'IS 2025 et la flat tax sont des dettes de l\'an dernier, les acomptes 2026 viendront en déduction de l\'IS'],
+          ['− Dettes et acomptes de 2025 réglés en 2026 (bilan : fournisseurs + autres dettes − clients + acomptes reçus − acomptes versés)', -prior, 'Argent de 2026 qui a payé des factures de 2025, et ventes 2026 dont l\'acompte était déjà encaissé en 2025'],
+          ['± TVA : remboursements reçus − TVA avancée sur les achats « * » du tableur', vatIn - vatAdvanced, 'Négatif = de la TVA est encore chez l\'État ; les 49 000 € du crédit 2025 comptent en plus'],
+          ['= Trésorerie attendue fin de période (stock supposé stable, factures en cours ignorées)', expectedCash, ''],
+          ['Soldes des relevés fin de période (dernier connu par compte)', lastRow?.real ?? 0, lastRow?.missing.length ? `relevé manquant : ${lastRow.missing.join(', ')}` : ''],
+          ['Écart = stock en plus ou en moins, factures en cours, et relevés manquants', expectedCash - (lastRow?.real ?? 0), leak > 1000 ? `dont ${eur(leak)} partis vers un compte dont le relevé manque (transferts sortis − arrivés)` : ''],
+        ];
         const cell = (v: number, cls = '') => <td className={`py-1.5 px-2 text-right tabular-nums whitespace-nowrap ${cls} ${v < 0 ? 'text-rose-700' : ''}`}>{v ? eur(v) : ''}</td>;
         const line = (label: string, f: (r: (typeof bridge)[number]) => number, cls = '', title = '') => (
           <tr className={`border-b border-slate-100 ${cls}`}><td className="py-1.5 pr-4 whitespace-nowrap" title={title}>{label}</td>{bridge.map((r) => <Fragment key={r.m}>{cell(f(r))}</Fragment>)}{cell(tot(f), 'font-medium')}</tr>
         );
         return (
           <div className="space-y-3">
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <h3 className="font-medium text-slate-900 mb-2">Du résultat à la trésorerie <span className="text-xs font-normal text-slate-500">— pourquoi la caisse ne suit pas le résultat</span></h3>
+              <table className="text-sm"><tbody>
+                {rowsR.map(([k, v, t]) => (
+                  <tr key={k} className={`border-b border-slate-100 ${k.startsWith('=') ? 'font-semibold text-slate-900 bg-slate-50' : k.startsWith('Écart') ? 'font-medium' : ''}`}>
+                    <td className="py-1.5 pr-6 max-w-[48rem]" title={t}>{k}{t && <span className="block text-[11px] font-normal text-slate-500">{t}</span>}</td>
+                    <td className={`py-1.5 text-right tabular-nums whitespace-nowrap ${v < 0 ? 'text-rose-700' : ''}`}>{eur(v)}</td>
+                  </tr>
+                ))}
+              </tbody></table>
+            </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200"><th className="py-2 pr-4">Depuis le bilan ({opening ? eur(opening.cash) : '—'} au 31/12/2025)</th>{bridge.map((r) => <th key={r.m} className="py-2 px-2 text-right whitespace-nowrap">{monthLabel(r.m)}</th>)}<th className="py-2 px-2 text-right">Total</th></tr></thead>
