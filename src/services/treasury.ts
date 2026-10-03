@@ -227,6 +227,21 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
 /** Écrit UN relevé (un compte × un mois) : remplace le précédent, garde les catégories manuelles, rapproche. */
 async function writeStatement(st: ParsedStatement, file: File, deals: DealLite[], res: UploadResult): Promise<UploadResult> {
   try {
+    // Soldes absents (export Revolut, 04/10, Channing : « le solde de fin d'août est l'ouverture de septembre, la
+    // clôture est à 0 car c'est un relevé de clôture ») : l'ouverture = clôture du relevé précédent du même compte,
+    // la clôture = ouverture + entrées − sorties ; dits dans les avertissements.
+    if (st.opening_balance == null) {
+      const { data: prevSt } = await untyped.from('bank_statements').select('period_month, closing_balance').eq('account', st.account).eq('account_ref', st.account_ref ?? '').lt('period_month', st.period_month).order('period_month', { ascending: false }).limit(1).maybeSingle();
+      if (prevSt?.closing_balance != null) {
+        st.opening_balance = Number(prevSt.closing_balance);
+        if (st.closing_balance == null) {
+          const inn = st.lines.reduce((a, l) => a + (l.amount_in ?? 0), 0), out = st.lines.reduce((a, l) => a + (l.amount_out ?? 0), 0);
+          st.closing_balance = Math.round((st.opening_balance + inn - out) * 100) / 100;
+          if (Math.abs(st.closing_balance) < 0.005) st.closing_balance = 0;
+        }
+        st.warnings = [...st.warnings.filter((w) => !/contrôle des soldes est impossible/.test(w)), `soldes déduits : ouverture = clôture du relevé ${String(prevSt.period_month).slice(0, 7)} (${st.opening_balance.toLocaleString('fr-FR')} €), clôture = ouverture + entrées − sorties (${st.closing_balance?.toLocaleString('fr-FR')} €)${st.closing_balance === 0 ? ' — compte soldé' : ''}`];
+      }
+    }
     res.account = st.account; res.month = st.period_month; res.warnings = st.warnings;
     // Catégories corrigées à la main sur la version précédente : conservées.
     // Un relevé = (banque, numéro de compte, mois) : le même relevé redéposé

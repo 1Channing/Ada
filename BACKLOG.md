@@ -832,6 +832,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **SOLDES DÉDUITS QUAND LE RELEVÉ N'EN A PAS (04/10, Channing : « le solde
+  de fin d'août est l'ouverture de septembre, la clôture est à 0 car
+  c'est un relevé de clôture »)**. Règle au dépôt : ouverture absente →
+  clôture du relevé précédent du même compte ; clôture absente →
+  ouverture + entrées − sorties (0 = compte soldé) ; dit dans les
+  avertissements. Septembre Revolut corrigé en base directement :
+  14 212,33 → 0,00 (vérifié : 14 212,33 + 120 000 − 134 212,33 = 0). Les 26
+  lignes de septembre sont toutes en base et comptées partout (frais
+  21 698, variation 74 381) ; 7 reliées par la plaque (Issoire ×2, Pilon,
+  Vasez, Trigallez, Fintecture, acompte Val de Loire).
 - **REVOLUT « RELEVÉ DE TRANSACTIONS » (EXPORT MULTI-MOIS, COMPTE CLÔTURÉ)
   LU ET DÉCOUPÉ PAR MOIS (04/10, Channing : « le dernier relevé Revolut
   n'a pas été ingéré et ça a ajouté un compte Revolut »)**. Le PDF
