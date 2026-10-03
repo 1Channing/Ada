@@ -86,7 +86,7 @@ export async function repairLines(lines: BankLineRow[], deals: DealLite[]): Prom
     // en base quand la catégorie n'a pas été choisie à la main ; le lien au dossier est refait (un
     // virement interne n'achète aucun véhicule).
     const manualCat = l.category_auto != null && l.category !== l.category_auto;
-    const any = classifyAny(l.counterparty, l.description);
+    const any = classifyAny(l.counterparty, l.description, l.amount_out, l.amount_in);
     if (any && any !== l.category_auto && !manualCat && !(l.account === 'shine' && !l.counterparty && !l.description)) {
       const { error } = await untyped.from('bank_lines').update({ category: any, category_auto: any }).eq('id', l.id);
       if (error) return { repaired, error: error.message };

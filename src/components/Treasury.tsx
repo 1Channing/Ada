@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
-import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, OVERHEAD, VEHICLE_COSTS, CONTRACTORS, ACCOUNT_LABEL, expectedCash, isStarDeal, isImportDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
+import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, OVERHEAD, VEHICLE_COSTS, CONTRACTORS, FLOW_CATS, ACCOUNT_LABEL, expectedCash, isStarDeal, isImportDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
 import { loadOpening, type TreasuryOpening } from '../services/vat';
 import { TreasuryVat } from './TreasuryVat';
 import {
@@ -31,6 +31,7 @@ export function Treasury() {
   const [opening, setOpening] = useState<TreasuryOpening | null>(null);
   const [diffMonth, setDiffMonth] = useState<string | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [otherMonth, setOtherMonth] = useState<string | null>(null);
   const [refreshAsked, setRefreshAsked] = useState<Set<string>>(new Set());
   useEffect(() => { void loadOpening().then(setOpening); }, []);
   const [account, setAccount] = useState<string>('all');
@@ -202,6 +203,14 @@ export function Treasury() {
     });
     return out;
   }, [scoped, months, statements, opening]);
+  // Sorties hors véhicules : ni achat, ni frais véhicules (case frais du tableur), ni transfert — « où est parti
+  // l'argent qui n'a pas servi à l'achat des voitures » (Channing 03/10 soir).
+  const isOtherOut = (c: BankCategory) => !NON_EXPENSE.has(c) && !VEHICLE_COSTS.has(c);
+  const otherOutByMonth = useMemo(() => {
+    const r = new Map<string, number>();
+    for (const l of scoped) if (isOtherOut(l.category) && l.amount_out) { const mo = l.booked_on.slice(0, 7); r.set(mo, (r.get(mo) ?? 0) + l.amount_out); }
+    return r;
+  }, [scoped]);
   const vehicleCostsByMonth = useMemo(() => {
     const r = new Map<string, number>();
     for (const l of scoped) if (VEHICLE_COSTS.has(l.category)) { const mo = l.booked_on.slice(0, 7); r.set(mo, (r.get(mo) ?? 0) + (l.amount_out ?? 0) - (l.amount_in ?? 0)); }
@@ -236,7 +245,7 @@ export function Treasury() {
   const groups = useMemo(() => {
     const g = new Map<string, Group>();
     for (const l of scoped) {
-      if (!['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(l.category)) continue;
+      if (!FLOW_CATS.includes(l.category)) continue;
       // Un virement pour plusieurs véhicules (03/10) : chaque dossier reçoit sa part ; le reste sans dossier reste visible.
       const parts = lineParts(l);
       const assigned = parts.reduce((s, p) => s + p.amount, 0);
@@ -245,7 +254,8 @@ export function Treasury() {
       if (parts.length === 0 || rest > 1) slots.push({ key: parts.length ? `ligne:${l.id}` : l.plate ? `plaque:${l.plate}` : l.vin ? `vin:${l.vin}` : `ligne:${l.id}`, dealId: null, amount: parts.length ? rest : (l.amount_out ?? l.amount_in ?? 0) });
       for (const sl of slots) {
         const cur = g.get(sl.key) ?? { key: sl.key, deal: sl.dealId ? dealById.get(sl.dealId) ?? null : null, plate: l.plate, label: `${l.counterparty} — ${l.description}`.slice(0, 80), paid: 0, received: 0, lines: [], first: l.booked_on };
-        if (l.amount_out != null) cur.paid += sl.amount; else cur.received += sl.amount;
+        // Avoir rendu à un client : vient en moins des encaissements ; remboursement reçu d'un vendeur : en moins des achats.
+        if (l.category === 'remboursement_client') cur.received -= sl.amount; else if (l.category === 'remboursement_recu') cur.paid -= sl.amount; else if (l.amount_out != null) cur.paid += sl.amount; else cur.received += sl.amount;
         if (!cur.lines.includes(l)) cur.lines.push(l);
         if (l.booked_on < cur.first) cur.first = l.booked_on;
         if (!cur.plate && l.plate) cur.plate = l.plate;
@@ -280,7 +290,7 @@ export function Treasury() {
   // ── Lignes ──
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return scoped.filter((l) => (!month || l.booked_on.startsWith(month)) && (!category || l.category === category) && (!onlyUnmatched || (lineParts(l).length === 0 && ['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(l.category)))
+    return scoped.filter((l) => (!month || l.booked_on.startsWith(month)) && (!category || l.category === category) && (!onlyUnmatched || (lineParts(l).length === 0 && FLOW_CATS.includes(l.category)))
       && (!q || `${l.counterparty} ${l.description} ${l.plate ?? ''} ${l.kind}`.toLowerCase().includes(q)));
   }, [scoped, month, category, query, onlyUnmatched]);
 
@@ -467,7 +477,7 @@ export function Treasury() {
                 <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => vehicleCostsByMonth.get(m) ?? 0))}</td>
               </tr>
               <tr className="font-medium text-slate-900">
-                <td className="py-1.5 pr-4" title="Relevés − tableur. Clique un mois pour voir les lignes de débit qui font la différence.">Différence relevés − tableur <span className="text-[10px] font-normal text-slate-400">(clique un mois)</span></td>
+                <td className="py-1.5 pr-4" title="Frais véhicules des relevés − case frais du tableur. Clique un mois pour voir les lignes de frais véhicules.">Frais véhicules : relevés − tableur <span className="text-[10px] font-normal text-slate-400">(clique un mois)</span></td>
                 {months.map((m) => { const v = (vehicleCostsByMonth.get(m) ?? 0) - (marginByMonth.get(m)?.fees ?? 0); return <td key={m} className={`py-1.5 px-2 text-right tabular-nums cursor-pointer hover:bg-amber-50 ${diffMonth === m ? 'bg-amber-100' : ''} ${v > 500 ? 'text-rose-700' : v < -500 ? 'text-sky-700' : 'text-slate-500'}`} onClick={() => setDiffMonth(diffMonth === m ? null : m)}>{eur(v)}</td>; })}
                 <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => (vehicleCostsByMonth.get(m) ?? 0) - (marginByMonth.get(m)?.fees ?? 0)))}</td>
               </tr>
@@ -478,6 +488,23 @@ export function Treasury() {
                     <table className="min-w-full"><tbody>
                       {scoped.filter((l) => l.booked_on.startsWith(diffMonth) && VEHICLE_COSTS.has(l.category) && l.amount_out).sort((a, b) => (b.amount_out ?? 0) - (a.amount_out ?? 0)).map((l) => (
                         <tr key={l.id} className="border-b border-amber-100"><td className="py-0.5 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-0.5 pr-3">{ACCOUNT_LABEL[l.account]}</td><td className="py-0.5 pr-3 whitespace-nowrap">{CATEGORY_LABEL[l.category]}</td><td className="py-0.5 pr-3 max-w-[14rem] truncate">{l.counterparty}</td><td className="py-0.5 pr-3 max-w-[20rem] truncate" title={l.description}>{l.description}</td><td className="py-0.5 text-right tabular-nums whitespace-nowrap">{eur(l.amount_out, 2)}</td></tr>
+                      ))}
+                    </tbody></table>
+                  </div>
+                </td></tr>
+              )}
+              <tr className="font-medium text-slate-900 border-t border-slate-200">
+                <td className="py-1.5 pr-4" title="Tout ce qui est sorti sans acheter une voiture ni payer ses frais : prestataires, loyer, comptable, salaires, abonnements, banque, impôts et TVA, autre, retraits. Clique un mois pour voir les lignes.">Sorties hors véhicules (ni achat, ni frais véhicules) <span className="text-[10px] font-normal text-slate-400">(clique un mois)</span></td>
+                {months.map((m) => <td key={m} className={`py-1.5 px-2 text-right tabular-nums cursor-pointer hover:bg-sky-50 ${otherMonth === m ? 'bg-sky-100' : ''}`} onClick={() => setOtherMonth(otherMonth === m ? null : m)}>{eur(otherOutByMonth.get(m) ?? 0)}</td>)}
+                <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => otherOutByMonth.get(m) ?? 0))}</td>
+              </tr>
+              {otherMonth && (
+                <tr><td colSpan={months.length + 2} className="py-2 pr-4">
+                  <div className="rounded-lg border border-sky-200 bg-sky-50/40 p-3 text-xs">
+                    <div className="font-medium text-slate-900 mb-1">{monthLabel(otherMonth)} : sorties hors véhicules ({scoped.filter((l) => l.booked_on.startsWith(otherMonth) && isOtherOut(l.category) && l.amount_out).length} lignes, {eur(otherOutByMonth.get(otherMonth) ?? 0)})</div>
+                    <table className="min-w-full"><tbody>
+                      {scoped.filter((l) => l.booked_on.startsWith(otherMonth) && isOtherOut(l.category) && l.amount_out).sort((a, b) => (b.amount_out ?? 0) - (a.amount_out ?? 0)).map((l) => (
+                        <tr key={l.id} className="border-b border-sky-100"><td className="py-0.5 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-0.5 pr-3">{ACCOUNT_LABEL[l.account]}</td><td className="py-0.5 pr-3 whitespace-nowrap">{CATEGORY_LABEL[l.category]}</td><td className="py-0.5 pr-3 max-w-[14rem] truncate">{l.counterparty}</td><td className="py-0.5 pr-3 max-w-[20rem] truncate" title={l.description}>{l.description}</td><td className="py-0.5 text-right tabular-nums whitespace-nowrap">{eur(l.amount_out, 2)}</td></tr>
                       ))}
                     </tbody></table>
                   </div>
@@ -609,7 +636,7 @@ export function Treasury() {
                       </td>
                       <td className="py-1 pr-3 whitespace-nowrap text-xs">
                         {d ? <span title={partsTitle} className={l.match_how === 'manuel' ? 'text-sky-700' : ''}>{refs}{l.match_how === 'manuel' && <button onClick={() => void onLink([l.id], '')} className="ml-1 text-slate-400 hover:text-red-600" title="Retirer le lien">×</button>}</span>
-                          : ['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(l.category) ? <RefInput onSubmit={(ref) => void onLink([l.id], ref)} /> : ''}
+                          : FLOW_CATS.includes(l.category) ? <RefInput onSubmit={(ref) => void onLink([l.id], ref)} /> : ''}
                       </td>
                     </tr>
                   );

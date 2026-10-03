@@ -61,15 +61,15 @@ export interface ParsedStatement {
 export const BANK_CATEGORIES = [
   'achat_vehicule', 'acompte_vehicule', 'vente_encaissee', 'transfert_interne', 'impots_tva', 'frais_bancaires',
   'carburant', 'peage', 'train_transport', 'hebergement', 'repas', 'courses', 'logistique', 'facture_fournisseur', 'assurance',
-  'logiciel_abonnement', 'entretien_vehicule', 'salaire', 'loyer', 'comptable', 'retrait_especes', 'autre',
+  'logiciel_abonnement', 'entretien_vehicule', 'salaire', 'loyer', 'comptable', 'remboursement_client', 'remboursement_recu', 'retrait_especes', 'autre',
 ] as const;
 export type BankCategory = typeof BANK_CATEGORIES[number];
 
 export const CATEGORY_LABEL: Record<BankCategory, string> = {
   achat_vehicule: 'Achat véhicule', acompte_vehicule: 'Acompte véhicule', vente_encaissee: 'Vente encaissée', transfert_interne: 'Transfert interne',
   impots_tva: 'Impôts / TVA', frais_bancaires: 'Frais bancaires', carburant: 'Carburant', peage: 'Péages', train_transport: 'Train / transports',
-  hebergement: 'Hébergement', repas: 'Repas', courses: 'Courses', logistique: 'Logistique (poste, colis, dépannage)', facture_fournisseur: 'Factures prestataires', assurance: 'Assurance',
-  logiciel_abonnement: 'Logiciels / abonnements', entretien_vehicule: 'Entretien véhicule', salaire: 'Salaires', loyer: 'Loyer (GF Holding)', comptable: 'Comptable (Geo Conseils)', retrait_especes: 'Retraits', autre: 'Autre',
+  hebergement: 'Hébergement', repas: 'Repas', courses: 'Courses', logistique: 'Transport / convoyage / logistique', facture_fournisseur: 'Factures prestataires', assurance: 'Assurance',
+  logiciel_abonnement: 'Logiciels / abonnements', entretien_vehicule: 'Entretien véhicule', salaire: 'Salaires', loyer: 'Loyer (GF Holding)', comptable: 'Comptable (Geo Conseils)', remboursement_client: 'Remboursement à un client (avoir)', remboursement_recu: 'Remboursement reçu (vente annulée)', retrait_especes: 'Retraits', autre: 'Autre',
 };
 /** Frais de fonctionnement (ce que le tableur ne compte PAS dans sa case frais, Channing 03/10 soir). */
 export const OVERHEAD: ReadonlySet<BankCategory> = new Set<BankCategory>(['loyer', 'comptable', 'salaire', 'logiciel_abonnement', 'frais_bancaires']);
@@ -79,7 +79,9 @@ export const VEHICLE_COSTS: ReadonlySet<BankCategory> = new Set<BankCategory>(['
 /** Prestataires et factures (commissions apporteurs, préparation, services) : hors case frais du tableur. */
 export const CONTRACTORS: ReadonlySet<BankCategory> = new Set<BankCategory>(['facture_fournisseur']);
 /** Catégories qui ne sont PAS des frais : véhicules (capital), transferts entre nos comptes, encaissements. */
-export const NON_EXPENSE: ReadonlySet<BankCategory> = new Set<BankCategory>(['achat_vehicule', 'acompte_vehicule', 'vente_encaissee', 'transfert_interne']);
+export const NON_EXPENSE: ReadonlySet<BankCategory> = new Set<BankCategory>(['achat_vehicule', 'acompte_vehicule', 'vente_encaissee', 'transfert_interne', 'remboursement_client', 'remboursement_recu']);
+/** Flux véhicules : ce qui se rapproche d'un dossier. */
+export const FLOW_CATS: ReadonlyArray<BankCategory> = ['achat_vehicule', 'acompte_vehicule', 'vente_encaissee', 'remboursement_client', 'remboursement_recu'];
 
 const MONTHS: Record<string, number> = { jan: 1, feb: 2, fev: 2, mar: 3, apr: 4, avr: 4, may: 5, mai: 5, jun: 6, jui: 6, jul: 7, aug: 8, aou: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 /** « Aug » / « août » / « juil. » → numéro de mois (anglais et français, accents retirés ; « juil » ≠ « juin »). */
@@ -712,7 +714,7 @@ const norm = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCas
  *   vente encaissée, 10 000 € CIC → Shine comptés en achats de véhicules.
  * - Deel = paie (plateforme de salaires), 19 968 € en « factures ».
  */
-export function classifyAny(counterparty: string, description: string): BankCategory | null {
+export function classifyAny(counterparty: string, description: string, out?: number | null, inn?: number | null): BankCategory | null {
   const cp = norm(counterparty), ds = norm(description), all = `${cp} ${ds}`;
   // Tiers = la société, sauf si le libellé porte une plaque (« Achat Aygo x HA134RA » payé depuis Finom,
   // « Achat yaris cross gf922wt » depuis Revolut : l'argent a acheté une voiture, il n'est arrivé sur aucun autre compte).
@@ -720,6 +722,9 @@ export function classifyAny(counterparty: string, description: string): BankCate
   if (/revolut business fee|airwallex|frais bancaires|commission d'intervention|abonnement shine|frais paiement|frais de tenue|cotisation carte/.test(all)) return 'frais_bancaires';
   if (/impots|impot[ .]|dgfip|finances publiques|tresor public|\btva\b|urssaf|93033811600013|douane|\bsie\b|\bis\b.*rejet|rejet.*\bis\b|\bis[1-4]-\d{6}|\brcm1-\d{6}|\bcfe\b|\bcvae\b/.test(all)) return 'impots_tva';
   if (/bulletin de salaire|\bsalaire|\bpaie\b|\bdeel\b/.test(all)) return 'salaire';
+  // AVOIR / REMBOURSEMENT (03/10 soir, « Avoir 00000056 » 27 600 € rendus à Wilar comptés en achat de véhicule,
+  // Abf6 34 000 € relié « montant unique » à un dossier) : sortie vers un client = remboursement, entrée = remboursement reçu.
+  if (/\bavoir ?\d|\bavoir\b|\brefund\b|rembours|vente annulee/.test(ds)) { if (out) return 'remboursement_client'; if (inn) return 'remboursement_recu'; }
   if (/gf holding/.test(cp)) return 'loyer'; // loyer = GF Holding (Channing 03/10 soir)
   if (/geo conseils/.test(cp)) return 'comptable';
   if (/mol ?\*? ?transport|uab axis auto|christian cloirec/.test(all)) return 'logistique'; // transport de véhicules (Channing 03/10 soir)
@@ -734,7 +739,7 @@ export function classify(kind: string, counterparty: string, description: string
   const cp = norm(counterparty), ds = norm(description), all = `${cp} ${ds}`;
   if (kind === 'ATM' || /^RETRAIT/i.test(kind)) return 'retrait_especes';
   if (kind === 'FEE' || kind === 'Fee' || kind === 'fee' || (kind === 'Adjustment' && /fees|invoice number/.test(all))) return 'frais_bancaires';
-  const any = classifyAny(counterparty, description);
+  const any = classifyAny(counterparty, description, out, inn);
   if (any) return any;
   const isIn = inn != null && (kind === 'MOA' || kind === 'MOR' || kind === 'Deposit' || kind === 'transfer_in');
   const isOutTransfer = out != null && (kind === 'MOS' || kind === 'Payout' || kind === 'Transfer' || kind === 'transfer_out');
@@ -931,8 +936,19 @@ export function matchLine(line: { plate: string | null; vin: string | null; coun
  * et le prix d'achat du tableur → même dossier. Rend les affectations
  * trouvées (id de ligne → dossier), à écrire par l'appelant.
  */
-export function matchComplements<L extends { id: string; counterparty: string; amount_out: number | null; category: string; transaction_id: string | null }>(lines: L[], deals: DealLite[]): Map<string, { id: string; how: string }> {
+export function matchComplements<L extends { id: string; counterparty: string; amount_out: number | null; amount_in?: number | null; booked_on?: string; category: string; transaction_id: string | null }>(lines: L[], deals: DealLite[]): Map<string, { id: string; how: string }> {
   const out = new Map<string, { id: string; how: string }>();
+  // Avoir / remboursement : hérite du dossier de la ligne opposée du même tiers, même montant (± 1 €), à moins de 120 jours
+  // (Wilar : 27 600 reçus le 16/09 pour FAC563, 27 600 rendus le 30/09 « Avoir 00000056 » → même dossier, vente annulée).
+  const days = (a?: string, b?: string) => (a && b ? Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000) : 0);
+  for (const l of lines) {
+    if (l.transaction_id || !['remboursement_client', 'remboursement_recu'].includes(l.category)) continue;
+    const amt = l.amount_out ?? l.amount_in ?? 0; if (!amt) continue;
+    const k = l.counterparty.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+    const twin = lines.filter((x) => x.transaction_id && x.id !== l.id && x.counterparty.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim() === k
+      && Math.abs(((l.amount_out ? x.amount_in : x.amount_out) ?? 0) - amt) <= 1 && days(x.booked_on, l.booked_on) <= 120);
+    if (twin.length >= 1) out.set(l.id, { id: twin[0].transaction_id!, how: l.amount_out ? 'avoir ↔ encaissement' : 'remboursement ↔ achat' });
+  }
   const key = (c: string) => c.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
   const paidByDeal = new Map<string, number>();
   const dealsByCp = new Map<string, Set<string>>();

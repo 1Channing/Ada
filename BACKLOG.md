@@ -832,6 +832,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **AVOIRS ET REMBOURSEMENTS, SORTIES HORS VÉHICULES CLIQUABLES (03/10
+  soir, Channing : « pour cette ligne il s'agit d'un remboursement, je
+  rentre la REF et il comprendra ? », « je voulais les coûts non afférents
+  aux frais des véhicules, où est parti l'argent qui n'a pas servi à
+  l'achat des voitures »)**. (1) « Avoir 00000056 » 27 600 € rendus à
+  Wilar le 30/09 étaient comptés en achat de véhicule (et Abf6 34 000 €
+  « Avoir 00000048 » relié « montant unique » à un dossier). Deux
+  catégories : « Remboursement à un client (avoir) » (sortie) et
+  « Remboursement reçu (vente annulée) » (entrée), hors frais ; un avoir
+  hérite du dossier de l'encaissement opposé du même tiers, même montant,
+  à moins de 120 jours (« avoir ↔ encaissement ») et vient en MOINS des
+  encaissements du véhicule (vente annulée = 0) ; un remboursement reçu
+  vient en moins des achats. Taper la REF à la main sur un avoir le relie
+  aussi en moins. (2) Frais mensuels : ligne « Sorties hors véhicules (ni
+  achat, ni frais véhicules) » = prestataires, loyer, comptable, salaires,
+  abonnements, banque, impôts et TVA, autre, retraits — un clic sur un
+  mois déroule les lignes ; la ligne précédente devient « Frais
+  véhicules : relevés − tableur ». (3) Catégorie « Logistique » renommée
+  « Transport / convoyage / logistique » (UAB Axis Auto, Christian
+  Cloirec, Mol Transporting y sont, confirmé Channing).
 - **RAPPROCHEMENT PAR LES 3 CHIFFRES DE LA PLAQUE : FENÊTRE DE DATES ET
   PLAQUE NON CONTRADICTOIRE (03/10 soir, YC427)**. YC427 (onglet janvier,
   vendue le 20/01 à Bloemberg 22 500 €) portait deux achats : GJ427AC le
