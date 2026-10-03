@@ -750,8 +750,12 @@ export function classify(kind: string, counterparty: string, description: string
     return 'autre';
   }
   if (isOutTransfer) {
+    // Note de frais remboursée à quelqu'un (« Notes de frais channing gasoil man TGE Laval » 50 €, 04/10 : prise pour
+    // un achat de véhicule à cause du mot TGE) : c'est le frais qu'elle rembourse.
+    if (/notes? de frais|remboursement de frais|frais de deplacement/.test(ds)) return /gasoil|carburant|essence|diesel|plein/.test(ds) ? 'carburant' : /peage/.test(ds) ? 'peage' : /train|sncf|taxi|uber/.test(ds) ? 'train_transport' : /hotel|nuit/.test(ds) ? 'hebergement' : /repas|resto/.test(ds) ? 'repas' : 'autre';
     if (/acompte|anticipo|arrhes|deposit/.test(ds)) return 'acompte_vehicule';
-    if (/achat|acquisto|solde|vehicule|voiture|\b(yaris|ignis|kona|tucson|sprinter|transit|transporter|porsche|rav ?4|elroq|enyaq|corolla|swift|aygo|tge|crafter|vito|id\.?3|911|997|ds ?7|astra|tayron|bz4x|c-?hr|mach-?e|q4)\b/.test(ds) || extractPlate(description)) return 'achat_vehicule';
+    // Un achat de véhicule fait au moins 1 000 € : en dessous, un mot de modèle ou une plaque dans le libellé décrit un frais.
+    if (out >= 1000 && (/achat|acquisto|solde|vehicule|voiture|\b(yaris|ignis|kona|tucson|sprinter|transit|transporter|porsche|rav ?4|elroq|enyaq|corolla|swift|aygo|tge|crafter|vito|id\.?3|911|997|ds ?7|astra|tayron|bz4x|c-?hr|mach-?e|q4)\b/.test(ds) || extractPlate(description))) return 'achat_vehicule';
     if (/assur/.test(all)) return 'assurance';
     if (/convoy|transport|livraison|plaque|carte grise|immat|w garage|depann|remorqu/.test(all)) return 'logistique';
     if (/facture|invoice|fac\d|\beurl\b|\bsarl\b|\bsas\b|\bsrl\b|\bbv\b/.test(all)) return 'facture_fournisseur';

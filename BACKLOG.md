@@ -832,6 +832,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **SORTIR UNE LIGNE DES VÉHICULES DEPUIS LE VÉHICULE, NOTE DE FRAIS ≠
+  ACHAT (04/10, Channing : « il me faut une option pour modifier ce genre
+  de ligne qui n'a rien à faire là », « Notes de frais channing gasoil
+  man TGE Laval » 50 € en achat de véhicule)**. Cause de classe : le mot
+  d'un modèle (TGE) dans le libellé suffisait à faire un achat, quel que
+  soit le montant. Règles : une note de frais remboursée prend la
+  catégorie du frais qu'elle rembourse (gasoil → carburant, péage, train,
+  hôtel, repas, sinon autre) ; un achat de véhicule fait au moins 1 000 €,
+  en dessous un mot de modèle ou une plaque décrit un frais. Dans le
+  détail des lignes d'un véhicule, la liste des catégories propose aussi
+  « Ce n'est pas un véhicule » (toutes les catégories de frais) ; choisir
+  l'une d'elles retire la ligne des véhicules et son lien au dossier.
 - **DU RÉSULTAT À LA TRÉSORERIE (04/10, Channing : « ce chiffre représente
   notre trésorerie actuelle… on devrait avoir plus de trésorerie ou moins
   de résultat, y'a un truc qui cloche »)**. Bloc en tête du Pont de

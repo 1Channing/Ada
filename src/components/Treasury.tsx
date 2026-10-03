@@ -89,9 +89,11 @@ export function Treasury() {
     await reload();
   };
   const onCategory = async (l: BankLineRow, c: BankCategory) => {
-    setLines((prev) => prev.map((x) => (x.id === l.id ? { ...x, category: c } : x)));
+    const leaving = !FLOW_CATS.includes(c) && lineParts(l).length > 0; // sort des véhicules : son lien au dossier tombe avec
+    setLines((prev) => prev.map((x) => (x.id === l.id ? { ...x, category: c, ...(leaving ? { transaction_id: null, match_how: null, parts: null } : {}) } : x)));
     const e = await setLineCategory(l.id, c);
-    if (e) setError(e);
+    if (e) { setError(e); return; }
+    if (leaving) { const r = await setLineMatch(l.id, '', deals); if (r.error) setError(r.error); }
   };
 
   const dealById = useMemo(() => new Map(deals.map((d) => [d.id, d])), [deals]);
@@ -274,7 +276,10 @@ export function Treasury() {
               <td className="py-0.5 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-0.5 pr-3 whitespace-nowrap">{ACCOUNT_LABEL[l.account]}{stmtById.get(l.statement_id)?.account_ref ? <span className="text-slate-400"> …{stmtById.get(l.statement_id)!.account_ref}</span> : null}</td>
               <td className="py-0.5 pr-3 max-w-[14rem] truncate" title={l.counterparty}>{l.counterparty}</td><td className="py-0.5 pr-3 max-w-[22rem] truncate" title={l.description}>{l.description}{l.plate && <span className="ml-1 font-mono text-[10px] text-slate-500">{l.plate}</span>}</td>
               <td className="py-0.5 pr-3 text-right tabular-nums whitespace-nowrap">{l.amount_out != null ? eur(l.amount_out, 2) : ''}</td><td className="py-0.5 pr-3 text-right tabular-nums whitespace-nowrap text-emerald-700">{l.amount_in != null ? eur(l.amount_in, 2) : ''}</td>
-              <td className="py-0.5 pr-3 whitespace-nowrap"><select value={l.category} onChange={(e) => void onCategory(l, e.target.value as BankCategory)} className={`px-1 py-0.5 rounded border text-[11px] bg-white ${l.category !== (l.category_auto ?? l.category) ? 'border-sky-400' : 'border-slate-200'}`} title="Préciser : acompte, achat, remboursement…">{FLOW_CATS.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</select></td>
+              <td className="py-0.5 pr-3 whitespace-nowrap"><select value={l.category} onChange={(e) => void onCategory(l, e.target.value as BankCategory)} className={`px-1 py-0.5 rounded border text-[11px] bg-white ${l.category !== (l.category_auto ?? l.category) ? 'border-sky-400' : 'border-slate-200'}`} title="Préciser : acompte, achat, remboursement… ou sortir la ligne des véhicules (carburant, note de frais, autre)">
+                <optgroup label="Véhicule">{FLOW_CATS.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</optgroup>
+                <optgroup label="Ce n'est pas un véhicule">{BANK_CATEGORIES.filter((c) => !FLOW_CATS.includes(c)).map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</optgroup>
+              </select></td>
               <td className="py-0.5 pr-3 whitespace-nowrap text-slate-500">{lineParts(l).length > 1 ? lineParts(l).map((p) => `${dealById.get(p.id)?.reference ?? '?'} ${eur(p.amount)}`).join(' + ') : l.match_how ?? 'sans dossier'}</td>
               <td className="py-0.5 whitespace-nowrap">{lineParts(l).length > 0 && <button onClick={() => void onLink([l.id], '')} className="text-slate-400 hover:text-red-600" title="Retirer le lien de cette ligne (elle redevient sans dossier)">× retirer</button>}</td>
             </tr>
