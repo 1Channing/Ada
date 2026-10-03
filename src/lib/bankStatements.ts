@@ -56,6 +56,10 @@ export interface ParsedStatement {
   currency: string;
   lines: BankLine[];
   warnings: string[];
+  /** Export couvrant plusieurs mois (Revolut « Relevé de transactions ») : à découper par mois au dépôt,
+   *  les mois déjà déposés par un relevé mensuel sont laissés tels quels. */
+  split_by_month?: boolean;
+  period_start?: string | null; period_end?: string | null;
 }
 
 export const BANK_CATEGORIES = [
@@ -128,7 +132,7 @@ export function parseStatement(lines: TextLine[]): ParsedStatement {
   const account = detectBank(lines);
   const texts = lines.map((l) => l.text);
   let st: ParsedStatement;
-  if (account === 'revolut') st = parseRevolut(texts);
+  if (account === 'revolut') st = texts.some((t) => /^(Relevé de transactions|Transaction statement)\b/.test(t)) ? parseRevolutExport(lines) : parseRevolut(texts);
   else if (account === 'airwallex') st = parseAirwallex(texts);
   else if (account === 'shine') st = parseShine(lines);
   else if (account === 'pennylane') st = parseSwan(texts);
@@ -562,6 +566,51 @@ const REV_CP_PREFIX = /^(To|À|A|Money added from|Recharge par|From|De)\s+/i;
 const EUR_TOKEN = /€\s?[\d   ]*\d\.\d{2}/g;
 const REV_OUT = new Set(['MOS', 'CAR', 'FEE', 'ATM', 'EXO']);
 
+// ── Revolut « Relevé de transactions » (export filtré, 04/10 : REVOLUT_SEPTEMBRE_2026.pdf, « Transactions de 5 mai
+//    2026 à 21 septembre 2026 », compte clôturé) ── pas de solde, colonnes Argent sortant / entrant, une
+//    transaction = la ligne datée (« 21 sept. MOS À Mc export • Transfert interne Terminé Main · €7 ») + la ligne
+//    suivante (« 2026 EUR 094.26 ») qui porte l'année, la devise et la fin du montant coupé au millier.
+const REVX_ROW = /^(\d{1,2}) ([A-Za-zéû]+)\.? ([A-Z]{3}) (.+?) (Terminé|Completed|Annulé|Reverted|En attente|Pending|Refusé|Declined|Échoué|Failed) (.+?) · €?([\d][\d ,.]*)$/;
+const REVX_TAIL = /^(\d{4})(?: (.*?))? ([A-Z]{3})(?: ([\d ,.]+))?$/;
+function parseRevolutExport(lines: TextLine[]): ParsedStatement {
+  const warnings: string[] = ['export « Relevé de transactions » : pas de solde d\'ouverture ni de clôture, le contrôle des soldes est impossible'];
+  const texts = lines.map((l) => l.text);
+  const per = texts.map((t) => t.match(/^Transactions (?:de|du|from) (\d{1,2}) ([A-Za-zéû]+\.?) (\d{4}) (?:à|au|to) (\d{1,2}) ([A-Za-zéû]+\.?) (\d{4})/)).find(Boolean);
+  const start = per ? ymd(per[1], per[2], per[3]) : null, end = per ? ymd(per[4], per[5], per[6]) : null;
+  const out: BankLine[] = [];
+  for (let i = 0; i < texts.length; i++) {
+    const m = texts[i].match(REVX_ROW);
+    if (!m) continue;
+    // La ligne d'année suit, parfois après une ligne de taux de change (« Taux de change 1 EUR = 1.137004 USD $12.00 ») ;
+    // elle peut porter la suite du libellé (« 2026 coupe telaio WP0ZZZ99Z7S726158 EUR 500.00 »).
+    let tail: RegExpMatchArray | null = null;
+    for (let j = i + 1; j <= i + 3 && j < texts.length; j++) { const t = texts[j].match(REVX_TAIL); if (t) { tail = t; break; } if (!REV_NOISE.test(texts[j])) break; }
+    if (!tail) { warnings.push(`« ${texts[i].slice(0, 50)} » : ligne d'année / devise absente`); continue; }
+    const [, d, mon, kind, desc0, status, , head] = m;
+    const [, year, more, currency, rest] = tail;
+    const desc = more ? `${desc0} ${more}` : desc0;
+    if (!/^(Terminé|Completed)$/.test(status)) continue; // annulé, en attente, refusé : pas d'argent bougé
+    if (currency !== 'EUR') { warnings.push(`${d} ${mon} ${year} ${kind} « ${desc.slice(0, 40)} » en ${currency} : ignorée (compte EUR seulement)`); continue; }
+    const amount = Number(`${head}${rest ?? ''}`.replace(/[^\d.]/g, ''));
+    if (!Number.isFinite(amount) || amount <= 0) { warnings.push(`${d} ${mon} ${year} : montant illisible « ${head} ${rest ?? ''} »`); continue; }
+    const booked = ymd(d, mon, year);
+    const isOut = REV_OUT.has(kind) || (!['MOA', 'MOR', 'TOP'].includes(kind) && !/^(De|From) /.test(desc));
+    const text = desc.replace(/\s+/g, ' ').trim();
+    const sep = text.indexOf(' • ');
+    let counterparty = sep > 0 ? text.slice(0, sep) : text, description = sep > 0 ? text.slice(sep + 3) : '';
+    counterparty = counterparty.replace(/^(À|To|De|From|Recharge par|Top-up by) /i, '').trim();
+    const full = `${counterparty} ${description}`;
+    out.push({ booked_on: booked, kind, counterparty, description, amount_out: isOut ? amount : null, amount_in: isOut ? null : amount, balance: null, currency: 'EUR',
+      plate: extractPlate(full), vin: extractVin(full), category: classify(kind, counterparty, description, isOut ? amount : null, isOut ? null : amount), line_no: out.length + 1 });
+  }
+  out.sort((a, b) => a.booked_on.localeCompare(b.booked_on) || a.line_no - b.line_no);
+  out.forEach((l, i) => { l.line_no = i + 1; });
+  if (out.length === 0) throw new Error('export Revolut : aucune transaction terminée en EUR trouvée');
+  const months = [...new Set(out.map((l) => l.booked_on.slice(0, 7)))].sort();
+  const last = months[months.length - 1];
+  return { account: 'revolut', account_name: 'Main', period_month: periodKey(start && start.slice(0, 7) === last ? start : `${last}-01`, end, out), opening_balance: null, closing_balance: null, currency: 'EUR', lines: out, warnings,
+    split_by_month: months.length > 1, period_start: start, period_end: end };
+}
 function parseRevolut(lines: string[]): ParsedStatement {
   const warnings: string[] = [];
   let currency = 'EUR';

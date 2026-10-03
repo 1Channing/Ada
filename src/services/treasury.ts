@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { pdfToLinesEx } from '../lib/pdfText';
 import { recordLearningCaseFromApp } from './learningCases';
-import { parseStatement, matchLineParts, matchComplements, repairShineKind, classify, classifyAny, extractPlate, extractVin, expectedCash, type LinkPart, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
+import { parseStatement, matchLineParts, matchComplements, type ParsedStatement, repairShineKind, classify, classifyAny, extractPlate, extractVin, expectedCash, type LinkPart, type BankCategory, type BankLine as ParsedLine, type BankAccount, type DealLite, type TextLine } from '../lib/bankStatements';
 export { matchLine, type DealLite, type LinkPart } from '../lib/bankStatements';
 
 export interface BankStatementRow {
@@ -178,6 +178,56 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
     // Avant janvier 2026 : refusé (décision Channing 02/10 soir, la trésorerie suivie démarre au 1er janvier 2026).
     if (st.period_month.slice(0, 7) < TREASURY_FROM) throw new Error(`relevé de ${st.period_month.slice(0, 7)} : la trésorerie démarre en ${TREASURY_FROM}, les relevés antérieurs ne sont pas intégrés`);
     res.account = st.account; res.month = st.period_month; res.warnings = st.warnings;
+    // Export sans numéro de compte (Revolut « Relevé de transactions », 04/10) : s'il n'existe qu'un seul compte de
+    // cette banque dans ADA, c'est lui — sinon un deuxième « Revolut » naît (constat Channing).
+    if (!st.account_ref) {
+      const { data: refs } = await untyped.from('bank_statements').select('account_ref, account_name').eq('account', st.account).neq('account_ref', '');
+      const distinct = [...new Set(((refs ?? []) as Array<{ account_ref: string }>).map((r) => r.account_ref))];
+      if (distinct.length === 1) { st.account_ref = distinct[0]; st.account_name = st.account_name ?? ((refs ?? []) as Array<{ account_name: string | null }>)[0]?.account_name ?? null; }
+    }
+    // Export couvrant plusieurs mois : un dépôt par mois ; un mois déjà couvert par un relevé mensuel est laissé tel quel.
+    if (st.split_by_month) {
+      const months = [...new Set(st.lines.map((l) => l.booked_on.slice(0, 7)))].sort();
+      const done: string[] = [], kept: string[] = [];
+      let total = 0, matchedTotal = 0;
+      for (const month of months) {
+        const { data: ex } = await untyped.from('bank_statements').select('id, line_count, period_month').eq('account', st.account).in('account_ref', [st.account_ref ?? '', '']).like('period_month', `${month}%`);
+        const rowsEx = (ex ?? []) as Array<{ id: string; line_count: number; period_month: string }>;
+        if (rowsEx.some((r) => r.line_count > 0)) {
+          kept.push(month);
+          for (const r of rowsEx.filter((r) => r.line_count === 0)) await untyped.from('bank_statements').delete().eq('id', r.id); // dépôt raté (0 ligne) : nettoyé
+          continue;
+        }
+        const sub = st.lines.filter((l) => l.booked_on.slice(0, 7) === month);
+        const first = sub[0].booked_on, last = sub[sub.length - 1].booked_on;
+        const [y, mo] = month.split('-').map(Number);
+        const daysIn = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+        const startDay = st.period_start && st.period_start.slice(0, 7) === month ? st.period_start.slice(8) : '01';
+        const endDay = st.period_end && st.period_end.slice(0, 7) === month ? st.period_end.slice(8) : String(daysIn).padStart(2, '0');
+        const partial = startDay !== '01' || Number(endDay) < daysIn;
+        const part = { ...st, period_month: partial ? `${month}~${startDay}-${endDay}` : month, lines: sub.map((l, i) => ({ ...l, line_no: i + 1 })), split_by_month: false };
+        void first; void last;
+        const r = await writeStatement(part, file, deals, { file: file.name });
+        if (r.error) throw new Error(`${month} : ${r.error}`);
+        done.push(part.period_month); total += r.lines ?? 0; matchedTotal += r.matched ?? 0;
+      }
+      res.month = done.join(', ') || kept.join(', '); res.lines = total; res.matched = matchedTotal;
+      if (kept.length) res.warnings = [...(res.warnings ?? []), `mois déjà couverts par un relevé mensuel, laissés tels quels : ${kept.join(', ')}`];
+      if (done.length === 0) res.warnings = [...(res.warnings ?? []), 'aucun mois nouveau dans cet export'];
+      return res;
+    }
+    return await writeStatement(st, file, deals, res);
+  } catch (e) {
+    res.error = e instanceof Error ? e.message : String(e);
+    void reportStatementIssue(file, lines, parsed, res.error, []);
+    return res;
+  }
+}
+
+/** Écrit UN relevé (un compte × un mois) : remplace le précédent, garde les catégories manuelles, rapproche. */
+async function writeStatement(st: ParsedStatement, file: File, deals: DealLite[], res: UploadResult): Promise<UploadResult> {
+  try {
+    res.account = st.account; res.month = st.period_month; res.warnings = st.warnings;
     // Catégories corrigées à la main sur la version précédente : conservées.
     // Un relevé = (banque, numéro de compte, mois) : le même relevé redéposé
     // (même sous un autre nom de fichier) REMPLACE, jamais de doublon ; deux
@@ -230,7 +280,7 @@ export async function uploadStatement(file: File, deals: DealLite[]): Promise<Up
     return res;
   } catch (e) {
     res.error = e instanceof Error ? e.message : String(e);
-    void reportStatementIssue(file, lines, parsed, res.error, []);
+    void reportStatementIssue(file, [], st, res.error, []);
     return res;
   }
 }

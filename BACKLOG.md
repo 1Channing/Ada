@@ -832,6 +832,31 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **REVOLUT « RELEVÉ DE TRANSACTIONS » (EXPORT MULTI-MOIS, COMPTE CLÔTURÉ)
+  LU ET DÉCOUPÉ PAR MOIS (04/10, Channing : « le dernier relevé Revolut
+  n'a pas été ingéré et ça a ajouté un compte Revolut »)**. Le PDF
+  REVOLUT_SEPTEMBRE_2026 n'est pas un relevé mensuel mais un export
+  « Relevé de transactions » du 5 mai au 21 septembre (16 pages, 320
+  transactions) : pas de solde, pas d'IBAN, colonnes Argent sortant /
+  entrant, chaque transaction sur deux lignes (« 21 sept. MOS À Mc export
+  • Transfert interne Terminé Main · €7 » puis « 2026 EUR 094.26 » : le
+  montant coupé au millier), libellés longs qui débordent sur la ligne
+  d'année (« 2026 coupe telaio WP0… EUR 500.00 »), ligne de taux de change
+  intercalée pour les paiements en devise. L'ancien lecteur n'y voyait
+  rien : relevé « Revolut, mai, 0 ligne » sans numéro de compte → deuxième
+  compte dans la grille. Règles : lecteur dédié (statut Terminé seulement,
+  EUR seulement, sens par le type MOS / CAR / FEE = sortie, MOA = entrée) ;
+  export sans numéro de compte → le seul compte connu de cette banque est
+  repris (…23411) ; export multi-mois → un dépôt par mois, un mois déjà
+  couvert par un relevé mensuel est laissé tel quel et ses dépôts ratés
+  (0 ligne) sont nettoyés. Vérifié : mai 25, juin 113, juillet 68, août 88
+  transactions = exactement les relevés mensuels ; septembre 26 lignes
+  (« 2026-09~01-21 »), sorties 134 212,33 et entrées 120 000 : solde fin
+  août 14 212,33 + 120 000 − 134 212,33 = 0,00 — compte soldé, 7 094,26
+  rendus à Shine le 21/09 (ligne retrouvée côté Caisse d'Épargne). Les
+  117 892 € « partis vers Revolut » du pont sont donc 110 800 € d'achats
+  de véhicules de septembre (Issoire 23 600 + 24 700, Pilon 14 700, Vasez
+  22 000, Trigallez 17 000, Fintecture 23 168,76) + frais.
 - **SORTIR UNE LIGNE DES VÉHICULES DEPUIS LE VÉHICULE, NOTE DE FRAIS ≠
   ACHAT (04/10, Channing : « il me faut une option pour modifier ce genre
   de ligne qui n'a rien à faire là », « Notes de frais channing gasoil
