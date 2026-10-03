@@ -30,6 +30,7 @@ export function Treasury() {
   const [view, setView] = useState<View>('frais');
   const [opening, setOpening] = useState<TreasuryOpening | null>(null);
   const [diffMonth, setDiffMonth] = useState<string | null>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [refreshAsked, setRefreshAsked] = useState<Set<string>>(new Set());
   useEffect(() => { void loadOpening().then(setOpening); }, []);
   const [account, setAccount] = useState<string>('all');
@@ -253,6 +254,25 @@ export function Treasury() {
     }
     return [...g.values()].sort((a, b) => b.first.localeCompare(a.first));
   }, [scoped, dealById]);
+  // Lignes qui composent un véhicule (clic sur « Payé à » / « De », 03/10 soir : YC427 payé 43 120 pour 21 010 au tableur).
+  const groupDetail = (g: Group) => (
+    <tr key={`${g.key}-detail`}><td colSpan={9} className="py-2 pr-3">
+      <div className="rounded-lg border border-sky-200 bg-sky-50/40 p-2 text-xs">
+        <table className="min-w-full"><tbody>
+          {[...g.lines].sort((a, b) => a.booked_on.localeCompare(b.booked_on)).map((l) => (
+            <tr key={l.id} className="border-b border-sky-100">
+              <td className="py-0.5 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-0.5 pr-3 whitespace-nowrap">{ACCOUNT_LABEL[l.account]}{stmtById.get(l.statement_id)?.account_ref ? <span className="text-slate-400"> …{stmtById.get(l.statement_id)!.account_ref}</span> : null}</td>
+              <td className="py-0.5 pr-3 max-w-[14rem] truncate" title={l.counterparty}>{l.counterparty}</td><td className="py-0.5 pr-3 max-w-[22rem] truncate" title={l.description}>{l.description}{l.plate && <span className="ml-1 font-mono text-[10px] text-slate-500">{l.plate}</span>}</td>
+              <td className="py-0.5 pr-3 text-right tabular-nums whitespace-nowrap">{l.amount_out != null ? eur(l.amount_out, 2) : ''}</td><td className="py-0.5 pr-3 text-right tabular-nums whitespace-nowrap text-emerald-700">{l.amount_in != null ? eur(l.amount_in, 2) : ''}</td>
+              <td className="py-0.5 pr-3 whitespace-nowrap text-slate-500">{lineParts(l).length > 1 ? lineParts(l).map((p) => `${dealById.get(p.id)?.reference ?? '?'} ${eur(p.amount)}`).join(' + ') : l.match_how ?? 'sans dossier'}</td>
+              <td className="py-0.5 whitespace-nowrap">{lineParts(l).length > 0 && <button onClick={() => void onLink([l.id], '')} className="text-slate-400 hover:text-red-600" title="Retirer le lien de cette ligne (elle redevient sans dossier)">× retirer</button>}</td>
+            </tr>
+          ))}
+        </tbody></table>
+        <div className="mt-1 text-slate-500">Un lien faux (« montant unique », « ref ») se retire ici ; tape ensuite la bonne REF sur la ligne dans l'onglet Lignes.</div>
+      </div>
+    </td></tr>
+  );
   const purchases = groups.filter((g) => g.paid > 0);
   const receipts = groups.filter((g) => g.received > 0);
   const sum = <T,>(arr: T[], f: (x: T) => number) => arr.reduce((s, x) => s + (f(x) || 0), 0);
@@ -498,10 +518,11 @@ export function Treasury() {
                   {purchases.map((g) => {
                     const d = g.deal; const expectedBuy = d?.purchase_price != null ? expectedCash(d, 'purchase_price') : null; const ecart = expectedBuy != null ? g.paid - expectedBuy : null;
                     return (
-                      <tr key={g.key} className={`border-b border-slate-100 ${!d ? 'bg-amber-50' : ecart != null && ecart > 1 ? 'bg-rose-50' : ecart != null && ecart < -1 ? 'bg-amber-50/60' : ''}`}>
+                      <Fragment key={g.key}>
+                      <tr className={`border-b border-slate-100 ${!d ? 'bg-amber-50' : ecart != null && ecart > 1 ? 'bg-rose-50' : ecart != null && ecart < -1 ? 'bg-amber-50/60' : ''}`}>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{g.first}</td>
                         <td className="py-1.5 pr-3 font-mono text-xs">{g.plate ?? '—'}</td>
-                        <td className="py-1.5 pr-3 max-w-[22rem] truncate" title={g.lines.map((l) => `${l.booked_on} ${l.counterparty} — ${l.description} : ${eur(l.amount_out, 2)}`).join('\n')}>{g.lines[0]?.counterparty}{g.lines.length > 1 && <span className="text-xs text-slate-500"> (+{g.lines.length - 1})</span>}</td>
+                        <td className={`py-1.5 pr-3 max-w-[22rem] truncate cursor-pointer hover:text-sky-700 ${openGroup === g.key ? 'text-sky-700 font-medium' : ''}`} title="Voir les lignes de banque de ce véhicule" onClick={() => setOpenGroup(openGroup === g.key ? null : g.key)}>{g.lines[0]?.counterparty}{g.lines.length > 1 && <span className="text-xs text-slate-500"> (+{g.lines.length - 1})</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(g.paid)}</td>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{d ? <span title={g.lines.map((l) => l.match_how).filter(Boolean).join(', ')}>{d.reference} · {d.vehicle_label ?? `${d.brand ?? ''} ${d.model ?? ''}`.trim()}{d.reference && <button onClick={() => void onRefresh(d.reference!)} disabled={refreshAsked.has(d.reference)} className="ml-1 text-slate-400 hover:text-sky-700 disabled:text-emerald-600 align-middle" title="Relire cette ligne depuis le tableur (prix, frais, commission écrasés)"><RefreshCw size={11} /></button>}</span> : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums" title={d && isImportDeal(d) ? `tableur ${eur(d.purchase_price)} → import acheté HT ${eur(expectedBuy)}` : ''}>{eur(expectedBuy)}{d && isImportDeal(d) && <span className="ml-1 text-[10px] text-sky-700">HT</span>}</td>
@@ -509,6 +530,8 @@ export function Treasury() {
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.sale_price)}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.commission_ht, 2)}</td>
                       </tr>
+                      {openGroup === g.key && groupDetail(g)}
+                      </Fragment>
                     );
                   })}
                   {purchases.length === 0 && <tr><td colSpan={9} className="py-3 text-slate-500">Aucun achat de véhicule dans les relevés déposés.</td></tr>}
@@ -528,15 +551,18 @@ export function Treasury() {
                   {receipts.map((g) => {
                     const d = g.deal; const expected = d?.sale_price != null ? expectedCash(d, 'sale_price') : null; const ecart = expected != null ? g.received - expected : null;
                     return (
-                      <tr key={g.key} className={`border-b border-slate-100 ${!d ? 'bg-amber-50' : ''}`}>
+                      <Fragment key={g.key}>
+                      <tr className={`border-b border-slate-100 ${!d ? 'bg-amber-50' : ''}`}>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{g.first}</td>
-                        <td className="py-1.5 pr-3">{g.lines[0]?.counterparty}</td>
+                        <td className={`py-1.5 pr-3 cursor-pointer hover:text-sky-700 ${openGroup === g.key ? 'text-sky-700 font-medium' : ''}`} title="Voir les lignes de banque de ce véhicule" onClick={() => setOpenGroup(openGroup === g.key ? null : g.key)}>{g.lines[0]?.counterparty}{g.lines.length > 1 && <span className="text-xs text-slate-500"> (+{g.lines.length - 1})</span>}</td>
                         <td className="py-1.5 pr-3 max-w-[22rem] truncate" title={g.lines.map((l) => l.description).join('\n')}>{g.lines[0]?.description}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(g.received)}</td>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{d ? <>{d.reference} · {d.vehicle_label ?? ''}{d.reference && <button onClick={() => void onRefresh(d.reference!)} disabled={refreshAsked.has(d.reference)} className="ml-1 text-slate-400 hover:text-sky-700 disabled:text-emerald-600 align-middle" title="Relire cette ligne depuis le tableur (prix, frais, commission écrasés)"><RefreshCw size={11} /></button>}</> : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums" title={d && isStarDeal(d) ? `tableur ${eur(d.sale_price)} TTC → vendu HT ${eur(expected)}` : ''}>{eur(expected)}{d && isStarDeal(d) && <span className="ml-1 text-[10px] text-sky-700">HT</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{ecart == null ? '—' : eur(ecart)}</td>
                       </tr>
+                      {openGroup === g.key && groupDetail(g)}
+                      </Fragment>
                     );
                   })}
                   {receipts.length === 0 && <tr><td colSpan={7} className="py-3 text-slate-500">Aucun encaissement de vente dans les relevés déposés (les ventes arrivent sans doute sur le compte principal).</td></tr>}

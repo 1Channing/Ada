@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **VÉHICULES : CLIC SUR « PAYÉ À » / « DE » = LES LIGNES DE BANQUE DU
+  VÉHICULE, LIEN RETIRABLE LIGNE PAR LIGNE (03/10 soir, Channing : « pour
+  cette ligne on a payé bien plus, ça me paraît bizarre », YC427 payé
+  43 120 € pour 21 010 € au tableur)**. Le nom du tiers déroule les
+  lignes (date, compte, tiers, libellé, débit, crédit, comment le lien a
+  été posé, parts si virement multiple) avec « × retirer » par ligne ; un
+  lien faux (« montant unique », « ref ») se retire là, la bonne REF se
+  tape ensuite dans Lignes.
 - **« ** » = IMPORT ACHETÉ HORS TAXE (03/10 soir, Channing : « ce sont des
   imports en achats hors taxe, j'ajoute une seconde étoile pour les achats
   HT »)**. Astra A644 / A853 : tableur 11 880 €, payé 9 900 € à Consilcar
