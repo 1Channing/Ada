@@ -548,13 +548,25 @@ export function Treasury() {
                 <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => { const c = cashByMonth.get(m); return c ? c.in - c.out : 0; }))}</td>
               </tr>
               <tr className="font-semibold text-emerald-800 bg-emerald-50">
-                <td className="py-2 pr-4" title="Marge brute HT − frais réels des relevés (hors achats de véhicules, transferts internes, encaissements, impôts et TVA)">Marge nette réelle = brute − frais des relevés</td>
+                <td className="py-2 pr-4" title="Marge brute HT − frais réels des relevés (hors achats de véhicules, transferts internes, encaissements, impôts et TVA). AVANT impôt sur les sociétés.">Résultat avant IS estimé = marge brute − frais des relevés</td>
                 {months.map((m) => <td key={m} className="py-2 px-2 text-right tabular-nums">{eur((marginByMonth.get(m)?.brute ?? 0) - (expensesByMonth.get(m) ?? 0))}</td>)}
                 <td className="py-2 pl-2 text-right tabular-nums">{eur(sum(months, (m) => (marginByMonth.get(m)?.brute ?? 0) - (expensesByMonth.get(m) ?? 0)))}</td>
               </tr>
+              {(() => {
+                // IS estimé sur le cumul (04/10, « résultat net de 200 000 € ? c'est fiable ? ») : 15 % jusqu'à 42 500 €, 25 % au-delà — estimation, le comptable fait foi.
+                const before = sum(months, (m) => (marginByMonth.get(m)?.brute ?? 0) - (expensesByMonth.get(m) ?? 0));
+                const is = before <= 0 ? 0 : Math.min(before, 42500) * 0.15 + Math.max(0, before - 42500) * 0.25;
+                return (
+                  <tr className="text-slate-700">
+                    <td className="py-1.5 pr-4" title="Estimation : 15 % jusqu'à 42 500 € de résultat, 25 % au-delà, sur le cumul des mois affichés. Ne remplace pas la liasse du comptable.">Résultat après IS estimé <span className="text-[10px] text-slate-400">(IS ≈ {eur(is)}, à titre indicatif)</span></td>
+                    <td colSpan={months.length}></td>
+                    <td className="py-1.5 pl-2 text-right tabular-nums font-semibold">{eur(before - is)}</td>
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
-          <p className="text-xs text-slate-500 mt-2">Les frais ne couvrent que les comptes déposés. Lignes « hors frais » : achats et acomptes de véhicules, encaissements, transferts internes, impôts et TVA (les remboursements de TVA et l'IS ne sont ni des frais ni de la marge). Un montant entrant apparaît en négatif dans sa catégorie.</p>
+          <p className="text-xs text-slate-500 mt-2">Les frais ne couvrent que les comptes déposés (un relevé manquant = des frais manquants) et sont comptés à la date de paiement, la marge à la date de facturation. Lignes « hors frais » : achats et acomptes de véhicules, encaissements, transferts internes, impôts et TVA (les remboursements de TVA et l'IS ne sont ni des frais ni de la marge). Un montant entrant apparaît en négatif dans sa catégorie. Une vente annulée (avoir rendu au client) garde sa marge dans le tableur tant que la ligne n'y est pas corrigée.</p>
         </div>
       )}
 

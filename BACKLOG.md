@@ -832,6 +832,21 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **« RÉSULTAT NET DE 200 000 € ? C'EST FIABLE ? » (04/10)**. Réponse
+  donnée : c'est un résultat AVANT IS, en caisse, à ± 10 %. La ligne est
+  renommée « Résultat avant IS estimé », une ligne « Résultat après IS
+  estimé » (15 % jusqu'à 42 500 €, 25 % au-delà, indicatif) s'ajoute.
+  Charges sociales (URSSAF, retraite ALPRO / AGIRC, 1 360 € à ce jour)
+  sortent des impôts et entrent dans « Salaires et charges sociales ».
+  Réserves listées à Channing : relevé Revolut de septembre absent
+  (cartes : 9 238 en juin, 2 816 en juillet, 5 469 en août → ≈ 5 000 de
+  frais manquants) ; frais comptés au paiement, marge à la facturation ;
+  huit avoirs rendus à des clients depuis janvier (191 250 € : Oostendorp
+  17 800 / 16 350 / 20 000 / 18 600, Pedersen 32 400, Abf6 34 000, Louwman
+  24 500, Wilar 27 600) dont les ventes gardent leur marge dans le tableur
+  tant que la ligne n'est pas corrigée ou re-facturée (TGE428, I550,
+  YC270 reliés ; quatre sans dossier) ; 23 000 € d'« autre » non
+  qualifiés ; les 3 052 € « remboursement perso » à qualifier.
 - **« FRAIS RÉELS DES RELEVÉS » CLIQUABLE (04/10, Channing : « je veux
   cliquer sur ces frais pour voir de quoi il s'agit, janvier dit 9 000 de
   frais véhicules mais 27 000 de frais en tout, ça comprend des paiements
