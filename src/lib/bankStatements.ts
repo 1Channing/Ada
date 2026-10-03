@@ -770,6 +770,8 @@ export interface DealLite {
   id: string; reference: string | null; purchase_price: number | null; sale_price: number | null; fees: number | null; commission_ht: number | null;
   transaction_date: string | null; status: string | null; commercial: string | null; notes: string | null;
   plate: string | null; vin: string | null; brand: string | null; model: string | null; vehicle_label: string | null; tab_month: string | null;
+  /** Ligne disparue du tableur (marqueur du worker) : exclue des totaux du mois, reste rapprochable. */
+  sheet_missing?: boolean;
 }
 
 /**

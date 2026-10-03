@@ -66,7 +66,7 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
   const starByMonth = useMemo(() => {
     const m = new Map<string, { n: number; vat: number; sales: number; collected: number; nMargin: number }>();
     for (const d of deals) {
-      const mo = dealMonth(d); if (!mo || d.purchase_price == null) continue;
+      const mo = dealMonth(d); if (!mo || d.purchase_price == null || d.sheet_missing) continue;
       const star = isStarDeal(d);
       const cur = m.get(mo) ?? { n: 0, vat: 0, sales: 0, collected: 0, nMargin: 0 };
       if (star) { cur.n++; cur.vat += d.purchase_price / 6; cur.sales += (d.sale_price ?? 0) / 1.2; }

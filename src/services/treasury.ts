@@ -132,7 +132,7 @@ export async function loadDeals(): Promise<DealLite[]> {
       id: String(r.id), reference: (r.reference as string | null) ?? null, purchase_price: numOrNull(r.purchase_price), sale_price: numOrNull(r.sale_price), fees: numOrNull(r.fees), commission_ht: numOrNull(r.commission_ht),
       transaction_date: (r.transaction_date as string | null) ?? null, status: (r.status as string | null) ?? null, commercial: (r.commercial as string | null) ?? null, notes,
       plate: normPlate(v?.plate_number), vin: v?.vin ? String(v.vin).toUpperCase() : null, brand: v?.brand ?? null, model: v?.model ?? null, vehicle_label: label,
-      tab_month: tab ? tabMonth(tab[1], tab[2]) : null,
+      tab_month: tab ? tabMonth(tab[1], tab[2]) : null, sheet_missing: /\[Tableur : absent/.test(notes ?? ''),
     };
   });
 }

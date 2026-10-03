@@ -832,6 +832,21 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **LIGNES DU TABLEUR DÉPLACÉES OU DISPARUES : ADA SUIT (03/10 soir,
+  Channing : « sur janvier dans le tableur j'ai un peu plus de 17 000 € de
+  frais, ADA dit un peu plus de 18 000 € »)**. Tableur janvier : 17 745,51 €
+  de frais HT sur 31 lignes dont 9 Swift à 200 € + 1 à 100 € ; ADA
+  janvier : 18 547 € sur 34 dossiers dont 13 Swift à 200 € + 1 à 100 € → 4
+  Swift de trop (800 €, le reste = arrondis à l'euro du sync). Cause de
+  classe : le sync ne supprime ni ne déplace jamais ; une ligne déplacée
+  vers un autre onglet ou effacée reste dans son mois d'origine. Règles :
+  REF retrouvée dans un autre onglet → le marqueur « [Tableur MOIS] »
+  suit ; REF d'un onglet ≥ sinceMonth plus trouvée nulle part → marqueur
+  « [Tableur : absent le jj/mm/aaaa] » (jamais de suppression, log
+  worker), dossier exclu des totaux du mois (frais, marge, TVA attendue)
+  mais toujours rapprochable ; le marqueur tombe si la ligne revient.
+  Question à Channing : les 4 Swift (parmi SW092 … SW985) ont-elles été
+  déplacées ou effacées ? Le prochain passage du worker le dira.
 - **RELIRE UNE LIGNE DU TABLEUR À LA DEMANDE, DIFFÉRENCE DE FRAIS TABLEUR ↔
   RELEVÉS CLIQUABLE (03/10 soir, Channing : « cette ligne est correcte
   dans le tableur mais mauvaise dans la tréso ADA, il faudrait pouvoir
