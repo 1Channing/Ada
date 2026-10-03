@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
-import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, OVERHEAD, VEHICLE_COSTS, TRAVEL, ACCOUNT_LABEL, expectedCash, isStarDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
+import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, OVERHEAD, VEHICLE_COSTS, CONTRACTORS, ACCOUNT_LABEL, expectedCash, isStarDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
 import { loadOpening, type TreasuryOpening } from '../services/vat';
 import { TreasuryVat } from './TreasuryVat';
 import {
-  listStatements, listLines, deleteStatement, setLineCategory, repairLines, lineParts, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
+  listStatements, listLines, deleteStatement, setLineCategory, repairLines, lineParts, requestSheetRefresh, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
   type BankStatementRow, type BankLineRow, type DealLite, type UploadResult,
 } from '../services/treasury';
 
@@ -29,6 +29,8 @@ export function Treasury() {
   const [results, setResults] = useState<UploadResult[]>([]);
   const [view, setView] = useState<View>('frais');
   const [opening, setOpening] = useState<TreasuryOpening | null>(null);
+  const [diffMonth, setDiffMonth] = useState<string | null>(null);
+  const [refreshAsked, setRefreshAsked] = useState<Set<string>>(new Set());
   useEffect(() => { void loadOpening().then(setOpening); }, []);
   const [account, setAccount] = useState<string>('all');
   const [month, setMonth] = useState<string>('');
@@ -181,7 +183,7 @@ export function Treasury() {
       const vatIn = sumCat(m, (c) => c === 'impots_tva', 'in'), taxOut = sumCat(m, (c) => c === 'impots_tva', 'out');
       const vehicleCosts = sumCat(m, (c) => VEHICLE_COSTS.has(c), 'out') - sumCat(m, (c) => VEHICLE_COSTS.has(c), 'in');
       const overhead = sumCat(m, (c) => OVERHEAD.has(c), 'out') - sumCat(m, (c) => OVERHEAD.has(c), 'in');
-      const travel = sumCat(m, (c) => TRAVEL.has(c), 'out') - sumCat(m, (c) => TRAVEL.has(c), 'in');
+      const travel = sumCat(m, (c) => CONTRACTORS.has(c), 'out') - sumCat(m, (c) => CONTRACTORS.has(c), 'in');
       const other = sumCat(m, (c) => c === 'autre' || c === 'retrait_especes', 'out') - sumCat(m, (c) => c === 'autre' || c === 'retrait_especes', 'in');
       const transfers = sumCat(m, (c) => c === 'transfert_interne', 'in') - sumCat(m, (c) => c === 'transfert_interne', 'out');
       const delta = sales - purchases + vatIn - taxOut - vehicleCosts - overhead - travel - other + transfers;
@@ -199,6 +201,18 @@ export function Treasury() {
     });
     return out;
   }, [scoped, months, statements, opening]);
+  const vehicleCostsByMonth = useMemo(() => {
+    const r = new Map<string, number>();
+    for (const l of scoped) if (VEHICLE_COSTS.has(l.category)) { const mo = l.booked_on.slice(0, 7); r.set(mo, (r.get(mo) ?? 0) + (l.amount_out ?? 0) - (l.amount_in ?? 0)); }
+    return r;
+  }, [scoped]);
+  // Relecture forcée d'une REF depuis le tableur (prise au prochain passage du worker, ≤ 10 min).
+  const onRefresh = async (ref: string) => {
+    const e = await requestSheetRefresh([ref]);
+    if (e) { setError(e); return; }
+    setRefreshAsked((prev) => new Set(prev).add(ref));
+    setNotice(`${ref} : relecture du tableur demandée, prise en compte par le worker dans les 10 minutes (prix, frais, commission écrasés par le tableur).`);
+  };
   const marginByMonth = useMemo(() => {
     const r = new Map<string, { n: number; brute: number; comm: number; fees: number }>();
     // Une REF en double dans le même onglet (K861 ×2 en août, 3 doublons en juillet, 03/10 soir) ne compte
@@ -367,9 +381,9 @@ export function Treasury() {
                   {line('= Marge encaissée sur les véhicules', (r) => r.sales - r.purchases, 'font-semibold bg-slate-50', 'Ce qui reste des ventes une fois les véhicules payés, en caisse (pas en facturation)')}
                   {line('TVA remboursée', (r) => r.vatIn, 'text-emerald-800')}
                   {line('Impôts, IS, flat tax, URSSAF payés', (r) => -r.taxOut)}
-                  {line('Frais véhicules (prestataires, transport, préparation)', (r) => -r.vehicleCosts, '', 'La case « frais » du tableur')}
-                  {line('Fonctionnement (loyer, comptable, salaires, abonnements, assurance, banque)', (r) => -r.overhead, '', 'Ce que le tableur ne compte pas')}
-                  {line('Déplacements (train, carburant, péages, repas, hébergement, courses)', (r) => -r.travel)}
+                  {line('Frais véhicules (péages, carburant, repas, train, transport, logistique, entretien, assurance)', (r) => -r.vehicleCosts, '', 'La case « frais » du tableur')}
+                  {line('Prestataires et factures (commissions, préparation, services)', (r) => -r.travel)}
+                  {line('Fonctionnement (loyer, comptable, salaires, abonnements, banque)', (r) => -r.overhead, '', 'Ce que le tableur ne compte pas')}
                   {line('Autre / retraits', (r) => -r.other)}
                   {line('Transferts internes : arrivés − partis', (r) => r.transfers, 'text-amber-700', 'Négatif = de l\'argent est parti vers un compte dont le relevé manque (ou n\'est pas encore déposé)')}
                   {line('= Variation de trésorerie du mois', (r) => r.delta, 'font-semibold bg-emerald-50 text-emerald-900')}
@@ -422,6 +436,33 @@ export function Treasury() {
                 {months.map((m) => <td key={m} className="py-1.5 px-2 text-right tabular-nums">{eur(marginByMonth.get(m)?.brute ?? 0)}</td>)}
                 <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => marginByMonth.get(m)?.brute ?? 0))}</td>
               </tr>
+              <tr className="text-slate-700 border-t border-slate-200">
+                <td className="py-1.5 pr-4" title="Case « frais HT » du tableur, dossiers du mois (REF dédoublonnée, lignes sans prix exclues)">Frais véhicules du tableur (case frais)</td>
+                {months.map((m) => <td key={m} className="py-1.5 px-2 text-right tabular-nums">{eur(marginByMonth.get(m)?.fees ?? 0)}</td>)}
+                <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => marginByMonth.get(m)?.fees ?? 0))}</td>
+              </tr>
+              <tr className="text-slate-700">
+                <td className="py-1.5 pr-4" title="Relevés : péages, carburant, repas, train / transport, logistique, entretien véhicule, assurance, hébergement, courses (définition Channing 03/10)">Frais véhicules des relevés</td>
+                {months.map((m) => <td key={m} className="py-1.5 px-2 text-right tabular-nums">{eur(vehicleCostsByMonth.get(m) ?? 0)}</td>)}
+                <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => vehicleCostsByMonth.get(m) ?? 0))}</td>
+              </tr>
+              <tr className="font-medium text-slate-900">
+                <td className="py-1.5 pr-4" title="Relevés − tableur. Clique un mois pour voir les lignes de débit qui font la différence.">Différence relevés − tableur <span className="text-[10px] font-normal text-slate-400">(clique un mois)</span></td>
+                {months.map((m) => { const v = (vehicleCostsByMonth.get(m) ?? 0) - (marginByMonth.get(m)?.fees ?? 0); return <td key={m} className={`py-1.5 px-2 text-right tabular-nums cursor-pointer hover:bg-amber-50 ${diffMonth === m ? 'bg-amber-100' : ''} ${v > 500 ? 'text-rose-700' : v < -500 ? 'text-sky-700' : 'text-slate-500'}`} onClick={() => setDiffMonth(diffMonth === m ? null : m)}>{eur(v)}</td>; })}
+                <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => (vehicleCostsByMonth.get(m) ?? 0) - (marginByMonth.get(m)?.fees ?? 0)))}</td>
+              </tr>
+              {diffMonth && (
+                <tr><td colSpan={months.length + 2} className="py-2 pr-4">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 text-xs">
+                    <div className="font-medium text-slate-900 mb-1">{monthLabel(diffMonth)} : lignes de débit en frais véhicules sur les relevés ({scoped.filter((l) => l.booked_on.startsWith(diffMonth) && VEHICLE_COSTS.has(l.category) && l.amount_out).length}) — tableur {eur(marginByMonth.get(diffMonth)?.fees ?? 0)}, relevés {eur(vehicleCostsByMonth.get(diffMonth) ?? 0)}</div>
+                    <table className="min-w-full"><tbody>
+                      {scoped.filter((l) => l.booked_on.startsWith(diffMonth) && VEHICLE_COSTS.has(l.category) && l.amount_out).sort((a, b) => (b.amount_out ?? 0) - (a.amount_out ?? 0)).map((l) => (
+                        <tr key={l.id} className="border-b border-amber-100"><td className="py-0.5 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-0.5 pr-3">{ACCOUNT_LABEL[l.account]}</td><td className="py-0.5 pr-3 whitespace-nowrap">{CATEGORY_LABEL[l.category]}</td><td className="py-0.5 pr-3 max-w-[14rem] truncate">{l.counterparty}</td><td className="py-0.5 pr-3 max-w-[20rem] truncate" title={l.description}>{l.description}</td><td className="py-0.5 text-right tabular-nums whitespace-nowrap">{eur(l.amount_out, 2)}</td></tr>
+                      ))}
+                    </tbody></table>
+                  </div>
+                </td></tr>
+              )}
               <tr className="text-slate-700">
                 <td className="py-1.5 pr-4" title="Commission HT écrite dans le tableur (marge brute − frais HT du tableur)">Commission HT du tableur</td>
                 {months.map((m) => <td key={m} className="py-1.5 px-2 text-right tabular-nums">{eur(marginByMonth.get(m)?.comm ?? 0)}</td>)}
@@ -462,7 +503,7 @@ export function Treasury() {
                         <td className="py-1.5 pr-3 font-mono text-xs">{g.plate ?? '—'}</td>
                         <td className="py-1.5 pr-3 max-w-[22rem] truncate" title={g.lines.map((l) => `${l.booked_on} ${l.counterparty} — ${l.description} : ${eur(l.amount_out, 2)}`).join('\n')}>{g.lines[0]?.counterparty}{g.lines.length > 1 && <span className="text-xs text-slate-500"> (+{g.lines.length - 1})</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(g.paid)}</td>
-                        <td className="py-1.5 pr-3 whitespace-nowrap">{d ? <span title={g.lines.map((l) => l.match_how).filter(Boolean).join(', ')}>{d.reference} · {d.vehicle_label ?? `${d.brand ?? ''} ${d.model ?? ''}`.trim()}</span> : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
+                        <td className="py-1.5 pr-3 whitespace-nowrap">{d ? <span title={g.lines.map((l) => l.match_how).filter(Boolean).join(', ')}>{d.reference} · {d.vehicle_label ?? `${d.brand ?? ''} ${d.model ?? ''}`.trim()}{d.reference && <button onClick={() => void onRefresh(d.reference!)} disabled={refreshAsked.has(d.reference)} className="ml-1 text-slate-400 hover:text-sky-700 disabled:text-emerald-600 align-middle" title="Relire cette ligne depuis le tableur (prix, frais, commission écrasés)"><RefreshCw size={11} /></button>}</span> : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.purchase_price)}</td>
                         <td className={`py-1.5 pr-3 text-right tabular-nums font-medium ${ecart == null ? '' : ecart > 1 ? 'text-rose-700' : ecart < -1 ? 'text-amber-700' : 'text-slate-400'}`} title={ecart != null && ecart < -1 ? 'Payé moins que le tableur : acompte ou complément sur un relevé pas encore déposé, ou prix du tableur à vérifier' : ecart != null && ecart > 1 ? 'Payé plus que le tableur' : ''}>{ecart == null ? '—' : eur(ecart)}{ecart != null && ecart < -1 && <span className="ml-1 text-[10px] font-normal">à compléter</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.sale_price)}</td>
@@ -492,7 +533,7 @@ export function Treasury() {
                         <td className="py-1.5 pr-3">{g.lines[0]?.counterparty}</td>
                         <td className="py-1.5 pr-3 max-w-[22rem] truncate" title={g.lines.map((l) => l.description).join('\n')}>{g.lines[0]?.description}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(g.received)}</td>
-                        <td className="py-1.5 pr-3 whitespace-nowrap">{d ? `${d.reference} · ${d.vehicle_label ?? ''}` : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
+                        <td className="py-1.5 pr-3 whitespace-nowrap">{d ? <>{d.reference} · {d.vehicle_label ?? ''}{d.reference && <button onClick={() => void onRefresh(d.reference!)} disabled={refreshAsked.has(d.reference)} className="ml-1 text-slate-400 hover:text-sky-700 disabled:text-emerald-600 align-middle" title="Relire cette ligne depuis le tableur (prix, frais, commission écrasés)"><RefreshCw size={11} /></button>}</> : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums" title={d && isStarDeal(d) ? `tableur ${eur(d.sale_price)} TTC → vendu HT ${eur(expected)}` : ''}>{eur(expected)}{d && isStarDeal(d) && <span className="ml-1 text-[10px] text-sky-700">HT</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{ecart == null ? '—' : eur(ecart)}</td>
                       </tr>

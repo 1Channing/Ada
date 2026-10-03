@@ -286,3 +286,15 @@ export async function setLineMatch(lineId: string, reference: string, deals: Dea
   const err = await writeLink(lineId, parts);
   return { error: err, deal: chosen[0], parts: parts.length > 1 ? parts : null };
 }
+
+/** Demande au worker de RELIRE une REF depuis le tableur en écrasant prix, frais et commission
+ *  (03/10 soir, Channing : « cette ligne est correcte dans le tableur mais mauvaise dans ADA,
+ *  il faudrait pouvoir forcer la mise à jour d'une ligne »). Prise en compte au prochain passage (≤ 10 min). */
+export async function requestSheetRefresh(refs: string[]): Promise<string | null> {
+  const { data, error } = await untyped.from('app_config').select('value').eq('key', 'gsheet_refresh').maybeSingle();
+  if (error) return error.message;
+  const cur = new Set<string>(((data?.value as { refs?: string[] } | null)?.refs ?? []).map((r) => r.toUpperCase()));
+  for (const r of refs) if (r.trim()) cur.add(r.trim().toUpperCase());
+  const { error: e2 } = await untyped.from('app_config').upsert({ key: 'gsheet_refresh', value: { refs: [...cur], asked_at: new Date().toISOString() }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  return e2 ? e2.message : null;
+}

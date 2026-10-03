@@ -72,11 +72,12 @@ export const CATEGORY_LABEL: Record<BankCategory, string> = {
   logiciel_abonnement: 'Logiciels / abonnements', entretien_vehicule: 'Entretien véhicule', salaire: 'Salaires', loyer: 'Loyer (GF Holding)', comptable: 'Comptable (Geo Conseils)', retrait_especes: 'Retraits', autre: 'Autre',
 };
 /** Frais de fonctionnement (ce que le tableur ne compte PAS dans sa case frais, Channing 03/10 soir). */
-export const OVERHEAD: ReadonlySet<BankCategory> = new Set<BankCategory>(['loyer', 'comptable', 'salaire', 'logiciel_abonnement', 'assurance', 'frais_bancaires']);
-/** Frais liés aux véhicules (transport, préparation, prestataires) : la case frais du tableur. */
-export const VEHICLE_COSTS: ReadonlySet<BankCategory> = new Set<BankCategory>(['facture_fournisseur', 'logistique', 'entretien_vehicule']);
-/** Déplacements. */
-export const TRAVEL: ReadonlySet<BankCategory> = new Set<BankCategory>(['train_transport', 'carburant', 'peage', 'repas', 'hebergement', 'courses']);
+export const OVERHEAD: ReadonlySet<BankCategory> = new Set<BankCategory>(['loyer', 'comptable', 'salaire', 'logiciel_abonnement', 'frais_bancaires']);
+/** Frais véhicules = la case frais du tableur (définition Channing 03/10 soir : péage, carburant, repas,
+ *  train / transport, logistique, entretien véhicule, assurance ; hébergement et courses vont avec les déplacements). */
+export const VEHICLE_COSTS: ReadonlySet<BankCategory> = new Set<BankCategory>(['peage', 'carburant', 'repas', 'train_transport', 'logistique', 'entretien_vehicule', 'assurance', 'hebergement', 'courses']);
+/** Prestataires et factures (commissions apporteurs, préparation, services) : hors case frais du tableur. */
+export const CONTRACTORS: ReadonlySet<BankCategory> = new Set<BankCategory>(['facture_fournisseur']);
 /** Catégories qui ne sont PAS des frais : véhicules (capital), transferts entre nos comptes, encaissements. */
 export const NON_EXPENSE: ReadonlySet<BankCategory> = new Set<BankCategory>(['achat_vehicule', 'acompte_vehicule', 'vente_encaissee', 'transfert_interne']);
 

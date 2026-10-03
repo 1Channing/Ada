@@ -205,6 +205,10 @@ async function syncOnce(creds: string): Promise<void> {
     return;
   }
   const since = cfg.sinceMonth ?? '2026-07';
+  // REFs à RELIRE en écrasant (demandées depuis Trésorerie › Véhicules, 03/10 soir) : prix, frais,
+  // commission, date d'achat repris du tableur quelle que soit la valeur ADA ; la liste est vidée ensuite.
+  const refreshRow = await supabase.from('app_config').select('value').eq('key', 'gsheet_refresh').maybeSingle();
+  const forced = new Set<string>((((refreshRow.data?.value ?? null) as { refs?: string[] } | null)?.refs ?? []).map((r) => String(r).toUpperCase()));
   const token = await accessToken(creds);
   const meta = (await sheetsGet(token, `${cfg.spreadsheetId}?fields=sheets.properties.title`)) as
     { sheets?: Array<{ properties: { title: string } }> };
@@ -276,6 +280,7 @@ async function syncOnce(creds: string): Promise<void> {
   };
 
   let inserted = 0, skipped = 0, matched = 0, completed = 0;
+  const refreshed: string[] = [];
   for (const tab of tabs) {
     const res = (await sheetsGet(token, `${cfg.spreadsheetId}/values/${encodeURIComponent(`'${tab}'!A1:AH1050`)}`)) as { values?: string[][] };
     // LIGNE INCOHÉRENTE (02/10, onglet JANVIER 2026 : cellules décalées sur
@@ -327,6 +332,13 @@ async function syncOnce(creds: string): Promise<void> {
         // aux notes qu'une fois ; un dossier « achat » (négociation) devient
         // une vente dès que le tableur donne un prix de vente.
         const patch: Record<string, unknown> = {};
+        const force = forced.has(s.ref);
+        if (force) {
+          patch.sale_price = s.prixVente; patch.purchase_price = s.prixAchat; patch.fees = s.fraisHt; patch.commission_ht = s.commissionHt;
+          if (s.dateAchat) patch.transaction_date = s.dateAchat;
+          console.warn(`[SHEET_SYNC] ${s.ref} relu depuis le tableur à la demande : achat ${s.prixAchat} vente ${s.prixVente} frais ${s.fraisHt} commission ${s.commissionHt}`);
+          forced.delete(s.ref); refreshed.push(s.ref);
+        }
         if (prev.sale_price == null && s.prixVente != null) patch.sale_price = s.prixVente;
         if (prev.purchase_price == null && s.prixAchat != null) patch.purchase_price = s.prixAchat;
         if (prev.fees == null && s.fraisHt != null) patch.fees = s.fraisHt;
@@ -387,5 +399,10 @@ async function syncOnce(creds: string): Promise<void> {
   }
   if (inserted > 0 || completed > 0 || skipped === 0) {
     console.warn(`[SHEET_SYNC] ${tabs.length} onglet(s) ≥ ${since} : ${inserted} vente(s) créée(s) (${matched} clients rattachés), ${completed} dossier(s) complété(s) par REF, ${skipped} déjà à jour (REF)`);
+  }
+  // Demandes de relecture traitées : retirées de la liste ; celles sans ligne dans le tableur restent (dites).
+  if (refreshed.length > 0 || forced.size > 0) {
+    if (forced.size > 0) console.warn(`[SHEET_SYNC] relecture demandée sans ligne trouvée dans les onglets ≥ ${since} : ${[...forced].join(', ')}`);
+    await supabase.from('app_config').upsert({ key: 'gsheet_refresh', value: { refs: [...forced], done: refreshed, done_at: new Date().toISOString() }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   }
 }

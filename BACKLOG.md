@@ -832,6 +832,29 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **RELIRE UNE LIGNE DU TABLEUR À LA DEMANDE, DIFFÉRENCE DE FRAIS TABLEUR ↔
+  RELEVÉS CLIQUABLE (03/10 soir, Channing : « cette ligne est correcte
+  dans le tableur mais mauvaise dans la tréso ADA, il faudrait pouvoir
+  forcer la mise à jour d'une ligne », « mettre à jour la tréso via le
+  Google Sheet uniquement sur les nouvelles lignes », « voir la différence
+  de frais entre le tableau et les relevés et où est la différence en
+  cliquant »)**. (1) Le worker complète un dossier connu sans jamais
+  écraser (TC723 : achat 35 500 dans ADA, corrigé depuis dans le tableur) :
+  bouton ↻ à côté de la REF (Véhicules) → app_config 'gsheet_refresh'
+  { refs } ; au passage suivant (≤ 10 min) le worker réécrit prix d'achat,
+  prix de vente, frais, commission, date d'achat depuis le tableur pour
+  ces REF et vide la liste (REF introuvable : dite dans les logs et
+  gardée). (2) Les nouvelles lignes du tableur entrent déjà seules toutes
+  les 10 minutes, sans toucher aux dossiers existants — rien à ajouter.
+  (3) Frais mensuels : « Frais véhicules du tableur (case frais) » (REF
+  dédoublonnée, lignes sans prix exclues) contre « Frais véhicules des
+  relevés » = péages, carburant, repas, train / transport, logistique,
+  entretien véhicule, assurance (+ hébergement, courses) selon la
+  définition de Channing ; ligne « Différence relevés − tableur », un clic
+  sur un mois déroule les lignes de débit concernées (date, compte,
+  catégorie, tiers, libellé, montant). Les factures prestataires
+  (Antoine, M Cars, Ardoisières) sont à part dans le pont
+  (« Prestataires et factures »).
 - **TRANSFERTS INTERNES VUS CÔTÉ RÉCEPTION, TRANSPORT DE VÉHICULES NOMMÉ
   (03/10 soir, Channing : « quels virements en transferts internes sont
   sortis sans arriver ? », « UAB Axis et Christian c'est du transport de
