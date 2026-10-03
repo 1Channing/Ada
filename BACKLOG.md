@@ -832,6 +832,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ACOMPTES DITS CLAIREMENT, CATÉGORIE MODIFIABLE DEPUIS LE VÉHICULE
+  (03/10 soir, Channing : « il faut pouvoir préciser les acomptes », E717
+  Elroq : 1 000 € d'acompte à Continental, « −36 790 à compléter »)**.
+  Quand seules des lignes « acompte » sont versées, l'écart s'écrit
+  « acompte 1 000 € · reste 36 790 € » en gris, sans ambre ; dans le
+  détail des lignes du véhicule, une liste déroulante change la catégorie
+  (acompte, achat, vente, remboursement). Vérifié au passage : I762 Ignis
+  (tableur achat 14 500, ADA 15 890 → ↻ suffit, l'étoile est bien vue :
+  13 500 reçus = 16 200 / 1,2) ; logistique juin 17 471 € = Axis 8 000 +
+  Christian 4 955 + M Cars 3 740 et Autoholly 675 passés en logistique à
+  la main (catégorie auto : factures prestataires) + DHL 102 ; le
+  recompte de Channing (≈ 12 134) ne prenait que le convoyage.
 - **AVOIRS ET REMBOURSEMENTS, SORTIES HORS VÉHICULES CLIQUABLES (03/10
   soir, Channing : « pour cette ligne il s'agit d'un remboursement, je
   rentre la REF et il comprendra ? », « je voulais les coûts non afférents
