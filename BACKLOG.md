@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **« FRAIS RÉELS DES RELEVÉS » CLIQUABLE (04/10, Channing : « je veux
+  cliquer sur ces frais pour voir de quoi il s'agit, janvier dit 9 000 de
+  frais véhicules mais 27 000 de frais en tout, ça comprend des paiements
+  à l'État ? »)**. Un clic sur un mois de la ligne ouvre : la phrase
+  « X de frais = frais véhicules Y + fonctionnement et autres Z ; impôts,
+  IS et TVA payés ce mois (T) ne sont PAS dedans », le total par
+  catégorie avec le nombre de lignes, puis toutes les lignes (débit et
+  crédit) triées par montant.
 - **NUMÉRO DE FACTURE ET FIN DE VIN RELUS À CHAQUE PASSAGE, REMBOURSEMENT
   D'UN VENDEUR RATTACHABLE (04/10, Channing : « ces deux remboursements
   ne sont pas des annulations, on a négocié sur place, il faut que je

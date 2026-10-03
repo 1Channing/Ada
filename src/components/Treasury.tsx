@@ -31,6 +31,7 @@ export function Treasury() {
   const [opening, setOpening] = useState<TreasuryOpening | null>(null);
   const [diffMonth, setDiffMonth] = useState<string | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [fraisMonth, setFraisMonth] = useState<string | null>(null);
   const [refreshAsked, setRefreshAsked] = useState<Set<string>>(new Set());
   useEffect(() => { void loadOpening().then(setOpening); }, []);
   const [account, setAccount] = useState<string>('all');
@@ -452,10 +453,31 @@ export function Treasury() {
                 );
               })}
               <tr className="border-t-2 border-slate-300 font-semibold text-slate-900">
-                <td className="py-2 pr-4">Frais réels des relevés</td>
-                {months.map((m) => <td key={m} className="py-2 px-2 text-right tabular-nums">{eur(expensesByMonth.get(m) ?? 0)}</td>)}
+                <td className="py-2 pr-4" title="Toutes les catégories de frais (véhicules + fonctionnement), hors achats de véhicules, encaissements, transferts, impôts et TVA. Clique un mois pour le détail.">Frais réels des relevés <span className="text-[10px] font-normal text-slate-400">(clique un mois)</span></td>
+                {months.map((m) => <td key={m} className={`py-2 px-2 text-right tabular-nums cursor-pointer hover:bg-slate-100 ${fraisMonth === m ? 'bg-slate-200' : ''}`} onClick={() => setFraisMonth(fraisMonth === m ? null : m)}>{eur(expensesByMonth.get(m) ?? 0)}</td>)}
                 <td className="py-2 pl-2 text-right tabular-nums">{eur([...expensesByMonth.values()].reduce((s, v) => s + v, 0))}</td>
               </tr>
+              {fraisMonth && (() => {
+                const isExpense = (c: BankCategory) => !NON_EXPENSE.has(c) && c !== 'impots_tva';
+                const ls = scoped.filter((l) => l.booked_on.startsWith(fraisMonth) && isExpense(l.category));
+                const byCat = new Map<BankCategory, { n: number; v: number }>();
+                for (const l of ls) { const c = byCat.get(l.category) ?? { n: 0, v: 0 }; c.n++; c.v += (l.amount_out ?? 0) - (l.amount_in ?? 0); byCat.set(l.category, c); }
+                const veh = [...byCat.entries()].filter(([c]) => VEHICLE_COSTS.has(c)).reduce((s, [, x]) => s + x.v, 0);
+                const taxes = scoped.filter((l) => l.booked_on.startsWith(fraisMonth) && l.category === 'impots_tva').reduce((s, l) => s + (l.amount_out ?? 0), 0);
+                return (
+                <tr><td colSpan={months.length + 2} className="py-2 pr-4">
+                  <div className="rounded-lg border border-slate-300 bg-slate-50 p-3 text-xs space-y-2">
+                    <div className="font-medium text-slate-900">{monthLabel(fraisMonth)} : {eur(expensesByMonth.get(fraisMonth) ?? 0)} de frais sur les relevés = frais véhicules {eur(veh)} + fonctionnement et autres {eur((expensesByMonth.get(fraisMonth) ?? 0) - veh)}. Impôts, IS et TVA payés ce mois ({eur(taxes)}) ne sont PAS dedans.</div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-700">{[...byCat.entries()].sort((a, b) => b[1].v - a[1].v).map(([c, x]) => <span key={c}>{CATEGORY_LABEL[c]} <span className="tabular-nums font-medium">{eur(x.v)}</span> <span className="text-slate-400">({x.n})</span></span>)}</div>
+                    <table className="min-w-full"><tbody>
+                      {[...ls].sort((a, b) => ((b.amount_out ?? 0) - (b.amount_in ?? 0)) - ((a.amount_out ?? 0) - (a.amount_in ?? 0))).map((l) => (
+                        <tr key={l.id} className="border-b border-slate-200/60"><td className="py-0.5 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-0.5 pr-3">{ACCOUNT_LABEL[l.account]}</td><td className="py-0.5 pr-3 whitespace-nowrap">{CATEGORY_LABEL[l.category]}</td><td className="py-0.5 pr-3 max-w-[14rem] truncate">{l.counterparty}</td><td className="py-0.5 pr-3 max-w-[20rem] truncate" title={l.description}>{l.description}</td><td className="py-0.5 text-right tabular-nums whitespace-nowrap">{l.amount_out != null ? eur(l.amount_out, 2) : ''}</td><td className="py-0.5 pl-2 text-right tabular-nums whitespace-nowrap text-emerald-700">{l.amount_in != null ? eur(l.amount_in, 2) : ''}</td></tr>
+                      ))}
+                    </tbody></table>
+                  </div>
+                </td></tr>
+                );
+              })()}
               <tr className="text-slate-700">
                 <td className="py-1.5 pr-4">Ventes du tableur (dossiers du mois)</td>
                 {months.map((m) => <td key={m} className="py-1.5 px-2 text-right tabular-nums">{marginByMonth.get(m)?.n ?? 0}</td>)}
