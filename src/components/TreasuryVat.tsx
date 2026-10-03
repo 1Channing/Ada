@@ -112,13 +112,16 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
       const paid = vatLines.filter((l) => l.booked_on.startsWith(m) && l.amount_out).reduce((s, l) => s + (l.amount_out ?? 0), 0);
       const received = refundMatch.received.get(m) ?? null;
       if (r) carried = r.credit_carried ?? carried;
-      const pendingAt = demands.filter((d) => d.month <= m && (!d.received || d.received.booked_on > end)).reduce((s, d) => s + d.amount, 0);
+      const pendingDemands = demands.filter((d) => d.month <= m && (!d.received || d.received.booked_on > end));
+      const pendingAt = pendingDemands.reduce((s, d) => s + d.amount, 0);
       const credit = (carried ?? 0) + pendingAt;
+      // Composition du solde (04/10, Channing : « où sont partis les 204 605 manquants ? ») : affichée au survol.
+      const pendingList = [...pendingDemands.map((d) => `${d.month === '2025-12' ? 'déc. 2025' : monthLabel(d.month)} : ${eur(d.amount)}${d.received ? ` (reçu le ${d.received.booked_on.split('-').reverse().join('/')})` : ''}`), `reporté : ${eur(carried ?? 0)}`];
       const star = starByMonth.get(m);
       const sheetCredit = star ? star.vat - star.collected : 0;
       const declaredCredit = r ? (r.deductible ?? 0) - (r.collected ?? 0) : null;
       const gap = declaredCredit == null ? sheetCredit : sheetCredit - declaredCredit;
-      return { m, r, paid, received, star, credit, carried, pendingAt, sheetCredit, declaredCredit, gap };
+      return { m, r, paid, received, star, credit, carried, pendingAt, pendingList, sheetCredit, declaredCredit, gap };
     });
   }, [months, byMonth, vatLines, starByMonth, refundMatch, firstCreditIn, openingDemand]);
   const totals = useMemo(() => ({
@@ -207,7 +210,7 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
                 <td className={`${n} font-semibold text-emerald-800`}>{eur(opening.vat_credit)}</td><td></td>
               </tr>
             )}
-            {rows.map(({ m, r, paid, received, star, credit, gap, sheetCredit, declaredCredit }) => {
+            {rows.map(({ m, r, paid, received, star, credit, gap, sheetCredit, declaredCredit, pendingList }) => {
               const editing = draft && draft.period_month === m ? draft : null;
               const row = editing ?? r ?? null;
               const requested = r?.credit_requested ?? 0;
@@ -232,7 +235,7 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
                   <td className={`${n} text-slate-600`} title={star ? `${star.n} véhicule(s) *` : ''}>{star?.vat ? eur(star.vat) : ''}</td>
                   <td className={`${n} text-slate-600`} title={star ? `${star.nMargin} véhicule(s) en TVA sur la marge` : ''}>{star?.collected ? eur(star.collected) : ''}</td>
                   <td className={`${n} ${!r ? 'text-amber-700' : Math.abs(gap) <= 50 ? 'text-slate-400' : gap > 0 ? 'text-amber-700' : 'text-sky-700'}`} title={!r ? 'Mois pas encore déclaré : TVA du tableur à déclarer' : `tableur ${eur(sheetCredit)} − CA3 ${eur(declaredCredit)}`}>{!r ? (sheetCredit ? <>{eur(sheetCredit)}<span className="block text-[10px]">à déclarer</span></> : '') : eur(gap)}</td>
-                  <td className={`${n} font-semibold ${credit >= 0 ? 'text-emerald-800' : 'text-rose-700'}`}>{eur(credit)}</td>
+                  <td className={`${n} font-semibold ${credit >= 0 ? 'text-emerald-800' : 'text-rose-700'}`} title={`Fin ${monthLabel(m)}, encore dehors :\n${pendingList.join('\n')}`}>{eur(credit)}</td>
                   <td className="py-1 px-2 whitespace-nowrap text-xs">
                     {editing ? <button onClick={() => void save(editing)} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-900 text-white"><Save size={12} /> OK</button>
                       : <><button onClick={() => setDraft(r ?? EMPTY(m))} className="text-sky-700 hover:underline">{r ? 'modifier' : 'saisir'}</button>{r && <button onClick={() => void remove(m)} className="ml-2 text-slate-400 hover:text-red-600" title="Supprimer"><Trash2 size={12} /></button>}</>}
