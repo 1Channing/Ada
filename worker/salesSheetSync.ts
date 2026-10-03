@@ -375,6 +375,13 @@ async function syncOnce(creds: string): Promise<void> {
         seen(s.ref, tab);
         if (!(prev.notes ?? '').includes('[Tableur')) patch.notes = [prev.notes, tableurNotes].filter(Boolean).join('\n');
         else if ((prev.notes ?? '').includes('[Tableur : absent')) { patch.notes = (prev.notes ?? '').replace(/\n?\[Tableur : absent[^\]]*\]/g, ''); console.warn(`[SHEET_SYNC] ${s.ref} : revenu dans le tableur (${tab})`); }
+        // Libellé véhicule relu à chaque passage : les étoiles (« * » TVA récupérable, « ** » import HT) sont une
+        // donnée du tableur qui change après coup (Astra « ASTRA* » → « ASTRA** » le 04/10, ADA gardait l'ancien).
+        {
+          const base = (patch.notes as string | undefined) ?? prev.notes ?? '';
+          const m = base.match(/^Véhicule : (.*)$/m);
+          if (m && s.vehicule && m[1].trim() !== s.vehicule.trim()) { patch.notes = base.replace(/^Véhicule : .*$/m, `Véhicule : ${s.vehicule}`); console.warn(`[SHEET_SYNC] ${s.ref} : libellé « ${m[1].trim()} » → « ${s.vehicule} »`); }
+        }
         // L'onglet du dossier est décidé APRÈS la lecture de tous les onglets (une REF vue dans plusieurs onglets, 04/10).
         if (Object.keys(patch).length === 0) { skipped++; continue; }
         const { error } = await supabase.from('transactions_admin').update(patch as never).eq('id', prev.id);

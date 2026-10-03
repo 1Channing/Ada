@@ -832,6 +832,21 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **LIBELLÉ VÉHICULE RELU À CHAQUE PASSAGE (04/10, Channing : « sur
+  septembre, en prenant en compte toutes les TVA, achat import et vente
+  export, je vois 63 800 € dus hors TVA collectée ; c'est la différence
+  avec les 59 000 d'ADA ? »)**. Constat : les quatre Astra de septembre
+  sont « ASTRA** » dans le tableur mais toujours « ASTRA* » dans ADA — le
+  sync n'écrivait « Véhicule : … » qu'à la création ; 46 800 € d'achats
+  comptés en TVA récupérable (7 800 € de déductible attendue en trop).
+  Règle : le libellé est relu à chaque passage et remplacé s'il change
+  (log worker). Septembre d'après ADA (tableur) : 15 étoilés → déductible
+  61 327 (53 527 sans les Astra), collectée marge 7 665, revente des
+  Astra en France 8 400 → net ≈ 37 500 une fois les ** pris. Le 63 800 de
+  Channing est la ligne 20 de la CA3 (déductible brute) : il contient
+  l'autoliquidation des imports (4 × 9 900 × 20 % = 7 920, présente aussi
+  en collectée, neutre) et la TVA sur les frais ; ADA affiche déductible
+  − collectée attendues, pas la déductible seule.
 - **ONGLET D'UN DOSSIER DÉCIDÉ APRÈS LECTURE DE TOUS LES ONGLETS, UNE REF
   VUE DANS PLUSIEURS ONGLETS RESTE AU PLUS ANCIEN (04/10, Channing :
   « pour janvier il dit 16 968 € de frais, or le tableur affiche
