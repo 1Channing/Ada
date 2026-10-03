@@ -351,7 +351,7 @@ async function syncOnce(creds: string): Promise<void> {
         if (prev.commission_ht != null && s.prixAchat == null && s.prixVente == null && prev.purchase_price == null && prev.sale_price == null) patch.commission_ht = null;
         if (!prev.commercial && s.seller) patch.commercial = s.seller;
         if (hasVat) {
-          const star = /\*\s*$/.test(s.vehicule ?? '');
+          const star = /\*\s*$/.test(s.vehicule ?? '') && !/\*\*\s*$/.test(s.vehicule ?? ''); // « ** » = import HT, pas de TVA récupérable (03/10 soir)
           if (star && prev.vat_recoverable !== true) patch.vat_recoverable = true;
           else if (!star && prev.vat_recoverable == null) patch.vat_recoverable = false;
         }
@@ -398,7 +398,7 @@ async function syncOnce(creds: string): Promise<void> {
         // Le commercial est le TITRE du bloc (ANTOINE, CHANNING…), jamais le
         // convoyeur — celui-ci reste tracé dans les notes.
         commercial: s.seller || null,
-        ...(hasVat ? { vat_recoverable: /\*\s*$/.test(s.vehicule ?? '') } : {}),
+        ...(hasVat ? { vat_recoverable: /\*\s*$/.test(s.vehicule ?? '') && !/\*\*\s*$/.test(s.vehicule ?? '') } : {}),
         buyer_contact_id: buyerId,
         transaction_date: s.dateAchat,
         notes: tableurNotes,

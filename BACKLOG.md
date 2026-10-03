@@ -832,6 +832,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **« ** » = IMPORT ACHETÉ HORS TAXE (03/10 soir, Channing : « ce sont des
+  imports en achats hors taxe, j'ajoute une seconde étoile pour les achats
+  HT »)**. Astra A644 / A853 : tableur 11 880 €, payé 9 900 € à Consilcar
+  (= 11 880 / 1,2), ADA affichait « −1 980 à compléter ». Convention : une
+  étoile = TVA récupérable (acheté TTC, vendu HT) ; deux étoiles = import
+  acheté HT : paiement attendu = prix / 1,2, rien à déduire, TVA collectée
+  attendue sur tout le prix de revente (régime général, revente en
+  France). `isImportDeal` (« ** » ou « import » dans le libellé),
+  `expectedCash` achat / 1,2, colonne « Achat tableur » affichée HT avec
+  badge, worker : vat_recoverable faux pour « ** ». Les liens par montant
+  retrouvent 9 900 tout seuls au prochain rapprochement.
 - **LIGNES DU TABLEUR DÉPLACÉES OU DISPARUES : ADA SUIT (03/10 soir,
   Channing : « sur janvier dans le tableur j'ai un peu plus de 17 000 € de
   frais, ADA dit un peu plus de 18 000 € »)**. Tableur janvier : 17 745,51 €

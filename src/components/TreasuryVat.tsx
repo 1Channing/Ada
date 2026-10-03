@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, Plus, Save } from 'lucide-react';
 import type { BankLineRow, DealLite, BankStatementRow } from '../services/treasury';
 import { dealMonth } from '../services/treasury';
-import { isStarDeal } from '../lib/bankStatements';
+import { isStarDeal, isImportDeal } from '../lib/bankStatements';
 import { listVatReturns, upsertVatReturn, deleteVatReturn, loadOpening, parseVatPdf, type VatReturn, type TreasuryOpening } from '../services/vat';
 
 /**
@@ -70,6 +70,8 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
       const star = isStarDeal(d);
       const cur = m.get(mo) ?? { n: 0, vat: 0, sales: 0, collected: 0, nMargin: 0 };
       if (star) { cur.n++; cur.vat += d.purchase_price / 6; cur.sales += (d.sale_price ?? 0) / 1.2; }
+      // Import « ** » acheté HT : rien à déduire ; revendu en France au régime général → TVA collectée sur tout le prix.
+      else if (isImportDeal(d)) { if (d.sale_price != null) { cur.nMargin++; cur.collected += d.sale_price / 6; } }
       else if (d.sale_price != null && d.sale_price > d.purchase_price) { cur.nMargin++; cur.collected += (d.sale_price - d.purchase_price) / 6; }
       m.set(mo, cur);
     }
@@ -260,7 +262,7 @@ export function TreasuryVat({ lines, deals, statements }: { lines: BankLineRow[]
       </div>
       <p className="text-xs text-slate-500">
         « L'État doit » est un solde à la fin de chaque mois : demandes de remboursement pas encore reçues à cette date + crédit reporté. « Reçu » = virement DGFiP / SIE du montant exact de la demande, sur un relevé déposé.
-        Tableur (tout en TTC) : déductible attendue = achat / 6 des véhicules « * » (sauf libellé contenant « import » : prix TTC sans TVA récupérable) ; collectée attendue = (vente − achat) / 6 des véhicules sans « * » (TVA sur la marge), par onglet de facturation. « Tableur − CA3 » = TVA du tableur − TVA de la CA3 du même mois.
+        Tableur (tout en TTC) : déductible attendue = achat / 6 des véhicules « * » ; « ** » = import acheté HT (paiement = prix / 1,2, rien à déduire, TVA collectée sur le prix de revente) ; collectée attendue = (vente − achat) / 6 des véhicules sans « * » (TVA sur la marge), par onglet de facturation. « Tableur − CA3 » = TVA du tableur − TVA de la CA3 du même mois.
       </p>
 
       {/* Point de départ */}

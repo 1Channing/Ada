@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
-import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, OVERHEAD, VEHICLE_COSTS, CONTRACTORS, ACCOUNT_LABEL, expectedCash, isStarDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
+import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, OVERHEAD, VEHICLE_COSTS, CONTRACTORS, ACCOUNT_LABEL, expectedCash, isStarDeal, isImportDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
 import { loadOpening, type TreasuryOpening } from '../services/vat';
 import { TreasuryVat } from './TreasuryVat';
 import {
@@ -496,7 +496,7 @@ export function Treasury() {
                 </tr></thead>
                 <tbody>
                   {purchases.map((g) => {
-                    const d = g.deal; const ecart = d?.purchase_price != null ? g.paid - d.purchase_price : null;
+                    const d = g.deal; const expectedBuy = d?.purchase_price != null ? expectedCash(d, 'purchase_price') : null; const ecart = expectedBuy != null ? g.paid - expectedBuy : null;
                     return (
                       <tr key={g.key} className={`border-b border-slate-100 ${!d ? 'bg-amber-50' : ecart != null && ecart > 1 ? 'bg-rose-50' : ecart != null && ecart < -1 ? 'bg-amber-50/60' : ''}`}>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{g.first}</td>
@@ -504,7 +504,7 @@ export function Treasury() {
                         <td className="py-1.5 pr-3 max-w-[22rem] truncate" title={g.lines.map((l) => `${l.booked_on} ${l.counterparty} — ${l.description} : ${eur(l.amount_out, 2)}`).join('\n')}>{g.lines[0]?.counterparty}{g.lines.length > 1 && <span className="text-xs text-slate-500"> (+{g.lines.length - 1})</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(g.paid)}</td>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{d ? <span title={g.lines.map((l) => l.match_how).filter(Boolean).join(', ')}>{d.reference} · {d.vehicle_label ?? `${d.brand ?? ''} ${d.model ?? ''}`.trim()}{d.reference && <button onClick={() => void onRefresh(d.reference!)} disabled={refreshAsked.has(d.reference)} className="ml-1 text-slate-400 hover:text-sky-700 disabled:text-emerald-600 align-middle" title="Relire cette ligne depuis le tableur (prix, frais, commission écrasés)"><RefreshCw size={11} /></button>}</span> : <RefInput onSubmit={(ref) => void onLink(g.lines.map((l) => l.id), ref)} />}</td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.purchase_price)}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums" title={d && isImportDeal(d) ? `tableur ${eur(d.purchase_price)} → import acheté HT ${eur(expectedBuy)}` : ''}>{eur(expectedBuy)}{d && isImportDeal(d) && <span className="ml-1 text-[10px] text-sky-700">HT</span>}</td>
                         <td className={`py-1.5 pr-3 text-right tabular-nums font-medium ${ecart == null ? '' : ecart > 1 ? 'text-rose-700' : ecart < -1 ? 'text-amber-700' : 'text-slate-400'}`} title={ecart != null && ecart < -1 ? 'Payé moins que le tableur : acompte ou complément sur un relevé pas encore déposé, ou prix du tableur à vérifier' : ecart != null && ecart > 1 ? 'Payé plus que le tableur' : ''}>{ecart == null ? '—' : eur(ecart)}{ecart != null && ecart < -1 && <span className="ml-1 text-[10px] font-normal">à compléter</span>}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.sale_price)}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{eur(d?.commission_ht, 2)}</td>
