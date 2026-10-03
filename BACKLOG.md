@@ -832,6 +832,23 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ONGLET D'UN DOSSIER DÉCIDÉ APRÈS LECTURE DE TOUS LES ONGLETS, UNE REF
+  VUE DANS PLUSIEURS ONGLETS RESTE AU PLUS ANCIEN (04/10, Channing :
+  « pour janvier il dit 16 968 € de frais, or le tableur affiche
+  17 745 »)**. La règle « ligne déplacée » de la veille suivait le DERNIER
+  onglet où la REF apparaît : SW350, SW370, SW644, SW868 sont passés en
+  février et YC427 (779 € de frais) en mars alors que janvier les porte
+  toujours (17 745,51 − 16 968 = 777,51 = YC427 779 − arrondis). Règles :
+  les onglets sont tous lus avant de décider ; REF vue dans un seul
+  onglet → cet onglet ; vue dans plusieurs → le plus ancien (un véhicule
+  est facturé une fois) + cas « sheet_ref_duplicate » dans la boîte
+  (renommer si ce sont deux véhicules) ; vue nulle part → « absent ».
+  Au prochain passage les cinq REF reviennent en janvier. Mécanique
+  confirmée à Channing : la colonne Total de « Frais véhicules : relevés −
+  tableur » est le contrôle de fin d'année (frais opérationnels attendus
+  par le tableur contre frais réellement payés, les décalages de
+  paiement s'annulant sur l'année) — d'où l'importance que le tableur et
+  ce qu'ADA en lit soient égaux.
 - **FRAIS VÉHICULES ↔ TABLEUR : LE CLIC MONTRE LES TOTAUX PAR CATÉGORIE ET,
   DESSOUS, LE FONCTIONNEMENT (04/10, Channing : « ces catégories sont
   censées être déjà dans le tableur ; en cliquant, il faut afficher le

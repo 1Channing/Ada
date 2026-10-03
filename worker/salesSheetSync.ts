@@ -284,7 +284,8 @@ async function syncOnce(creds: string): Promise<void> {
   // REF vues dans le tableur à ce passage, avec leur onglet : une ligne déplacée d'un onglet à
   // l'autre suit, une ligne disparue est marquée « absente » (03/10 soir : janvier avait 14 Swift
   // dans ADA pour 10 dans le tableur, 800 € de frais de trop dans le mois).
-  const seenTab = new Map<string, string>();
+  const seenTab = new Map<string, Set<string>>();
+  const seen = (ref: string, tab: string) => (seenTab.get(ref) ?? seenTab.set(ref, new Set()).get(ref)!).add(tab);
   for (const tab of tabs) {
     const res = (await sheetsGet(token, `${cfg.spreadsheetId}/values/${encodeURIComponent(`'${tab}'!A1:AH1050`)}`)) as { values?: string[][] };
     // LIGNE INCOHÉRENTE (02/10, onglet JANVIER 2026 : cellules décalées sur
@@ -371,14 +372,10 @@ async function syncOnce(creds: string): Promise<void> {
           patch.buyer_contact_id = client && client !== mcId ? client : null;
           if (!prev.client_contact_id && client && client !== mcId) patch.client_contact_id = client;
         }
-        seenTab.set(s.ref, tab);
+        seen(s.ref, tab);
         if (!(prev.notes ?? '').includes('[Tableur')) patch.notes = [prev.notes, tableurNotes].filter(Boolean).join('\n');
-        else {
-          // Ligne déplacée vers un autre onglet, ou revenue après une absence : le marqueur suit le tableur.
-          const cur = prev.notes ?? '';
-          const next = cur.replace(/\[Tableur [A-ZÉÛ]+ \d{4}\]/, `[Tableur ${tab}]`).replace(/\n?\[Tableur : absent[^\]]*\]/g, '');
-          if (next !== cur) { patch.notes = next; console.warn(`[SHEET_SYNC] ${s.ref} : onglet ${cur.match(/\[Tableur ([^\]]+)\]/)?.[1] ?? '?'} → ${tab}`); }
-        }
+        else if ((prev.notes ?? '').includes('[Tableur : absent')) { patch.notes = (prev.notes ?? '').replace(/\n?\[Tableur : absent[^\]]*\]/g, ''); console.warn(`[SHEET_SYNC] ${s.ref} : revenu dans le tableur (${tab})`); }
+        // L'onglet du dossier est décidé APRÈS la lecture de tous les onglets (une REF vue dans plusieurs onglets, 04/10).
         if (Object.keys(patch).length === 0) { skipped++; continue; }
         const { error } = await supabase.from('transactions_admin').update(patch as never).eq('id', prev.id);
         if (error) { console.warn(`[SHEET_SYNC] complétion ${s.ref} impossible: ${error.message}`); continue; }
@@ -404,7 +401,7 @@ async function syncOnce(creds: string): Promise<void> {
         notes: tableurNotes,
       }).select('id').single();
       if (error) { console.warn(`[SHEET_SYNC] insert ${s.ref} impossible: ${error.message}`); continue; }
-      seenTab.set(s.ref, tab);
+      seen(s.ref, tab);
       known.set(s.ref, { id: (ins as { id: string }).id, reference: s.ref, notes: tableurNotes, purchase_price: s.prixAchat, sale_price: s.prixVente, fees: s.fraisHt, commission_ht: s.commissionHt, commercial: s.seller || null, buyer_contact_id: buyerId, transaction_date: s.dateAchat, status: closed ? 'cloturee' : 'en_cours', closed_at: null, transaction_type: 'sale' });
       inserted++;
     }
@@ -414,9 +411,25 @@ async function syncOnce(creds: string): Promise<void> {
   }
   // Dossiers venus du tableur (onglet ≥ since) dont la REF n'est plus dans aucun onglet : marqués
   // « absent » (jamais supprimés), exclus des totaux du mois côté trésorerie ; le marqueur tombe si la ligne revient.
+  // ONGLET D'UN DOSSIER (04/10, constat : SW350/370/644/868 et YC427 « déplacés » en février / mars alors
+  // qu'ils sont toujours dans janvier, 779 + 800 € de frais sortis du mois) : une REF vue dans PLUSIEURS
+  // onglets (recopie, brouillon, ou deux véhicules sous la même REF) reste au plus ANCIEN — un véhicule
+  // est facturé une fois, la première apparition est le mois de vente — et le cas va dans la boîte.
   for (const k of known.values()) {
     const m = (k.notes ?? '').match(/\[Tableur ([A-ZÉÛ]+ \d{4})\]/);
-    if (!m || !k.reference || seenTab.has(k.reference) || (k.notes ?? '').includes('[Tableur : absent')) continue;
+    if (!m || !k.reference) continue;
+    const tabsSeen = seenTab.get(k.reference);
+    if (tabsSeen && tabsSeen.size > 0) {
+      const sorted = [...tabsSeen].sort((a, b) => (monthOfTab(a) ?? '').localeCompare(monthOfTab(b) ?? ''));
+      const target = sorted[0];
+      if (tabsSeen.size > 1) void recordLearningCase({ kind: 'sheet_ref_duplicate', key: k.reference, actor: 'equipe', link: '/ventes', title: `Tableur : la REF ${k.reference} est dans ${tabsSeen.size} onglets (${sorted.join(', ')}) — gardée dans ${target} ; renommer l'autre si c'est un autre véhicule`, detail: { ref: k.reference, tabs: sorted, kept: target } });
+      if (target !== m[1]) {
+        await supabase.from('transactions_admin').update({ notes: (k.notes ?? '').replace(/\[Tableur [A-ZÉÛ]+ \d{4}\]/, `[Tableur ${target}]`) } as never).eq('id', k.id);
+        console.warn(`[SHEET_SYNC] ${k.reference} : onglet ${m[1]} → ${target}${tabsSeen.size > 1 ? ` (vue aussi dans ${sorted.slice(1).join(', ')})` : ''}`);
+      }
+      continue;
+    }
+    if ((k.notes ?? '').includes('[Tableur : absent')) continue;
     const month = monthOfTab(m[1]);
     if (!month || month < since) continue;
     const today = new Date().toISOString().slice(0, 10).split('-').reverse().join('/');
