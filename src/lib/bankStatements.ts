@@ -69,7 +69,7 @@ export const CATEGORY_LABEL: Record<BankCategory, string> = {
   achat_vehicule: 'Achat véhicule', acompte_vehicule: 'Acompte véhicule', vente_encaissee: 'Vente encaissée', transfert_interne: 'Transfert interne',
   impots_tva: 'Impôts / TVA', frais_bancaires: 'Frais bancaires', carburant: 'Carburant', peage: 'Péages', train_transport: 'Train / transports',
   hebergement: 'Hébergement', repas: 'Repas', courses: 'Courses', logistique: 'Transport / convoyage / logistique', facture_fournisseur: 'Factures prestataires', assurance: 'Assurance',
-  logiciel_abonnement: 'Logiciels / abonnements', entretien_vehicule: 'Entretien véhicule', salaire: 'Salaires', loyer: 'Loyer (GF Holding)', comptable: 'Comptable (Geo Conseils)', remboursement_client: 'Remboursement à un client (avoir)', remboursement_recu: 'Remboursement reçu (vente annulée)', retrait_especes: 'Retraits', autre: 'Autre',
+  logiciel_abonnement: 'Logiciels / abonnements', entretien_vehicule: 'Entretien véhicule', salaire: 'Salaires', loyer: 'Loyer (GF Holding)', comptable: 'Comptable (Geo Conseils)', remboursement_client: 'Remboursement à un client (avoir)', remboursement_recu: 'Remboursement reçu d\'un vendeur (geste, annulation)', retrait_especes: 'Retraits', autre: 'Autre',
 };
 /** Frais de fonctionnement (ce que le tableur ne compte PAS dans sa case frais, Channing 03/10 soir). */
 export const OVERHEAD: ReadonlySet<BankCategory> = new Set<BankCategory>(['loyer', 'comptable', 'salaire', 'logiciel_abonnement', 'frais_bancaires']);

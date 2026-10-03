@@ -377,10 +377,20 @@ async function syncOnce(creds: string): Promise<void> {
         else if ((prev.notes ?? '').includes('[Tableur : absent')) { patch.notes = (prev.notes ?? '').replace(/\n?\[Tableur : absent[^\]]*\]/g, ''); console.warn(`[SHEET_SYNC] ${s.ref} : revenu dans le tableur (${tab})`); }
         // Libellé véhicule relu à chaque passage : les étoiles (« * » TVA récupérable, « ** » import HT) sont une
         // donnée du tableur qui change après coup (Astra « ASTRA* » → « ASTRA** » le 04/10, ADA gardait l'ancien).
+        // Idem pour le numéro de facture et la fin de VIN, souvent remplis APRÈS la création de la ligne
+        // (04/10 : Factuur:FAC00000537/541/547 « sans dossier » alors que les dossiers existaient, sans « Facture : »).
         {
-          const base = (patch.notes as string | undefined) ?? prev.notes ?? '';
-          const m = base.match(/^Véhicule : (.*)$/m);
-          if (m && s.vehicule && m[1].trim() !== s.vehicule.trim()) { patch.notes = base.replace(/^Véhicule : .*$/m, `Véhicule : ${s.vehicule}`); console.warn(`[SHEET_SYNC] ${s.ref} : libellé « ${m[1].trim()} » → « ${s.vehicule} »`); }
+          let base = (patch.notes as string | undefined) ?? prev.notes ?? '';
+          const upsert = (key: string, value: string | null | undefined) => {
+            if (!value || !value.trim()) return;
+            const re = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} : (.*)$`, 'm');
+            const m = base.match(re);
+            if (m && m[1].trim() === value.trim()) return;
+            if (m) base = base.replace(re, `${key} : ${value}`); else base = base.replace(/(\[Tableur [^\]]+\])/, `$1\n${key} : ${value}`);
+            console.warn(`[SHEET_SYNC] ${s.ref} : ${key} « ${m?.[1]?.trim() ?? '—'} » → « ${value} »`);
+            patch.notes = base;
+          };
+          upsert('Véhicule', s.vehicule); upsert('Facture', s.facture); upsert('VIN (fin)', s.vin);
         }
         // L'onglet du dossier est décidé APRÈS la lecture de tous les onglets (une REF vue dans plusieurs onglets, 04/10).
         if (Object.keys(patch).length === 0) { skipped++; continue; }

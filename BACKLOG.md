@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **NUMÉRO DE FACTURE ET FIN DE VIN RELUS À CHAQUE PASSAGE, REMBOURSEMENT
+  D'UN VENDEUR RATTACHABLE (04/10, Channing : « ces deux remboursements
+  ne sont pas des annulations, on a négocié sur place, il faut que je
+  puisse l'ajouter à un dossier », « plein de dossiers peuvent être
+  joints via les numéros de factures »)**. Constat : Factuur:FAC00000537,
+  541, 547, 566, 577 « sans dossier » alors que les dossiers existent — le
+  numéro de facture est rempli dans le tableur APRÈS la création de la
+  ligne et « Facture : » n'était écrit qu'à la création. Règle : à chaque
+  passage, « Véhicule : », « Facture : », « VIN (fin) : » sont ajoutés ou
+  remplacés s'ils changent (log worker) ; le rapprochement par facture
+  suit au chargement suivant. Catégorie renommée « Remboursement reçu
+  d'un vendeur (geste, annulation) » ; une REF tapée dessus vient en
+  moins de l'achat du véhicule (Autostart 500 €, Poy's Cars 500 €).
 - **LIBELLÉ VÉHICULE RELU À CHAQUE PASSAGE (04/10, Channing : « sur
   septembre, en prenant en compte toutes les TVA, achat import et vente
   export, je vois 63 800 € dus hors TVA collectée ; c'est la différence
