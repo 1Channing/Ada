@@ -73,9 +73,9 @@ export const CATEGORY_LABEL: Record<BankCategory, string> = {
 };
 /** Frais de fonctionnement (ce que le tableur ne compte PAS dans sa case frais, Channing 03/10 soir). */
 export const OVERHEAD: ReadonlySet<BankCategory> = new Set<BankCategory>(['loyer', 'comptable', 'salaire', 'logiciel_abonnement', 'frais_bancaires']);
-/** Frais véhicules = la case frais du tableur (définition Channing 03/10 soir : péage, carburant, repas,
- *  train / transport, logistique, entretien véhicule, assurance ; hébergement et courses vont avec les déplacements). */
-export const VEHICLE_COSTS: ReadonlySet<BankCategory> = new Set<BankCategory>(['peage', 'carburant', 'repas', 'train_transport', 'logistique', 'entretien_vehicule', 'assurance', 'hebergement', 'courses']);
+/** Frais véhicules = la case frais du tableur (définition Channing 03/10 soir, confirmée le 04/10 : entretien véhicule,
+ *  logistique / convoyage, transport / train, repas, péage, carburant, assurance — rien d'autre). */
+export const VEHICLE_COSTS: ReadonlySet<BankCategory> = new Set<BankCategory>(['peage', 'carburant', 'repas', 'train_transport', 'logistique', 'entretien_vehicule', 'assurance']);
 /** Prestataires et factures (commissions apporteurs, préparation, services) : hors case frais du tableur. */
 export const CONTRACTORS: ReadonlySet<BankCategory> = new Set<BankCategory>(['facture_fournisseur']);
 /** Catégories qui ne sont PAS des frais : véhicules (capital), transferts entre nos comptes, encaissements. */

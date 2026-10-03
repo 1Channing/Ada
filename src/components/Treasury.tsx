@@ -31,7 +31,6 @@ export function Treasury() {
   const [opening, setOpening] = useState<TreasuryOpening | null>(null);
   const [diffMonth, setDiffMonth] = useState<string | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
-  const [otherMonth, setOtherMonth] = useState<string | null>(null);
   const [refreshAsked, setRefreshAsked] = useState<Set<string>>(new Set());
   useEffect(() => { void loadOpening().then(setOpening); }, []);
   const [account, setAccount] = useState<string>('all');
@@ -482,35 +481,40 @@ export function Treasury() {
                 {months.map((m) => { const v = (vehicleCostsByMonth.get(m) ?? 0) - (marginByMonth.get(m)?.fees ?? 0); return <td key={m} className={`py-1.5 px-2 text-right tabular-nums cursor-pointer hover:bg-amber-50 ${diffMonth === m ? 'bg-amber-100' : ''} ${v > 500 ? 'text-rose-700' : v < -500 ? 'text-sky-700' : 'text-slate-500'}`} onClick={() => setDiffMonth(diffMonth === m ? null : m)}>{eur(v)}</td>; })}
                 <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => (vehicleCostsByMonth.get(m) ?? 0) - (marginByMonth.get(m)?.fees ?? 0)))}</td>
               </tr>
-              {diffMonth && (
+              {diffMonth && (() => {
+                const veh = scoped.filter((l) => l.booked_on.startsWith(diffMonth) && VEHICLE_COSTS.has(l.category));
+                const byCat = new Map<BankCategory, number>();
+                for (const l of veh) byCat.set(l.category, (byCat.get(l.category) ?? 0) + (l.amount_out ?? 0) - (l.amount_in ?? 0));
+                const other = scoped.filter((l) => l.booked_on.startsWith(diffMonth) && isOtherOut(l.category) && l.amount_out).sort((a, b) => (b.amount_out ?? 0) - (a.amount_out ?? 0));
+                const sheet = marginByMonth.get(diffMonth)?.fees ?? 0, bank = vehicleCostsByMonth.get(diffMonth) ?? 0;
+                return (
                 <tr><td colSpan={months.length + 2} className="py-2 pr-4">
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 text-xs">
-                    <div className="font-medium text-slate-900 mb-1">{monthLabel(diffMonth)} : lignes de débit en frais véhicules sur les relevés ({scoped.filter((l) => l.booked_on.startsWith(diffMonth) && VEHICLE_COSTS.has(l.category) && l.amount_out).length}) — tableur {eur(marginByMonth.get(diffMonth)?.fees ?? 0)}, relevés {eur(vehicleCostsByMonth.get(diffMonth) ?? 0)}</div>
-                    <table className="min-w-full"><tbody>
-                      {scoped.filter((l) => l.booked_on.startsWith(diffMonth) && VEHICLE_COSTS.has(l.category) && l.amount_out).sort((a, b) => (b.amount_out ?? 0) - (a.amount_out ?? 0)).map((l) => (
-                        <tr key={l.id} className="border-b border-amber-100"><td className="py-0.5 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-0.5 pr-3">{ACCOUNT_LABEL[l.account]}</td><td className="py-0.5 pr-3 whitespace-nowrap">{CATEGORY_LABEL[l.category]}</td><td className="py-0.5 pr-3 max-w-[14rem] truncate">{l.counterparty}</td><td className="py-0.5 pr-3 max-w-[20rem] truncate" title={l.description}>{l.description}</td><td className="py-0.5 text-right tabular-nums whitespace-nowrap">{eur(l.amount_out, 2)}</td></tr>
-                      ))}
-                    </tbody></table>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 text-xs space-y-3">
+                    <div>
+                      <div className="font-medium text-slate-900 mb-1">{monthLabel(diffMonth)} — frais véhicules : tableur {eur(sheet)} · relevés {eur(bank)} · différence {eur(bank - sheet)}</div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-700">
+                        {[...byCat.entries()].sort((x, y) => y[1] - x[1]).map(([c, v]) => <span key={c}>{CATEGORY_LABEL[c]} <span className="tabular-nums font-medium">{eur(v)}</span></span>)}
+                        {byCat.size === 0 && <span className="text-slate-500">aucune ligne dans ces catégories ce mois-ci</span>}
+                      </div>
+                      <div className="text-slate-500 mt-1">Ces catégories (entretien, convoyage, train, repas, péages, carburant, assurance) sont censées être dans la case frais du tableur : la différence dit ce que le tableur n'a pas (positif) ou a en trop (négatif).</div>
+                    </div>
+                    <div>
+                      <div className="font-medium text-slate-900 mb-1">Hors véhicules, le fonctionnement : {other.length} lignes, {eur(otherOutByMonth.get(diffMonth) ?? 0)}</div>
+                      <table className="min-w-full"><tbody>
+                        {other.map((l) => (
+                          <tr key={l.id} className="border-b border-amber-100"><td className="py-0.5 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-0.5 pr-3">{ACCOUNT_LABEL[l.account]}</td><td className="py-0.5 pr-3 whitespace-nowrap">{CATEGORY_LABEL[l.category]}</td><td className="py-0.5 pr-3 max-w-[14rem] truncate">{l.counterparty}</td><td className="py-0.5 pr-3 max-w-[20rem] truncate" title={l.description}>{l.description}</td><td className="py-0.5 text-right tabular-nums whitespace-nowrap">{eur(l.amount_out, 2)}</td></tr>
+                        ))}
+                      </tbody></table>
+                    </div>
                   </div>
                 </td></tr>
-              )}
+                );
+              })()}
               <tr className="font-medium text-slate-900 border-t border-slate-200">
                 <td className="py-1.5 pr-4" title="Tout ce qui est sorti sans acheter une voiture ni payer ses frais : prestataires, loyer, comptable, salaires, abonnements, banque, impôts et TVA, autre, retraits. Clique un mois pour voir les lignes.">Sorties hors véhicules (ni achat, ni frais véhicules) <span className="text-[10px] font-normal text-slate-400">(clique un mois)</span></td>
-                {months.map((m) => <td key={m} className={`py-1.5 px-2 text-right tabular-nums cursor-pointer hover:bg-sky-50 ${otherMonth === m ? 'bg-sky-100' : ''}`} onClick={() => setOtherMonth(otherMonth === m ? null : m)}>{eur(otherOutByMonth.get(m) ?? 0)}</td>)}
+                {months.map((m) => <td key={m} className={`py-1.5 px-2 text-right tabular-nums cursor-pointer hover:bg-sky-50 ${diffMonth === m ? 'bg-sky-100' : ''}`} onClick={() => setDiffMonth(diffMonth === m ? null : m)}>{eur(otherOutByMonth.get(m) ?? 0)}</td>)}
                 <td className="py-1.5 pl-2 text-right tabular-nums">{eur(sum(months, (m) => otherOutByMonth.get(m) ?? 0))}</td>
               </tr>
-              {otherMonth && (
-                <tr><td colSpan={months.length + 2} className="py-2 pr-4">
-                  <div className="rounded-lg border border-sky-200 bg-sky-50/40 p-3 text-xs">
-                    <div className="font-medium text-slate-900 mb-1">{monthLabel(otherMonth)} : sorties hors véhicules ({scoped.filter((l) => l.booked_on.startsWith(otherMonth) && isOtherOut(l.category) && l.amount_out).length} lignes, {eur(otherOutByMonth.get(otherMonth) ?? 0)})</div>
-                    <table className="min-w-full"><tbody>
-                      {scoped.filter((l) => l.booked_on.startsWith(otherMonth) && isOtherOut(l.category) && l.amount_out).sort((a, b) => (b.amount_out ?? 0) - (a.amount_out ?? 0)).map((l) => (
-                        <tr key={l.id} className="border-b border-sky-100"><td className="py-0.5 pr-3 whitespace-nowrap">{l.booked_on}</td><td className="py-0.5 pr-3">{ACCOUNT_LABEL[l.account]}</td><td className="py-0.5 pr-3 whitespace-nowrap">{CATEGORY_LABEL[l.category]}</td><td className="py-0.5 pr-3 max-w-[14rem] truncate">{l.counterparty}</td><td className="py-0.5 pr-3 max-w-[20rem] truncate" title={l.description}>{l.description}</td><td className="py-0.5 text-right tabular-nums whitespace-nowrap">{eur(l.amount_out, 2)}</td></tr>
-                      ))}
-                    </tbody></table>
-                  </div>
-                </td></tr>
-              )}
               <tr className="text-slate-700">
                 <td className="py-1.5 pr-4" title="Commission HT écrite dans le tableur (marge brute − frais HT du tableur)">Commission HT du tableur</td>
                 {months.map((m) => <td key={m} className="py-1.5 px-2 text-right tabular-nums">{eur(marginByMonth.get(m)?.comm ?? 0)}</td>)}

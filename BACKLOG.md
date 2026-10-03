@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **FRAIS VÉHICULES ↔ TABLEUR : LE CLIC MONTRE LES TOTAUX PAR CATÉGORIE ET,
+  DESSOUS, LE FONCTIONNEMENT (04/10, Channing : « ces catégories sont
+  censées être déjà dans le tableur ; en cliquant, il faut afficher le
+  chiffre du tableur, le chiffre des relevés dans ces catégories, puis
+  les frais hors de ces catégories »)**. Frais véhicules = entretien
+  véhicule, logistique / convoyage, transport / train, repas, péage,
+  carburant, assurance — rien d'autre (hébergement et courses sortent).
+  Un clic sur un mois (ligne « Frais véhicules : relevés − tableur » ou
+  ligne « Sorties hors véhicules ») ouvre un seul panneau : tableur,
+  relevés, différence, le détail par catégorie des relevés, puis la liste
+  des sorties hors véhicules du mois (prestataires, loyer, comptable,
+  salaires, abonnements, banque, impôts, autre). Les lignes de frais
+  véhicules ne sont plus listées une à une.
 - **ACOMPTES DITS CLAIREMENT, CATÉGORIE MODIFIABLE DEPUIS LE VÉHICULE
   (03/10 soir, Channing : « il faut pouvoir préciser les acomptes », E717
   Elroq : 1 000 € d'acompte à Continental, « −36 790 à compléter »)**.
