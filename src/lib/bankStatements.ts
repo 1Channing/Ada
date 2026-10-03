@@ -845,7 +845,18 @@ export function matchLineParts(line: Parameters<typeof matchLine>[0], deals: Dea
   const m = matchLine(line, deals);
   return m ? [{ ...m, amount: amt }] : null;
 }
-export function matchLine(line: { plate: string | null; vin: string | null; counterparty: string; description: string; amount_out: number | null; amount_in: number | null; category: string }, deals: DealLite[]): { id: string; how: string } | null {
+/** Un achat rapproché par les 3 chiffres de la plaque (pas la plaque entière) doit être payé dans une fenêtre
+ *  plausible autour du mois de facturation du dossier : 6 mois avant, 45 jours après (« un véhicule facturé
+ *  en juillet peut être acheté en août », Channing). Constat 03/10 soir : YC427 (janvier) portait GJ427AC
+ *  payée le 04/02 ET GQ427QZ payée le 10/04 — deux Yaris Cross différentes, 43 120 € pour 21 010 € au tableur. */
+function inPurchaseWindow(d: DealLite, bookedOn: string | undefined, out: number | null): boolean {
+  if (!bookedOn || out == null || !d.tab_month) return true;
+  const [y, m] = d.tab_month.split('-').map(Number);
+  const lo = new Date(Date.UTC(y, m - 1 - 6, 1)), hi = new Date(Date.UTC(y, m, 0) + 45 * 86400000);
+  const t = new Date(bookedOn).getTime();
+  return t >= lo.getTime() && t <= hi.getTime();
+}
+export function matchLine(line: { plate: string | null; vin: string | null; counterparty: string; description: string; amount_out: number | null; amount_in: number | null; category: string; booked_on?: string }, deals: DealLite[]): { id: string; how: string } | null {
   if (!['achat_vehicule', 'acompte_vehicule', 'vente_encaissee'].includes(line.category)) return null;
   const text = `${line.counterparty} ${line.description}`;
   const plate = line.plate ?? extractPlate(text);
@@ -853,7 +864,7 @@ export function matchLine(line: { plate: string | null; vin: string | null; coun
     const exact = deals.find((d) => d.plate && d.plate === plate);
     if (exact) return { id: exact.id, how: 'plaque' };
     const digits = plate.slice(2, 5);
-    const cands = deals.filter((d) => d.reference && d.reference.replace(/\D/g, '') === digits);
+    const cands = deals.filter((d) => d.reference && d.reference.replace(/\D/g, '') === digits && (!d.plate || d.plate === plate) && inPurchaseWindow(d, line.booked_on, line.amount_out));
     if (cands.length === 1) return { id: cands[0].id, how: 'ref' };
     if (cands.length > 1) {
       const prefixes = MODEL_PREFIX.find(([re]) => re.test(text))?.[1] ?? [];

@@ -832,6 +832,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **RAPPROCHEMENT PAR LES 3 CHIFFRES DE LA PLAQUE : FENÊTRE DE DATES ET
+  PLAQUE NON CONTRADICTOIRE (03/10 soir, YC427)**. YC427 (onglet janvier,
+  vendue le 20/01 à Bloemberg 22 500 €) portait deux achats : GJ427AC le
+  04/02 (Leboncoin, 21 320 €) et GQ427QZ le 10/04 (Sas Brun Auto,
+  21 800 €) — deux Yaris Cross différentes dont la plaque finit par 427,
+  43 120 € « payés » pour 21 010 € au tableur. Règle : un achat relié par
+  les chiffres de la plaque (pas la plaque entière) doit être payé entre
+  6 mois avant et 45 jours après le mois de facturation du dossier, et la
+  plaque du dossier, quand elle est connue, doit être la même. GQ427QZ
+  (10/04, +70 jours) sort de YC427 au prochain rapprochement ; une Yaris
+  Cross 427 d'avril n'existe pas encore dans ADA → la ligne redevient
+  « sans dossier » jusqu'à ce que le tableur la porte.
 - **VÉHICULES : CLIC SUR « PAYÉ À » / « DE » = LES LIGNES DE BANQUE DU
   VÉHICULE, LIEN RETIRABLE LIGNE PAR LIGNE (03/10 soir, Channing : « pour
   cette ligne on a payé bien plus, ça me paraît bizarre », YC427 payé
