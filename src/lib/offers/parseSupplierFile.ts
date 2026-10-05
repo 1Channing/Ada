@@ -21,13 +21,13 @@ import * as XLSX from 'xlsx';
 
 export type OfferField =
   | 'vin' | 'brand' | 'model' | 'version' | 'reg_date' | 'km' | 'color' | 'fuel' | 'engine' | 'power'
-  | 'gearbox' | 'co2' | 'damages' | 'report_url' | 'location' | 'price_ht' | 'price_ttc' | 'vat' | 'import' | 'plate' | 'ignore';
+  | 'gearbox' | 'co2' | 'damages' | 'report_url' | 'location' | 'price_ht' | 'price_ttc' | 'vat' | 'import' | 'plate' | 'quantity' | 'ignore';
 
 export const OFFER_FIELD_LABELS: Record<OfferField, string> = {
   vin: 'VIN / châssis', brand: 'Marque', model: 'Modèle', version: 'Version / ligne libre', reg_date: '1re immatriculation',
   km: 'Kilométrage', color: 'Couleur', fuel: 'Énergie', engine: 'Motorisation', power: 'Puissance (ch)', gearbox: 'Boîte',
   co2: 'CO₂ (g/km)', damages: 'Dommages / frais (€)', report_url: 'Rapport (lien)', location: 'Lieu de stockage',
-  price_ht: 'Prix fournisseur HT (€)', price_ttc: 'Prix fournisseur TTC (€)', vat: 'TVA récupérable', import: 'Import', plate: 'Immatriculation (plaque)', ignore: '— ignorer —',
+  price_ht: 'Prix fournisseur HT (€)', price_ttc: 'Prix fournisseur TTC (€)', vat: 'TVA récupérable', import: 'Import', plate: 'Immatriculation (plaque)', quantity: 'Quantité (exemplaires)', ignore: '— ignorer —',
 };
 
 /** En-tête normalisé : minuscules, sans diacritiques ni ponctuation superflue. */
@@ -63,6 +63,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo)/],
   ['vat', /(\btva\b|\bvat\b|mwst|\biva\b)/],
   ['import', /(\bimport|origine|origin)/],
+  // « Quantity » (liste VW ID.7 Tourer 02/10) : N exemplaires identiques → N lignes.
+  ['quantity', /^(quantity|qty|quantite|quantità|anzahl|stuck|units?|pcs|nombre)$/],
   ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur|\bmarca\b)/],
   ['model', /^(model|modele|modello)$/],
   ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo)/],
@@ -209,6 +211,14 @@ export function guessField(header: string): OfferField {
  * connue du référentiel qui ouvre la ligne ; sinon le premier mot. Rend la
  * marque et le reste de la ligne.
  */
+/** Marque telle qu'ADA la nomme : « VW » → VOLKSWAGEN, « Mercedes-Benz » → MERCEDES, « ŠKODA » → SKODA (liste VW 02/10 :
+ *  la marque restait « VW », étrangère au référentiel et aux offres précédentes). */
+const BRAND_ALIASES: Record<string, string> = { VW: 'VOLKSWAGEN', MERCEDESBENZ: 'MERCEDES', MERCEDES: 'MERCEDES', SKODA: 'SKODA', CITROEN: 'CITROEN', DS: 'DS', ALFA: 'ALFA ROMEO', LANDROVER: 'LAND ROVER', ROLLSROYCE: 'ROLLS ROYCE', ASTONMARTIN: 'ASTON MARTIN' };
+export function canonBrand(raw: string): string {
+  const up = (raw ?? '').normalize('NFD').replace(/\p{M}/gu, '').replace(/[ØŁĐ]/g, (c) => ({ 'Ø': 'O', 'Ł': 'L', 'Đ': 'D' } as Record<string, string>)[c] ?? c).toUpperCase().trim();
+  const key = up.replace(/[^A-Z0-9]/g, '');
+  return BRAND_ALIASES[key] ?? up;
+}
 export function splitBrand(line: string, knownBrands: string[]): { brand: string; rest: string } {
   const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/\s+/g, ' ').trim();
   const up = norm(line);
@@ -425,7 +435,8 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       if (byModel && !knownModelsByBrand[sp.brand]) { brand = byModel; }
       else { brand = sp.brand; versionLine = sp.rest || versionLine; }
     }
-    const known = knownModelsByBrand[brand.toUpperCase()] ?? knownModelsByBrand[brand.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()] ?? [];
+    brand = canonBrand(brand);
+    const known = knownModelsByBrand[brand] ?? knownModelsByBrand[brand.toUpperCase()] ?? [];
     let model = cell(rec.model);
     // Colonne modèle du fournisseur (« ASTRA L », « DS 7 CROSSBACK / DS 7 »)
     // rapprochée des modèles connus (référentiel + taxonomie) et débarrassée
@@ -448,10 +459,14 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     const vin = cell(rec.vin) || null;
     if (!brand) warnings.push(`Ligne ${i + 1} : marque introuvable (${versionLine.slice(0, 40)}).`);
     if (warnings.length > 12) { warnings.length = 12; warnings.push('… (avertissements suivants masqués)'); }
-    vehicles.push({
-      id: vin ?? `row-${i + 1}`,
+    // « Variant » / « EQ » d'une liste à colonne modèle (VW ID.7 Tourer 02/10) : la version, pas un extra.
+    const variant = [extras['Variant'], extras['EQ'], extras['Trim'], extras['Finition']].filter((x) => x && x.trim() && !versionLine.toUpperCase().includes(x.trim().toUpperCase())).join(' ').trim();
+    if (versionLine.toUpperCase() === cell(rec.model).toUpperCase()) { if (variant) versionLine = `${versionLine} ${variant}`.replace(/\s+/g, ' ').trim(); for (const k of ['Variant', 'EQ', 'Trim', 'Finition']) if (extras[k] && versionLine.toUpperCase().includes(extras[k].trim().toUpperCase())) delete extras[k]; }
+    const qty = Math.max(1, Math.min(50, Math.round(toNumber(rec.quantity) ?? 1)));
+    for (let n = 0; n < qty; n++) vehicles.push({
+      id: (vin ?? `row-${i + 1}`) + (qty > 1 ? `-${n + 1}` : ''),
       vin,
-      brand: brand.toUpperCase(),
+      brand,
       model: model.toUpperCase(),
       version: versionLine,
       reg_date: reg,

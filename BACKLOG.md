@@ -832,6 +832,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OFFRES : LISTE VW ID.7 TOURER (05/10, Channing : « adapte les offres
+  d'ADA à cette liste »)**. Fichier « Inventory » (Make, Model, Variant,
+  EQ, Colour, VIN, Mileage, 1ST Reg., Price net, VAT Deductible, Report
+  Link, Location, Availability, Damages, Quantity) : déjà lu (3 véhicules,
+  prix HT, date 01-09-26, couleur, TVA oui, électrique). Corrigé : la
+  marque sortait « VW » (étrangère au référentiel et aux offres
+  précédentes) → `canonBrand` (VW → VOLKSWAGEN, Mercedes-Benz → MERCEDES,
+  ŠKODA → SKODA, Alfa → ALFA ROMEO, Land Rover…) ; colonne « Quantity » /
+  Qty / Anzahl / Units → champ quantité, N exemplaires = N lignes (ids
+  suffixés) ; « Variant » / « EQ » / « Trim » complètent la version quand
+  elle n'est que le modèle, sans répéter un mot déjà présent (« ID.7
+  Tourer » reste « ID.7 Tourer »).
 - **PLAFOND « finitions.observations » TRAITÉ (05/10, même classe)**. Les
   suggestions de finitions (saisie d'une étude) lisaient les observations
   de tout le pays (4 000 au plus) puis filtraient marque × modèle en
