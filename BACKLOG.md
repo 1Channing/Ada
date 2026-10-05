@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **PLAFOND « etudes.mediane_observations » TRAITÉ (05/10, Channing : « traite
+  cette limite », bandeau rouge 6×, pays NL)**. La médiane cible de repli
+  d'une étude lisait TOUTES les observations du pays sur 45 jours (4 000 au
+  plus) puis filtrait marque × modèle en mémoire : pour NL le plafond
+  mordait et le bas du marché pouvait manquer. Règle : la base filtre le
+  segment (RPC mi_obs_for_segment, mêmes clés que le MI — brandKeysForQuery
+  + refModelKey, exportées de marketData), 10 000 observations les plus
+  récentes du segment, fenêtre de 45 jours, carburant et prix filtrés
+  ensuite ; l'alerte ne part que si la plus ancienne des 10 000 est encore
+  dans la fenêtre (Yaris Cross NL dépasse 10 000 obs sur l'historique
+  complet, archive comprise, sans que 45 jours soient tronqués). RPC en
+  échec → ancienne lecture par pays, dite dans les logs. Vérifié : la RPC
+  TOYOTA / YARISCROSS / NL répond (10 000 lignes par pages de 1 000).
 - **SOLDES DÉDUITS QUAND LE RELEVÉ N'EN A PAS (04/10, Channing : « le solde
   de fin d'août est l'ouverture de septembre, la clôture est à 0 car
   c'est un relevé de clôture »)**. Règle au dépôt : ouverture absente →

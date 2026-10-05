@@ -26,7 +26,7 @@ import { generateSearchUrlsWithMemory } from '../src/lib/linkgen/generator';
 import { missingUrlCriteria, registryCoveredCriteria, applyVariableCriteria } from '../src/lib/linkgen/grammar';
 import { allSiteAdapters } from '../src/lib/study-core/marketplaces';
 import type { SiteKey } from '../src/lib/linkgen/types';
-import { brandKey, canonKey } from '../src/services/marketData';
+import { brandKey, canonKey, brandKeysForQuery, refModelKey } from '../src/services/marketData';
 import { canonicalizeGearbox, canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { canonicalizeBody } from '../src/lib/study-core/bodyTypes';
 import { isDamagedVehicleText, structuredModelMatches, trimMatchesText } from '../src/lib/study-core/business-logic';
@@ -542,16 +542,37 @@ function cheapMedian(prices: number[]): number | null {
  *  observations MI des 45 derniers jours, finition équivalente comprise. */
 async function targetCheapMedian(s: SearchRow): Promise<number | null> {
   const token = CRITERIA_TO_TOKEN[s.fuel] ?? '';
-  let q = supabase
-    .from('market_listing_observations')
-    .select('price, brand, model, fuel, year, trim')
-    .eq('country', s.target_country)
-    .gte('scraped_at', new Date(Date.now() - 45 * 86_400_000).toISOString())
-    .gt('price', MIN_PRICE_EUR)
-    .order('id');
-  if (token) q = q.eq('fuel', token);
-  const { data } = await pageAll((from, to) => q.range(from, to), 4000);
-  capped(data, 4000, 'etudes.mediane_observations', `La médiane cible de repli lit 4 000 observations au plus (pays ${s.target_country}) : elle peut ignorer une partie du marché.`);
+  const since = new Date(Date.now() - 45 * 86_400_000).toISOString();
+  // LE SEGMENT SEULEMENT (05/10, plafond « etudes.mediane_observations » touché 6× pour NL) : l'ancienne lecture
+  // prenait TOUTES les observations du pays (4 000 au plus) puis filtrait la marque en mémoire — le bas du marché
+  // pouvait manquer. La base filtre marque × modèle × pays (RPC mi_obs_for_segment, mêmes clés que le MI) ; le
+  // repli sur l'ancienne lecture ne sert que si la RPC échoue, et il le dit.
+  type Obs = { price: number | null; brand: string | null; model: string | null; fuel: string | null; year: number | null; trim: string | null; scraped_at: string };
+  let data: Obs[] | null = null;
+  const rpc = await pageAll((from, to) => (supabase.rpc('mi_obs_for_segment' as never, {
+    p_brand_keys: brandKeysForQuery(s.brand), p_model_key: (s.model ?? '').trim() ? refModelKey(s.brand, s.model) : null, p_country: s.target_country, p_limit: 10_000,
+  } as never) as unknown as { range: (a: number, b: number) => PromiseLike<{ data: Obs[] | null; error: { message: string } | null }> }).range(from, to), 10_000);
+  if (!rpc.error && Array.isArray(rpc.data)) {
+    const all = rpc.data as Obs[];
+    data = all.filter((r) => r.scraped_at >= since && (r.price ?? 0) > MIN_PRICE_EUR && (!token || r.fuel === token));
+    // La RPC rend les plus récentes d'abord (tout l'historique, archive comprise) : le plafond ne mord que si la
+    // plus ancienne des 10 000 est encore dans la fenêtre de 45 jours (Yaris Cross NL : > 10 000 obs au total, 05/10).
+    const oldest = all.length ? all[all.length - 1].scraped_at : null;
+    if (all.length >= 10_000 && oldest && oldest >= since) capped(all, 10_000, 'etudes.mediane_observations', `La médiane cible de repli lit 10 000 observations au plus pour ${s.brand} ${s.model} (pays ${s.target_country}) sur 45 jours : elle peut ignorer une partie du marché.`);
+  } else {
+    console.warn(`[DAILY] médiane cible : RPC mi_obs_for_segment en échec (${rpc.error?.message ?? '?'}) — repli sur la lecture par pays`);
+    let q = supabase
+      .from('market_listing_observations')
+      .select('price, brand, model, fuel, year, trim, scraped_at')
+      .eq('country', s.target_country)
+      .gte('scraped_at', since)
+      .gt('price', MIN_PRICE_EUR)
+      .order('id');
+    if (token) q = q.eq('fuel', token);
+    const res = await pageAll((from, to) => q.range(from, to), 4000);
+    data = (res.data ?? []) as Obs[];
+    capped(data, 4000, 'etudes.mediane_observations', `La médiane cible de repli lit 4 000 observations au plus (pays ${s.target_country}) : elle peut ignorer une partie du marché.`);
+  }
   const bk = brandKey(s.brand);
   const mk = canonKey(s.model);
   const tk = canonKey(s.trim_target ?? '');

@@ -975,7 +975,7 @@ export function wasLastOpportunitiesLoadPartial(): boolean {
 }
 
 /** Clés canoniques d'une marque, alias compris (VOLKSWAGEN → aussi VW). */
-function brandKeysForQuery(brand: string): string[] {
+export function brandKeysForQuery(brand: string): string[] {
   const canonical = brandKey(brand);
   const keys = [canonical];
   for (const [alias, target] of Object.entries(BRAND_KEY_ALIASES)) {
