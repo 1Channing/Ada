@@ -1,3 +1,4 @@
+import { refModelKey } from '../../services/marketData';
 import { getSiteAdapter } from '../study-core/marketplaces';
 import { canonicalizeAutoscoutModelPath } from '../study-core/marketplaces/autoscout24';
 import { resolveYearRange } from '../study-core/marketplaces/urlTemplate';
@@ -409,16 +410,20 @@ export async function generateSearchUrlsWithMemory(
     // Look up validated mappings in memory — several rows can exist for the
     // same brand+model (fuel/trim variants); prefer the one matching the
     // requested fuel/trim, then the neutral (no fuel/trim) one.
-    const { data: memoryRows } = await supabase
+    // Le modèle se compare par sa CLÉ (refModelKey : « SÉRIE 1 », « 1-SERIES », « 1er » = « 1 »), pas par sa
+    // graphie (05/10 : l'Atelier avait mémorisé BMW « SÉRIE 1 » tel que tapé, le MI demandait « 1-SERIES » →
+    // mémoire ignorée, mobile.de « indisponible » alors que l'URL humaine validée était en base).
+    const { data: memoryRowsRaw } = await supabase
       .from('linkgen_mapping_memory')
       .select('*')
       .eq('site', site)
       .ilike('brand', params.brand ?? '')
-      .ilike('model', params.model ?? '')
       .eq('validation_status', 'valid')
       .gte('confidence', 0.75)
       .order('confidence', { ascending: false })
-      .limit(5);
+      .limit(60);
+    const wantModelKey = refModelKey(params.brand ?? '', params.model ?? '');
+    const memoryRows = ((memoryRowsRaw ?? []) as Array<Record<string, unknown>>).filter((r) => refModelKey(params.brand ?? '', String(r.model ?? '')) === wantModelKey).slice(0, 5);
     const wantFuel = (params.fuel ?? '').trim().toUpperCase();
     const wantTrim = (params.trim ?? '').trim().toUpperCase();
     const rowFuel = (r: Record<string, unknown>) => String(r.fuel ?? '').trim().toUpperCase();

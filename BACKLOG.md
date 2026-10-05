@@ -832,6 +832,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **MÉMOIRE DE MAPPING : LE MODÈLE SE COMPARE PAR SA CLÉ ; MOBILE.DE APPREND
+  LES GROUPES DE MODÈLES (05/10, Channing : « ce qui est appris dans
+  l'Atelier reste appris dans le moteur ? », « pour mobile je viens
+  d'apprendre Série 1 mais c'est appris en texte, il n'a pas appris le
+  critère »)**. Constat : l'Atelier a mémorisé BMW « SÉRIE 1 » tel que tapé
+  (validated_url mobile.de ms=3500;;20, human_verified) ; le MI et les
+  études demandent « 1-SERIES » ; le générateur cherchait la mémoire par
+  graphie exacte du modèle → mémoire ignorée, « indisponible » malgré
+  l'URL humaine en base. Règle : les lignes de mémoire d'une marque sont
+  lues puis filtrées par refModelKey (« SÉRIE 1 » ≡ « 1-SERIES » ≡
+  « 1er » ≡ « 1 »), l'URL validée est réutilisée avec les variables
+  réécrites. Mobile.de : l'URL humaine portait ms=marque;;groupe (Série 1
+  = groupe 20, pas un modèle) ; le préremplissage, les segments candidats
+  et le dictionnaire ne lisaient que ms=marque;modèle → « modèle : texte,
+  critère non appris ». Désormais le groupe est appris (id « ;20 »),
+  reconstruit tel quel (ms=3500;;20), la finition n'y est pas posée (dit).
+  Réponse à la question : oui, tout ce que l'Atelier valide vit en base
+  (mémoire de mapping avec l'URL humaine, dictionnaire d'enums) et sert au
+  MI comme aux études ; seul le dictionnaire chargé en session se
+  rafraîchit toutes les 10 minutes.
 - **MOBILE.DE SANS IDENTIFIANT DE MODÈLE : URL DE DÉPART AU LIEU D'« INDISPONIBLE » ;
   LEBONCOIN SÉRIE 1 : LA FORME DU SITE GAGNE SUR LA CLÉ ADA (05/10, Channing :
   « je veux qu'ADA propose quand même une URL en indiquant la nomenclature

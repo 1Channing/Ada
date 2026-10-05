@@ -129,6 +129,12 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
       if (first && first !== key && !MAKE_ID[first] && !LEARNED_MAKE_ID[first]) {
         LEARNED_MAKE_ID[first] = p.code;
       }
+    } else if (field === 'ms:model' && /^\d{3,6};;\d{1,6}$/.test(p.code)) {
+      // GROUPE de modèles (ms=marque;;groupe — URL humaine BMW Série 1 05/10 : ms=3500;;20) : l'identifiant
+      // est gardé avec son point-virgule de tête pour que ms=marque;;groupe se reconstruise tel quel.
+      const [makeId, , groupId] = p.code.split(';');
+      const key = `${makeId}|${canon(label)}`;
+      if (!LEARNED_MODEL_ID[key]) LEARNED_MODEL_ID[key] = { id: `;${groupId}`, label };
     } else if (field === 'ms:model' && /^\d{3,6};\d{1,6}$/.test(p.code)) {
       const [makeId, modelId] = p.code.split(';');
       LEARNED_MODEL_ID[`${makeId}|${canon(label)}`] = { id: modelId, label };
@@ -283,8 +289,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // La barre de recherche générique n'existe pas chez mobile.de : c'est LE
   // canal finition du site.
   const trim = (params.trim ?? '').trim();
+  // Groupe (id « ;20 ») : ms=marque;;groupe ; la finition n'y a pas de place prouvée → omise, dite.
+  if (modelId?.startsWith(';') && trim) warnings.push(`[LINKGEN_WARNING] MOBILE_DE: finition « ${trim} » non posable sur un groupe de modèles (ms=${makeId}${modelId})`);
   qs.set('ms', modelId
-    ? (trim ? `${makeId};${modelId};;${trim}` : `${makeId};${modelId}`)
+    ? (trim && !modelId.startsWith(';') ? `${makeId};${modelId};;${trim}` : `${makeId};${modelId}`)
     : makeId);
   // JUMEAU ÉLECTRIQUE (21/09) : second `ms=` — prouvé mobile.de Mokka 2026
   // électrique : ms=19000;37 → 27, ms=19000;49 (Mokka-e) → 24, les deux →
@@ -707,6 +715,10 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
     const seeded = reverseLookup(MAKE_ID, ms[0]);
     if (seeded !== ms[0]) out.brand = seeded;
     else if (LEARNED_MAKE_LABEL[ms[0]]) out.brand = LEARNED_MAKE_LABEL[ms[0]];
+    if (!ms[1] && ms[2]) {
+      const learned = Object.entries(LEARNED_MODEL_ID).find(([k, v]) => v.id === `;${ms[2]}` && k.startsWith(`${ms[0]}|`));
+      if (learned) out.model = learned[1].label;
+    }
     if (ms[1]) {
       const hit = Object.entries(MODEL_ID).find(([k, v]) =>
         v.id === ms[1] && (!out.brand || k.startsWith(`${canon(out.brand)}|`)));
@@ -748,6 +760,7 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
   const ms = (q['ms'] ?? '').split(';');
   if (ms[0]) out.push({ raw: ms[0], location: 'query', paramName: 'ms:make', guessField: 'brand' });
   if (ms[1]) out.push({ raw: ms[1], location: 'query', paramName: 'ms:model', guessField: 'model' });
+  else if (ms[2]) out.push({ raw: `;${ms[2]}`, location: 'query', paramName: 'ms:model', guessField: 'model' });
   if (q['ft']) out.push({ raw: q['ft'], location: 'query', paramName: 'ft', guessField: 'fuel' });
   if (q['fe']) out.push({ raw: q['fe'], location: 'query', paramName: 'fe', guessField: 'fuel' });
   if (q['fr']) out.push({ raw: q['fr'], location: 'query', paramName: 'fr', guessField: 'year' });
