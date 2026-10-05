@@ -12,7 +12,7 @@ import type { Database } from '../lib/database.types';
 import { generateInternalRef } from '../lib/internalRefGenerator';
 import { canonicalizeFuel, refineFuelToken, FUEL_LABELS } from '../lib/study-core/ingestion';
 import { canonicalizeBody } from '../lib/study-core/bodyTypes';
-import { isDamagedVehicleText, modelKeyLoose, modelFamilyKey } from '../lib/study-core/business-logic';
+import { isDamagedVehicleText, modelKeyLoose, modelFamilyKey, seriesFamilyKey } from '../lib/study-core/business-logic';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
@@ -116,6 +116,9 @@ export async function writeMarketSnapshot(params: {
     // Jumeau électrique (21/09) : « Mokka-e » structuré entre dans le
     // segment MOKKA — c'est une Mokka électrique, pas un autre modèle.
     if (modelFamilyKey(lm) && modelFamilyKey(lm) === modelFamilyKey(segModel)) return true;
+    // Série / classe (05/10) : « 118d » est une Série 1, « A 180 » une Classe A.
+    const sk = seriesFamilyKey(segment.brand, segModel);
+    if (sk && seriesFamilyKey(segment.brand, lm) === sk) return true;
     return modelKeyLoose(lm) === modelKeyLoose(segModel)
       || refModelKey(segment.brand, lm) === refModelKey(segment.brand, segModel);
   };

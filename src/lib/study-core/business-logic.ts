@@ -232,6 +232,29 @@ export function modelFamilyKey(raw: string | null | undefined): string {
   // Tout n'était que marqueur (« E », « EV ») : on garde la clé d'origine.
   return (kept.length ? kept : tokens).sort().join('');
 }
+/**
+ * FAMILLE « SÉRIE / CLASSE » (05/10, constat BMW Série 1 : AutoScout rejetait 88/88 annonces « identité
+ * structurée contraire au segment 1-SERIES » — le site nomme ses annonces par le MODÈLE (118d, 120i, M135i),
+ * nos études par la SÉRIE (1-SERIES, Série 1, 1er) ; Leboncoin et La Centrale avaient appris « Série 1 » /
+ * « SERIE 1 » mais nos clés (« 1SERIES ») ne les retrouvaient pas). Rend la clé de série ('1') ou de classe
+ * Mercedes ('A', 'GLC') pour toute graphie connue, ou null quand le modèle n'est pas une série/classe.
+ */
+export function seriesFamilyKey(brand: string | null | undefined, model: string | null | undefined): string | null {
+  const b = String(brand ?? '').normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z]/g, '');
+  const up = String(model ?? '').normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().trim();
+  if (!up) return null;
+  if (b === 'BMW') {
+    const m = up.match(/^(?:SERIE|SERIES)\s*(\d)$/) ?? up.match(/^(\d)[- ]?SERIES?$/) ?? up.match(/^(\d)[- ]?ER(?:[- ]?REIHE)?$/)
+      ?? up.match(/^M?(\d)\d{2}[A-Z]{0,3}(?:\s.*)?$/) ?? up.match(/^(\d)$/);
+    return m ? m[1] : null;
+  }
+  if (b.startsWith('MERCEDES')) {
+    const m = up.match(/^(?:CLASSE|CLASE|CLASS)\s+([A-Z]{1,3})$/) ?? up.match(/^([A-Z]{1,3})[- ]?(?:CLASS|KLASSE)$/)
+      ?? up.match(/^([A-Z]{1,3})\s?\d{2,3}[A-Z]{0,2}(?:\s.*)?$/) ?? up.match(/^([A-Z]{1,3})$/);
+    return m ? m[1] : null;
+  }
+  return null;
+}
 export function electricSiblingLabels(model: string | null | undefined): string[] {
   const m = String(model ?? '').trim();
   if (!m) return [];

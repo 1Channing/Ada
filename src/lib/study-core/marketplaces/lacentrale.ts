@@ -40,7 +40,7 @@ import type {
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
 import { resolveYearRange } from './urlTemplate';
-import { modelFamilyKey } from '../business-logic';
+import { modelFamilyKey, seriesFamilyKey } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
 
 const URL_TEMPLATE = 'https://www.lacentrale.fr/listing?makesModelsCommercialNames={brand}%3A%3A{model}&yearMin={yearFrom}&yearMax={yearTo}&mileageMax={mileage}&sortBy=priceAsc';
@@ -81,7 +81,8 @@ const slugify = (s: string) =>
  *  prouvée puis dictionnaire appris) — null quand inconnu. */
 function modelLabelFor(brand: string, model: string): string | null {
   const k = `${canonKey(brand)}|${canonKey(model)}`;
-  return learnedModelLabels.get(k) ?? MODEL_LABEL_SEED[k] ?? null;
+  const sk = seriesFamilyKey(brand, model);
+  return learnedModelLabels.get(k) ?? MODEL_LABEL_SEED[k] ?? (sk ? learnedModelLabels.get(`${canonKey(brand)}|SK:${sk}`) : undefined) ?? null;
 }
 
 /**
@@ -438,7 +439,11 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
   if (!m) return;
   const brandKey = canonKey(m[1].replace(/-/g, ' '));
   for (const { label } of pairs) {
-    if (label?.trim()) learnedModelLabels.set(`${brandKey}|${canonKey(label)}`, label.trim());
+    if (!label?.trim()) continue;
+    learnedModelLabels.set(`${brandKey}|${canonKey(label)}`, label.trim());
+    // Série / classe (05/10) : « SERIE 1 » appris retrouvable depuis « 1-SERIES ».
+    const sk = seriesFamilyKey(m[1], label);
+    if (sk && !learnedModelLabels.has(`${brandKey}|SK:${sk}`)) learnedModelLabels.set(`${brandKey}|SK:${sk}`, label.trim());
   }
 }
 

@@ -832,6 +832,31 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **SÉRIE 1 : « PLUS RIEN NE FONCTIONNE » — TROIS LECTURES CASSÉES PAR LA
+  MÊME CLASSE (05/10, Channing : « j'ai mis à jour plusieurs fois la Série 1
+  sur mobile mais ça ne se met pas à jour, la France dit pas de résultat au
+  dernier relevé, analyse tous les logs, parseurs et moteurs »)**. Logs
+  worker 18:37 → 19:22, mise à jour MI de l'étude BMW 1-SERIES Sport Diesel :
+  (a) AUTOSCOUT_DE « 88 annonce(s) écartée(s) — identité structurée
+  contraire au segment BMW 1-SERIES », AUTOSCOUT_FR 100/100 : le site
+  nomme ses annonces par le modèle (118d, 120i, M135i), l'étude par la
+  série ; la garde d'identité comparait des clés de modèle (118 ≠ 1) et
+  jetait tout ; (b) LEBONCOIN u_car_model=BMW_1-SERIES → total=0 « marché
+  vide prouvé par le site » → « 0 annonce au dernier relevé » : l'enum
+  « BMW_Série 1 → Série 1 » ÉTAIT dans le dictionnaire (moisson), mais
+  indexé « SERIE1 » et cherché « 1SERIES » ; (c) LACENTRALE
+  makesModelsCommercialNames=BMW (sans modèle) : libellé « SERIE 1 »
+  appris (lc:model:bmw), même clé manquée. Mobile.de, lui, marchait
+  (ms=3500;;20, 25 annonces). Règle de classe : `seriesFamilyKey(marque,
+  modèle)` dans business-logic — BMW « 118d », « M135i », « 1er »,
+  « Série 1 », « 1-SERIES » → « 1 » (X1, iX3, M3 → null) ; Mercedes
+  « A 180 », « CLASSE A », « A-Class » → « A », « GLC 220 d » → « GLC » —
+  utilisée par la garde d'identité à l'écriture (une 118d entre dans le
+  segment Série 1), par l'index des enums Leboncoin (SK|BMW|1 →
+  BMW_Série 1) et par les libellés La Centrale (BMW::SERIE 1). Vérifié
+  hors ligne : URL LBC « u_car_model=BMW_Série 1 », URL LC
+  « BMW::SERIE 1 », 12 graphies de clé. À relancer : « Mettre à jour
+  l'étude » FR et DE après déploiement.
 - **MÉMOIRE DE MAPPING : LE MODÈLE SE COMPARE PAR SA CLÉ ; MOBILE.DE APPREND
   LES GROUPES DE MODÈLES (05/10, Channing : « ce qui est appris dans
   l'Atelier reste appris dans le moteur ? », « pour mobile je viens

@@ -13,6 +13,7 @@
 
 import { parseListings } from '../parsers/leboncoin';
 import { normalizeForMatch } from './normalizer';
+import { seriesFamilyKey } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
 import { applyTemplate, resolveYearRange } from './urlTemplate';
 import { defaultBuildPaginatedUrl } from './registry';
@@ -157,10 +158,14 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
     // « Classe X » sont aussi indexées par leur cœur (« Classe GLA » → 'GLA')
     // pour que la recherche « GLA-Class » du référentiel retrouve l'enum.
     const suffix = code.includes('_') ? code.slice(code.indexOf('_') + 1) : code;
+    const brandPart = code.includes('_') ? code.slice(0, code.indexOf('_')) : '';
     for (const raw of [p.label || '', suffix]) {
       for (const k of [canonEnum(raw), canonEnum(classCore(raw) ?? '')]) {
         if (k && !LEARNED_MODEL_ENUM[k]) LEARNED_MODEL_ENUM[k] = code;
       }
+      // Série / classe (05/10) : « BMW_Série 1 » retrouvable depuis « 1-SERIES », « 1er », « Série 1 ».
+      const sk = seriesFamilyKey(brandPart, raw);
+      if (sk) { const k = `SK|${canonEnum(brandPart)}|${sk}`; if (!LEARNED_MODEL_ENUM[k]) LEARNED_MODEL_ENUM[k] = code; }
     }
   }
 }
@@ -212,8 +217,10 @@ function modelParamCandidates(brandMapped: string, modelMapped: string): string 
   // membre invalide peut rendre 0). Les variantes ne servent qu'en
   // DÉCOUVERTE, tant que l'enum n'a pas encore été moissonné.
   const core = classCore(display);
+  const sk = seriesFamilyKey(brand, display);
   const learned = LEARNED_MODEL_ENUM[canonEnum(display)] ?? LEARNED_MODEL_ENUM[canonEnum(compact)]
-    ?? (core ? LEARNED_MODEL_ENUM[canonEnum(core)] : undefined);
+    ?? (core ? LEARNED_MODEL_ENUM[canonEnum(core)] : undefined)
+    ?? (sk ? LEARNED_MODEL_ENUM[`SK|${canonEnum(brand)}|${sk}`] : undefined);
   if (learned) return encodeURIComponent(learned);
   // DÉCOUVERTE = UN SEUL candidat, le plus probable (audit 05/09) : la liste
   // de six variantes à virgules rendait total=0 sur LBC dès qu'un membre
