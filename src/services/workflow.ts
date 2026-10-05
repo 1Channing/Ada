@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { capped } from './capacity';
 import { getRefWindowsCached, refModelKey } from './vehicleRef';
-import { brandKey, canonKey } from './marketData';
+import { brandKey, canonKey, brandKeysForQuery } from './marketData';
 import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/linkgen/types';
@@ -68,19 +68,28 @@ export async function listRefBrandModels(): Promise<{ brands: string[]; modelsBy
 export async function listKnownTrims(brand: string, model: string, country?: string): Promise<string[]> {
   const bk = brandKey(brand);
   const mk = canonKey(model);
-  let q = supabase
-    .from('market_listing_observations')
-    .select('trim, brand, model')
-    .neq('trim', '')
-    .order('id');
-  if (country) q = q.eq('country', country);
-  // Par pages de 1 000 (plafond PostgREST, constat 02/10).
-  const [{ data: obs }, { data: mem }] = await Promise.all([
-    pageAll((from, to) => q.range(from, to), 4000),
-    pageAll((from, to) => supabase.from('linkgen_mapping_memory').select('trim, brand, model').neq('trim', '').order('id').range(from, to), 4000),
-  ]);
-  capped(obs, 4000, 'finitions.observations', 'La liste des finitions connues lit 4 000 observations au plus : des finitions peuvent manquer dans les suggestions.');
-  capped(mem, 2000, 'finitions.memoire', 'La liste des finitions connues lit 2 000 lignes de mémoire au plus : des finitions peuvent manquer dans les suggestions.');
+  // LE SEGMENT SEULEMENT (05/10, plafond « finitions.observations » touché) : l'ancienne lecture prenait les
+  // observations de tout le pays (4 000 au plus) puis filtrait marque × modèle ici — des finitions manquaient.
+  // La base filtre le segment (RPC mi_obs_for_segment, mêmes clés que le MI) ; la mémoire est pré-filtrée par
+  // la marque. Repli sur l'ancienne lecture si la RPC échoue.
+  type Row = { trim: string | null; brand: string | null; model: string | null };
+  const rpc = await pageAll<Row>((from, to) => (supabase.rpc('mi_obs_for_segment' as never, {
+    p_brand_keys: brandKeysForQuery(brand), p_model_key: (model ?? '').trim() ? refModelKey(brand, model) : null, p_country: country || null, p_limit: 10_000,
+  } as never) as unknown as { range: (a: number, b: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }> }).range(from, to), 10_000);
+  let obs: Row[] | null = rpc.error ? null : rpc.data;
+  if (obs == null) {
+    let q = supabase.from('market_listing_observations').select('trim, brand, model').neq('trim', '').order('id');
+    if (country) q = q.eq('country', country);
+    obs = (await pageAll((from, to) => q.range(from, to), 4000)).data as Row[];
+    capped(obs, 4000, 'finitions.observations', 'La liste des finitions connues lit 4 000 observations au plus (repli, RPC en échec) : des finitions peuvent manquer dans les suggestions.');
+  } else if (obs.length >= 10_000) {
+    capped(obs, 10_000, 'finitions.observations', `La liste des finitions connues lit 10 000 observations au plus pour ${brand} ${model} : des finitions peuvent manquer dans les suggestions.`);
+  }
+  const brandWord = (brand ?? '').trim().split(/[\s-]+/)[0] ?? '';
+  let qm = supabase.from('linkgen_mapping_memory').select('trim, brand, model').neq('trim', '').order('id');
+  if (brandWord.length >= 2) qm = qm.ilike('brand', `%${brandWord}%`);
+  const { data: mem } = await pageAll<Row>((from, to) => qm.range(from, to), 4000);
+  capped(mem, 4000, 'finitions.memoire', `La liste des finitions connues lit 4 000 lignes de mémoire au plus pour ${brand} : des finitions peuvent manquer dans les suggestions.`);
   const seen = new Map<string, string>(); // clé canonique → première graphie vue
   const take = (rows: Array<{ trim: string | null; brand: string | null; model: string | null }> | null) => {
     for (const r of rows ?? []) {

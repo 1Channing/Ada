@@ -832,6 +832,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **PLAFOND « finitions.observations » TRAITÉ (05/10, même classe)**. Les
+  suggestions de finitions (saisie d'une étude) lisaient les observations
+  de tout le pays (4 000 au plus) puis filtraient marque × modèle en
+  mémoire. Règle : la base filtre le segment (RPC mi_obs_for_segment,
+  10 000 au plus, alerte seulement si atteint) ; la mémoire de mapping est
+  pré-filtrée par la marque (4 000 au plus). Repli sur l'ancienne lecture,
+  dit dans l'alerte, si la RPC échoue.
 - **PLAFOND « etudes.mediane_observations » TRAITÉ (05/10, Channing : « traite
   cette limite », bandeau rouge 6×, pays NL)**. La médiane cible de repli
   d'une étude lisait TOUTES les observations du pays sur 45 jours (4 000 au
