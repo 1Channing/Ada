@@ -47,7 +47,7 @@ export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): Li
     },
   });
 
-  const { url, warnings, electricSibling } = adapter.buildSearchUrl(params);
+  const { url, warnings, electricSibling, draftUrl } = adapter.buildSearchUrl(params);
   if (electricSibling) {
     logs.push({
       level: 'MAPPING',
@@ -75,7 +75,7 @@ export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): Li
     data: { url },
   });
 
-  return { url, site: params.site, debugLogs: logs, ...(electricSibling ? { electricSibling } : {}) };
+  return { url, site: params.site, debugLogs: logs, ...(electricSibling ? { electricSibling } : {}), ...(draftUrl ? { draftUrl } : {}) };
 }
 
 export function generateSearchUrls(params: LinkGenParams): LinkGenUrlResult[] {
@@ -97,6 +97,7 @@ export function generateSearchUrls(params: LinkGenParams): LinkGenUrlResult[] {
       site,
       country: adapter.country,
       url: result.url,
+      ...(result.draftUrl ? { draftUrl: result.draftUrl } : {}),
       debugLogs: result.debugLogs,
       warnings,
       validationStatus: domainOk ? ('not_checked' as const) : ('invalid' as const),
@@ -606,6 +607,7 @@ export async function generateSearchUrlsWithMemory(
       site,
       country: adapter.country,
       url: fallbackUrl,
+      ...(fallbackResult.draftUrl ? { draftUrl: fallbackResult.draftUrl } : {}),
       debugLogs: [...logs, ...fallbackResult.debugLogs],
       warnings: fallbackResult.debugLogs
         .filter((l) => l.level === 'WARNING')

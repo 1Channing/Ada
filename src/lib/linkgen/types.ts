@@ -75,6 +75,8 @@ export interface ScoutHypothesis {
 
 /** Legacy single-site result — kept for backward compat */
 export interface LinkGenResult {
+  /** URL de départ à compléter (identifiant de modèle inconnu) — jamais scrapée. */
+  draftUrl?: string;
   url: string;
   site: SiteKey;
   debugLogs: LinkGenLogEntry[];
@@ -142,6 +144,8 @@ export interface LinkGenUrlResult {
   debugLogs: LinkGenLogEntry[];
   warnings: string[];
   validationStatus: ValidationStatus;
+  /** URL de départ à compléter à la main (identifiant de modèle inconnu) — jamais scrapée. */
+  draftUrl?: string;
   validationScore?: number;
   listingCount?: number;
   listingCountMethod?: 'regex' | 'dom' | 'fallback';

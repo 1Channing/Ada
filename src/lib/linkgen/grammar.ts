@@ -293,6 +293,9 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
         let score = prefixed ? 2 : 0;
         if (prefixed && rest === siteCase(rest)) score += 1;
         if (prefixed && learnedEnumCode('LEBONCOIN', 'u_car_model', rest) === v) score += 3;
+        // Clé ADA déguisée (« BMW_1-SERIES », « MERCEDES_A-CLASS » : tout en capitales avec un tiret ou « SERIES »)
+        // contre la forme du site (« BMW_Série 1 ») : constat 05/10, l'égalité donnait la clé ADA et LBC rendait 0.
+        if (prefixed && rest === rest.toUpperCase() && /-|SERIES|CLASS/.test(rest) && !/^[A-Z]?\d{1,3}$/.test(rest)) score -= 2;
         if (score > bestScore) { best = v; bestScore = score; }
       }
       // Remplacement EN PLACE (l'ordre des paramètres reste celui de l'URL —

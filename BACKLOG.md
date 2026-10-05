@@ -832,6 +832,25 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **MOBILE.DE SANS IDENTIFIANT DE MODÈLE : URL DE DÉPART AU LIEU D'« INDISPONIBLE » ;
+  LEBONCOIN SÉRIE 1 : LA FORME DU SITE GAGNE SUR LA CLÉ ADA (05/10, Channing :
+  « je veux qu'ADA propose quand même une URL en indiquant la nomenclature
+  qui manque », « j'ai ajouté Série 1 dans l'Atelier mais leboncoin ne
+  sait toujours pas donner Série 1 »)**. (1) mobile.de identifie les
+  modèles par des numéros (ms=marque;modèle) appris d'URLs humaines ; BMW
+  Série 1 n'en a pas → « indisponible ». Désormais l'adaptateur rend une
+  URL de DÉPART (draftUrl : marque seule + tous les critères, jamais
+  scrapée, url reste vide pour les études) et le menu URLs du MI affiche
+  « Ouvrir · modèle à compléter » en ambre : choisir le modèle sur le site,
+  coller l'URL dans Atelier › Ingestion, l'identifiant est appris.
+  (2) Leboncoin : l'Atelier avait appris u_car_model = « BMW_1-SERIES,
+  BMW_Série 1 » (Channing avait collé l'URL générée par ADA, pas une URL
+  humaine) ; la règle « une seule valeur » départageait à égalité et
+  prenait la première, la clé ADA, que leboncoin ne connaît pas (0
+  annonce). Une clé ADA déguisée (tout en capitales avec tiret, SERIES,
+  CLASS) perd 2 points face à la forme du site : « BMW_Série 1 » gagne.
+  Rappel pour l'Atelier : coller l'URL du site telle que le site la
+  fabrique, pas celle d'ADA.
 - **OFFRES : LISTE VW ID.7 TOURER (05/10, Channing : « adapte les offres
   d'ADA à cette liste »)**. Fichier « Inventory » (Make, Model, Variant,
   EQ, Colour, VIN, Mileage, 1ST Reg., Price net, VAT Deductible, Report

@@ -265,10 +265,14 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // Sans ID connu, on ne fabrique PAS une URL tous-modèles mensongère : l'étude
   // sort en no_url et le centre de résolution dit quoi apprendre (coller une
   // URL mobile.de du combo — le prefill décode ms= et la mémoire prend le relais).
-  if (!makeId || (params.model && !modelId)) {
-    warnings.push(`[LINKGEN_WARNING] MOBILE_DE: ID ${!makeId ? 'marque' : 'modèle'} inconnu pour ${params.brand ?? ''} ${params.model ?? ''} — coller une URL mobile.de pour l'apprendre`);
+  if (!makeId) {
+    warnings.push(`[LINKGEN_WARNING] MOBILE_DE: ID marque inconnu pour ${params.brand ?? ''} ${params.model ?? ''} — coller une URL mobile.de pour l'apprendre`);
     return { url: '', warnings };
   }
+  // Modèle sans identifiant : l'URL est construite sur la marque seule et rendue comme BROUILLON (draftUrl),
+  // jamais comme URL de scrape — Channing complète le modèle dans mobile.de puis colle l'URL dans l'Atelier.
+  const modelMissing = Boolean(params.model && !modelId);
+  if (modelMissing) warnings.push(`[LINKGEN_WARNING] MOBILE_DE: ID modèle inconnu pour ${params.brand ?? ''} ${params.model ?? ''} — URL de départ sur la marque seule, coller une URL mobile.de du modèle pour l'apprendre`);
 
   const qs = new URLSearchParams();
   qs.set('isSearchRequest', 'true');
@@ -316,7 +320,9 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   qs.set('sb', 'p');
   qs.set('od', 'up');
 
-  return { url: `https://www.mobile.de/fr/voiture/recherche.html?${qs.toString()}`, warnings, ...(electricSibling ? { electricSibling } : {}) };
+  const built = `https://www.mobile.de/fr/voiture/recherche.html?${qs.toString()}`;
+  if (modelMissing) return { url: '', draftUrl: built, warnings, modelExpressed: false };
+  return { url: built, warnings, ...(electricSibling ? { electricSibling } : {}) };
 }
 
 /**

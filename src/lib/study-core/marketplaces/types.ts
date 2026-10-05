@@ -138,6 +138,10 @@ export interface BuildUrlResult {
    *  garde d'exprimabilité des campagnes précision : pas de scrape payé pour
    *  une page qu'on sait incapable de confirmer le modèle (Channing 02/08). */
   modelExpressed?: boolean;
+  /** URL de DÉPART quand le modèle n'a pas d'identifiant appris (mobile.de, 05/10, Channing : « qu'ADA propose quand
+   *  même une URL en indiquant la nomenclature qui manque ») : page marque + tous les critères, à compléter à la main
+   *  puis à coller dans l'Atelier. Jamais scrapée telle quelle (url reste vide). */
+  draftUrl?: string;
   /** Libellé du JUMEAU ÉLECTRIQUE posé dans l'URL en plus (ou à la place)
    *  du modèle demandé — « Mokka-e » pour une étude Mokka électrique (21/09).
    *  Le générateur préfère alors la voie native à une URL apprise qui

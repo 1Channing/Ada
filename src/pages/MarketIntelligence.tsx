@@ -818,13 +818,13 @@ function gearboxCriteria(f: MarketFilters): 'AUTOMATIQUE' | 'MANUELLE' | undefin
  * Partagé entre le bouton « URLs » et « Mettre à jour » : ce qui s'affiche est
  * exactement ce qui se scrape.
  */
-async function generateStudyUrls(filters: MarketFilters): Promise<{ site: string; url: string | null }[]> {
+async function generateStudyUrls(filters: MarketFilters): Promise<{ site: string; url: string | null; draftUrl?: string | null }[]> {
   const sites = allSiteAdapters()
     .filter((a) => (a as { countryCode?: string }).countryCode === filters.country)
     .filter((a) => !filters.site || a.key === filters.site);
-  const out: { site: string; url: string | null }[] = [];
+  const out: { site: string; url: string | null; draftUrl?: string | null }[] = [];
   for (const site of sites) {
-    let url: string | null = null;
+    let url: string | null = null; let draftUrl: string | null = null;
     try {
       const gen = await generateSearchUrlsWithMemory({
         selectedSites: [site.key as SiteKey],
@@ -848,8 +848,9 @@ async function generateStudyUrls(filters: MarketFilters): Promise<{ site: string
         vehicleType: filters.vehicleType || undefined,
       });
       url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
+      draftUrl = !url && gen[0]?.draftUrl ? gen[0].draftUrl : null;
     } catch { url = null; }
-    out.push({ site: site.key, url });
+    out.push({ site: site.key, url, draftUrl });
   }
   return out;
 }
@@ -897,7 +898,7 @@ const MI_UPDATES_KEY = 'ada_mi_updates';
  */
 function StudyLinks({ filters }: { filters: MarketFilters }) {
   const [open, setOpen] = useState(false);
-  const [links, setLinks] = useState<{ site: string; url: string | null }[] | null>(null);
+  const [links, setLinks] = useState<{ site: string; url: string | null; draftUrl?: string | null }[] | null>(null);
   const [busy, setBusy] = useState(false);
   const sig = JSON.stringify(filters);
   useEffect(() => { setLinks(null); setOpen(false); }, [sig]);
@@ -928,7 +929,9 @@ function StudyLinks({ filters }: { filters: MarketFilters }) {
               <span className="text-xs text-slate-700">{l.site}</span>
               {l.url
                 ? <a href={l.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
-                : <span className="text-slate-400 text-xs">indisponible</span>}
+                : l.draftUrl
+                  ? <a href={l.draftUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-amber-700 hover:underline text-xs" title="Nomenclature du modèle inconnue sur ce site : l'URL part sur la marque seule avec tes critères. Choisis le modèle sur le site, puis colle l'URL dans Atelier › Ingestion pour l'apprendre.">Ouvrir · modèle à compléter <ExternalLink className="w-3 h-3" /></a>
+                  : <span className="text-slate-400 text-xs">indisponible</span>}
             </span>
           ))}
         </span>
