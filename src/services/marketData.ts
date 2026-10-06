@@ -562,7 +562,50 @@ export function latestPerListing(obs: Observation[]): Observation[] {
     const cur = byListing.get(id);
     if (!cur || String(o.scraped_at ?? '') > String(cur.scraped_at ?? '')) byListing.set(id, o);
   }
-  return [...byListing.values()];
+  return collapseMirroredListings([...byListing.values()]);
+}
+
+/** Sites AGRÉGATEURS : ils republient les annonces des autres sites (Gaspedaal
+ *  reprend AutoScout NL et Marktplaats) — jamais une source première. */
+const AGGREGATOR_SITES = new Set(['GASPEDAAL']);
+
+/**
+ * Une VOITURE = une annonce (constat Elroq NL Sportline 06/10 : 82 annonces
+ * affichées, dont 60 en trop — la même voiture à 45 900 € / 550 km comptée
+ * trois fois : AutoScout NL + deux entrées Gaspedaal ; le prix d'attaque
+ * « médiane des 5 moins chères » reposait sur 2 voitures réelles).
+ * Règle : même année + même kilométrage + même prix + même puissance sur des
+ * SITES DIFFÉRENTS = miroirs → on ne garde que les annonces d'UN site (le
+ * site première source le plus fourni ; un agrégateur n'est gardé que s'il
+ * est seul). Sur un même site première source, les annonces identiques
+ * restent (un concessionnaire qui liste 3 voitures neuves identiques, c'est
+ * 3 voitures) ; sur un agrégateur, elles se confondent. Année, km ou prix
+ * manquant = pas de regroupement (fail-open).
+ */
+export function collapseMirroredListings(obs: Observation[]): Observation[] {
+  const groups = new Map<string, Observation[]>();
+  const loose: Observation[] = [];
+  for (const o of obs) {
+    const ok = o.year != null && typeof o.mileage === 'number' && o.mileage >= 0 && typeof o.price === 'number' && o.price > 0;
+    if (!ok) { loose.push(o); continue; }
+    const k = `${o.year}|${o.mileage}|${o.price}|${o.power_din ?? ''}`;
+    (groups.get(k) ?? groups.set(k, []).get(k)!).push(o);
+  }
+  const out: Observation[] = [...loose];
+  for (const g of groups.values()) {
+    if (g.length === 1) { out.push(g[0]); continue; }
+    const bySite = new Map<string, Observation[]>();
+    for (const o of g) (bySite.get(o.site) ?? bySite.set(o.site, []).get(o.site)!).push(o);
+    const sites = [...bySite.keys()].sort((a, b) => {
+      const aa = AGGREGATOR_SITES.has(a) ? 1 : 0, ab = AGGREGATOR_SITES.has(b) ? 1 : 0;
+      if (aa !== ab) return aa - ab;
+      const na = bySite.get(a)!.length, nb = bySite.get(b)!.length;
+      return nb !== na ? nb - na : a.localeCompare(b);
+    });
+    const keep = bySite.get(sites[0])!;
+    if (AGGREGATOR_SITES.has(sites[0])) out.push(keep[0]); else out.push(...keep);
+  }
+  return out;
 }
 
 /**

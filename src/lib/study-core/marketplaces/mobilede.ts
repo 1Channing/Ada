@@ -485,6 +485,64 @@ function cardStateBadges(html: string): Map<string, string> {
   return out;
 }
 
+/**
+ * VERSION des cartes DOM (constat Elroq DE 06/10 : l'annonce du particulier
+ * « 85 Sportline Sportline » à 43 200 € était en base SANS finition — le
+ * flight ne porte que make/model — et toute étude filtrée sur une finition
+ * perdait donc 100 % de mobile.de). Même clé de jonction que les badges
+ * (date|km|kW, lue dans le bloc d'attributs de la carte). Pour chaque carte
+ * on garde les RUNS DE TEXTE qui précèdent le bloc d'attributs (titre,
+ * sous-titre, prix…) ; la version est le run qui SUIT le run égal à
+ * « Marque Modèle » du flight — ancrage prouvable, jamais de position fixe.
+ * Clé ambiguë = ignorée. Sans ancrage = pas de version (fail-open).
+ */
+const stripText = (h: string): string[] => h
+  .replace(/<!--.*?-->/g, '')
+  .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, '')
+  .split(/<[^>]+>/)
+  .map((t) => t.replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&nbsp;| /g, ' ').replace(/\s+/g, ' ').trim())
+  .filter(Boolean);
+
+function cardTextRuns(html: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const dup = new Set<string>();
+  try {
+    const marker = 'data-testid="listing-details-attributes"';
+    let prev = 0;
+    let at = html.indexOf(marker);
+    while (at >= 0) {
+      const attrsText = stripText(html.slice(at, at + 900)).join(' ');
+      const fr = attrsText.match(/(\d{2}\/\d{4})/)?.[1] ?? '';
+      const ml = attrsText.match(/([\d\s.,  ]+)\s*km/)?.[1]?.replace(/\D/g, '') ?? '';
+      const kw = attrsText.match(/(\d+)\s*kW/)?.[1] ?? '';
+      const key = fr && ml && kw ? `${fr}|${ml}|${kw}` : '';
+      if (key) {
+        const tagStart = html.lastIndexOf('<', at); // le marqueur est au milieu d'une balise ouvrante
+        const runs = stripText(html.slice(Math.max(prev, at - 2500), tagStart > prev ? tagStart : at)).slice(-10);
+        if (out.has(key)) dup.add(key); else out.set(key, runs);
+      }
+      prev = at + marker.length;
+      at = html.indexOf(marker, prev);
+    }
+    for (const k of dup) out.delete(k);
+  } catch { /* best-effort — jamais bloquant */ }
+  return out;
+}
+
+const normRun = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Version d'une annonce : le run de texte de sa carte qui suit « Marque Modèle ». */
+function versionFromRuns(runs: string[] | undefined, makeModel: string): string | null {
+  if (!runs || !makeModel) return null;
+  const want = normRun(makeModel);
+  if (!want) return null;
+  const idx = runs.findIndex((r) => normRun(r) === want);
+  if (idx < 0 || idx + 1 >= runs.length) return null;
+  const v = runs[idx + 1];
+  if (!v || v.length > 120 || /€|\d{2}\/\d{4}|\bkm\b|\bkW\b/.test(v)) return null;
+  return v;
+}
+
 function flightStateKey(ad: Record<string, unknown>): string | null {
   const attr = (ad as { attr?: Record<string, unknown> }).attr;
   if (!attr) return null;
@@ -495,6 +553,7 @@ function flightStateKey(ad: Record<string, unknown>): string | null {
 }
 
 let flightProbeCount = 0;
+let versionProbeCount = 0;
 function parseFlightListings(html: string): ScrapedListing[] {
   const { total, ads } = extractFlightAds(html);
   if (!ads.length) return [];
@@ -515,6 +574,8 @@ function parseFlightListings(html: string): ScrapedListing[] {
   }
   const out: ScrapedListing[] = [];
   const stateBadges = cardStateBadges(html);
+  const cardRuns = cardTextRuns(html);
+  let versionProbed = false;
   // mobile.de liste aussi des annonces hors Allemagne — attr.cn (prouvé :
   // "DE" sur les dumps) donne le pays de l'annonce. Une étude MOBILE_DE
   // décrit le MARCHÉ ALLEMAND : on écarte les autres pays (compteur loggé).
@@ -548,7 +609,19 @@ function parseFlightListings(html: string): ScrapedListing[] {
     if (!price || !baseTitle) continue;
     const sk = flightStateKey(ad);
     const badge = sk ? stateBadges.get(sk) : undefined;
-    const title = badge ? `${baseTitle} — ${badge}` : baseTitle;
+    // Version (« 85 Sportline Sportline ») recollée depuis la carte DOM —
+    // dans le titre (filtre « Finition contient » du MI, détecteurs) ET en
+    // finition (affichage). Sonde une fois par page parsée : les runs de la
+    // carte et la version retenue, pour que worker_logs PROUVE l'ancrage.
+    const version = sk ? versionFromRuns(cardRuns.get(sk), rebuilt) : null;
+    if (sk && !versionProbed && versionProbeCount < 2) {
+      versionProbed = true;
+      versionProbeCount++;
+      const runs = cardRuns.get(sk);
+      console.warn(`[MOBILEDE_OBS] version carte : clé=${sk} ancrage=« ${rebuilt} » → « ${version ?? '∅'} » ; runs=${JSON.stringify(runs ?? null).slice(0, 320)}`);
+    }
+    const titled = version ? `${baseTitle} ${version}` : baseTitle;
+    const title = badge ? `${titled} — ${badge}` : titled;
     const url = listingUrlOf(ad);
     out.push({
       title: title.slice(0, 200),
@@ -556,7 +629,7 @@ function parseFlightListings(html: string): ScrapedListing[] {
       currency: 'EUR',
       mileage: toInt(readField(ad, ['mileage'], ['ml'])),
       year: toYear(readField(ad, ['firstRegistration', 'year'], ['fr', 'yc'])),
-      trim: null,
+      trim: version,
       // '' (et non un placeholder commun) : la dédupe worker retombe alors
       // sur titre|prix — un placeholder identique écrasait 24 annonces en 1
       // (campagne 21h21, « échantillon 1 < 3 » sur 890 Elroq réelles).
@@ -647,8 +720,20 @@ function parseFromJsonState(html: string): ScrapedListing[] {
  * extraites mais un carburant illisible (52× « petrol » sur une page d'Elroq,
  * impossible) : la prochaine page scrapée fournira le champ fautif.
  */
+let pageProbeCount = 0;
 function parseListings(html: string, url: string): ScrapedListing[] {
   probeRefData(html);
+  // Sonde pagination (06/10) : pages ≥ 2 — total annoncé, nombre et 1ʳᵉ
+  // annonce de la page, pour prouver que pageNumber=N sert bien une autre page.
+  const pn = url.match(/[?&]pageNumber=(\d+)/)?.[1];
+  if (pn && pageProbeCount < 3) {
+    pageProbeCount++;
+    try {
+      const { total, ads } = extractFlightAds(html);
+      const first = ads[0] as { id?: unknown } | undefined;
+      console.warn(`[MOBILEDE_OBS] page ${pn} : total=${total ?? '?'} annonces=${ads.length} 1ʳᵉ id=${String(first?.id ?? '∅')}`);
+    } catch { /* sonde */ }
+  }
   const viaNext = parseNextDataListings(html, { host: 'mobile.de', currency: 'EUR', siteLabel: 'MOBILE_DE', verbose: true });
   if (viaNext.length > 0) return viaNext;
   const viaFlight = parseFlightListings(html);
@@ -783,7 +868,21 @@ export const mobiledeAdapter: SiteAdapter = {
   supportsParam: (param) => !UNSUPPORTED_PARAMS.includes(param),
 
   buildSearchUrl,
-  buildPaginatedUrl: defaultBuildPaginatedUrl,
+  // Constat 06/10 : avec le `?page=N` générique, mobile.de resservait la
+  // page 1 (échantillons de 35-39 annonces sur 141, 237 ou 329 annoncées —
+  // la page 2 « sans nouveauté » arrêtait la lecture). Le site pagine par
+  // `pageNumber=N` ; la sonde de parseListings logge la 1ʳᵉ annonce des
+  // pages ≥ 2 pour le prouver dans worker_logs.
+  buildPaginatedUrl: (baseUrl: string, pageNumber: number): string => {
+    if (pageNumber <= 1) return baseUrl;
+    try {
+      const u = new URL(baseUrl);
+      u.searchParams.set('pageNumber', String(pageNumber));
+      return u.toString();
+    } catch {
+      return defaultBuildPaginatedUrl(baseUrl, pageNumber);
+    }
+  },
 
   parseSearchResults: parseListings,
 

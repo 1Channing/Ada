@@ -832,6 +832,29 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **MOBILE.DE SANS VERSION NI PAGE 2, MIROIRS COMPTÉS DEUX FOIS (06/10,
+  Channing : « en Allemagne il y en a qu'il ne trouve pas… celui du
+  particulier n'apparaît pas », « les calculs des prix médians sont-ils
+  bons ? »)**. L'Elroq du particulier (43 200 €, 29 000 km, mobile.de)
+  ÉTAIT en base, mais titre « Skoda Elroq » et finition vide : le flight
+  mobile.de ne porte que marque/modèle, et l'étude « Finition contient
+  Sportline » perdait donc 100 % de mobile.de (DE = 30 annonces, toutes
+  AutoScout). Règle : la version (« 85 Sportline Sportline ») est lue sur
+  la carte DOM — même clé de jonction que les badges (date|km|kW), le run de
+  texte qui SUIT « Marque Modèle » — recollée au titre et posée en
+  finition ; sonde `[MOBILEDE_OBS] version carte` au prochain scan pour
+  prouver l'ancrage. Deuxième constat : échantillons mobile.de de 35-39
+  annonces pour 141, 237 ou 329 annoncées — `?page=N` est ignoré par le
+  site, la page 2 resservait la page 1 et arrêtait la lecture ; pagination
+  `pageNumber=N` + sonde `[MOBILEDE_OBS] page N`. Troisième constat :
+  médianes ARITHMÉTIQUEMENT justes (rejeu : identiques), mais NL Sportline
+  comptait 82 annonces pour ~52 voitures — Gaspedaal republie AutoScout NL
+  et Marktplaats (45 900 € / 550 km trois fois ; prix d'attaque sur 2
+  voitures réelles). Règle `collapseMirroredListings` : même année + km +
+  prix + puissance sur des sites DIFFÉRENTS = miroirs, on garde le site
+  première source le plus fourni (agrégateur seulement s'il est seul) ;
+  sur un même site première source les identiques restent (stock
+  concessionnaire). NL : 82 → 52, médiane 48 390 → 48 695.
 - **ANNONCES DISPARUES QUI SURVIVAIENT DANS LE MI (06/10, Channing : « quand
   je clique sur le premier lien français il me dit qu'elle n'est plus
   disponible alors que je viens de mettre à jour »)**. Elroq FR : l'annonce
