@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **VITRINE WASSINK AUTOGROEP : LECTEUR « dtcvm » (06/10, Channing : « corrige
+  cette vitrine », cas « Relevé vide sur un site reconnu : datamotive »)**.
+  Trois constats sur la page : (1) le bloc JSON-LD porte `id="vm-overview-
+  itemlist-schema"` et le lecteur générique n'acceptait que la balise nue →
+  « JSON-LD absent » sur une page qui en avait un — règle : balise tolérante
+  aux attributs ; (2) la pagination est `from=0&size=12`, `page=2` y est
+  ignoré → `withPage` pagine par décalage quand `from`/`size` sont là ;
+  (3) les prix JSON-LD sont des MENSUALITÉS de private lease (554 € pour une
+  308 à 17 740 €) : des données fausses valent moins que zéro donnée, donc
+  lecteur dédié sur `window.dtcVm.initialHits` (prix particulier/action, km,
+  année, plaque, VIN, carburant, boîte, vendu/attendu, deeplink, photo, date
+  d'entrée), détecté AVANT datamotive. Vérifié en local : 1 110 / 1 110
+  véhicules, 93 pages, 107 s, aucun sans prix, km ni année.
 - **MOBILE.DE SANS VERSION NI PAGE 2, MIROIRS COMPTÉS DEUX FOIS (06/10,
   Channing : « en Allemagne il y en a qu'il ne trouve pas… celui du
   particulier n'apparaît pas », « les calculs des prix médians sont-ils

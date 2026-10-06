@@ -29,7 +29,8 @@ import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { recordLearningCase, resolveLearningCase } from './learningBox';
 import { fetchHtmlWithZyte } from './scraper';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw';
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -147,6 +148,13 @@ const decode = (s: string) => s.replace(/&euro;/g, '€').replace(/&amp;/g, '&')
 const stripTags = (s: string) => decode(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 const withPage = (url: string, page: number): string => {
   const u = new URL(url);
+  // Pagination par DÉCALAGE (Wassink 06/10 : « ?from=0&size=12 » — `page=2`
+  // y est ignoré, la page 1 revient et le relevé s'arrêtait à 12 / 1 110).
+  const size = Number(u.searchParams.get('size') ?? '');
+  if (u.searchParams.has('from') && Number.isFinite(size) && size > 0) {
+    u.searchParams.set('from', String((page - 1) * size));
+    return u.toString();
+  }
   u.searchParams.set('page', String(page));
   return u.toString();
 };
@@ -177,6 +185,9 @@ export function splitTitle(title: string): { brand: string | null; model: string
 export function detectDealerProvider(html: string): DealerProvider | null {
   if (/id="vehicle-overview-initial-state"/.test(html)) return 'dvnl';
   if (/find-autodata-vehicle-data/.test(html)) return 'autodata';
+  // Avant datamotive : ces pages portent AUSSI un JSON-LD ItemList, mais aux
+  // prix de leasing mensuels (Wassink 06/10 : « 554 € » pour une 308).
+  if (/window\.dtcVm\.initialHits\s*=\s*\{/.test(html)) return 'dtcvm';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -310,7 +321,10 @@ function findItemList(d: unknown, depth = 0): LdList | null {
   return findItemList(o.mainEntity, depth + 1) ?? findItemList(o['@graph'], depth + 1);
 }
 function parseItemList(html: string): { items: Array<Record<string, unknown>>; total: number | null } | null {
-  for (const m of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
+  // Balise tolérante aux attributs (Wassink 06/10 : `<script type="…ld+json"
+  // id="vm-overview-itemlist-schema">` — la forme stricte rendait « JSON-LD
+  // absent » sur une page qui en portait un).
+  for (const m of html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)) {
     try {
       const list = findItemList(JSON.parse(m[1]));
       if (list) return { items: list.itemListElement ?? [], total: typeof list.numberOfItems === 'number' ? list.numberOfItems : null };
@@ -398,6 +412,102 @@ async function scrapeDatamotive(url: string, firstHtml: string): Promise<DealerS
   }
   if (out.length > 0 && out.every((v) => v.km == null)) warnings.push('Ce fournisseur ne publie ni km ni année dans la liste (fiche détaillée seulement).');
   return { provider: 'datamotive', total: total ?? out.length, declared: total, vehicles: out, pages, warnings };
+}
+
+// ── dtcvm (Wassink Autogroep) ───────────────────────────────────────────────
+// Constat 06/10 : la page porte un JSON-LD ItemList (reconnu « datamotive »)
+// mais ses prix sont des MENSUALITÉS de private lease (554 € pour une 308 à
+// 17 740 €) — et `window.dtcVm.initialHits = {"hits":{"total":1110,"from":0,
+// "size":12,"hits":[…]}}` embarque le vrai stock : verkoopprijs_particulier,
+// actieprijs, tellerstand, bouwjaar, kenteken, chassisnummer, brandstof,
+// transmissie, verkocht, verwacht, deeplink, afbeeldingen, created_at.
+// Pagination par `from=` (décalage), total = hits.total.
+type DtcHit = Record<string, unknown>;
+function parseDtcVm(html: string): { total: number | null; from: number; size: number; hits: DtcHit[] } | null {
+  const marker = html.match(/window\.dtcVm\.initialHits\s*=\s*/);
+  if (!marker || marker.index == null) return null;
+  const start = marker.index + marker[0].length;
+  let depth = 0; let inStr = false;
+  for (let i = start; i < html.length; i++) {
+    const ch = html[i];
+    if (inStr) { if (ch === '\\') i++; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        try {
+          const d = JSON.parse(html.slice(start, i + 1)) as { hits?: { total?: unknown; from?: unknown; size?: unknown; hits?: unknown } };
+          const h = d.hits ?? {};
+          return { total: num(h.total), from: num(h.from) ?? 0, size: num(h.size) ?? 0, hits: Array.isArray(h.hits) ? (h.hits as DtcHit[]) : [] };
+        } catch { return null; }
+      }
+    }
+  }
+  return null;
+}
+function dtcHitToVehicle(h: DtcHit): DealerVehicle | null {
+  const s = (k: string): string => String(h[k] ?? '').trim();
+  const id = s('voertuignr_hexon') || s('stocknummer') || s('id');
+  if (!id) return null;
+  const brand = s('merk') || null;
+  const model = s('model') || null;
+  const variant = s('motorvariant') || s('type').split('|')[0].trim();
+  const title = [brand, model, variant].filter(Boolean).join(' ');
+  // actieprijs > 0 = prix affiché (promotion) ; sinon prix particulier.
+  const price = priceOrNull(s('actieprijs')) ?? priceOrNull(s('verkoopprijs_particulier'));
+  const images = Array.isArray(h.afbeeldingen) ? (h.afbeeldingen as unknown[]) : [];
+  const created = s('created_at');
+  const status: DealerVehicleStatus | null = num(h.verkocht) === 1 ? 'sold'
+    : num(h.verwacht) === 1 ? 'expected'
+      : price == null ? 'price_on_request' : null;
+  return {
+    external_id: id, url: s('deeplink') || null, title, brand, model,
+    price, km: num(s('tellerstand')), year: num(s('bouwjaar')), fuel: s('brandstof') || null, gearbox: s('transmissie') || null,
+    plate: s('kenteken') || null, vin: s('chassisnummer') || null, body: s('carrosserie') || null,
+    image: images.length ? String(images[0]) : null,
+    listed_at: /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(created) ? created.replace(' ', 'T') : null,
+    status,
+  };
+}
+async function scrapeDtcVm(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const first = parseDtcVm(firstHtml);
+  if (!first) return { provider: 'dtcvm', total: null, declared: null, vehicles: [], pages: 1, warnings: ['bloc dtcVm.initialHits illisible'] };
+  const total = first.total;
+  const u = new URL(url);
+  const size = first.size > 0 ? first.size : Number(u.searchParams.get('size') || 12);
+  const pagesCap = total != null && size > 0 ? Math.min(400, Math.ceil(total / size)) : MAX_PAGES;
+  let pages = 0;
+  for (let page = 1; page <= pagesCap; page++) {
+    let parsed = page === 1 ? first : null;
+    if (page > 1) {
+      const pu = new URL(url);
+      pu.searchParams.set('from', String((page - 1) * size));
+      pu.searchParams.set('size', String(size));
+      for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+        if (attempt > 0) await sleep(1500);
+        const r = await getText(pu.toString());
+        if (r.status === 200) parsed = parseDtcVm(r.text);
+        else if (r.status === 404) break;
+      }
+      if (!parsed) { warnings.push(`arrêt à la page ${page} : bloc dtcVm absent — relevé partiel`); break; }
+    }
+    pages = page;
+    let added = 0;
+    for (const h of parsed!.hits) {
+      const v = dtcHitToVehicle(h);
+      if (!v || seen.has(v.external_id)) continue;
+      seen.add(v.external_id); added++; out.push(v);
+    }
+    if (parsed!.hits.length === 0) break;
+    if (added === 0) { if (total != null && out.length < total) warnings.push(`page ${page} : aucun véhicule nouveau — arrêt à ${out.length} / ${total}`); break; }
+    if (total != null && out.length >= total) break;
+    await sleep(PAGE_DELAY_MS);
+  }
+  return { provider: 'dtcvm', total: total ?? out.length, declared: total, vehicles: out, pages, warnings };
 }
 
 // ── autodata (Krimpenerwaard) ───────────────────────────────────────────────
@@ -744,13 +854,14 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
     const title = first.text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim() ?? null;
     const hints = siteHints(first.text);
     throw new UnknownDealerSiteError(
-      `site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni dmapi, ni autodata, ni listerpage, ni cmsms, ni cartelcaw)${hints.length ? ` — indices : ${hints.join(', ')}` : ''}`,
+      `site vitrine non reconnu (ni ${PROVIDERS_KNOWN.join(', ni ')})${hints.length ? ` — indices : ${hints.join(', ')}` : ''}`,
       { host: new URL(url).hostname, url, title, hints },
     );
   }
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text);
+  if (provider === 'dtcvm') return scrapeDtcVm(url, first.text);
   if (provider === 'listerpage') return scrapeListerpage(url, first.text);
   if (provider === 'cmsms') return scrapeCmsms(url, first.text);
   if (provider === 'dmapi') return scrapeDmApi(url, first.text);
@@ -890,7 +1001,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       const saved = await recordLearningCase({
         kind: 'dealer_site_unknown', key: e.site.host, url: e.site.url, link: '/carte', actor: 'dev', contactId, submittedBy,
         title: `Vitrine non reconnue : ${e.site.host}`,
-        detail: { pageTitle: e.site.title, hints: e.site.hints, providersKnown: ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw'] },
+        detail: { pageTitle: e.site.title, hints: e.site.hints, providersKnown: PROVIDERS_KNOWN },
       });
       msg += saved ? ' — vitrine enregistrée dans la boîte à apprendre (Centre de vérité → À apprendre) pour la traiter ensemble' : ' — boîte à apprendre indisponible (SQL du 01/10 à coller)';
     }
