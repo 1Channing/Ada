@@ -877,7 +877,11 @@ export interface DealerStockSummary {
 export async function runDealerStock(contactId: string, url: string, submittedBy: string): Promise<DealerStockSummary> {
   const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
   const startedAt = new Date().toISOString();
-  const { data: run, error: runErr } = await sb.from('network_stock_runs').insert({ contact_id: contactId, url, status: 'running', submitted_by: submittedBy }).select('id').single();
+  // started_at = LE MÊME instant que first_seen_at / last_seen_at des véhicules
+  // (constat Louwman 06/10 : 230 nouveaux en base, « 0 » à l'écran — la base
+  // posait started_at 80 ms APRÈS le startedAt des véhicules, et l'écran
+  // compare « première vue ≥ début du relevé »).
+  const { data: run, error: runErr } = await sb.from('network_stock_runs').insert({ contact_id: contactId, url, status: 'running', submitted_by: submittedBy, started_at: startedAt }).select('id').single();
   if (runErr) throw new Error(/does not exist|schema cache/i.test(runErr.message) ? 'SQL du 30/09 (network_stock_*) à coller.' : runErr.message);
   const runId = (run as { id: string }).id;
   try {

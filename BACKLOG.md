@@ -832,6 +832,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **STOCK VITRINE « NOUVEAUX · 0 » À TORT (06/10, Channing : « étonnant que
+  Louwman n'ait entré aucun nouveau véhicule depuis le premier relevé »)**.
+  En base le relevé du 06/10 compte 230 nouveaux (first_seen 06/10 20:00:50),
+  l'écran disait 0 : le worker posait first_seen_at = son instant de départ
+  et laissait la base poser started_at du relevé 80 ms PLUS TARD ; l'écran
+  compare « première vue ≥ début du relevé ». Règle : le relevé est inséré
+  avec le même started_at que les véhicules, et l'écran tolère une minute
+  pour les relevés déjà enregistrés. Les autres compteurs (3 962 en stock,
+  235 disparus, 297 prix bougés) correspondent à la base.
 - **PLAFOND « finitions.observations » 2× (06/10, Channing : « nouvelle limite
   atteinte ») : LA BASE COMPTE LES FINITIONS**. TOYOTA RAV4 dépasse 10 000
   observations : lire les lignes pour en extraire les finitions distinctes

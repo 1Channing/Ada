@@ -94,7 +94,13 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
   // affiché tant que la fenêtre est ouverte, jamais effacé par un rechargement.
   const lastFailure = runs[0]?.status === 'failed' ? runs[0] : null;
   const inStock = useMemo(() => vehicles.filter((v) => !v.gone_at), [vehicles]);
-  const fresh = useMemo(() => (lastRun ? inStock.filter((v) => v.last_run_id === lastRun.id && v.first_seen_at >= lastRun.started_at) : []), [inStock, lastRun]);
+  // « Nouveau » = vu pour la première fois PAR ce relevé. Tolérance d'une
+  // minute : les relevés antérieurs au 06/10 ont leur started_at posé par la
+  // base quelques ms APRÈS la première vue des véhicules (Louwman : 230
+  // nouveaux en base, 0 à l'écran).
+  const fresh = useMemo(() => (lastRun
+    ? inStock.filter((v) => v.last_run_id === lastRun.id && new Date(v.first_seen_at).getTime() >= new Date(lastRun.started_at).getTime() - 60_000)
+    : []), [inStock, lastRun]);
   const gone = useMemo(() => vehicles.filter((v) => v.gone_at).sort((a, b) => (b.gone_at ?? '').localeCompare(a.gone_at ?? '')), [vehicles]);
   // Prix changés = au moins un mouvement depuis l'arrivée (01/10 soir : plus
   // seulement le dernier relevé — l'historique porte toute la vie de l'annonce).
