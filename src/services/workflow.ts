@@ -73,16 +73,29 @@ export async function listKnownTrims(brand: string, model: string, country?: str
   // La base filtre le segment (RPC mi_obs_for_segment, mêmes clés que le MI) ; la mémoire est pré-filtrée par
   // la marque. Repli sur l'ancienne lecture si la RPC échoue.
   type Row = { trim: string | null; brand: string | null; model: string | null };
-  const rpc = await pageAll<Row>((from, to) => (supabase.rpc('mi_obs_for_segment' as never, {
+  // LA BASE COMPTE LES FINITIONS (06/10, plafond touché 2× sur TOYOTA RAV4 : plus de 10 000 observations) :
+  // RPC mi_segment_trims (migration 20261006130000) = une ligne par graphie, chaud + archive, sans plafond
+  // de lignes à lire. Repli sur la lecture des observations si la fonction manque.
+  let obs: Row[] | null = null;
+  const agg = await supabase.rpc('mi_segment_trims' as never, {
+    p_brand_keys: brandKeysForQuery(brand), p_model_key: (model ?? '').trim() ? refModelKey(brand, model) : null, p_country: country || null,
+  } as never) as unknown as { data: Array<{ trim_label: string | null; brand: string | null; model: string | null; n: number }> | null; error: { message: string } | null };
+  if (!agg.error && Array.isArray(agg.data)) {
+    obs = agg.data.map((r) => ({ trim: r.trim_label, brand: r.brand, model: r.model }));
+  } else if (agg.error) {
+    console.warn('[FINITIONS] mi_segment_trims indisponible (migration 20261006130000 à coller ?) — repli observations :', agg.error.message);
+  }
+  const rpc = obs != null ? { data: obs, error: null } : await pageAll<Row>((from, to) => (supabase.rpc('mi_obs_for_segment' as never, {
     p_brand_keys: brandKeysForQuery(brand), p_model_key: (model ?? '').trim() ? refModelKey(brand, model) : null, p_country: country || null, p_limit: 10_000,
   } as never) as unknown as { range: (a: number, b: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }> }).range(from, to), 10_000);
-  let obs: Row[] | null = rpc.error ? null : rpc.data;
+  const aggregated = obs != null;
+  obs = rpc.error ? null : rpc.data;
   if (obs == null) {
     let q = supabase.from('market_listing_observations').select('trim, brand, model').neq('trim', '').order('id');
     if (country) q = q.eq('country', country);
     obs = (await pageAll((from, to) => q.range(from, to), 4000)).data as Row[];
     capped(obs, 4000, 'finitions.observations', 'La liste des finitions connues lit 4 000 observations au plus (repli, RPC en échec) : des finitions peuvent manquer dans les suggestions.');
-  } else if (obs.length >= 10_000) {
+  } else if (!aggregated && obs.length >= 10_000) {
     capped(obs, 10_000, 'finitions.observations', `La liste des finitions connues lit 10 000 observations au plus pour ${brand} ${model} : des finitions peuvent manquer dans les suggestions.`);
   }
   const brandWord = (brand ?? '').trim().split(/[\s-]+/)[0] ?? '';

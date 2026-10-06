@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **PLAFOND « finitions.observations » 2× (06/10, Channing : « nouvelle limite
+  atteinte ») : LA BASE COMPTE LES FINITIONS**. TOYOTA RAV4 dépasse 10 000
+  observations : lire les lignes pour en extraire les finitions distinctes
+  ne tient pas. Règle : fonction SQL `mi_segment_trims` (migration
+  20261006130000) — une ligne par graphie de finition avec son nombre
+  d'observations, chaud + archive, filtres marque × modèle × pays (clés ADA),
+  500 graphies au plus, le front en garde 60 après canonisation. Repli sur
+  l'ancienne lecture (et son alerte) tant que la migration n'est pas collée.
 - **VITRINE WASSINK AUTOGROEP : LECTEUR « dtcvm » (06/10, Channing : « corrige
   cette vitrine », cas « Relevé vide sur un site reconnu : datamotive »)**.
   Trois constats sur la page : (1) le bloc JSON-LD porte `id="vm-overview-
