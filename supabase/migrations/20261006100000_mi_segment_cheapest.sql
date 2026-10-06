@@ -8,6 +8,9 @@
   (marque × modèle × pays, clés ADA), fenêtre, carburant (jeton du site),
   finition (clé canonique contenue), années ; tri prix croissant, p_n lignes.
 
+  « trim » est un mot réservé de PostgreSQL (fonction TRIM) : la colonne de
+  sortie s'appelle trim_label (erreur 42601 au premier collage, 06/10).
+
   Additif, idempotent.
 */
 
@@ -23,13 +26,13 @@ create or replace function mi_segment_cheapest(
   p_min_price numeric default 0,
   p_n int default 60
 )
-returns table (listing_url text, price numeric, brand text, model text, fuel text, year int, trim text, scraped_at timestamptz)
+returns table (listing_url text, price numeric, brand text, model text, fuel text, year int, trim_label text, scraped_at timestamptz)
 language sql stable
 set statement_timeout to '20s'
 as $$
   with last_obs as (
     select distinct on (o.listing_url)
-      o.listing_url, o.price, o.brand, o.model, o.fuel, o.year, o.trim, o.scraped_at
+      o.listing_url, o.price, o.brand, o.model, o.fuel, o.year, o.trim as trim_label, o.scraped_at
     from market_listing_observations o
     where o.brand_key = any (p_brand_keys)
       and o.model_key = p_model_key
