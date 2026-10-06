@@ -29,7 +29,6 @@ import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { recordLearningCase, resolveLearningCase } from './learningBox';
 import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
-import { fmtMoney } from '../src/lib/fx';
 
 export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards';
 const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards'];
@@ -962,7 +961,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       for (const c of currencies) {
         const r = fx.rates[c];
         stock.warnings.push(r
-          ? `Prix en ${c} sur le site — affichés convertis en € au taux BCE du ${fx.date} (1 € = ${fmtMoney(r, c)})${fx.source === 'fallback' ? ' — taux de repli, BCE injoignable' : ''}`
+          ? `Prix en ${c} sur le site — affichés convertis en € au taux BCE du ${fx.date} (1 € = ${r.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} ${c})${fx.source === 'fallback' ? ' — taux de repli, BCE injoignable' : ''}`
           : `Prix en ${c} sur le site — devise sans taux connu, affichés tels quels`);
       }
     }

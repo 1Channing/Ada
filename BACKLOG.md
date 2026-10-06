@@ -832,6 +832,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **PLAFOND « finitions.observations » RALLUMÉ UNE 3ᵉ FOIS (06/10 22:36,
+  Channing : « ce plafond s'allume encore »)**. La fonction mi_segment_trims
+  est bien en base, mais TOYOTA RAV4 met 13 à 19 s (mesuré) pour un délai
+  de 20 s : au dépassement, le front retombe sur l'ancienne lecture et son
+  plafond. Cause : l'archive des observations (265 000 lignes) n'a aucun
+  index sur brand_key / model_key — toute lecture de la vue chaud + archive
+  la parcourt entière. Règle : même index que le chaud sur l'archive
+  (migration 20261006150000, idx_mloa_keys_scraped). Au passage, le bilan
+  d'un relevé en devise disait « 1 € = 7 kr » (arrondi) : taux à 4 décimales.
 - **VITRINE RÆVHEDE AUTO (DK) + TAUX DE CHANGE BCE (06/10, Channing : « adapte
   cette vitrine ainsi que le taux de change »)**. raevhede.dk = WordPress +
   bilinfo, tout le stock sur une page (« Viser 102 biler »), une carte
