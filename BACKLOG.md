@@ -832,6 +832,22 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **VITRINE RÆVHEDE AUTO (DK) + TAUX DE CHANGE BCE (06/10, Channing : « adapte
+  cette vitrine ainsi que le taux de change »)**. raevhede.dk = WordPress +
+  bilinfo, tout le stock sur une page (« Viser 102 biler »), une carte
+  `<a class="car-card" data-make data-model data-year data-price data-km …>`
+  par voiture, prix en couronnes danoises. Lecteur `carcards` (102/102 en
+  local, tous avec prix, km, année, marque). Devise : colonne
+  `network_stock_vehicles.currency` (migration 20261006140000) — les prix
+  restent DANS LA DEVISE DU SITE (price, price_prev, price_first, history) :
+  un taux qui bouge n'est pas un prix qui bouge ; l'écran affiche l'€
+  converti et le montant en kr dessous, les mouvements en kr. Taux : une
+  seule source (`business-logic` FX_RATES, forme BCE « 1 € = x »), les
+  constantes 0,134 / 0,089 / 0,0025 de marketData, scraper et business-logic
+  sont remplacées par la BCE du jour — le worker lit eurofxref-daily.xml au
+  boot puis toutes les 6 h et le garde dans app_config « fx_rates », le front
+  le charge au démarrage ; sans réseau, repli sur la BCE du 06/10 (DKK
+  7,4747, SEK 11,2425, HUF 364,95) et le bilan du relevé le dit.
 - **STOCK VITRINE « NOUVEAUX · 0 » À TORT (06/10, Channing : « étonnant que
   Louwman n'ait entré aucun nouveau véhicule depuis le premier relevé »)**.
   En base le relevé du 06/10 compte 230 nouveaux (first_seen 06/10 20:00:50),

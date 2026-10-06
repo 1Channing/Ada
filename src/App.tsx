@@ -20,6 +20,7 @@ import { Equipe } from './pages/Equipe';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
 import { canSeeTab, canSeeWorkflow, tabKeyOfPageKey } from './lib/appTabs';
 import { supabase } from './lib/supabase';
+import { loadFxRates } from './services/fxRates';
 
 const originalPushState = window.history.pushState.bind(window.history);
 window.history.pushState = function(...args) {
@@ -34,6 +35,7 @@ function App() {
   // Session : garde d'accès — tout ADA vit derrière la connexion.
   useEffect(() => {
     startAuthWatcher();
+    void loadFxRates(); // taux BCE (app_config fx_rates) pour les prix en DKK/SEK/HUF
   }, []);
   useEffect(() => {
     if (userId) void ensureProfile();

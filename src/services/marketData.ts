@@ -12,7 +12,7 @@ import type { Database } from '../lib/database.types';
 import { generateInternalRef } from '../lib/internalRefGenerator';
 import { canonicalizeFuel, refineFuelToken, FUEL_LABELS } from '../lib/study-core/ingestion';
 import { canonicalizeBody } from '../lib/study-core/bodyTypes';
-import { isDamagedVehicleText, modelKeyLoose, modelFamilyKey, seriesFamilyKey } from '../lib/study-core/business-logic';
+import { isDamagedVehicleText, modelKeyLoose, modelFamilyKey, seriesFamilyKey, fxMultiplier } from '../lib/study-core/business-logic';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
@@ -32,11 +32,10 @@ export const FUEL_TOKEN_TO_CRITERIA: Record<string, string> = {
   lpg: 'GPL', cng: 'CNG',
 };
 
-// Taux alignés sur business-logic FX_RATES (source unique de vérité métier).
-const TO_EUR: Record<string, number> = { DKK: 0.134, SEK: 0.089, HUF: 0.0025 };
+// Taux : business-logic FX_RATES (source unique, mise à jour BCE via setFxRates).
 function toEur(price: number, currency: string): number {
-  const r = TO_EUR[currency];
-  return r ? Math.round(price * r) : price;
+  const r = fxMultiplier(currency);
+  return r !== 1 ? Math.round(price * r) : price;
 }
 
 // ─── Percentiles ──────────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@ import {
 } from '../src/lib/study-core/index';
 import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
 import { titleContradictsModel } from '../src/services/marketData';
-import { structuredModelMatches, shouldFilterListing } from '../src/lib/study-core/business-logic';
+import { structuredModelMatches, shouldFilterListing, fxMultiplier } from '../src/lib/study-core/business-logic';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import { mpSlugOfLabel } from '../src/lib/study-core/marketplaces/marktplaats';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
@@ -44,19 +44,14 @@ console.log('[WORKER_BUILD_TAG] marktplaats_diag_v1 deployed');
 /**
  * Exchange rates for currency conversion
  */
-const FX_RATES: Record<string, number> = {
-  'EUR': 1.0,
-  'DKK': 0.134,  // 1 DKK ≈ 0.134 EUR
-  'SEK': 0.089,  // aligné marketData.ts TO_EUR / business-logic FX_RATES
-  'HUF': 0.0025,
-  'UNKNOWN': 1.0,
-};
+// Taux : business-logic FX_RATES (source unique, BCE du jour via worker/fx.ts).
+const FX_RATES = { get: (c: string) => fxMultiplier(c) };
 
 /**
  * Convert price to EUR based on currency
  */
 function toEur(price: number, currency: string): number {
-  return price * (FX_RATES[currency] ?? 1.0);
+  return price * FX_RATES.get(currency);
 }
 
 function percentileAsc(sortedAsc: number[], p: number): number {
@@ -1831,7 +1826,7 @@ function diagnoseFilterRejections(
     const title = (l.title ?? '').substring(0, 60);
 
     // First-pass: price floor, leasing, damage
-    const priceEur = l.price * (l.currency === 'DKK' ? 0.134 : 1);
+    const priceEur = l.price * fxMultiplier(l.currency);
     if (priceEur <= 2000) { byFirstPass++; continue; }
     const text = `${l.title} ${l.description}`.toLowerCase();
     const isMonthly = ['/mois','per month','/maand','lease','loa','lld','leasing'].some(k => text.includes(k));

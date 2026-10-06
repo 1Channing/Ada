@@ -18,6 +18,8 @@ import { startSalesSheetSync } from './salesSheetSync';
 import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
 import { runDealerStock } from './dealerStock';
+import { getFxRates } from './fx';
+import { setFxRates } from '../src/lib/study-core/business-logic';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -673,6 +675,11 @@ app.listen(PORT, "0.0.0.0", () => {
     startDailySearchScheduler();
     startSalesSheetSync();
     startLegalWatchCollector();
+    // Taux de change BCE (06/10) : au boot puis toutes les 6 h — les prix en
+    // DKK/SEK/HUF (études, vitrines) sont convertis au taux du jour.
+    const refreshFx = async () => { try { setFxRates((await getFxRates()).rates); } catch (e) { console.warn('[FX]', e instanceof Error ? e.message : String(e)); } };
+    void refreshFx();
+    setInterval(() => void refreshFx(), 6 * 60 * 60 * 1000);
     // E-mails depuis un dossier (Gmail au nom de l'expéditeur) — 29/09.
     startMailer();
     // Preuve de marché modèle × carburant : première moisson dès que la

@@ -15,6 +15,8 @@ export interface StockVehicle {
   /** Premier prix vu et chaque prix daté (01/10 soir). Absents tant que le SQL n'est pas collé. */
   price_first?: number | null;
   price_history?: Array<{ at: string; price: number }> | null;
+  /** Devise des prix du site ('EUR' par défaut, 'DKK' raevhede.dk 06/10). Absente tant que le SQL du 06/10 n'est pas collé. */
+  currency?: string | null;
 }
 
 /**

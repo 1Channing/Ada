@@ -2,9 +2,24 @@ import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink, RefreshCw, X, Loader2 } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listStockRuns, listStockVehicles, STATUS_LABEL, priceMoves, startDealerScan, isDealerScanning, subscribeDealerScans, takeDealerScanOutcome, type StockRun, type StockVehicle } from '../services/dealerStock';
+import { currentFx, toEur } from '../services/fxRates';
+import { fmtMoney } from '../lib/fx';
 
 const eur = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} €`;
 const shortDate = (s: string) => new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+/** Devise du site pour ce véhicule ('EUR' si la colonne n'est pas encore là). */
+const curOf = (v: StockVehicle) => (v.currency ?? 'EUR').toUpperCase();
+/** Montant dans la devise du site, suivi de l'équivalent € quand le site n'est pas en euros (taux BCE chargé au démarrage). */
+function Money({ amount, currency }: { amount: number; currency: string }) {
+  if (currency === 'EUR') return <>{eur(amount)}</>;
+  const e = toEur(amount, currency);
+  return (
+    <span title={`${fmtMoney(amount, currency)} sur le site · converti au taux BCE du ${currentFx().date}`}>
+      {e != null ? eur(e) : fmtMoney(amount, currency)}
+      {e != null && <span className="block text-[11px] font-normal text-slate-400">{fmtMoney(amount, currency)}</span>}
+    </span>
+  );
+}
 
 /** MOUVEMENTS DE PRIX (01/10 soir) : sous le prix courant, le chemin depuis le
  *  premier prix vu (« 32 900 → 31 500 → 29 900 ») et l'écart total. À la
@@ -13,10 +28,14 @@ function PriceMovesLine({ v }: { v: StockVehicle }) {
   const m = priceMoves(v);
   if (m.steps.length < 2 || m.delta == null) return null;
   const down = m.delta < 0;
+  // Mouvements dans la DEVISE DU SITE (06/10) : un taux de change qui bouge
+  // n'est pas un prix qui bouge.
+  const cur = curOf(v);
+  const money = (n: number) => fmtMoney(n, cur);
   return (
-    <div className="mt-0.5 text-[11px] leading-tight whitespace-nowrap" title={m.steps.map((s) => `${shortDate(s.at)} : ${eur(s.price)}`).join(' · ')}>
+    <div className="mt-0.5 text-[11px] leading-tight whitespace-nowrap" title={m.steps.map((s) => `${shortDate(s.at)} : ${money(s.price)}`).join(' · ')}>
       <span className="text-slate-400">{m.steps.map((s) => Math.round(s.price).toLocaleString('fr-FR')).join(' → ')}</span>
-      <span className={`ml-1 font-medium ${down ? 'text-emerald-700' : 'text-amber-700'}`}>{down ? '−' : '+'}{Math.abs(Math.round(m.delta)).toLocaleString('fr-FR')} € ({m.pct != null ? `${m.pct > 0 ? '+' : ''}${m.pct.toLocaleString('fr-FR')} %` : ''}{m.drops > 0 ? `, ${m.drops} baisse${m.drops > 1 ? 's' : ''}` : ''}{m.raises > 0 ? `, ${m.raises} hausse${m.raises > 1 ? 's' : ''}` : ''})</span>
+      <span className={`ml-1 font-medium ${down ? 'text-emerald-700' : 'text-amber-700'}`}>{down ? '−' : '+'}{money(Math.abs(m.delta))} ({m.pct != null ? `${m.pct > 0 ? '+' : ''}${m.pct.toLocaleString('fr-FR')} %` : ''}{m.drops > 0 ? `, ${m.drops} baisse${m.drops > 1 ? 's' : ''}` : ''}{m.raises > 0 ? `, ${m.raises} hausse${m.raises > 1 ? 's' : ''}` : ''})</span>
     </div>
   );
 }
@@ -24,7 +43,7 @@ function PriceMovesLine({ v }: { v: StockVehicle }) {
 /** Prix absent (01/10) : le statut du site plutôt qu'un 0 € ; sans statut (SQL
  *  du 01/10 pas collé) : « sans prix ». */
 function PriceCell({ v }: { v: StockVehicle }) {
-  if (v.price != null && v.price > 0) return <>{`${Math.round(v.price).toLocaleString('fr-FR')} €`}</>;
+  if (v.price != null && v.price > 0) return <Money amount={v.price} currency={curOf(v)} />;
   const s = v.status ? STATUS_LABEL[v.status] : undefined;
   return <span title={s?.title ?? 'Le site n\'affiche pas de prix pour cette annonce'} className={`inline-block px-1.5 py-0.5 rounded border text-[11px] font-medium ${s?.cls ?? 'bg-amber-50 text-amber-700 border-amber-200'}`}>{s?.label ?? 'sans prix'}</span>;
 }

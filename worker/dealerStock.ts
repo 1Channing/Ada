@@ -28,9 +28,11 @@
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { recordLearningCase, resolveLearningCase } from './learningBox';
 import { fetchHtmlWithZyte } from './scraper';
+import { getFxRates } from './fx';
+import { fmtMoney } from '../src/lib/fx';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -69,6 +71,8 @@ export interface DealerVehicle {
   price: number | null; km: number | null; year: number | null; fuel: string | null; gearbox: string | null;
   plate: string | null; vin: string | null; body: string | null; image: string | null; listed_at: string | null;
   status: DealerVehicleStatus | null;
+  /** Devise du prix TEL QU'AFFICHÉ par le site ('EUR' par défaut ; 'DKK' raevhede.dk 06/10). */
+  currency?: string;
 }
 
 /** Prix > 0 sinon null — un 0 € de site est un prix absent, pas un prix. */
@@ -188,6 +192,10 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // Avant datamotive : ces pages portent AUSSI un JSON-LD ItemList, mais aux
   // prix de leasing mensuels (Wassink 06/10 : « 554 € » pour une 308).
   if (/window\.dtcVm\.initialHits\s*=\s*\{/.test(html)) return 'dtcvm';
+  // Cartes HTML à attributs data-* (raevhede.dk 06/10 : <a class="car-card"
+  // data-make data-model data-year data-price data-km …>, tout le stock sur
+  // une page, filtres côté client).
+  if (/<a[^>]+class="[^"]*\bcar-card\b[^"]*"[^>]+data-price=/.test(html)) return 'carcards';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -508,6 +516,66 @@ async function scrapeDtcVm(url: string, firstHtml: string): Promise<DealerStockR
     await sleep(PAGE_DELAY_MS);
   }
   return { provider: 'dtcvm', total: total ?? out.length, declared: total, vehicles: out, pages, warnings };
+}
+
+// ── carcards (Rævhede Auto, raevhede.dk) ─────────────────────────────────────
+// Constat 06/10 : WordPress + bilinfo, TOUT le stock sur une page (« Viser 102
+// biler »), une carte par voiture : <a class="car-card" href="…/bil/…-7216b24e/"
+// data-make="Lynk &amp; Co" data-model="01" data-fuel="benzin"
+// data-gearbox="automatic" data-body="CUV Aut." data-year="2021"
+// data-price="192900" data-km="77000"> … <div class="car-variant">PHEV</div>
+// <div class="car-price">192.900 kr.</div>. Prix en COURONNES DANOISES :
+// gardés en DKK (currency), convertis à l'affichage au taux BCE du jour.
+const unesc = (s: string) => s.replace(/&amp;/g, '&').replace(/&#0?39;|&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').trim();
+function currencyOfSite(url: string, html: string): string {
+  const host = new URL(url).hostname;
+  const kr = /\d\s*kr\.?(?:\s|<|$)/.test(html);
+  if (host.endsWith('.dk') && kr) return 'DKK';
+  if (host.endsWith('.se') && kr) return 'SEK';
+  if (host.endsWith('.no') && kr) return 'NOK';
+  if (host.endsWith('.hu') && /\bFt\b/.test(html)) return 'HUF';
+  if (host.endsWith('.pl') && /\bzł/.test(html)) return 'PLN';
+  if (host.endsWith('.cz') && /\bKč/.test(html)) return 'CZK';
+  return 'EUR';
+}
+async function scrapeCarCards(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const currency = currencyOfSite(url, firstHtml);
+  const declared = num(firstHtml.match(/class="count-n"[^>]*>\s*([\d.\s]+)\s*</)?.[1]?.replace(/\D/g, ''));
+  const re = /<a\b([^>]*\bclass="[^"]*\bcar-card\b[^"]*"[^>]*)>([\s\S]*?)<\/a>/g;
+  const attr = (tag: string, name: string): string | null => {
+    const m = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
+    return m ? unesc(m[1]) || null : null;
+  };
+  const text = (inner: string, cls: string): string | null => {
+    const m = inner.match(new RegExp(`class="${cls}"[^>]*>([\\s\\S]*?)<`));
+    return m ? unesc(m[1].replace(/\s+/g, ' ')) || null : null;
+  };
+  for (const m of firstHtml.matchAll(re)) {
+    const tag = m[1]; const inner = m[2];
+    const href = attr(tag, 'href') ?? '';
+    const id = href.match(/-([0-9a-f]{6,})\/?$/i)?.[1] ?? href.replace(/\/$/, '').split('/').pop() ?? '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const brand = attr(tag, 'data-make') ?? text(inner, 'car-make');
+    const model = attr(tag, 'data-model') ?? text(inner, 'car-name');
+    const variant = text(inner, 'car-variant');
+    const title = [brand, model, variant].filter(Boolean).join(' ');
+    const price = priceOrNull(attr(tag, 'data-price'));
+    const img = inner.match(/background-image:\s*url\(['"]?([^'")]+)['"]?\)/)?.[1] ?? null;
+    const badges = [...inner.matchAll(/class="badge[^"]*"[^>]*>([^<]*)</g)].map((b) => unesc(b[1])).join(' ');
+    const status: DealerVehicleStatus | null = statusFromText(badges) ?? (price == null ? 'price_on_request' : null);
+    out.push({
+      external_id: id, url: href || null, title, brand, model, price, currency,
+      km: num(attr(tag, 'data-km')), year: num(attr(tag, 'data-year')),
+      fuel: attr(tag, 'data-fuel'), gearbox: attr(tag, 'data-gearbox'), plate: null, vin: null,
+      body: attr(tag, 'data-body'), image: img, listed_at: null, status,
+    });
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} carte(s) lue(s) pour ${declared} annoncées — relevé partiel`);
+  return { provider: 'carcards', total: declared ?? out.length, declared, vehicles: out, pages: 1, warnings };
 }
 
 // ── autodata (Krimpenerwaard) ───────────────────────────────────────────────
@@ -862,6 +930,7 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text);
   if (provider === 'dtcvm') return scrapeDtcVm(url, first.text);
+  if (provider === 'carcards') return scrapeCarCards(url, first.text);
   if (provider === 'listerpage') return scrapeListerpage(url, first.text);
   if (provider === 'cmsms') return scrapeCmsms(url, first.text);
   if (provider === 'dmapi') return scrapeDmApi(url, first.text);
@@ -887,6 +956,16 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
   try {
     zyteCallsThisRun = 0;
     const stock = await fetchDealerStock(url);
+    const currencies = [...new Set(stock.vehicles.map((v) => (v.currency ?? 'EUR').toUpperCase()).filter((c) => c !== 'EUR'))];
+    if (currencies.length > 0) {
+      const fx = await getFxRates();
+      for (const c of currencies) {
+        const r = fx.rates[c];
+        stock.warnings.push(r
+          ? `Prix en ${c} sur le site — affichés convertis en € au taux BCE du ${fx.date} (1 € = ${fmtMoney(r, c)})${fx.source === 'fallback' ? ' — taux de repli, BCE injoignable' : ''}`
+          : `Prix en ${c} sur le site — devise sans taux connu, affichés tels quels`);
+      }
+    }
     if (zyteCallsThisRun > 0) stock.warnings.push(`${zyteCallsThisRun} page(s) lue(s) via Zyte (site protégé par Cloudflare) — relevé payant`);
     // GARDE-FOU (01/10, constat Van Mossel : reconnu « datamotive », 0
     // véhicule) : un relevé vide sur un site reconnu n'est pas un stock vide,
@@ -959,6 +1038,8 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
         plate: v.plate, vin: v.vin, body: v.body, image: v.image, listed_at: v.listed_at,
         first_seen_at: p?.first_seen_at ?? startedAt, last_seen_at: startedAt, gone_at: null, last_run_id: runId,
         status: v.status, price_first: priceFirst, price_history: history,
+        // Devise du site (06/10) : prix gardés tels quels, conversion à l'affichage.
+        currency: v.currency ?? 'EUR',
       };
     });
     // Colonnes récentes (status 01/10, price_first / price_history 01/10 soir) :

@@ -42,13 +42,33 @@ import type {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-const FX_RATES: Record<Currency, number> = {
+// SOURCE UNIQUE des multiplicateurs « devise → EUR » (06/10) : valeurs de
+// départ = BCE du 06/10/2026, remplacées au démarrage par les taux du jour
+// (worker : BCE directe ; front : app_config « fx_rates ») via setFxRates.
+const FX_RATES: Record<string, number> = {
   EUR: 1,
-  DKK: 0.134, // kept in sync with parsers/shared.ts and services/marketData.ts
-  SEK: 0.089, // Blocket (couronne suédoise) — ~11,2 SEK/EUR
-  HUF: 0.0025, // Jofogas (forint hongrois) — ~395 HUF/EUR
+  DKK: 1 / 7.4747,
+  SEK: 1 / 11.2425,
+  NOK: 1 / 10.778,
+  HUF: 1 / 364.95,
+  PLN: 1 / 4.365,
+  CZK: 1 / 24.405,
+  CHF: 1 / 0.9359,
+  GBP: 1 / 0.8488,
   UNKNOWN: 1,
 };
+
+/** Pose les taux du jour (forme BCE : 1 EUR = rates[devise]). */
+export function setFxRates(rates: Record<string, number>): void {
+  for (const [c, r] of Object.entries(rates)) {
+    if (typeof r === 'number' && r > 0) FX_RATES[c.toUpperCase()] = c.toUpperCase() === 'EUR' ? 1 : 1 / r;
+  }
+}
+
+/** Multiplicateur devise → EUR (1 si devise inconnue : jamais de conversion inventée). */
+export function fxMultiplier(currency: string | null | undefined): number {
+  return FX_RATES[(currency ?? 'EUR').toUpperCase()] ?? 1;
+}
 
 /**
  * Convert any currency to EUR using fixed exchange rates.
