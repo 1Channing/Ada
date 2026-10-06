@@ -832,6 +832,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **PLAFOND « etudes.mediane_observations » 8× (06/10, Channing : « nouvelle
+  limite ») : LA BASE CALCULE LES MOINS CHÈRES**. Yaris Cross NL = 42 876
+  observations sur 45 jours (9 442 sur 14, 5 536 sur 7) : lire 10 000 des
+  plus récentes tronquait vraiment la fenêtre, et la pagination profonde
+  part en timeout (57014). Règle : fonction SQL `mi_segment_cheapest`
+  (migration 20261006100000) — une annonce = sa dernière observation
+  (listing_url), filtres marque × modèle × pays × fenêtre × carburant ×
+  finition × années en SQL, tri prix croissant, 60 lignes ; le worker la
+  prend d'abord (médiane des 5 moins chères), repli sur la lecture par
+  segment (plafonnée, dite) tant que le SQL n'est pas collé. SQL donné à
+  Channing.
 - **SÉRIE 1 : « PLUS RIEN NE FONCTIONNE » — TROIS LECTURES CASSÉES PAR LA
   MÊME CLASSE (05/10, Channing : « j'ai mis à jour plusieurs fois la Série 1
   sur mobile mais ça ne se met pas à jour, la France dit pas de résultat au

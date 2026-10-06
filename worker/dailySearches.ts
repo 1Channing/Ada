@@ -549,6 +549,19 @@ async function targetCheapMedian(s: SearchRow): Promise<number | null> {
   // repli sur l'ancienne lecture ne sert que si la RPC échoue, et il le dit.
   type Obs = { price: number | null; brand: string | null; model: string | null; fuel: string | null; year: number | null; trim: string | null; scraped_at: string };
   let data: Obs[] | null = null;
+  // LA BASE CALCULE (06/10, plafond touché 8× : Yaris Cross NL = 42 876 observations sur 45 jours) : les 60
+  // annonces les moins chères du segment, une annonce = sa dernière observation, filtres en SQL. Tant que le SQL
+  // 20261006100000 n'est pas collé, la fonction n'existe pas → lecture par segment ci-dessous, plafonnée et dite.
+  const cheapest = await supabase.rpc('mi_segment_cheapest' as never, {
+    p_brand_keys: brandKeysForQuery(s.brand), p_model_key: (s.model ?? '').trim() ? refModelKey(s.brand, s.model) : null, p_country: s.target_country,
+    p_since: since, p_fuel: token || null, p_trim_key: canonKey(s.trim_target ?? '') || null, p_year_min: s.year_min ?? null, p_year_max: s.year_max ?? null, p_min_price: MIN_PRICE_EUR, p_n: 60,
+  } as never) as unknown as { data: Obs[] | null; error: { message: string } | null };
+  if (!cheapest.error && Array.isArray(cheapest.data)) {
+    const prices = cheapest.data.map((r) => Number(r.price)).filter((p) => Number.isFinite(p) && p > MIN_PRICE_EUR).sort((a, b) => a - b);
+    if (prices.length < 5) return null;
+    const cheap = prices.slice(0, 5);
+    return cheap[Math.floor(cheap.length / 2)];
+  }
   const rpc = await pageAll((from, to) => (supabase.rpc('mi_obs_for_segment' as never, {
     p_brand_keys: brandKeysForQuery(s.brand), p_model_key: (s.model ?? '').trim() ? refModelKey(s.brand, s.model) : null, p_country: s.target_country, p_limit: 10_000,
   } as never) as unknown as { range: (a: number, b: number) => PromiseLike<{ data: Obs[] | null; error: { message: string } | null }> }).range(from, to), 10_000);
