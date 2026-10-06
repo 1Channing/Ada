@@ -841,6 +841,12 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   la parcourt entière. Règle : même index que le chaud sur l'archive
   (migration 20261006150000, idx_mloa_keys_scraped). Au passage, le bilan
   d'un relevé en devise disait « 1 € = 7 kr » (arrondi) : taux à 4 décimales.
+  Index collé : toujours 15 à 21 s alors que les lignes filtrées se comptent
+  en 1 s (35 030 chaud + 8 039 archive). Vraie cause : « (p_model_key is
+  null or model_key = p_model_key) » — avec un paramètre, le planificateur
+  ne s'engage pas sur l'index (brand_key, model_key) et lit toute la marque
+  TOYOTA. v2 (migration 20261006160000) : une requête par cas, égalités
+  simples, comme mi_obs_for_segment.
 - **VITRINE RÆVHEDE AUTO (DK) + TAUX DE CHANGE BCE (06/10, Channing : « adapte
   cette vitrine ainsi que le taux de change »)**. raevhede.dk = WordPress +
   bilinfo, tout le stock sur une page (« Viser 102 biler »), une carte
