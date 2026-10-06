@@ -12,7 +12,8 @@ import type { OfferMarket, LotCriteria } from '../lib/offers/marketCheck';
 const sb = supabase as any;
 export const OFFERS_SQL_HINT = 'Offres : SQL du 14/09 (supplier_offers) à coller pour enregistrer.';
 
-export interface PriceRule { mode: 'margin' | 'fixed'; margin: number }
+/** 'none' = offre SANS prix (06/10, Channing : « on me demande d'enlever les prix pour avoir une offre ») : le client fait une proposition. */
+export interface PriceRule { mode: 'margin' | 'fixed' | 'none'; margin: number }
 
 export interface SupplierOffer {
   id: string; user_id: string; title: string; supplier: string; source_filename: string; layout: string;
@@ -71,6 +72,7 @@ export async function deleteOffer(id: string): Promise<string | null> {
 /** Applique la règle de prix MC Export à chaque véhicule (HT fournisseur + marge, ou prix fixe) sans écraser un prix saisi à la main. */
 export function applyPriceRule(vehicles: OfferVehicle[], rule: PriceRule, supplierHt: (v: OfferVehicle) => number | null, force = false): OfferVehicle[] {
   return vehicles.map((v) => {
+    if (rule.mode === 'none') return { ...v, sale_price: null };
     if (v.sale_price != null && !force) return v;
     const base = supplierHt(v);
     const price = rule.mode === 'fixed' ? rule.margin : base != null ? base + rule.margin : null;

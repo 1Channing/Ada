@@ -181,8 +181,8 @@ export function Offres() {
   const selected = useMemo(() => (draft?.vehicles ?? []).filter((v) => v.selected), [draft]);
   const docOf = () => ({
     title: (draft?.title || 'OFFRE MC EXPORT').toUpperCase(),
-    subtitle: `${selected.length} véhicule${selected.length > 1 ? 's' : ''} · prix HT · transport à la charge de l'acheteur · vendus en l'état`,
-    date: todayFr(), vehicles: selected, showDamages: true, showSupplierPrice: false,
+    subtitle: `${selected.length} véhicule${selected.length > 1 ? 's' : ''} · ${draft?.price_rule.mode === 'none' ? 'sans prix, offre à nous proposer' : 'prix HT'} · transport à la charge de l'acheteur · vendus en l'état`,
+    date: todayFr(), vehicles: selected, showDamages: true, showSupplierPrice: false, showPrices: draft?.price_rule.mode !== 'none',
     footer: 'MC EXPORT — offre valable sous réserve de disponibilité. Dommages : chiffrages du fournisseur, conservés à l’identique.',
   });
   const exportXlsx = () => { if (!draft) return; downloadBlob(buildOfferWorkbook(docOf()), `MC_Export_${slugFile(draft.title)}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); };
@@ -409,6 +409,7 @@ export function Offres() {
                   <select value={draft.price_rule.mode} onChange={(e) => applyRule({ ...draft.price_rule, mode: e.target.value as PriceRule['mode'] })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-sm">
                     <option value="margin">Prix fournisseur HT + marge</option>
                     <option value="fixed">Prix fixe pour tous</option>
+                    <option value="none">Sans prix — le client propose</option>
                   </select>
                   <input type="number" value={draft.price_rule.margin} onChange={(e) => update({ price_rule: { ...draft.price_rule, margin: Number(e.target.value) || 0 } })} className="w-24 px-2 py-1.5 rounded-lg border border-slate-300 text-sm text-right" />
                   <span className="text-slate-500">€</span>
@@ -434,7 +435,7 @@ export function Offres() {
                 <span className="text-sm font-semibold text-slate-800">{selected.length}/{draft.vehicles.length} véhicules retenus</span>
                 <button onClick={() => update({ vehicles: draft.vehicles.map((v) => ({ ...v, selected: true })) })} className="text-xs text-brand-ocean hover:underline">Tout retenir</button>
                 <button onClick={() => update({ vehicles: draft.vehicles.map((v) => ({ ...v, selected: false })) })} className="text-xs text-slate-500 hover:underline">Tout écarter</button>
-                <span className="ml-auto text-xs text-slate-500">Total HT retenu : <span className="font-semibold text-slate-800">{fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0), 0))}</span></span>
+                {draft.price_rule.mode === 'none' ? <span className="ml-auto text-xs text-amber-700">Offre sans prix : aucune colonne de prix dans le PDF et le tableur</span> : <span className="ml-auto text-xs text-slate-500">Total HT retenu : <span className="font-semibold text-slate-800">{fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0), 0))}</span></span>}
               </div>
               <div className="overflow-x-auto">
                 <table className="text-xs w-full min-w-[1100px]">

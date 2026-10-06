@@ -18,6 +18,8 @@ export interface OfferDocument {
   vehicles: OfferVehicle[];   // déjà filtrés (sélectionnés) et ordonnés
   showDamages: boolean;
   showSupplierPrice: boolean; // jamais pour un client — utile en interne
+  /** false = offre sans prix (demande d'offre, 06/10) : aucune colonne de prix. */
+  showPrices?: boolean;
   footer: string;
 }
 
@@ -64,7 +66,7 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
     { label: 'Boîte', w: 12, get: (v) => v.gearbox ?? '' },
     { label: 'CO₂ (g/km)', w: 10, get: (v) => v.co2 ?? null },
     ...(doc.showDamages ? [{ label: 'Dommages chiffrés (€)', w: 16, get: (v: OfferVehicle) => v.damages ?? null }] : []),
-    { label: 'Prix de vente HT (€)', w: 18, get: (v) => v.sale_price ?? null, always: true },
+    ...(doc.showPrices === false ? [] : [{ label: 'Prix de vente HT (€)', w: 18, get: (v: OfferVehicle) => v.sale_price ?? null, always: true }]),
     ...(doc.showSupplierPrice ? [{ label: 'Prix fournisseur HT (€)', w: 18, get: (v: OfferVehicle) => v.price_ht ?? null }] : []),
     { label: 'Rapport', w: 40, get: (v) => v.report_url ?? '' },
   ];

@@ -50,7 +50,7 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
     { key: 'gb', label: 'Boite', w: 20, get: (v) => (v.gearbox ? (v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox) : NA), has: (v) => Boolean(v.gearbox) },
     { key: 'co2', label: 'CO2', w: 14, align: 'right', get: (v) => (v.co2 == null ? NA : String(v.co2)), has: (v) => v.co2 != null },
     ...(doc.showDamages ? [{ key: 'dmg', label: 'Dommages (EUR)', w: 26, align: 'right' as const, get: (v: OfferVehicle) => (v.damages == null ? NA : pdfNum(v.damages)), has: (v: OfferVehicle) => v.damages != null }] : []),
-    { key: 'price', label: 'Prix HT (EUR)', w: 30, align: 'right', get: (v) => (v.sale_price == null ? NA : pdfNum(v.sale_price)), has: () => true },
+    ...(doc.showPrices === false ? [] : [{ key: 'price', label: 'Prix HT (EUR)', w: 30, align: 'right' as const, get: (v: OfferVehicle) => (v.sale_price == null ? NA : pdfNum(v.sale_price)), has: () => true }]),
     { key: 'rep', label: 'Inspection', w: 28, get: (v) => (v.report_url ? 'Voir le rapport' : NA), has: (v) => Boolean(v.report_url) },
   ];
   // COLONNES SELON LES DONNÉES PRÉSENTES (décision Channing 22/09, liste

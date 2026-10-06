@@ -832,6 +832,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OFFRES SANS PRIX (06/10, Channing : « on me demande d'enlever les prix
+  pour avoir une offre »)**. Règle de prix « Sans prix — le client
+  propose » : MC Export HT vidé sur toutes les lignes ; PDF et tableur
+  sans aucune colonne de prix (le prix fournisseur n'y était déjà
+  jamais) ; sous-titre « sans prix, offre à nous proposer » ; le total HT
+  laisse place à un rappel ambre. Repasser sur « Prix fournisseur HT +
+  marge » et « Appliquer à tous » remet les prix.
 - **PLAFOND « etudes.mediane_observations » 8× (06/10, Channing : « nouvelle
   limite ») : LA BASE CALCULE LES MOINS CHÈRES**. Yaris Cross NL = 42 876
   observations sur 45 jours (9 442 sur 14, 5 536 sur 7) : lire 10 000 des
