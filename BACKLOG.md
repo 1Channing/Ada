@@ -832,6 +832,23 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **DROITS FERMÉS TANT QUE LE PROFIL N'EST PAS LU, BLOCAGE D'UN COMPTE
+  (06/10, Channing : « ils ont quand même accès en mettant à jour la
+  page… Achille a accès à l'onglet ventes », « me donner les droits de
+  bloquer les accès à quelqu'un, et que ça le bloque vraiment »)**. En base
+  Achille n'a pas `wf:ventes` : la fuite venait du code, qui traitait
+  « droits pas encore lus » (null) comme « tout permis » — au rechargement
+  de la page l'app s'ouvrait avant la lecture du profil, et toute erreur
+  de lecture (réseau, RLS) ouvrait tout. Règle : rien n'est permis tant
+  que les droits ne sont pas lus (undefined ≠ null), le profil est lu
+  AVANT d'ouvrir l'app, et une lecture en échec ferme tout et réessaie
+  5 s plus tard. Blocage : colonne `profiles.blocked` (migration
+  20261006120000, protégée par le trigger comme is_admin/allowed_tabs),
+  RPC `admin_set_blocked` réservée aux admins (pas d'auto-blocage) ;
+  boutons « Bloquer l'accès / Rétablir l'accès » dans Équipe ; un compte
+  bloqué est déconnecté à la lecture du profil (y compris pendant une
+  session ouverte, relecture toutes les 60 s) et voit l'écran « Accès
+  suspendu ».
 - **OFFRES SANS PRIX (06/10, Channing : « on me demande d'enlever les prix
   pour avoir une offre »)**. Règle de prix « Sans prix — le client
   propose » : MC Export HT vidé sur toutes les lignes ; PDF et tableur

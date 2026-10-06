@@ -56,7 +56,8 @@ export const OPT_IN_TABS: AppTabKey[] = ['opportunites', 'carte:edition', 'offre
 
 /** Droits effectifs d'un compte non admin : NULL = tout sauf les droits sur
  *  autorisation explicite ; liste = ses clés fines (historiques développées). */
-export function grantedTabs(tabs: string[] | null): string[] {
+export function grantedTabs(tabs: string[] | null | undefined): string[] {
+  if (tabs === undefined) return []; // droits pas encore lus : rien (06/10)
   if (tabs == null) return APP_TABS.map((t) => t.key as string).filter((k) => !OPT_IN_TABS.includes(k as AppTabKey));
   return normalizeTabs(tabs) ?? [];
 }
@@ -91,12 +92,12 @@ export function tabKeyOfPageKey(pageKey: string): AppTabKey | null {
   }
 }
 
-export function canSeeTab(allowedTabs: string[] | null, isAdmin: boolean, key: AppTabKey): boolean {
+export function canSeeTab(allowedTabs: string[] | null | undefined, isAdmin: boolean, key: AppTabKey): boolean {
   if (isAdmin) return true;
   return grantedTabs(allowedTabs).includes(key);
 }
 
 /** Le Workflow s'ouvre dès qu'un de ses cinq onglets est permis. */
-export function canSeeWorkflow(allowedTabs: string[] | null, isAdmin: boolean): boolean {
+export function canSeeWorkflow(allowedTabs: string[] | null | undefined, isAdmin: boolean): boolean {
   return WORKFLOW_TAB_KEYS.some((k) => canSeeTab(allowedTabs, isAdmin, k));
 }

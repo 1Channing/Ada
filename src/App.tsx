@@ -19,6 +19,7 @@ import { Login, ResetPassword } from './pages/Login';
 import { Equipe } from './pages/Equipe';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
 import { canSeeTab, canSeeWorkflow, tabKeyOfPageKey } from './lib/appTabs';
+import { supabase } from './lib/supabase';
 
 const originalPushState = window.history.pushState.bind(window.history);
 window.history.pushState = function(...args) {
@@ -112,7 +113,7 @@ function App() {
   };
   // Onglets par compte (page Équipe) : une page dont l'onglet est retiré à
   // ce compte est remplacée par l'accueil — l'URL tapée à la main comprise.
-  const { allowedTabs, isAdmin } = useAuth();
+  const { allowedTabs, isAdmin, blocked } = useAuth();
   const rawKey = pageKeyOf(path);
   // Le Workflow s'ouvre si l'un de ses cinq onglets est permis ; la page
   // masque elle-même les onglets interdits.
@@ -135,6 +136,17 @@ function App() {
   }
   if (!userId) {
     return <Login />;
+  }
+  if (blocked) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center space-y-3">
+          <h1 className="text-lg font-semibold text-slate-900">Accès suspendu</h1>
+          <p className="text-sm text-slate-600">Ton compte a été fermé par un administrateur. Rien n'est perdu : tes études, négociations et ventes restent dans ADA. Rapproche-toi de Channing pour le rétablir.</p>
+          <button onClick={() => { void supabase.auth.signOut(); window.location.reload(); }} className="text-sm px-3 py-1.5 rounded-lg bg-slate-900 text-white">Se déconnecter</button>
+        </div>
+      </div>
+    );
   }
 
   return (

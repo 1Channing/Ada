@@ -23,6 +23,7 @@ interface Account {
   phone: string | null;
   is_admin: boolean;
   allowed_tabs: string[] | null;
+  blocked?: boolean;
   created_at: string;
   last_sign_in_at: string | null;
   /** Dernier événement de page de la télémétrie (visitor = prénom) — la
@@ -121,7 +122,12 @@ export function Equipe() {
     ]);
     void reloadLeads();
     if (e1) setError(`Comptes : ${e1.message} — la migration 20260830120000 est-elle appliquée ?`);
-    else setAccounts((acc ?? []) as Account[]);
+    else {
+      // Blocage (SQL 20261006120000) : lu à part, la RPC des comptes ne le porte pas ; colonne absente = personne de bloqué.
+      const { data: bl } = await supabase.from('profiles').select('id, blocked' as never);
+      const blockedIds = new Set(((bl ?? []) as unknown as Array<{ id: string; blocked?: boolean }>).filter((p) => p.blocked).map((p) => p.id));
+      setAccounts(((acc ?? []) as Account[]).map((a) => ({ ...a, blocked: blockedIds.has(a.id) })));
+    }
     if (e2) setError((prev) => prev ?? `Liste d'inscription : ${e2.message}`);
     else setAllow((al ?? []) as AllowRow[]);
     setSearches(sr.error ? null : ((sr.data ?? []) as TeamSearch[]));
@@ -238,6 +244,14 @@ export function Equipe() {
     void reload();
   };
 
+  /** Bloquer / rétablir un compte : RPC admin (security definer), vérifiée par relecture. */
+  const setBlocked = async (a: Account, blocked: boolean) => {
+    if (blocked && !window.confirm(`Bloquer l'accès de ${a.email} ? Il sera déconnecté et ne verra plus qu'un écran « accès suspendu ».`)) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await (supabase as any).rpc('admin_set_blocked', { p_user: a.id, p_blocked: blocked });
+    if (r.error) { setError(/admin_set_blocked/.test(r.error.message) ? 'Blocage indisponible : colle la migration 20261006120000 (profiles.blocked, RPC admin_set_blocked).' : r.error.message); return; }
+    await reload();
+  };
   const sendReset = async (a: Account) => {
     if (!confirm(`Envoyer à ${a.email} un email de réinitialisation du mot de passe ?`)) return;
     const err = await requestPasswordReset(a.email);
@@ -423,6 +437,9 @@ export function Equipe() {
                       </>
                     )}
                     <div className="flex items-center gap-2 pt-1">
+                      {!a.is_admin && (a.blocked
+                        ? <button onClick={() => void setBlocked(a, false)} className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 border border-emerald-300 rounded-lg px-2.5 py-1.5 hover:bg-emerald-50">Rétablir l'accès</button>
+                        : <button onClick={() => void setBlocked(a, true)} className="flex items-center gap-1.5 text-xs font-medium text-red-700 border border-red-300 rounded-lg px-2.5 py-1.5 hover:bg-red-50">Bloquer l'accès</button>)}
                       <button onClick={() => void sendReset(a)} className="flex items-center gap-1.5 text-xs font-medium text-slate-600 border border-slate-300 rounded-lg px-2.5 py-1.5 hover:bg-slate-50">
                         <KeyRound className="w-3.5 h-3.5" /> Envoyer un lien de nouveau mot de passe
                       </button>

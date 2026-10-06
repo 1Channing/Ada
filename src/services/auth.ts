@@ -14,13 +14,16 @@ interface AuthState {
   email: string | null;
   displayName: string;
   isAdmin: boolean;
-  /** Onglets autorisés pour CE compte (page Équipe) — null = tous. */
-  allowedTabs: string[] | null;
+  /** Onglets autorisés pour CE compte (page Équipe) — null = tous (enregistré), undefined = PAS ENCORE LUS = rien
+   *  (06/10 : avant la lecture du profil, « null = tout » ouvrait toutes les pages à chaque rechargement). */
+  allowedTabs: string[] | null | undefined;
+  /** Compte bloqué par un admin : déconnecté, écran « accès suspendu ». */
+  blocked: boolean;
   /** true = l'utilisateur arrive par un lien « mot de passe oublié » —
    *  l'app affiche l'écran de nouveau mot de passe avant tout le reste. */
   recovering: boolean;
   setSession: (userId: string | null, email: string | null) => void;
-  setProfile: (name: string, isAdmin: boolean, allowedTabs?: string[] | null) => void;
+  setProfile: (name: string, isAdmin: boolean, allowedTabs?: string[] | null | undefined, blocked?: boolean) => void;
   setReady: () => void;
   setRecovering: (v: boolean) => void;
 }
@@ -31,10 +34,11 @@ export const useAuth = create<AuthState>((set) => ({
   email: null,
   displayName: '',
   isAdmin: false,
-  allowedTabs: null,
+  allowedTabs: undefined,
+  blocked: false,
   recovering: false,
   setSession: (userId, email) => set({ userId, email }),
-  setProfile: (displayName, isAdmin, allowedTabs = null) => set({ displayName, isAdmin, allowedTabs }),
+  setProfile: (displayName, isAdmin, allowedTabs = null, blocked = false) => set({ displayName, isAdmin, allowedTabs, blocked }),
   setReady: () => set({ ready: true }),
   setRecovering: (recovering) => set({ recovering }),
 }));
@@ -74,7 +78,9 @@ const CLOCK_RETRY_DELAYS_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
 let clockRetryIdx = 0;
 
 async function loadProfile(userId: string): Promise<void> {
-  const { data, error } = await supabase.from('profiles').select('display_name, is_admin, allowed_tabs').eq('id', userId).maybeSingle();
+  let { data, error } = await supabase.from('profiles').select('display_name, is_admin, allowed_tabs, blocked').eq('id', userId).maybeSingle();
+  // Colonne blocked absente (SQL 20261006120000 pas collé) : relecture sans elle.
+  if (error && /blocked/.test(error.message ?? '')) ({ data, error } = await supabase.from('profiles').select('display_name, is_admin, allowed_tabs').eq('id', userId).maybeSingle());
   if (error && SERVER_CLOCK_LAG.test(error.message ?? '')) {
     const delay = CLOCK_RETRY_DELAYS_MS[Math.min(clockRetryIdx++, CLOCK_RETRY_DELAYS_MS.length - 1)];
     console.warn(`[AUTH] horloge du serveur de données en retard (« ${error.message} ») — nouvel essai dans ${Math.round(delay / 1000)} s ; si ça persiste : Supabase → Settings → General → Restart project`);
@@ -85,12 +91,21 @@ async function loadProfile(userId: string): Promise<void> {
     await purgePoisonedSession(error.message);
     return;
   }
+  if (error || !data) {
+    // DROITS FERMÉS tant que le profil n'est pas lu (06/10, Channing : « ils ont accès aux pages interdites en
+    // rechargeant ») : une lecture en échec ou un profil absent ne donne RIEN (accueil seul), et on réessaie.
+    console.warn(`[AUTH] profil non lu (${error?.message ?? 'aucune ligne'}) — droits fermés jusqu'à la prochaine lecture`);
+    useAuth.getState().setProfile(useAuth.getState().displayName, false, undefined, false);
+    setTimeout(() => { void loadProfile(userId); }, 5_000);
+    return;
+  }
   clockRetryIdx = 0;
-  useAuth.getState().setProfile(
-    data?.display_name ?? '',
-    data?.is_admin === true,
-    (data as { allowed_tabs?: string[] | null } | null)?.allowed_tabs ?? null,
-  );
+  const row = data as { display_name?: string | null; is_admin?: boolean; allowed_tabs?: string[] | null; blocked?: boolean | null };
+  useAuth.getState().setProfile(row.display_name ?? '', row.is_admin === true, row.allowed_tabs ?? null, row.blocked === true);
+  if (row.blocked === true) {
+    console.warn('[AUTH] compte bloqué par un administrateur — déconnexion');
+    await supabase.auth.signOut().catch(() => undefined);
+  }
 }
 
 let started = false;
@@ -98,10 +113,11 @@ let started = false;
 export function startAuthWatcher(): void {
   if (started) return;
   started = true;
-  void supabase.auth.getSession().then(({ data }) => {
+  void supabase.auth.getSession().then(async ({ data }) => {
     const u = data.session?.user ?? null;
     useAuth.getState().setSession(u?.id ?? null, u?.email ?? null);
-    if (u) void loadProfile(u.id);
+    // Le profil (droits) est lu AVANT d'ouvrir l'application : pas de fenêtre « tout permis » au rechargement.
+    if (u) await loadProfile(u.id).catch(() => undefined);
     useAuth.getState().setReady();
   });
   // DROITS À EFFET RAPIDE (29/09, question Channing : « Achille est
@@ -119,7 +135,7 @@ export function startAuthWatcher(): void {
     // récupération et émet PASSWORD_RECOVERY — on force l'écran nouveau MDP.
     if (event === 'PASSWORD_RECOVERY') useAuth.getState().setRecovering(true);
     if (u) void loadProfile(u.id);
-    else useAuth.getState().setProfile('', false);
+    else useAuth.getState().setProfile('', false, undefined, false);
   });
 }
 
