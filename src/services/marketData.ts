@@ -626,10 +626,21 @@ export function pruneVanishedListings(
     });
   }
   return obs.filter((o) => {
+    // Constat Elroq FR 06/10 : une annonce vue pour la dernière fois le 05/08
+    // survivait à 90 scans postérieurs parce que SON scan d'origine manquait
+    // à la liste chargée (27 pages de snapshots : une page en échec et la
+    // lecture s'arrête, les plus anciens tombent) — « snapshot inconnu =
+    // conservé » devenait une passoire. L'annonce porte elle-même son
+    // site/pays/marque/modèle et sa date : on s'en sert quand le scan
+    // d'origine est absent, et seuls les scans POSTÉRIEURS (les plus récents,
+    // toujours chargés en premier) servent de preuve.
     const own = byId.get(o.snapshot_id);
-    if (!own) return true;
-    for (const cand of byGroup.get(groupOf(own)) ?? []) {
-      if (String(cand.scraped_at) <= String(own.scraped_at)) break; // triés desc — plus rien de postérieur
+    const ownGroup = own ? groupOf(own)
+      : [o.site, o.country, brandKey(o.brand ?? ''), refModelKey(o.brand ?? '', o.model ?? '')].join('|');
+    const ownAt = String(own?.scraped_at ?? o.scraped_at ?? '');
+    if (!ownAt) return true;
+    for (const cand of byGroup.get(ownGroup) ?? []) {
+      if (String(cand.scraped_at) <= ownAt) break; // triés desc — plus rien de postérieur
       // Portée carburant : '' = tous ; sinon l'annonce doit y appartenir.
       // Le snapshot porte la forme CRITÈRE ('HYBRIDE', 'PLUG_IN_HYBRID'…),
       // les observations le token ('hybrid', 'phev'…) — on retraduit.

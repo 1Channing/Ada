@@ -832,6 +832,23 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ANNONCES DISPARUES QUI SURVIVAIENT DANS LE MI (06/10, Channing : « quand
+  je clique sur le premier lien français il me dit qu'elle n'est plus
+  disponible alors que je viens de mettre à jour »)**. Elroq FR : l'annonce
+  à 33 490 € (leboncoin 3242674399) vue pour la DERNIÈRE fois le 05/08
+  restait affichée après 90 scans postérieurs du même segment — rejeu avec
+  les vraies fonctions : 157 annonces → 37 après purge quand tous les scans
+  sont chargés, mais la page charge les 26 796 snapshots en 27 pages, et
+  une page en échec arrêtait la lecture en silence : le scan d'origine
+  (05/08) manquait, et « snapshot inconnu = conservé » gardait tout
+  l'ancien (149 annonces affichées, prix d'attaque calculé sur des
+  fantômes). Règle : la purge lit site/pays/marque/modèle et date sur
+  l'ANNONCE elle-même quand son scan d'origine n'est pas chargé — seuls les
+  scans postérieurs (les plus récents, chargés en premier) servent de
+  preuve ; vérifié : 37 annonces avec 300 scans chargés comme avec
+  26 796. `fetchAllPages` réessaie 2 fois une page en échec et dit combien
+  de lignes manquent. Limite connue : ~350 à 850 snapshots par jour,
+  plafond de lecture 50 000 atteint vers décembre — à scoper par étude.
 - **DROITS FERMÉS TANT QUE LE PROFIL N'EST PAS LU, BLOCAGE D'UN COMPTE
   (06/10, Channing : « ils ont quand même accès en mettant à jour la
   page… Achille a accès à l'onglet ventes », « me donner les droits de

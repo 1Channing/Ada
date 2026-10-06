@@ -20,9 +20,20 @@ export async function fetchAllPages<T>(
   const PAGE = 1000;
   const out: T[] = [];
   for (let from = 0; from < maxRows; from += PAGE) {
-    const { data, error } = await build(from, Math.min(from + PAGE, maxRows) - 1);
+    // Une page en échec (timeout 57014, réseau) était abandonnée en silence
+    // et la lecture s'arrêtait là : la liste rendue était tronquée sans que
+    // rien ne le dise (constat MI 06/10 : purge des annonces disparues
+    // passoire). On réessaie deux fois avant d'abandonner, et on dit alors
+    // combien de lignes manquent.
+    let page: { data: unknown[] | null; error: { message: string } | null } | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * attempt));
+      page = await build(from, Math.min(from + PAGE, maxRows) - 1);
+      if (!page.error) break;
+    }
+    const { data, error } = page!;
     if (error) {
-      console.warn(`[${tag}] paged read failed:`, error.message);
+      console.warn(`[${tag}] paged read failed at row ${from} after 3 attempts — result truncated to ${out.length} rows:`, error.message);
       break;
     }
     const rows = (data ?? []) as T[];
