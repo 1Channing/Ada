@@ -42,6 +42,8 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
     // MOTORISATION (demande Channing 22/09) : la colonne Engine du fournisseur
     // telle quelle (« 1.2 Turbo. 96 kW (130 PS). S/S »), sinon la ligne
     // version d'origine — jamais rédigée, jamais perdue.
+    // Exemplaires (catalogue Record Rent a Car 07/10) : une ligne par modèle, le nombre à côté.
+    { key: 'qty', label: 'Unites', w: 14, align: 'right', get: (v) => String(v.quantity ?? 1), has: (v) => (v.quantity ?? 1) > 1 },
     { key: 'eng', label: 'Motorisation', w: 48, wrap: true, get: (v) => engineOf(v), has: (v) => Boolean((v.engine ?? '').trim() || (v.version ?? '').trim()) },
     { key: 'fuel', label: 'Energie', w: 24, wrap: true, get: (v) => fuelLabel(v.fuel), has: (v) => Boolean(v.fuel) },
     { key: 'reg', label: '1re immat.', w: 22, get: (v) => fmtDate(v.reg_date).replace('—', NA), has: (v) => Boolean(v.reg_date) },

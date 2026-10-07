@@ -55,6 +55,8 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
   const allCols: Array<{ label: string; w: number; get: (v: OfferVehicle) => Cell; always?: boolean }> = [
     { label: 'Châssis (VIN)', w: 18, get: (v) => v.vin ?? '' },
     { label: 'Véhicule', w: 22, get: (v) => labelOf(v), always: true },
+    // Exemplaires (catalogue Record Rent a Car 07/10) : une ligne par modèle, le nombre à côté.
+    { label: 'Unités', w: 8, get: (v) => ((v.quantity ?? 1) > 1 ? v.quantity! : null) },
     { label: 'Motorisation', w: 30, get: (v) => ((v.engine ?? '').trim() || (v.version ?? '').trim() ? engineOf(v) : '') },
     { label: 'Version', w: 40, get: (v) => v.version ?? '' },
     { label: 'Carrosserie', w: 12, get: (v) => bodyOf(v) },

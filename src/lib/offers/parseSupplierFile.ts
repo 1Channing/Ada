@@ -21,10 +21,10 @@ import * as XLSX from 'xlsx';
 
 export type OfferField =
   | 'vin' | 'brand' | 'model' | 'version' | 'reg_date' | 'km' | 'color' | 'fuel' | 'engine' | 'power'
-  | 'gearbox' | 'co2' | 'damages' | 'report_url' | 'location' | 'price_ht' | 'price_ttc' | 'vat' | 'import' | 'plate' | 'quantity' | 'ignore';
+  | 'gearbox' | 'co2' | 'damages' | 'report_url' | 'location' | 'price_ht' | 'price_ttc' | 'vat' | 'import' | 'plate' | 'quantity' | 'year' | 'ignore';
 
 export const OFFER_FIELD_LABELS: Record<OfferField, string> = {
-  vin: 'VIN / châssis', brand: 'Marque', model: 'Modèle', version: 'Version / ligne libre', reg_date: '1re immatriculation',
+  vin: 'VIN / châssis', brand: 'Marque', model: 'Modèle', version: 'Version / ligne libre', reg_date: '1re immatriculation', year: 'Année (millésime)',
   km: 'Kilométrage', color: 'Couleur', fuel: 'Énergie', engine: 'Motorisation', power: 'Puissance (ch)', gearbox: 'Boîte',
   co2: 'CO₂ (g/km)', damages: 'Dommages / frais (€)', report_url: 'Rapport (lien)', location: 'Lieu de stockage',
   price_ht: 'Prix fournisseur HT (€)', price_ttc: 'Prix fournisseur TTC (€)', vat: 'TVA récupérable', import: 'Import', plate: 'Immatriculation (plaque)', quantity: 'Quantité (exemplaires)', ignore: '— ignorer —',
@@ -44,6 +44,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // Italien (offre Audi A6 / Q6 e-tron du 30/09) : « N° Telaio » = châssis,
   // « Targa » = plaque, « Immatricolazione », « Colore », « Cambio », « Danni »…
   ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie|telaio)\b/],
+  // « YEAR » (catalogue Record Rent a Car 07/10) : un millésime, pas une date.
+  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my)$/],
   // « 1st Reg. » (Flexivan Sorento 22/09) : normalisé en « 1st reg », ni
   // « reg date » ni « first reg » ne le voyaient — la date restait vide.
   ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr)/],
@@ -67,7 +69,7 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['quantity', /^(quantity|qty|quantite|quantità|anzahl|stuck|units?|pcs|nombre)$/],
   ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur|\bmarca\b)/],
   ['model', /^(model|modele|modello)$/],
-  ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo)/],
+  ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
 
 /** Énergies telles qu'ADA les nomme (les fichiers parlent anglais, allemand, français). */
@@ -77,7 +79,7 @@ const FUEL_CANON: Array<[RegExp, string]> = [
   [/electr|elektr|\bev\b|bev/i, 'ELECTRIQUE'],
   [/diesel|gasoil|gazole/i, 'DIESEL'],
   [/petrol|essence|benzin|gasoline|super/i, 'ESSENCE'],
-  [/gpl|lpg/i, 'GPL'],
+  [/gpl|glp|lpg|eco-?g/i, 'GPL'],
 ];
 export function canonFuel(raw: string | null | undefined): string | null {
   const s = (raw ?? '').trim();
@@ -111,6 +113,9 @@ export interface OfferVehicle {
   extras: Record<string, string>;   // colonnes non reconnues, gardées telles quelles
   selected: boolean;
   sale_price: number | null;        // prix MC Export HT (règle appliquée, modifiable)
+  /** Exemplaires identiques sur cette ligne (catalogue Record Rent a Car 07/10 :
+   *  « UNITS » 37 Bigster) — UNE ligne, pas 37 ; absent = 1 (offres d'avant). */
+  quantity?: number;
 }
 
 export interface ColumnMapping { header: string; field: OfferField; sample: string }
@@ -147,6 +152,10 @@ function toNumber(v: unknown): number | null {
   if (v == null || v === '') return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   const s = String(v).replace(/\s|€| /g, '').replace(/,(?=\d{1,2}$)/, '.').replace(/,/g, '');
+  // Pas un seul chiffre (« AUDI », « n.d. ») = pas un nombre — l'ancienne
+  // lecture rendait 0 (constat 07/10 : la marque « AUDI » prise pour 0, la
+  // remise en place des colonnes inversées YEAR/MAKE ne se déclenchait pas).
+  if (!/\d/.test(s)) return null;
   const n = Number(s.replace(/[^0-9.-]/g, ''));
   return Number.isFinite(n) && s !== '' ? n : null;
 }
@@ -253,11 +262,15 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   const kw = s.match(/(\d{2,3})\s?kw\b/i);
   const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : null;
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
-  const gearbox = /\b(bva|automati(que|c|k)|automaat|dct\d?|eat\d|e-?dcs?\d?|edc|cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
+  // « AUT » (catalogue Record Rent a Car 07/10 : « 252CV AUT »), « E-CVT ».
+  const gearbox = /\b(bva|automati(que|c|k)|automaat|aut|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
     : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) ? 'MANUELLE' : null;
-  const fuel = /\b(phev|plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid)\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
-    : /\b(hybrid|hybride|e-?tech|e-?power|mhev|bsg)\b/i.test(s) ? 'HYBRIDE'
+  // « 300PHEV » collé (RAV4), « HEV » (Tucson), « GLP » / « ECO-G » (GPL
+  // espagnol / Dacia) — catalogue du 07/10.
+  const fuel = /phev|\b(plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid)\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
+    : /\b(hybrid|hybride|hev|e-?tech|e-?power|mhev|bsg)\b/i.test(s) ? 'HYBRIDE'
     : /\b([ée]lectri(que|c)|ev|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs)\b/i.test(s) ? 'ELECTRIQUE'
+    : /\b(gpl|glp|lpg|eco-?g)\b/i.test(s) ? 'GPL'
     : /\b(diesel|hdi|bluehdi|dci|tdi|cdi|crdi|d\b|multijet)/i.test(s) ? 'DIESEL'
     : /\b(essence|petrol|benzin|puretech|tce|tsi|tfsi|turbo|1\.[0-9]|dig-t)\b/i.test(s) ? 'ESSENCE' : null;
   const e = s.match(/\b(\d\.\d\s?(?:turbo|puretech|tce|tsi|hybrid|hdi|bluehdi|dci|e-?hybrid|t\d)?[^,|]{0,20}?)(?=\s\d{2,3}\s?(?:ch|cv|kw)|$)/i);
@@ -423,6 +436,14 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     if (Object.keys(rec).length === 0) continue;
     if (layout === 'flat' && rec.brand == null && rec.model == null && rec.version == null && rec.vin == null) continue;
 
+    // En-têtes DÉCALÉS (catalogue Record Rent a Car 07/10 : la colonne titrée
+    // « YEAR » porte la marque et « MAKE » le millésime) : une « marque » qui
+    // est un millésime et une « année » qui est du texte = les deux colonnes
+    // sont inversées, on les remet à leur place — rien n'est inventé.
+    const brandAsYear = toNumber(rec.brand);
+    if (brandAsYear != null && brandAsYear >= 1980 && brandAsYear <= 2100 && rec.year != null && toNumber(rec.year) == null) {
+      const b = rec.brand; rec.brand = rec.year; rec.year = b;
+    }
     let versionLine = cell(rec.version) || cell(rec.model) || '';
     let brand = cell(rec.brand) || currentBrand;
     if (!brand && versionLine) {
@@ -462,16 +483,23 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     // « Variant » / « EQ » d'une liste à colonne modèle (VW ID.7 Tourer 02/10) : la version, pas un extra.
     const variant = [extras['Variant'], extras['EQ'], extras['Trim'], extras['Finition']].filter((x) => x && x.trim() && !versionLine.toUpperCase().includes(x.trim().toUpperCase())).join(' ').trim();
     if (versionLine.toUpperCase() === cell(rec.model).toUpperCase()) { if (variant) versionLine = `${versionLine} ${variant}`.replace(/\s+/g, ' ').trim(); for (const k of ['Variant', 'EQ', 'Trim', 'Finition']) if (extras[k] && versionLine.toUpperCase().includes(extras[k].trim().toUpperCase())) delete extras[k]; }
-    const qty = Math.max(1, Math.min(50, Math.round(toNumber(rec.quantity) ?? 1)));
-    for (let n = 0; n < qty; n++) vehicles.push({
-      id: (vin ?? `row-${i + 1}`) + (qty > 1 ? `-${n + 1}` : ''),
+    // UNE LIGNE PAR MODÈLE, les exemplaires en quantité (décision Channing
+    // 07/10 : « plusieurs unités par modèle, on ne veut pas 18 pages, juste la
+    // même liste ») — l'ancienne lecture dupliquait la ligne N fois.
+    const qty = Math.max(1, Math.round(toNumber(rec.quantity) ?? 1));
+    const yearCol = toNumber(rec.year);
+    const km = toNumber(rec.km);
+    vehicles.push({
+      id: vin ?? `row-${i + 1}`,
       vin,
       brand,
       model: model.toUpperCase(),
       version: versionLine,
       reg_date: reg,
-      year: reg ? Number(reg.slice(0, 4)) : null,
-      km: toNumber(rec.km),
+      year: reg ? Number(reg.slice(0, 4)) : (yearCol != null && yearCol >= 1980 && yearCol <= 2100 ? Math.round(yearCol) : null),
+      // Km moyen d'un lot (décimales dans le catalogue) : arrondi.
+      km: km != null ? Math.round(km) : null,
+      quantity: qty,
       color: cell(rec.color) || null,
       fuel: canonFuel(cell(rec.fuel)) ?? free.fuel,
       engine: cell(rec.engine) || free.engine,
@@ -483,8 +511,9 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       damages: toNumber(rec.damages),
       report_url: cell(rec.report_url).startsWith('http') ? cell(rec.report_url) : null,
       location: cell(rec.location) || null,
-      price_ht: toNumber(rec.price_ht),
-      price_ttc: toNumber(rec.price_ttc),
+      // Prix moyens d'un lot (décimales dans le catalogue du 07/10) : arrondis à l'euro.
+      price_ht: toNumber(rec.price_ht) != null ? Math.round(toNumber(rec.price_ht)!) : null,
+      price_ttc: toNumber(rec.price_ttc) != null ? Math.round(toNumber(rec.price_ttc)!) : null,
       vat_recoverable: yesNo(rec.vat),
       imported: yesNo(rec.import),
       extras,

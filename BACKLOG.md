@@ -832,6 +832,23 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OFFRES : CATALOGUE À UNITÉS PAR MODÈLE (07/10, Channing : « apprends à
+  lire cette liste, plusieurs unités par modèle, on ne veut pas 18 pages,
+  juste la même liste avec nos prix et notre DA »)**. Catalogue Record Rent a
+  Car (24 modèles, 342 voitures) : colonne « UNITS » = exemplaires, en-têtes
+  YEAR/MAKE INVERSÉS (la colonne « YEAR » porte la marque), « COMMERCIAL
+  NAME » = ligne libre, km et prix = moyennes à décimales, « AUT », « HEV »,
+  « 300PHEV » collé, « GLP » / « ECO-G ». Règles : une ligne par modèle avec
+  `quantity` (plus de duplication N fois — c'était les 18 pages) ; colonne
+  « Unités » dans le PDF et le tableur, comptes et total HT en véhicules
+  (« 342 véhicules (24 modèles) ») ; champ `year` (millésime ≠ date) ; marque
+  et année remises en place quand la « marque » est un millésime et
+  l'« année » du texte ; toNumber rend null sans chiffre (« AUDI » valait 0 —
+  tout texte dans une colonne nombre valait 0) ; AUT / E-CVT = automatique,
+  HEV = hybride, PHEV collé = rechargeable, GLP / ECO-G = GPL ; km et prix
+  arrondis. Vérifié : 24 lignes, 342 unités, toutes avec marque, année, km,
+  prix. « PRICE » est lu en TTC faute d'indication : à basculer en HT dans la
+  correspondance si le catalogue est hors taxes.
 - **RECHERCHE D'UN DOSSIER DANS LES VENTES (07/10, Channing : « ajoute la
   possibilité sous les chiffres de ventes de rechercher un dossier, par
   référence, par nom, etc. »)**. Champ sous les quatre indicateurs : chaque

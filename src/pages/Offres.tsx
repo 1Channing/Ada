@@ -179,9 +179,14 @@ export function Offres() {
   };
 
   const selected = useMemo(() => (draft?.vehicles ?? []).filter((v) => v.selected), [draft]);
+  // Exemplaires (07/10) : une ligne par modèle, la quantité à côté — les comptes
+  // et le total parlent en véhicules, pas en lignes.
+  const qtyOf = (v: OfferVehicle) => Math.max(1, v.quantity ?? 1);
+  const selectedUnits = selected.reduce((a, v) => a + qtyOf(v), 0);
+  const unitsLabel = (lines: number, units: number) => `${units} véhicule${units > 1 ? 's' : ''}${units !== lines ? ` (${lines} modèle${lines > 1 ? 's' : ''})` : ''}`;
   const docOf = () => ({
     title: (draft?.title || 'OFFRE MC EXPORT').toUpperCase(),
-    subtitle: `${selected.length} véhicule${selected.length > 1 ? 's' : ''} · ${draft?.price_rule.mode === 'none' ? 'sans prix, offre à nous proposer' : 'prix HT'} · transport à la charge de l'acheteur · vendus en l'état`,
+    subtitle: `${unitsLabel(selected.length, selectedUnits)} · ${draft?.price_rule.mode === 'none' ? 'sans prix, offre à nous proposer' : 'prix HT'} · transport à la charge de l'acheteur · vendus en l'état`,
     date: todayFr(), vehicles: selected, showDamages: true, showSupplierPrice: false, showPrices: draft?.price_rule.mode !== 'none',
     footer: 'MC EXPORT — offre valable sous réserve de disponibilité. Dommages : chiffrages du fournisseur, conservés à l’identique.',
   });
@@ -432,15 +437,15 @@ export function Offres() {
             {/* Véhicules */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
               <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3 flex-wrap">
-                <span className="text-sm font-semibold text-slate-800">{selected.length}/{draft.vehicles.length} véhicules retenus</span>
+                <span className="text-sm font-semibold text-slate-800">{selectedUnits}/{draft.vehicles.reduce((a, v) => a + qtyOf(v), 0)} véhicules retenus{draft.vehicles.some((v) => qtyOf(v) > 1) ? ` · ${selected.length}/${draft.vehicles.length} modèles` : ''}</span>
                 <button onClick={() => update({ vehicles: draft.vehicles.map((v) => ({ ...v, selected: true })) })} className="text-xs text-brand-ocean hover:underline">Tout retenir</button>
                 <button onClick={() => update({ vehicles: draft.vehicles.map((v) => ({ ...v, selected: false })) })} className="text-xs text-slate-500 hover:underline">Tout écarter</button>
-                {draft.price_rule.mode === 'none' ? <span className="ml-auto text-xs text-amber-700">Offre sans prix : aucune colonne de prix dans le PDF et le tableur</span> : <span className="ml-auto text-xs text-slate-500">Total HT retenu : <span className="font-semibold text-slate-800">{fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0), 0))}</span></span>}
+                {draft.price_rule.mode === 'none' ? <span className="ml-auto text-xs text-amber-700">Offre sans prix : aucune colonne de prix dans le PDF et le tableur</span> : <span className="ml-auto text-xs text-slate-500">Total HT retenu : <span className="font-semibold text-slate-800">{fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0) * qtyOf(v), 0))}</span></span>}
               </div>
               <div className="overflow-x-auto">
                 <table className="text-xs w-full min-w-[1100px]">
                   <thead><tr className="text-left text-slate-400 border-b border-slate-100">
-                    <th className="py-1.5 px-3"></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3">Motorisation</th><th className="py-1.5 pr-3">Version</th><th className="py-1.5 pr-3">Immat.</th>
+                    <th className="py-1.5 px-3"></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3 text-right" title="Exemplaires identiques sur cette ligne">Qté</th><th className="py-1.5 pr-3">Motorisation</th><th className="py-1.5 pr-3">Version</th><th className="py-1.5 pr-3">Immat.</th>
                     <th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3">Énergie</th><th className="py-1.5 pr-3 text-right">Ch</th><th className="py-1.5 pr-3">Boîte</th>
                     <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur HT</th><th className="py-1.5 pr-3 text-right">MC Export HT</th><th className="py-1.5 pr-3">Rapport</th>
                   </tr></thead>
@@ -451,6 +456,7 @@ export function Offres() {
                         <tr key={v.id} className={v.selected ? '' : 'opacity-50'}>
                           <td className="py-1.5 px-3"><input type="checkbox" checked={v.selected} onChange={(e) => setVehicle(v.id, { selected: e.target.checked })} /></td>
                           <td className="py-1.5 pr-3 whitespace-nowrap"><span className="font-medium text-slate-800">{v.brand} {v.model}</span>{v.vin && <span className="block text-[10px] text-slate-400">{v.vin}</span>}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums"><input type="number" min={1} value={qtyOf(v)} onChange={(e) => setVehicle(v.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })} className={`w-14 px-1.5 py-1 rounded border text-right tabular-nums ${qtyOf(v) > 1 ? 'border-slate-300 font-semibold text-slate-800' : 'border-slate-200 text-slate-400'}`} /></td>
                           <td className="py-1.5 pr-3 max-w-[200px] truncate text-slate-700" title={v.engine ?? ''}>{v.engine || '—'}</td>
                           <td className="py-1.5 pr-3 max-w-[260px] truncate text-slate-600" title={v.version}>{v.version}{v.color ? ` · ${v.color}` : ''}</td>
                           <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">{fmtDate(v.reg_date)}</td>
@@ -466,7 +472,7 @@ export function Offres() {
                         </tr>
                       );
                     })}
-                    {draft.vehicles.length === 0 && <tr><td colSpan={13} className="py-6 text-center text-slate-400">Aucun véhicule dans cette offre.</td></tr>}
+                    {draft.vehicles.length === 0 && <tr><td colSpan={14} className="py-6 text-center text-slate-400">Aucun véhicule dans cette offre.</td></tr>}
                   </tbody>
                 </table>
               </div>
