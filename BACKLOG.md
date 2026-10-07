@@ -832,6 +832,25 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OFFRES DEPUIS DES PDF, PLUSIEURS À LA FOIS (07/10, Channing : listes
+  allemandes reçues par Achille — « créer dans Offres un nouveau moyen de
+  créer des listes à partir de PDF, avec la possibilité d'en choisir
+  plusieurs ; les prix sont-ils HT ou TTC ? »)**. Gabarit « Auszug aus
+  unserem aktuellen Gebrauchtwagenangebot » (VW_Hybrid_1.pdf : 39 voitures
+  sur 29 pages ; Audi_MUE_07.10.pdf : 73 sur 42). Lu par pdf.js (lignes
+  regroupées par hauteur, comme les relevés) : la ligne de titre porte
+  modèle + version, « MwSt.-Ausweis möglich! » et le prix ; la ligne « Nr. »
+  l'identifiant filiale/numéro, EZ, km, kW(PS), ccm, couleur, portes, puis
+  énergie / boîte / transmission ; « GETRIEBE » en secours ; « ehemaliger
+  Neupreis » en extra. Prix TTC, TVA allemande 19 % : `vat_rate` par
+  véhicule, `supplierHt` divise par 1,19 (plus 1,20) quand « MwSt.-Ausweis
+  möglich » (TVA récupérable) ; « Differenzbesteuert / § 25a » = marge, pas
+  de HT. Marque absente du PDF : modèles connus, sinon nom du fichier (VW →
+  VOLKSWAGEN). Un prix écrit « null » = sans prix, jamais 0. Dépôt multiple
+  (.pdf) : tous les véhicules dans UNE offre, nom des fichiers gardé,
+  layout « pdf » (pas de correspondance de colonnes). Vérifié : 39/39 et
+  73/73 véhicules, tous avec date, km, puissance, énergie ; 1 sans prix
+  (le PDF dit « null »), 12 Audi sans boîte lisible (ni titre ni GETRIEBE).
 - **OFFRES : CATALOGUE À UNITÉS PAR MODÈLE (07/10, Channing : « apprends à
   lire cette liste, plusieurs unités par modèle, on ne veut pas 18 pages,
   juste la même liste avec nos prix et notre DA »)**. Catalogue Record Rent a

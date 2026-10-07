@@ -8,6 +8,8 @@ import {
   type ParsedSupplierFile, type OfferVehicle, type OfferField, type ColumnMapping,
 } from '../lib/offers/parseSupplierFile';
 import { loadLearnedModelsByBrand, mergeKnownModels } from '../lib/offers/knownModels';
+import { pdfToLinesEx } from '../lib/pdfText';
+import { isDealerExtractPdf, parseDealerExtractPdf } from '../lib/offers/parseSupplierPdf';
 import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
@@ -116,6 +118,67 @@ export function Offres() {
       // d'enlèvement…) → notes de l'offre, si rien n'y est encore (30/09).
       notes: base.notes || p.notes || '',
     };
+  };
+
+  /**
+   * LISTES PDF (07/10, listes allemandes reçues par Achille : « créer dans
+   * Offres un nouveau moyen de créer des listes à partir de PDF, avec la
+   * possibilité d'en choisir plusieurs ») : chaque PDF est lu (pdf.js), les
+   * véhicules reconnus sont réunis dans UNE offre ; le nom de l'offre dit
+   * d'où elle vient. Prix TTC (TVA allemande 19 %) → HT par la règle.
+   */
+  const buildDraftFromPdfs = async (files: File[]): Promise<{ draft: Draft; warnings: string[] }> => {
+    const all: OfferVehicle[] = [];
+    const warnings: string[] = [];
+    const brands: string[] = [];
+    for (const f of files) {
+      const { lines, ocr } = await pdfToLinesEx(f);
+      if (ocr) warnings.push(`${f.name} : PDF sans texte, lu par reconnaissance optique — à vérifier.`);
+      if (!isDealerExtractPdf(lines)) { warnings.push(`${f.name} : gabarit non reconnu (attendu : extrait de stock « Angebotstyp / Nr. »).`); continue; }
+      const p = parseDealerExtractPdf(lines, { filename: f.name, knownModelsByBrand: known });
+      const taken = new Set(all.map((v) => v.id));
+      for (const v of p.vehicles) all.push(taken.has(v.id) ? { ...v, id: `${v.id}#${files.indexOf(f) + 1}` } : v);
+      if (p.brand) brands.push(p.brand);
+      warnings.push(...p.warnings.map((w) => `${f.name} : ${w}`));
+    }
+    const vehicles = applyPriceRule(all, EMPTY.price_rule, (v) => supplierHt(v), true);
+    const brandSet = [...new Set(brands)];
+    const names = files.map((f) => f.name);
+    const draft: Draft = {
+      ...EMPTY,
+      title: `${brandSet.length === 1 ? brandSet[0] : brandSet.length > 1 ? brandSet.join(' & ') : 'SÉLECTION'} — OFFRE MC EXPORT`,
+      supplier: names[0].replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 40),
+      source_filename: names.join(' + '), layout: 'pdf', mappings: [], vehicles, source_grid: null,
+      notes: 'Prix fournisseur TTC (TVA allemande 19 %), « MwSt.-Ausweis möglich » = TVA récupérable.',
+    };
+    return { draft, warnings };
+  };
+
+  /** Dépôt : un tableur (le premier) ou un ou plusieurs PDF. */
+  const onFiles = async (list: FileList) => {
+    const files = [...list];
+    const pdfs = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+    if (pdfs.length === 0) { const f = files[0]; if (f) await onFile(f); return; }
+    setBusy('lecture'); setMsg(null);
+    try {
+      const { draft: d, warnings } = await buildDraftFromPdfs(pdfs);
+      setParsed(null);
+      setDraft(d);
+      await persist(d);
+      if (d.vehicles.length === 0) {
+        const saved = await recordLearningCaseFromApp({
+          kind: 'offer_file_unparsed', key: pdfs.map((f) => f.name).join(' + '), title: `PDF fournisseur mal lu : ${pdfs.map((f) => f.name).join(' + ')} (0 véhicule)`,
+          link: '/offres', actor: 'dev', submittedBy: displayName || email || null, detail: { warnings: warnings.slice(0, 12), files: pdfs.map((f) => f.name) },
+        });
+        setMsg(`PDF lu mais aucun véhicule reconnu${saved ? ' — enregistré dans la boîte à apprendre pour enseigner ce gabarit' : ''}.`);
+      } else {
+        setMsg(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${pdfs.length} PDF${warnings.length ? ` · ${warnings.slice(0, 4).join(' · ')}${warnings.length > 4 ? ` · +${warnings.length - 4}` : ''}` : ''}`);
+      }
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      setMsg(`Lecture impossible : ${why}`);
+    }
+    setBusy(null);
   };
 
   /** Import = NOUVELLE offre, ouverte et enregistrée tout de suite. */
@@ -285,9 +348,9 @@ export function Offres() {
           <p className="text-sm text-slate-600 mt-1">Une liste fournisseur déposée devient une offre MC Export : normalisée, à nos prix, exportable en Excel et PDF. Tout s'enregistre tout seul.</p>
         </div>
         <div className="flex items-center gap-2">
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void onFile(f); e.currentTarget.value = ''; }} />
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden" onChange={(e) => { const l = e.target.files; if (l && l.length) void onFiles(l); e.currentTarget.value = ''; }} />
           <button onClick={() => fileRef.current?.click()} disabled={busy === 'lecture'} className="flex items-center gap-2 bg-brand-ocean hover:bg-brand-encre text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
-            {busy === 'lecture' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Nouvelle offre depuis un fichier
+            {busy === 'lecture' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Nouvelle offre depuis un fichier (Excel, CSV ou PDF, plusieurs PDF possibles)
           </button>
         </div>
       </div>
@@ -359,7 +422,7 @@ export function Offres() {
                 <input value={draft.supplier} onChange={(e) => update({ supplier: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
               </label>
               <p className="md:col-span-2 text-[11px] text-slate-500">
-                {draft.source_filename ? <>Fichier : <span className="text-slate-700">{draft.source_filename}</span> · {draft.layout === 'blocks' ? 'blocs par marque' : 'tableau plat'} · {draft.vehicles.length} véhicule{draft.vehicles.length > 1 ? 's' : ''}</> : 'Aucun fichier'}
+                {draft.source_filename ? <>Fichier : <span className="text-slate-700">{draft.source_filename}</span> · {draft.layout === 'blocks' ? 'blocs par marque' : draft.layout === 'pdf' ? 'extrait de stock PDF' : 'tableau plat'} · {draft.vehicles.length} véhicule{draft.vehicles.length > 1 ? 's' : ''}</> : 'Aucun fichier'}
               </p>
             </div>
 

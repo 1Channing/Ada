@@ -116,6 +116,8 @@ export interface OfferVehicle {
   /** Exemplaires identiques sur cette ligne (catalogue Record Rent a Car 07/10 :
    *  « UNITS » 37 Bigster) — UNE ligne, pas 37 ; absent = 1 (offres d'avant). */
   quantity?: number;
+  /** Taux de TVA du prix TTC fournisseur (0,19 Allemagne, PDF du 07/10) ; absent = 0,20. */
+  vat_rate?: number;
 }
 
 export interface ColumnMapping { header: string; field: OfferField; sample: string }
@@ -542,6 +544,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
 /** Prix fournisseur HT de référence : HT si présent, sinon TTC / (1 + TVA) quand la TVA est récupérable. */
 export function supplierHt(v: OfferVehicle, vatRate = 0.2): number | null {
   if (v.price_ht != null) return Math.round(v.price_ht);
-  if (v.price_ttc != null && v.vat_recoverable !== false) return Math.round(v.price_ttc / (1 + vatRate));
+  // Taux du pays du fournisseur quand on le connaît (0,19 Allemagne, PDF 07/10).
+  if (v.price_ttc != null && v.vat_recoverable !== false) return Math.round(v.price_ttc / (1 + (v.vat_rate ?? vatRate)));
   return null;
 }
