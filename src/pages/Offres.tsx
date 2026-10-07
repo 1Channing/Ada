@@ -10,6 +10,9 @@ import {
 import { loadLearnedModelsByBrand, mergeKnownModels } from '../lib/offers/knownModels';
 import { pdfToLinesEx } from '../lib/pdfText';
 import { isDealerExtractPdf, parseDealerExtractPdf } from '../lib/offers/parseSupplierPdf';
+import { ADMIN_BUCKET, signedUrl } from '../services/storageAccess';
+import { supabase } from '../lib/supabase';
+import type { OfferSourceFile } from '../services/offers';
 import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
@@ -37,6 +40,7 @@ interface Draft {
   market?: OfferMarket;
   lot_criteria?: Record<string, LotCriteria>;
   source_grid?: unknown[][] | null;
+  source_files?: OfferSourceFile[];
 }
 const FUEL_OPTIONS = ['ESSENCE', 'DIESEL', 'HYBRIDE', 'HYBRIDE RECHARGEABLE', 'ELECTRIQUE', 'GPL'];
 const VERDICT_CLASS: Record<string, string> = {
@@ -131,7 +135,18 @@ export function Offres() {
     const all: OfferVehicle[] = [];
     const warnings: string[] = [];
     const brands: string[] = [];
+    const stored: OfferSourceFile[] = [];
     for (const f of files) {
+      // Le PDF est GARDÉ (bucket admin-documents, URL signée à l'ouverture) :
+      // cliquer son nom dans l'offre le rouvre. Un dépôt en échec ne bloque
+      // pas la lecture — il est dit.
+      try {
+        const safe = f.name.replace(/\.[^.]+$/, '').normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60) || 'liste';
+        const path = `offres/${Date.now().toString(36)}_${safe}.pdf`;
+        const up = await supabase.storage.from(ADMIN_BUCKET).upload(path, f, { contentType: 'application/pdf' });
+        if (up.error) warnings.push(`${f.name} : PDF non conservé (${up.error.message})`);
+        else stored.push({ name: f.name, path, size: f.size });
+      } catch (e) { warnings.push(`${f.name} : PDF non conservé (${e instanceof Error ? e.message : String(e)})`); }
       const { lines, ocr } = await pdfToLinesEx(f);
       if (ocr) warnings.push(`${f.name} : PDF sans texte, lu par reconnaissance optique — à vérifier.`);
       if (!isDealerExtractPdf(lines)) { warnings.push(`${f.name} : gabarit non reconnu (attendu : extrait de stock « Angebotstyp / Nr. »).`); continue; }
@@ -148,7 +163,7 @@ export function Offres() {
       ...EMPTY,
       title: `${brandSet.length === 1 ? brandSet[0] : brandSet.length > 1 ? brandSet.join(' & ') : 'SÉLECTION'} — OFFRE MC EXPORT`,
       supplier: names[0].replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 40),
-      source_filename: names.join(' + '), layout: 'pdf', mappings: [], vehicles, source_grid: null,
+      source_filename: names.join(' + '), layout: 'pdf', mappings: [], vehicles, source_grid: null, source_files: stored,
       notes: 'Prix fournisseur TTC (TVA allemande 19 %), « MwSt.-Ausweis möglich » = TVA récupérable.',
     };
     return { draft, warnings };
@@ -247,6 +262,28 @@ export function Offres() {
   const qtyOf = (v: OfferVehicle) => Math.max(1, v.quantity ?? 1);
   const selectedUnits = selected.reduce((a, v) => a + qtyOf(v), 0);
   const unitsLabel = (lines: number, units: number) => `${units} véhicule${units > 1 ? 's' : ''}${units !== lines ? ` (${lines} modèle${lines > 1 ? 's' : ''})` : ''}`;
+  /** Ouvre un fichier déposé (URL signée, une heure). */
+  const openSourceFile = async (f: OfferSourceFile) => {
+    try { window.open(await signedUrl(f.path), '_blank', 'noopener'); } catch (e) { setMsg(`Ouverture impossible : ${e instanceof Error ? e.message : String(e)}`); }
+  };
+  // CHOIX PAR MODÈLE (07/10, Channing : « proposer tel ou tel modèle plutôt
+  // qu'une liste interminable, et choisir les modèles qu'on intègre ») :
+  // une pastille par marque × modèle avec son compte ; cocher = retenir tous
+  // ses véhicules, décocher = aucun ; cliquer le nom = n'afficher que lui.
+  const modelKeyOf = (v: OfferVehicle) => `${v.brand} ${v.model}`.trim();
+  const [viewModel, setViewModel] = useState<string | null>(null);
+  const modelGroups = useMemo(() => {
+    const m = new Map<string, { key: string; total: number; units: number; selected: number }>();
+    for (const v of draft?.vehicles ?? []) {
+      const k = modelKeyOf(v);
+      const g = m.get(k) ?? { key: k, total: 0, units: 0, selected: 0 };
+      g.total++; g.units += qtyOf(v); if (v.selected) g.selected += qtyOf(v);
+      m.set(k, g);
+    }
+    return [...m.values()].sort((a, b) => a.key.localeCompare(b.key, 'fr'));
+  }, [draft]);
+  const setModelSelected = (key: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (modelKeyOf(v) === key ? { ...v, selected: on } : v)) }));
+  const shownVehicles = useMemo(() => (draft?.vehicles ?? []).filter((v) => !viewModel || modelKeyOf(v) === viewModel), [draft, viewModel]);
   const docOf = () => ({
     title: (draft?.title || 'OFFRE MC EXPORT').toUpperCase(),
     subtitle: `${unitsLabel(selected.length, selectedUnits)} · ${draft?.price_rule.mode === 'none' ? 'sans prix, offre à nous proposer' : 'prix HT'} · transport à la charge de l'acheteur · vendus en l'état`,
@@ -422,7 +459,11 @@ export function Offres() {
                 <input value={draft.supplier} onChange={(e) => update({ supplier: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
               </label>
               <p className="md:col-span-2 text-[11px] text-slate-500">
-                {draft.source_filename ? <>Fichier : <span className="text-slate-700">{draft.source_filename}</span> · {draft.layout === 'blocks' ? 'blocs par marque' : draft.layout === 'pdf' ? 'extrait de stock PDF' : 'tableau plat'} · {draft.vehicles.length} véhicule{draft.vehicles.length > 1 ? 's' : ''}</> : 'Aucun fichier'}
+                {draft.source_filename ? <>Fichier{(draft.source_files?.length ?? 0) > 1 ? 's' : ''} : {draft.source_files?.length
+                  ? draft.source_files.map((f, i) => (
+                    <span key={f.path}>{i > 0 ? ' + ' : ''}<button type="button" onClick={() => void openSourceFile(f)} className="text-brand-ocean hover:underline" title="Ouvrir le PDF déposé">{f.name}</button></span>
+                  ))
+                  : <span className="text-slate-700">{draft.source_filename}</span>} · {draft.layout === 'blocks' ? 'blocs par marque' : draft.layout === 'pdf' ? 'extrait de stock PDF' : 'tableau plat'} · {draft.vehicles.length} véhicule{draft.vehicles.length > 1 ? 's' : ''}</> : 'Aucun fichier'}
               </p>
             </div>
 
@@ -505,6 +546,28 @@ export function Offres() {
                 <button onClick={() => update({ vehicles: draft.vehicles.map((v) => ({ ...v, selected: false })) })} className="text-xs text-slate-500 hover:underline">Tout écarter</button>
                 {draft.price_rule.mode === 'none' ? <span className="ml-auto text-xs text-amber-700">Offre sans prix : aucune colonne de prix dans le PDF et le tableur</span> : <span className="ml-auto text-xs text-slate-500">Total HT retenu : <span className="font-semibold text-slate-800">{fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0) * qtyOf(v), 0))}</span></span>}
               </div>
+              {modelGroups.length > 1 && (
+                <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/60">
+                  <div className="flex items-center gap-2 flex-wrap text-xs">
+                    <span className="text-slate-500 mr-1">Modèles · cocher = retenir, nom = afficher</span>
+                    <button type="button" onClick={() => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: true })) }))} className="px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100">Tout retenir</button>
+                    <button type="button" onClick={() => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: false })) }))} className="px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100">Aucun</button>
+                    {viewModel && <button type="button" onClick={() => setViewModel(null)} className="px-2 py-0.5 rounded border border-brand-ocean bg-white text-brand-ocean hover:bg-slate-100">✕ Afficher tous les modèles</button>}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {modelGroups.map((g) => {
+                      const all = g.selected === g.units, none = g.selected === 0;
+                      return (
+                        <span key={g.key} className={`inline-flex items-center gap-1 rounded-full border pl-1.5 pr-2.5 py-0.5 text-xs ${viewModel === g.key ? 'border-brand-ocean bg-blue-50' : 'border-slate-300 bg-white'} ${none ? 'opacity-60' : ''}`}>
+                          <input type="checkbox" checked={all} ref={(el) => { if (el) el.indeterminate = !all && !none; }} onChange={(e) => setModelSelected(g.key, e.target.checked)} title={all ? 'Retenu en entier' : none ? 'Aucun véhicule retenu' : `${g.selected}/${g.units} retenus`} />
+                          <button type="button" onClick={() => setViewModel(viewModel === g.key ? null : g.key)} className="font-medium text-slate-800 hover:underline">{g.key}</button>
+                          <span className="text-slate-500 tabular-nums">{none || all ? g.units : `${g.selected}/${g.units}`}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="text-xs w-full min-w-[1100px]">
                   <thead><tr className="text-left text-slate-400 border-b border-slate-100">
@@ -513,7 +576,7 @@ export function Offres() {
                     <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur HT</th><th className="py-1.5 pr-3 text-right">MC Export HT</th><th className="py-1.5 pr-3">Rapport</th>
                   </tr></thead>
                   <tbody className="divide-y divide-slate-100">
-                    {draft.vehicles.map((v) => {
+                    {shownVehicles.map((v) => {
                       const base = supplierHt(v);
                       return (
                         <tr key={v.id} className={v.selected ? '' : 'opacity-50'}>

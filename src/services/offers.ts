@@ -15,6 +15,8 @@ export const OFFERS_SQL_HINT = 'Offres : SQL du 14/09 (supplier_offers) à colle
 /** 'none' = offre SANS prix (06/10, Channing : « on me demande d'enlever les prix pour avoir une offre ») : le client fait une proposition. */
 export interface PriceRule { mode: 'margin' | 'fixed' | 'none'; margin: number }
 
+export interface OfferSourceFile { name: string; path: string; size?: number }
+
 export interface SupplierOffer {
   id: string; user_id: string; title: string; supplier: string; source_filename: string; layout: string;
   mappings: ColumnMapping[]; vehicles: OfferVehicle[]; price_rule: PriceRule; countries: string[];
@@ -24,6 +26,8 @@ export interface SupplierOffer {
   lot_criteria?: Record<string, LotCriteria>;
   /** Grille brute du fichier fournisseur — correspondance des colonnes modifiable après réouverture (SQL du 17/09). */
   source_grid?: unknown[][] | null;
+  /** Fichiers déposés, gardés dans le bucket admin-documents (SQL du 07/10) — cliquables dans l'offre. */
+  source_files?: OfferSourceFile[];
   notes: string; status: 'draft' | 'sent' | 'closed'; created_at: string; updated_at: string;
 }
 
@@ -36,7 +40,7 @@ export async function listOffers(): Promise<{ rows: SupplierOffer[]; error: stri
 }
 
 /** Colonnes ajoutées après la table (SQL du 15/09 et du 17/09) : envoyées si présentes, retirées une à une si la base ne les a pas encore. */
-const EXTRA_COLUMNS = ['market', 'lot_criteria', 'source_grid'] as const;
+const EXTRA_COLUMNS = ['market', 'lot_criteria', 'source_grid', 'source_files'] as const;
 
 export async function saveOffer(o: Partial<SupplierOffer> & { id?: string }): Promise<{ id: string | null; error: string | null }> {
   const payload: Record<string, unknown> = {

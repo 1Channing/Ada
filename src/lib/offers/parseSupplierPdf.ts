@@ -107,16 +107,50 @@ export function parseDealerExtractPdf(
   };
 
   nrIdx.forEach((nr, k) => {
-    const ti = titleIndexOf(nr);
+    // TITRE SUR UNE OU PLUSIEURS LIGNES (3e PDF « Electro » 07/10 : « Elroq RS
+    // MAXX AHK WÄRMEPUMPE 21" WINTER CANTON 360 » déborde, le prix restait
+    // sur la première ligne et n'était « pas lu »). Les lignes de titre sont
+    // celles qui commencent plus à GAUCHE que la ligne « Nr. » (x 23 contre
+    // 30, prouvé sur VW et Audi) ; on remonte tant que c'est le cas. Dans ces
+    // lignes, le fragment « … € » est le prix, celui qui parle de TVA la
+    // mention, le reste (à gauche) le titre — par fragments, pas par position
+    // fixe. Sans abscisses (texte brut), repli sur la lecture de la ligne.
+    const firstX = (i: number) => lines[i]?.frags?.[0]?.x ?? null;
+    const nrX = firstX(nr);
+    const titleIdx: number[] = [];
+    for (let i = nr - 1; i >= 0 && i >= nr - 6; i--) {
+      if (isPageNoise(texts[i])) continue;
+      if (/^Nr\. /.test(texts[i])) break;
+      const x = firstX(i);
+      if (nrX != null && x != null && x >= nrX - 2) break;   // ligne de corps (même marge que « Nr. »)
+      titleIdx.unshift(i);
+      if (nrX == null) break;                                  // texte brut : une seule ligne
+    }
+    const ti = titleIdx[0] ?? titleIndexOf(nr);
     const nextTitle = k + 1 < nrIdx.length ? titleIndexOf(nrIdx[k + 1]) : texts.length;
-    // Prix absent : le PDF écrit littéralement « null » (VW 07/10, Passat
-    // MUE-V/90271) ou « Preis auf Anfrage » — sans prix, jamais 0.
-    const titleLine = (ti >= 0 ? texts[ti] : '').replace(/\s+(null|Preis auf Anfrage|auf Anfrage)\s*$/i, '');
-    // Titre | mention TVA | prix — la ligne est « Titre … MwSt.-Ausweis möglich! 27.300 € ».
-    const tm = titleLine.match(/^(.*?)\s*(MwSt\.?-?\s?Ausweis möglich!?|Differenzbesteuert[^\d€]*|§ ?25a[^\d€]*|MwSt\.? nicht ausweisbar[^\d€]*)?\s*(?:(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)\s*€)?\s*$/);
-    const title = (tm?.[1] ?? titleLine).trim();
-    const vatText = (tm?.[2] ?? '').trim();
-    const priceTtc = deInt(tm?.[3]);
+    const PRICE_RE = /(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)\s*€/;
+    const VAT_RE = /MwSt\.?-?\s?Ausweis möglich!?|Differenzbesteuert|§ ?25a|MwSt\.? nicht ausweisbar/i;
+    let title = '', vatText = '', priceTtc: number | null = null;
+    const frags = titleIdx.flatMap((i) => (lines[i]?.frags ?? []).map((g) => g.s.replace(/\s+/g, ' ').trim()).filter(Boolean));
+    if (frags.length > 0 && nrX != null) {
+      const rest: string[] = [];
+      for (const s of frags) {
+        const pm = s.match(PRICE_RE);
+        // Prix absent : le PDF écrit littéralement « null » (VW 07/10, Passat
+        // MUE-V/90271) ou « Preis auf Anfrage » — sans prix, jamais 0.
+        if (/^(null|Preis auf Anfrage|auf Anfrage)$/i.test(s)) continue;
+        if (pm && s.replace(PRICE_RE, '').trim() === '') { priceTtc = deInt(pm[1]); continue; }
+        if (VAT_RE.test(s) && s.replace(VAT_RE, '').trim() === '') { vatText = s.trim(); continue; }
+        rest.push(s);
+      }
+      title = rest.join(' ').replace(/\s+/g, ' ').trim();
+    } else {
+      const titleLine = (ti >= 0 ? texts[ti] : '').replace(/\s+(null|Preis auf Anfrage|auf Anfrage)\s*$/i, '');
+      const tm = titleLine.match(/^(.*?)\s*(MwSt\.?-?\s?Ausweis möglich!?|Differenzbesteuert[^\d€]*|§ ?25a[^\d€]*|MwSt\.? nicht ausweisbar[^\d€]*)?\s*(?:(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)\s*€)?\s*$/);
+      title = (tm?.[1] ?? titleLine).trim();
+      vatText = (tm?.[2] ?? '').trim();
+      priceTtc = deInt(tm?.[3]);
+    }
     const vatRecoverable: boolean | null = /ausweis möglich/i.test(vatText) ? true : /differenz|25a|nicht ausweisbar/i.test(vatText) ? false : null;
     // Bloc : lignes « Nr. » → avant le titre suivant, bruit de page retiré,
     // coupures « 5- » + « türig » recollées.

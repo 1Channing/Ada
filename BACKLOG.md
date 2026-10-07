@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **PDF GARDÉS ET CLIQUABLES, TITRES SUR DEUX LIGNES, CHOIX PAR MODÈLE (07/10,
+  Channing, 3 PDF déposés : « prix non lu » sur Electro, « pouvoir afficher
+  le PDF », « proposer tel ou tel modèle plutôt qu'une liste interminable »)**.
+  (1) Les titres longs du 3e PDF débordent sur deux lignes et le prix restait
+  sur la première : les lignes de titre sont celles qui commencent plus à
+  gauche que la ligne « Nr. » (x 23 contre 30, prouvé VW/Audi), on les
+  remonte et on lit prix / TVA / titre PAR FRAGMENT (le fragment « … € », le
+  fragment TVA, le reste) — plus de position fixe ; à vérifier sur Electro
+  (PDF non reçu). (2) Chaque PDF déposé est copié dans admin-documents
+  (offres/…), listé dans l'offre (`source_files`, migration 20261007100000)
+  et rouvert par URL signée en cliquant son nom. (3) Pastilles par marque ×
+  modèle avec compte : cocher = retenir tous ses véhicules, décocher =
+  aucun, cliquer le nom = n'afficher que lui ; « Tout retenir » / « Aucun ».
 - **OFFRES DEPUIS DES PDF, PLUSIEURS À LA FOIS (07/10, Channing : listes
   allemandes reçues par Achille — « créer dans Offres un nouveau moyen de
   créer des listes à partir de PDF, avec la possibilité d'en choisir
