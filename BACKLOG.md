@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **« OÙ VENDRE » SUIT LA SÉLECTION (07/10, Channing : « adapter les voitures
+  sélectionnées dans l'onglet Où vendre, que les véhicules qu'on sélectionne
+  puissent être relevés facilement »)**. Les lots ne comptaient déjà que les
+  véhicules retenus, mais un import PDF retenait TOUT par défaut : 310
+  voitures → 97 lots. Règle : un import PDF ne retient rien au départ, les
+  pastilles par modèle retiennent d'un clic, l'en-tête dit « N lots · M
+  véhicules retenus », et quand un modèle est affiché en haut, « Où vendre »
+  ne montre que ses lots (le relevé de tous les lots ne part que sur eux).
 - **PDF GARDÉS ET CLIQUABLES, TITRES SUR DEUX LIGNES, CHOIX PAR MODÈLE (07/10,
   Channing, 3 PDF déposés : « prix non lu » sur Electro, « pouvoir afficher
   le PDF », « proposer tel ou tel modèle plutôt qu'une liste interminable »)**.

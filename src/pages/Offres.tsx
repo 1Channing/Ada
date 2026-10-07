@@ -156,7 +156,11 @@ export function Offres() {
       if (p.brand) brands.push(p.brand);
       warnings.push(...p.warnings.map((w) => `${f.name} : ${w}`));
     }
-    const vehicles = applyPriceRule(all, EMPTY.price_rule, (v) => supplierHt(v), true);
+    // Rien de retenu au départ (07/10, Channing : « on choisit les modèles
+    // qu'on intègre ») : avec 300 voitures tout-retenu, « Où vendre »
+    // affichait 97 lots. Les pastilles par modèle retiennent d'un clic, et
+    // les lots suivent la sélection.
+    const vehicles = applyPriceRule(all, EMPTY.price_rule, (v) => supplierHt(v), true).map((v) => ({ ...v, selected: false }));
     const brandSet = [...new Set(brands)];
     const names = files.map((f) => f.name);
     const draft: Draft = {
@@ -187,7 +191,7 @@ export function Offres() {
         });
         setMsg(`PDF lu mais aucun véhicule reconnu${saved ? ' — enregistré dans la boîte à apprendre pour enseigner ce gabarit' : ''}.`);
       } else {
-        setMsg(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${pdfs.length} PDF${warnings.length ? ` · ${warnings.slice(0, 4).join(' · ')}${warnings.length > 4 ? ` · +${warnings.length - 4}` : ''}` : ''}`);
+        setMsg(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${pdfs.length} PDF — rien n'est retenu : coche les modèles à intégrer (pastilles au-dessus du tableau), « Où vendre » suit la sélection.${warnings.length ? ` · ${warnings.slice(0, 4).join(' · ')}${warnings.length > 4 ? ` · +${warnings.length - 4}` : ''}` : ''}`);
       }
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
@@ -299,7 +303,9 @@ export function Offres() {
   // cochés) et VISIBLES avant tout relevé. Le relevé enchaîne les lots un par
   // un (les sites d'un lot en parallèle) pour ne pas noyer la file du worker,
   // et écrit le résultat dans l'offre au fil de l'eau (autosave).
-  const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, draft.lot_criteria?.[l.key])) : []), [draft]);
+  // Lots = véhicules RETENUS seulement (lotsOf filtre selected) ; quand un
+  // modèle est affiché en haut, « Où vendre » ne montre que ses lots.
+  const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, draft.lot_criteria?.[l.key])).filter((l) => !viewModel || `${l.brand} ${l.model}`.trim() === viewModel) : []), [draft, viewModel]);
   const [editLot, setEditLot] = useState<string | null>(null);
   /** Critères réglés à la main : le relevé du lot est effacé (il répondait à d'autres critères) et ses URLs se régénèrent. */
   const setLotCriteria = (lot: OfferLot, patch: LotCriteria | null) => {
@@ -609,7 +615,7 @@ export function Offres() {
               <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3 flex-wrap">
                 <span className="text-sm font-semibold text-slate-800">Où vendre</span>
                 <span className="text-xs text-slate-500">
-                  {lots.length} lot{lots.length > 1 ? 's' : ''} · {draft.countries.length} pays
+                  {lots.length} lot{lots.length > 1 ? 's' : ''} · {selectedUnits} véhicule{selectedUnits > 1 ? 's' : ''} retenu{selectedUnits > 1 ? 's' : ''}{viewModel ? ` · ${viewModel} seulement` : ''} · {draft.countries.length} pays
                   {lastSurveyAt ? ` · dernier relevé ${lastSurveyAt.toLocaleDateString('fr-FR')} ${lastSurveyAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ' · aucun relevé'}
                 </span>
                 <div className="ml-auto flex items-center gap-2">
