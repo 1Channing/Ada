@@ -760,7 +760,7 @@ export function Offres() {
               )}
               <datalist id="offer-brands">{Object.keys(known).map((b) => <option key={b} value={b} />)}</datalist>
               <p className="px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
-                Verdict = médiane des prix affichés par les sites du pays (bruts, en euros, aucun calcul de taxe) face à notre prix HT moyen du lot : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous.
+                Verdict = prix d'attaque du pays (médiane des 3, 5 ou 8 annonces les moins chères selon la taille du marché, prix affichés bruts en euros, aucun calcul de taxe) face à notre prix HT moyen du lot : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous. La médiane (milieu du marché) reste affichée à titre d'information ; un relevé fait avant ce réglage garde la médiane jusqu'à sa relance.
                 {draft.countries.some((c) => COUNTRY_CAVEAT[c]) && <> ⚠ Danemark : {COUNTRY_CAVEAT.DK}.</>} Les recherches passent par la même file que le Market Intelligence : compte quelques minutes par lot.
               </p>
             </div>

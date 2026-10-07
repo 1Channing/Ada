@@ -832,6 +832,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **VERDICT DES LOTS SUR LE PRIX D'ATTAQUE (07/10, Channing : « on fait pour
+  les relevés de lot, go »)**. Le verdict d'un pays compare notre HT moyen du
+  lot au prix d'attaque du pays (médiane des prix d'attaque des sites),
+  seuils inchangés (bon ≥ 15 %, juste 5-15 %, trop cher en dessous) ; la
+  médiane reste affichée ; un relevé antérieur (sans attaque) garde la
+  médiane jusqu'à sa relance. Rappel vérifié : les études quotidiennes du
+  workflow n'ont jamais utilisé la médiane du marché entier — leur médiane
+  cible est celle des 5 annonces les moins chères du segment sur 45 jours
+  (mi_segment_cheapest) ; le MI affiche les deux.
 - **MÉDIANES « OÙ VENDRE » VÉRIFIÉES, PRIX D'ATTAQUE AJOUTÉ (07/10, Channing :
   « les médianes ne sont pas bonnes du tout… Gaspedaal 24 400 € alors que les
   6 premières sont sous 23 000 € »)**. Relu en base (snapshot Gaspedaal

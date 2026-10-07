@@ -263,9 +263,14 @@ export function mergeCountry(prev: CountryResult | undefined, country: string, r
 export type Verdict = { tone: 'good' | 'warn' | 'bad' | 'idle'; text: string; marginPct: number | null };
 /** Notre prix HT face au prix AFFICHÉ médian du pays — brut, sans calcul de taxe. */
 export function verdictOf(ourHt: number | null, c: CountryResult | undefined, country: string): Verdict {
-  if (!c || c.medianTtc == null) return { tone: 'idle', text: 'pas de relevé', marginPct: null };
+  // VERDICT SUR LE PRIX D'ATTAQUE (décision Channing 07/10 : « on fait pour les
+  // relevés de lot ») : notre HT face au bas du marché (médiane des 3/5/8
+  // moins chères), pas au milieu. Les relevés d'avant (sans attaque) gardent
+  // la médiane jusqu'à leur prochain relevé.
+  const ref = c?.attackTtc ?? c?.medianTtc ?? null;
+  if (!c || ref == null) return { tone: 'idle', text: 'pas de relevé', marginPct: null };
   if (ourHt == null) return { tone: 'idle', text: 'prix MC Export manquant', marginPct: null };
-  const margin = (c.medianTtc - ourHt) / ourHt;
+  const margin = (ref - ourHt) / ourHt;
   const pct = Math.round(margin * 100);
   const caveat = COUNTRY_CAVEAT[country] ? ' ⚠' : '';
   if (c.competitors === 0) return { tone: 'warn', text: `marché vide${caveat}`, marginPct: pct };
