@@ -669,7 +669,7 @@ export function Offres() {
                                   <td key={c} className="py-2 pr-3 align-top">
                                     <span className={`inline-block px-1.5 py-0.5 rounded border text-[11px] ${VERDICT_CLASS[v.tone]}`}>{v.text}</span>
                                     {res && res.medianTtc != null && (
-                                      <span className="block text-[10px] text-slate-500 mt-0.5 whitespace-nowrap">méd. affichée {fmtEur(res.medianTtc)} · {res.competitors} conc.</span>
+                                      <span className="block text-[10px] text-slate-500 mt-0.5 whitespace-nowrap" title="Médiane = milieu du marché ; attaque = médiane des moins chères (3, 5 ou 8 selon la taille), là où une annonce est compétitive">méd. affichée {fmtEur(res.medianTtc)}{res.attackTtc != null ? <> · attaque <span className="text-slate-700 font-medium">{fmtEur(res.attackTtc)}</span></> : null} · {res.competitors} conc.</span>
                                     )}
                                     {res && res.medianTtc == null && Object.values(res.sites).some((s) => s.error) && (
                                       <span className="block text-[10px] text-amber-700 mt-0.5">{(() => { const s = Object.values(res.sites).find((x) => x.error); return s ? `${SITE_LABEL(s.site)} : ${s.error}` : ''; })()}</span>
@@ -741,7 +741,7 @@ export function Offres() {
                                               {t.url ? <a href={t.url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline break-all inline-flex items-center gap-1">{t.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 110)}{t.url.length > 118 ? '…' : ''} <ExternalLink className="w-3 h-3 shrink-0" /></a> : <span className="text-red-700">pas d'URL</span>}
                                               {t.warnings.map((w, i) => <span key={i} className="block text-[10px] text-amber-700">{w}</span>)}
                                               {t.brandPageOnly && <span className="block text-[10px] text-slate-500">page marque : seules les annonces dont le titre nomme « {lot.model} » comptent</span>}
-                                              {sr && <span className="block text-[10px] text-slate-500">{sr.error ? <span className="text-amber-700">{sr.error}</span> : <>{sr.count} annonce{sr.count > 1 ? 's' : ''}{sr.total != null && sr.total !== sr.count ? ` sur ${sr.total}` : ''} · méd. {fmtEur(sr.median)} · 1er quart {fmtEur(sr.p25)} · mini {fmtEur(sr.min)}</>} · {new Date(sr.at).toLocaleDateString('fr-FR')}</span>}
+                                              {sr && <span className="block text-[10px] text-slate-500">{sr.error ? <span className="text-amber-700">{sr.error}</span> : <>{sr.count} annonce{sr.count > 1 ? 's' : ''}{sr.total != null && sr.total !== sr.count ? ` sur ${sr.total}` : ''} · méd. {fmtEur(sr.median)}{sr.attack != null ? <> · attaque {fmtEur(sr.attack)}<span className="text-slate-400">/{sr.attackWindow}</span></> : null} · 1er quart {fmtEur(sr.p25)} · mini {fmtEur(sr.min)}</>} · {new Date(sr.at).toLocaleDateString('fr-FR')}</span>}
                                             </div>
                                           </div>
                                         );

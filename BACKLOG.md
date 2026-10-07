@@ -832,6 +832,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **MÉDIANES « OÙ VENDRE » VÉRIFIÉES, PRIX D'ATTAQUE AJOUTÉ (07/10, Channing :
+  « les médianes ne sont pas bonnes du tout… Gaspedaal 24 400 € alors que les
+  6 premières sont sous 23 000 € »)**. Relu en base (snapshot Gaspedaal
+  Arkana NL hybride 2024, 34 annonces, toutes 2024, 140-163 ch, ≤ 91 563 km,
+  34 signatures distinctes) : 9 annonces sous 23 000 €, 17e/18e = 24 400 /
+  24 700 — la médiane EST juste, le scraping aussi (AutoScout NL 30 et
+  Marktplaats 26 donnent les mêmes prix). Ce que Channing regarde, c'est le
+  BAS du marché (la page du site est triée prix croissant). Règle : le relevé
+  d'une offre calcule aussi le PRIX D'ATTAQUE (médiane des 3 / 5 / 8 moins
+  chères, règle du MI) par site et par pays, affiché à côté de la médiane ;
+  le verdict reste sur la médiane. Les moteurs (MI, études) ne sont pas
+  touchés : ils avaient déjà les deux.
 - **« OÙ VENDRE » SUIT LA SÉLECTION (07/10, Channing : « adapter les voitures
   sélectionnées dans l'onglet Où vendre, que les véhicules qu'on sélectionne
   puissent être relevés facilement »)**. Les lots ne comptaient déjà que les

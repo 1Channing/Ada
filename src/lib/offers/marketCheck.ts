@@ -24,7 +24,7 @@ import type { SiteKey } from '../linkgen/types';
 import { allSiteAdapters } from '../study-core/marketplaces';
 import { structuredModelMatches, toEur } from '../study-core/business-logic';
 import type { Currency } from '../study-core/types';
-import { titleContradictsModel } from '../../services/marketData';
+import { titleContradictsModel, attackWindowSize } from '../../services/marketData';
 import type { OfferVehicle } from './parseSupplierFile';
 
 export interface OfferLot {
@@ -193,11 +193,22 @@ export async function startLotJob(url: string, lot: OfferLot): Promise<string> {
   return jobId;
 }
 
-export interface SiteResult { site: string; url: string; at: string; count: number; total: number | null; median: number | null; p25: number | null; min: number | null; error: string | null }
+export interface SiteResult {
+  site: string; url: string; at: string; count: number; total: number | null; median: number | null; p25: number | null; min: number | null; error: string | null;
+  /** PRIX D'ATTAQUE (07/10, Channing : « les 6 premières sont sous 23 000 €, la médiane est faussée ») :
+   *  médiane des N annonces les moins chères (N = 3 / 5 / 8 selon la taille, même règle que le MI) —
+   *  le bas du marché, là où une annonce est réellement compétitive ; la médiane décrit le milieu. */
+  attack?: number | null;
+  attackWindow?: number;
+}
 /** medianTtc = médiane des prix AFFICHÉS (en euros, taxes locales telles
  *  quelles). medianHt : ancien HT calculé, plus produit ni utilisé depuis le
  *  22/09 — gardé optionnel pour lire les relevés déjà enregistrés. */
-export interface CountryResult { sites: Record<string, SiteResult>; medianTtc: number | null; medianHt?: number | null; competitors: number; at: string }
+export interface CountryResult {
+  sites: Record<string, SiteResult>; medianTtc: number | null; medianHt?: number | null; competitors: number; at: string;
+  /** Prix d'attaque du pays = médiane des prix d'attaque des sites (07/10). */
+  attackTtc?: number | null;
+}
 /** offer.market : lotKey → country → résultat. */
 export type OfferMarket = Record<string, Record<string, CountryResult>>;
 
@@ -229,7 +240,11 @@ export async function awaitLotJob(jobId: string, site: string, url: string, iden
     // (page marque → le total du site compte toute la gamme, on s'en tient
     // aux annonces lues et reconnues).
     const total = identity.strict || kept.length < all.length ? null : d?.totalCount ?? null;
-    return { site, url, at: new Date().toISOString(), count: prices.length, total, median: q(0.5), p25: q(0.25), min: prices[0] ?? null, error: d?.error ?? null };
+    // Prix d'attaque : médiane des N moins chères (N = 3 sous 20 annonces, 5 jusqu'à 99, 8 au-delà — comme le MI).
+    const win = prices.length ? Math.min(attackWindowSize(prices.length), prices.length) : 0;
+    const low = prices.slice(0, win);
+    const attack = low.length ? (low.length % 2 ? low[(low.length - 1) / 2] : Math.round((low[low.length / 2 - 1] + low[low.length / 2]) / 2)) : null;
+    return { site, url, at: new Date().toISOString(), count: prices.length, total, median: q(0.5), p25: q(0.25), min: prices[0] ?? null, attack, attackWindow: win, error: d?.error ?? null };
   }
   return { site, url, at: new Date().toISOString(), count: 0, total: null, median: null, p25: null, min: null, error: 'délai dépassé — le worker continue, relance pour lire' };
 }
@@ -238,9 +253,11 @@ export function mergeCountry(prev: CountryResult | undefined, country: string, r
   const sites = { ...(prev?.sites ?? {}), [r.site]: r };
   const medians = Object.values(sites).map((s) => s.median).filter((m): m is number => m != null).sort((a, b) => a - b);
   const medianTtc = medians.length ? medians[Math.floor((medians.length - 1) / 2)] : null;
+  const attacks = Object.values(sites).map((s) => s.attack).filter((m): m is number => m != null).sort((a, b) => a - b);
+  const attackTtc = attacks.length ? attacks[Math.floor((attacks.length - 1) / 2)] : null;
   void country; // plus aucune règle fiscale par pays (données brutes)
   const competitors = Object.values(sites).reduce((a, s) => a + (s.total ?? s.count), 0);
-  return { sites, medianTtc, competitors, at: new Date().toISOString() };
+  return { sites, medianTtc, attackTtc, competitors, at: new Date().toISOString() };
 }
 
 export type Verdict = { tone: 'good' | 'warn' | 'bad' | 'idle'; text: string; marginPct: number | null };
