@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **RECHERCHE D'UN DOSSIER DANS LES VENTES (07/10, Channing : « ajoute la
+  possibilité sous les chiffres de ventes de rechercher un dossier, par
+  référence, par nom, etc. »)**. Champ sous les quatre indicateurs : chaque
+  mot tapé doit se retrouver dans le dossier (référence, client acheteur ou
+  vendeur, véhicule — fiche ou ligne du tableur —, plaque, commercial, notes
+  du tableur dont facture et fin de VIN, prix, date), accents et casse
+  ignorés. Filtre les ventes en cours ET l'historique, compte les résultats ;
+  les indicateurs restent ceux de la vue commerciale choisie.
 - **PLAFOND « finitions.observations » RALLUMÉ UNE 3ᵉ FOIS (06/10 22:36,
   Channing : « ce plafond s'allume encore »)**. La fonction mi_segment_trims
   est bien en base, mais TOYOTA RAV4 met 13 à 19 s (mesuré) pour un délai

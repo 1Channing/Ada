@@ -516,6 +516,10 @@ export function Administrative() {
   });
   const pickCommercialFilter = (k: string) => { setCommercialFilter(k); try { localStorage.setItem('ada_admin_commercial_filter', k); } catch { /* navigation privée */ } };
   const pickDealSort = (k: DealSort) => { setDealSort(k); try { localStorage.setItem('ada_admin_deal_sort', k); } catch { /* navigation privée */ } };
+  // RECHERCHE D'UN DOSSIER (07/10, demande Channing) : référence, client,
+  // véhicule, plaque, commercial, facture/VIN du tableur, prix — sous les
+  // indicateurs ; filtre les tableaux (en cours + historique), pas les chiffres.
+  const [dealQuery, setDealQuery] = useState('');
   const [dealsLoading, setDealsLoading] = useState(false);
   const [dealStatus, setDealStatus] = useState<'en_cours' | 'cloturee'>('en_cours');
   const [showQuickCreate, setShowQuickCreate] = useState(false);
@@ -2090,6 +2094,17 @@ export function Administrative() {
   const viewed = sortDeals(commercialFilter === '' ? deals : deals.filter((d) => commercialKey(d.commercial) === commercialFilter));
   const enCours = viewed.filter((d) => d.status !== 'cloturee');
   const cloturees = viewed.filter((d) => d.status === 'cloturee');
+  // Recherche : chaque mot tapé doit se retrouver quelque part dans le dossier
+  // (accents et casse ignorés). Les indicateurs restent ceux de la vue.
+  const fold = (s: string | null | undefined) => (s ?? '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  const dealHaystack = (d: DealRow) => fold([
+    d.reference, contactLabel(d.buyer), contactLabel(d.seller), dealVehicle(d).label, d.vehicle?.plate_number, d.commercial,
+    d.notes, d.purchase_price, d.sale_price, d.transaction_price, d.transaction_date,
+  ].filter((x) => x != null && x !== '').join(' | '));
+  const queryWords = fold(dealQuery).split(/\s+/).filter(Boolean);
+  const searchDeals = (rows: DealRow[]) => (queryWords.length === 0 ? rows : rows.filter((d) => { const h = dealHaystack(d); return queryWords.every((w) => h.includes(w)); }));
+  const enCoursShown = searchDeals(enCours);
+  const clotureesShown = searchDeals(cloturees);
 
   // MARGE HT (26/09, vérifié sur 68 dossiers du tableur) : la « commission
   // HT » du tableur vaut (vente − achat) / 1,2 − frais HT, pour les véhicules
@@ -2116,7 +2131,7 @@ export function Administrative() {
   // Closed deals grouped by month label (Décembre 2026…), most recent first.
   const monthFmt = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' });
   const historique = new Map<string, DealRow[]>();
-  for (const d of cloturees) {
+  for (const d of clotureesShown) {
     const dt = d.closed_at ? new Date(d.closed_at) : new Date(d.created_at);
     const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
     (historique.get(key) ?? historique.set(key, []).get(key)!).push(d);
@@ -2264,9 +2279,36 @@ export function Administrative() {
         {kpi('Marge HT du mois', eur(Math.round(margeMois)), monthFmt.format(now), 'text-slate-900', MARGE_INFO)}
       </div>
 
+      {/* Recherche d'un dossier (07/10) */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="relative flex-1 min-w-[260px] max-w-xl">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm" aria-hidden>⌕</span>
+          <input
+            type="search"
+            value={dealQuery}
+            onChange={(e) => setDealQuery(e.target.value)}
+            placeholder="Rechercher un dossier : référence, client, véhicule, plaque, facture, commercial…"
+            className="w-full pl-8 pr-8 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+          />
+          {dealQuery && (
+            <button type="button" onClick={() => setDealQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm" title="Effacer">✕</button>
+          )}
+        </label>
+        {queryWords.length > 0 && (
+          <span className="text-xs text-slate-600">
+            {enCoursShown.length + clotureesShown.length === 0
+              ? 'Aucun dossier ne correspond'
+              : `${enCoursShown.length + clotureesShown.length} dossier${enCoursShown.length + clotureesShown.length > 1 ? 's' : ''} · ${enCoursShown.length} en cours · ${clotureesShown.length} clôturé${clotureesShown.length > 1 ? 's' : ''}`}
+            {commercialFilter !== '' && <span className="text-slate-400"> · dans la vue {commercialLabel(commercialFilter)}</span>}
+          </span>
+        )}
+      </div>
+
       {dealsLoading && <p className="text-sm text-slate-500">Chargement…</p>}
 
-      {renderDealsTable(commercialFilter === '' ? 'Ventes en cours' : `Ventes en cours · ${commercialLabel(commercialFilter)}`, enCours, 'bg-blue-400')}
+      {(queryWords.length === 0 || enCoursShown.length > 0) && renderDealsTable(
+        commercialFilter === '' ? 'Ventes en cours' : `Ventes en cours · ${commercialLabel(commercialFilter)}`, enCoursShown, 'bg-blue-400',
+      )}
 
       {/* Historique mensuel */}
       {historiqueMonths.length > 0 && (
