@@ -4,7 +4,9 @@ import {
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ComposedChart,
   ScatterChart, Scatter,
 } from 'recharts';
-import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X, MoreHorizontal, Loader2 } from 'lucide-react';
+import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X, MoreHorizontal, Loader2, Heart, Bookmark, Trash2 } from 'lucide-react';
+import { useAuth } from '../services/auth';
+import { listSavedSearches, saveSearch, setSearchFavorite, deleteSearch, studiesKey, type SavedSearch } from '../services/savedSearches';
 import {
   loadKnownDimensions, sortedUnion, canonUnion, brandKey, refModelKey, filterObservations, distinctValues, priceStats, timeSeries,
   priceHistogramFrom, velocityFromObservations, velocityCoverageDays, velocityByCountry, velocitySegmentListings, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
@@ -199,6 +201,52 @@ export function MarketIntelligence() {
   const [data, setData] = useState<MarketData>({ snapshots: [], observations: [] });
   const [loading, setLoading] = useState(true);
   const [studies, setStudies] = useState<MarketFilters[]>(loadStudies);
+  // RECHERCHES SAUVEGARDÉES (08/10, Channing) : le jeu d'études courant (pays
+  // + tous les filtres) enregistré sous un nom, partagé par l'équipe ; onglet
+  // « Recherches sauvegardées », cœur = favori, suppression.
+  const { userId: authUserId, displayName: authName, email: authEmail } = useAuth();
+  const [saved, setSaved] = useState<SavedSearch[]>([]);
+  const [savedError, setSavedError] = useState<string | null>(null);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [savedBusy, setSavedBusy] = useState(false);
+  const reloadSaved = async () => { const r = await listSavedSearches(); setSaved(r.rows); setSavedError(r.error); };
+  useEffect(() => { void reloadSaved(); }, []);
+  const currentKey = useMemo(() => studiesKey(studies), [studies]);
+  const currentSaved = useMemo(() => saved.find((s) => studiesKey(s.studies) === currentKey) ?? null, [saved, currentKey]);
+  const defaultSearchName = () => studies.map((f, i) => studyLabel(f, i)).join(' · ').slice(0, 80) || 'Recherche';
+  const saveCurrent = async (favorite: boolean) => {
+    if (!studies.some((f) => f.brand)) { setSavedError('Choisis au moins une marque avant d\'enregistrer.'); return; }
+    const name = window.prompt('Nom de la recherche', defaultSearchName());
+    if (name == null || !name.trim()) return;
+    setSavedBusy(true);
+    const r = await saveSearch(name, studies, authUserId ?? null, authName || authEmail || '', favorite);
+    setSavedBusy(false);
+    if (r.error) { setSavedError(r.error); return; }
+    setSavedError(null);
+    await reloadSaved();
+  };
+  const toggleFavorite = async (s: SavedSearch) => {
+    setSaved((arr) => arr.map((x) => (x.id === s.id ? { ...x, favorite: !s.favorite } : x)));
+    const err = await setSearchFavorite(s.id, !s.favorite);
+    if (err) { setSavedError(err); await reloadSaved(); }
+  };
+  const removeSaved = async (s: SavedSearch) => {
+    if (!window.confirm(`Supprimer la recherche « ${s.name} » ?`)) return;
+    const err = await deleteSearch(s.id);
+    if (err) { setSavedError(err); return; }
+    setSaved((arr) => arr.filter((x) => x.id !== s.id));
+  };
+  const openSaved = (s: SavedSearch) => {
+    setStudies(s.studies.length ? s.studies : [{}]);
+    setActiveIdx(0);
+    setPriceBand(null);
+    setSavedOpen(false);
+  };
+  /** Cœur sous les filtres : la recherche courante est-elle déjà enregistrée en favori ? */
+  const onHeart = async () => {
+    if (currentSaved) await toggleFavorite(currentSaved);
+    else await saveCurrent(true);
+  };
   const [activeIdx, setActiveIdx] = useState(0);
   const [priceBand, setPriceBand] = useState<{ from: number; to: number } | null>(null);
 
@@ -710,7 +758,41 @@ export function MarketIntelligence() {
                 <Plus className="w-4 h-4" /> Ajouter une étude
               </button>
             )}
+            {/* Onglet « Recherches sauvegardées » (08/10) */}
+            <button onClick={() => setSavedOpen((o) => !o)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm ${savedOpen ? 'border-brand-ocean bg-blue-50 text-brand-encre' : 'border-slate-300 text-slate-700 hover:border-slate-400'}`}>
+              <Bookmark className="w-4 h-4" /> Recherches sauvegardées{saved.length ? <span className="text-xs text-slate-500">{saved.length}</span> : null}
+            </button>
           </div>
+          {savedOpen && (
+            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-slate-800">Recherches sauvegardées <span className="text-xs font-normal text-slate-500">· partagées avec l'équipe · favoris en tête</span></p>
+                <button onClick={() => void saveCurrent(false)} disabled={savedBusy} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white text-xs font-medium disabled:opacity-50">
+                  <Bookmark className="w-3.5 h-3.5" /> Enregistrer la recherche actuelle
+                </button>
+              </div>
+              {savedError && <p className="text-xs text-amber-700">{savedError}</p>}
+              {saved.length === 0 && !savedError && <p className="text-xs text-slate-500">Aucune recherche enregistrée. Règle tes études puis « Enregistrer la recherche actuelle », ou le cœur sous les filtres.</p>}
+              <div className="divide-y divide-slate-100">
+                {saved.map((s) => {
+                  const isCurrent = studiesKey(s.studies) === currentKey;
+                  return (
+                    <div key={s.id} className={`flex items-center gap-2 py-2 ${isCurrent ? 'bg-blue-50/60 -mx-2 px-2 rounded' : ''}`}>
+                      <button onClick={() => void toggleFavorite(s)} title={s.favorite ? 'Retirer des favoris' : 'Mettre en favori'} className={`shrink-0 ${s.favorite ? 'text-red-500' : 'text-slate-300 hover:text-red-400'}`}>
+                        <Heart className="w-4 h-4" fill={s.favorite ? 'currentColor' : 'none'} />
+                      </button>
+                      <button onClick={() => openSaved(s)} className="flex-1 text-left min-w-0">
+                        <span className="block text-sm font-medium text-slate-800 truncate">{s.name}{isCurrent && <span className="ml-2 text-[10px] uppercase tracking-wide text-brand-ocean">affichée</span>}</span>
+                        <span className="block text-[11px] text-slate-500 truncate">{s.studies.map((f, i) => studyLabel(f, i)).join(' · ')}{s.created_by_name ? ` · ${s.created_by_name}` : ''} · {new Date(s.updated_at).toLocaleDateString('fr-FR')}</span>
+                      </button>
+                      <button onClick={() => void removeSaved(s)} title="Supprimer" className="shrink-0 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Progression des mises à jour lancées depuis le menu ⋯ (elles
               survivent à la navigation : reprise depuis sessionStorage). */}
@@ -781,6 +863,17 @@ export function MarketIntelligence() {
                 <span className="text-slate-400"> · référentiel constructeur</span>
               </div>
             )}
+            {/* CŒUR (08/10) : enregistre la recherche courante en favori, ou bascule le favori si elle est déjà enregistrée. */}
+            <div className="mt-3 flex items-center gap-2 text-xs">
+              <button onClick={() => void onHeart()} disabled={savedBusy}
+                title={currentSaved ? (currentSaved.favorite ? 'Retirer des favoris' : 'Mettre en favori') : 'Enregistrer cette recherche (toutes les études, pays et filtres) en favori'}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${currentSaved?.favorite ? 'border-red-200 bg-red-50 text-red-600' : 'border-slate-300 text-slate-600 hover:border-red-300 hover:text-red-500'}`}>
+                <Heart className="w-3.5 h-3.5" fill={currentSaved?.favorite ? 'currentColor' : 'none'} />
+                {currentSaved ? (currentSaved.favorite ? `Favori · ${currentSaved.name}` : `Enregistrée · ${currentSaved.name}`) : 'Enregistrer en favori'}
+              </button>
+              {!currentSaved && <button onClick={() => void saveCurrent(false)} disabled={savedBusy} className="text-slate-500 hover:text-slate-800 hover:underline">Enregistrer sans favori</button>}
+              {savedError && !savedOpen && <span className="text-amber-700">{savedError}</span>}
+            </div>
           </div>
 
           {!active.brand ? (

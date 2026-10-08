@@ -832,6 +832,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **MI : RECHERCHES SAUVEGARDÉES, FAVORIS, SUPPRESSION (08/10, Channing :
+  « enregistrer des études pour les retrouver avec les pays et tous les
+  filtres, un onglet Recherches sauvegardées, un cœur en favori, pouvoir
+  supprimer »)**. Table `mi_saved_searches` (migration 20261008110000) :
+  nom + jeu complet d'études (jusqu'à 3 onglets, pays et tous les filtres),
+  partagée par l'équipe, auteur, favori. Bouton « Recherches sauvegardées »
+  à côté de « Ajouter une étude » : liste (favoris en tête), ouvrir = les
+  études remplacent les onglets, cœur, corbeille, « Enregistrer la recherche
+  actuelle ». Sous les filtres, un cœur : enregistre la recherche courante en
+  favori, ou bascule le favori si elle est déjà enregistrée (reconnue par ses
+  filtres, à l'identique). Sans le SQL, la liste dit « SQL du 08/10 à coller ».
 - **VITRINE AUTEXX (autrado) + CLÉ « · » DU DIGEST (08/10, boîte à apprendre :
   « Vitrine non reconnue : www.autexx.de » / signalement Achille « Ada ne
   sait pas lire la vitrine de stock » ; « · en échec sur 3 études »)**.
