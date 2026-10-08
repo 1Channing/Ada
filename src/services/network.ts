@@ -40,7 +40,11 @@ export interface NetworkContact {
   created_at: string;
   updated_at: string;
   models: NetworkContactModel[];
+  /** Interlocuteurs EN PLUS du contact principal (08/10, signalement Achille). Absent tant que le SQL du 08/10 n'est pas collé. */
+  people?: NetworkContactPerson[];
 }
+
+export interface NetworkContactPerson { name: string; role: string; phone: string; email: string }
 
 export interface NetworkContactModel {
   id: string;
@@ -80,10 +84,19 @@ export async function loadNetwork(): Promise<{ contacts: NetworkContact[]; error
 export type ContactInput = Omit<NetworkContact, 'id' | 'created_by' | 'created_at' | 'updated_at' | 'models'> & { id?: string };
 
 export async function saveContact(input: ContactInput, userId: string | null): Promise<{ id: string | null; error: string | null }> {
-  const row = { ...input, created_by: input.id ? undefined : userId };
-  if (row.created_by === undefined) delete (row as { created_by?: unknown }).created_by;
-  const { data, error } = await sb.from('network_contacts').upsert(row, { onConflict: 'id' }).select('id').maybeSingle();
+  const row: Record<string, unknown> = { ...input, created_by: input.id ? undefined : userId };
+  if (row.created_by === undefined) delete row.created_by;
+  // Interlocuteurs : lignes vides retirées ; colonne absente (SQL du 08/10 pas
+  // collé) → on enregistre sans eux et on le dit.
+  if (Array.isArray(row.people)) row.people = (row.people as NetworkContactPerson[]).map((p) => ({ name: (p.name ?? '').trim(), role: (p.role ?? '').trim(), phone: (p.phone ?? '').trim(), email: (p.email ?? '').trim() })).filter((p) => p.name || p.phone || p.email);
+  let { data, error } = await sb.from('network_contacts').upsert(row, { onConflict: 'id' }).select('id').maybeSingle();
+  let peopleDropped = false;
+  if (error && /people/.test(error.message) && /column|schema cache/i.test(error.message)) {
+    delete row.people; peopleDropped = true;
+    ({ data, error } = await sb.from('network_contacts').upsert(row, { onConflict: 'id' }).select('id').maybeSingle());
+  }
   if (error) return { id: null, error: frenchDbError(error.message) };
+  if (peopleDropped && Array.isArray(input.people) && input.people.length) return { id: (data?.id as string) ?? null, error: 'Enregistré sans les interlocuteurs supplémentaires : SQL du 08/10 (network_contacts.people) à coller.' };
   if (!data?.id) return { id: null, error: 'Écriture refusée par la base (droit « Carte du réseau · édition » manquant ?).' };
   return { id: data.id as string, error: null };
 }

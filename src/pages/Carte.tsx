@@ -62,7 +62,7 @@ const FLAG: Record<string, string> = { FR: '🇫🇷', NL: '🇳🇱', BE: '🇧
 const emptyInput = (country = 'NL'): ContactInput => ({
   name: '', kind: 'concession', role: 'vendeur', country, city: '', lat: null, lng: null,
   contact_name: '', phone: '', email: '', website: '', relation: '', vehicle_types: '', monthly_volume: '',
-  opportunity: '', margin: '', reliability: '', comment: '', notes: '', market_share: null, stock_total: null,
+  opportunity: '', margin: '', reliability: '', comment: '', notes: '', market_share: null, stock_total: null, people: [],
 });
 
 export function Carte() {
@@ -346,7 +346,7 @@ export function Carte() {
   };
   const startEdit = (c: NetworkContact) => {
     const { id, name, kind, role, country, city, lat, lng, contact_name, phone, email, website, relation, vehicle_types, monthly_volume, opportunity, margin, reliability, comment, notes, market_share, stock_total } = c;
-    setEditing({ id, name, kind, role, country, city, lat, lng, contact_name, phone, email, website, relation, vehicle_types, monthly_volume, opportunity, margin, reliability, comment, notes, market_share, stock_total });
+    setEditing({ id, name, kind, role, country, city, lat, lng, contact_name, phone, email, website, relation, vehicle_types, monthly_volume, opportunity, margin, reliability, comment, notes, market_share, stock_total, people: Array.isArray(c.people) ? c.people : [] });
     setEditModels(c.models.map((m) => ({ brand: m.brand, model: m.model, qty: m.qty, note: m.note })));
     setPanelOpen(true);
   };
@@ -671,6 +671,18 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
           {c.contact_name && <p className="text-slate-800 font-medium">{c.contact_name}</p>}
           {c.phone && <a href={`tel:${c.phone.replace(/\s/g, '')}`} className="flex items-center gap-2 text-brand-ocean hover:underline"><Phone className="w-4 h-4" /> {c.phone}</a>}
           {c.email && <a href={`mailto:${c.email}`} className="flex items-center gap-2 text-brand-ocean hover:underline break-all"><Mail className="w-4 h-4 shrink-0" /> {c.email}</a>}
+          {/* AUTRES INTERLOCUTEURS (08/10, signalement Achille) */}
+          {Array.isArray(c.people) && c.people.length > 0 && (
+            <div className="mt-2 space-y-1.5 border-t border-slate-100 pt-2">
+              {c.people.map((p, i) => (
+                <div key={i} className="text-sm">
+                  <p className="text-slate-800 font-medium">{p.name || '—'}{p.role ? <span className="ml-1.5 text-xs font-normal text-slate-500">{p.role}</span> : null}</p>
+                  {p.phone && <a href={`tel:${p.phone.replace(/\s/g, '')}`} className="flex items-center gap-2 text-brand-ocean hover:underline"><Phone className="w-4 h-4" /> {p.phone}</a>}
+                  {p.email && <a href={`mailto:${p.email}`} className="flex items-center gap-2 text-brand-ocean hover:underline break-all"><Mail className="w-4 h-4 shrink-0" /> {p.email}</a>}
+                </div>
+              ))}
+            </div>
+          )}
           {c.website && (
             <div className="flex items-center gap-3 flex-wrap">
               <a href={c.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-brand-ocean hover:underline"><ExternalLink className="w-4 h-4 shrink-0" /> Vitrine du stock</a>
@@ -797,6 +809,27 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
           <div><label className={label}>Téléphone / WhatsApp</label><input value={v.phone ?? ''} onChange={(e) => set({ phone: e.target.value })} className={inp} placeholder="+31 …" /></div>
         </div>
         <div><label className={label}>Email</label><input type="email" value={v.email ?? ''} onChange={(e) => set({ email: e.target.value })} className={inp} /></div>
+        {/* AUTRES INTERLOCUTEURS (08/10, signalement Achille : « pour une même
+            concession pouvoir ajouter plusieurs contacts ») : autant de lignes
+            que de personnes, en plus du contact principal ci-dessus. */}
+        <div>
+          <div className="flex items-center justify-between">
+            <label className={label}>Autres interlocuteurs</label>
+            <button type="button" onClick={() => set({ people: [...(v.people ?? []), { name: '', role: '', phone: '', email: '' }] })} className="text-xs text-brand-ocean hover:underline">+ Ajouter une personne</button>
+          </div>
+          {(v.people ?? []).length === 0 && <p className="text-xs text-slate-400">Aucune autre personne. Le contact ci-dessus reste l'interlocuteur principal.</p>}
+          <div className="space-y-1.5">
+            {(v.people ?? []).map((p, i) => (
+              <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-1.5 items-center">
+                <input value={p.name} onChange={(e) => set({ people: (v.people ?? []).map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} className={inp} placeholder="Prénom Nom" />
+                <input value={p.role} onChange={(e) => set({ people: (v.people ?? []).map((x, j) => (j === i ? { ...x, role: e.target.value } : x)) })} className={inp} placeholder="Fonction (vendeur, chef des ventes…)" />
+                <input value={p.phone} onChange={(e) => set({ people: (v.people ?? []).map((x, j) => (j === i ? { ...x, phone: e.target.value } : x)) })} className={inp} placeholder="+31 …" />
+                <input type="email" value={p.email} onChange={(e) => set({ people: (v.people ?? []).map((x, j) => (j === i ? { ...x, email: e.target.value } : x)) })} className={inp} placeholder="email" />
+                <button type="button" onClick={() => set({ people: (v.people ?? []).filter((_, j) => j !== i) })} className="text-xs text-slate-400 hover:text-red-600 px-1" title="Retirer">✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
         <div><label className={label}>Vitrine (URL du stock)</label><input value={v.website ?? ''} onChange={(e) => set({ website: e.target.value })} className={inp} placeholder="https://…" /></div>
         <div>
           <label className={label}>Relation</label>

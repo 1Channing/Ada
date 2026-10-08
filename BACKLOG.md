@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **CARTE : PLUSIEURS INTERLOCUTEURS PAR CONCESSION (08/10, signalement
+  Achille du 07/10 : « pour une même concession pouvoir ajouter plusieurs
+  contacts, là on est limité à un seul »)**. Le contact principal (nom,
+  téléphone, email) reste tel quel ; une liste « Autres interlocuteurs »
+  (nom, fonction, téléphone, email, autant de lignes que voulu) s'ajoute
+  dans la fiche — colonne `network_contacts.people` (migration
+  20261008100000). Tant que le SQL n'est pas collé, la fiche s'enregistre
+  sans eux et le dit. Lignes vides retirées à l'enregistrement.
 - **VERDICT DES LOTS SUR LE PRIX D'ATTAQUE (07/10, Channing : « on fait pour
   les relevés de lot, go »)**. Le verdict d'un pays compare notre HT moyen du
   lot au prix d'attaque du pays (médiane des prix d'attaque des sites),
