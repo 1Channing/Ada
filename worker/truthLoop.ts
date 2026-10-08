@@ -321,10 +321,14 @@ export async function runDigest(reason: string): Promise<void> {
   // est un cas « dev » (grammaire, blocage, site changé) ; un site sans échec
   // ferme seul son cas.
   {
+    // Clé de site = identifiant en majuscules (LACENTRALE, AUTOSCOUT_NL…) —
+    // constat 08/10 : « · en échec sur 3 études » (le séparateur « · » pris
+    // pour un site par \S+).
     const failsBySite: Record<string, number> = {};
-    for (const l of bilans) for (const m of l.message.matchAll(/(\S+) ✗/g)) failsBySite[m[1]] = (failsBySite[m[1]] ?? 0) + 1;
+    for (const l of bilans) for (const m of l.message.matchAll(/\b([A-Z][A-Z0-9_]{2,}) ✗/g)) failsBySite[m[1]] = (failsBySite[m[1]] ?? 0) + 1;
     const allSites = new Set<string>();
-    for (const l of bilans) for (const m of l.message.matchAll(/(\S+) [✓✗]/g)) allSites.add(m[1]);
+    for (const l of bilans) for (const m of l.message.matchAll(/\b([A-Z][A-Z0-9_]{2,}) [✓✗]/g)) allSites.add(m[1]);
+    void resolveLearningCase('site_failing', '·', 'clé fantôme (séparateur pris pour un site) — corrigé le 08/10');
     for (const site of allSites) {
       const n = failsBySite[site] ?? 0;
       if (n >= 3) void recordLearningCase({ kind: 'site_failing', key: site, title: `${site} en échec sur ${n} étude(s) ce matin`, actor: 'dev', link: '/verite', detail: { day, failures: n, studies: bilans.length } });

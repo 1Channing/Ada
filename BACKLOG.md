@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **VITRINE AUTEXX (autrado) + CLÉ « · » DU DIGEST (08/10, boîte à apprendre :
+  « Vitrine non reconnue : www.autexx.de » / signalement Achille « Ada ne
+  sait pas lire la vitrine de stock » ; « · en échec sur 3 études »)**.
+  Autexx = plateforme autrado : cartes `<article class="c-vehicle" data-id>`,
+  marque + modèle, version, Getriebe / Kraftstoff / Leistung / Kilometerstand,
+  catégorie (Neuwagen, Lagerfahrzeug, Tageszulassung), lien relatif. PRIX
+  RÉSERVÉ AUX COMPTES CONNECTÉS (« Nach Login ») : stock relevé sans prix,
+  statut « sur demande », jamais 0 — dit dans le bilan. Pagination prouvée :
+  `itemsperpage=100` + `npage=N` (« page » seul est ignoré) ; les <style> des
+  icônes SVG sont retirés avant lecture (le km était illisible). Vérifié :
+  525 / 525 voitures en 6 pages, 12 s. Digest du matin : le séparateur « · »
+  de « · ✗ 1 site(s) en échec » était pris pour un site — clé de site =
+  identifiant en majuscules, cas fantôme fermé.
 - **CARTE : PLUSIEURS INTERLOCUTEURS PAR CONCESSION (08/10, signalement
   Achille du 07/10 : « pour une même concession pouvoir ajouter plusieurs
   contacts, là on est limité à un seul »)**. Le contact principal (nom,

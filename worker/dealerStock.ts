@@ -30,8 +30,8 @@ import { recordLearningCase, resolveLearningCase } from './learningBox';
 import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -195,6 +195,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // data-make data-model data-year data-price data-km …>, tout le stock sur
   // une page, filtres côté client).
   if (/<a[^>]+class="[^"]*\bcar-card\b[^"]*"[^>]+data-price=/.test(html)) return 'carcards';
+  // autrado (Autexx, 08/10) : cartes <article class="c-vehicle" data-id>, images img.autrado.de.
+  if (/class="c-vehicles-list__item/.test(html) && /class="c-vehicle\b[^"]*"[^>]*data-id="\d+"/.test(html)) return 'autrado';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -577,6 +579,93 @@ async function scrapeCarCards(url: string, firstHtml: string): Promise<DealerSto
   return { provider: 'carcards', total: declared ?? out.length, declared, vehicles: out, pages: 1, warnings };
 }
 
+// ── autrado (Autexx, www.autexx.de) ──────────────────────────────────────────
+// Constat 08/10 (signalement Achille « Ada ne sait pas lire la vitrine ») :
+// plateforme autrado — <article class="c-vehicle" data-id="2545"> avec
+// <span itemprop="brand name">Seat Ibiza</span>, <span itemprop="name">1.0TSI
+// Reference …</span>, lien relatif « seat-ibiza-x__2545.php », attributs
+// Getriebe / Kraftstoff / Außenfarbe / Leistung « 70 kW (95 PS) » /
+// Kilometerstand, catégorie « Neuwagen » / « Lagerfahrzeug », délai de
+// livraison. PRIX RÉSERVÉ AUX COMPTES CONNECTÉS (« Nach Login ») : sans prix,
+// statut « sur demande » — jamais 0. Pagination : « itemsperpage=100 » +
+// « npage=N » (« page » seul est ignoré au-delà de 10 par page ; prouvé :
+// 525 voitures en 6 pages).
+export function parseAutradoCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  // Les icônes SVG embarquent un <style> : retiré avant lecture (constat 08/10 :
+  // « .a{fill:none…} Kilometerstand 10 km » → km illisible).
+  const text = (s: string) => unesc(s.replace(/<style[\s\S]*?<\/style>|<svg[\s\S]*?<\/svg>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
+  for (const m of html.matchAll(/<article\b([^>]*\bclass="[^"]*\bc-vehicle\b[^"]*"[^>]*)>([\s\S]*?)<\/article>/g)) {
+    const id = m[1].match(/data-id="(\d+)"/)?.[1];
+    if (!id) continue;
+    const inner = m[2];
+    const href = inner.match(/<a[^>]+class="[^"]*c-vehicle__link[^"]*"[^>]+href="([^"]+)"/)?.[1] ?? inner.match(/itemprop="url"[^>]*href="([^"]+)"/)?.[1] ?? '';
+    const url = href ? (href.startsWith('http') ? href : `${origin}/${href.replace(/^\/+/, '')}`) : null;
+    const brandModel = text(inner.match(/itemprop="brand name"[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const sub = text(inner.match(/itemprop="name"[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const attr = (key: string): string | null => {
+      const r = inner.match(new RegExp(`<li[^>]*c-icon-details__item--${key}[^>]*>([\\s\\S]*?)<\\/li>`));
+      if (!r) return null;
+      const t = text(r[1]).replace(/^(Getriebe|Kraftstoff|Außenfarbe|Leistung|Kilometerstand|Fahrzeugnr\.|Erstzulassung)\s*/i, '').trim();
+      return t || null;
+    };
+    const gearRaw = attr('gearing') ?? '';
+    const fuelRaw = attr('fuel') ?? '';
+    const powerRaw = attr('power') ?? '';
+    const kmRaw = attr('mileage') ?? attr('kilometer') ?? (text(inner).match(/Kilometerstand\s*([\d.]+)\s*km/)?.[1] ?? '');
+    const ezRaw = text(inner).match(/Erstzulassung\s*(\d{2}\/\d{4}|\d{2}\.\d{4}|\d{2}\.\d{2}\.\d{4})/)?.[1] ?? '';
+    const category = text(inner).match(/\b(Neuwagen|Lagerfahrzeug|Gebrauchtwagen|Vorführwagen|Tageszulassung|Jahreswagen)\b/)?.[1] ?? null;
+    const delivery = text(inner).match(/(?:Lieferzeit:\s*([^|]{2,30}?)\s{2,}|sofort lieferbar)/)?.[0]?.trim() ?? null;
+    const price = priceOrNull(text(inner).match(/(\d{1,3}(?:\.\d{3})+|\d{4,6})(?:,\d{2})?\s*€/)?.[1]?.replace(/\./g, ''));
+    const { brand, model } = splitTitle(brandModel);
+    const ps = powerRaw.match(/\((\d+)\s*PS\)/)?.[1];
+    const kw = powerRaw.match(/(\d+)\s*kW/)?.[1];
+    out.push({
+      external_id: id, url, title: `${brandModel} ${sub}`.trim(), brand, model,
+      price, km: num(kmRaw.replace(/\./g, '')),
+      year: ezRaw ? num(ezRaw.slice(-4)) : null,
+      fuel: fuelRaw || null,
+      gearbox: /schalt/i.test(gearRaw) ? 'Manuelle' : /automat|dsg|s-?tronic|dct|cvt/i.test(gearRaw) ? 'Automatique' : gearRaw || null,
+      plate: null, vin: null, body: category, image: inner.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: price == null ? 'price_on_request' : null,
+      currency: 'EUR',
+    });
+    void ps; void kw; void delivery;
+  }
+  return out;
+}
+async function scrapeAutrado(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const u = new URL(url);
+  const origin = u.origin;
+  const PER = 100;
+  const pageUrl = (n: number) => { const p = new URL(url); p.searchParams.set('itemsperpage', String(PER)); p.searchParams.set('page', '1'); p.searchParams.set('npage', String(n)); return p.toString(); };
+  let pages = 0;
+  for (let n = 1; n <= MAX_PAGES; n++) {
+    let html: string | null = null;
+    if (n === 1 && (u.searchParams.get('itemsperpage') === String(PER))) html = firstHtml;
+    else {
+      for (let attempt = 0; attempt < 2 && html == null; attempt++) {
+        if (attempt > 0) await sleep(1500);
+        const r = await getText(pageUrl(n));
+        if (r.status === 200) html = r.text;
+      }
+      if (html == null) { warnings.push(`arrêt à la page ${n} : page illisible — relevé partiel`); break; }
+    }
+    pages = n;
+    const cards = parseAutradoCards(html, origin);
+    let added = 0;
+    for (const v of cards) { if (seen.has(v.external_id)) continue; seen.add(v.external_id); out.push(v); added++; }
+    if (cards.length === 0 || added === 0) break;   // page vide ou page resservie = fin
+    if (cards.length < PER) break;
+    await sleep(PAGE_DELAY_MS);
+  }
+  if (out.length > 0 && out.every((v) => v.price == null)) warnings.push('Prix réservés aux comptes connectés sur ce site (« Nach Login ») : stock relevé sans prix.');
+  return { provider: 'autrado', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
 // ── autodata (Krimpenerwaard) ───────────────────────────────────────────────
 async function scrapeAutodata(url: string, firstHtml: string, firstHeaders: Headers): Promise<DealerStockResult> {
   const origin = new URL(url).origin;
@@ -930,6 +1019,7 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text);
   if (provider === 'dtcvm') return scrapeDtcVm(url, first.text);
   if (provider === 'carcards') return scrapeCarCards(url, first.text);
+  if (provider === 'autrado') return scrapeAutrado(url, first.text);
   if (provider === 'listerpage') return scrapeListerpage(url, first.text);
   if (provider === 'cmsms') return scrapeCmsms(url, first.text);
   if (provider === 'dmapi') return scrapeDmApi(url, first.text);
