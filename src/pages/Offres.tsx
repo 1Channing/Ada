@@ -92,6 +92,11 @@ export function Offres() {
   /** Fenêtre d'un modèle : ses véhicules, à cocher et corriger sans quitter le choix des modèles (11/10). */
   const [modelPopup, setModelPopup] = useState<string | null>(null);
   const [modelQuery, setModelQuery] = useState('');
+  /** Onglet Sélection : par modèle (cartes par marque) ou liste complète — retenu sur ce poste. */
+  const [selectionLayout, setSelectionLayout] = useState<'models' | 'list'>(() => {
+    try { return localStorage.getItem('ada_offres_layout') === 'list' ? 'list' : 'models'; } catch { return 'models'; }
+  });
+  const setLayout = (l: 'models' | 'list') => { setSelectionLayout(l); try { localStorage.setItem('ada_offres_layout', l); } catch { /* stockage indisponible */ } };
   const [newColumnLabel, setNewColumnLabel] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<number | null>(null);
@@ -347,6 +352,12 @@ export function Offres() {
       .filter((b) => b.models.length > 0)
       .sort((x, y) => x.brand.localeCompare(y.brand, 'fr'));
   }, [draft, modelQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** Liste complète filtrée par la recherche (modèle, version, VIN/plaque, couleur, motorisation). */
+  const listVehicles = useMemo(() => {
+    const q = modelQuery.trim().toLowerCase();
+    const all = draft?.vehicles ?? [];
+    return q ? all.filter((v) => `${v.brand} ${v.model} ${v.version} ${v.vin ?? ''} ${v.color ?? ''} ${v.engine ?? ''}`.toLowerCase().includes(q)) : all;
+  }, [draft, modelQuery]);
   const setModelSelected = (key: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (modelKeyOf(v) === key ? { ...v, selected: on } : v)) }));
   const setBrandSelected = (brand: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ((v.brand || '—') === brand ? { ...v, selected: on } : v)) }));
   const setAllSelected = (on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: on })) }));
@@ -766,19 +777,35 @@ export function Offres() {
           {/* ══ SÉLECTION ══════════════════════════════════════════════════════ */}
           {view === 'selection' && (
             <div className="space-y-4">
-              {/* Modèles, par marque */}
+              {/* Choix des véhicules : par modèle OU liste complète (bascule, 11/10) */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
                 <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
-                  <h2 className="text-sm font-semibold text-slate-800">Modèles du fichier</h2>
-                  <span className="text-xs text-slate-500">{selectedUnits} / {totalUnits} véhicules retenus · case = retenir tout le modèle · nom = ouvrir ses véhicules</span>
+                  <div role="group" aria-label="Affichage des véhicules" className="flex rounded-lg bg-slate-100 p-0.5">
+                    <button onClick={() => setLayout('models')} aria-pressed={selectionLayout === 'models'} className={`px-3 py-1.5 rounded-md text-sm ${selectionLayout === 'models' ? 'bg-white shadow-sm font-semibold text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}>Par modèle</button>
+                    <button onClick={() => setLayout('list')} aria-pressed={selectionLayout === 'list'} className={`px-3 py-1.5 rounded-md text-sm ${selectionLayout === 'list' ? 'bg-white shadow-sm font-semibold text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}>Liste complète</button>
+                  </div>
+                  <span className="text-xs text-slate-500">{selectedUnits} / {totalUnits} véhicules retenus · {selectionLayout === 'models' ? 'case = retenir tout le modèle · nom = ouvrir ses véhicules' : 'crayon en bout de ligne = corriger une valeur mal lue'}</span>
                   <label className="ml-auto flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm">
                     <Search className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="sr-only">Chercher un modèle</span>
-                    <input value={modelQuery} onChange={(e) => setModelQuery(e.target.value)} placeholder="Chercher un modèle" className="w-40 outline-none bg-transparent" />
+                    <span className="sr-only">{selectionLayout === 'models' ? 'Chercher un modèle' : 'Chercher un véhicule'}</span>
+                    <input value={modelQuery} onChange={(e) => setModelQuery(e.target.value)} placeholder={selectionLayout === 'models' ? 'Chercher un modèle' : 'Modèle, VIN, plaque, couleur…'} className="w-48 outline-none bg-transparent" />
                   </label>
                   <button onClick={() => setAllSelected(true)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Tout retenir</button>
                   <button onClick={() => setAllSelected(false)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Aucun</button>
+                  <span className="flex items-center gap-3 text-xs">
+                    {parsed?.warnings.length ? (
+                      <details className="relative">
+                        <summary className="cursor-pointer text-amber-700">{parsed.warnings.length} avertissement{parsed.warnings.length > 1 ? 's' : ''} de lecture</summary>
+                        <div className="absolute right-0 z-10 mt-1 w-96 max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg p-3 space-y-1">
+                          {parsed.warnings.map((w, i) => <p key={i} className="text-amber-800">{w}</p>)}
+                        </div>
+                      </details>
+                    ) : null}
+                    {draft.source_grid && <button onClick={rereadFile} className="text-brand-ocean hover:underline" title="Relit le fichier conservé avec les règles de lecture actuelles — sélection, prix et corrections gardés">Relire le fichier</button>}
+                  </span>
                 </div>
+                {selectionLayout === 'models' ? (
+                  <>
                 {brandGroups.length === 0 ? (
                   <p className="px-4 py-6 text-sm text-slate-400 text-center">{draft.vehicles.length ? 'Aucun modèle ne correspond.' : 'Aucun véhicule dans cette offre.'}</p>
                 ) : (
@@ -814,29 +841,8 @@ export function Offres() {
                     })}
                   </div>
                 )}
-              </div>
-
-              {/* Véhicules */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-                <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3 flex-wrap">
-                  <h2 className="text-sm font-semibold text-slate-800">Véhicules</h2>
-                  <span className="text-xs text-slate-500">Clique un modèle ci-dessus pour choisir ses véhicules un par un. Une valeur mal lue ? Crayon en bout de ligne : la correction est gardée, même après une relecture.</span>
-                  <span className="ml-auto flex items-center gap-3 text-xs">
-                    {parsed?.warnings.length ? (
-                      <details className="relative">
-                        <summary className="cursor-pointer text-amber-700">{parsed.warnings.length} avertissement{parsed.warnings.length > 1 ? 's' : ''} de lecture</summary>
-                        <div className="absolute right-0 z-10 mt-1 w-96 max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg p-3 space-y-1">
-                          {parsed.warnings.map((w, i) => <p key={i} className="text-amber-800">{w}</p>)}
-                        </div>
-                      </details>
-                    ) : null}
-                    {draft.source_grid && <button onClick={rereadFile} className="text-brand-ocean hover:underline" title="Relit le fichier conservé avec les règles de lecture actuelles — sélection, prix et corrections gardés">Relire le fichier</button>}
-                  </span>
-                </div>
-                <details className="group">
-                  <summary className="px-4 py-2.5 cursor-pointer text-sm text-brand-ocean hover:underline select-none">Afficher tous les véhicules de l'offre ({draft.vehicles.length} lignes) dans un seul tableau</summary>
-                  {vehicleTable(draft.vehicles)}
-                </details>
+                  </>
+                ) : vehicleTable(listVehicles)}
               </div>
 
               {/* Fichier d'origine, brut */}
