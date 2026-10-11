@@ -38,6 +38,7 @@ import {
   type ScrapedListing,
   type StudyCriteria,
 } from '../../src/lib/study-core';
+import { setFxRates, fxMultiplier } from '../../src/lib/study-core/business-logic';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -189,9 +190,17 @@ runTest('Currency conversion - EUR to EUR', () => {
   assertEqual(result, 16500, 'EUR should remain unchanged');
 });
 
+// Les taux ne sont plus figés (06/10) : taux BCE du jour posés par setFxRates
+// (forme BCE : 1 EUR = 7,5 DKK). On vérifie le mécanisme, pas une valeur datée.
 runTest('Currency conversion - DKK to EUR', () => {
-  const result = toEur(100000, 'DKK');
-  assertEqual(result, 13400, 'DKK should convert at 0.134 rate');
+  const before = fxMultiplier('DKK');
+  setFxRates({ DKK: 7.5 });
+  try {
+    assertEqual(toEur(75000, 'DKK'), 10000, 'DKK should convert at the rate set by setFxRates');
+  } finally {
+    setFxRates({ DKK: 1 / before });
+  }
+  assert(Math.abs(toEur(100000, 'DKK') - 100000 * before) < 1e-6, 'DKK rate should be restored after the test');
 });
 
 runTest('Brand/model matching - Valid match', () => {

@@ -1,0 +1,41 @@
+name: ADA CI
+
+# Garde-fou à chaque push : typage + grammaires d'URL + build (npm run gate),
+# tests de calcul et de lecture des annonces (npm test), build du worker.
+# Aucun secret requis : tout tourne sur des fichiers de référence.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Gate (typecheck, grammaires d'URL, build)
+        run: npm run gate
+      - name: Tests (calculs et lecture des annonces)
+        run: npm test
+
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Build du worker
+        run: npm run build

@@ -1,20 +1,24 @@
 <!DOCTYPE html>
-<html>
-<head><title>Gaspedaal Test Page</title></head>
+<!--
+  Page Gaspedaal REPRODUITE au format réel lu par l'adaptateur
+  (src/lib/study-core/marketplaces/gaspedaal.ts) : JSON-LD ItemList de Car,
+  cartes data-published-date + id="oc<id>", flux Next (guillemets échappés)
+  avec advertentieId / uitvoering / vermogenKw / portalen. Les valeurs sont
+  d'exemple ; le gabarit suit les sondes du 28/08 et du 07/09. L'ancienne
+  fixture (articles HTML inventés) ne ressemblait pas au site.
+-->
+<html lang="nl">
+<head><title>Toyota Yaris Cross occasions | Gaspedaal.nl</title>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"ItemList","itemListElement":[
+{"@type":"ListItem","position":1,"item":{"@type":"Car","@id":"https://www.gaspedaal.nl/toyota/yaris-cross#134236223","name":"Toyota Yaris Cross 1.5 Hybrid Dynamic","brand":"Toyota","model":"Yaris Cross","productionDate":2023,"mileageFromOdometer":{"value":18450},"fuelType":"Hybride","vehicleTransmission":"Automaat","color":"Grijs","numberOfDoors":5,"offers":{"price":26950,"priceCurrency":"EUR","seller":{"@type":"AutoDealer","name":"Tesselaar BV"}}}},
+{"@type":"ListItem","position":2,"item":{"@type":["Car","Product"],"@id":"https://www.gaspedaal.nl/toyota/yaris-cross#134236290","name":"Toyota Yaris Cross 1.5 Hybrid Executive","brand":"Toyota","model":"Yaris Cross","productionDate":2022,"mileageFromOdometer":{"value":41200},"fuelType":"Hybride","vehicleTransmission":"Automaat","offers":{"price":24450,"priceCurrency":"EUR"}}},
+{"@type":"ListItem","position":3,"item":{"@type":"Car","@id":"https://www.gaspedaal.nl/toyota/yaris-cross#134236301","name":"Toyota Yaris Cross prijs op aanvraag","brand":"Toyota","model":"Yaris Cross","productionDate":2024,"offers":{"price":0,"priceCurrency":"EUR"}}},
+{"@type":"ListItem","position":4,"item":{"@type":"Product","@id":"https://www.gaspedaal.nl/#lease-banner","name":"Private lease Toyota","offers":{"price":399}}}
+]}</script>
+</head>
 <body>
-<article class="listing">
-  <a href="/auto/toyota/yaris-cross-4567890123">
-    <h2>Toyota Yaris Cross 2024</h2>
-    <div class="price">€ 16950</div>
-    <div class="details">2024 • 5000 km</div>
-  </a>
-</article>
-<article class="listing">
-  <a href="/auto/toyota/yaris-cross-4567890124">
-    <h2>Toyota Yaris Cross 2024 Hybrid</h2>
-    <div class="price">€ 17500</div>
-    <div class="details">2024 • 10000 km</div>
-  </a>
-</article>
+<div class="occasion-card" data-published-date="2026-10-09T08:12:00Z"><a id="oc134236223" href="/toyota/yaris-cross#oc134236223">Toyota Yaris Cross 1.5 Hybrid Dynamic</a></div>
+<div class="occasion-card" data-published-date="2026-10-02T15:40:00Z"><a id="oc134236290" href="/toyota/yaris-cross#oc134236290">Toyota Yaris Cross 1.5 Hybrid Executive</a></div>
+<script>self.__next_f.push([1,"{\"occasions\":[{\"advertentieId\":134236223,\"autogegevens\":{\"algemeen\":{\"uitvoering\":\"1.5 Hybrid Dynamic\"},\"motor\":{\"vermogenKw\":85}},\"portalen\":[{\"klikUrl\":\"https://api.gaspedaal.nl/redirect/vehicle/203151549\",\"naam\":\"AutoTrack\",\"portaalType\":\"other\"},{\"klikUrl\":\"https://api.gaspedaal.nl/redirect/vehicle/203151550\",\"naam\":\"Tesselaar\",\"portaalType\":\"dealer\"}]},{\"advertentieId\":134236290,\"autogegevens\":{\"algemeen\":{\"uitvoering\":\"1.5 Hybrid Executive\"},\"motor\":{\"vermogenKw\":85}},\"portalen\":[{\"klikUrl\":\"https://api.gaspedaal.nl/redirect/vehicle/203151777\",\"naam\":\"Marktplaats\",\"portaalType\":\"other\"}]}]}"])</script>
 </body>
 </html>

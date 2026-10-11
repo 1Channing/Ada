@@ -101,15 +101,23 @@ allPassed = await runTest('Bilbasen - Parse 2 listings with context extraction',
   assert(listings[0].mileage === 15000, 'Mileage should be 15000');
 }) && allPassed;
 
-// Test 4: Gaspedaal parsing (TODO: refine price extraction pattern)
-allPassed = await runTest('Gaspedaal - Parse listings from HTML cards', () => {
+// Test 4: Gaspedaal — adaptateur de production (JSON-LD + flux Next), fixture au format réel.
+allPassed = await runTest('Gaspedaal - Parse JSON-LD listings with details', () => {
   const html = loadFixture('gaspedaal-page1.html');
-  const listings = coreParseSearchPage(html, 'https://www.gaspedaal.nl/autos/toyota/yaris-cross');
+  const listings = coreParseSearchPage(html, 'https://www.gaspedaal.nl/toyota/yaris-cross');
 
-  // Gaspedaal parser needs refinement for specific HTML patterns
-  // Unified architecture is correct, parser can be refined later
-  assert(listings.length >= 1, `Should extract at least 1 listing, got ${listings.length}`);
-  console.log('      Note: Gaspedaal parser extracted', listings.length, 'listing(s)');
+  // 2 voitures à prix réel ; « prix sur demande » (0 €) et la bannière lease (pas une Car) sont écartées.
+  assertEqual(listings.length, 2, 'Should keep only the 2 priced cars');
+  const [a, b] = listings;
+  assertEqual(a.price, 26950, 'Price from JSON-LD offers');
+  assertEqual(a.year, 2023, 'Year from productionDate');
+  assertEqual(a.mileage, 18450, 'Mileage from mileageFromOdometer');
+  assertEqual(a.trim, '1.5 Hybrid Dynamic', 'Trim from Next flux (uitvoering)');
+  assertEqual(a.powerDin, 116, 'Power: 85 kW → 116 ch');
+  assertEqual(a.listing_url, 'https://api.gaspedaal.nl/redirect/vehicle/203151550', 'Dealer portal preferred');
+  assert(Boolean(a.publishedAt), 'Published date matched from the card (id="oc…")');
+  assertEqual(b.listing_url, 'https://api.gaspedaal.nl/redirect/vehicle/203151777', 'Falls back to first portal');
+  assertEqual(b.price, 24450, 'Second car price');
 }) && allPassed;
 
 // Test 5: Deterministic parsing - same input produces same output
