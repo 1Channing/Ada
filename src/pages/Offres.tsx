@@ -82,6 +82,8 @@ export function Offres() {
   const [listQuery, setListQuery] = useState('');
   const [notesOpen, setNotesOpen] = useState(false);
   const [editVehicle, setEditVehicle] = useState<string | null>(null);
+  /** Fenêtre d'un modèle : ses véhicules, à cocher et corriger sans quitter le choix des modèles (11/10). */
+  const [modelPopup, setModelPopup] = useState<string | null>(null);
   const [modelQuery, setModelQuery] = useState('');
   const [newColumnLabel, setNewColumnLabel] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -103,11 +105,11 @@ export function Offres() {
 
   // Panneau des offres et fenêtre des notes : Échap les referme.
   useEffect(() => {
-    if (!listOpen && !notesOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setNotesOpen(false); setListOpen(false); } };
+    if (!listOpen && !notesOpen && !modelPopup) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setNotesOpen(false); setListOpen(false); setModelPopup(null); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [listOpen, notesOpen, draft]);
+  }, [listOpen, notesOpen, modelPopup]);
 
   // ENREGISTREMENT AUTOMATIQUE : toute modification du brouillon part en base
   // 1,2 s après la dernière frappe ; la première sauvegarde crée l'offre.
@@ -277,7 +279,7 @@ export function Offres() {
     if (stale) { info('Dates relues avec les règles du jour (fichier au format américain) — offre enregistrée.'); void persist(next); }
     setDraft(next); if (!stale) setParsed(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null); setEditLot(null); setEditVehicle(null);
     if (!stale) setMsg(null);
-    setColumnsNotSaved(false); setViewModel(null); setModelQuery('');
+    setColumnsNotSaved(false); setModelPopup(null); setModelQuery('');
     setView(next.vehicles.some((v) => v.selected) ? 'analyse' : 'selection');
     setListOpen(false);
     setSurvey((s) => (s && s.done < s.total && s.current !== 'arrêté' ? s : null));
@@ -302,7 +304,6 @@ export function Offres() {
 
   // ── CHOIX DES MODÈLES, regroupés par marque (refonte 11/10) ─────────────────
   const modelKeyOf = (v: OfferVehicle) => `${v.brand} ${v.model}`.trim();
-  const [viewModel, setViewModel] = useState<string | null>(null);
   const brandGroups = useMemo(() => {
     type M = { key: string; model: string; units: number; selected: number; kmSum: number; kmN: number; priceSum: number; priceN: number };
     const brands = new Map<string, { brand: string; units: number; selected: number; models: Map<string, M> }>();
@@ -329,7 +330,6 @@ export function Offres() {
   const setModelSelected = (key: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (modelKeyOf(v) === key ? { ...v, selected: on } : v)) }));
   const setBrandSelected = (brand: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ((v.brand || '—') === brand ? { ...v, selected: on } : v)) }));
   const setAllSelected = (on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: on })) }));
-  const shownVehicles = useMemo(() => (draft?.vehicles ?? []).filter((v) => !viewModel || modelKeyOf(v) === viewModel), [draft, viewModel]);
 
   // ── COLONNES DE L'OFFRE EXPORTÉE ────────────────────────────────────────────
   const columns = draft?.export_columns ?? defaultExportColumns();
@@ -362,7 +362,7 @@ export function Offres() {
   // Lots = véhicules RETENUS regroupés (marque, modèle, année, énergie, boîte).
   // Les relevés se lancent PAYS PAR PAYS (11/10) : bouton par colonne pays,
   // bouton par case vide, ou par lot. Chaque relevé passe par la file du worker.
-  const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, draft.lot_criteria?.[l.key])).filter((l) => !viewModel || `${l.brand} ${l.model}`.trim() === viewModel) : []), [draft, viewModel]);
+  const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, draft.lot_criteria?.[l.key])) : []), [draft]);
   const [editLot, setEditLot] = useState<string | null>(null);
   /** Critères réglés à la main : le relevé du lot est effacé (il répondait à d'autres critères) et ses URLs se régénèrent. */
   const setLotCriteria = (lot: OfferLot, patch: LotCriteria | null) => {
@@ -477,6 +477,61 @@ export function Offres() {
       <Icon className="w-4 h-4" /> {label} <span className={`text-xs px-1.5 py-0.5 rounded-full ${view === id ? 'bg-blue-50 text-brand-encre' : 'bg-slate-100 text-slate-500'}`}>{badge}</span>
     </button>
   );
+
+  /** Tableau des véhicules (corrections au crayon, prix, colonnes libres) — dans la fenêtre d'un modèle ou en liste complète. */
+  const vehicleTable = (list: OfferVehicle[]) => {
+    if (!draft) return null;
+    return (
+      <div className="overflow-x-auto">
+        <table className="text-xs w-full min-w-[1100px]">
+          <thead><tr className="text-left text-slate-400 border-b border-slate-100">
+            <th className="py-1.5 px-3"><span className="sr-only">Retenu</span></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3 text-right">Qté</th><th className="py-1.5 pr-3">Motorisation · version</th><th className="py-1.5 pr-3">Immat.</th>
+            <th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3">Énergie · boîte</th><th className="py-1.5 pr-3 text-right">Ch</th>
+            <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur HT</th><th className="py-1.5 pr-3 text-right">MC Export HT</th>
+            {customColumns.map((c) => <th key={c.id} className="py-1.5 pr-3 text-brand-encre">{c.label}</th>)}
+            <th className="py-1.5 pr-3">Rapport</th><th className="py-1.5 pr-3"><span className="sr-only">Corriger</span></th>
+          </tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {list.map((v) => {
+              const base = supplierHt(v);
+              const corrected = Object.keys(v.manual ?? {}).length > 0;
+              return (
+                <Fragment key={v.id}>
+                  <tr className={v.selected ? '' : 'opacity-50'}>
+                    <td className="py-1.5 px-3"><input type="checkbox" aria-label={`Retenir ${v.brand} ${v.model}`} checked={v.selected} onChange={(e) => setVehicle(v.id, { selected: e.target.checked })} /></td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap"><span className="font-medium text-slate-800">{v.brand} {v.model}</span>{corrected && <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-blue-50 text-brand-encre border border-blue-200" title={`Corrigé à la main : ${Object.keys(v.manual ?? {}).join(', ')}`}>corrigé</span>}{v.vin && <span className="block text-[10px] text-slate-400">{v.vin}</span>}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums"><input type="number" min={1} aria-label="Quantité" value={qtyOf(v)} onChange={(e) => correctVehicle(v.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })} className={`w-14 px-1.5 py-1 rounded border text-right tabular-nums ${qtyOf(v) > 1 ? 'border-slate-300 font-semibold text-slate-800' : 'border-slate-200 text-slate-400'}`} /></td>
+                    <td className="py-1.5 pr-3 max-w-[260px]"><span className="block truncate text-slate-700" title={v.engine ?? ''}>{v.engine || '—'}</span><span className="block truncate text-[10px] text-slate-500" title={v.version}>{v.version}{v.color ? ` · ${v.color}` : ''}</span></td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">{fmtDate(v.reg_date)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtKm(v.km)}</td>
+                    <td className="py-1.5 pr-3 text-slate-600 whitespace-nowrap">{v.fuel ?? '—'} · {v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox ?? '—'}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{v.power_ch ?? '—'}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{fmtEur(v.damages)}</td>
+                    <td className="py-1.5 pr-3">{v.vat_recoverable == null ? '—' : v.vat_recoverable ? <span className="text-emerald-700">récup.</span> : <span className="text-amber-700">marge</span>}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={v.price_ttc != null ? `TTC ${fmtEur(v.price_ttc)}` : ''}>{fmtEur(base)}</td>
+                    <td className="py-1.5 pr-3 text-right"><input type="number" aria-label="Prix MC Export HT" value={v.sale_price ?? ''} onChange={(e) => setVehicle(v.id, { sale_price: e.target.value === '' ? null : Number(e.target.value) })} className="w-24 px-2 py-1 rounded border border-slate-300 text-right tabular-nums font-semibold text-brand-encre" /></td>
+                    {customColumns.map((c) => (
+                      <td key={c.id} className="py-1.5 pr-3"><input aria-label={`${c.label} — ${v.brand} ${v.model}`} value={v.custom?.[c.id] ?? ''} onChange={(e) => setCustomValue(v.id, c.id, e.target.value)} className="w-28 px-2 py-1 rounded border border-blue-200 bg-blue-50/40" /></td>
+                    ))}
+                    <td className="py-1.5 pr-3">{v.report_url ? <a href={v.report_url} target="_blank" rel="noreferrer" className="text-brand-ocean inline-flex" aria-label="Ouvrir le rapport"><ExternalLink className="w-3.5 h-3.5" /></a> : '—'}</td>
+                    <td className="py-1.5 pr-3"><button onClick={() => setEditVehicle(editVehicle === v.id ? null : v.id)} aria-label={`Corriger ${v.brand} ${v.model}`} aria-expanded={editVehicle === v.id} className={`p-1 rounded ${editVehicle === v.id ? 'bg-blue-100 text-brand-encre' : 'text-slate-400 hover:text-brand-ocean hover:bg-slate-100'}`}><Pencil className="w-3.5 h-3.5" /></button></td>
+                  </tr>
+                  {editVehicle === v.id && (
+                    <tr className="bg-blue-50/40">
+                      <td colSpan={15 + customColumns.length} className="px-3 py-3">
+                        <VehicleEditor v={v} onChange={(patch) => correctVehicle(v.id, patch)} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+            {list.length === 0 && <tr><td colSpan={15 + customColumns.length} className="py-6 text-center text-slate-400">Aucun véhicule dans cette offre.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   const offerList = (inDrawer: boolean) => (
     <>
@@ -621,7 +676,7 @@ export function Offres() {
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
                 <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
                   <h2 className="text-sm font-semibold text-slate-800">Modèles du fichier</h2>
-                  <span className="text-xs text-slate-500">{selectedUnits} / {totalUnits} véhicules retenus · cocher = retenir, nom = afficher seul</span>
+                  <span className="text-xs text-slate-500">{selectedUnits} / {totalUnits} véhicules retenus · case = retenir tout le modèle · nom = ouvrir ses véhicules</span>
                   <label className="ml-auto flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm">
                     <Search className="w-3.5 h-3.5 text-slate-400" />
                     <span className="sr-only">Chercher un modèle</span>
@@ -647,9 +702,9 @@ export function Offres() {
                             {b.models.map((m) => {
                               const mAll = m.selected === m.units, mNone = m.selected === 0;
                               return (
-                                <li key={m.key} className={`flex items-center gap-2 px-3 py-1.5 ${viewModel === m.key ? 'bg-blue-50' : ''}`}>
+                                <li key={m.key} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50">
                                   <input type="checkbox" aria-label={`Retenir ${m.key}`} checked={mAll} ref={(el) => { if (el) el.indeterminate = !mAll && !mNone; }} onChange={(e) => setModelSelected(m.key, e.target.checked)} />
-                                  <button onClick={() => setViewModel(viewModel === m.key ? null : m.key)} className={`flex-1 min-w-0 text-left ${mNone ? 'text-slate-500' : 'text-slate-900 font-medium'}`} title="Afficher seulement ce modèle">
+                                  <button onClick={() => { setEditVehicle(null); setModelPopup(m.key); }} className={`flex-1 min-w-0 text-left ${mNone ? 'text-slate-500' : 'text-slate-900 font-medium'}`} title="Voir, choisir et corriger les véhicules de ce modèle">
                                     <span className="block text-sm truncate">{m.model}</span>
                                     <span className="block text-[11px] text-slate-500 font-normal tabular-nums">
                                       {m.kmN ? `≈ ${fmtKm(m.kmSum / m.kmN)}` : 'km ?'} · {m.priceN ? `≈ ${fmtEur(m.priceSum / m.priceN)} HT` : 'prix ?'}
@@ -671,8 +726,7 @@ export function Offres() {
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
                 <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3 flex-wrap">
                   <h2 className="text-sm font-semibold text-slate-800">Véhicules</h2>
-                  {viewModel && <button onClick={() => setViewModel(null)} className="text-xs px-2 py-0.5 rounded-full border border-brand-ocean text-brand-ocean hover:bg-blue-50">{viewModel} <X className="inline w-3 h-3" /></button>}
-                  <span className="text-xs text-slate-500">Une valeur mal lue ? Crayon en bout de ligne : la correction est gardée, même après une relecture.</span>
+                  <span className="text-xs text-slate-500">Clique un modèle ci-dessus pour choisir ses véhicules un par un. Une valeur mal lue ? Crayon en bout de ligne : la correction est gardée, même après une relecture.</span>
                   <span className="ml-auto flex items-center gap-3 text-xs">
                     {parsed?.warnings.length ? (
                       <details className="relative">
@@ -685,55 +739,36 @@ export function Offres() {
                     {draft.source_grid && <button onClick={rereadFile} className="text-brand-ocean hover:underline" title="Relit le fichier conservé avec les règles de lecture actuelles — sélection, prix et corrections gardés">Relire le fichier</button>}
                   </span>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="text-xs w-full min-w-[1100px]">
-                    <thead><tr className="text-left text-slate-400 border-b border-slate-100">
-                      <th className="py-1.5 px-3"><span className="sr-only">Retenu</span></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3 text-right">Qté</th><th className="py-1.5 pr-3">Motorisation · version</th><th className="py-1.5 pr-3">Immat.</th>
-                      <th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3">Énergie · boîte</th><th className="py-1.5 pr-3 text-right">Ch</th>
-                      <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur HT</th><th className="py-1.5 pr-3 text-right">MC Export HT</th>
-                      {customColumns.map((c) => <th key={c.id} className="py-1.5 pr-3 text-brand-encre">{c.label}</th>)}
-                      <th className="py-1.5 pr-3">Rapport</th><th className="py-1.5 pr-3"><span className="sr-only">Corriger</span></th>
-                    </tr></thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {shownVehicles.map((v) => {
-                        const base = supplierHt(v);
-                        const corrected = Object.keys(v.manual ?? {}).length > 0;
-                        return (
-                          <Fragment key={v.id}>
-                            <tr className={v.selected ? '' : 'opacity-50'}>
-                              <td className="py-1.5 px-3"><input type="checkbox" aria-label={`Retenir ${v.brand} ${v.model}`} checked={v.selected} onChange={(e) => setVehicle(v.id, { selected: e.target.checked })} /></td>
-                              <td className="py-1.5 pr-3 whitespace-nowrap"><span className="font-medium text-slate-800">{v.brand} {v.model}</span>{corrected && <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-blue-50 text-brand-encre border border-blue-200" title={`Corrigé à la main : ${Object.keys(v.manual ?? {}).join(', ')}`}>corrigé</span>}{v.vin && <span className="block text-[10px] text-slate-400">{v.vin}</span>}</td>
-                              <td className="py-1.5 pr-3 text-right tabular-nums"><input type="number" min={1} aria-label="Quantité" value={qtyOf(v)} onChange={(e) => correctVehicle(v.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })} className={`w-14 px-1.5 py-1 rounded border text-right tabular-nums ${qtyOf(v) > 1 ? 'border-slate-300 font-semibold text-slate-800' : 'border-slate-200 text-slate-400'}`} /></td>
-                              <td className="py-1.5 pr-3 max-w-[260px]"><span className="block truncate text-slate-700" title={v.engine ?? ''}>{v.engine || '—'}</span><span className="block truncate text-[10px] text-slate-500" title={v.version}>{v.version}{v.color ? ` · ${v.color}` : ''}</span></td>
-                              <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">{fmtDate(v.reg_date)}</td>
-                              <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtKm(v.km)}</td>
-                              <td className="py-1.5 pr-3 text-slate-600 whitespace-nowrap">{v.fuel ?? '—'} · {v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox ?? '—'}</td>
-                              <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{v.power_ch ?? '—'}</td>
-                              <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{fmtEur(v.damages)}</td>
-                              <td className="py-1.5 pr-3">{v.vat_recoverable == null ? '—' : v.vat_recoverable ? <span className="text-emerald-700">récup.</span> : <span className="text-amber-700">marge</span>}</td>
-                              <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={v.price_ttc != null ? `TTC ${fmtEur(v.price_ttc)}` : ''}>{fmtEur(base)}</td>
-                              <td className="py-1.5 pr-3 text-right"><input type="number" aria-label="Prix MC Export HT" value={v.sale_price ?? ''} onChange={(e) => setVehicle(v.id, { sale_price: e.target.value === '' ? null : Number(e.target.value) })} className="w-24 px-2 py-1 rounded border border-slate-300 text-right tabular-nums font-semibold text-brand-encre" /></td>
-                              {customColumns.map((c) => (
-                                <td key={c.id} className="py-1.5 pr-3"><input aria-label={`${c.label} — ${v.brand} ${v.model}`} value={v.custom?.[c.id] ?? ''} onChange={(e) => setCustomValue(v.id, c.id, e.target.value)} className="w-28 px-2 py-1 rounded border border-blue-200 bg-blue-50/40" /></td>
-                              ))}
-                              <td className="py-1.5 pr-3">{v.report_url ? <a href={v.report_url} target="_blank" rel="noreferrer" className="text-brand-ocean inline-flex" aria-label="Ouvrir le rapport"><ExternalLink className="w-3.5 h-3.5" /></a> : '—'}</td>
-                              <td className="py-1.5 pr-3"><button onClick={() => setEditVehicle(editVehicle === v.id ? null : v.id)} aria-label={`Corriger ${v.brand} ${v.model}`} aria-expanded={editVehicle === v.id} className={`p-1 rounded ${editVehicle === v.id ? 'bg-blue-100 text-brand-encre' : 'text-slate-400 hover:text-brand-ocean hover:bg-slate-100'}`}><Pencil className="w-3.5 h-3.5" /></button></td>
-                            </tr>
-                            {editVehicle === v.id && (
-                              <tr className="bg-blue-50/40">
-                                <td colSpan={15 + customColumns.length} className="px-3 py-3">
-                                  <VehicleEditor v={v} onChange={(patch) => correctVehicle(v.id, patch)} />
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                      {draft.vehicles.length === 0 && <tr><td colSpan={15 + customColumns.length} className="py-6 text-center text-slate-400">Aucun véhicule dans cette offre.</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
+                <details className="group">
+                  <summary className="px-4 py-2.5 cursor-pointer text-sm text-brand-ocean hover:underline select-none">Afficher tous les véhicules de l'offre ({draft.vehicles.length} lignes) dans un seul tableau</summary>
+                  {vehicleTable(draft.vehicles)}
+                </details>
               </div>
+
+              {/* Fichier d'origine, brut */}
+              <SourceViewer grid={draft.source_grid ?? null} files={draft.source_files ?? []} filename={draft.source_filename} />
+
+              {/* Fenêtre d'un modèle : ses véhicules au même endroit que le choix des modèles */}
+              {modelPopup && (() => {
+                const list = draft.vehicles.filter((v) => modelKeyOf(v) === modelPopup);
+                const units = list.reduce((a, v) => a + qtyOf(v), 0);
+                const sel = list.filter((v) => v.selected).reduce((a, v) => a + qtyOf(v), 0);
+                return (
+                  <div className="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-8">
+                    <button aria-label="Fermer" className="absolute inset-0 bg-slate-900/40" onClick={() => setModelPopup(null)} />
+                    <div role="dialog" aria-modal="true" aria-labelledby="model-popup-title" className="relative w-full max-w-[1400px] max-h-[90vh] flex flex-col bg-white rounded-2xl shadow-2xl">
+                      <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+                        <h2 id="model-popup-title" className="text-lg font-bold text-slate-900">{modelPopup}</h2>
+                        <span className="text-sm text-slate-500">{sel} / {units} véhicule{units > 1 ? 's' : ''} retenu{sel > 1 ? 's' : ''}</span>
+                        <button onClick={() => setModelSelected(modelPopup, true)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Tout retenir</button>
+                        <button onClick={() => setModelSelected(modelPopup, false)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Aucun</button>
+                        <button onClick={() => setModelPopup(null)} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-ocean text-white text-sm"><Check className="w-4 h-4" /> Terminé</button>
+                      </div>
+                      <div className="overflow-auto">{vehicleTable(list)}</div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -743,7 +778,7 @@ export function Offres() {
               <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
                 <h2 className="text-base font-semibold text-slate-900">Analyse</h2>
                 <span className="text-xs text-slate-500">
-                  {lots.length} modèle{lots.length > 1 ? 's' : ''} à analyser · {selectedUnits} véhicule{selectedUnits > 1 ? 's' : ''} retenu{selectedUnits > 1 ? 's' : ''}{viewModel ? ` · ${viewModel} seulement` : ''}
+                  {lots.length} modèle{lots.length > 1 ? 's' : ''} à analyser · {selectedUnits} véhicule{selectedUnits > 1 ? 's' : ''} retenu{selectedUnits > 1 ? 's' : ''}
                   {lastSurveyAt ? ` · dernier relevé ${lastSurveyAt.toLocaleDateString('fr-FR')} ${lastSurveyAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ' · aucun relevé'}
                 </span>
                 <div className="ml-auto flex items-center gap-2">
@@ -1086,5 +1121,75 @@ function VehicleEditor({ v, onChange }: { v: OfferVehicle; onChange: (patch: Par
       <label className="text-slate-600">Prix fournisseur TTC (€)<input type="number" value={v.price_ttc ?? ''} onChange={(e) => onChange({ price_ttc: numOrNull(e.target.value) })} className={`${field} w-28`} /></label>
       <span className="text-[11px] text-slate-500 pb-1.5 basis-full">Chaque correction est enregistrée et rejouée si le fichier est relu. Un prix fournisseur corrigé ne change pas le prix MC Export : « Appliquer à tous » (onglet Export) le recalcule.</span>
     </div>
+  );
+}
+
+/**
+ * FICHIER D'ORIGINE, BRUT (11/10, demande Channing : « un visualiseur de l'offre
+ * initiale pour étudier le brut ») : la feuille telle que reçue (grille conservée
+ * avec l'offre) ou les PDF déposés, affichés sans aucune interprétation.
+ */
+function SourceViewer({ grid, files, filename }: { grid: unknown[][] | null; files: OfferSourceFile[]; filename: string }) {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const MAX_ROWS = 1000;
+  if (!grid?.length && files.length === 0) return null;
+  const width = grid ? Math.max(0, ...grid.map((r) => (Array.isArray(r) ? r.length : 0))) : 0;
+  const colName = (i: number) => { let n = i + 1, out = ''; while (n > 0) { const m = (n - 1) % 26; out = String.fromCharCode(65 + m) + out; n = Math.floor((n - 1) / 26); } return out; };
+  const cell = (x: unknown) => (x == null ? '' : typeof x === 'object' ? JSON.stringify(x) : String(x));
+  const showPdf = async (f: OfferSourceFile) => {
+    try { const u = await signedUrl(f.path); setUrls((cur) => ({ ...cur, [f.path]: u })); setError(null); }
+    catch (e) { setError(`Ouverture impossible : ${e instanceof Error ? e.message : String(e)}`); }
+  };
+  return (
+    <details className="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <summary className="px-4 py-3 cursor-pointer select-none flex items-center gap-2 text-sm">
+        <FileSpreadsheet className="w-4 h-4 text-slate-500" />
+        <span className="font-semibold text-slate-800">Fichier d'origine, brut</span>
+        <span className="text-xs text-slate-500">{filename || files.map((f) => f.name).join(' + ')} · tel que reçu, sans interprétation</span>
+      </summary>
+      <div className="border-t border-slate-100">
+        {grid && grid.length > 0 && (
+          <div className="overflow-auto max-h-[70vh]">
+            <table className="text-[11px] border-collapse">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-slate-100 text-slate-500">
+                  <th className="sticky left-0 bg-slate-100 px-2 py-1 border border-slate-200 font-medium"></th>
+                  {Array.from({ length: width }, (_, i) => <th key={i} className="px-2 py-1 border border-slate-200 font-medium">{colName(i)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {grid.slice(0, MAX_ROWS).map((row, ri) => (
+                  <tr key={ri} className="hover:bg-blue-50/40">
+                    <td className="sticky left-0 bg-slate-50 px-2 py-0.5 border border-slate-200 text-slate-400 text-right tabular-nums">{ri + 1}</td>
+                    {Array.from({ length: width }, (_, ci) => (
+                      <td key={ci} className="px-2 py-0.5 border border-slate-200 whitespace-nowrap max-w-[320px] truncate text-slate-700" title={cell(Array.isArray(row) ? row[ci] : '')}>{cell(Array.isArray(row) ? row[ci] : '')}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {grid.length > MAX_ROWS && <p className="px-3 py-2 text-xs text-slate-500">{grid.length - MAX_ROWS} lignes de plus non affichées.</p>}
+          </div>
+        )}
+        {files.length > 0 && (
+          <div className="p-3 space-y-3">
+            {error && <p className="text-xs text-red-700">{error}</p>}
+            {files.map((f) => (
+              <div key={f.path} className="space-y-2">
+                <div className="flex items-center gap-3 text-sm">
+                  <FileText className="w-4 h-4 text-slate-500" />
+                  <span className="font-medium text-slate-800">{f.name}</span>
+                  {!urls[f.path]
+                    ? <button onClick={() => void showPdf(f)} className="text-xs px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Afficher ici</button>
+                    : <a href={urls[f.path]} target="_blank" rel="noreferrer" className="text-xs text-brand-ocean hover:underline inline-flex items-center gap-1">Ouvrir dans un onglet <ExternalLink className="w-3 h-3" /></a>}
+                </div>
+                {urls[f.path] && <iframe title={f.name} src={urls[f.path]} className="w-full h-[75vh] rounded-lg border border-slate-200" />}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
