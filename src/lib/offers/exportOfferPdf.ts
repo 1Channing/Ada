@@ -112,11 +112,28 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
     const textW = (t: string, bold: boolean) => { pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setFontSize(7.5); return pdf.getTextWidth(t); };
     const fixed = cols.filter((c) => !c.wrap);
     const flex = cols.filter((c) => c.wrap);
-    fixed.forEach((c) => { c.w = Math.min(60, Math.max(textW(c.label, true), ...doc.vehicles.map((v) => textW(c.get(v), c.key === 'price'))) + 4); });
+    // En-têtes sur deux lignes au besoin : une colonne courte prend la largeur
+    // de sa valeur la plus longue ou du plus long MOT de son en-tête.
+    const longestWord = (t: string, bold: boolean) => Math.max(0, ...t.split(/\s+/).map((w) => textW(w, bold)));
+    fixed.forEach((c) => { c.w = Math.min(60, Math.max(longestWord(c.label, true), ...doc.vehicles.map((v) => textW(c.get(v), c.key === 'price'))) + 4); });
+    // Une colonne longue ne descend jamais sous son plus long mot (« Essence » ne
+    // sort plus « Essenc-e »), plafonné à 30 mm.
+    const flexMin = (c: Col) => Math.min(30, Math.max(14, longestWord(c.label, true) + 4, ...doc.vehicles.map((v) => longestWord(c.get(v), false) + 4)));
     const rest = avail - fixed.reduce((a, c) => a + c.w, 0);
     const flexBase = flex.reduce((a, c) => a + c.w, 0);
-    if (flex.length && rest >= flex.length * 14) flex.forEach((c) => { c.w = (c.w / flexBase) * rest; });
-    else { const k = avail / cols.reduce((a, c) => a + c.w, 0); cols.forEach((c) => { c.w *= k; }); }
+    const flexMinTotal = flex.reduce((a, c) => a + flexMin(c), 0);
+    if (flex.length && rest >= flexMinTotal) {
+      flex.forEach((c) => { c.w = Math.max(flexMin(c), (c.w / flexBase) * rest); });
+      const over = cols.reduce((a, c) => a + c.w, 0) - avail;
+      if (over > 0) { const room = flex.reduce((a, c) => a + (c.w - flexMin(c)), 0); flex.forEach((c) => { c.w -= room > 0 ? (over * (c.w - flexMin(c))) / room : 0; }); }
+    } else {
+      // Trop de colonnes : les colonnes longues descendent à leur minimum d'abord,
+      // les colonnes courtes (chiffres, dates) ne rétrécissent qu'en dernier recours.
+      flex.forEach((c) => { c.w = flexMin(c); });
+      const total = cols.reduce((a, c) => a + c.w, 0);
+      if (total > avail) { const k = avail / total; cols.forEach((c) => { c.w *= k; }); }
+      else if (flex.length) { const extra = (avail - total) / flex.length; flex.forEach((c) => { c.w += extra; }); }
+    }
   }
 
   const drawHeader = () => {
@@ -146,13 +163,29 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
     pdf.setFillColor(...ENCRE); pdf.rect(margin, y, W - 2 * margin, headH, 'F');
     pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(FONT);
     let x = margin;
-    for (const c of cols) { pdf.text(c.label, c.align === 'right' ? x + c.w - 2 : x + 2, y + 5.5, { align: c.align === 'right' ? 'right' : 'left' }); x += c.w; }
+    for (const c of cols) {
+      const lines = (pdf.splitTextToSize(c.label, c.w - 3) as string[]).slice(0, 2);
+      const tx = c.align === 'right' ? x + c.w - 1.5 : x + 1.5;
+      lines.forEach((t, i) => {
+        const wdt = pdf.getTextWidth(t);
+        if (wdt > c.w - 3) pdf.setFontSize(Math.max(4.5, (FONT * (c.w - 3)) / wdt));
+        pdf.text(t, tx, lines.length === 1 ? y + 5.5 : y + 3.6 + i * 3.2, { align: c.align === 'right' ? 'right' : 'left' });
+        pdf.setFontSize(FONT);
+      });
+      x += c.w;
+    }
     y += headH;
   };
   pdf.setFont('helvetica', 'normal'); pdf.setFontSize(FONT);
+  // Une cellule courte (chiffre, date, plaque) n'est JAMAIS coupée (11/10, constat
+  // Channing : « 24 800 km » sortait « 24 » — le texte était coupé à l'espace des
+  // milliers et seule la première ligne était imprimée) : si elle déborde, sa
+  // police rétrécit. Une cellule longue passe sur deux lignes, « … » si elle continue.
   const cellLines = (c: Col, v: OfferVehicle): string[] => {
-    const lines = pdf.splitTextToSize(c.get(v), c.w - 4) as string[];
-    return c.wrap ? lines.slice(0, 2) : lines.slice(0, 1);
+    const text = c.get(v);
+    if (!c.wrap) return [text];
+    const lines = pdf.splitTextToSize(text, c.w - 4) as string[];
+    return lines.length > 2 ? [lines[0], `${lines[1].replace(/\s+\S*$/, '')}...`] : lines;
   };
   const rows = doc.vehicles.map((v) => {
     const cells = cols.map((c) => cellLines(c, v));
@@ -181,7 +214,11 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
           pdf.setTextColor(...OCEAN);
           pdf.textWithLink(txt, x + 2, ty, { url: r.v.report_url });
         } else {
-          pdf.text(txt, c.align === 'right' ? x + c.w - 2 : x + 2, ty, { align: c.align === 'right' ? 'right' : 'left' });
+          const room = c.w - 3;
+          const width = pdf.getTextWidth(txt);
+          if (!c.wrap && width > room) pdf.setFontSize(Math.max(4.5, (FONT * room) / width));
+          pdf.text(txt, c.align === 'right' ? x + c.w - 1.5 : x + 1.5, ty, { align: c.align === 'right' ? 'right' : 'left' });
+          pdf.setFontSize(FONT);
         }
       });
       pdf.setFont('helvetica', 'normal'); pdf.setTextColor(30, 41, 59);
