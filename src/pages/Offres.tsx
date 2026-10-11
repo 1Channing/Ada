@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
-  PanelLeftOpen, X, StickyNote, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3,
+  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3,
 } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
@@ -19,9 +19,13 @@ import type { OfferSourceFile } from '../services/offers';
 import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import {
-  ALL_BUILTIN_KEYS, BUILTIN_COLUMNS, cellValue, defaultExportColumns, effectiveColumns, isColumnEmpty, newCustomColumn,
-  type ExportColumn,
+  ALL_BUILTIN_KEYS, BUILTIN_COLUMNS, cellValue, defaultExportColumns, displayLabel, effectiveColumns, isColumnEmpty, newCustomColumn,
+  type ExportColumn, type ExportContext,
 } from '../lib/offers/exportColumns';
+import {
+  EXPORT_TEXT, VAT_CHOICES, basisLabel, fromShown, resolveSettings, supplierHtWith, supplierShown, supplierVatOf, toShown,
+  type OfferSettings, type ResolvedSettings,
+} from '../lib/offers/offerSettings';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
 import {
   lotsOf, lotTargets, startLotJob, awaitLotJob, mergeCountry, verdictOf, applyLotCriteria, COUNTRY_CAVEAT,
@@ -47,6 +51,7 @@ interface Draft {
   source_grid?: unknown[][] | null;
   source_files?: OfferSourceFile[];
   export_columns?: ExportColumn[] | null;
+  settings?: OfferSettings | null;
 }
 type View = 'selection' | 'analyse' | 'export';
 type Msg = { tone: 'info' | 'error'; text: string } | null;
@@ -58,7 +63,6 @@ const VERDICT_CLASS: Record<string, string> = {
 };
 const SITE_LABEL = (key: string) => key.replace(/^autoscout24_/, 'AS24 ').replace(/_/g, ' ');
 const EMPTY: Draft = { title: '', supplier: '', source_filename: '', layout: 'flat', mappings: [], vehicles: [], price_rule: { mode: 'margin', margin: 500 }, countries: ['FR', 'NL', 'DK'], notes: '', status: 'draft' };
-const todayFr = () => new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 const STATUS_LABEL: Record<SupplierOffer['status'], string> = { draft: 'brouillon', sent: 'envoyée', closed: 'clôturée' };
 const STATUS_CLASS: Record<SupplierOffer['status'], string> = {
   draft: 'bg-amber-50 text-amber-700 border-amber-200', sent: 'bg-emerald-50 text-emerald-700 border-emerald-200', closed: 'bg-slate-100 text-slate-500 border-slate-200',
@@ -76,7 +80,10 @@ export function Offres() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
   const [saveState, setSaveState] = useState<{ kind: 'idle' | 'saving' | 'saved' | 'error'; at?: string; text?: string }>({ kind: 'idle' });
-  const [columnsNotSaved, setColumnsNotSaved] = useState(false);
+  /** Réglages appliqués mais pas encore gardés en base (SQL pas collé) : 'export_columns', 'settings'. */
+  const [notSaved, setNotSaved] = useState<string[]>([]);
+  const columnsNotSaved = notSaved.includes('export_columns');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<View>('selection');
   const [listOpen, setListOpen] = useState(false);
   const [listQuery, setListQuery] = useState('');
@@ -105,11 +112,11 @@ export function Offres() {
 
   // Panneau des offres et fenêtre des notes : Échap les referme.
   useEffect(() => {
-    if (!listOpen && !notesOpen && !modelPopup) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setNotesOpen(false); setListOpen(false); setModelPopup(null); } };
+    if (!listOpen && !notesOpen && !modelPopup && !settingsOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setNotesOpen(false); setListOpen(false); setModelPopup(null); setSettingsOpen(false); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [listOpen, notesOpen, modelPopup]);
+  }, [listOpen, notesOpen, modelPopup, settingsOpen]);
 
   // ENREGISTREMENT AUTOMATIQUE : toute modification du brouillon part en base
   // 1,2 s après la dernière frappe ; la première sauvegarde crée l'offre.
@@ -117,7 +124,7 @@ export function Offres() {
     setSaveState({ kind: 'saving' });
     const r = await saveOffer(d);
     if (r.error) { setSaveState({ kind: 'error', text: r.error }); return; }
-    setColumnsNotSaved(r.dropped.includes('export_columns') && d.export_columns != null);
+    setNotSaved(r.dropped.filter((c) => (c === 'export_columns' && d.export_columns != null) || (c === 'settings' && d.settings != null)));
     if (!d.id && r.id) setDraft((cur) => (cur && !cur.id ? { ...cur, id: r.id! } : cur));
     setSaveState({ kind: 'saved', at: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) });
     void reload();
@@ -140,7 +147,8 @@ export function Offres() {
     const p = parseSupplierWorkbook(src, known, ov);
     setParsed(p);
     const prev = new Map(base.vehicles.map((v) => [v.id, v]));
-    const vehicles = applyPriceRule(p.vehicles, base.price_rule, (v) => supplierHt(v), true)
+    const baseSettings = resolveSettings(base.settings);
+    const vehicles = applyPriceRule(p.vehicles, base.price_rule, (v) => supplierHtWith(v, baseSettings), true)
       .map((v) => {
         const o = prev.get(v.id);
         return o ? { ...v, ...(o.manual ?? {}), manual: o.manual, custom: o.custom, selected: o.selected, sale_price: o.sale_price } : v;
@@ -264,7 +272,19 @@ export function Offres() {
   const setCustomValue = (id: string, colId: string, value: string) => update((d) => ({
     ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, custom: { ...(v.custom ?? {}), [colId]: value } } : v)),
   }));
-  const applyRule = (rule: PriceRule) => update((d) => ({ ...d, price_rule: rule, vehicles: applyPriceRule(d.vehicles, rule, (v) => supplierHt(v), true) }));
+  const applyRule = (rule: PriceRule) => update((d) => { const st = resolveSettings(d.settings); return { ...d, price_rule: rule, vehicles: applyPriceRule(d.vehicles, rule, (v) => supplierHtWith(v, st), true) }; });
+  /** Paramètres de l'offre. Prix du fichier ou TVA fournisseur changés : les prix MC Export sont recalculés avec la règle. */
+  const updateSettings = (patch: Partial<OfferSettings>) => update((d) => {
+    const settings = { ...(d.settings ?? {}), ...patch };
+    const supplierChanged = 'supplierBasis' in patch || 'supplierVat' in patch;
+    if (!supplierChanged) return { ...d, settings };
+    const st = resolveSettings(settings);
+    return { ...d, settings, vehicles: applyPriceRule(d.vehicles, d.price_rule, (v) => supplierHtWith(v, st), true) };
+  });
+  const S: ResolvedSettings = resolveSettings(draft?.settings);
+  const B = basisLabel(S);
+  const supHt = (v: OfferVehicle) => supplierHtWith(v, S);
+  const exportCtx: ExportContext = { lang: S.lang, basis: S.display, saleVat: S.saleVat, supplierHt: supHt };
 
   /** Bascule d'une offre à l'autre en un clic — l'offre quittée est déjà enregistrée (ou le sera dans la seconde). */
   const open = (o: SupplierOffer) => {
@@ -279,7 +299,7 @@ export function Offres() {
     if (stale) { info('Dates relues avec les règles du jour (fichier au format américain) — offre enregistrée.'); void persist(next); }
     setDraft(next); if (!stale) setParsed(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null); setEditLot(null); setEditVehicle(null);
     if (!stale) setMsg(null);
-    setColumnsNotSaved(false); setModelPopup(null); setModelQuery('');
+    setNotSaved([]); setModelPopup(null); setModelQuery(''); setSettingsOpen(false);
     setView(next.vehicles.some((v) => v.selected) ? 'analyse' : 'selection');
     setListOpen(false);
     setSurvey((s) => (s && s.done < s.total && s.current !== 'arrêté' ? s : null));
@@ -316,7 +336,7 @@ export function Offres() {
       m.units += q; b.units += q;
       if (v.selected) { m.selected += q; b.selected += q; }
       if (v.km != null) { m.kmSum += v.km; m.kmN++; }
-      const p = v.sale_price ?? supplierHt(v);
+      const p = v.sale_price != null ? toShown(v.sale_price, S) : supplierShown(v, S);
       if (p != null) { m.priceSum += p; m.priceN++; }
       b.models.set(key, m);
       brands.set(brand, b);
@@ -326,7 +346,7 @@ export function Offres() {
       .map((b) => ({ ...b, models: [...b.models.values()].filter((m) => !q || m.key.toLowerCase().includes(q)).sort((x, y) => x.model.localeCompare(y.model, 'fr')) }))
       .filter((b) => b.models.length > 0)
       .sort((x, y) => x.brand.localeCompare(y.brand, 'fr'));
-  }, [draft, modelQuery]);
+  }, [draft, modelQuery]); // eslint-disable-line react-hooks/exhaustive-deps
   const setModelSelected = (key: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (modelKeyOf(v) === key ? { ...v, selected: on } : v)) }));
   const setBrandSelected = (brand: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ((v.brand || '—') === brand ? { ...v, selected: on } : v)) }));
   const setAllSelected = (on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: on })) }));
@@ -341,18 +361,20 @@ export function Offres() {
     const next = [...columns]; [next[i], next[j]] = [next[j], next[i]]; setColumns(next);
   };
   const missingBuiltins = ALL_BUILTIN_KEYS.filter((k) => !columns.some((c) => c.builtin === k));
+  const T = EXPORT_TEXT[S.lang];
   const docOf = () => ({
-    title: (draft?.title || 'OFFRE MC EXPORT').toUpperCase(),
-    subtitle: `${unitsLabel(selected.length, selectedUnits)} · ${draft?.price_rule.mode === 'none' ? 'sans prix, offre à nous proposer' : 'prix HT'} · transport à la charge de l'acheteur · vendus en l'état`,
-    date: todayFr(), vehicles: selected, showDamages: true, showSupplierPrice: false, showPrices: draft?.price_rule.mode !== 'none',
-    footer: 'MC EXPORT — offre valable sous réserve de disponibilité. Dommages : chiffrages du fournisseur, conservés à l’identique.',
+    title: (draft?.title || T.defaultTitle).toUpperCase(),
+    subtitle: `${T.units(selectedUnits)} · ${draft?.price_rule.mode === 'none' ? T.noPrice : T.prices(S.display)} · ${T.terms}`,
+    date: T.date(new Date()), vehicles: selected, showDamages: true, showSupplierPrice: false, showPrices: draft?.price_rule.mode !== 'none',
+    footer: S.footer ?? T.footer,
     columns: draft?.export_columns ?? undefined,
+    lang: S.lang, priceBasis: S.display, saleVat: S.saleVat, supplierHt: supHt,
   });
   const exportXlsx = () => { if (!draft) return; downloadBlob(buildOfferWorkbook(docOf()), `MC_Export_${slugFile(draft.title)}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); };
   const exportPdf = async () => { if (!draft) return; setBusy('pdf'); try { downloadBlob(await buildOfferPdf(docOf()), `MC_Export_${slugFile(draft.title)}.pdf`, 'application/pdf'); } catch (e) { fail(`PDF : ${e instanceof Error ? e.message : String(e)}`); } setBusy(null); };
-  const previewColumns = draft ? effectiveColumns(columns, selected, draft.price_rule.mode !== 'none') : [];
+  const previewColumns = draft ? effectiveColumns(columns, selected, draft.price_rule.mode !== 'none', exportCtx) : [];
   const previewCell = (c: ExportColumn, v: OfferVehicle): string => {
-    const x = cellValue(c, v);
+    const x = cellValue(c, v, exportCtx);
     if (x === '' || x == null) return '—';
     if (typeof x === 'number') return c.builtin === 'km' ? fmtKm(x) : /price|damages/.test(c.builtin ?? '') ? fmtEur(x) : String(x);
     return c.builtin === 'reg' ? fmtDate(x) : x;
@@ -487,13 +509,13 @@ export function Offres() {
           <thead><tr className="text-left text-slate-400 border-b border-slate-100">
             <th className="py-1.5 px-3"><span className="sr-only">Retenu</span></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3 text-right">Qté</th><th className="py-1.5 pr-3">Motorisation · version</th><th className="py-1.5 pr-3">Immat.</th>
             <th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3">Énergie · boîte</th><th className="py-1.5 pr-3 text-right">Ch</th>
-            <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur HT</th><th className="py-1.5 pr-3 text-right">MC Export HT</th>
+            <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur {B}</th><th className="py-1.5 pr-3 text-right">MC Export {B}</th>
             {customColumns.map((c) => <th key={c.id} className="py-1.5 pr-3 text-brand-encre">{c.label}</th>)}
             <th className="py-1.5 pr-3">Rapport</th><th className="py-1.5 pr-3"><span className="sr-only">Corriger</span></th>
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
             {list.map((v) => {
-              const base = supplierHt(v);
+              const base = supplierShown(v, S);
               const corrected = Object.keys(v.manual ?? {}).length > 0;
               return (
                 <Fragment key={v.id}>
@@ -509,7 +531,7 @@ export function Offres() {
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{fmtEur(v.damages)}</td>
                     <td className="py-1.5 pr-3">{v.vat_recoverable == null ? '—' : v.vat_recoverable ? <span className="text-emerald-700">récup.</span> : <span className="text-amber-700">marge</span>}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={v.price_ttc != null ? `TTC ${fmtEur(v.price_ttc)}` : ''}>{fmtEur(base)}</td>
-                    <td className="py-1.5 pr-3 text-right"><input type="number" aria-label="Prix MC Export HT" value={v.sale_price ?? ''} onChange={(e) => setVehicle(v.id, { sale_price: e.target.value === '' ? null : Number(e.target.value) })} className="w-24 px-2 py-1 rounded border border-slate-300 text-right tabular-nums font-semibold text-brand-encre" /></td>
+                    <td className="py-1.5 pr-3 text-right"><input type="number" aria-label={`Prix MC Export ${B}`} value={toShown(v.sale_price, S) ?? ''} onChange={(e) => setVehicle(v.id, { sale_price: fromShown(e.target.value === '' ? null : Number(e.target.value), S) })} className="w-24 px-2 py-1 rounded border border-slate-300 text-right tabular-nums font-semibold text-brand-encre" /></td>
                     {customColumns.map((c) => (
                       <td key={c.id} className="py-1.5 pr-3"><input aria-label={`${c.label} — ${v.brand} ${v.model}`} value={v.custom?.[c.id] ?? ''} onChange={(e) => setCustomValue(v.id, c.id, e.target.value)} className="w-28 px-2 py-1 rounded border border-blue-200 bg-blue-50/40" /></td>
                     ))}
@@ -586,6 +608,75 @@ export function Offres() {
         </div>
       )}
 
+      {/* ── Paramètres de l'offre ────────────────────────────────────────────── */}
+      {settingsOpen && draft && (() => {
+        const sample = draft.vehicles.find((v) => v.price_ttc != null || v.price_ht != null);
+        const sampleHt = sample ? supHt(sample) : null;
+        const rawLabel = sample ? (sample.price_ttc != null ? `${fmtEur(sample.price_ttc)} (colonne TTC)` : `${fmtEur(sample.price_ht)} (colonne HT)`) : '';
+        const radio = (on: boolean) => `flex-1 px-3 py-2 rounded-lg border text-sm text-left ${on ? 'border-brand-ocean bg-blue-50 text-brand-encre font-semibold' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`;
+        return (
+          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-10">
+            <button aria-label="Fermer les paramètres" className="absolute inset-0 bg-slate-900/30" onClick={() => setSettingsOpen(false)} />
+            <div role="dialog" aria-modal="true" aria-labelledby="offer-settings-title" className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl p-5 space-y-5">
+              <div className="flex items-center justify-between">
+                <h2 id="offer-settings-title" className="text-lg font-semibold text-slate-900">Paramètres de l'offre</h2>
+                <button onClick={() => setSettingsOpen(false)} aria-label="Fermer" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X className="w-4 h-4" /></button>
+              </div>
+              {notSaved.includes('settings') && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Paramètres appliqués mais pas encore gardés en base : SQL du 11/10 (offres_parametres) à coller.</p>}
+
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-slate-800">1. Prix du fichier fournisseur</h3>
+                <div className="flex gap-2" role="group" aria-label="Prix du fichier fournisseur">
+                  <button onClick={() => updateSettings({ supplierBasis: 'auto' })} aria-pressed={S.supplierBasis === 'auto'} className={radio(S.supplierBasis === 'auto')}>Comme lus<span className="block text-[11px] font-normal text-slate-500">selon l'en-tête de colonne</span></button>
+                  <button onClick={() => updateSettings({ supplierBasis: 'ttc' })} aria-pressed={S.supplierBasis === 'ttc'} className={radio(S.supplierBasis === 'ttc')}>TTC<span className="block text-[11px] font-normal text-slate-500">la TVA est retirée</span></button>
+                  <button onClick={() => updateSettings({ supplierBasis: 'ht' })} aria-pressed={S.supplierBasis === 'ht'} className={radio(S.supplierBasis === 'ht')}>HT<span className="block text-[11px] font-normal text-slate-500">pris tels quels</span></button>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">TVA du fournisseur
+                  <select value={S.supplierVat ?? ''} onChange={(e) => updateSettings({ supplierVat: e.target.value === '' ? null : Number(e.target.value) })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
+                    <option value="">Lue dans le fichier ({Math.round((sample ? supplierVatOf(sample, { ...S, supplierVat: null }) : 0.2) * 100)} %)</option>
+                    {VAT_CHOICES.map((c) => <option key={c.rate} value={c.rate}>{c.label}</option>)}
+                  </select>
+                </label>
+                {sample && <p className="text-xs text-slate-500">Exemple, {sample.brand} {sample.model} : {rawLabel} → <strong className="text-slate-700">{fmtEur(sampleHt)} HT</strong> fournisseur{sample.vat_recoverable === false ? ' (régime de la marge : pas de TVA retirée)' : ''}.</p>}
+                <p className="text-[11px] text-slate-500">Changer ces deux réglages recalcule les prix MC Export avec la règle de prix (onglet Export).</p>
+              </section>
+
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-slate-800">2. Affichage de nos prix</h3>
+                <div className="flex gap-2" role="group" aria-label="Affichage de nos prix">
+                  <button onClick={() => updateSettings({ display: 'ht' })} aria-pressed={S.display === 'ht'} className={radio(S.display === 'ht')}>HT<span className="block text-[11px] font-normal text-slate-500">hors taxes</span></button>
+                  <button onClick={() => updateSettings({ display: 'ttc' })} aria-pressed={S.display === 'ttc'} className={radio(S.display === 'ttc')}>TTC<span className="block text-[11px] font-normal text-slate-500">avec notre TVA</span></button>
+                </div>
+                {S.display === 'ttc' && (
+                  <label className="flex items-center gap-2 text-sm text-slate-700">Notre TVA
+                    <select value={S.saleVat} onChange={(e) => updateSettings({ saleVat: Number(e.target.value) })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
+                      {VAT_CHOICES.map((c) => <option key={c.rate} value={c.rate}>{c.label}</option>)}
+                    </select>
+                  </label>
+                )}
+                <p className="text-xs text-slate-500">S'applique aux tableaux, à l'Analyse (le verdict compare notre prix {S.display === 'ttc' ? 'TTC' : 'HT'} aux prix affichés sur les sites, qui sont en général TTC) et à l'export. La règle de prix reste calculée en HT.</p>
+              </section>
+
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-slate-800">3. Offre exportée</h3>
+                <div className="flex gap-2" role="group" aria-label="Langue de l'export">
+                  <button onClick={() => updateSettings({ lang: 'fr' })} aria-pressed={S.lang === 'fr'} className={radio(S.lang === 'fr')}>Français</button>
+                  <button onClick={() => updateSettings({ lang: 'en' })} aria-pressed={S.lang === 'en'} className={radio(S.lang === 'en')}>English</button>
+                </div>
+                <label className="block text-sm text-slate-700">Pied de page
+                  <textarea value={draft.settings?.footer ?? ''} onChange={(e) => updateSettings({ footer: e.target.value })} rows={2} placeholder={T.footer} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+                </label>
+                <p className="text-[11px] text-slate-500">Vide = texte par défaut de la langue. En anglais, les en-têtes non renommés, énergies et boîtes sont traduits ; les colonnes renommées gardent ton libellé.</p>
+              </section>
+
+              <div className="flex justify-end">
+                <button onClick={() => setSettingsOpen(false)} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-ocean text-white text-sm"><Check className="w-4 h-4" /> Terminé</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Fenêtre des notes ───────────────────────────────────────────────── */}
       {notesOpen && draft && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -647,6 +738,9 @@ export function Offres() {
                       className={`px-2.5 py-1 rounded-md text-xs capitalize ${draft.status === s ? 'bg-white shadow-sm font-semibold text-slate-900' : 'text-slate-500 hover:text-slate-800'}`}>{STATUS_LABEL[s]}</button>
                   ))}
                 </div>
+                <button onClick={() => setSettingsOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50" title="Prix HT / TTC, TVA, langue de l'export">
+                  <Settings className="w-4 h-4" /> Paramètres <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">{B}{S.lang === 'en' ? ' · EN' : ''}</span>
+                </button>
                 <button onClick={() => setNotesOpen(true)} className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50">
                   <StickyNote className="w-4 h-4" /> Notes
                   {draft.notes.trim() && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-white" aria-label="Notes présentes" />}
@@ -707,7 +801,7 @@ export function Offres() {
                                   <button onClick={() => { setEditVehicle(null); setModelPopup(m.key); }} className={`flex-1 min-w-0 text-left ${mNone ? 'text-slate-500' : 'text-slate-900 font-medium'}`} title="Voir, choisir et corriger les véhicules de ce modèle">
                                     <span className="block text-sm truncate">{m.model}</span>
                                     <span className="block text-[11px] text-slate-500 font-normal tabular-nums">
-                                      {m.kmN ? `≈ ${fmtKm(m.kmSum / m.kmN)}` : 'km ?'} · {m.priceN ? `≈ ${fmtEur(m.priceSum / m.priceN)} HT` : 'prix ?'}
+                                      {m.kmN ? `≈ ${fmtKm(m.kmSum / m.kmN)}` : 'km ?'} · {m.priceN ? `≈ ${fmtEur(m.priceSum / m.priceN)} ${B}` : 'prix ?'}
                                     </span>
                                   </button>
                                   <span className={`text-xs tabular-nums px-1.5 py-0.5 rounded-full ${mNone ? 'bg-slate-100 text-slate-500' : mAll ? 'bg-brand-ocean text-white' : 'bg-blue-100 text-brand-encre'}`}>{mNone || mAll ? m.units : `${m.selected}/${m.units}`}</span>
@@ -821,7 +915,7 @@ export function Offres() {
                 <div className="overflow-x-auto">
                   <table className="text-xs w-full min-w-[900px]">
                     <thead><tr className="text-left text-slate-500 border-b border-slate-100 align-bottom">
-                      <th className="py-2 px-3 font-medium">Modèle et critères de recherche</th><th className="py-2 pr-3 text-right font-medium">Notre HT</th>
+                      <th className="py-2 px-3 font-medium">Modèle et critères de recherche</th><th className="py-2 pr-3 text-right font-medium">Notre {B}</th>
                       {draft.countries.map((c) => (
                         <th key={c} className="py-2 pr-3 font-medium min-w-[190px]">
                           <div className="flex items-center gap-1.5">
@@ -852,11 +946,11 @@ export function Offres() {
                                 </span>
                                 <span className="block mt-1 text-[11px] text-slate-500">{lot.count} véhicule{lot.count > 1 ? 's' : ''} de l'offre</span>
                               </td>
-                              <td className="py-3 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap align-top">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(lot.ourPriceMin)} – ${fmtEur(lot.ourPriceMax)}` : fmtEur(lot.ourPriceAvg)}</td>
+                              <td className="py-3 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap align-top">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(toShown(lot.ourPriceMin, S))} – ${fmtEur(toShown(lot.ourPriceMax, S))}` : fmtEur(toShown(lot.ourPriceAvg, S))}</td>
                               {draft.countries.map((c) => {
                                 const res = draft.market?.[lot.key]?.[c];
                                 const state = cellState[cellKey(lot, c)];
-                                const v = res ? verdictOf(lot.ourPriceAvg, res, c) : null;
+                                const v = res ? verdictOf(toShown(lot.ourPriceAvg, S), res, c) : null;
                                 const siteError = res && res.medianTtc == null ? Object.values(res.sites).find((x) => x.error) : undefined;
                                 return (
                                   <td key={c} className="py-3 pr-3 align-top">
@@ -976,7 +1070,7 @@ export function Offres() {
               <details className="px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
                 <summary className="cursor-pointer text-slate-600">Comment lire le verdict ?</summary>
                 <p className="mt-1">
-                  Prix d'attaque du pays (médiane des 3, 5 ou 8 annonces les moins chères selon la taille du marché, prix affichés bruts en euros, aucun calcul de taxe) face à notre prix HT moyen du lot : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous. Un relevé d'avant ce réglage garde la médiane jusqu'à sa relance.
+                  Prix d'attaque du pays (médiane des 3, 5 ou 8 annonces les moins chères selon la taille du marché, prix affichés bruts en euros, aucun calcul de taxe) face à notre prix {B} moyen du lot ({B === 'TTC' ? `TVA ${Math.round(S.saleVat * 100)} %` : 'hors taxes'}, réglable dans Paramètres) : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous. Un relevé d'avant ce réglage garde la médiane jusqu'à sa relance.
                   {draft.countries.some((c) => COUNTRY_CAVEAT[c]) && <> ⚠ Danemark : {COUNTRY_CAVEAT.DK}.</>} Les recherches passent par la même file que le Market Intelligence : compte quelques minutes par lot et par pays.
                 </p>
               </details>
@@ -987,7 +1081,7 @@ export function Offres() {
           {view === 'export' && (
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
-                <span className="font-semibold text-slate-800">Prix MC Export (HT)</span>
+                <span className="font-semibold text-slate-800">Règle de prix MC Export <span className="font-normal text-slate-500">(calculée en HT)</span></span>
                 <select value={draft.price_rule.mode} onChange={(e) => applyRule({ ...draft.price_rule, mode: e.target.value as PriceRule['mode'] })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
                   <option value="margin">Prix fournisseur HT + marge</option>
                   <option value="fixed">Prix fixe pour tous</option>
@@ -998,7 +1092,7 @@ export function Offres() {
                   <span className="text-slate-500">€</span>
                   <button onClick={() => applyRule(draft.price_rule)} className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-900 text-white">Appliquer à tous</button>
                 </>}
-                <span className="ml-auto text-slate-500">Total HT retenu : <span className="font-semibold text-slate-900">{draft.price_rule.mode === 'none' ? 'sans prix' : fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0) * qtyOf(v), 0))}</span></span>
+                <span className="ml-auto text-slate-500">Total {B} retenu : <span className="font-semibold text-slate-900">{draft.price_rule.mode === 'none' ? 'sans prix' : fmtEur(toShown(selected.reduce((a, v) => a + (v.sale_price ?? 0) * qtyOf(v), 0), S))}</span></span>
               </div>
 
             <div className="grid lg:grid-cols-[400px_1fr] gap-4 items-start">
@@ -1049,7 +1143,7 @@ export function Offres() {
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm min-w-0">
                 <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
                   <h2 className="text-sm font-semibold text-slate-800">Aperçu de l'offre</h2>
-                  <span className="text-xs text-slate-500">{unitsLabel(selected.length, selectedUnits)} · {draft.price_rule.mode === 'none' ? 'sans prix' : 'prix HT'}</span>
+                  <span className="text-xs text-slate-500">{unitsLabel(selected.length, selectedUnits)} · {draft.price_rule.mode === 'none' ? 'sans prix' : `prix ${B}`}{S.lang === 'en' ? ' · export en anglais' : ''}</span>
                   <div className="ml-auto flex gap-2">
                     <button onClick={exportXlsx} disabled={selected.length === 0} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-brand-ocean text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><FileSpreadsheet className="w-4 h-4" /> Excel</button>
                     <button onClick={() => void exportPdf()} disabled={selected.length === 0 || busy === 'pdf'} className="flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} PDF MC Export</button>
@@ -1061,7 +1155,7 @@ export function Offres() {
                   <div className="overflow-auto max-h-[75vh] p-3">
                     <p className="text-sm font-bold text-slate-900 uppercase">{draft.title || 'OFFRE MC EXPORT'}</p>
                     <table className="mt-2 text-xs w-full">
-                      <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">{previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{c.label}</th>)}</tr></thead>
+                      <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">{previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{displayLabel(c, exportCtx)}</th>)}</tr></thead>
                       <tbody>
                         {selected.map((v, i) => (
                           <tr key={v.id} className={i % 2 ? 'bg-slate-50' : ''}>

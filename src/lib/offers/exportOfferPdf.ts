@@ -4,8 +4,9 @@
  */
 import jsPDF from 'jspdf';
 import type { OfferVehicle } from './parseSupplierFile';
-import { fmtDate, bodyOf, labelOf, engineOf, fuelLabel, type OfferDocument } from './exportOfferXlsx';
-import { BUILTIN_COLUMNS, cellValue, effectiveColumns, gearboxLabel, type BuiltinColumnKey, type ExportColumn } from './exportColumns';
+import { fmtDate, bodyOf, labelOf, engineOf, fuelLabel, exportSetupOf, type OfferDocument } from './exportOfferXlsx';
+import { BUILTIN_COLUMNS, cellValue, effectiveColumns, gearboxLabel, type BuiltinColumnKey, type ExportColumn, type ExportContext } from './exportColumns';
+import { EXPORT_TEXT } from './offerSettings';
 
 const ENCRE: [number, number, number] = [0x22, 0x34, 0x6e];
 const OCEAN: [number, number, number] = [0x2c, 0x5f, 0x9e];
@@ -17,6 +18,15 @@ const GRIS: [number, number, number] = [0x64, 0x74, 0x8b];
 const pdfNum = (n: number) => Math.round(n).toLocaleString('fr-FR').replace(/[\u202f\u00a0]/g, ' ');
 
 /** Libellés PDF des colonnes intégrées non renommées (ASCII : la police Helvetica de jsPDF). */
+const PDF_LABEL_EN: Record<BuiltinColumnKey, string> = {
+  vin: 'Chassis (VIN)', vehicle: 'Vehicle', qty: 'Units', engine: 'Engine', version: 'Version', body: 'Body',
+  reg: '1st reg.', km: 'Km', color: 'Colour', fuel: 'Fuel', power: 'Hp', gearbox: 'Gearbox', co2: 'CO2',
+  damages: 'Damages (EUR)', price: 'Price excl. VAT (EUR)', supplier_price: 'Supplier excl. VAT (EUR)', location: 'Storage', report: 'Inspection',
+};
+const pdfBuiltinLabel = (k: BuiltinColumnKey, ctx: ExportContext) => {
+  if (k === 'price' && ctx.basis === 'ttc') return ctx.lang === 'en' ? 'Price incl. VAT (EUR)' : 'Prix TTC (EUR)';
+  return (ctx.lang === 'en' ? PDF_LABEL_EN : PDF_LABEL)[k];
+};
 const PDF_LABEL: Record<BuiltinColumnKey, string> = {
   vin: 'Chassis (VIN)', vehicle: 'Vehicule', qty: 'Unites', engine: 'Motorisation', version: 'Version', body: 'Carrosserie',
   reg: '1re immat.', km: 'Km', color: 'Couleur', fuel: 'Energie', power: 'Ch', gearbox: 'Boite', co2: 'CO2',
@@ -70,15 +80,17 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
   // Sorento : « trop de vide ») : une colonne vide pour TOUS les véhicules
   // n'est pas imprimée — la place revient aux colonnes renseignées.
   // Colonnes réglées sur l'offre (11/10) : ordre, libellés et colonnes libres de l'offre.
-  const configured = (cs: ExportColumn[]): Col[] => effectiveColumns(cs, doc.vehicles, doc.showPrices !== false).map((c) => {
+  const { ctx, columns } = exportSetupOf(doc);
+  const T = EXPORT_TEXT[ctx.lang];
+  const configured = (cs: ExportColumn[]): Col[] => effectiveColumns(cs, doc.vehicles, doc.showPrices !== false, ctx).map((c) => {
     const b = c.builtin ? BUILTIN_COLUMNS[c.builtin] : null;
-    const label = c.builtin && c.label === BUILTIN_COLUMNS[c.builtin].label ? PDF_LABEL[c.builtin] : pdfSafe(c.label);
+    const label = c.builtin && c.label === BUILTIN_COLUMNS[c.builtin].label ? pdfBuiltinLabel(c.builtin, ctx) : pdfSafe(c.label);
     const text = (v: OfferVehicle): string => {
-      const x = cellValue(c, v);
+      const x = cellValue(c, v, ctx);
       if (x === '' || x == null) return NA;
       if (c.builtin === 'reg') return fmtDate(String(x)).replace('—', NA);
-      if (c.builtin === 'report') return 'Voir le rapport';
-      if (c.builtin === 'gearbox') return pdfSafe(gearboxLabel(v.gearbox));
+      if (c.builtin === 'report') return pdfSafe(T.report);
+      if (c.builtin === 'gearbox') return pdfSafe(gearboxLabel(v.gearbox, ctx.lang));
       return typeof x === 'number' ? pdfNum(x) : pdfSafe(String(x));
     };
     return {
@@ -87,7 +99,7 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
       wrap: Boolean(b?.wrap) || !c.builtin, get: text, has: () => true,
     };
   });
-  const cols = doc.columns ? configured(doc.columns) : allCols.filter((c) => doc.vehicles.some((v) => c.has(v)));
+  const cols = columns ? configured(columns) : allCols.filter((c) => doc.vehicles.some((v) => c.has(v)));
   const tableW = cols.reduce((a, c) => a + c.w, 0);
   const scale = (W - 2 * margin) / tableW;
   cols.forEach((c) => { c.w = c.w * scale; });
@@ -95,7 +107,7 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
   // coupait les dates (« 06/03/202 »). Les colonnes courtes reçoivent la largeur
   // de leur texte le plus long (en-tête compris), les colonnes longues se
   // partagent le reste et passent sur deux lignes.
-  if (doc.columns) {
+  if (columns) {
     const avail = W - 2 * margin;
     const textW = (t: string, bold: boolean) => { pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setFontSize(7.5); return pdf.getTextWidth(t); };
     const fixed = cols.filter((c) => !c.wrap);
@@ -115,7 +127,7 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
     pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(...GRIS);
     pdf.text(doc.subtitle, W / 2, 21, { align: 'center' });
     pdf.text(doc.date.toUpperCase(), W - margin, 15, { align: 'right' });
-    pdf.text('PRIX HORS TAXES', W - margin, 21, { align: 'right' });
+    pdf.text(pdfSafe(T.pdfPrices(ctx.basis)), W - margin, 21, { align: 'right' });
     pdf.setDrawColor(...OCEAN); pdf.setLineWidth(0.6); pdf.line(margin, 25, W - margin, 25);
   };
   const drawFooter = (page: number, pages: number) => {

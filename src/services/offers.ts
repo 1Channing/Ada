@@ -8,6 +8,7 @@ import { useAuth } from './auth';
 import type { ColumnMapping, OfferVehicle } from '../lib/offers/parseSupplierFile';
 import type { OfferMarket, LotCriteria } from '../lib/offers/marketCheck';
 import type { ExportColumn } from '../lib/offers/exportColumns';
+import type { OfferSettings } from '../lib/offers/offerSettings';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -31,6 +32,8 @@ export interface SupplierOffer {
   source_files?: OfferSourceFile[];
   /** Colonnes de l'offre exportée réglées à la main (SQL du 11/10) — absent = colonnes par défaut. */
   export_columns?: ExportColumn[] | null;
+  /** Paramètres de l'offre : prix du fichier HT/TTC, TVA, affichage HT/TTC, langue de l'export (SQL du 11/10). */
+  settings?: OfferSettings | null;
   notes: string; status: 'draft' | 'sent' | 'closed'; created_at: string; updated_at: string;
 }
 
@@ -43,7 +46,7 @@ export async function listOffers(): Promise<{ rows: SupplierOffer[]; error: stri
 }
 
 /** Colonnes ajoutées après la table (SQL du 15/09 et du 17/09) : envoyées si présentes, retirées une à une si la base ne les a pas encore. */
-const EXTRA_COLUMNS = ['market', 'lot_criteria', 'source_grid', 'source_files', 'export_columns'] as const;
+const EXTRA_COLUMNS = ['market', 'lot_criteria', 'source_grid', 'source_files', 'export_columns', 'settings'] as const;
 
 /** `dropped` : colonnes que la base n'a pas encore (SQL pas collé) — le reste est enregistré, l'écran le dit. */
 export async function saveOffer(o: Partial<SupplierOffer> & { id?: string }): Promise<{ id: string | null; error: string | null; dropped: string[] }> {

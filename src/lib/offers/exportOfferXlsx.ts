@@ -10,7 +10,8 @@ import * as XLSXns from 'xlsx-js-style';
 // Module CommonJS : selon le bundler, l'API est sur l'espace de noms ou sur `default`.
 const XLSX = ((XLSXns as unknown as { default?: typeof XLSXns }).default ?? XLSXns) as typeof XLSXns;
 import type { OfferVehicle } from './parseSupplierFile';
-import { bodyOf, labelOf, engineOf, fuelLabel, BUILTIN_COLUMNS, cellValue, effectiveColumns, type ExportColumn } from './exportColumns';
+import { bodyOf, labelOf, engineOf, fuelLabel, BUILTIN_COLUMNS, cellValue, effectiveColumns, defaultExportColumns, displayLabel, type ExportColumn, type ExportContext } from './exportColumns';
+import { EXPORT_TEXT, type ExportLang, type PriceBasis } from './offerSettings';
 
 export interface OfferDocument {
   title: string;              // « OPEL ASTRA — SÉLECTION PROFESSIONNELLE »
@@ -24,6 +25,18 @@ export interface OfferDocument {
   footer: string;
   /** Colonnes réglées sur l'offre (ordre, libellés, colonnes libres) — absent = colonnes historiques. */
   columns?: ExportColumn[];
+  /** Paramètres de l'offre (11/10) : langue, base de nos prix (stockés HT), TVA, prix fournisseur. */
+  lang?: ExportLang;
+  priceBasis?: PriceBasis;
+  saleVat?: number;
+  supplierHt?: (v: OfferVehicle) => number | null;
+}
+
+/** Contexte d'export d'un document, et colonnes à utiliser : la forme historique ne vaut qu'en français, prix HT, colonnes non réglées. */
+export function exportSetupOf(doc: OfferDocument): { ctx: ExportContext; columns: ExportColumn[] | undefined } {
+  const ctx: ExportContext = { lang: doc.lang ?? 'fr', basis: doc.priceBasis ?? 'ht', saleVat: doc.saleVat ?? 0.2, supplierHt: doc.supplierHt };
+  const columns = doc.columns ?? (ctx.lang !== 'fr' || ctx.basis === 'ttc' ? defaultExportColumns() : undefined);
+  return { ctx, columns };
 }
 
 
@@ -66,18 +79,21 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
     wrap: ['Véhicule', 'Motorisation', 'Version', 'Couleur', 'Rapport'].includes(c.label),
     strong: c.label.startsWith('Prix de vente'), link: c.label === 'Rapport',
   });
-  const cols: Col[] = doc.columns
-    ? effectiveColumns(doc.columns, doc.vehicles, doc.showPrices !== false).map((c) => {
+  const { ctx, columns } = exportSetupOf(doc);
+  const T = EXPORT_TEXT[ctx.lang];
+  const cols: Col[] = columns
+    ? effectiveColumns(columns, doc.vehicles, doc.showPrices !== false, ctx).map((c) => {
       const b = c.builtin ? BUILTIN_COLUMNS[c.builtin] : null;
+      const label = displayLabel(c, ctx);
       return {
-        label: c.label, w: b?.xlsxW ?? Math.max(12, Math.min(40, c.label.length + 4)), get: (v: OfferVehicle) => cellValue(c, v),
+        label, w: b?.xlsxW ?? Math.max(12, Math.min(40, label.length + 4)), get: (v: OfferVehicle) => cellValue(c, v, ctx),
         fmt: c.builtin === 'km' ? 'km' : b?.numeric && /price|damages/.test(c.builtin ?? '') ? 'eur' : undefined,
         wrap: Boolean(b?.wrap) || !c.builtin || c.builtin === 'report', strong: c.builtin === 'price', link: c.builtin === 'report',
       };
     })
     : allCols.filter((c) => c.always || doc.vehicles.some((v) => { const x = c.get(v); return x !== '' && x != null; })).map(legacyFlags);
   const head: Cell[][] = [
-    [doc.title], [doc.subtitle], [`Offre du ${doc.date} — ${doc.footer}`], [],
+    [doc.title], [doc.subtitle], [`${T.offerOf(doc.date)} — ${doc.footer}`], [],
     cols.map((c) => c.label),
   ];
   const rows = doc.vehicles.map((v) => cols.map((c) => c.get(v)));
@@ -126,11 +142,11 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
   });
   ws1['!rows'] = heights;
   ws1['!autofilter'] = { ref: `A5:${lastCol}${5 + rows.length}` };
-  XLSX.utils.book_append_sheet(wb, ws1, 'Offre MC Export');
+  XLSX.utils.book_append_sheet(wb, ws1, T.sheet);
 
-  const ws2Head = ['Châssis (VIN)', 'Marque', 'Modèle', 'Motorisation', 'Énergie', 'Boîte', 'Lieu de stockage', 'TVA récupérable', 'Import', 'Autres colonnes du fournisseur'];
-  const ws2Rows = doc.vehicles.map((v) => [v.vin ?? '', v.brand, v.model, v.engine ?? '', v.fuel ?? '', v.gearbox ?? '', v.location ?? '',
-    v.vat_recoverable == null ? '' : v.vat_recoverable ? 'oui' : 'non', v.imported == null ? '' : v.imported ? 'oui' : 'non',
+  const ws2Head: string[] = [...T.sheet2Head];
+  const ws2Rows = doc.vehicles.map((v) => [v.vin ?? '', v.brand, v.model, v.engine ?? '', v.fuel ? fuelLabel(v.fuel, ctx.lang) : '', v.gearbox ?? '', v.location ?? '',
+    v.vat_recoverable == null ? '' : v.vat_recoverable ? T.yes : T.no, v.imported == null ? '' : v.imported ? T.yes : T.no,
     Object.entries(v.extras).map(([k, val]) => `${k}: ${val}`).join(' · ')]);
   const ws2 = XLSX.utils.aoa_to_sheet([ws2Head, ...ws2Rows]);
   const w2 = [18, 12, 14, 28, 20, 12, 22, 12, 8, 60];
@@ -142,7 +158,7 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
     if (!ws2[ref]) ws2[ref] = { t: 's', v: '' };
     (ws2[ref] as { s?: unknown }).s = { alignment: { vertical: 'top', wrapText: c === 3 || c === 9 }, border, ...(typeof val === 'number' ? {} : {}) };
   }));
-  XLSX.utils.book_append_sheet(wb, ws2, 'Caractéristiques');
+  XLSX.utils.book_append_sheet(wb, ws2, T.sheet2);
   return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
 }
 
