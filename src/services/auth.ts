@@ -23,7 +23,10 @@ interface AuthState {
    *  l'app affiche l'écran de nouveau mot de passe avant tout le reste. */
   recovering: boolean;
   setSession: (userId: string | null, email: string | null) => void;
-  setProfile: (name: string, isAdmin: boolean, allowedTabs?: string[] | null | undefined, blocked?: boolean) => void;
+  /** allowedTabs OBLIGATOIRE (11/10) : un paramètre par défaut `= null` transformait chaque
+   *  `undefined` (droits pas encore lus = RIEN) en `null` (= TOUT) — c'est ainsi qu'un compte
+   *  restreint voyait des onglets interdits après un rechargement. */
+  setProfile: (name: string, isAdmin: boolean, allowedTabs: string[] | null | undefined, blocked?: boolean) => void;
   setReady: () => void;
   setRecovering: (v: boolean) => void;
 }
@@ -38,7 +41,7 @@ export const useAuth = create<AuthState>((set) => ({
   blocked: false,
   recovering: false,
   setSession: (userId, email) => set({ userId, email }),
-  setProfile: (displayName, isAdmin, allowedTabs = null, blocked = false) => set({ displayName, isAdmin, allowedTabs, blocked }),
+  setProfile: (displayName, isAdmin, allowedTabs, blocked = false) => set({ displayName, isAdmin, allowedTabs, blocked }),
   setReady: () => set({ ready: true }),
   setRecovering: (recovering) => set({ recovering }),
 }));
@@ -227,16 +230,27 @@ export async function updatePassword(newPassword: string): Promise<string | null
   return null;
 }
 
-/** Filet : crée le profil au premier login si l'inscription n'a pas pu l'écrire. */
+/**
+ * Filet : crée le profil au premier login si l'inscription n'a pas pu l'écrire.
+ * Décide sur la BASE, pas sur l'état local (11/10) : appelé dès que la session
+ * est connue, il partait AVANT la lecture du profil, croyait le nom vide,
+ * réécrivait le nom affiché et remettait les droits à « tout » — selon l'ordre
+ * d'arrivée des deux requêtes, un compte restreint voyait des onglets interdits
+ * après un rechargement. Il ne touche plus jamais aux droits : il relit le profil.
+ */
 export async function ensureProfile(): Promise<void> {
-  const { userId, displayName } = useAuth.getState();
-  if (!userId || displayName) return;
-  const pending = localStorage.getItem('ada_pending_display_name') ?? '';
+  const { userId } = useAuth.getState();
+  if (!userId) return;
+  const { data, error } = await supabase.from('profiles').select('display_name').eq('id', userId).maybeSingle();
+  if (error) return; // lecture impossible : on ne crée rien à l'aveugle
+  const pendingKey = 'ada_pending_display_name';
+  if ((data as { display_name?: string | null } | null)?.display_name) { localStorage.removeItem(pendingKey); return; }
+  const pending = localStorage.getItem(pendingKey) ?? '';
   const name = pending || (useAuth.getState().email ?? '').split('@')[0];
   if (!name) return;
   await supabase.from('profiles').upsert({ id: userId, display_name: name });
-  localStorage.removeItem('ada_pending_display_name');
-  useAuth.getState().setProfile(name, useAuth.getState().isAdmin);
+  localStorage.removeItem(pendingKey);
+  await loadProfile(userId);
 }
 
 export async function signOut(): Promise<void> {
