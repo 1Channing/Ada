@@ -10,6 +10,7 @@ import * as XLSXns from 'xlsx-js-style';
 // Module CommonJS : selon le bundler, l'API est sur l'espace de noms ou sur `default`.
 const XLSX = ((XLSXns as unknown as { default?: typeof XLSXns }).default ?? XLSXns) as typeof XLSXns;
 import type { OfferVehicle } from './parseSupplierFile';
+import { bodyOf, labelOf, engineOf, fuelLabel, BUILTIN_COLUMNS, cellValue, effectiveColumns, type ExportColumn } from './exportColumns';
 
 export interface OfferDocument {
   title: string;              // « OPEL ASTRA — SÉLECTION PROFESSIONNELLE »
@@ -21,30 +22,16 @@ export interface OfferDocument {
   /** false = offre sans prix (demande d'offre, 06/10) : aucune colonne de prix. */
   showPrices?: boolean;
   footer: string;
+  /** Colonnes réglées sur l'offre (ordre, libellés, colonnes libres) — absent = colonnes historiques. */
+  columns?: ExportColumn[];
 }
 
 
 export const fmtEur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
 export const fmtKm = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} km`);
 export const fmtDate = (iso: string | null | undefined) => { if (!iso) return '—'; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fr-FR'); };
-/**
- * Carrosserie déduite de la ligne libre. Constat Channing 30/09 : « A6 Avant »
- * sortait en « Utilitaire » — « van » se trouvait DANS « Avant ». Mots entiers
- * seulement ; les noms de breaks des marques (Avant, Variant, Touring,
- * Sportbrake, Shooting Brake, Sports Tourer, SW, ST…) et les utilitaires
- * sans équivoque (fourgon, cargo, Transit, Sprinter, Ducato…).
- */
-const BREAK_RE = /\b(avant|variant|touring|sports? ?tourer|break|estate|station ?wagon|shooting ?brake|sportbrake|kombi|combi|sw|st|rs\d? ?avant|allroad)\b/i;
-const VAN_RE = /\b(fgn|fourgon|van|cargo|utilitaire|kasten(wagen)?|furgone|bestel(wagen)?|l[1-4]h[1-3]|transit(?! connect| courier)|trafic|vivaro|sprinter|crafter|ducato|boxer|jumper|master|movano|daily|tge|expert|jumpy|proace(?! city verso)|vito|nv[1-4]00|primastar|interstar)\b/i;
-export const bodyOf = (v: OfferVehicle) => BREAK_RE.test(v.version) ? 'Break' : VAN_RE.test(`${v.model} ${v.version}`) ? 'Utilitaire' : '';
-export const labelOf = (v: OfferVehicle) => `${v.brand[0]}${v.brand.slice(1).toLowerCase()} ${v.model}`.trim();
-/** Motorisation telle que le fournisseur l'écrit (colonne Engine), sinon la ligne version d'origine. */
-export const engineOf = (v: OfferVehicle) => (v.engine ?? '').trim() || (v.version ?? '').trim() || '—';
-const FUEL_LABEL: Record<string, string> = {
-  ESSENCE: 'Essence', DIESEL: 'Diesel', ELECTRIQUE: 'Électrique', HYBRIDE: 'Hybride', PLUG_IN_HYBRID: 'Hybride rechargeable',
-  'HYBRIDE RECHARGEABLE': 'Hybride rechargeable', MILD_HYBRID: 'Micro-hybride', GPL: 'GPL', CNG: 'GNV',
-};
-export const fuelLabel = (fuel: string | null | undefined) => (fuel ? FUEL_LABEL[fuel.trim().toUpperCase()] ?? fuel : '—');
+// Libellés partagés avec le PDF et le réglage des colonnes (exportColumns.ts).
+export { bodyOf, labelOf, engineOf, fuelLabel } from './exportColumns';
 
 export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
   const wb = XLSX.utils.book_new();
@@ -52,7 +39,8 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
   // Sorento « trop de vide ») : une colonne vide pour tous les véhicules
   // n'est pas exportée ; véhicule et prix restent toujours.
   type Cell = string | number | null;
-  const allCols: Array<{ label: string; w: number; get: (v: OfferVehicle) => Cell; always?: boolean }> = [
+  type Col = { label: string; w: number; get: (v: OfferVehicle) => Cell; always?: boolean; fmt?: 'eur' | 'km'; wrap?: boolean; strong?: boolean; link?: boolean };
+  const allCols: Col[] = [
     { label: 'Châssis (VIN)', w: 18, get: (v) => v.vin ?? '' },
     { label: 'Véhicule', w: 22, get: (v) => labelOf(v), always: true },
     // Exemplaires (catalogue Record Rent a Car 07/10) : une ligne par modèle, le nombre à côté.
@@ -72,7 +60,22 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
     ...(doc.showSupplierPrice ? [{ label: 'Prix fournisseur HT (€)', w: 18, get: (v: OfferVehicle) => v.price_ht ?? null }] : []),
     { label: 'Rapport', w: 40, get: (v) => v.report_url ?? '' },
   ];
-  const cols = allCols.filter((c) => c.always || doc.vehicles.some((v) => { const x = c.get(v); return x !== '' && x != null; }));
+  // Mise en forme déduite des libellés historiques (colonnes non réglées).
+  const legacyFlags = (c: Col): Col => ({
+    ...c, fmt: /€/.test(c.label) ? 'eur' : /Kilom/.test(c.label) ? 'km' : undefined,
+    wrap: ['Véhicule', 'Motorisation', 'Version', 'Couleur', 'Rapport'].includes(c.label),
+    strong: c.label.startsWith('Prix de vente'), link: c.label === 'Rapport',
+  });
+  const cols: Col[] = doc.columns
+    ? effectiveColumns(doc.columns, doc.vehicles, doc.showPrices !== false).map((c) => {
+      const b = c.builtin ? BUILTIN_COLUMNS[c.builtin] : null;
+      return {
+        label: c.label, w: b?.xlsxW ?? Math.max(12, Math.min(40, c.label.length + 4)), get: (v: OfferVehicle) => cellValue(c, v),
+        fmt: c.builtin === 'km' ? 'km' : b?.numeric && /price|damages/.test(c.builtin ?? '') ? 'eur' : undefined,
+        wrap: Boolean(b?.wrap) || !c.builtin || c.builtin === 'report', strong: c.builtin === 'price', link: c.builtin === 'report',
+      };
+    })
+    : allCols.filter((c) => c.always || doc.vehicles.some((v) => { const x = c.get(v); return x !== '' && x != null; })).map(legacyFlags);
   const head: Cell[][] = [
     [doc.title], [doc.subtitle], [`Offre du ${doc.date} — ${doc.footer}`], [],
     cols.map((c) => c.label),
@@ -87,8 +90,8 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
   const ncol = cols.length;
   const lastCol = XLSX.utils.encode_col(ncol - 1);
   ws1['!merges'] = [0, 1, 2].map((r) => ({ s: { r, c: 0 }, e: { r, c: ncol - 1 } }));
-  const wrapCols = new Set(cols.map((c, i) => (['Véhicule', 'Motorisation', 'Version', 'Couleur', 'Rapport'].includes(c.label) ? i : -1)).filter((i) => i >= 0));
-  const numFmt = (label: string) => (/€/.test(label) ? '#,##0 "€"' : /Kilom/.test(label) ? '#,##0' : undefined);
+  const wrapCols = new Set(cols.map((c, i) => (c.wrap ? i : -1)).filter((i) => i >= 0));
+  const numFmt = (c: Col) => (c.fmt === 'eur' ? '#,##0 "€"' : c.fmt === 'km' ? '#,##0' : undefined);
   const border = { top: { style: 'thin', color: { rgb: 'D0D5DD' } }, bottom: { style: 'thin', color: { rgb: 'D0D5DD' } }, left: { style: 'thin', color: { rgb: 'D0D5DD' } }, right: { style: 'thin', color: { rgb: 'D0D5DD' } } };
   const styleCell = (r: number, c: number, s: Record<string, unknown>) => {
     const ref = XLSX.utils.encode_cell({ r, c });
@@ -105,17 +108,17 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
   rows.forEach((row, ri) => {
     let lines = 1;
     row.forEach((val, c) => {
-      const label = cols[c].label;
+      const col = cols[c];
       const wrap = wrapCols.has(c);
       if (wrap && typeof val === 'string' && val) lines = Math.max(lines, Math.ceil(val.length / Math.max(8, cols[c].w - 2)));
       styleCell(5 + ri, c, {
         alignment: { vertical: 'top', wrapText: wrap, horizontal: typeof val === 'number' ? 'right' : 'left' },
         border,
         ...(ri % 2 === 1 ? { fill: { fgColor: { rgb: 'F8FAFC' } } } : {}),
-        ...(label.startsWith('Prix de vente') ? { font: { bold: true } } : {}),
-        ...(numFmt(label) && typeof val === 'number' ? { numFmt: numFmt(label) } : {}),
+        ...(col.strong ? { font: { bold: true } } : {}),
+        ...(numFmt(col) && typeof val === 'number' ? { numFmt: numFmt(col) } : {}),
       });
-      if (label === 'Rapport' && typeof val === 'string' && val.startsWith('http')) {
+      if (col.link && typeof val === 'string' && val.startsWith('http')) {
         (ws1[XLSX.utils.encode_cell({ r: 5 + ri, c })] as { l?: unknown }).l = { Target: val, Tooltip: 'Ouvrir le rapport' };
       }
     });

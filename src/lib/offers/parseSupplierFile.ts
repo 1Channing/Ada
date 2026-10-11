@@ -118,6 +118,11 @@ export interface OfferVehicle {
   quantity?: number;
   /** Taux de TVA du prix TTC fournisseur (0,19 Allemagne, PDF du 07/10) ; absent = 0,20. */
   vat_rate?: number;
+  /** Valeurs des colonnes LIBRES ajoutées à l'offre exportée (id de colonne → texte), 11/10. */
+  custom?: Record<string, string>;
+  /** Corrections faites à la main dans le tableau (11/10) : rejouées par-dessus
+   *  une relecture du fichier, pour ne jamais perdre une valeur corrigée. */
+  manual?: Partial<Omit<OfferVehicle, 'manual' | 'custom' | 'id'>>;
 }
 
 export interface ColumnMapping { header: string; field: OfferField; sample: string }

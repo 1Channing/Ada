@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import type { ColumnMapping, OfferVehicle } from '../lib/offers/parseSupplierFile';
 import type { OfferMarket, LotCriteria } from '../lib/offers/marketCheck';
+import type { ExportColumn } from '../lib/offers/exportColumns';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -28,6 +29,8 @@ export interface SupplierOffer {
   source_grid?: unknown[][] | null;
   /** Fichiers déposés, gardés dans le bucket admin-documents (SQL du 07/10) — cliquables dans l'offre. */
   source_files?: OfferSourceFile[];
+  /** Colonnes de l'offre exportée réglées à la main (SQL du 11/10) — absent = colonnes par défaut. */
+  export_columns?: ExportColumn[] | null;
   notes: string; status: 'draft' | 'sent' | 'closed'; created_at: string; updated_at: string;
 }
 
@@ -40,9 +43,10 @@ export async function listOffers(): Promise<{ rows: SupplierOffer[]; error: stri
 }
 
 /** Colonnes ajoutées après la table (SQL du 15/09 et du 17/09) : envoyées si présentes, retirées une à une si la base ne les a pas encore. */
-const EXTRA_COLUMNS = ['market', 'lot_criteria', 'source_grid', 'source_files'] as const;
+const EXTRA_COLUMNS = ['market', 'lot_criteria', 'source_grid', 'source_files', 'export_columns'] as const;
 
-export async function saveOffer(o: Partial<SupplierOffer> & { id?: string }): Promise<{ id: string | null; error: string | null }> {
+/** `dropped` : colonnes que la base n'a pas encore (SQL pas collé) — le reste est enregistré, l'écran le dit. */
+export async function saveOffer(o: Partial<SupplierOffer> & { id?: string }): Promise<{ id: string | null; error: string | null; dropped: string[] }> {
   const payload: Record<string, unknown> = {
     title: o.title ?? '', supplier: o.supplier ?? '', source_filename: o.source_filename ?? '', layout: o.layout ?? 'flat',
     mappings: o.mappings ?? [], vehicles: o.vehicles ?? [], price_rule: o.price_rule ?? { mode: 'margin', margin: 500 },
@@ -52,6 +56,7 @@ export async function saveOffer(o: Partial<SupplierOffer> & { id?: string }): Pr
   const missingColumn = (msg: string) => EXTRA_COLUMNS.find((c) => new RegExp(`\\b${c}\\b`).test(msg) && /column|schema cache/i.test(msg));
   // Une colonne absente (SQL pas encore collé) : on la retire et on réessaie — le reste s'enregistre.
   let insertedId: string | null = null;
+  const dropped: string[] = [];
   const run = async (): Promise<{ error: { message?: string } | null }> => {
     for (let i = 0; i <= EXTRA_COLUMNS.length; i++) {
       const r = o.id
@@ -60,12 +65,13 @@ export async function saveOffer(o: Partial<SupplierOffer> & { id?: string }): Pr
       const col = r.error ? missingColumn(r.error.message ?? '') : undefined;
       if (!col || !(col in payload)) { if (!o.id && r.data) insertedId = (r.data as { id?: string }).id ?? null; return r; }
       delete payload[col];
+      dropped.push(col);
     }
     return { error: { message: 'colonnes manquantes' } };
   };
   const { error } = await run();
-  if (error) return { id: null, error: isMissing(error) ? OFFERS_SQL_HINT : error.message ?? 'enregistrement en échec' };
-  return { id: o.id ?? insertedId, error: null };
+  if (error) return { id: null, error: isMissing(error) ? OFFERS_SQL_HINT : error.message ?? 'enregistrement en échec', dropped };
+  return { id: o.id ?? insertedId, error: null, dropped };
 }
 
 export async function deleteOffer(id: string): Promise<string | null> {

@@ -1,10 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, FileSpreadsheet, FileText, Trash2, Loader2, ChevronDown, ChevronRight, ExternalLink, Check, CloudOff, Search, SlidersHorizontal } from 'lucide-react';
+import {
+  Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
+  PanelLeftOpen, X, StickyNote, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3,
+} from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
 import {
-  parseSupplierWorkbook, readSupplierGrid, supplierHt, OFFER_FIELD_LABELS,
+  parseSupplierWorkbook, readSupplierGrid, supplierHt,
   type ParsedSupplierFile, type OfferVehicle, type OfferField, type ColumnMapping,
 } from '../lib/offers/parseSupplierFile';
 import { loadLearnedModelsByBrand, mergeKnownModels } from '../lib/offers/knownModels';
@@ -15,6 +18,10 @@ import { supabase } from '../lib/supabase';
 import type { OfferSourceFile } from '../services/offers';
 import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
+import {
+  ALL_BUILTIN_KEYS, BUILTIN_COLUMNS, cellValue, defaultExportColumns, effectiveColumns, isColumnEmpty, newCustomColumn,
+  type ExportColumn,
+} from '../lib/offers/exportColumns';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
 import {
   lotsOf, lotTargets, startLotJob, awaitLotJob, mergeCountry, verdictOf, applyLotCriteria, COUNTRY_CAVEAT,
@@ -22,16 +29,14 @@ import {
 } from '../lib/offers/marketCheck';
 
 /**
- * OFFRES FOURNISSEUR (page test, 14/09 — droit « offres » sur autorisation
- * explicite). Espace de travail (retour Channing 14/09 soir : « revenir sur
- * un tableau ou un autre en un clic, bien organiser ») : la liste des offres
- * à gauche, l'offre ouverte à droite, ENREGISTREMENT AUTOMATIQUE à chaque
- * modification (plus de bouton à ne pas oublier). Import → nouvelle offre
- * ouverte et déjà enregistrée. Étage « OÙ VENDRE » (demande Channing 14/09
- * soir) : les véhicules retenus sont regroupés en lots, chaque lot a ses URLs
- * de recherche par pays coché (vérifiables avant de lancer), le relevé part
- * dans la file du worker et le verdict par pays (médiane des prix affichés,
- * bruts, face à notre HT) s'enregistre avec l'offre.
+ * OFFRES FOURNISSEUR — refonte du 11/10 (directives Channing) :
+ * - la liste des offres est un PANNEAU qu'on ouvre au besoin, l'offre prend la largeur ;
+ * - trois vues : SÉLECTION (modèles par marque, véhicules corrigeables ligne
+ *   par ligne), ANALYSE (ex-« Où vendre », relevés PAYS PAR PAYS à la demande)
+ *   et EXPORT (colonnes de l'offre : ajouter, renommer, ordonner, retirer) ;
+ * - plus d'écran de correspondance des colonnes : une valeur mal lue se
+ *   corrige dans la ligne du véhicule, la correction survit à une relecture ;
+ * - notes internes dans une fenêtre, enregistrement automatique partout.
  */
 
 interface Draft {
@@ -41,7 +46,11 @@ interface Draft {
   lot_criteria?: Record<string, LotCriteria>;
   source_grid?: unknown[][] | null;
   source_files?: OfferSourceFile[];
+  export_columns?: ExportColumn[] | null;
 }
+type View = 'selection' | 'analyse' | 'export';
+type Msg = { tone: 'info' | 'error'; text: string } | null;
+
 const FUEL_OPTIONS = ['ESSENCE', 'DIESEL', 'HYBRIDE', 'HYBRIDE RECHARGEABLE', 'ELECTRIQUE', 'GPL'];
 const VERDICT_CLASS: Record<string, string> = {
   good: 'bg-emerald-50 text-emerald-800 border-emerald-200', warn: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -51,6 +60,11 @@ const SITE_LABEL = (key: string) => key.replace(/^autoscout24_/, 'AS24 ').replac
 const EMPTY: Draft = { title: '', supplier: '', source_filename: '', layout: 'flat', mappings: [], vehicles: [], price_rule: { mode: 'margin', margin: 500 }, countries: ['FR', 'NL', 'DK'], notes: '', status: 'draft' };
 const todayFr = () => new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 const STATUS_LABEL: Record<SupplierOffer['status'], string> = { draft: 'brouillon', sent: 'envoyée', closed: 'clôturée' };
+const STATUS_CLASS: Record<SupplierOffer['status'], string> = {
+  draft: 'bg-amber-50 text-amber-700 border-amber-200', sent: 'bg-emerald-50 text-emerald-700 border-emerald-200', closed: 'bg-slate-100 text-slate-500 border-slate-200',
+};
+const countryLabel = (code: string) => OFFER_COUNTRIES.find((x) => x.code === code)?.label ?? code;
+const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s.replace(/\s/g, '').replace(',', '.')));
 
 export function Offres() {
   const { userId, displayName, email } = useAuth();
@@ -59,13 +73,22 @@ export function Offres() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [known, setKnown] = useState<Record<string, string[]>>({});
   const [parsed, setParsed] = useState<ParsedSupplierFile | null>(null);
-  const [mappingOpen, setMappingOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<Msg>(null);
   const [saveState, setSaveState] = useState<{ kind: 'idle' | 'saving' | 'saved' | 'error'; at?: string; text?: string }>({ kind: 'idle' });
+  const [columnsNotSaved, setColumnsNotSaved] = useState(false);
+  const [view, setView] = useState<View>('selection');
+  const [listOpen, setListOpen] = useState(false);
+  const [listQuery, setListQuery] = useState('');
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [editVehicle, setEditVehicle] = useState<string | null>(null);
+  const [modelQuery, setModelQuery] = useState('');
+  const [newColumnLabel, setNewColumnLabel] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<number | null>(null);
   const dirty = useRef(false);
+  const info = (text: string) => setMsg({ tone: 'info', text });
+  const fail = (text: string) => setMsg({ tone: 'error', text });
 
   const reload = async () => { const r = await listOffers(); setOffers(r.rows); setListError(r.error); return r.rows; };
   // Modèles connus = référentiel des études + taxonomie moissonnée des sites
@@ -78,12 +101,21 @@ export function Offres() {
     ]).then(([ref, learned]) => setKnown(mergeKnownModels(ref, learned)));
   }, []);
 
+  // Panneau des offres et fenêtre des notes : Échap les referme.
+  useEffect(() => {
+    if (!listOpen && !notesOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setNotesOpen(false); setListOpen(false); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [listOpen, notesOpen, draft]);
+
   // ENREGISTREMENT AUTOMATIQUE : toute modification du brouillon part en base
   // 1,2 s après la dernière frappe ; la première sauvegarde crée l'offre.
   const persist = async (d: Draft) => {
     setSaveState({ kind: 'saving' });
     const r = await saveOffer(d);
     if (r.error) { setSaveState({ kind: 'error', text: r.error }); return; }
+    setColumnsNotSaved(r.dropped.includes('export_columns') && d.export_columns != null);
     if (!d.id && r.id) setDraft((cur) => (cur && !cur.id ? { ...cur, id: r.id! } : cur));
     setSaveState({ kind: 'saved', at: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) });
     void reload();
@@ -100,36 +132,35 @@ export function Offres() {
   };
   useEffect(() => () => { if (saveTimer.current) window.clearTimeout(saveTimer.current); }, []);
 
-  /** (Re)lecture d'une grille : nouvelle offre, ou correspondance modifiée sur une offre existante
-   *  (la grille est conservée dans l'offre ; sélection et prix saisis sont gardés véhicule par véhicule). */
+  /** (Re)lecture d'une grille : nouvelle offre, ou relecture d'une offre existante avec les règles du jour.
+   *  Sélection, prix MC Export, CORRECTIONS faites à la main et colonnes libres sont gardés véhicule par véhicule. */
   const buildDraftFromGrid = (src: { sheet: string; grid: unknown[][] }, name: string, ov: Record<string, OfferField>, base: Draft): Draft => {
     const p = parseSupplierWorkbook(src, known, ov);
     setParsed(p);
     const prev = new Map(base.vehicles.map((v) => [v.id, v]));
     const vehicles = applyPriceRule(p.vehicles, base.price_rule, (v) => supplierHt(v), true)
-      .map((v) => { const o = prev.get(v.id); return o ? { ...v, selected: o.selected, sale_price: o.sale_price } : v; });
+      .map((v) => {
+        const o = prev.get(v.id);
+        return o ? { ...v, ...(o.manual ?? {}), manual: o.manual, custom: o.custom, selected: o.selected, sale_price: o.sale_price } : v;
+      });
     const models = [...new Set(vehicles.map((v) => `${v.brand} ${v.model}`))];
     const firstBrand = vehicles[0]?.brand ?? '';
     return {
       ...base,
       title: base.title || (models.length === 1 ? `${models[0]} — SÉLECTION PROFESSIONNELLE` : `${firstBrand ? firstBrand + ' & AUTRES' : 'SÉLECTION'} — OFFRE MC EXPORT`),
       supplier: base.supplier || name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 40),
-      // Champ EFFECTIF du parseur (il honore la correspondance enregistrée et
-      // répare un « ignoré » hérité) — sinon le panneau affichait « ignoré »
-      // pour une colonne réellement lue.
       source_filename: name, layout: p.layout, mappings: p.mappings, vehicles, source_grid: p.grid,
       // Conditions écrites dans le fichier (« Minimum order: 4 cars », lieu
       // d'enlèvement…) → notes de l'offre, si rien n'y est encore (30/09).
       notes: base.notes || p.notes || '',
     };
   };
+  const rereadFile = () => update((d) => (d.source_grid ? buildDraftFromGrid({ sheet: d.source_filename, grid: d.source_grid }, d.source_filename, Object.fromEntries(d.mappings.map((m) => [m.header, m.field])), d) : d));
 
   /**
-   * LISTES PDF (07/10, listes allemandes reçues par Achille : « créer dans
-   * Offres un nouveau moyen de créer des listes à partir de PDF, avec la
-   * possibilité d'en choisir plusieurs ») : chaque PDF est lu (pdf.js), les
-   * véhicules reconnus sont réunis dans UNE offre ; le nom de l'offre dit
-   * d'où elle vient. Prix TTC (TVA allemande 19 %) → HT par la règle.
+   * LISTES PDF (07/10, listes allemandes reçues par Achille) : chaque PDF est
+   * lu (pdf.js), les véhicules reconnus sont réunis dans UNE offre ; le nom de
+   * l'offre dit d'où elle vient. Prix TTC (TVA allemande 19 %) → HT par la règle.
    */
   const buildDraftFromPdfs = async (files: File[]): Promise<{ draft: Draft; warnings: string[] }> => {
     const all: OfferVehicle[] = [];
@@ -137,9 +168,7 @@ export function Offres() {
     const brands: string[] = [];
     const stored: OfferSourceFile[] = [];
     for (const f of files) {
-      // Le PDF est GARDÉ (bucket admin-documents, URL signée à l'ouverture) :
-      // cliquer son nom dans l'offre le rouvre. Un dépôt en échec ne bloque
-      // pas la lecture — il est dit.
+      // Le PDF est GARDÉ (bucket admin-documents, URL signée à l'ouverture).
       try {
         const safe = f.name.replace(/\.[^.]+$/, '').normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60) || 'liste';
         const path = `offres/${Date.now().toString(36)}_${safe}.pdf`;
@@ -156,10 +185,7 @@ export function Offres() {
       if (p.brand) brands.push(p.brand);
       warnings.push(...p.warnings.map((w) => `${f.name} : ${w}`));
     }
-    // Rien de retenu au départ (07/10, Channing : « on choisit les modèles
-    // qu'on intègre ») : avec 300 voitures tout-retenu, « Où vendre »
-    // affichait 97 lots. Les pastilles par modèle retiennent d'un clic, et
-    // les lots suivent la sélection.
+    // Rien de retenu au départ (07/10, Channing : « on choisit les modèles qu'on intègre »).
     const vehicles = applyPriceRule(all, EMPTY.price_rule, (v) => supplierHt(v), true).map((v) => ({ ...v, selected: false }));
     const brandSet = [...new Set(brands)];
     const names = files.map((f) => f.name);
@@ -182,20 +208,19 @@ export function Offres() {
     try {
       const { draft: d, warnings } = await buildDraftFromPdfs(pdfs);
       setParsed(null);
-      setDraft(d);
+      setDraft(d); setView('selection'); setListOpen(false);
       await persist(d);
       if (d.vehicles.length === 0) {
         const saved = await recordLearningCaseFromApp({
           kind: 'offer_file_unparsed', key: pdfs.map((f) => f.name).join(' + '), title: `PDF fournisseur mal lu : ${pdfs.map((f) => f.name).join(' + ')} (0 véhicule)`,
           link: '/offres', actor: 'dev', submittedBy: displayName || email || null, detail: { warnings: warnings.slice(0, 12), files: pdfs.map((f) => f.name) },
         });
-        setMsg(`PDF lu mais aucun véhicule reconnu${saved ? ' — enregistré dans la boîte à apprendre pour enseigner ce gabarit' : ''}.`);
+        fail(`PDF lu mais aucun véhicule reconnu${saved ? ' — enregistré dans la boîte à apprendre pour enseigner ce gabarit' : ''}.`);
       } else {
-        setMsg(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${pdfs.length} PDF — rien n'est retenu : coche les modèles à intégrer (pastilles au-dessus du tableau), « Où vendre » suit la sélection.${warnings.length ? ` · ${warnings.slice(0, 4).join(' · ')}${warnings.length > 4 ? ` · +${warnings.length - 4}` : ''}` : ''}`);
+        info(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${pdfs.length} PDF. Rien n'est retenu au départ : choisis les modèles à intégrer.${warnings.length ? ` · ${warnings.slice(0, 4).join(' · ')}${warnings.length > 4 ? ` · +${warnings.length - 4}` : ''}` : ''}`);
       }
     } catch (e) {
-      const why = e instanceof Error ? e.message : String(e);
-      setMsg(`Lecture impossible : ${why}`);
+      fail(`Lecture impossible : ${e instanceof Error ? e.message : String(e)}`);
     }
     setBusy(null);
   };
@@ -206,7 +231,7 @@ export function Offres() {
     try {
       const src = readSupplierGrid(await f.arrayBuffer());
       const d = buildDraftFromGrid(src, f.name, {}, { ...EMPTY });
-      setDraft(d);
+      setDraft(d); setView('selection'); setListOpen(false);
       await persist(d);
       // Boîte à apprendre (02/10) : un fichier qui ne donne aucun véhicule, ou
       // sans marque ni modèle reconnus, est un format à enseigner au parseur.
@@ -217,94 +242,126 @@ export function Offres() {
           link: '/offres', actor: 'dev', submittedBy: displayName || email || null,
           detail: { headers: d.mappings.map((m) => m.header).slice(0, 40), mapped: [...fields], vehicles: d.vehicles.length, layout: d.layout },
         });
-        setMsg(`Fichier lu mais ${d.vehicles.length === 0 ? 'aucun véhicule reconnu' : 'ni marque, ni modèle, ni VIN reconnus'}${saved ? ' — enregistré dans la boîte à apprendre pour enseigner ce format' : ''}.`);
+        fail(`Fichier lu mais ${d.vehicles.length === 0 ? 'aucun véhicule reconnu' : 'ni marque, ni modèle, ni VIN reconnus'}${saved ? ' — enregistré dans la boîte à apprendre pour enseigner ce format' : ''}.`);
+      } else {
+        info(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${f.name}. Une valeur fausse se corrige dans la ligne du véhicule (crayon).`);
       }
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
       const saved = await recordLearningCaseFromApp({ kind: 'offer_file_unparsed', key: f.name, title: `Fichier fournisseur illisible : ${f.name}`, link: '/offres', actor: 'dev', submittedBy: displayName || email || null, detail: { error: why.slice(0, 300) } });
-      setMsg(`Lecture impossible : ${why}${saved ? ' — fichier enregistré dans la boîte à apprendre' : ''}`);
+      fail(`Lecture impossible : ${why}${saved ? ' — fichier enregistré dans la boîte à apprendre' : ''}`);
     }
     setBusy(null);
   };
-  /** Changement de correspondance : toutes les correspondances actuelles sont rejouées, plus la nouvelle. */
-  const remap = (header: string, field: OfferField) => {
-    if (!draft?.source_grid) return;
-    const ov: Record<string, OfferField> = { ...Object.fromEntries(draft.mappings.map((m) => [m.header, m.field])), [header]: field };
-    update((d) => (d.source_grid ? buildDraftFromGrid({ sheet: d.source_filename, grid: d.source_grid }, d.source_filename, ov, d) : d));
-  };
+
   const setVehicle = (id: string, patch: Partial<OfferVehicle>) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, ...patch } : v)) }));
+  /** Correction à la main d'une valeur lue : appliquée et mémorisée (rejouée après une relecture du fichier). */
+  const correctVehicle = (id: string, patch: Partial<OfferVehicle>) => update((d) => ({
+    ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, ...patch, manual: { ...(v.manual ?? {}), ...patch } } : v)),
+  }));
+  const setCustomValue = (id: string, colId: string, value: string) => update((d) => ({
+    ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, custom: { ...(v.custom ?? {}), [colId]: value } } : v)),
+  }));
   const applyRule = (rule: PriceRule) => update((d) => ({ ...d, price_rule: rule, vehicles: applyPriceRule(d.vehicles, rule, (v) => supplierHt(v), true) }));
 
   /** Bascule d'une offre à l'autre en un clic — l'offre quittée est déjà enregistrée (ou le sera dans la seconde). */
   const open = (o: SupplierOffer) => {
     if (saveTimer.current && draft && dirty.current) { window.clearTimeout(saveTimer.current); dirty.current = false; void persist(draft); }
     // RÉPARATION À L'OUVERTURE (25/09) : une offre lue avec d'anciennes règles
-    // peut porter des dates impossibles (« 2025-16-06 », fichier Opel en
-    // format américain). Si le fichier est conservé, on la relit avec les
-    // règles du jour, sélection et prix gardés, et on enregistre — plus
-    // besoin de penser au bouton « Relire le fichier ».
+    // peut porter des dates impossibles ; si le fichier est conservé, on la
+    // relit avec les règles du jour (sélection, prix et corrections gardés).
     const stale = Boolean(o.source_grid) && o.vehicles.some((v) => v.reg_date && Number.isNaN(new Date(v.reg_date).getTime()));
     const next: Draft = stale && o.source_grid
       ? buildDraftFromGrid({ sheet: o.source_filename, grid: o.source_grid }, o.source_filename, Object.fromEntries(o.mappings.map((m) => [m.header, m.field])), { ...o })
       : { ...o };
-    if (stale) { setMsg('Dates relues avec les règles du jour (fichier au format américain) — offre enregistrée.'); void persist(next); }
-    setDraft(next); if (!stale) setParsed(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null); setEditLot(null);
+    if (stale) { info('Dates relues avec les règles du jour (fichier au format américain) — offre enregistrée.'); void persist(next); }
+    setDraft(next); if (!stale) setParsed(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null); setEditLot(null); setEditVehicle(null);
     if (!stale) setMsg(null);
+    setColumnsNotSaved(false); setViewModel(null); setModelQuery('');
+    setView(next.vehicles.some((v) => v.selected) ? 'analyse' : 'selection');
+    setListOpen(false);
     setSurvey((s) => (s && s.done < s.total && s.current !== 'arrêté' ? s : null));
   };
   const remove = async (o: SupplierOffer) => {
     if (!confirm(`Supprimer l'offre « ${o.title || 'sans titre'} » ?`)) return;
     const err = await deleteOffer(o.id);
-    if (err) { setMsg(err); return; }
+    if (err) { fail(err); return; }
     if (draft?.id === o.id) setDraft(null);
     await reload();
   };
 
   const selected = useMemo(() => (draft?.vehicles ?? []).filter((v) => v.selected), [draft]);
-  // Exemplaires (07/10) : une ligne par modèle, la quantité à côté — les comptes
-  // et le total parlent en véhicules, pas en lignes.
+  // Exemplaires (07/10) : une ligne par modèle, la quantité à côté — les comptes parlent en véhicules.
   const qtyOf = (v: OfferVehicle) => Math.max(1, v.quantity ?? 1);
   const selectedUnits = selected.reduce((a, v) => a + qtyOf(v), 0);
+  const totalUnits = (draft?.vehicles ?? []).reduce((a, v) => a + qtyOf(v), 0);
   const unitsLabel = (lines: number, units: number) => `${units} véhicule${units > 1 ? 's' : ''}${units !== lines ? ` (${lines} modèle${lines > 1 ? 's' : ''})` : ''}`;
-  /** Ouvre un fichier déposé (URL signée, une heure). */
   const openSourceFile = async (f: OfferSourceFile) => {
-    try { window.open(await signedUrl(f.path), '_blank', 'noopener'); } catch (e) { setMsg(`Ouverture impossible : ${e instanceof Error ? e.message : String(e)}`); }
+    try { window.open(await signedUrl(f.path), '_blank', 'noopener'); } catch (e) { fail(`Ouverture impossible : ${e instanceof Error ? e.message : String(e)}`); }
   };
-  // CHOIX PAR MODÈLE (07/10, Channing : « proposer tel ou tel modèle plutôt
-  // qu'une liste interminable, et choisir les modèles qu'on intègre ») :
-  // une pastille par marque × modèle avec son compte ; cocher = retenir tous
-  // ses véhicules, décocher = aucun ; cliquer le nom = n'afficher que lui.
+
+  // ── CHOIX DES MODÈLES, regroupés par marque (refonte 11/10) ─────────────────
   const modelKeyOf = (v: OfferVehicle) => `${v.brand} ${v.model}`.trim();
   const [viewModel, setViewModel] = useState<string | null>(null);
-  const modelGroups = useMemo(() => {
-    const m = new Map<string, { key: string; total: number; units: number; selected: number }>();
+  const brandGroups = useMemo(() => {
+    type M = { key: string; model: string; units: number; selected: number; kmSum: number; kmN: number; priceSum: number; priceN: number };
+    const brands = new Map<string, { brand: string; units: number; selected: number; models: Map<string, M> }>();
     for (const v of draft?.vehicles ?? []) {
-      const k = modelKeyOf(v);
-      const g = m.get(k) ?? { key: k, total: 0, units: 0, selected: 0 };
-      g.total++; g.units += qtyOf(v); if (v.selected) g.selected += qtyOf(v);
-      m.set(k, g);
+      const brand = v.brand || '—';
+      const b = brands.get(brand) ?? { brand, units: 0, selected: 0, models: new Map<string, M>() };
+      const key = modelKeyOf(v);
+      const m = b.models.get(key) ?? { key, model: v.model || '—', units: 0, selected: 0, kmSum: 0, kmN: 0, priceSum: 0, priceN: 0 };
+      const q = qtyOf(v);
+      m.units += q; b.units += q;
+      if (v.selected) { m.selected += q; b.selected += q; }
+      if (v.km != null) { m.kmSum += v.km; m.kmN++; }
+      const p = v.sale_price ?? supplierHt(v);
+      if (p != null) { m.priceSum += p; m.priceN++; }
+      b.models.set(key, m);
+      brands.set(brand, b);
     }
-    return [...m.values()].sort((a, b) => a.key.localeCompare(b.key, 'fr'));
-  }, [draft]);
+    const q = modelQuery.trim().toLowerCase();
+    return [...brands.values()]
+      .map((b) => ({ ...b, models: [...b.models.values()].filter((m) => !q || m.key.toLowerCase().includes(q)).sort((x, y) => x.model.localeCompare(y.model, 'fr')) }))
+      .filter((b) => b.models.length > 0)
+      .sort((x, y) => x.brand.localeCompare(y.brand, 'fr'));
+  }, [draft, modelQuery]);
   const setModelSelected = (key: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (modelKeyOf(v) === key ? { ...v, selected: on } : v)) }));
+  const setBrandSelected = (brand: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ((v.brand || '—') === brand ? { ...v, selected: on } : v)) }));
+  const setAllSelected = (on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: on })) }));
   const shownVehicles = useMemo(() => (draft?.vehicles ?? []).filter((v) => !viewModel || modelKeyOf(v) === viewModel), [draft, viewModel]);
+
+  // ── COLONNES DE L'OFFRE EXPORTÉE ────────────────────────────────────────────
+  const columns = draft?.export_columns ?? defaultExportColumns();
+  const customColumns = columns.filter((c) => !c.builtin);
+  const setColumns = (cols: ExportColumn[]) => update({ export_columns: cols });
+  const moveColumn = (i: number, delta: number) => {
+    const j = i + delta;
+    if (j < 0 || j >= columns.length) return;
+    const next = [...columns]; [next[i], next[j]] = [next[j], next[i]]; setColumns(next);
+  };
+  const missingBuiltins = ALL_BUILTIN_KEYS.filter((k) => !columns.some((c) => c.builtin === k));
   const docOf = () => ({
     title: (draft?.title || 'OFFRE MC EXPORT').toUpperCase(),
     subtitle: `${unitsLabel(selected.length, selectedUnits)} · ${draft?.price_rule.mode === 'none' ? 'sans prix, offre à nous proposer' : 'prix HT'} · transport à la charge de l'acheteur · vendus en l'état`,
     date: todayFr(), vehicles: selected, showDamages: true, showSupplierPrice: false, showPrices: draft?.price_rule.mode !== 'none',
     footer: 'MC EXPORT — offre valable sous réserve de disponibilité. Dommages : chiffrages du fournisseur, conservés à l’identique.',
+    columns: draft?.export_columns ?? undefined,
   });
   const exportXlsx = () => { if (!draft) return; downloadBlob(buildOfferWorkbook(docOf()), `MC_Export_${slugFile(draft.title)}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); };
-  const exportPdf = async () => { if (!draft) return; setBusy('pdf'); try { downloadBlob(await buildOfferPdf(docOf()), `MC_Export_${slugFile(draft.title)}.pdf`, 'application/pdf'); } catch (e) { setMsg(`PDF : ${e instanceof Error ? e.message : String(e)}`); } setBusy(null); };
+  const exportPdf = async () => { if (!draft) return; setBusy('pdf'); try { downloadBlob(await buildOfferPdf(docOf()), `MC_Export_${slugFile(draft.title)}.pdf`, 'application/pdf'); } catch (e) { fail(`PDF : ${e instanceof Error ? e.message : String(e)}`); } setBusy(null); };
+  const previewColumns = draft ? effectiveColumns(columns, selected, draft.price_rule.mode !== 'none') : [];
+  const previewCell = (c: ExportColumn, v: OfferVehicle): string => {
+    const x = cellValue(c, v);
+    if (x === '' || x == null) return '—';
+    if (typeof x === 'number') return c.builtin === 'km' ? fmtKm(x) : /price|damages/.test(c.builtin ?? '') ? fmtEur(x) : String(x);
+    return c.builtin === 'reg' ? fmtDate(x) : x;
+  };
 
-  // ── OÙ VENDRE ────────────────────────────────────────────────────────────
-  // Lots = véhicules retenus regroupés (marque, modèle, année, énergie, boîte).
-  // Les URLs par pays/site sont générées à la demande (cache par lot + pays
-  // cochés) et VISIBLES avant tout relevé. Le relevé enchaîne les lots un par
-  // un (les sites d'un lot en parallèle) pour ne pas noyer la file du worker,
-  // et écrit le résultat dans l'offre au fil de l'eau (autosave).
-  // Lots = véhicules RETENUS seulement (lotsOf filtre selected) ; quand un
-  // modèle est affiché en haut, « Où vendre » ne montre que ses lots.
+  // ── ANALYSE (ex-« Où vendre ») ──────────────────────────────────────────────
+  // Lots = véhicules RETENUS regroupés (marque, modèle, année, énergie, boîte).
+  // Les relevés se lancent PAYS PAR PAYS (11/10) : bouton par colonne pays,
+  // bouton par case vide, ou par lot. Chaque relevé passe par la file du worker.
   const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, draft.lot_criteria?.[l.key])).filter((l) => !viewModel || `${l.brand} ${l.model}`.trim() === viewModel) : []), [draft, viewModel]);
   const [editLot, setEditLot] = useState<string | null>(null);
   /** Critères réglés à la main : le relevé du lot est effacé (il répondait à d'autres critères) et ses URLs se régénèrent. */
@@ -324,36 +381,39 @@ export function Offres() {
   const [survey, setSurvey] = useState<{ done: number; total: number; current: string; errors: string[] } | null>(null);
   const cancelSurvey = useRef(false);
   const surveyRunning = !!survey && survey.done < survey.total && survey.current !== 'arrêté';
-  // Clé de cache = lot + critères (le libellé les porte tous) + pays cochés.
-  const targetKey = (lot: OfferLot) => `${lot.key}#${lot.label}#${(draft?.countries ?? []).join(',')}`;
-  const ensureTargets = async (lot: OfferLot): Promise<LotTarget[]> => {
-    const k = targetKey(lot);
-    if (targetsRef.current[k]) return targetsRef.current[k];
-    const t = await lotTargets(lot, draft?.countries ?? []);
-    targetsRef.current = { ...targetsRef.current, [k]: t };
-    setTargets(targetsRef.current);
-    return t;
+  // Cache des URLs : lot + critères (le libellé les porte tous) + PAYS.
+  const targetKey = (lot: OfferLot, country: string) => `${lot.key}#${lot.label}#${country}`;
+  const ensureTargets = async (lot: OfferLot, countries: string[]): Promise<LotTarget[]> => {
+    const missing = countries.filter((c) => !targetsRef.current[targetKey(lot, c)]);
+    if (missing.length) {
+      const t = await lotTargets(lot, missing);
+      const next = { ...targetsRef.current };
+      for (const c of missing) next[targetKey(lot, c)] = t.filter((x) => x.country === c);
+      targetsRef.current = next;
+      setTargets(next);
+    }
+    return countries.flatMap((c) => targetsRef.current[targetKey(lot, c)] ?? []);
   };
   const toggleTargets = async (lot: OfferLot) => {
     if (targetsOpen === lot.key) { setTargetsOpen(null); return; }
     setTargetsOpen(lot.key);
-    await ensureTargets(lot);
+    await ensureTargets(lot, draft?.countries ?? []);
   };
-  const runSurvey = async (list: OfferLot[]) => {
-    if (!draft?.id) { setMsg('Offre pas encore enregistrée — réessaie dans une seconde.'); return; }
-    if (draft.countries.length === 0) { setMsg('Coche au moins un pays à relever.'); return; }
+  const runSurvey = async (list: OfferLot[], countries: string[]) => {
+    if (!draft?.id) { info('Offre pas encore enregistrée — réessaie dans une seconde.'); return; }
+    if (countries.length === 0) { info('Ajoute au moins un pays à relever.'); return; }
     const offerId = draft.id;
     const plan: Array<{ lot: OfferLot; t: LotTarget }> = [];
     const skipped: string[] = [];
     setSurvey({ done: 0, total: 0, current: 'préparation des URLs…', errors: [] });
     for (const lot of list) {
-      const ts = await ensureTargets(lot);
+      const ts = await ensureTargets(lot, countries);
       for (const t of ts) {
         if (t.url) plan.push({ lot, t });
         else skipped.push(`${lot.label} · ${t.country} ${SITE_LABEL(t.site)} : pas d'URL${t.warnings[0] ? ` (${t.warnings[0]})` : ''}`);
       }
     }
-    if (plan.length === 0) { setSurvey(null); setMsg(`Aucune URL à relever. ${skipped[0] ?? ''}`.trim()); return; }
+    if (plan.length === 0) { setSurvey(null); info(`Aucune URL à relever. ${skipped[0] ?? ''}`.trim()); return; }
     if (plan.length > 30 && !confirm(`${plan.length} recherches vont partir dans la file du worker (compte ≈ ${Math.ceil(plan.length / 2)} min au minimum). Continuer ?`)) { setSurvey(null); return; }
     cancelSurvey.current = false;
     setSurvey({ done: 0, total: plan.length, current: '', errors: skipped });
@@ -362,7 +422,7 @@ export function Offres() {
     let done = 0;
     for (const items of byLot.values()) {
       if (cancelSurvey.current) break;
-      setSurvey((s) => s && { ...s, current: items[0].lot.label });
+      setSurvey((s) => s && { ...s, current: `${items[0].lot.label} · ${[...new Set(items.map((x) => countryLabel(x.t.country)))].join(', ')}` });
       await Promise.all(items.map(async ({ lot, t }) => {
         const url = t.url as string;
         let r: SiteResult;
@@ -382,247 +442,314 @@ export function Offres() {
     const dates = Object.values(draft?.market ?? {}).flatMap((byCountry) => Object.values(byCountry).map((c) => c.at)).sort();
     return dates.length ? new Date(dates[dates.length - 1]) : null;
   }, [draft]);
+  const surveyedIn = (c: string) => lots.filter((l) => draft?.market?.[l.key]?.[c]).length;
+
+  // ── RENDU ───────────────────────────────────────────────────────────────────
+  const filteredOffers = offers.filter((o) => !listQuery.trim() || `${o.title} ${o.supplier}`.toLowerCase().includes(listQuery.trim().toLowerCase()));
+  const uploadButton = (compact = false) => (
+    <button onClick={() => fileRef.current?.click()} disabled={busy === 'lecture'} className={`flex items-center justify-center gap-2 bg-brand-ocean hover:bg-brand-encre text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${compact ? 'px-3 py-2' : 'w-full px-4 py-2.5'}`}>
+      {busy === 'lecture' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Nouvelle offre
+    </button>
+  );
+  const tabButton = (id: View, label: string, Icon: typeof BarChart3, badge: string) => (
+    <button onClick={() => setView(id)} role="tab" aria-selected={view === id}
+      className={`flex items-center gap-2 px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors ${view === id ? 'border-brand-ocean text-brand-encre font-semibold' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+      <Icon className="w-4 h-4" /> {label} <span className={`text-xs px-1.5 py-0.5 rounded-full ${view === id ? 'bg-blue-50 text-brand-encre' : 'bg-slate-100 text-slate-500'}`}>{badge}</span>
+    </button>
+  );
+
+  const offerList = (inDrawer: boolean) => (
+    <>
+      <div className="px-4 pt-4 pb-3 border-b border-slate-100 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-base font-semibold text-slate-900">Offres <span className="text-slate-400 font-normal">{offers.length}</span></span>
+          {inDrawer && <button onClick={() => setListOpen(false)} aria-label="Fermer" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="w-4 h-4" /></button>}
+        </div>
+        {uploadButton()}
+        <p className="text-[11px] text-slate-500 text-center">Excel, CSV, ou plusieurs PDF à la fois</p>
+        <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm">
+          <Search className="w-4 h-4 text-slate-400" />
+          <span className="sr-only">Chercher une offre</span>
+          <input value={listQuery} onChange={(e) => setListQuery(e.target.value)} placeholder="Chercher une offre, un fournisseur…" className="flex-1 outline-none bg-transparent" />
+        </label>
+      </div>
+      {listError && <p className="m-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{listError}</p>}
+      <div className={`divide-y divide-slate-100 ${inDrawer ? 'flex-1 overflow-y-auto' : 'max-h-[70vh] overflow-y-auto'}`}>
+        {filteredOffers.length === 0 ? (
+          <p className="px-4 py-8 text-sm text-slate-400 text-center">{offers.length ? 'Aucune offre ne correspond.' : 'Aucune offre. Dépose un fichier fournisseur pour créer la première.'}</p>
+        ) : filteredOffers.map((o) => {
+          const active = draft?.id === o.id;
+          const n = (o.vehicles ?? []).length, sel = (o.vehicles ?? []).filter((v) => v.selected).length;
+          return (
+            <div key={o.id} className={`group flex items-start gap-2 px-4 py-3 ${active ? 'bg-blue-50/70' : 'hover:bg-slate-50'}`}>
+              <button onClick={() => open(o)} className="min-w-0 flex-1 text-left">
+                <span className={`block text-sm truncate ${active ? 'font-semibold text-brand-encre' : 'font-medium text-slate-800'}`}>{o.title || 'Sans titre'}</span>
+                <span className="block text-xs text-slate-500 truncate">{o.supplier || 'fournisseur ?'} · {sel}/{n} véh. · {new Date(o.updated_at).toLocaleDateString('fr-FR')}</span>
+                <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${STATUS_CLASS[o.status] ?? STATUS_CLASS.draft}`}>{STATUS_LABEL[o.status] ?? o.status}</span>
+              </button>
+              {o.user_id === userId && (
+                <button onClick={() => void remove(o)} className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Supprimer ${o.title || 'cette offre'}`}><Trash2 className="w-3.5 h-3.5" /></button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Offres fournisseur</h1>
-          <p className="text-sm text-slate-600 mt-1">Une liste fournisseur déposée devient une offre MC Export : normalisée, à nos prix, exportable en Excel et PDF. Tout s'enregistre tout seul.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden" onChange={(e) => { const l = e.target.files; if (l && l.length) void onFiles(l); e.currentTarget.value = ''; }} />
-          <button onClick={() => fileRef.current?.click()} disabled={busy === 'lecture'} className="flex items-center gap-2 bg-brand-ocean hover:bg-brand-encre text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
-            {busy === 'lecture' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Nouvelle offre depuis un fichier (Excel, CSV ou PDF, plusieurs PDF possibles)
-          </button>
-        </div>
-      </div>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden" onChange={(e) => { const l = e.target.files; if (l && l.length) void onFiles(l); e.currentTarget.value = ''; }} />
 
-      {msg && <p className="text-sm rounded-lg px-3 py-2 border text-red-700 bg-red-50 border-red-200">{msg}</p>}
-      {listError && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{listError}</p>}
+      {/* ── Panneau des offres (s'ouvre au besoin, l'offre garde la largeur) ──── */}
+      {listOpen && draft && (
+        <div className="fixed inset-0 z-40 flex">
+          <button aria-label="Fermer la liste des offres" className="absolute inset-0 bg-slate-900/30" onClick={() => setListOpen(false)} />
+          <aside aria-label="Offres" className="relative w-[340px] max-w-[90vw] h-full bg-white shadow-2xl flex flex-col">
+            {offerList(true)}
+          </aside>
+        </div>
+      )}
 
-      <div className="grid md:grid-cols-[270px_1fr] gap-4 items-start">
-        {/* ── Liste des offres : un clic = l'offre s'ouvre ─────────────────── */}
-        <aside className="bg-white rounded-xl border border-slate-200 shadow-sm md:sticky md:top-4">
-          <div className="px-3 py-2.5 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-800">Offres</span>
-            <span className="text-xs text-slate-400">{offers.length}</span>
+      {/* ── Fenêtre des notes ───────────────────────────────────────────────── */}
+      {notesOpen && draft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button aria-label="Fermer les notes" className="absolute inset-0 bg-slate-900/30" onClick={() => setNotesOpen(false)} />
+          <div role="dialog" aria-modal="true" aria-labelledby="offer-notes-title" className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 id="offer-notes-title" className="text-base font-semibold text-slate-900">Notes internes</h2>
+              <button onClick={() => setNotesOpen(false)} aria-label="Fermer" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-xs text-slate-500">Jamais exportées. Contact fournisseur, délai, conditions… Enregistrées automatiquement.</p>
+            <textarea autoFocus value={draft.notes} onChange={(e) => update({ notes: e.target.value })} rows={8} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" placeholder="Contact fournisseur, délai, conditions…" />
           </div>
-          {offers.length === 0 ? (
-            <p className="px-3 py-6 text-xs text-slate-400 text-center">Aucune offre. Dépose un fichier fournisseur pour créer la première.</p>
-          ) : (
-            <div className="divide-y divide-slate-100 max-h-[70vh] overflow-y-auto">
-              {offers.map((o) => {
-                const active = draft?.id === o.id;
-                const n = (o.vehicles ?? []).length, sel = (o.vehicles ?? []).filter((v) => v.selected).length;
-                return (
-                  <div key={o.id} className={`group flex items-start gap-2 px-3 py-2.5 cursor-pointer ${active ? 'bg-blue-50/70 border-l-2 border-brand-ocean' : 'hover:bg-slate-50 border-l-2 border-transparent'}`} onClick={() => open(o)}>
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-sm truncate ${active ? 'font-semibold text-brand-encre' : 'font-medium text-slate-800'}`}>{o.title || 'Sans titre'}</p>
-                      <p className="text-[11px] text-slate-500 truncate">{o.supplier || 'fournisseur ?'} · {sel}/{n} véh. · {new Date(o.updated_at).toLocaleDateString('fr-FR')}</p>
-                      <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${o.status === 'sent' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : o.status === 'closed' ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{STATUS_LABEL[o.status] ?? o.status}</span>
-                    </div>
-                    {o.user_id === userId && (
-                      <button onClick={(e) => { e.stopPropagation(); void remove(o); }} className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
-                    )}
-                  </div>
-                );
-              })}
+        </div>
+      )}
+
+      {!draft ? (
+        <div className="space-y-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Offres fournisseur</h1>
+            <p className="text-sm text-slate-600 mt-1">Une liste fournisseur déposée devient une offre MC Export : lue, analysée pays par pays, exportée à nos prix. Tout s'enregistre tout seul.</p>
+          </div>
+          {msg && <p className={`text-sm rounded-lg px-3 py-2 border ${msg.tone === 'error' ? 'text-red-700 bg-red-50 border-red-200' : 'text-blue-900 bg-blue-50 border-blue-200'}`}>{msg.text}</p>}
+          <div className="max-w-xl bg-white rounded-xl border border-slate-200 shadow-sm">{offerList(false)}</div>
+        </div>
+      ) : (
+        <>
+          {/* ── En-tête de l'offre ──────────────────────────────────────────── */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+            <div className="flex items-start gap-3 flex-wrap">
+              <button onClick={() => setListOpen(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50" title="Toutes les offres">
+                <PanelLeftOpen className="w-4 h-4" /> Offres <span className="text-slate-400">{offers.length}</span>
+              </button>
+              <div className="flex-1 min-w-[260px]">
+                <label className="sr-only" htmlFor="offer-title">Titre de l'offre</label>
+                <input id="offer-title" value={draft.title} onChange={(e) => update({ title: e.target.value })} placeholder="OPEL ASTRA — SÉLECTION PROFESSIONNELLE"
+                  className="w-full text-xl font-bold text-slate-900 bg-transparent rounded-lg px-2 py-1 -mx-2 hover:bg-slate-50 focus:bg-slate-50 outline-none" />
+                <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 mt-0.5">
+                  <label className="flex items-center gap-1">Fournisseur
+                    <input value={draft.supplier} onChange={(e) => update({ supplier: e.target.value })} style={{ width: `${Math.min(40, Math.max(8, draft.supplier.length + 2))}ch` }} className="px-1.5 py-0.5 rounded border border-transparent hover:border-slate-200 focus:border-slate-300 text-slate-800 font-medium outline-none" />
+                  </label>
+                  <span aria-hidden="true">·</span>
+                  {draft.source_files?.length
+                    ? draft.source_files.map((f) => <button key={f.path} type="button" onClick={() => void openSourceFile(f)} className="text-brand-ocean hover:underline" title="Ouvrir le fichier déposé">{f.name}</button>)
+                    : <span>{draft.source_filename || 'aucun fichier'}</span>}
+                  <span aria-hidden="true">·</span>
+                  <span>{unitsLabel(draft.vehicles.length, totalUnits)}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-slate-500 flex items-center gap-1.5 min-w-[110px]">
+                  {saveState.kind === 'saving' && <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Enregistrement…</>}
+                  {saveState.kind === 'saved' && <><Check className="w-3.5 h-3.5 text-emerald-600" /> Enregistré à {saveState.at}</>}
+                  {saveState.kind === 'error' && <span className="text-red-600 flex items-center gap-1"><CloudOff className="w-3.5 h-3.5" /> {saveState.text}</span>}
+                  {saveState.kind === 'idle' && draft.id && <><Check className="w-3.5 h-3.5 text-slate-400" /> Enregistrée</>}
+                </span>
+                <div role="group" aria-label="Statut de l'offre" className="flex rounded-lg bg-slate-100 p-0.5">
+                  {(['draft', 'sent', 'closed'] as const).map((s) => (
+                    <button key={s} onClick={() => update({ status: s })} aria-pressed={draft.status === s}
+                      className={`px-2.5 py-1 rounded-md text-xs capitalize ${draft.status === s ? 'bg-white shadow-sm font-semibold text-slate-900' : 'text-slate-500 hover:text-slate-800'}`}>{STATUS_LABEL[s]}</button>
+                  ))}
+                </div>
+                <button onClick={() => setNotesOpen(true)} className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50">
+                  <StickyNote className="w-4 h-4" /> Notes
+                  {draft.notes.trim() && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-white" aria-label="Notes présentes" />}
+                </button>
+                <button onClick={exportXlsx} disabled={selected.length === 0} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-brand-ocean text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><FileSpreadsheet className="w-4 h-4" /> Excel</button>
+                <button onClick={() => void exportPdf()} disabled={selected.length === 0 || busy === 'pdf'} className="flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} PDF</button>
+              </div>
+            </div>
+            <div role="tablist" aria-label="Vues de l'offre" className="flex gap-1 border-b border-slate-200 -mx-4 px-4">
+              {tabButton('selection', 'Sélection', ListChecks, `${selectedUnits}/${totalUnits}`)}
+              {tabButton('analyse', 'Analyse', BarChart3, `${lotsOf(draft.vehicles).length} lot${lotsOf(draft.vehicles).length > 1 ? 's' : ''}`)}
+              {tabButton('export', 'Export', Columns3, `${previewColumns.length} col.`)}
+            </div>
+          </div>
+
+          {msg && (
+            <div className={`flex items-start gap-2 text-sm rounded-lg px-3 py-2 border ${msg.tone === 'error' ? 'text-red-700 bg-red-50 border-red-200' : 'text-blue-900 bg-blue-50 border-blue-200'}`}>
+              <span className="flex-1">{msg.text}</span>
+              <button onClick={() => setMsg(null)} aria-label="Fermer le message" className="p-0.5 opacity-60 hover:opacity-100"><X className="w-3.5 h-3.5" /></button>
             </div>
           )}
-        </aside>
 
-        {/* ── L'offre ouverte ───────────────────────────────────────────────── */}
-        {!draft ? (
-          <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">
-            Choisis une offre à gauche, ou dépose un fichier fournisseur pour en créer une nouvelle.
-          </div>
-        ) : (
-          <div className="space-y-4 min-w-0">
-            {/* Barre d'état + actions */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-xs text-slate-500 flex items-center gap-1.5">
-                {saveState.kind === 'saving' && <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Enregistrement…</>}
-                {saveState.kind === 'saved' && <><Check className="w-3.5 h-3.5 text-emerald-600" /> Enregistré à {saveState.at}</>}
-                {saveState.kind === 'error' && <span className="text-red-600 flex items-center gap-1"><CloudOff className="w-3.5 h-3.5" /> {saveState.text}</span>}
-                {saveState.kind === 'idle' && draft.id && <><Check className="w-3.5 h-3.5 text-slate-400" /> Enregistrée</>}
-              </span>
-              <select value={draft.status} onChange={(e) => update({ status: e.target.value as SupplierOffer['status'] })} className="text-xs px-2 py-1 rounded-lg border border-slate-300 bg-white">
-                <option value="draft">Brouillon</option><option value="sent">Envoyée</option><option value="closed">Clôturée</option>
-              </select>
-              <div className="ml-auto flex items-center gap-2">
-                <button onClick={exportXlsx} disabled={selected.length === 0} className="flex items-center gap-2 bg-white border border-slate-300 hover:border-brand-ocean text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><FileSpreadsheet className="w-4 h-4" /> Excel</button>
-                <button onClick={exportPdf} disabled={selected.length === 0 || busy === 'pdf'} className="flex items-center gap-2 bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} PDF MC Export</button>
-              </div>
-            </div>
-
-            {/* Identité */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 grid md:grid-cols-[2fr_1fr] gap-3">
-              <label className="text-xs text-slate-600">Titre de l'offre
-                <input value={draft.title} onChange={(e) => update({ title: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" placeholder="OPEL ASTRA — SÉLECTION PROFESSIONNELLE" />
-              </label>
-              <label className="text-xs text-slate-600">Fournisseur
-                <input value={draft.supplier} onChange={(e) => update({ supplier: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
-              </label>
-              <p className="md:col-span-2 text-[11px] text-slate-500">
-                {draft.source_filename ? <>Fichier{(draft.source_files?.length ?? 0) > 1 ? 's' : ''} : {draft.source_files?.length
-                  ? draft.source_files.map((f, i) => (
-                    <span key={f.path}>{i > 0 ? ' + ' : ''}<button type="button" onClick={() => void openSourceFile(f)} className="text-brand-ocean hover:underline" title="Ouvrir le PDF déposé">{f.name}</button></span>
-                  ))
-                  : <span className="text-slate-700">{draft.source_filename}</span>} · {draft.layout === 'blocks' ? 'blocs par marque' : draft.layout === 'pdf' ? 'extrait de stock PDF' : 'tableau plat'} · {draft.vehicles.length} véhicule{draft.vehicles.length > 1 ? 's' : ''}</> : 'Aucun fichier'}
-              </p>
-            </div>
-
-            {/* Correspondance des colonnes */}
-            {draft.mappings.length > 0 && (
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-                <button onClick={() => setMappingOpen(!mappingOpen)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
-                  {mappingOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span className="text-sm font-semibold text-slate-800">Correspondance des colonnes</span>
-                  <span className="text-xs text-slate-500">{draft.mappings.filter((m) => m.field !== 'ignore').length} reconnues · {draft.mappings.filter((m) => m.field === 'ignore').length} gardées telles quelles</span>
-                  {parsed?.warnings.length ? <span className="ml-auto text-xs text-amber-700">{parsed.warnings.length} avertissement{parsed.warnings.length > 1 ? 's' : ''}</span> : null}
-                </button>
-                {/* RELIRE LE FICHIER (22/09) : une offre importée avant une règle
-                    de lecture (« 1st Reg. », marque depuis le modèle) se relit avec
-                    le parseur du jour, sélection et prix saisis conservés. */}
-                {draft.source_grid && (
-                  <div className="px-4 pb-2 -mt-1">
-                    <button
-                      onClick={() => update((d) => (d.source_grid ? buildDraftFromGrid({ sheet: d.source_filename, grid: d.source_grid }, d.source_filename, Object.fromEntries(d.mappings.map((m) => [m.header, m.field])), d) : d))}
-                      className="text-xs text-brand-ocean hover:underline"
-                      title="Relit le fichier conservé avec les règles de lecture actuelles (dates, marques, modèles) — sélection et prix MC Export gardés"
-                    >
-                      Relire le fichier avec les règles du jour
-                    </button>
-                  </div>
-                )}
-                {mappingOpen && (
-                  <div className="px-4 pb-3 border-t border-slate-100">
-                    {parsed?.warnings.map((w, i) => <p key={i} className="text-xs text-amber-800 mt-2">{w}</p>)}
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
-                      {draft.mappings.map((m) => (
-                        <div key={m.header} className="flex items-center gap-2 text-xs">
-                          <span className="w-36 truncate font-medium text-slate-700" title={m.header}>{m.header}</span>
-                          <span className="w-24 truncate text-slate-400" title={m.sample}>{m.sample}</span>
-                          <select value={m.field} onChange={(e) => remap(m.header, e.target.value as OfferField)} disabled={!draft.source_grid} className="flex-1 px-2 py-1 rounded border border-slate-300 bg-white">
-                            {(Object.keys(OFFER_FIELD_LABELS) as OfferField[]).map((f) => <option key={f} value={f}>{OFFER_FIELD_LABELS[f]}</option>)}
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                    {!draft.source_grid && <p className="text-[11px] text-amber-700 mt-2">Offre créée avant le 17/09 : le fichier n'a pas été conservé — dépose-le de nouveau (nouvelle offre) pour changer la correspondance. Les offres importées désormais restent modifiables.</p>}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Règle de prix + pays */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 grid md:grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs font-semibold text-slate-700 mb-1.5">Règle de prix MC Export (HT)</p>
-                <div className="flex items-center gap-2 text-sm flex-wrap">
-                  <select value={draft.price_rule.mode} onChange={(e) => applyRule({ ...draft.price_rule, mode: e.target.value as PriceRule['mode'] })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-sm">
-                    <option value="margin">Prix fournisseur HT + marge</option>
-                    <option value="fixed">Prix fixe pour tous</option>
-                    <option value="none">Sans prix — le client propose</option>
-                  </select>
-                  <input type="number" value={draft.price_rule.margin} onChange={(e) => update({ price_rule: { ...draft.price_rule, margin: Number(e.target.value) || 0 } })} className="w-24 px-2 py-1.5 rounded-lg border border-slate-300 text-sm text-right" />
+          {/* ══ SÉLECTION ══════════════════════════════════════════════════════ */}
+          {view === 'selection' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
+                <span className="font-semibold text-slate-800">Prix MC Export (HT)</span>
+                <select value={draft.price_rule.mode} onChange={(e) => applyRule({ ...draft.price_rule, mode: e.target.value as PriceRule['mode'] })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
+                  <option value="margin">Prix fournisseur HT + marge</option>
+                  <option value="fixed">Prix fixe pour tous</option>
+                  <option value="none">Sans prix — le client propose</option>
+                </select>
+                {draft.price_rule.mode !== 'none' && <>
+                  <input type="number" aria-label="Montant" value={draft.price_rule.margin} onChange={(e) => update({ price_rule: { ...draft.price_rule, margin: Number(e.target.value) || 0 } })} className="w-24 px-2 py-1.5 rounded-lg border border-slate-300 text-right" />
                   <span className="text-slate-500">€</span>
                   <button onClick={() => applyRule(draft.price_rule)} className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-900 text-white">Appliquer à tous</button>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">TTC fournisseur converti en HT (÷ 1,20) quand la TVA est récupérable. Un prix modifié à la main est gardé tant que tu n'appliques pas la règle.</p>
+                </>}
+                <span className="ml-auto text-slate-500">Total HT retenu : <span className="font-semibold text-slate-900">{draft.price_rule.mode === 'none' ? 'sans prix' : fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0) * qtyOf(v), 0))}</span></span>
               </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-700 mb-1.5">Pays à relever pour savoir où vendre</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {OFFER_COUNTRIES.map((c) => {
-                    const on = draft.countries.includes(c.code);
-                    return <button key={c.code} onClick={() => update({ countries: on ? draft.countries.filter((x) => x !== c.code) : [...draft.countries, c.code] })} className={`text-xs px-2.5 py-1 rounded-full border ${on ? 'bg-brand-ocean text-white border-brand-ocean' : 'bg-white text-slate-600 border-slate-300'}`}>{c.label}</button>;
-                  })}
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1.5">Le relevé se lance dans la section « Où vendre » ci-dessous, lot par lot, après vérification des recherches.</p>
-              </div>
-            </div>
 
-            {/* Véhicules */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3 flex-wrap">
-                <span className="text-sm font-semibold text-slate-800">{selectedUnits}/{draft.vehicles.reduce((a, v) => a + qtyOf(v), 0)} véhicules retenus{draft.vehicles.some((v) => qtyOf(v) > 1) ? ` · ${selected.length}/${draft.vehicles.length} modèles` : ''}</span>
-                <button onClick={() => update({ vehicles: draft.vehicles.map((v) => ({ ...v, selected: true })) })} className="text-xs text-brand-ocean hover:underline">Tout retenir</button>
-                <button onClick={() => update({ vehicles: draft.vehicles.map((v) => ({ ...v, selected: false })) })} className="text-xs text-slate-500 hover:underline">Tout écarter</button>
-                {draft.price_rule.mode === 'none' ? <span className="ml-auto text-xs text-amber-700">Offre sans prix : aucune colonne de prix dans le PDF et le tableur</span> : <span className="ml-auto text-xs text-slate-500">Total HT retenu : <span className="font-semibold text-slate-800">{fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0) * qtyOf(v), 0))}</span></span>}
-              </div>
-              {modelGroups.length > 1 && (
-                <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/60">
-                  <div className="flex items-center gap-2 flex-wrap text-xs">
-                    <span className="text-slate-500 mr-1">Modèles · cocher = retenir, nom = afficher</span>
-                    <button type="button" onClick={() => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: true })) }))} className="px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100">Tout retenir</button>
-                    <button type="button" onClick={() => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: false })) }))} className="px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100">Aucun</button>
-                    {viewModel && <button type="button" onClick={() => setViewModel(null)} className="px-2 py-0.5 rounded border border-brand-ocean bg-white text-brand-ocean hover:bg-slate-100">✕ Afficher tous les modèles</button>}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {modelGroups.map((g) => {
-                      const all = g.selected === g.units, none = g.selected === 0;
+              {/* Modèles, par marque */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+                <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+                  <h2 className="text-sm font-semibold text-slate-800">Modèles du fichier</h2>
+                  <span className="text-xs text-slate-500">{selectedUnits} / {totalUnits} véhicules retenus · cocher = retenir, nom = afficher seul</span>
+                  <label className="ml-auto flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm">
+                    <Search className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="sr-only">Chercher un modèle</span>
+                    <input value={modelQuery} onChange={(e) => setModelQuery(e.target.value)} placeholder="Chercher un modèle" className="w-40 outline-none bg-transparent" />
+                  </label>
+                  <button onClick={() => setAllSelected(true)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Tout retenir</button>
+                  <button onClick={() => setAllSelected(false)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Aucun</button>
+                </div>
+                {brandGroups.length === 0 ? (
+                  <p className="px-4 py-6 text-sm text-slate-400 text-center">{draft.vehicles.length ? 'Aucun modèle ne correspond.' : 'Aucun véhicule dans cette offre.'}</p>
+                ) : (
+                  <div className="p-3 grid gap-3 grid-cols-[repeat(auto-fill,minmax(280px,1fr))]">
+                    {brandGroups.map((b) => {
+                      const all = b.selected === b.units, none = b.selected === 0;
                       return (
-                        <span key={g.key} className={`inline-flex items-center gap-1 rounded-full border pl-1.5 pr-2.5 py-0.5 text-xs ${viewModel === g.key ? 'border-brand-ocean bg-blue-50' : 'border-slate-300 bg-white'} ${none ? 'opacity-60' : ''}`}>
-                          <input type="checkbox" checked={all} ref={(el) => { if (el) el.indeterminate = !all && !none; }} onChange={(e) => setModelSelected(g.key, e.target.checked)} title={all ? 'Retenu en entier' : none ? 'Aucun véhicule retenu' : `${g.selected}/${g.units} retenus`} />
-                          <button type="button" onClick={() => setViewModel(viewModel === g.key ? null : g.key)} className="font-medium text-slate-800 hover:underline">{g.key}</button>
-                          <span className="text-slate-500 tabular-nums">{none || all ? g.units : `${g.selected}/${g.units}`}</span>
-                        </span>
+                        <div key={b.brand} className={`rounded-xl border ${none ? 'border-slate-200' : 'border-blue-200'} overflow-hidden`}>
+                          <label className={`flex items-center gap-2 px-3 py-2 ${none ? 'bg-slate-50' : 'bg-blue-50/60'}`}>
+                            <input type="checkbox" checked={all} ref={(el) => { if (el) el.indeterminate = !all && !none; }} onChange={(e) => setBrandSelected(b.brand, e.target.checked)} />
+                            <span className="text-sm font-semibold text-slate-900 flex-1">{b.brand}</span>
+                            <span className="text-xs tabular-nums text-slate-500">{b.selected}/{b.units}</span>
+                          </label>
+                          <ul className="divide-y divide-slate-100">
+                            {b.models.map((m) => {
+                              const mAll = m.selected === m.units, mNone = m.selected === 0;
+                              return (
+                                <li key={m.key} className={`flex items-center gap-2 px-3 py-1.5 ${viewModel === m.key ? 'bg-blue-50' : ''}`}>
+                                  <input type="checkbox" aria-label={`Retenir ${m.key}`} checked={mAll} ref={(el) => { if (el) el.indeterminate = !mAll && !mNone; }} onChange={(e) => setModelSelected(m.key, e.target.checked)} />
+                                  <button onClick={() => setViewModel(viewModel === m.key ? null : m.key)} className={`flex-1 min-w-0 text-left ${mNone ? 'text-slate-500' : 'text-slate-900 font-medium'}`} title="Afficher seulement ce modèle">
+                                    <span className="block text-sm truncate">{m.model}</span>
+                                    <span className="block text-[11px] text-slate-500 font-normal tabular-nums">
+                                      {m.kmN ? `≈ ${fmtKm(m.kmSum / m.kmN)}` : 'km ?'} · {m.priceN ? `≈ ${fmtEur(m.priceSum / m.priceN)} HT` : 'prix ?'}
+                                    </span>
+                                  </button>
+                                  <span className={`text-xs tabular-nums px-1.5 py-0.5 rounded-full ${mNone ? 'bg-slate-100 text-slate-500' : mAll ? 'bg-brand-ocean text-white' : 'bg-blue-100 text-brand-encre'}`}>{mNone || mAll ? m.units : `${m.selected}/${m.units}`}</span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
                       );
                     })}
                   </div>
+                )}
+              </div>
+
+              {/* Véhicules */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+                <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+                  <h2 className="text-sm font-semibold text-slate-800">Véhicules</h2>
+                  {viewModel && <button onClick={() => setViewModel(null)} className="text-xs px-2 py-0.5 rounded-full border border-brand-ocean text-brand-ocean hover:bg-blue-50">{viewModel} <X className="inline w-3 h-3" /></button>}
+                  <span className="text-xs text-slate-500">Une valeur mal lue ? Crayon en bout de ligne : la correction est gardée, même après une relecture.</span>
+                  <span className="ml-auto flex items-center gap-3 text-xs">
+                    {parsed?.warnings.length ? (
+                      <details className="relative">
+                        <summary className="cursor-pointer text-amber-700">{parsed.warnings.length} avertissement{parsed.warnings.length > 1 ? 's' : ''} de lecture</summary>
+                        <div className="absolute right-0 z-10 mt-1 w-96 max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg p-3 space-y-1">
+                          {parsed.warnings.map((w, i) => <p key={i} className="text-amber-800">{w}</p>)}
+                        </div>
+                      </details>
+                    ) : null}
+                    {draft.source_grid && <button onClick={rereadFile} className="text-brand-ocean hover:underline" title="Relit le fichier conservé avec les règles de lecture actuelles — sélection, prix et corrections gardés">Relire le fichier</button>}
+                  </span>
                 </div>
-              )}
-              <div className="overflow-x-auto">
-                <table className="text-xs w-full min-w-[1100px]">
-                  <thead><tr className="text-left text-slate-400 border-b border-slate-100">
-                    <th className="py-1.5 px-3"></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3 text-right" title="Exemplaires identiques sur cette ligne">Qté</th><th className="py-1.5 pr-3">Motorisation</th><th className="py-1.5 pr-3">Version</th><th className="py-1.5 pr-3">Immat.</th>
-                    <th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3">Énergie</th><th className="py-1.5 pr-3 text-right">Ch</th><th className="py-1.5 pr-3">Boîte</th>
-                    <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur HT</th><th className="py-1.5 pr-3 text-right">MC Export HT</th><th className="py-1.5 pr-3">Rapport</th>
-                  </tr></thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {shownVehicles.map((v) => {
-                      const base = supplierHt(v);
-                      return (
-                        <tr key={v.id} className={v.selected ? '' : 'opacity-50'}>
-                          <td className="py-1.5 px-3"><input type="checkbox" checked={v.selected} onChange={(e) => setVehicle(v.id, { selected: e.target.checked })} /></td>
-                          <td className="py-1.5 pr-3 whitespace-nowrap"><span className="font-medium text-slate-800">{v.brand} {v.model}</span>{v.vin && <span className="block text-[10px] text-slate-400">{v.vin}</span>}</td>
-                          <td className="py-1.5 pr-3 text-right tabular-nums"><input type="number" min={1} value={qtyOf(v)} onChange={(e) => setVehicle(v.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })} className={`w-14 px-1.5 py-1 rounded border text-right tabular-nums ${qtyOf(v) > 1 ? 'border-slate-300 font-semibold text-slate-800' : 'border-slate-200 text-slate-400'}`} /></td>
-                          <td className="py-1.5 pr-3 max-w-[200px] truncate text-slate-700" title={v.engine ?? ''}>{v.engine || '—'}</td>
-                          <td className="py-1.5 pr-3 max-w-[260px] truncate text-slate-600" title={v.version}>{v.version}{v.color ? ` · ${v.color}` : ''}</td>
-                          <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">{fmtDate(v.reg_date)}</td>
-                          <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtKm(v.km)}</td>
-                          <td className="py-1.5 pr-3 text-slate-600">{v.fuel ?? '—'}</td>
-                          <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{v.power_ch ?? '—'}</td>
-                          <td className="py-1.5 pr-3 text-slate-600">{v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox ?? '—'}</td>
-                          <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{fmtEur(v.damages)}</td>
-                          <td className="py-1.5 pr-3">{v.vat_recoverable == null ? '—' : v.vat_recoverable ? <span className="text-emerald-700">récup.</span> : <span className="text-amber-700">marge</span>}</td>
-                          <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={v.price_ttc != null ? `TTC ${fmtEur(v.price_ttc)}` : ''}>{fmtEur(base)}</td>
-                          <td className="py-1.5 pr-3 text-right"><input type="number" value={v.sale_price ?? ''} onChange={(e) => setVehicle(v.id, { sale_price: e.target.value === '' ? null : Number(e.target.value) })} className="w-24 px-2 py-1 rounded border border-slate-300 text-right tabular-nums font-semibold text-brand-encre" /></td>
-                          <td className="py-1.5 pr-3">{v.report_url ? <a href={v.report_url} target="_blank" rel="noreferrer" className="text-brand-ocean inline-flex"><ExternalLink className="w-3.5 h-3.5" /></a> : '—'}</td>
-                        </tr>
-                      );
-                    })}
-                    {draft.vehicles.length === 0 && <tr><td colSpan={14} className="py-6 text-center text-slate-400">Aucun véhicule dans cette offre.</td></tr>}
-                  </tbody>
-                </table>
+                <div className="overflow-x-auto">
+                  <table className="text-xs w-full min-w-[1100px]">
+                    <thead><tr className="text-left text-slate-400 border-b border-slate-100">
+                      <th className="py-1.5 px-3"><span className="sr-only">Retenu</span></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3 text-right">Qté</th><th className="py-1.5 pr-3">Motorisation · version</th><th className="py-1.5 pr-3">Immat.</th>
+                      <th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3">Énergie · boîte</th><th className="py-1.5 pr-3 text-right">Ch</th>
+                      <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur HT</th><th className="py-1.5 pr-3 text-right">MC Export HT</th>
+                      {customColumns.map((c) => <th key={c.id} className="py-1.5 pr-3 text-brand-encre">{c.label}</th>)}
+                      <th className="py-1.5 pr-3">Rapport</th><th className="py-1.5 pr-3"><span className="sr-only">Corriger</span></th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {shownVehicles.map((v) => {
+                        const base = supplierHt(v);
+                        const corrected = Object.keys(v.manual ?? {}).length > 0;
+                        return (
+                          <Fragment key={v.id}>
+                            <tr className={v.selected ? '' : 'opacity-50'}>
+                              <td className="py-1.5 px-3"><input type="checkbox" aria-label={`Retenir ${v.brand} ${v.model}`} checked={v.selected} onChange={(e) => setVehicle(v.id, { selected: e.target.checked })} /></td>
+                              <td className="py-1.5 pr-3 whitespace-nowrap"><span className="font-medium text-slate-800">{v.brand} {v.model}</span>{corrected && <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-blue-50 text-brand-encre border border-blue-200" title={`Corrigé à la main : ${Object.keys(v.manual ?? {}).join(', ')}`}>corrigé</span>}{v.vin && <span className="block text-[10px] text-slate-400">{v.vin}</span>}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums"><input type="number" min={1} aria-label="Quantité" value={qtyOf(v)} onChange={(e) => correctVehicle(v.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })} className={`w-14 px-1.5 py-1 rounded border text-right tabular-nums ${qtyOf(v) > 1 ? 'border-slate-300 font-semibold text-slate-800' : 'border-slate-200 text-slate-400'}`} /></td>
+                              <td className="py-1.5 pr-3 max-w-[260px]"><span className="block truncate text-slate-700" title={v.engine ?? ''}>{v.engine || '—'}</span><span className="block truncate text-[10px] text-slate-500" title={v.version}>{v.version}{v.color ? ` · ${v.color}` : ''}</span></td>
+                              <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">{fmtDate(v.reg_date)}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtKm(v.km)}</td>
+                              <td className="py-1.5 pr-3 text-slate-600 whitespace-nowrap">{v.fuel ?? '—'} · {v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox ?? '—'}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{v.power_ch ?? '—'}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{fmtEur(v.damages)}</td>
+                              <td className="py-1.5 pr-3">{v.vat_recoverable == null ? '—' : v.vat_recoverable ? <span className="text-emerald-700">récup.</span> : <span className="text-amber-700">marge</span>}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={v.price_ttc != null ? `TTC ${fmtEur(v.price_ttc)}` : ''}>{fmtEur(base)}</td>
+                              <td className="py-1.5 pr-3 text-right"><input type="number" aria-label="Prix MC Export HT" value={v.sale_price ?? ''} onChange={(e) => setVehicle(v.id, { sale_price: e.target.value === '' ? null : Number(e.target.value) })} className="w-24 px-2 py-1 rounded border border-slate-300 text-right tabular-nums font-semibold text-brand-encre" /></td>
+                              {customColumns.map((c) => (
+                                <td key={c.id} className="py-1.5 pr-3"><input aria-label={`${c.label} — ${v.brand} ${v.model}`} value={v.custom?.[c.id] ?? ''} onChange={(e) => setCustomValue(v.id, c.id, e.target.value)} className="w-28 px-2 py-1 rounded border border-blue-200 bg-blue-50/40" /></td>
+                              ))}
+                              <td className="py-1.5 pr-3">{v.report_url ? <a href={v.report_url} target="_blank" rel="noreferrer" className="text-brand-ocean inline-flex" aria-label="Ouvrir le rapport"><ExternalLink className="w-3.5 h-3.5" /></a> : '—'}</td>
+                              <td className="py-1.5 pr-3"><button onClick={() => setEditVehicle(editVehicle === v.id ? null : v.id)} aria-label={`Corriger ${v.brand} ${v.model}`} aria-expanded={editVehicle === v.id} className={`p-1 rounded ${editVehicle === v.id ? 'bg-blue-100 text-brand-encre' : 'text-slate-400 hover:text-brand-ocean hover:bg-slate-100'}`}><Pencil className="w-3.5 h-3.5" /></button></td>
+                            </tr>
+                            {editVehicle === v.id && (
+                              <tr className="bg-blue-50/40">
+                                <td colSpan={15 + customColumns.length} className="px-3 py-3">
+                                  <VehicleEditor v={v} onChange={(patch) => correctVehicle(v.id, patch)} />
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                      {draft.vehicles.length === 0 && <tr><td colSpan={15 + customColumns.length} className="py-6 text-center text-slate-400">Aucun véhicule dans cette offre.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Où vendre : lots × pays, URLs vérifiables, relevé, verdict */}
+          {/* ══ ANALYSE ════════════════════════════════════════════════════════ */}
+          {view === 'analyse' && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3 flex-wrap">
-                <span className="text-sm font-semibold text-slate-800">Où vendre</span>
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+                <h2 className="text-base font-semibold text-slate-900">Analyse des lots</h2>
                 <span className="text-xs text-slate-500">
-                  {lots.length} lot{lots.length > 1 ? 's' : ''} · {selectedUnits} véhicule{selectedUnits > 1 ? 's' : ''} retenu{selectedUnits > 1 ? 's' : ''}{viewModel ? ` · ${viewModel} seulement` : ''} · {draft.countries.length} pays
+                  {lots.length} lot{lots.length > 1 ? 's' : ''} · {selectedUnits} véhicule{selectedUnits > 1 ? 's' : ''} retenu{selectedUnits > 1 ? 's' : ''}{viewModel ? ` · ${viewModel} seulement` : ''}
                   {lastSurveyAt ? ` · dernier relevé ${lastSurveyAt.toLocaleDateString('fr-FR')} ${lastSurveyAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ' · aucun relevé'}
                 </span>
                 <div className="ml-auto flex items-center gap-2">
                   {surveyRunning && <button onClick={() => { cancelSurvey.current = true; }} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600">Arrêter après ce lot</button>}
-                  <button onClick={() => void runSurvey(lots)} disabled={surveyRunning || lots.length === 0 || draft.countries.length === 0} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white font-medium disabled:opacity-50">
-                    {surveyRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} Relever tous les lots
-                  </button>
+                  <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <Plus className="w-3.5 h-3.5" /><span className="sr-only">Ajouter un pays</span>
+                    <select value="" onChange={(e) => { const c = e.target.value; if (c) update({ countries: [...draft.countries, c] }); }} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
+                      <option value="">Ajouter un pays</option>
+                      {OFFER_COUNTRIES.filter((c) => !draft.countries.includes(c.code)).map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+                    </select>
+                  </label>
                 </div>
               </div>
               {survey && (
@@ -640,47 +767,69 @@ export function Offres() {
                 </div>
               )}
               {lots.length === 0 ? (
-                <p className="px-4 py-6 text-xs text-slate-400 text-center">Retiens des véhicules ci-dessus : ils seront regroupés en lots (marque, modèle, année, énergie, boîte).</p>
+                <div className="px-4 py-10 text-center space-y-2">
+                  <p className="text-sm text-slate-500">Aucun véhicule retenu : les lots se forment à partir des modèles choisis (marque, modèle, année, énergie, boîte).</p>
+                  <button onClick={() => setView('selection')} className="text-sm px-3 py-1.5 rounded-lg bg-brand-ocean text-white">Choisir les modèles</button>
+                </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="text-xs w-full min-w-[900px]">
-                    <thead><tr className="text-left text-slate-400 border-b border-slate-100">
-                      <th className="py-1.5 px-3">Lot</th><th className="py-1.5 pr-3 text-right">Véh.</th><th className="py-1.5 pr-3 text-right">Notre HT</th>
-                      {draft.countries.map((c) => <th key={c} className="py-1.5 pr-3">{OFFER_COUNTRIES.find((x) => x.code === c)?.label ?? c}{COUNTRY_CAVEAT[c] ? <span title={COUNTRY_CAVEAT[c]}> ⚠</span> : null}</th>)}
-                      <th className="py-1.5 pr-3"></th>
+                    <thead><tr className="text-left text-slate-500 border-b border-slate-100 align-bottom">
+                      <th className="py-2 px-3 font-medium">Lot</th><th className="py-2 pr-3 text-right font-medium">Véh.</th><th className="py-2 pr-3 text-right font-medium">Notre HT</th>
+                      {draft.countries.map((c) => (
+                        <th key={c} className="py-2 pr-3 font-medium min-w-[170px]">
+                          <div className="flex items-center gap-1">
+                            <span className="text-slate-800">{countryLabel(c)}</span>
+                            {COUNTRY_CAVEAT[c] ? <span title={COUNTRY_CAVEAT[c]} className="text-amber-600">⚠</span> : null}
+                            <button onClick={() => update({ countries: draft.countries.filter((x) => x !== c) })} aria-label={`Retirer ${countryLabel(c)}`} className="ml-auto p-0.5 rounded text-slate-300 hover:text-red-600"><X className="w-3 h-3" /></button>
+                          </div>
+                          <button onClick={() => void runSurvey(lots, [c])} disabled={surveyRunning} className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-md border border-brand-ocean text-brand-ocean hover:bg-blue-50 disabled:opacity-40 font-normal">
+                            <Search className="w-3 h-3" /> Relever ({surveyedIn(c)}/{lots.length})
+                          </button>
+                        </th>
+                      ))}
+                      <th className="py-2 pr-3"></th>
                     </tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {lots.map((lot) => {
                         const opened = targetsOpen === lot.key;
-                        const ts = targets[targetKey(lot)];
+                        const ts = draft.countries.every((c) => targets[targetKey(lot, c)]) ? draft.countries.flatMap((c) => targets[targetKey(lot, c)]) : undefined;
                         return (
                           <Fragment key={lot.key}>
                             <tr>
-                              <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">
+                              <td className="py-2.5 px-3 whitespace-nowrap font-medium text-slate-800">
                                 {lot.label}
                                 {lot.adjusted && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full border bg-blue-50 text-brand-encre border-blue-200 font-normal">critères réglés</span>}
                               </td>
-                              <td className="py-2 pr-3 text-right tabular-nums text-slate-600">{lot.count}</td>
-                              <td className="py-2 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(lot.ourPriceMin)} – ${fmtEur(lot.ourPriceMax)}` : fmtEur(lot.ourPriceAvg)}</td>
+                              <td className="py-2.5 pr-3 text-right tabular-nums text-slate-600">{lot.count}</td>
+                              <td className="py-2.5 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(lot.ourPriceMin)} – ${fmtEur(lot.ourPriceMax)}` : fmtEur(lot.ourPriceAvg)}</td>
                               {draft.countries.map((c) => {
                                 const res = draft.market?.[lot.key]?.[c];
+                                if (!res) {
+                                  return (
+                                    <td key={c} className="py-2.5 pr-3 align-top">
+                                      <button onClick={() => void runSurvey([lot], [c])} disabled={surveyRunning} className="px-2 py-1 rounded-md border border-dashed border-slate-300 text-slate-500 hover:border-brand-ocean hover:text-brand-ocean disabled:opacity-40">Relever</button>
+                                    </td>
+                                  );
+                                }
                                 const v = verdictOf(lot.ourPriceAvg, res, c);
                                 return (
-                                  <td key={c} className="py-2 pr-3 align-top">
+                                  <td key={c} className="py-2.5 pr-3 align-top">
                                     <span className={`inline-block px-1.5 py-0.5 rounded border text-[11px] ${VERDICT_CLASS[v.tone]}`}>{v.text}</span>
-                                    {res && res.medianTtc != null && (
-                                      <span className="block text-[10px] text-slate-500 mt-0.5 whitespace-nowrap" title="Médiane = milieu du marché ; attaque = médiane des moins chères (3, 5 ou 8 selon la taille), là où une annonce est compétitive">méd. affichée {fmtEur(res.medianTtc)}{res.attackTtc != null ? <> · attaque <span className="text-slate-700 font-medium">{fmtEur(res.attackTtc)}</span></> : null} · {res.competitors} conc.</span>
+                                    {res.medianTtc != null && (
+                                      <span className="block text-[10px] text-slate-500 mt-0.5 whitespace-nowrap" title="Médiane = milieu du marché ; attaque = médiane des moins chères (3, 5 ou 8 selon la taille), là où une annonce est compétitive">méd. {fmtEur(res.medianTtc)}{res.attackTtc != null ? <> · attaque <span className="text-slate-700 font-medium">{fmtEur(res.attackTtc)}</span></> : null} · {res.competitors} conc.</span>
                                     )}
-                                    {res && res.medianTtc == null && Object.values(res.sites).some((s) => s.error) && (
+                                    {res.medianTtc == null && Object.values(res.sites).some((s) => s.error) && (
                                       <span className="block text-[10px] text-amber-700 mt-0.5">{(() => { const s = Object.values(res.sites).find((x) => x.error); return s ? `${SITE_LABEL(s.site)} : ${s.error}` : ''; })()}</span>
                                     )}
+                                    <span className="block text-[10px] text-slate-400">{new Date(res.at).toLocaleDateString('fr-FR')}</span>
                                   </td>
                                 );
                               })}
-                              <td className="py-2 pr-3 whitespace-nowrap text-right">
-                                <button onClick={() => setEditLot(editLot === lot.key ? null : lot.key)} className={`inline-flex items-center gap-1 mr-3 ${editLot === lot.key ? 'text-brand-encre font-medium' : 'text-brand-ocean'} hover:underline`}><SlidersHorizontal className="w-3 h-3" /> {editLot === lot.key ? 'Fermer' : 'Régler les critères'}</button>
-                                <button onClick={() => void toggleTargets(lot)} className="text-brand-ocean hover:underline mr-3">{opened ? 'Masquer' : 'Voir les recherches'}</button>
-                                <button onClick={() => void runSurvey([lot])} disabled={surveyRunning || draft.countries.length === 0} className="text-slate-700 hover:underline disabled:opacity-40">Relever ce lot</button>
+                              <td className="py-2.5 pr-3 whitespace-nowrap text-right">
+                                <button onClick={() => setEditLot(editLot === lot.key ? null : lot.key)} className={`inline-flex items-center gap-1 mr-3 ${editLot === lot.key ? 'text-brand-encre font-medium' : 'text-brand-ocean'} hover:underline`}><SlidersHorizontal className="w-3 h-3" /> {editLot === lot.key ? 'Fermer' : 'Critères'}</button>
+                                <button onClick={() => void toggleTargets(lot)} className="text-brand-ocean hover:underline mr-3">{opened ? 'Masquer' : 'Recherches'}</button>
+                                <button onClick={() => void runSurvey([lot], draft.countries)} disabled={surveyRunning || draft.countries.length === 0} className="text-slate-700 hover:underline disabled:opacity-40">Relever le lot</button>
                               </td>
                             </tr>
                             {editLot === lot.key && (
@@ -730,7 +879,7 @@ export function Offres() {
                             {opened && (
                               <tr className="bg-slate-50/60">
                                 <td colSpan={4 + draft.countries.length} className="px-3 py-2">
-                                  {!ts ? <span className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> génération des URLs…</span> : ts.length === 0 ? <span className="text-slate-400">Aucun site pour les pays cochés.</span> : (
+                                  {!ts ? <span className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> génération des URLs…</span> : ts.length === 0 ? <span className="text-slate-400">Aucun site pour les pays de l'analyse.</span> : (
                                     <div className="grid md:grid-cols-2 gap-x-6 gap-y-1">
                                       {ts.map((t) => {
                                         const sr = draft.market?.[lot.key]?.[t.country]?.sites[t.site];
@@ -759,18 +908,136 @@ export function Offres() {
                 </div>
               )}
               <datalist id="offer-brands">{Object.keys(known).map((b) => <option key={b} value={b} />)}</datalist>
-              <p className="px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
-                Verdict = prix d'attaque du pays (médiane des 3, 5 ou 8 annonces les moins chères selon la taille du marché, prix affichés bruts en euros, aucun calcul de taxe) face à notre prix HT moyen du lot : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous. La médiane (milieu du marché) reste affichée à titre d'information ; un relevé fait avant ce réglage garde la médiane jusqu'à sa relance.
-                {draft.countries.some((c) => COUNTRY_CAVEAT[c]) && <> ⚠ Danemark : {COUNTRY_CAVEAT.DK}.</>} Les recherches passent par la même file que le Market Intelligence : compte quelques minutes par lot.
-              </p>
+              <details className="px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
+                <summary className="cursor-pointer text-slate-600">Comment lire le verdict ?</summary>
+                <p className="mt-1">
+                  Prix d'attaque du pays (médiane des 3, 5 ou 8 annonces les moins chères selon la taille du marché, prix affichés bruts en euros, aucun calcul de taxe) face à notre prix HT moyen du lot : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous. Un relevé d'avant ce réglage garde la médiane jusqu'à sa relance.
+                  {draft.countries.some((c) => COUNTRY_CAVEAT[c]) && <> ⚠ Danemark : {COUNTRY_CAVEAT.DK}.</>} Les recherches passent par la même file que le Market Intelligence : compte quelques minutes par lot et par pays.
+                </p>
+              </details>
             </div>
+          )}
 
-            <label className="block bg-white rounded-xl border border-slate-200 shadow-sm p-4 text-xs text-slate-600">Notes internes (jamais exportées)
-              <textarea value={draft.notes} onChange={(e) => update({ notes: e.target.value })} rows={2} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" placeholder="Contact fournisseur, délai, conditions…" />
-            </label>
-          </div>
-        )}
-      </div>
+          {/* ══ EXPORT ═════════════════════════════════════════════════════════ */}
+          {view === 'export' && (
+            <div className="grid lg:grid-cols-[400px_1fr] gap-4 items-start">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+                <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-slate-800 flex-1">Colonnes de l'offre</h2>
+                  {draft.export_columns && <button onClick={() => update({ export_columns: null })} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800" title="Revenir aux colonnes par défaut"><RotateCcw className="w-3 h-3" /> Par défaut</button>}
+                </div>
+                {columnsNotSaved && <p className="mx-4 mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Réglage des colonnes appliqué à l'export mais pas encore gardé en base : SQL du 11/10 (offres_colonnes_export) à coller.</p>}
+                <ul className="divide-y divide-slate-100">
+                  {columns.map((c, i) => {
+                    const empty = isColumnEmpty(c, selected);
+                    const priceHidden = draft.price_rule.mode === 'none' && (c.builtin === 'price' || c.builtin === 'supplier_price');
+                    return (
+                      <li key={c.id} className="flex items-center gap-2 px-3 py-1.5">
+                        <div className="flex flex-col">
+                          <button onClick={() => moveColumn(i, -1)} disabled={i === 0} aria-label={`Monter ${c.label}`} className="text-slate-400 hover:text-slate-800 disabled:opacity-20"><ArrowUp className="w-3 h-3" /></button>
+                          <button onClick={() => moveColumn(i, 1)} disabled={i === columns.length - 1} aria-label={`Descendre ${c.label}`} className="text-slate-400 hover:text-slate-800 disabled:opacity-20"><ArrowDown className="w-3 h-3" /></button>
+                        </div>
+                        <label className="flex-1 min-w-0">
+                          <span className="sr-only">Libellé de la colonne</span>
+                          <input value={c.label} onChange={(e) => setColumns(columns.map((x) => (x.id === c.id ? { ...x, label: e.target.value } : x)))} className={`w-full px-2 py-1 rounded border text-sm ${empty || priceHidden ? 'border-slate-200 text-slate-400' : 'border-slate-300 text-slate-800'}`} />
+                        </label>
+                        {!c.builtin && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-brand-encre border border-blue-200">libre</span>}
+                        {(empty || priceHidden) && <span className="text-[10px] text-slate-400" title={priceHidden ? 'Offre sans prix' : 'Vide pour tous les véhicules retenus'}>non exportée</span>}
+                        <button onClick={() => setColumns(columns.filter((x) => x.id !== c.id))} aria-label={`Retirer ${c.label}`} className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50"><X className="w-3.5 h-3.5" /></button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <div className="px-4 py-3 border-t border-slate-100 space-y-2">
+                  {missingBuiltins.length > 0 && (
+                    <select value="" onChange={(e) => { const k = e.target.value as keyof typeof BUILTIN_COLUMNS; if (k) setColumns([...columns, { id: k, builtin: k, label: BUILTIN_COLUMNS[k].label }]); }} className="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-sm">
+                      <option value="">Ajouter une colonne du fichier…</option>
+                      {missingBuiltins.map((k) => <option key={k} value={k}>{BUILTIN_COLUMNS[k].label}</option>)}
+                    </select>
+                  )}
+                  <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (!newColumnLabel.trim()) return; setColumns([...columns, newCustomColumn(newColumnLabel)]); setNewColumnLabel(''); }}>
+                    <label className="flex-1"><span className="sr-only">Nom de la colonne libre</span>
+                      <input value={newColumnLabel} onChange={(e) => setNewColumnLabel(e.target.value)} placeholder="Colonne libre (ex. Disponibilité)" className="w-full px-2 py-1.5 rounded-lg border border-slate-300 text-sm" />
+                    </label>
+                    <button type="submit" disabled={!newColumnLabel.trim()} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-brand-ocean text-white text-sm disabled:opacity-40"><Plus className="w-3.5 h-3.5" /> Ajouter</button>
+                  </form>
+                  <p className="text-[11px] text-slate-500">Les colonnes libres se remplissent dans l'onglet Sélection, une case par véhicule. Une colonne du fichier vide pour tous les véhicules n'est pas exportée.</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm min-w-0">
+                <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+                  <h2 className="text-sm font-semibold text-slate-800">Aperçu de l'offre</h2>
+                  <span className="text-xs text-slate-500">{unitsLabel(selected.length, selectedUnits)} · {draft.price_rule.mode === 'none' ? 'sans prix' : 'prix HT'}{selected.length > 8 ? ' · 8 premières lignes' : ''}</span>
+                  <div className="ml-auto flex gap-2">
+                    <button onClick={exportXlsx} disabled={selected.length === 0} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-brand-ocean text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><FileSpreadsheet className="w-4 h-4" /> Excel</button>
+                    <button onClick={() => void exportPdf()} disabled={selected.length === 0 || busy === 'pdf'} className="flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} PDF MC Export</button>
+                  </div>
+                </div>
+                {selected.length === 0 ? (
+                  <p className="px-4 py-10 text-sm text-slate-400 text-center">Aucun véhicule retenu : rien à exporter.</p>
+                ) : (
+                  <div className="overflow-x-auto p-3">
+                    <p className="text-sm font-bold text-slate-900 uppercase">{draft.title || 'OFFRE MC EXPORT'}</p>
+                    <table className="mt-2 text-xs w-full">
+                      <thead><tr className="bg-slate-800 text-white text-left">{previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{c.label}</th>)}</tr></thead>
+                      <tbody>
+                        {selected.slice(0, 8).map((v, i) => (
+                          <tr key={v.id} className={i % 2 ? 'bg-slate-50' : ''}>
+                            {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}</td>)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {!draft.export_columns && <p className="mt-2 text-[11px] text-slate-500">Colonnes par défaut : le PDF garde sa mise en page habituelle. Dès qu'une colonne est modifiée, Excel et PDF suivent exactement cette liste.</p>}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Correction à la main des valeurs lues d'un véhicule (11/10 — remplace l'écran de correspondance des colonnes). */
+function VehicleEditor({ v, onChange }: { v: OfferVehicle; onChange: (patch: Partial<OfferVehicle>) => void }) {
+  const field = 'block mt-0.5 px-2 py-1 rounded border border-slate-300 bg-white';
+  const regYear = (iso: string) => { const y = Number(iso.slice(0, 4)); return Number.isFinite(y) && y > 1900 ? y : null; };
+  return (
+    <div className="flex flex-wrap items-end gap-3 text-xs">
+      <label className="text-slate-600">Marque<input value={v.brand} onChange={(e) => onChange({ brand: e.target.value.toUpperCase() })} className={`${field} w-28 uppercase`} /></label>
+      <label className="text-slate-600">Modèle<input value={v.model} onChange={(e) => onChange({ model: e.target.value.toUpperCase() })} className={`${field} w-36 uppercase`} /></label>
+      <label className="text-slate-600">Version<input value={v.version} onChange={(e) => onChange({ version: e.target.value })} className={`${field} w-56`} /></label>
+      <label className="text-slate-600">Motorisation<input value={v.engine ?? ''} onChange={(e) => onChange({ engine: e.target.value || null })} className={`${field} w-40`} /></label>
+      <label className="text-slate-600">VIN<input value={v.vin ?? ''} onChange={(e) => onChange({ vin: e.target.value.toUpperCase() || null })} className={`${field} w-44 uppercase font-mono`} /></label>
+      <label className="text-slate-600">1re immat.<input type="date" value={v.reg_date ?? ''} onChange={(e) => onChange({ reg_date: e.target.value || null, year: e.target.value ? regYear(e.target.value) : v.year })} className={field} /></label>
+      <label className="text-slate-600">Km<input type="number" value={v.km ?? ''} onChange={(e) => onChange({ km: numOrNull(e.target.value) })} className={`${field} w-24`} /></label>
+      <label className="text-slate-600">Énergie
+        <select value={v.fuel ?? ''} onChange={(e) => onChange({ fuel: e.target.value || null })} className={field}>
+          <option value="">—</option>
+          {FUEL_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
+          {v.fuel && !FUEL_OPTIONS.includes(v.fuel) && <option value={v.fuel}>{v.fuel}</option>}
+        </select>
+      </label>
+      <label className="text-slate-600">Boîte
+        <select value={v.gearbox ?? ''} onChange={(e) => onChange({ gearbox: e.target.value || null })} className={field}>
+          <option value="">—</option><option value="AUTOMATIQUE">Automatique</option><option value="MANUELLE">Manuelle</option>
+          {v.gearbox && !['AUTOMATIQUE', 'MANUELLE'].includes(v.gearbox) && <option value={v.gearbox}>{v.gearbox}</option>}
+        </select>
+      </label>
+      <label className="text-slate-600">Ch<input type="number" value={v.power_ch ?? ''} onChange={(e) => onChange({ power_ch: numOrNull(e.target.value) })} className={`${field} w-20`} /></label>
+      <label className="text-slate-600">Couleur<input value={v.color ?? ''} onChange={(e) => onChange({ color: e.target.value || null })} className={`${field} w-28`} /></label>
+      <label className="text-slate-600">Dommages (€)<input type="number" value={v.damages ?? ''} onChange={(e) => onChange({ damages: numOrNull(e.target.value) })} className={`${field} w-24`} /></label>
+      <label className="text-slate-600">TVA
+        <select value={v.vat_recoverable == null ? '' : v.vat_recoverable ? 'oui' : 'non'} onChange={(e) => onChange({ vat_recoverable: e.target.value === '' ? null : e.target.value === 'oui' })} className={field}>
+          <option value="">—</option><option value="oui">Récupérable</option><option value="non">Régime de la marge</option>
+        </select>
+      </label>
+      <label className="text-slate-600">Prix fournisseur HT (€)<input type="number" value={v.price_ht ?? ''} onChange={(e) => onChange({ price_ht: numOrNull(e.target.value) })} className={`${field} w-28`} /></label>
+      <label className="text-slate-600">Prix fournisseur TTC (€)<input type="number" value={v.price_ttc ?? ''} onChange={(e) => onChange({ price_ttc: numOrNull(e.target.value) })} className={`${field} w-28`} /></label>
+      <span className="text-[11px] text-slate-500 pb-1.5 basis-full">Chaque correction est enregistrée et rejouée si le fichier est relu. Un prix fournisseur corrigé ne change pas le prix MC Export : « Appliquer à tous » le recalcule.</span>
     </div>
   );
 }

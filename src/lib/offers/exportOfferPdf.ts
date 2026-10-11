@@ -5,6 +5,7 @@
 import jsPDF from 'jspdf';
 import type { OfferVehicle } from './parseSupplierFile';
 import { fmtDate, bodyOf, labelOf, engineOf, fuelLabel, type OfferDocument } from './exportOfferXlsx';
+import { BUILTIN_COLUMNS, cellValue, effectiveColumns, gearboxLabel, type BuiltinColumnKey, type ExportColumn } from './exportColumns';
 
 const ENCRE: [number, number, number] = [0x22, 0x34, 0x6e];
 const OCEAN: [number, number, number] = [0x2c, 0x5f, 0x9e];
@@ -14,6 +15,16 @@ const GRIS: [number, number, number] = [0x64, 0x74, 0x8b];
  *  n'existe pas dans la police Helvetica de jsPDF et sortait en « / »
  *  (constat Channing 14/09 : « 10/700 ») — espace normale à la place. */
 const pdfNum = (n: number) => Math.round(n).toLocaleString('fr-FR').replace(/[\u202f\u00a0]/g, ' ');
+
+/** Libellés PDF des colonnes intégrées non renommées (ASCII : la police Helvetica de jsPDF). */
+const PDF_LABEL: Record<BuiltinColumnKey, string> = {
+  vin: 'Chassis (VIN)', vehicle: 'Vehicule', qty: 'Unites', engine: 'Motorisation', version: 'Version', body: 'Carrosserie',
+  reg: '1re immat.', km: 'Km', color: 'Couleur', fuel: 'Energie', power: 'Ch', gearbox: 'Boite', co2: 'CO2',
+  damages: 'Dommages (EUR)', price: 'Prix HT (EUR)', supplier_price: 'Prix fourn. HT (EUR)', location: 'Lieu de stockage', report: 'Inspection',
+};
+/** Texte libre → ce que Helvetica sait écrire : sans accents, € → EUR, ₂ → 2, tirets longs → -. */
+const pdfSafe = (t: string) => t.replace(/€/g, 'EUR').replace(/₂/g, '2').replace(/[\u2013\u2014]/g, '-').replace(/[\u202f\u00a0]/g, ' ')
+  .normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\x20-\x7e]/g, '');
 
 async function loadLogo(): Promise<string | null> {
   try {
@@ -58,10 +69,43 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
   // COLONNES SELON LES DONNÉES PRÉSENTES (décision Channing 22/09, liste
   // Sorento : « trop de vide ») : une colonne vide pour TOUS les véhicules
   // n'est pas imprimée — la place revient aux colonnes renseignées.
-  const cols = allCols.filter((c) => doc.vehicles.some((v) => c.has(v)));
+  // Colonnes réglées sur l'offre (11/10) : ordre, libellés et colonnes libres de l'offre.
+  const configured = (cs: ExportColumn[]): Col[] => effectiveColumns(cs, doc.vehicles, doc.showPrices !== false).map((c) => {
+    const b = c.builtin ? BUILTIN_COLUMNS[c.builtin] : null;
+    const label = c.builtin && c.label === BUILTIN_COLUMNS[c.builtin].label ? PDF_LABEL[c.builtin] : pdfSafe(c.label);
+    const text = (v: OfferVehicle): string => {
+      const x = cellValue(c, v);
+      if (x === '' || x == null) return NA;
+      if (c.builtin === 'reg') return fmtDate(String(x)).replace('—', NA);
+      if (c.builtin === 'report') return 'Voir le rapport';
+      if (c.builtin === 'gearbox') return pdfSafe(gearboxLabel(v.gearbox));
+      return typeof x === 'number' ? pdfNum(x) : pdfSafe(String(x));
+    };
+    return {
+      key: c.builtin === 'price' ? 'price' : c.builtin === 'report' ? 'rep' : c.id, label,
+      w: b?.pdfW ?? Math.max(20, Math.min(46, c.label.length * 2.2 + 6)), align: b?.numeric ? 'right' as const : undefined,
+      wrap: Boolean(b?.wrap) || !c.builtin, get: text, has: () => true,
+    };
+  });
+  const cols = doc.columns ? configured(doc.columns) : allCols.filter((c) => doc.vehicles.some((v) => c.has(v)));
   const tableW = cols.reduce((a, c) => a + c.w, 0);
   const scale = (W - 2 * margin) / tableW;
   cols.forEach((c) => { c.w = c.w * scale; });
+  // Colonnes réglées (souvent plus nombreuses) : une mise à l'échelle uniforme
+  // coupait les dates (« 06/03/202 »). Les colonnes courtes reçoivent la largeur
+  // de leur texte le plus long (en-tête compris), les colonnes longues se
+  // partagent le reste et passent sur deux lignes.
+  if (doc.columns) {
+    const avail = W - 2 * margin;
+    const textW = (t: string, bold: boolean) => { pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setFontSize(7.5); return pdf.getTextWidth(t); };
+    const fixed = cols.filter((c) => !c.wrap);
+    const flex = cols.filter((c) => c.wrap);
+    fixed.forEach((c) => { c.w = Math.min(60, Math.max(textW(c.label, true), ...doc.vehicles.map((v) => textW(c.get(v), c.key === 'price'))) + 4); });
+    const rest = avail - fixed.reduce((a, c) => a + c.w, 0);
+    const flexBase = flex.reduce((a, c) => a + c.w, 0);
+    if (flex.length && rest >= flex.length * 14) flex.forEach((c) => { c.w = (c.w / flexBase) * rest; });
+    else { const k = avail / cols.reduce((a, c) => a + c.w, 0); cols.forEach((c) => { c.w *= k; }); }
+  }
 
   const drawHeader = () => {
     if (logo) { try { pdf.addImage(logo, 'PNG', margin, 8, 14, 11); } catch { /* logo illisible */ } }
