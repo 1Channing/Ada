@@ -969,7 +969,11 @@ export function Offres() {
                                         <>
                                           <span className={`self-start px-1.5 py-0.5 rounded border text-[11px] ${VERDICT_CLASS[v.tone]}`}>{v.text}</span>
                                           {res.medianTtc != null && (
-                                            <span className="text-[10px] text-slate-500 whitespace-nowrap" title="Médiane = milieu du marché ; attaque = médiane des moins chères (3, 5 ou 8 selon la taille), là où une annonce est compétitive">méd. {fmtEur(res.medianTtc)}{res.attackTtc != null ? <> · attaque <span className="text-slate-700 font-medium">{fmtEur(res.attackTtc)}</span></> : null} · {res.competitors} conc.</span>
+                                            <span className="text-[10px] text-slate-500 whitespace-nowrap" title="Prix d'attaque = médiane des annonces les moins chères (3, 5 ou 8 selon la taille du marché), là où une annonce est compétitive : c'est lui qui donne le pourcentage. La médiane (milieu du marché) est indicative.">
+                                              {res.attackTtc != null
+                                                ? <>attaque <span className="text-slate-800 font-semibold">{fmtEur(res.attackTtc)}</span> · méd. {fmtEur(res.medianTtc)} · {res.competitors} conc.</>
+                                                : <>méd. {fmtEur(res.medianTtc)} · {res.competitors} conc. · <span className="text-amber-700">relancer pour le prix d'attaque</span></>}
+                                            </span>
                                           )}
                                           {siteError && <span className="text-[10px] text-amber-700">{SITE_LABEL(siteError.site)} : {siteError.error}</span>}
                                         </>

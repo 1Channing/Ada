@@ -274,7 +274,10 @@ export function verdictOf(ourHt: number | null, c: CountryResult | undefined, co
   const pct = Math.round(margin * 100);
   const caveat = COUNTRY_CAVEAT[country] ? ' ⚠' : '';
   if (c.competitors === 0) return { tone: 'warn', text: `marché vide${caveat}`, marginPct: pct };
-  if (margin >= 0.15) return { tone: 'good', text: `+${pct} % sous le marché${caveat}`, marginPct: pct };
-  if (margin >= 0.05) return { tone: 'warn', text: `+${pct} % (juste)${caveat}`, marginPct: pct };
+  // Le libellé dit sur quoi porte l'écart (11/10, Channing : « le pourcentage doit
+  // être calculé sur le prix d'attaque ») — médiane seulement pour un vieux relevé.
+  const base = c.attackTtc != null ? "sous le prix d'attaque" : 'sous la médiane (ancien relevé)';
+  if (margin >= 0.15) return { tone: 'good', text: `+${pct} % ${base}${caveat}`, marginPct: pct };
+  if (margin >= 0.05) return { tone: 'warn', text: `+${pct} % ${base} (juste)${caveat}`, marginPct: pct };
   return { tone: 'bad', text: `${pct >= 0 ? '+' : ''}${pct} % — trop cher${caveat}`, marginPct: pct };
 }
