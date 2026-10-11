@@ -665,7 +665,7 @@ export function Offres() {
                     </select>
                   </label>
                 )}
-                <p className="text-xs text-slate-500">S'applique aux tableaux, à l'Analyse (le verdict compare notre prix {S.display === 'ttc' ? 'TTC' : 'HT'} aux prix affichés sur les sites, qui sont en général TTC) et à l'export. La règle de prix reste calculée en HT.</p>
+                <p className="text-xs text-slate-500">S'applique aux tableaux, aux colonnes « Notre » de l'Analyse et à l'export. Le verdict de l'Analyse, lui, compare toujours notre HT + la TVA du pays de revente au prix affiché (TTC). La règle de prix reste calculée en HT.</p>
               </section>
 
               <section className="space-y-2">
@@ -893,7 +893,8 @@ export function Offres() {
                 </div>
               </div>
               <p className="px-4 py-2 border-b border-slate-100 text-xs text-slate-600 bg-slate-50/60">
-                Chaque <strong>ligne</strong> est un modèle retenu, avec ses critères de recherche. Chaque <strong>case</strong> donne le verdict de ce modèle dans ce pays :
+                Chaque <strong>ligne</strong> est un modèle retenu, avec ses critères de recherche. Chaque <strong>case</strong> donne le verdict de ce modèle dans ce pays,
+                en comparant <strong>notre prix HT + la TVA du pays</strong> au prix d'attaque affiché sur les sites (TTC) :
                 son bouton <strong>« Relever »</strong> relance la recherche de ce modèle dans ce pays seulement. Le bouton d'une <strong>colonne</strong> relève tous les modèles dans ce pays ;
                 celui d'une <strong>ligne</strong>, ce modèle dans tous les pays.
               </p>
@@ -956,7 +957,7 @@ export function Offres() {
                               {draft.countries.map((c) => {
                                 const res = draft.market?.[lot.key]?.[c];
                                 const state = cellState[cellKey(lot, c)];
-                                const v = res ? verdictOf(toShown(lot.ourPriceAvg, S), res, c) : null;
+                                const v = res ? verdictOf(lot.ourPriceAvg, res, c) : null;
                                 const siteError = res && res.medianTtc == null ? Object.values(res.sites).find((x) => x.error) : undefined;
                                 return (
                                   <td key={c} className="py-3 pr-3 align-top">
@@ -970,6 +971,7 @@ export function Offres() {
                                           <span className={`self-start px-1.5 py-0.5 rounded border text-[11px] ${VERDICT_CLASS[v.tone]}`}>{v.text}</span>
                                           {res.medianTtc != null && (
                                             <span className="text-[10px] text-slate-500 whitespace-nowrap" title="Prix d'attaque = médiane des annonces les moins chères (3, 5 ou 8 selon la taille du marché), là où une annonce est compétitive : c'est lui qui donne le pourcentage. La médiane (milieu du marché) est indicative.">
+                                              {v?.ourTtc != null && <span className="block text-slate-700">notre TTC {c} : <span className="font-semibold">{fmtEur(v.ourTtc)}</span> <span className="text-slate-400">(HT + TVA {Math.round((v.vat ?? 0.2) * 100)} %)</span></span>}
                                               {res.attackTtc != null
                                                 ? <>attaque <span className="text-slate-800 font-semibold">{fmtEur(res.attackTtc)}</span> · méd. {fmtEur(res.medianTtc)} · {res.competitors} conc.</>
                                                 : <>méd. {fmtEur(res.medianTtc)} · {res.competitors} conc. · <span className="text-amber-700">relancer pour le prix d'attaque</span></>}
@@ -1080,7 +1082,7 @@ export function Offres() {
               <details className="px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
                 <summary className="cursor-pointer text-slate-600">Comment lire le verdict ?</summary>
                 <p className="mt-1">
-                  Prix d'attaque du pays (médiane des 3, 5 ou 8 annonces les moins chères selon la taille du marché, prix affichés bruts en euros, aucun calcul de taxe) face à notre prix {B} moyen du lot ({B === 'TTC' ? `TVA ${Math.round(S.saleVat * 100)} %` : 'hors taxes'}, réglable dans Paramètres) : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous. Un relevé d'avant ce réglage garde la médiane jusqu'à sa relance.
+                  Prix d'attaque du pays (médiane des 3, 5 ou 8 annonces les moins chères selon la taille du marché, prix affichés en euros, donc TTC) face à notre prix HT moyen du lot augmenté de la TVA du pays (France 20 %, Allemagne 19 %, Pays-Bas et Belgique 21 %, Italie 22 %, Danemark et Suède 25 %…) : <span className="text-emerald-700">bon</span> si le marché est ≥ 15 % au-dessus, <span className="text-amber-700">juste</span> entre 5 et 15 %, <span className="text-red-700">trop cher</span> en dessous. Un relevé d'avant ce réglage garde la médiane jusqu'à sa relance.
                   {draft.countries.some((c) => COUNTRY_CAVEAT[c]) && <> ⚠ Danemark : {COUNTRY_CAVEAT.DK}.</>} Les recherches passent par la même file que le Market Intelligence : compte quelques minutes par lot et par pays.
                 </p>
               </details>

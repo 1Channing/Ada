@@ -76,6 +76,11 @@ export function applyLotCriteria(lot: OfferLot, c: LotCriteria | undefined): Off
 // brutes ») : le relevé compare notre prix HT au prix AFFICHÉ par les sites,
 // converti en euros et rien d'autre — plus de TVA retirée, plus d'estimation
 // de taxe d'immatriculation danoise. La note par pays reste informative.
+/** TVA standard du pays où l'on revend : le prix affiché d'une annonce est TTC. */
+export const COUNTRY_VAT: Record<string, number> = {
+  FR: 0.2, DE: 0.19, NL: 0.21, BE: 0.21, DK: 0.25, SE: 0.25, ES: 0.21, IT: 0.22, LT: 0.21, HU: 0.27,
+};
+export const countryVat = (country: string) => COUNTRY_VAT[country] ?? 0.2;
 export const COUNTRY_CAVEAT: Record<string, string> = { DK: 'prix danois affichés taxe d’immatriculation comprise' };
 
 const FUEL_CRITERIA: Record<string, string> = {
@@ -260,24 +265,31 @@ export function mergeCountry(prev: CountryResult | undefined, country: string, r
   return { sites, medianTtc, attackTtc, competitors, at: new Date().toISOString() };
 }
 
-export type Verdict = { tone: 'good' | 'warn' | 'bad' | 'idle'; text: string; marginPct: number | null };
-/** Notre prix HT face au prix AFFICHÉ médian du pays — brut, sans calcul de taxe. */
+export type Verdict = { tone: 'good' | 'warn' | 'bad' | 'idle'; text: string; marginPct: number | null; ourTtc?: number | null; vat?: number };
+/** Notre prix HT + TVA du pays, face au prix AFFICHÉ (TTC) d'attaque du pays. */
 export function verdictOf(ourHt: number | null, c: CountryResult | undefined, country: string): Verdict {
   // VERDICT SUR LE PRIX D'ATTAQUE (décision Channing 07/10 : « on fait pour les
   // relevés de lot ») : notre HT face au bas du marché (médiane des 3/5/8
   // moins chères), pas au milieu. Les relevés d'avant (sans attaque) gardent
   // la médiane jusqu'à leur prochain relevé.
+  //
+  // HT CONTRE TTC (11/10, constat Channing : « 13 683 HT font 16 419 € TTC, on
+  // n'est pas du tout à 33 % sous le marché ») : les prix affichés des sites
+  // sont TTC ; on achète et on vend HT, l'acheteur revend TTC dans SON pays.
+  // On compare donc notre HT + la TVA du pays de la colonne au prix d'attaque.
   const ref = c?.attackTtc ?? c?.medianTtc ?? null;
   if (!c || ref == null) return { tone: 'idle', text: 'pas de relevé', marginPct: null };
   if (ourHt == null) return { tone: 'idle', text: 'prix MC Export manquant', marginPct: null };
-  const margin = (ref - ourHt) / ourHt;
+  const vat = countryVat(country);
+  const ourTtc = Math.round(ourHt * (1 + vat));
+  const margin = (ref - ourTtc) / ourTtc;
   const pct = Math.round(margin * 100);
   const caveat = COUNTRY_CAVEAT[country] ? ' ⚠' : '';
-  if (c.competitors === 0) return { tone: 'warn', text: `marché vide${caveat}`, marginPct: pct };
+  if (c.competitors === 0) return { tone: 'warn', text: `marché vide${caveat}`, marginPct: pct, ourTtc, vat };
   // Le libellé dit sur quoi porte l'écart (11/10, Channing : « le pourcentage doit
   // être calculé sur le prix d'attaque ») — médiane seulement pour un vieux relevé.
   const base = c.attackTtc != null ? "sous le prix d'attaque" : 'sous la médiane (ancien relevé)';
-  if (margin >= 0.15) return { tone: 'good', text: `+${pct} % ${base}${caveat}`, marginPct: pct };
-  if (margin >= 0.05) return { tone: 'warn', text: `+${pct} % ${base} (juste)${caveat}`, marginPct: pct };
-  return { tone: 'bad', text: `${pct >= 0 ? '+' : ''}${pct} % — trop cher${caveat}`, marginPct: pct };
+  if (margin >= 0.15) return { tone: 'good', text: `+${pct} % ${base}${caveat}`, marginPct: pct, ourTtc, vat };
+  if (margin >= 0.05) return { tone: 'warn', text: `+${pct} % ${base} (juste)${caveat}`, marginPct: pct, ourTtc, vat };
+  return { tone: 'bad', text: `${pct >= 0 ? '+' : ''}${pct} % — trop cher${caveat}`, marginPct: pct, ourTtc, vat };
 }
