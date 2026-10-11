@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { timingSafeEqual } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { executeStudy, scrapeSearch, reconScrape, scrapeListingDetailCard, fetchBinaryWithZyte } from './scraper';
 import { runFuelEvidenceHarvest, startFuelEvidenceScheduler } from './fuelEvidence';
@@ -27,6 +28,37 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 
 const WORKER_SECRET = process.env.WORKER_SECRET || '';
 
+/**
+ * GARDE DES ROUTES DE TRAVAIL (11/10) : sans WORKER_SECRET, le worker
+ * REFUSE (fail-closed) au lieu de tourner sans authentification — n'importe
+ * qui connaissant l'URL Railway pouvait lancer des relevés (crédits Zyte) et
+ * écrire des annonces en base avec la clé service. Exception volontaire pour
+ * le développement local : WORKER_ALLOW_NO_SECRET=1.
+ */
+const ALLOW_NO_SECRET = process.env.WORKER_ALLOW_NO_SECRET === '1';
+function secretMatches(provided: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(WORKER_SECRET);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+/** true = requête autorisée ; sinon la réponse (401/503) est déjà envoyée. */
+function checkWorkerSecret(req: express.Request, res: express.Response, tag: string): boolean {
+  if (!WORKER_SECRET) {
+    if (ALLOW_NO_SECRET) return true;
+    console.error(`[${tag}] ❌ WORKER_SECRET non configuré — requête refusée (fail-closed)`);
+    res.status(503).json({ error: 'Worker not configured: WORKER_SECRET is missing' });
+    return false;
+  }
+  const raw = req.headers.authorization || req.headers['x-worker-secret'] || '';
+  const header = Array.isArray(raw) ? raw[0] : raw;
+  if (!secretMatches(header.replace(/^Bearer\s+/i, ''))) {
+    console.error(`[${tag}] ❌ Unauthorized: Invalid or missing WORKER_SECRET`);
+    res.status(401).json({ error: 'Unauthorized: Invalid or missing WORKER_SECRET' });
+    return false;
+  }
+  return true;
+}
+
 /** Clé de segment d'une mise à jour MI : '' sans critère resserrant (ingestion
  *  nue du modèle), sinon 'mi:' + critères — chaque jeu de critères a sa
  *  propre histoire de profondeur (faux dossiers Corolla 07/09). */
@@ -41,7 +73,11 @@ function criteriaSegmentKey(c: SearchCriteria | null): string {
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-app.use(cors());
+// Le worker n'est appelé que de serveur à serveur (fonctions Supabase) :
+// aucun navigateur n'a à l'appeler. Origines permises seulement si listées
+// dans WORKER_ALLOWED_ORIGINS (séparées par des virgules), sinon aucune.
+const ALLOWED_ORIGINS = (process.env.WORKER_ALLOWED_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
+app.use(cors({ origin: ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : false }));
 // 10 Mo : un re-scan MI de 758 annonces cochées envoie son plan entier —
 // la limite par défaut (100 Ko) répondait « request entity too large »
 // (constat Channing 07/09 : « Lancement impossible : Edge Function returned
@@ -98,15 +134,7 @@ function purgeOldIngestJobs() {
 }
 
 app.post('/ingest-url', async (req, res) => {
-  const authHeaderRaw = req.headers.authorization || req.headers['x-worker-secret'] || '';
-  const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
-  const providedSecret = authHeader.replace('Bearer ', '');
-
-  if (!WORKER_SECRET) {
-    console.warn('[INGEST] ⚠️ WORKER_SECRET not configured - running without auth');
-  } else if (providedSecret !== WORKER_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid or missing WORKER_SECRET' });
-  }
+  if (!checkWorkerSecret(req, res, 'INGEST')) return;
 
   const { url, jobId, async: wantAsync, criteria: rawCriteria, submittedBy: rawSubmitter } = req.body ?? {};
   // Server-side pipeline: when the frontend sends the declared criteria, the
@@ -441,18 +469,7 @@ app.post('/execute-studies', async (req, res) => {
   console.log('[WORKER] ===== Execute Studies Request Received =====');
   console.log('[WORKER] Timestamp:', new Date().toISOString());
 
-  const authHeaderRaw = req.headers.authorization || req.headers['x-worker-secret'] || '';
-  const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
-  const providedSecret = authHeader.replace('Bearer ', '');
-
-  if (!WORKER_SECRET) {
-    console.warn('[WORKER] ⚠️ WORKER_SECRET not configured - running without auth');
-  } else if (providedSecret !== WORKER_SECRET) {
-    console.error('[WORKER] ❌ Unauthorized: Invalid or missing WORKER_SECRET');
-    return res.status(401).json({
-      error: 'Unauthorized: Invalid or missing WORKER_SECRET',
-    });
-  }
+  if (!checkWorkerSecret(req, res, 'WORKER')) return;
 
   console.log('[WORKER] ✅ Authentication passed');
 
@@ -619,12 +636,7 @@ app.post('/execute-studies', async (req, res) => {
  * campaign row to status='stopping' (read between items).
  */
 app.post('/campaign/start', async (req, res) => {
-  const authHeaderRaw = req.headers.authorization || req.headers['x-worker-secret'] || '';
-  const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
-  const providedSecret = authHeader.replace('Bearer ', '');
-  if (WORKER_SECRET && providedSecret !== WORKER_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid or missing WORKER_SECRET' });
-  }
+  if (!checkWorkerSecret(req, res, 'CAMPAIGN')) return;
 
   const { sites, total, reinforceShare, variantShare, label, filters, deepScan, discoveryOnly, plan, dryRun } = req.body ?? {};
   if (!Array.isArray(sites) || sites.length === 0 || !total) {
