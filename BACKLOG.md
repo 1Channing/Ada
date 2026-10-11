@@ -832,6 +832,33 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **RADAR ASSAINI, VITRINE BIERSCHNEIDER, RELEVÉS HEBDO, BOÎTE NOIRE PURGÉE
+  (11/10, Channing : « on tourne au ralenti, il nous faut trouver des
+  opportunités » → analyse complète, cinq points validés)**.
+  (1) Radar MI : il affichait « RAV4 PHEV 2022 NL : 14 845 € » (Mégane,
+  Captur, Eclipse Cross… écrites sous l'étiquette RAV4 par Marktplaats les
+  12-14/09 — le hash d'URL n'atteint pas le serveur, chantier 0bis) et
+  « Model Y 2023 IT : 5 000 € » (« subentro leasing » Subito à 790-7 900 €).
+  Règles : mots « subentro / cessione leasing / noleggio / reprise de
+  contrat / lease overname » dans le vocabulaire mensualité ;
+  mi_refresh_dashboards v3 (migration 20261011100000) = une observation par
+  annonce, plancher 2 000 €, titre cohérent avec la marque (un titre qui
+  commence par une autre marque connue est écarté), « median » = prix
+  d'attaque (médiane des 3/5/8 moins chères), cnt = annonces distinctes ;
+  nettoyage des lignes Marktplaats polluées par SQL après comptage.
+  (3) Relevés de stock hebdomadaires (worker/dealerStockScheduler.ts) :
+  chaque nuit 3 h Paris, concessions avec vitrine ET un relevé réussi, non
+  relevées depuis 6 jours, lecture directe seulement (un dernier relevé
+  passé par Zyte reste manuel : payant) ; bilan dans worker_logs.
+  (4) Boîte noire : 12 836 dossiers d'avant le 28/09 marqués revus (incident
+  « technical » clos le 27/09 ; taxonomy_gap / insufficient = modèles rares),
+  162 restent. Vitrine www.bierschneider.de (plateforme carzilla : cartes
+  cc-vehicle, pages « ?cp=N », 20 par page, « von 5973 Treffern », prix
+  « 10.140,‑ € » dans cc-vehicle__price--current, MwSt. ausweisbar) :
+  lecteur `carzilla`, vérifié sur la page réelle (20/20 avec prix, km, EZ).
+  (2) Sept études proposées (SQL donné à Channing, RLS « own » : ses
+  lignes) : DE→FR Q6 e-tron 2025, DE→NL Enyaq 2025 / ID.5 2023 / i5 2025,
+  IT→NL Sportage hybride 2026, ES→BE Kuga PHEV 2023, ES→FR Ioniq 5 2025.
 - **MI : RECHERCHES SAUVEGARDÉES, FAVORIS, SUPPRESSION (08/10, Channing :
   « enregistrer des études pour les retrouver avec les pays et tous les
   filtres, un onglet Recherches sauvegardées, un cœur en favori, pouvoir

@@ -116,6 +116,18 @@ function isPriceMonthly(text: string): boolean {
     'operational lease',
     'leasing',
     'maandelijkse betaling',
+    // Italie (constat 11/10, Subito : « subentro leasing » à 790 / 1 500 €
+    // pour une Model Y 2023 — reprise de contrat, pas un prix de vente).
+    'subentro',
+    'cessione leasing',
+    'cessione contratto',
+    'rilevo leasing',
+    'noleggio',
+    // France / Pays-Bas : reprise de contrat.
+    'reprise de leasing',
+    'reprise de contrat',
+    'lease overname',
+    'leaseovername',
   ];
   return monthlyKeywords.some(kw => text.includes(kw));
 }

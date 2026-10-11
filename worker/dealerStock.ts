@@ -30,8 +30,8 @@ import { recordLearningCase, resolveLearningCase } from './learningBox';
 import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -197,6 +197,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/<a[^>]+class="[^"]*\bcar-card\b[^"]*"[^>]+data-price=/.test(html)) return 'carcards';
   // autrado (Autexx, 08/10) : cartes <article class="c-vehicle" data-id>, images img.autrado.de.
   if (/class="c-vehicles-list__item/.test(html) && /class="c-vehicle\b[^"]*"[^>]*data-id="\d+"/.test(html)) return 'autrado';
+  // carzilla (Bierschneider, 11/10) : cartes « cc-vehicle », contrôleur Angular ResultsItemController, pages « ?cp=N ».
+  if (/class="cc-vehicle card/.test(html) && /cc-link-vehicle-detail/.test(html)) return 'carzilla';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -666,6 +668,86 @@ async function scrapeAutrado(url: string, firstHtml: string): Promise<DealerStoc
   return { provider: 'autrado', total: out.length, declared: null, vehicles: out, pages, warnings };
 }
 
+// ── carzilla (Auto Bierschneider, www.bierschneider.de) ──────────────────────
+// Constat 11/10 (boîte à apprendre « Vitrine non reconnue ») : plateforme
+// carzilla — <div class="cc-vehicle card"> avec le titre dans
+// <a class="cc-link-vehicle-detail" href="/fahrzeuge/…/detail/seat/ibiza/
+// gebrauchtwagen/6231644/?of=SalePrice">, attributs à tooltip (Status,
+// Getriebe, Kraftstoff, « EZ 04/2021 », « 92.025 km », « 66 kW / 90 PS »,
+// carrosserie, couleur), prix « 10.140,‑ € », « MwSt. ausweisbar »,
+// « ehem. UPE ». 20 par page, « 1 - 20 von 5973 Treffern », pages « ?cp=N »
+// (299 pages : lecture directe, sans Zyte, ~4 min). Prix TTC allemands.
+export function parseCarzillaCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  const text = (s: string) => unesc(s.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
+  const parts = html.split(/<div class="cc-vehicle card/);
+  for (let i = 1; i < parts.length; i++) {
+    const card = parts[i];
+    const link = card.match(/<a class="cc-link-vehicle-detail"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    if (!link) continue;
+    const href = unesc(link[1]);
+    const id = href.match(/\/(\d{5,})\/?(?:\?|$)/)?.[1] ?? href.match(/vid=(\d+)/)?.[1];
+    if (!id) continue;
+    const title = text(link[2]);
+    const url = href.startsWith('http') ? href : `${origin}${href.startsWith('/') ? '' : '/'}${href}`;
+    const tip = (label: string): string | null => {
+      const m = card.match(new RegExp(`title="${label}"[^>]*>([\\s\\S]*?)<\\/span>`));
+      return m ? text(m[1]) || null : null;
+    };
+    const t = text(card);
+    const status = tip('Status');
+    const gear = tip('Getriebe') ?? '';
+    const fuel = tip('Kraftstoff');
+    const ez = (tip('Erstzulassung') ?? '').match(/(\d{2})\/(\d{4})/);
+    const km = num((tip('Kilometerstand') ?? '').replace(/\./g, ''));
+    // Prix courant : « <strong>10.140,&#8209;&nbsp;&euro;</strong> » dans le span
+    // cc-vehicle__price--current (l'« ehem. UPE » barré est un autre span).
+    const cur = card.match(/cc-vehicle__price--current[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '';
+    const price = priceOrNull(cur.match(/(\d{1,3}(?:\.\d{3})*)\s*,/)?.[1]?.replace(/\./g, ''));
+    const { brand, model } = splitTitle(title);
+    const vat = /MwSt\.?\s*ausweisbar/i.test(t) ? 'TVA récupérable' : /Differenzbesteuert|§ ?25a/i.test(t) ? 'TVA sur la marge' : '';
+    out.push({
+      external_id: id, url, title: vat ? `${title} · ${vat}` : title, brand, model,
+      price, currency: 'EUR', km, year: ez ? Number(ez[2]) : null, fuel,
+      gearbox: /schalt/i.test(gear) ? 'Manuelle' : /automat|dsg|s-?tronic|dct|cvt/i.test(gear) ? 'Automatique' : gear || null,
+      plate: null, vin: null, body: tip('Karosserie') ?? status, image: card.match(/data-src="([^"]+)"/)?.[1]?.replace(/&amp;/g, '&') ?? null, listed_at: null,
+      status: statusFromText(status) ?? (price == null ? 'price_on_request' : null),
+    });
+  }
+  return out;
+}
+async function scrapeCarzilla(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const origin = new URL(url).origin;
+  const declared = num(firstHtml.match(/von\s+([\d.]+)\s+Treffern/)?.[1]?.replace(/\./g, ''));
+  const first = parseCarzillaCards(firstHtml, origin);
+  const perPage = first.length;
+  const pagesCap = declared != null && perPage > 0 ? Math.min(400, Math.ceil(declared / perPage)) : MAX_PAGES;
+  let pages = 0;
+  for (let page = 1; page <= pagesCap; page++) {
+    let cards: DealerVehicle[] | null = page === 1 ? first : null;
+    if (page > 1) {
+      const pu = new URL(url); pu.searchParams.set('cp', String(page));
+      for (let attempt = 0; attempt < 2 && cards == null; attempt++) {
+        if (attempt > 0) await sleep(1500);
+        const r = await getText(pu.toString());
+        if (r.status === 200) cards = parseCarzillaCards(r.text, origin);
+      }
+      if (cards == null) { warnings.push(`arrêt à la page ${page} : page illisible — relevé partiel (${out.length} / ${declared ?? '?'})`); break; }
+    }
+    pages = page;
+    let added = 0;
+    for (const v of cards) { if (seen.has(v.external_id)) continue; seen.add(v.external_id); out.push(v); added++; }
+    if (cards.length === 0 || added === 0) break;
+    if (declared != null && out.length >= declared) break;
+    await sleep(PAGE_DELAY_MS);
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncés`);
+  return { provider: 'carzilla', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 // ── autodata (Krimpenerwaard) ───────────────────────────────────────────────
 async function scrapeAutodata(url: string, firstHtml: string, firstHeaders: Headers): Promise<DealerStockResult> {
   const origin = new URL(url).origin;
@@ -1020,6 +1102,7 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
   if (provider === 'dtcvm') return scrapeDtcVm(url, first.text);
   if (provider === 'carcards') return scrapeCarCards(url, first.text);
   if (provider === 'autrado') return scrapeAutrado(url, first.text);
+  if (provider === 'carzilla') return scrapeCarzilla(url, first.text);
   if (provider === 'listerpage') return scrapeListerpage(url, first.text);
   if (provider === 'cmsms') return scrapeCmsms(url, first.text);
   if (provider === 'dmapi') return scrapeDmApi(url, first.text);
