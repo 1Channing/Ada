@@ -832,6 +832,41 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRAJECTOIRE DES PRIX (bêta) REMPLACE LA VÉLOCITÉ, ANCIEN PRIX DÉCLARÉ
+  (11/10, Channing : « en bêta test ok, on remplace l'outil de vélocité qui
+  n'est pas encore fiable, et en vélocité ce qu'on est sûr uniquement, pas de
+  supposition »)**. La carte « Vélocité — âge du stock et vitesse de vente »
+  (proxy par disparition, « vendu en N j ») sort du MI. À sa place,
+  « Trajectoire des prix (bêta) » (src/components/ListingTrajectory.tsx,
+  service src/services/listingFacts.ts) n'affiche que des FAITS, par
+  annonce : première / dernière vue par ADA, nombre de relevés, prix au
+  premier relevé → prix courant, baisses et hausses OBSERVÉES entre deux
+  relevés successifs (écart cumulé en %), ancien prix BARRÉ affiché par le
+  site, mise en ligne DÉCLARÉE par le site (âge exact au dernier relevé),
+  statut « en ligne » ou « absente depuis le JJ/MM » = premier scan
+  postérieur qui la couvrait sans la revoir (même preuve que la purge de
+  l'état actuel, refactorisée en `vanishedAtIndex`). Jamais « vendue »,
+  jamais de durée estimée : sans date du site, une présence est une borne
+  basse (« vue pendant ≥ N j »). Résumé par pays (en ligne / absentes,
+  suivies à ≥ 2 relevés, baisses observées + médiane, prix barrés +
+  médiane, âge médian du stock daté, absentes), trois listes (prix bougés
+  ou barrés / absentes / toutes). Une voiture = une annonce (miroirs
+  effacés comme pour l'état actuel). Preuve Elroq 11/10 (6 000 obs, 134
+  relevés) : 1 171 annonces, FR 24 baisses observées (LaCentrale 46 230 →
+  39 990 €, AutoScout FR RS 56 450 → 48 450 €), DK 19 baisses Bilbasen,
+  NL 86 annonces datées âge médian 18 j, FR 69 absentes datées âge médian
+  14 j à la dernière vue. Capture du prix barré : `ScrapedListing.previousPrice`
+  (Leboncoin `old_price`, AutoScout `superDeal.oldSuperDealPrice`
+  « € 17 990,- », lecteur nextdata tolérant `previousPriceOf`), colonne
+  `previous_price` (migration 20261011110000, chaud + archive + vue
+  recréée) ; insertion fail-open tant que la migration n'est pas jouée
+  (colonne retirée et ré-insertion). Le proxy par disparition
+  (`velocityFromObservations`, `velocityByCountry`…) reste dans
+  marketData.ts, sans usage dans l'interface — à supprimer quand la bêta est
+  validée. Non couvert : sites sans prix barré ni date (mobile.de, Blocket)
+  n'ont que les mouvements observés par ADA ; la fréquence des relevés
+  (quotidienne pour les études, ponctuelle pour les mises à jour MI) borne
+  la finesse des dates.
 - **RADAR ASSAINI, VITRINE BIERSCHNEIDER, RELEVÉS HEBDO, BOÎTE NOIRE PURGÉE
   (11/10, Channing : « on tourne au ralenti, il nous faut trouver des
   opportunités » → analyse complète, cinq points validés)**.

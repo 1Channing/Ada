@@ -262,11 +262,21 @@ export async function writeMarketSnapshot(params: {
     currency: 'EUR',
     scraped_at: scrapedAt,
     published_at: l.publishedAt ?? null,
+    // Ancien prix AFFICHÉ par le site (prix barré), converti comme le prix.
+    previous_price: typeof l.previousPrice === 'number' ? toEur(l.previousPrice, l.currency) : null,
   }));
 
-  const { error: obsErr } = await supabase
+  let { error: obsErr } = await supabase
     .from('market_listing_observations')
     .insert(observations);
+  // Fail-open sur la colonne previous_price (11/10) : tant que la migration
+  // n'est pas jouée, PostgREST refuse la colonne inconnue — on ré-insère sans.
+  if (obsErr && /previous_price/i.test(obsErr.message)) {
+    console.warn('[MARKET_SNAPSHOT] colonne previous_price absente (migration 20261011110000 à jouer) — insertion sans');
+    ({ error: obsErr } = await supabase
+      .from('market_listing_observations')
+      .insert(observations.map(({ previous_price: _pp, ...rest }) => rest)));
+  }
 
   if (obsErr) {
     console.warn(`[MARKET_SNAPSHOT] observations insert failed for ${segment.country} ${segment.brand} ${segment.model} (${observations.length} rows): ${obsErr.message}`);
@@ -323,6 +333,9 @@ export interface Observation {
   /** Mise en ligne DÉCLARÉE par le site (ISO) — null si le site la cache
    *  (mobile.de, Blocket) ou observation antérieure au 28/08. */
   published_at?: string | null;
+  /** Ancien prix AFFICHÉ par le site (barré) en EUR — null si le site n'en
+   *  montre pas ou observation antérieure au 11/10. Fait déclaré. */
+  previous_price?: number | null;
 }
 
 export interface MarketFilters {
@@ -552,12 +565,19 @@ export function dedupeClonedListings(obs: Observation[]): Observation[] {
  * défaut son empreinte véhicule (SANS le prix : une baisse de prix ne doit pas
  * créer une seconde annonce, elle doit remplacer l'ancienne).
  */
+/** Identité d'une annonce : son URL, à défaut sa référence interne, à défaut
+ *  son empreinte véhicule (sans le prix). Partagée par l'état actuel
+ *  (latestPerListing) et la trajectoire de prix (listingFacts). */
+export function listingIdentity(o: Observation): string {
+  return (o.listing_url ?? '').trim()
+    || (o.internal_ref ?? '').trim()
+    || [o.site, brandKey(o.brand), canonKey(o.model), o.year ?? '', o.mileage ?? '', o.power_din ?? '', normText(o.title)].join('|');
+}
+
 export function latestPerListing(obs: Observation[]): Observation[] {
   const byListing = new Map<string, Observation>();
   for (const o of obs) {
-    const id = (o.listing_url ?? '').trim()
-      || (o.internal_ref ?? '').trim()
-      || [o.site, brandKey(o.brand), canonKey(o.model), o.year ?? '', o.mileage ?? '', o.power_din ?? '', normText(o.title)].join('|');
+    const id = listingIdentity(o);
     const cur = byListing.get(id);
     if (!cur || String(o.scraped_at ?? '') > String(cur.scraped_at ?? '')) byListing.set(id, o);
   }
@@ -647,6 +667,20 @@ export function pruneVanishedListings(
   coverageSource?: Observation[],
 ): Observation[] {
   if (snapshots.length === 0) return obs;
+  const vanishedAt = vanishedAtIndex(snapshots, coverageSource ?? obs);
+  return obs.filter((o) => vanishedAt(o) == null);
+}
+
+/**
+ * Index de DISPARITION : pour une observation (la dernière vue d'une annonce),
+ * rend la date du PREMIER scan postérieur qui la recouvrait sans la revoir —
+ * la date à partir de laquelle l'annonce est prouvée absente — ou null si
+ * aucun scan postérieur ne la recouvre (toujours en ligne, ou pas de preuve).
+ * Mêmes gardes fail-open que la purge (carburant, finition, années, prix) :
+ * la purge n'est que « vanishedAt(o) == null ».
+ */
+export function vanishedAtIndex(snapshots: Snapshot[], coverageSource: Observation[]): (o: Observation) => string | null {
+  if (snapshots.length === 0) return () => null;
   const groupOf = (s: Snapshot) =>
     [s.site, s.country, brandKey(s.brand), refModelKey(s.brand, s.model)].join('|');
   const byId = new Map<string, Snapshot>();
@@ -659,7 +693,7 @@ export function pruneVanishedListings(
   for (const list of byGroup.values()) list.sort((a, b) => String(b.scraped_at).localeCompare(String(a.scraped_at)));
   // Fourchette d'années effectivement vue par CHAQUE scan (ses propres obs).
   const yearCover = new Map<string, { min: number; max: number }>();
-  for (const o of coverageSource ?? obs) {
+  for (const o of coverageSource) {
     if (o.year == null) continue;
     const cur = yearCover.get(o.snapshot_id);
     yearCover.set(o.snapshot_id, {
@@ -667,7 +701,7 @@ export function pruneVanishedListings(
       max: cur ? Math.max(cur.max, o.year) : o.year,
     });
   }
-  return obs.filter((o) => {
+  return (o: Observation): string | null => {
     // Constat Elroq FR 06/10 : une annonce vue pour la dernière fois le 05/08
     // survivait à 90 scans postérieurs parce que SON scan d'origine manquait
     // à la liste chargée (27 pages de snapshots : une page en échec et la
@@ -680,7 +714,10 @@ export function pruneVanishedListings(
     const ownGroup = own ? groupOf(own)
       : [o.site, o.country, brandKey(o.brand ?? ''), refModelKey(o.brand ?? '', o.model ?? '')].join('|');
     const ownAt = String(own?.scraped_at ?? o.scraped_at ?? '');
-    if (!ownAt) return true;
+    if (!ownAt) return null;
+    // Candidats triés desc : le DERNIER couvrant rencontré est le plus ancien
+    // = première preuve d'absence.
+    let earliest: string | null = null;
     for (const cand of byGroup.get(ownGroup) ?? []) {
       if (String(cand.scraped_at) <= ownAt) break; // triés desc — plus rien de postérieur
       // Portée carburant : '' = tous ; sinon l'annonce doit y appartenir.
@@ -702,10 +739,10 @@ export function pruneVanishedListings(
       // limitées), rien n'est prouvé. Comparaison en EUR seulement.
       if (cand.price_max != null && typeof o.price === 'number'
         && ((o as { currency?: string }).currency ?? 'EUR') === 'EUR' && o.price > Number(cand.price_max)) continue;
-      return false; // scan postérieur couvrant, annonce non revue → disparue
+      earliest = String(cand.scraped_at); // scan postérieur couvrant, annonce non revue → disparue
     }
-    return true;
-  });
+    return earliest;
+  };
 }
 
 /**

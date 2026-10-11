@@ -206,8 +206,16 @@ export async function recordStudyMarketSnapshot(
       listing_url: l.listing_url, title: (l.title ?? '').slice(0, 200),
       currency: 'EUR', scraped_at: scrapedAt,
       published_at: (l as any).publishedAt ?? null,
+      // Ancien prix AFFICHÉ par le site (prix barré), converti comme le prix.
+      previous_price: typeof (l as any).previousPrice === 'number' ? Math.round(toEur((l as any).previousPrice, l.currency)) : null,
     }));
-    const { error: obsErr } = await supabase.from('market_listing_observations').insert(observations);
+    let { error: obsErr } = await supabase.from('market_listing_observations').insert(observations);
+    // Fail-open sur previous_price (11/10) : colonne inconnue tant que la
+    // migration 20261011110000 n'est pas jouée → ré-insertion sans elle.
+    if (obsErr && /previous_price/i.test(obsErr.message)) {
+      console.warn('[WORKER] colonne previous_price absente (migration 20261011110000 à jouer) — insertion sans');
+      ({ error: obsErr } = await supabase.from('market_listing_observations').insert(observations.map(({ previous_price: _pp, ...rest }) => rest)));
+    }
     if (obsErr) console.warn('[WORKER] market observations insert failed (non-blocking):', obsErr.message);
     else console.log(`[WORKER] 📈 Market snapshot recorded: ${segment.country} ${segment.brand} ${segment.model} · ${priced.length} annonces`);
   } catch (e: any) {

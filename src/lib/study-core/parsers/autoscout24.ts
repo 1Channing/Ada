@@ -241,6 +241,15 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       sellerType: str((ad as { seller?: { type?: unknown; companyName?: unknown } })?.seller?.type)
         ?? ((ad as { seller?: { companyName?: unknown } })?.seller?.companyName ? 'Dealer' : null),
       priceType: str((ad as { price?: { priceType?: unknown } })?.price?.priceType),
+      // Ancien prix AFFICHÉ par AutoScout (« super deal » : prix barré
+      // `superDeal.oldSuperDealPrice` = « € 17 990,- »). Fait déclaré.
+      previousPrice: (() => {
+        const sd = (ad as { superDeal?: { oldSuperDealPrice?: unknown }; price?: { oldSuperDealPrice?: unknown; oldPrice?: unknown } });
+        const raw = sd?.superDeal?.oldSuperDealPrice ?? sd?.price?.oldSuperDealPrice ?? sd?.price?.oldPrice ?? null;
+        if (raw == null) return null;
+        const n = toInt(String(raw).replace(/,-\s*$/, ''));
+        return n && n >= 500 && n < 50_000_000 ? n : null;
+      })(),
       postalCode,
       fiscalTerritory,
     });

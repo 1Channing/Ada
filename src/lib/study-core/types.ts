@@ -48,6 +48,11 @@ export interface ScrapedListing {
    *  l'expose (sondes 28/08 : Subito/Gaspedaal/MP/Jófogás/Skelbiu/LBC).
    *  Nourrit la vélocité réelle : âge du stock, durée de vie des vendues. */
   publishedAt?: string | null;
+  /** ANCIEN prix AFFICHÉ par le site sur l'annonce (Leboncoin `old_price`,
+   *  AutoScout « super deal » `oldSuperDealPrice`), en devise du site. Un
+   *  fait déclaré, jamais une déduction : nourrit la trajectoire de prix
+   *  (11/10 : « en vélocité ce qu'on est sûr uniquement »). */
+  previousPrice?: number | null;
   // Structured brand/fuel labels (seller-declared), when the parser can read
   // them. More reliable than the title, which often omits the brand
   // ("Megane E-Tech" with no "Renault") or the energy. Human label, not code.

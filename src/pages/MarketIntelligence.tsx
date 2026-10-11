@@ -9,7 +9,7 @@ import { useAuth } from '../services/auth';
 import { listSavedSearches, saveSearch, setSearchFavorite, deleteSearch, studiesKey, type SavedSearch } from '../services/savedSearches';
 import {
   loadKnownDimensions, sortedUnion, canonUnion, brandKey, refModelKey, filterObservations, distinctValues, priceStats, timeSeries,
-  priceHistogramFrom, velocityFromObservations, velocityCoverageDays, velocityByCountry, velocitySegmentListings, VELOCITY_MIN_DAYS, isCoarseOnly, fuelLabel,
+  priceHistogramFrom, isCoarseOnly, fuelLabel,
   studiesFromOpportunity, MARKET_STUDIES_KEY, latestPerListing, canonicalizeGearbox, GEARBOX_LABELS,
   loadSnapshots, loadObservedDimensions, loadObservationsForStudy, attackPrice, FUEL_TOKEN_TO_CRITERIA,
   pruneVanishedListings, humanListingUrl,
@@ -20,7 +20,9 @@ import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import type { SiteKey } from '../lib/linkgen/types';
 import { supabase } from '../lib/supabase';
 import type { DimensionRow } from '../services/marketData';
-import type { MarketData, MarketFilters, Observation, Snapshot, VelocityStat, VelocityBandStat, KnownDimensions } from '../services/marketData';
+import type { MarketData, MarketFilters, Observation, Snapshot, KnownDimensions } from '../services/marketData';
+import { listingFacts, mergeFacts, type ListingFact } from '../services/listingFacts';
+import { ListingTrajectory } from '../components/ListingTrajectory';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import { BODY_TYPES, bodyLabel, canonicalizeBody } from '../lib/study-core/bodyTypes';
 import { getRefWindowsCached, findRefWindow } from '../services/vehicleRef';
@@ -633,7 +635,7 @@ export function MarketIntelligence() {
     // récente — MOINS les annonces absentes du dernier scan de leur segment
     // (disparues = très probablement vendues ou retirées). Les indicateurs LE
     // décrivent (mêmes chiffres que le tableau du dessous) ; l'historique
-    // complet reste dans `filtered` pour les courbes et la vélocité, qui ont
+    // complet reste dans `filtered` pour les courbes et la trajectoire des prix, qui ont
     // besoin de chaque passage, disparitions comprises.
     // Couverture des scans lue sur le jeu COMPLET (obs), pas sur le filtré.
     const latestObs = pruneVanishedListings(latestPerListing(filtered), data.snapshots, obs);
@@ -641,6 +643,9 @@ export function MarketIntelligence() {
       idx: i, filters: f, color, label: studyLabel(f, i),
       filtered, latestObs, stats: priceStats(latestObs), series: timeSeries(filtered),
       attack: attackPrice(latestObs),
+      // Trajectoire des prix (bêta 11/10) : faits par annonce sur tout
+      // l'historique filtré, preuve d'absence lue sur le jeu complet.
+      facts: listingFacts(filtered, data.snapshots, obs),
       realDepth: computeRealDepth(data.snapshots, f, latestObs),
       lastScan: lastScanOf(data.snapshots, f),
     };
@@ -653,7 +658,7 @@ export function MarketIntelligence() {
       <div className="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-3"><LineIcon className="w-6 h-6 text-blue-500" /> Market Intelligence</h1>
-          <p className="text-slate-600 mt-1 text-sm">Profondeur, prix et vélocité du marché — filtrable au grain de l'annonce, jusqu'à 3 études comparées.</p>
+          <p className="text-slate-600 mt-1 text-sm">Profondeur, prix et trajectoire des prix du marché — filtrable au grain de l'annonce, jusqu'à 3 études comparées.</p>
         </div>
         <div className="flex items-center gap-2 max-md:flex-col max-md:items-stretch shrink-0">
           {/* Accès DIRECT à la mise à jour de l'étude active (téléphone 07/09 :
@@ -1041,6 +1046,8 @@ interface StudyDerived {
   stats: ReturnType<typeof priceStats>; series: ReturnType<typeof timeSeries>;
   /** Médiane des N moins chères (N adaptatif) — le prix pour être compétitif. */
   attack: ReturnType<typeof attackPrice>;
+  /** Faits par annonce (trajectoire des prix, bêta). */
+  facts: ListingFact[];
   realDepth: number | null;
   /** Date du dernier relevé de l'étude et vide prouvé par les sites, s'il y a lieu. */
   lastScan: LastScan | null;
@@ -1048,7 +1055,7 @@ interface StudyDerived {
 
 function SingleStudyView({ study, filters, priceBand, setPriceBand }:
   { study: StudyDerived; filters: MarketFilters; priceBand: { from: number; to: number } | null; setPriceBand: (b: { from: number; to: number } | null) => void }) {
-  const { filtered, latestObs, stats, realDepth } = study;
+  const { latestObs, stats, realDepth } = study;
 
   const series = useMemo(() => study.series.map((r) => ({
     date: fmtDate(r.date), median: r.median, band: [r.p25, r.p75] as [number, number], count: r.count,
@@ -1061,9 +1068,6 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
     return [...byCountry.entries()].map(([country, list]) => ({ country, median: priceStats(list).median }))
       .filter((c) => c.median > 0).sort((a, b) => a.median - b.median);
   }, [latestObs]);
-
-  const velocity = useMemo(() => velocityFromObservations(filtered).filter((v) => v.soldCount > 0 || v.datedActiveCount > 0 || v.datedSoldCount > 0), [filtered]);
-  const velocityCoverage = useMemo(() => velocityCoverageDays(filtered), [filtered]);
 
   const tableRows = useMemo(() => {
     let rows = latestObs;
@@ -1159,8 +1163,8 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
         </ChartCard>
       </div>
 
-      {/* Velocity */}
-      <VelocityCard velocity={velocity} coverageDays={velocityCoverage} observations={filtered} />
+      {/* Trajectoire des prix (bêta) — faits par annonce, sans estimation */}
+      <ListingTrajectory facts={study.facts} countryColor={COUNTRY_COLOR} />
 
       {/* Listings table */}
       <div className="bg-white border border-slate-200 rounded-xl p-5">
@@ -1246,20 +1250,8 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
     perStudy.map((s) => ({ label: s.label, sample: s.latestObs.length, color: s.color, idx: s.idx })),
     [perStudy]);
 
-  // Velocity across the union of all studies' observations (deduped).
-  const { velocity, velocityCoverage, velocityObsUnion } = useMemo(() => {
-    const seen = new Set<string>();
-    const union: Observation[] = [];
-    for (const s of perStudy) for (const o of s.filtered) {
-      const k = `${o.snapshot_id}|${o.internal_ref}`;
-      if (seen.has(k)) continue; seen.add(k); union.push(o);
-    }
-    return {
-      velocity: velocityFromObservations(union).filter((v) => v.soldCount > 0 || v.datedActiveCount > 0 || v.datedSoldCount > 0),
-      velocityCoverage: velocityCoverageDays(union),
-      velocityObsUnion: union,
-    };
-  }, [perStudy]);
+  // Trajectoire des prix sur l'union des études (une annonce une fois).
+  const unionFacts = useMemo(() => mergeFacts(perStudy.map((s) => s.facts)), [perStudy]);
 
   return (
     <>
@@ -1360,7 +1352,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
         </ChartCard>
       </div>
 
-      {/* Sample depth per study + velocity */}
+      {/* Sample depth per study + trajectoire des prix */}
       <div className="grid md:grid-cols-2 gap-6">
         <ChartCard title="Échantillon (dernier scan)" subtitle="annonces observées par étude" icon={<Gauge className="w-4 h-4 text-amber-600" />}>
           <ResponsiveContainer width="100%" height={Math.max(160, sampleBars.length * 48)}>
@@ -1376,7 +1368,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
           </ResponsiveContainer>
         </ChartCard>
 
-        <VelocityCard velocity={velocity} coverageDays={velocityCoverage} observations={velocityObsUnion} />
+        <ListingTrajectory facts={unionFacts} countryColor={COUNTRY_COLOR} />
       </div>
 
       {/* Prix comparés — deux lectures commutables du même marché filtré :
@@ -1544,212 +1536,6 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
         </div>
       </div>
     </>
-  );
-}
-
-function VelocityBandTable({ title, bands }: { title: string; bands: VelocityBandStat[] }) {
-  if (bands.length === 0) return null;
-  const maxD = Math.max(1, ...bands.map((b) => Math.max(b.stockMedianAgeDays ?? 0, b.soldMedianLifeDays ?? 0)));
-  return (
-    <div className="flex-1 min-w-[240px]">
-      <p className="text-xs font-semibold text-slate-600 mb-1.5">{title}</p>
-      <div className="space-y-1">
-        {bands.map((b) => (
-          <div key={b.label} className="text-xs">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-600 w-24 shrink-0">{b.label}</span>
-              <div className="flex-1 space-y-0.5">
-                {b.soldMedianLifeDays != null && (
-                  <div className="flex items-center gap-1.5">
-                    <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${Math.max(4, Math.round((b.soldMedianLifeDays / maxD) * 100))}%` }} />
-                    </div>
-                    <span className="text-emerald-700 font-medium w-24 text-right shrink-0">vendu en {b.soldMedianLifeDays} j <span className="text-slate-400 font-normal">({b.soldN})</span></span>
-                  </div>
-                )}
-                {b.stockMedianAgeDays != null && (
-                  <div className="flex items-center gap-1.5">
-                    <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div className="h-1.5 rounded-full bg-slate-400" style={{ width: `${Math.max(4, Math.round((b.stockMedianAgeDays / maxD) * 100))}%` }} />
-                    </div>
-                    <span className="text-slate-600 w-24 text-right shrink-0">stock {b.stockMedianAgeDays} j <span className="text-slate-400">({b.activeN})</span></span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function VelocityCard({ velocity, coverageDays, observations }: { velocity: VelocityStat[]; coverageDays: number; observations: Observation[] }) {
-  const [showAll, setShowAll] = useState(false);
-  const [showSegments, setShowSegments] = useState(false);
-  const [openSeg, setOpenSeg] = useState<string | null>(null);
-  const countries = useMemo(() => velocityByCountry(observations), [observations]);
-  const [selCountry, setSelCountry] = useState<string | null>(null);
-  const active = countries.find((c) => c.country === selCountry) ?? countries[0];
-  // Segments DATÉS d'abord (mise en ligne déclarée par le site = vélocité
-  // réelle), puis le proxy par disparition, trié par volume — et filtrés au
-  // PAYS sélectionné (demande 29/08 : l'entonnoir va jusqu'au bout).
-  const sorted = [...velocity]
-    .filter((v) => !active || v.country === active.country)
-    .sort((a, b) =>
-      (b.datedActiveCount + b.datedSoldCount) - (a.datedActiveCount + a.datedSoldCount)
-      || b.soldCount - a.soldCount);
-  const rows = showAll ? sorted : sorted.slice(0, 10);
-  const maxDays = Math.max(1, ...rows.map((v) => Math.max(v.stockMedianAgeDays ?? 0, v.soldMedianLifeDays ?? 0, v.avgDaysToDisappear)));
-  const barW = (d: number) => `${Math.max(3, Math.round((d / maxDays) * 100))}%`;
-
-  return (
-    <ChartCard
-      title="Vélocité — âge du stock et vitesse de vente"
-      subtitle="mise en ligne déclarée par le site quand elle existe (âge réel, dès le 1er scan) · sinon proxy par disparition (fenêtre ≥ 14 j, page 1)"
-      icon={<Gauge className="w-4 h-4 text-rose-600" />}
-    >
-      {velocity.length === 0 ? (
-        coverageDays > 0 ? (
-          <div className="h-[140px] flex flex-col items-center justify-center gap-2 text-sm text-slate-500">
-            <div className="w-48 bg-slate-200 rounded-full h-2 overflow-hidden">
-              <div className="bg-rose-100 h-2" style={{ width: `${Math.min(100, Math.round((coverageDays / VELOCITY_MIN_DAYS) * 100))}%` }} />
-            </div>
-            <span>Collecte en cours — {Math.min(coverageDays, VELOCITY_MIN_DAYS)} j / {VELOCITY_MIN_DAYS}</span>
-            <span className="text-xs text-slate-400">Sites sans date de mise en ligne : la vélocité s'affiche après {VELOCITY_MIN_DAYS} jours de scans répétés.</span>
-          </div>
-        ) : (
-          <NeedMore text="Pas encore de scans répétés sur ce filtre." />
-        )
-      ) : (
-        <div className="space-y-3">
-          {/* ── Lecture PAYS (cliquable) → tranches prix / km ─────────────── */}
-          <div className="flex flex-wrap gap-1.5">
-            {countries.map((c) => {
-              const isSel = c.country === active?.country;
-              const dated = c.datedActiveN + c.datedSoldN > 0;
-              return (
-                <button
-                  key={c.country}
-                  onClick={() => setSelCountry(c.country)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                    isSel ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
-                  }`}
-                >
-                  <span className="w-2 h-2 rounded-full" style={{ background: COUNTRY_COLOR[c.country] ?? SERIES[5] }} />
-                  <span className="font-semibold">{c.country}</span>
-                  {dated ? (
-                    <span className={isSel ? 'text-slate-300' : 'text-slate-500'}>
-                      {c.soldMedianLifeDays != null ? `vendu ${c.soldMedianLifeDays} j` : `stock ${c.stockMedianAgeDays} j`}
-                    </span>
-                  ) : (
-                    <span className={isSel ? 'text-slate-300' : 'text-slate-400'}>
-                      {c.proxyMedianDisappearDays != null ? `~${c.proxyMedianDisappearDays} j (proxy)` : 'proxy'}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          {active && (active.datedActiveN + active.datedSoldN > 0 ? (
-            <>
-              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-slate-600">
-                {active.soldMedianLifeDays != null && (
-                  <span><span className="font-semibold text-emerald-700">{active.soldMedianLifeDays} j</span> pour vendre (médiane, {active.datedSoldN} vendues)</span>
-                )}
-                {active.stockMedianAgeDays != null && (
-                  <span>stock en vente âgé de <span className="font-semibold text-slate-800">{active.stockMedianAgeDays} j</span> ({active.datedActiveN} actives)</span>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-5">
-                <VelocityBandTable title="Par prix" bands={active.priceBands} />
-                <VelocityBandTable title="Par kilométrage" bands={active.mileageBands} />
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-slate-500">
-              {active.country} : sites sans date de mise en ligne déclarée — médiane proxy {active.proxyMedianDisappearDays ?? '—'} j sur {active.proxySoldN} disparues. Les tranches prix/km demandent la voie datée.
-            </p>
-          ))}
-
-          <button onClick={() => setShowSegments((s) => !s)} className="text-xs text-slate-500 hover:text-slate-700">
-            {showSegments ? `Masquer les segments ${active?.country ?? ''}` : `Voir les segments ${active?.country ?? ''} (annonce par annonce)`}
-          </button>
-          {showSegments && rows.map((v) => {
-            const dated = v.datedActiveCount + v.datedSoldCount > 0;
-            const color = COUNTRY_COLOR[v.country] ?? SERIES[5];
-            return (
-              <div key={v.segmentId} className="text-xs">
-                <button className="w-full flex items-center gap-2 text-left" onClick={() => setOpenSeg(openSeg === v.segmentId ? null : v.segmentId)}>
-                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-                  <span className="text-slate-700 truncate flex-1 hover:text-slate-900" title={`${v.site} · ${v.label} — clique pour voir les annonces`}>{v.label}</span>
-                  {dated
-                    ? <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 shrink-0">daté site</span>
-                    : <span className="text-[10px] text-slate-400 border border-slate-200 rounded-full px-1.5 shrink-0">proxy</span>}
-                </button>
-                {openSeg === v.segmentId && (
-                  <div className="mt-1.5 ml-4 border-l-2 border-slate-100 pl-3 space-y-1">
-                    {velocitySegmentListings(observations, v.segmentId).slice(0, 40).map((l, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        {l.listing_url ? (
-                          <a href={humanListingUrl(l.listing_url)} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline truncate flex-1" title={l.title ?? ''}>
-                            {l.title || l.listing_url}
-                          </a>
-                        ) : (
-                          <span className="text-slate-600 truncate flex-1">{l.title ?? '—'}</span>
-                        )}
-                        {l.price != null && <span className="text-slate-500 shrink-0">{l.price.toLocaleString('fr-FR')} €</span>}
-                        <span className={`shrink-0 font-medium ${l.active ? 'text-slate-800' : 'text-emerald-700'}`}>
-                          {l.active ? 'en ligne depuis' : 'partie après'} {l.dated ? '' : '~'}{l.days} j
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {dated ? (
-                  <div className="mt-1 space-y-0.5 pl-4">
-                    {v.stockMedianAgeDays != null && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 w-28 shrink-0">stock en vente</span>
-                        <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                          <div className="h-2 rounded-full" style={{ width: barW(v.stockMedianAgeDays), background: color, opacity: 0.45 }} />
-                        </div>
-                        <span className="text-slate-800 font-medium w-14 text-right shrink-0">{v.stockMedianAgeDays} j</span>
-                        <span className="text-slate-400 w-20 text-right shrink-0">{v.datedActiveCount} actives</span>
-                      </div>
-                    )}
-                    {v.soldMedianLifeDays != null && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 w-28 shrink-0">vendues en</span>
-                        <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                          <div className="h-2 rounded-full" style={{ width: barW(v.soldMedianLifeDays), background: color }} />
-                        </div>
-                        <span className="text-slate-800 font-medium w-14 text-right shrink-0">{v.soldMedianLifeDays} j</span>
-                        <span className="text-slate-400 w-20 text-right shrink-0">{v.datedSoldCount} vendues</span>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="mt-1 flex items-center gap-2 pl-4">
-                    <span className="text-slate-500 w-28 shrink-0">disparues en</span>
-                    <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                      <div className="h-2 rounded-full" style={{ width: barW(v.avgDaysToDisappear), background: color }} />
-                    </div>
-                    <span className="text-slate-800 font-medium w-14 text-right shrink-0">{v.avgDaysToDisappear} j</span>
-                    <span className="text-slate-400 w-20 text-right shrink-0">{v.soldCount} · {v.activeCount} act.</span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {showSegments && sorted.length > 10 && (
-            <button onClick={() => setShowAll((s) => !s)} className="text-xs text-slate-500 hover:text-slate-700 pt-1">
-              {showAll ? 'Réduire' : `Voir les ${sorted.length - 10} autres`}
-            </button>
-          )}
-        </div>
-      )}
-    </ChartCard>
   );
 }
 

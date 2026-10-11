@@ -273,6 +273,21 @@ export function deepFindPrice(v: any, depth = 0): number | null {
   return null;
 }
 
+/** Ancien prix déclaré par le site (prix barré) — lecture tolérante aux
+ *  gabarits : clés directes, `superDeal.oldSuperDealPrice` (AutoScout),
+ *  attribut `old_price` (Leboncoin). Converti comme le prix courant (DKK →
+ *  EUR). Un ancien prix qui n'est pas strictement supérieur au courant ne
+ *  prouve rien : on le garde quand même tel quel (fait brut), l'aval juge. */
+export function previousPriceOf(ad: any, currency: Currency): number | null {
+  const direct = readField(ad, ['oldPrice', 'previousPrice', 'old_price', 'oldSuperDealPrice', 'priceBefore', 'strikePrice', 'crossedPrice'], ['old_price', 'oldprice']);
+  const sd = ad?.superDeal?.oldSuperDealPrice ?? ad?.price?.oldSuperDealPrice ?? ad?.price?.oldPrice ?? ad?.prices?.public?.oldPriceRaw;
+  const raw = direct ?? (sd == null ? null : String(sd));
+  if (raw == null) return null;
+  const n = toInt(String(raw).replace(/,-\s*$/, '').replace(/[.,]\d{1,2}\s*$/, ''));
+  if (!n || n < 500 || n > 50_000_000) return null;
+  return currency === 'DKK' ? Math.round(n * DKK_TO_EUR) : n;
+}
+
 export interface NextDataConfig {
   host: string;
   currency: Currency; // native currency of the site (DKK converted to EUR)
@@ -394,6 +409,11 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
       // Date de mise en ligne déclarée (MP `date`:"25 aug 26"/Vandaag —
       // sonde 28/08). Le normaliseur rejette tout ce qui n'est pas une date.
       publishedAt: parsePublishedAt(readField(ad, ['date', 'datePublished', 'publishedDate', 'publicationDate', 'listDate', 'listTime', 'creationDate', 'createdAt'], [])),
+      // Ancien prix AFFICHÉ par le site (barré sur la carte) — Leboncoin
+      // `old_price`, AutoScout `superDeal.oldSuperDealPrice` (« € 17 990,- »
+      // → on retire « ,- » avant de lire les chiffres). Fait déclaré, pas
+      // une déduction ; absent = null, sans invention.
+      previousPrice: previousPriceOf(ad, cfg.currency),
     });
   }
 

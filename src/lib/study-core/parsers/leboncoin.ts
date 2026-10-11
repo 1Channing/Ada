@@ -273,6 +273,14 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
         // sonde 28/08) : first_publication_date prime, index_date en repli
         // (remontée en tête de liste au ré-index). Fail-open via normaliseur.
         publishedAt: parsePublishedAt(ad.first_publication_date ?? ad.index_date ?? ad.publication_date),
+        // Ancien prix AFFICHÉ (barré) par Leboncoin : attribut `old_price`
+        // (ou clé directe). Fait déclaré par le site, jamais déduit.
+        previousPrice: (() => {
+          const raw = attrMap.old_price ?? ad.old_price ?? ad.oldPrice ?? null;
+          if (raw == null) return null;
+          const n = typeof raw === 'number' ? raw : parseInt(String(raw).replace(/\D/g, ''), 10);
+          return Number.isFinite(n) && n >= 500 ? n : null;
+        })(),
         trim: trimLabel,
         listing_url: listingUrl,
         description: ad.body || ad.description || ad.text || '',
