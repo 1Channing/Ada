@@ -25,6 +25,8 @@ export interface OfferSettings {
   lang?: ExportLang;
   /** Pied de page de l'offre exportée ; null = texte par défaut de la langue. */
   footer?: string | null;
+  /** Doutes sur les prix validés par un humain (empreinte PriceDetection.signature). */
+  priceCheckAck?: string | null;
 }
 
 export interface ResolvedSettings {
@@ -120,3 +122,78 @@ export const EXPORT_TEXT = {
     yes: 'yes', no: 'no',
   },
 } as const;
+
+/**
+ * CONTRÔLE DES PRIX À L'IMPORT (11/10, Channing : « vérifier que les paramètres
+ * s'activent en fonction de la liste qu'on ajoute, il faut qu'on le sache s'il
+ * y a un doute »). Ce que le fichier DIT (faits) et ce qu'ADA a dû SUPPOSER
+ * (doutes) sur les prix : HT ou TTC, taux de TVA, TVA récupérable, prix absents
+ * ou improbables. Recalculé à chaque affichage ; les doutes restent signalés
+ * tant qu'un humain ne les a pas validés (settings.priceCheckAck).
+ */
+export interface PriceDetection {
+  basis: PriceBasis | null;        // ce que le fichier indique (null : aucune colonne de prix)
+  vat: number | null;              // taux lu dans le fichier (PDF allemand : 19 %), null = non indiqué
+  facts: string[];
+  doubts: string[];
+  signature: string;               // empreinte des doutes (un doute nouveau rouvre l'alerte)
+}
+
+const HT_MARK = /\b(ht|hors ?taxes?|h\.t|net|netto|nett|excl|exkl|export|imponibile|sans tva)\b/;
+const TTC_MARK = /\b(ttc|t\.t\.c|toutes ?taxes|brut|brutto|gross|incl|inkl|lordo|ivato|avec tva)\b/;
+const normH = (h: string) => h.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+export function detectPriceSetup(
+  o: { layout: string; mappings: Array<{ header: string; field: string }>; vehicles: OfferVehicle[] },
+  s: ResolvedSettings,
+): PriceDetection {
+  const facts: string[] = [];
+  const doubts: string[] = [];
+  const pct = (r: number) => `${Math.round(r * 100)} %`;
+  let basis: PriceBasis | null = null;
+  let vat: number | null = null;
+
+  if (o.layout === 'pdf') {
+    basis = 'ttc';
+    vat = o.vehicles.find((v) => v.vat_rate != null)?.vat_rate ?? null;
+    facts.push(`Extrait de stock PDF : prix TTC${vat != null ? `, TVA ${pct(vat)} (Allemagne)` : ''}.`);
+  } else {
+    const htCols = o.mappings.filter((m) => m.field === 'price_ht');
+    const ttcCols = o.mappings.filter((m) => m.field === 'price_ttc');
+    if (htCols.length && ttcCols.length) {
+      basis = 'ht';
+      facts.push(`Deux colonnes de prix : « ${htCols[0].header} » (HT, utilisée) et « ${ttcCols[0].header} » (TTC).`);
+    } else if (htCols.length || ttcCols.length) {
+      const col = (htCols[0] ?? ttcCols[0]).header;
+      basis = htCols.length ? 'ht' : 'ttc';
+      const h = normH(col);
+      const explicit = basis === 'ht' ? HT_MARK.test(h) : TTC_MARK.test(h);
+      const contradicts = basis === 'ht' ? TTC_MARK.test(h) : HT_MARK.test(h);
+      if (explicit && !contradicts) facts.push(`Prix lus en ${basis.toUpperCase()} : la colonne « ${col} » le dit.`);
+      else doubts.push(`La colonne de prix « ${col} » ne dit pas clairement HT ou TTC : ADA l'a lue en ${basis.toUpperCase()}${basis === 'ttc' ? ' (elle retire la TVA)' : ' (prix pris tels quels)'}.`);
+    } else {
+      doubts.push('Aucune colonne de prix reconnue : les prix MC Export resteront vides.');
+    }
+  }
+
+  const priced = o.vehicles.filter((v) => v.price_ht != null || v.price_ttc != null);
+  const missing = o.vehicles.length - priced.length;
+  if (missing > 0 && priced.length > 0) doubts.push(`${missing} véhicule${missing > 1 ? 's' : ''} sans prix dans le fichier.`);
+  const tiny = priced.filter((v) => (v.price_ht ?? v.price_ttc ?? 0) < 1000).length;
+  if (tiny > 0) doubts.push(`${tiny} prix inférieur${tiny > 1 ? 's' : ''} à 1 000 € : unité ou séparateur à vérifier (milliers ?).`);
+
+  const usesTtc = (s.supplierBasis === 'ttc') || (s.supplierBasis === 'auto' && basis === 'ttc');
+  if (usesTtc) {
+    if (s.supplierVat != null) facts.push(`TVA du fournisseur réglée à ${pct(s.supplierVat)}.`);
+    else if (vat == null) doubts.push('Le fichier ne donne pas le taux de TVA : 20 % supposé (France). Fournisseur étranger ? Règle la TVA dans Paramètres (Allemagne 19 %, Pays-Bas 21 %…).');
+    const unknownVat = priced.filter((v) => v.vat_recoverable == null).length;
+    const margin = priced.filter((v) => v.vat_recoverable === false).length;
+    if (unknownVat > 0) doubts.push(`TVA récupérable non indiquée pour ${unknownVat} véhicule${unknownVat > 1 ? 's' : ''} : ${unknownVat > 1 ? 'considérés' : 'considéré'} récupérable${unknownVat > 1 ? 's' : ''} (TVA retirée du prix).`);
+    else if (priced.length) facts.push('TVA récupérable indiquée pour chaque véhicule.');
+    if (margin > 0) facts.push(`${margin} véhicule${margin > 1 ? 's' : ''} en régime de la marge : prix pris tel quel (pas de TVA à retirer).`);
+  }
+  if (s.supplierBasis !== 'auto' && basis != null && s.supplierBasis !== basis) {
+    doubts.push(`Réglage manuel : prix traités en ${s.supplierBasis.toUpperCase()} alors que le fichier indique ${basis.toUpperCase()}.`);
+  }
+  return { basis, vat, facts, doubts, signature: doubts.join('|') };
+}

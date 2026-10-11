@@ -23,7 +23,7 @@ import {
   type ExportColumn, type ExportContext,
 } from '../lib/offers/exportColumns';
 import {
-  EXPORT_TEXT, VAT_CHOICES, basisLabel, fromShown, resolveSettings, supplierHtWith, supplierShown, supplierVatOf, toShown,
+  EXPORT_TEXT, VAT_CHOICES, basisLabel, detectPriceSetup, fromShown, resolveSettings, supplierHtWith, supplierShown, supplierVatOf, toShown,
   type OfferSettings, type ResolvedSettings,
 } from '../lib/offers/offerSettings';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
@@ -214,6 +214,17 @@ export function Offres() {
     return { draft, warnings };
   };
 
+  /** À l'import : les paramètres de prix suivent ce que dit le fichier (HT/TTC, TVA), prix MC Export recalculés en conséquence. */
+  const withDetectedSettings = (d: Draft): { draft: Draft; summary: string } => {
+    const det = detectPriceSetup(d, resolveSettings(null));
+    const settings: OfferSettings = { ...(d.settings ?? {}), supplierBasis: det.basis ?? 'auto', supplierVat: det.vat };
+    const st = resolveSettings(settings);
+    const vehicles = applyPriceRule(d.vehicles, d.price_rule, (v) => supplierHtWith(v, st), true).map((v, i) => ({ ...v, selected: d.vehicles[i].selected }));
+    const after = detectPriceSetup({ ...d, vehicles }, st);
+    const summary = `Prix lus en ${det.basis ? det.basis.toUpperCase() : '?'}${det.basis === 'ttc' ? `, TVA ${det.vat != null ? `${Math.round(det.vat * 100)} %` : '20 % supposée'}` : ''}${after.doubts.length ? ` — ${after.doubts.length} point${after.doubts.length > 1 ? 's' : ''} à vérifier (bandeau jaune).` : ' — rien à signaler.'}`;
+    return { draft: { ...d, settings, vehicles }, summary };
+  };
+
   /** Dépôt : un tableur (le premier) ou un ou plusieurs PDF. */
   const onFiles = async (list: FileList) => {
     const files = [...list];
@@ -221,7 +232,9 @@ export function Offres() {
     if (pdfs.length === 0) { const f = files[0]; if (f) await onFile(f); return; }
     setBusy('lecture'); setMsg(null);
     try {
-      const { draft: d, warnings } = await buildDraftFromPdfs(pdfs);
+      const built = await buildDraftFromPdfs(pdfs);
+      const warnings = built.warnings;
+      const { draft: d, summary } = withDetectedSettings(built.draft);
       setParsed(null);
       setDraft(d); setView('selection'); setListOpen(false);
       await persist(d);
@@ -232,7 +245,7 @@ export function Offres() {
         });
         fail(`PDF lu mais aucun véhicule reconnu${saved ? ' — enregistré dans la boîte à apprendre pour enseigner ce gabarit' : ''}.`);
       } else {
-        info(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${pdfs.length} PDF. Rien n'est retenu au départ : choisis les modèles à intégrer.${warnings.length ? ` · ${warnings.slice(0, 4).join(' · ')}${warnings.length > 4 ? ` · +${warnings.length - 4}` : ''}` : ''}`);
+        info(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${pdfs.length} PDF. ${summary} Rien n'est retenu au départ : choisis les modèles à intégrer.${warnings.length ? ` · ${warnings.slice(0, 4).join(' · ')}${warnings.length > 4 ? ` · +${warnings.length - 4}` : ''}` : ''}`);
       }
     } catch (e) {
       fail(`Lecture impossible : ${e instanceof Error ? e.message : String(e)}`);
@@ -245,7 +258,7 @@ export function Offres() {
     setBusy('lecture'); setMsg(null);
     try {
       const src = readSupplierGrid(await f.arrayBuffer());
-      const d = buildDraftFromGrid(src, f.name, {}, { ...EMPTY });
+      const { draft: d, summary } = withDetectedSettings(buildDraftFromGrid(src, f.name, {}, { ...EMPTY }));
       setDraft(d); setView('selection'); setListOpen(false);
       await persist(d);
       // Boîte à apprendre (02/10) : un fichier qui ne donne aucun véhicule, ou
@@ -259,7 +272,7 @@ export function Offres() {
         });
         fail(`Fichier lu mais ${d.vehicles.length === 0 ? 'aucun véhicule reconnu' : 'ni marque, ni modèle, ni VIN reconnus'}${saved ? ' — enregistré dans la boîte à apprendre pour enseigner ce format' : ''}.`);
       } else {
-        info(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${f.name}. Une valeur fausse se corrige dans la ligne du véhicule (crayon).`);
+        info(`${d.vehicles.length} véhicule${d.vehicles.length > 1 ? 's' : ''} lus dans ${f.name}. ${summary} Une valeur fausse se corrige dans la ligne du véhicule (crayon).`);
       }
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
@@ -290,6 +303,9 @@ export function Offres() {
   const B = basisLabel(S);
   const supHt = (v: OfferVehicle) => supplierHtWith(v, S);
   const exportCtx: ExportContext = { lang: S.lang, basis: S.display, saleVat: S.saleVat, supplierHt: supHt };
+  /** Ce que le fichier dit des prix, et ce qu'ADA a dû supposer — recalculé à chaque changement. */
+  const detection = useMemo(() => (draft ? detectPriceSetup(draft, resolveSettings(draft.settings)) : null), [draft]);
+  const pendingDoubts = detection && detection.doubts.length > 0 && draft?.settings?.priceCheckAck !== detection.signature ? detection.doubts : [];
 
   /** Bascule d'une offre à l'autre en un clic — l'offre quittée est déjà enregistrée (ou le sera dans la seconde). */
   const open = (o: SupplierOffer) => {
@@ -637,6 +653,14 @@ export function Offres() {
 
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-800">1. Prix du fichier fournisseur</h3>
+                {detection && (
+                  <div className={`rounded-lg border px-3 py-2 text-xs ${detection.doubts.length ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
+                    <p className="font-semibold">{detection.doubts.length ? `Détecté dans le fichier — ${detection.doubts.length} point${detection.doubts.length > 1 ? 's' : ''} supposé${detection.doubts.length > 1 ? 's' : ''}` : 'Détecté dans le fichier — rien de supposé'}</p>
+                    {detection.facts.map((f) => <p key={f}>✓ {f}</p>)}
+                    {detection.doubts.map((d) => <p key={d}>⚠ {d}</p>)}
+                    {detection.doubts.length > 0 && draft.settings?.priceCheckAck === detection.signature && <p className="mt-1 text-emerald-800">Validé par l'équipe.</p>}
+                  </div>
+                )}
                 <div className="flex gap-2" role="group" aria-label="Prix du fichier fournisseur">
                   <button onClick={() => updateSettings({ supplierBasis: 'auto' })} aria-pressed={S.supplierBasis === 'auto'} className={radio(S.supplierBasis === 'auto')}>Comme lus<span className="block text-[11px] font-normal text-slate-500">selon l'en-tête de colonne</span></button>
                   <button onClick={() => updateSettings({ supplierBasis: 'ttc' })} aria-pressed={S.supplierBasis === 'ttc'} className={radio(S.supplierBasis === 'ttc')}>TTC<span className="block text-[11px] font-normal text-slate-500">la TVA est retirée</span></button>
@@ -751,6 +775,7 @@ export function Offres() {
                 </div>
                 <button onClick={() => setSettingsOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50" title="Prix HT / TTC, TVA, langue de l'export">
                   <Settings className="w-4 h-4" /> Paramètres <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">{B}{S.lang === 'en' ? ' · EN' : ''}</span>
+                  {pendingDoubts.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold">⚠ {pendingDoubts.length}</span>}
                 </button>
                 <button onClick={() => setNotesOpen(true)} className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50">
                   <StickyNote className="w-4 h-4" /> Notes
@@ -766,6 +791,22 @@ export function Offres() {
               {tabButton('export', 'Export', Columns3, `${previewColumns.length} col.`)}
             </div>
           </div>
+
+          {pendingDoubts.length > 0 && (
+            <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <div className="flex items-start gap-3 flex-wrap">
+                <div className="flex-1 min-w-[260px]">
+                  <p className="font-semibold">Prix du fichier à vérifier avant d'analyser ou d'envoyer l'offre</p>
+                  <ul className="mt-1 list-disc pl-5 space-y-0.5">{pendingDoubts.map((d) => <li key={d}>{d}</li>)}</ul>
+                  {detection && detection.facts.length > 0 && <p className="mt-1 text-xs text-amber-800">Lu dans le fichier : {detection.facts.join(' ')}</p>}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setSettingsOpen(true)} className="px-3 py-1.5 rounded-lg border border-amber-400 bg-white text-amber-900 hover:bg-amber-100">Ouvrir les paramètres</button>
+                  <button onClick={() => detection && updateSettings({ priceCheckAck: detection.signature })} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700">C'est vérifié</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {msg && (
             <div className={`flex items-start gap-2 text-sm rounded-lg px-3 py-2 border ${msg.tone === 'error' ? 'text-red-700 bg-red-50 border-red-200' : 'text-blue-900 bg-blue-50 border-blue-200'}`}>
