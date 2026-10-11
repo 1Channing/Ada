@@ -196,7 +196,7 @@ If you encounter `ReferenceError: fetchHtmlWithZyte is not defined`:
 
 4. **Verify the mode:** Check the "Run Searches" page for a green badge showing "REMOTE (via Worker)"
 
-See `BROWSER_EXECUTION_FIX.md` for detailed technical explanation of the dynamic import solution.
+See `docs/archive/BROWSER_EXECUTION_FIX.md` for detailed technical explanation of the dynamic import solution.
 
 ## Development
 
