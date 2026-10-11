@@ -381,6 +381,9 @@ export function Offres() {
   const [survey, setSurvey] = useState<{ done: number; total: number; current: string; errors: string[] } | null>(null);
   const cancelSurvey = useRef(false);
   const surveyRunning = !!survey && survey.done < survey.total && survey.current !== 'arrêté';
+  /** État de chaque case modèle × pays pendant un relevé (11/10 : « savoir ce qu'on relève »). */
+  const [cellState, setCellState] = useState<Record<string, 'queued' | 'running'>>({});
+  const cellKey = (lot: OfferLot, country: string) => `${lot.key}|${country}`;
   // Cache des URLs : lot + critères (le libellé les porte tous) + PAYS.
   const targetKey = (lot: OfferLot, country: string) => `${lot.key}#${lot.label}#${country}`;
   const ensureTargets = async (lot: OfferLot, countries: string[]): Promise<LotTarget[]> => {
@@ -417,18 +420,25 @@ export function Offres() {
     if (plan.length > 30 && !confirm(`${plan.length} recherches vont partir dans la file du worker (compte ≈ ${Math.ceil(plan.length / 2)} min au minimum). Continuer ?`)) { setSurvey(null); return; }
     cancelSurvey.current = false;
     setSurvey({ done: 0, total: plan.length, current: '', errors: skipped });
+    const remaining = new Map<string, number>();
+    for (const p of plan) remaining.set(cellKey(p.lot, p.t.country), (remaining.get(cellKey(p.lot, p.t.country)) ?? 0) + 1);
+    setCellState(Object.fromEntries([...remaining.keys()].map((k) => [k, 'queued' as const])));
     const byLot = new Map<string, Array<{ lot: OfferLot; t: LotTarget }>>();
     for (const p of plan) byLot.set(p.lot.key, [...(byLot.get(p.lot.key) ?? []), p]);
     let done = 0;
     for (const items of byLot.values()) {
       if (cancelSurvey.current) break;
-      setSurvey((s) => s && { ...s, current: `${items[0].lot.label} · ${[...new Set(items.map((x) => countryLabel(x.t.country)))].join(', ')}` });
+      setSurvey((s) => s && { ...s, current: `${items[0].lot.brand} ${items[0].lot.model} · ${[...new Set(items.map((x) => countryLabel(x.t.country)))].join(', ')}` });
+      setCellState((cs) => { const next = { ...cs }; for (const it of items) next[cellKey(it.lot, it.t.country)] = 'running'; return next; });
       await Promise.all(items.map(async ({ lot, t }) => {
         const url = t.url as string;
         let r: SiteResult;
         try { const jobId = await startLotJob(url, lot); r = await awaitLotJob(jobId, t.site, url, { model: lot.model, strict: t.brandPageOnly, trim: lot.trim, powerMin: lot.powerMin }); }
         catch (e) { r = { site: t.site, url, at: new Date().toISOString(), count: 0, total: null, median: null, p25: null, min: null, error: e instanceof Error ? e.message : String(e) }; }
         done += 1;
+        const ck = cellKey(lot, t.country);
+        remaining.set(ck, (remaining.get(ck) ?? 1) - 1);
+        if ((remaining.get(ck) ?? 0) <= 0) setCellState((cs) => { const next = { ...cs }; delete next[ck]; return next; });
         setSurvey((s) => s && { ...s, done, errors: r.error ? [...s.errors, `${lot.label} · ${t.country} ${SITE_LABEL(t.site)} : ${r.error}`] : s.errors });
         update((d) => (d.id !== offerId ? d : {
           ...d,
@@ -436,6 +446,7 @@ export function Offres() {
         }));
       }));
     }
+    setCellState({});
     setSurvey((s) => s && { ...s, current: cancelSurvey.current ? 'arrêté' : 'terminé', done: cancelSurvey.current ? s.total : s.done });
   };
   const lastSurveyAt = useMemo(() => {
@@ -443,6 +454,15 @@ export function Offres() {
     return dates.length ? new Date(dates[dates.length - 1]) : null;
   }, [draft]);
   const surveyedIn = (c: string) => lots.filter((l) => draft?.market?.[l.key]?.[c]).length;
+  /** Critères de recherche d'un modèle, en puces lisibles (année, énergie, boîte, finition, puissance, km). */
+  const lotChips = (l: OfferLot): string[] => [
+    l.yearFrom != null && l.yearTo != null && l.yearFrom !== l.yearTo ? `${l.yearFrom}–${l.yearTo}` : String(l.yearFrom ?? l.yearTo ?? ''),
+    l.fuel ? l.fuel.toLowerCase() : '',
+    l.gearbox === 'AUTOMATIQUE' ? 'auto' : l.gearbox === 'MANUELLE' ? 'manuelle' : '',
+    l.trim ? `finition ${l.trim.toUpperCase()}` : '',
+    l.powerMin ? `≥ ${l.powerMin} ch` : '',
+    l.kmMax ? `≤ ${l.kmMax.toLocaleString('fr-FR')} km` : '',
+  ].filter(Boolean);
 
   // ── RENDU ───────────────────────────────────────────────────────────────────
   const filteredOffers = offers.filter((o) => !listQuery.trim() || `${o.title} ${o.supplier}`.toLowerCase().includes(listQuery.trim().toLowerCase()));
@@ -597,21 +617,6 @@ export function Offres() {
           {/* ══ SÉLECTION ══════════════════════════════════════════════════════ */}
           {view === 'selection' && (
             <div className="space-y-4">
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
-                <span className="font-semibold text-slate-800">Prix MC Export (HT)</span>
-                <select value={draft.price_rule.mode} onChange={(e) => applyRule({ ...draft.price_rule, mode: e.target.value as PriceRule['mode'] })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
-                  <option value="margin">Prix fournisseur HT + marge</option>
-                  <option value="fixed">Prix fixe pour tous</option>
-                  <option value="none">Sans prix — le client propose</option>
-                </select>
-                {draft.price_rule.mode !== 'none' && <>
-                  <input type="number" aria-label="Montant" value={draft.price_rule.margin} onChange={(e) => update({ price_rule: { ...draft.price_rule, margin: Number(e.target.value) || 0 } })} className="w-24 px-2 py-1.5 rounded-lg border border-slate-300 text-right" />
-                  <span className="text-slate-500">€</span>
-                  <button onClick={() => applyRule(draft.price_rule)} className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-900 text-white">Appliquer à tous</button>
-                </>}
-                <span className="ml-auto text-slate-500">Total HT retenu : <span className="font-semibold text-slate-900">{draft.price_rule.mode === 'none' ? 'sans prix' : fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0) * qtyOf(v), 0))}</span></span>
-              </div>
-
               {/* Modèles, par marque */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
                 <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
@@ -736,13 +741,13 @@ export function Offres() {
           {view === 'analyse' && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
               <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
-                <h2 className="text-base font-semibold text-slate-900">Analyse des lots</h2>
+                <h2 className="text-base font-semibold text-slate-900">Analyse</h2>
                 <span className="text-xs text-slate-500">
-                  {lots.length} lot{lots.length > 1 ? 's' : ''} · {selectedUnits} véhicule{selectedUnits > 1 ? 's' : ''} retenu{selectedUnits > 1 ? 's' : ''}{viewModel ? ` · ${viewModel} seulement` : ''}
+                  {lots.length} modèle{lots.length > 1 ? 's' : ''} à analyser · {selectedUnits} véhicule{selectedUnits > 1 ? 's' : ''} retenu{selectedUnits > 1 ? 's' : ''}{viewModel ? ` · ${viewModel} seulement` : ''}
                   {lastSurveyAt ? ` · dernier relevé ${lastSurveyAt.toLocaleDateString('fr-FR')} ${lastSurveyAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ' · aucun relevé'}
                 </span>
                 <div className="ml-auto flex items-center gap-2">
-                  {surveyRunning && <button onClick={() => { cancelSurvey.current = true; }} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600">Arrêter après ce lot</button>}
+                  {surveyRunning && <button onClick={() => { cancelSurvey.current = true; }} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600">Arrêter après ce modèle</button>}
                   <label className="flex items-center gap-1.5 text-xs text-slate-600">
                     <Plus className="w-3.5 h-3.5" /><span className="sr-only">Ajouter un pays</span>
                     <select value="" onChange={(e) => { const c = e.target.value; if (c) update({ countries: [...draft.countries, c] }); }} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
@@ -752,12 +757,18 @@ export function Offres() {
                   </label>
                 </div>
               </div>
+              <p className="px-4 py-2 border-b border-slate-100 text-xs text-slate-600 bg-slate-50/60">
+                Chaque <strong>ligne</strong> est un modèle retenu, avec ses critères de recherche. Chaque <strong>case</strong> donne le verdict de ce modèle dans ce pays :
+                son bouton <strong>« Relever »</strong> relance la recherche de ce modèle dans ce pays seulement. Le bouton d'une <strong>colonne</strong> relève tous les modèles dans ce pays ;
+                celui d'une <strong>ligne</strong>, ce modèle dans tous les pays.
+              </p>
               {survey && (
                 <div className="px-4 py-2 border-b border-slate-100 text-xs text-slate-600">
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-brand-ocean transition-all" style={{ width: `${survey.total ? Math.round((survey.done / survey.total) * 100) : 0}%` }} /></div>
                     <span className="tabular-nums">{survey.done}/{survey.total} recherches</span>
-                    <span className="text-slate-500 truncate max-w-[40%]">{survey.current}</span>
+                    <span className="text-slate-500 truncate max-w-[40%]">{surveyRunning ? `en cours : ${survey.current}` : survey.current}</span>
+                    {!surveyRunning && <button onClick={() => setSurvey(null)} aria-label="Masquer la progression" className="p-0.5 text-slate-400 hover:text-slate-700"><X className="w-3.5 h-3.5" /></button>}
                   </div>
                   {survey.errors.length > 0 && (
                     <details className="mt-1"><summary className="text-amber-700 cursor-pointer">{survey.errors.length} recherche{survey.errors.length > 1 ? 's' : ''} sans résultat</summary>
@@ -768,27 +779,28 @@ export function Offres() {
               )}
               {lots.length === 0 ? (
                 <div className="px-4 py-10 text-center space-y-2">
-                  <p className="text-sm text-slate-500">Aucun véhicule retenu : les lots se forment à partir des modèles choisis (marque, modèle, année, énergie, boîte).</p>
+                  <p className="text-sm text-slate-500">Aucun véhicule retenu : choisis d'abord les modèles à analyser dans l'onglet Sélection.</p>
                   <button onClick={() => setView('selection')} className="text-sm px-3 py-1.5 rounded-lg bg-brand-ocean text-white">Choisir les modèles</button>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="text-xs w-full min-w-[900px]">
                     <thead><tr className="text-left text-slate-500 border-b border-slate-100 align-bottom">
-                      <th className="py-2 px-3 font-medium">Lot</th><th className="py-2 pr-3 text-right font-medium">Véh.</th><th className="py-2 pr-3 text-right font-medium">Notre HT</th>
+                      <th className="py-2 px-3 font-medium">Modèle et critères de recherche</th><th className="py-2 pr-3 text-right font-medium">Notre HT</th>
                       {draft.countries.map((c) => (
-                        <th key={c} className="py-2 pr-3 font-medium min-w-[170px]">
-                          <div className="flex items-center gap-1">
-                            <span className="text-slate-800">{countryLabel(c)}</span>
+                        <th key={c} className="py-2 pr-3 font-medium min-w-[190px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-semibold text-slate-900">{countryLabel(c)}</span>
                             {COUNTRY_CAVEAT[c] ? <span title={COUNTRY_CAVEAT[c]} className="text-amber-600">⚠</span> : null}
-                            <button onClick={() => update({ countries: draft.countries.filter((x) => x !== c) })} aria-label={`Retirer ${countryLabel(c)}`} className="ml-auto p-0.5 rounded text-slate-300 hover:text-red-600"><X className="w-3 h-3" /></button>
+                            <button onClick={() => update({ countries: draft.countries.filter((x) => x !== c) })} aria-label={`Retirer la colonne ${countryLabel(c)}`} title={`Retirer la colonne ${countryLabel(c)} (les relevés sont gardés)`} className="p-0.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"><X className="w-3.5 h-3.5" /></button>
                           </div>
-                          <button onClick={() => void runSurvey(lots, [c])} disabled={surveyRunning} className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-md border border-brand-ocean text-brand-ocean hover:bg-blue-50 disabled:opacity-40 font-normal">
-                            <Search className="w-3 h-3" /> Relever ({surveyedIn(c)}/{lots.length})
+                          <span className="block text-[11px] font-normal text-slate-500">{surveyedIn(c)} modèle{surveyedIn(c) > 1 ? 's' : ''} sur {lots.length} déjà relevé{surveyedIn(c) > 1 ? 's' : ''}</span>
+                          <button onClick={() => void runSurvey(lots, [c])} disabled={surveyRunning} title={surveyRunning ? 'Un relevé est en cours' : undefined} className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-md border border-brand-ocean text-brand-ocean hover:bg-blue-50 disabled:opacity-40 font-normal">
+                            <Search className="w-3 h-3" /> Relever les {lots.length} modèles ici
                           </button>
                         </th>
                       ))}
-                      <th className="py-2 pr-3"></th>
+                      <th className="py-2 pr-3 font-medium text-right">Ce modèle</th>
                     </tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {lots.map((lot) => {
@@ -797,44 +809,62 @@ export function Offres() {
                         return (
                           <Fragment key={lot.key}>
                             <tr>
-                              <td className="py-2.5 px-3 whitespace-nowrap font-medium text-slate-800">
-                                {lot.label}
-                                {lot.adjusted && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full border bg-blue-50 text-brand-encre border-blue-200 font-normal">critères réglés</span>}
+                              <td className="py-3 px-3 align-top">
+                                <span className="block text-sm font-semibold text-slate-900">{lot.brand} {lot.model}</span>
+                                <span className="mt-1 flex flex-wrap gap-1">
+                                  {lotChips(lot).map((chip) => <span key={chip} className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{chip}</span>)}
+                                  {lot.adjusted && <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-brand-encre border border-blue-200">critères réglés</span>}
+                                </span>
+                                <span className="block mt-1 text-[11px] text-slate-500">{lot.count} véhicule{lot.count > 1 ? 's' : ''} de l'offre</span>
                               </td>
-                              <td className="py-2.5 pr-3 text-right tabular-nums text-slate-600">{lot.count}</td>
-                              <td className="py-2.5 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(lot.ourPriceMin)} – ${fmtEur(lot.ourPriceMax)}` : fmtEur(lot.ourPriceAvg)}</td>
+                              <td className="py-3 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap align-top">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(lot.ourPriceMin)} – ${fmtEur(lot.ourPriceMax)}` : fmtEur(lot.ourPriceAvg)}</td>
                               {draft.countries.map((c) => {
                                 const res = draft.market?.[lot.key]?.[c];
-                                if (!res) {
-                                  return (
-                                    <td key={c} className="py-2.5 pr-3 align-top">
-                                      <button onClick={() => void runSurvey([lot], [c])} disabled={surveyRunning} className="px-2 py-1 rounded-md border border-dashed border-slate-300 text-slate-500 hover:border-brand-ocean hover:text-brand-ocean disabled:opacity-40">Relever</button>
-                                    </td>
-                                  );
-                                }
-                                const v = verdictOf(lot.ourPriceAvg, res, c);
+                                const state = cellState[cellKey(lot, c)];
+                                const v = res ? verdictOf(lot.ourPriceAvg, res, c) : null;
+                                const siteError = res && res.medianTtc == null ? Object.values(res.sites).find((x) => x.error) : undefined;
                                 return (
-                                  <td key={c} className="py-2.5 pr-3 align-top">
-                                    <span className={`inline-block px-1.5 py-0.5 rounded border text-[11px] ${VERDICT_CLASS[v.tone]}`}>{v.text}</span>
-                                    {res.medianTtc != null && (
-                                      <span className="block text-[10px] text-slate-500 mt-0.5 whitespace-nowrap" title="Médiane = milieu du marché ; attaque = médiane des moins chères (3, 5 ou 8 selon la taille), là où une annonce est compétitive">méd. {fmtEur(res.medianTtc)}{res.attackTtc != null ? <> · attaque <span className="text-slate-700 font-medium">{fmtEur(res.attackTtc)}</span></> : null} · {res.competitors} conc.</span>
-                                    )}
-                                    {res.medianTtc == null && Object.values(res.sites).some((s) => s.error) && (
-                                      <span className="block text-[10px] text-amber-700 mt-0.5">{(() => { const s = Object.values(res.sites).find((x) => x.error); return s ? `${SITE_LABEL(s.site)} : ${s.error}` : ''; })()}</span>
-                                    )}
-                                    <span className="block text-[10px] text-slate-400">{new Date(res.at).toLocaleDateString('fr-FR')}</span>
+                                  <td key={c} className="py-3 pr-3 align-top">
+                                    <div className={`rounded-lg border p-2 flex flex-col gap-1 min-h-[86px] ${state ? 'border-brand-ocean bg-blue-50/40' : 'border-slate-200'}`}>
+                                      {state === 'running' ? (
+                                        <span className="flex items-center gap-1.5 text-[11px] text-brand-encre font-medium"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Relevé en cours…</span>
+                                      ) : state === 'queued' ? (
+                                        <span className="text-[11px] text-brand-encre">En attente dans la file…</span>
+                                      ) : v && res ? (
+                                        <>
+                                          <span className={`self-start px-1.5 py-0.5 rounded border text-[11px] ${VERDICT_CLASS[v.tone]}`}>{v.text}</span>
+                                          {res.medianTtc != null && (
+                                            <span className="text-[10px] text-slate-500 whitespace-nowrap" title="Médiane = milieu du marché ; attaque = médiane des moins chères (3, 5 ou 8 selon la taille), là où une annonce est compétitive">méd. {fmtEur(res.medianTtc)}{res.attackTtc != null ? <> · attaque <span className="text-slate-700 font-medium">{fmtEur(res.attackTtc)}</span></> : null} · {res.competitors} conc.</span>
+                                          )}
+                                          {siteError && <span className="text-[10px] text-amber-700">{SITE_LABEL(siteError.site)} : {siteError.error}</span>}
+                                        </>
+                                      ) : (
+                                        <span className="text-[11px] text-slate-400">Pas encore relevé</span>
+                                      )}
+                                      <div className="mt-auto flex items-center justify-between gap-2">
+                                        <span className="text-[10px] text-slate-400">{res ? `relevé le ${new Date(res.at).toLocaleDateString('fr-FR')}` : ''}</span>
+                                        <button onClick={() => void runSurvey([lot], [c])} disabled={surveyRunning} title={surveyRunning ? 'Un relevé est en cours' : `Relever ${lot.brand} ${lot.model} en ${countryLabel(c)}`} aria-label={`Relever ${lot.brand} ${lot.model} en ${countryLabel(c)}`}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-slate-300 text-slate-600 hover:border-brand-ocean hover:text-brand-ocean disabled:opacity-40">
+                                          <Search className="w-3 h-3" /> Relever
+                                        </button>
+                                      </div>
+                                    </div>
                                   </td>
                                 );
                               })}
-                              <td className="py-2.5 pr-3 whitespace-nowrap text-right">
-                                <button onClick={() => setEditLot(editLot === lot.key ? null : lot.key)} className={`inline-flex items-center gap-1 mr-3 ${editLot === lot.key ? 'text-brand-encre font-medium' : 'text-brand-ocean'} hover:underline`}><SlidersHorizontal className="w-3 h-3" /> {editLot === lot.key ? 'Fermer' : 'Critères'}</button>
-                                <button onClick={() => void toggleTargets(lot)} className="text-brand-ocean hover:underline mr-3">{opened ? 'Masquer' : 'Recherches'}</button>
-                                <button onClick={() => void runSurvey([lot], draft.countries)} disabled={surveyRunning || draft.countries.length === 0} className="text-slate-700 hover:underline disabled:opacity-40">Relever le lot</button>
+                              <td className="py-3 pr-3 align-top text-right">
+                                <div className="flex flex-col items-end gap-1.5">
+                                  <button onClick={() => void runSurvey([lot], draft.countries)} disabled={surveyRunning || draft.countries.length === 0} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-brand-ocean text-brand-ocean hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">
+                                    <Search className="w-3 h-3" /> Relever dans les {draft.countries.length} pays
+                                  </button>
+                                  <button onClick={() => setEditLot(editLot === lot.key ? null : lot.key)} className={`inline-flex items-center gap-1 ${editLot === lot.key ? 'text-brand-encre font-medium' : 'text-brand-ocean'} hover:underline`}><SlidersHorizontal className="w-3 h-3" /> {editLot === lot.key ? 'Fermer les critères' : 'Régler les critères'}</button>
+                                  <button onClick={() => void toggleTargets(lot)} className="text-brand-ocean hover:underline">{opened ? 'Masquer les recherches' : 'Voir les recherches'}</button>
+                                </div>
                               </td>
                             </tr>
                             {editLot === lot.key && (
                               <tr className="bg-blue-50/40">
-                                <td colSpan={4 + draft.countries.length} className="px-3 py-2">
+                                <td colSpan={3 + draft.countries.length} className="px-3 py-2">
                                   <div className="flex flex-wrap items-end gap-3 text-xs">
                                     <label className="text-slate-600">Marque
                                       <input list="offer-brands" value={lot.brand} onChange={(e) => setLotCriteria(lot, { brand: e.target.value })} className="block mt-0.5 w-32 px-2 py-1 rounded border border-slate-300 bg-white uppercase" />
@@ -878,7 +908,7 @@ export function Offres() {
                             )}
                             {opened && (
                               <tr className="bg-slate-50/60">
-                                <td colSpan={4 + draft.countries.length} className="px-3 py-2">
+                                <td colSpan={3 + draft.countries.length} className="px-3 py-2">
                                   {!ts ? <span className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> génération des URLs…</span> : ts.length === 0 ? <span className="text-slate-400">Aucun site pour les pays de l'analyse.</span> : (
                                     <div className="grid md:grid-cols-2 gap-x-6 gap-y-1">
                                       {ts.map((t) => {
@@ -920,6 +950,22 @@ export function Offres() {
 
           {/* ══ EXPORT ═════════════════════════════════════════════════════════ */}
           {view === 'export' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
+                <span className="font-semibold text-slate-800">Prix MC Export (HT)</span>
+                <select value={draft.price_rule.mode} onChange={(e) => applyRule({ ...draft.price_rule, mode: e.target.value as PriceRule['mode'] })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
+                  <option value="margin">Prix fournisseur HT + marge</option>
+                  <option value="fixed">Prix fixe pour tous</option>
+                  <option value="none">Sans prix — le client propose</option>
+                </select>
+                {draft.price_rule.mode !== 'none' && <>
+                  <input type="number" aria-label="Montant" value={draft.price_rule.margin} onChange={(e) => update({ price_rule: { ...draft.price_rule, margin: Number(e.target.value) || 0 } })} className="w-24 px-2 py-1.5 rounded-lg border border-slate-300 text-right" />
+                  <span className="text-slate-500">€</span>
+                  <button onClick={() => applyRule(draft.price_rule)} className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-900 text-white">Appliquer à tous</button>
+                </>}
+                <span className="ml-auto text-slate-500">Total HT retenu : <span className="font-semibold text-slate-900">{draft.price_rule.mode === 'none' ? 'sans prix' : fmtEur(selected.reduce((a, v) => a + (v.sale_price ?? 0) * qtyOf(v), 0))}</span></span>
+              </div>
+
             <div className="grid lg:grid-cols-[400px_1fr] gap-4 items-start">
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
                 <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
@@ -968,7 +1014,7 @@ export function Offres() {
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm min-w-0">
                 <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
                   <h2 className="text-sm font-semibold text-slate-800">Aperçu de l'offre</h2>
-                  <span className="text-xs text-slate-500">{unitsLabel(selected.length, selectedUnits)} · {draft.price_rule.mode === 'none' ? 'sans prix' : 'prix HT'}{selected.length > 8 ? ' · 8 premières lignes' : ''}</span>
+                  <span className="text-xs text-slate-500">{unitsLabel(selected.length, selectedUnits)} · {draft.price_rule.mode === 'none' ? 'sans prix' : 'prix HT'}</span>
                   <div className="ml-auto flex gap-2">
                     <button onClick={exportXlsx} disabled={selected.length === 0} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-brand-ocean text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><FileSpreadsheet className="w-4 h-4" /> Excel</button>
                     <button onClick={() => void exportPdf()} disabled={selected.length === 0 || busy === 'pdf'} className="flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} PDF MC Export</button>
@@ -977,12 +1023,12 @@ export function Offres() {
                 {selected.length === 0 ? (
                   <p className="px-4 py-10 text-sm text-slate-400 text-center">Aucun véhicule retenu : rien à exporter.</p>
                 ) : (
-                  <div className="overflow-x-auto p-3">
+                  <div className="overflow-auto max-h-[75vh] p-3">
                     <p className="text-sm font-bold text-slate-900 uppercase">{draft.title || 'OFFRE MC EXPORT'}</p>
                     <table className="mt-2 text-xs w-full">
-                      <thead><tr className="bg-slate-800 text-white text-left">{previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{c.label}</th>)}</tr></thead>
+                      <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">{previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{c.label}</th>)}</tr></thead>
                       <tbody>
-                        {selected.slice(0, 8).map((v, i) => (
+                        {selected.map((v, i) => (
                           <tr key={v.id} className={i % 2 ? 'bg-slate-50' : ''}>
                             {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}</td>)}
                           </tr>
@@ -993,6 +1039,7 @@ export function Offres() {
                   </div>
                 )}
               </div>
+            </div>
             </div>
           )}
         </>
@@ -1037,7 +1084,7 @@ function VehicleEditor({ v, onChange }: { v: OfferVehicle; onChange: (patch: Par
       </label>
       <label className="text-slate-600">Prix fournisseur HT (€)<input type="number" value={v.price_ht ?? ''} onChange={(e) => onChange({ price_ht: numOrNull(e.target.value) })} className={`${field} w-28`} /></label>
       <label className="text-slate-600">Prix fournisseur TTC (€)<input type="number" value={v.price_ttc ?? ''} onChange={(e) => onChange({ price_ttc: numOrNull(e.target.value) })} className={`${field} w-28`} /></label>
-      <span className="text-[11px] text-slate-500 pb-1.5 basis-full">Chaque correction est enregistrée et rejouée si le fichier est relu. Un prix fournisseur corrigé ne change pas le prix MC Export : « Appliquer à tous » le recalcule.</span>
+      <span className="text-[11px] text-slate-500 pb-1.5 basis-full">Chaque correction est enregistrée et rejouée si le fichier est relu. Un prix fournisseur corrigé ne change pas le prix MC Export : « Appliquer à tous » (onglet Export) le recalcule.</span>
     </div>
   );
 }
