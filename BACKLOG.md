@@ -832,13 +832,32 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
-- **TRAJECTOIRE DES PRIX (bêta) REMPLACE LA VÉLOCITÉ, ANCIEN PRIX DÉCLARÉ
-  (11/10, Channing : « en bêta test ok, on remplace l'outil de vélocité qui
-  n'est pas encore fiable, et en vélocité ce qu'on est sûr uniquement, pas de
-  supposition »)**. La carte « Vélocité — âge du stock et vitesse de vente »
-  (proxy par disparition, « vendu en N j ») sort du MI. À sa place,
-  « Trajectoire des prix (bêta) » (src/components/ListingTrajectory.tsx,
-  service src/services/listingFacts.ts) n'affiche que des FAITS, par
+- **TRAJECTOIRE DES PRIX (bêta) DANS L'ACCUEIL, VÉLOCITÉ RETIRÉE DU MI,
+  ANCIEN PRIX DÉCLARÉ (11/10, Channing : « en bêta test ok, on remplace
+  l'outil de vélocité qui n'est pas encore fiable, et en vélocité ce qu'on
+  est sûr uniquement, pas de supposition » puis « pas dans le MI mais dans
+  l'accueil de chacun, seulement les véhicules en études quotidiennes, un
+  instrument de précision »)**. La carte « Vélocité — âge du stock et
+  vitesse de vente » (proxy par disparition, « vendu en N j ») sort du MI,
+  qui ne garde que profondeur et prix. L'instrument vit dans l'Accueil
+  (src/components/PriceTrajectory.tsx, service src/services/listingFacts.ts,
+  `loadStudyTrajectory`) : un sélecteur des études quotidiennes de
+  l'utilisateur (actives d'abord, les études en pause restent consultables,
+  choix mémorisé), puis pays d'ACHAT et pays de VENTE côte à côte, chacun
+  avec ses relevés (nombre, première et dernière date), quatre tuiles (en
+  ligne / absentes, baisses observées + médiane, prix barrés + médiane, âge
+  médian du stock daté) et quatre listes (prix bougés / prix barrés /
+  absentes / toutes). Chaque annonce montre son TRAJET DE PRIX daté relevé
+  par relevé (« 46 230 € (15/09) → 39 990 € (04/10) »), l'écart cumulé, le
+  prix barré du site, « vue N fois du JJ/MM au JJ/MM », la mise en ligne
+  déclarée et son statut. Les observations sont lues par pays via
+  mi_obs_for_segment (chaud + archive), filtrées aux critères de l'étude
+  (années, carburant, finition / finition cible, boîte, puissance, km,
+  carrosserie), les snapshots par id des relevés. Preuve FR→NL Elroq 2025
+  11/10 : 5,2 s, FR 304 annonces sur 206 relevés (LaCentrale 46 230 € le
+  15/09 → 39 990 € le 04/10, absente depuis le 07/10 ; Leboncoin 36 980 →
+  33 980 € en cinq paliers), NL 649 annonces sur 16 relevés (Business
+  Edition 46 840 → 42 840 € en trois paliers). N'affiche que des FAITS, par
   annonce : première / dernière vue par ADA, nombre de relevés, prix au
   premier relevé → prix courant, baisses et hausses OBSERVÉES entre deux
   relevés successifs (écart cumulé en %), ancien prix BARRÉ affiché par le

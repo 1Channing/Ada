@@ -19,7 +19,13 @@
  * Les durées sont exactes quand le site date l'annonce ; sinon ce sont des
  * bornes basses (« vue pendant ≥ N j »), jamais des estimations.
  */
-import { collapseMirroredListings, listingIdentity, vanishedAtIndex, type Observation, type Snapshot } from './marketData';
+import { supabase } from '../lib/supabase';
+import {
+  collapseMirroredListings, listingIdentity, vanishedAtIndex, filterObservations, loadObservationsForStudy,
+  FUEL_TOKEN_TO_CRITERIA, type Observation, type Snapshot, type MarketFilters,
+} from './marketData';
+import type { FuelToken } from '../lib/study-core/ingestion';
+import type { DailySearch } from './workflow';
 
 export interface ListingFact {
   id: string;
@@ -39,6 +45,9 @@ export interface ListingFact {
   /** Changements OBSERVÉS entre deux relevés successifs. */
   drops: number;
   rises: number;
+  /** Trajet des prix : premier prix puis chaque changement, daté du relevé
+   *  qui l'a constaté (prix 1 (15/09) → prix 2 (28/09) → …). */
+  steps: Array<{ at: string; price: number }>;
   /** Écart cumulé observé, en % du premier prix (négatif = baisse). */
   observedDeltaPct: number | null;
   /** Ancien prix AFFICHÉ par le site sur la dernière version (barré), si > prix. */
@@ -81,13 +90,15 @@ export function listingFacts(obs: Observation[], snapshots: Snapshot[], coverage
     let prevAt = '';
     let drops = 0, rises = 0;
     let published: string | null = null;
+    const steps: Array<{ at: string; price: number }> = [];
     for (const o of list) {
       seenAt.add(String(o.scraped_at));
       if (o.published_at && (!published || o.published_at < published)) published = o.published_at;
       if (typeof o.price !== 'number' || o.price <= 0) continue;
-      if (prevPrice != null && String(o.scraped_at) !== prevAt) {
-        if (o.price < prevPrice) drops++;
-        else if (o.price > prevPrice) rises++;
+      if (prevPrice == null) steps.push({ at: String(o.scraped_at), price: o.price });
+      else if (String(o.scraped_at) !== prevAt && o.price !== prevPrice) {
+        if (o.price < prevPrice) drops++; else rises++;
+        steps.push({ at: String(o.scraped_at), price: o.price });
       }
       prevPrice = o.price; prevAt = String(o.scraped_at);
     }
@@ -100,7 +111,7 @@ export function listingFacts(obs: Observation[], snapshots: Snapshot[], coverage
       firstSeenAt: String(first.scraped_at), lastSeenAt: String(latest.scraped_at),
       seenCount: seenAt.size,
       publishedAt: published,
-      firstPrice, currentPrice, drops, rises,
+      firstPrice, currentPrice, drops, rises, steps,
       observedDeltaPct: firstPrice != null && currentPrice != null && (drops + rises) > 0
         ? Math.round(((currentPrice - firstPrice) / firstPrice) * 1000) / 10 : null,
       sitePreviousPrice: sitePrev,
@@ -191,4 +202,76 @@ export function mergeFacts(sets: ListingFact[][]): ListingFact[] {
   const seen = new Map<string, ListingFact>();
   for (const s of sets) for (const f of s) if (!seen.has(f.id)) seen.set(f.id, f);
   return [...seen.values()];
+}
+
+// ─── Chargement par ÉTUDE QUOTIDIENNE (Accueil, 11/10) ──────────────────────
+// Décision Channing : la trajectoire ne vit pas dans le MI mais dans l'Accueil
+// de chacun, et ne montre que les véhicules en étude quotidienne — ceux sur
+// lesquels ADA accumule le plus de relevés (un passage chaque matin).
+
+export interface StudyTrajectory {
+  study: DailySearch;
+  /** Faits côté pays d'achat (source) et côté pays de vente (cible). */
+  source: ListingFact[];
+  target: ListingFact[];
+  /** Relevés distincts vus de chaque côté (dates ISO, croissantes). */
+  sourceScans: string[];
+  targetScans: string[];
+  loadedAt: number;
+}
+
+function criteriaToToken(criteria: string): FuelToken | '' {
+  const c = (criteria ?? '').trim().toUpperCase();
+  if (!c) return '';
+  const hit = Object.entries(FUEL_TOKEN_TO_CRITERIA).find(([, v]) => v === c);
+  return (hit?.[0] as FuelToken | undefined) ?? '';
+}
+
+/** Snapshots des relevés qui ont produit ces observations (par id, par lots). */
+async function snapshotsOf(obs: Observation[]): Promise<Snapshot[]> {
+  const ids = [...new Set(obs.map((o) => o.snapshot_id).filter(Boolean))];
+  const out: Snapshot[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data } = await supabase.from('market_snapshots').select('*').in('id', ids.slice(i, i + 100));
+    out.push(...((data ?? []) as Snapshot[]));
+  }
+  return out;
+}
+
+function distinctScans(obs: Observation[]): string[] {
+  return [...new Set(obs.map((o) => String(o.scraped_at)))].sort();
+}
+
+/**
+ * Trajectoire d'une étude quotidienne : observations du modèle dans chacun des
+ * deux pays (vue chaud + archive, même lecture que le MI), filtrées aux
+ * critères de l'étude (années, carburant, finition, boîte, puissance, km),
+ * preuve d'absence lue sur le jeu complet du pays.
+ */
+export async function loadStudyTrajectory(study: DailySearch): Promise<StudyTrajectory> {
+  const base = { brand: study.brand, model: study.model };
+  const [srcAll, tgtAll] = await Promise.all([
+    loadObservationsForStudy({ ...base, country: study.source_country }),
+    loadObservationsForStudy({ ...base, country: study.target_country }),
+  ]);
+  const [srcSnaps, tgtSnaps] = await Promise.all([snapshotsOf(srcAll), snapshotsOf(tgtAll)]);
+  const common: MarketFilters = {
+    ...base,
+    yearMin: study.year_min ?? null, yearMax: study.year_max ?? null,
+    fuel: criteriaToToken(study.fuel),
+    gearbox: (study.gearbox ?? '').trim() || undefined,
+    powerMin: study.power_min ?? null,
+    mileageMax: study.mileage_max ?? null,
+    vehicleType: (study.vehicle_type ?? '').trim() || undefined,
+  };
+  const src = filterObservations(srcAll, { ...common, country: study.source_country, trim: (study.trim ?? '').trim() || undefined });
+  const tgt = filterObservations(tgtAll, { ...common, country: study.target_country, trim: ((study.trim_target || study.trim) ?? '').trim() || undefined });
+  return {
+    study,
+    source: listingFacts(src, srcSnaps, srcAll),
+    target: listingFacts(tgt, tgtSnaps, tgtAll),
+    sourceScans: distinctScans(src),
+    targetScans: distinctScans(tgt),
+    loadedAt: Date.now(),
+  };
 }

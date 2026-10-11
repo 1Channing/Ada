@@ -21,8 +21,6 @@ import type { SiteKey } from '../lib/linkgen/types';
 import { supabase } from '../lib/supabase';
 import type { DimensionRow } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, KnownDimensions } from '../services/marketData';
-import { listingFacts, mergeFacts, type ListingFact } from '../services/listingFacts';
-import { ListingTrajectory } from '../components/ListingTrajectory';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import { BODY_TYPES, bodyLabel, canonicalizeBody } from '../lib/study-core/bodyTypes';
 import { getRefWindowsCached, findRefWindow } from '../services/vehicleRef';
@@ -635,7 +633,7 @@ export function MarketIntelligence() {
     // récente — MOINS les annonces absentes du dernier scan de leur segment
     // (disparues = très probablement vendues ou retirées). Les indicateurs LE
     // décrivent (mêmes chiffres que le tableau du dessous) ; l'historique
-    // complet reste dans `filtered` pour les courbes et la trajectoire des prix, qui ont
+    // complet reste dans `filtered` pour les courbes, qui ont
     // besoin de chaque passage, disparitions comprises.
     // Couverture des scans lue sur le jeu COMPLET (obs), pas sur le filtré.
     const latestObs = pruneVanishedListings(latestPerListing(filtered), data.snapshots, obs);
@@ -643,9 +641,6 @@ export function MarketIntelligence() {
       idx: i, filters: f, color, label: studyLabel(f, i),
       filtered, latestObs, stats: priceStats(latestObs), series: timeSeries(filtered),
       attack: attackPrice(latestObs),
-      // Trajectoire des prix (bêta 11/10) : faits par annonce sur tout
-      // l'historique filtré, preuve d'absence lue sur le jeu complet.
-      facts: listingFacts(filtered, data.snapshots, obs),
       realDepth: computeRealDepth(data.snapshots, f, latestObs),
       lastScan: lastScanOf(data.snapshots, f),
     };
@@ -658,7 +653,7 @@ export function MarketIntelligence() {
       <div className="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-3"><LineIcon className="w-6 h-6 text-blue-500" /> Market Intelligence</h1>
-          <p className="text-slate-600 mt-1 text-sm">Profondeur, prix et trajectoire des prix du marché — filtrable au grain de l'annonce, jusqu'à 3 études comparées.</p>
+          <p className="text-slate-600 mt-1 text-sm">Profondeur et prix du marché — filtrable au grain de l'annonce, jusqu'à 3 études comparées.</p>
         </div>
         <div className="flex items-center gap-2 max-md:flex-col max-md:items-stretch shrink-0">
           {/* Accès DIRECT à la mise à jour de l'étude active (téléphone 07/09 :
@@ -1046,8 +1041,6 @@ interface StudyDerived {
   stats: ReturnType<typeof priceStats>; series: ReturnType<typeof timeSeries>;
   /** Médiane des N moins chères (N adaptatif) — le prix pour être compétitif. */
   attack: ReturnType<typeof attackPrice>;
-  /** Faits par annonce (trajectoire des prix, bêta). */
-  facts: ListingFact[];
   realDepth: number | null;
   /** Date du dernier relevé de l'étude et vide prouvé par les sites, s'il y a lieu. */
   lastScan: LastScan | null;
@@ -1163,9 +1156,6 @@ function SingleStudyView({ study, filters, priceBand, setPriceBand }:
         </ChartCard>
       </div>
 
-      {/* Trajectoire des prix (bêta) — faits par annonce, sans estimation */}
-      <ListingTrajectory facts={study.facts} countryColor={COUNTRY_COLOR} />
-
       {/* Listings table */}
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
@@ -1249,9 +1239,6 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
   const sampleBars = useMemo(() =>
     perStudy.map((s) => ({ label: s.label, sample: s.latestObs.length, color: s.color, idx: s.idx })),
     [perStudy]);
-
-  // Trajectoire des prix sur l'union des études (une annonce une fois).
-  const unionFacts = useMemo(() => mergeFacts(perStudy.map((s) => s.facts)), [perStudy]);
 
   return (
     <>
@@ -1352,7 +1339,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
         </ChartCard>
       </div>
 
-      {/* Sample depth per study + trajectoire des prix */}
+      {/* Sample depth per study */}
       <div className="grid md:grid-cols-2 gap-6">
         <ChartCard title="Échantillon (dernier scan)" subtitle="annonces observées par étude" icon={<Gauge className="w-4 h-4 text-amber-600" />}>
           <ResponsiveContainer width="100%" height={Math.max(160, sampleBars.length * 48)}>
@@ -1368,7 +1355,6 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ListingTrajectory facts={unionFacts} countryColor={COUNTRY_COLOR} />
       </div>
 
       {/* Prix comparés — deux lectures commutables du même marché filtré :
