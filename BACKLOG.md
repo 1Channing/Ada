@@ -832,7 +832,20 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
-- **TRAJECTOIRE DES PRIX (bêta) DANS L'ACCUEIL, VÉLOCITÉ RETIRÉE DU MI,
+- **TRAJECTOIRE DES PRIX SUPPRIMÉE (11/10 soir, Channing : « on supprime
+  cet outil, il est inexploitable, retire-le des lignes de code »)**. Le
+  composant (PriceTrajectory), le service (listingFacts) et l'ancien code de
+  vélocité (computeVelocity, velocityFromObservations, velocityByCountry,
+  velocitySegmentListings, segmentId/segmentLabel, priceHistogram) sont
+  retirés. Ce qui RESTE, parce que ce sont des données brutes : la capture
+  de l'ancien prix barré déclaré par le site (`previousPrice` dans les
+  lecteurs, colonne `previous_price`, migration 20261011110000, insertion
+  fail-open) et `vanishedAtIndex` (preuve d'absence, désormais seule base
+  de la purge de l'état actuel). Constat qui a tué l'outil : sur une étude
+  Yaris Cross GR Sport FR→NL, aucune annonce côté achat et 9 absentes côté
+  vente sur 3 relevés du même jour — les critères de l'étude (finition)
+  vident la lecture et les relevés d'un même jour ne font pas d'historique.
+- **(archivé) TRAJECTOIRE DES PRIX (bêta) DANS L'ACCUEIL, VÉLOCITÉ RETIRÉE DU MI,
   ANCIEN PRIX DÉCLARÉ (11/10, Channing : « en bêta test ok, on remplace
   l'outil de vélocité qui n'est pas encore fiable, et en vélocité ce qu'on
   est sûr uniquement, pas de supposition » puis « pas dans le MI mais dans

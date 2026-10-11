@@ -9,7 +9,6 @@ import { inspectOpportunityInMarket } from '../services/marketData';
 import { DailyHit, DailySearch, listInboxHits, listDailySearches, inboxToProcess } from '../services/workflow';
 import { useAuth } from '../services/auth';
 import { MyTasks } from '../components/MyTasks';
-import { PriceTrajectory } from '../components/PriceTrajectory';
 
 interface DealRow {
   id: string;
@@ -206,10 +205,6 @@ export function Home() {
           </div>
         </div>
       </button>
-
-      {/* Trajectoire des prix (bêta, 11/10) : les véhicules des études
-          quotidiennes, pays d'achat et pays de vente, faits seulement. */}
-      <PriceTrajectory />
 
       {/* Opportunités repérées par la DERNIÈRE campagne uniquement */}
       {campaignLoaded && campaign && (
