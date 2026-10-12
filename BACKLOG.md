@@ -832,6 +832,28 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ORGANISATIONS, RAPPEL SUR LA LIGNE, NUMÉRO VALIDÉ AU-DESSUS DES NOTES,
+  FLÈCHE « SUITE » (12/10 après-midi, Channing)**. (1) profiles.organisation
+  (texte libre, admin, page Équipe : champ avec la liste des organisations
+  existantes, RPC admin_set_organisation ; comptes existants = « MC
+  Export ») ; l'Open space (annonces poussées, notes, lecture des
+  négociations partagées) ne circule qu'au sein d'une organisation
+  (politiques RLS sur organisation_of(pushed_by) = my_organisation()) ; son
+  en-tête nomme l'organisation. Décision prise avec : l'anti-collision
+  (« déjà en négo », « vendeur déjà vu ») est limitée à la même organisation
+  (negotiation_conflicts v3) — deux sociétés ne voient pas qui négocie quoi
+  chez l'autre ; à inverser si Channing veut le contraire. Migration
+  20261012130000, collable seule. (2) Rappel posé sur une annonce → icône
+  rose avec la date à côté du titre, jusqu'à l'échéance (lecture des
+  tâches ouvertes, relue chaque minute et au signal REMINDERS_CHANGED).
+  (3) Le numéro du vendeur se saisit AU-DESSUS des notes (et toujours dans
+  le formulaire d'ajout) : champ + Valider ; icône verte « première
+  apparition de ce numéro » s'il n'est connu nulle part ailleurs (mes
+  lignes en cours et archivées, collègues de l'organisation), sinon
+  « vendeur déjà vu : « titre » chez X (état) » ; le numéro vert se voit
+  aussi sur la ligne. La fenêtre d'après appel ne demande plus le numéro,
+  elle le rappelle. (4) Le bouton « Après l'appel » devient une simple
+  flèche → (suite).
 - **PROSPECTION : NUMÉRO DU VENDEUR COMME SECONDE CLÉ DE DOUBLON, CHOIX
   D'APRÈS APPEL, ARCHIVES DE NÉGOCIATION (12/10, Channing)**. « Si
   quelqu'un remet une annonce au bout d'un certain temps, il faut repérer

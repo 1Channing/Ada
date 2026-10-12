@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock, Phone, PhoneCall, Archive, RotateCcw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock, Phone, PhoneCall, Archive, RotateCcw, ArrowRight, BadgeCheck } from 'lucide-react';
 import { listingKey } from '../lib/listingKey';
 import { phoneKey, fmtPhone } from '../lib/phoneKey';
 import { readNote, writeNote, lastNoteDate, agoLabel, worthRelaunch, RELANCE_AFTER_DAYS } from '../lib/noteJournal';
 import { canSeeTab } from '../lib/appTabs';
-import { createReminder } from '../services/userTasks';
+import { createReminder, listMyTasks, isReminder, REMINDERS_CHANGED } from '../services/userTasks';
 import { defaultReminderWhen } from '../components/ReminderCenter';
 import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
@@ -66,6 +66,10 @@ export function Ventes() {
 
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 
+/** Un autre véhicule déjà vu avec ce numéro de vendeur (chez moi ou chez un collègue de mon organisation). */
+type PhoneSeen = { owner: string; mine: boolean; listingKey: string; title: string; state: string };
+const fmtReminderAt = (iso: string) => new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
 /** État d'une négociation vue par l'anti-collision (en cours, poussée en vente, archivée avec le choix d'après appel). */
 type NegoState = { status?: string | null; outcome?: string | null; archived_at?: string | null };
 const stateLabel = (c: NegoState): string => {
@@ -91,6 +95,27 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   // Archivées après l'appel (12/10) : remises dans le flux ou sans rappel.
   const [archived, setArchived] = useState<Negotiation[]>([]);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  // Rappels posés sur mes annonces (12/10) : icône sur la ligne jusqu'à l'échéance.
+  const [reminders, setReminders] = useState<Map<string, string>>(new Map());
+  const [, setTick] = useState(0);
+  const loadReminders = () => {
+    void listMyTasks('open').then((r) => {
+      const m = new Map<string, string>();
+      for (const t of r.tasks) {
+        if (!isReminder(t) || !t.negotiation_id || !t.due_at) continue;
+        const cur = m.get(t.negotiation_id);
+        if (!cur || t.due_at < cur) m.set(t.negotiation_id, t.due_at);
+      }
+      setReminders(m);
+    });
+  };
+  useEffect(() => {
+    loadReminders();
+    const t = window.setInterval(() => setTick((x) => x + 1), 60_000);
+    window.addEventListener(REMINDERS_CHANGED, loadReminders);
+    return () => { window.clearInterval(t); window.removeEventListener(REMINDERS_CHANGED, loadReminders); };
+  }, []);
+  const reminderAtOf = (id: string): string | null => { const d = reminders.get(id); return d && Date.parse(d) > Date.now() ? d : null; };
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   // Open space (05/09) : l'espace partagé, son badge de nouveautés et la
@@ -186,6 +211,27 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
     }
     return items.length ? { items, relaunch } : null;
   };
+
+  // Numéros déjà vus (12/10) : mes lignes (en cours, archivées) et celles des
+  // collègues de mon organisation — nourrit « première apparition » (vert) et
+  // « vendeur déjà vu » sur chaque ligne.
+  const phoneIndex = useMemo(() => {
+    const m = new Map<string, PhoneSeen[]>();
+    const seen = new Set<string>();
+    const add = (pk: string, e: PhoneSeen) => { if (pk) m.set(pk, [...(m.get(pk) ?? []), e]); };
+    for (const r of [...rows, ...archived]) {
+      const k = `${userId}|${listingKey(r.listing_url)}|${r.title}`;
+      if (seen.has(k)) continue; seen.add(k);
+      add(phoneKey(r.phone), { owner: 'toi', mine: true, listingKey: listingKey(r.listing_url), title: r.title, state: stateLabel(r) });
+    }
+    for (const c of conflicts) {
+      if (c.owner_id === userId) continue;
+      const k = `${c.owner_id}|${listingKey(c.listing_url)}|${c.title ?? ''}`;
+      if (seen.has(k)) continue; seen.add(k);
+      add(phoneKey(c.phone), { owner: c.owner_name, mine: false, listingKey: listingKey(c.listing_url), title: c.title ?? 'sans titre', state: stateLabel(c) });
+    }
+    return m;
+  }, [rows, archived, conflicts, userId]);
 
   // UN SEUL GESTE (12/10, Channing : « même s'ils cliquent sur Enregistrer
   // plutôt qu'Analyser, ça analyse ») : Enregistrer crée la négociation TOUT
@@ -317,7 +363,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
           </div>
         ) : folders.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-            {rows.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} sharedItemId={shared.get(n.id) ?? null} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} />)}
+            {rows.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} sharedItemId={shared.get(n.id) ?? null} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} />)}
           </div>
         ) : (
           // Regroupement par dossier (10/09) : les dossiers dans leur ordre,
@@ -364,7 +410,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
                         ? <p className="px-4 py-3 text-xs text-slate-400 border-t border-slate-100">Dossier vide — range une négociation ici depuis son menu ⋯ → « Ranger dans un dossier ».</p>
                         : (
                           <div className="divide-y divide-slate-100 border-t border-slate-100">
-                            {items.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} sharedItemId={shared.get(n.id) ?? null} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} />)}
+                            {items.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} sharedItemId={shared.get(n.id) ?? null} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} />)}
                           </div>
                         )
                     )}
@@ -449,10 +495,13 @@ function FolderHeader({ folder, count, open, onToggle, onRename, onDelete }: {
   );
 }
 
-function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, onPushed, notesOpen, onNotesOpen }: {
+function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, onPushed, notesOpen, onNotesOpen, reminderAt, phoneIndex }: {
   n: Negotiation; folders: NegotiationFolder[]; onNewFolder: () => Promise<string | null>;
   conflicts: NegoConflict[]; sharedItemId: string | null; onChanged: () => void; onPushed: () => void;
   notesOpen: boolean; onNotesOpen: (open: boolean) => void;
+  /** Prochain rappel à venir sur cette annonce (null = aucun ou déjà échu). */
+  reminderAt: string | null;
+  phoneIndex: Map<string, PhoneSeen[]>;
 }) {
   const [askDelete, setAskDelete] = useState(false);
   // Passage en vente SOUS RÉFÉRENCE (18/09) : petite fenêtre qui demande la
@@ -567,23 +616,21 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
   const activeOthers = others.filter((c) => c.status !== 'archived');
   // Même VENDEUR (numéro) sur un AUTRE véhicule, chez moi ou chez un collègue (12/10).
   const myPhone = phoneKey(n.phone);
-  const sellerSeen = myPhone
-    ? conflicts.filter((c) => phoneKey(c.phone) === myPhone && listingKey(c.listing_url) !== myKey)
-    : [];
-  const editPhone = async () => {
-    const p = prompt('Numéro du vendeur (gardé avec l’annonce pour repérer les doublons) :', n.phone ?? '');
-    if (p == null) return;
-    const err = await setNegotiationPhone(n.id, p);
+  const sellerSeen: PhoneSeen[] = myPhone ? (phoneIndex.get(myPhone) ?? []).filter((e) => e.listingKey !== myKey) : [];
+  // PREMIÈRE APPARITION (12/10, Channing) : numéro validé avant l'appel,
+  // icône verte s'il n'est connu nulle part ailleurs (chez moi, chez un
+  // collègue de mon organisation, en cours ou archivé).
+  const phoneFirst = !!myPhone && sellerSeen.length === 0;
+  const [phoneDraft, setPhoneDraft] = useState(n.phone ?? '');
+  useEffect(() => { setPhoneDraft(n.phone ?? ''); }, [n.phone]);
+  const phoneDirty = phoneDraft.trim() !== (n.phone ?? '').trim();
+  const validatePhone = async () => {
+    if (!phoneDirty) return;
+    const err = await setNegotiationPhone(n.id, phoneDraft.trim() || null);
     if (err) alert(err); else onChanged();
   };
-  // Après l'appel (12/10) : numéro saisi dans la fenêtre, enregistré avec le choix.
-  const [callPhone, setCallPhone] = useState('');
-  const savePhone = async () => {
-    const p = callPhone.trim();
-    if ((n.phone ?? '').trim() === p) return;
-    const err = await setNegotiationPhone(n.id, p || null);
-    if (err && p) alert(err);
-  };
+  /** Le numéro se saisit au-dessus des notes : ces raccourcis ouvrent le panneau. */
+  const editPhone = () => onNotesOpen(true);
 
   useEffect(() => {
     if (!showConflict) return;
@@ -620,6 +667,11 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-medium text-slate-900 truncate">{n.title}</span>
+            {reminderAt && (
+              <span title={`Rappel posé pour le ${new Date(reminderAt).toLocaleString('fr-FR')} — l'icône disparaît à l'échéance`} className="flex items-center gap-1 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5 shrink-0">
+                <AlarmClock className="w-3 h-3" /> {fmtReminderAt(reminderAt)}
+              </span>
+            )}
             {pushed && <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0">Poussée en vente</span>}
             {sharedItemId && <span title="Visible par toute l'équipe dans l'Open space" className="flex items-center gap-1 text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5 shrink-0"><Share2 className="w-3 h-3" /> Open space</span>}
             {others.length > 0 && (
@@ -665,7 +717,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
             )}
             {sellerSeen.length > 0 && (
               <span
-                title={sellerSeen.map((c) => `${c.owner_id === userId ? 'Toi' : c.owner_name} : « ${c.title ?? 'sans titre'} » (${stateLabel(c)})`).join('\n')}
+                title={sellerSeen.map((e) => `${e.mine ? 'Toi' : e.owner} : « ${e.title} » (${e.state})`).join('\n')}
                 className="flex items-center gap-1 text-xs font-medium text-sky-800 bg-sky-50 border border-sky-300 rounded-full px-2 py-0.5 shrink-0"
               >
                 <Phone className="w-3 h-3" /> Vendeur déjà vu · {sellerSeen.length} autre{sellerSeen.length > 1 ? 's' : ''} véhicule{sellerSeen.length > 1 ? 's' : ''}
@@ -677,8 +729,8 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
             {n.negotiated_price != null && <> · négocié <span className="text-emerald-700 font-medium">{fmtEur(n.negotiated_price)}</span></>}
             {' · '}{new Date(n.updated_at).toLocaleDateString('fr-FR')}
             {' · '}{n.phone
-              ? <a href={`tel:${n.phone.replace(/\s/g, '')}`} title="Appeler — double-clic sur le menu ⋯ pour corriger" className="text-slate-700 hover:underline"><Phone className="w-3 h-3 inline -mt-0.5 mr-0.5" />{fmtPhone(n.phone)}</a>
-              : <button onClick={() => void editPhone()} className="text-slate-400 hover:text-brand-ocean hover:underline">+ numéro du vendeur</button>}
+              ? <a href={`tel:${n.phone.replace(/\s/g, '')}`} title={phoneFirst ? 'Première apparition de ce numéro — appeler' : 'Appeler'} className={`hover:underline ${phoneFirst ? 'text-emerald-700' : 'text-slate-700'}`}>{phoneFirst ? <BadgeCheck className="w-3 h-3 inline -mt-0.5 mr-0.5" /> : <Phone className="w-3 h-3 inline -mt-0.5 mr-0.5" />}{fmtPhone(n.phone)}</a>
+              : <button onClick={editPhone} className="text-slate-400 hover:text-brand-ocean hover:underline">+ numéro du vendeur</button>}
           </p>
           {/* Analyse d'ajout échouée : le dire SUR la ligne (la fenêtre
               d'ajout est fermée depuis longtemps). */}
@@ -700,11 +752,12 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
           {isExtracting(n.id) && !showPhotos && <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-ocean" />}
         </button>
         <button
-          onClick={() => { setCallPhone(n.phone ?? ''); setAskDelete(true); }}
-          title="Après l'appel : rappel, remettre dans le flux ou ne pas rappeler"
-          className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg shrink-0 text-slate-500 hover:bg-slate-100"
+          onClick={() => setAskDelete(true)}
+          title="Suite, après l'appel : rappel, remettre dans le flux ou ne pas rappeler"
+          aria-label="Suite, après l'appel"
+          className="p-1.5 rounded-lg shrink-0 text-slate-500 hover:bg-slate-100 hover:text-brand-ocean"
         >
-          <PhoneCall className="w-3.5 h-3.5" /> Après l'appel
+          <ArrowRight className="w-4 h-4" />
         </button>
         <button
           ref={notesBtnRef}
@@ -793,10 +846,10 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
                 const p = prompt('Prix d’achat négocié (€) :', String(n.negotiated_price ?? n.asking_price ?? ''));
                 if (p != null && p.trim() !== '') { await updateNegotiation(n.id, { negotiated_price: Number(p) || null }); onChanged(); }
               }}>Modifier le prix négocié</MenuBtn>
-              <MenuBtn onClick={() => { setMenu(false); void editPhone(); }}>
+              <MenuBtn onClick={() => { setMenu(false); editPhone(); }}>
                 <span className="flex items-center gap-2"><Phone className="w-4 h-4 text-slate-500 shrink-0" /> Numéro du vendeur</span>
               </MenuBtn>
-              <MenuBtn danger onClick={() => { setMenu(false); setCallPhone(n.phone ?? ''); setAskDelete(true); }}>Après l'appel / supprimer…</MenuBtn>
+              <MenuBtn danger onClick={() => { setMenu(false); setAskDelete(true); }}>Suite (après l'appel) / supprimer…</MenuBtn>
               </>
               )}
             </div>
@@ -824,21 +877,18 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
         <div className="fixed inset-0 z-50 bg-slate-900/40 grid place-items-center p-4" onClick={() => setAskDelete(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-semibold text-slate-900 flex items-center gap-2"><PhoneCall className="w-4 h-4 text-slate-500" /> Après l'appel — « {n.title} »</h3>
-            <label className="block text-xs text-slate-600">Numéro du vendeur
-              <input type="tel" value={callPhone} onChange={(e) => setCallPhone(e.target.value)} placeholder="06 12 34 56 78" className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
-            </label>
-            <p className="text-[11px] text-slate-500">Gardé avec l'annonce : si ce vendeur remet un véhicule en ligne plus tard, ADA le reconnaîtra même sous une autre annonce.</p>
-            <button onClick={async () => { await savePhone(); setAskDelete(false); setRemTitle(`Relancer : ${n.title}`); setRemWhen(defaultReminderWhen()); setRemError(null); setAskReminder(true); }}
+            <p className="text-xs text-slate-500">{n.phone ? <>Vendeur : {fmtPhone(n.phone)}{phoneFirst ? ' · première apparition' : sellerSeen.length ? ` · déjà vu (${sellerSeen.length} autre${sellerSeen.length > 1 ? 's' : ''} véhicule${sellerSeen.length > 1 ? 's' : ''})` : ''}</> : 'Sans numéro de vendeur — à saisir au-dessus des notes pour repérer un retour du vendeur.'}</p>
+            <button onClick={() => { setAskDelete(false); setRemTitle(`Relancer : ${n.title}`); setRemWhen(defaultReminderWhen()); setRemError(null); setAskReminder(true); }}
               className="w-full text-left rounded-xl border border-slate-200 hover:border-rose-400 hover:bg-rose-50/40 px-4 py-3 transition-colors">
               <span className="block text-sm font-medium text-slate-900 flex items-center gap-2"><AlarmClock className="w-4 h-4 text-rose-500" /> Rappel</span>
               <span className="block text-xs text-slate-500">La négociation reste en cours ; un rappel dans la cloche à la date choisie.</span>
             </button>
-            <button onClick={async () => { await savePhone(); setAskDelete(false); const err = await archiveNegotiation(n.id, 'flux'); if (err) alert(err); onChanged(); }}
+            <button onClick={async () => { setAskDelete(false); const err = await archiveNegotiation(n.id, 'flux'); if (err) alert(err); onChanged(); }}
               className="w-full text-left rounded-xl border border-slate-200 hover:border-brand-ocean hover:bg-blue-50/40 px-4 py-3 transition-colors">
               <span className="block text-sm font-medium text-slate-900">Remettre dans le flux</span>
               <span className="block text-xs text-slate-500">Pas de suite de ton côté, les autres peuvent la prendre. Archivée avec sa trace ; dans tes études, une vraie baisse de prix la ramène.</span>
             </button>
-            <button onClick={async () => { await savePhone(); setAskDelete(false); const err = await archiveNegotiation(n.id, 'no_callback'); if (err) alert(err); onChanged(); }}
+            <button onClick={async () => { setAskDelete(false); const err = await archiveNegotiation(n.id, 'no_callback'); if (err) alert(err); onChanged(); }}
               className="w-full text-left rounded-xl border border-slate-200 hover:border-slate-500 hover:bg-slate-50 px-4 py-3 transition-colors">
               <span className="block text-sm font-medium text-slate-900">Ne pas rappeler</span>
               <span className="block text-xs text-slate-500">Pas de deal : archivée, l'annonce et le numéro restent connus pour repérer un retour du vendeur.</span>
@@ -854,9 +904,33 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
         <NegotiationPhotosModal nego={n} onClose={() => setShowPhotos(false)} onChanged={onChanged} />
       )}
       {notesOpen && (
-        <div ref={notesPanelRef} className="relative mt-2 flex gap-2">
+        <div ref={notesPanelRef} className="relative mt-2 space-y-2">
+          {/* Numéro du vendeur AU-DESSUS des notes (12/10) : validé avant l'appel,
+              vert à sa première apparition, « vendeur déjà vu » sinon. */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+            <input
+              type="tel"
+              value={phoneDraft}
+              onChange={(e) => setPhoneDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void validatePhone(); } }}
+              placeholder="Numéro du vendeur"
+              className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm w-48"
+            />
+            <button onClick={() => void validatePhone()} disabled={!phoneDirty} className="px-2.5 py-1.5 rounded-lg text-xs font-medium border border-brand-ocean text-brand-ocean hover:bg-blue-50 disabled:opacity-40">Valider</button>
+            {!myPhone ? (
+              <span className="text-xs text-slate-400">à valider avant l'appel</span>
+            ) : phoneFirst ? (
+              <span className="flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5"><BadgeCheck className="w-3.5 h-3.5" /> première apparition de ce numéro</span>
+            ) : (
+              <span title={sellerSeen.map((e) => `${e.mine ? 'Toi' : e.owner} : « ${e.title} » (${e.state})`).join('\n')} className="flex items-center gap-1 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-300 rounded-full px-2 py-0.5">
+                <Users className="w-3.5 h-3.5" /> vendeur déjà vu : « {sellerSeen[0].title} » chez {sellerSeen[0].mine ? 'toi' : sellerSeen[0].owner} ({sellerSeen[0].state}){sellerSeen.length > 1 ? ` +${sellerSeen.length - 1}` : ''}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
           <textarea
-            autoFocus
+            autoFocus={!!n.phone}
             value={noteText}
             onChange={(e) => onNotesChange(e.target.value)}
             onBlur={() => void flushNotes()}
@@ -875,6 +949,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
             >
               Fermer
             </button>
+          </div>
           </div>
         </div>
       )}
@@ -906,6 +981,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
 const fmtWhen = (iso: string) => `${new Date(iso).toLocaleDateString('fr-FR')} ${new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
 
 function OpenSpacePanel({ onBack }: { onBack: () => void }) {
+  const { organisation } = useAuth();
   const [items, setItems] = useState<OpenSpaceItem[]>([]);
   const [notes, setNotes] = useState<OpenSpaceNote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -928,7 +1004,7 @@ function OpenSpacePanel({ onBack }: { onBack: () => void }) {
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100" title="Retour à mes négociations"><ArrowLeft className="w-4 h-4" /></button>
           <div>
-            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Users className="w-5 h-5 text-brand-ocean" /> Open space</h2>
+            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Users className="w-5 h-5 text-brand-ocean" /> Open space <span className="text-base font-normal text-slate-500">· {organisation}</span></h2>
             <p className="text-sm text-slate-600 mt-1">Les négociations que l'équipe a choisi de partager — regarde, commente, coordonne.</p>
           </div>
         </div>

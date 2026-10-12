@@ -24,6 +24,8 @@ interface Account {
   is_admin: boolean;
   allowed_tabs: string[] | null;
   blocked?: boolean;
+  /** Organisation (12/10) : Open space et anti-collision partagés en son sein seulement. */
+  organisation?: string | null;
   created_at: string;
   last_sign_in_at: string | null;
   /** Dernier événement de page de la télémétrie (visitor = prénom) — la
@@ -124,9 +126,10 @@ export function Equipe() {
     if (e1) setError(`Comptes : ${e1.message} — la migration 20260830120000 est-elle appliquée ?`);
     else {
       // Blocage (SQL 20261006120000) : lu à part, la RPC des comptes ne le porte pas ; colonne absente = personne de bloqué.
-      const { data: bl } = await supabase.from('profiles').select('id, blocked' as never);
-      const blockedIds = new Set(((bl ?? []) as unknown as Array<{ id: string; blocked?: boolean }>).filter((p) => p.blocked).map((p) => p.id));
-      setAccounts(((acc ?? []) as Account[]).map((a) => ({ ...a, blocked: blockedIds.has(a.id) })));
+      let { data: bl } = await supabase.from('profiles').select('id, blocked, organisation' as never);
+      if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked' as never)); // colonne organisation absente (SQL du 12/10)
+      const extra = new Map(((bl ?? []) as unknown as Array<{ id: string; blocked?: boolean; organisation?: string | null }>).map((p) => [p.id, p]));
+      setAccounts(((acc ?? []) as Account[]).map((a) => ({ ...a, blocked: !!extra.get(a.id)?.blocked, organisation: extra.get(a.id)?.organisation ?? null })));
     }
     if (e2) setError((prev) => prev ?? `Liste d'inscription : ${e2.message}`);
     else setAllow((al ?? []) as AllowRow[]);
@@ -186,6 +189,16 @@ export function Equipe() {
     const current = grantedTabs(a.allowed_tabs);
     const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
     void saveTabs(a, compactTabs(next));
+  };
+
+  /** Organisation d'un compte (12/10) — RPC admin ; sans le SQL, message explicite. */
+  const saveOrganisation = async (a: Account, raw: string) => {
+    const org = raw.trim() || 'MC Export';
+    if (org === (a.organisation || 'MC Export')) return;
+    setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, organisation: org } : x)));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await (supabase as any).rpc('admin_set_organisation', { p_user: a.id, p_org: org });
+    if (r.error) { setError(`Organisation de ${a.email} NON enregistrée : ${/does not exist|function|schema cache/i.test(r.error.message) ? 'colle la migration 20261012130000 (organisations).' : r.error.message}`); void reload(); }
   };
 
   const toggleAdmin = async (a: Account) => {
@@ -263,6 +276,7 @@ export function Equipe() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <datalist id="org-list">{[...new Set(accounts.map((x) => x.organisation || 'MC Export'))].map((o) => <option key={o} value={o} />)}</datalist>
       <div className="flex items-center gap-3">
         <Users className="w-6 h-6 text-brand-ocean" />
         <div>
@@ -368,6 +382,7 @@ export function Equipe() {
                     </span>
                   )}
                   <span className="ml-auto text-xs text-slate-400 shrink-0">
+                    {a.organisation && a.organisation !== 'MC Export' ? `${a.organisation} · ` : ''}
                     {visible.length === all.length ? 'tous les onglets' : `${visible.length}/${all.length} onglets`}
                     {(() => {
                       // La plus récente des deux traces : activité télémétrie
@@ -436,6 +451,18 @@ export function Equipe() {
                         })()}
                       </>
                     )}
+                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                      <label className="text-slate-500">Organisation
+                        <input
+                          list="org-list"
+                          defaultValue={a.organisation || 'MC Export'}
+                          onBlur={(e) => void saveOrganisation(a, e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          className="ml-2 px-2 py-1 rounded border border-slate-300 bg-white w-56 text-slate-800"
+                        />
+                      </label>
+                      <span className="text-slate-400">Open space et « déjà en négo » ne se partagent qu'au sein d'une organisation (Weecars Angers, Mon agence automobile, MC Export…).</span>
+                    </div>
                     {!a.is_admin && (
                       <div className="flex items-center gap-2 flex-wrap text-xs">
                         <span className="text-slate-500">Préréglage :</span>
