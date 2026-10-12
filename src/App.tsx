@@ -17,6 +17,7 @@ import { Telemetrie } from './pages/Telemetrie';
 import { Apprendre } from './pages/Apprendre';
 import { Login, ResetPassword } from './pages/Login';
 import { Equipe } from './pages/Equipe';
+import { Statistiques } from './pages/Statistiques';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
 import { canSeeTab, canSeeWorkflow, tabKeyOfPageKey } from './lib/appTabs';
 import { supabase } from './lib/supabase';
@@ -93,6 +94,7 @@ function App() {
     if (p === '/telemetrie') return 'telemetrie';
     if (p === '/equipe') return 'equipe';
     if (p === '/apprendre') return 'apprendre';
+    if (p === '/statistiques') return 'stats';
     return 'home';
   };
   const renderPageFor = (key: string) => {
@@ -110,18 +112,21 @@ function App() {
       case 'telemetrie': return <Telemetrie />;
       case 'equipe': return <Equipe />;
       case 'apprendre': return <Apprendre />;
+      case 'stats': return <Statistiques />;
       default: return <Home />;
     }
   };
   // Onglets par compte (page Équipe) : une page dont l'onglet est retiré à
   // ce compte est remplacée par l'accueil — l'URL tapée à la main comprise.
-  const { allowedTabs, isAdmin, blocked } = useAuth();
+  const { allowedTabs, isAdmin, isManager, blocked } = useAuth();
   const rawKey = pageKeyOf(path);
   // Le Workflow s'ouvre si l'un de ses cinq onglets est permis ; la page
-  // masque elle-même les onglets interdits.
+  // masque elle-même les onglets interdits. Statistiques (12/10 soir) : managers et admins.
   const gateTab = tabKeyOfPageKey(rawKey);
   const workflowOk = canSeeWorkflow(allowedTabs, isAdmin);
-  const activeKey = rawKey === 'workflow' ? (workflowOk ? rawKey : 'home') : gateTab && !canSeeTab(allowedTabs, isAdmin, gateTab) ? 'home' : rawKey;
+  const activeKey = rawKey === 'workflow' ? (workflowOk ? rawKey : 'home')
+    : rawKey === 'stats' ? (isManager || isAdmin ? rawKey : 'home')
+      : gateTab && !canSeeTab(allowedTabs, isAdmin, gateTab) ? 'home' : rawKey;
   const [visited, setVisited] = useState<string[]>([activeKey]);
   useEffect(() => {
     setVisited((v) => (v.includes(activeKey) ? v : [...v, activeKey]));

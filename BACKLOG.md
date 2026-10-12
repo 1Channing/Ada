@@ -832,6 +832,29 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **« RENDEZ-VOUS PRIS ! » ET MANAGERS D'ORGANISATION AVEC ONGLET
+  STATISTIQUES (12/10 soir, Channing : « dans la flèche d'après appel, la
+  possibilité d'enregistrer le véhicule comme validé : Rendez-vous pris !
+  afin de noter leurs réussites » ; « un compte manager pour les managers
+  des organisations : un compte de prospection normal sur lequel j'ajoute
+  la position de manager, qui donne accès à un onglet Statistiques —
+  négociations en cours avec notes et URL, nombre d'URL lancées,
+  rendez-vous pris, l'Open space, bref tout »)**. Après l'appel : quatrième
+  choix vert « Rendez-vous pris ! » = archivage avec outcome 'rdv' (trace
+  gardée, badge vert dans Archives, anti-collision « rendez-vous pris »,
+  études : jamais re-présentée). Rôle `profiles.is_manager` posé par un
+  admin dans Équipe (bouton « Nommer manager de son organisation », badge
+  Manager), protégé par le trigger (qui reprend aussi `blocked`, oublié le
+  12/10). Page /statistiques (bandeau « Statistiques », managers et admins ;
+  admin : choix de l'organisation) : tuiles (en cours, rendez-vous pris,
+  analyses lancées total/aujourd'hui/7 j, Open space), tableau par
+  commercial (en cours, Open space, analyses, RDV, flux, sans rappel, plus
+  dispo, supprimées, dernière activité) dépliable sur ses négociations
+  (titre lié, état, numéro, photos, note datée), listes des rendez-vous pris
+  et de l'Open space. Trois RPC security definer bornées à l'organisation
+  côté base (`manager_scope_org` : manager = la sienne, admin = celle
+  demandée, sinon rien) ; testées sur cluster miroir. SQL 20261012210000
+  (manager_statistiques) à coller.
 - **CHAQUE ORGANISATION NE VOIT QUE SES DONNÉES, SANS BOUTON (12/10 soir,
   Channing : « à quoi sert le bouton données MC Export ? je veux que chaque
   organisation ait ses propres données, non partagées »)**. Le droit par

@@ -161,8 +161,9 @@ export interface Negotiation {
   /** Choix d'après appel quand la négociation est archivée (12/10) :
    *  'flux' = remise dans le flux pour les autres, 'no_callback' = ne pas rappeler,
    *  'deleted' = supprimée par l'utilisateur — la trace (annonce, numéro, note) reste ;
-   *  'unavailable' = annonce plus disponible (12/10 soir) — dans les études, elle revient si revue. */
-  outcome?: 'flux' | 'no_callback' | 'deleted' | 'unavailable' | null;
+   *  'unavailable' = annonce plus disponible (12/10 soir) — dans les études, elle revient si revue ;
+   *  'rdv' = rendez-vous pris (la réussite). */
+  outcome?: 'flux' | 'no_callback' | 'deleted' | 'unavailable' | 'rdv' | null;
   archived_at?: string | null;
   created_at: string;
   updated_at: string;
@@ -566,7 +567,8 @@ export async function createNegotiation(
 // (flux : triable à nouveau ; no_callback : « pas de deal », définitif).
 const NEGO_ARCHIVE_SQL_HINT = 'Archives de négociation : SQL du 12/10 (negociations_telephone_archives) à coller.';
 
-export type NegoOutcome = 'flux' | 'no_callback' | 'deleted' | 'unavailable';
+/** 'rdv' (12/10 soir) = « Rendez-vous pris ! », la réussite d'un commercial de prospection. */
+export type NegoOutcome = 'flux' | 'no_callback' | 'deleted' | 'unavailable' | 'rdv';
 export async function archiveNegotiation(id: string, outcome: NegoOutcome): Promise<string | null> {
   const { data, error } = await supabase.from('negotiations')
     .update({ status: 'archived', outcome, archived_at: new Date().toISOString(), updated_at: new Date().toISOString() } as never)
@@ -576,7 +578,8 @@ export async function archiveNegotiation(id: string, outcome: NegoOutcome): Prom
   if (url) {
     // deleted = comme « remise dans le flux » côté études : triable à nouveau.
     // unavailable = « plus disponible » (même motif que dans les Résultats) : le worker la ramène si l'annonce est revue.
-    const patch = outcome === 'no_callback' ? { status: 'dismissed', resolution: 'pas_de_deal' }
+    // rdv = affaire prise en main : comme « pas de deal » côté études, jamais re-présentée.
+    const patch = outcome === 'no_callback' || outcome === 'rdv' ? { status: 'dismissed', resolution: 'pas_de_deal' }
       : outcome === 'unavailable' ? { status: 'dismissed', resolution: 'plus_disponible' }
         : { status: 'dismissed', resolution: null };
     await supabase.from('daily_search_hits').update(patch).eq('user_id', uid()).eq('listing_url', url).eq('status', 'saved');
@@ -646,7 +649,7 @@ export interface NegoConflict {
   /** v2 (12/10) : absents tant que la RPC v1 est en place → lus comme « en cours, sans numéro ». */
   status?: string | null;
   phone?: string | null;
-  outcome?: 'flux' | 'no_callback' | 'deleted' | 'unavailable' | null;
+  outcome?: 'flux' | 'no_callback' | 'deleted' | 'unavailable' | 'rdv' | null;
   archived_at?: string | null;
   title?: string | null;
 }

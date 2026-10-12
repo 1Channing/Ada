@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet, GraduationCap } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet, GraduationCap, BarChart3 } from 'lucide-react';
 import { listLearningCases } from '../services/learningCases';
 import { countMyOpenTasks } from '../services/userTasks';
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
@@ -90,7 +90,7 @@ export function Layout({ children }: LayoutProps) {
   const currentPath = window.location.pathname;
   // Onglets par compte (page Équipe) : un onglet retiré à un utilisateur
   // disparaît de SON bandeau — les admins voient toujours tout.
-  const { allowedTabs, isAdmin } = useAuth();
+  const { allowedTabs, isAdmin, isManager } = useAuth();
 
   // Navigation INTERNE (étage 3, 26/08) : pushState suffit — App écoute
   // 'locationchange' et bascule de page sans recharger l'application. Les
@@ -105,7 +105,7 @@ export function Layout({ children }: LayoutProps) {
     return currentPath.startsWith(path);
   };
 
-  const allItems: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[]; tab?: AppTabKey; workflow?: boolean }> = [
+  const allItems: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[]; tab?: AppTabKey; workflow?: boolean; manager?: boolean }> = [
     { path: '/', label: 'Accueil', icon: <Home className="w-4 h-4" /> },
     // Workflow : études quotidiennes + résultats + (depuis le 05/09)
     // négociations et ventes, à la suite. Les anciens chemins /ventes et
@@ -118,10 +118,12 @@ export function Layout({ children }: LayoutProps) {
     { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" />, tab: 'veille' },
     { path: '/carte', label: 'Carte', icon: <MapIcon className="w-4 h-4" />, tab: 'carte' },
     { path: '/offres', label: 'Offres', icon: <FileSpreadsheet className="w-4 h-4" />, tab: 'offres' },
+    // Statistiques (12/10 soir) : le manager d'une organisation voit la prospection de ses commerciaux ; les admins aussi.
+    { path: '/statistiques', label: 'Statistiques', icon: <BarChart3 className="w-4 h-4" />, manager: true },
   ];
   // Le Workflow reste visible dès qu'un de ses cinq onglets est permis —
   // la page masque elle-même les autres.
-  const items = allItems.filter((it) => (it.workflow ? canSeeWorkflow(allowedTabs, isAdmin) : !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab)));
+  const items = allItems.filter((it) => (it.workflow ? canSeeWorkflow(allowedTabs, isAdmin) : it.manager ? (isManager || isAdmin) : !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab)));
 
   const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>
     (it.exact ? currentPath === it.path : isActive(it.path)) ||

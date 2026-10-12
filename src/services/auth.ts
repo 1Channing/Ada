@@ -26,6 +26,8 @@ interface AuthState {
    *  verrous du 12/10 soir). Une autre organisation ne voit que ses négociations ; l'écran
    *  n'offre pas ce que la base refuserait (« Ajouter aux ventes »). */
   isMcExport: boolean;
+  /** Manager de son organisation (12/10 soir) : onglet Statistiques sur ses commerciaux. */
+  isManager: boolean;
   /** true = l'utilisateur arrive par un lien « mot de passe oublié » —
    *  l'app affiche l'écran de nouveau mot de passe avant tout le reste. */
   recovering: boolean;
@@ -48,6 +50,7 @@ export const useAuth = create<AuthState>((set) => ({
   blocked: false,
   organisation: 'MC Export',
   isMcExport: true,
+  isManager: false,
   recovering: false,
   setSession: (userId, email) => set({ userId, email }),
   setProfile: (displayName, isAdmin, allowedTabs, blocked = false, organisation = 'MC Export') => set({ displayName, isAdmin, allowedTabs, blocked, organisation, isMcExport: isAdmin || organisation === 'MC Export' }),
@@ -91,7 +94,9 @@ let clockRetryIdx = 0;
 
 async function loadProfile(userId: string): Promise<void> {
   const sbp = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
-  let { data, error } = await sbp.from('profiles').select('display_name, is_admin, allowed_tabs, blocked, organisation').eq('id', userId).maybeSingle();
+  let { data, error } = await sbp.from('profiles').select('display_name, is_admin, allowed_tabs, blocked, organisation, is_manager').eq('id', userId).maybeSingle();
+  // Colonne is_manager absente (SQL 20261012210000 pas collé) : relecture sans elle.
+  if (error && /is_manager/.test(error.message ?? '')) ({ data, error } = await sbp.from('profiles').select('display_name, is_admin, allowed_tabs, blocked, organisation').eq('id', userId).maybeSingle());
   // Colonne organisation absente (SQL 20261012130000 pas collé) : relecture sans elle.
   if (error && /organisation/.test(error.message ?? '')) ({ data, error } = await sbp.from('profiles').select('display_name, is_admin, allowed_tabs, blocked').eq('id', userId).maybeSingle());
   // Colonne blocked absente (SQL 20261006120000 pas collé) : relecture sans elle.
@@ -115,8 +120,9 @@ async function loadProfile(userId: string): Promise<void> {
     return;
   }
   clockRetryIdx = 0;
-  const row = data as { display_name?: string | null; is_admin?: boolean; allowed_tabs?: string[] | null; blocked?: boolean | null; organisation?: string | null };
+  const row = data as { display_name?: string | null; is_admin?: boolean; allowed_tabs?: string[] | null; blocked?: boolean | null; organisation?: string | null; is_manager?: boolean | null };
   useAuth.getState().setProfile(row.display_name ?? '', row.is_admin === true, row.allowed_tabs ?? null, row.blocked === true, (row.organisation ?? '').trim() || 'MC Export');
+  useAuth.setState({ isManager: row.is_manager === true });
   if (row.blocked === true) {
     console.warn('[AUTH] compte bloqué par un administrateur — déconnexion');
     await supabase.auth.signOut().catch(() => undefined);

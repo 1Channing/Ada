@@ -74,7 +74,7 @@ const fmtReminderAt = (iso: string) => new Date(iso).toLocaleString('fr-FR', { d
 type NegoState = { status?: string | null; outcome?: string | null; archived_at?: string | null };
 const stateLabel = (c: NegoState): string => {
   const d = c.archived_at ? ` (${new Date(c.archived_at).toLocaleDateString('fr-FR')})` : '';
-  if (c.status === 'archived') return c.outcome === 'no_callback' ? `ne pas rappeler${d}` : c.outcome === 'flux' ? `remise dans le flux${d}` : c.outcome === 'deleted' ? `supprimée${d}` : c.outcome === 'unavailable' ? `plus disponible${d}` : `archivée${d}`;
+  if (c.status === 'archived') return c.outcome === 'rdv' ? `rendez-vous pris${d}` : c.outcome === 'no_callback' ? `ne pas rappeler${d}` : c.outcome === 'flux' ? `remise dans le flux${d}` : c.outcome === 'deleted' ? `supprimée${d}` : c.outcome === 'unavailable' ? `plus disponible${d}` : `archivée${d}`;
   if (c.status === 'pushed_to_sale') return 'poussée en vente';
   return 'en cours';
 };
@@ -909,6 +909,12 @@ function NegoRow({ n, folders, onNewFolder, conflicts, onChanged, onPushed, note
               className="w-full text-left rounded-xl border border-slate-200 hover:border-slate-500 hover:bg-slate-50 px-4 py-3 transition-colors">
               <span className="block text-sm font-medium text-slate-900">Ne pas rappeler</span>
               <span className="block text-xs text-slate-500">Pas de deal : archivée, l'annonce et le numéro restent connus pour repérer un retour du vendeur.</span>
+            </button>
+            {/* La réussite (12/10 soir, Channing : « enregistrer le véhicule comme validé : Rendez-vous pris ! ») */}
+            <button onClick={async () => { setAskDelete(false); const err = await archiveNegotiation(n.id, 'rdv'); if (err) alert(err); onChanged(); }}
+              className="w-full text-left rounded-xl border border-emerald-300 bg-emerald-50/40 hover:border-emerald-500 hover:bg-emerald-50 px-4 py-3 transition-colors">
+              <span className="block text-sm font-semibold text-emerald-800 flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600" /> Rendez-vous pris !</span>
+              <span className="block text-xs text-emerald-700/80">Véhicule validé : la négociation passe dans tes archives comme réussite, comptée dans les statistiques de ton organisation.</span>
             </button>
             <div className="flex items-center justify-between pt-1">
               <button onClick={() => setAskDelete(false)} className="text-sm text-slate-500 hover:text-slate-700 py-1">Annuler</button>

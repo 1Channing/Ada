@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2, Sparkles, Share2 } from 'lucide-react';
+import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2, Sparkles, Share2, BarChart3 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, passwordWeakness } from '../services/auth';
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
@@ -29,6 +29,8 @@ interface Account {
   blocked?: boolean;
   /** Organisation (12/10) : Open space et anti-collision partagés en son sein seulement. */
   organisation?: string | null;
+  /** Manager de son organisation (12/10 soir) : onglet Statistiques sur ses commerciaux. */
+  is_manager?: boolean;
   created_at: string;
   last_sign_in_at: string | null;
   /** Dernier événement de page de la télémétrie (visitor = prénom) — la
@@ -95,7 +97,7 @@ interface TeamNego {
 }
 /** En cours = ce que la personne voit dans sa liste (ou dans l'Open space) : ni archivée après appel, ni clôturée. */
 const isOpenNego = (n: TeamNego) => n.status === 'open' || n.status === 'pushed_to_sale';
-const OUTCOME_LABEL: Record<string, string> = { flux: 'remise dans le flux', no_callback: 'ne pas rappeler', deleted: 'supprimée', unavailable: 'plus disponible' };
+const OUTCOME_LABEL: Record<string, string> = { rdv: 'rendez-vous pris', flux: 'remise dans le flux', no_callback: 'ne pas rappeler', deleted: 'supprimée', unavailable: 'plus disponible' };
 
 /** Analyses lancées par compte (RPC admin_list_analyses, SQL du 12/10 soir) — agrégé côté base. */
 interface TeamAnalyses { user_id: string; total: number; today: number; week: number; first_at: string; last_at: string }
@@ -160,10 +162,11 @@ export function Equipe() {
     if (e1) setError(`Comptes : ${e1.message} — la migration 20260830120000 est-elle appliquée ?`);
     else {
       // Blocage (SQL 20261006120000) : lu à part, la RPC des comptes ne le porte pas ; colonne absente = personne de bloqué.
-      let { data: bl } = await supabase.from('profiles').select('id, blocked, organisation' as never);
+      let { data: bl } = await supabase.from('profiles').select('id, blocked, organisation, is_manager' as never);
+      if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked, organisation' as never)); // colonne is_manager absente (SQL du 12/10 soir)
       if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked' as never)); // colonne organisation absente (SQL du 12/10)
-      const extra = new Map(((bl ?? []) as unknown as Array<{ id: string; blocked?: boolean; organisation?: string | null }>).map((p) => [p.id, p]));
-      setAccounts(((acc ?? []) as Account[]).map((a) => ({ ...a, blocked: !!extra.get(a.id)?.blocked, organisation: extra.get(a.id)?.organisation ?? null })));
+      const extra = new Map(((bl ?? []) as unknown as Array<{ id: string; blocked?: boolean; organisation?: string | null; is_manager?: boolean | null }>).map((p) => [p.id, p]));
+      setAccounts(((acc ?? []) as Account[]).map((a) => ({ ...a, blocked: !!extra.get(a.id)?.blocked, organisation: extra.get(a.id)?.organisation ?? null, is_manager: extra.get(a.id)?.is_manager === true })));
     }
     if (e2) setError((prev) => prev ?? `Liste d'inscription : ${e2.message}`);
     else setAllow((al ?? []) as AllowRow[]);
@@ -255,6 +258,18 @@ export function Equipe() {
     if (!confirm(`Supprimer l'organisation « ${name} » (aucun compte) ?`)) return;
     const err = await removeOrganisation(name);
     if (err) setOrgsError(err); else void reload();
+  };
+
+  /** Manager de son organisation (12/10 soir) : onglet Statistiques sur ses commerciaux — rôle posé par un admin, vérifié par relecture. */
+  const toggleManager = async (a: Account) => {
+    const next = !a.is_manager;
+    if (!confirm(next
+      ? `Nommer ${a.email} manager de « ${a.organisation || DEFAULT_ORG} » ? Il verra l'onglet Statistiques : négociations, notes, annonces, analyses et rendez-vous de tous les comptes de son organisation.`
+      : `Retirer le rôle manager à ${a.email} ?`)) return;
+    setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, is_manager: next } : x)));
+    const { data, error: err } = await supabase.from('profiles').update({ is_manager: next } as never).eq('id', a.id).select('id');
+    if (err) { setError(/is_manager|column|schema cache/i.test(err.message) ? 'Rôle manager : colle le SQL du 12/10 (manager_statistiques).' : err.message); void reload(); return; }
+    if (!data?.length) { setError(`Rôle manager de ${a.email} NON enregistré : aucune ligne de profil.`); void reload(); }
   };
 
   const toggleAdmin = async (a: Account) => {
@@ -538,6 +553,11 @@ export function Equipe() {
                       <Shield className="w-3 h-3" /> Admin
                     </span>
                   )}
+                  {a.is_manager && !a.is_admin && (
+                    <span title="Manager de son organisation : onglet Statistiques" className="flex items-center gap-1 text-[11px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0">
+                      <BarChart3 className="w-3 h-3" /> Manager
+                    </span>
+                  )}
                   <span className="ml-auto text-xs text-slate-400 shrink-0">
                     {a.organisation && a.organisation !== 'MC Export' ? `${a.organisation} · ` : ''}
                     {visible.length === all.length ? 'tous les onglets' : `${visible.length}/${all.length} onglets`}
@@ -787,6 +807,15 @@ export function Equipe() {
                         >
                           {a.is_admin ? 'Retirer les droits admin' : 'Donner les droits admin'}
                         </button>
+                        {!a.is_admin && (
+                          <button
+                            onClick={() => void toggleManager(a)}
+                            title="Manager de son organisation : onglet Statistiques sur les négociations, analyses et rendez-vous de ses commerciaux"
+                            className={`ml-2 text-xs font-medium rounded-lg px-3 py-1.5 border transition-colors ${a.is_manager ? 'text-emerald-800 border-emerald-300 bg-emerald-50 hover:bg-emerald-100' : 'text-slate-700 border-slate-300 bg-white hover:bg-slate-50'}`}
+                          >
+                            {a.is_manager ? 'Retirer le rôle manager' : 'Nommer manager de son organisation'}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

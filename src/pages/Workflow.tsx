@@ -1160,7 +1160,7 @@ function ResultsTab() {
  * ni doublon avec la section des Résultats, ni bloc « Results » de l'ancien
  * moteur d'études, qui refaisait doublon avec l'onglet Résultats).
  */
-const NEGO_OUTCOME_LABEL: Record<string, string> = { flux: 'remise dans le flux', no_callback: 'ne pas rappeler', deleted: 'supprimée', unavailable: 'plus disponible' };
+const NEGO_OUTCOME_LABEL: Record<string, string> = { rdv: 'rendez-vous pris', flux: 'remise dans le flux', no_callback: 'ne pas rappeler', deleted: 'supprimée', unavailable: 'plus disponible' };
 
 function ArchivesTab() {
   const { allowedTabs, isAdmin, organisation } = useAuth();
@@ -1208,7 +1208,7 @@ function ArchivesTab() {
               <MessageSquare className="w-4 h-4 text-slate-400" />
               <span className="font-semibold text-slate-700">Négociations archivées</span>
               <span className="text-xs text-slate-500">
-                {organisation} · {negos.length - deletedCount} — remises dans le flux, sans rappel ou plus disponibles ; l'annonce, le numéro et la note restent connus pour repérer les doublons{deletedCount ? ` · ${deletedCount} supprimée${deletedCount > 1 ? 's' : ''}` : ''}
+                {organisation} · {negos.length - deletedCount} — rendez-vous pris, remises dans le flux, sans rappel ou plus disponibles ; l'annonce, le numéro et la note restent connus pour repérer les doublons{deletedCount ? ` · ${deletedCount} supprimée${deletedCount > 1 ? 's' : ''}` : ''}
               </span>
               {deletedCount > 0 && (
                 <label className="ml-auto flex items-center gap-2 text-xs text-slate-500">
@@ -1229,7 +1229,7 @@ function ArchivesTab() {
                           {a.listing_url?.startsWith('http')
                             ? <a href={a.listing_url} target="_blank" rel="noreferrer" className="text-slate-700 hover:text-brand-ocean hover:underline truncate">{a.title}</a>
                             : <span className="text-slate-700 truncate">{a.title}</span>}
-                          <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : a.outcome === 'flux' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                          <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'rdv' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : a.outcome === 'flux' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                             {(a.outcome && NEGO_OUTCOME_LABEL[a.outcome]) || 'archivée'}
                           </span>
                           <span className="text-[11px] text-slate-400 shrink-0">{a.mine ? 'toi' : a.owner}</span>
