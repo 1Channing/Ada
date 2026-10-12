@@ -72,7 +72,21 @@ export async function startNegoExtraction(
   if (!jobId) throw new Error('worker sans mode fiche annonce — réponse inattendue');
   pending.set(negoId, { jobId, startedAt: Date.now(), fillTitle: fill?.title, fillPrice: fill?.price });
   saveStore(); notify();
+  void recordAnalysis(negoId, url, fill ? 'ajout' : 'relance');
   void poll(negoId);
+}
+
+/**
+ * TRACE DES ANALYSES (12/10, Équipe : « le nombre d'analyses lancées depuis
+ * l'ouverture du compte »). Une ligne par job réellement démarré, écrite par
+ * celui qui lance (user_id = auth.uid() côté base). Fail-open : SQL du 12/10
+ * (equipe_prospection) pas collé → silence, l'analyse continue.
+ */
+async function recordAnalysis(negoId: string, url: string, source: 'ajout' | 'relance'): Promise<void> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase as any).from('negotiation_analyses').insert({ negotiation_id: negoId, listing_url: url, source });
+  } catch { /* trace facultative */ }
 }
 
 async function mergePhotos(negoId: string, extracted: string[]): Promise<void> {

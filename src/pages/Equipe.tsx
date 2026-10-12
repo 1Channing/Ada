@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2 } from 'lucide-react';
+import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2, Sparkles, Share2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, passwordWeakness } from '../services/auth';
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
+import { readNote, agoLabel } from '../lib/noteJournal';
+import { fmtPhone } from '../lib/phoneKey';
 import { listOrganisations, addOrganisation, removeOrganisation, setOrganisationDefaultTabs, isProspectingOrg, DEFAULT_ORG, type Organisation } from '../services/organisations';
 
 /**
@@ -82,12 +84,24 @@ const dayKey = (iso: string) => new Intl.DateTimeFormat('fr-CA', { timeZone: 'Eu
 const LEAD_STATUS: Record<string, string> = { inbox: 'à traiter', saved: 'en négociation', cleared: 'vidée', dismissed: 'traitée' };
 const LEAD_RES: Record<string, string> = { trop_chere: 'trop chère', hors_criteres: 'hors critères', plus_disponible: 'plus disponible', pas_de_deal: 'pas de deal' };
 
-/** Négociations de tous les comptes (RPC admin, migration 31/08). */
+/** Négociations de tous les comptes (RPC admin, migration 31/08 ; v2 du 12/10 soir). */
 interface TeamNego {
   id: string; user_id: string; title: string; listing_url: string;
   asking_price: number | null; negotiated_price: number | null;
   status: string; notes: string; updated_at: string; created_at: string;
+  /** v2 (SQL equipe_prospection) : absents tant que la RPC v1 est en place. */
+  phone?: string | null; outcome?: string | null; archived_at?: string | null;
+  photos_count?: number; in_open_space?: boolean;
 }
+/** En cours = ce que la personne voit dans sa liste (ou dans l'Open space) : ni archivée après appel, ni clôturée. */
+const isOpenNego = (n: TeamNego) => n.status === 'open' || n.status === 'pushed_to_sale';
+const OUTCOME_LABEL: Record<string, string> = { flux: 'remise dans le flux', no_callback: 'ne pas rappeler', deleted: 'supprimée' };
+
+/** Analyses lancées par compte (RPC admin_list_analyses, SQL du 12/10 soir) — agrégé côté base. */
+interface TeamAnalyses { user_id: string; total: number; today: number; week: number; first_at: string; last_at: string }
+
+const ORG_FILTER_KEY = 'equipe:org';
+const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
 
 export function Equipe() {
   const { isAdmin, userId } = useAuth();
@@ -97,6 +111,11 @@ export function Equipe() {
   // null = RPC absente (migration pas encore collée) → sections masquées.
   const [searches, setSearches] = useState<TeamSearch[] | null>(null);
   const [negos, setNegos] = useState<TeamNego[] | null>(null);
+  // Analyses lancées par compte (12/10 soir) — null = RPC absente (SQL pas collé).
+  const [analyses, setAnalyses] = useState<Map<string, TeamAnalyses> | null>(null);
+  // Comptes rangés par organisation (12/10 soir, Channing) : '' = toutes, groupées ; sinon l'organisation choisie.
+  const [orgFilter, setOrgFilter] = useState<string>(() => { try { return localStorage.getItem(ORG_FILTER_KEY) ?? ''; } catch { return ''; } });
+  const chooseOrg = (o: string) => { setOrgFilter(o); try { localStorage.setItem(ORG_FILTER_KEY, o); } catch { /* stockage indispo */ } };
   const [leads, setLeads] = useState<TeamLead[] | null>(null);
   const [leadsAt, setLeadsAt] = useState<Date | null>(null);
   const [leadsOpen, setLeadsOpen] = useState<Record<string, boolean>>({});
@@ -118,7 +137,7 @@ export function Equipe() {
 
   const reload = async () => {
     setError(null);
-    const [{ data: acc, error: e1 }, allowRes, sr, ng, orgRes] = await Promise.all([
+    const [{ data: acc, error: e1 }, allowRes, sr, ng, orgRes, an] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       supabase.rpc('admin_list_accounts' as never) as any,
       // Organisation des adresses autorisées (SQL du 12/10) — relecture sans elle si la colonne manque.
@@ -133,6 +152,8 @@ export function Equipe() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       supabase.rpc('admin_list_negotiations' as never) as any,
       listOrganisations(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      supabase.rpc('admin_list_analyses' as never) as any,
     ]);
     const { data: al, error: e2 } = allowRes as { data: unknown; error: { message: string } | null };
     void reloadLeads();
@@ -152,6 +173,7 @@ export function Equipe() {
     setOrgsError(orgRes.error);
     setSearches(sr.error ? null : ((sr.data ?? []) as TeamSearch[]));
     setNegos(ng.error ? null : ((ng.data ?? []) as TeamNego[]));
+    setAnalyses(an.error ? null : new Map(((an.data ?? []) as TeamAnalyses[]).map((r) => [r.user_id, { ...r, total: Number(r.total), today: Number(r.today), week: Number(r.week) }])));
     setLoading(false);
   };
   /** Leads : rechargés à l'ouverture et toutes les 10 min (la vague du
@@ -314,6 +336,15 @@ export function Equipe() {
   const nameOf = (a: Account) =>
     [a.first_name, a.last_name].filter(Boolean).join(' ') || a.display_name || a.email.split('@')[0];
 
+  // Comptes rangés par organisation (12/10 soir) : l'organisation choisie dans
+  // le menu, ou toutes, groupées (MC Export en tête, puis l'ordre de la liste).
+  const orgOf = (a: Account) => a.organisation || DEFAULT_ORG;
+  const allOrgNames = [...new Set([...orgs, ...accounts.map(orgOf)])];
+  const groups = (orgFilter ? [orgFilter] : allOrgNames)
+    .map((name) => ({ name, accounts: accounts.filter((a) => orgOf(a) === name) }))
+    .filter((g) => g.accounts.length > 0 || orgFilter);
+  const shownCount = groups.reduce((n, g) => n + g.accounts.length, 0);
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
@@ -449,14 +480,37 @@ export function Equipe() {
         );
       })()}
 
-      {/* ── Comptes ── */}
+      {/* ── Comptes, rangés par organisation ── */}
       {!loading && (
         <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-slate-700">Comptes ({accounts.length})</h2>
-          {accounts.map((a) => {
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-sm font-semibold text-slate-700">Comptes ({shownCount}{orgFilter && shownCount !== accounts.length ? ` sur ${accounts.length}` : ''})</h2>
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              <Building2 className="w-4 h-4 text-slate-400" /> Organisation
+              <select value={orgFilter} onChange={(e) => chooseOrg(e.target.value)} className="px-2 py-1 rounded-lg border border-slate-300 bg-white text-slate-800 text-sm">
+                <option value="">Toutes (groupées)</option>
+                {allOrgNames.map((o) => <option key={o} value={o}>{o} ({accounts.filter((a) => orgOf(a) === o).length})</option>)}
+              </select>
+            </label>
+            {(negos || analyses) && <span className="text-xs text-slate-400">Sur chaque ligne : négociations en cours (liste et Open space) · analyses d'annonces lancées depuis l'ouverture du compte.</span>}
+          </div>
+          {groups.length === 0 && <p className="text-xs text-slate-400 py-4 text-center">Aucun compte.</p>}
+          {groups.map((g) => (
+            <div key={g.name} className="space-y-2">
+              {!orgFilter && (
+                <div className="flex items-center gap-2 pt-2">
+                  <Building2 className="w-4 h-4 text-brand-ocean" />
+                  <span className="text-sm font-semibold text-slate-800">{g.name}</span>
+                  <span className="text-xs text-slate-400">{g.accounts.length} compte{g.accounts.length > 1 ? 's' : ''}</span>
+                  {isProspectingOrg(orgRows.find((r) => r.name === g.name)) && <span className="text-[11px] rounded-full px-1.5 py-0.5 bg-amber-50 border border-amber-300 text-amber-800">prospection seule</span>}
+                </div>
+              )}
+              {g.accounts.length === 0 && <p className="text-xs text-slate-400 py-3 text-center">Aucun compte dans « {g.name} ».</p>}
+              {g.accounts.map((a) => {
             const isOpen = openId === a.id;
             const all = APP_TABS.map((t) => t.key as string);
             const visible = a.is_admin ? all : grantedTabs(a.allowed_tabs);
+            const hasStudies = a.is_admin || visible.includes('wf:etudes') || visible.includes('wf:resultats');
             return (
               <div key={a.id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
                 <button
@@ -466,6 +520,19 @@ export function Equipe() {
                   <ChevronRight className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                   <span className="font-medium text-slate-900">{nameOf(a)}</span>
                   <span className="text-xs text-slate-500 truncate">{a.email}</span>
+                  {(() => {
+                    // Activité de prospection (12/10 soir) : négociations en cours · analyses lancées.
+                    const open = negos ? negos.filter((n) => n.user_id === a.id && isOpenNego(n)).length : null;
+                    const an = analyses ? (analyses.get(a.id)?.total ?? 0) : null;
+                    if (open == null && an == null) return null;
+                    return (
+                      <span title="Négociations en cours (sa liste et l'Open space) · analyses d'annonces lancées depuis l'ouverture du compte" className={`hidden sm:flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 shrink-0 border ${(open ?? 0) + (an ?? 0) > 0 ? 'text-slate-700 bg-slate-50 border-slate-200' : 'text-slate-400 bg-white border-slate-200'}`}>
+                        {open != null && <>{open} négo{open > 1 ? 's' : ''}</>}
+                        {open != null && an != null && <span className="text-slate-300">·</span>}
+                        {an != null && <><Sparkles className="w-3 h-3 text-violet-500" /> {an} analyse{an > 1 ? 's' : ''}</>}
+                      </span>
+                    );
+                  })()}
                   {a.is_admin && (
                     <span className="flex items-center gap-1 text-[11px] font-medium text-brand-ocean bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5 shrink-0">
                       <Shield className="w-3 h-3" /> Admin
@@ -573,7 +640,8 @@ export function Equipe() {
                         <KeyRound className="w-3.5 h-3.5" /> Envoyer un lien de nouveau mot de passe
                       </button>
                     </div>
-                    {searches && (() => {
+                    {/* Études et leads : seulement pour un compte qui a ces onglets (un compte de prospection n'en a pas). */}
+                    {searches && hasStudies && (() => {
                       const mine = searches.filter((s) => s.user_id === a.id);
                       if (mine.length === 0) return (
                         <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">Aucune étude quotidienne.</p>
@@ -603,7 +671,7 @@ export function Equipe() {
                         </div>
                       );
                     })()}
-                    {leads && (() => {
+                    {leads && hasStudies && (() => {
                       const mine = leads.filter((l) => l.user_id === a.id).sort((x, y) => leadAt(y).localeCompare(leadAt(x)));
                       const today = dayKey(new Date().toISOString());
                       const todayN = mine.filter((l) => dayKey(leadAt(l)) === today).length;
@@ -629,9 +697,24 @@ export function Equipe() {
                         </div>
                       );
                     })()}
+                    {/* Analyses lancées (12/10 soir) : une par lecture IA d'annonce (ajout ou relance des photos). */}
+                    <div className="pt-2 border-t border-slate-100 text-xs">
+                      {analyses ? (() => {
+                        const an = analyses.get(a.id);
+                        return (
+                          <p className="text-slate-600 flex items-center gap-1.5 flex-wrap" title="Compteur posé le 12/10/2026. L'historique d'avant est repris à raison d'une analyse par annonce dont les photos ont été lues.">
+                            <Sparkles className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                            <span className="font-semibold text-slate-700">Analyses lancées : {an?.total ?? 0}</span>
+                            <span className="text-slate-400">depuis l'ouverture du compte ({fmtDate(a.created_at)}){an ? ` · aujourd'hui ${an.today} · 7 jours ${an.week} · dernière le ${fmtDate(an.last_at)}` : ''}</span>
+                          </p>
+                        );
+                      })() : <p className="text-amber-700">Analyses lancées : colle le SQL du 12/10 (equipe_prospection) pour les compter.</p>}
+                    </div>
                     {negos && (() => {
-                      // Date d'ajout visible (demande 14/09), plus récentes en premier.
-                      const open = negos.filter((n) => n.user_id === a.id && n.status !== 'closed')
+                      // En cours = ce que la personne voit (sa liste ou l'Open space) ; les archivées après appel et
+                      // les clôturées sont comptées à part. Date d'ajout visible (demande 14/09), plus récentes en premier.
+                      const mine = negos.filter((n) => n.user_id === a.id);
+                      const open = mine.filter(isOpenNego)
                         .sort((x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime());
                       const addedOn = (iso: string) => {
                         const d = new Date(iso);
@@ -639,40 +722,56 @@ export function Equipe() {
                         const when = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
                         return days <= 0 ? `ajoutée aujourd'hui` : days === 1 ? `ajoutée hier` : `ajoutée le ${when} · ${days} j`;
                       };
-                      const done = negos.filter((n) => n.user_id === a.id && n.status === 'closed').length;
+                      const archivedN = mine.filter((n) => n.status === 'archived');
+                      const done = mine.filter((n) => n.status === 'closed').length;
+                      const byOutcome = Object.keys(OUTCOME_LABEL)
+                        .map((o) => { const k = archivedN.filter((n) => n.outcome === o).length; return k ? `${k} ${OUTCOME_LABEL[o]}` : null; })
+                        .filter(Boolean).join(', ');
+                      const tail = [
+                        archivedN.length ? `${archivedN.length} archivée${archivedN.length > 1 ? 's' : ''} après appel${byOutcome ? ` (${byOutcome})` : ''}` : null,
+                        done ? `${done} clôturée${done > 1 ? 's' : ''}` : null,
+                      ].filter(Boolean).join(' · ');
                       if (open.length === 0) return (
                         <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">
-                          Aucune négociation en cours{done > 0 ? ` (${done} clôturée${done > 1 ? 's' : ''})` : ''}.
+                          Aucune négociation en cours{tail ? ` · ${tail}` : ''}.
                         </p>
                       );
                       return (
                         <div className="pt-2 border-t border-slate-100 space-y-2">
                           <p className="text-xs font-semibold text-slate-700">
-                            Négociations en cours ({open.length}){done > 0 ? <span className="font-normal text-slate-400"> · {done} clôturée{done > 1 ? 's' : ''}</span> : null}
+                            Négociations en cours ({open.length}){tail ? <span className="font-normal text-slate-400"> · {tail}</span> : null}
                           </p>
-                          {open.map((n) => (
-                            <div key={n.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 space-y-1">
-                              <div className="flex items-center gap-2 text-xs">
-                                {n.listing_url
-                                  ? <a href={n.listing_url} target="_blank" rel="noreferrer" className="font-medium text-brand-ocean hover:underline truncate">{n.title || 'Sans titre'}</a>
-                                  : <span className="font-medium text-slate-800 truncate">{n.title || 'Sans titre'}</span>}
-                                <span className="ml-auto text-slate-500 shrink-0">
-                                  {n.negotiated_price != null
-                                    ? `négocié ${n.negotiated_price.toLocaleString('fr-FR')} €`
-                                    : n.asking_price != null
-                                      ? `affiché ${n.asking_price.toLocaleString('fr-FR')} €`
-                                      : ''}
-                                </span>
-                                {n.status === 'pushed_to_sale' && (
-                                  <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5 shrink-0">envoyée en vente</span>
+                          {open.map((n) => {
+                            const note = readNote(n.notes);
+                            return (
+                              <div key={n.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 space-y-1">
+                                <div className="flex items-center gap-2 text-xs flex-wrap">
+                                  {n.listing_url
+                                    ? <a href={n.listing_url} target="_blank" rel="noreferrer" className="font-medium text-brand-ocean hover:underline truncate">{n.title || 'Sans titre'}</a>
+                                    : <span className="font-medium text-slate-800 truncate">{n.title || 'Sans titre'}</span>}
+                                  {n.in_open_space && (
+                                    <span title="Visible dans l'Open space de son organisation, pas dans sa liste" className="flex items-center gap-1 text-[10px] font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5 shrink-0"><Share2 className="w-3 h-3" /> Open space</span>
+                                  )}
+                                  {n.status === 'pushed_to_sale' && (
+                                    <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5 shrink-0">envoyée en vente</span>
+                                  )}
+                                  <span className="ml-auto text-slate-500 shrink-0">
+                                    {n.negotiated_price != null
+                                      ? `négocié ${n.negotiated_price.toLocaleString('fr-FR')} €`
+                                      : n.asking_price != null
+                                        ? `affiché ${n.asking_price.toLocaleString('fr-FR')} €`
+                                        : ''}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-400" title={`Ajoutée le ${new Date(n.created_at).toLocaleString('fr-FR')}`}>
+                                  {addedOn(n.created_at)}{n.phone ? ` · vendeur ${fmtPhone(n.phone)}` : ''}{n.photos_count ? ` · ${n.photos_count} photo${n.photos_count > 1 ? 's' : ''}` : ''}
+                                </p>
+                                {note.text && (
+                                  <p className="text-[11px] text-slate-500 whitespace-pre-wrap">{note.at ? <span className="text-slate-400">note {agoLabel(note.at)} · </span> : null}{note.text.slice(0, 400)}</p>
                                 )}
                               </div>
-                              <p className="text-[11px] text-slate-400" title={`Ajoutée le ${new Date(n.created_at).toLocaleString('fr-FR')}`}>{addedOn(n.created_at)}</p>
-                              {n.notes?.trim() && (
-                                <p className="text-[11px] text-slate-500 whitespace-pre-wrap">{n.notes.trim().slice(0, 400)}</p>
-                              )}
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       );
                     })()}
@@ -695,6 +794,8 @@ export function Equipe() {
               </div>
             );
           })}
+            </div>
+          ))}
         </div>
       )}
 

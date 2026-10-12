@@ -832,6 +832,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ÉQUIPE : ACTIVITÉ DES COMPTES DE PROSPECTION, COMPTES PAR ORGANISATION
+  (12/10 soir, Channing : « pour chaque utilisateur d'un compte prospection,
+  voir les négociations en cours et le nombre d'analyses lancées depuis
+  l'ouverture du compte ; les comptes rangés par organisation, choisie via
+  un menu déroulant »)**. Les analyses (lecture IA d'une annonce : à l'ajout
+  ou relance des photos) n'étaient tracées nulle part — le worker ne
+  journalise pas ces jobs et ne connaît pas l'auteur. Nouvelle table
+  `negotiation_analyses` (une ligne par job réellement démarré, écrite par
+  le front, fail-open) avec reprise de l'historique : une analyse sûre par
+  annonce dont les photos ont été lues. RPC `admin_list_analyses` (total,
+  aujourd'hui, 7 jours, dernière — agrégé en base, pas de plafond) ;
+  `admin_list_negotiations` v2 (+ numéro du vendeur, suite d'appel, nombre
+  de photos, « dans l'Open space »). Page Équipe : menu « Organisation »
+  (toutes groupées MC Export en tête, ou une seule ; choix retenu), puce
+  « N négos · M analyses » sur chaque ligne, bloc « Analyses lancées : N
+  depuis l'ouverture du compte (date) · aujourd'hui · 7 jours · dernière »,
+  négociations en cours = ouvertes ou poussées en vente (badge Open space,
+  numéro, photos, note datée), archivées après appel comptées à part par
+  choix ; Études et Leads masqués pour un compte sans ces onglets. SQL
+  20261012170000 (equipe_prospection) à coller.
 - **UNE ANNONCE PARTAGÉE NE VIT QUE DANS L'OPEN SPACE (12/10 soir, Channing,
   pour tout le monde : « que les annonces dans l'open space ne soient
   visibles que dans l'open space, et pas dans les listes de prospection des
