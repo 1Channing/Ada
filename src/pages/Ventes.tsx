@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock } from 'lucide-react';
+import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock, Phone, PhoneCall, Archive, RotateCcw } from 'lucide-react';
 import { listingKey } from '../lib/listingKey';
+import { phoneKey, fmtPhone } from '../lib/phoneKey';
 import { readNote, writeNote, lastNoteDate, agoLabel, worthRelaunch, RELANCE_AFTER_DAYS } from '../lib/noteJournal';
 import { canSeeTab } from '../lib/appTabs';
 import { createReminder } from '../services/userTasks';
@@ -10,6 +11,7 @@ import { useAuth } from '../services/auth';
 import {
   Negotiation, listNegotiations, createNegotiation, updateNegotiation,
   deleteNegotiation, pushNegotiationToSale, normalizeSaleReference,
+  archiveNegotiation, listArchivedNegotiations, reactivateNegotiation, setNegotiationPhone,
   NegoConflict, listNegotiationConflicts,
   NegotiationFolder, listNegotiationFolders, createNegotiationFolder, renameNegotiationFolder,
   deleteNegotiationFolder, moveNegotiationToFolder,
@@ -64,6 +66,15 @@ export function Ventes() {
 
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 
+/** État d'une négociation vue par l'anti-collision (en cours, poussée en vente, archivée avec le choix d'après appel). */
+type NegoState = { status?: string | null; outcome?: string | null; archived_at?: string | null };
+const stateLabel = (c: NegoState): string => {
+  const d = c.archived_at ? ` (${new Date(c.archived_at).toLocaleDateString('fr-FR')})` : '';
+  if (c.status === 'archived') return c.outcome === 'no_callback' ? `ne pas rappeler${d}` : c.outcome === 'flux' ? `remise dans le flux${d}` : `archivée${d}`;
+  if (c.status === 'pushed_to_sale') return 'poussée en vente';
+  return 'en cours';
+};
+
 export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   const { userId, allowedTabs, isAdmin } = useAuth();
   // Compte de prospection seule (Weecars, 12/10) : pas d'études → les textes
@@ -75,6 +86,11 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
   const [price, setPrice] = useState('');
+  // Numéro du vendeur (12/10) : seconde clé de doublon à côté de l'annonce.
+  const [phone, setPhone] = useState('');
+  // Archivées après l'appel (12/10) : remises dans le flux ou sans rappel.
+  const [archived, setArchived] = useState<Negotiation[]>([]);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   // Open space (05/09) : l'espace partagé, son badge de nouveautés et la
@@ -113,6 +129,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   };
   const reload = () => {
     listNegotiations().then(setRows).finally(() => setLoading(false));
+    listArchivedNegotiations().then(setArchived);
     listNegotiationFolders().then(setFolders);
     listNegotiationConflicts().then(setConflicts);
     listOpenSpace().then((items) => setShared(new Map(items.map((i) => [i.negotiation_id, i.id]))));
@@ -135,21 +152,39 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
    * date de sa dernière note : « si le dernier contact date de 3 semaines, ça
    * vaut le coup de relancer ». On n'empêche rien : « Ajouter quand même ».
    */
-  const [dupWarn, setDupWarn] = useState<{ text: string; relaunch: boolean } | null>(null);
-  const findDuplicate = (u: string): { text: string; relaunch: boolean } | null => {
+  const [dupWarn, setDupWarn] = useState<{ items: string[]; relaunch: boolean } | null>(null);
+  /**
+   * Deux clés (12/10) : la même ANNONCE (identifiant du site), et le même
+   * VENDEUR (numéro) sur un AUTRE véhicule — « une annonce remise en ligne
+   * plus tard change d'identifiant, pas de numéro ». Mes lignes (en cours
+   * et archivées) puis celles des collègues (anti-collision). On prévient,
+   * on n'empêche jamais.
+   */
+  const findDuplicate = (u: string, ph: string): { items: string[]; relaunch: boolean } | null => {
     const key = listingKey(u);
-    if (!key) return null;
-    const mine = rows.find((r) => listingKey(r.listing_url) === key);
-    if (mine) {
-      const last = lastNoteDate(mine.notes, mine.updated_at);
-      return { text: `Déjà dans tes négociations : « ${mine.title} » (ajoutée le ${new Date(mine.created_at).toLocaleDateString('fr-FR')}${last ? `, dernière note ${agoLabel(last)}` : ''}).`, relaunch: worthRelaunch(last) };
+    const pk = phoneKey(ph);
+    if (!key && !pk) return null;
+    type Cand = { owner_id: string; owner_name: string; listing_url: string; notes: string; created_at: string; updated_at: string; status?: string | null; phone?: string | null; outcome?: string | null; archived_at?: string | null; title?: string | null };
+    const mineOf = (r: Negotiation): Cand => ({ owner_id: userId ?? '', owner_name: 'toi', listing_url: r.listing_url, notes: r.notes, created_at: r.created_at, updated_at: r.updated_at, status: r.status, phone: r.phone ?? null, outcome: r.outcome ?? null, archived_at: r.archived_at ?? null, title: r.title });
+    const candidates: Cand[] = [...rows.map(mineOf), ...archived.map(mineOf), ...conflicts.filter((c) => c.owner_id !== userId)];
+    const items: string[] = [];
+    const seen = new Set<string>();
+    let relaunch = false;
+    for (const c of candidates) {
+      const sameAd = !!key && listingKey(c.listing_url) === key;
+      const samePh = !!pk && phoneKey(c.phone) === pk;
+      if (!sameAd && !samePh) continue;
+      const dedup = `${c.owner_id}|${c.listing_url}|${c.title ?? ''}`;
+      if (seen.has(dedup)) continue;
+      seen.add(dedup);
+      const last = lastNoteDate(c.notes, c.updated_at);
+      const mine = c.owner_id === userId;
+      const noteInfo = last ? `dernière note ${agoLabel(last)} (${last.toLocaleDateString('fr-FR')})` : 'sans note';
+      if (sameAd) items.push(`${mine ? 'Tu es' : `${c.owner_name} est`} déjà sur cette annonce (${stateLabel(c)}, depuis le ${new Date(c.created_at).toLocaleDateString('fr-FR')}) — ${noteInfo}.`);
+      else items.push(`Ce vendeur (${fmtPhone(c.phone)}) a déjà eu un autre véhicule : « ${c.title ?? 'sans titre'} » chez ${mine ? 'toi' : c.owner_name} (${stateLabel(c)}) — ${noteInfo}.`);
+      if (worthRelaunch(last)) relaunch = true;
     }
-    const other = conflicts.find((c) => c.owner_id !== userId && listingKey(c.listing_url) === key);
-    if (other) {
-      const last = lastNoteDate(other.notes, other.updated_at);
-      return { text: `${other.owner_name} est déjà sur cette annonce depuis le ${new Date(other.created_at).toLocaleDateString('fr-FR')}${last ? ` — dernière note ${agoLabel(last)} (${last.toLocaleDateString('fr-FR')})` : ' — sans note'}.`, relaunch: worthRelaunch(last) };
-    }
-    return null;
+    return items.length ? { items, relaunch } : null;
   };
 
   // UN SEUL GESTE (12/10, Channing : « même s'ils cliquent sur Enregistrer
@@ -163,16 +198,16 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
     const u = url.trim();
     if (!u && !title.trim()) { setError("Colle l'URL de l'annonce (ou au moins un titre)."); return; }
     if (!force) {
-      const dup = u ? findDuplicate(u) : null;
+      const dup = findDuplicate(u, phone);
       if (dup) { setDupWarn(dup); return; }
     }
     setDupWarn(null);
     setAnalyzing(true); setError(null);
     try {
-      const { id, error: err } = await createNegotiation(title.trim() || u || 'Négociation', u, price ? Number(price) : null);
+      const { id, error: err } = await createNegotiation(title.trim() || u || 'Négociation', u, price ? Number(price) : null, [], phone.trim() || null);
       if (err || !id) throw new Error(err || 'création impossible');
       if (u.startsWith('http')) await startNegoExtraction(id, u, { title: !title.trim(), price: !price });
-      setAdding(false); setTitle(''); setUrl(''); setPrice(''); reload();
+      setAdding(false); setTitle(''); setUrl(''); setPrice(''); setPhone(''); reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -225,21 +260,25 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
             <label className="block text-xs font-medium text-slate-600 mb-1">Titre</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="BMW iX1 xLine — Munich" className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
           </div>
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-xs font-medium text-slate-600 mb-1">URL de l'annonce</label>
             <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
           </div>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="block text-xs font-medium text-slate-600 mb-1">Prix affiché (€)</label>
-              <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
-            </div>
-            <button type="submit" disabled={analyzing} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-brand-ocean hover:bg-brand-encre text-white self-end transition-colors disabled:opacity-50">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Téléphone du vendeur</label>
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="06 12 34 56 78" className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Prix affiché (€)</label>
+            <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+          </div>
+          <div className="md:col-span-2 flex justify-end">
+            <button type="submit" disabled={analyzing} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-brand-ocean hover:bg-brand-encre text-white transition-colors disabled:opacity-50">
               {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Enregistrer
             </button>
           </div>
           <div className="md:col-span-4 text-xs text-slate-500">
-            Colle l'URL : ADA enregistre tout de suite, puis lit l'annonce en arrière-plan (titre, prix, photos). Si quelqu'un est déjà sur l'annonce, ADA le dit, avec la date de sa dernière note.
+            Colle l'URL : ADA enregistre tout de suite, puis lit l'annonce en arrière-plan (titre, prix, photos). Le numéro du vendeur reste lié à l'annonce : même annonce ou même vendeur déjà vu, chez toi ou chez un collègue, ADA le dit avec la date de la dernière note.
           </div>
         </form>
       )}
@@ -248,7 +287,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
         <div className="text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 flex items-start gap-3 flex-wrap">
           <Users className="w-4 h-4 mt-0.5 shrink-0 text-amber-700" />
           <span className="flex-1 min-w-[240px]">
-            {dupWarn.text}
+            {dupWarn.items.map((t) => <span key={t} className="block">{t}</span>)}
             {dupWarn.relaunch
               ? <span className="block text-xs mt-0.5 text-emerald-800 font-medium">Plus de {RELANCE_AFTER_DAYS} jours sans note : une relance vaut le coup.</span>
               : <span className="block text-xs mt-0.5 text-amber-800">Parlez-vous avant de doubler l'offre.</span>}
@@ -335,6 +374,42 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
             })()}
           </div>
         )}
+
+      {/* Archivées après l'appel (12/10) : l'annonce et le numéro restent connus pour les doublons. */}
+      {archived.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <button onClick={() => setArchivedOpen((o) => !o)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors rounded-xl">
+            {archivedOpen ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
+            <Archive className="w-4 h-4 text-slate-400" />
+            <span className="font-semibold text-slate-700">Archivées</span>
+            <span className="text-xs text-slate-500">{archived.length} · après l'appel : remises dans le flux ou sans rappel — l'annonce et le numéro restent connus pour repérer les doublons</span>
+          </button>
+          {archivedOpen && (
+            <div className="divide-y divide-slate-100 border-t border-slate-100">
+              {archived.map((a) => (
+                <div key={a.id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      {a.listing_url?.startsWith('http')
+                        ? <a href={a.listing_url} target="_blank" rel="noreferrer" className="text-slate-700 hover:text-brand-ocean hover:underline truncate">{a.title}</a>
+                        : <span className="text-slate-700 truncate">{a.title}</span>}
+                      <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                        {a.outcome === 'no_callback' ? 'ne pas rappeler' : a.outcome === 'flux' ? 'remise dans le flux' : 'archivée'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 truncate">
+                      {a.archived_at ? `le ${new Date(a.archived_at).toLocaleDateString('fr-FR')}` : ''}{a.phone ? ` · ${fmtPhone(a.phone)}` : ''}{readNote(a.notes).text ? ` · ${readNote(a.notes).text.split('\n')[0]}` : ''}
+                    </p>
+                  </div>
+                  <button onClick={async () => { const err = await reactivateNegotiation(a.id); if (err) setError(err); else reload(); }} title="Le vendeur a rappelé, l'annonce est revenue : la remettre en cours" className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 shrink-0">
+                    <RotateCcw className="w-3.5 h-3.5" /> Réactiver
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -489,6 +564,26 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
   const others = myKey
     ? conflicts.filter((c) => c.owner_id !== userId && listingKey(c.listing_url) === myKey)
     : [];
+  const activeOthers = others.filter((c) => c.status !== 'archived');
+  // Même VENDEUR (numéro) sur un AUTRE véhicule, chez moi ou chez un collègue (12/10).
+  const myPhone = phoneKey(n.phone);
+  const sellerSeen = myPhone
+    ? conflicts.filter((c) => phoneKey(c.phone) === myPhone && listingKey(c.listing_url) !== myKey)
+    : [];
+  const editPhone = async () => {
+    const p = prompt('Numéro du vendeur (gardé avec l’annonce pour repérer les doublons) :', n.phone ?? '');
+    if (p == null) return;
+    const err = await setNegotiationPhone(n.id, p);
+    if (err) alert(err); else onChanged();
+  };
+  // Après l'appel (12/10) : numéro saisi dans la fenêtre, enregistré avec le choix.
+  const [callPhone, setCallPhone] = useState('');
+  const savePhone = async () => {
+    const p = callPhone.trim();
+    if ((n.phone ?? '').trim() === p) return;
+    const err = await setNegotiationPhone(n.id, p || null);
+    if (err && p) alert(err);
+  };
 
   useEffect(() => {
     if (!showConflict) return;
@@ -534,18 +629,19 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
                   className="flex items-center gap-1 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-300 rounded-full px-2 py-0.5 hover:bg-amber-100 transition-colors"
                 >
                   <Users className="w-3 h-3" />
-                  Déjà en négo · {others[0].owner_name}{others.length > 1 ? ` +${others.length - 1}` : ''}
+                  {activeOthers.length ? 'Déjà en négo' : 'Déjà prospecté'} · {(activeOthers[0] ?? others[0]).owner_name}{others.length > 1 ? ` +${others.length - 1}` : ''}
                 </button>
                 {showConflict && (
                   <div className="absolute left-0 top-7 z-30 w-80 bg-white border border-amber-200 rounded-xl shadow-lg p-3 space-y-3">
                     {others.map((c, i) => (
                       <div key={i} className="text-xs space-y-1">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-slate-800">{c.owner_name}</span>
+                          <span className="font-semibold text-slate-800">{c.owner_name} <span className="font-normal text-slate-500">· {stateLabel(c)}</span></span>
                           <span className="text-slate-400">
                             depuis le {new Date(c.created_at).toLocaleDateString('fr-FR')} à {new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
+                        {c.phone && <p className="text-slate-500"><Phone className="w-3 h-3 inline -mt-0.5 mr-1" />{fmtPhone(c.phone)}</p>}
                         {(() => {
                           const r = readNote(c.notes);
                           const last = lastNoteDate(c.notes, c.updated_at);
@@ -567,11 +663,22 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
                 )}
               </div>
             )}
+            {sellerSeen.length > 0 && (
+              <span
+                title={sellerSeen.map((c) => `${c.owner_id === userId ? 'Toi' : c.owner_name} : « ${c.title ?? 'sans titre'} » (${stateLabel(c)})`).join('\n')}
+                className="flex items-center gap-1 text-xs font-medium text-sky-800 bg-sky-50 border border-sky-300 rounded-full px-2 py-0.5 shrink-0"
+              >
+                <Phone className="w-3 h-3" /> Vendeur déjà vu · {sellerSeen.length} autre{sellerSeen.length > 1 ? 's' : ''} véhicule{sellerSeen.length > 1 ? 's' : ''}
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
             Prix affiché {fmtEur(n.asking_price)}
             {n.negotiated_price != null && <> · négocié <span className="text-emerald-700 font-medium">{fmtEur(n.negotiated_price)}</span></>}
             {' · '}{new Date(n.updated_at).toLocaleDateString('fr-FR')}
+            {' · '}{n.phone
+              ? <a href={`tel:${n.phone.replace(/\s/g, '')}`} title="Appeler — double-clic sur le menu ⋯ pour corriger" className="text-slate-700 hover:underline"><Phone className="w-3 h-3 inline -mt-0.5 mr-0.5" />{fmtPhone(n.phone)}</a>
+              : <button onClick={() => void editPhone()} className="text-slate-400 hover:text-brand-ocean hover:underline">+ numéro du vendeur</button>}
           </p>
           {/* Analyse d'ajout échouée : le dire SUR la ligne (la fenêtre
               d'ajout est fermée depuis longtemps). */}
@@ -591,6 +698,13 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
           {n.photos.length > 0 && <span className="text-[11px] font-semibold">{n.photos.length}</span>}
           {/* Extraction en cours, fenêtre fermée → le témoin vit sur la ligne. */}
           {isExtracting(n.id) && !showPhotos && <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-ocean" />}
+        </button>
+        <button
+          onClick={() => { setCallPhone(n.phone ?? ''); setAskDelete(true); }}
+          title="Après l'appel : rappel, remettre dans le flux ou ne pas rappeler"
+          className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg shrink-0 text-slate-500 hover:bg-slate-100"
+        >
+          <PhoneCall className="w-3.5 h-3.5" /> Après l'appel
         </button>
         <button
           ref={notesBtnRef}
@@ -679,7 +793,10 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
                 const p = prompt('Prix d’achat négocié (€) :', String(n.negotiated_price ?? n.asking_price ?? ''));
                 if (p != null && p.trim() !== '') { await updateNegotiation(n.id, { negotiated_price: Number(p) || null }); onChanged(); }
               }}>Modifier le prix négocié</MenuBtn>
-              <MenuBtn danger onClick={() => { setMenu(false); setAskDelete(true); }}>Supprimer</MenuBtn>
+              <MenuBtn onClick={() => { setMenu(false); void editPhone(); }}>
+                <span className="flex items-center gap-2"><Phone className="w-4 h-4 text-slate-500 shrink-0" /> Numéro du vendeur</span>
+              </MenuBtn>
+              <MenuBtn danger onClick={() => { setMenu(false); setCallPhone(n.phone ?? ''); setAskDelete(true); }}>Après l'appel / supprimer…</MenuBtn>
               </>
               )}
             </div>
@@ -706,19 +823,30 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
       {askDelete && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 grid place-items-center p-4" onClick={() => setAskDelete(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-slate-900">Supprimer « {n.title} »</h3>
-            <p className="text-sm text-slate-600">Pas de deal. Que devient l'annonce dans les résultats de tes études ?</p>
-            <button onClick={async () => { setAskDelete(false); await deleteNegotiation(n.id, 'flux'); onChanged(); }}
+            <h3 className="font-semibold text-slate-900 flex items-center gap-2"><PhoneCall className="w-4 h-4 text-slate-500" /> Après l'appel — « {n.title} »</h3>
+            <label className="block text-xs text-slate-600">Numéro du vendeur
+              <input type="tel" value={callPhone} onChange={(e) => setCallPhone(e.target.value)} placeholder="06 12 34 56 78" className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+            </label>
+            <p className="text-[11px] text-slate-500">Gardé avec l'annonce : si ce vendeur remet un véhicule en ligne plus tard, ADA le reconnaîtra même sous une autre annonce.</p>
+            <button onClick={async () => { await savePhone(); setAskDelete(false); setRemTitle(`Relancer : ${n.title}`); setRemWhen(defaultReminderWhen()); setRemError(null); setAskReminder(true); }}
+              className="w-full text-left rounded-xl border border-slate-200 hover:border-rose-400 hover:bg-rose-50/40 px-4 py-3 transition-colors">
+              <span className="block text-sm font-medium text-slate-900 flex items-center gap-2"><AlarmClock className="w-4 h-4 text-rose-500" /> Rappel</span>
+              <span className="block text-xs text-slate-500">La négociation reste en cours ; un rappel dans la cloche à la date choisie.</span>
+            </button>
+            <button onClick={async () => { await savePhone(); setAskDelete(false); const err = await archiveNegotiation(n.id, 'flux'); if (err) alert(err); onChanged(); }}
               className="w-full text-left rounded-xl border border-slate-200 hover:border-brand-ocean hover:bg-blue-50/40 px-4 py-3 transition-colors">
               <span className="block text-sm font-medium text-slate-900">Remettre dans le flux</span>
-              <span className="block text-xs text-slate-500">Le véhicule reste intéressant : une vraie baisse de prix le ramènera dans la boîte.</span>
+              <span className="block text-xs text-slate-500">Pas de suite de ton côté, les autres peuvent la prendre. Archivée avec sa trace ; dans tes études, une vraie baisse de prix la ramène.</span>
             </button>
-            <button onClick={async () => { setAskDelete(false); await deleteNegotiation(n.id, 'archive'); onChanged(); }}
-              className="w-full text-left rounded-xl border border-slate-200 hover:border-rose-400 hover:bg-rose-50/40 px-4 py-3 transition-colors">
-              <span className="block text-sm font-medium text-slate-900">Archiver définitivement</span>
-              <span className="block text-xs text-slate-500">« Pas de deal » : ne sera plus jamais re-présentée, même en baisse.</span>
+            <button onClick={async () => { await savePhone(); setAskDelete(false); const err = await archiveNegotiation(n.id, 'no_callback'); if (err) alert(err); onChanged(); }}
+              className="w-full text-left rounded-xl border border-slate-200 hover:border-slate-500 hover:bg-slate-50 px-4 py-3 transition-colors">
+              <span className="block text-sm font-medium text-slate-900">Ne pas rappeler</span>
+              <span className="block text-xs text-slate-500">Pas de deal : archivée, l'annonce et le numéro restent connus pour repérer un retour du vendeur.</span>
             </button>
-            <button onClick={() => setAskDelete(false)} className="w-full text-sm text-slate-500 hover:text-slate-700 py-1">Annuler</button>
+            <div className="flex items-center justify-between pt-1">
+              <button onClick={() => setAskDelete(false)} className="text-sm text-slate-500 hover:text-slate-700 py-1">Annuler</button>
+              <button onClick={async () => { if (!confirm('Supprimer sans garder de trace (ni annonce, ni numéro) ?')) return; setAskDelete(false); await deleteNegotiation(n.id, 'flux'); onChanged(); }} className="text-xs text-slate-400 hover:text-red-600 py-1">Supprimer sans trace</button>
+            </div>
           </div>
         </div>
       )}

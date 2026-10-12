@@ -156,6 +156,12 @@ export interface Negotiation {
   /** Nom du PDF photos (26/09) — libre, indépendant du titre de la ligne.
    *  Absent tant que la colonne n'existe pas (SQL du 26/09) : repli local. */
   pdf_title?: string | null;
+  /** Numéro du vendeur (12/10) — seconde clé de doublon à côté de l'annonce. */
+  phone?: string | null;
+  /** Choix d'après appel quand la négociation est archivée (12/10) :
+   *  'flux' = remise dans le flux pour les autres, 'no_callback' = ne pas rappeler. */
+  outcome?: 'flux' | 'no_callback' | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -476,6 +482,7 @@ export async function listNegotiations(): Promise<Negotiation[]> {
     .from('negotiations')
     .select('*')
     .neq('status', 'closed')
+    .neq('status', 'archived')
     .order('updated_at', { ascending: false });
   if (error) throw new Error(error.message);
   // photos absent (migration pas encore passée) ou null → toujours un tableau ;
@@ -533,13 +540,64 @@ export async function moveNegotiationToFolder(negotiationId: string, folderId: s
 }
 
 export async function createNegotiation(
-  title: string, listingUrl: string, askingPrice: number | null, photos: string[] = [],
+  title: string, listingUrl: string, askingPrice: number | null, photos: string[] = [], phone: string | null = null,
 ): Promise<{ id: string | null; error: string | null }> {
-  const { data, error } = await supabase.from('negotiations').insert({
+  const row = {
     user_id: uid(), title, listing_url: listingUrl, asking_price: askingPrice,
     ...(photos.length ? { photos } : {}),
-  }).select('id').single();
-  return { id: data?.id ?? null, error: error ? error.message : null };
+    ...(phone?.trim() ? { phone: phone.trim() } : {}),
+  };
+  let { data, error } = await supabase.from('negotiations').insert(row as never).select('id').single();
+  // Colonne phone absente (SQL du 12/10 pas collé) : on crée sans le numéro, la ligne le dira.
+  if (error && /phone/i.test(error.message) && 'phone' in row) {
+    const { phone: _p, ...rest } = row; void _p;
+    ({ data, error } = await supabase.from('negotiations').insert(rest as never).select('id').single());
+  }
+  return { id: (data as { id?: string } | null)?.id ?? null, error: error ? error.message : null };
+}
+
+// ── Archives de négociation (12/10, comptes de prospection) ─────────────────
+// Après l'appel : « remettre dans le flux » ou « ne pas rappeler » ARCHIVENT
+// la ligne (status 'archived', outcome, archived_at) au lieu de la supprimer —
+// l'annonce et le numéro du vendeur restent connus pour les doublons. Le
+// sort de l'annonce dans les résultats d'études suit la même règle qu'avant
+// (flux : triable à nouveau ; no_callback : « pas de deal », définitif).
+const NEGO_ARCHIVE_SQL_HINT = 'Archives de négociation : SQL du 12/10 (negociations_telephone_archives) à coller.';
+
+export async function archiveNegotiation(id: string, outcome: 'flux' | 'no_callback'): Promise<string | null> {
+  const { data, error } = await supabase.from('negotiations')
+    .update({ status: 'archived', outcome, archived_at: new Date().toISOString(), updated_at: new Date().toISOString() } as never)
+    .eq('id', id).select('id, listing_url');
+  if (error) return /outcome|archived_at|column|schema cache/i.test(error.message) ? NEGO_ARCHIVE_SQL_HINT : error.message;
+  const url = ((data?.[0] as { listing_url?: string } | undefined)?.listing_url ?? '').trim();
+  if (url) {
+    const patch = outcome === 'flux' ? { status: 'dismissed', resolution: null } : { status: 'dismissed', resolution: 'pas_de_deal' };
+    await supabase.from('daily_search_hits').update(patch).eq('user_id', uid()).eq('listing_url', url).eq('status', 'saved');
+  }
+  return null;
+}
+
+export async function listArchivedNegotiations(): Promise<Negotiation[]> {
+  const { data, error } = await supabase.from('negotiations').select('*').eq('status', 'archived').order('archived_at', { ascending: false }).limit(300);
+  if (error) return []; // colonnes absentes → pas d'archives (fail-open)
+  return (data ?? []).map((r) => ({
+    ...r,
+    photos: Array.isArray((r as { photos?: unknown }).photos) ? (r as { photos: string[] }).photos : [],
+    folder_id: (r as { folder_id?: string | null }).folder_id ?? null,
+  })) as Negotiation[];
+}
+
+/** Une archivée revient en cours (le vendeur a rappelé, l'annonce est revenue). */
+export async function reactivateNegotiation(id: string): Promise<string | null> {
+  const { error } = await supabase.from('negotiations')
+    .update({ status: 'open', outcome: null, archived_at: null, updated_at: new Date().toISOString() } as never).eq('id', id);
+  return error ? error.message : null;
+}
+
+export async function setNegotiationPhone(id: string, phone: string | null): Promise<string | null> {
+  const { error } = await supabase.from('negotiations').update({ phone: phone?.trim() || null, updated_at: new Date().toISOString() } as never).eq('id', id);
+  if (!error) return null;
+  return /phone|column|schema cache/i.test(error.message) ? NEGO_ARCHIVE_SQL_HINT : error.message;
 }
 
 /**
@@ -578,6 +636,12 @@ export interface NegoConflict {
   notes: string;
   created_at: string;
   updated_at: string;
+  /** v2 (12/10) : absents tant que la RPC v1 est en place → lus comme « en cours, sans numéro ». */
+  status?: string | null;
+  phone?: string | null;
+  outcome?: 'flux' | 'no_callback' | null;
+  archived_at?: string | null;
+  title?: string | null;
 }
 export async function listNegotiationConflicts(): Promise<NegoConflict[]> {
   const { data, error } = await supabase.rpc('negotiation_conflicts' as never);

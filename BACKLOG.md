@@ -832,6 +832,31 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **PROSPECTION : NUMÉRO DU VENDEUR COMME SECONDE CLÉ DE DOUBLON, CHOIX
+  D'APRÈS APPEL, ARCHIVES DE NÉGOCIATION (12/10, Channing)**. « Si
+  quelqu'un remet une annonce au bout d'un certain temps, il faut repérer
+  le doublon » : l'identifiant d'annonce change, pas le numéro. Colonne
+  negotiations.phone (saisie à l'ajout, sur la ligne, dans la fenêtre
+  d'après appel), clé src/lib/phoneKey.ts (06…, +33, 0033, points et
+  tirets se reconnaissent). À l'ajout, deux clés : même annonce → « X est
+  déjà sur cette annonce (en cours / ne pas rappeler le JJ/MM / remise dans
+  le flux…) — dernière note il y a N j » ; même numéro sur un AUTRE
+  véhicule → « ce vendeur a déjà eu un autre véhicule : « titre » chez X »
+  — on prévient, on n'empêche jamais (« Ajouter quand même »). Sur la
+  ligne : badge « Déjà en négo / Déjà prospecté · X » (état et numéro dans
+  la bulle), badge « Vendeur déjà vu · N autres véhicules ». Après l'appel
+  (bouton sur la ligne, ou menu ⋯) : numéro du vendeur + trois choix —
+  Rappel (la négociation reste, rappel dans la cloche), Remettre dans le
+  flux (pour les autres), Ne pas rappeler ; les deux derniers ARCHIVENT la
+  ligne (status 'archived', outcome, archived_at) au lieu de la supprimer,
+  la trace sert aux doublons ; « Supprimer sans trace » reste au bas. Section
+  « Archivées » repliée sous les négociations (choix, date, numéro,
+  première ligne de note, Réactiver). RPC negotiation_conflicts v2 (drop +
+  create : statut, numéro, choix, date d'archivage, titre — jamais les
+  prix) sur les lignes en cours ET archivées ; le front lit la v1 sans
+  casser (statut « en cours », pas de numéro). Migration 20261012120000.
+  Sans le SQL : l'ajout crée sans numéro, « Après l'appel » répond
+  « SQL à coller » sans rien supprimer.
 - **RAPPELS PAR E-MAIL À L'ÉCHÉANCE (12/10, Channing : « pour le groupe MC
   Export, que les rappels envoient un mail à leur propriétaire à la date,
   avec la note — c'est possible ? »)**. Oui, sans rien de nouveau côté
