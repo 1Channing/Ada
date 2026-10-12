@@ -844,8 +844,11 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   confondues, avec retrait. Chaque publication PHOTOGRAPHIE le véhicule, le
   prix MC Export HT et le relevé du lot (table `intra_showcase`, jamais le
   prix fournisseur) ; un prix ou un relevé changé depuis est signalé « à
-  rafraîchir ». Accueil : bloc « Vitrine — véhicules disponibles » pour les
-  comptes MC Export, une carte par véhicule (prix HT, verdict par pays,
+  rafraîchir ». Accueil : bloc « Vitrine — véhicules disponibles » pour TOUS
+  les utilisateurs d'ADA, toutes organisations (précision Channing : « ce
+  n'est pas pour l'équipe MC Export, c'est pour tous les utilisateurs, géré
+  par les gars de MC Export » ; nom de l'auteur gardé dans la ligne, le
+  filet des verrous laisse cette table ouverte), une carte par véhicule (prix HT, verdict par pays,
   recherches du relevé cliquables, mot, offre et auteur) et, pour qui a
   l'onglet Offres, bouton « Étude de marché » qui ouvre l'offre sur
   l'Analyse (/offres?offer=…&view=analyse, lu par la page). SQL

@@ -8,11 +8,12 @@ import { OFFER_COUNTRIES } from '../services/offers';
 
 /**
  * VITRINE DE L'ACCUEIL (12/10 soir, Channing) : les véhicules que l'équipe de
- * gestion a publiés depuis l'onglet Intra des offres. Chaque carte : le
+ * gestion MC Export a publiés depuis l'onglet Intra des offres — visible par
+ * TOUS les utilisateurs d'ADA, toutes organisations. Chaque carte : le
  * véhicule, le prix MC Export HT, le verdict par pays du relevé de marché du
  * lot, les recherches du relevé (cliquables, pour vérifier le marché soi-
  * même) et, pour qui a l'onglet Offres, l'étude de marché complète.
- * Lecture seule ; MC Export seulement (la base le tient).
+ * Lecture seule ; seule l'équipe MC Export publie (la base le tient).
  */
 const fmtEur = (n: number | null | undefined) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 const fmtKm = (n: number | null | undefined) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} km`);
@@ -25,25 +26,25 @@ const countryLabel = (code: string) => OFFER_COUNTRIES.find((x) => x.code === co
 const SITE_LABEL = (key: string) => key.replace(/^autoscout24_/, 'AS24 ').replace(/_/g, ' ');
 
 export function IntraShowcase({ navigateTo }: { navigateTo: (path: string) => void }) {
-  const { isMcExport, allowedTabs, isAdmin } = useAuth();
+  const { userId, allowedTabs, isAdmin } = useAuth();
   const canOpenOffer = canSeeTab(allowedTabs, isAdmin, 'offres');
   const [items, setItems] = useState<IntraItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (!isMcExport) return;
+    if (!userId) return;
     const load = () => { void listShowcase().then((r) => { setItems(r.rows); setError(r.error && !/à coller/.test(r.error) ? r.error : null); }); };
     load();
     window.addEventListener('focus', load);
     return () => window.removeEventListener('focus', load);
-  }, [isMcExport]);
-  if (!isMcExport || (items.length === 0 && !error)) return null;
+  }, [userId]);
+  if (items.length === 0 && !error) return null;
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
       <div className="flex items-center gap-2 px-5 py-3 flex-wrap">
         <Megaphone className="w-4 h-4 text-brand-ocean" />
         <span className="text-xs uppercase tracking-wide text-slate-500">Vitrine — véhicules disponibles</span>
-        <span className="text-xs text-slate-400">{items.length} véhicule{items.length > 1 ? 's' : ''} publié{items.length > 1 ? 's' : ''} par l'équipe de gestion · prix MC Export HT</span>
+        <span className="text-xs text-slate-400">{items.length} véhicule{items.length > 1 ? 's' : ''} publié{items.length > 1 ? 's' : ''} par l'équipe MC Export · prix MC Export HT</span>
       </div>
       {error && <p className="mx-5 mb-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3 px-5 pb-5">
@@ -99,7 +100,7 @@ export function IntraShowcase({ navigateTo }: { navigateTo: (path: string) => vo
                   </button>
                 )}
               </div>
-              <p className="text-[10px] text-slate-400">{it.offer_title || 'offre'} · publié par {it.published_by_name ?? 'l’équipe'} le {fmtDate(it.published_at)}</p>
+              <p className="text-[10px] text-slate-400">{it.offer_title || 'offre'} · publié par {it.published_by_name} le {fmtDate(it.published_at)}</p>
             </div>
           );
         })}

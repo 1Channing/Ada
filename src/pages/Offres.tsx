@@ -1309,7 +1309,7 @@ export function Offres() {
               <div className="space-y-4">
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 text-sm text-slate-600 flex items-start gap-3 flex-wrap">
                   <Megaphone className="w-5 h-5 text-brand-ocean shrink-0 mt-0.5" />
-                  <p className="flex-1 min-w-[280px]">L'Intra, c'est la <strong>vitrine de l'Accueil</strong> de tous les comptes MC Export : les véhicules disponibles que l'équipe de gestion choisit de montrer, avec le prix MC Export {B} et le relevé de marché du lot (verdict par pays, recherches cliquables, étude complète pour ceux qui ont l'onglet Offres). Publier photographie le véhicule tel qu'il est maintenant ; republier rafraîchit.</p>
+                  <p className="flex-1 min-w-[280px]">L'Intra, c'est la <strong>vitrine de l'Accueil</strong> de tous les utilisateurs d'ADA, toutes organisations : les véhicules disponibles que l'équipe MC Export choisit de montrer, avec le prix MC Export {B} et le relevé de marché du lot (verdict par pays, recherches cliquables, étude complète pour ceux qui ont l'onglet Offres). Publier photographie le véhicule tel qu'il est maintenant ; republier rafraîchit.</p>
                   {showcaseError && <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{showcaseError}</span>}
                 </div>
 
@@ -1379,7 +1379,7 @@ export function Offres() {
                           <span className="font-medium text-slate-800 truncate">{it.vehicle.brand} {it.vehicle.model}</span>
                           <span className="text-slate-500 truncate">{it.vehicle.engine || it.vehicle.version}</span>
                           <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + ' HT' : 'sur proposition'}</span>
-                          <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name ?? 'équipe'} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>
+                          <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>
                           {it.note && <span className="text-slate-600 truncate">« {it.note} »</span>}
                           <button onClick={() => void unpublishVehicles([it.id])} className="ml-auto p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 shrink-0" title="Retirer de la vitrine" aria-label={`Retirer ${it.vehicle.brand} ${it.vehicle.model} de la vitrine`}><X className="w-3.5 h-3.5" /></button>
                         </li>

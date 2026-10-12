@@ -10,8 +10,12 @@
   PHOTOGRAPHIE le véhicule (marque, modèle, version, km, énergie…), le prix
   MC Export HT et le relevé de marché du lot au moment de la publication :
   la vitrine ne bouge pas si l'offre est retravaillée ensuite ; republier
-  rafraîchit. Données MC Export : lisibles par les comptes MC Export,
-  publiées / retirées par ceux qui ont l'onglet Offres. Additif, idempotent.
+  rafraîchit. Visible par TOUS les utilisateurs d'ADA, toutes organisations
+  (précision Channing : « ce n'est pas pour l'équipe MC Export, c'est pour
+  tous les utilisateurs d'ADA, géré par les gars de MC Export ») ; publiée /
+  retirée par les comptes MC Export qui ont l'onglet Offres. Le nom de
+  l'auteur est gardé dans la ligne (les profils MC Export ne sont pas
+  lisibles d'une autre organisation). Additif, idempotent.
 */
 create table if not exists public.intra_showcase (
   id uuid primary key default gen_random_uuid(),
@@ -24,14 +28,16 @@ create table if not exists public.intra_showcase (
   market jsonb,
   note text not null default '',
   published_by uuid references auth.users(id) on delete set null,
+  published_by_name text not null default '',
   published_at timestamptz not null default now(),
   unique (offer_id, vehicle_id)
 );
+alter table public.intra_showcase add column if not exists published_by_name text not null default '';
 create index if not exists idx_intra_showcase_published on public.intra_showcase (published_at desc);
 alter table public.intra_showcase enable row level security;
 drop policy if exists "intra_showcase_select" on public.intra_showcase;
 create policy "intra_showcase_select" on public.intra_showcase
-  for select to authenticated using ((select public.ada_is_mc_export()));
+  for select to authenticated using (auth.uid() is not null);
 drop policy if exists "intra_showcase_write" on public.intra_showcase;
 create policy "intra_showcase_write" on public.intra_showcase
   for all to authenticated
@@ -41,4 +47,5 @@ grant select, insert, update, delete on public.intra_showcase to authenticated;
 
 select exists (select 1 from pg_tables where schemaname = 'public' and tablename = 'intra_showcase')
    and exists (select 1 from pg_policies where tablename = 'intra_showcase' and policyname = 'intra_showcase_select')
-   and exists (select 1 from pg_policies where tablename = 'intra_showcase' and policyname = 'intra_showcase_write') as tout_est_bon;
+   and exists (select 1 from pg_policies where tablename = 'intra_showcase' and policyname = 'intra_showcase_write')
+   and exists (select 1 from information_schema.columns where table_name = 'intra_showcase' and column_name = 'published_by_name') as tout_est_bon;

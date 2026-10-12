@@ -1,8 +1,11 @@
 /**
- * INTRA — la vitrine des véhicules disponibles sur l'Accueil MC Export
- * (12/10 soir, Channing). L'équipe de gestion publie, depuis l'onglet Intra
- * d'une offre, les véhicules qu'elle veut montrer à tout MC Export ; chacun
- * voit la vitrine sur son Accueil et ouvre l'étude de marché du lot.
+ * INTRA — la vitrine des véhicules disponibles sur l'Accueil de TOUS les
+ * utilisateurs d'ADA, toutes organisations (12/10 soir, Channing : « ce
+ * n'est pas pour l'équipe MC Export, c'est pour tous les utilisateurs, géré
+ * par les gars de MC Export »). L'équipe de gestion MC Export publie, depuis
+ * l'onglet Intra d'une offre, les véhicules qu'elle veut montrer ; chacun
+ * voit la vitrine sur son Accueil ; l'étude de marché complète reste à ceux
+ * qui ont l'onglet Offres.
  *
  * Chaque ligne est une PHOTOGRAPHIE prise à la publication (véhicule, prix
  * MC Export HT, relevé de marché du lot) : la vitrine ne bouge pas si
@@ -38,29 +41,23 @@ export interface IntraItem {
   vehicle: IntraVehicle; price_ht: number | null;
   /** Relevé du lot à la publication : pays → résultat (sites, prix d'attaque, médiane, concurrentes). */
   market: Record<string, CountryResult> | null;
-  note: string; published_by: string | null; published_by_name?: string; published_at: string;
+  note: string; published_by: string | null; published_by_name: string; published_at: string;
 }
 export type IntraDraft = Omit<IntraItem, 'id' | 'published_by' | 'published_at' | 'published_by_name'>;
 
+/** Visible par TOUS les utilisateurs d'ADA (toutes organisations) ; le nom de l'auteur vit dans la ligne. */
 export async function listShowcase(): Promise<{ rows: IntraItem[]; error: string | null }> {
   const { data, error } = await sb.from('intra_showcase').select('*').order('published_at', { ascending: false }).limit(200);
   if (error) return { rows: [], error: missing(error.message) ? INTRA_SQL_HINT : error.message };
-  const rows = (data ?? []) as IntraItem[];
-  const ids = [...new Set(rows.map((r) => r.published_by).filter((x): x is string => !!x))];
-  if (ids.length) {
-    const { data: profs } = await sb.from('profiles').select('id, display_name').in('id', ids);
-    const names = new Map(((profs ?? []) as Array<{ id: string; display_name: string | null }>).map((p) => [p.id, (p.display_name ?? '').trim() || 'collègue']));
-    for (const r of rows) r.published_by_name = r.published_by ? names.get(r.published_by) ?? 'collègue' : undefined;
-  }
-  return { rows, error: null };
+  return { rows: ((data ?? []) as IntraItem[]).map((r) => ({ ...r, published_by_name: (r.published_by_name ?? '').trim() || 'équipe MC Export' })), error: null };
 }
 
-/** Publie (ou republie : même offre + même véhicule = remplacé) un ou plusieurs véhicules. */
+/** Publie (ou republie : même offre + même véhicule = remplacé) un ou plusieurs véhicules — équipe MC Export avec l'onglet Offres. */
 export async function publishToShowcase(items: IntraDraft[]): Promise<string | null> {
   if (items.length === 0) return null;
-  const userId = useAuth.getState().userId;
+  const { userId, displayName } = useAuth.getState();
   const { error } = await sb.from('intra_showcase')
-    .upsert(items.map((i) => ({ ...i, published_by: userId, published_at: new Date().toISOString() })), { onConflict: 'offer_id,vehicle_id' });
+    .upsert(items.map((i) => ({ ...i, published_by: userId, published_by_name: (displayName ?? '').trim(), published_at: new Date().toISOString() })), { onConflict: 'offer_id,vehicle_id' });
   if (!error) return null;
   return missing(error.message) ? INTRA_SQL_HINT : /row-level security/i.test(error.message) ? "Publication refusée par la base : réservé à l'équipe MC Export avec l'onglet Offres." : error.message;
 }

@@ -37,7 +37,8 @@ declare
   mapped text[] := array[]::text[];
   skip text[] := array['profiles', 'negotiations', 'negotiation_folders', 'negotiation_analyses',
                        'daily_searches', 'daily_search_hits', 'open_space_items', 'open_space_notes',
-                       'open_space_seen', 'user_tasks', 'auth_allowlist', 'bank_statements', 'bank_lines', 'vat_returns'];
+                       'open_space_seen', 'user_tasks', 'auth_allowlist', 'bank_statements', 'bank_lines', 'vat_returns',
+                       'intra_showcase'];
   n_tables int := 0;
 begin
   for t in
