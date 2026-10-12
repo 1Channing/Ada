@@ -55,6 +55,19 @@ export async function listOpenSpace(): Promise<OpenSpaceItem[]> {
   });
 }
 
+/**
+ * UNE ANNONCE PARTAGÉE NE VIT QUE DANS L'OPEN SPACE (12/10, Channing, pour
+ * tout le monde : « les annonces dans l'open space ne soient visibles que
+ * dans l'open space, pas dans les listes de prospection »). Les identifiants
+ * des négociations poussées, pour les retrancher de la liste personnelle et
+ * du compteur de l'accueil. Fail-open : table absente → rien de retranché.
+ */
+export async function openSpaceNegotiationIds(): Promise<Set<string>> {
+  const { data, error } = await sb.from('open_space_items').select('negotiation_id');
+  if (error || !data) return new Set();
+  return new Set((data as Array<{ negotiation_id: string }>).map((r) => String(r.negotiation_id)));
+}
+
 export async function listOpenSpaceNotes(): Promise<OpenSpaceNote[]> {
   const { data, error } = await sb.from('open_space_notes').select('*').order('created_at', { ascending: true });
   if (error || !data) return [];

@@ -8,6 +8,7 @@ import { MappingRadialTree } from '../components/MappingRadialTree';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
 import { inspectOpportunityInMarket } from '../services/marketData';
 import { DailyHit, DailySearch, listInboxHits, listDailySearches, inboxToProcess, listNegotiations } from '../services/workflow';
+import { openSpaceNegotiationIds } from '../services/openSpace';
 import { useAuth } from '../services/auth';
 import { MyTasks } from '../components/MyTasks';
 
@@ -69,7 +70,12 @@ export function Home() {
   const [negoCount, setNegoCount] = useState<number | null>(null);
   useEffect(() => {
     if (!showNego) return;
-    const refresh = () => { listNegotiations().then((r) => setNegoCount(r.length)).catch(() => undefined); };
+    // Même compte que la liste : les annonces poussées dans l'Open space ne vivent que là-bas (12/10).
+    const refresh = () => {
+      Promise.all([listNegotiations(), openSpaceNegotiationIds()])
+        .then(([r, shared]) => setNegoCount(r.filter((n) => !shared.has(n.id)).length))
+        .catch(() => undefined);
+    };
     refresh();
     window.addEventListener('focus', refresh);
     return () => window.removeEventListener('focus', refresh);

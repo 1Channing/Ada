@@ -17,7 +17,7 @@ import {
   deleteNegotiationFolder, moveNegotiationToFolder,
 } from '../services/workflow';
 import {
-  OpenSpaceItem, OpenSpaceNote, listOpenSpace, listOpenSpaceNotes, pushToOpenSpace, removeFromOpenSpace,
+  OpenSpaceItem, OpenSpaceNote, listOpenSpace, listOpenSpaceNotes, openSpaceNegotiationIds, pushToOpenSpace, removeFromOpenSpace,
   addOpenSpaceNote, deleteOpenSpaceNote,
 } from '../services/openSpace';
 import { useOpenSpaceUnseen, clearOpenSpaceUnseen, refreshOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
@@ -119,12 +119,15 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   const reminderAtOf = (id: string): string | null => { const d = reminders.get(id); return d && Date.parse(d) > Date.now() ? d : null; };
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  // Open space (05/09) : l'espace partagé, son badge de nouveautés et la
-  // carte « quelle négo est déjà poussée » (menu ⋯ : partager / retirer).
+  // Open space (05/09) : l'espace partagé et son badge de nouveautés.
   const [openSpace, setOpenSpace] = useState(false);
   // Compteur partagé avec le bandeau et l'onglet (hooks/useOpenSpaceUnseen).
   const openSpaceNew = useOpenSpaceUnseen();
-  const [shared, setShared] = useState<Map<string, string>>(new Map()); // negotiation_id → item id
+  // UNE ANNONCE PARTAGÉE NE VIT QUE DANS L'OPEN SPACE (12/10, Channing, pour
+  // tout le monde) : les négociations poussées sortent de la liste
+  // personnelle — « Retirer de l'Open space » (sur sa carte, là-bas) les y
+  // ramène. Elles restent connues des doublons et du numéro déjà vu.
+  const [shared, setShared] = useState<Set<string>>(new Set());
 
   const [conflicts, setConflicts] = useState<NegoConflict[]>([]);
   // UN SEUL panneau de notes ouvert à la fois (12/10, Channing) : l'onglet
@@ -154,13 +157,18 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
     return id;
   };
   const reload = () => {
-    listNegotiations().then(setRows).finally(() => setLoading(false));
+    // Lignes et partages arrivent ENSEMBLE : une annonce partagée ne clignote jamais dans la liste.
+    Promise.all([listNegotiations(), openSpaceNegotiationIds()])
+      .then(([r, s]) => { setRows(r); setShared(s); })
+      .finally(() => setLoading(false));
     listArchivedNegotiations().then(setArchived);
     listNegotiationFolders().then(setFolders);
     listNegotiationConflicts().then(setConflicts);
-    listOpenSpace().then((items) => setShared(new Map(items.map((i) => [i.negotiation_id, i.id]))));
     void refreshOpenSpaceUnseen();
   };
+  // Ce que la liste montre : mes négociations SAUF celles qui vivent dans l'Open space.
+  const visible = useMemo(() => rows.filter((n) => !shared.has(n.id)), [rows, shared]);
+  const sharedCount = rows.length - visible.length;
   useEffect(reload, []);
   // Extractions d'arrière-plan : reprise des jobs interrompus (navigation,
   // rechargement) + re-render à chaque changement d'état (spinner de ligne,
@@ -360,14 +368,25 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
         </div>
       )}
 
+      {/* Les annonces poussées dans l'Open space ne vivent que là-bas (12/10) : la liste le dit, sans les montrer. */}
+      {!loading && sharedCount > 0 && (
+        <button onClick={() => { setOpenSpace(true); clearOpenSpaceUnseen(); }} className="w-full flex items-center gap-2 text-left text-sm text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2 hover:bg-violet-100 transition-colors">
+          <Share2 className="w-4 h-4 shrink-0 text-violet-600" />
+          <span className="flex-1">{sharedCount} de tes annonce{sharedCount > 1 ? 's' : ''} {sharedCount > 1 ? 'vivent' : 'vit'} dans l'Open space — visible{sharedCount > 1 ? 's' : ''} là-bas seulement. Pour {sharedCount > 1 ? 'en' : 'la'} reprendre ici : « Retirer de l'Open space » sur sa carte.</span>
+          <span className="text-xs font-medium shrink-0">Ouvrir l'Open space →</span>
+        </button>
+      )}
+
       {loading ? <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>
-        : rows.length === 0 ? (
+        : visible.length === 0 ? (
           <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
-            {hasStudies ? "Aucune négociation — enregistre une annonce depuis l'accueil (Nouvelles annonces) ou ajoute-la ici." : "Aucune négociation — clique sur « Ajouter » et colle l'URL de l'annonce."}
+            {sharedCount > 0
+              ? `Rien ici : ${sharedCount > 1 ? `tes ${sharedCount} annonces sont` : 'ton annonce est'} dans l'Open space.`
+              : hasStudies ? "Aucune négociation — enregistre une annonce depuis l'accueil (Nouvelles annonces) ou ajoute-la ici." : "Aucune négociation — clique sur « Ajouter » et colle l'URL de l'annonce."}
           </div>
         ) : folders.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-            {rows.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} sharedItemId={shared.get(n.id) ?? null} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} />)}
+            {visible.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} />)}
           </div>
         ) : (
           // Regroupement par dossier (10/09) : les dossiers dans leur ordre,
@@ -378,7 +397,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
               const known = new Set(folders.map((f) => f.id));
               const byFolder = new Map<string, Negotiation[]>();
               const loose: Negotiation[] = [];
-              for (const n of rows) {
+              for (const n of visible) {
                 if (n.folder_id && known.has(n.folder_id)) byFolder.set(n.folder_id, [...(byFolder.get(n.folder_id) ?? []), n]);
                 else loose.push(n);
               }
@@ -414,7 +433,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
                         ? <p className="px-4 py-3 text-xs text-slate-400 border-t border-slate-100">Dossier vide — range une négociation ici depuis son menu ⋯ → « Ranger dans un dossier ».</p>
                         : (
                           <div className="divide-y divide-slate-100 border-t border-slate-100">
-                            {items.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} sharedItemId={shared.get(n.id) ?? null} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} />)}
+                            {items.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} />)}
                           </div>
                         )
                     )}
@@ -504,9 +523,9 @@ function FolderHeader({ folder, count, open, onToggle, onRename, onDelete }: {
   );
 }
 
-function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, onPushed, notesOpen, onNotesOpen, reminderAt, phoneIndex }: {
+function NegoRow({ n, folders, onNewFolder, conflicts, onChanged, onPushed, notesOpen, onNotesOpen, reminderAt, phoneIndex }: {
   n: Negotiation; folders: NegotiationFolder[]; onNewFolder: () => Promise<string | null>;
-  conflicts: NegoConflict[]; sharedItemId: string | null; onChanged: () => void; onPushed: () => void;
+  conflicts: NegoConflict[]; onChanged: () => void; onPushed: () => void;
   notesOpen: boolean; onNotesOpen: (open: boolean) => void;
   /** Prochain rappel à venir sur cette annonce (null = aucun ou déjà échu). */
   reminderAt: string | null;
@@ -690,7 +709,6 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
               </span>
             )}
             {pushed && <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0">Poussée en vente</span>}
-            {sharedItemId && <span title="Visible par toute l'équipe dans l'Open space" className="flex items-center gap-1 text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5 shrink-0"><Share2 className="w-3 h-3" /> Open space</span>}
             {others.length > 0 && (
               <div className="relative shrink-0" ref={conflictRef}>
                 <button
@@ -856,20 +874,17 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
               <MenuBtn onClick={() => { setMenu(false); setRemTitle(`Relancer : ${n.title}`); setRemWhen(defaultReminderWhen()); setRemError(null); setAskReminder(true); }}>
                 <span className="flex items-center gap-2"><AlarmClock className="w-4 h-4 text-rose-500 shrink-0" /> Ajouter un rappel</span>
               </MenuBtn>
-              {sharedItemId ? (
-                <MenuBtn onClick={async () => {
-                  setMenu(false);
-                  const err = await removeFromOpenSpace(sharedItemId);
-                  if (err) alert(err); else onChanged();
-                }}>Retirer de l'Open space</MenuBtn>
-              ) : (
-                <MenuBtn onClick={async () => {
-                  setMenu(false);
-                  const msg = prompt("Un mot pour l'équipe (facultatif) :", '') ?? '';
-                  const err = await pushToOpenSpace(n.id, msg.trim());
-                  if (err) alert(err); else onChanged();
-                }}>Partager dans l'Open space</MenuBtn>
-              )}
+              {/* Partager = l'annonce quitte cette liste et ne vit plus que dans l'Open space (12/10) ;
+                  elle y revient par « Retirer de l'Open space » sur sa carte, là-bas. */}
+              <MenuBtn onClick={async () => {
+                setMenu(false);
+                const msg = prompt("L'annonce quitte ta liste et ne vivra plus que dans l'Open space (tu l'y reprends quand tu veux).\nUn mot pour l'équipe (facultatif) :", '');
+                if (msg == null) return; // Annuler
+                const err = await pushToOpenSpace(n.id, msg.trim());
+                if (err) alert(err); else onChanged();
+              }}>
+                <span className="flex items-center gap-2"><Share2 className="w-4 h-4 text-violet-600 shrink-0" /> Partager dans l'Open space</span>
+              </MenuBtn>
               <MenuBtn onClick={async () => {
                 setMenu(false);
                 const t = prompt('Nouveau nom :', n.title);
@@ -1039,7 +1054,7 @@ function OpenSpacePanel({ onBack }: { onBack: () => void }) {
           <button onClick={onBack} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100" title="Retour à mes négociations"><ArrowLeft className="w-4 h-4" /></button>
           <div>
             <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Users className="w-5 h-5 text-brand-ocean" /> Open space <span className="text-base font-normal text-slate-500">· {organisation}</span></h2>
-            <p className="text-sm text-slate-600 mt-1">Les négociations que l'équipe a choisi de partager — regarde, commente, coordonne.</p>
+            <p className="text-sm text-slate-600 mt-1">Les négociations que l'équipe a choisi de partager — regarde, commente, coordonne. Une annonce partagée ne vit qu'ici : la retirer la rend à la liste de son propriétaire.</p>
           </div>
         </div>
         <span className="text-xs text-slate-500">{items.length} annonce{items.length > 1 ? 's' : ''} partagée{items.length > 1 ? 's' : ''}</span>
@@ -1113,8 +1128,8 @@ function OpenSpaceCard({ item, notes, onChanged, onError }: { item: OpenSpaceIte
         </div>
         {(mine || isAdmin) && (
           <button
-            onClick={async () => { if (confirm("Retirer cette annonce de l'Open space ?")) { const err = await removeFromOpenSpace(item.id); if (err) onError(err); else onChanged(); } }}
-            title="Retirer de l'Open space"
+            onClick={async () => { if (confirm(`Retirer cette annonce de l'Open space ? Elle revient dans ${mine ? 'ta liste de négociations' : `la liste de ${item.pushed_by_name}`}.`)) { const err = await removeFromOpenSpace(item.id); if (err) onError(err); else onChanged(); } }}
+            title={mine ? "Retirer de l'Open space : l'annonce revient dans ta liste" : `Retirer de l'Open space : l'annonce revient dans la liste de ${item.pushed_by_name}`}
             className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 shrink-0 self-start"
           >
             <Trash2 className="w-4 h-4" />

@@ -832,6 +832,21 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **UNE ANNONCE PARTAGÉE NE VIT QUE DANS L'OPEN SPACE (12/10 soir, Channing,
+  pour tout le monde : « que les annonces dans l'open space ne soient
+  visibles que dans l'open space, et pas dans les listes de prospection des
+  gars — juste l'open space »)**. Une négociation poussée dans l'Open space
+  sort de la liste personnelle de son propriétaire (liste à plat comme
+  dossiers) ; un bandeau violet dit « N de tes annonces vivent dans l'Open
+  space — visibles là-bas seulement » et y mène ; liste vide = « ton annonce
+  est dans l'Open space ». « Retirer de l'Open space » (sur sa carte, par le
+  propriétaire ou un admin, confirmation explicite) la rend à sa liste ; le
+  badge « Open space » et le « Retirer » du menu de ligne, devenus sans
+  objet, sont retirés ; « Partager » prévient que l'annonce quitte la liste
+  et Annuler annule vraiment. Lignes et partages se chargent ensemble (pas
+  de clignotement). La carte Négociations de l'accueil compte pareil. Les
+  annonces partagées restent lues par les doublons (annonce, numéro) et par
+  « vendeur déjà vu ». Zéro SQL.
 - **SUPPRIMER GARDE LA TRACE : NOTE, NUMÉRO ET ANNONCE (12/10 soir,
   Channing pour les comptes de prospection : « que “supprimer sans trace”
   enregistre quand même les notes avec l'annonce et avec le numéro, en
