@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
-  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3,
+  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone,
 } from 'lucide-react';
+import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, snapshotVehicle, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
@@ -53,7 +54,7 @@ interface Draft {
   export_columns?: ExportColumn[] | null;
   settings?: OfferSettings | null;
 }
-type View = 'selection' | 'analyse' | 'export';
+type View = 'selection' | 'analyse' | 'export' | 'intra';
 type Msg = { tone: 'info' | 'error'; text: string } | null;
 
 const FUEL_OPTIONS = ['ESSENCE', 'DIESEL', 'HYBRIDE', 'HYBRIDE RECHARGEABLE', 'ELECTRIQUE', 'GPL'];
@@ -105,6 +106,19 @@ export function Offres() {
   const fail = (text: string) => setMsg({ tone: 'error', text });
 
   const reload = async () => { const r = await listOffers(); setOffers(r.rows); setListError(r.error); return r.rows; };
+  // INTRA (12/10 soir) : la vitrine de l'Accueil MC Export — ce qui y est déjà, et ce que cette offre y publie.
+  const [showcase, setShowcase] = useState<IntraItem[]>([]);
+  const [showcaseError, setShowcaseError] = useState<string | null>(null);
+  const reloadShowcase = async () => { const r = await listShowcase(); setShowcase(r.rows); setShowcaseError(r.error); };
+  useEffect(() => { void reloadShowcase(); }, []);
+  // Ouverture par l'URL (/offres?offer=<id>&view=analyse — bouton « Étude de marché » de la vitrine).
+  const [search, setSearch] = useState(window.location.search);
+  const handledSearch = useRef<string | null>(null);
+  useEffect(() => {
+    const f = () => setSearch(window.location.search);
+    window.addEventListener('locationchange', f); window.addEventListener('popstate', f);
+    return () => { window.removeEventListener('locationchange', f); window.removeEventListener('popstate', f); };
+  }, []);
   // Modèles connus = référentiel des études + taxonomie moissonnée des sites
   // (le référentiel seul ignorait « ASTRA » : aucune étude Astra, 16/09).
   useEffect(() => {
@@ -325,6 +339,18 @@ export function Offres() {
     setListOpen(false);
     setSurvey((s) => (s && s.done < s.total && s.current !== 'arrêté' ? s : null));
   };
+  useEffect(() => {
+    if (handledSearch.current === search) return;
+    const p = new URLSearchParams(search);
+    const id = p.get('offer');
+    if (!id) { handledSearch.current = search; return; }
+    const o = offers.find((x) => x.id === id);
+    if (!o) return; // la liste n'est pas encore là : on réessaie à sa lecture
+    handledSearch.current = search;
+    if (draft?.id !== id) open(o);
+    const v = p.get('view');
+    if (v === 'analyse' || v === 'export' || v === 'intra' || v === 'selection') setView(v);
+  }, [search, offers]); // eslint-disable-line react-hooks/exhaustive-deps
   const remove = async (o: SupplierOffer) => {
     if (!confirm(`Supprimer l'offre « ${o.title || 'sans titre'} » ?`)) return;
     const err = await deleteOffer(o.id);
@@ -412,6 +438,31 @@ export function Offres() {
   // Les relevés se lancent PAYS PAR PAYS (11/10) : bouton par colonne pays,
   // bouton par case vide, ou par lot. Chaque relevé passe par la file du worker.
   const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, draft.lot_criteria?.[l.key])) : []), [draft]);
+
+  // ── INTRA : publier dans la vitrine de l'Accueil ────────────────────────────
+  const publishedHere = useMemo(() => new Map(showcase.filter((i) => draft?.id && i.offer_id === draft.id).map((i) => [i.vehicle_id, i])), [showcase, draft?.id]);
+  const intraDraftOf = (v: OfferVehicle): IntraDraft | null => {
+    if (!draft?.id) return null;
+    const lot = lots.find((l) => l.vehicleIds.includes(v.id));
+    return {
+      offer_id: draft.id, offer_title: draft.title, vehicle_id: v.id, lot_key: lot?.key ?? null,
+      vehicle: snapshotVehicle(v), price_ht: draft.price_rule.mode === 'none' ? null : v.sale_price ?? null,
+      market: lot ? draft.market?.[lot.key] ?? null : null, note: publishedHere.get(v.id)?.note ?? '',
+    };
+  };
+  const publishVehicles = async (list: OfferVehicle[]) => {
+    if (!draft?.id) { fail("L'offre n'est pas encore enregistrée : attends la sauvegarde avant de publier."); return; }
+    const items = list.map(intraDraftOf).filter((x): x is IntraDraft => !!x);
+    const err = await publishToShowcase(items);
+    if (err) { fail(err); return; }
+    info(`${items.length} véhicule${items.length > 1 ? 's' : ''} publié${items.length > 1 ? 's' : ''} dans la vitrine de l'Accueil (véhicule, prix MC Export HT et relevé de marché photographiés maintenant).`);
+    void reloadShowcase();
+  };
+  const unpublishVehicles = async (ids: string[]) => {
+    const err = await unpublishFromShowcase(ids);
+    if (err) { fail(err); return; }
+    void reloadShowcase();
+  };
   const [editLot, setEditLot] = useState<string | null>(null);
   /** Critères réglés à la main : le relevé du lot est effacé (il répondait à d'autres critères) et ses URLs se régénèrent. */
   const setLotCriteria = (lot: OfferLot, patch: LotCriteria | null) => {
@@ -796,6 +847,7 @@ export function Offres() {
               {tabButton('selection', 'Sélection', ListChecks, `${selectedUnits}/${totalUnits}`)}
               {tabButton('analyse', 'Analyse', BarChart3, `${lotsOf(draft.vehicles).length} lot${lotsOf(draft.vehicles).length > 1 ? 's' : ''}`)}
               {tabButton('export', 'Export', Columns3, `${previewColumns.length} col.`)}
+              {tabButton('intra', 'Intra', Megaphone, `${publishedHere.size} publié${publishedHere.size > 1 ? 's' : ''}`)}
             </div>
           </div>
 
@@ -1242,6 +1294,102 @@ export function Offres() {
             </div>
             </div>
           )}
+
+          {/* ══ INTRA : la vitrine de l'Accueil MC Export ═══════════════════════ */}
+          {view === 'intra' && (() => {
+            const allPublished = selected.length > 0 && selected.every((v) => publishedHere.has(v.id));
+            const stale = (v: OfferVehicle) => {
+              const it = publishedHere.get(v.id);
+              if (!it) return false;
+              const now = intraDraftOf(v);
+              return !!now && (it.price_ht !== now.price_ht || JSON.stringify(it.market ?? null) !== JSON.stringify(now.market ?? null));
+            };
+            const others = showcase.filter((i) => i.offer_id !== draft.id);
+            return (
+              <div className="space-y-4">
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 text-sm text-slate-600 flex items-start gap-3 flex-wrap">
+                  <Megaphone className="w-5 h-5 text-brand-ocean shrink-0 mt-0.5" />
+                  <p className="flex-1 min-w-[280px]">L'Intra, c'est la <strong>vitrine de l'Accueil</strong> de tous les comptes MC Export : les véhicules disponibles que l'équipe de gestion choisit de montrer, avec le prix MC Export {B} et le relevé de marché du lot (verdict par pays, recherches cliquables, étude complète pour ceux qui ont l'onglet Offres). Publier photographie le véhicule tel qu'il est maintenant ; republier rafraîchit.</p>
+                  {showcaseError && <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{showcaseError}</span>}
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm min-w-0">
+                  <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+                    <h2 className="text-sm font-semibold text-slate-800">Véhicules de l'offre</h2>
+                    <span className="text-xs text-slate-500">{unitsLabel(selected.length, selectedUnits)} retenus · {publishedHere.size} dans la vitrine</span>
+                    <div className="ml-auto flex gap-2">
+                      <button onClick={() => void publishVehicles(selected)} disabled={selected.length === 0} className="flex items-center gap-1.5 bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><Megaphone className="w-4 h-4" /> {allPublished ? 'Republier tous les retenus' : 'Publier tous les retenus'}</button>
+                      <button onClick={() => void unpublishVehicles([...publishedHere.values()].map((i) => i.id))} disabled={publishedHere.size === 0} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-red-400 hover:text-red-700 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><X className="w-4 h-4" /> Tout retirer de la vitrine</button>
+                    </div>
+                  </div>
+                  {selected.length === 0 ? (
+                    <p className="px-4 py-10 text-sm text-slate-400 text-center">Aucun véhicule retenu : rien à publier. Retiens des véhicules dans l'onglet Sélection.</p>
+                  ) : (
+                    <div className="overflow-auto max-h-[70vh] p-3">
+                      <table className="text-xs w-full">
+                        <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">
+                          <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Vitrine</th>
+                          {previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{displayLabel(c, exportCtx)}</th>)}
+                          <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Relevé de marché</th>
+                          <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Mot pour la vitrine</th>
+                        </tr></thead>
+                        <tbody>
+                          {selected.map((v, i) => {
+                            const it = publishedHere.get(v.id);
+                            const lot = lots.find((l) => l.vehicleIds.includes(v.id));
+                            const countries = lot ? Object.keys(draft.market?.[lot.key] ?? {}) : [];
+                            return (
+                              <tr key={v.id} className={i % 2 ? 'bg-slate-50' : ''}>
+                                <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
+                                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" checked={!!it} onChange={(e) => (e.target.checked ? void publishVehicles([v]) : it && void unpublishVehicles([it.id]))} aria-label={`Publier ${v.brand} ${v.model} dans la vitrine`} />
+                                    {it ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${stale(v) ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`} title={stale(v) ? 'Le prix ou le relevé a changé depuis la publication — recoche ou « Republier » pour rafraîchir' : `Publié le ${new Date(it.published_at).toLocaleDateString('fr-FR')}`}>{stale(v) ? 'à rafraîchir' : 'publié'}</span> : <span className="text-[10px] text-slate-400">non</span>}
+                                  </label>
+                                </td>
+                                {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}</td>)}
+                                <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
+                                  {countries.length === 0 ? <span className="text-slate-400">aucun — onglet Analyse</span> : countries.map((c) => {
+                                    const vd = verdictOf(draft.price_rule.mode === 'none' ? null : v.sale_price, draft.market?.[lot!.key]?.[c], c);
+                                    return <span key={c} className={`inline-block mr-1 text-[10px] px-1.5 py-0.5 rounded-full border ${VERDICT_CLASS[vd.tone]}`} title={vd.text}>{c} {vd.marginPct != null ? `${vd.marginPct >= 0 ? '+' : ''}${vd.marginPct} %` : vd.text}</span>;
+                                  })}
+                                </td>
+                                <td className="px-2 py-1 border-b border-slate-100">
+                                  {it ? <input defaultValue={it.note} onBlur={async (e) => { const note = e.target.value.trim(); if (note === it.note) return; const err = await setShowcaseNote(it.id, note); if (err) fail(err); else void reloadShowcase(); }} placeholder="ex. dispo immédiate, 2 exemplaires" className="w-48 px-2 py-1 rounded border border-slate-300" /> : <span className="text-slate-300">—</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+                  <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+                    <h2 className="text-sm font-semibold text-slate-800">Ce que l'Accueil montre aujourd'hui</h2>
+                    <span className="text-xs text-slate-500">{showcase.length} véhicule{showcase.length > 1 ? 's' : ''} en vitrine, toutes offres confondues{others.length ? ` · ${others.length} d'autres offres` : ''}</span>
+                  </div>
+                  {showcase.length === 0 ? (
+                    <p className="px-4 py-6 text-sm text-slate-400 text-center">La vitrine est vide.</p>
+                  ) : (
+                    <ul className="divide-y divide-slate-100">
+                      {showcase.map((it) => (
+                        <li key={it.id} className="flex items-center gap-3 px-4 py-2 text-xs">
+                          <span className="font-medium text-slate-800 truncate">{it.vehicle.brand} {it.vehicle.model}</span>
+                          <span className="text-slate-500 truncate">{it.vehicle.engine || it.vehicle.version}</span>
+                          <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + ' HT' : 'sur proposition'}</span>
+                          <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name ?? 'équipe'} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>
+                          {it.note && <span className="text-slate-600 truncate">« {it.note} »</span>}
+                          <button onClick={() => void unpublishVehicles([it.id])} className="ml-auto p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 shrink-0" title="Retirer de la vitrine" aria-label={`Retirer ${it.vehicle.brand} ${it.vehicle.model} de la vitrine`}><X className="w-3.5 h-3.5" /></button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

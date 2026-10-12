@@ -832,6 +832,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **INTRA : LA VITRINE DES VÉHICULES DISPONIBLES SUR L'ACCUEIL MC EXPORT
+  (12/10 soir, Channing : « à côté d'Export, un onglet Intra qui reprend
+  l'aperçu et nous permet, à l'équipe de gestion, de publier certaines
+  offres au choix dans l'accueil des utilisateurs MC Export — une petite
+  vitrine, avec l'étude de marché correspondante pour vérifier le
+  marché »)**. Onglet Intra dans une offre : l'aperçu de l'export (mêmes
+  colonnes) avec une case « Vitrine » par véhicule retenu, le verdict de
+  marché par pays, un mot libre ; « Publier tous les retenus » / « Tout
+  retirer » ; en bas, ce que l'Accueil montre aujourd'hui, toutes offres
+  confondues, avec retrait. Chaque publication PHOTOGRAPHIE le véhicule, le
+  prix MC Export HT et le relevé du lot (table `intra_showcase`, jamais le
+  prix fournisseur) ; un prix ou un relevé changé depuis est signalé « à
+  rafraîchir ». Accueil : bloc « Vitrine — véhicules disponibles » pour les
+  comptes MC Export, une carte par véhicule (prix HT, verdict par pays,
+  recherches du relevé cliquables, mot, offre et auteur) et, pour qui a
+  l'onglet Offres, bouton « Étude de marché » qui ouvre l'offre sur
+  l'Analyse (/offres?offer=…&view=analyse, lu par la page). SQL
+  20261012230000 (intra_vitrine) à coller.
 - **APERÇU DU LIEN ADA : IMAGE ET TITRE ADA, PLUS CEUX DE BOLT (12/10 soir,
   Channing : « comment changer l'image de la photo principale quand je donne
   le lien d'ADA »)**. index.html pointait encore sur l'image Open Graph de

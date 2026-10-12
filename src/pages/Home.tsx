@@ -11,6 +11,7 @@ import { DailyHit, DailySearch, listInboxHits, listDailySearches, inboxToProcess
 import { openSpaceNegotiationIds } from '../services/openSpace';
 import { useAuth } from '../services/auth';
 import { MyTasks } from '../components/MyTasks';
+import { IntraShowcase } from '../components/IntraShowcase';
 
 interface DealRow {
   id: string;
@@ -210,6 +211,9 @@ export function Home() {
         </button>
         )}
       </div>}
+
+      {/* Vitrine Intra (12/10 soir) : les véhicules disponibles publiés par l'équipe de gestion — MC Export seulement. */}
+      <IntraShowcase navigateTo={navigateTo} />
 
       {/* Routine du matin (Truth Center 3b, GO 03/09) : la santé de la dernière
           vague en une ligne — le détail vit dans le Truth Center. */}
