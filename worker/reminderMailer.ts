@@ -55,7 +55,8 @@ async function tick(): Promise<void> {
         if (uErr || !email) throw new Error('adresse du propriétaire introuvable');
         const { data: p } = await sb.from('profiles').select('display_name').eq('id', r.assignee_id).maybeSingle();
         const name = ((p as { display_name?: string | null } | null)?.display_name ?? '').trim() || null;
-        const base = (process.env.ADA_APP_URL ?? 'https://ada-ui-test.up.railway.app').replace(/\/+$/, '');
+        // Adresse publique d'ADA (12/10 : ada.app) — ADA_APP_URL la remplace sans toucher au code.
+        const base = (process.env.ADA_APP_URL ?? 'https://ada.app').replace(/\/+$/, '');
         const link = r.link ? (/^https?:\/\//.test(r.link) ? r.link : `${base}${r.link}`) : `${base}/`;
         const when = new Date(r.due_at).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         const body = [
