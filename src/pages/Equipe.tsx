@@ -251,6 +251,9 @@ export function Equipe() {
     e.preventDefault();
     const email = newEmail.trim().toLowerCase();
     if (!email) return;
+    // Une adresse complète, ou un DOMAINE entier « @weecars.fr » (12/10) :
+    // tous les comptes de ce domaine peuvent s'inscrire, dans l'organisation choisie.
+    if (!/^@[a-z0-9.-]+\.[a-z]{2,}$/.test(email) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Saisis une adresse complète (prenom@societe.fr) ou un domaine entier (@societe.fr).'); return; }
     let { error: err } = await supabase.from('auth_allowlist').insert({ email, note: newNote.trim() || null, organisation: newAllowOrg } as never);
     if (err && /organisation/.test(err.message)) ({ error: err } = await supabase.from('auth_allowlist').insert({ email, note: newNote.trim() || null }));
     if (err) { setError(err.message); return; }
@@ -724,10 +727,10 @@ export function Equipe() {
             )}
             <form onSubmit={addAllow} className="flex gap-2">
               <input
-                type="email"
+                type="text"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="prenom@mc-export.com"
+                placeholder="prenom@societe.fr ou @societe.fr (tout le domaine)"
                 className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40"
                 required
               />
@@ -745,7 +748,7 @@ export function Equipe() {
               </button>
             </form>
             <p className="text-[11px] text-slate-400">
-              Le verrou s'applique à l'INSCRIPTION seulement — les comptes existants ne sont jamais bloqués. Une adresse = un compte ; le compte reçoit l'organisation de son adresse à l'inscription.
+              Le verrou s'applique à l'INSCRIPTION seulement — les comptes existants ne sont jamais bloqués. Une adresse = un compte ; le compte reçoit l'organisation de son adresse à l'inscription. Une ligne « @societe.fr » autorise toutes les adresses de ce domaine (ex. @weecars.fr → Weecars). Une adresse refusée voit « Adresse non autorisée à s'inscrire ».
             </p>
           </div>
         </div>

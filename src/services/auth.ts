@@ -160,6 +160,10 @@ function frenchAuthError(msg: string): string {
   if (/rate limit|too many requests/i.test(msg)) return 'Trop de tentatives — réessaie dans quelques minutes.';
   if (/password should be at least|password.*short/i.test(msg)) return 'Mot de passe trop court.';
   if (/réservée à l'équipe|allowlist/i.test(msg)) return 'Inscription réservée à l’équipe MC Export — demande à un admin d’ajouter ton adresse.';
+  // Supabase masque l'exception du verrou d'inscription (trigger) derrière ce
+  // message générique (constat 12/10 : « Database error saving new user » chez
+  // un gars de Weecars dont l'adresse n'était pas autorisée).
+  if (/database error saving new user/i.test(msg)) return 'Adresse non autorisée à s’inscrire : demande à un admin de l’ajouter (Équipe → Adresses autorisées), puis réessaie.';
   return msg;
 }
 

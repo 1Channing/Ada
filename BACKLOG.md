@@ -832,6 +832,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **« DATABASE ERROR SAVING NEW USER » À L'INSCRIPTION D'UN GARS DE WEECARS
+  (12/10 soir)**. Cause : le verrou d'inscription (cinq adresses autorisées,
+  aucune Weecars) refusait l'adresse, et Supabase masque l'exception du
+  trigger derrière ce message générique que le front ne traduisait pas.
+  Corrections de classe : le front dit « Adresse non autorisée à s'inscrire :
+  demande à un admin de l'ajouter » ; les adresses autorisées acceptent un
+  DOMAINE entier (« @weecars.fr », organisation Weecars) — fonction
+  allowlist_match (adresse exacte, sinon domaine) partagée par le verrou et
+  par l'organisation du profil à la naissance. Migration 20261012160000.
 - **INSCRIPTION AVEC ORGANISATION, ONGLETS PAR DÉFAUT PAR ORGANISATION
   (12/10 soir, Channing : « quand on crée un compte, un menu déroulant pour
   choisir une organisation, 3 organisations dont Weecars, comme ça les gars
