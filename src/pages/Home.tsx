@@ -213,7 +213,7 @@ export function Home() {
       </div>}
 
       {/* Vitrine Intra (12/10 soir) : les véhicules disponibles publiés par l'équipe MC Export — pour tous les utilisateurs d'ADA. */}
-      <IntraShowcase navigateTo={navigateTo} />
+      <IntraShowcase />
 
       {/* Routine du matin (Truth Center 3b, GO 03/09) : la santé de la dernière
           vague en une ligne — le détail vit dans le Truth Center. */}

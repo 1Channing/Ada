@@ -1309,7 +1309,7 @@ export function Offres() {
               <div className="space-y-4">
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 text-sm text-slate-600 flex items-start gap-3 flex-wrap">
                   <Megaphone className="w-5 h-5 text-brand-ocean shrink-0 mt-0.5" />
-                  <p className="flex-1 min-w-[280px]">L'Intra, c'est la <strong>vitrine de l'Accueil</strong> de tous les utilisateurs d'ADA, toutes organisations : les véhicules disponibles que l'équipe MC Export choisit de montrer, avec le prix MC Export {B} et le relevé de marché du lot (verdict par pays, recherches cliquables, étude complète pour ceux qui ont l'onglet Offres). Publier photographie le véhicule tel qu'il est maintenant ; republier rafraîchit.</p>
+                  <p className="flex-1 min-w-[280px]">L'Intra, c'est la <strong>vitrine de l'Accueil</strong> de tous les utilisateurs d'ADA, toutes organisations : les véhicules disponibles que l'équipe MC Export choisit de montrer, avec le prix MC Export {B} et le relevé du marché FRANÇAIS du lot (verdict France, recherches françaises cliquables ; les autres pays restent ici ; étude complète pour ceux qui ont l'onglet Offres). Publier photographie le véhicule tel qu'il est maintenant ; republier rafraîchit.</p>
                   {showcaseError && <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{showcaseError}</span>}
                 </div>
 

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Megaphone, ExternalLink, BarChart3 } from 'lucide-react';
+import { Megaphone, ExternalLink, BarChart3, ChevronDown } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { canSeeTab } from '../lib/appTabs';
 import { listShowcase, type IntraItem } from '../services/intra';
 import { verdictOf, COUNTRY_CAVEAT } from '../lib/offers/marketCheck';
 import { OFFER_COUNTRIES } from '../services/offers';
@@ -10,10 +9,13 @@ import { OFFER_COUNTRIES } from '../services/offers';
  * VITRINE DE L'ACCUEIL (12/10 soir, Channing) : les véhicules que l'équipe de
  * gestion MC Export a publiés depuis l'onglet Intra des offres — visible par
  * TOUS les utilisateurs d'ADA, toutes organisations. Chaque carte : le
- * véhicule, le prix MC Export HT, le verdict par pays du relevé de marché du
- * lot, les recherches du relevé (cliquables, pour vérifier le marché soi-
- * même) et, pour qui a l'onglet Offres, l'étude de marché complète.
- * Lecture seule ; seule l'équipe MC Export publie (la base le tient).
+ * véhicule, le prix MC Export HT, le verdict FRANCE du relevé de marché du
+ * lot et, derrière « Étude de marché », les recherches françaises du relevé
+ * (cliquables, pour vérifier le marché soi-même) — sans quitter l'Accueil.
+ * Un seul pays : la vitrine parle à des vendeurs sur le marché français
+ * (Channing : « à vendre sur le marché jusqu'à contre-ordre, pas les liens
+ * ni l'écart des Pays-Bas »). Lecture seule ; seule l'équipe MC Export
+ * publie (la base le tient).
  */
 const fmtEur = (n: number | null | undefined) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 const fmtKm = (n: number | null | undefined) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} km`);
@@ -23,12 +25,15 @@ const VERDICT_CLASS: Record<string, string> = {
   bad: 'bg-red-50 text-red-800 border-red-200', idle: 'bg-slate-50 text-slate-500 border-slate-200',
 };
 const countryLabel = (code: string) => OFFER_COUNTRIES.find((x) => x.code === code)?.label ?? code;
+/** La vitrine parle à des vendeurs sur le marché FRANÇAIS (12/10 soir, Channing : « ces véhicules seront à vendre
+ *  sur le marché jusqu'à contre-ordre, pas les liens des Pays-Bas ni l'écart avec les Pays-Bas ») : un seul pays. */
+const SHOWCASE_COUNTRIES = ['FR'];
 const SITE_LABEL = (key: string) => key.replace(/^autoscout24_/, 'AS24 ').replace(/_/g, ' ');
 
-export function IntraShowcase({ navigateTo }: { navigateTo: (path: string) => void }) {
-  const { userId, allowedTabs, isAdmin } = useAuth();
-  const canOpenOffer = canSeeTab(allowedTabs, isAdmin, 'offres');
+export function IntraShowcase() {
+  const { userId } = useAuth();
   const [items, setItems] = useState<IntraItem[]>([]);
+  const [openStudy, setOpenStudy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!userId) return;
@@ -44,13 +49,15 @@ export function IntraShowcase({ navigateTo }: { navigateTo: (path: string) => vo
       <div className="flex items-center gap-2 px-5 py-3 flex-wrap">
         <Megaphone className="w-4 h-4 text-brand-ocean" />
         <span className="text-xs uppercase tracking-wide text-slate-500">Vitrine — véhicules disponibles</span>
-        <span className="text-xs text-slate-400">{items.length} véhicule{items.length > 1 ? 's' : ''} publié{items.length > 1 ? 's' : ''} par l'équipe MC Export · prix MC Export HT</span>
+        <span className="text-xs text-slate-400">{items.length} véhicule{items.length > 1 ? 's' : ''} publié{items.length > 1 ? 's' : ''} par l'équipe MC Export · prix MC Export HT · marché français</span>
       </div>
       {error && <p className="mx-5 mb-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3 px-5 pb-5">
         {items.map((it) => {
           const v = it.vehicle;
-          const countries = Object.keys(it.market ?? {}).sort((a, b) => countryLabel(a).localeCompare(countryLabel(b), 'fr'));
+          const countries = SHOWCASE_COUNTRIES.filter((c) => it.market?.[c]);
+          const studyLinks = countries.flatMap((c) => Object.values(it.market?.[c]?.sites ?? {}).filter((s) => s.url).map((s) => ({ c, s })));
+          const studyOpen = openStudy === it.id;
           const chips = [
             fmtDate(v.reg_date) ? `1re immat. ${fmtDate(v.reg_date)}` : v.year ? String(v.year) : '',
             v.km != null ? fmtKm(v.km) : '',
@@ -74,32 +81,35 @@ export function IntraShowcase({ navigateTo }: { navigateTo: (path: string) => vo
               </div>
               <p className="text-[11px] text-slate-500">{chips.join(' · ')}{v.damages ? ` · dommages ${fmtEur(v.damages)}` : ''}</p>
               {it.note && <p className="text-xs text-slate-700 whitespace-pre-wrap">« {it.note} »</p>}
-              {countries.length > 0 ? (
-                <div className="flex flex-wrap gap-1">
-                  {countries.map((c) => {
-                    const res = it.market?.[c];
-                    const verdict = verdictOf(it.price_ht, res, c);
-                    const ref = res?.attackTtc ?? res?.medianTtc ?? null;
-                    return (
-                      <span key={c} title={`${countryLabel(c)} : ${verdict.text}${ref != null ? ` · prix d'attaque ${fmtEur(ref)} TTC · ${res?.competitors ?? 0} annonce(s)` : ''}${COUNTRY_CAVEAT[c] ? ` · ${COUNTRY_CAVEAT[c]}` : ''}`} className={`text-[11px] px-2 py-0.5 rounded-full border ${VERDICT_CLASS[verdict.tone]}`}>
-                        {c} {verdict.marginPct != null ? `${verdict.marginPct >= 0 ? '+' : ''}${verdict.marginPct} %` : verdict.text}
-                      </span>
-                    );
-                  })}
-                </div>
-              ) : <p className="text-[11px] text-slate-400">Pas de relevé de marché sur ce lot.</p>}
-              <div className="flex items-center gap-2 flex-wrap text-[11px]">
-                {countries.flatMap((c) => Object.values(it.market?.[c]?.sites ?? {}).filter((s) => s.url).map((s) => (
-                  <a key={`${c}-${s.site}`} href={s.url} target="_blank" rel="noreferrer" title={`${countryLabel(c)} · ${s.count} annonce(s) lues${s.attack != null ? ` · attaque ${fmtEur(s.attack)}` : ''}`} className="inline-flex items-center gap-0.5 text-brand-ocean hover:underline">
-                    {SITE_LABEL(s.site)} <ExternalLink className="w-3 h-3" />
-                  </a>
-                )))}
-                {canOpenOffer && it.offer_id && (
-                  <button onClick={() => navigateTo(`/offres?offer=${it.offer_id}&view=analyse`)} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-brand-ocean text-brand-ocean hover:bg-blue-50">
-                    <BarChart3 className="w-3 h-3" /> Étude de marché
+              <div className="flex items-center gap-2 flex-wrap">
+                {countries.length > 0 ? countries.map((c) => {
+                  const res = it.market?.[c];
+                  const verdict = verdictOf(it.price_ht, res, c);
+                  const ref = res?.attackTtc ?? res?.medianTtc ?? null;
+                  return (
+                    <span key={c} title={`${countryLabel(c)} : ${verdict.text}${ref != null ? ` · prix d'attaque ${fmtEur(ref)} TTC · ${res?.competitors ?? 0} annonce(s)` : ''}${COUNTRY_CAVEAT[c] ? ` · ${COUNTRY_CAVEAT[c]}` : ''}`} className={`text-[11px] px-2 py-0.5 rounded-full border ${VERDICT_CLASS[verdict.tone]}`}>
+                      {countryLabel(c)} {verdict.marginPct != null ? `${verdict.marginPct >= 0 ? '+' : ''}${verdict.marginPct} %` : verdict.text}
+                    </span>
+                  );
+                }) : <span className="text-[11px] text-slate-400">Pas de relevé du marché français sur ce lot.</span>}
+                {studyLinks.length > 0 && (
+                  <button onClick={() => setOpenStudy(studyOpen ? null : it.id)} aria-expanded={studyOpen} className={`ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] ${studyOpen ? 'border-brand-encre bg-blue-50 text-brand-encre' : 'border-brand-ocean text-brand-ocean hover:bg-blue-50'}`}>
+                    <BarChart3 className="w-3 h-3" /> Étude de marché <ChevronDown className={`w-3 h-3 transition-transform ${studyOpen ? 'rotate-180' : ''}`} />
                   </button>
                 )}
               </div>
+              {studyOpen && (
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 space-y-1">
+                  <p className="text-[11px] text-slate-500">Les recherches du relevé, telles que lancées — clique pour voir le marché toi-même.</p>
+                  {studyLinks.map(({ c, s }) => (
+                    <a key={`${c}-${s.site}`} href={s.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs text-brand-ocean hover:underline">
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                      <span className="font-medium">{SITE_LABEL(s.site)}</span>
+                      <span className="text-slate-500">{s.count} annonce{s.count > 1 ? 's' : ''} lue{s.count > 1 ? 's' : ''}{s.attack != null ? ` · prix d'attaque ${fmtEur(s.attack)}` : s.median != null ? ` · médiane ${fmtEur(s.median)}` : ''}{s.error ? ` · ${s.error}` : ''}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
               <p className="text-[10px] text-slate-400">{it.offer_title || 'offre'} · publié par {it.published_by_name} le {fmtDate(it.published_at)}</p>
             </div>
           );

@@ -848,10 +848,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   les utilisateurs d'ADA, toutes organisations (précision Channing : « ce
   n'est pas pour l'équipe MC Export, c'est pour tous les utilisateurs, géré
   par les gars de MC Export » ; nom de l'auteur gardé dans la ligne, le
-  filet des verrous laisse cette table ouverte), une carte par véhicule (prix HT, verdict par pays,
-  recherches du relevé cliquables, mot, offre et auteur) et, pour qui a
-  l'onglet Offres, bouton « Étude de marché » qui ouvre l'offre sur
-  l'Analyse (/offres?offer=…&view=analyse, lu par la page). SQL
+  filet des verrous laisse cette table ouverte), une carte par véhicule ;
+  la vitrine ne montre que le marché FRANÇAIS (verdict FR, recherches FR —
+  précision Channing : « à vendre sur le marché jusqu'à contre-ordre, pas
+  les liens ni l'écart des Pays-Bas »), les autres pays restent dans
+  l'offre (prix HT, verdict par pays,
+  mot, offre et auteur) ; un seul pays, la France (précision Channing :
+  « à vendre sur le marché jusqu'à contre-ordre, pas les liens ni l'écart
+  des Pays-Bas »), les autres relevés restent dans l'offre ; « Étude de
+  marché » déplie sur place les recherches françaises du relevé (site,
+  annonces lues, prix d'attaque), sans renvoyer vers Offres (la page Offres
+  sait quand même s'ouvrir par /offres?offer=…&view=analyse). SQL
   20261012230000 (intra_vitrine) à coller.
 - **APERÇU DU LIEN ADA : IMAGE ET TITRE ADA, PLUS CEUX DE BOLT (12/10 soir,
   Channing : « comment changer l'image de la photo principale quand je donne
