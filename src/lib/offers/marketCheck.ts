@@ -66,8 +66,12 @@ export function applyLotCriteria(lot: OfferLot, c: LotCriteria | undefined): Off
     gearbox: c.gearbox !== undefined ? c.gearbox : lot.gearbox,
     trim: c.trim !== undefined ? (c.trim?.trim() || null) : lot.trim,
     powerMin: c.powerMin !== undefined ? c.powerMin : lot.powerMin,
-    adjusted: true,
+    adjusted: false,
   };
+  // « critères réglés » seulement si un critère diffère vraiment de ceux du
+  // fichier (une finition vidée après essai laissait la pastille allumée).
+  const fields = ['brand', 'model', 'yearFrom', 'yearTo', 'kmMax', 'fuel', 'gearbox', 'trim', 'powerMin'] as const;
+  next.adjusted = fields.some((k) => (next[k] ?? null) !== (lot[k] ?? null));
   return { ...next, label: lotLabel(next) };
 }
 
@@ -265,7 +269,11 @@ export function mergeCountry(prev: CountryResult | undefined, country: string, r
   return { sites, medianTtc, attackTtc, competitors, at: new Date().toISOString() };
 }
 
-export type Verdict = { tone: 'good' | 'warn' | 'bad' | 'idle'; text: string; marginPct: number | null; ourTtc?: number | null; vat?: number };
+export type Verdict = {
+  tone: 'good' | 'warn' | 'bad' | 'idle'; text: string; marginPct: number | null; ourTtc?: number | null; vat?: number;
+  /** Relevé TERMINÉ sans aucune annonce exploitable : les faits (sites interrogés, vides prouvés par le site, échecs). */
+  empty?: { sites: number; proven: number; errors: string[] };
+};
 /** Notre prix HT + TVA du pays, face au prix AFFICHÉ (TTC) d'attaque du pays. */
 export function verdictOf(ourHt: number | null, c: CountryResult | undefined, country: string): Verdict {
   // VERDICT SUR LE PRIX D'ATTAQUE (décision Channing 07/10 : « on fait pour les
@@ -277,8 +285,21 @@ export function verdictOf(ourHt: number | null, c: CountryResult | undefined, co
   // n'est pas du tout à 33 % sous le marché ») : les prix affichés des sites
   // sont TTC ; on achète et on vend HT, l'acheteur revend TTC dans SON pays.
   // On compare donc notre HT + la TVA du pays de la colonne au prix d'attaque.
-  const ref = c?.attackTtc ?? c?.medianTtc ?? null;
-  if (!c || ref == null) return { tone: 'idle', text: 'pas de relevé', marginPct: null };
+  if (!c) return { tone: 'idle', text: 'pas de relevé', marginPct: null };
+  const ref = c.attackTtc ?? c.medianTtc ?? null;
+  if (ref == null) {
+    // RELEVÉ FAIT, AUCUNE ANNONCE (signalement Antoine 12/10 : Tonale 2022
+    // ≤ 10 000 km ≥ 160 ch aux Pays-Bas — AutoScout et Marktplaats vides
+    // prouvés, Gaspedaal 0 — la case disait « pas de relevé », comme si rien
+    // n'avait été lancé, et il relançait). Un marché vide est un résultat :
+    // on le dit avec ses faits, et l'échec d'un site n'est pas un vide.
+    const sites = Object.values(c.sites);
+    const errors = sites.filter((s) => s.error).map((s) => `${s.site} : ${s.error}`);
+    const proven = sites.filter((s) => !s.error && s.total === 0).length;
+    const empty = { sites: sites.length, proven, errors };
+    if (sites.length > 0 && errors.length === sites.length) return { tone: 'warn', text: 'relevé en échec', marginPct: null, empty };
+    return { tone: 'warn', text: `marché vide — 0 annonce sur ${sites.length} site${sites.length > 1 ? 's' : ''}`, marginPct: null, empty };
+  }
   if (ourHt == null) return { tone: 'idle', text: 'prix MC Export manquant', marginPct: null };
   const vat = countryVat(country);
   const ourTtc = Math.round(ourHt * (1 + vat));

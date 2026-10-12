@@ -451,7 +451,14 @@ export function Offres() {
     setTargetsOpen(lot.key);
     await ensureTargets(lot, draft?.countries ?? []);
   };
+  /** Verrou synchrone : un double clic lançait deux relevés identiques (logs du 12/10 : six jobs Tonale NL à la même seconde). */
+  const surveyLock = useRef(false);
   const runSurvey = async (list: OfferLot[], countries: string[]) => {
+    if (surveyLock.current) return;
+    surveyLock.current = true;
+    try { await runSurveyInner(list, countries); } finally { surveyLock.current = false; }
+  };
+  const runSurveyInner = async (list: OfferLot[], countries: string[]) => {
     if (!draft?.id) { info('Offre pas encore enregistrée — réessaie dans une seconde.'); return; }
     if (countries.length === 0) { info('Ajoute au moins un pays à relever.'); return; }
     const offerId = draft.id;
@@ -999,7 +1006,9 @@ export function Offres() {
                                 const res = draft.market?.[lot.key]?.[c];
                                 const state = cellState[cellKey(lot, c)];
                                 const v = res ? verdictOf(lot.ourPriceAvg, res, c) : null;
-                                const siteError = res && res.medianTtc == null ? Object.values(res.sites).find((x) => x.error) : undefined;
+                                const siteError = res && res.medianTtc == null && !v?.empty ? Object.values(res.sites).find((x) => x.error) : undefined;
+                                // Marché vide : les critères qui ont pu le vider, à élargir d'un clic.
+                                const narrowing = [lot.kmMax ? `≤ ${lot.kmMax.toLocaleString('fr-FR')} km` : '', lot.powerMin ? `≥ ${lot.powerMin} ch` : '', lot.trim ? `finition ${lot.trim.toUpperCase()}` : ''].filter(Boolean);
                                 return (
                                   <td key={c} className="py-3 pr-3 align-top">
                                     <div className={`rounded-lg border p-2 flex flex-col gap-1 min-h-[86px] ${state ? 'border-brand-ocean bg-blue-50/40' : 'border-slate-200'}`}>
@@ -1019,6 +1028,15 @@ export function Offres() {
                                             </span>
                                           )}
                                           {siteError && <span className="text-[10px] text-amber-700">{SITE_LABEL(siteError.site)} : {siteError.error}</span>}
+                                          {v.empty && (
+                                            <span className="text-[10px] text-slate-600">
+                                              {v.empty.proven > 0 && <span className="block">{v.empty.proven} site{v.empty.proven > 1 ? 's' : ''} sur {v.empty.sites} {v.empty.proven > 1 ? 'ont' : 'a'} confirmé « aucun résultat »</span>}
+                                              {v.empty.errors.map((e) => <span key={e} className="block text-amber-700">{e}</span>)}
+                                              {narrowing.length > 0 && v.empty.errors.length < v.empty.sites && (
+                                                <span className="block">critères : {narrowing.join(' · ')} — <button onClick={() => setEditLot(lot.key)} className="text-brand-ocean hover:underline">élargir</button></span>
+                                              )}
+                                            </span>
+                                          )}
                                         </>
                                       ) : (
                                         <span className="text-[11px] text-slate-400">Pas encore relevé</span>

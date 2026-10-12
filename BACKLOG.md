@@ -832,6 +832,33 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OFFRES / ANALYSE : UN MARCHÉ VIDE N'EST PLUS « PAS DE RELEVÉ », VERROU
+  ANTI-DOUBLE-CLIC, AUDIT DE L'ONGLET (12/10, signalement Antoine : « j'essaie
+  de faire un relevé sur le Tonale du haut mais je n'y arrive pas »)**.
+  Preuve (worker_logs 08:05-08:07, market de l'offre « NL 07/10 ») : le
+  relevé NL du Tonale 2022 hybride auto ≥ 160 ch ≤ 10 000 km a bien tourné
+  trois fois (AutoScout NL et Marktplaats « marché vide prouvé par le
+  site », Gaspedaal 0 annonce sans preuve), mais la case affichait « pas de
+  relevé », identique à une case jamais lancée — Antoine relançait. En plus,
+  six jobs à 08:05:26 pour trois URLs : un double clic lançait deux relevés
+  identiques. Corrections de classe : verdictOf distingue « pas de relevé »
+  (aucun résultat), « marché vide — 0 annonce sur N sites » (avec le nombre
+  de sites qui l'ont prouvé, les échecs de site, et les critères qui ont pu
+  vider le marché — km maxi, puissance, finition — avec un lien « élargir »
+  vers les critères) et « relevé en échec » (tous les sites en erreur) ;
+  verrou synchrone sur le lancement d'un relevé ; pastille « critères
+  réglés » seulement quand un critère diffère vraiment du fichier (une
+  finition vidée la laissait allumée : lot Mokka). Audit du reste de
+  l'onglet (refonte 11/10) : URLs France générées pour le lot (Leboncoin,
+  AutoScout FR, LaCentrale en page marque), colonnes export_columns et
+  settings présentes en base, tests et gate verts. Points laissés à
+  Channing : le libellé « +57 % sous le prix d'attaque » est l'écart
+  rapporté à NOTRE TTC (attaque 57 % au-dessus de nous ; notre TTC est 36 %
+  sous l'attaque) ; « suivi perdu (worker redémarré) » sur Fiat 600
+  Leboncoin le 11/10 à 20:01 = un déploiement pendant un relevé (les jobs
+  vivent en mémoire du worker) ; Gaspedaal ne sait pas prouver un marché
+  vide (pas de detectEmptyState) ; la détection PDF écrit « (Allemagne) »
+  dès qu'un taux est lu.
 - **TRAJECTOIRE DES PRIX SUPPRIMÉE (11/10 soir, Channing : « on supprime
   cet outil, il est inexploitable, retire-le des lignes de code »)**. Le
   composant (PriceTrajectory), le service (listingFacts) et l'ancien code de
