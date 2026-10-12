@@ -5,7 +5,7 @@ import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, pas
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
 import { readNote, agoLabel } from '../lib/noteJournal';
 import { fmtPhone } from '../lib/phoneKey';
-import { listOrganisations, addOrganisation, removeOrganisation, setOrganisationDefaultTabs, setOrganisationBusinessAccess, isProspectingOrg, PROSPECTING_TABS, DEFAULT_ORG, type Organisation } from '../services/organisations';
+import { listOrganisations, addOrganisation, removeOrganisation, setOrganisationDefaultTabs, isProspectingOrg, PROSPECTING_TABS, DEFAULT_ORG, type Organisation } from '../services/organisations';
 
 /**
  * Page ÉQUIPE (admin) — demande Channing 30/08 :
@@ -126,7 +126,7 @@ export function Equipe() {
   const [newAllowOrg, setNewAllowOrg] = useState(DEFAULT_ORG);
   // Organisations (12/10) : la liste de référence, gérée ici.
   const [orgs, setOrgs] = useState<string[]>([DEFAULT_ORG]);
-  const [orgRows, setOrgRows] = useState<Organisation[]>([{ name: DEFAULT_ORG, default_tabs: null, business_access: true }]);
+  const [orgRows, setOrgRows] = useState<Organisation[]>([{ name: DEFAULT_ORG, default_tabs: null }]);
   const [orgsError, setOrgsError] = useState<string | null>(null);
   const [newOrg, setNewOrg] = useState('');
   // Création de compte par l'admin (07/09).
@@ -364,7 +364,7 @@ export function Equipe() {
           <div className="flex items-center gap-2 flex-wrap">
             <Building2 className="w-4 h-4 text-brand-ocean" />
             <h2 className="text-sm font-semibold text-slate-700">Organisations ({orgs.length})</h2>
-            <span className="text-xs text-slate-400">Chaque compte appartient à une organisation ; Open space, « déjà en négo » et archives ne se partagent qu'en son sein. « Prospection seule » : ses nouveaux comptes n'ont que Négociations et Archives. « Données MC Export » : la base laisse ses comptes lire les données partagées (ventes, contacts, campagnes, marché, veille…) dans les onglets qu'ils ont — sans ce droit, rien d'autre que leurs négociations, même par l'API.</span>
+            <span className="text-xs text-slate-400">Chaque organisation ne voit que ses données : Open space, « déjà en négo » et archives ne se partagent qu'en son sein, et les données MC Export (ventes, contacts, campagnes, marché, veille…) ne sont lisibles que par les comptes MC Export, dans les onglets qu'ils ont — la base refuse le reste, même par l'API. « Prospection seule » : ses nouveaux comptes n'ont que Négociations et Archives.</span>
           </div>
           {orgsError && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{orgsError}</p>}
           <div className="flex flex-wrap gap-2">
@@ -384,21 +384,6 @@ export function Equipe() {
                         className={`rounded-full px-1.5 py-0.5 border ${pros ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'}`}
                       >
                         {pros ? 'prospection seule' : 'tous onglets'}
-                      </button>
-                    );
-                  })()}
-                  {(() => {
-                    // Verrou de la base (12/10 soir) : données métier partagées accessibles ou non à l'organisation.
-                    const row = orgRows.find((r) => r.name === o);
-                    const biz = row?.business_access ?? true;
-                    return (
-                      <button
-                        onClick={async () => { if (biz && !confirm(`Couper l'accès de « ${o} » aux données MC Export ? Ses comptes ne verront plus que leurs négociations, l'Open space et leurs archives — la base refusera le reste, même par l'API.`)) return; const err = await setOrganisationBusinessAccess(o, !biz); if (err) setOrgsError(err); else void reload(); }}
-                        disabled={o === DEFAULT_ORG}
-                        title={o === DEFAULT_ORG ? 'MC Export garde toujours l’accès à ses données' : biz ? 'Ses comptes lisent les données MC Export des onglets qu’ils ont — cliquer pour couper' : 'Ses comptes ne touchent que leurs négociations, l’Open space et leurs archives — cliquer pour ouvrir les données MC Export'}
-                        className={`rounded-full px-1.5 py-0.5 border ${biz ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-rose-50 border-rose-300 text-rose-800'} disabled:opacity-70`}
-                      >
-                        {biz ? 'données MC Export' : 'verrouillée'}
                       </button>
                     );
                   })()}

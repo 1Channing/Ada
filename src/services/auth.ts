@@ -22,9 +22,10 @@ interface AuthState {
   blocked: boolean;
   /** Organisation du compte (12/10) : Open space et anti-collision ne se partagent qu'en son sein. */
   organisation: string;
-  /** Accès aux données métier partagées (12/10 soir, verrous) : faux pour une organisation
-   *  de prospection (Weecars) — la base refuse, l'écran n'offre pas (« Ajouter aux ventes »). */
-  businessAccess: boolean;
+  /** Compte MC Export (ou admin) : seul à toucher les données partagées (ventes, contacts, marché… —
+   *  verrous du 12/10 soir). Une autre organisation ne voit que ses négociations ; l'écran
+   *  n'offre pas ce que la base refuserait (« Ajouter aux ventes »). */
+  isMcExport: boolean;
   /** true = l'utilisateur arrive par un lien « mot de passe oublié » —
    *  l'app affiche l'écran de nouveau mot de passe avant tout le reste. */
   recovering: boolean;
@@ -46,10 +47,10 @@ export const useAuth = create<AuthState>((set) => ({
   allowedTabs: undefined,
   blocked: false,
   organisation: 'MC Export',
-  businessAccess: true,
+  isMcExport: true,
   recovering: false,
   setSession: (userId, email) => set({ userId, email }),
-  setProfile: (displayName, isAdmin, allowedTabs, blocked = false, organisation = 'MC Export') => set({ displayName, isAdmin, allowedTabs, blocked, organisation }),
+  setProfile: (displayName, isAdmin, allowedTabs, blocked = false, organisation = 'MC Export') => set({ displayName, isAdmin, allowedTabs, blocked, organisation, isMcExport: isAdmin || organisation === 'MC Export' }),
   setReady: () => set({ ready: true }),
   setRecovering: (recovering) => set({ recovering }),
 }));
@@ -116,10 +117,6 @@ async function loadProfile(userId: string): Promise<void> {
   clockRetryIdx = 0;
   const row = data as { display_name?: string | null; is_admin?: boolean; allowed_tabs?: string[] | null; blocked?: boolean | null; organisation?: string | null };
   useAuth.getState().setProfile(row.display_name ?? '', row.is_admin === true, row.allowed_tabs ?? null, row.blocked === true, (row.organisation ?? '').trim() || 'MC Export');
-  // Accès métier de l'organisation (12/10 soir) : la base tranche (RPC ada_org_business) ; RPC absente → inchangé (oui).
-  void (supabase as unknown as { rpc: (f: string) => Promise<{ data: unknown; error: unknown }> }).rpc('ada_org_business')
-    .then((r) => { useAuth.setState({ businessAccess: r.error ? true : r.data !== false }); })
-    .catch(() => undefined);
   if (row.blocked === true) {
     console.warn('[AUTH] compte bloqué par un administrateur — déconnexion');
     await supabase.auth.signOut().catch(() => undefined);

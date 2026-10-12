@@ -17,9 +17,6 @@ export interface Organisation {
   name: string;
   /** Onglets reçus par tout NOUVEAU compte de l'organisation (null = tout) — « Weecars : prospection seule ». */
   default_tabs: string[] | null;
-  /** Accès aux données métier partagées (12/10 soir, verrous) : ventes, contacts, campagnes, marché, veille…
-   *  Faux = ses comptes ne touchent que leurs négociations, l'Open space et les archives de l'organisation. */
-  business_access: boolean;
 }
 /** Compte de prospection (Weecars, 12/10) : Négociations et Archives (archives de SON organisation), rien d'autre. */
 export const PROSPECTING_TABS = ['wf:negociations', 'wf:archives'];
@@ -27,14 +24,11 @@ export const isProspectingOrg = (o: Organisation | undefined): boolean =>
   !!o?.default_tabs && o.default_tabs.length > 0 && o.default_tabs.includes('wf:negociations') && o.default_tabs.every((t) => PROSPECTING_TABS.includes(t));
 
 export async function listOrganisations(): Promise<{ names: string[]; rows: Organisation[]; error: string | null }> {
-  let { data, error } = await untyped.from('organisations').select('name, default_tabs, business_access').order('name');
-  if (error && /business_access/.test(error.message)) ({ data, error } = await untyped.from('organisations').select('name, default_tabs').order('name'));
+  let { data, error } = await untyped.from('organisations').select('name, default_tabs').order('name');
   if (error && /default_tabs/.test(error.message)) ({ data, error } = await untyped.from('organisations').select('name').order('name'));
-  if (error) return { names: [DEFAULT_ORG], rows: [{ name: DEFAULT_ORG, default_tabs: null, business_access: true }], error: missing(error.message) ? ORG_SQL_HINT : error.message };
-  // business_access absent (SQL des verrous pas collé) → lu comme « oui » : rien ne change à l'écran.
-  const rows = ((data ?? []) as Array<{ name: string; default_tabs?: string[] | null; business_access?: boolean | null }>)
-    .map((r) => ({ name: r.name, default_tabs: r.default_tabs ?? null, business_access: r.business_access ?? true }));
-  if (!rows.some((r) => r.name === DEFAULT_ORG)) rows.unshift({ name: DEFAULT_ORG, default_tabs: null, business_access: true });
+  if (error) return { names: [DEFAULT_ORG], rows: [{ name: DEFAULT_ORG, default_tabs: null }], error: missing(error.message) ? ORG_SQL_HINT : error.message };
+  const rows = ((data ?? []) as Array<{ name: string; default_tabs?: string[] | null }>).map((r) => ({ name: r.name, default_tabs: r.default_tabs ?? null }));
+  if (!rows.some((r) => r.name === DEFAULT_ORG)) rows.unshift({ name: DEFAULT_ORG, default_tabs: null });
   return { names: rows.map((r) => r.name), rows, error: null };
 }
 
@@ -43,14 +37,6 @@ export async function setOrganisationDefaultTabs(name: string, tabs: string[] | 
   const { error } = await untyped.from('organisations').update({ default_tabs: tabs }).eq('name', name);
   if (!error) return null;
   return /default_tabs|column/.test(error.message) ? 'Onglets par organisation : SQL du 12/10 (inscription_organisation) à coller.' : missing(error.message) ? ORG_SQL_HINT : error.message;
-}
-
-/** Accès aux données métier d'une organisation (admin) — la base applique (verrous du 12/10 soir). */
-export async function setOrganisationBusinessAccess(name: string, on: boolean): Promise<string | null> {
-  if (name === DEFAULT_ORG && !on) return 'MC Export garde toujours l’accès à ses données.';
-  const { error } = await untyped.from('organisations').update({ business_access: on }).eq('name', name);
-  if (!error) return null;
-  return /business_access|column/.test(error.message) ? 'Accès métier par organisation : SQL du 12/10 (verrous_organisation) à coller.' : missing(error.message) ? ORG_SQL_HINT : error.message;
 }
 
 export async function addOrganisation(name: string): Promise<string | null> {

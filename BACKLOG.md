@@ -832,6 +832,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **CHAQUE ORGANISATION NE VOIT QUE SES DONNÉES, SANS BOUTON (12/10 soir,
+  Channing : « à quoi sert le bouton données MC Export ? je veux que chaque
+  organisation ait ses propres données, non partagées »)**. Le droit par
+  organisation (business_access, bascule dans Équipe) est retiré : règle
+  unique, les données partagées (ventes, contacts, dossiers, campagnes,
+  mémoire, marché, veille, retours, journaux) appartiennent à MC Export et
+  ne sont lisibles que par ses comptes, dans leurs onglets ; toute autre
+  organisation ne touche que ses négociations, son Open space, ses archives
+  et ses rappels. SQL 20261012200000 : `ada_is_mc_export()`, chaque
+  `verrou_org` reposé avec elle (même carte), fichiers hors photos réservés
+  à MC Export, fonction et colonne précédentes supprimées. Front :
+  `isMcExport` dans le store (organisation ou admin, sans RPC), « Ajouter
+  aux ventes » masqué pour les autres organisations. Conséquence à trancher
+  par Channing : Segre (Mon agence automobile) perd Market Intelligence,
+  Veille et le passage en vente — le rattacher à MC Export dans Équipe s'il
+  doit les garder. Le « statement timeout » vu dans Équipe est survenu
+  pendant le collage du SQL précédent (verrous de table) : lecture à 0,6 s
+  après coup.
 - **VERROUS STRICTS PAR ORGANISATION (12/10 soir, Channing : « il faut poser
   des verrous stricts, on ne peut pas risquer une fuite de donnée »)**.
   Prouvé sur la prod avant d'écrire : la RPC anti-collision répondait à la
