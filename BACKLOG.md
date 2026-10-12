@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **APERÇU DU LIEN ADA : IMAGE ET TITRE ADA, PLUS CEUX DE BOLT (12/10 soir,
+  Channing : « comment changer l'image de la photo principale quand je donne
+  le lien d'ADA »)**. index.html pointait encore sur l'image Open Graph de
+  Bolt (`bolt.new/static/og_default.png`) et un favicon absent (vite.svg).
+  Nouvelle image `public/og.png` (1200×630, logo + ADA · MC Export · Deal
+  Intelligence), balises og:title/description/url/image et Twitter, titre
+  « ADA · MC Export », favicon = logo, lang fr. WhatsApp garde l'ancien
+  aperçu en cache quelques jours sur un lien déjà partagé. Zéro SQL.
 - **ÉQUIPE : L'ACCÈS STATISTIQUES VISIBLE PARMI LES ACCÈS (12/10 soir,
   Channing : « je voudrais voir le fait qu'ils aient accès à la page
   Statistiques — ADA doit être transparente entre ce qui est et ce qui
