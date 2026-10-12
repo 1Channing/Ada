@@ -375,12 +375,8 @@ export function Equipe() {
 
       {/* ── Organisations (12/10) : la liste de référence, un compte appartient à l'une d'elles ── */}
       {!loading && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Building2 className="w-4 h-4 text-brand-ocean" />
-            <h2 className="text-sm font-semibold text-slate-700">Organisations ({orgs.length})</h2>
-            <span className="text-xs text-slate-400">Chaque organisation ne voit que ses données : Open space, « déjà en négo » et archives ne se partagent qu'en son sein, et les données MC Export (ventes, contacts, campagnes, marché, veille…) ne sont lisibles que par les comptes MC Export, dans les onglets qu'ils ont — la base refuse le reste, même par l'API. « Prospection seule » : ses nouveaux comptes n'ont que Négociations et Archives.</span>
-          </div>
+        <Section id="orgs" icon={<Building2 className="w-4 h-4 text-brand-ocean" />} title={`Organisations (${orgs.length})`} hint={orgs.join(' · ')}>
+          <p className="text-xs text-slate-400">Chaque organisation ne voit que ses données : Open space, « déjà en négo » et archives ne se partagent qu'en son sein, et les données MC Export (ventes, contacts, campagnes, marché, veille…) ne sont lisibles que par les comptes MC Export, dans les onglets qu'ils ont — la base refuse le reste, même par l'API. « Prospection seule » : ses nouveaux comptes n'ont que Négociations et Archives.</p>
           {orgsError && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{orgsError}</p>}
           <div className="flex flex-wrap gap-2">
             {orgs.map((o) => {
@@ -411,17 +407,14 @@ export function Equipe() {
             <input value={newOrg} onChange={(e) => setNewOrg(e.target.value)} placeholder="Nouvelle organisation (ex. Weecars Angers)" className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
             <button type="submit" disabled={!newOrg.trim()} className="flex items-center gap-1.5 bg-brand-ocean hover:bg-brand-encre disabled:opacity-50 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors"><Plus className="w-4 h-4" /> Ajouter</button>
           </form>
-        </div>
+        </Section>
       )}
 
       {/* ── Créer un compte (admin) ── */}
       {!loading && (
-        <form onSubmit={createAccount} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <UserPlus className="w-4 h-4 text-brand-ocean" />
-            <h2 className="text-sm font-semibold text-slate-700">Créer un compte</h2>
-            <span className="text-xs text-slate-400">La personne se connecte avec l'email et le mot de passe que tu lui transmets ; elle pourra le changer via « Mot de passe oublié ».</span>
-          </div>
+        <Section id="create" icon={<UserPlus className="w-4 h-4 text-brand-ocean" />} title="Créer un compte" hint="email + mot de passe transmis, organisation, prospection seule">
+        <form onSubmit={createAccount} className="space-y-3">
+          <p className="text-xs text-slate-400">La personne se connecte avec l'email et le mot de passe que tu lui transmets ; elle pourra le changer via « Mot de passe oublié ».</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
             <input value={nu.firstName} onChange={(e) => setNu({ ...nu, firstName: e.target.value })} placeholder="Prénom *" required className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
             <input value={nu.lastName} onChange={(e) => setNu({ ...nu, lastName: e.target.value })} placeholder="Nom *" required className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
@@ -451,6 +444,7 @@ export function Equipe() {
           </div>
           {nuInfo && <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 break-all">{nuInfo}</p>}
         </form>
+        </Section>
       )}
 
       {resetInfo && <p className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">{resetInfo}</p>}
@@ -463,11 +457,9 @@ export function Equipe() {
         const count = (uid: string, d: string, kind?: string) => leads.filter((l) => l.user_id === uid && dayKey(leadAt(l)) === d && (!kind || l.kind === kind)).length;
         const fmtDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' });
         return (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-sm font-semibold text-slate-700">Leads du Workflow — 7 derniers jours</h2>
-              <span className="text-xs text-slate-400">annonces entrées dans la boîte (nouvelles + baisses dans l'écart), par personne et par jour</span>
-              <button onClick={() => void reloadLeads()} className="ml-auto text-xs text-brand-ocean hover:underline">Actualiser{leadsAt ? ` · ${leadsAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}</button>
+          <Section id="leads" icon={<ClipboardList className="w-4 h-4 text-brand-ocean" />} title="Leads du Workflow — 7 derniers jours" hint="annonces entrées dans la boîte (nouvelles + baisses dans l'écart), par personne et par jour">
+            <div className="flex justify-end">
+              <button onClick={() => void reloadLeads()} className="text-xs text-brand-ocean hover:underline">Actualiser{leadsAt ? ` · ${leadsAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}</button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -491,7 +483,7 @@ export function Equipe() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </Section>
         );
       })()}
 
@@ -830,9 +822,8 @@ export function Equipe() {
 
       {/* ── Adresses autorisées à s'inscrire ── */}
       {!loading && (
-        <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-slate-700">Adresses autorisées à s'inscrire ({allow.length})</h2>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+        <Section id="allow" icon={<KeyRound className="w-4 h-4 text-brand-ocean" />} title={`Adresses autorisées à s'inscrire (${allow.length})`} hint={allow.length === 0 ? 'liste vide : inscription libre' : 'adresses et domaines, avec leur organisation'}>
+          <div className="space-y-3">
             {allow.length === 0 ? (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                 Liste vide : l'inscription est LIBRE (n'importe quelle adresse peut créer un compte). Ajoute la première adresse pour armer le verrou d'équipe.
@@ -881,8 +872,30 @@ export function Equipe() {
               Le verrou s'applique à l'INSCRIPTION seulement — les comptes existants ne sont jamais bloqués. Une adresse = un compte ; le compte reçoit l'organisation de son adresse à l'inscription. Une ligne « @societe.fr » autorise toutes les adresses de ce domaine (ex. @weecars.fr → Weecars). Une adresse refusée voit « Adresse non autorisée à s'inscrire ».
             </p>
           </div>
-        </div>
+        </Section>
       )}
+    </div>
+  );
+}
+
+/**
+ * Bloc repliable de la page Équipe (12/10 soir, Channing : « ces menus
+ * fermés par défaut, ils prennent de la place pour rien »). Fermé tant
+ * qu'on ne l'ouvre pas ; le choix est retenu sur ce navigateur.
+ */
+function Section({ id, icon, title, hint, children }: { id: string; icon: React.ReactNode; title: string; hint?: string; children: React.ReactNode }) {
+  const key = `equipe:section:${id}`;
+  const [open, setOpen] = useState<boolean>(() => { try { return localStorage.getItem(key) === '1'; } catch { return false; } });
+  const toggle = () => setOpen((o) => { try { localStorage.setItem(key, o ? '0' : '1'); } catch { /* stockage indispo */ } return !o; });
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <button onClick={toggle} className={`w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-slate-50 transition-colors ${open ? 'rounded-t-xl' : 'rounded-xl'}`}>
+        <ChevronRight className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+        {icon}
+        <span className="text-sm font-semibold text-slate-700 shrink-0">{title}</span>
+        {hint && !open && <span className="text-xs text-slate-400 truncate">{hint}</span>}
+      </button>
+      {open && <div className="border-t border-slate-100 p-4 space-y-3">{children}</div>}
     </div>
   );
 }

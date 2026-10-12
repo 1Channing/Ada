@@ -832,6 +832,12 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ÉQUIPE : BLOCS REPLIÉS PAR DÉFAUT (12/10 soir, Channing : « ces menus
+  fermés par défaut, ils prennent de la place pour rien »)**. Organisations,
+  Créer un compte, Leads du Workflow et Adresses autorisées deviennent des
+  blocs repliables (en-tête cliquable avec un résumé), fermés tant qu'on ne
+  les ouvre pas, choix retenu sur le navigateur. La liste des comptes reste
+  ouverte. Zéro SQL.
 - **« RENDEZ-VOUS PRIS ! » ET MANAGERS D'ORGANISATION AVEC ONGLET
   STATISTIQUES (12/10 soir, Channing : « dans la flèche d'après appel, la
   possibilité d'enregistrer le véhicule comme validé : Rendez-vous pris !
