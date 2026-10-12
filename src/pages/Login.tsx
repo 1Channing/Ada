@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LogIn, UserPlus, Eye, EyeOff, KeyRound } from 'lucide-react';
 import { signIn, signUp, requestPasswordReset, passwordWeakness } from '../services/auth';
+import { listPublicOrganisations, SEED_ORGS, DEFAULT_ORG } from '../services/organisations';
 
 /**
  * Écran de connexion — refonte « auth solide » (30/08/2026) :
@@ -17,6 +18,10 @@ export function Login() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
+  // Organisation à l'inscription (12/10) : liste publique, MC Export par défaut.
+  const [orgs, setOrgs] = useState<string[]>(SEED_ORGS);
+  const [organisation, setOrganisation] = useState(DEFAULT_ORG);
+  useEffect(() => { void listPublicOrganisations().then(setOrgs); }, []);
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -41,7 +46,7 @@ export function Login() {
         if (password !== password2) { setError('Les deux mots de passe ne sont pas identiques.'); return; }
         const weak = passwordWeakness(password);
         if (weak) { setError(`Mot de passe trop faible : ${weak}`); return; }
-        const err = await signUp(email, password, { firstName, lastName, phone });
+        const err = await signUp(email, password, { firstName, lastName, phone, organisation });
         if (err) setError(err);
         else setInfo('Compte créé. Si la confirmation par email est activée, clique le lien reçu — sinon tu es connecté.');
       }
@@ -109,6 +114,13 @@ export function Login() {
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Téléphone</label>
                   <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="06 12 34 56 78" className={inputCls} autoComplete="tel" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Organisation *</label>
+                  <select value={organisation} onChange={(e) => setOrganisation(e.target.value)} className={`${inputCls} bg-white`} required>
+                    {orgs.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                  <p className="text-[11px] text-slate-400 mt-1">Ton espace de travail : les collègues de ton organisation seulement. Si un admin a déjà rattaché ton adresse à une organisation, c'est elle qui compte.</p>
                 </div>
               </>
             )}

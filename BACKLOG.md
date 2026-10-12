@@ -832,6 +832,24 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **INSCRIPTION AVEC ORGANISATION, ONGLETS PAR DÉFAUT PAR ORGANISATION
+  (12/10 soir, Channing : « quand on crée un compte, un menu déroulant pour
+  choisir une organisation, 3 organisations dont Weecars, comme ça les gars
+  peuvent créer leurs comptes — sachant que Weecars n'auront que des comptes
+  prospection »)**. Page d'inscription : menu « Organisation » (RPC
+  publique public_organisations, repli sur MC Export / Weecars / Mon agence
+  automobile) ; le choix voyage dans les métadonnées du compte et dans le
+  profil. Trigger profile_default_organisation v2 : à la naissance du
+  profil, l'organisation de l'adresse autorisée prime, sinon le choix
+  d'inscription s'il est dans la liste, sinon MC Export ; puis les ONGLETS
+  PAR DÉFAUT de l'organisation (organisations.default_tabs : Weecars =
+  ['wf:negociations']) si aucun droit n'est posé — vrai quel que soit le
+  chemin (inscription, création admin, premier login après confirmation
+  d'e-mail). Équipe : pastille « prospection seule / tous onglets » par
+  organisation (bascule), et la case « Prospection seule » du formulaire de
+  création se pré-coche selon l'organisation. Migration 20261012150000.
+  Vérifié en base : tous les SQL précédents sont passés (organisations,
+  notified_at, auth_allowlist.organisation, phone/outcome).
 - **ORGANISATIONS ENCADRÉES : LISTE DE RÉFÉRENCE, CHOIX À LA CRÉATION DU
   COMPTE ET SUR LES ADRESSES AUTORISÉES, PROTECTION (12/10 soir, Channing :
   « je n'ai pas les organisations d'enregistrées, à la création je ne peux

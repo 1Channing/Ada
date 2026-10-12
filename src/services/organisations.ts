@@ -13,11 +13,27 @@ const ORG_SQL_HINT = 'Organisations : SQL du 12/10 (organisations_encadrees) à 
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 const missing = (m: string) => /does not exist|relation|schema cache/i.test(m);
 
-export async function listOrganisations(): Promise<{ names: string[]; error: string | null }> {
-  const { data, error } = await untyped.from('organisations').select('name').order('name');
-  if (error) return { names: [DEFAULT_ORG], error: missing(error.message) ? ORG_SQL_HINT : error.message };
-  const names = ((data ?? []) as Array<{ name: string }>).map((r) => r.name);
-  return { names: names.includes(DEFAULT_ORG) ? names : [DEFAULT_ORG, ...names], error: null };
+export interface Organisation {
+  name: string;
+  /** Onglets reçus par tout NOUVEAU compte de l'organisation (null = tout) — « Weecars : prospection seule ». */
+  default_tabs: string[] | null;
+}
+export const isProspectingOrg = (o: Organisation | undefined): boolean => !!o?.default_tabs && o.default_tabs.length === 1 && o.default_tabs[0] === 'wf:negociations';
+
+export async function listOrganisations(): Promise<{ names: string[]; rows: Organisation[]; error: string | null }> {
+  let { data, error } = await untyped.from('organisations').select('name, default_tabs').order('name');
+  if (error && /default_tabs/.test(error.message)) ({ data, error } = await untyped.from('organisations').select('name').order('name'));
+  if (error) return { names: [DEFAULT_ORG], rows: [{ name: DEFAULT_ORG, default_tabs: null }], error: missing(error.message) ? ORG_SQL_HINT : error.message };
+  const rows = ((data ?? []) as Array<{ name: string; default_tabs?: string[] | null }>).map((r) => ({ name: r.name, default_tabs: r.default_tabs ?? null }));
+  if (!rows.some((r) => r.name === DEFAULT_ORG)) rows.unshift({ name: DEFAULT_ORG, default_tabs: null });
+  return { names: rows.map((r) => r.name), rows, error: null };
+}
+
+/** Onglets par défaut des nouveaux comptes d'une organisation (admin). */
+export async function setOrganisationDefaultTabs(name: string, tabs: string[] | null): Promise<string | null> {
+  const { error } = await untyped.from('organisations').update({ default_tabs: tabs }).eq('name', name);
+  if (!error) return null;
+  return /default_tabs|column/.test(error.message) ? 'Onglets par organisation : SQL du 12/10 (inscription_organisation) à coller.' : missing(error.message) ? ORG_SQL_HINT : error.message;
 }
 
 export async function addOrganisation(name: string): Promise<string | null> {
@@ -34,4 +50,16 @@ export async function removeOrganisation(name: string): Promise<string | null> {
   if (name === DEFAULT_ORG) return 'MC Export ne se supprime pas.';
   const { error } = await untyped.from('organisations').delete().eq('name', name);
   return error ? (missing(error.message) ? ORG_SQL_HINT : error.message) : null;
+}
+
+/** Organisations de départ (12/10) — affichées à l'inscription tant que la RPC n'est pas en place. */
+export const SEED_ORGS = [DEFAULT_ORG, 'Weecars', 'Mon agence automobile'];
+
+/** Liste lisible AVANT connexion (page d'inscription) — RPC publique, noms seulement. */
+export async function listPublicOrganisations(): Promise<string[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc('public_organisations');
+  if (error || !Array.isArray(data) || data.length === 0) return SEED_ORGS;
+  const names = (data as string[]).filter((n) => typeof n === 'string' && n.trim());
+  return names.includes(DEFAULT_ORG) ? names : [DEFAULT_ORG, ...names];
 }

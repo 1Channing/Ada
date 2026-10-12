@@ -172,6 +172,8 @@ export interface SignUpDetails {
   firstName: string;
   lastName: string;
   phone: string;
+  /** Organisation choisie à l'inscription (12/10) — l'adresse autorisée, si elle en porte une, prime. */
+  organisation?: string;
 }
 
 /** Règle de robustesse : 8 caractères minimum, au moins une lettre ET un
@@ -191,10 +193,13 @@ export async function signUp(email: string, password: string, details: SignUpDet
   const weak = passwordWeakness(password);
   if (weak) return `Mot de passe trop faible : ${weak}`;
   const cleanEmail = normalizeEmail(email);
+  const organisation = (details.organisation ?? '').trim() || undefined;
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
     password,
-    options: { data: { first_name: firstName, last_name: lastName, phone } },
+    // L'organisation voyage dans les métadonnées du compte : si la confirmation
+    // d'e-mail retarde la création du profil, le trigger la retrouve là.
+    options: { data: { first_name: firstName, last_name: lastName, phone, ...(organisation ? { organisation } : {}) } },
   });
   if (error) return frenchAuthError(error.message);
   // COMPTE DÉJÀ EXISTANT, détection : quand la confirmation email est activée,
@@ -212,7 +217,8 @@ export async function signUp(email: string, password: string, details: SignUpDet
     await supabase.from('profiles').upsert({
       id: userId, display_name: firstName,
       first_name: firstName, last_name: lastName, phone,
-    });
+      ...(organisation ? { organisation } : {}),
+    } as never);
     localStorage.setItem('ada_pending_display_name', firstName);
   }
   return null;

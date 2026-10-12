@@ -3,7 +3,7 @@ import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList,
 import { supabase } from '../lib/supabase';
 import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, passwordWeakness } from '../services/auth';
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
-import { listOrganisations, addOrganisation, removeOrganisation, DEFAULT_ORG } from '../services/organisations';
+import { listOrganisations, addOrganisation, removeOrganisation, setOrganisationDefaultTabs, isProspectingOrg, DEFAULT_ORG, type Organisation } from '../services/organisations';
 
 /**
  * Page ÉQUIPE (admin) — demande Channing 30/08 :
@@ -107,6 +107,7 @@ export function Equipe() {
   const [newAllowOrg, setNewAllowOrg] = useState(DEFAULT_ORG);
   // Organisations (12/10) : la liste de référence, gérée ici.
   const [orgs, setOrgs] = useState<string[]>([DEFAULT_ORG]);
+  const [orgRows, setOrgRows] = useState<Organisation[]>([{ name: DEFAULT_ORG, default_tabs: null }]);
   const [orgsError, setOrgsError] = useState<string | null>(null);
   const [newOrg, setNewOrg] = useState('');
   // Création de compte par l'admin (07/09).
@@ -147,6 +148,7 @@ export function Equipe() {
     else setAllow((al ?? []) as AllowRow[]);
     // La liste de référence (MC Export toujours en tête).
     setOrgs([...new Set([DEFAULT_ORG, ...orgRes.names])].sort((a, b) => (a === DEFAULT_ORG ? -1 : b === DEFAULT_ORG ? 1 : a.localeCompare(b, 'fr'))));
+    setOrgRows(orgRes.rows);
     setOrgsError(orgRes.error);
     setSearches(sr.error ? null : ((sr.data ?? []) as TeamSearch[]));
     setNegos(ng.error ? null : ((ng.data ?? []) as TeamNego[]));
@@ -328,7 +330,7 @@ export function Equipe() {
           <div className="flex items-center gap-2 flex-wrap">
             <Building2 className="w-4 h-4 text-brand-ocean" />
             <h2 className="text-sm font-semibold text-slate-700">Organisations ({orgs.length})</h2>
-            <span className="text-xs text-slate-400">Chaque compte appartient à une organisation ; Open space et « déjà en négo » ne se partagent qu'en son sein.</span>
+            <span className="text-xs text-slate-400">Chaque compte appartient à une organisation ; Open space et « déjà en négo » ne se partagent qu'en son sein. « Prospection seule » : ses nouveaux comptes n'ont que Négociations, quel que soit le chemin de création.</span>
           </div>
           {orgsError && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{orgsError}</p>}
           <div className="flex flex-wrap gap-2">
@@ -338,6 +340,19 @@ export function Equipe() {
                 <span key={o} className="inline-flex items-center gap-1.5 text-xs rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
                   <span className="font-medium text-slate-800">{o}</span>
                   <span className="text-slate-500">{n} compte{n > 1 ? 's' : ''}</span>
+                  {(() => {
+                    const row = orgRows.find((r) => r.name === o);
+                    const pros = isProspectingOrg(row);
+                    return (
+                      <button
+                        onClick={async () => { const err = await setOrganisationDefaultTabs(o, pros ? null : ['wf:negociations']); if (err) setOrgsError(err); else void reload(); }}
+                        title={pros ? 'Ses nouveaux comptes reçoivent Négociations seulement — cliquer pour revenir à tous les onglets' : 'Ses nouveaux comptes reçoivent tous les onglets — cliquer pour les limiter à la prospection (Négociations)'}
+                        className={`rounded-full px-1.5 py-0.5 border ${pros ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'}`}
+                      >
+                        {pros ? 'prospection seule' : 'tous onglets'}
+                      </button>
+                    );
+                  })()}
                   {o !== DEFAULT_ORG && n === 0 && <button onClick={() => void dropOrg(o)} title="Supprimer (aucun compte)" className="text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>}
                 </span>
               );
@@ -365,7 +380,7 @@ export function Equipe() {
             <input type="email" value={nu.email} onChange={(e) => setNu({ ...nu, email: e.target.value })} placeholder="prenom@mc-export.com *" required autoComplete="off" className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
-              <select value={nu.organisation} onChange={(e) => setNu({ ...nu, organisation: e.target.value })} className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-ocean/40">
+              <select value={nu.organisation} onChange={(e) => setNu({ ...nu, organisation: e.target.value, prospectingOnly: isProspectingOrg(orgRows.find((o) => o.name === e.target.value)) })} className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-ocean/40">
                 {orgs.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </label>
