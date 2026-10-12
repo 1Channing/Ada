@@ -832,6 +832,21 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **UNE NOTE PAR ANNONCE, DATÉE À LA MODIFICATION ; UN SEUL PANNEAU OUVERT
+  (12/10, Channing : « plutôt que d'empiler des notes, on modifie la note
+  en cours et ça met à jour la date » ; « qu'on ne puisse en ouvrir qu'une à
+  la fois, et quand on clique ailleurs ça enregistre et ferme »)**. Le
+  journal empilé du matin est remplacé : la note est un seul texte, sa
+  première ligne porte la date de dernière modification (readNote /
+  writeNote dans src/lib/noteJournal.ts ; les anciens journaux et textes
+  sans date se fondent en une note). La date ne bouge que si le texte
+  change. Enregistrement tout seul : 1 s après la frappe, à la sortie du
+  champ, quand le panneau se ferme, au démontage, quand l'onglet se cache.
+  L'onglet Négociations tient l'identifiant du seul panneau ouvert ; ouvrir
+  une autre ligne ou cliquer ailleurs (hors panneau et hors bouton Notes)
+  enregistre et ferme. « Contacter le vendeur » ajoute sa ligne à la note et
+  la date. Badge « Déjà en négo » et Open space montrent la note et « modifiée
+  il y a N j » (relance au-delà de 21 j).
 - **DOUBLONS PRÉVENUS, PAS BLOQUÉS ; NOTES DATÉES (12/10, rectification
   Channing : « pour les doublons on peut les laisser, l'idée est de les
   prévenir qu'il y a déjà quelqu'un dessus ; si le dernier contact date de

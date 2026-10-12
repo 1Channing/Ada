@@ -1,14 +1,18 @@
 /**
- * JOURNAL DE NOTES DATÉES (12/10, Channing : « il faut noter les dates
- * d'ajout de chaque note » — un collègue déjà sur l'annonce, c'est la date
- * de sa dernière note qui dit si une relance vaut le coup).
+ * NOTE DATÉE D'UNE NÉGOCIATION (12/10, Channing : « plutôt que d'empiler des
+ * notes, on modifie la note en cours et ça met à jour la date » — un
+ * collègue déjà sur l'annonce, c'est la date de sa dernière modification
+ * qui dit si une relance vaut le coup).
  *
- * Les notes d'une négociation restent UNE colonne texte (negotiations.notes :
- * lue par l'anti-collision, l'Open space, les ventes) ; chaque ajout y est
- * écrit sur sa propre ligne, précédé de sa date :
+ * La note reste UNE colonne texte (negotiations.notes : lue par
+ * l'anti-collision, l'Open space, les ventes). Sa première ligne porte la
+ * date de dernière modification, le texte suit :
  *     12/10/2026 09:41 — Vendeur joint, attend une offre
- * Les lignes sans date (notes d'avant, texte libre) forment le bloc
- * « ancien ». Fail-open : un texte quelconque se lit toujours.
+ *     contre-offre lundi
+ * writeNote / readNote font l'aller-retour ; parseJournal lit aussi les
+ * textes d'avant (sans date, ou avec plusieurs lignes datées du journal
+ * d'un matin) et les fond en une seule note. Fail-open : un texte
+ * quelconque se lit toujours.
  */
 export interface NoteEntry { at: Date | null; text: string }
 export interface NoteJournal { legacy: string; entries: NoteEntry[] }
@@ -34,6 +38,21 @@ export function parseJournal(notes: string | null | undefined): NoteJournal {
     }
   }
   return { legacy: legacy.join('\n').trim(), entries: entries.map((e) => ({ ...e, text: e.text.trim() })).filter((e) => e.text) };
+}
+
+/** La note telle qu'on l'édite : texte sans date, et date de dernière modification.
+ *  Un ancien journal (plusieurs lignes datées, bloc sans date) devient un seul texte. */
+export function readNote(notes: string | null | undefined): { text: string; at: Date | null } {
+  const j = parseJournal(notes);
+  const dated = j.entries.filter((e) => e.at).map((e) => e.at!.getTime());
+  const text = [j.legacy, ...j.entries.map((e) => e.text)].filter(Boolean).join('\n');
+  return { text, at: dated.length ? new Date(Math.max(...dated)) : null };
+}
+
+/** La note à enregistrer : date de modification en tête, texte derrière (vide → ''). */
+export function writeNote(text: string, at = new Date()): string {
+  const t = text.trim();
+  return t ? `${fmtStamp(at)} — ${t}` : '';
 }
 
 /** Ajoute une note datée en fin de journal (texte vide → inchangé). */
