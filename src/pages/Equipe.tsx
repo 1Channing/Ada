@@ -95,7 +95,7 @@ interface TeamNego {
 }
 /** En cours = ce que la personne voit dans sa liste (ou dans l'Open space) : ni archivée après appel, ni clôturée. */
 const isOpenNego = (n: TeamNego) => n.status === 'open' || n.status === 'pushed_to_sale';
-const OUTCOME_LABEL: Record<string, string> = { flux: 'remise dans le flux', no_callback: 'ne pas rappeler', deleted: 'supprimée' };
+const OUTCOME_LABEL: Record<string, string> = { flux: 'remise dans le flux', no_callback: 'ne pas rappeler', deleted: 'supprimée', unavailable: 'plus disponible' };
 
 /** Analyses lancées par compte (RPC admin_list_analyses, SQL du 12/10 soir) — agrégé côté base. */
 interface TeamAnalyses { user_id: string; total: number; today: number; week: number; first_at: string; last_at: string }

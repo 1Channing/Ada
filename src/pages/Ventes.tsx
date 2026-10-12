@@ -74,7 +74,7 @@ const fmtReminderAt = (iso: string) => new Date(iso).toLocaleString('fr-FR', { d
 type NegoState = { status?: string | null; outcome?: string | null; archived_at?: string | null };
 const stateLabel = (c: NegoState): string => {
   const d = c.archived_at ? ` (${new Date(c.archived_at).toLocaleDateString('fr-FR')})` : '';
-  if (c.status === 'archived') return c.outcome === 'no_callback' ? `ne pas rappeler${d}` : c.outcome === 'flux' ? `remise dans le flux${d}` : c.outcome === 'deleted' ? `supprimée${d}` : `archivée${d}`;
+  if (c.status === 'archived') return c.outcome === 'no_callback' ? `ne pas rappeler${d}` : c.outcome === 'flux' ? `remise dans le flux${d}` : c.outcome === 'deleted' ? `supprimée${d}` : c.outcome === 'unavailable' ? `plus disponible${d}` : `archivée${d}`;
   if (c.status === 'pushed_to_sale') return 'poussée en vente';
   return 'en cours';
 };
@@ -379,7 +379,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
           </div>
         ) : folders.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-            {visible.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} />)}
+            {visible.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} hasStudies={hasStudies} />)}
           </div>
         ) : (
           // Regroupement par dossier (10/09) : les dossiers dans leur ordre,
@@ -426,7 +426,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
                         ? <p className="px-4 py-3 text-xs text-slate-400 border-t border-slate-100">Dossier vide — range une négociation ici depuis son menu ⋯ → « Ranger dans un dossier ».</p>
                         : (
                           <div className="divide-y divide-slate-100 border-t border-slate-100">
-                            {items.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} />)}
+                            {items.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} hasStudies={hasStudies} />)}
                           </div>
                         )
                     )}
@@ -444,7 +444,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
             {archivedOpen ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
             <Archive className="w-4 h-4 text-slate-400" />
             <span className="font-semibold text-slate-700">Archivées</span>
-            <span className="text-xs text-slate-500">{archived.filter((a) => a.outcome !== 'deleted').length} · après l'appel : remises dans le flux ou sans rappel — l'annonce, le numéro et la note restent connus pour repérer les doublons{archived.some((a) => a.outcome === 'deleted') ? ` · ${archived.filter((a) => a.outcome === 'deleted').length} supprimée${archived.filter((a) => a.outcome === 'deleted').length > 1 ? 's' : ''}` : ''}</span>
+            <span className="text-xs text-slate-500">{archived.filter((a) => a.outcome !== 'deleted').length} · remises dans le flux, sans rappel ou plus disponibles — l'annonce, le numéro et la note restent connus pour repérer les doublons{archived.some((a) => a.outcome === 'deleted') ? ` · ${archived.filter((a) => a.outcome === 'deleted').length} supprimée${archived.filter((a) => a.outcome === 'deleted').length > 1 ? 's' : ''}` : ''}</span>
           </button>
           {archivedOpen && (
             <div className="divide-y divide-slate-100 border-t border-slate-100">
@@ -460,8 +460,8 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
                       {a.listing_url?.startsWith('http')
                         ? <a href={a.listing_url} target="_blank" rel="noreferrer" className="text-slate-700 hover:text-brand-ocean hover:underline truncate">{a.title}</a>
                         : <span className="text-slate-700 truncate">{a.title}</span>}
-                      <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : a.outcome === 'deleted' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                        {a.outcome === 'no_callback' ? 'ne pas rappeler' : a.outcome === 'flux' ? 'remise dans le flux' : a.outcome === 'deleted' ? 'supprimée' : 'archivée'}
+                      <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : a.outcome === 'deleted' || a.outcome === 'unavailable' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                        {a.outcome === 'no_callback' ? 'ne pas rappeler' : a.outcome === 'flux' ? 'remise dans le flux' : a.outcome === 'deleted' ? 'supprimée' : a.outcome === 'unavailable' ? 'plus disponible' : 'archivée'}
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 truncate">
@@ -516,13 +516,15 @@ function FolderHeader({ folder, count, open, onToggle, onRename, onDelete }: {
   );
 }
 
-function NegoRow({ n, folders, onNewFolder, conflicts, onChanged, onPushed, notesOpen, onNotesOpen, reminderAt, phoneIndex }: {
+function NegoRow({ n, folders, onNewFolder, conflicts, onChanged, onPushed, notesOpen, onNotesOpen, reminderAt, phoneIndex, hasStudies }: {
   n: Negotiation; folders: NegotiationFolder[]; onNewFolder: () => Promise<string | null>;
   conflicts: NegoConflict[]; onChanged: () => void; onPushed: () => void;
   notesOpen: boolean; onNotesOpen: (open: boolean) => void;
   /** Prochain rappel à venir sur cette annonce (null = aucun ou déjà échu). */
   reminderAt: string | null;
   phoneIndex: Map<string, PhoneSeen[]>;
+  /** Compte avec études (pas un compte de prospection) : « Plus disponible » a un sens — l'annonce revient si revue. */
+  hasStudies: boolean;
 }) {
   const [askDelete, setAskDelete] = useState(false);
   // Passage en vente SOUS RÉFÉRENCE (18/09) : petite fenêtre qui demande la
@@ -891,6 +893,16 @@ function NegoRow({ n, folders, onNewFolder, conflicts, onChanged, onPushed, note
               <MenuBtn onClick={() => { setMenu(false); editPhone(); }}>
                 <span className="flex items-center gap-2"><Phone className="w-4 h-4 text-slate-500 shrink-0" /> Numéro du vendeur</span>
               </MenuBtn>
+              {/* « Plus disponible » (12/10 soir, Channing : « comme on avait avant » dans les Résultats) :
+                  réservé aux comptes avec études — pour un compte de prospection, sans objet. */}
+              {hasStudies && (
+                <MenuBtn danger onClick={async () => {
+                  setMenu(false);
+                  if (!confirm(`« ${n.title} » n'est plus disponible ? La négociation est archivée (sa trace reste) ; dans tes études, l'annonce revient si elle est revue.`)) return;
+                  const err = await archiveNegotiation(n.id, 'unavailable');
+                  if (err) alert(err); else onChanged();
+                }}>Plus disponible <span className="text-xs text-red-400">(revient si l'annonce est revue)</span></MenuBtn>
+              )}
               <MenuBtn danger onClick={() => { setMenu(false); setAskDelete(true); }}>Suite (après l'appel) / supprimer…</MenuBtn>
               </>
               )}

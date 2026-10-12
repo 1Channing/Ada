@@ -832,6 +832,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **« PLUS DISPONIBLE » DANS LE MENU D'UNE NÉGOCIATION (12/10 soir, Channing :
+  « dans les options, ajoute une possibilité de supprimer “plus
+  disponible”, comme on avait avant — uniquement pour les comptes hors
+  prospection »)**. Même mécanique que l'option des Résultats (b4feb8c) :
+  la négociation est archivée avec outcome 'unavailable' (sa trace reste :
+  annonce, numéro, note) et l'annonce passe « plus disponible » dans les
+  études — le worker la ramène dans la boîte si elle est revue. Entrée du
+  menu ⋯ visible seulement pour un compte qui a Études ou Résultats (un
+  compte de prospection n'a pas d'études : sans objet). Libellé « plus
+  disponible » dans Archivées, l'anti-collision et Équipe. Zéro SQL
+  (colonnes outcome/archived_at du 12/10).
 - **LOGO SUR BLANC PUR, OPEN SPACE SANS BANDEAU (12/10 soir, Channing : « le
   fond blanc derrière le logo doit être le même blanc que celui du logo » ;
   « enlève ce texte, juste une notif avec le nombre de nouvelles annonces
