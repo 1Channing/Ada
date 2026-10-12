@@ -832,6 +832,25 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **DOUBLONS PRÉVENUS, PAS BLOQUÉS ; NOTES DATÉES (12/10, rectification
+  Channing : « pour les doublons on peut les laisser, l'idée est de les
+  prévenir qu'il y a déjà quelqu'un dessus ; si le dernier contact date de
+  3 semaines, ça vaut le coup de relancer — il faut noter les dates d'ajout
+  de chaque note »)**. À l'ajout d'une annonce déjà suivie (par moi ou un
+  collègue), bandeau jaune : qui, depuis quand, dernière note il y a N j ;
+  au-delà de 21 j sans note : « une relance vaut le coup » ; boutons
+  « Ajouter quand même » / « Annuler ». Les notes deviennent un JOURNAL
+  DATÉ dans la même colonne negotiations.notes (src/lib/noteJournal.ts :
+  chaque ajout = une ligne « JJ/MM/AAAA HH:MM — texte », les notes d'avant
+  restent en bloc « ancien ») : lue telle quelle par l'anti-collision,
+  l'Open space et les ventes, zéro SQL. Panneau Notes : journal + case
+  « Nouvelle note » écrite à la sortie du champ, à la fermeture, au
+  démontage, quand l'onglet se cache, ou sur Ajouter / Ctrl+Entrée — jamais
+  de note à moitié tapée ; « Corriger le texte » rouvre le brut (enregistré
+  tout seul). « Contacter le vendeur » écrit sa trace datée dans le journal.
+  Le badge « Déjà en négo · X » montre la dernière note (âge, relance) et
+  les six dernières entrées datées. La vieille table negotiation_notes de
+  janvier (liée à study_source_listings, auteurs figés) reste inutilisée.
 - **COMPTES DE PROSPECTION (WEECARS, LES PONTS-DE-CÉ) : NÉGOCIATIONS SEULES,
   LECTURE IA À CHAQUE AJOUT, DOUBLONS REFUSÉS, NOTES AUTO-ENREGISTRÉES,
   RAPPELS DANS UNE CLOCHE (12/10, demande Channing)**. (1) Droits : la page

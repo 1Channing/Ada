@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock } from 'lucide-react';
 import { listingKey } from '../lib/listingKey';
+import { parseJournal, appendEntry, lastNoteDate, agoLabel, worthRelaunch, RELANCE_AFTER_DAYS } from '../lib/noteJournal';
 import { canSeeTab } from '../lib/appTabs';
 import { createReminder } from '../services/userTasks';
 import { defaultReminderWhen } from '../components/ReminderCenter';
@@ -124,18 +125,26 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   }, []);
 
   /**
-   * DOUBLON DE PROSPECTION (12/10, Channing pour Weecars : « leur éviter les
-   * doublons de prospection sur Leboncoin ») : même annonce (clé d'URL —
-   * identifiant Leboncoin, UUID AutoScout…, pas l'URL brute) déjà chez moi ou
-   * chez un collègue (RPC anti-collision) → on le dit, on n'ajoute pas.
+   * DÉJÀ SUR L'ANNONCE (12/10, Channing pour Weecars) : même annonce (clé
+   * d'URL — identifiant Leboncoin, UUID AutoScout…, pas l'URL brute) déjà
+   * chez moi ou chez un collègue (RPC anti-collision) → on PRÉVIENT, avec la
+   * date de sa dernière note : « si le dernier contact date de 3 semaines, ça
+   * vaut le coup de relancer ». On n'empêche rien : « Ajouter quand même ».
    */
-  const findDuplicate = (u: string): string | null => {
+  const [dupWarn, setDupWarn] = useState<{ text: string; relaunch: boolean } | null>(null);
+  const findDuplicate = (u: string): { text: string; relaunch: boolean } | null => {
     const key = listingKey(u);
     if (!key) return null;
     const mine = rows.find((r) => listingKey(r.listing_url) === key);
-    if (mine) return `Cette annonce est déjà dans tes négociations : « ${mine.title} » (ajoutée le ${new Date(mine.created_at).toLocaleDateString('fr-FR')}).`;
+    if (mine) {
+      const last = lastNoteDate(mine.notes, mine.updated_at);
+      return { text: `Déjà dans tes négociations : « ${mine.title} » (ajoutée le ${new Date(mine.created_at).toLocaleDateString('fr-FR')}${last ? `, dernière note ${agoLabel(last)}` : ''}).`, relaunch: worthRelaunch(last) };
+    }
     const other = conflicts.find((c) => c.owner_id !== userId && listingKey(c.listing_url) === key);
-    if (other) return `Cette annonce est déjà en négociation chez ${other.owner_name} depuis le ${new Date(other.created_at).toLocaleDateString('fr-FR')} — pas de doublon de prospection, parlez-vous.`;
+    if (other) {
+      const last = lastNoteDate(other.notes, other.updated_at);
+      return { text: `${other.owner_name} est déjà sur cette annonce depuis le ${new Date(other.created_at).toLocaleDateString('fr-FR')}${last ? ` — dernière note ${agoLabel(last)} (${last.toLocaleDateString('fr-FR')})` : ' — sans note'}.`, relaunch: worthRelaunch(last) };
+    }
     return null;
   };
 
@@ -145,12 +154,15 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   // (demande 31/08 : la fenêtre se ferme, la ligne mouline, le suivi survit à
   // la navigation — store negoExtraction). Ce que TU as tapé prime toujours :
   // le worker ne complète que les champs laissés vides.
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const add = (e: React.FormEvent) => { e.preventDefault(); void submit(false); };
+  const submit = async (force: boolean) => {
     const u = url.trim();
     if (!u && !title.trim()) { setError("Colle l'URL de l'annonce (ou au moins un titre)."); return; }
-    const dup = u ? findDuplicate(u) : null;
-    if (dup) { setError(dup); return; }
+    if (!force) {
+      const dup = u ? findDuplicate(u) : null;
+      if (dup) { setDupWarn(dup); return; }
+    }
+    setDupWarn(null);
     setAnalyzing(true); setError(null);
     try {
       const { id, error: err } = await createNegotiation(title.trim() || u || 'Négociation', u, price ? Number(price) : null);
@@ -223,11 +235,26 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
             </button>
           </div>
           <div className="md:col-span-4 text-xs text-slate-500">
-            Colle l'URL : ADA enregistre tout de suite, puis lit l'annonce en arrière-plan (titre, prix, photos). Une annonce déjà en négociation, chez toi ou chez un collègue, est refusée : pas de doublon de prospection.
+            Colle l'URL : ADA enregistre tout de suite, puis lit l'annonce en arrière-plan (titre, prix, photos). Si quelqu'un est déjà sur l'annonce, ADA le dit, avec la date de sa dernière note.
           </div>
         </form>
       )}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+      {dupWarn && (
+        <div className="text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 flex items-start gap-3 flex-wrap">
+          <Users className="w-4 h-4 mt-0.5 shrink-0 text-amber-700" />
+          <span className="flex-1 min-w-[240px]">
+            {dupWarn.text}
+            {dupWarn.relaunch
+              ? <span className="block text-xs mt-0.5 text-emerald-800 font-medium">Plus de {RELANCE_AFTER_DAYS} jours sans note : une relance vaut le coup.</span>
+              : <span className="block text-xs mt-0.5 text-amber-800">Parlez-vous avant de doubler l'offre.</span>}
+          </span>
+          <span className="flex items-center gap-2">
+            <button onClick={() => void submit(true)} disabled={analyzing} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">Ajouter quand même</button>
+            <button onClick={() => setDupWarn(null)} className="text-xs text-slate-600 hover:text-slate-900">Annuler</button>
+          </span>
+        </div>
+      )}
 
       {/* Indicateur d'analyse PERSISTANT (demande 31/08) : visible tant que
           des analyses tournent, il revient tel quel si on change de page —
@@ -401,10 +428,41 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
   };
   /** Notes réécrites par ADA (trace « contacté le ») : état, refs et base déjà alignés. */
   const adoptNotes = (v: string) => { setNotes(v); notesRef.current = v; savedNotesRef.current = v; setNoteState('saved'); };
+  // JOURNAL DATÉ (12/10, Channing : « noter les dates d'ajout de chaque
+  // note ») : la case « Nouvelle note » écrit UNE ligne datée en fin de
+  // journal, à la sortie du champ, à la fermeture, au démontage ou sur
+  // « Ajouter » — jamais de note à moitié tapée en base. Le texte brut reste
+  // modifiable (« corriger le texte »), enregistré tout seul.
+  const [newNote, setNewNote] = useState('');
+  const newNoteRef = useRef('');
+  const [rawMode, setRawMode] = useState(false);
+  const committing = useRef(false);
+  const commitNewNote = async () => {
+    const t = newNoteRef.current.trim();
+    if (!t || committing.current) return;
+    committing.current = true;
+    const next = appendEntry(notesRef.current, t);
+    newNoteRef.current = ''; setNewNote('');
+    setNoteState('saving');
+    await updateNegotiation(n.id, { notes: next });
+    adoptNotes(next); committing.current = false; onChanged();
+  };
+  const journal = parseJournal(notes);
   useEffect(() => () => {
     if (notesTimer.current) window.clearTimeout(notesTimer.current);
-    if (notesRef.current !== savedNotesRef.current) void updateNegotiation(n.id, { notes: notesRef.current });
+    const pending = newNoteRef.current.trim();
+    const base = notesRef.current !== savedNotesRef.current ? notesRef.current : savedNotesRef.current;
+    const finalNotes = pending ? appendEntry(base, pending) : base;
+    if (finalNotes !== savedNotesRef.current) void updateNegotiation(n.id, { notes: finalNotes });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Onglet masqué ou page quittée pendant la frappe : la note part quand même.
+  useEffect(() => {
+    if (!showNotes) return;
+    const onHide = () => { if (document.visibilityState === 'hidden') void commitNewNote(); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    return () => { document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onHide); };
+  }, [showNotes]); // eslint-disable-line react-hooks/exhaustive-deps
   // Rappel depuis l'annonce (12/10) : échéance + texte, visible dans la cloche.
   const [askReminder, setAskReminder] = useState(false);
   const [remTitle, setRemTitle] = useState('');
@@ -488,12 +546,28 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
                             depuis le {new Date(c.created_at).toLocaleDateString('fr-FR')} à {new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-                        <p className="text-slate-600 whitespace-pre-wrap">
-                          {c.notes?.trim() ? c.notes : <span className="italic text-slate-400">Pas de notes.</span>}
-                        </p>
-                        {c.updated_at !== c.created_at && (
-                          <p className="text-[10px] text-slate-400">dernière activité le {new Date(c.updated_at).toLocaleDateString('fr-FR')} à {new Date(c.updated_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>
-                        )}
+                        {(() => {
+                          const j = parseJournal(c.notes);
+                          const last = lastNoteDate(c.notes, c.updated_at);
+                          return (
+                            <>
+                              {last && (
+                                <p className={`text-[11px] font-medium ${worthRelaunch(last) ? 'text-emerald-700' : 'text-slate-600'}`}>
+                                  Dernière note {agoLabel(last)} ({last.toLocaleDateString('fr-FR')}){worthRelaunch(last) ? ` — plus de ${RELANCE_AFTER_DAYS} j, une relance vaut le coup` : ''}
+                                </p>
+                              )}
+                              {j.legacy && <p className="text-slate-600 whitespace-pre-wrap">{j.legacy}</p>}
+                              {j.entries.length > 0 && (
+                                <ul className="space-y-0.5 max-h-40 overflow-y-auto">
+                                  {j.entries.slice(-6).map((e, k) => (
+                                    <li key={k} className="text-slate-600 whitespace-pre-wrap"><span className="text-slate-400">{e.at ? `${e.at.toLocaleDateString('fr-FR')} ${e.at.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}</span> — {e.text}</li>
+                                  ))}
+                                </ul>
+                              )}
+                              {!j.legacy && j.entries.length === 0 && <p className="italic text-slate-400">Pas de notes.</p>}
+                            </>
+                          );
+                        })()}
                       </div>
                     ))}
                     <p className="text-[10px] text-slate-400 border-t border-slate-100 pt-1.5">Lecture seule — parlez-vous avant de doubler l'offre.</p>
@@ -527,7 +601,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
           {isExtracting(n.id) && !showPhotos && <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-ocean" />}
         </button>
         <button
-          onClick={() => { if (showNotes) void flushNotes(); setShowNotes(!showNotes); }}
+          onClick={() => { if (showNotes) { void commitNewNote(); void flushNotes(); } setShowNotes(!showNotes); }}
           className={`text-xs px-2 py-1 rounded-lg shrink-0 ${n.notes ? 'text-brand-ocean bg-blue-50' : 'text-slate-500 hover:bg-slate-100'}`}
         >
           Notes{n.notes ? ' •' : ''}
@@ -577,8 +651,8 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
                   // dans les notes pour la relance. Jamais d'envoi automatique.
                   const r = await contactSeller({ title: n.title, url: n.listing_url });
                   if (!r.copied) prompt('Presse-papiers indisponible — copie le message :', r.message);
-                  const stamp = `Contacté le ${new Date().toLocaleDateString('fr-FR')} (message copié)`;
-                  const next = n.notes?.trim() ? `${n.notes.trim()}\n${stamp}` : stamp;
+                  // Trace datée dans le journal des notes (12/10).
+                  const next = appendEntry(notesRef.current, 'Contacté (message copié)');
                   await updateNegotiation(n.id, { notes: next });
                   adoptNotes(next); onChanged();
                 }}>Contacter le vendeur</MenuBtn>
@@ -657,23 +731,48 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
         <NegotiationPhotosModal nego={n} onClose={() => setShowPhotos(false)} onChanged={onChanged} />
       )}
       {showNotes && (
-        <div className="relative mt-2 flex gap-2">
-          <textarea
-            value={notes}
-            onChange={(e) => onNotesChange(e.target.value)}
-            onBlur={() => void flushNotes()}
-            rows={2}
-            placeholder="Contact vendeur, contre-offre, état réel… (enregistré tout seul)"
-            className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
-          />
-          <div className="flex flex-col items-end gap-1 self-end">
-            <span className="text-[10px] text-slate-400">{noteState === 'saving' ? 'Enregistrement…' : noteState === 'dirty' ? 'Modifié' : noteState === 'saved' ? 'Enregistré ✓' : 'Visible par l’équipe'}</span>
-            <button
-              onClick={async () => { await flushNotes(); setShowNotes(false); }}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-ocean text-white"
-            >
-              Fermer
-            </button>
+        <div className="relative mt-2 space-y-2">
+          {rawMode ? (
+            <textarea
+              value={notes}
+              onChange={(e) => onNotesChange(e.target.value)}
+              onBlur={() => void flushNotes()}
+              rows={Math.min(10, Math.max(3, notes.split('\n').length + 1))}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono"
+            />
+          ) : (journal.legacy || journal.entries.length > 0) && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 max-h-48 overflow-y-auto text-sm space-y-1">
+              {journal.legacy && <p className="text-slate-600 whitespace-pre-wrap">{journal.legacy}</p>}
+              {journal.entries.map((e, k) => (
+                <p key={k} className="text-slate-700 whitespace-pre-wrap">
+                  <span className="text-xs text-slate-400 tabular-nums">{e.at ? `${e.at.toLocaleDateString('fr-FR')} ${e.at.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}</span> — {e.text}
+                </p>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <textarea
+              value={newNote}
+              onChange={(e) => { setNewNote(e.target.value); newNoteRef.current = e.target.value; }}
+              onBlur={() => void commitNewNote()}
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void commitNewNote(); } }}
+              rows={2}
+              placeholder="Nouvelle note, datée à l'ajout : vendeur joint, contre-offre, état réel… (enregistrée en sortant du champ)"
+              className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
+            />
+            <div className="flex flex-col items-end gap-1 self-end">
+              <span className="text-[10px] text-slate-400">{noteState === 'saving' ? 'Enregistrement…' : noteState === 'dirty' ? 'Modifié' : noteState === 'saved' ? 'Enregistré ✓' : 'Visible par l’équipe'}</span>
+              <span className="flex items-center gap-1.5">
+                <button onClick={() => { void flushNotes(); setRawMode((m) => !m); }} className="text-[11px] text-slate-500 hover:text-slate-800 px-1.5 py-1">{rawMode ? 'Journal' : 'Corriger le texte'}</button>
+                <button onClick={() => void commitNewNote()} disabled={!newNote.trim()} className="px-2.5 py-1.5 rounded-lg text-xs font-medium border border-brand-ocean text-brand-ocean hover:bg-blue-50 disabled:opacity-40">Ajouter</button>
+                <button
+                  onClick={async () => { await commitNewNote(); await flushNotes(); setShowNotes(false); }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-ocean text-white"
+                >
+                  Fermer
+                </button>
+              </span>
+            </div>
           </div>
         </div>
       )}
