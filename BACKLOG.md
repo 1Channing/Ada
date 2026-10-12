@@ -832,6 +832,22 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **SUPPRIMER GARDE LA TRACE : NOTE, NUMÉRO ET ANNONCE (12/10 soir,
+  Channing pour les comptes de prospection : « que “supprimer sans trace”
+  enregistre quand même les notes avec l'annonce et avec le numéro, en
+  indiquant quel véhicule c'était si l'identifiant ne correspond plus »)**.
+  « Supprimer » ne détruit plus la ligne : archivage avec outcome
+  'deleted' (status archived) — la négociation quitte la liste, mais
+  l'annonce (clé), le numéro, le titre et la note restent lus par
+  l'anti-collision et par l'index des numéros. À l'ajout d'une annonce, le
+  bandeau cite désormais la NOTE de l'époque (180 caractères) pour la même
+  annonce comme pour le même numéro sur un autre véhicule (« ce vendeur a
+  déjà eu un autre véhicule : « titre » chez X (supprimée le JJ/MM) —
+  dernière note il y a N j. Note : « … » »). Sur la ligne, « Vendeur déjà
+  vu » devient une bulle : par véhicule, l'état, la date de la note et son
+  texte. Les supprimées sont masquées de la section Archivées, visibles par
+  une case « voir aussi les supprimées », réactivables. Zéro SQL
+  (colonnes du 12/10 ; RPC v3 déjà sans filtre de choix).
 - **« DATABASE ERROR SAVING NEW USER » À L'INSCRIPTION D'UN GARS DE WEECARS
   (12/10 soir)**. Cause : le verrou d'inscription (cinq adresses autorisées,
   aucune Weecars) refusait l'adresse, et Supabase masque l'exception du

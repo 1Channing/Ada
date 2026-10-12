@@ -10,7 +10,7 @@ import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
 import {
   Negotiation, listNegotiations, createNegotiation, updateNegotiation,
-  deleteNegotiation, pushNegotiationToSale, normalizeSaleReference,
+  pushNegotiationToSale, normalizeSaleReference,
   archiveNegotiation, listArchivedNegotiations, reactivateNegotiation, setNegotiationPhone,
   NegoConflict, listNegotiationConflicts,
   NegotiationFolder, listNegotiationFolders, createNegotiationFolder, renameNegotiationFolder,
@@ -67,14 +67,14 @@ export function Ventes() {
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 
 /** Un autre véhicule déjà vu avec ce numéro de vendeur (chez moi ou chez un collègue de mon organisation). */
-type PhoneSeen = { owner: string; mine: boolean; listingKey: string; title: string; state: string };
+type PhoneSeen = { owner: string; mine: boolean; listingKey: string; title: string; state: string; note: string; at: Date | null };
 const fmtReminderAt = (iso: string) => new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 /** État d'une négociation vue par l'anti-collision (en cours, poussée en vente, archivée avec le choix d'après appel). */
 type NegoState = { status?: string | null; outcome?: string | null; archived_at?: string | null };
 const stateLabel = (c: NegoState): string => {
   const d = c.archived_at ? ` (${new Date(c.archived_at).toLocaleDateString('fr-FR')})` : '';
-  if (c.status === 'archived') return c.outcome === 'no_callback' ? `ne pas rappeler${d}` : c.outcome === 'flux' ? `remise dans le flux${d}` : `archivée${d}`;
+  if (c.status === 'archived') return c.outcome === 'no_callback' ? `ne pas rappeler${d}` : c.outcome === 'flux' ? `remise dans le flux${d}` : c.outcome === 'deleted' ? `supprimée${d}` : `archivée${d}`;
   if (c.status === 'pushed_to_sale') return 'poussée en vente';
   return 'en cours';
 };
@@ -95,6 +95,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   // Archivées après l'appel (12/10) : remises dans le flux ou sans rappel.
   const [archived, setArchived] = useState<Negotiation[]>([]);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
   // Rappels posés sur mes annonces (12/10) : icône sur la ligne jusqu'à l'échéance.
   const [reminders, setReminders] = useState<Map<string, string>>(new Map());
   const [, setTick] = useState(0);
@@ -205,8 +206,11 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
       const last = lastNoteDate(c.notes, c.updated_at);
       const mine = c.owner_id === userId;
       const noteInfo = last ? `dernière note ${agoLabel(last)} (${last.toLocaleDateString('fr-FR')})` : 'sans note';
-      if (sameAd) items.push(`${mine ? 'Tu es' : `${c.owner_name} est`} déjà sur cette annonce (${stateLabel(c)}, depuis le ${new Date(c.created_at).toLocaleDateString('fr-FR')}) — ${noteInfo}.`);
-      else items.push(`Ce vendeur (${fmtPhone(c.phone)}) a déjà eu un autre véhicule : « ${c.title ?? 'sans titre'} » chez ${mine ? 'toi' : c.owner_name} (${stateLabel(c)}) — ${noteInfo}.`);
+      // La note elle-même (12/10, Channing : « enregistrer les notes avec l'annonce et le numéro »).
+      const noteText = readNote(c.notes).text;
+      const excerpt = noteText ? ` Note : « ${noteText.length > 180 ? `${noteText.slice(0, 180)}…` : noteText} »` : '';
+      if (sameAd) items.push(`${mine ? 'Tu es' : `${c.owner_name} est`} déjà sur cette annonce (${stateLabel(c)}, depuis le ${new Date(c.created_at).toLocaleDateString('fr-FR')}) — ${noteInfo}.${excerpt}`);
+      else items.push(`Ce vendeur (${fmtPhone(c.phone)}) a déjà eu un autre véhicule : « ${c.title ?? 'sans titre'} » chez ${mine ? 'toi' : c.owner_name} (${stateLabel(c)}) — ${noteInfo}.${excerpt}`);
       if (worthRelaunch(last)) relaunch = true;
     }
     return items.length ? { items, relaunch } : null;
@@ -222,13 +226,13 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
     for (const r of [...rows, ...archived]) {
       const k = `${userId}|${listingKey(r.listing_url)}|${r.title}`;
       if (seen.has(k)) continue; seen.add(k);
-      add(phoneKey(r.phone), { owner: 'toi', mine: true, listingKey: listingKey(r.listing_url), title: r.title, state: stateLabel(r) });
+      add(phoneKey(r.phone), { owner: 'toi', mine: true, listingKey: listingKey(r.listing_url), title: r.title, state: stateLabel(r), note: readNote(r.notes).text, at: lastNoteDate(r.notes, r.updated_at) });
     }
     for (const c of conflicts) {
       if (c.owner_id === userId) continue;
       const k = `${c.owner_id}|${listingKey(c.listing_url)}|${c.title ?? ''}`;
       if (seen.has(k)) continue; seen.add(k);
-      add(phoneKey(c.phone), { owner: c.owner_name, mine: false, listingKey: listingKey(c.listing_url), title: c.title ?? 'sans titre', state: stateLabel(c) });
+      add(phoneKey(c.phone), { owner: c.owner_name, mine: false, listingKey: listingKey(c.listing_url), title: c.title ?? 'sans titre', state: stateLabel(c), note: readNote(c.notes).text, at: lastNoteDate(c.notes, c.updated_at) });
     }
     return m;
   }, [rows, archived, conflicts, userId]);
@@ -428,19 +432,24 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
             {archivedOpen ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
             <Archive className="w-4 h-4 text-slate-400" />
             <span className="font-semibold text-slate-700">Archivées</span>
-            <span className="text-xs text-slate-500">{archived.length} · après l'appel : remises dans le flux ou sans rappel — l'annonce et le numéro restent connus pour repérer les doublons</span>
+            <span className="text-xs text-slate-500">{archived.filter((a) => a.outcome !== 'deleted').length} · après l'appel : remises dans le flux ou sans rappel — l'annonce, le numéro et la note restent connus pour repérer les doublons{archived.some((a) => a.outcome === 'deleted') ? ` · ${archived.filter((a) => a.outcome === 'deleted').length} supprimée${archived.filter((a) => a.outcome === 'deleted').length > 1 ? 's' : ''}` : ''}</span>
           </button>
           {archivedOpen && (
             <div className="divide-y divide-slate-100 border-t border-slate-100">
-              {archived.map((a) => (
+              {archived.some((a) => a.outcome === 'deleted') && (
+                <label className="flex items-center gap-2 px-4 py-2 text-xs text-slate-500">
+                  <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Voir aussi les supprimées (leur note et leur numéro servent toujours aux doublons)
+                </label>
+              )}
+              {archived.filter((a) => showDeleted || a.outcome !== 'deleted').map((a) => (
                 <div key={a.id} className="flex items-center gap-3 px-4 py-2 text-sm">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       {a.listing_url?.startsWith('http')
                         ? <a href={a.listing_url} target="_blank" rel="noreferrer" className="text-slate-700 hover:text-brand-ocean hover:underline truncate">{a.title}</a>
                         : <span className="text-slate-700 truncate">{a.title}</span>}
-                      <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                        {a.outcome === 'no_callback' ? 'ne pas rappeler' : a.outcome === 'flux' ? 'remise dans le flux' : 'archivée'}
+                      <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : a.outcome === 'deleted' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                        {a.outcome === 'no_callback' ? 'ne pas rappeler' : a.outcome === 'flux' ? 'remise dans le flux' : a.outcome === 'deleted' ? 'supprimée' : 'archivée'}
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 truncate">
@@ -603,6 +612,14 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
   };
   const [showPhotos, setShowPhotos] = useState(false);
   const [showConflict, setShowConflict] = useState(false);
+  const [showSeller, setShowSeller] = useState(false);
+  const sellerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showSeller) return;
+    const close = (e: MouseEvent) => { if (!sellerRef.current?.contains(e.target as Node)) setShowSeller(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [showSeller]);
   const menuRef = useRef<HTMLDivElement>(null);
   const conflictRef = useRef<HTMLDivElement>(null);
   const { userId } = useAuth();
@@ -716,12 +733,29 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
               </div>
             )}
             {sellerSeen.length > 0 && (
-              <span
-                title={sellerSeen.map((e) => `${e.mine ? 'Toi' : e.owner} : « ${e.title} » (${e.state})`).join('\n')}
-                className="flex items-center gap-1 text-xs font-medium text-sky-800 bg-sky-50 border border-sky-300 rounded-full px-2 py-0.5 shrink-0"
-              >
-                <Phone className="w-3 h-3" /> Vendeur déjà vu · {sellerSeen.length} autre{sellerSeen.length > 1 ? 's' : ''} véhicule{sellerSeen.length > 1 ? 's' : ''}
-              </span>
+              <div className="relative shrink-0" ref={sellerRef}>
+                <button
+                  onClick={() => setShowSeller(!showSeller)}
+                  className="flex items-center gap-1 text-xs font-medium text-sky-800 bg-sky-50 border border-sky-300 rounded-full px-2 py-0.5 hover:bg-sky-100 transition-colors"
+                >
+                  <Phone className="w-3 h-3" /> Vendeur déjà vu · {sellerSeen.length} autre{sellerSeen.length > 1 ? 's' : ''} véhicule{sellerSeen.length > 1 ? 's' : ''}
+                </button>
+                {showSeller && (
+                  <div className="absolute left-0 top-7 z-30 w-80 bg-white border border-sky-200 rounded-xl shadow-lg p-3 space-y-3">
+                    {sellerSeen.map((e, i) => (
+                      <div key={i} className="text-xs space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-800 truncate">« {e.title} »</span>
+                          <span className="text-slate-500 shrink-0">{e.mine ? 'toi' : e.owner} · {e.state}</span>
+                        </div>
+                        {e.at && <p className={`text-[11px] font-medium ${worthRelaunch(e.at) ? 'text-emerald-700' : 'text-slate-600'}`}>Note modifiée {agoLabel(e.at)} ({e.at.toLocaleDateString('fr-FR')})</p>}
+                        {e.note ? <p className="text-slate-600 whitespace-pre-wrap max-h-32 overflow-y-auto">{e.note}</p> : <p className="italic text-slate-400">Pas de notes.</p>}
+                      </div>
+                    ))}
+                    <p className="text-[10px] text-slate-400 border-t border-slate-100 pt-1.5">Même numéro de vendeur, autre annonce — la note de l'époque pour reprendre la conversation.</p>
+                  </div>
+                )}
+              </div>
             )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -895,7 +929,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
             </button>
             <div className="flex items-center justify-between pt-1">
               <button onClick={() => setAskDelete(false)} className="text-sm text-slate-500 hover:text-slate-700 py-1">Annuler</button>
-              <button onClick={async () => { if (!confirm('Supprimer sans garder de trace (ni annonce, ni numéro) ?')) return; setAskDelete(false); await deleteNegotiation(n.id, 'flux'); onChanged(); }} className="text-xs text-slate-400 hover:text-red-600 py-1">Supprimer sans trace</button>
+              <button onClick={async () => { if (!confirm('Supprimer cette négociation ? Elle disparaît de ta liste ; la note, le numéro et l’annonce restent connus pour reconnaître un retour du vendeur.')) return; setAskDelete(false); const err = await archiveNegotiation(n.id, 'deleted'); if (err) { alert(err); return; } onChanged(); }} className="text-xs text-slate-400 hover:text-red-600 py-1">Supprimer</button>
             </div>
           </div>
         </div>
