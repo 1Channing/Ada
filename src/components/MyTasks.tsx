@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CheckSquare, Square, ExternalLink, ArrowUpRight, ListChecks, Loader2 } from 'lucide-react';
-import { listMyTasks, setTaskDone, markTasksSeen, type UserTask } from '../services/userTasks';
+import { listMyTasks, setTaskDone, markTasksSeen, isReminder, isDue, REMINDERS_CHANGED, type UserTask } from '../services/userTasks';
 
 /**
  * MES TÂCHES — carte de l'accueil (02/10, demande Channing) : ce que l'admin
@@ -21,7 +21,9 @@ export function MyTasks() {
   useEffect(() => {
     void load();
     const t = setInterval(() => void load(), 60_000);
-    return () => clearInterval(t);
+    const onChanged = () => void load();
+    window.addEventListener(REMINDERS_CHANGED, onChanged);
+    return () => { clearInterval(t); window.removeEventListener(REMINDERS_CHANGED, onChanged); };
   }, []);
 
   const toggle = async (t: UserTask) => {
@@ -45,8 +47,8 @@ export function MyTasks() {
     <div className="bg-white rounded-xl border border-amber-200 shadow-sm">
       <div className="px-4 py-2.5 border-b border-amber-100 flex items-center gap-2">
         <ListChecks className="w-4 h-4 text-amber-600" />
-        <h2 className="text-sm font-semibold text-slate-800">Mes tâches{open.length ? ` · ${open.length} à faire` : ''}</h2>
-        <span className="ml-auto text-[11px] text-slate-400">confiées par l'admin · coche pour valider</span>
+        <h2 className="text-sm font-semibold text-slate-800">Mes tâches et rappels{open.length ? ` · ${open.length} à faire` : ''}</h2>
+        <span className="ml-auto text-[11px] text-slate-400">tâches confiées par l'admin et rappels posés depuis une annonce · coche pour valider</span>
       </div>
       {error && <p className="px-4 py-2 text-xs text-amber-700">{error}</p>}
       {loading ? <p className="px-4 py-3 text-sm text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</p> : (
@@ -59,7 +61,11 @@ export function MyTasks() {
               <div className="min-w-0 flex-1">
                 <p className={`text-sm font-medium text-slate-900 ${t.status === 'done' ? 'line-through' : ''}`}>{t.title}</p>
                 {t.note && <p className="text-xs text-slate-600 mt-0.5 whitespace-pre-line">{t.note}</p>}
-                <p className="text-[11px] text-slate-400 mt-0.5">{t.status === 'done' && t.done_at ? `fait le ${fmt(t.done_at)}` : `confiée le ${fmt(t.created_at)}`}</p>
+                <p className={`text-[11px] mt-0.5 ${isReminder(t) && isDue(t) ? 'text-rose-700 font-medium' : 'text-slate-400'}`}>
+                  {t.status === 'done' && t.done_at ? `fait le ${fmt(t.done_at)}`
+                    : isReminder(t) ? `rappel ${isDue(t) ? 'échu' : 'pour'} le ${new Date(t.due_at!).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} à ${new Date(t.due_at!).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                    : `confiée le ${fmt(t.created_at)}`}
+                </p>
               </div>
               {t.link && (
                 <button onClick={() => go(t.link!)} className="shrink-0 flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">

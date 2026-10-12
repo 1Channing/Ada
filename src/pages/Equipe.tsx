@@ -436,6 +436,18 @@ export function Equipe() {
                         })()}
                       </>
                     )}
+                    {!a.is_admin && (
+                      <div className="flex items-center gap-2 flex-wrap text-xs">
+                        <span className="text-slate-500">Préréglage :</span>
+                        <button
+                          onClick={() => { if (confirm(`Donner à ${a.email} la prospection seule : onglet Négociations uniquement (accueil réduit, cloche Rappels) ?`)) void saveTabs(a, ['wf:negociations']); }}
+                          title="Compte de prospection (équipe Weecars, 12/10) : Négociations seulement — ajout d'annonces avec lecture IA et refus des doublons, notes, rappels"
+                          className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                        >
+                          Prospection seule (Négociations)
+                        </button>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 pt-1">
                       {!a.is_admin && (a.blocked
                         ? <button onClick={() => void setBlocked(a, false)} className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 border border-emerald-300 rounded-lg px-2.5 py-1.5 hover:bg-emerald-50">Rétablir l'accès</button>

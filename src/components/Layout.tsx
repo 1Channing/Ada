@@ -7,6 +7,7 @@ import { canSeeTab, canSeeWorkflow, type AppTabKey } from '../lib/appTabs';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { useOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
 import { NotificationCenter } from './NotificationCenter';
+import { ReminderCenter } from './ReminderCenter';
 import { FeedbackCenter } from './FeedbackCenter';
 import { useAuth, signOut } from '../services/auth';
 
@@ -190,6 +191,8 @@ export function Layout({ children }: LayoutProps) {
               {activeCount ?? '—'} connecté{(activeCount ?? 0) > 1 ? 's' : ''}
             </span>
             <FeedbackCenter />
+            {/* Rappels (tout le monde) puis re-scan (admin seulement, icône radar) — 12/10. */}
+            <ReminderCenter />
             <NotificationCenter />
             <AdminTruthButton />
             <AdminLearnButton />

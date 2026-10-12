@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FolderOpen, BadgeEuro, Rocket, Map, Inbox, Scale, ChevronRight } from 'lucide-react';
+import { FolderOpen, BadgeEuro, Rocket, Map, Inbox, Scale, ChevronRight, MessageSquare } from 'lucide-react';
+import { canSeeTab, type AppTabKey } from '../lib/appTabs';
 import { loadLatestDigest, type TruthDigest } from '../services/truthLoop';
 import { supabase } from '../lib/supabase';
 import { loadMappingTree, type TreeNode } from '../services/ingestionHistory';
 import { MappingRadialTree } from '../components/MappingRadialTree';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
 import { inspectOpportunityInMarket } from '../services/marketData';
-import { DailyHit, DailySearch, listInboxHits, listDailySearches, inboxToProcess } from '../services/workflow';
+import { DailyHit, DailySearch, listInboxHits, listDailySearches, inboxToProcess, listNegotiations } from '../services/workflow';
 import { useAuth } from '../services/auth';
 import { MyTasks } from '../components/MyTasks';
 
@@ -44,10 +45,35 @@ const fmtTime = (iso: string) =>
  * cours, ventes du mois, bilan de la dernière campagne (avec son heure de
  * fin), opportunités inter-pays repérées, et la cartographie des mappings.
  * Lecture seule : uniquement des données déjà produites ailleurs.
+ *
+ * ACCUEIL PAR DROITS (12/10, comptes de prospection Weecars : « je ne vais
+ * leur laisser que l'onglet Négociations ») : chaque bloc suit le droit de
+ * l'onglet qu'il résume — ventes (wf:ventes), campagne et digest (atelier),
+ * nouvelles annonces (études / résultats), veille, cartographie — et ses
+ * lectures ne partent pas quand le bloc est caché. Un compte « Négociations
+ * seulement » voit ses tâches et rappels et une carte Négociations.
  */
 export function Home() {
+  const { displayName, allowedTabs, isAdmin } = useAuth();
+  const see = (k: AppTabKey) => canSeeTab(allowedTabs, isAdmin, k);
+  const showSales = see('wf:ventes');
+  const showCampaign = see('atelier');
+  const showHits = see('wf:etudes') || see('wf:resultats');
+  const showVeille = see('veille');
+  const showMap = see('atelier') || see('historique');
+  const showDigest = isAdmin || see('atelier');
+  const showNego = see('wf:negociations');
+  const rightsReady = allowedTabs !== undefined || isAdmin;
   const [digest, setDigest] = useState<TruthDigest | null>(null);
-  useEffect(() => { void loadLatestDigest().then(setDigest); }, []);
+  useEffect(() => { if (showDigest) void loadLatestDigest().then(setDigest); }, [showDigest]);
+  const [negoCount, setNegoCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!showNego) return;
+    const refresh = () => { listNegotiations().then((r) => setNegoCount(r.length)).catch(() => undefined); };
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [showNego]);
   const [deals, setDeals] = useState<DealRow[]>([]);
   const [campaign, setCampaign] = useState<CampaignRow | null>(null);
   // Tant que la dernière campagne n'est pas connue, le radar d'opportunités
@@ -59,9 +85,9 @@ export function Home() {
   const [hits, setHits] = useState<DailyHit[]>([]);
   const [mySearches, setMySearches] = useState<DailySearch[]>([]);
   const [legal, setLegal] = useState<Array<{ id: string; country: string; kind: string; title: string; effective_date: string | null; created_at: string }>>([]);
-  const { displayName } = useAuth();
 
   const reloadHits = () => {
+    if (!showHits) return;
     // Même plafond que le Workflow (listAllHits) : deux limites différentes
     // finissent par produire deux compteurs différents dès qu'elles mordent.
     listInboxHits(3000).then(setHits).catch(() => setHits([]));
@@ -69,24 +95,28 @@ export function Home() {
   };
 
   useEffect(() => {
+    if (!rightsReady) return;
     void (async () => {
+      // Les opportunités se limitent à la dernière campagne : on la lit aussi
+      // pour un compte qui a le panneau sans l'Atelier.
+      const wantCampaign = showCampaign || see('opportunites');
       const [{ data: dealRows }, { data: campRows }, { data: legalRows }] = await Promise.all([
-        supabase
+        showSales ? supabase
           .from('transactions_admin')
           .select('id, reference, status, transaction_type, sale_price, purchase_price, created_at, closed_at')
           .order('created_at', { ascending: false })
-          .limit(500),
-        supabase
+          .limit(500) : Promise.resolve({ data: [] as DealRow[] }),
+        wantCampaign ? supabase
           .from('linkgen_campaigns')
           .select('id, label, status, total, done_count, confirmed_count, gap_count, technical_count, created_at')
           .order('created_at', { ascending: false })
-          .limit(1),
-        supabase
+          .limit(1) : Promise.resolve({ data: [] as CampaignRow[] }),
+        showVeille ? supabase
           .from('legal_watch_entries')
           .select('id, country, kind, title, effective_date, created_at')
           .eq('status', 'published')
           .order('created_at', { ascending: false })
-          .limit(5),
+          .limit(5) : Promise.resolve({ data: [] as typeof legal }),
       ]);
       setDeals((dealRows ?? []) as DealRow[]);
       setLegal((legalRows ?? []) as typeof legal);
@@ -105,9 +135,9 @@ export function Home() {
       }
       reloadHits();
       // La carto en dernier : c'est la requête la plus lourde.
-      setTree(await loadMappingTree());
+      if (showMap) setTree(await loadMappingTree());
     })();
-  }, []);
+  }, [rightsReady, showSales, showCampaign, showVeille, showHits, showMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Navigation interne sans rechargement (étage 3) — App écoute pushState.
   const navigateTo = (path: string) => {
@@ -129,8 +159,16 @@ export function Home() {
     <div className="w-full space-y-6">
       {/* Tâches confiées par l'admin (02/10) — en tête, avant les chiffres. */}
       <MyTasks />
-      {/* Chiffres du jour */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Chiffres du jour — chaque carte suit le droit de l'onglet qu'elle résume. */}
+      {(showSales || showCampaign || showNego) && <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {showNego && (
+          <button onClick={() => navigateTo('/workflow')} className="text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-blue-300 transition-colors">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500"><MessageSquare className="w-4 h-4 text-blue-600" />Négociations</div>
+            <div className="text-3xl font-bold tabular-nums mt-1">{negoCount ?? '—'}</div>
+            <div className="text-xs text-slate-500 mt-1">{negoCount === 0 ? "aucune — ajoute l'URL d'une annonce" : 'en cours · ouvrir, ajouter une annonce'}</div>
+          </button>
+        )}
+        {showSales && <>
         <button onClick={() => navigateTo('/admin')} className="text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-blue-300 transition-colors">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500"><FolderOpen className="w-4 h-4 text-blue-600" />Dossiers en cours</div>
           <div className="text-3xl font-bold tabular-nums mt-1">{open.length}</div>
@@ -145,6 +183,8 @@ export function Home() {
             {salesAmount > 0 ? fmtEur(salesAmount) : `${closedThisMonth.length} dossier(s) clôturé(s) au total`}
           </div>
         </button>
+        </>}
+        {showCampaign && (
         <button onClick={() => navigateTo('/ingestion')} className="text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-blue-300 transition-colors lg:col-span-2">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500"><Rocket className="w-4 h-4 text-blue-600" />Dernière campagne</div>
           {campaign ? (
@@ -162,11 +202,12 @@ export function Home() {
             <div className="text-sm text-slate-500 mt-2">Aucune campagne pour l'instant.</div>
           )}
         </button>
-      </div>
+        )}
+      </div>}
 
       {/* Routine du matin (Truth Center 3b, GO 03/09) : la santé de la dernière
           vague en une ligne — le détail vit dans le Truth Center. */}
-      {digest && (
+      {showDigest && digest && (
         <button onClick={() => navigateTo('/verite')} className="w-full text-left bg-white border border-slate-200 rounded-2xl px-5 py-3 shadow-sm hover:border-amber-300 transition-colors flex items-center gap-3 flex-wrap">
           <span className="text-xs uppercase tracking-wide text-slate-500">Ce matin</span>
           <span className="text-sm text-slate-700">{digest.summary}</span>
@@ -176,7 +217,7 @@ export function Home() {
 
       {/* Nouvelles annonces : RÉSUMÉ minimal — le volume de travail du jour,
           une ligne par étude ; le traitement se fait dans le Workflow. */}
-      <button
+      {showHits && <button
         onClick={() => navigateTo('/workflow')}
         className="w-full text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-blue-300 transition-colors"
       >
@@ -204,7 +245,7 @@ export function Home() {
             <ChevronRight className="w-4 h-4 text-slate-400" />
           </div>
         </div>
-      </button>
+      </button>}
 
       {/* Opportunités repérées par la DERNIÈRE campagne uniquement */}
       {campaignLoaded && campaign && (
@@ -215,7 +256,7 @@ export function Home() {
       )}
 
       {/* Veille juridique : dernières entrées publiées */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      {showVeille && <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
             <Scale className="w-5 h-5 text-blue-600" />
@@ -242,17 +283,17 @@ export function Home() {
             ))}
           </ul>
         )}
-      </div>
+      </div>}
 
       {/* Cartographie */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      {showMap && <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <div className="flex items-center gap-2 mb-1">
           <Map className="w-5 h-5 text-blue-600" />
           <h2 className="text-lg font-semibold">Cartographie des mappings</h2>
         </div>
         <p className="text-xs text-slate-500 mb-4">Tout ce qu'ADA sait chercher — bleu : certifié humain, violet : appris par ADA seule.</p>
         {tree ? <MappingRadialTree root={tree} /> : <div className="text-sm text-slate-500 py-10 text-center">Chargement de la carte…</div>}
-      </div>
+      </div>}
     </div>
   );
 }

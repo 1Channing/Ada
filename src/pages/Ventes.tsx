@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check } from 'lucide-react';
+import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock } from 'lucide-react';
+import { listingKey } from '../lib/listingKey';
+import { canSeeTab } from '../lib/appTabs';
+import { createReminder } from '../services/userTasks';
+import { defaultReminderWhen } from '../components/ReminderCenter';
 import { Administrative } from './Administrative';
 import { useAuth } from '../services/auth';
 import {
@@ -60,6 +64,10 @@ export function Ventes() {
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 
 export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
+  const { userId, allowedTabs, isAdmin } = useAuth();
+  // Compte de prospection seule (Weecars, 12/10) : pas d'études → les textes
+  // ne renvoient pas vers un onglet qu'il n'a pas.
+  const hasStudies = canSeeTab(allowedTabs, isAdmin, 'wf:etudes') || canSeeTab(allowedTabs, isAdmin, 'wf:resultats');
   const [rows, setRows] = useState<Negotiation[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -115,28 +123,39 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const { error: err } = await createNegotiation(title.trim() || url.trim() || 'Négociation', url.trim(), price ? Number(price) : null);
-    if (err) { setError(err); return; }
-    setAdding(false); setTitle(''); setUrl(''); setPrice(''); setError(null); reload();
+  /**
+   * DOUBLON DE PROSPECTION (12/10, Channing pour Weecars : « leur éviter les
+   * doublons de prospection sur Leboncoin ») : même annonce (clé d'URL —
+   * identifiant Leboncoin, UUID AutoScout…, pas l'URL brute) déjà chez moi ou
+   * chez un collègue (RPC anti-collision) → on le dit, on n'ajoute pas.
+   */
+  const findDuplicate = (u: string): string | null => {
+    const key = listingKey(u);
+    if (!key) return null;
+    const mine = rows.find((r) => listingKey(r.listing_url) === key);
+    if (mine) return `Cette annonce est déjà dans tes négociations : « ${mine.title} » (ajoutée le ${new Date(mine.created_at).toLocaleDateString('fr-FR')}).`;
+    const other = conflicts.find((c) => c.owner_id !== userId && listingKey(c.listing_url) === key);
+    if (other) return `Cette annonce est déjà en négociation chez ${other.owner_name} depuis le ${new Date(other.created_at).toLocaleDateString('fr-FR')} — pas de doublon de prospection, parlez-vous.`;
+    return null;
   };
 
-  // Ajout par la SEULE URL (annonce hors ADA) : la négo se crée TOUT DE
-  // SUITE et l'analyse part en ARRIÈRE-PLAN (demande Channing 31/08 — l'ancien
-  // flux bloquait la fenêtre 2,5 min max et mobile.de dépassait : escalade
-  // anti-bot 3 profils + miroir des photos = « Délai dépassé »). La fenêtre
-  // se ferme, la ligne mouline, le suivi survit à la navigation (store
-  // negoExtraction en localStorage). Ce que TU as tapé prime toujours : le
-  // worker ne complète que les champs laissés vides.
-  const analyze = async () => {
+  // UN SEUL GESTE (12/10, Channing : « même s'ils cliquent sur Enregistrer
+  // plutôt qu'Analyser, ça analyse ») : Enregistrer crée la négociation TOUT
+  // DE SUITE et, dès qu'il y a une URL, l'analyse part en ARRIÈRE-PLAN
+  // (demande 31/08 : la fenêtre se ferme, la ligne mouline, le suivi survit à
+  // la navigation — store negoExtraction). Ce que TU as tapé prime toujours :
+  // le worker ne complète que les champs laissés vides.
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault();
     const u = url.trim();
-    if (!u.startsWith('http')) { setError("Colle d'abord l'URL de l'annonce"); return; }
+    if (!u && !title.trim()) { setError("Colle l'URL de l'annonce (ou au moins un titre)."); return; }
+    const dup = u ? findDuplicate(u) : null;
+    if (dup) { setError(dup); return; }
     setAnalyzing(true); setError(null);
     try {
-      const { id, error: err } = await createNegotiation(title.trim() || u, u, price ? Number(price) : null);
+      const { id, error: err } = await createNegotiation(title.trim() || u || 'Négociation', u, price ? Number(price) : null);
       if (err || !id) throw new Error(err || 'création impossible');
-      await startNegoExtraction(id, u, { title: !title.trim(), price: !price });
+      if (u.startsWith('http')) await startNegoExtraction(id, u, { title: !title.trim(), price: !price });
       setAdding(false); setTitle(''); setUrl(''); setPrice(''); reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -199,19 +218,12 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
               <label className="block text-xs font-medium text-slate-600 mb-1">Prix affiché (€)</label>
               <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
             </div>
-            <button type="submit" className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-ocean hover:bg-brand-encre text-white self-end transition-colors">OK</button>
-          </div>
-          <div className="md:col-span-4 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={analyze}
-              disabled={analyzing || !url.trim().startsWith('http')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 disabled:opacity-50 transition-colors"
-            >
-              {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              {analyzing ? 'Lecture de l\'annonce…' : "Analyser l'annonce"}
+            <button type="submit" disabled={analyzing} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-brand-ocean hover:bg-brand-encre text-white self-end transition-colors disabled:opacity-50">
+              {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Enregistrer
             </button>
-            <span className="text-xs text-slate-500">Colle juste l'URL : ADA lit titre, prix et photos, puis crée la négociation.</span>
+          </div>
+          <div className="md:col-span-4 text-xs text-slate-500">
+            Colle l'URL : ADA enregistre tout de suite, puis lit l'annonce en arrière-plan (titre, prix, photos). Une annonce déjà en négociation, chez toi ou chez un collègue, est refusée : pas de doublon de prospection.
           </div>
         </form>
       )}
@@ -231,7 +243,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
       {loading ? <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>
         : rows.length === 0 ? (
           <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
-            Aucune négociation — enregistre une annonce depuis l'accueil (Nouvelles annonces) ou ajoute-la ici.
+            {hasStudies ? "Aucune négociation — enregistre une annonce depuis l'accueil (Nouvelles annonces) ou ajoute-la ici." : "Aucune négociation — clique sur « Ajouter » et colle l'URL de l'annonce."}
           </div>
         ) : folders.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
@@ -365,15 +377,59 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
   };
   const [notes, setNotes] = useState(n.notes);
   const [showNotes, setShowNotes] = useState(false);
+  // NOTES ENREGISTRÉES TOUTES SEULES (12/10, Channing : « s'ils sortent des
+  // notes sans avoir cliqué sur Enregistrer, ça enregistre quand même ») :
+  // 1 s après la dernière frappe, à la sortie du champ, à la fermeture et au
+  // démontage de la ligne. Les refs portent la vérité entre deux rendus.
+  const [noteState, setNoteState] = useState<'idle' | 'dirty' | 'saving' | 'saved'>('idle');
+  const notesRef = useRef(n.notes);
+  const savedNotesRef = useRef(n.notes);
+  const notesTimer = useRef<number | null>(null);
+  const flushNotes = async () => {
+    if (notesTimer.current) { window.clearTimeout(notesTimer.current); notesTimer.current = null; }
+    const v = notesRef.current;
+    if (v === savedNotesRef.current) return;
+    setNoteState('saving');
+    await updateNegotiation(n.id, { notes: v });
+    savedNotesRef.current = v;
+    setNoteState('saved'); onChanged();
+  };
+  const onNotesChange = (v: string) => {
+    setNotes(v); notesRef.current = v; setNoteState('dirty');
+    if (notesTimer.current) window.clearTimeout(notesTimer.current);
+    notesTimer.current = window.setTimeout(() => void flushNotes(), 1000);
+  };
+  /** Notes réécrites par ADA (trace « contacté le ») : état, refs et base déjà alignés. */
+  const adoptNotes = (v: string) => { setNotes(v); notesRef.current = v; savedNotesRef.current = v; setNoteState('saved'); };
+  useEffect(() => () => {
+    if (notesTimer.current) window.clearTimeout(notesTimer.current);
+    if (notesRef.current !== savedNotesRef.current) void updateNegotiation(n.id, { notes: notesRef.current });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Rappel depuis l'annonce (12/10) : échéance + texte, visible dans la cloche.
+  const [askReminder, setAskReminder] = useState(false);
+  const [remTitle, setRemTitle] = useState('');
+  const [remWhen, setRemWhen] = useState(defaultReminderWhen);
+  const [remBusy, setRemBusy] = useState(false);
+  const [remError, setRemError] = useState<string | null>(null);
+  const submitReminder = async () => {
+    if (!remWhen) { setRemError('Choisis une date.'); return; }
+    setRemBusy(true); setRemError(null);
+    const err = await createReminder({ title: remTitle.trim() || `Relancer : ${n.title}`, dueAt: new Date(remWhen).toISOString(), negotiationId: n.id, link: '/workflow' });
+    setRemBusy(false);
+    if (err) { setRemError(err); return; }
+    setAskReminder(false);
+  };
   const [showPhotos, setShowPhotos] = useState(false);
   const [showConflict, setShowConflict] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const conflictRef = useRef<HTMLDivElement>(null);
   const { userId } = useAuth();
   // Même annonce (URL identique) ouverte par un COLLÈGUE → anti-collision.
-  const myUrl = (n.listing_url ?? '').trim();
-  const others = myUrl
-    ? conflicts.filter((c) => c.owner_id !== userId && c.listing_url.trim() === myUrl)
+  // Rapprochement par CLÉ d'annonce (12/10) : l'identifiant du site, pas
+  // l'URL brute — deux URLs différentes de la même annonce Leboncoin se voient.
+  const myKey = listingKey(n.listing_url);
+  const others = myKey
+    ? conflicts.filter((c) => c.owner_id !== userId && listingKey(c.listing_url) === myKey)
     : [];
 
   useEffect(() => {
@@ -471,7 +527,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
           {isExtracting(n.id) && !showPhotos && <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-ocean" />}
         </button>
         <button
-          onClick={() => setShowNotes(!showNotes)}
+          onClick={() => { if (showNotes) void flushNotes(); setShowNotes(!showNotes); }}
           className={`text-xs px-2 py-1 rounded-lg shrink-0 ${n.notes ? 'text-brand-ocean bg-blue-50' : 'text-slate-500 hover:bg-slate-100'}`}
         >
           Notes{n.notes ? ' •' : ''}
@@ -524,9 +580,12 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
                   const stamp = `Contacté le ${new Date().toLocaleDateString('fr-FR')} (message copié)`;
                   const next = n.notes?.trim() ? `${n.notes.trim()}\n${stamp}` : stamp;
                   await updateNegotiation(n.id, { notes: next });
-                  setNotes(next); onChanged();
+                  adoptNotes(next); onChanged();
                 }}>Contacter le vendeur</MenuBtn>
               )}
+              <MenuBtn onClick={() => { setMenu(false); setRemTitle(`Relancer : ${n.title}`); setRemWhen(defaultReminderWhen()); setRemError(null); setAskReminder(true); }}>
+                <span className="flex items-center gap-2"><AlarmClock className="w-4 h-4 text-rose-500 shrink-0" /> Ajouter un rappel</span>
+              </MenuBtn>
               {sharedItemId ? (
                 <MenuBtn onClick={async () => {
                   setMenu(false);
@@ -601,17 +660,40 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
         <div className="relative mt-2 flex gap-2">
           <textarea
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={(e) => onNotesChange(e.target.value)}
+            onBlur={() => void flushNotes()}
             rows={2}
-            placeholder="Contact vendeur, contre-offre, état réel…"
+            placeholder="Contact vendeur, contre-offre, état réel… (enregistré tout seul)"
             className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
           />
-          <button
-            onClick={async () => { await updateNegotiation(n.id, { notes }); setShowNotes(false); onChanged(); }}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-ocean text-white self-end"
-          >
-            Enregistrer
-          </button>
+          <div className="flex flex-col items-end gap-1 self-end">
+            <span className="text-[10px] text-slate-400">{noteState === 'saving' ? 'Enregistrement…' : noteState === 'dirty' ? 'Modifié' : noteState === 'saved' ? 'Enregistré ✓' : 'Visible par l’équipe'}</span>
+            <button
+              onClick={async () => { await flushNotes(); setShowNotes(false); }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-ocean text-white"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+      {askReminder && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 grid place-items-center p-4" onClick={() => !remBusy && setAskReminder(false)}>
+          <form onSubmit={(e) => { e.preventDefault(); void submitReminder(); }} className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-slate-900 flex items-center gap-2"><AlarmClock className="w-4 h-4 text-rose-500" /> Rappel pour « {n.title} »</h3>
+            <p className="text-sm text-slate-600">Il apparaîtra dans la cloche Rappels à l'échéance, avec un lien vers tes négociations.</p>
+            <label className="block text-xs text-slate-600">Quoi
+              <input autoFocus value={remTitle} onChange={(e) => setRemTitle(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+            </label>
+            <label className="block text-xs text-slate-600">Quand
+              <input type="datetime-local" value={remWhen} onChange={(e) => setRemWhen(e.target.value)} className="mt-1 px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+            </label>
+            {remError && <p className="text-xs text-red-600">{remError}</p>}
+            <div className="flex items-center gap-2 pt-1">
+              <button type="submit" disabled={remBusy} className="flex-1 bg-brand-ocean hover:bg-brand-encre text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50">{remBusy ? 'Enregistrement…' : 'Poser le rappel'}</button>
+              <button type="button" onClick={() => setAskReminder(false)} disabled={remBusy} className="text-sm text-slate-500 hover:text-slate-700 px-3 py-2">Annuler</button>
+            </div>
+          </form>
         </div>
       )}
     </div>

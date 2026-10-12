@@ -1,5 +1,7 @@
 /**
- * Notification bell (right side of the nav) — monthly re-scan reminders.
+ * Re-scan bell (right side of the nav) — monthly re-scan reminders.
+ * ADMIN ONLY since 12/10 (Channing : the scan reminders are not for the
+ * team ; the Bell icon now belongs to the personal reminders, ReminderCenter).
  *
  * Stale segments (> 30 days without a scan) ACCUMULATE here until the operator
  * deals with them. Nothing is ever scanned automatically: the re-scan launches
@@ -9,7 +11,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, Loader2, RotateCw, EyeOff, X } from 'lucide-react';
+import { Radar, Loader2, RotateCw, EyeOff, X } from 'lucide-react';
+import { useAuth } from '../services/auth';
 import { loadStaleSegments, optOutSegments, buildRescanPlan, RESCAN_AFTER_DAYS } from '../services/rescanService';
 import type { StaleSegment } from '../services/rescanService';
 import { startCampaign } from '../services/campaignRunner';
@@ -28,6 +31,12 @@ function defaultName(): string {
 }
 
 export function NotificationCenter() {
+  const { isAdmin } = useAuth();
+  if (!isAdmin) return null;
+  return <RescanCenter />;
+}
+
+function RescanCenter() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [segments, setSegments] = useState<StaleSegment[]>([]);
@@ -114,9 +123,10 @@ export function NotificationCenter() {
       <button
         onClick={() => setOpen((v) => !v)}
         className={`relative p-2 rounded-lg transition-colors ${open ? 'bg-white/20 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
-        title={`Segments sans scan depuis ${RESCAN_AFTER_DAYS} j`}
+        title={`Re-scan mensuel (admin) — segments sans scan depuis ${RESCAN_AFTER_DAYS} j`}
+        aria-label="Re-scan mensuel"
       >
-        <Bell className="w-5 h-5" />
+        <Radar className="w-5 h-5" />
         {segments.length > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-slate-900 text-[10px] font-bold flex items-center justify-center">
             {segments.length > 99 ? '99+' : segments.length}

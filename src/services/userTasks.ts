@@ -10,7 +10,19 @@ import { useAuth } from './auth';
 export interface UserTask {
   id: string; assignee_id: string; created_by: string | null; key: string | null; title: string; note: string | null; link: string | null;
   status: 'open' | 'done'; created_at: string; done_at: string | null; seen_at: string | null;
+  /** RAPPEL (12/10) : échéance ; absent = tâche confiée par l'admin, sans date. */
+  due_at?: string | null;
+  /** Négociation d'origine du rappel, s'il vient d'une annonce. */
+  negotiation_id?: string | null;
 }
+/** Un rappel = une tâche datée (créée par soi-même depuis une annonce ou la cloche). */
+export const isReminder = (t: UserTask): boolean => t.due_at != null;
+/** Échu : l'échéance est passée (ou c'est une tâche admin, due tout de suite). */
+export const isDue = (t: UserTask, now = Date.now()): boolean => t.status === 'open' && (t.due_at == null || Date.parse(t.due_at) <= now);
+const REMINDER_SQL_HINT = 'Rappels : SQL du 12/10 (rappels_negociations) à coller.';
+/** Signal maison : la cloche et l'accueil se relisent après un ajout ou une suppression. */
+export const REMINDERS_CHANGED = 'ada:reminders-changed';
+export const notifyRemindersChanged = () => window.dispatchEvent(new Event(REMINDERS_CHANGED));
 export interface Assignee { id: string; name: string; isAdmin: boolean }
 
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -56,6 +68,26 @@ export async function createTask(input: { assigneeId: string; title: string; not
   if (missing(error.message)) return MISSING_MSG;
   if (/duplicate|unique/i.test(error.message)) return 'Cette tâche existe déjà pour ce compte.';
   return error.message;
+}
+
+/** Rappel personnel : pour soi, daté, lié ou non à une négociation. */
+export async function createReminder(input: { title: string; note?: string | null; dueAt: string; negotiationId?: string | null; link?: string | null }): Promise<string | null> {
+  const uid = useAuth.getState().userId;
+  if (!uid) return 'Session absente';
+  const { error } = await untyped.from('user_tasks').insert({
+    assignee_id: uid, created_by: uid, title: input.title.trim() || 'Rappel', note: input.note?.trim() || null,
+    link: input.link ?? '/workflow', due_at: input.dueAt, negotiation_id: input.negotiationId ?? null, status: 'open',
+  });
+  if (!error) { notifyRemindersChanged(); return null; }
+  if (missing(error.message) || /due_at|negotiation_id|column|policy|row-level/i.test(error.message)) return REMINDER_SQL_HINT;
+  return error.message;
+}
+
+/** Reporter un rappel à une nouvelle échéance. */
+export async function snoozeReminder(id: string, dueAt: string): Promise<string | null> {
+  const { error } = await untyped.from('user_tasks').update({ due_at: dueAt }).eq('id', id);
+  if (!error) notifyRemindersChanged();
+  return error ? error.message : null;
 }
 
 export async function setTaskDone(id: string, done: boolean): Promise<string | null> {

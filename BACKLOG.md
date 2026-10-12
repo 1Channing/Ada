@@ -832,6 +832,38 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **COMPTES DE PROSPECTION (WEECARS, LES PONTS-DE-CÉ) : NÉGOCIATIONS SEULES,
+  LECTURE IA À CHAQUE AJOUT, DOUBLONS REFUSÉS, NOTES AUTO-ENREGISTRÉES,
+  RAPPELS DANS UNE CLOCHE (12/10, demande Channing)**. (1) Droits : la page
+  Équipe gagne un préréglage « Prospection seule (Négociations) » =
+  allowed_tabs ['wf:negociations'] ; l'Accueil suit désormais les droits
+  bloc par bloc (ventes → wf:ventes, campagne et digest → atelier, nouvelles
+  annonces → études/résultats, veille, cartographie → atelier/historique)
+  et ses lectures ne partent plus quand le bloc est caché ; un compte
+  Négociations seules voit ses tâches/rappels et une carte « Négociations »
+  (compte, lien). (2) Ajout d'une annonce : un seul bouton « Enregistrer »
+  crée la négociation et lance la lecture IA en arrière-plan dès qu'il y a
+  une URL (plus de bouton « Analyser » à part) ; AVANT de créer, la clé
+  d'annonce (src/lib/listingKey.ts : identifiant Leboncoin, UUID AutoScout,
+  id mobile.de, chemin+fragment Gaspedaal, hôte+chemin ailleurs — deux URLs
+  différentes de la même annonce se reconnaissent) est comparée à mes
+  négociations et à celles des collègues (RPC anti-collision) : doublon →
+  refus avec qui et depuis quand. Le badge « Déjà en négo · X » rapproche
+  aussi par clé. (3) Notes : enregistrées toutes seules (1 s après la frappe,
+  à la sortie du champ, à la fermeture, au démontage), témoin « Enregistré ✓ »,
+  toujours visibles par l'équipe (anti-collision, Open space). (4) Rappels :
+  menu ⋯ d'une annonce → « Ajouter un rappel » (quoi, quand — demain 9 h par
+  défaut), ou depuis la cloche ; un rappel = tâche user_tasks créée par
+  soi-même avec due_at et negotiation_id (migration 20261012100000 :
+  colonnes + politiques insert/delete pour soi). (5) Cloches : « Rappels »
+  (icône cloche, tout le monde : échus en rouge, tâches confiées, à venir ;
+  fait / reporter d'un jour / supprimer / ouvrir ; relue chaque minute et au
+  signal REMINDERS_CHANGED) ; le re-scan mensuel passe en icône radar,
+  admin seulement. La carte « Mes tâches et rappels » de l'Accueil montre
+  l'échéance. Non fait : rien côté worker (la lecture IA d'une annonce
+  Leboncoin passe par Zyte comme avant, un coût par ajout) ; les politiques
+  RLS des tables internes (transactions, campagnes) ne changent pas — c'est
+  l'Accueil qui ne les montre plus à ces comptes.
 - **OFFRES / ANALYSE : UN MARCHÉ VIDE N'EST PLUS « PAS DE RELEVÉ », VERROU
   ANTI-DOUBLE-CLIC, AUDIT DE L'ONGLET (12/10, signalement Antoine : « j'essaie
   de faire un relevé sur le Tonale du haut mais je n'y arrive pas »)**.
