@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil, Landmark } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil, Landmark, RotateCcw } from 'lucide-react';
+import { readNote, agoLabel } from '../lib/noteJournal';
+import { fmtPhone } from '../lib/phoneKey';
 import { NegotiationsTab } from './Ventes';
 import { Treasury } from '../components/Treasury';
 import { loadLearnedModelsByBrand } from '../lib/offers/knownModels';
@@ -13,6 +15,7 @@ import {
   listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
   checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
   traceListing, type ListingTrace,
+  listOrganisationArchivedNegotiations, reactivateNegotiation, type OrgArchivedNego,
 } from '../services/workflow';
 import { studyChecks } from '../lib/study-core/studyChecks';
 import { BODY_TYPES, bodyLabel } from '../lib/study-core/bodyTypes';
@@ -99,7 +102,9 @@ export function Workflow() {
     // Trésorerie (02/10) : relevés de compte, frais, marge réelle — admin seulement.
     ...(isAdmin ? [{ id: 'tresorerie' as Tab, label: 'Trésorerie', icon: Landmark }] : []),
   ];
-  const firstTab = tabs[0]?.id ?? 'searches';
+  // Premier onglet : les études, sinon les Négociations (un compte de prospection
+  // a Archives avant Négociations dans la barre, mais arrive sur ses négociations).
+  const firstTab = (tabs.find((x) => x.id === 'searches') ?? tabs.find((x) => x.id === 'negotiations') ?? tabs[0])?.id ?? 'searches';
   const allowedTab = (t: Tab | null): Tab | null => (t && tabs.some((x) => x.id === t) ? t : null);
   const [tab, setTab] = useState<Tab>(() => allowedTab(tabFromPath(window.location.pathname)) ?? firstTab);
   // Navigation interne (Accueil → « Dossiers en cours », retour de l'historique
@@ -1155,30 +1160,97 @@ function ResultsTab() {
  * ni doublon avec la section des Résultats, ni bloc « Results » de l'ancien
  * moteur d'études, qui refaisait doublon avec l'onglet Résultats).
  */
+const NEGO_OUTCOME_LABEL: Record<string, string> = { flux: 'remise dans le flux', no_callback: 'ne pas rappeler', deleted: 'supprimée', unavailable: 'plus disponible' };
+
 function ArchivesTab() {
+  const { allowedTabs, isAdmin, organisation } = useAuth();
+  // Annonces traitées : pour un compte qui a les Résultats (un compte de prospection n'en a pas).
+  const hasResults = canSeeTab(allowedTabs, isAdmin, 'wf:resultats');
   const [hits, setHits] = useState<DailyHit[]>([]);
   const [searches, setSearches] = useState<DailySearch[]>([]);
+  // Négociations archivées de MON organisation (12/10 soir, Channing : « chaque
+  // archive appartient à son organisation ») — les miennes réactivables, celles
+  // des collègues en lecture ; jamais celles d'une autre organisation.
+  const [negos, setNegos] = useState<OrgArchivedNego[]>([]);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    Promise.all([listAllHits(), listDailySearches()])
-      .then(([h, s]) => { setHits(h); setSearches(s); })
+  const reload = () => {
+    Promise.all([
+      hasResults ? listAllHits() : Promise.resolve([] as DailyHit[]),
+      hasResults ? listDailySearches() : Promise.resolve([] as DailySearch[]),
+      listOrganisationArchivedNegotiations(),
+    ])
+      .then(([h, s, n]) => { setHits(h); setSearches(s); setNegos(n); })
       .finally(() => setLoading(false));
-  }, []);
+  };
+  useEffect(reload, [hasResults]);
   const archived = useMemo(
     () => hits.filter((h) => h.status === 'dismissed' && h.resolution),
     [hits],
   );
+  const deletedCount = negos.filter((n) => n.outcome === 'deleted').length;
+  const shownNegos = negos.filter((n) => showDeleted || n.outcome !== 'deleted');
   return (
     <div className="space-y-6">
-      {loading
-        ? <p className="text-sm text-slate-400 py-4 text-center">Chargement…</p>
-        : archived.length === 0
-          ? (
-            <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
-              Aucune annonce archivée — les annonces marquées « traitée » depuis les Résultats arrivent ici.
+      {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+      {loading ? <p className="text-sm text-slate-400 py-4 text-center">Chargement…</p> : (
+        <>
+          {hasResults && (archived.length === 0
+            ? (
+              <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
+                Aucune annonce archivée — les annonces marquées « traitée » depuis les Résultats arrivent ici.
+              </div>
+            )
+            : <ArchivedHitsSection archived={archived} searches={searches} defaultOpen />)}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
+              <MessageSquare className="w-4 h-4 text-slate-400" />
+              <span className="font-semibold text-slate-700">Négociations archivées</span>
+              <span className="text-xs text-slate-500">
+                {organisation} · {negos.length - deletedCount} — remises dans le flux, sans rappel ou plus disponibles ; l'annonce, le numéro et la note restent connus pour repérer les doublons{deletedCount ? ` · ${deletedCount} supprimée${deletedCount > 1 ? 's' : ''}` : ''}
+              </span>
+              {deletedCount > 0 && (
+                <label className="ml-auto flex items-center gap-2 text-xs text-slate-500">
+                  <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> voir aussi les supprimées
+                </label>
+              )}
             </div>
-          )
-          : <ArchivedHitsSection archived={archived} searches={searches} defaultOpen />}
+            {shownNegos.length === 0 ? (
+              <p className="px-4 pb-4 text-xs text-slate-400">Aucune négociation archivée dans ton organisation — elles arrivent ici depuis le menu ⋯ d'une négociation (après l'appel, plus disponible, supprimer).</p>
+            ) : (
+              <div className="divide-y divide-slate-100 border-t border-slate-100">
+                {shownNegos.map((a) => {
+                  const note = readNote(a.notes);
+                  return (
+                    <div key={a.id ?? `${a.owner}|${a.listing_url}|${a.archived_at ?? ''}`} className="flex items-center gap-3 px-4 py-2 text-sm">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          {a.listing_url?.startsWith('http')
+                            ? <a href={a.listing_url} target="_blank" rel="noreferrer" className="text-slate-700 hover:text-brand-ocean hover:underline truncate">{a.title}</a>
+                            : <span className="text-slate-700 truncate">{a.title}</span>}
+                          <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : a.outcome === 'flux' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                            {(a.outcome && NEGO_OUTCOME_LABEL[a.outcome]) || 'archivée'}
+                          </span>
+                          <span className="text-[11px] text-slate-400 shrink-0">{a.mine ? 'toi' : a.owner}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 truncate">
+                          {a.archived_at ? `le ${new Date(a.archived_at).toLocaleDateString('fr-FR')}` : ''}{a.phone ? ` · ${fmtPhone(a.phone)}` : ''}{note.text ? ` · note${note.at ? ` ${agoLabel(note.at)}` : ''} : ${note.text.split('\n')[0]}` : ''}
+                        </p>
+                      </div>
+                      {a.id && (
+                        <button onClick={async () => { const err = await reactivateNegotiation(a.id!); if (err) setError(err); else reload(); }} title="Le vendeur a rappelé, l'annonce est revenue : la remettre en cours" className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 shrink-0">
+                          <RotateCcw className="w-3.5 h-3.5" /> Réactiver
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

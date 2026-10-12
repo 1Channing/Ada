@@ -5,7 +5,7 @@ import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, pas
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
 import { readNote, agoLabel } from '../lib/noteJournal';
 import { fmtPhone } from '../lib/phoneKey';
-import { listOrganisations, addOrganisation, removeOrganisation, setOrganisationDefaultTabs, isProspectingOrg, DEFAULT_ORG, type Organisation } from '../services/organisations';
+import { listOrganisations, addOrganisation, removeOrganisation, setOrganisationDefaultTabs, isProspectingOrg, PROSPECTING_TABS, DEFAULT_ORG, type Organisation } from '../services/organisations';
 
 /**
  * Page ÉQUIPE (admin) — demande Channing 30/08 :
@@ -311,7 +311,7 @@ export function Equipe() {
     const r = await adminCreateAccount({ ...nu, email });
     setNuBusy(false);
     if (r.error) { setError(r.error); return; }
-    const scope = `${nu.organisation}${nu.prospectingOnly ? ', prospection seule (Négociations)' : ''}`;
+    const scope = `${nu.organisation}${nu.prospectingOnly ? ', prospection seule (Négociations, Archives)' : ''}`;
     setNuInfo(`${r.needsConfirmation
       ? `Compte créé pour ${email} (${scope}). Supabase lui a envoyé un email de confirmation : le mot de passe fonctionne après le clic. Transmets-lui le mot de passe : ${nu.password}`
       : `Compte créé pour ${email} (${scope}). Transmets-lui le mot de passe : ${nu.password}`}${r.warning ? ` — ⚠ ${r.warning}` : ''}`);
@@ -364,7 +364,7 @@ export function Equipe() {
           <div className="flex items-center gap-2 flex-wrap">
             <Building2 className="w-4 h-4 text-brand-ocean" />
             <h2 className="text-sm font-semibold text-slate-700">Organisations ({orgs.length})</h2>
-            <span className="text-xs text-slate-400">Chaque compte appartient à une organisation ; Open space et « déjà en négo » ne se partagent qu'en son sein. « Prospection seule » : ses nouveaux comptes n'ont que Négociations, quel que soit le chemin de création.</span>
+            <span className="text-xs text-slate-400">Chaque compte appartient à une organisation ; Open space et « déjà en négo » ne se partagent qu'en son sein. « Prospection seule » : ses nouveaux comptes n'ont que Négociations et Archives (celles de leur organisation), quel que soit le chemin de création.</span>
           </div>
           {orgsError && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{orgsError}</p>}
           <div className="flex flex-wrap gap-2">
@@ -379,8 +379,8 @@ export function Equipe() {
                     const pros = isProspectingOrg(row);
                     return (
                       <button
-                        onClick={async () => { const err = await setOrganisationDefaultTabs(o, pros ? null : ['wf:negociations']); if (err) setOrgsError(err); else void reload(); }}
-                        title={pros ? 'Ses nouveaux comptes reçoivent Négociations seulement — cliquer pour revenir à tous les onglets' : 'Ses nouveaux comptes reçoivent tous les onglets — cliquer pour les limiter à la prospection (Négociations)'}
+                        onClick={async () => { const err = await setOrganisationDefaultTabs(o, pros ? null : PROSPECTING_TABS); if (err) setOrgsError(err); else void reload(); }}
+                        title={pros ? 'Ses nouveaux comptes reçoivent Négociations et Archives seulement — cliquer pour revenir à tous les onglets' : 'Ses nouveaux comptes reçoivent tous les onglets — cliquer pour les limiter à la prospection (Négociations, Archives)'}
                         className={`rounded-full px-1.5 py-0.5 border ${pros ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'}`}
                       >
                         {pros ? 'prospection seule' : 'tous onglets'}
@@ -420,7 +420,7 @@ export function Equipe() {
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700 px-1">
               <input type="checkbox" checked={nu.prospectingOnly} onChange={(e) => setNu({ ...nu, prospectingOnly: e.target.checked })} />
-              Prospection seule (Négociations uniquement)
+              Prospection seule (Négociations et Archives)
             </label>
             <div className="flex gap-1 sm:col-span-2 lg:col-span-2">
               <input value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} placeholder="Mot de passe * (8 caractères, lettres et chiffres)" required autoComplete="new-password" className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
@@ -624,11 +624,11 @@ export function Equipe() {
                       <div className="flex items-center gap-2 flex-wrap text-xs">
                         <span className="text-slate-500">Préréglage :</span>
                         <button
-                          onClick={() => { if (confirm(`Donner à ${a.email} la prospection seule : onglet Négociations uniquement (accueil réduit, cloche Rappels) ?`)) void saveTabs(a, ['wf:negociations']); }}
-                          title="Compte de prospection (équipe Weecars, 12/10) : Négociations seulement — ajout d'annonces avec lecture IA et refus des doublons, notes, rappels"
+                          onClick={() => { if (confirm(`Donner à ${a.email} la prospection seule : onglets Négociations et Archives (de son organisation) uniquement, accueil réduit, cloche Rappels ?`)) void saveTabs(a, PROSPECTING_TABS); }}
+                          title="Compte de prospection (équipe Weecars, 12/10) : Négociations et Archives seulement — ajout d'annonces avec lecture IA et alerte doublons, notes, rappels, archives de son organisation"
                           className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
                         >
-                          Prospection seule (Négociations)
+                          Prospection seule (Négociations, Archives)
                         </button>
                       </div>
                     )}

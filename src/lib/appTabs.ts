@@ -19,7 +19,7 @@ export const APP_TABS = [
   // fines à la prochaine sauvegarde depuis Équipe (normalizeTabs).
   { key: 'wf:etudes', label: 'Workflow · Études quotidiennes', hint: 'Onglet Études quotidiennes (créer et suivre ses études)' },
   { key: 'wf:resultats', label: 'Workflow · Résultats', hint: 'Onglet Résultats (annonces trouvées, médianes, contact vendeur)' },
-  { key: 'wf:archives', label: 'Workflow · Archives', hint: 'Onglet Archives (études passées)' },
+  { key: 'wf:archives', label: 'Workflow · Archives', hint: 'Onglet Archives (annonces traitées, négociations archivées de son organisation)' },
   { key: 'wf:negociations', label: 'Workflow · Négociations', hint: 'Onglet Négociations, Open space compris' },
   { key: 'wf:ventes', label: 'Workflow · Ventes', hint: 'Onglet Ventes et historique des ventes' },
   { key: 'atelier', label: 'Atelier', hint: 'Campagnes, ingestion et générateur de liens' },

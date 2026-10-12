@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock, Phone, PhoneCall, Archive, RotateCcw, ArrowRight, BadgeCheck } from 'lucide-react';
+import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock, Phone, PhoneCall, ArrowRight, BadgeCheck } from 'lucide-react';
 import { listingKey } from '../lib/listingKey';
 import { phoneKey, fmtPhone } from '../lib/phoneKey';
 import { readNote, writeNote, lastNoteDate, agoLabel, worthRelaunch, RELANCE_AFTER_DAYS } from '../lib/noteJournal';
@@ -11,7 +11,7 @@ import { useAuth } from '../services/auth';
 import {
   Negotiation, listNegotiations, createNegotiation, updateNegotiation,
   pushNegotiationToSale, normalizeSaleReference,
-  archiveNegotiation, listArchivedNegotiations, reactivateNegotiation, setNegotiationPhone,
+  archiveNegotiation, listArchivedNegotiations, setNegotiationPhone,
   NegoConflict, listNegotiationConflicts,
   NegotiationFolder, listNegotiationFolders, createNegotiationFolder, renameNegotiationFolder,
   deleteNegotiationFolder, moveNegotiationToFolder,
@@ -92,10 +92,9 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   const [price, setPrice] = useState('');
   // Numéro du vendeur (12/10) : seconde clé de doublon à côté de l'annonce.
   const [phone, setPhone] = useState('');
-  // Archivées après l'appel (12/10) : remises dans le flux ou sans rappel.
+  // Archivées après l'appel (12/10) : lues ici pour les doublons et le numéro
+  // déjà vu seulement — elles s'affichent dans l'onglet Archives.
   const [archived, setArchived] = useState<Negotiation[]>([]);
-  const [archivedOpen, setArchivedOpen] = useState(false);
-  const [showDeleted, setShowDeleted] = useState(false);
   // Rappels posés sur mes annonces (12/10) : icône sur la ligne jusqu'à l'échéance.
   const [reminders, setReminders] = useState<Map<string, string>>(new Map());
   const [, setTick] = useState(0);
@@ -437,46 +436,8 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
           </div>
         )}
 
-      {/* Archivées après l'appel (12/10) : l'annonce et le numéro restent connus pour les doublons. */}
-      {archived.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-          <button onClick={() => setArchivedOpen((o) => !o)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors rounded-xl">
-            {archivedOpen ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
-            <Archive className="w-4 h-4 text-slate-400" />
-            <span className="font-semibold text-slate-700">Archivées</span>
-            <span className="text-xs text-slate-500">{archived.filter((a) => a.outcome !== 'deleted').length} · remises dans le flux, sans rappel ou plus disponibles — l'annonce, le numéro et la note restent connus pour repérer les doublons{archived.some((a) => a.outcome === 'deleted') ? ` · ${archived.filter((a) => a.outcome === 'deleted').length} supprimée${archived.filter((a) => a.outcome === 'deleted').length > 1 ? 's' : ''}` : ''}</span>
-          </button>
-          {archivedOpen && (
-            <div className="divide-y divide-slate-100 border-t border-slate-100">
-              {archived.some((a) => a.outcome === 'deleted') && (
-                <label className="flex items-center gap-2 px-4 py-2 text-xs text-slate-500">
-                  <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Voir aussi les supprimées (leur note et leur numéro servent toujours aux doublons)
-                </label>
-              )}
-              {archived.filter((a) => showDeleted || a.outcome !== 'deleted').map((a) => (
-                <div key={a.id} className="flex items-center gap-3 px-4 py-2 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      {a.listing_url?.startsWith('http')
-                        ? <a href={a.listing_url} target="_blank" rel="noreferrer" className="text-slate-700 hover:text-brand-ocean hover:underline truncate">{a.title}</a>
-                        : <span className="text-slate-700 truncate">{a.title}</span>}
-                      <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : a.outcome === 'deleted' || a.outcome === 'unavailable' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                        {a.outcome === 'no_callback' ? 'ne pas rappeler' : a.outcome === 'flux' ? 'remise dans le flux' : a.outcome === 'deleted' ? 'supprimée' : a.outcome === 'unavailable' ? 'plus disponible' : 'archivée'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 truncate">
-                      {a.archived_at ? `le ${new Date(a.archived_at).toLocaleDateString('fr-FR')}` : ''}{a.phone ? ` · ${fmtPhone(a.phone)}` : ''}{readNote(a.notes).text ? ` · ${readNote(a.notes).text.split('\n')[0]}` : ''}
-                    </p>
-                  </div>
-                  <button onClick={async () => { const err = await reactivateNegotiation(a.id); if (err) setError(err); else reload(); }} title="Le vendeur a rappelé, l'annonce est revenue : la remettre en cours" className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 shrink-0">
-                    <RotateCcw className="w-3.5 h-3.5" /> Réactiver
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Les archivées (après l'appel, plus disponibles, supprimées) vivent dans l'onglet Archives
+          (12/10 soir, Channing : « on a déjà un onglet Archives ») — ici elles ne servent qu'aux doublons. */}
     </div>
   );
 }

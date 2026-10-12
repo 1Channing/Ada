@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
+import { PROSPECTING_TABS } from './organisations';
 
 /**
  * Comptes d'équipe (Supabase Auth, email + mot de passe).
@@ -324,7 +325,7 @@ export async function adminCreateAccount(input: AdminCreateInput): Promise<{ err
     const r1 = await rpc('admin_set_organisation', { p_user: userId, p_org: org });
     if (r1.error) warnings.push(`organisation « ${org} » non posée (${/does not exist|function|schema cache/i.test(r1.error.message) ? 'SQL du 12/10 à coller' : r1.error.message}) — règle-la sur le compte`);
     if (input.prospectingOnly) {
-      const r2 = await rpc('admin_set_allowed_tabs', { p_user: userId, p_tabs: ['wf:negociations'] });
+      const r2 = await rpc('admin_set_allowed_tabs', { p_user: userId, p_tabs: PROSPECTING_TABS });
       if (r2.error) warnings.push(`préréglage prospection non posé (${r2.error.message}) — règle les onglets sur le compte`);
     }
   }

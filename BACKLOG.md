@@ -832,6 +832,29 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ARCHIVES DE NÉGOCIATION DANS L'ONGLET ARCHIVES, PAR ORGANISATION (12/10
+  soir, Channing : « on a déjà un onglet Archives, pas besoin de l'ajouter
+  en bas ; si les comptes prospection n'ont pas l'onglet Archives,
+  ajoute-le ; chaque archive appartient à son organisation, aucune donnée
+  ne doit se croiser d'une organisation à l'autre »)**. La section
+  « Archivées » quitte le bas des Négociations (les archivées n'y servent
+  plus qu'aux doublons). L'onglet Archives gagne « Négociations archivées ·
+  organisation » : les miennes (réactivables) et celles des collègues de
+  MON organisation (RPC anti-collision v3, déjà bornée à l'organisation),
+  avec propriétaire, choix d'après appel, numéro, note datée, supprimées
+  derrière une case. Les annonces traitées (hits) ne s'affichent que pour
+  un compte qui a les Résultats. Prospection seule = Négociations +
+  Archives (`PROSPECTING_TABS`) partout : préréglage Équipe, case à la
+  création, défaut d'organisation, création admin ; premier onglet du
+  Workflow = Négociations quand il n'y a pas d'études. Isolation : la
+  politique de lecture de `profiles` (jusqu'ici ouverte à tout compte
+  connecté) est bornée à soi, son organisation et les admins
+  (`is_admin_user()` security definer). SQL 20261012180000
+  (archives_prospection) à coller : Weecars et ses comptes passent à
+  Négociations + Archives. Reste ouvert à tout compte connecté, au niveau
+  API seulement (l'interface ne les montre pas aux comptes prospection) :
+  les tables métier MC Export (ventes, trésorerie, MI, réseau, Truth) —
+  verrou base par table possible sur demande.
 - **« PLUS DISPONIBLE » DANS LE MENU D'UNE NÉGOCIATION (12/10 soir, Channing :
   « dans les options, ajoute une possibilité de supprimer “plus
   disponible”, comme on avait avant — uniquement pour les comptes hors

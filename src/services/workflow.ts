@@ -656,6 +656,34 @@ export async function listNegotiationConflicts(): Promise<NegoConflict[]> {
   return ((data ?? []) as unknown) as NegoConflict[];
 }
 
+/**
+ * ARCHIVES DE NÉGOCIATION DE L'ORGANISATION (12/10 soir, Channing : « chaque
+ * archive appartient à son organisation, aucune donnée ne se croise »).
+ * Les miennes (lignes complètes, réactivables) + celles des collègues de MON
+ * organisation par la RPC anti-collision v3 (déjà bornée à l'organisation ;
+ * sans identifiant : lecture seule). Jamais celles d'une autre organisation.
+ */
+export interface OrgArchivedNego {
+  id: string | null; mine: boolean; owner: string; title: string; listing_url: string;
+  phone: string | null; notes: string; outcome: NegoOutcome | null; archived_at: string | null;
+}
+export async function listOrganisationArchivedNegotiations(): Promise<OrgArchivedNego[]> {
+  const me = uid();
+  const [mine, team] = await Promise.all([listArchivedNegotiations(), listNegotiationConflicts()]);
+  const rows: OrgArchivedNego[] = mine.map((n) => ({
+    id: n.id, mine: true, owner: 'toi', title: n.title, listing_url: n.listing_url,
+    phone: n.phone ?? null, notes: n.notes, outcome: (n.outcome as NegoOutcome | null | undefined) ?? null, archived_at: n.archived_at ?? null,
+  }));
+  for (const c of team) {
+    if (c.owner_id === me || c.status !== 'archived') continue;
+    rows.push({
+      id: null, mine: false, owner: c.owner_name, title: c.title || c.listing_url, listing_url: c.listing_url,
+      phone: c.phone ?? null, notes: c.notes, outcome: (c.outcome as NegoOutcome | null | undefined) ?? null, archived_at: c.archived_at ?? null,
+    });
+  }
+  return rows.sort((a, b) => (b.archived_at ?? '').localeCompare(a.archived_at ?? ''));
+}
+
 export async function updateNegotiation(id: string, patch: Partial<Negotiation>): Promise<void> {
   await supabase.from('negotiations').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
 }
