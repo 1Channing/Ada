@@ -832,6 +832,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ÉQUIPE : L'ACCÈS STATISTIQUES VISIBLE PARMI LES ACCÈS (12/10 soir,
+  Channing : « je voudrais voir le fait qu'ils aient accès à la page
+  Statistiques — ADA doit être transparente entre ce qui est et ce qui
+  n'est pas »)**. Dans la grille des accès du compte, une carte
+  « Statistiques (rôle manager) », verte quand le compte l'a, barrée sinon,
+  cliquable pour nommer ou retirer ; la ligne du compte ajoute « +
+  Statistiques ». Zéro SQL.
 - **OPEN SPACE : TOUT MEMBRE DE L'ORGANISATION PEUT RETIRER UNE ANNONCE
   (12/10 soir, Channing : « peu importe qui l'y a mise »)**. Règle de
   suppression de open_space_items : même organisation que celui qui a

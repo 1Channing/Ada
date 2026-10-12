@@ -552,7 +552,7 @@ export function Equipe() {
                   )}
                   <span className="ml-auto text-xs text-slate-400 shrink-0">
                     {a.organisation && a.organisation !== 'MC Export' ? `${a.organisation} · ` : ''}
-                    {visible.length === all.length ? 'tous les onglets' : `${visible.length}/${all.length} onglets`}
+                    {visible.length === all.length ? 'tous les onglets' : `${visible.length}/${all.length} onglets`}{a.is_manager && !a.is_admin ? ' + Statistiques' : ''}
                     {(() => {
                       // La plus récente des deux traces : activité télémétrie
                       // (la vraie) ou saisie du mot de passe (repli).
@@ -615,6 +615,19 @@ export function Equipe() {
                                 </div>
                               </div>
                               {others.map((t) => <Card key={t.key} t={t} />)}
+                              {/* Statistiques (12/10 soir) : pas un onglet par compte mais le rôle MANAGER — montré ici,
+                                  au même endroit que les accès, pour voir ce qui est et ce qui n'est pas. */}
+                              <button
+                                onClick={() => void toggleManager(a)}
+                                title="Rôle manager : l'onglet Statistiques de son organisation (négociations, notes, annonces, analyses, rendez-vous de tous ses comptes)"
+                                className={`flex items-start gap-2 rounded-lg text-left border transition-colors px-3 py-2 ${a.is_manager ? 'bg-emerald-50 border-emerald-300 hover:bg-emerald-100' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`}
+                              >
+                                <CheckCircle2 className={`w-4 h-4 mt-0.5 shrink-0 ${a.is_manager ? 'text-emerald-600' : 'text-slate-300'}`} />
+                                <span className="min-w-0">
+                                  <span className={`block text-xs font-medium ${a.is_manager ? 'text-emerald-800' : 'text-slate-400 line-through'}`}>Statistiques <span className="font-normal">(rôle manager)</span></span>
+                                  <span className={`block text-[11px] leading-snug ${a.is_manager ? 'text-emerald-700/80' : 'text-slate-400'}`}>Les chiffres de prospection de son organisation : négociations, notes, annonces, analyses, rendez-vous pris, Open space</span>
+                                </span>
+                              </button>
                             </div>
                           );
                         })()}
