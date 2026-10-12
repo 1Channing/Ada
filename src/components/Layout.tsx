@@ -137,7 +137,9 @@ export function Layout({ children }: LayoutProps) {
           {/* Logo : /logo-mark.png (version sans texte) — repli sur la
               marque « orbite » si le fichier n'est pas encore déposé. */}
           <div className="flex items-center gap-3 pr-4 mr-1 border-r border-white/20 max-md:shrink-0">
-            <span className="w-9 h-9 rounded-lg bg-white/95 grid place-items-center overflow-hidden shadow-sm">
+            {/* Blanc OPAQUE (12/10) : le fichier du logo est blanc pur ; un blanc à 95 % laissait
+                transparaître le bleu du bandeau et dessinait un carré derrière la marque. */}
+            <span className="w-9 h-9 rounded-lg bg-white grid place-items-center overflow-hidden shadow-sm">
               <img
                 src="/logo-mark.png"
                 alt=""

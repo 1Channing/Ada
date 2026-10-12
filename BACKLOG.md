@@ -832,6 +832,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **LOGO SUR BLANC PUR, OPEN SPACE SANS BANDEAU (12/10 soir, Channing : « le
+  fond blanc derrière le logo doit être le même blanc que celui du logo » ;
+  « enlève ce texte, juste une notif avec le nombre de nouvelles annonces
+  sur l'Open space qui disparaît une fois vues, on évite les messages
+  superflus »)**. Le fichier logo-mark.png est blanc pur (255,255,255) ; le
+  carré derrière était `bg-white/95`, teinté par le bleu du bandeau → blanc
+  opaque. Le bandeau violet « N de tes annonces vivent dans l'Open space »
+  est retiré ; le badge du bouton Open space (et de l'entrée Workflow) ne
+  compte plus que les NOUVELLES ANNONCES poussées par les autres depuis la
+  dernière visite (les notes ne comptent plus) et s'efface à l'ouverture.
+  Seule trace restante : l'état vide « Aucune négociation ici — tes N
+  annonces sont dans l'Open space ». Zéro SQL.
 - **ÉQUIPE : ACTIVITÉ DES COMPTES DE PROSPECTION, COMPTES PAR ORGANISATION
   (12/10 soir, Channing : « pour chaque utilisateur d'un compte prospection,
   voir les négociations en cours et le nombre d'analyses lancées depuis

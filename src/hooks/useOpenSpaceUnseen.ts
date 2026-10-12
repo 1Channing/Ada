@@ -6,8 +6,8 @@
  * le bandeau (entrée Workflow), l'onglet Négociations et le bouton ; il se
  * rafraîchit toutes les 60 s, au retour sur l'onglet du navigateur et à
  * chaque navigation interne, et se remet à zéro quand l'Open space s'ouvre.
- * Compte = annonces poussées ou notes écrites PAR LES AUTRES depuis ma
- * dernière visite (services/openSpace).
+ * Compte = annonces poussées PAR LES AUTRES depuis ma dernière visite
+ * (services/openSpace) — les notes ne comptent plus (12/10).
  */
 import { useEffect, useSyncExternalStore } from 'react';
 import { openSpaceUnseenCount, markOpenSpaceSeen } from '../services/openSpace';

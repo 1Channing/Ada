@@ -106,18 +106,19 @@ export async function deleteOpenSpaceNote(id: string): Promise<string | null> {
   return error ? error.message : null;
 }
 
-/** Nouveautés poussées ou commentées par LES AUTRES depuis ma dernière visite. */
+/**
+ * NOUVELLES ANNONCES poussées par LES AUTRES depuis ma dernière visite — le
+ * badge (12/10, Channing : « juste une notif avec le nombre de nouvelles
+ * annonces, qui disparaît une fois vues »). Les notes ne comptent plus.
+ */
 export async function openSpaceUnseenCount(): Promise<number> {
   const userId = useAuth.getState().userId;
   if (!userId) return 0;
   const { data: seen } = await sb.from('open_space_seen').select('seen_at').eq('user_id', userId).maybeSingle();
   const since = (seen as { seen_at?: string } | null)?.seen_at ?? '1970-01-01T00:00:00Z';
-  const [items, notes] = await Promise.all([
-    sb.from('open_space_items').select('id', { count: 'exact', head: true }).neq('pushed_by', userId).gt('pushed_at', since),
-    sb.from('open_space_notes').select('id', { count: 'exact', head: true }).neq('author_id', userId).gt('created_at', since),
-  ]);
-  if (items.error && notes.error) return 0;
-  return (items.count ?? 0) + (notes.count ?? 0);
+  const items = await sb.from('open_space_items').select('id', { count: 'exact', head: true }).neq('pushed_by', userId).gt('pushed_at', since);
+  if (items.error) return 0;
+  return items.count ?? 0;
 }
 
 export async function markOpenSpaceSeen(): Promise<void> {

@@ -368,20 +368,13 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
         </div>
       )}
 
-      {/* Les annonces poussées dans l'Open space ne vivent que là-bas (12/10) : la liste le dit, sans les montrer. */}
-      {!loading && sharedCount > 0 && (
-        <button onClick={() => { setOpenSpace(true); clearOpenSpaceUnseen(); }} className="w-full flex items-center gap-2 text-left text-sm text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2 hover:bg-violet-100 transition-colors">
-          <Share2 className="w-4 h-4 shrink-0 text-violet-600" />
-          <span className="flex-1">{sharedCount} de tes annonce{sharedCount > 1 ? 's' : ''} {sharedCount > 1 ? 'vivent' : 'vit'} dans l'Open space — visible{sharedCount > 1 ? 's' : ''} là-bas seulement. Pour {sharedCount > 1 ? 'en' : 'la'} reprendre ici : « Retirer de l'Open space » sur sa carte.</span>
-          <span className="text-xs font-medium shrink-0">Ouvrir l'Open space →</span>
-        </button>
-      )}
-
+      {/* Les annonces poussées dans l'Open space ne vivent que là-bas (12/10) — sans bandeau :
+          le badge du bouton Open space signale les nouvelles annonces, rien d'autre. */}
       {loading ? <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>
         : visible.length === 0 ? (
           <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
             {sharedCount > 0
-              ? `Rien ici : ${sharedCount > 1 ? `tes ${sharedCount} annonces sont` : 'ton annonce est'} dans l'Open space.`
+              ? `Aucune négociation ici — ${sharedCount > 1 ? `tes ${sharedCount} annonces sont` : 'ton annonce est'} dans l'Open space.`
               : hasStudies ? "Aucune négociation — enregistre une annonce depuis l'accueil (Nouvelles annonces) ou ajoute-la ici." : "Aucune négociation — clique sur « Ajouter » et colle l'URL de l'annonce."}
           </div>
         ) : folders.length === 0 ? (
