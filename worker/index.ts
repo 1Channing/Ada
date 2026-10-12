@@ -18,6 +18,7 @@ import { startDailySearchScheduler } from './dailySearches';
 import { startSalesSheetSync } from './salesSheetSync';
 import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
+import { startReminderMailer } from './reminderMailer';
 import { runDealerStock } from './dealerStock';
 import { startDealerStockScheduler } from './dealerStockScheduler';
 import { getFxRates } from './fx';
@@ -697,6 +698,8 @@ app.listen(PORT, "0.0.0.0", () => {
     setInterval(() => void refreshFx(), 6 * 60 * 60 * 1000);
     // E-mails depuis un dossier (Gmail au nom de l'expéditeur) — 29/09.
     startMailer();
+    // Rappels par e-mail à l'échéance, de soi à soi (comptes du domaine) — 12/10.
+    startReminderMailer();
     // Preuve de marché modèle × carburant : première moisson dès que la
     // table existe, puis rafraîchissement mensuel (garde 30 min).
     startFuelEvidenceScheduler();

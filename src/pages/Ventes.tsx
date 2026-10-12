@@ -754,7 +754,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, sharedItemId, onChanged, 
         <div className="fixed inset-0 z-50 bg-slate-900/40 grid place-items-center p-4" onClick={() => !remBusy && setAskReminder(false)}>
           <form onSubmit={(e) => { e.preventDefault(); void submitReminder(); }} className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-semibold text-slate-900 flex items-center gap-2"><AlarmClock className="w-4 h-4 text-rose-500" /> Rappel pour « {n.title} »</h3>
-            <p className="text-sm text-slate-600">Il apparaîtra dans la cloche Rappels à l'échéance, avec un lien vers tes négociations.</p>
+            <p className="text-sm text-slate-600">Il apparaîtra dans la cloche Rappels à l'échéance, avec un lien vers tes négociations. Compte @mc-export.com : tu reçois aussi un e-mail à ce moment-là, avec le texte ci-dessous.</p>
             <label className="block text-xs text-slate-600">Quoi
               <input autoFocus value={remTitle} onChange={(e) => setRemTitle(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
             </label>

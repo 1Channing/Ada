@@ -14,6 +14,9 @@ export interface UserTask {
   due_at?: string | null;
   /** Négociation d'origine du rappel, s'il vient d'une annonce. */
   negotiation_id?: string | null;
+  /** E-mail de rappel envoyé par le worker à l'échéance (comptes du domaine), 12/10. */
+  notified_at?: string | null;
+  notify_error?: string | null;
 }
 /** Un rappel = une tâche datée (créée par soi-même depuis une annonce ou la cloche). */
 export const isReminder = (t: UserTask): boolean => t.due_at != null;
@@ -83,9 +86,10 @@ export async function createReminder(input: { title: string; note?: string | nul
   return error.message;
 }
 
-/** Reporter un rappel à une nouvelle échéance. */
+/** Reporter un rappel à une nouvelle échéance — l'e-mail repartira à la nouvelle date. */
 export async function snoozeReminder(id: string, dueAt: string): Promise<string | null> {
-  const { error } = await untyped.from('user_tasks').update({ due_at: dueAt }).eq('id', id);
+  let { error } = await untyped.from('user_tasks').update({ due_at: dueAt, notified_at: null, notify_error: null }).eq('id', id);
+  if (error && /notified_at|notify_error|column/i.test(error.message)) ({ error } = await untyped.from('user_tasks').update({ due_at: dueAt }).eq('id', id));
   if (!error) notifyRemindersChanged();
   return error ? error.message : null;
 }

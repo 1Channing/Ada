@@ -832,6 +832,21 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **RAPPELS PAR E-MAIL À L'ÉCHÉANCE (12/10, Channing : « pour le groupe MC
+  Export, que les rappels envoient un mail à leur propriétaire à la date,
+  avec la note — c'est possible ? »)**. Oui, sans rien de nouveau côté
+  Google : worker/reminderMailer.ts relit chaque minute les rappels échus
+  non notifiés et envoie, par la délégation Gmail déjà en place pour les
+  e-mails de dossier (mailer.ts, `sendPlainMail`), un e-mail DE SOI À SOI :
+  sujet « Rappel ADA : <titre> », corps = échéance, titre, note, lien vers
+  ADA (ADA_APP_URL, défaut ada-ui-test). Réservation par mise à jour
+  conditionnelle (notified_at IS NULL), jamais deux envois ; un compte hors
+  domaine (Weecars) reçoit le refus de Google dans notify_error, sans
+  relance, la cloche sonne pour lui quand même. Reporter un rappel remet
+  notified_at à null : le mail repart à la nouvelle date. Migration
+  20261012110000 (notified_at, notify_error, index partiel). Cloche :
+  « mail envoyé » / « pas de mail » sur chaque rappel. Preuve de faisabilité :
+  cinq e-mails de dossier envoyés le 07/10 depuis channing@ et antoine@.
 - **UNE NOTE PAR ANNONCE, DATÉE À LA MODIFICATION ; UN SEUL PANNEAU OUVERT
   (12/10, Channing : « plutôt que d'empiler des notes, on modifie la note
   en cours et ça met à jour la date » ; « qu'on ne puisse en ouvrir qu'une à

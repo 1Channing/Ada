@@ -8,7 +8,7 @@
  * La cloche du re-scan mensuel (NotificationCenter) est réservée à l'admin.
  */
 import { useEffect, useState } from 'react';
-import { Bell, Check, Trash2, X, ArrowUpRight, ExternalLink, Loader2, Plus, AlarmClock, CalendarClock } from 'lucide-react';
+import { Bell, Check, Trash2, X, ArrowUpRight, ExternalLink, Loader2, Plus, AlarmClock, CalendarClock, Mail } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import {
   listMyTasks, setTaskDone, deleteTask, createReminder, snoozeReminder, markTasksSeen, isDue, isReminder,
@@ -112,6 +112,8 @@ export function ReminderCenter() {
         {t.note && <p className="text-xs text-slate-600 mt-0.5 whitespace-pre-line line-clamp-2">{t.note}</p>}
         <p className={`text-[11px] mt-0.5 ${tone === 'due' ? 'text-rose-700 font-medium' : 'text-slate-500'}`}>
           {t.due_at ? <><AlarmClock className="w-3 h-3 inline -mt-0.5 mr-0.5" />{fmtWhen(t.due_at)}</> : `confiée par l'admin le ${new Date(t.created_at).toLocaleDateString('fr-FR')}`}
+          {t.notified_at && !t.notify_error && <span title={`E-mail envoyé le ${new Date(t.notified_at).toLocaleString('fr-FR')}`} className="ml-1.5 text-emerald-700"><Mail className="w-3 h-3 inline -mt-0.5" /> mail envoyé</span>}
+          {t.notify_error && <span title={t.notify_error} className="ml-1.5 text-slate-400"><Mail className="w-3 h-3 inline -mt-0.5" /> pas de mail</span>}
         </p>
       </div>
       <div className="flex items-center gap-0.5 shrink-0">
@@ -163,7 +165,7 @@ export function ReminderCenter() {
           {loading ? (
             <p className="text-xs text-slate-500 flex items-center gap-2 py-3"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement…</p>
           ) : tasks.length === 0 ? (
-            <p className="text-xs text-slate-500 py-3">Aucun rappel. Pose-en un depuis une annonce (menu ⋯ → « Ajouter un rappel ») ou avec le bouton Rappel.</p>
+            <p className="text-xs text-slate-500 py-3">Aucun rappel. Pose-en un depuis une annonce (menu ⋯ → « Ajouter un rappel ») ou avec le bouton Rappel. À l'échéance, les comptes @mc-export.com reçoivent aussi un e-mail.</p>
           ) : (
             <div className="max-h-[60vh] overflow-y-auto space-y-3">
               {due.length > 0 && <ul className="space-y-1.5">{due.map((t) => <Row key={t.id} t={t} tone="due" />)}</ul>}

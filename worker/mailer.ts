@@ -33,11 +33,25 @@ const STUCK_MS = 10 * 60 * 1000;
 
 let running = false;
 
+/** Identifiants Gmail (compte de service, délégation domaine) — null sans clé ou clé illisible. */
+export function mailCreds(): Creds | null {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) return null;
+  try { return JSON.parse(raw) as Creds; } catch { return null; }
+}
+
+/** Un e-mail texte simple AU NOM de `from` (adresse du domaine Google Workspace),
+ *  sans pièce jointe — rappels (12/10). Mêmes refus que les dossiers : hors
+ *  domaine, Google refuse le jeton et l'erreur remonte telle quelle. */
+export async function sendPlainMail(creds: Creds, mail: { from: string; fromName?: string | null; to: string; subject: string; body: string }): Promise<{ id: string; threadId: string }> {
+  return sendOne(creds, { id: '', to_email: mail.to, subject: mail.subject, body: mail.body, attachments: [], sender_email: mail.from, sender_name: mail.fromName ?? null, sent_by: null });
+}
+
 export function startMailer(): void {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) { console.log('[MAIL] en attente de GOOGLE_SERVICE_ACCOUNT_JSON — envoi d\'e-mails inactif'); return; }
-  let creds: Creds;
-  try { creds = JSON.parse(raw) as Creds; } catch { console.warn('[MAIL] GOOGLE_SERVICE_ACCOUNT_JSON illisible — envoi inactif'); return; }
+  const creds = mailCreds();
+  if (!creds) { console.warn('[MAIL] GOOGLE_SERVICE_ACCOUNT_JSON illisible — envoi inactif'); return; }
   // Visible dans worker_logs : ce qu'il faut autoriser dans Google Admin.
   console.warn(`[MAIL] compte de service ${creds.client_email} — client_id ${creds.client_id ?? '(absent du JSON)'} : à autoriser dans Google Admin → Sécurité → Contrôle des API → Délégation au niveau du domaine, avec le droit ${GMAIL_SCOPE}`);
   setInterval(() => void tick(creds), POLL_MS);
