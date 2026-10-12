@@ -832,6 +832,27 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ORGANISATIONS ENCADRÉES : LISTE DE RÉFÉRENCE, CHOIX À LA CRÉATION DU
+  COMPTE ET SUR LES ADRESSES AUTORISÉES, PROTECTION (12/10 soir, Channing :
+  « je n'ai pas les organisations d'enregistrées, à la création je ne peux
+  pas l'ajouter à une organisation, il faut que tout soit bien encadré »)**.
+  Constat : la colonne existait (tous les profils en « MC Export ») mais
+  l'organisation n'était qu'un champ libre par compte, posé APRÈS la
+  création — et segre@monagenceautomobile.fr est en MC Export. Désormais :
+  table organisations (liste de référence, section « Organisations » en
+  haut d'Équipe : comptes par organisation, ajout, suppression si vide) ;
+  à la CRÉATION d'un compte : sélecteur d'organisation + case « Prospection
+  seule », posés par RPC admin (admin_set_organisation crée la ligne de
+  profil si elle manque, comme admin_set_allowed_tabs) ; les adresses
+  autorisées à s'inscrire portent leur organisation (auth_allowlist.
+  organisation, sélecteur dans la liste) et le profil la reçoit à
+  l'inscription (trigger profile_default_organisation, sinon MC Export) ;
+  personne ne change sa propre organisation (protect_profile_privileges
+  étendu) ; open_space_set_photos limité à l'organisation ; sélecteur par
+  compte (plus de champ libre). Migration 20261012140000. Réponse à la
+  question : oui, jusque-là onglets et préréglage ne se réglaient qu'après
+  la création ; maintenant organisation et prospection seule se posent dès
+  le formulaire, les onglets fins restent réglables après.
 - **ORGANISATIONS, RAPPEL SUR LA LIGNE, NUMÉRO VALIDÉ AU-DESSUS DES NOTES,
   FLÈCHE « SUITE » (12/10 après-midi, Channing)**. (1) profiles.organisation
   (texte libre, admin, page Équipe : champ avec la liste des organisations

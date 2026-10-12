@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy } from 'lucide-react';
+import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, passwordWeakness } from '../services/auth';
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
+import { listOrganisations, addOrganisation, removeOrganisation, DEFAULT_ORG } from '../services/organisations';
 
 /**
  * Page ÉQUIPE (admin) — demande Channing 30/08 :
@@ -34,7 +35,7 @@ interface Account {
   last_activity_at?: string | null;
 }
 
-interface AllowRow { email: string; note: string | null; created_at: string }
+interface AllowRow { email: string; note: string | null; created_at: string; organisation?: string | null }
 
 /** Études quotidiennes de tous les comptes (RPC admin, migration 31/08). */
 interface TeamSearch {
@@ -103,25 +104,36 @@ export function Equipe() {
   const [loading, setLoading] = useState(true);
   const [newEmail, setNewEmail] = useState('');
   const [newNote, setNewNote] = useState('');
+  const [newAllowOrg, setNewAllowOrg] = useState(DEFAULT_ORG);
+  // Organisations (12/10) : la liste de référence, gérée ici.
+  const [orgs, setOrgs] = useState<string[]>([DEFAULT_ORG]);
+  const [orgsError, setOrgsError] = useState<string | null>(null);
+  const [newOrg, setNewOrg] = useState('');
   // Création de compte par l'admin (07/09).
-  const [nu, setNu] = useState({ firstName: '', lastName: '', phone: '', email: '', password: '' });
+  const [nu, setNu] = useState({ firstName: '', lastName: '', phone: '', email: '', password: '', organisation: DEFAULT_ORG, prospectingOnly: false });
   const [nuBusy, setNuBusy] = useState(false);
   const [nuInfo, setNuInfo] = useState<string | null>(null);
   const [resetInfo, setResetInfo] = useState<string | null>(null);
 
   const reload = async () => {
     setError(null);
-    const [{ data: acc, error: e1 }, { data: al, error: e2 }, sr, ng] = await Promise.all([
+    const [{ data: acc, error: e1 }, allowRes, sr, ng, orgRes] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       supabase.rpc('admin_list_accounts' as never) as any,
-      supabase.from('auth_allowlist').select('email, note, created_at').order('created_at'),
+      // Organisation des adresses autorisées (SQL du 12/10) — relecture sans elle si la colonne manque.
+      (async () => {
+        const r = await supabase.from('auth_allowlist').select('email, note, created_at, organisation' as never).order('created_at');
+        return r.error && /organisation/.test(r.error.message) ? supabase.from('auth_allowlist').select('email, note, created_at').order('created_at') : r;
+      })(),
       // Activité par compte (migration 31/08) — dégradation propre tant que
       // le SQL n'est pas collé : sections simplement absentes, pas d'erreur.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       supabase.rpc('admin_list_daily_searches' as never) as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       supabase.rpc('admin_list_negotiations' as never) as any,
+      listOrganisations(),
     ]);
+    const { data: al, error: e2 } = allowRes as { data: unknown; error: { message: string } | null };
     void reloadLeads();
     if (e1) setError(`Comptes : ${e1.message} — la migration 20260830120000 est-elle appliquée ?`);
     else {
@@ -133,6 +145,9 @@ export function Equipe() {
     }
     if (e2) setError((prev) => prev ?? `Liste d'inscription : ${e2.message}`);
     else setAllow((al ?? []) as AllowRow[]);
+    // La liste de référence (MC Export toujours en tête).
+    setOrgs([...new Set([DEFAULT_ORG, ...orgRes.names])].sort((a, b) => (a === DEFAULT_ORG ? -1 : b === DEFAULT_ORG ? 1 : a.localeCompare(b, 'fr'))));
+    setOrgsError(orgRes.error);
     setSearches(sr.error ? null : ((sr.data ?? []) as TeamSearch[]));
     setNegos(ng.error ? null : ((ng.data ?? []) as TeamNego[]));
     setLoading(false);
@@ -193,12 +208,29 @@ export function Equipe() {
 
   /** Organisation d'un compte (12/10) — RPC admin ; sans le SQL, message explicite. */
   const saveOrganisation = async (a: Account, raw: string) => {
-    const org = raw.trim() || 'MC Export';
-    if (org === (a.organisation || 'MC Export')) return;
+    const org = raw.trim() || DEFAULT_ORG;
+    if (org === (a.organisation || DEFAULT_ORG)) return;
     setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, organisation: org } : x)));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const r = await (supabase as any).rpc('admin_set_organisation', { p_user: a.id, p_org: org });
     if (r.error) { setError(`Organisation de ${a.email} NON enregistrée : ${/does not exist|function|schema cache/i.test(r.error.message) ? 'colle la migration 20261012130000 (organisations).' : r.error.message}`); void reload(); }
+  };
+
+  const createOrg = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newOrg.trim();
+    if (!name) return;
+    const err = await addOrganisation(name);
+    if (err) { setOrgsError(err); return; }
+    setNewOrg(''); setOrgsError(null);
+    void reload();
+  };
+  const dropOrg = async (name: string) => {
+    const members = accounts.filter((x) => (x.organisation || DEFAULT_ORG) === name).length;
+    if (members > 0) { setOrgsError(`« ${name} » a ${members} compte${members > 1 ? 's' : ''} : change-les d'organisation avant de la supprimer.`); return; }
+    if (!confirm(`Supprimer l'organisation « ${name} » (aucun compte) ?`)) return;
+    const err = await removeOrganisation(name);
+    if (err) setOrgsError(err); else void reload();
   };
 
   const toggleAdmin = async (a: Account) => {
@@ -217,7 +249,8 @@ export function Equipe() {
     e.preventDefault();
     const email = newEmail.trim().toLowerCase();
     if (!email) return;
-    const { error: err } = await supabase.from('auth_allowlist').insert({ email, note: newNote.trim() || null });
+    let { error: err } = await supabase.from('auth_allowlist').insert({ email, note: newNote.trim() || null, organisation: newAllowOrg } as never);
+    if (err && /organisation/.test(err.message)) ({ error: err } = await supabase.from('auth_allowlist').insert({ email, note: newNote.trim() || null }));
     if (err) { setError(err.message); return; }
     setNewEmail(''); setNewNote('');
     void reload();
@@ -243,17 +276,19 @@ export function Equipe() {
     // création : on y inscrit l'adresse d'abord, si la liste est armée.
     // Idempotent : une adresse déjà présente ne fait pas d'erreur.
     if (allow.length > 0) {
-      const { error: err } = await supabase.from('auth_allowlist')
-        .upsert({ email, note: nu.firstName.trim() || null }, { onConflict: 'email', ignoreDuplicates: true });
+      let { error: err } = await supabase.from('auth_allowlist')
+        .upsert({ email, note: nu.firstName.trim() || null, organisation: nu.organisation } as never, { onConflict: 'email', ignoreDuplicates: true });
+      if (err && /organisation/.test(err.message)) ({ error: err } = await supabase.from('auth_allowlist').upsert({ email, note: nu.firstName.trim() || null }, { onConflict: 'email', ignoreDuplicates: true }));
       if (err) { setError(`Liste d'inscription : ${err.message}`); setNuBusy(false); return; }
     }
     const r = await adminCreateAccount({ ...nu, email });
     setNuBusy(false);
     if (r.error) { setError(r.error); return; }
-    setNuInfo(r.needsConfirmation
-      ? `Compte créé pour ${email}. Supabase lui a envoyé un email de confirmation : le mot de passe fonctionne après le clic. Transmets-lui le mot de passe : ${nu.password}`
-      : `Compte créé pour ${email}. Transmets-lui le mot de passe : ${nu.password}`);
-    setNu({ firstName: '', lastName: '', phone: '', email: '', password: '' });
+    const scope = `${nu.organisation}${nu.prospectingOnly ? ', prospection seule (Négociations)' : ''}`;
+    setNuInfo(`${r.needsConfirmation
+      ? `Compte créé pour ${email} (${scope}). Supabase lui a envoyé un email de confirmation : le mot de passe fonctionne après le clic. Transmets-lui le mot de passe : ${nu.password}`
+      : `Compte créé pour ${email} (${scope}). Transmets-lui le mot de passe : ${nu.password}`}${r.warning ? ` — ⚠ ${r.warning}` : ''}`);
+    setNu({ firstName: '', lastName: '', phone: '', email: '', password: '', organisation: nu.organisation, prospectingOnly: false });
     void reload();
   };
 
@@ -276,7 +311,6 @@ export function Equipe() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <datalist id="org-list">{[...new Set(accounts.map((x) => x.organisation || 'MC Export'))].map((o) => <option key={o} value={o} />)}</datalist>
       <div className="flex items-center gap-3">
         <Users className="w-6 h-6 text-brand-ocean" />
         <div>
@@ -287,6 +321,34 @@ export function Equipe() {
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
       {loading && <p className="text-sm text-slate-400 py-6 text-center">Chargement…</p>}
+
+      {/* ── Organisations (12/10) : la liste de référence, un compte appartient à l'une d'elles ── */}
+      {!loading && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Building2 className="w-4 h-4 text-brand-ocean" />
+            <h2 className="text-sm font-semibold text-slate-700">Organisations ({orgs.length})</h2>
+            <span className="text-xs text-slate-400">Chaque compte appartient à une organisation ; Open space et « déjà en négo » ne se partagent qu'en son sein.</span>
+          </div>
+          {orgsError && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{orgsError}</p>}
+          <div className="flex flex-wrap gap-2">
+            {orgs.map((o) => {
+              const n = accounts.filter((x) => (x.organisation || DEFAULT_ORG) === o).length;
+              return (
+                <span key={o} className="inline-flex items-center gap-1.5 text-xs rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+                  <span className="font-medium text-slate-800">{o}</span>
+                  <span className="text-slate-500">{n} compte{n > 1 ? 's' : ''}</span>
+                  {o !== DEFAULT_ORG && n === 0 && <button onClick={() => void dropOrg(o)} title="Supprimer (aucun compte)" className="text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>}
+                </span>
+              );
+            })}
+          </div>
+          <form onSubmit={createOrg} className="flex gap-2">
+            <input value={newOrg} onChange={(e) => setNewOrg(e.target.value)} placeholder="Nouvelle organisation (ex. Weecars Angers)" className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
+            <button type="submit" disabled={!newOrg.trim()} className="flex items-center gap-1.5 bg-brand-ocean hover:bg-brand-encre disabled:opacity-50 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors"><Plus className="w-4 h-4" /> Ajouter</button>
+          </form>
+        </div>
+      )}
 
       {/* ── Créer un compte (admin) ── */}
       {!loading && (
@@ -301,6 +363,16 @@ export function Equipe() {
             <input value={nu.lastName} onChange={(e) => setNu({ ...nu, lastName: e.target.value })} placeholder="Nom *" required className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
             <input type="tel" value={nu.phone} onChange={(e) => setNu({ ...nu, phone: e.target.value })} placeholder="Téléphone" className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
             <input type="email" value={nu.email} onChange={(e) => setNu({ ...nu, email: e.target.value })} placeholder="prenom@mc-export.com *" required autoComplete="off" className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
+              <select value={nu.organisation} onChange={(e) => setNu({ ...nu, organisation: e.target.value })} className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-ocean/40">
+                {orgs.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700 px-1">
+              <input type="checkbox" checked={nu.prospectingOnly} onChange={(e) => setNu({ ...nu, prospectingOnly: e.target.checked })} />
+              Prospection seule (Négociations uniquement)
+            </label>
             <div className="flex gap-1 sm:col-span-2 lg:col-span-2">
               <input value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} placeholder="Mot de passe * (8 caractères, lettres et chiffres)" required autoComplete="new-password" className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
               <button type="button" onClick={() => setNu({ ...nu, password: suggestPassword() })} title="Proposer un mot de passe" className="px-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"><Wand2 className="w-4 h-4" /></button>
@@ -453,15 +525,15 @@ export function Equipe() {
                     )}
                     <div className="flex items-center gap-2 flex-wrap text-xs">
                       <label className="text-slate-500">Organisation
-                        <input
-                          list="org-list"
-                          defaultValue={a.organisation || 'MC Export'}
-                          onBlur={(e) => void saveOrganisation(a, e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                          className="ml-2 px-2 py-1 rounded border border-slate-300 bg-white w-56 text-slate-800"
-                        />
+                        <select
+                          value={a.organisation || DEFAULT_ORG}
+                          onChange={(e) => void saveOrganisation(a, e.target.value)}
+                          className="ml-2 px-2 py-1 rounded border border-slate-300 bg-white text-slate-800"
+                        >
+                          {[...new Set([...orgs, a.organisation || DEFAULT_ORG])].map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
                       </label>
-                      <span className="text-slate-400">Open space et « déjà en négo » ne se partagent qu'au sein d'une organisation (Weecars Angers, Mon agence automobile, MC Export…).</span>
+                      <span className="text-slate-400">Une organisation manquante s'ajoute dans la liste en haut de page.</span>
                     </div>
                     {!a.is_admin && (
                       <div className="flex items-center gap-2 flex-wrap text-xs">
@@ -623,6 +695,7 @@ export function Equipe() {
                   <li key={r.email} className="flex items-center gap-3 py-2">
                     <span className="text-sm text-slate-800">{r.email}</span>
                     {r.note && <span className="text-xs text-slate-400">{r.note}</span>}
+                    <span className="text-[11px] text-slate-500 border border-slate-200 rounded-full px-2 py-0.5">{r.organisation || DEFAULT_ORG}</span>
                     <button
                       onClick={() => void removeAllow(r.email)}
                       className="ml-auto p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
@@ -649,12 +722,15 @@ export function Equipe() {
                 placeholder="Note (ex. prénom)"
                 className="w-36 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40"
               />
+              <select value={newAllowOrg} onChange={(e) => setNewAllowOrg(e.target.value)} title="Organisation que recevra le compte à l'inscription" className="px-2 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+                {orgs.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
               <button type="submit" className="flex items-center gap-1.5 bg-brand-ocean hover:bg-brand-encre text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
                 <Plus className="w-4 h-4" /> Ajouter
               </button>
             </form>
             <p className="text-[11px] text-slate-400">
-              Le verrou s'applique à l'INSCRIPTION seulement — les comptes existants ne sont jamais bloqués. Une adresse = un compte.
+              Le verrou s'applique à l'INSCRIPTION seulement — les comptes existants ne sont jamais bloqués. Une adresse = un compte ; le compte reçoit l'organisation de son adresse à l'inscription.
             </p>
           </div>
         </div>

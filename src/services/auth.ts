@@ -270,15 +270,21 @@ export async function signOut(): Promise<void> {
 // page ajoute l'adresse à la liste avant. Si la confirmation d'email est
 // activée côté Supabase, la personne reçoit le mail de confirmation et le
 // mot de passe choisi fonctionne après le clic.
-export interface AdminCreateInput { email: string; password: string; firstName: string; lastName: string; phone: string }
-export async function adminCreateAccount(input: AdminCreateInput): Promise<{ error: string | null; needsConfirmation: boolean }> {
+export interface AdminCreateInput {
+  email: string; password: string; firstName: string; lastName: string; phone: string;
+  /** Organisation du compte (12/10) — posée par RPC admin dès la création. */
+  organisation?: string;
+  /** Compte de prospection seule : onglet Négociations uniquement, dès la création. */
+  prospectingOnly?: boolean;
+}
+export async function adminCreateAccount(input: AdminCreateInput): Promise<{ error: string | null; needsConfirmation: boolean; userId: string | null; warning: string | null }> {
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
   const phone = input.phone.trim();
-  if (!firstName) return { error: 'Le prénom est requis.', needsConfirmation: false };
-  if (!lastName) return { error: 'Le nom est requis.', needsConfirmation: false };
+  if (!firstName) return { error: 'Le prénom est requis.', needsConfirmation: false, userId: null, warning: null };
+  if (!lastName) return { error: 'Le nom est requis.', needsConfirmation: false, userId: null, warning: null };
   const weak = passwordWeakness(input.password);
-  if (weak) return { error: `Mot de passe trop faible : ${weak}`, needsConfirmation: false };
+  if (weak) return { error: `Mot de passe trop faible : ${weak}`, needsConfirmation: false, userId: null, warning: null };
   const cleanEmail = normalizeEmail(input.email);
   const { createClient } = await import('@supabase/supabase-js');
   const side = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY, {
@@ -288,20 +294,32 @@ export async function adminCreateAccount(input: AdminCreateInput): Promise<{ err
     email: cleanEmail, password: input.password,
     options: { data: { first_name: firstName, last_name: lastName, phone } },
   });
-  if (error) return { error: frenchAuthError(error.message), needsConfirmation: false };
+  if (error) return { error: frenchAuthError(error.message), needsConfirmation: false, userId: null, warning: null };
   if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-    return { error: 'Un compte existe déjà avec cette adresse.', needsConfirmation: false };
+    return { error: 'Un compte existe déjà avec cette adresse.', needsConfirmation: false, userId: null, warning: null };
   }
-  const userId = data.user?.id;
+  const userId = data.user?.id ?? null;
+  const warnings: string[] = [];
   if (userId) {
     // Profil posé par l'ADMIN (sa session, ses droits) — le compte est
     // complet avant même la première connexion de la personne.
     await supabase.from('profiles').upsert({
       id: userId, display_name: firstName, first_name: firstName, last_name: lastName, phone,
     });
+    // Organisation et droits DÈS LA CRÉATION (12/10) : RPC admin, qui créent
+    // la ligne de profil si l'upsert ci-dessus a été refusé.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rpc = (supabase as any).rpc.bind(supabase);
+    const org = (input.organisation ?? '').trim() || 'MC Export';
+    const r1 = await rpc('admin_set_organisation', { p_user: userId, p_org: org });
+    if (r1.error) warnings.push(`organisation « ${org} » non posée (${/does not exist|function|schema cache/i.test(r1.error.message) ? 'SQL du 12/10 à coller' : r1.error.message}) — règle-la sur le compte`);
+    if (input.prospectingOnly) {
+      const r2 = await rpc('admin_set_allowed_tabs', { p_user: userId, p_tabs: ['wf:negociations'] });
+      if (r2.error) warnings.push(`préréglage prospection non posé (${r2.error.message}) — règle les onglets sur le compte`);
+    }
   }
   // Session absente = confirmation d'email requise côté Supabase.
-  return { error: null, needsConfirmation: !data.session };
+  return { error: null, needsConfirmation: !data.session, userId, warning: warnings.length ? warnings.join(' ; ') : null };
 }
 
 /** Mot de passe lisible et solide : 3 mots courts + 2 chiffres (ex. « rive-clef-pont-47 »). */
