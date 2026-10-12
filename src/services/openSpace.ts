@@ -90,8 +90,11 @@ export async function pushToOpenSpace(negotiationId: string, message = ''): Prom
 }
 
 export async function removeFromOpenSpace(itemId: string): Promise<string | null> {
-  const { error } = await sb.from('open_space_items').delete().eq('id', itemId);
-  return error ? error.message : null;
+  // Lignes retirées RENVOYÉES : une règle qui refuse ne fait pas d'erreur, elle ne touche rien (12/10 soir).
+  const { data, error } = await sb.from('open_space_items').delete().eq('id', itemId).select('id');
+  if (error) return error.message;
+  if (!data || (data as unknown[]).length === 0) return "Retrait refusé par la base : seul celui qui a poussé l'annonce peut la retirer tant que le SQL du 12/10 (open_space_retrait_equipe) n'est pas collé.";
+  return null;
 }
 
 export async function addOpenSpaceNote(itemId: string, body: string): Promise<string | null> {

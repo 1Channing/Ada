@@ -832,6 +832,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OPEN SPACE : TOUT MEMBRE DE L'ORGANISATION PEUT RETIRER UNE ANNONCE
+  (12/10 soir, Channing : « peu importe qui l'y a mise »)**. Règle de
+  suppression de open_space_items : même organisation que celui qui a
+  poussé, ou admin (avant : lui seul ou admin). Le bouton « Retirer » est
+  visible sur chaque carte, avec le nom du propriétaire dans la
+  confirmation ; l'annonce revient dans sa liste. SQL 20261012220000
+  (open_space_retrait_equipe) à coller.
 - **ÉQUIPE : BLOCS REPLIÉS PAR DÉFAUT (12/10 soir, Channing : « ces menus
   fermés par défaut, ils prennent de la place pour rien »)**. Organisations,
   Créer un compte, Leads du Workflow et Adresses autorisées deviennent des

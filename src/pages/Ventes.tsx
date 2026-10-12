@@ -1100,15 +1100,14 @@ function OpenSpaceCard({ item, notes, onChanged, onError }: { item: OpenSpaceIte
           {item.message && <p className="text-sm text-slate-700 mt-1.5 whitespace-pre-wrap">« {item.message} »</p>}
           {readNote(n?.notes).text && <p className="text-xs text-slate-500 mt-1 whitespace-pre-wrap"><span className="font-medium">Notes de {mine ? 'ta' : 'sa'} négociation{readNote(n?.notes).at ? ` (${agoLabel(readNote(n?.notes).at!)})` : ''} :</span> {readNote(n?.notes).text}</p>}
         </div>
-        {(mine || isAdmin) && (
-          <button
-            onClick={async () => { if (confirm(`Retirer cette annonce de l'Open space ? Elle revient dans ${mine ? 'ta liste de négociations' : `la liste de ${item.pushed_by_name}`}.`)) { const err = await removeFromOpenSpace(item.id); if (err) onError(err); else onChanged(); } }}
-            title={mine ? "Retirer de l'Open space : l'annonce revient dans ta liste" : `Retirer de l'Open space : l'annonce revient dans la liste de ${item.pushed_by_name}`}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 shrink-0 self-start"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        )}
+        {/* Tout membre de l'organisation peut retirer une annonce (12/10 soir, Channing : « peu importe qui l'y a mise ») — la base l'applique. */}
+        <button
+          onClick={async () => { if (confirm(`Retirer cette annonce de l'Open space ? Elle revient dans ${mine ? 'ta liste de négociations' : `la liste de ${item.pushed_by_name}`}.`)) { const err = await removeFromOpenSpace(item.id); if (err) onError(err); else onChanged(); } }}
+          title={mine ? "Retirer de l'Open space : l'annonce revient dans ta liste" : `Retirer de l'Open space : l'annonce revient dans la liste de ${item.pushed_by_name}`}
+          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 shrink-0 self-start"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       </div>
       {showPhotos && n && (
         <NegotiationPhotosModal nego={n} onClose={() => setShowPhotos(false)} onChanged={onChanged} />
