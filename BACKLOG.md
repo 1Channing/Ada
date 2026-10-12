@@ -832,6 +832,28 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **VERROUS STRICTS PAR ORGANISATION (12/10 soir, Channing : « il faut poser
+  des verrous stricts, on ne peut pas risquer une fuite de donnée »)**.
+  Prouvé sur la prod avant d'écrire : la RPC anti-collision répondait à la
+  clé anon SANS compte (noms, titres, numéros, notes des négociations) ; le
+  verrou par onglet du 11/10 laissait transactions_admin à tout compte ayant
+  Négociations (donc Weecars) ; une trentaine de tables partagées
+  (campagnes, mémoire d'ingestion, marché, veille, retours, télémétrie,
+  journaux…) n'avaient aucun verrou depuis le 27/09. SQL 20261012190000
+  (verrous_organisation) : `organisations.business_access` (MC Export et
+  Mon agence automobile oui, Weecars non — bascule dans Équipe, pastille
+  « données MC Export / verrouillée ») ; `ada_org_business()` ; une règle
+  RESTRICTIVE `verrou_org` par table partagée = accès métier ET onglet qui
+  montre la donnée (carte table → onglets tirée des lectures réelles du
+  front), lecture seule verrouillée pour retours et télémétrie, filet
+  « admins seulement » sur toute table hors carte ; anon privé de toute RPC
+  métier, anti-collision avec compte obligatoire, étalon réservé aux
+  admins ; vues en security_invoker ; fichiers admin-documents hors photos
+  de négociation réservés aux organisations à accès métier. Front :
+  `businessAccess` dans le store (RPC, repli oui), « Ajouter aux ventes »
+  masqué sans accès métier. Reste accepté et documenté : les photos de
+  négociation (chemin daté, pas d'organisation) restent lisibles par tout
+  compte connecté qui en connaît le chemin.
 - **ARCHIVES DE NÉGOCIATION DANS L'ONGLET ARCHIVES, PAR ORGANISATION (12/10
   soir, Channing : « on a déjà un onglet Archives, pas besoin de l'ajouter
   en bas ; si les comptes prospection n'ont pas l'onglet Archives,

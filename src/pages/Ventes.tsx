@@ -80,7 +80,7 @@ const stateLabel = (c: NegoState): string => {
 };
 
 export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
-  const { userId, allowedTabs, isAdmin } = useAuth();
+  const { userId, allowedTabs, isAdmin, businessAccess } = useAuth();
   // Compte de prospection seule (Weecars, 12/10) : pas d'études → les textes
   // ne renvoient pas vers un onglet qu'il n'a pas.
   const hasStudies = canSeeTab(allowedTabs, isAdmin, 'wf:etudes') || canSeeTab(allowedTabs, isAdmin, 'wf:resultats');
@@ -378,7 +378,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
           </div>
         ) : folders.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-            {visible.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} hasStudies={hasStudies} />)}
+            {visible.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} hasStudies={hasStudies} canSell={businessAccess} />)}
           </div>
         ) : (
           // Regroupement par dossier (10/09) : les dossiers dans leur ordre,
@@ -425,7 +425,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
                         ? <p className="px-4 py-3 text-xs text-slate-400 border-t border-slate-100">Dossier vide — range une négociation ici depuis son menu ⋯ → « Ranger dans un dossier ».</p>
                         : (
                           <div className="divide-y divide-slate-100 border-t border-slate-100">
-                            {items.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} hasStudies={hasStudies} />)}
+                            {items.map((n) => <NegoRow key={n.id} n={n} folders={folders} onNewFolder={newFolder} conflicts={conflicts} onChanged={reload} onPushed={onPushed} notesOpen={openNotesId === n.id} onNotesOpen={(open) => setOpenNotesId(open ? n.id : null)} reminderAt={reminderAtOf(n.id)} phoneIndex={phoneIndex} hasStudies={hasStudies} canSell={businessAccess} />)}
                           </div>
                         )
                     )}
@@ -477,7 +477,7 @@ function FolderHeader({ folder, count, open, onToggle, onRename, onDelete }: {
   );
 }
 
-function NegoRow({ n, folders, onNewFolder, conflicts, onChanged, onPushed, notesOpen, onNotesOpen, reminderAt, phoneIndex, hasStudies }: {
+function NegoRow({ n, folders, onNewFolder, conflicts, onChanged, onPushed, notesOpen, onNotesOpen, reminderAt, phoneIndex, hasStudies, canSell }: {
   n: Negotiation; folders: NegotiationFolder[]; onNewFolder: () => Promise<string | null>;
   conflicts: NegoConflict[]; onChanged: () => void; onPushed: () => void;
   notesOpen: boolean; onNotesOpen: (open: boolean) => void;
@@ -486,6 +486,8 @@ function NegoRow({ n, folders, onNewFolder, conflicts, onChanged, onPushed, note
   phoneIndex: Map<string, PhoneSeen[]>;
   /** Compte avec études (pas un compte de prospection) : « Plus disponible » a un sens — l'annonce revient si revue. */
   hasStudies: boolean;
+  /** Organisation avec accès aux données MC Export (12/10 soir) : sans lui, pas d'« Ajouter aux ventes » (la base refuserait). */
+  canSell: boolean;
 }) {
   const [askDelete, setAskDelete] = useState(false);
   // Passage en vente SOUS RÉFÉRENCE (18/09) : petite fenêtre qui demande la
@@ -809,7 +811,7 @@ function NegoRow({ n, folders, onNewFolder, conflicts, onChanged, onPushed, note
                   <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
                 </span>
               </MenuBtn>
-              {!pushed && (
+              {!pushed && canSell && (
                 <MenuBtn onClick={() => { setMenu(false); setRefInput(''); setRefError(null); setAskRef(true); }}>Ajouter aux ventes (dossier)</MenuBtn>
               )}
               {n.listing_url?.startsWith('http') && (
