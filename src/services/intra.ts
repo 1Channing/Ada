@@ -42,8 +42,41 @@ export interface IntraItem {
   /** Relevé du lot à la publication : pays → résultat (sites, prix d'attaque, médiane, concurrentes). */
   market: Record<string, CountryResult> | null;
   note: string; published_by: string | null; published_by_name: string; published_at: string;
+  /** Photos (URL publiques du bucket intra-photos), 13/10 — montrées sur l'Accueil et sur le site mc-export.com. */
+  photos?: string[];
 }
-export type IntraDraft = Omit<IntraItem, 'id' | 'published_by' | 'published_at' | 'published_by_name'>;
+export type IntraDraft = Omit<IntraItem, 'id' | 'published_by' | 'published_at' | 'published_by_name' | 'photos'>;
+
+/** PHOTOS D'UNE BONNE AFFAIRE (13/10, Channing : « ajouter la possibilité d'ajouter des photos dans l'Intra »).
+ *  Bucket public intra-photos, chemin <id>/<horodatage>-<n>.<ext> ; la liste des URL vit dans la ligne.
+ *  Fail-open : bucket absent (SQL 20261013200000 pas collé) → message explicite. */
+const PHOTOS_BUCKET = 'intra-photos';
+export const PHOTOS_SQL_HINT = 'Photos : SQL du 13/10 (bonnes_affaires_site) à coller.';
+export async function addShowcasePhotos(item: IntraItem, files: File[]): Promise<{ photos: string[]; error: string | null }> {
+  const photos = [...(item.photos ?? [])];
+  const errors: string[] = [];
+  for (const [i, f] of files.entries()) {
+    const ext = (f.name.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+    const path = `${item.id}/${Date.now().toString(36)}-${i}.${ext}`;
+    const up = await supabase.storage.from(PHOTOS_BUCKET).upload(path, f, { contentType: f.type || 'image/jpeg', cacheControl: '31536000' });
+    if (up.error) { errors.push(/not found|bucket/i.test(up.error.message) ? PHOTOS_SQL_HINT : `${f.name} : ${up.error.message}`); continue; }
+    photos.push(supabase.storage.from(PHOTOS_BUCKET).getPublicUrl(path).data.publicUrl);
+  }
+  if (photos.length !== (item.photos ?? []).length) {
+    const { error } = await sb.from('intra_showcase').update({ photos }).eq('id', item.id);
+    if (error) errors.push(missing(error.message) ? PHOTOS_SQL_HINT : error.message);
+  }
+  return { photos, error: errors.length ? [...new Set(errors)].join(' · ') : null };
+}
+export async function removeShowcasePhoto(item: IntraItem, url: string): Promise<string | null> {
+  const photos = (item.photos ?? []).filter((p) => p !== url);
+  const { error } = await sb.from('intra_showcase').update({ photos }).eq('id', item.id);
+  if (error) return missing(error.message) ? PHOTOS_SQL_HINT : error.message;
+  // Le fichier aussi, sans bloquer si la suppression échoue (l'URL n'est plus référencée).
+  const m = url.match(/\/intra-photos\/(.+)$/);
+  if (m) await supabase.storage.from(PHOTOS_BUCKET).remove([decodeURIComponent(m[1])]).catch(() => undefined);
+  return null;
+}
 
 /** Visible par TOUS les utilisateurs d'ADA (toutes organisations) ; le nom de l'auteur vit dans la ligne. */
 export async function listShowcase(): Promise<{ rows: IntraItem[]; error: string | null }> {

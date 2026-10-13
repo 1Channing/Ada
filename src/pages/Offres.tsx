@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
-  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone,
+  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus,
 } from 'lucide-react';
-import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, snapshotVehicle, type IntraItem, type IntraDraft } from '../services/intra';
+import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
@@ -112,6 +112,8 @@ export function Offres() {
   // INTRA (12/10 soir) : la vitrine de l'Accueil MC Export — ce qui y est déjà, et ce que cette offre y publie.
   const [showcase, setShowcase] = useState<IntraItem[]>([]);
   const [showcaseError, setShowcaseError] = useState<string | null>(null);
+  /** Bonne affaire dont les photos sont en cours d'envoi (13/10). */
+  const [photoBusy, setPhotoBusy] = useState<string | null>(null);
   const reloadShowcase = async () => { const r = await listShowcase(); setShowcase(r.rows); setShowcaseError(r.error); };
   useEffect(() => { void reloadShowcase(); }, []);
   // Ouverture par l'URL (/offres?offer=<id>&view=analyse — bouton « Étude de marché » de la vitrine).
@@ -1445,13 +1447,37 @@ export function Offres() {
                   ) : (
                     <ul className="divide-y divide-slate-100">
                       {showcase.map((it) => (
-                        <li key={it.id} className="flex items-center gap-3 px-4 py-2 text-xs">
-                          <span className="font-medium text-slate-800 truncate">{it.vehicle.brand} {it.vehicle.model}</span>
-                          <span className="text-slate-500 truncate">{it.vehicle.engine || it.vehicle.version}</span>
-                          <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + ' HT' : 'sur proposition'}</span>
-                          <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>
-                          {it.note && <span className="text-slate-600 truncate">« {it.note} »</span>}
-                          <button onClick={() => void unpublishVehicles([it.id])} className="ml-auto p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 shrink-0" title="Retirer des bonnes affaires" aria-label={`Retirer ${it.vehicle.brand} ${it.vehicle.model} des bonnes affaires`}><X className="w-3.5 h-3.5" /></button>
+                        <li key={it.id} className="px-4 py-2 text-xs space-y-1.5">
+                          <div className="flex items-center gap-3">
+                            <span className="font-medium text-slate-800 truncate">{it.vehicle.brand} {it.vehicle.model}</span>
+                            <span className="text-slate-500 truncate">{it.vehicle.engine || it.vehicle.version}</span>
+                            <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + ' HT' : 'sur proposition'}</span>
+                            <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>
+                            {it.note && <span className="text-slate-600 truncate">« {it.note} »</span>}
+                            <button onClick={() => void unpublishVehicles([it.id])} className="ml-auto p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 shrink-0" title="Retirer des bonnes affaires" aria-label={`Retirer ${it.vehicle.brand} ${it.vehicle.model} des bonnes affaires`}><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                          {/* PHOTOS (13/10) : montrées sur l'Accueil d'ADA et sur mc-export.com ; jpeg / png / webp, 8 Mo max. */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {(it.photos ?? []).map((url, n) => (
+                              <span key={url} className="relative group">
+                                <img src={url} alt={`${it.vehicle.brand} ${it.vehicle.model} photo ${n + 1}`} className="h-12 w-16 object-cover rounded border border-slate-200" loading="lazy" />
+                                <button onClick={async () => { const err = await removeShowcasePhoto(it, url); if (err) fail(err); else void reloadShowcase(); }} className="absolute -top-1.5 -right-1.5 hidden group-hover:flex w-4 h-4 items-center justify-center rounded-full bg-white border border-slate-300 text-slate-500 hover:text-red-600" title="Retirer cette photo" aria-label="Retirer cette photo"><X className="w-2.5 h-2.5" /></button>
+                              </span>
+                            ))}
+                            <label className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-dashed cursor-pointer ${photoBusy === it.id ? 'opacity-50' : 'border-slate-300 text-slate-600 hover:border-brand-ocean hover:text-brand-ocean'}`}>
+                              {photoBusy === it.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ImagePlus className="w-3 h-3" />} {(it.photos ?? []).length ? 'Ajouter des photos' : 'Photos (site + Accueil)'}
+                              <input type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" disabled={photoBusy === it.id} onChange={async (e) => {
+                                const files = [...(e.target.files ?? [])]; e.currentTarget.value = '';
+                                if (files.length === 0) return;
+                                setPhotoBusy(it.id);
+                                const r = await addShowcasePhotos(it, files);
+                                setPhotoBusy(null);
+                                if (r.error) fail(r.error); else info(`${files.length} photo${files.length > 1 ? 's' : ''} ajoutée${files.length > 1 ? 's' : ''} — visible${files.length > 1 ? 's' : ''} sur l'Accueil et sur mc-export.com.`);
+                                void reloadShowcase();
+                              }} />
+                            </label>
+                            {(it.photos ?? []).length === 0 && <span className="text-[10px] text-slate-400">Sans photo, le site montre la carte sans image.</span>}
+                          </div>
                         </li>
                       ))}
                     </ul>

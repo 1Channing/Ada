@@ -832,6 +832,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **BONNES AFFAIRES SUR MC-EXPORT.COM + PHOTOS (13/10, Channing : « ce qui
+  apparaît dans Ada dans les bonnes affaires doit apparaître dans le stock du
+  site… les études de marché selon la langue… SEO impeccable, ça va être
+  notre publicité… des photos dans l'Intra »)**. Le site lit ADA directement
+  (clé anonyme, une seule porte) : fonction `site_good_deals(p_slug)`
+  security definer qui ne rend que le public — véhicule, prix MC Export HT,
+  mot de l'équipe, photos, et par pays du relevé : prix d'attaque, médiane,
+  nombre d'annonces (jamais le prix fournisseur, les recherches, les sites,
+  l'offre ni l'auteur) ; anon ne lit toujours aucune table (vérifié dans le
+  SQL). Photos : colonne `intra_showcase.photos`, bucket public
+  `intra-photos` (écriture MC Export + onglet Offres), envoi depuis l'onglet
+  Intra (« Photos (site + Accueil) »), vignettes sur l'Accueil. Côté site
+  (dépôt mc-export-auto-intl, branche claude/bonnes-affaires-ada) : page
+  `/bonnes-affaires` et fiche `/bonnes-affaires/<slug>` dans les 7 langues
+  (`/da/…` natif, `?lang=` ailleurs), relevé de marché du pays de la langue
+  quand il est favorable (≥ 5 % sous le prix d'attaque, TVA du pays
+  ajoutée à notre HT), couleurs et attributs traduits, JSON-LD Vehicle +
+  Offer + ItemList + fil d'Ariane, hreflang, sitemap (fonction
+  sitemap-articles étendue, à redéployer), accueil et menu branchés,
+  `/vehicles` redirigé. SQL 20261013200000 à coller dans ADA.
 - **ACCUEIL : « BONNES AFFAIRES » À LA PLACE DE « VITRINE » (13/10, Channing)**.
   L'en-tête du bloc de l'Accueil dit « Bonnes affaires — véhicules
   disponibles » ; l'onglet Intra des Offres parle des bonnes affaires

@@ -71,6 +71,13 @@ export function IntraShowcase() {
           ].filter(Boolean);
           return (
             <div key={it.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-2">
+              {/* Photos (13/10) : la première en grand, les autres en vignettes — les mêmes que sur mc-export.com. */}
+              {(it.photos ?? []).length > 0 && (
+                <div className="flex gap-1.5">
+                  <img src={it.photos![0]} alt={`${v.brand} ${v.model}`} className="h-28 flex-1 min-w-0 object-cover rounded-lg border border-slate-200 bg-white" loading="lazy" />
+                  {it.photos!.slice(1, 4).map((p, n) => <img key={p} src={p} alt={`${v.brand} ${v.model} photo ${n + 2}`} className="h-28 w-16 object-cover rounded-lg border border-slate-200 bg-white" loading="lazy" />)}
+                </div>
+              )}
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-slate-900 truncate">{v.brand} {v.model}</p>
