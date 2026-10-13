@@ -571,6 +571,49 @@ export function Offres() {
     l.kmMax ? `≤ ${l.kmMax.toLocaleString('fr-FR')} km` : '',
   ].filter(Boolean);
 
+  /** Critères de recherche de marché d'un lot — le même formulaire dans l'Analyse et dans l'Intra
+   *  (13/10, Channing : « modifier les critères des études de marché présents avec les véhicules »). */
+  const lotCriteriaForm = (lot: OfferLot) => (
+      <div className="flex flex-wrap items-end gap-3 text-xs">
+        <label className="text-slate-600">Marque
+          <input list="offer-brands" value={lot.brand} onChange={(e) => setLotCriteria(lot, { brand: e.target.value })} className="block mt-0.5 w-32 px-2 py-1 rounded border border-slate-300 bg-white uppercase" />
+        </label>
+        <label className="text-slate-600">Modèle
+          <input list={`offer-models-${lot.key}`} value={lot.model} onChange={(e) => setLotCriteria(lot, { model: e.target.value })} className="block mt-0.5 w-40 px-2 py-1 rounded border border-slate-300 bg-white uppercase" />
+          <datalist id={`offer-models-${lot.key}`}>{(known[lot.brand] ?? []).map((m) => <option key={m} value={m} />)}</datalist>
+        </label>
+        <label className="text-slate-600">Année de
+          <input type="number" value={lot.yearFrom ?? ''} onChange={(e) => setLotCriteria(lot, { yearFrom: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-20 px-2 py-1 rounded border border-slate-300 bg-white" />
+        </label>
+        <label className="text-slate-600">à
+          <input type="number" value={lot.yearTo ?? ''} onChange={(e) => setLotCriteria(lot, { yearTo: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-20 px-2 py-1 rounded border border-slate-300 bg-white" />
+        </label>
+        <label className="text-slate-600">Km maxi
+          <input type="number" step={10000} value={lot.kmMax ?? ''} onChange={(e) => setLotCriteria(lot, { kmMax: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-24 px-2 py-1 rounded border border-slate-300 bg-white" />
+        </label>
+        <label className="text-slate-600">Énergie
+          <select value={lot.fuel ?? ''} onChange={(e) => setLotCriteria(lot, { fuel: e.target.value || null })} className="block mt-0.5 px-2 py-1 rounded border border-slate-300 bg-white">
+            <option value="">— toutes —</option>
+            {FUEL_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
+            {lot.fuel && !FUEL_OPTIONS.includes(lot.fuel) && <option value={lot.fuel}>{lot.fuel}</option>}
+          </select>
+        </label>
+        <label className="text-slate-600">Boîte
+          <select value={lot.gearbox ?? ''} onChange={(e) => setLotCriteria(lot, { gearbox: e.target.value || null })} className="block mt-0.5 px-2 py-1 rounded border border-slate-300 bg-white">
+            <option value="">— toutes —</option><option value="AUTOMATIQUE">Automatique</option><option value="MANUELLE">Manuelle</option>
+          </select>
+        </label>
+        <label className="text-slate-600" title="Chaque mot doit figurer dans le titre ou la version de l'annonce (« GT » écarte les GT-Line)">Finition
+          <input value={lot.trim ?? ''} placeholder="GT, Sportline…" onChange={(e) => setLotCriteria(lot, { trim: e.target.value })} className="block mt-0.5 w-32 px-2 py-1 rounded border border-slate-300 bg-white" />
+        </label>
+        <label className="text-slate-600" title="Posée dans l'URL des sites qui la filtrent, et vérifiée sur chaque annonce dont la puissance est lue">Puissance mini (ch)
+          <input type="number" step={5} value={lot.powerMin ?? ''} onChange={(e) => setLotCriteria(lot, { powerMin: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-24 px-2 py-1 rounded border border-slate-300 bg-white" />
+        </label>
+        {lot.adjusted && <button onClick={() => setLotCriteria(lot, null)} className="text-slate-500 hover:underline pb-1.5">Rétablir les critères du fichier</button>}
+        <span className="text-[11px] text-slate-500 pb-1.5 basis-full">Ces critères ne changent que la recherche de marché (pas l'offre exportée). Un changement efface le relevé du lot ; vérifie les recherches puis relance.</span>
+      </div>
+  );
+
   // ── RENDU ───────────────────────────────────────────────────────────────────
   const filteredOffers = offers.filter((o) => !listQuery.trim() || `${o.title} ${o.supplier}`.toLowerCase().includes(listQuery.trim().toLowerCase()));
   const uploadButton = (compact = false) => (
@@ -1117,44 +1160,7 @@ export function Offres() {
                             {editLot === lot.key && (
                               <tr className="bg-blue-50/40">
                                 <td colSpan={3 + draft.countries.length} className="px-3 py-2">
-                                  <div className="flex flex-wrap items-end gap-3 text-xs">
-                                    <label className="text-slate-600">Marque
-                                      <input list="offer-brands" value={lot.brand} onChange={(e) => setLotCriteria(lot, { brand: e.target.value })} className="block mt-0.5 w-32 px-2 py-1 rounded border border-slate-300 bg-white uppercase" />
-                                    </label>
-                                    <label className="text-slate-600">Modèle
-                                      <input list={`offer-models-${lot.key}`} value={lot.model} onChange={(e) => setLotCriteria(lot, { model: e.target.value })} className="block mt-0.5 w-40 px-2 py-1 rounded border border-slate-300 bg-white uppercase" />
-                                      <datalist id={`offer-models-${lot.key}`}>{(known[lot.brand] ?? []).map((m) => <option key={m} value={m} />)}</datalist>
-                                    </label>
-                                    <label className="text-slate-600">Année de
-                                      <input type="number" value={lot.yearFrom ?? ''} onChange={(e) => setLotCriteria(lot, { yearFrom: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-20 px-2 py-1 rounded border border-slate-300 bg-white" />
-                                    </label>
-                                    <label className="text-slate-600">à
-                                      <input type="number" value={lot.yearTo ?? ''} onChange={(e) => setLotCriteria(lot, { yearTo: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-20 px-2 py-1 rounded border border-slate-300 bg-white" />
-                                    </label>
-                                    <label className="text-slate-600">Km maxi
-                                      <input type="number" step={10000} value={lot.kmMax ?? ''} onChange={(e) => setLotCriteria(lot, { kmMax: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-24 px-2 py-1 rounded border border-slate-300 bg-white" />
-                                    </label>
-                                    <label className="text-slate-600">Énergie
-                                      <select value={lot.fuel ?? ''} onChange={(e) => setLotCriteria(lot, { fuel: e.target.value || null })} className="block mt-0.5 px-2 py-1 rounded border border-slate-300 bg-white">
-                                        <option value="">— toutes —</option>
-                                        {FUEL_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
-                                        {lot.fuel && !FUEL_OPTIONS.includes(lot.fuel) && <option value={lot.fuel}>{lot.fuel}</option>}
-                                      </select>
-                                    </label>
-                                    <label className="text-slate-600">Boîte
-                                      <select value={lot.gearbox ?? ''} onChange={(e) => setLotCriteria(lot, { gearbox: e.target.value || null })} className="block mt-0.5 px-2 py-1 rounded border border-slate-300 bg-white">
-                                        <option value="">— toutes —</option><option value="AUTOMATIQUE">Automatique</option><option value="MANUELLE">Manuelle</option>
-                                      </select>
-                                    </label>
-                                    <label className="text-slate-600" title="Chaque mot doit figurer dans le titre ou la version de l'annonce (« GT » écarte les GT-Line)">Finition
-                                      <input value={lot.trim ?? ''} placeholder="GT, Sportline…" onChange={(e) => setLotCriteria(lot, { trim: e.target.value })} className="block mt-0.5 w-32 px-2 py-1 rounded border border-slate-300 bg-white" />
-                                    </label>
-                                    <label className="text-slate-600" title="Posée dans l'URL des sites qui la filtrent, et vérifiée sur chaque annonce dont la puissance est lue">Puissance mini (ch)
-                                      <input type="number" step={5} value={lot.powerMin ?? ''} onChange={(e) => setLotCriteria(lot, { powerMin: e.target.value === '' ? null : Number(e.target.value) })} className="block mt-0.5 w-24 px-2 py-1 rounded border border-slate-300 bg-white" />
-                                    </label>
-                                    {lot.adjusted && <button onClick={() => setLotCriteria(lot, null)} className="text-slate-500 hover:underline pb-1.5">Rétablir les critères du fichier</button>}
-                                    <span className="text-[11px] text-slate-500 pb-1.5 basis-full">Ces critères ne changent que la recherche de marché (pas l'offre exportée). Un changement efface le relevé du lot ; vérifie les recherches puis relance.</span>
-                                  </div>
+                                  {lotCriteriaForm(lot)}
                                 </td>
                               </tr>
                             )}
@@ -1339,7 +1345,8 @@ export function Offres() {
                             const lot = lots.find((l) => l.vehicleIds.includes(v.id));
                             const countries = lot ? Object.keys(draft.market?.[lot.key] ?? {}) : [];
                             return (
-                              <tr key={v.id} className={i % 2 ? 'bg-slate-50' : ''}>
+                              <Fragment key={v.id}>
+                              <tr className={i % 2 ? 'bg-slate-50' : ''}>
                                 <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
                                   <label className="inline-flex items-center gap-1.5 cursor-pointer">
                                     <input type="checkbox" checked={!!it} onChange={(e) => (e.target.checked ? void publishVehicles([v]) : it && void unpublishVehicles([it.id]))} aria-label={`Publier ${v.brand} ${v.model} dans la vitrine`} />
@@ -1348,15 +1355,38 @@ export function Offres() {
                                 </td>
                                 {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}</td>)}
                                 <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
-                                  {countries.length === 0 ? <span className="text-slate-400">aucun — onglet Analyse</span> : countries.map((c) => {
+                                  {countries.length === 0 ? <span className="text-slate-400">aucun relevé</span> : countries.map((c) => {
                                     const vd = verdictOf(draft.price_rule.mode === 'none' ? null : v.sale_price, draft.market?.[lot!.key]?.[c], c);
                                     return <span key={c} className={`inline-block mr-1 text-[10px] px-1.5 py-0.5 rounded-full border ${VERDICT_CLASS[vd.tone]}`} title={vd.text}>{c} {vd.marginPct != null ? `${vd.marginPct >= 0 ? '+' : ''}${vd.marginPct} %` : vd.text}</span>;
                                   })}
+                                  {lot && (
+                                    <button onClick={() => setEditLot(editLot === lot.key ? null : lot.key)} title={`Critères de l'étude de marché : ${lot.label}`} aria-expanded={editLot === lot.key} className={`ml-1 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${editLot === lot.key ? 'border-brand-encre bg-blue-50 text-brand-encre' : 'border-slate-300 text-slate-600 hover:text-brand-ocean hover:border-brand-ocean'}`}>
+                                      <SlidersHorizontal className="w-3 h-3" /> {lot.adjusted ? 'critères réglés' : 'critères'}
+                                    </button>
+                                  )}
                                 </td>
                                 <td className="px-2 py-1 border-b border-slate-100">
                                   {it ? <input defaultValue={it.note} onBlur={async (e) => { const note = e.target.value.trim(); if (note === it.note) return; const err = await setShowcaseNote(it.id, note); if (err) fail(err); else void reloadShowcase(); }} placeholder="ex. dispo immédiate, 2 exemplaires" className="w-48 px-2 py-1 rounded border border-slate-300" /> : <span className="text-slate-300">—</span>}
                                 </td>
                               </tr>
+                              {lot && editLot === lot.key && (
+                                <tr className="bg-blue-50/40">
+                                  <td colSpan={previewColumns.length + 3} className="px-3 py-2 space-y-2">
+                                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                                      <span className="font-semibold text-slate-800">Étude de marché du lot</span>
+                                      <span className="text-slate-600">{lot.label}</span>
+                                      <span className="text-slate-400">· {lot.count} véhicule{lot.count > 1 ? 's' : ''} de l'offre dans ce lot</span>
+                                      <button onClick={() => void runSurvey([lot], draft.countries)} disabled={surveyRunning || draft.countries.length === 0} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-md border border-brand-ocean text-brand-ocean hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">
+                                        <Search className="w-3 h-3" /> Relever dans les {draft.countries.length} pays
+                                      </button>
+                                    </div>
+                                    {lotCriteriaForm(lot)}
+                                    {survey && surveyRunning && <p className="text-[11px] text-slate-500">Relevé en cours : {survey.done}/{survey.total} · {survey.current}</p>}
+                                    <p className="text-[11px] text-slate-500">Un véhicule déjà publié garde l'ancien relevé dans la vitrine jusqu'à ce que tu le republies (il passe « à rafraîchir »).</p>
+                                  </td>
+                                </tr>
+                              )}
+                              </Fragment>
                             );
                           })}
                         </tbody>

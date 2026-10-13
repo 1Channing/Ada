@@ -832,6 +832,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **INTRA : LES CRITÈRES DE L'ÉTUDE DE MARCHÉ SE RÈGLENT SUR LA LIGNE DU
+  VÉHICULE (13/10, Channing : « modifier les critères des études de marché
+  présents avec les véhicules »)**. Le formulaire des critères d'un lot
+  (marque, modèle, années, km, énergie, boîte, finition, puissance,
+  rétablir) devient une fonction partagée, servie dans l'Analyse comme
+  avant et dans l'Intra : bouton « critères » dans la colonne Relevé de
+  marché, ligne dépliée avec le libellé du lot, le formulaire et « Relever
+  dans les N pays ». Même règle : un critère changé efface le relevé du lot
+  ; un véhicule déjà publié garde l'ancien relevé jusqu'à republication
+  (« à rafraîchir »). Zéro SQL.
 - **INTRA : LA VITRINE DES VÉHICULES DISPONIBLES SUR L'ACCUEIL MC EXPORT
   (12/10 soir, Channing : « à côté d'Export, un onglet Intra qui reprend
   l'aperçu et nous permet, à l'équipe de gestion, de publier certaines
