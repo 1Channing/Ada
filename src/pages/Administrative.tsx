@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, Plus, X, UserPlus, FileText, Download, History, Trash2, Pencil, Info } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { saleMonthKey, currentMonthKey } from '../lib/saleMonth';
 import { generateAdminDocument } from '../lib/adminDocGenerator';
 import { DEFAULT_SIGNATURE_LOCATION } from '../lib/templateEngine';
 import { saveDraft, loadDraft, clearDraft } from '../lib/adminDraftStorage';
@@ -2073,8 +2074,6 @@ export function Administrative() {
     return m ? { label: m[1].trim(), fromSheet: true } : { label: '—', fromSheet: false };
   };
 
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
   // Commerciaux présents (avec compte), filtre et tri appliqués à TOUT ce qui
   // s'affiche : tableaux, historique et indicateurs suivent la vue choisie.
@@ -2121,10 +2120,13 @@ export function Administrative() {
   };
   const sum = (arr: DealRow[], f: (d: DealRow) => number) => arr.reduce((s, d) => s + (f(d) || 0), 0);
 
+  const now = new Date();
   // KPIs
   const caEnCours = sum(enCours, (d) => d.sale_price ?? 0);
   const margeEnCours = sum(enCours, dealMargin);
-  const closedThisMonth = cloturees.filter((d) => d.closed_at && new Date(d.closed_at).getTime() >= startOfMonth);
+  // Le mois d'une vente = l'onglet du tableur, sinon la clôture, sinon la transaction, sinon la création (13/10).
+  const thisMonth = currentMonthKey();
+  const closedThisMonth = cloturees.filter((d) => saleMonthKey(d) === thisMonth);
   const caMois = sum(closedThisMonth, (d) => d.sale_price ?? 0);
   const margeMois = sum(closedThisMonth, dealMargin);
 
@@ -2132,8 +2134,7 @@ export function Administrative() {
   const monthFmt = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' });
   const historique = new Map<string, DealRow[]>();
   for (const d of clotureesShown) {
-    const dt = d.closed_at ? new Date(d.closed_at) : new Date(d.created_at);
-    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+    const key = saleMonthKey(d);
     (historique.get(key) ?? historique.set(key, []).get(key)!).push(d);
   }
   const historiqueMonths = [...historique.entries()].sort((a, b) => b[0].localeCompare(a[0]));

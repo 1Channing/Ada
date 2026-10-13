@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **HISTORIQUE DES VENTES : LE MOIS EST CELUI DE L'ONGLET DU TABLEUR (13/10,
+  Channing : « plein de ventes ne sont pas organisées par mois, il faut les
+  réorganiser en fonction du sheet »)**. Prouvé en base : 198 ventes
+  clôturées sur 250 n'ont pas de closed_at (pas de date de livraison dans
+  le tableur) et tombaient dans le mois de leur IMPORT (« Octobre 2026 ·
+  146 ventes »), 40 autres portaient un closed_at hors de leur onglet.
+  Nouvelle règle (`lib/saleMonth.ts`) : le mois d'une vente est l'onglet du
+  tableur écrit dans ses notes par la synchro (« [Tableur JUILLET 2026] »),
+  sinon la clôture, sinon la transaction, sinon la création — appliquée à
+  l'historique mensuel, au « CA du mois » de Ventes et à la carte « Ventes
+  du mois » de l'Accueil. Simulation sur la prod : octobre passe de 184 à
+  0 ventes importées, janvier→septembre retrouvent 30/49/31/30/22/23/24/16/25.
+  Une seule vente sans onglet dans ses notes. Zéro SQL, rien d'écrit en base.
 - **CARTE DU RÉSEAU : RELEVÉ GROUPÉ DES VITRINES (13/10, Channing : « un
   scrape groupé des vitrines qu'on sélectionnerait au sein d'un pays »)**.
   Bouton « Relevé groupé » sous les pays : la liste (filtrée par pays,

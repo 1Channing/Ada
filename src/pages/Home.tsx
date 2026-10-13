@@ -9,6 +9,7 @@ import { OpportunityAlerts } from '../components/OpportunityAlerts';
 import { inspectOpportunityInMarket } from '../services/marketData';
 import { DailyHit, DailySearch, listInboxHits, listDailySearches, inboxToProcess, listNegotiations } from '../services/workflow';
 import { openSpaceNegotiationIds } from '../services/openSpace';
+import { saleMonthKey, currentMonthKey } from '../lib/saleMonth';
 import { useAuth } from '../services/auth';
 import { MyTasks } from '../components/MyTasks';
 import { IntraShowcase } from '../components/IntraShowcase';
@@ -22,6 +23,8 @@ interface DealRow {
   purchase_price: number | null;
   created_at: string;
   closed_at: string | null;
+  transaction_date?: string | null;
+  notes?: string | null;
 }
 
 interface CampaignRow {
@@ -110,7 +113,7 @@ export function Home() {
       const [{ data: dealRows }, { data: campRows }, { data: legalRows }] = await Promise.all([
         showSales ? supabase
           .from('transactions_admin')
-          .select('id, reference, status, transaction_type, sale_price, purchase_price, created_at, closed_at')
+          .select('id, reference, status, transaction_type, sale_price, purchase_price, created_at, closed_at, transaction_date, notes')
           .order('created_at', { ascending: false })
           .limit(500) : Promise.resolve({ data: [] as DealRow[] }),
         wantCampaign ? supabase
@@ -157,8 +160,9 @@ export function Home() {
 
   const open = deals.filter((d) => d.status === 'en_cours');
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const closedThisMonth = deals.filter((d) => d.status === 'cloturee' && (d.closed_at ?? '') >= monthStart);
+  // Même mois que l'historique des ventes : l'onglet du tableur d'abord (13/10).
+  const thisMonth = currentMonthKey(now);
+  const closedThisMonth = deals.filter((d) => d.status === 'cloturee' && saleMonthKey(d) === thisMonth);
   const salesThisMonth = closedThisMonth.filter((d) => d.transaction_type === 'sale');
   const salesAmount = salesThisMonth.reduce((s, d) => s + (d.sale_price ?? 0), 0);
 
