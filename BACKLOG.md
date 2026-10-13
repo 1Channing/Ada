@@ -832,6 +832,12 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **BONNES AFFAIRES : TITRE LIBRE (13/10, Channing : « modifier les titres des
+  annonces en bonnes affaires »)**. Colonne `intra_showcase.title` ; champ
+  titre dans « Ce que l'Accueil montre aujourd'hui » (onglet Intra), vide =
+  marque + modèle ; repris sur l'Accueil d'ADA, sur mc-export.com (cartes,
+  fiche, balises, JSON-LD) ; survit à une republication. Même SQL
+  20261013200000 (recoller le bloc).
 - **BONNES AFFAIRES SUR MC-EXPORT.COM + PHOTOS (13/10, Channing : « ce qui
   apparaît dans Ada dans les bonnes affaires doit apparaître dans le stock du
   site… les études de marché selon la langue… SEO impeccable, ça va être

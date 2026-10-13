@@ -17,6 +17,8 @@
 
 -- 1. Photos des bonnes affaires ---------------------------------------------------
 alter table public.intra_showcase add column if not exists photos jsonb not null default '[]'::jsonb;
+-- Titre libre de la bonne affaire (13/10, Channing : « modifier les titres des annonces ») ; null = marque + modèle.
+alter table public.intra_showcase add column if not exists title text;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('intra-photos', 'intra-photos', true, 8388608, array['image/jpeg', 'image/png', 'image/webp'])
@@ -61,6 +63,7 @@ language sql stable security definer set search_path = public as $$
     'damages', nullif(i.vehicle->>'damages', '')::numeric::int,
     'price_ht', i.price_ht,
     'note', i.note,
+    'title', nullif(trim(coalesce(i.title, '')), ''),
     'photos', coalesce(i.photos, '[]'::jsonb),
     -- Par pays : prix d'attaque, médiane, nombre d'annonces, et les recherches
     -- du relevé (site, adresse, annonces lues) — les mêmes liens que sur
@@ -90,6 +93,7 @@ grant execute on function public.ada_slug(text) to authenticated;
 
 -- 4. Vérification ------------------------------------------------------------------
 select exists (select 1 from information_schema.columns where table_name = 'intra_showcase' and column_name = 'photos')
+   and exists (select 1 from information_schema.columns where table_name = 'intra_showcase' and column_name = 'title')
    and exists (select 1 from storage.buckets where id = 'intra-photos' and public)
    and exists (select 1 from pg_policies where schemaname = 'storage' and policyname = 'intra_photos_public_read')
    and exists (select 1 from pg_policies where schemaname = 'storage' and policyname = 'intra_photos_write')

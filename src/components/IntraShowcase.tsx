@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Megaphone, ExternalLink, BarChart3, ChevronDown } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listShowcase, type IntraItem } from '../services/intra';
+import { listShowcase, showcaseTitle, type IntraItem } from '../services/intra';
 import { verdictOf, COUNTRY_CAVEAT } from '../lib/offers/marketCheck';
 import { OFFER_COUNTRIES } from '../services/offers';
 import { colorLabel } from '../lib/offers/colorTranslate';
@@ -80,7 +80,7 @@ export function IntraShowcase() {
               )}
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-900 truncate">{v.brand} {v.model}</p>
+                  <p className="font-semibold text-slate-900 truncate" title={`${v.brand} ${v.model}`}>{showcaseTitle(it)}</p>
                   <p className="text-xs text-slate-600 truncate" title={v.version}>{v.engine || v.version}{v.engine && v.version && v.engine !== v.version ? ` · ${v.version}` : ''}</p>
                 </div>
                 <div className="text-right shrink-0">

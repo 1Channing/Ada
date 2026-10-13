@@ -3,7 +3,7 @@ import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
   PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus,
 } from 'lucide-react';
-import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, type IntraItem, type IntraDraft } from '../services/intra';
+import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, setShowcaseTitle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
@@ -1449,7 +1449,10 @@ export function Offres() {
                       {showcase.map((it) => (
                         <li key={it.id} className="px-4 py-2 text-xs space-y-1.5">
                           <div className="flex items-center gap-3">
-                            <span className="font-medium text-slate-800 truncate">{it.vehicle.brand} {it.vehicle.model}</span>
+                            {/* Titre libre (13/10, Channing : « modifier les titres des annonces ») — repris sur l'Accueil et sur le site ; vide = marque + modèle. */}
+                            <input defaultValue={it.title ?? ''} placeholder={`${it.vehicle.brand} ${it.vehicle.model}`} title="Titre de la bonne affaire (Accueil + site) — vide : marque + modèle" aria-label="Titre de la bonne affaire"
+                              onBlur={async (e) => { const t = e.target.value.trim(); if (t === (it.title ?? '').trim()) return; const err = await setShowcaseTitle(it.id, t); if (err) fail(err); else void reloadShowcase(); }}
+                              className="w-56 px-2 py-1 rounded border border-slate-200 font-medium text-slate-800 placeholder:text-slate-800 placeholder:font-medium hover:border-slate-400 focus:border-brand-ocean" />
                             <span className="text-slate-500 truncate">{it.vehicle.engine || it.vehicle.version}</span>
                             <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + ' HT' : 'sur proposition'}</span>
                             <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>

@@ -44,8 +44,18 @@ export interface IntraItem {
   note: string; published_by: string | null; published_by_name: string; published_at: string;
   /** Photos (URL publiques du bucket intra-photos), 13/10 — montrées sur l'Accueil et sur le site mc-export.com. */
   photos?: string[];
+  /** Titre libre (13/10) ; null ou vide = marque + modèle. Survit à une republication. */
+  title?: string | null;
 }
-export type IntraDraft = Omit<IntraItem, 'id' | 'published_by' | 'published_at' | 'published_by_name' | 'photos'>;
+export type IntraDraft = Omit<IntraItem, 'id' | 'published_by' | 'published_at' | 'published_by_name' | 'photos' | 'title'>;
+
+/** Titre affiché d'une bonne affaire : le titre libre, sinon marque + modèle. */
+export const showcaseTitle = (it: Pick<IntraItem, 'title' | 'vehicle'>) => (it.title ?? '').trim() || `${it.vehicle.brand} ${it.vehicle.model}`;
+
+export async function setShowcaseTitle(id: string, title: string): Promise<string | null> {
+  const { error } = await sb.from('intra_showcase').update({ title: title.trim() || null }).eq('id', id);
+  return error ? (missing(error.message) ? PHOTOS_SQL_HINT : error.message) : null;
+}
 
 /** PHOTOS D'UNE BONNE AFFAIRE (13/10, Channing : « ajouter la possibilité d'ajouter des photos dans l'Intra »).
  *  Bucket public intra-photos, chemin <id>/<horodatage>-<n>.<ext> ; la liste des URL vit dans la ligne.
