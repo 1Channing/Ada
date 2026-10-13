@@ -10,8 +10,9 @@ import * as XLSXns from 'xlsx-js-style';
 // Module CommonJS : selon le bundler, l'API est sur l'espace de noms ou sur `default`.
 const XLSX = ((XLSXns as unknown as { default?: typeof XLSXns }).default ?? XLSXns) as typeof XLSXns;
 import type { OfferVehicle } from './parseSupplierFile';
-import { bodyOf, labelOf, engineOf, fuelLabel, BUILTIN_COLUMNS, cellValue, effectiveColumns, defaultExportColumns, displayLabel, type ExportColumn, type ExportContext } from './exportColumns';
+import { bodyOf, labelOf, engineOf, versionOf, regOf, fuelLabel, BUILTIN_COLUMNS, cellValue, effectiveColumns, defaultExportColumns, displayLabel, type ExportColumn, type ExportContext } from './exportColumns';
 import { EXPORT_TEXT, type ExportLang, type PriceBasis } from './offerSettings';
+import { colorLabel } from './colorTranslate';
 
 export interface OfferDocument {
   title: string;              // « OPEL ASTRA — SÉLECTION PROFESSIONNELLE »
@@ -44,9 +45,10 @@ export function exportSetupOf(doc: OfferDocument): { ctx: ExportContext; columns
 
 export const fmtEur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
 export const fmtKm = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} km`);
-export const fmtDate = (iso: string | null | undefined) => { if (!iso) return '—'; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fr-FR'); };
+/** Date « jj/mm/aaaa » ; une année seule (« 2016 », fichier sans date) reste telle quelle. */
+export const fmtDate = (iso: string | null | undefined) => { if (!iso) return '—'; if (/^\d{4}$/.test(iso)) return iso; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fr-FR'); };
 // Libellés partagés avec le PDF et le réglage des colonnes (exportColumns.ts).
-export { bodyOf, labelOf, engineOf, fuelLabel } from './exportColumns';
+export { bodyOf, labelOf, engineOf, versionOf, regOf, fuelLabel } from './exportColumns';
 
 export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
   const wb = XLSX.utils.book_new();
@@ -60,12 +62,12 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
     { label: 'Véhicule', w: 22, get: (v) => labelOf(v), always: true },
     // Exemplaires (catalogue Record Rent a Car 07/10) : une ligne par modèle, le nombre à côté.
     { label: 'Unités', w: 8, get: (v) => ((v.quantity ?? 1) > 1 ? v.quantity! : null) },
-    { label: 'Motorisation', w: 30, get: (v) => ((v.engine ?? '').trim() || (v.version ?? '').trim() ? engineOf(v) : '') },
-    { label: 'Version', w: 40, get: (v) => v.version ?? '' },
+    { label: 'Motorisation', w: 30, get: (v) => { const e = engineOf(v); return e === '—' ? '' : e; } },
+    { label: 'Version', w: 40, get: (v) => versionOf(v) },
     { label: 'Carrosserie', w: 12, get: (v) => bodyOf(v) },
-    { label: '1re immatriculation', w: 16, get: (v) => v.reg_date ?? '' },
+    { label: '1re immatriculation', w: 16, get: (v) => regOf(v) },
     { label: 'Kilométrage', w: 12, get: (v) => v.km ?? null },
-    { label: 'Couleur', w: 12, get: (v) => v.color ?? '' },
+    { label: 'Couleur', w: 12, get: (v) => colorLabel(v.color, 'fr') },
     { label: 'Énergie', w: 20, get: (v) => (v.fuel ? fuelLabel(v.fuel) : '') },
     { label: 'Puissance (ch)', w: 12, get: (v) => v.power_ch ?? null },
     { label: 'Boîte', w: 12, get: (v) => v.gearbox ?? '' },

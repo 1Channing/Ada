@@ -379,7 +379,8 @@ export function brandOfModelWord(line: string, knownModelsByBrand: Record<string
 /** Décomposition d'une ligne libre « 600 T-GEN3 1.2 HYBRID TURBO 145CH PACK BVA » — règles lisibles, rien de deviné au-delà. */
 export function parseFreeLine(line: string): { power_ch: number | null; gearbox: string | null; fuel: string | null; engine: string | null } {
   const s = ` ${line} `;
-  const p = s.match(/(\d{2,3})\s?(?:ch|cv|hp|ps)\b/i);
+  // « 190HK » / « 150 hk » : chevaux suédois, danois, norvégiens (liste Mixed Brands 13/10).
+  const p = s.match(/(\d{2,3})\s?(?:ch|cv|hp|ps|hk|hkr)\b/i);
   const kw = s.match(/(\d{2,3})\s?kw\b/i);
   const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : null;
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
@@ -394,7 +395,7 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
     : /\b(gpl|glp|lpg|eco-?g)\b/i.test(s) ? 'GPL'
     : /\b(diesel|hdi|bluehdi|dci|tdi|cdi|crdi|d\b|multijet)/i.test(s) ? 'DIESEL'
     : /\b(essence|petrol|benzin|puretech|tce|tsi|tfsi|turbo|1\.[0-9]|dig-t)\b/i.test(s) ? 'ESSENCE' : null;
-  const e = s.match(/\b(\d\.\d\s?(?:turbo|puretech|tce|tsi|hybrid|hdi|bluehdi|dci|e-?hybrid|t\d)?[^,|]{0,20}?)(?=\s\d{2,3}\s?(?:ch|cv|kw)|$)/i);
+  const e = s.match(/\b(\d\.\d\s?(?:turbo|puretech|tce|tsi|hybrid|hdi|bluehdi|dci|e-?hybrid|t\d)?[^,|]{0,20}?)(?=\s\d{2,3}\s?(?:ch|cv|kw|hk|hp|ps)|$)/i);
   return { power_ch, gearbox, fuel, engine: e ? e[1].trim() : null };
 }
 
@@ -435,7 +436,7 @@ export function guessModel(_brand: string, line: string, knownModels: string[]):
   const tokens = stripped.split(' ');
   const out: string[] = [];
   for (const t of tokens) {
-    if (/^\d\.\d$/.test(t) || /^\d{2,3}(CH|CV|KW)$/.test(t) || /^(HYBRID|HYBRIDE|PHEV|DIESEL|ESSENCE|TURBO|PURETECH|TCE|TSI|BLUEHDI|HDI|DCI|E-TECH|MILD|ELECTRIQUE)/.test(t)) break;
+    if (/^\d\.\d$/.test(t) || /^\d{2,3}(CH|CV|KW|HK)$/.test(t) || /^(HYBRID|HYBRIDE|PHEV|DIESEL|ESSENCE|TURBO|PURETECH|TCE|TSI|BLUEHDI|HDI|DCI|E-TECH|MILD|ELECTRIQUE)/.test(t)) break;
     out.push(t);
     if (out.length >= 2) break;
   }
@@ -583,12 +584,21 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       else { brand = sp.brand; brandPrefix = sp.brand; versionLine = sp.rest || versionLine; }
     }
     brand = canonBrand(brand);
+    // Ligne qui RÉPÈTE son modèle (liste suédoise 13/10 : « HYUNDAI TUCSON
+    // TUCSON », « Sportage Sportage », « Q3 Audi Q3 35 TFSI… ») — Channing :
+    // « j'ai deux fois les modèles ». Le doublon de tête est replié, rien d'autre.
+    const unDouble = (line: string) => {
+      let out = line.replace(/^(\S+)\s+\1(?=\s|$)/i, '$1');
+      if (brandPrefix) out = out.replace(new RegExp(`^(\\S+)\\s+${brandPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+\\1(?=\\s|$)`, 'i'), '$1');
+      return out;
+    };
+    versionLine = unDouble(versionLine);
     const known = knownModelsByBrand[brand] ?? knownModelsByBrand[brand.toUpperCase()] ?? [];
     let model = cell(rec.model);
     // Colonne « Modell » qui porte toute la désignation, marque comprise (liste
     // suédoise 13/10 : « AUDI A4 AV 2.0 TDI… » donnait le modèle « AUDI A4 ») :
     // la marque reconnue en tête est retirée, le modèle se lit sur le reste.
-    if (brandPrefix && model.toUpperCase().startsWith(`${brandPrefix} `)) model = model.slice(brandPrefix.length).trim();
+    if (brandPrefix && model.toUpperCase().startsWith(`${brandPrefix} `)) model = unDouble(model.slice(brandPrefix.length).trim());
     // Colonne modèle du fournisseur (« ASTRA L », « DS 7 CROSSBACK / DS 7 »)
     // rapprochée des modèles connus (référentiel + taxonomie) et débarrassée
     // de son marqueur de génération ; sans colonne, la ligne libre est décomposée.

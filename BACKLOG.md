@@ -832,6 +832,26 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OFFRES : COULEURS TRADUITES, MODÈLES EN DOUBLE, ANNÉE SANS DATE (13/10,
+  Channing : « j'ai deux fois les modèles, les années de mise en circulation
+  ne sont pas reconnues », « un outil pour traduire les couleurs, peu importe
+  la langue d'origine »)**. (1) Couleurs : nouveau `colorTranslate.ts` —
+  couleur extérieure (premier segment avant la virgule), mot de couleur
+  reconnu dans 14 langues, tel quel ou en fin de mot composé (« Scubablå »,
+  « Glaciärvit », « Perlweiss », « Monosilver »), finition (métallisé, nacré,
+  mat), rendu dans la langue de l'offre (« Bleu métallisé » / « Blue
+  metallic ») ; « okänd / unknown / n/a » = vide ; rien de reconnu = la
+  couleur d'origine telle quelle, et l'original reste au survol dans le
+  tableau. Appliqué au tableau, aux exports Excel et PDF, à la vitrine Intra.
+  Sur le classeur suédois : 304 couleurs sur 334 traduites, le reste étant
+  des noms commerciaux (« Magnetic Tech ») ou des lignes sans extérieur.
+  (2) Doublons : « Motorisation » ne recopie plus la ligne version quand le
+  fournisseur n'a pas de colonne moteur (elle montre la motorisation lue,
+  « 2.0 TDI », sinon rien) ; « Version » est vide quand elle ne dit que le
+  modèle (« X3 ») ; « TUCSON TUCSON », « Q3 Audi Q3 » repliés à la lecture ;
+  chevaux « 190HK » (suédois) lus. (3) Année : un fichier à colonne « Year »
+  sans date donne l'année seule dans « 1re immatriculation » (tableau,
+  Excel, PDF) ; champ « Année » dans le crayon. Zéro SQL.
 - **OFFRES : LISTES EN COURONNES SUÉDOISES (13/10, Channing : « apprends les
   offres à lire ces listes, les prix sont en SEK », classeur Mixed Brands de
   335 véhicules)**. Constat : le lecteur n'avait aucune notion de devise —

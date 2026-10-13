@@ -12,7 +12,8 @@
  * fichier vide pour TOUS les véhicules n'est pas exportée — sauf Véhicule,
  * Prix de vente et les colonnes libres, ajoutées exprès.
  */
-import { supplierHt, type OfferVehicle } from './parseSupplierFile';
+import { parseFreeLine, supplierHt, type OfferVehicle } from './parseSupplierFile';
+import { colorLabel } from './colorTranslate';
 import type { ExportLang, PriceBasis } from './offerSettings';
 
 /** Contexte d'export : langue, base des prix (notre prix est stocké HT), prix fournisseur selon les paramètres. */
@@ -45,8 +46,18 @@ const VAN_RE = /\b(fgn|fourgon|van|cargo|utilitaire|kasten(wagen)?|furgone|beste
 /** Carrosserie déduite de la ligne libre (mots entiers : « Avant » n'est pas un « van »). */
 export const bodyOf = (v: OfferVehicle, lang: ExportLang = 'fr') => BREAK_RE.test(v.version) ? (lang === 'en' ? 'Estate' : 'Break') : VAN_RE.test(`${v.model} ${v.version}`) ? (lang === 'en' ? 'Van' : 'Utilitaire') : '';
 export const labelOf = (v: OfferVehicle) => `${v.brand[0] ?? ''}${v.brand.slice(1).toLowerCase()} ${v.model}`.trim();
-/** Motorisation telle que le fournisseur l'écrit (colonne Engine), sinon la ligne version d'origine. */
-export const engineOf = (v: OfferVehicle) => (v.engine ?? '').trim() || (v.version ?? '').trim() || '—';
+/** Motorisation telle que le fournisseur l'écrit (colonne Engine), sinon celle
+ *  lue dans la ligne version (« 2.0 TDI »). PLUS la ligne entière (13/10,
+ *  Channing : « j'ai deux fois les modèles ») : la colonne Version la porte déjà. */
+export const engineOf = (v: OfferVehicle) => (v.engine ?? '').trim() || parseFreeLine(v.version ?? '').engine || '—';
+/** Version à exporter : vide quand la ligne ne dit rien de plus que le modèle (« X3 » pour un BMW X3). */
+export const versionOf = (v: OfferVehicle) => {
+  const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+  const ver = norm(v.version ?? '');
+  return !ver || ver === norm(v.model) || ver === norm(`${v.brand} ${v.model}`) ? '' : (v.version ?? '').trim();
+};
+/** 1re immatriculation : la date, sinon l'année seule (liste suédoise 13/10 : colonne « Year » sans date). */
+export const regOf = (v: OfferVehicle) => v.reg_date ?? (v.year != null ? String(v.year) : '');
 const FUEL_LABEL: Record<string, string> = {
   ESSENCE: 'Essence', DIESEL: 'Diesel', ELECTRIQUE: 'Électrique', HYBRIDE: 'Hybride', PLUG_IN_HYBRID: 'Hybride rechargeable',
   'HYBRIDE RECHARGEABLE': 'Hybride rechargeable', MILD_HYBRID: 'Micro-hybride', GPL: 'GPL', CNG: 'GNV',
@@ -116,12 +127,12 @@ export function cellValue(col: ExportColumn, v: OfferVehicle, ctx: ExportContext
     case 'vin': return v.vin ?? '';
     case 'vehicle': return labelOf(v);
     case 'qty': return (v.quantity ?? 1) > 1 ? v.quantity! : null;
-    case 'engine': return (v.engine ?? '').trim() || (v.version ?? '').trim() ? engineOf(v) : '';
-    case 'version': return v.version ?? '';
+    case 'engine': { const e = engineOf(v); return e === '—' ? '' : e; }
+    case 'version': return versionOf(v);
     case 'body': return bodyOf(v, ctx.lang);
-    case 'reg': return v.reg_date ?? '';
+    case 'reg': return regOf(v);
     case 'km': return v.km ?? null;
-    case 'color': return v.color ?? '';
+    case 'color': return colorLabel(v.color, ctx.lang);
     case 'fuel': return v.fuel ? fuelLabel(v.fuel, ctx.lang) : '';
     case 'power': return v.power_ch ?? null;
     case 'gearbox': return gearboxLabel(v.gearbox, ctx.lang);

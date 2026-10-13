@@ -28,6 +28,7 @@ import {
   type OfferSettings, type ResolvedSettings,
 } from '../lib/offers/offerSettings';
 import { FILE_CURRENCIES, type FileCurrency } from '../lib/offers/parseSupplierFile';
+import { colorLabel } from '../lib/offers/colorTranslate';
 import { currentFx } from '../services/fxRates';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
 import {
@@ -670,8 +671,8 @@ export function Offres() {
                     <td className="py-1.5 px-3"><input type="checkbox" aria-label={`Retenir ${v.brand} ${v.model}`} checked={v.selected} onChange={(e) => setVehicle(v.id, { selected: e.target.checked })} /></td>
                     <td className="py-1.5 pr-3 whitespace-nowrap"><span className="font-medium text-slate-800">{v.brand} {v.model}</span>{corrected && <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-blue-50 text-brand-encre border border-blue-200" title={`Corrigé à la main : ${Object.keys(v.manual ?? {}).join(', ')}`}>corrigé</span>}{v.vin && <span className="block text-[10px] text-slate-400">{v.vin}</span>}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums"><input type="number" min={1} aria-label="Quantité" value={qtyOf(v)} onChange={(e) => correctVehicle(v.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })} className={`w-14 px-1.5 py-1 rounded border text-right tabular-nums ${qtyOf(v) > 1 ? 'border-slate-300 font-semibold text-slate-800' : 'border-slate-200 text-slate-400'}`} /></td>
-                    <td className="py-1.5 pr-3 max-w-[260px]"><span className="block truncate text-slate-700" title={v.engine ?? ''}>{v.engine || '—'}</span><span className="block truncate text-[10px] text-slate-500" title={v.version}>{v.version}{v.color ? ` · ${v.color}` : ''}</span></td>
-                    <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">{fmtDate(v.reg_date)}</td>
+                    <td className="py-1.5 pr-3 max-w-[260px]"><span className="block truncate text-slate-700" title={v.engine ?? ''}>{v.engine || '—'}</span><span className="block truncate text-[10px] text-slate-500" title={`${v.version}${v.color ? ` · couleur du fichier : ${v.color}` : ''}`}>{v.version}{v.color ? ` · ${colorLabel(v.color, S.lang)}` : ''}</span></td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600" title={!v.reg_date && v.year != null ? 'Année seule : le fichier ne donne pas la date' : ''}>{v.reg_date ? fmtDate(v.reg_date) : v.year ?? '—'}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtKm(v.km)}</td>
                     <td className="py-1.5 pr-3 text-slate-600 whitespace-nowrap">{v.fuel ?? '—'} · {v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox ?? '—'}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{v.power_ch ?? '—'}</td>
@@ -1477,6 +1478,7 @@ function VehicleEditor({ v, onChange }: { v: OfferVehicle; onChange: (patch: Par
       <label className="text-slate-600">Motorisation<input value={v.engine ?? ''} onChange={(e) => onChange({ engine: e.target.value || null })} className={`${field} w-40`} /></label>
       <label className="text-slate-600">VIN<input value={v.vin ?? ''} onChange={(e) => onChange({ vin: e.target.value.toUpperCase() || null })} className={`${field} w-44 uppercase font-mono`} /></label>
       <label className="text-slate-600">1re immat.<input type="date" value={v.reg_date ?? ''} onChange={(e) => onChange({ reg_date: e.target.value || null, year: e.target.value ? regYear(e.target.value) : v.year })} className={field} /></label>
+      <label className="text-slate-600" title="Millésime, quand le fichier ne donne pas la date">Année<input type="number" min={1980} max={2100} value={v.year ?? ''} disabled={!!v.reg_date} onChange={(e) => onChange({ year: numOrNull(e.target.value) })} className={`${field} w-20 disabled:opacity-50`} /></label>
       <label className="text-slate-600">Km<input type="number" value={v.km ?? ''} onChange={(e) => onChange({ km: numOrNull(e.target.value) })} className={`${field} w-24`} /></label>
       <label className="text-slate-600">Énergie
         <select value={v.fuel ?? ''} onChange={(e) => onChange({ fuel: e.target.value || null })} className={field}>

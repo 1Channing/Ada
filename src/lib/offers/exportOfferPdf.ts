@@ -4,7 +4,8 @@
  */
 import jsPDF from 'jspdf';
 import type { OfferVehicle } from './parseSupplierFile';
-import { fmtDate, bodyOf, labelOf, engineOf, fuelLabel, exportSetupOf, type OfferDocument } from './exportOfferXlsx';
+import { fmtDate, bodyOf, labelOf, engineOf, regOf, fuelLabel, exportSetupOf, type OfferDocument } from './exportOfferXlsx';
+import { colorLabel } from './colorTranslate';
 import { BUILTIN_COLUMNS, cellValue, effectiveColumns, gearboxLabel, type BuiltinColumnKey, type ExportColumn, type ExportContext } from './exportColumns';
 import { EXPORT_TEXT } from './offerSettings';
 
@@ -59,15 +60,15 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
   type Col = { key: string; label: string; w: number; align?: 'right'; wrap?: boolean; get: (v: OfferVehicle) => string; has: (v: OfferVehicle) => boolean };
   const allCols: Col[] = [
     { key: 'vin', label: 'Chassis (VIN)', w: 40, get: (v) => v.vin ?? NA, has: (v) => Boolean(v.vin) },
-    { key: 'veh', label: 'Vehicule', w: 46, wrap: true, get: (v) => `${labelOf(v)}${bodyOf(v) ? ` - ${bodyOf(v)}` : ''}${v.color ? ` - ${v.color}` : ''}`, has: () => true },
+    { key: 'veh', label: 'Vehicule', w: 46, wrap: true, get: (v) => `${labelOf(v)}${bodyOf(v) ? ` - ${bodyOf(v)}` : ''}${v.color ? ` - ${colorLabel(v.color, 'fr')}` : ''}`, has: () => true },
     // MOTORISATION (demande Channing 22/09) : la colonne Engine du fournisseur
     // telle quelle (« 1.2 Turbo. 96 kW (130 PS). S/S »), sinon la ligne
     // version d'origine — jamais rédigée, jamais perdue.
     // Exemplaires (catalogue Record Rent a Car 07/10) : une ligne par modèle, le nombre à côté.
     { key: 'qty', label: 'Unites', w: 14, align: 'right', get: (v) => String(v.quantity ?? 1), has: (v) => (v.quantity ?? 1) > 1 },
-    { key: 'eng', label: 'Motorisation', w: 48, wrap: true, get: (v) => engineOf(v), has: (v) => Boolean((v.engine ?? '').trim() || (v.version ?? '').trim()) },
+    { key: 'eng', label: 'Motorisation', w: 48, wrap: true, get: (v) => engineOf(v), has: (v) => engineOf(v) !== '—' },
     { key: 'fuel', label: 'Energie', w: 24, wrap: true, get: (v) => fuelLabel(v.fuel), has: (v) => Boolean(v.fuel) },
-    { key: 'reg', label: '1re immat.', w: 22, get: (v) => fmtDate(v.reg_date).replace('—', NA), has: (v) => Boolean(v.reg_date) },
+    { key: 'reg', label: '1re immat.', w: 22, get: (v) => fmtDate(regOf(v)).replace('—', NA), has: (v) => Boolean(regOf(v)) },
     { key: 'km', label: 'Km', w: 22, align: 'right', get: (v) => (v.km == null ? NA : pdfNum(v.km)), has: (v) => v.km != null },
     { key: 'pow', label: 'Ch', w: 14, align: 'right', get: (v) => (v.power_ch == null ? NA : String(v.power_ch)), has: (v) => v.power_ch != null },
     { key: 'gb', label: 'Boite', w: 20, get: (v) => (v.gearbox ? (v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox) : NA), has: (v) => Boolean(v.gearbox) },

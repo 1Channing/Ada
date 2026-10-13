@@ -4,6 +4,7 @@ import { useAuth } from '../services/auth';
 import { listShowcase, type IntraItem } from '../services/intra';
 import { verdictOf, COUNTRY_CAVEAT } from '../lib/offers/marketCheck';
 import { OFFER_COUNTRIES } from '../services/offers';
+import { colorLabel } from '../lib/offers/colorTranslate';
 
 /**
  * VITRINE DE L'ACCUEIL (12/10 soir, Channing) : les véhicules que l'équipe de
@@ -64,7 +65,7 @@ export function IntraShowcase() {
             v.fuel ? v.fuel.toLowerCase() : '',
             v.gearbox === 'AUTOMATIQUE' ? 'auto' : v.gearbox === 'MANUELLE' ? 'manuelle' : v.gearbox ?? '',
             v.power_ch ? `${v.power_ch} ch` : '',
-            v.color ?? '',
+            colorLabel(v.color, 'fr'),
             v.quantity > 1 ? `${v.quantity} exemplaires` : '',
           ].filter(Boolean);
           return (
