@@ -836,7 +836,8 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   Channing : « sous le bouton Ouvrir, envoyer un véhicule dans les
   négociations, préciser un dossier ou non, une note ou non — gain de
   temps »)**. Sous chaque « Ouvrir » des annonces du MI (colonnes de
-  comparaison et tableau), un lien « Négo » ouvre une petite fenêtre :
+  comparaison et tableau), un bouton « ⋯ » à côté d'« Ouvrir » (inchangé)
+  ouvre un menu « Envoyer en négociation… » puis une petite fenêtre :
   dossier (existant, aucun, ou nouveau), note facultative, « Envoyer en
   négociation ». La négociation est créée avec le titre et le prix déjà
   connus, rangée, la note datée posée, la lecture des photos lancée en

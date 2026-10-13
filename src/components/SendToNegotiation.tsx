@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, Check, Loader2, FolderPlus } from 'lucide-react';
+import { MessageSquare, Check, Loader2, FolderPlus, MoreHorizontal } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import { createNegotiation, listNegotiationFolders, createNegotiationFolder, moveNegotiationToFolder, updateNegotiation, listNegotiations, type NegotiationFolder } from '../services/workflow';
@@ -21,7 +21,8 @@ import { humanListingUrl } from '../services/marketData';
 export function SendToNegotiation({ url, title, price }: { url: string; title: string; price: number | null }) {
   const { allowedTabs, isAdmin } = useAuth();
   const allowed = canSeeTab(allowedTabs, isAdmin, 'wf:negociations');
-  const [open, setOpen] = useState(false);
+  /** 'menu' = les trois points ouverts ; 'form' = la fenêtre dossier + note. */
+  const [open, setOpen] = useState<false | 'menu' | 'form'>(false);
   const [folders, setFolders] = useState<NegotiationFolder[]>([]);
   const [folderId, setFolderId] = useState<string>('');
   const [note, setNote] = useState('');
@@ -31,7 +32,7 @@ export function SendToNegotiation({ url, title, price }: { url: string; title: s
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!open) return;
+    if (open !== 'form') return;
     void listNegotiationFolders().then(setFolders);
     const key = listingKey(url);
     void listNegotiations().then((rows) => setAlready(!!key && rows.some((n) => listingKey(n.listing_url) === key)));
@@ -39,6 +40,12 @@ export function SendToNegotiation({ url, title, price }: { url: string; title: s
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [open, url]);
+  useEffect(() => {
+    if (open !== 'menu') return;
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
   if (!allowed || !url.startsWith('http')) return null;
 
   const send = async () => {
@@ -63,13 +70,20 @@ export function SendToNegotiation({ url, title, price }: { url: string; title: s
     setBusy(false);
   };
 
-  if (done) return <span className="inline-flex items-center gap-1 text-xs text-emerald-700" title="Dans tes négociations"><Check className="w-3 h-3" /> en négo</span>;
+  // Trois petits points (13/10, Channing : « un bouton d'options, sans toucher au bouton Ouvrir ») — le menu porte l'action.
   return (
     <div className="relative inline-block" ref={ref}>
-      <button onClick={() => setOpen((o) => !o)} title="Envoyer dans mes négociations (dossier et note au choix)" className="inline-flex items-center gap-1 text-xs text-brand-ocean hover:underline">
-        <MessageSquare className="w-3 h-3" /> Négo
+      <button onClick={() => setOpen((o) => (o ? false : 'menu'))} title="Options de l'annonce" aria-haspopup="menu" aria-expanded={!!open} className={`p-0.5 rounded ${open ? 'bg-slate-100 text-slate-800' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}>
+        <MoreHorizontal className="w-4 h-4" />
       </button>
-      {open && (
+      {open === 'menu' && (
+        <div role="menu" className="absolute right-0 top-6 z-30 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1 text-xs text-left">
+          {done
+            ? <span className="flex items-center gap-2 px-3 py-2 text-emerald-700"><Check className="w-3.5 h-3.5" /> Dans tes négociations</span>
+            : <button role="menuitem" onClick={() => setOpen('form')} className="w-full flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-50"><MessageSquare className="w-3.5 h-3.5 text-brand-ocean" /> Envoyer en négociation…</button>}
+        </div>
+      )}
+      {open === 'form' && (
         <div className="absolute right-0 top-6 z-30 w-72 bg-white border border-slate-200 rounded-xl shadow-lg p-3 space-y-2 text-xs text-left" onClick={(e) => e.stopPropagation()}>
           <p className="font-semibold text-slate-800 truncate" title={title}>{title || 'Annonce'}</p>
           {already && <p className="text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Déjà dans tes négociations — « Envoyer » en crée une seconde.</p>}

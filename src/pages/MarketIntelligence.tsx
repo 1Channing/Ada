@@ -1505,7 +1505,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-medium text-slate-900">{fmtEur(o.price)}</span>
                           {o.listing_url?.startsWith('http')
-                            ? <span className="inline-flex flex-col items-end gap-0.5 shrink-0">
+                            ? <span className="inline-flex items-center gap-1.5 shrink-0">
                                 <a href={humanListingUrl(o.listing_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
                                 <SendToNegotiation url={o.listing_url} title={`${o.brand} ${o.model} ${o.trim || o.title || ''}`.trim()} price={o.price} />
                               </span>
@@ -1553,7 +1553,7 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
               <td className="py-2 pr-3 text-slate-700">{fuelLabel(o.fuel)}</td>
               <td className="py-2">
                 {o.listing_url?.startsWith('http')
-                  ? <span className="inline-flex items-center gap-3">
+                  ? <span className="inline-flex items-center gap-1.5">
                       <a href={humanListingUrl(o.listing_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
                       <SendToNegotiation url={o.listing_url} title={`${o.brand} ${o.model} ${o.trim || o.title || ''}`.trim()} price={o.price} />
                     </span>
