@@ -832,6 +832,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **CARTE DU RÉSEAU : RELEVÉ GROUPÉ DES VITRINES (13/10, Channing : « un
+  scrape groupé des vitrines qu'on sélectionnerait au sein d'un pays »)**.
+  Bouton « Relevé groupé » sous les pays : la liste (filtrée par pays,
+  recherche, rôle) passe en mode cases à cocher — seuls les contacts avec un
+  site se cochent, « tout cocher (N) » — puis « Relever N vitrines ». Une
+  file côté navigateur lance DEUX relevés à la fois (le worker lit chaque
+  vitrine page par page), les autres attendent leur tour (« en attente » sur
+  la ligne, bandeau avec « annuler l'attente ») ; chaque relevé est celui de
+  la fiche (même job, même bilan, suivi survivant à la navigation). Zéro SQL.
 - **MARKET INTELLIGENCE : ENVOYER UNE ANNONCE EN NÉGOCIATION (13/10,
   Channing : « sous le bouton Ouvrir, envoyer un véhicule dans les
   négociations, préciser un dossier ou non, une note ou non — gain de

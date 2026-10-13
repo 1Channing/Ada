@@ -16,12 +16,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapPin, Plus, Search, Pencil, Trash2, Crosshair, ExternalLink, Phone, Mail, X,
-  ZoomIn, ZoomOut, Maximize2, Move, Loader2, Check, Car,
+  ZoomIn, ZoomOut, Maximize2, Move, Loader2, Check, Car, ListChecks,
 } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import { DealerStockModal } from '../components/DealerStockModal';
-import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDealerScanning, activeDealerScans, type LatestStockRun } from '../services/dealerStock';
+import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDealerScanning, activeDealerScans, queueDealerScans, queuedDealerScans, cancelQueuedDealerScans, type LatestStockRun } from '../services/dealerStock';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
   KIND_LABEL, ROLE_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS,
@@ -66,7 +66,7 @@ const emptyInput = (country = 'NL'): ContactInput => ({
 });
 
 export function Carte() {
-  const { allowedTabs, isAdmin, userId } = useAuth();
+  const { allowedTabs, isAdmin, userId, displayName, email } = useAuth();
   const canEdit = canSeeTab(allowedTabs, isAdmin, 'carte:edition');
 
   const [geo, setGeo] = useState<CountryGeo[] | null>(null);
@@ -115,6 +115,11 @@ export function Carte() {
     return () => clearInterval(t);
   }, [serverRunning, reload]);
   const scanningIds = new Set<string>([...activeDealerScans().map((s) => s.contactId), ...serverRunning.keys()]);
+  const queuedIds = new Set<string>(queuedDealerScans());
+  // RELEVÉ GROUPÉ (13/10) : coche des vitrines dans la liste (filtrée par pays), un seul lancement.
+  const [groupMode, setGroupMode] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const togglePick = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   useEffect(() => {
     void reload();
     const off = subscribeNetwork(() => { void reload(); });
@@ -544,6 +549,40 @@ export function Carte() {
               {canEdit && (
                 <button onClick={startCreate} className="w-full flex items-center justify-center gap-1.5 bg-brand-ocean hover:bg-brand-encre text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors"><Plus className="w-4 h-4" /> Ajouter un contact</button>
               )}
+              {/* Relevé groupé des vitrines (13/10) : on coche, on lance, deux à la fois côté worker. */}
+              {(() => {
+                const withSite = filtered.filter((c) => !!c.website);
+                const pickedHere = withSite.filter((c) => picked.has(c.id) && !scanningIds.has(c.id) && !queuedIds.has(c.id));
+                const launch = () => {
+                  const n = queueDealerScans(pickedHere.map((c) => ({ contactId: c.id, name: c.name, url: c.website! })), displayName || email || 'carte');
+                  setPicked(new Set()); setGroupMode(false);
+                  if (n === 0) alert('Rien à lancer : les vitrines cochées sont déjà en cours ou en attente.');
+                };
+                return (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={() => { setGroupMode((m) => !m); setPicked(new Set()); }} aria-pressed={groupMode} className={`flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 border transition-colors ${groupMode ? 'bg-sky-600 text-white border-sky-600' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title="Cocher plusieurs vitrines de la liste et lancer leurs relevés d'un coup (deux à la fois)">
+                        <ListChecks className="w-3.5 h-3.5" /> {groupMode ? 'Annuler la sélection' : 'Relevé groupé'}
+                      </button>
+                      {groupMode && (
+                        <>
+                          <button onClick={() => setPicked(new Set(withSite.map((c) => c.id)))} className="text-xs text-brand-ocean hover:underline">tout cocher ({withSite.length})</button>
+                          <button onClick={launch} disabled={pickedHere.length === 0} className="ml-auto flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">
+                            <Search className="w-3.5 h-3.5" /> Relever {pickedHere.length} vitrine{pickedHere.length > 1 ? 's' : ''}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {groupMode && <p className="text-[11px] text-slate-500">{countryFilter ? `${COUNTRY_NAMES[countryFilter] ?? countryFilter} : ` : ''}{withSite.length} contact{withSite.length > 1 ? 's' : ''} avec un site dans la liste. Un contact sans site ne peut pas être relevé.</p>}
+                    {queuedIds.size > 0 && (
+                      <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap">
+                        <span>{queuedIds.size} en attente : {[...queuedIds].map((id) => contacts.find((c) => c.id === id)?.name ?? '…').join(', ')}</span>
+                        <button onClick={() => { cancelQueuedDealerScans(); scanTick((n) => n + 1); }} className="ml-auto text-slate-500 hover:text-red-700 underline">annuler l'attente</button>
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
               {loadError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{loadError}</p>}
               {scanningIds.size > 0 && (
                 <p className="text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 animate-pulse" title="Les relevés tournent sur le serveur : changer de page ou fermer la fenêtre n'interrompt rien">
@@ -554,8 +593,9 @@ export function Carte() {
             <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
               {filtered.length === 0 && !loading && <p className="text-sm text-slate-400 text-center py-10">Aucun contact ne correspond.</p>}
               {filtered.map((c) => (
-                <button key={c.id} onClick={() => selectContact(c)} className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors">
+                <button key={c.id} onClick={() => (groupMode ? (c.website ? togglePick(c.id) : undefined) : selectContact(c))} className={`w-full text-left px-4 py-3 transition-colors ${groupMode && !c.website ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'} ${groupMode && picked.has(c.id) ? 'bg-sky-50' : ''}`}>
                   <div className="flex items-center gap-2">
+                    {groupMode && <input type="checkbox" readOnly checked={picked.has(c.id)} disabled={!c.website} aria-label={`Relever ${c.name}`} className="shrink-0" />}
                     <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow" style={{ background: ROLE_COLOR[c.role] }} />
                     <span className="font-medium text-slate-900 truncate">{c.name}</span>
                     {c.relation && <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: RELATION_COLOR[c.relation] ?? '#64748b' }}>{RELATION_LABEL[c.relation] ?? c.relation}</span>}
@@ -564,6 +604,7 @@ export function Carte() {
                     <span>{FLAG[c.country] ?? ''} {c.city ?? <em className="text-amber-600 not-italic">à placer</em>}</span>
                     <span>·</span><span>{KIND_LABEL[c.kind]}</span>
                     <StockFigure c={c} run={lastRuns.get(c.id)} scanning={scanningIds.has(c.id)} />
+                    {queuedIds.has(c.id) && <><span>·</span><span className="text-slate-500" title="Dans la file du relevé groupé : part dès qu'une place se libère (deux à la fois)">en attente</span></>}
                     {/* StockFigure rend « · n relevés le jj/mm » ou « · n déclarés », rien sans donnée. */}
                   </div>
                   {c.models.length > 0 && (

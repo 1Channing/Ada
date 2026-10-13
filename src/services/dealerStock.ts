@@ -123,8 +123,37 @@ export function startDealerScan(contactId: string, name: string, url: string, su
   void scanDealerStock(contactId, url, submittedBy)
     .then((summary) => scanOutcomes.set(contactId, { summary, at: Date.now() }))
     .catch((e) => scanOutcomes.set(contactId, { error: e instanceof Error ? e.message : String(e), at: Date.now() }))
-    .finally(() => { activeScans.delete(contactId); notifyScans(); });
+    .finally(() => { activeScans.delete(contactId); notifyScans(); pumpQueue(); });
 }
+
+/**
+ * RELEVÉ GROUPÉ (13/10, Channing : « un scrape groupé des vitrines qu'on
+ * sélectionnerait au sein d'un pays ») : une file, DEUX relevés à la fois —
+ * le worker lit chaque vitrine page par page, les lancer tous d'un coup le
+ * saturerait. Les suivants attendent leur tour, visibles « en attente ».
+ */
+const GROUP_PARALLEL = 2;
+const queuedScans = new Map<string, { contactId: string; name: string; url: string; submittedBy: string }>();
+export function isDealerQueued(contactId: string): boolean { return queuedScans.has(contactId); }
+export function queuedDealerScans(): string[] { return [...queuedScans.keys()]; }
+function pumpQueue(): void {
+  while (activeScans.size < GROUP_PARALLEL && queuedScans.size > 0) {
+    const next = queuedScans.values().next().value as { contactId: string; name: string; url: string; submittedBy: string };
+    queuedScans.delete(next.contactId);
+    startDealerScan(next.contactId, next.name, next.url, next.submittedBy);
+  }
+  notifyScans();
+}
+export function queueDealerScans(items: Array<{ contactId: string; name: string; url: string }>, submittedBy: string): number {
+  let n = 0;
+  for (const it of items) {
+    if (activeScans.has(it.contactId) || queuedScans.has(it.contactId)) continue;
+    queuedScans.set(it.contactId, { ...it, submittedBy }); n++;
+  }
+  pumpQueue();
+  return n;
+}
+export function cancelQueuedDealerScans(): number { const n = queuedScans.size; queuedScans.clear(); notifyScans(); return n; }
 
 /** Relevés encore en statut running côté base (lancés < 20 min) : visibles même après un rechargement du navigateur. */
 export async function listRunningStockRuns(): Promise<Map<string, { at: string }>> {
