@@ -475,7 +475,7 @@ export function Offres() {
     const items = list.map(intraDraftOf).filter((x): x is IntraDraft => !!x);
     const err = await publishToShowcase(items);
     if (err) { fail(err); return; }
-    info(`${items.length} véhicule${items.length > 1 ? 's' : ''} publié${items.length > 1 ? 's' : ''} dans la vitrine de l'Accueil (véhicule, prix MC Export HT et relevé de marché photographiés maintenant).`);
+    info(`${items.length} véhicule${items.length > 1 ? 's' : ''} publié${items.length > 1 ? 's' : ''} dans les bonnes affaires de l'Accueil (véhicule, prix MC Export HT et relevé de marché photographiés maintenant).`);
     void reloadShowcase();
   };
   const unpublishVehicles = async (ids: string[]) => {
@@ -1355,17 +1355,17 @@ export function Offres() {
               <div className="space-y-4">
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 text-sm text-slate-600 flex items-start gap-3 flex-wrap">
                   <Megaphone className="w-5 h-5 text-brand-ocean shrink-0 mt-0.5" />
-                  <p className="flex-1 min-w-[280px]">L'Intra, c'est la <strong>vitrine de l'Accueil</strong> de tous les utilisateurs d'ADA, toutes organisations : les véhicules disponibles que l'équipe MC Export choisit de montrer, avec le prix MC Export {B} et le relevé du marché FRANÇAIS du lot (verdict France, recherches françaises cliquables ; les autres pays restent ici ; étude complète pour ceux qui ont l'onglet Offres). Publier photographie le véhicule tel qu'il est maintenant ; republier rafraîchit.</p>
+                  <p className="flex-1 min-w-[280px]">L'Intra, ce sont les <strong>bonnes affaires de l'Accueil</strong> de tous les utilisateurs d'ADA, toutes organisations : les véhicules disponibles que l'équipe MC Export choisit de montrer, avec le prix MC Export {B} et le relevé du marché FRANÇAIS du lot (verdict France, recherches françaises cliquables ; les autres pays restent ici ; étude complète pour ceux qui ont l'onglet Offres). Publier photographie le véhicule tel qu'il est maintenant ; republier rafraîchit.</p>
                   {showcaseError && <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{showcaseError}</span>}
                 </div>
 
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm min-w-0">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
                     <h2 className="text-sm font-semibold text-slate-800">Véhicules de l'offre</h2>
-                    <span className="text-xs text-slate-500">{unitsLabel(selected.length, selectedUnits)} retenus · {publishedHere.size} dans la vitrine</span>
+                    <span className="text-xs text-slate-500">{unitsLabel(selected.length, selectedUnits)} retenus · {publishedHere.size} en bonne affaire</span>
                     <div className="ml-auto flex gap-2">
                       <button onClick={() => void publishVehicles(selected)} disabled={selected.length === 0} className="flex items-center gap-1.5 bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><Megaphone className="w-4 h-4" /> {allPublished ? 'Republier tous les retenus' : 'Publier tous les retenus'}</button>
-                      <button onClick={() => void unpublishVehicles([...publishedHere.values()].map((i) => i.id))} disabled={publishedHere.size === 0} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-red-400 hover:text-red-700 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><X className="w-4 h-4" /> Tout retirer de la vitrine</button>
+                      <button onClick={() => void unpublishVehicles([...publishedHere.values()].map((i) => i.id))} disabled={publishedHere.size === 0} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-red-400 hover:text-red-700 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><X className="w-4 h-4" /> Tout retirer des bonnes affaires</button>
                     </div>
                   </div>
                   {selected.length === 0 ? (
@@ -1374,10 +1374,10 @@ export function Offres() {
                     <div className="overflow-auto max-h-[70vh] p-3">
                       <table className="text-xs w-full">
                         <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">
-                          <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Vitrine</th>
+                          <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Bonne affaire</th>
                           {previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{displayLabel(c, exportCtx)}</th>)}
                           <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Relevé de marché</th>
-                          <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Mot pour la vitrine</th>
+                          <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Mot pour la bonne affaire</th>
                         </tr></thead>
                         <tbody>
                           {selected.map((v, i) => {
@@ -1389,7 +1389,7 @@ export function Offres() {
                               <tr className={i % 2 ? 'bg-slate-50' : ''}>
                                 <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
                                   <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                                    <input type="checkbox" checked={!!it} onChange={(e) => (e.target.checked ? void publishVehicles([v]) : it && void unpublishVehicles([it.id]))} aria-label={`Publier ${v.brand} ${v.model} dans la vitrine`} />
+                                    <input type="checkbox" checked={!!it} onChange={(e) => (e.target.checked ? void publishVehicles([v]) : it && void unpublishVehicles([it.id]))} aria-label={`Publier ${v.brand} ${v.model} en bonne affaire`} />
                                     {it ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${stale(v) ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`} title={stale(v) ? 'Le prix ou le relevé a changé depuis la publication — recoche ou « Republier » pour rafraîchir' : `Publié le ${new Date(it.published_at).toLocaleDateString('fr-FR')}`}>{stale(v) ? 'à rafraîchir' : 'publié'}</span> : <span className="text-[10px] text-slate-400">non</span>}
                                   </label>
                                 </td>
@@ -1422,7 +1422,7 @@ export function Offres() {
                                     </div>
                                     {lotCriteriaForm(lot)}
                                     {survey && surveyRunning && <p className="text-[11px] text-slate-500">Relevé en cours : {survey.done}/{survey.total} · {survey.current}</p>}
-                                    <p className="text-[11px] text-slate-500">Un véhicule déjà publié garde l'ancien relevé dans la vitrine jusqu'à ce que tu le republies (il passe « à rafraîchir »).</p>
+                                    <p className="text-[11px] text-slate-500">Un véhicule déjà publié garde l'ancien relevé dans les bonnes affaires jusqu'à ce que tu le republies (il passe « à rafraîchir »).</p>
                                   </td>
                                 </tr>
                               )}
@@ -1438,10 +1438,10 @@ export function Offres() {
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
                     <h2 className="text-sm font-semibold text-slate-800">Ce que l'Accueil montre aujourd'hui</h2>
-                    <span className="text-xs text-slate-500">{showcase.length} véhicule{showcase.length > 1 ? 's' : ''} en vitrine, toutes offres confondues{others.length ? ` · ${others.length} d'autres offres` : ''}</span>
+                    <span className="text-xs text-slate-500">{showcase.length} véhicule{showcase.length > 1 ? 's' : ''} en bonnes affaires, toutes offres confondues{others.length ? ` · ${others.length} d'autres offres` : ''}</span>
                   </div>
                   {showcase.length === 0 ? (
-                    <p className="px-4 py-6 text-sm text-slate-400 text-center">La vitrine est vide.</p>
+                    <p className="px-4 py-6 text-sm text-slate-400 text-center">Aucune bonne affaire publiée.</p>
                   ) : (
                     <ul className="divide-y divide-slate-100">
                       {showcase.map((it) => (
@@ -1451,7 +1451,7 @@ export function Offres() {
                           <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + ' HT' : 'sur proposition'}</span>
                           <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>
                           {it.note && <span className="text-slate-600 truncate">« {it.note} »</span>}
-                          <button onClick={() => void unpublishVehicles([it.id])} className="ml-auto p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 shrink-0" title="Retirer de la vitrine" aria-label={`Retirer ${it.vehicle.brand} ${it.vehicle.model} de la vitrine`}><X className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => void unpublishVehicles([it.id])} className="ml-auto p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 shrink-0" title="Retirer des bonnes affaires" aria-label={`Retirer ${it.vehicle.brand} ${it.vehicle.model} des bonnes affaires`}><X className="w-3.5 h-3.5" /></button>
                         </li>
                       ))}
                     </ul>

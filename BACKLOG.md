@@ -832,6 +832,11 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **ACCUEIL : « BONNES AFFAIRES » À LA PLACE DE « VITRINE » (13/10, Channing)**.
+  L'en-tête du bloc de l'Accueil dit « Bonnes affaires — véhicules
+  disponibles » ; l'onglet Intra des Offres parle des bonnes affaires
+  (colonne, boutons, messages). Le nom technique (intra_showcase, Intra)
+  ne change pas. Zéro SQL.
 - **OFFRES : COULEURS TRADUITES, MODÈLES EN DOUBLE, ANNÉE SANS DATE (13/10,
   Channing : « j'ai deux fois les modèles, les années de mise en circulation
   ne sont pas reconnues », « un outil pour traduire les couleurs, peu importe

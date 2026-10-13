@@ -49,7 +49,8 @@ export function IntraShowcase() {
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
       <div className="flex items-center gap-2 px-5 py-3 flex-wrap">
         <Megaphone className="w-4 h-4 text-brand-ocean" />
-        <span className="text-xs uppercase tracking-wide text-slate-500">Vitrine — véhicules disponibles</span>
+        {/* « Bonnes affaires », pas « vitrine » (13/10, Channing). */}
+        <span className="text-xs uppercase tracking-wide text-slate-500">Bonnes affaires — véhicules disponibles</span>
         <span className="text-xs text-slate-400">{items.length} véhicule{items.length > 1 ? 's' : ''} publié{items.length > 1 ? 's' : ''} par l'équipe MC Export · prix MC Export HT · marché français</span>
       </div>
       {error && <p className="mx-5 mb-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
