@@ -832,6 +832,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **CARTE : UN RELEVÉ EN ÉCHEC SE VOIT SUR LA LIGNE DU CONTACT (13/10,
+  Channing : « les erreurs seront affichées sur les vitrines ? »)**. Constat
+  : la liste ne lisait que les relevés réussis (status done) ; un échec
+  n'apparaissait que dans la fenêtre du contact. Désormais le dernier
+  relevé raté, s'il est plus récent que la dernière réussite, s'affiche en
+  rouge « échec le jj/mm » sur la ligne et sur la fiche, la raison au
+  survol, à côté du dernier chiffre réussi. Boîte à apprendre (déjà en
+  place, worker) : vitrine non reconnue, vitrine protégée, relevé vide sur
+  site reconnu ; les autres échecs (délai, réseau, worker redémarré) ne
+  sont que dans network_stock_runs. Zéro SQL.
 - **HISTORIQUE DES VENTES : LE MOIS EST CELUI DE L'ONGLET DU TABLEUR (13/10,
   Channing : « plein de ventes ne sont pas organisées par mois, il faut les
   réorganiser en fonction du sheet »)**. Prouvé en base : 198 ventes

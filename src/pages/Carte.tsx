@@ -664,14 +664,24 @@ function StockFigure({ c, run, chip, scanning }: { c: { stock_total: number | nu
       ? <span title={title} className="text-[11px] bg-sky-50 text-sky-700 border border-sky-200 rounded-full px-2 py-0.5 animate-pulse">{text}</span>
       : <><span>·</span><span title={title} className="text-sky-700 animate-pulse">{text}</span></>;
   }
+  // ÉCHEC VISIBLE SUR LA LIGNE (13/10) : le dernier relevé raté, s'il est plus récent que la dernière réussite,
+  // avec sa raison au survol — avant, l'échec ne se voyait que dans la fenêtre du contact.
+  const failedChip = run?.failed ? (() => {
+    const when = new Date(run.failed.at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+    const title = `Relevé en échec le ${when} : ${run.failed.error ?? 'sans détail'}`;
+    return chip
+      ? <span title={title} className="text-[11px] bg-red-50 text-red-700 border border-red-200 rounded-full px-2 py-0.5">échec le {when}</span>
+      : <><span>·</span><span title={title} className="text-red-700">échec le {when}</span></>;
+  })() : null;
   if (run && run.total != null) {
     const when = new Date(run.at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
     const text = `${run.total.toLocaleString('fr-FR')} relevés le ${when}`;
     const title = `Stock lu par ADA sur la vitrine le ${when} (${run.provider ?? 'site'})`;
     return chip
-      ? <span title={title} className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">{text}</span>
-      : <><span>·</span><span title={title} className="text-emerald-700">{text}</span></>;
+      ? <>{failedChip}<span title={title} className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">{text}</span></>
+      : <><span>·</span><span title={title} className="text-emerald-700">{text}</span>{failedChip}</>;
   }
+  if (failedChip) return failedChip;
   if (c.stock_total != null) {
     const text = `${c.stock_total.toLocaleString('fr-FR')} déclarés`;
     const title = 'Chiffre saisi à la main sur la fiche, pas relevé sur la vitrine — « Stock relevé » pour mesurer';

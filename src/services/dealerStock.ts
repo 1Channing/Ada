@@ -69,13 +69,27 @@ export async function listStockRuns(contactId: string): Promise<{ runs: StockRun
  * stock relevé par ADA se distingue d'un stock saisi à la main le 07/09 :
  * seul le premier est une mesure, et il porte sa date.
  */
-export interface LatestStockRun { at: string; total: number | null; provider: string | null }
+export interface LatestStockRun {
+  at: string; total: number | null; provider: string | null;
+  /** Dernier relevé EN ÉCHEC plus récent que la dernière réussite (13/10, Channing : « les erreurs seront
+   *  affichées sur les vitrines ? ») — avant, la liste ne lisait que les réussites et un échec restait invisible
+   *  hors de la fenêtre du contact. */
+  failed?: { at: string; error: string | null };
+}
 export async function listLatestStockRuns(): Promise<Map<string, LatestStockRun>> {
   const map = new Map<string, LatestStockRun>();
-  const { data, error } = await untyped.from('network_stock_runs').select('contact_id, started_at, total, provider').eq('status', 'done').order('started_at', { ascending: false }).limit(2000);
+  const { data, error } = await untyped.from('network_stock_runs').select('contact_id, started_at, total, provider, status, error').in('status', ['done', 'failed']).order('started_at', { ascending: false }).limit(3000);
   if (error) return map; // table absente : rien de relevé, l'affichage reste « déclaré »
-  for (const r of (data ?? []) as Array<{ contact_id: string; started_at: string; total: number | null; provider: string | null }>) {
-    if (!map.has(r.contact_id)) map.set(r.contact_id, { at: r.started_at, total: r.total, provider: r.provider });
+  const failedSeen = new Set<string>();
+  for (const r of (data ?? []) as Array<{ contact_id: string; started_at: string; total: number | null; provider: string | null; status: string; error: string | null }>) {
+    if (r.status === 'failed') {
+      // Un échec ne compte que s'il est plus récent que la dernière réussite (les lignes arrivent du plus récent au plus ancien).
+      if (!map.has(r.contact_id) && !failedSeen.has(r.contact_id)) { failedSeen.add(r.contact_id); map.set(r.contact_id, { at: r.started_at, total: null, provider: null, failed: { at: r.started_at, error: r.error } }); }
+      continue;
+    }
+    const cur = map.get(r.contact_id);
+    if (!cur) map.set(r.contact_id, { at: r.started_at, total: r.total, provider: r.provider });
+    else if (cur.failed && cur.total == null) map.set(r.contact_id, { at: r.started_at, total: r.total, provider: r.provider, failed: cur.failed });
   }
   return map;
 }
