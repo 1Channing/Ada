@@ -832,6 +832,17 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **MARKET INTELLIGENCE : ENVOYER UNE ANNONCE EN NÉGOCIATION (13/10,
+  Channing : « sous le bouton Ouvrir, envoyer un véhicule dans les
+  négociations, préciser un dossier ou non, une note ou non — gain de
+  temps »)**. Sous chaque « Ouvrir » des annonces du MI (colonnes de
+  comparaison et tableau), un lien « Négo » ouvre une petite fenêtre :
+  dossier (existant, aucun, ou nouveau), note facultative, « Envoyer en
+  négociation ». La négociation est créée avec le titre et le prix déjà
+  connus, rangée, la note datée posée, la lecture des photos lancée en
+  arrière-plan ; l'annonce dit si elle est déjà dans tes négociations.
+  Composant `SendToNegotiation`, visible avec l'onglet Négociations
+  seulement. Zéro SQL.
 - **INTRA : LES CRITÈRES DE L'ÉTUDE DE MARCHÉ SE RÈGLENT SUR LA LIGNE DU
   VÉHICULE (13/10, Channing : « modifier les critères des études de marché
   présents avec les véhicules »)**. Le formulaire des critères d'un lot

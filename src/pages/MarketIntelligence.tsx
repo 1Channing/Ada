@@ -26,6 +26,7 @@ import { BODY_TYPES, bodyLabel, canonicalizeBody } from '../lib/study-core/bodyT
 import { getRefWindowsCached, findRefWindow } from '../services/vehicleRef';
 import type { RefWindowMap, RefWindow } from '../services/vehicleRef';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
+import { SendToNegotiation } from '../components/SendToNegotiation';
 
 const SERIES = ['#3987e5', '#008300', '#d55181', '#c98500', '#199e70', '#d95926', '#9085e9', '#e66767'];
 const BLUE = SERIES[0];
@@ -1504,7 +1505,10 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-medium text-slate-900">{fmtEur(o.price)}</span>
                           {o.listing_url?.startsWith('http')
-                            ? <a href={humanListingUrl(o.listing_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs shrink-0">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                            ? <span className="inline-flex flex-col items-end gap-0.5 shrink-0">
+                                <a href={humanListingUrl(o.listing_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                                <SendToNegotiation url={o.listing_url} title={`${o.brand} ${o.model} ${o.trim || o.title || ''}`.trim()} price={o.price} />
+                              </span>
                             : <span className="text-slate-400 text-xs shrink-0">—</span>}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
@@ -1549,7 +1553,10 @@ function ListingsTable({ rows }: { rows: Observation[] }) {
               <td className="py-2 pr-3 text-slate-700">{fuelLabel(o.fuel)}</td>
               <td className="py-2">
                 {o.listing_url?.startsWith('http')
-                  ? <a href={humanListingUrl(o.listing_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                  ? <span className="inline-flex items-center gap-3">
+                      <a href={humanListingUrl(o.listing_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">Ouvrir <ExternalLink className="w-3 h-3" /></a>
+                      <SendToNegotiation url={o.listing_url} title={`${o.brand} ${o.model} ${o.trim || o.title || ''}`.trim()} price={o.price} />
+                    </span>
                   : <span className="text-slate-400 text-xs">—</span>}
               </td>
             </tr>
