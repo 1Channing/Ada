@@ -62,9 +62,17 @@ language sql stable security definer set search_path = public as $$
     'price_ht', i.price_ht,
     'note', i.note,
     'photos', coalesce(i.photos, '[]'::jsonb),
+    -- Par pays : prix d'attaque, médiane, nombre d'annonces, et les recherches
+    -- du relevé (site, adresse, annonces lues) — les mêmes liens que sur
+    -- l'Accueil d'ADA, pour que le visiteur vérifie le marché lui-même.
     'market', (
       select coalesce(jsonb_object_agg(e.key, jsonb_build_object(
-        'median', e.value->'medianTtc', 'attack', e.value->'attackTtc', 'competitors', e.value->'competitors', 'at', e.value->'at')), '{}'::jsonb)
+        'median', e.value->'medianTtc', 'attack', e.value->'attackTtc', 'competitors', e.value->'competitors', 'at', e.value->'at',
+        'sites', (
+          select coalesce(jsonb_agg(jsonb_build_object('site', s.key, 'url', s.value->'url', 'count', s.value->'count', 'attack', s.value->'attack', 'median', s.value->'median')), '[]'::jsonb)
+          from jsonb_each(coalesce(e.value->'sites', '{}'::jsonb)) s
+          where jsonb_typeof(s.value) = 'object' and (s.value->>'url') like 'http%' and (s.value->>'error') is null
+        ))), '{}'::jsonb)
       from jsonb_each(coalesce(i.market, '{}'::jsonb)) e
       where jsonb_typeof(e.value) = 'object'
     )
