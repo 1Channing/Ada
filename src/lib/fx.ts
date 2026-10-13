@@ -45,15 +45,22 @@ export function toEur(amount: number, currency: string | null | undefined, fx: F
   return r && r > 0 ? amount / r : null;
 }
 
+/** Symbole usuel d'une devise (« kr », « Ft », « € ») ; le code quand il n'y en a pas. */
+export function currencySymbol(currency: string | null | undefined): string {
+  const c = (currency ?? 'EUR').toUpperCase();
+  if (c === 'EUR' || c === '') return '€';
+  if (c === 'DKK' || c === 'SEK' || c === 'NOK') return 'kr';
+  if (c === 'HUF') return 'Ft';
+  if (c === 'PLN') return 'zł';
+  if (c === 'CZK') return 'Kč';
+  if (c === 'GBP') return '£';
+  return c;
+}
+
 /** Libellé court d'un montant dans sa devise (« 192 900 kr », « 25 800 € »). */
 export function fmtMoney(amount: number, currency: string | null | undefined): string {
   const c = (currency ?? 'EUR').toUpperCase();
   const n = Math.round(amount).toLocaleString('fr-FR');
-  if (c === 'EUR' || c === '') return `${n} €`;
-  if (c === 'DKK' || c === 'SEK' || c === 'NOK') return `${n} kr`;
-  if (c === 'HUF') return `${n} Ft`;
-  if (c === 'PLN') return `${n} zł`;
-  if (c === 'CZK') return `${n} Kč`;
   if (c === 'GBP') return `£${n}`;
-  return `${n} ${c}`;
+  return `${n} ${currencySymbol(c)}`;
 }

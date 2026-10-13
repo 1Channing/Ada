@@ -832,6 +832,27 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OFFRES : LISTES EN COURONNES SUÉDOISES (13/10, Channing : « apprends les
+  offres à lire ces listes, les prix sont en SEK », classeur Mixed Brands de
+  335 véhicules)**. Constat : le lecteur n'avait aucune notion de devise —
+  174 500 kr devenaient 174 500 € — et les « Milage » étaient des MIL
+  suédois (1 mil = 10 km : 11 300 → 113 000 km), lus comme des km ; en-têtes
+  « Reg.nr » pris pour une date, « Modell » et « Milage » ignorés. Désormais :
+  (1) devise du fichier lue (SEK/DKK/NOK/HUF/PLN/CZK/CHF/GBP, code, « kr »,
+  « Ft »…) ou déduite (en-têtes suédois/danois/norvégiens + prix médian à
+  six chiffres), dite « supposée » dans ce cas ; réglage « Devise du fichier »
+  dans Paramètres, taux BCE figé à l'import (« 1 € = 11,24 kr (BCE du …) »,
+  bouton « taux du jour ») ; les prix du fichier restent dans leur devise,
+  la conversion se fait au calcul du HT fournisseur, des dommages, de l'export
+  et de la vitrine ; (2) TVA du pays de la devise (Suède 25 %…) posée comme
+  fait, plus « 20 % supposé » ; (3) unité des kilométrages : « mil » lu dans
+  l'en-tête, ou supposé sur un fichier scandinave aux kilométrages trop bas
+  pour des km (9 sur 10 sous 20 000) — réglage km / mil dans Paramètres, le
+  fichier est relu ; (4) en-têtes suédois, danois, norvégiens reconnus
+  (Reg.nr = plaque, Modell, Färg, Milage, Pris, Moms, Miltal, Växellåda…),
+  « VW Trp » = Volkswagen, prix à 0 = sans prix. Vérifié sur le classeur :
+  334 véhicules, A4 174 500 kr TTC → 12 417 € HT, 113 000 km. Zéro SQL (les
+  réglages vivent dans supplier_offers.settings).
 - **CARTE : UN RELEVÉ EN ÉCHEC SE VOIT SUR LA LIGNE DU CONTACT (13/10,
   Channing : « les erreurs seront affichées sur les vitrines ? »)**. Constat
   : la liste ne lisait que les relevés réussis (status done) ; un échec

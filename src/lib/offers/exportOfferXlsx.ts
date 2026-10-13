@@ -30,11 +30,13 @@ export interface OfferDocument {
   priceBasis?: PriceBasis;
   saleVat?: number;
   supplierHt?: (v: OfferVehicle) => number | null;
+  /** Dommages en euros quand le fichier est en couronnes (13/10). */
+  damagesEur?: (v: OfferVehicle) => number | null;
 }
 
 /** Contexte d'export d'un document, et colonnes à utiliser : la forme historique ne vaut qu'en français, prix HT, colonnes non réglées. */
 export function exportSetupOf(doc: OfferDocument): { ctx: ExportContext; columns: ExportColumn[] | undefined } {
-  const ctx: ExportContext = { lang: doc.lang ?? 'fr', basis: doc.priceBasis ?? 'ht', saleVat: doc.saleVat ?? 0.2, supplierHt: doc.supplierHt };
+  const ctx: ExportContext = { lang: doc.lang ?? 'fr', basis: doc.priceBasis ?? 'ht', saleVat: doc.saleVat ?? 0.2, supplierHt: doc.supplierHt, damagesEur: doc.damagesEur };
   const columns = doc.columns ?? (ctx.lang !== 'fr' || ctx.basis === 'ttc' ? defaultExportColumns() : undefined);
   return { ctx, columns };
 }
@@ -68,7 +70,7 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
     { label: 'Puissance (ch)', w: 12, get: (v) => v.power_ch ?? null },
     { label: 'Boîte', w: 12, get: (v) => v.gearbox ?? '' },
     { label: 'CO₂ (g/km)', w: 10, get: (v) => v.co2 ?? null },
-    ...(doc.showDamages ? [{ label: 'Dommages chiffrés (€)', w: 16, get: (v: OfferVehicle) => v.damages ?? null }] : []),
+    ...(doc.showDamages ? [{ label: 'Dommages chiffrés (€)', w: 16, get: (v: OfferVehicle) => (doc.damagesEur ? doc.damagesEur(v) : v.damages ?? null) }] : []),
     ...(doc.showPrices === false ? [] : [{ label: 'Prix de vente HT (€)', w: 18, get: (v: OfferVehicle) => v.sale_price ?? null, always: true }]),
     ...(doc.showSupplierPrice ? [{ label: 'Prix fournisseur HT (€)', w: 18, get: (v: OfferVehicle) => v.price_ht ?? null }] : []),
     { label: 'Rapport', w: 40, get: (v) => v.report_url ?? '' },

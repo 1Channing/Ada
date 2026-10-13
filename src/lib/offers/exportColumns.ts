@@ -21,6 +21,8 @@ export interface ExportContext {
   basis: PriceBasis;
   saleVat: number;
   supplierHt?: (v: OfferVehicle) => number | null;
+  /** Dommages en euros (fichier en couronnes, 13/10) ; absent = valeur du fichier. */
+  damagesEur?: (v: OfferVehicle) => number | null;
 }
 export const DEFAULT_EXPORT_CONTEXT: ExportContext = { lang: 'fr', basis: 'ht', saleVat: 0.2 };
 
@@ -124,7 +126,7 @@ export function cellValue(col: ExportColumn, v: OfferVehicle, ctx: ExportContext
     case 'power': return v.power_ch ?? null;
     case 'gearbox': return gearboxLabel(v.gearbox, ctx.lang);
     case 'co2': return v.co2 ?? null;
-    case 'damages': return v.damages ?? null;
+    case 'damages': return ctx.damagesEur ? ctx.damagesEur(v) : v.damages ?? null;
     case 'price': return v.sale_price == null ? null : ctx.basis === 'ttc' ? Math.round(v.sale_price * (1 + ctx.saleVat)) : v.sale_price;
     case 'supplier_price': return (ctx.supplierHt ?? supplierHt)(v);
     case 'location': return v.location ?? '';

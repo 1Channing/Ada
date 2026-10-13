@@ -24,9 +24,11 @@ import {
   type ExportColumn, type ExportContext,
 } from '../lib/offers/exportColumns';
 import {
-  EXPORT_TEXT, VAT_CHOICES, basisLabel, detectPriceSetup, fromShown, resolveSettings, supplierHtWith, supplierShown, supplierVatOf, toShown,
+  EXPORT_TEXT, VAT_CHOICES, basisLabel, damagesEur, detectPriceSetup, fileMoney, fromShown, fxRateLabel, resolveSettings, supplierHtWith, supplierShown, supplierVatOf, todayFxRate, toShown,
   type OfferSettings, type ResolvedSettings,
 } from '../lib/offers/offerSettings';
+import { FILE_CURRENCIES, type FileCurrency } from '../lib/offers/parseSupplierFile';
+import { currentFx } from '../services/fxRates';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
 import {
   lotsOf, lotTargets, startLotJob, awaitLotJob, mergeCountry, verdictOf, applyLotCriteria, COUNTRY_CAVEAT,
@@ -163,10 +165,19 @@ export function Offres() {
   /** (Re)lecture d'une grille : nouvelle offre, ou relecture d'une offre existante avec les règles du jour.
    *  Sélection, prix MC Export, CORRECTIONS faites à la main et colonnes libres sont gardés véhicule par véhicule. */
   const buildDraftFromGrid = (src: { sheet: string; grid: unknown[][] }, name: string, ov: Record<string, OfferField>, base: Draft): Draft => {
-    const p = parseSupplierWorkbook(src, known, ov);
+    // Unité des kilométrages : celle réglée sur l'offre, sinon décidée sur le fichier (mil suédois ×10, 13/10).
+    const p = parseSupplierWorkbook(src, known, ov, { kmUnit: base.settings?.kmUnit ?? 'auto' });
     setParsed(p);
     const prev = new Map(base.vehicles.map((v) => [v.id, v]));
-    const baseSettings = resolveSettings(base.settings);
+    // Devise lue ou déduite du fichier (13/10, listes suédoises en SEK), posée une
+    // fois pour toutes avec le taux BCE du jour, figé : un réglage fait à la main reste.
+    const fx = currentFx();
+    const cur = p.currency.currency;
+    const currencyPatch: Partial<OfferSettings> = base.settings?.supplierCurrency == null
+      ? { supplierCurrency: cur, supplierFxRate: cur === 'EUR' ? null : fx.rates[cur] ?? null, supplierFxDate: cur === 'EUR' ? null : fx.date }
+      : {};
+    const settings: OfferSettings = { ...(base.settings ?? {}), ...currencyPatch, kmUnit: p.kmUnit.unit };
+    const baseSettings = resolveSettings(settings);
     const vehicles = applyPriceRule(p.vehicles, base.price_rule, (v) => supplierHtWith(v, baseSettings), true)
       .map((v) => {
         const o = prev.get(v.id);
@@ -178,7 +189,7 @@ export function Offres() {
       ...base,
       title: base.title || (models.length === 1 ? `${models[0]} — SÉLECTION PROFESSIONNELLE` : `${firstBrand ? firstBrand + ' & AUTRES' : 'SÉLECTION'} — OFFRE MC EXPORT`),
       supplier: base.supplier || name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 40),
-      source_filename: name, layout: p.layout, mappings: p.mappings, vehicles, source_grid: p.grid,
+      source_filename: name, layout: p.layout, mappings: p.mappings, vehicles, source_grid: p.grid, settings,
       // Conditions écrites dans le fichier (« Minimum order: 4 cars », lieu
       // d'enlèvement…) → notes de l'offre, si rien n'y est encore (30/09).
       notes: base.notes || p.notes || '',
@@ -228,14 +239,16 @@ export function Offres() {
     return { draft, warnings };
   };
 
-  /** À l'import : les paramètres de prix suivent ce que dit le fichier (HT/TTC, TVA), prix MC Export recalculés en conséquence. */
+  /** À l'import : les paramètres de prix suivent ce que dit le fichier (HT/TTC, TVA, DEVISE), prix MC Export recalculés en conséquence. */
   const withDetectedSettings = (d: Draft): { draft: Draft; summary: string } => {
     const det = detectPriceSetup(d, resolveSettings(null));
+    // La devise (et son taux figé) vient de buildDraftFromGrid ; un PDF allemand est en euros.
     const settings: OfferSettings = { ...(d.settings ?? {}), supplierBasis: det.basis ?? 'auto', supplierVat: det.vat };
     const st = resolveSettings(settings);
     const vehicles = applyPriceRule(d.vehicles, d.price_rule, (v) => supplierHtWith(v, st), true).map((v, i) => ({ ...v, selected: d.vehicles[i].selected }));
     const after = detectPriceSetup({ ...d, vehicles }, st);
-    const summary = `Prix lus en ${det.basis ? det.basis.toUpperCase() : '?'}${det.basis === 'ttc' ? `, TVA ${det.vat != null ? `${Math.round(det.vat * 100)} %` : '20 % supposée'}` : ''}${after.doubts.length ? ` — ${after.doubts.length} point${after.doubts.length > 1 ? 's' : ''} à vérifier (bandeau jaune).` : ' — rien à signaler.'}`;
+    const curLabel = st.supplierCurrency === 'EUR' ? '' : ` en ${st.supplierCurrency} (${fxRateLabel(st)})`;
+    const summary = `Prix lus en ${det.basis ? det.basis.toUpperCase() : '?'}${curLabel}${det.basis === 'ttc' ? `, TVA ${det.vat != null ? `${Math.round(det.vat * 100)} %` : '20 % supposée'}` : ''}${after.doubts.length ? ` — ${after.doubts.length} point${after.doubts.length > 1 ? 's' : ''} à vérifier (bandeau jaune).` : ' — rien à signaler.'}`;
     return { draft: { ...d, settings, vehicles }, summary };
   };
 
@@ -308,15 +321,20 @@ export function Offres() {
   /** Paramètres de l'offre. Prix du fichier ou TVA fournisseur changés : les prix MC Export sont recalculés avec la règle. */
   const updateSettings = (patch: Partial<OfferSettings>) => update((d) => {
     const settings = { ...(d.settings ?? {}), ...patch };
-    const supplierChanged = 'supplierBasis' in patch || 'supplierVat' in patch;
+    // Unité des kilométrages changée : le fichier est relu avec cette unité (sélection, prix et corrections gardés).
+    if ('kmUnit' in patch && d.source_grid) return buildDraftFromGrid({ sheet: d.source_filename, grid: d.source_grid }, d.source_filename, Object.fromEntries(d.mappings.map((m) => [m.header, m.field])), { ...d, settings });
+    const supplierChanged = 'supplierBasis' in patch || 'supplierVat' in patch || 'supplierCurrency' in patch || 'supplierFxRate' in patch;
     if (!supplierChanged) return { ...d, settings };
     const st = resolveSettings(settings);
     return { ...d, settings, vehicles: applyPriceRule(d.vehicles, d.price_rule, (v) => supplierHtWith(v, st), true) };
   });
+  /** Devise du fichier changée : taux BCE du jour figé avec elle. */
+  const setCurrency = (c: FileCurrency) => updateSettings({ supplierCurrency: c, supplierFxRate: c === 'EUR' ? null : todayFxRate(c), supplierFxDate: c === 'EUR' ? null : currentFx().date });
   const S: ResolvedSettings = resolveSettings(draft?.settings);
   const B = basisLabel(S);
   const supHt = (v: OfferVehicle) => supplierHtWith(v, S);
-  const exportCtx: ExportContext = { lang: S.lang, basis: S.display, saleVat: S.saleVat, supplierHt: supHt };
+  const dmgEur = (v: OfferVehicle) => damagesEur(v, S);
+  const exportCtx: ExportContext = { lang: S.lang, basis: S.display, saleVat: S.saleVat, supplierHt: supHt, damagesEur: dmgEur };
   /** Ce que le fichier dit des prix, et ce qu'ADA a dû supposer — recalculé à chaque changement. */
   const detection = useMemo(() => (draft ? detectPriceSetup(draft, resolveSettings(draft.settings)) : null), [draft]);
   const pendingDoubts = detection && detection.doubts.length > 0 && draft?.settings?.priceCheckAck !== detection.signature ? detection.doubts : [];
@@ -421,7 +439,7 @@ export function Offres() {
     date: T.date(new Date()), vehicles: selected, showDamages: true, showSupplierPrice: false, showPrices: draft?.price_rule.mode !== 'none',
     footer: S.footer ?? T.footer,
     columns: draft?.export_columns ?? undefined,
-    lang: S.lang, priceBasis: S.display, saleVat: S.saleVat, supplierHt: supHt,
+    lang: S.lang, priceBasis: S.display, saleVat: S.saleVat, supplierHt: supHt, damagesEur: dmgEur,
   });
   const exportXlsx = () => { if (!draft) return; downloadBlob(buildOfferWorkbook(docOf()), `MC_Export_${slugFile(draft.title)}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); };
   const exportPdf = async () => { if (!draft) return; setBusy('pdf'); try { downloadBlob(await buildOfferPdf(docOf()), `MC_Export_${slugFile(draft.title)}.pdf`, 'application/pdf'); } catch (e) { fail(`PDF : ${e instanceof Error ? e.message : String(e)}`); } setBusy(null); };
@@ -446,7 +464,8 @@ export function Offres() {
     const lot = lots.find((l) => l.vehicleIds.includes(v.id));
     return {
       offer_id: draft.id, offer_title: draft.title, vehicle_id: v.id, lot_key: lot?.key ?? null,
-      vehicle: snapshotVehicle(v), price_ht: draft.price_rule.mode === 'none' ? null : v.sale_price ?? null,
+      // Dommages en euros dans la vitrine (fichier en couronnes, 13/10).
+      vehicle: snapshotVehicle({ ...v, damages: dmgEur(v) }), price_ht: draft.price_rule.mode === 'none' ? null : v.sale_price ?? null,
       market: lot ? draft.market?.[lot.key] ?? null : null, note: publishedHere.get(v.id)?.note ?? '',
     };
   };
@@ -656,9 +675,9 @@ export function Offres() {
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtKm(v.km)}</td>
                     <td className="py-1.5 pr-3 text-slate-600 whitespace-nowrap">{v.fuel ?? '—'} · {v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox ?? '—'}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{v.power_ch ?? '—'}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{fmtEur(v.damages)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={v.damages != null && S.supplierCurrency !== 'EUR' ? `Fichier : ${fileMoney(v.damages, S)}` : ''}>{fmtEur(dmgEur(v))}</td>
                     <td className="py-1.5 pr-3">{v.vat_recoverable == null ? '—' : v.vat_recoverable ? <span className="text-emerald-700">récup.</span> : <span className="text-amber-700">marge</span>}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={v.price_ttc != null ? `TTC ${fmtEur(v.price_ttc)}` : ''}>{fmtEur(base)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={[v.price_ttc != null ? `Fichier TTC : ${fileMoney(v.price_ttc, S)}` : '', v.price_ht != null ? `Fichier HT : ${fileMoney(v.price_ht, S)}` : '', S.supplierCurrency !== 'EUR' ? fxRateLabel(S) : ''].filter(Boolean).join(' · ')}>{fmtEur(base)}</td>
                     <td className="py-1.5 pr-3 text-right"><input type="number" aria-label={`Prix MC Export ${B}`} value={toShown(v.sale_price, S) ?? ''} onChange={(e) => setVehicle(v.id, { sale_price: fromShown(e.target.value === '' ? null : Number(e.target.value), S) })} className="w-24 px-2 py-1 rounded border border-slate-300 text-right tabular-nums font-semibold text-brand-encre" /></td>
                     {customColumns.map((c) => (
                       <td key={c.id} className="py-1.5 pr-3"><input aria-label={`${c.label} — ${v.brand} ${v.model}`} value={v.custom?.[c.id] ?? ''} onChange={(e) => setCustomValue(v.id, c.id, e.target.value)} className="w-28 px-2 py-1 rounded border border-blue-200 bg-blue-50/40" /></td>
@@ -740,7 +759,8 @@ export function Offres() {
       {settingsOpen && draft && (() => {
         const sample = draft.vehicles.find((v) => v.price_ttc != null || v.price_ht != null);
         const sampleHt = sample ? supHt(sample) : null;
-        const rawLabel = sample ? (sample.price_ttc != null ? `${fmtEur(sample.price_ttc)} (colonne TTC)` : `${fmtEur(sample.price_ht)} (colonne HT)`) : '';
+        const rawLabel = sample ? (sample.price_ttc != null ? `${fileMoney(sample.price_ttc, S)} (colonne TTC)` : `${fileMoney(sample.price_ht!, S)} (colonne HT)`) : '';
+        const kmSample = draft.vehicles.find((v) => v.km != null);
         const radio = (on: boolean) => `flex-1 px-3 py-2 rounded-lg border text-sm text-left ${on ? 'border-brand-ocean bg-blue-50 text-brand-encre font-semibold' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`;
         return (
           <div className="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-10">
@@ -773,8 +793,27 @@ export function Offres() {
                     {VAT_CHOICES.map((c) => <option key={c.rate} value={c.rate}>{c.label}</option>)}
                   </select>
                 </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">Devise du fichier
+                  <select value={S.supplierCurrency} onChange={(e) => setCurrency(e.target.value as FileCurrency)} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
+                    {FILE_CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+                  </select>
+                  {S.supplierCurrency !== 'EUR' && (
+                    <span className="text-xs text-slate-500">{fxRateLabel(S)}
+                      {todayFxRate(S.supplierCurrency) != null && todayFxRate(S.supplierCurrency) !== S.supplierFxRate && <button onClick={() => setCurrency(S.supplierCurrency)} className="ml-2 text-brand-ocean hover:underline">Prendre le taux du jour ({currentFx().date.split('-').reverse().join('/')})</button>}
+                    </span>
+                  )}
+                </label>
                 {sample && <p className="text-xs text-slate-500">Exemple, {sample.brand} {sample.model} : {rawLabel} → <strong className="text-slate-700">{fmtEur(sampleHt)} HT</strong> fournisseur{sample.vat_recoverable === false ? ' (régime de la marge : pas de TVA retirée)' : ''}.</p>}
-                <p className="text-[11px] text-slate-500">Changer ces deux réglages recalcule les prix MC Export avec la règle de prix (onglet Export).</p>
+                <p className="text-[11px] text-slate-500">Changer ces réglages recalcule les prix MC Export avec la règle de prix (onglet Export). Le taux de change est figé à l'import : les prix ne bougent pas d'un jour à l'autre.</p>
+                {draft.layout !== 'pdf' && draft.mappings.some((m) => m.field === 'km') && (
+                  <div className="flex items-center gap-2 text-sm text-slate-700 pt-1">Unité des kilométrages
+                    <div className="flex gap-2" role="group" aria-label="Unité des kilométrages">
+                      <button onClick={() => updateSettings({ kmUnit: 'km' })} aria-pressed={(S.kmUnit ?? 'km') === 'km'} className={radio((S.kmUnit ?? 'km') === 'km')}>km</button>
+                      <button onClick={() => updateSettings({ kmUnit: 'mil' })} aria-pressed={S.kmUnit === 'mil'} className={radio(S.kmUnit === 'mil')}>mil suédois<span className="block text-[11px] font-normal text-slate-500">1 mil = 10 km</span></button>
+                    </div>
+                    {kmSample && <span className="text-xs text-slate-500">{S.kmUnit === 'mil' ? `ex. ${Math.round(kmSample.km! / 10).toLocaleString('fr-FR')} dans le fichier → ${fmtKm(kmSample.km)}` : `ex. ${fmtKm(kmSample.km)}`}</span>}
+                  </div>
+                )}
               </section>
 
               <section className="space-y-2">

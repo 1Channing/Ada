@@ -45,30 +45,39 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « Targa » = plaque, « Immatricolazione », « Colore », « Cambio », « Danni »…
   ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie|telaio)\b/],
   // « YEAR » (catalogue Record Rent a Car 07/10) : un millésime, pas une date.
-  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my)$/],
+  // « Årsmodell » (suédois), « Årgang » (danois), « Baujahr » (allemand).
+  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr)$/],
+  // « Reg.nr » (liste suédoise Mixed Brands 13/10) : le NUMÉRO d'immatriculation,
+  // pas une date — avant la règle des dates, qui attrape « reg » seul.
+  ['plate', /(reg ?nr\b|regnr|\breg ?no\b|registreringsn|kennzeichen)/],
   // « 1st Reg. » (Flexivan Sorento 22/09) : normalisé en « 1st reg », ni
   // « reg date » ni « first reg » ne le voyaient — la date restait vide.
   ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr)/],
-  ['plate', /(\bimmat|plaque|\bplate\b|kennzeichen|registration|\btarga\b)/],
-  ['km', /(\bkm\b|kilom|mileage|kilometer|chilometr)/],
+  ['plate', /(\bimmat|plaque|\bplate\b|registration|\btarga\b)/],
+  // « Milage » (faute courante), « Miltal » / « Mätarställning » / « Mil »
+  // (suédois : l'unité est le MIL = 10 km, voir decideKmUnit).
+  ['km', /(\bkm\b|kilom|mil(e)?age|kilometer|chilometr|miltal|matarstallning|\bmil\b)/],
   ['co2', /co2/],
   // Dommages AVANT les prix : « ESTIMATION FRE HT » (MeltingCars) contient « ht ».
   ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b)/],
-  ['price_ht', /(proposal|\bht\b|\bnett?o?\b|export|imponibile)/],
-  ['price_ttc', /(\bttc\b|wholesale|public|gross|\bprix\b|\bprice\b|\bpreis\b|prezzo|lordo)/],
+  ['price_ht', /(proposal|\bht\b|\bnett?o?\b|export|imponibile|exkl)/],
+  // « Price Brutto » / « Pris » (Suède, Danemark, Norvège) = un prix TTC.
+  ['price_ttc', /(\bttc\b|wholesale|public|gross|brutto|\bprix\b|\bprice\b|\bpreis\b|prezzo|lordo|\bpris\b)/],
   ['report_url', /(appraisal|rapport|report|inspection|expertise|dekra|\burl\b|\blien\b|perizia)/],
-  ['color', /(colou?r|couleur|farbe|teinte|colore)/],
-  ['fuel', /(energy|energie|carburant|fuel|kraftstoff|carburante|alimentazione)/],
+  // « Färg/Colour » (suédois), « Farve » (danois), « Farge » (norvégien).
+  ['color', /(colou?r|couleur|farbe|teinte|colore|\bfarg\b|farve|farge)/],
+  ['fuel', /(energy|energie|carburant|fuel|kraftstoff|carburante|alimentazione|bransle|braendstof|drivstoff)/],
   ['engine', /^(engine|moteur|motorisation|motor|motore)$/],
-  ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung|potenza)/],
-  ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$|cambio)/],
+  ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung|potenza|effekt)/],
+  ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$|cambio|vaxellada|gearkasse|girkasse)/],
   ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo)/],
-  ['vat', /(\btva\b|\bvat\b|mwst|\biva\b)/],
+  ['vat', /(\btva\b|\bvat\b|mwst|\biva\b|\bmoms\b)/],
   ['import', /(\bimport|origine|origin)/],
   // « Quantity » (liste VW ID.7 Tourer 02/10) : N exemplaires identiques → N lignes.
   ['quantity', /^(quantity|qty|quantite|quantità|anzahl|stuck|units?|pcs|nombre)$/],
   ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur|\bmarca\b)/],
-  ['model', /^(model|modele|modello)$/],
+  // « Modell » (suédois / allemand) : la colonne modèle, lue comme ligne libre quand elle porte toute la désignation.
+  ['model', /^(model|modele|modello|modell)$/],
   ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
 
@@ -141,6 +150,15 @@ export interface ParsedSupplierFile {
   notes?: string;
   /** Lieu d'enlèvement écrit hors tableau (« Pick-up location: … ») — 30/09. */
   location?: string | null;
+  /** Devise des prix telle que lue ou déduite (13/10) — les prix restent dans cette devise dans `vehicles`. */
+  currency: CurrencyDetection;
+  /** Unité appliquée aux kilométrages (`vehicles[].km` est TOUJOURS en km). */
+  kmUnit: KmUnitDecision;
+}
+
+export interface ParseOptions {
+  /** Unité des kilométrages imposée par les paramètres de l'offre ; 'auto' (défaut) = decideKmUnit. */
+  kmUnit?: KmUnit | 'auto';
 }
 
 /** Grille JSON-sûre : dates → « AAAA-MM-JJ », lignes vides de fin retirées. */
@@ -222,6 +240,101 @@ export function guessField(header: string): OfferField {
 }
 
 /**
+ * DEVISE DU FICHIER ET UNITÉ DES KILOMÉTRAGES (13/10, liste suédoise « Mixed
+ * Brands », Channing : « apprends les offres à lire ces listes, les prix sont
+ * en SEK »). Jusqu'ici tout prix lu était pris pour des euros : 174 500 kr
+ * devenaient 174 500 € HT, et les 11 300 « Milage » (des MIL suédois, 1 mil
+ * = 10 km) passaient pour 11 300 km.
+ *
+ * Ce que le fichier DIT (code ou symbole de devise, « km » / « mil » dans
+ * l'en-tête) est un fait ; ce qu'ADA DÉDUIT (en-têtes en suédois + montants à
+ * six chiffres → couronnes ; fichier scandinave + kilométrages trop bas → mil)
+ * est dit « supposé » et se voit dans les paramètres de l'offre, où tout se
+ * corrige à la main. Rien d'autre n'est deviné : sans indice, euros et km.
+ */
+export type FileCurrency = 'EUR' | 'SEK' | 'DKK' | 'NOK' | 'HUF' | 'PLN' | 'CZK' | 'CHF' | 'GBP';
+export const FILE_CURRENCIES: Array<{ code: FileCurrency; label: string }> = [
+  { code: 'EUR', label: '€ euros' },
+  { code: 'SEK', label: 'kr — couronnes suédoises (SEK)' },
+  { code: 'DKK', label: 'kr — couronnes danoises (DKK)' },
+  { code: 'NOK', label: 'kr — couronnes norvégiennes (NOK)' },
+  { code: 'HUF', label: 'Ft — forints (HUF)' },
+  { code: 'PLN', label: 'zł — złotys (PLN)' },
+  { code: 'CZK', label: 'Kč — couronnes tchèques (CZK)' },
+  { code: 'CHF', label: 'CHF — francs suisses' },
+  { code: 'GBP', label: '£ — livres (GBP)' },
+];
+export const CURRENCY_NAMES: Record<FileCurrency, string> = {
+  EUR: 'euros', SEK: 'couronnes suédoises', DKK: 'couronnes danoises', NOK: 'couronnes norvégiennes', HUF: 'forints', PLN: 'złotys', CZK: 'couronnes tchèques', CHF: 'francs suisses', GBP: 'livres sterling',
+};
+/** « said » = écrit dans le fichier ; « inferred » = déduit (à vérifier) ; « default » = rien ne l'indique. */
+export type Confidence = 'said' | 'inferred' | 'default';
+export interface CurrencyDetection { currency: FileCurrency; confidence: Confidence; why: string }
+export type FileLanguage = 'sv' | 'da' | 'no' | null;
+
+const normText = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\./g, ' ');
+/** Langue scandinave des en-têtes : mots propres à chacune (« Färg » suédois, « Farve » danois, « Farge » norvégien). */
+export function detectFileLanguage(headers: string[]): FileLanguage {
+  const t = ` ${headers.map(normText).join(' | ')} `;
+  const sv = (t.match(/\bfarg\b|miltal|matarstallning|vaxellada|bransle|arsmodell|\breg ?nr\b|\bmil\b|utrustning|\bbilar\b/g) ?? []).length;
+  const da = (t.match(/\bfarve\b|braendstof|gearkasse|\bargang\b|\bbiler\b|kilometertal|\b1\. ?reg\b/g) ?? []).length;
+  const no = (t.match(/\bfarge\b|drivstoff|girkasse|kilometerstand/g) ?? []).length;
+  const best = Math.max(sv, da, no);
+  if (best === 0) return null;
+  return sv === best ? 'sv' : da === best ? 'da' : 'no';
+}
+
+const median = (xs: number[]): number | null => {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+};
+
+export function detectFileCurrency(headers: string[], samples: string[], prices: number[]): CurrencyDetection {
+  const t = ` ${[...headers, ...samples].map(normText).join(' | ')} `;
+  const lang = detectFileLanguage(headers);
+  const langName = lang === 'sv' ? 'suédois' : lang === 'da' ? 'danois' : lang === 'no' ? 'norvégien' : null;
+  const said = (currency: FileCurrency, mark: string): CurrencyDetection => ({ currency, confidence: 'said', why: `le fichier indique « ${mark} »` });
+  if (/\bsek\b/.test(t)) return said('SEK', 'SEK');
+  if (/\bdkk\b/.test(t)) return said('DKK', 'DKK');
+  if (/\bnok\b/.test(t)) return said('NOK', 'NOK');
+  if (/\bhuf\b|\bft\b/.test(t)) return said('HUF', /\bhuf\b/.test(t) ? 'HUF' : 'Ft');
+  if (/\bpln\b|\bzl\b/.test(t)) return said('PLN', /\bpln\b/.test(t) ? 'PLN' : 'zł');
+  if (/\bczk\b|\bkc\b/.test(t)) return said('CZK', /\bczk\b/.test(t) ? 'CZK' : 'Kč');
+  if (/\bchf\b/.test(t)) return said('CHF', 'CHF');
+  if (/\bgbp\b|£/.test(t)) return said('GBP', /\bgbp\b/.test(t) ? 'GBP' : '£');
+  if (/€|\beur\b|\beuros?\b/.test(t)) return said('EUR', /€/.test(t) ? '€' : 'EUR');
+  if (/\bkr\b|kronor|kroner/.test(t)) {
+    if (lang === 'da') return said('DKK', 'kr (en-têtes danois)');
+    if (lang === 'no') return said('NOK', 'kr (en-têtes norvégiens)');
+    if (lang === 'sv') return said('SEK', 'kr (en-têtes suédois)');
+    return { currency: 'SEK', confidence: 'inferred', why: '« kr » sans pays indiqué : couronnes suédoises supposées (danoises ? norvégiennes ?)' };
+  }
+  const med = median(prices.filter((p) => p > 0));
+  if (lang && med != null && med >= 50_000) {
+    const currency: FileCurrency = lang === 'da' ? 'DKK' : lang === 'no' ? 'NOK' : 'SEK';
+    return { currency, confidence: 'inferred', why: `en-têtes en ${langName} et prix médian de ${med.toLocaleString('fr-FR')}, invraisemblable en euros` };
+  }
+  if (med != null && med >= 100_000) return { currency: 'EUR', confidence: 'inferred', why: `aucune devise indiquée et prix médian de ${med.toLocaleString('fr-FR')} : euros supposés, à vérifier` };
+  return { currency: 'EUR', confidence: 'default', why: 'aucune devise indiquée : euros' };
+}
+
+export type KmUnit = 'km' | 'mil';
+export interface KmUnitDecision { unit: KmUnit; confidence: Confidence; why: string }
+/** Unité d'une colonne de kilométrage : « km » ou « mil » suédois (×10). */
+export function decideKmUnit(header: string | null | undefined, values: number[], scandinavian: boolean): KmUnitDecision {
+  const h = normHeader(header ?? '');
+  if (/miltal|\bmil\b/.test(h) && !/\bkm\b|kilom/.test(h)) return { unit: 'mil', confidence: 'said', why: `la colonne « ${header} » est en mil (1 mil = 10 km)` };
+  if (/\bkm\b|kilom/.test(h)) return { unit: 'km', confidence: 'said', why: `la colonne « ${header} » est en km` };
+  const xs = values.filter((x) => Number.isFinite(x) && x > 0).sort((a, b) => a - b);
+  if (scandinavian && xs.length >= 3) {
+    const p90 = xs[Math.min(xs.length - 1, Math.floor(xs.length * 0.9))];
+    if (p90 < 20_000) return { unit: 'mil', confidence: 'inferred', why: `fichier scandinave et kilométrages trop bas pour des km (9 sur 10 sous ${p90.toLocaleString('fr-FR')}) : mil suédois supposés, ×10` };
+  }
+  return { unit: 'km', confidence: 'default', why: 'rien n’indique une autre unité que le km' };
+}
+
+/**
  * Marque depuis une ligne libre qui commence par elle (« BMW SERIE 2 218i… »,
  * « CITROËN C3 Aircross… », « ALFA ROMEO TONALE… ») : la plus longue marque
  * connue du référentiel qui ouvre la ligne ; sinon le premier mot. Rend la
@@ -229,7 +342,7 @@ export function guessField(header: string): OfferField {
  */
 /** Marque telle qu'ADA la nomme : « VW » → VOLKSWAGEN, « Mercedes-Benz » → MERCEDES, « ŠKODA » → SKODA (liste VW 02/10 :
  *  la marque restait « VW », étrangère au référentiel et aux offres précédentes). */
-const BRAND_ALIASES: Record<string, string> = { VW: 'VOLKSWAGEN', MERCEDESBENZ: 'MERCEDES', MERCEDES: 'MERCEDES', SKODA: 'SKODA', CITROEN: 'CITROEN', DS: 'DS', ALFA: 'ALFA ROMEO', LANDROVER: 'LAND ROVER', ROLLSROYCE: 'ROLLS ROYCE', ASTONMARTIN: 'ASTON MARTIN' };
+const BRAND_ALIASES: Record<string, string> = { VW: 'VOLKSWAGEN', VWTRP: 'VOLKSWAGEN', VWNFZ: 'VOLKSWAGEN', MERCEDESBENZ: 'MERCEDES', MERCEDES: 'MERCEDES', SKODA: 'SKODA', CITROEN: 'CITROEN', DS: 'DS', ALFA: 'ALFA ROMEO', LANDROVER: 'LAND ROVER', ROLLSROYCE: 'ROLLS ROYCE', ASTONMARTIN: 'ASTON MARTIN' };
 export function canonBrand(raw: string): string {
   const up = (raw ?? '').normalize('NFD').replace(/\p{M}/gu, '').replace(/[ØŁĐ]/g, (c) => ({ 'Ø': 'O', 'Ł': 'L', 'Đ': 'D' } as Record<string, string>)[c] ?? c).toUpperCase().trim();
   const key = up.replace(/[^A-Z0-9]/g, '');
@@ -238,7 +351,8 @@ export function canonBrand(raw: string): string {
 export function splitBrand(line: string, knownBrands: string[]): { brand: string; rest: string } {
   const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/\s+/g, ' ').trim();
   const up = norm(line);
-  const candidates = [...new Set(knownBrands.map(norm).filter(Boolean))].sort((a, b) => b.length - a.length);
+  // « VW Trp » (Volkswagen Transportbilar, liste suédoise 13/10), « VW Nfz » (Nutzfahrzeuge) : deux mots pour une marque.
+  const candidates = [...new Set([...knownBrands.map(norm), 'VW TRP', 'VW NFZ'].filter(Boolean))].sort((a, b) => b.length - a.length);
   for (const b of candidates) {
     if (up === b || up.startsWith(`${b} `) || up.startsWith(`${b}-`)) return { brand: b, rest: line.trim().slice(b.length).replace(/^[\s-]+/, '') };
   }
@@ -332,9 +446,11 @@ export function guessModel(_brand: string, line: string, knownModels: string[]):
 }
 
 /** Lit un classeur (ArrayBuffer) ou une grille déjà conservée, et rend les véhicules normalisés. */
-export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid: unknown[][] }, knownModelsByBrand: Record<string, string[]> = {}, mappingOverride?: Record<string, OfferField>): ParsedSupplierFile {
+export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid: unknown[][] }, knownModelsByBrand: Record<string, string[]> = {}, mappingOverride?: Record<string, OfferField>, opts: ParseOptions = {}): ParsedSupplierFile {
   const { sheet: sheetName, grid } = input instanceof ArrayBuffer ? readSupplierGrid(input) : input;
   const warnings: string[] = [];
+  const noCurrency: CurrencyDetection = { currency: 'EUR', confidence: 'default', why: 'aucune devise indiquée : euros' };
+  const noUnit: KmUnitDecision = { unit: 'km', confidence: 'default', why: 'rien n’indique une autre unité que le km' };
   const isHeaderRow = (r: unknown[]) => r.filter((c) => typeof c === 'string' && c.trim()).length >= 5
     && r.filter((c) => c != null && c !== '').every((c) => typeof c === 'string');
   const knownBrands = Object.keys(knownModelsByBrand).map((b) => b.toUpperCase()).sort((a, b) => b.length - a.length);
@@ -373,7 +489,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
   const headerRows = grid.map((r, i) => (isHeaderRow(r) ? i : -1)).filter((i) => i >= 0);
   const layout: ParsedSupplierFile['layout'] = headerRows.length > 1 ? 'blocks' : 'flat';
   if (headerRows.length === 0) {
-    return { sheet: sheetName, layout, mappings: [], vehicles: [], warnings: ["Aucune ligne d'en-tête reconnue (il faut au moins 5 intitulés de colonnes sur une ligne)."], grid };
+    return { sheet: sheetName, layout, mappings: [], vehicles: [], warnings: ["Aucune ligne d'en-tête reconnue (il faut au moins 5 intitulés de colonnes sur une ligne)."], grid, currency: noCurrency, kmUnit: noUnit };
   }
 
   const mappingsByHeader = new Map<string, ColumnMapping>();
@@ -390,6 +506,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
   let fields: OfferField[] = [];
 
   const rawRegs: unknown[] = [];
+  const rawKms: Array<number | null> = [];
   for (let i = 0; i < grid.length; i++) {
     const r = grid[i] ?? [];
     if (isBlockTitle(r)) {
@@ -453,6 +570,8 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     }
     let versionLine = cell(rec.version) || cell(rec.model) || '';
     let brand = cell(rec.brand) || currentBrand;
+    /** Marque telle qu'elle OUVRE la ligne libre (« VW Trp »), à retirer de la colonne modèle quand elle y est aussi. */
+    let brandPrefix = '';
     if (!brand && versionLine) {
       const sp = splitBrand(versionLine, Object.keys(knownModelsByBrand));
       // Ligne SANS marque qui commence par un MODÈLE connu d'une seule marque
@@ -461,11 +580,15 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       // reste entière pour le modèle.
       const byModel = brandOfModelWord(versionLine, knownModelsByBrand);
       if (byModel && !knownModelsByBrand[sp.brand]) { brand = byModel; }
-      else { brand = sp.brand; versionLine = sp.rest || versionLine; }
+      else { brand = sp.brand; brandPrefix = sp.brand; versionLine = sp.rest || versionLine; }
     }
     brand = canonBrand(brand);
     const known = knownModelsByBrand[brand] ?? knownModelsByBrand[brand.toUpperCase()] ?? [];
     let model = cell(rec.model);
+    // Colonne « Modell » qui porte toute la désignation, marque comprise (liste
+    // suédoise 13/10 : « AUDI A4 AV 2.0 TDI… » donnait le modèle « AUDI A4 ») :
+    // la marque reconnue en tête est retirée, le modèle se lit sur le reste.
+    if (brandPrefix && model.toUpperCase().startsWith(`${brandPrefix} `)) model = model.slice(brandPrefix.length).trim();
     // Colonne modèle du fournisseur (« ASTRA L », « DS 7 CROSSBACK / DS 7 »)
     // rapprochée des modèles connus (référentiel + taxonomie) et débarrassée
     // de son marqueur de génération ; sans colonne, la ligne libre est décomposée.
@@ -496,6 +619,10 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     const qty = Math.max(1, Math.round(toNumber(rec.quantity) ?? 1));
     const yearCol = toNumber(rec.year);
     const km = toNumber(rec.km);
+    rawKms.push(km);
+    // Un prix à 0 n'est pas un prix (liste suédoise 13/10 : 5 lignes à 0 =
+    // « à négocier ») : laissé vide, compté dans « sans prix fournisseur ».
+    const priceOrNull = (x: unknown) => { const n = toNumber(x); return n != null && n !== 0 ? Math.round(n) : null; };
     vehicles.push({
       id: vin ?? `row-${i + 1}`,
       vin,
@@ -518,9 +645,10 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       damages: toNumber(rec.damages),
       report_url: cell(rec.report_url).startsWith('http') ? cell(rec.report_url) : null,
       location: cell(rec.location) || null,
-      // Prix moyens d'un lot (décimales dans le catalogue du 07/10) : arrondis à l'euro.
-      price_ht: toNumber(rec.price_ht) != null ? Math.round(toNumber(rec.price_ht)!) : null,
-      price_ttc: toNumber(rec.price_ttc) != null ? Math.round(toNumber(rec.price_ttc)!) : null,
+      // Prix moyens d'un lot (décimales dans le catalogue du 07/10) : arrondis à l'unité
+      // — dans la DEVISE du fichier (SEK, DKK… : convertis en euros par les paramètres de l'offre, 13/10).
+      price_ht: priceOrNull(rec.price_ht),
+      price_ttc: priceOrNull(rec.price_ttc),
       vat_recoverable: yesNo(rec.vat),
       imported: yesNo(rec.import),
       extras,
@@ -543,7 +671,18 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       v.year = iso ? Number(iso.slice(0, 4)) : null;
     });
   }
-  return { sheet: sheetName, layout, mappings: [...mappingsByHeader.values()], vehicles, warnings, grid, notes: conditions.join('\n') || undefined, location: sheetLocation };
+  // Devise et unité des kilométrages, décidées sur TOUT le fichier (13/10).
+  const mappings = [...mappingsByHeader.values()];
+  const headers = mappings.map((m) => m.header);
+  const priceSamples = mappings.filter((m) => m.field === 'price_ht' || m.field === 'price_ttc' || m.field === 'damages').map((m) => m.sample);
+  const currency = detectFileCurrency(headers, priceSamples, vehicles.map((v) => v.price_ht ?? v.price_ttc).filter((p): p is number => p != null));
+  const kmHeader = mappings.find((m) => m.field === 'km')?.header ?? null;
+  const scandinavian = detectFileLanguage(headers) != null || ['SEK', 'DKK', 'NOK'].includes(currency.currency);
+  const auto = decideKmUnit(kmHeader, rawKms.filter((x): x is number => x != null), scandinavian);
+  const forced = opts.kmUnit && opts.kmUnit !== 'auto' ? opts.kmUnit : null;
+  const kmUnit: KmUnitDecision = forced && forced !== auto.unit ? { unit: forced, confidence: 'said', why: `unité ${forced} réglée dans les paramètres de l'offre` } : auto;
+  if (kmUnit.unit === 'mil') vehicles.forEach((v, i) => { const raw = rawKms[i]; v.km = raw != null ? Math.round(raw * 10) : null; });
+  return { sheet: sheetName, layout, mappings, vehicles, warnings, grid, notes: conditions.join('\n') || undefined, location: sheetLocation, currency, kmUnit };
 }
 
 /** Prix fournisseur HT de référence : HT si présent, sinon TTC / (1 + TVA) quand la TVA est récupérable. */
