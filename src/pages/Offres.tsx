@@ -1,9 +1,9 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
   PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus,
 } from 'lucide-react';
-import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, setShowcaseTitle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, type IntraItem, type IntraDraft } from '../services/intra';
+import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
@@ -114,6 +114,8 @@ export function Offres() {
   const [showcaseError, setShowcaseError] = useState<string | null>(null);
   /** Bonne affaire dont les photos sont en cours d'envoi (13/10). */
   const [photoBusy, setPhotoBusy] = useState<string | null>(null);
+  /** Bonne affaire dépliée dans « Ce que l'Accueil montre » : prix, mot, réglages (13/10, Channing : « cliquer sur une ligne pour modifier »). */
+  const [openDeal, setOpenDeal] = useState<string | null>(null);
   const reloadShowcase = async () => { const r = await listShowcase(); setShowcase(r.rows); setShowcaseError(r.error); };
   useEffect(() => { void reloadShowcase(); }, []);
   // Ouverture par l'URL (/offres?offer=<id>&view=analyse — bouton « Étude de marché » de la vitrine).
@@ -1373,7 +1375,7 @@ export function Offres() {
                   {selected.length === 0 ? (
                     <p className="px-4 py-10 text-sm text-slate-400 text-center">Aucun véhicule retenu : rien à publier. Retiens des véhicules dans l'onglet Sélection.</p>
                   ) : (
-                    <div className="overflow-auto max-h-[70vh] p-3">
+                    <div className="overflow-auto max-h-[70vh] p-3" data-intra-table>
                       <table className="text-xs w-full">
                         <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">
                           <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Bonne affaire</th>
@@ -1446,8 +1448,14 @@ export function Offres() {
                     <p className="px-4 py-6 text-sm text-slate-400 text-center">Aucune bonne affaire publiée.</p>
                   ) : (
                     <ul className="divide-y divide-slate-100">
-                      {showcase.map((it) => (
-                        <li key={it.id} className="px-4 py-2 text-xs space-y-1.5">
+                      {showcase.map((it) => {
+                        const isOpen = openDeal === it.id;
+                        const sameOffer = !!draft.id && it.offer_id === draft.id;
+                        const otherOffer = !sameOffer && it.offer_id ? offers.find((o) => o.id === it.offer_id) : undefined;
+                        /** Un clic sur la ligne (hors champs et boutons) déplie les réglages. */
+                        const toggle = (e: ReactMouseEvent) => { if ((e.target as HTMLElement).closest('input,button,a,label,textarea')) return; setOpenDeal(isOpen ? null : it.id); };
+                        return (
+                        <li key={it.id} className={`px-4 py-2 text-xs space-y-1.5 cursor-pointer ${isOpen ? 'bg-blue-50/40' : 'hover:bg-slate-50'}`} onClick={toggle} title={isOpen ? '' : 'Cliquer pour modifier le prix, le mot et les réglages'}>
                           <div className="flex items-center gap-3">
                             {/* Titre libre (13/10, Channing : « modifier les titres des annonces ») — repris sur l'Accueil et sur le site ; vide = marque + modèle. */}
                             <input defaultValue={it.title ?? ''} placeholder={`${it.vehicle.brand} ${it.vehicle.model}`} title="Titre de la bonne affaire (Accueil + site) — vide : marque + modèle" aria-label="Titre de la bonne affaire"
@@ -1481,8 +1489,44 @@ export function Offres() {
                             </label>
                             {(it.photos ?? []).length === 0 && <span className="text-[10px] text-slate-400">Sans photo, le site montre la carte sans image.</span>}
                           </div>
+                          {/* RÉGLAGES DE LA BONNE AFFAIRE (13/10) : prix publié, mot, et le chemin vers l'offre pour les critères de l'étude. */}
+                          {isOpen && (
+                            <div className="flex items-end gap-3 flex-wrap rounded-lg border border-blue-200 bg-white px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                              <label className="text-slate-600">Prix MC Export HT publié
+                                <input type="number" defaultValue={it.price_ht ?? ''} placeholder="sur proposition" aria-label="Prix MC Export HT publié"
+                                  onBlur={async (e) => {
+                                    const p = e.target.value === '' ? null : Math.round(Number(e.target.value));
+                                    if (p === (it.price_ht ?? null)) return;
+                                    const err = await setShowcasePrice(it.id, p);
+                                    if (err) { fail(err); return; }
+                                    // Même offre : le prix du véhicule suit, pour que le tableau au-dessus ne dise pas « à rafraîchir ».
+                                    if (sameOffer && draft.vehicles.some((v) => v.id === it.vehicle_id)) setVehicle(it.vehicle_id, { sale_price: p });
+                                    void reloadShowcase();
+                                  }}
+                                  className="block mt-0.5 w-32 px-2 py-1 rounded border border-slate-300 tabular-nums font-semibold text-brand-encre" />
+                              </label>
+                              <label className="text-slate-600">Mot pour la bonne affaire
+                                <input defaultValue={it.note} placeholder="ex. dispo immédiate, 2 exemplaires" aria-label="Mot pour la bonne affaire"
+                                  onBlur={async (e) => { const note = e.target.value.trim(); if (note === it.note) return; const err = await setShowcaseNote(it.id, note); if (err) fail(err); else void reloadShowcase(); }}
+                                  className="block mt-0.5 w-64 px-2 py-1 rounded border border-slate-300" />
+                              </label>
+                              {sameOffer && it.lot_key && (
+                                <button onClick={() => { setEditLot(it.lot_key); document.querySelector('[data-intra-table]')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:border-brand-ocean hover:text-brand-ocean">
+                                  <SlidersHorizontal className="w-3 h-3" /> Critères de l'étude (tableau ci-dessus)
+                                </button>
+                              )}
+                              {otherOffer && (
+                                <button onClick={() => { open(otherOffer); setView('intra'); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md border border-brand-ocean text-brand-ocean hover:bg-blue-50">
+                                  <ExternalLink className="w-3 h-3" /> Ouvrir l'offre « {otherOffer.title || 'sans titre'} »
+                                </button>
+                              )}
+                              {!sameOffer && !otherOffer && <span className="text-[11px] text-slate-400 pb-1.5">Offre d'origine introuvable (supprimée ?) : le prix et le mot restent modifiables ici.</span>}
+                              <span className="basis-full text-[11px] text-slate-500">Le prix et le mot changent tout de suite sur l'Accueil et sur mc-export.com. Les critères de l'étude et le relevé se règlent dans l'offre, puis « Republier ».</span>
+                            </div>
+                          )}
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   )}
                 </div>

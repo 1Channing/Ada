@@ -832,6 +832,14 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **BONNES AFFAIRES : UNE LIGNE SE DÉPLIE POUR RÉGLER (13/10, Channing :
+  « cliquer sur une ligne de ce que montre l'Accueil pour modifier les
+  réglages et le prix »)**. Dans « Ce que l'Accueil montre aujourd'hui », un
+  clic sur la ligne ouvre : prix MC Export HT publié (change tout de suite
+  sur l'Accueil et le site ; même offre → le prix du véhicule suit), mot,
+  et le chemin vers les réglages de l'étude : « Critères de l'étude » (même
+  offre, ouvre le lot dans le tableau) ou « Ouvrir l'offre » (autre offre,
+  bascule sur son onglet Intra). Zéro SQL.
 - **BONNES AFFAIRES : TITRE LIBRE (13/10, Channing : « modifier les titres des
   annonces en bonnes affaires »)**. Colonne `intra_showcase.title` ; champ
   titre dans « Ce que l'Accueil montre aujourd'hui » (onglet Intra), vide =

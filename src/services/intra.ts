@@ -52,6 +52,12 @@ export type IntraDraft = Omit<IntraItem, 'id' | 'published_by' | 'published_at' 
 /** Titre affiché d'une bonne affaire : le titre libre, sinon marque + modèle. */
 export const showcaseTitle = (it: Pick<IntraItem, 'title' | 'vehicle'>) => (it.title ?? '').trim() || `${it.vehicle.brand} ${it.vehicle.model}`;
 
+/** Prix MC Export HT publié (13/10, Channing : « modifier le prix si besoin ») — null = sur proposition. */
+export async function setShowcasePrice(id: string, price_ht: number | null): Promise<string | null> {
+  const { error } = await sb.from('intra_showcase').update({ price_ht }).eq('id', id);
+  return error ? error.message : null;
+}
+
 export async function setShowcaseTitle(id: string, title: string): Promise<string | null> {
   const { error } = await sb.from('intra_showcase').update({ title: title.trim() || null }).eq('id', id);
   return error ? (missing(error.message) ? PHOTOS_SQL_HINT : error.message) : null;
