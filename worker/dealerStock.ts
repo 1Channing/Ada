@@ -30,8 +30,8 @@ import { recordLearningCase, resolveLearningCase } from './learningBox';
 import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -199,6 +199,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/class="c-vehicles-list__item/.test(html) && /class="c-vehicle\b[^"]*"[^>]*data-id="\d+"/.test(html)) return 'autrado';
   // carzilla (Bierschneider, 11/10) : cartes « cc-vehicle », contrôleur Angular ResultsItemController, pages « ?cp=N ».
   if (/class="cc-vehicle card/.test(html) && /cc-link-vehicle-detail/.test(html)) return 'carzilla';
+  // hexon (Oostendorp Automotive, 14/10) : cartes <div class="card-car-slider" data-voertuignrhexon="…">, 21 par page, « ?from=21 ».
+  if (/data-voertuignrhexon="\d+"/.test(html) && /card_content__title/.test(html)) return 'hexon';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -748,6 +750,82 @@ async function scrapeCarzilla(url: string, firstHtml: string): Promise<DealerSto
   return { provider: 'carzilla', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+// ── hexon (Oostendorp Automotive, www.oostendorpautomotive.nl) ───────────────
+// Constat 14/10 (boîte à apprendre, Channing : « apprends Ada à lire cette
+// vitrine ») : site WMP/Hexon — <div class="card-car-slider"
+// data-voertuignrhexon="52884673"> puis <a href="/auto/52884673-toyota-yaris-…">,
+// <h3 class="card_content__title">Toyota Yaris</h3>, <span>1.5 Hybrid 115
+// Dynamic MY25</span>, <span class="card_content__grey">10 km | 2026 | Hybride
+// | Automaat</span>, prix courant dans « car-offer__price » (l'ancien prix,
+// « car-offer__fromprice », est barré : jamais pris). 21 cartes par page,
+// pagination par décalage « ?from=21 », total « 1164 auto's gevonden » dans
+// #total-results-desktop. Prouvé : pages 1 et 2 lues, 21 cartes chacune.
+export function parseHexonCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  const text = (s: string) => unesc(s.replace(/<svg[\s\S]*?<\/svg>|<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
+  const parts = html.split(/<div class="card-car-slider" data-voertuignrhexon="/);
+  for (let i = 1; i < parts.length; i++) {
+    const card = parts[i];
+    const id = card.match(/^(\d+)"/)?.[1];
+    if (!id) continue;
+    const href = card.match(/<a[^>]+href="([^"]+)"/)?.[1] ?? '';
+    const url = href ? (href.startsWith('http') ? href : `${origin}${href.startsWith('/') ? '' : '/'}${href}`) : null;
+    const title = text(card.match(/card_content__title[^>]*>([\s\S]*?)<\/h3>/)?.[1] ?? '');
+    const variant = text(card.match(/<\/h3>\s*<span[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '');
+    // « 52.517 km | 2022 | Hybride | Automaat » — la première ligne grise sans icône.
+    const grey = [...card.matchAll(/card_content__grey"[^>]*>([\s\S]*?)<\/span>/g)].map((m) => text(m[1])).find((t) => /\|/.test(t)) ?? '';
+    const [kmRaw, yearRaw, fuelRaw, gearRaw] = grey.split('|').map((s) => s.trim());
+    const cur = card.match(/car-offer__price[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '';
+    const price = priceOrNull(text(cur).replace(/[^\d]/g, ''));
+    const t = text(card);
+    const { brand, model } = splitTitle(title);
+    const img = card.match(/<img[^>]+(?:src|data-src)="([^"]+)"/)?.[1] ?? null;
+    out.push({
+      external_id: id, url, title: `${title} ${variant}`.trim(), brand, model,
+      price, currency: 'EUR',
+      km: num((kmRaw ?? '').replace(/\./g, '').replace(/\s*km$/i, '')),
+      year: num(yearRaw) != null && Number(yearRaw) > 1900 ? Number(yearRaw) : null,
+      fuel: fuelRaw || null,
+      gearbox: /handgeschakeld|schakel/i.test(gearRaw ?? '') ? 'Manuelle' : /automaat|automat/i.test(gearRaw ?? '') ? 'Automatique' : gearRaw || null,
+      plate: null, vin: null, body: null,
+      image: img ? (img.startsWith('http') ? img : `${origin}${img.startsWith('/') ? '' : '/'}${img}`) : null, listed_at: null,
+      status: statusFromText(t.match(/(op aanvraag|verkocht|gereserveerd|binnenkort verwacht|verwacht)/i)?.[1]) ?? (price == null ? 'price_on_request' : null),
+    });
+  }
+  return out;
+}
+async function scrapeHexon(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const origin = new URL(url).origin;
+  const declared = num(firstHtml.match(/id="total-results-desktop"[^>]*>\s*([\d.]+)/)?.[1]?.replace(/\./g, ''));
+  const first = parseHexonCards(firstHtml, origin);
+  const perPage = num(firstHtml.match(/numberOfItemsPerPage=(\d+)/)?.[1]) ?? first.length;
+  const pagesCap = declared != null && perPage > 0 ? Math.min(MAX_PAGES, Math.ceil(declared / perPage)) : MAX_PAGES;
+  let pages = 0;
+  for (let page = 1; page <= pagesCap; page++) {
+    let cards: DealerVehicle[] | null = page === 1 ? first : null;
+    if (page > 1) {
+      const pu = new URL(url); pu.searchParams.set('from', String((page - 1) * perPage)); pu.hash = '';
+      for (let attempt = 0; attempt < 2 && cards == null; attempt++) {
+        if (attempt > 0) await sleep(1500);
+        const r = await getText(pu.toString());
+        if (r.status === 200) cards = parseHexonCards(r.text, origin);
+      }
+      if (cards == null) { warnings.push(`arrêt à la page ${page} : page illisible — relevé partiel (${out.length} / ${declared ?? '?'})`); break; }
+    }
+    pages = page;
+    let added = 0;
+    for (const v of cards) { if (seen.has(v.external_id)) continue; seen.add(v.external_id); out.push(v); added++; }
+    if (cards.length === 0 || added === 0) break;
+    if (declared != null && out.length >= declared) break;
+    await sleep(PAGE_DELAY_MS);
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncés`);
+  return { provider: 'hexon', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 // ── autodata (Krimpenerwaard) ───────────────────────────────────────────────
 async function scrapeAutodata(url: string, firstHtml: string, firstHeaders: Headers): Promise<DealerStockResult> {
   const origin = new URL(url).origin;
@@ -1103,6 +1181,7 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
   if (provider === 'carcards') return scrapeCarCards(url, first.text);
   if (provider === 'autrado') return scrapeAutrado(url, first.text);
   if (provider === 'carzilla') return scrapeCarzilla(url, first.text);
+  if (provider === 'hexon') return scrapeHexon(url, first.text);
   if (provider === 'listerpage') return scrapeListerpage(url, first.text);
   if (provider === 'cmsms') return scrapeCmsms(url, first.text);
   if (provider === 'dmapi') return scrapeDmApi(url, first.text);

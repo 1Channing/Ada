@@ -832,6 +832,16 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **CARTE : VITRINE HEXON / WMP LUE (14/10, boîte à apprendre, Channing :
+  « apprends Ada à lire cette vitrine », www.oostendorpautomotive.nl)**.
+  Nouveau fournisseur `hexon` dans le worker : cartes
+  `card-car-slider[data-voertuignrhexon]`, titre h3 + variante, ligne « km |
+  année | énergie | boîte », prix courant (`car-offer__price`, l'ancien prix
+  barré jamais pris), statut (op aanvraag / verkocht / gereserveerd), 21
+  cartes par page, pagination par décalage `?from=`, total « N auto's
+  gevonden ». Prouvé sur les pages 1 et 2 enregistrées (21 cartes chacune,
+  1 164 annoncées). Le cas de la boîte se ferme tout seul au prochain relevé
+  réussi. Zéro SQL.
 - **BONNES AFFAIRES : TROIS PETITS POINTS POUR CORRIGER (14/10, Channing :
   « j'ai fait une erreur, modifier les critères via les trois petits
   points »)**. Chaque ligne de « Ce que l'Accueil montre » porte un menu ⋯ :
