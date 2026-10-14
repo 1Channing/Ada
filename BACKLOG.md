@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OFFRES : LISTE « VIN / MODEL / VERSION / KMS » SANS MARQUE (14/10,
+  Channing : « apprends Ada à lire ces études », Megane E-Tech EV60)**.
+  Constat sur le fichier : « KMS » ignoré (kilométrage vide), marque
+  « ICONIC » (premier mot de la version, une finition), énergie vide et
+  boîte vide (« E-Tech » lu hybride, « EV60 » inconnu). Désormais : « kms »
+  reconnu ; la marque vient, dans l'ordre, d'une marque connue en tête de
+  ligne, du modèle connu d'une seule marque, puis du VIN (table des codes
+  constructeurs WMI : VF1 Renault, WAU Audi, TMB Skoda…), et le premier mot
+  de la ligne n'est plus pris pour une marque quand une colonne modèle
+  existe à part ; les marqueurs forts d'électrique (EV60, kWh, e-tron,
+  ID.4…) passent avant l'hybride. Vérifié : 8 Megane lues, Renault,
+  électrique, automatique, 19 066 km, 900 € de dommages, 21 400 € HT,
+  rapport Trustoo ; la liste suédoise se lit comme avant. Zéro SQL.
 - **BONNES AFFAIRES : UNE LIGNE SE DÉPLIE POUR RÉGLER (13/10, Channing :
   « cliquer sur une ligne de ce que montre l'Accueil pour modifier les
   réglages et le prix »)**. Dans « Ce que l'Accueil montre aujourd'hui », un

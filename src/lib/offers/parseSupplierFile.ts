@@ -56,7 +56,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['plate', /(\bimmat|plaque|\bplate\b|registration|\btarga\b)/],
   // « Milage » (faute courante), « Miltal » / « Mätarställning » / « Mil »
   // (suédois : l'unité est le MIL = 10 km, voir decideKmUnit).
-  ['km', /(\bkm\b|kilom|mil(e)?age|kilometer|chilometr|miltal|matarstallning|\bmil\b)/],
+  // « KMS » (liste Megane E-Tech 14/10) : le pluriel n'était pas reconnu, le kilométrage restait vide.
+  ['km', /(\bkms?\b|kilom|mil(e)?age|kilometer|chilometr|miltal|matarstallning|\bmil\b)/],
   ['co2', /co2/],
   // Dommages AVANT les prix : « ESTIMATION FRE HT » (MeltingCars) contient « ht ».
   ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b)/],
@@ -348,6 +349,28 @@ export function canonBrand(raw: string): string {
   const key = up.replace(/[^A-Z0-9]/g, '');
   return BRAND_ALIASES[key] ?? up;
 }
+/**
+ * MARQUE PAR LE VIN (14/10, liste Megane E-Tech : colonnes VIN / MODEL /
+ * VERSION sans marque — la lecture prenait le premier mot de la version,
+ * « ICONIC », pour la marque). Les trois premiers caractères du châssis (WMI)
+ * désignent le constructeur ; table des constructeurs courants en Europe,
+ * rien n'est deviné au-delà : WMI inconnu = pas de marque par ce chemin.
+ */
+const VIN_BRANDS: Record<string, string> = {
+  VF1: 'RENAULT', VF2: 'RENAULT', VNV: 'RENAULT', UU1: 'DACIA', VF3: 'PEUGEOT', VR3: 'PEUGEOT', VF7: 'CITROEN', VR7: 'CITROEN', VR1: 'DS', VXK: 'OPEL', W0L: 'OPEL', W0V: 'OPEL',
+  WVW: 'VOLKSWAGEN', WVG: 'VOLKSWAGEN', WV1: 'VOLKSWAGEN', WV2: 'VOLKSWAGEN', WAU: 'AUDI', WA1: 'AUDI', WUA: 'AUDI', TRU: 'AUDI', WBA: 'BMW', WBY: 'BMW', WBS: 'BMW', WMW: 'MINI',
+  WDB: 'MERCEDES', WDD: 'MERCEDES', WDC: 'MERCEDES', W1K: 'MERCEDES', W1N: 'MERCEDES', W1V: 'MERCEDES', WDF: 'MERCEDES', WP0: 'PORSCHE', WP1: 'PORSCHE', TMB: 'SKODA', VSS: 'SEAT', VSZ: 'SEAT',
+  ZFA: 'FIAT', ZFC: 'FIAT', ZAR: 'ALFA ROMEO', ZLA: 'LANCIA', ZCF: 'IVECO', ZHW: 'LAMBORGHINI', ZFF: 'FERRARI', ZAM: 'MASERATI', SB1: 'TOYOTA', JT: 'TOYOTA', VNK: 'TOYOTA', NMT: 'TOYOTA', JHM: 'HONDA', SHH: 'HONDA',
+  KNA: 'KIA', KNE: 'KIA', U5Y: 'KIA', U6Y: 'KIA', KMH: 'HYUNDAI', TMA: 'HYUNDAI', NLH: 'HYUNDAI', YV1: 'VOLVO', YV4: 'VOLVO', LVY: 'VOLVO', VSK: 'NISSAN', SJN: 'NISSAN', JN1: 'NISSAN', JN8: 'NISSAN',
+  SAL: 'LAND ROVER', SAJ: 'JAGUAR', SCA: 'ROLLS ROYCE', SCB: 'BENTLEY', SCF: 'ASTON MARTIN', JMZ: 'MAZDA', JM1: 'MAZDA', JF1: 'SUBARU', JS1: 'SUZUKI', TSM: 'SUZUKI', MMB: 'MITSUBISHI', JMB: 'MITSUBISHI',
+  LRW: 'TESLA', '5YJ': 'TESLA', '7SA': 'TESLA', XP7: 'TESLA', LGX: 'BYD', LC0: 'BYD', LSJ: 'MG', LSV: 'MG', SDB: 'MG', L6T: 'GEELY', KL1: 'CHEVROLET', VX1: 'TOYOTA', WME: 'SMART', TK9: 'TOYOTA',
+};
+export function brandFromVin(vin: string | null | undefined): string | null {
+  const v = (vin ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (v.length !== 17) return null;
+  return VIN_BRANDS[v.slice(0, 3)] ?? VIN_BRANDS[v.slice(0, 2)] ?? null;
+}
+
 export function splitBrand(line: string, knownBrands: string[]): { brand: string; rest: string } {
   const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/\s+/g, ' ').trim();
   const up = norm(line);
@@ -389,9 +412,12 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
     : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) ? 'MANUELLE' : null;
   // « 300PHEV » collé (RAV4), « HEV » (Tucson), « GLP » / « ECO-G » (GPL
   // espagnol / Dacia) — catalogue du 07/10.
+  // Les marqueurs FORTS d'électrique (« EV60 » = batterie 60 kWh, liste Megane
+  // E-Tech 14/10 ; kWh, e-tron, ID.4…) passent AVANT l'hybride : « E-Tech »
+  // chez Renault désigne aussi bien une Clio hybride qu'une Megane électrique.
   const fuel = /phev|\b(plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid)\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
+    : /\b([ée]lectri(que|c)|ev|ev\d{2}|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs|\bbev\b)\b/i.test(s) ? 'ELECTRIQUE'
     : /\b(hybrid|hybride|hev|e-?tech|e-?power|mhev|bsg)\b/i.test(s) ? 'HYBRIDE'
-    : /\b([ée]lectri(que|c)|ev|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs)\b/i.test(s) ? 'ELECTRIQUE'
     : /\b(gpl|glp|lpg|eco-?g)\b/i.test(s) ? 'GPL'
     : /\b(diesel|hdi|bluehdi|dci|tdi|cdi|crdi|d\b|multijet)/i.test(s) ? 'DIESEL'
     : /\b(essence|petrol|benzin|puretech|tce|tsi|tfsi|turbo|1\.[0-9]|dig-t)\b/i.test(s) ? 'ESSENCE' : null;
@@ -573,15 +599,21 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     let brand = cell(rec.brand) || currentBrand;
     /** Marque telle qu'elle OUVRE la ligne libre (« VW Trp »), à retirer de la colonne modèle quand elle y est aussi. */
     let brandPrefix = '';
+    const knownBrandNames = Object.keys(knownModelsByBrand);
+    const startsWithKnownBrand = (line: string) => { const sp = splitBrand(line, knownBrandNames); return knownBrandNames.some((b) => b.toUpperCase() === sp.brand) ? sp : null; };
     if (!brand && versionLine) {
-      const sp = splitBrand(versionLine, Object.keys(knownModelsByBrand));
-      // Ligne SANS marque qui commence par un MODÈLE connu d'une seule marque
-      // (« Sorento f/l PHEV… », Flexivan 22/09 : la marque devenait « SORENTO »
-      // et le modèle « SORENTO ») : la marque est celle du modèle, la ligne
-      // reste entière pour le modèle.
-      const byModel = brandOfModelWord(versionLine, knownModelsByBrand);
-      if (byModel && !knownModelsByBrand[sp.brand]) { brand = byModel; }
-      else { brand = sp.brand; brandPrefix = sp.brand; versionLine = sp.rest || versionLine; }
+      // Ordre des indices, du plus sûr au moins sûr (14/10) : la ligne commence
+      // par une marque connue ; la colonne MODÈLE désigne un modèle connu d'une
+      // seule marque ; le VIN dit le constructeur ; enfin le premier mot de la
+      // ligne, seulement s'il n'y a pas de colonne modèle à part (sinon on
+      // prendrait une finition, « ICONIC », pour une marque).
+      const sp = startsWithKnownBrand(versionLine) ?? (cell(rec.model) ? startsWithKnownBrand(cell(rec.model)) : null);
+      const byModel = brandOfModelWord(cell(rec.model) || versionLine, knownModelsByBrand);
+      const byVin = brandFromVin(cell(rec.vin));
+      if (sp) { brand = sp.brand; brandPrefix = sp.brand; if (versionLine.toUpperCase().startsWith(`${sp.brand} `)) versionLine = sp.rest || versionLine; }
+      else if (byModel) brand = byModel;
+      else if (byVin) brand = byVin;
+      else if (!cell(rec.version) || !cell(rec.model)) { const first = splitBrand(versionLine, knownBrandNames); brand = first.brand; brandPrefix = first.brand; versionLine = first.rest || versionLine; }
     }
     brand = canonBrand(brand);
     // Ligne qui RÉPÈTE son modèle (liste suédoise 13/10 : « HYUNDAI TUCSON
