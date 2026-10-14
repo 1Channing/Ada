@@ -3,7 +3,7 @@ import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
   PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus,
 } from 'lucide-react';
-import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, type IntraItem, type IntraDraft } from '../services/intra';
+import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
@@ -116,6 +116,27 @@ export function Offres() {
   const [photoBusy, setPhotoBusy] = useState<string | null>(null);
   /** Bonne affaire dépliée dans « Ce que l'Accueil montre » : prix, mot, réglages (13/10, Channing : « cliquer sur une ligne pour modifier »). */
   const [openDeal, setOpenDeal] = useState<string | null>(null);
+  /** AJOUT DIRECT d'une bonne affaire, sans liste fournisseur (14/10) : le véhicule saisi dans le crayon habituel. */
+  const emptyManual = (): OfferVehicle => ({
+    id: 'manual', vin: null, brand: '', model: '', version: '', reg_date: null, year: null, km: null, color: null, fuel: null, engine: null, power_ch: null,
+    gearbox: null, co2: null, damages: null, report_url: null, location: null, price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: {}, selected: true, sale_price: null, quantity: 1,
+  });
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manual, setManual] = useState<OfferVehicle>(emptyManual);
+  const [manualMeta, setManualMeta] = useState<{ price: string; title: string; note: string }>({ price: '', title: '', note: '' });
+  const [manualBusy, setManualBusy] = useState(false);
+  const submitManual = async () => {
+    if (!manual.brand.trim() || !manual.model.trim()) { fail('Marque et modèle sont obligatoires.'); return; }
+    setManualBusy(true);
+    const v: OfferVehicle = { ...manual, brand: manual.brand.trim().toUpperCase(), model: manual.model.trim().toUpperCase(), version: manual.version.trim() || manual.model.trim().toUpperCase() };
+    const price = manualMeta.price.trim() === '' ? null : Math.round(Number(manualMeta.price));
+    const r = await addManualShowcase({ vehicle: snapshotVehicle(v), price_ht: price != null && Number.isFinite(price) ? price : null, title: manualMeta.title, note: manualMeta.note });
+    setManualBusy(false);
+    if (r.error) { fail(r.error); return; }
+    info(`${v.brand} ${v.model} ajouté aux bonnes affaires — visible sur l'Accueil et sur mc-export.com. Ajoute ses photos ci-dessous.`);
+    setManual(emptyManual()); setManualMeta({ price: '', title: '', note: '' }); setManualOpen(false);
+    void reloadShowcase();
+  };
   const reloadShowcase = async () => { const r = await listShowcase(); setShowcase(r.rows); setShowcaseError(r.error); };
   useEffect(() => { void reloadShowcase(); }, []);
   // Ouverture par l'URL (/offres?offer=<id>&view=analyse — bouton « Étude de marché » de la vitrine).
@@ -1443,7 +1464,32 @@ export function Offres() {
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
                     <h2 className="text-sm font-semibold text-slate-800">Ce que l'Accueil montre aujourd'hui</h2>
                     <span className="text-xs text-slate-500">{showcase.length} véhicule{showcase.length > 1 ? 's' : ''} en bonnes affaires, toutes offres confondues{others.length ? ` · ${others.length} d'autres offres` : ''}</span>
+                    {/* AJOUT DIRECT (14/10, Channing : « ajouter un véhicule en bonne affaire sans passer une liste »). */}
+                    <button onClick={() => setManualOpen((o) => !o)} aria-expanded={manualOpen} className={`ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border ${manualOpen ? 'border-brand-encre bg-blue-50 text-brand-encre' : 'border-brand-ocean text-brand-ocean hover:bg-blue-50'}`}>
+                      <Plus className="w-4 h-4" /> Ajouter un véhicule sans liste
+                    </button>
                   </div>
+                  {manualOpen && (
+                    <div className="px-4 py-3 border-b border-slate-100 bg-blue-50/40 space-y-3">
+                      <p className="text-xs text-slate-600">Un véhicule saisi à la main : il n'appartient à aucune offre et n'a pas de relevé de marché. Il apparaît sur l'Accueil d'ADA et sur mc-export.com comme les autres ; photos, titre et mot se règlent ensuite dans la liste ci-dessous.</p>
+                      <VehicleEditor v={manual} onChange={(patch) => setManual((m) => ({ ...m, ...patch }))} />
+                      <div className="flex flex-wrap items-end gap-3 text-xs">
+                        <label className="text-slate-600">Prix MC Export HT (€)
+                          <input type="number" value={manualMeta.price} onChange={(e) => setManualMeta((m) => ({ ...m, price: e.target.value }))} placeholder="vide = sur proposition" className="block mt-0.5 w-40 px-2 py-1 rounded border border-slate-300 bg-white tabular-nums font-semibold text-brand-encre" />
+                        </label>
+                        <label className="text-slate-600">Titre (facultatif)
+                          <input value={manualMeta.title} onChange={(e) => setManualMeta((m) => ({ ...m, title: e.target.value }))} placeholder="vide = marque + modèle" className="block mt-0.5 w-64 px-2 py-1 rounded border border-slate-300 bg-white" />
+                        </label>
+                        <label className="text-slate-600">Mot pour la bonne affaire
+                          <input value={manualMeta.note} onChange={(e) => setManualMeta((m) => ({ ...m, note: e.target.value }))} placeholder="ex. dispo immédiate" className="block mt-0.5 w-64 px-2 py-1 rounded border border-slate-300 bg-white" />
+                        </label>
+                        <button onClick={() => void submitManual()} disabled={manualBusy || !manual.brand.trim() || !manual.model.trim()} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white text-sm font-medium disabled:opacity-50">
+                          {manualBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Megaphone className="w-4 h-4" />} Publier en bonne affaire
+                        </button>
+                        <button onClick={() => { setManualOpen(false); setManual(emptyManual()); }} className="text-slate-500 hover:text-slate-800 pb-1.5">Annuler</button>
+                      </div>
+                    </div>
+                  )}
                   {showcase.length === 0 ? (
                     <p className="px-4 py-6 text-sm text-slate-400 text-center">Aucune bonne affaire publiée.</p>
                   ) : (
@@ -1520,7 +1566,7 @@ export function Offres() {
                                   <ExternalLink className="w-3 h-3" /> Ouvrir l'offre « {otherOffer.title || 'sans titre'} »
                                 </button>
                               )}
-                              {!sameOffer && !otherOffer && <span className="text-[11px] text-slate-400 pb-1.5">Offre d'origine introuvable (supprimée ?) : le prix et le mot restent modifiables ici.</span>}
+                              {!sameOffer && !otherOffer && <span className="text-[11px] text-slate-400 pb-1.5">{it.offer_id ? "Offre d'origine introuvable (supprimée ?) : le prix et le mot restent modifiables ici." : 'Ajout direct, sans liste ni relevé de marché : le prix et le mot se règlent ici.'}</span>}
                               <span className="basis-full text-[11px] text-slate-500">Le prix et le mot changent tout de suite sur l'Accueil et sur mc-export.com. Les critères de l'étude et le relevé se règlent dans l'offre, puis « Republier ».</span>
                             </div>
                           )}

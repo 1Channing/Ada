@@ -111,6 +111,28 @@ export async function publishToShowcase(items: IntraDraft[]): Promise<string | n
   return missing(error.message) ? INTRA_SQL_HINT : /row-level security/i.test(error.message) ? "Publication refusée par la base : réservé à l'équipe MC Export avec l'onglet Offres." : error.message;
 }
 
+/** AJOUT DIRECT (14/10, Channing : « ajouter un véhicule en bonne affaire sans passer une liste ») :
+ *  une ligne sans offre d'origine (offer_id null), saisie à la main ; photos, titre, mot et prix se règlent ensuite comme les autres. */
+export async function addManualShowcase(input: { vehicle: IntraVehicle; price_ht: number | null; title: string; note: string }): Promise<{ id: string | null; error: string | null }> {
+  const { userId, displayName } = useAuth.getState();
+  const row = {
+    offer_id: null, offer_title: 'Ajout direct', vehicle_id: `manual-${Date.now().toString(36)}`, lot_key: null,
+    vehicle: input.vehicle, price_ht: input.price_ht, market: null, note: input.note.trim(), title: input.title.trim() || null,
+    published_by: userId, published_by_name: (displayName ?? '').trim(), published_at: new Date().toISOString(),
+  };
+  const { data, error } = await sb.from('intra_showcase').insert(row).select('id').maybeSingle();
+  if (error) {
+    if (/column "title"/i.test(error.message)) {
+      // Colonne titre absente (SQL 20261013200000 pas collé) : on publie sans titre libre.
+      const { title: _t, ...without } = row; void _t;
+      const r2 = await sb.from('intra_showcase').insert(without).select('id').maybeSingle();
+      return { id: (r2.data as { id: string } | null)?.id ?? null, error: r2.error ? r2.error.message : null };
+    }
+    return { id: null, error: missing(error.message) ? INTRA_SQL_HINT : /row-level security/i.test(error.message) ? "Ajout refusé par la base : réservé à l'équipe MC Export avec l'onglet Offres." : error.message };
+  }
+  return { id: (data as { id: string } | null)?.id ?? null, error: null };
+}
+
 export async function unpublishFromShowcase(ids: string[]): Promise<string | null> {
   if (ids.length === 0) return null;
   const { data, error } = await sb.from('intra_showcase').delete().in('id', ids).select('id');

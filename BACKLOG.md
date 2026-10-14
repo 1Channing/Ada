@@ -832,6 +832,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **BONNES AFFAIRES : AJOUT DIRECT SANS LISTE (14/10, Channing : « ajouter un
+  véhicule en bonne affaire sans avoir besoin de passer une liste »)**.
+  Onglet Intra, bloc « Ce que l'Accueil montre aujourd'hui » : bouton
+  « Ajouter un véhicule sans liste » → le crayon habituel (marque, modèle,
+  version, immat ou année, km, énergie, boîte, puissance, couleur, dommages…),
+  prix MC Export HT, titre, mot → « Publier en bonne affaire ». Ligne
+  intra_showcase sans offre (offer_id null, offer_title « Ajout direct »),
+  sans relevé ; photos, titre, mot et prix se règlent ensuite comme les
+  autres ; visible sur l'Accueil et sur mc-export.com. Zéro SQL.
 - **OFFRES : LISTE « VIN / MODEL / VERSION / KMS » SANS MARQUE (14/10,
   Channing : « apprends Ada à lire ces études », Megane E-Tech EV60)**.
   Constat sur le fichier : « KMS » ignoré (kilométrage vide), marque
