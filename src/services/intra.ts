@@ -58,6 +58,12 @@ export async function setShowcasePrice(id: string, price_ht: number | null): Pro
   return error ? error.message : null;
 }
 
+/** Caractéristiques d'une bonne affaire corrigées à la main (14/10, Channing : « j'ai fait une erreur, modifier les critères ») — Accueil et site suivent. */
+export async function setShowcaseVehicle(id: string, vehicle: IntraVehicle): Promise<string | null> {
+  const { error } = await sb.from('intra_showcase').update({ vehicle }).eq('id', id);
+  return error ? error.message : null;
+}
+
 export async function setShowcaseTitle(id: string, title: string): Promise<string | null> {
   const { error } = await sb.from('intra_showcase').update({ title: title.trim() || null }).eq('id', id);
   return error ? (missing(error.message) ? PHOTOS_SQL_HINT : error.message) : null;

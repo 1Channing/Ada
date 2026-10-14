@@ -832,6 +832,13 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **BONNES AFFAIRES : TROIS PETITS POINTS POUR CORRIGER (14/10, Channing :
+  « j'ai fait une erreur, modifier les critères via les trois petits
+  points »)**. Chaque ligne de « Ce que l'Accueil montre » porte un menu ⋯ :
+  « Modifier les caractéristiques… » (le crayon habituel sur la photographie
+  du véhicule : marque, modèle, version, immat, km, énergie…), « Prix, mot,
+  réglages », « Retirer ». La correction met à jour la ligne intra_showcase
+  (Accueil et site), pas l'offre d'origine. Zéro SQL.
 - **BONNES AFFAIRES : AJOUT DIRECT SANS LISTE (14/10, Channing : « ajouter un
   véhicule en bonne affaire sans avoir besoin de passer une liste »)**.
   Onglet Intra, bloc « Ce que l'Accueil montre aujourd'hui » : bouton

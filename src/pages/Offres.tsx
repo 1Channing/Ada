@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
-  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus,
+  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus, MoreHorizontal,
 } from 'lucide-react';
-import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
+import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, setShowcaseVehicle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
@@ -125,6 +125,27 @@ export function Offres() {
   const [manual, setManual] = useState<OfferVehicle>(emptyManual);
   const [manualMeta, setManualMeta] = useState<{ price: string; title: string; note: string }>({ price: '', title: '', note: '' });
   const [manualBusy, setManualBusy] = useState(false);
+  /** Menu ⋯ d'une bonne affaire, et véhicule en cours de correction (14/10, Channing : « modifier les critères via les trois petits points »). */
+  const [dealMenu, setDealMenu] = useState<string | null>(null);
+  const [editDeal, setEditDeal] = useState<{ id: string; v: OfferVehicle } | null>(null);
+  const [editDealBusy, setEditDealBusy] = useState(false);
+  const startEditDeal = (it: IntraItem) => {
+    const s = it.vehicle;
+    setEditDeal({ id: it.id, v: { ...emptyManual(), id: it.id, vin: s.vin, brand: s.brand, model: s.model, version: s.version, engine: s.engine, reg_date: s.reg_date, year: s.year, km: s.km, color: s.color, fuel: s.fuel, power_ch: s.power_ch, gearbox: s.gearbox, damages: s.damages, report_url: s.report_url, vat_recoverable: s.vat_recoverable, quantity: s.quantity } });
+    setDealMenu(null); setOpenDeal(it.id);
+  };
+  const saveEditDeal = async () => {
+    if (!editDeal) return;
+    if (!editDeal.v.brand.trim() || !editDeal.v.model.trim()) { fail('Marque et modèle sont obligatoires.'); return; }
+    setEditDealBusy(true);
+    const v: OfferVehicle = { ...editDeal.v, brand: editDeal.v.brand.trim().toUpperCase(), model: editDeal.v.model.trim().toUpperCase(), version: editDeal.v.version.trim() || editDeal.v.model.trim().toUpperCase() };
+    const err = await setShowcaseVehicle(editDeal.id, snapshotVehicle(v));
+    setEditDealBusy(false);
+    if (err) { fail(err); return; }
+    info('Caractéristiques corrigées — Accueil et mc-export.com à jour.');
+    setEditDeal(null);
+    void reloadShowcase();
+  };
   const submitManual = async () => {
     if (!manual.brand.trim() || !manual.model.trim()) { fail('Marque et modèle sont obligatoires.'); return; }
     setManualBusy(true);
@@ -1511,8 +1532,28 @@ export function Offres() {
                             <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + ' HT' : 'sur proposition'}</span>
                             <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>
                             {it.note && <span className="text-slate-600 truncate">« {it.note} »</span>}
-                            <button onClick={() => void unpublishVehicles([it.id])} className="ml-auto p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 shrink-0" title="Retirer des bonnes affaires" aria-label={`Retirer ${it.vehicle.brand} ${it.vehicle.model} des bonnes affaires`}><X className="w-3.5 h-3.5" /></button>
+                            {/* Trois petits points (14/10) : corriger les caractéristiques, retirer. */}
+                            <span className="relative ml-auto shrink-0">
+                              <button onClick={() => setDealMenu(dealMenu === it.id ? null : it.id)} title="Options de la bonne affaire" aria-haspopup="menu" aria-expanded={dealMenu === it.id} className={`p-1 rounded ${dealMenu === it.id ? 'bg-slate-100 text-slate-800' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}><MoreHorizontal className="w-4 h-4" /></button>
+                              {dealMenu === it.id && (
+                                <div role="menu" className="absolute right-0 top-7 z-30 w-60 bg-white border border-slate-200 rounded-xl shadow-lg py-1 text-xs text-left">
+                                  <button role="menuitem" onClick={() => startEditDeal(it)} className="w-full flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-50"><Pencil className="w-3.5 h-3.5 text-brand-ocean" /> Modifier les caractéristiques…</button>
+                                  <button role="menuitem" onClick={() => { setDealMenu(null); setOpenDeal(it.id); }} className="w-full flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-50"><SlidersHorizontal className="w-3.5 h-3.5 text-brand-ocean" /> Prix, mot, réglages</button>
+                                  <button role="menuitem" onClick={() => { setDealMenu(null); void unpublishVehicles([it.id]); }} className="w-full flex items-center gap-2 px-3 py-2 text-red-700 hover:bg-red-50"><X className="w-3.5 h-3.5" /> Retirer des bonnes affaires</button>
+                                </div>
+                              )}
+                            </span>
                           </div>
+                          {editDeal?.id === it.id && (
+                            <div className="rounded-lg border border-blue-200 bg-white px-3 py-2 space-y-2" onClick={(e) => e.stopPropagation()}>
+                              <p className="text-[11px] text-slate-600">Caractéristiques de la bonne affaire — ce que l'Accueil et le site montrent. Un véhicule venu d'une offre n'est pas modifié dans l'offre.</p>
+                              <VehicleEditor v={editDeal.v} onChange={(patch) => setEditDeal((d) => (d ? { ...d, v: { ...d.v, ...patch } } : d))} />
+                              <div className="flex items-center gap-3">
+                                <button onClick={() => void saveEditDeal()} disabled={editDealBusy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white text-sm font-medium disabled:opacity-50">{editDealBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Enregistrer</button>
+                                <button onClick={() => setEditDeal(null)} className="text-slate-500 hover:text-slate-800 text-xs">Annuler</button>
+                              </div>
+                            </div>
+                          )}
                           {/* PHOTOS (13/10) : montrées sur l'Accueil d'ADA et sur mc-export.com ; jpeg / png / webp, 8 Mo max. */}
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {(it.photos ?? []).map((url, n) => (
