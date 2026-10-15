@@ -832,6 +832,19 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **TRÉSORERIE : RELEVÉS TÉLÉCHARGEABLES (15/10, Channing : « rend les
+  relevés de compte cliquables pour téléchargement si besoin »)**. Constat :
+  le PDF déposé était lu puis perdu, seul son nom restait (file_name).
+  Désormais le fichier est conservé dans un bucket PRIVÉ `bank-statements`
+  (un objet par relevé, <id>.pdf, admin seulement, même règle que la table)
+  et `bank_statements.file_path` le désigne. Dans la grille Relevés, un
+  relevé qui a son PDF est un bouton (icône téléchargement) : URL signée
+  5 minutes, téléchargé sous son nom d'origine ; survol : « cliquer pour
+  télécharger ». Un relevé déposé avant le 15/10 n'a pas de fichier : le
+  survol le dit et propose de le redéposer (il remplace, catégories
+  manuelles gardées). Suppression d'un relevé : son PDF part avec. Fail-open :
+  SQL pas collé → le relevé est intégré, avertissement « PDF non conservé ».
+  SQL 20261015100000 (colonne, bucket, policy), testé 2× sur cluster jetable.
 - **CARTE : VITRINE HEXON / WMP LUE (14/10, boîte à apprendre, Channing :
   « apprends Ada à lire cette vitrine », www.oostendorpautomotive.nl)**.
   Nouveau fournisseur `hexon` dans le worker : cartes

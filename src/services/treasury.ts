@@ -13,6 +13,24 @@ export { matchLine, type DealLite, type LinkPart } from '../lib/bankStatements';
 export interface BankStatementRow {
   id: string; account: BankAccount; account_ref?: string | null; account_name?: string | null; period_month: string; file_name: string | null; currency: string;
   opening_balance: number | null; closing_balance: number | null; line_count: number; warnings: string[] | null; created_at: string;
+  /** PDF conservé dans le bucket privé bank-statements (15/10) ; null = déposé avant, pas de fichier. */
+  file_path?: string | null;
+}
+/** Bucket privé des PDF de relevés (SQL du 15/10) : un objet par relevé, <id>.pdf. */
+export const STATEMENTS_BUCKET = 'bank-statements';
+
+/**
+ * URL signée (5 minutes) pour télécharger le PDF d'un relevé, avec son nom
+ * d'origine. null si le relevé n'a pas de fichier ou si le bucket manque.
+ */
+export async function statementDownloadUrl(st: Pick<BankStatementRow, 'file_path' | 'file_name'>): Promise<string | null> {
+  if (!st.file_path) return null;
+  try {
+    const { data, error } = await supabase.storage.from(STATEMENTS_BUCKET).createSignedUrl(st.file_path, 300, { download: st.file_name ?? 'releve.pdf' });
+    return error ? null : data?.signedUrl ?? null;
+  } catch {
+    return null;
+  }
 }
 export interface BankLineRow extends Omit<ParsedLine, 'category'> {
   id: string; statement_id: string; account: BankAccount; category: BankCategory; category_auto: BankCategory | null;
@@ -67,9 +85,11 @@ export async function listLines(): Promise<{ rows: BankLineRow[]; error: string 
 }
 const numOrNull = (v: unknown) => (v == null || v === '' ? null : Number(v));
 
-export async function deleteStatement(id: string): Promise<string | null> {
+export async function deleteStatement(id: string, filePath?: string | null): Promise<string | null> {
   const { error } = await untyped.from('bank_statements').delete().eq('id', id);
-  return error ? error.message : null;
+  if (error) return error.message;
+  if (filePath) await supabase.storage.from(STATEMENTS_BUCKET).remove([filePath]).catch(() => undefined); // fichier orphelin : jamais bloquant
+  return null;
 }
 
 /**
@@ -274,6 +294,18 @@ async function writeStatement(st: ParsedStatement, file: File, deals: DealLite[]
       opening_balance: st.opening_balance, closing_balance: st.closing_balance, line_count: st.lines.length, warnings: st.warnings,
     }).select('id').single();
     if (insErr) throw new Error(missing(insErr.message) ? MISSING_MSG : insErr.message);
+    // PDF conservé pour téléchargement (15/10). Fail-open : bucket ou colonne
+    // absents (SQL du 15/10 pas collé), le relevé est intégré quand même.
+    try {
+      const path = `${ins.id}.pdf`;
+      const up = await supabase.storage.from(STATEMENTS_BUCKET).upload(path, file, { contentType: 'application/pdf', upsert: true });
+      if (!up.error) {
+        const { error: pathErr } = await untyped.from('bank_statements').update({ file_path: path }).eq('id', ins.id);
+        if (pathErr) await supabase.storage.from(STATEMENTS_BUCKET).remove([path]).catch(() => undefined);
+      } else {
+        res.warnings = [...(res.warnings ?? []), `PDF non conservé (${up.error.message}) : SQL du 15/10 (bank-statements) à coller`];
+      }
+    } catch { /* fail-open */ }
     let matched = 0;
     const rows = st.lines.map((l) => {
       const m = matchLineParts(l, deals);

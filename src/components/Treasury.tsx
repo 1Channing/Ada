@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2 } from 'lucide-react';
+import { Upload, Loader2, Trash2, RefreshCw, AlertTriangle, Link2, Download } from 'lucide-react';
 import { BANK_CATEGORIES, CATEGORY_LABEL, NON_EXPENSE, OVERHEAD, VEHICLE_COSTS, CONTRACTORS, FLOW_CATS, ACCOUNT_LABEL, expectedCash, isStarDeal, isImportDeal, type BankCategory, type BankAccount } from '../lib/bankStatements';
 import { loadOpening, type TreasuryOpening } from '../services/vat';
 import { TreasuryVat } from './TreasuryVat';
 import {
-  listStatements, listLines, deleteStatement, setLineCategory, repairLines, lineParts, requestSheetRefresh, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth,
+  listStatements, listLines, deleteStatement, setLineCategory, repairLines, lineParts, requestSheetRefresh, setLineMatch, loadDeals, uploadStatement, rematchAll, dealMonth, statementDownloadUrl,
   type BankStatementRow, type BankLineRow, type DealLite, type UploadResult,
 } from '../services/treasury';
 
@@ -74,9 +74,18 @@ export function Treasury() {
     if (fileRef.current) fileRef.current.value = '';
     await reload();
   };
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const onDownload = async (s: BankStatementRow) => {
+    setDownloading(s.id);
+    try {
+      const url = await statementDownloadUrl(s);
+      if (!url) { window.alert('PDF introuvable pour ce relevé. Si le SQL du 15/10 (bank-statements) n\'est pas collé, redépose le relevé après l\'avoir collé.'); return; }
+      window.open(url, '_blank', 'noopener');
+    } finally { setDownloading(null); }
+  };
   const onDelete = async (s: BankStatementRow) => {
     if (!window.confirm(`Supprimer le relevé ${ACCOUNT_LABEL[s.account]}${s.account_ref ? ` …${s.account_ref}` : ''} ${monthLabel(s.period_month)} (${s.line_count} lignes) ?`)) return;
-    setBusy('Suppression…'); const e = await deleteStatement(s.id); setBusy(null);
+    setBusy('Suppression…'); const e = await deleteStatement(s.id, s.file_path); setBusy(null);
     if (e) setError(e); else await reload();
   };
   const onRematch = async () => {
@@ -377,8 +386,16 @@ export function Treasury() {
                         return (
                           <td key={m} className="py-1.5 px-2 text-center align-top">
                             {sts.length > 0 ? sts.map((st) => (
-                              <div key={st.id} className="inline-flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 m-0.5" title={`${st.file_name ?? ''}\n${st.line_count} lignes · ${eur(st.opening_balance, 2)} → ${eur(st.closing_balance, 2)}${st.warnings?.length ? '\n⚠ ' + st.warnings.join('\n⚠ ') : ''}`}>
-                                <span className="font-medium">{st.period_month.includes('~') ? st.period_month.split('~')[1].replace('-', '→') : '✓'} · {st.line_count} l.</span>
+                              <div key={st.id} className="inline-flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 m-0.5" title={`${st.file_name ?? ''}${st.file_path ? ' — cliquer pour télécharger le PDF' : ' — PDF non conservé (déposé avant le 15/10 : redépose-le pour l\'avoir ici)'}\n${st.line_count} lignes · ${eur(st.opening_balance, 2)} → ${eur(st.closing_balance, 2)}${st.warnings?.length ? '\n⚠ ' + st.warnings.join('\n⚠ ') : ''}`}>
+                                {/* Relevé cliquable → PDF d'origine (15/10, Channing). */}
+                                {st.file_path ? (
+                                  <button onClick={() => void onDownload(st)} disabled={downloading === st.id} className="font-medium inline-flex items-center gap-1 underline decoration-emerald-400 underline-offset-2 hover:text-emerald-950 disabled:opacity-60">
+                                    {downloading === st.id ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
+                                    {st.period_month.includes('~') ? st.period_month.split('~')[1].replace('-', '→') : '✓'} · {st.line_count} l.
+                                  </button>
+                                ) : (
+                                  <span className="font-medium">{st.period_month.includes('~') ? st.period_month.split('~')[1].replace('-', '→') : '✓'} · {st.line_count} l.</span>
+                                )}
                                 <span className="text-[10px] text-emerald-700 whitespace-nowrap">{eur(st.opening_balance)} → {eur(st.closing_balance)}</span>
                                 <span className="flex items-center gap-1">
                                   {st.warnings && st.warnings.length > 0 && <AlertTriangle size={11} className="text-amber-600" />}
@@ -396,7 +413,7 @@ export function Treasury() {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-slate-500">« manque » : la banque a des relevés avant et rien pour ce mois (le mois en cours n'est jamais compté ; un compte dont le dernier relevé finit à zéro est tenu pour clôturé). Un relevé en plusieurs parties montre ses jours (01→15). Survole une case pour le fichier, les soldes et les avertissements.</p>
+          <p className="text-xs text-slate-500">« manque » : la banque a des relevés avant et rien pour ce mois (le mois en cours n'est jamais compté ; un compte dont le dernier relevé finit à zéro est tenu pour clôturé). Un relevé en plusieurs parties montre ses jours (01→15). Survole une case pour le fichier, les soldes et les avertissements ; clique sur un relevé pour télécharger son PDF (relevés déposés depuis le 15/10).</p>
         </div>
       )}
       {view === 'tva' && <TreasuryVat lines={lines} deals={deals} statements={statements} />}
