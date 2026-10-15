@@ -416,7 +416,7 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   // E-Tech 14/10 ; kWh, e-tron, ID.4…) passent AVANT l'hybride : « E-Tech »
   // chez Renault désigne aussi bien une Clio hybride qu'une Megane électrique.
   const fuel = /phev|\b(plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid)\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
-    : /\b([ée]lectri(que|c)|ev|ev\d{2}|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs|\bbev\b)\b/i.test(s) ? 'ELECTRIQUE'
+    : /\b([ée]lectri(que|c)|ev|ev\d{2}|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs|\bbev\b)\b/i.test(s) || /\d\s?kwh\b/i.test(s) ? 'ELECTRIQUE' // « 45KWH » collé (MG ZS 15/10)
     : /\b(hybrid|hybride|hev|e-?tech|e-?power|mhev|bsg)\b/i.test(s) ? 'HYBRIDE'
     : /\b(gpl|glp|lpg|eco-?g)\b/i.test(s) ? 'GPL'
     : /\b(diesel|hdi|bluehdi|dci|tdi|cdi|crdi|d\b|multijet)/i.test(s) ? 'DIESEL'
@@ -552,6 +552,16 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       // règle « 1st Reg. », relue avec sa correspondance figée → toujours
       // sans date). Un choix explicite vers un autre champ reste respecté.
       const guesses = header.map((h) => guessField(h));
+      // « Reg » seul (liste MG ZS 15/10 : « Reg » = la plaque, « Reg date » = la
+      // date) est ambigu : la règle des dates l'attrapait et la plaque JKJ60H
+      // devenait une date vide. Quand l'en-tête se réduit à « reg », ce sont
+      // les valeurs de la colonne qui tranchent : des dates → date, sinon plaque.
+      header.forEach((h, idx) => {
+        if (guesses[idx] !== 'reg_date' || !/^reg\.?$/.test(normHeader(h))) return;
+        const vals = grid.slice(i + 1, i + 21).map((row) => (row ?? [])[idx]).filter((v) => v != null && v !== '');
+        const dateLike = vals.filter((v) => v instanceof Date || /^\d{4}-\d{2}-\d{2}/.test(cell(v)) || /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(cell(v)) || /^(19|20)\d{2}$/.test(cell(v))).length;
+        if (vals.length > 0 && dateLike * 2 < vals.length) guesses[idx] = 'plate';
+      });
       const claimed = new Set<OfferField>();
       header.forEach((h, idx) => {
         const ov = mappingOverride && h in mappingOverride ? mappingOverride[h] : undefined;

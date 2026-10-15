@@ -832,6 +832,18 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **OFFRES : LISTE MG ZS (15/10, Channing : « apprends Ada à lire cette
+  liste », Channing_ZS_7u.xlsx — Reg / Reg date / Vin / Make / Model / KM /
+  Color, 7 ZS Luxury 45 kWh, sans prix)**. Constat : la colonne « Reg »
+  (la plaque suédoise JKJ60H) était prise pour une date (« reg » seul est
+  dans la règle des dates), la vraie « Reg date » passait en second et la
+  date restait vide ; « 45KWH » collé au chiffre n'était pas vu comme
+  électrique. Classe corrigée : un en-tête réduit à « reg » est tranché par
+  les VALEURS de la colonne (dates → date, sinon plaque) ; « <chiffre>kWh »
+  est un marqueur électrique. Vérifié : 7 / 7 avec plaque, date 06/2021,
+  année, ELECTRIQUE ; les dix listes précédentes inchangées (comparaison
+  avant / après). Le « sans prix » reste dit : la liste n'en porte pas, le
+  prix se saisit dans les réglages de l'offre.
 - **TRÉSORERIE : RELEVÉS TÉLÉCHARGEABLES (15/10, Channing : « rend les
   relevés de compte cliquables pour téléchargement si besoin »)**. Constat :
   le PDF déposé était lu puis perdu, seul son nom restait (file_name).
