@@ -95,7 +95,7 @@ async function threadFor(a: AgentRow, m: GmailMessage, subject: string, counterp
 }
 
 /** Un mail Gmail → son fil et sa ligne ; les suites (rebond, arrêt, alerte). Rend true s'il est nouveau. */
-async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[]): Promise<boolean> {
+async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[], initial: boolean): Promise<boolean> {
   const labels = m.labelIds ?? [];
   if (labels.includes('DRAFT') || labels.includes('SPAM') || labels.includes('TRASH')) return false;
   const h = headersOf(m.payload?.headers);
@@ -157,8 +157,10 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
       await journal({ agent: a.agent, actor: 'systeme', kind: 'desinscription', summary: `${who} ne veut plus être contacté : ajouté à « ne plus contacter »`, threadId: thread.id, messageId: row.id });
     }
   }
-  // Alerte : une vraie réponse, récente (pas l'historique de la première synchro).
-  if (classification !== 'absence' && Date.now() - at.getTime() < ALERT_WINDOW_MS) {
+  // Alerte : une vraie réponse, récente — pas l'historique importé à la connexion de la boîte,
+  // ni les lettres d'information (onglets Promotions, Réseaux sociaux, Forums de Gmail).
+  const bulk = labels.some((l) => l === 'CATEGORY_PROMOTIONS' || l === 'CATEGORY_SOCIAL' || l === 'CATEGORY_FORUMS');
+  if (!initial && !bulk && classification !== 'absence' && Date.now() - at.getTime() < ALERT_WINDOW_MS) {
     const name = a.display_name;
     const title = classification === 'stop' ? `${name} : ${who} demande à ne plus être contacté` : `${name} : réponse de ${who}`;
     await alertOwner(a, `agent-mail:${row.id}`, title, `« ${subject} »\n\n${(fresh ?? '').slice(0, 600)}`, `/agents?fil=${thread.id}`);
@@ -210,7 +212,7 @@ export async function syncMailbox(a: AgentRow, ownMailboxes: string[]): Promise<
       catch (e) { if (!(e instanceof GmailError && e.status === 404)) throw e; }
     }
     fetched.sort((x, y) => Number(x.internalDate ?? 0) - Number(y.internalDate ?? 0));
-    for (const m of fetched) if (await importMessage(a, m, ownMailboxes)) added++;
+    for (const m of fetched) if (await importMessage(a, m, ownMailboxes, !a.gmail_history_id)) added++;
   }
   await updateAgent(a.agent, { gmail_history_id: history ?? a.gmail_history_id, last_sync_at: new Date().toISOString(), last_sync_error: null });
   if (added > 0) console.warn(`[AGENTS] ${a.agent} : ${added} mail(s) importé(s)`);
