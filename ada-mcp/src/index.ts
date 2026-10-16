@@ -112,6 +112,24 @@ function normalizeText(value?: string): string | undefined {
   return normalized ? normalized : undefined;
 }
 
+// ── Trésorerie : libellés et regroupements, copie de src/lib/bankStatements.ts ─
+const ACCOUNT_LABEL: Record<string, string> = { revolut: 'Revolut', airwallex: 'Airwallex', shine: 'Shine', pennylane: 'Pennylane / Swan', cic: 'CIC', caisse_epargne: "Caisse d'Épargne", finom: 'Finom', bpgo: 'Banque Populaire' };
+const CATEGORY_LABEL: Record<string, string> = {
+  achat_vehicule: 'Achat véhicule', acompte_vehicule: 'Acompte véhicule', vente_encaissee: 'Vente encaissée', transfert_interne: 'Transfert interne',
+  impots_tva: 'Impôts / TVA', frais_bancaires: 'Frais bancaires', carburant: 'Carburant', peage: 'Péages', train_transport: 'Train / transports',
+  hebergement: 'Hébergement', repas: 'Repas', courses: 'Courses', logistique: 'Transport / convoyage / logistique', facture_fournisseur: 'Factures prestataires', assurance: 'Assurance',
+  logiciel_abonnement: 'Logiciels / abonnements', entretien_vehicule: 'Entretien véhicule', salaire: 'Salaires et charges sociales', loyer: 'Loyer (GF Holding)', comptable: 'Comptable (Geo Conseils)',
+  remboursement_client: 'Remboursement à un client (avoir)', remboursement_recu: "Remboursement reçu d'un vendeur", retrait_especes: 'Retraits', autre: 'Autre',
+};
+const CATEGORY_GROUP: Record<string, string> = {
+  peage: 'frais_vehicules', carburant: 'frais_vehicules', repas: 'frais_vehicules', train_transport: 'frais_vehicules', logistique: 'frais_vehicules', entretien_vehicule: 'frais_vehicules', assurance: 'frais_vehicules',
+  loyer: 'fonctionnement', comptable: 'fonctionnement', salaire: 'fonctionnement', logiciel_abonnement: 'fonctionnement', frais_bancaires: 'fonctionnement',
+  facture_fournisseur: 'prestataires', impots_tva: 'impots',
+  achat_vehicule: 'flux_vehicules', acompte_vehicule: 'flux_vehicules', vente_encaissee: 'flux_vehicules', remboursement_client: 'flux_vehicules', remboursement_recu: 'flux_vehicules',
+  transfert_interne: 'transferts', hebergement: 'autre', courses: 'autre', retrait_especes: 'autre', autre: 'autre',
+};
+const nextMonth = (m: string) => { const [y, mo] = m.split('-').map(Number); return `${mo === 12 ? y + 1 : y}-${String(mo === 12 ? 1 : mo + 1).padStart(2, '0')}`; };
+
 const sinceIso = (days: number) => new Date(Date.now() - Math.max(0.05, days) * 86_400_000).toISOString();
 
 // ── Personnes ────────────────────────────────────────────────────────────────
@@ -1065,6 +1083,194 @@ function buildServer(): McpServer {
     },
   );
 
+  // ── Trésorerie (16/10, demande Channing : « donner accès à l'onglet trésorerie
+  //    à GPT, lecture complète ») : relevés, lignes, tableau mensuel. Admin
+  //    seulement dans ADA ; ici lu par la clé service, comme le reste. ──────
+  server.registerTool(
+    'treasury_statements',
+    {
+      title: 'ADA : trésorerie — relevés de compte',
+      description: "L'onglet Trésorerie d'ADA, vue d'ensemble : chaque relevé de compte déposé (banque, numéro de compte, mois ou période partielle « 2026-09~01-21 », soldes d'ouverture / clôture, nombre de lignes, avertissements du lecteur, PDF conservé ou non), les mois MANQUANTS par compte (un compte déjà déposé qui n'a rien entre son premier relevé et le mois précédent ; un compte dont le dernier relevé finit à zéro est tenu pour clôturé), les déclarations de TVA saisies (vat_returns) et le point de départ au 31/12/2025 (bilan : disponibilités, créance de TVA, IS dû, stock, acomptes, clients, fournisseurs). Lecture seule.",
+      inputSchema: z.object({
+        account: z.string().trim().min(1).optional().describe('revolut | airwallex | shine | pennylane | cic | caisse_epargne | finom | bpgo'),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ account }) => {
+      let q = supabase.from('bank_statements').select('*').order('period_month', { ascending: false }).order('account').limit(1000);
+      if (normalizeText(account)) q = q.eq('account', normalizeText(account));
+      const { data, error } = await q;
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Table bank_statements absente (SQL du 02/10 non collé).', statements: [] });
+      assertDb(error, 'Unable to read bank statements');
+      const rows = (data || []) as Array<Record<string, unknown>>;
+      const [vat, opening] = await Promise.all([
+        supabase.from('vat_returns').select('*').order('period_month'),
+        supabase.from('app_config').select('value').eq('key', 'treasury_opening').maybeSingle(),
+      ]);
+      const num = (v: unknown) => (v == null || v === '' ? null : Number(v));
+      const statements = rows.map((s) => ({
+        id: s.id, account: s.account, accountLabel: ACCOUNT_LABEL[String(s.account)] ?? s.account, accountRef: s.account_ref || null, accountName: s.account_name ?? null,
+        periodMonth: s.period_month, month: String(s.period_month).slice(0, 7), partial: String(s.period_month).includes('~') ? String(s.period_month).split('~')[1] : null,
+        fileName: s.file_name, pdfKept: !!s.file_path, currency: s.currency, openingBalance: num(s.opening_balance), closingBalance: num(s.closing_balance),
+        lineCount: s.line_count, warnings: s.warnings ?? [], uploadedAt: s.created_at,
+      }));
+      // Mois manquants : même règle que la grille d'ADA (Treasury.tsx).
+      const thisMonth = new Date().toISOString().slice(0, 7);
+      const byAccount = new Map<string, typeof statements>();
+      for (const st of statements) { const k = `${st.account}|${st.accountRef ?? ''}`; byAccount.set(k, [...(byAccount.get(k) ?? []), st]); }
+      const missing: Array<{ account: string; accountRef: string | null; month: string }> = [];
+      for (const sts of byAccount.values()) {
+        const months = [...new Set(sts.map((s) => s.month))].sort();
+        const lo = months[0], hi = months[months.length - 1];
+        const last = sts.filter((s) => s.month === hi).sort((a, b) => String(b.periodMonth).localeCompare(String(a.periodMonth)))[0];
+        const closed = last && last.closingBalance != null && Math.abs(last.closingBalance) < 1;
+        for (let m = lo; m < thisMonth; m = nextMonth(m)) {
+          if (closed && m > hi) break;
+          if (!months.includes(m)) missing.push({ account: sts[0].account as string, accountRef: sts[0].accountRef as string | null, month: m });
+        }
+      }
+      return jsonToolResult({
+        count: statements.length,
+        accounts: [...new Set(statements.map((s) => `${s.accountLabel}${s.accountRef ? ` …${s.accountRef}` : ''}`))],
+        note: "Les montants sont en euros. « partial » = relevé en plusieurs parties (jours couverts). Pour les mouvements : treasury_lines ; pour le tableau par catégorie : treasury_monthly.",
+        statements,
+        missingMonths: missing,
+        vatReturns: isMissingSchema(vat.error) ? 'SQL du 03/10 non collé' : (vat.data || []),
+        openingBalance: opening.data?.value ?? null,
+      });
+    },
+  );
+
+  server.registerTool(
+    'treasury_lines',
+    {
+      title: 'ADA : trésorerie — mouvements bancaires',
+      description: "Les lignes des relevés de compte (onglet Trésorerie > Lignes), avec filtres : mois (AAAA-MM) ou intervalle de dates, compte, catégorie (achat_vehicule, acompte_vehicule, vente_encaissee, transfert_interne, impots_tva, frais_bancaires, carburant, peage, train_transport, hebergement, repas, courses, logistique, facture_fournisseur, assurance, logiciel_abonnement, entretien_vehicule, salaire, loyer, comptable, remboursement_client, remboursement_recu, retrait_especes, autre), texte libre (libellé, contrepartie, plaque, VIN), montant minimum. Chaque ligne dit sa catégorie (et si elle a été corrigée à la main : category ≠ categoryAuto), le dossier de vente relié (référence du tableau de ventes, comment il a été relié : plaque, VIN, facture, manuel ; plusieurs dossiers quand un virement en paie plusieurs). Totaux entrées / sorties et par catégorie sur le filtre. Lecture seule.",
+      inputSchema: z.object({
+        month: z.string().regex(/^\d{4}-\d{2}$/).optional().describe('AAAA-MM'),
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        account: z.string().trim().min(1).optional(),
+        category: z.string().trim().min(1).optional(),
+        text: z.string().trim().min(1).optional(),
+        minAmount: z.number().min(0).optional().describe('ne garder que les mouvements d\'au moins ce montant (entrée ou sortie)'),
+        unlinkedVehicleFlows: z.boolean().default(false).describe('seulement les achats / ventes / acomptes véhicule SANS dossier relié'),
+        limit: z.number().int().min(1).max(2000).default(300),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ month, from, to, account, category, text, minAmount, unlinkedVehicleFlows, limit }) => {
+      const { data, error } = await pageAll<Record<string, unknown>>((a, b) => {
+        let q = supabase.from('bank_lines').select('*').order('booked_on', { ascending: false }).order('line_no').range(a, b);
+        if (month) q = q.gte('booked_on', `${month}-01`).lt('booked_on', `${nextMonth(month)}-01`);
+        if (from) q = q.gte('booked_on', from);
+        if (to) q = q.lte('booked_on', to);
+        if (normalizeText(account)) q = q.eq('account', normalizeText(account));
+        if (normalizeText(category)) q = q.eq('category', normalizeText(category));
+        return q;
+      }, 20_000);
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Table bank_lines absente (SQL du 02/10 non collé).', lines: [] });
+      assertDb(error, 'Unable to read bank lines');
+      const num = (v: unknown) => (v == null || v === '' ? null : Number(v));
+      const needle = normalizeText(text)?.toLowerCase();
+      let rows = data.filter((l) => {
+        if (needle && !`${l.description ?? ''} ${l.counterparty ?? ''} ${l.plate ?? ''} ${l.vin ?? ''} ${l.kind ?? ''}`.toLowerCase().includes(needle)) return false;
+        if (minAmount != null && Math.max(num(l.amount_out) ?? 0, num(l.amount_in) ?? 0) < minAmount) return false;
+        if (unlinkedVehicleFlows) {
+          const flow = ['achat_vehicule', 'acompte_vehicule', 'vente_encaissee', 'remboursement_client', 'remboursement_recu'].includes(String(l.category));
+          const linked = l.transaction_id != null || (Array.isArray(l.parts) && (l.parts as unknown[]).length > 0);
+          if (!flow || linked) return false;
+        }
+        return true;
+      });
+      const totals = { in: 0, out: 0, byCategory: {} as Record<string, { label: string; in: number; out: number; lines: number }> };
+      for (const l of rows) {
+        const i = num(l.amount_in) ?? 0, o = num(l.amount_out) ?? 0;
+        totals.in += i; totals.out += o;
+        const c = String(l.category);
+        const t = totals.byCategory[c] ?? (totals.byCategory[c] = { label: CATEGORY_LABEL[c] ?? c, in: 0, out: 0, lines: 0 });
+        t.in += i; t.out += o; t.lines++;
+      }
+      const matched = rows.length;
+      rows = rows.slice(0, limit);
+      // Dossiers reliés : référence du tableau de ventes.
+      const txIds = [...new Set(rows.flatMap((l) => [l.transaction_id, ...(Array.isArray(l.parts) ? (l.parts as Array<{ id?: unknown }>).map((p) => p.id) : [])]).filter((x): x is string => typeof x === 'string'))];
+      const refs = new Map<string, Record<string, unknown>>();
+      for (let i = 0; i < txIds.length; i += 200) {
+        const { data: tx } = await supabase.from('transactions_admin').select('id, reference, status, purchase_price, sale_price').in('id', txIds.slice(i, i + 200));
+        for (const t of (tx || []) as Array<Record<string, unknown>>) refs.set(String(t.id), t);
+      }
+      const dossier = (id: unknown) => { const t = id ? refs.get(String(id)) : undefined; return t ? { id: t.id, reference: t.reference, status: t.status, purchasePrice: num(t.purchase_price), salePrice: num(t.sale_price) } : null; };
+      const r2 = (x: number) => Math.round(x * 100) / 100;
+      return jsonToolResult({
+        matched, returned: rows.length,
+        totals: { in: r2(totals.in), out: r2(totals.out), net: r2(totals.in - totals.out), byCategory: Object.fromEntries(Object.entries(totals.byCategory).map(([k, v]) => [k, { ...v, in: r2(v.in), out: r2(v.out) }])) },
+        note: 'Montants en euros. category = catégorie retenue (corrigée à la main quand elle diffère de categoryAuto). linkedDossiers : dossiers du tableau de ventes reliés à la ligne (parts = part de chaque dossier quand un virement en paie plusieurs).',
+        lines: rows.map((l) => ({
+          id: l.id, bookedOn: l.booked_on, account: l.account, accountLabel: ACCOUNT_LABEL[String(l.account)] ?? l.account, kind: l.kind ?? null, counterparty: l.counterparty ?? null, description: l.description ?? null,
+          amountOut: num(l.amount_out), amountIn: num(l.amount_in), balance: num(l.balance), currency: l.currency, plate: l.plate ?? null, vin: l.vin ?? null,
+          category: l.category, categoryLabel: CATEGORY_LABEL[String(l.category)] ?? l.category, categoryAuto: l.category_auto ?? null, manuallyCategorized: l.category_auto != null && l.category !== l.category_auto,
+          matchHow: l.match_how ?? null,
+          linkedDossiers: Array.isArray(l.parts) && (l.parts as unknown[]).length
+            ? (l.parts as Array<{ id?: unknown; how?: unknown; amount?: unknown }>).map((p) => ({ ...dossier(p.id), how: p.how ?? null, amount: num(p.amount) }))
+            : l.transaction_id ? [{ ...dossier(l.transaction_id), how: l.match_how ?? null, amount: num(l.amount_out) ?? num(l.amount_in) }] : [],
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    'treasury_monthly',
+    {
+      title: 'ADA : trésorerie — tableau mensuel par catégorie',
+      description: "Le tableau de frais mensuel de l'onglet Trésorerie : pour chaque mois, les sorties et entrées par catégorie, regroupées comme dans ADA — frais véhicules (la case « frais » du tableau de ventes : péages, carburant, repas, train / transports, logistique / convoyage, entretien véhicule, assurance), frais de fonctionnement (loyer, comptable, salaires, logiciels, frais bancaires), prestataires (factures), impôts / TVA, et les flux véhicules hors frais (achats, acomptes, ventes encaissées, remboursements) ; transferts internes à part. Filtre compte possible. Lecture seule.",
+      inputSchema: z.object({
+        fromMonth: z.string().regex(/^\d{4}-\d{2}$/).optional().describe('AAAA-MM, défaut : janvier 2026'),
+        toMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+        account: z.string().trim().min(1).optional(),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ fromMonth, toMonth, account }) => {
+      const lo = fromMonth ?? '2026-01';
+      const { data, error } = await pageAll<Record<string, unknown>>((a, b) => {
+        let q = supabase.from('bank_lines').select('booked_on, account, category, amount_in, amount_out').gte('booked_on', `${lo}-01`).order('booked_on').range(a, b);
+        if (toMonth) q = q.lt('booked_on', `${nextMonth(toMonth)}-01`);
+        if (normalizeText(account)) q = q.eq('account', normalizeText(account));
+        return q;
+      }, 50_000);
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Table bank_lines absente (SQL du 02/10 non collé).', months: [] });
+      assertDb(error, 'Unable to read bank lines');
+      const num = (v: unknown) => (v == null || v === '' ? null : Number(v));
+      const r2 = (x: number) => Math.round(x * 100) / 100;
+      const months = new Map<string, { byCategory: Record<string, { label: string; group: string; in: number; out: number; lines: number }> }>();
+      for (const l of data) {
+        const m = String(l.booked_on).slice(0, 7);
+        const row = months.get(m) ?? (months.set(m, { byCategory: {} }), months.get(m)!);
+        const c = String(l.category);
+        const t = row.byCategory[c] ?? (row.byCategory[c] = { label: CATEGORY_LABEL[c] ?? c, group: CATEGORY_GROUP[c] ?? 'autre', in: 0, out: 0, lines: 0 });
+        t.in += num(l.amount_in) ?? 0; t.out += num(l.amount_out) ?? 0; t.lines++;
+      }
+      const out = [...months.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, row]) => {
+        const groups: Record<string, { in: number; out: number }> = {};
+        for (const t of Object.values(row.byCategory)) { const g = groups[t.group] ?? (groups[t.group] = { in: 0, out: 0 }); g.in += t.in; g.out += t.out; }
+        const g = (k: string) => ({ in: r2(groups[k]?.in ?? 0), out: r2(groups[k]?.out ?? 0) });
+        return {
+          month,
+          vehicleCosts: g('frais_vehicules'), overhead: g('fonctionnement'), contractors: g('prestataires'), taxes: g('impots'), vehicleFlows: g('flux_vehicules'), internalTransfers: g('transferts'), other: g('autre'),
+          expensesTotal: r2((groups.frais_vehicules?.out ?? 0) + (groups.fonctionnement?.out ?? 0) + (groups.prestataires?.out ?? 0) + (groups.impots?.out ?? 0) + (groups.autre?.out ?? 0)),
+          byCategory: Object.fromEntries(Object.entries(row.byCategory).map(([k, v]) => [k, { ...v, in: r2(v.in), out: r2(v.out) }])),
+        };
+      });
+      return jsonToolResult({
+        from: lo, to: toMonth ?? null, account: normalizeText(account) ?? 'tous',
+        note: "Montants en euros. expensesTotal = sorties hors flux véhicules et hors transferts internes (frais véhicules + fonctionnement + prestataires + impôts + autre). Les flux véhicules (achats, acomptes, ventes encaissées) sont du capital, pas des frais ; la marge d'un dossier se lit dans get_offer / list_negotiations et le tableau de ventes.",
+        groups: { frais_vehicules: 'péages, carburant, repas, train / transports, logistique, entretien véhicule, assurance', fonctionnement: 'loyer, comptable, salaires, logiciels / abonnements, frais bancaires', prestataires: 'factures prestataires', impots: 'impôts / TVA', flux_vehicules: 'achats, acomptes, ventes encaissées, remboursements', transferts: 'transferts internes entre nos comptes', autre: 'hébergement, courses, retraits, autre' },
+        months: out,
+      });
+    },
+  );
+
   return server;
 }
 
@@ -1085,8 +1291,8 @@ const outer = express();
 // ChatGPT ne voyait que 9 outils — impossible de savoir, depuis le
 // navigateur, si le service avait redéployé ou si le connecteur gardait
 // une liste en cache). Aucune donnée, aucun secret.
-const MCP_VERSION = '0.5.0';
-const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts', 'dealer_stock', 'learning_cases'];
+const MCP_VERSION = '0.6.0';
+const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts', 'dealer_stock', 'learning_cases', 'treasury_statements', 'treasury_lines', 'treasury_monthly'];
 outer.get('/health', (_req, res) => {
   res.json({
     status: 'ok',

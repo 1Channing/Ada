@@ -832,6 +832,21 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **MCP : TRÉSORERIE EN LECTURE COMPLÈTE (16/10, Channing : « donner accès à
+  l'onglet trésorerie à GPT MCP, lecture complète »)**. Serveur MCP 0.6.0,
+  17 outils. Trois nouveaux, lecture seule : `treasury_statements` (relevés
+  déposés avec soldes / lignes / avertissements / PDF conservé, mois
+  manquants par compte selon la règle de la grille, déclarations de TVA,
+  point de départ 31/12/2025) ; `treasury_lines` (mouvements filtrés par
+  mois / dates / compte / catégorie / texte / montant mini / flux véhicule
+  sans dossier, catégorie auto vs corrigée, dossiers reliés avec référence
+  du tableau de ventes et parts multi-dossiers, totaux par catégorie) ;
+  `treasury_monthly` (tableau mensuel regroupé comme ADA : frais véhicules,
+  fonctionnement, prestataires, impôts, flux véhicules, transferts).
+  Libellés et regroupements copiés de bankStatements.ts (le paquet MCP est
+  autonome). Requêtes vérifiées sur la base avec le compte admin de test.
+  Après redéploiement Railway : /health doit dire 0.6.0 ; si ChatGPT ne
+  voit pas les nouveaux outils, retirer / recréer le connecteur (cache).
 - **NÉGOCIATIONS : TOUTES LES PHOTOS DE L'ANNONCE (16/10, signalement
   Antoine /workflow : « sur 28 photos il n'y en a que 20 »)**. Constat : un
   plafond de 20 photos codé à DEUX endroits — chaque extracteur de site
