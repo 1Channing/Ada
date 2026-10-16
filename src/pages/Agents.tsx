@@ -35,7 +35,7 @@ const TABS: Array<{ key: Tab; label: string; icon: ReactNode }> = [
 ];
 
 const CONNEXION: Record<string, { tone: 'ok' | 'warn' | 'err'; text: (mailbox: string) => string }> = {
-  ok: { tone: 'ok', text: (b) => `Boîte ${b} connectée : ses mails arrivent dans la Messagerie d'ici deux minutes.` },
+  ok: { tone: 'ok', text: (b) => `Boîte ${b} connectée : les nouveaux mails arrivent dans la Messagerie d'ici deux minutes (les anciens restent dans Gmail).` },
   refusee: { tone: 'warn', text: () => 'Connexion annulée sur l\'écran Google.' },
   expiree: { tone: 'warn', text: () => 'Lien de connexion expiré : recommencez depuis Réglages.' },
   'mauvaise-boite': { tone: 'err', text: (b) => `Ce n'est pas la bonne boîte : sur l'écran Google, connectez-vous avec ${b}.` },

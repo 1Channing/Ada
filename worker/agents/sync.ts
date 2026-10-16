@@ -1,7 +1,7 @@
 /**
  * ADA ET DANA — LES MAILS REÇUS (16/10). Toutes les 2 minutes, l'historique
  * Gmail de chaque boîte connectée (history.list depuis le dernier curseur ;
- * la première fois, les 30 derniers jours) :
+ * à la connexion, ADA part de maintenant — rien d'antérieur n'est importé) :
  * - chaque mail entre dans son fil (agent_threads / agent_messages), avec la
  *   partie nouvelle séparée de l'historique cité et ses pièces jointes
  *   rangées dans le bucket privé agent-mail ;
@@ -26,8 +26,8 @@ interface GmailPart {
 }
 interface GmailMessage { id: string; threadId: string; labelIds?: string[]; internalDate?: string; snippet?: string; payload?: GmailPart }
 
-const INITIAL_QUERY = 'newer_than:30d -in:spam -in:trash -in:drafts';
-const MAX_INITIAL = 300;
+const CATCH_UP_QUERY = 'newer_than:7d -in:spam -in:trash -in:drafts';
+const MAX_CATCH_UP = 300;
 const ALERT_WINDOW_MS = 24 * 3600 * 1000;
 const MAX_ATTACHMENT = 25 * 1024 * 1024;
 
@@ -95,7 +95,7 @@ async function threadFor(a: AgentRow, m: GmailMessage, subject: string, counterp
 }
 
 /** Un mail Gmail → son fil et sa ligne ; les suites (rebond, arrêt, alerte). Rend true s'il est nouveau. */
-async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[], initial: boolean): Promise<boolean> {
+async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[]): Promise<boolean> {
   const labels = m.labelIds ?? [];
   if (labels.includes('DRAFT') || labels.includes('SPAM') || labels.includes('TRASH')) return false;
   const h = headersOf(m.payload?.headers);
@@ -157,10 +157,10 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
       await journal({ agent: a.agent, actor: 'systeme', kind: 'desinscription', summary: `${who} ne veut plus être contacté : ajouté à « ne plus contacter »`, threadId: thread.id, messageId: row.id });
     }
   }
-  // Alerte : une vraie réponse, récente — pas l'historique importé à la connexion de la boîte,
-  // ni les lettres d'information (onglets Promotions, Réseaux sociaux, Forums de Gmail).
+  // Alerte : une vraie réponse, récente — pas les lettres d'information (onglets Promotions,
+  // Réseaux sociaux, Forums de Gmail).
   const bulk = labels.some((l) => l === 'CATEGORY_PROMOTIONS' || l === 'CATEGORY_SOCIAL' || l === 'CATEGORY_FORUMS');
-  if (!initial && !bulk && classification !== 'absence' && Date.now() - at.getTime() < ALERT_WINDOW_MS) {
+  if (!bulk && classification !== 'absence' && Date.now() - at.getTime() < ALERT_WINDOW_MS) {
     const name = a.display_name;
     const title = classification === 'stop' ? `${name} : ${who} demande à ne plus être contacté` : `${name} : réponse de ${who}`;
     await alertOwner(a, `agent-mail:${row.id}`, title, `« ${subject} »\n\n${(fresh ?? '').slice(0, 600)}`, `/agents?fil=${thread.id}`);
@@ -173,14 +173,13 @@ export async function syncMailbox(a: AgentRow, ownMailboxes: string[]): Promise<
   let ids: string[] = [];
   let history: string | null = null;
   if (!a.gmail_history_id) {
+    // Première connexion : ADA part de MAINTENANT. Rien de ce que la boîte contenait avant
+    // n'entre dans ADA (17/10 : une boîte reprise d'un ancien collaborateur garde ses anciens
+    // mails pour elle).
     const prof = await gmail<{ historyId?: string }>(a.mailbox, '/profile');
-    let pageToken: string | undefined;
-    do {
-      const r = await gmail<{ messages?: Array<{ id: string }>; nextPageToken?: string }>(a.mailbox, '/messages', { query: { q: INITIAL_QUERY, maxResults: 100, pageToken } });
-      ids.push(...(r.messages ?? []).map((x) => x.id));
-      pageToken = r.nextPageToken;
-    } while (pageToken && ids.length < MAX_INITIAL);
-    history = prof.historyId ?? null;
+    await updateAgent(a.agent, { gmail_history_id: prof.historyId ?? null, last_sync_at: new Date().toISOString(), last_sync_error: null });
+    await journal({ agent: a.agent, actor: 'systeme', kind: 'synchro_debut', summary: `Boîte ${a.mailbox} suivie à partir de maintenant (les mails antérieurs restent dans Gmail)` });
+    return;
   } else {
     let pageToken: string | undefined;
     try {
@@ -192,9 +191,17 @@ export async function syncMailbox(a: AgentRow, ownMailboxes: string[]): Promise<
         pageToken = r.nextPageToken;
       } while (pageToken);
     } catch (e) {
-      // Curseur trop ancien (une semaine sans synchro) : on repart des 30 derniers jours, sans doublon.
-      if (e instanceof GmailError && e.status === 404) { await updateAgent(a.agent, { gmail_history_id: null }); return; }
-      throw e;
+      if (!(e instanceof GmailError && e.status === 404)) throw e;
+      // Curseur trop ancien (synchro arrêtée plus d'une semaine) : rattrapage des 7 derniers
+      // jours (sans doublon), puis on repart du curseur du moment.
+      ids = [];
+      let pageToken: string | undefined;
+      do {
+        const r = await gmail<{ messages?: Array<{ id: string }>; nextPageToken?: string }>(a.mailbox, '/messages', { query: { q: CATCH_UP_QUERY, maxResults: 100, pageToken } });
+        ids.push(...(r.messages ?? []).map((x) => x.id));
+        pageToken = r.nextPageToken;
+      } while (pageToken && ids.length < MAX_CATCH_UP);
+      history = (await gmail<{ historyId?: string }>(a.mailbox, '/profile')).historyId ?? null;
     }
   }
 
@@ -212,7 +219,7 @@ export async function syncMailbox(a: AgentRow, ownMailboxes: string[]): Promise<
       catch (e) { if (!(e instanceof GmailError && e.status === 404)) throw e; }
     }
     fetched.sort((x, y) => Number(x.internalDate ?? 0) - Number(y.internalDate ?? 0));
-    for (const m of fetched) if (await importMessage(a, m, ownMailboxes, !a.gmail_history_id)) added++;
+    for (const m of fetched) if (await importMessage(a, m, ownMailboxes)) added++;
   }
   await updateAgent(a.agent, { gmail_history_id: history ?? a.gmail_history_id, last_sync_at: new Date().toISOString(), last_sync_error: null });
   if (added > 0) console.warn(`[AGENTS] ${a.agent} : ${added} mail(s) importé(s)`);
