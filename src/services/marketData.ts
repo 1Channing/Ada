@@ -17,6 +17,7 @@ import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
 import { fetchAllPages } from '../lib/fetchAllPages';
+import { recordDealerSightings } from './dealerDirectory';
 
 type ObsInsert = Database['public']['Tables']['market_listing_observations']['Insert'];
 
@@ -90,6 +91,8 @@ export async function writeMarketSnapshot(params: {
   segmentKey?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const { segment, listings, totalCount, sourceUrl, submittedBy } = params;
+  // Annuaire des concessions d'Ada (17/10) : les garages de la page, avant tout filtre d'identité.
+  await recordDealerSightings(supabase, listings, { site: segment.site, country: segment.country, sourceUrl });
   // GARDE D'IDENTITÉ À L'ÉCRITURE (constat 02/08 : l'étude quotidienne
   // Gaspedaal « RAV4 » recevait la page TOUT Toyota — chaque Yaris/C-HR est
   // entrée en base sous model=RAV4, contaminant le MI ET le radar inter-pays).

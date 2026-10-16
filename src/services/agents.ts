@@ -239,3 +239,98 @@ export function replyDraft(thread: AgentThread, messages: AgentMessage[], s: Age
   const to = lastIn?.from_email ?? thread.counterpart_email ?? '';
   return { to: to ? [to] : [], subject: replySubject(thread.subject), body: withSignature(s) };
 }
+
+// --- Phase 2 (17/10) : l'annuaire des concessions d'Ada -------------------------------
+
+export interface DealerRow {
+  id: string; name: string; country: string | null; city: string | null; zip: string | null; street: string | null;
+  phone: string | null; contact_name: string | null; site_url: string | null; imprint_url: string | null; website: string | null;
+  first_seen_at: string; last_seen_at: string; listings: number; listings_brand: number; nb_brands: number; vans: number;
+  brands: string[] | null; median_price: number | null; last_listing_at: string | null; is_client: boolean; in_network: boolean;
+}
+export interface DealerListing { dealer_id: string; listing_url: string; brand: string | null; model: string | null; title: string | null; year: number | null; mileage: number | null; fuel: string | null; vehicle_type: string | null; price_eur: number | null; last_seen_at: string }
+export interface SalesProfile { countries: Array<{ country: string; n: number }>; brands: Array<{ brand: string; n: number }> }
+export interface AgentTask {
+  id: string; agent: AgentKey; kind: 'decouverte_concessions'; params: { country?: string; brand?: string; model?: string; vans?: boolean; pages?: number };
+  status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee'; result: { annonces?: number; concessions?: number; nouvelles?: number; url?: string } | null;
+  error: string | null; created_by: string | null; created_at: string; started_at: string | null; finished_at: string | null;
+}
+export const ANNUAIRE_SQL_HINT = 'Annuaire : SQL du 17/10 (agents_annuaire) à coller dans Supabase.';
+const errAnnuaire = (m: string) => (missing(m) ? ANNUAIRE_SQL_HINT : m);
+
+export async function listDealers(f: { country?: string | null; brand?: string | null; query?: string | null; days?: number; limit?: number }): Promise<{ rows: DealerRow[]; error: string | null }> {
+  const { data, error } = await sb.rpc('agents_dealer_directory', {
+    p_country: f.country || null, p_brand: f.brand || null, p_query: f.query?.trim() || null, p_days: f.days ?? 90, p_limit: f.limit ?? 300,
+  });
+  if (error) return { rows: [], error: errAnnuaire(error.message) };
+  return { rows: (data ?? []) as DealerRow[], error: null };
+}
+
+export async function dealerListings(dealerIds: string[], days = 90): Promise<DealerListing[]> {
+  if (dealerIds.length === 0) return [];
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const out: DealerListing[] = [];
+  for (let i = 0; i < dealerIds.length; i += 100) {
+    const { data } = await sb.from('market_dealer_listings')
+      .select('dealer_id, listing_url, brand, model, title, year, mileage, fuel, vehicle_type, price_eur, last_seen_at')
+      .in('dealer_id', dealerIds.slice(i, i + 100)).gte('last_seen_at', since).order('last_seen_at', { ascending: false }).limit(5000);
+    out.push(...((data ?? []) as DealerListing[]));
+  }
+  return out;
+}
+
+export async function salesProfile(): Promise<SalesProfile | null> {
+  const { data, error } = await sb.rpc('agents_sales_profile');
+  if (error || !data) return null;
+  return data as SalesProfile;
+}
+
+/** Nos offres du moment (la vitrine des bonnes affaires), pour « plus cher que nous ». */
+export async function ourOffers(): Promise<Array<{ id: string; brand: string; model: string; year: number | null; km: number | null; priceHt: number | null; title: string }>> {
+  const { data } = await sb.from('intra_showcase').select('id, vehicle, price_ht, title').limit(500);
+  return ((data ?? []) as Array<{ id: string; vehicle: { brand?: string; model?: string; year?: number | null; km?: number | null }; price_ht: number | null; title: string | null }>)
+    .map((r) => ({ id: r.id, brand: r.vehicle?.brand ?? '', model: r.vehicle?.model ?? '', year: r.vehicle?.year ?? null, km: r.vehicle?.km ?? null, priceHt: r.price_ht, title: (r.title ?? '').trim() || `${r.vehicle?.brand ?? ''} ${r.vehicle?.model ?? ''}`.trim() }));
+}
+
+export async function listTasks(limit = 15): Promise<{ rows: AgentTask[]; error: string | null }> {
+  const { data, error } = await sb.from('agent_tasks').select('*').order('created_at', { ascending: false }).limit(limit);
+  if (error) return { rows: [], error: errAnnuaire(error.message) };
+  return { rows: (data ?? []) as AgentTask[], error: null };
+}
+
+export async function queueDiscovery(params: { country: string; brand: string; model?: string; vans?: boolean; pages?: number }, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').insert({ agent: 'ada', kind: 'decouverte_concessions', params, created_by: userId });
+  return error ? errAnnuaire(error.message) : null;
+}
+
+export async function cancelTask(id: string): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').update({ status: 'annulee' }).eq('id', id);
+  return error ? errAnnuaire(error.message) : null;
+}
+
+/** Coordonnées d'une adresse (OpenStreetMap), pour placer le garage sur la carte. Null si introuvable. */
+async function geocode(d: DealerRow): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const q = new URLSearchParams({ format: 'jsonv2', limit: '1', countrycodes: (d.country ?? '').toLowerCase() });
+    if (d.zip) q.set('postalcode', d.zip.replace(/\s+[A-Z]{2}$/i, '').trim());
+    if (d.city) q.set('city', d.city);
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${q}`, { headers: { 'accept-language': 'fr' } });
+    const j = (await res.json()) as Array<{ lat: string; lon: string }>;
+    return j[0] ? { lat: Number(j[0].lat), lng: Number(j[0].lon) } : null;
+  } catch { return null; }
+}
+
+/** Ajoute un garage de l'annuaire à la carte du réseau (acheteur potentiel, badge « IA · Ada »). */
+export async function addDealerToMap(d: DealerRow, userId: string | null): Promise<{ placed: boolean; error: string | null }> {
+  const at = await geocode(d);
+  const brands = (d.brands ?? []).slice(0, 6).map((b) => b.charAt(0) + b.slice(1).toLowerCase()).join(', ');
+  const { error } = await sb.from('network_contacts').insert({
+    name: d.name, kind: 'concession', role: 'acheteur', country: (d.country ?? 'FR').toUpperCase(), city: d.city,
+    lat: at?.lat ?? null, lng: at?.lng ?? null, contact_name: d.contact_name, phone: d.phone,
+    website: d.website ?? d.site_url, relation: 'nouveau', vehicle_types: brands,
+    comment: `Trouvé par Ada dans l'annuaire (AutoScout24) : ${d.listings} annonce${d.listings > 1 ? 's' : ''} sur 90 jours.`,
+    source: 'ada', ai_added_at: new Date().toISOString(), created_by: userId,
+  });
+  if (error) return { placed: false, error: /row-level security|permission/i.test(error.message) ? 'Ajout refusé : il faut le droit « Carte du réseau · édition ».' : error.message };
+  return { placed: !!at, error: null };
+}

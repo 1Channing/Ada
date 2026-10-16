@@ -18,7 +18,7 @@
  * currency is always EUR.
  */
 
-import type { ScrapedListing } from '../types';
+import type { ScrapedListing, ListingSeller } from '../types';
 import { fiscalTerritoryOf } from '../business-logic';
 
 function str(v: unknown): string | null {
@@ -124,6 +124,32 @@ function detailByIcon(rows: any[], icons: string[]): string | null {
     }
   }
   return null;
+}
+
+/** Le garage qui publie l'annonce (vendeur pro seulement) — annuaire d'Ada, 17/10.
+ *  Preuve autoscout24.fr / .nl : seller {id, type 'Dealer', companyName,
+ *  contactName, links {infoPage, imprint}, phones [{callTo}]} + location
+ *  {countryCode, zip, city, street}. */
+interface RawSeller { id?: unknown; type?: unknown; companyName?: unknown; contactName?: unknown; links?: { infoPage?: unknown; imprint?: unknown } | null; phones?: unknown }
+function sellerOf(ad: { seller?: unknown } | null | undefined, loc: { zip?: unknown; countryCode?: unknown } | undefined): ListingSeller | null {
+  const s = (ad?.seller ?? null) as RawSeller | null;
+  const id = str(s?.id) ?? (typeof s?.id === 'number' ? String(s.id) : null);
+  const name = str(s?.companyName);
+  if (!id || !name || (str(s?.type) ?? '').toLowerCase() === 'private') return null;
+  const l = (loc ?? {}) as { zip?: unknown; countryCode?: unknown; city?: unknown; street?: unknown };
+  const phones = (Array.isArray(s?.phones) ? s.phones : []) as Array<{ callTo?: unknown; formattedNumber?: unknown } | null>;
+  const phone = phones.map((p) => str(p?.callTo) ?? str(p?.formattedNumber)).find(Boolean) ?? null;
+  return {
+    id, name: name.slice(0, 200),
+    contactName: str(s?.contactName),
+    siteUrl: str(s?.links?.infoPage),
+    imprintUrl: str(s?.links?.imprint),
+    phone,
+    country: str(l.countryCode),
+    zip: str(l.zip),
+    city: str(l.city),
+    street: str(l.street),
+  };
 }
 
 export function parseListings(html: string, url: string): ScrapedListing[] {
@@ -252,6 +278,7 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
       })(),
       postalCode,
       fiscalTerritory,
+      seller: sellerOf(ad, loc),
     });
   }
 

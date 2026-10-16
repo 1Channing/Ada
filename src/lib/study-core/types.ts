@@ -76,6 +76,26 @@ export interface ScrapedListing {
    *  TVA UE (achat = importation), incomparable au continent. Null = territoire
    *  TVA ordinaire ou localisation inconnue (fail-open). */
   fiscalTerritory?: string | null;
+  /** Le VENDEUR PRO de l'annonce, quand la page le donne (AutoScout24 :
+   *  seller + location, 17/10). Nourrit l'annuaire des concessions d'Ada
+   *  (market_dealers) ; les études ne le lisent pas. */
+  seller?: ListingSeller | null;
+}
+
+/** Identité d'un vendeur professionnel telle que la page d'annonces la déclare. */
+export interface ListingSeller {
+  /** Identifiant du vendeur sur le site (stable d'une page à l'autre). */
+  id: string;
+  name: string;
+  contactName?: string | null;
+  /** Page du garage sur le site, et page « informations légales » (souvent e-mail, site, SIREN). */
+  siteUrl?: string | null;
+  imprintUrl?: string | null;
+  phone?: string | null;
+  country?: string | null;
+  zip?: string | null;
+  city?: string | null;
+  street?: string | null;
 }
 
 /**

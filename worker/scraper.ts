@@ -34,6 +34,7 @@ import { generateInternalRef } from '../src/lib/internalRefGenerator';
 import { recordLearningCase } from './learningBox';
 import { canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { StudyLogger } from './studyLogger';
+import { recordDealerSightings } from '../src/services/dealerDirectory';
 
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
@@ -98,6 +99,8 @@ export async function recordStudyMarketSnapshot(
    *  jamais dans la cloche re-scan (constat 27/08). */
   verifiedEmpty = false,
 ): Promise<void> {
+  // Annuaire des concessions d'Ada (17/10) : les garages de la page (jamais bloquant).
+  await recordDealerSightings(supabase, listings, { site: segment.site, country: segment.country, sourceUrl });
   try {
     if (!segment.brand || !segment.model || !segment.country) return;
     // Non-retail guard: "WithoutTax"/engros prices never enter a median.

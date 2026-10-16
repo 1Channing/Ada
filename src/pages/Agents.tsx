@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw } from 'lucide-react';
+import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw, Building2 } from 'lucide-react';
 import { useAuth } from '../services/auth';
+import { canSeeTab } from '../lib/appTabs';
 import {
   listSettings, countsFor, listJournal, AGENT_LABEL,
   type AgentKey, type AgentSettings, type AgentCounts, type JournalRow,
@@ -12,6 +13,7 @@ import { fmtDateTime, fmtRelative } from '../components/agents/helpers';
 import { Messagerie } from '../components/agents/Messagerie';
 import { ValidationQueue } from '../components/agents/ValidationQueue';
 import { Reglages } from '../components/agents/Reglages';
+import { Prospects } from '../components/agents/Prospects';
 
 /**
  * AGENTS — Ada et Dana (16/10, Channing : « deux agents qui travaillent en
@@ -24,11 +26,14 @@ import { Reglages } from '../components/agents/Reglages';
  * pièces jointes, réponses), À valider (rien ne part sans un clic
  * d'administrateur), Journal (tout ce qui s'est passé), Réglages (connexion
  * Gmail, signature, rythme anti-spam, « ne plus contacter »).
+ * Phase 2 (17/10) : Prospects — l'annuaire des concessions qui vendent ce
+ * que nous vendons, plus cher (toujours sans IA).
  */
 
-type Tab = 'messagerie' | 'valider' | 'journal' | 'reglages';
+type Tab = 'messagerie' | 'valider' | 'prospects' | 'journal' | 'reglages';
 const TABS: Array<{ key: Tab; label: string; icon: ReactNode }> = [
   { key: 'messagerie', label: 'Messagerie', icon: <Inbox className="w-4 h-4" /> },
+  { key: 'prospects', label: 'Prospects', icon: <Building2 className="w-4 h-4" /> },
   { key: 'valider', label: 'À valider', icon: <CheckCircle2 className="w-4 h-4" /> },
   { key: 'journal', label: 'Journal', icon: <ScrollText className="w-4 h-4" /> },
   { key: 'reglages', label: 'Réglages', icon: <Settings2 className="w-4 h-4" /> },
@@ -45,9 +50,12 @@ const CONNEXION: Record<string, { tone: 'ok' | 'warn' | 'err'; text: (mailbox: s
 };
 
 export function Agents() {
-  const { isAdmin, userId } = useAuth();
+  const { isAdmin, userId, allowedTabs } = useAuth();
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
-  const [tab, setTab] = useState<Tab>(params.get('onglet') === 'reglages' ? 'reglages' : params.get('onglet') === 'valider' ? 'valider' : params.get('onglet') === 'journal' ? 'journal' : 'messagerie');
+  const [tab, setTab] = useState<Tab>(() => {
+    const o = params.get('onglet');
+    return TABS.some((t) => t.key === o) ? (o as Tab) : 'messagerie';
+  });
   const [openThread, setOpenThread] = useState<string | null>(params.get('fil'));
   const [settings, setSettings] = useState<AgentSettings[]>([]);
   const [counts, setCounts] = useState<Partial<Record<AgentKey, AgentCounts>>>({});
@@ -68,6 +76,7 @@ export function Agents() {
   }, []);
   const refresh = useCallback(() => { void load(); setRefreshKey((k) => k + 1); }, [load]);
   const onError = useCallback((m: string) => setError(m), []);
+  const onInfo = useCallback((t: string) => setInfo({ tone: 'ok', text: t }), []);
 
   // Retour de l'écran Google (?connexion=…&agente=…) : un bandeau, puis l'adresse est nettoyée.
   useEffect(() => {
@@ -102,7 +111,8 @@ export function Agents() {
           <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2"><Bot className="w-7 h-7 text-brand-ocean" /> Agents</h1>
           <p className="text-slate-600 mt-2 max-w-3xl">
             Ada trouve des acheteurs, Dana des vendeurs, chacune depuis sa propre boîte. Pour l'instant leurs boîtes sont branchées sur ADA :
-            vous écrivez, un administrateur valide, ADA envoie aux horaires de bureau. L'IA arrive à l'étape suivante.
+            vous écrivez, un administrateur valide, ADA envoie aux horaires de bureau. Ada bâtit déjà l'annuaire des concessions (onglet Prospects) ;
+            l'IA arrive à l'étape suivante.
           </p>
         </div>
         <button onClick={refresh} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
@@ -173,6 +183,9 @@ export function Agents() {
       {tab === 'valider' && (
         <ValidationQueue settings={settings} counts={counts} isAdmin={isAdmin} refreshKey={refreshKey} onOpenThread={openFromQueue} onChanged={() => void load()} onError={onError} />
       )}
+      {tab === 'prospects' && (
+        <Prospects userId={userId} canEditMap={canSeeTab(allowedTabs, isAdmin, 'carte:edition')} refreshKey={refreshKey} onError={onError} onInfo={onInfo} />
+      )}
       {tab === 'journal' && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
           <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-slate-100">
@@ -196,7 +209,7 @@ export function Agents() {
         </div>
       )}
       {tab === 'reglages' && (
-        <Reglages settings={settings} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} onChanged={() => void load()} onError={onError} onInfo={(t) => setInfo({ tone: 'ok', text: t })} />
+        <Reglages settings={settings} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} onChanged={() => void load()} onError={onError} onInfo={onInfo} />
       )}
     </div>
   );

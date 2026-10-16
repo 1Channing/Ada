@@ -10,14 +10,17 @@
  *   temps) : d'abord les envois validés, puis la synchro des boîtes (toutes
  *   les 2 min) — l'ordre évite qu'un mail qu'on vient d'envoyer soit archivé
  *   deux fois.
- * Coupe-circuit : AGENTS_ENABLED=0. Sans AGENT_GOOGLE_CLIENT_ID / SECRET,
- * rien ne tourne (le reste du worker n'est pas touché).
+ * - Les tâches demandées aux agentes (découvertes de concessions, 17/10),
+ *   une à la fois toutes les 20 s — elles n'ont pas besoin de Google.
+ * Coupe-circuit : AGENTS_ENABLED=0. Sans AGENT_GOOGLE_CLIENT_ID / SECRET, les
+ * boîtes ne tournent pas (le reste du worker n'est pas touché).
  */
 import type { Express, Request, Response } from 'express';
 import { exchangeCode, oauthClient, profileEmail, redirectUri, sealToken, forgetToken, GMAIL_SCOPE, NotConnected } from './google';
 import { sb, loadAgents, journal } from './store';
 import { syncMailbox, recordSyncError } from './sync';
 import { sendDue } from './outbox';
+import { runNextTask } from './discovery';
 
 const TICK_MS = 30_000;
 const SYNC_EVERY_MS = 2 * 60_000;
@@ -109,6 +112,9 @@ async function tick(): Promise<void> {
 /** Démarre les boîtes d'Ada et Dana (après setSharedSupabase). */
 export function startAgents(): void {
   if (!enabled()) { console.log('[AGENTS] coupés (AGENTS_ENABLED=0)'); return; }
+  // Le travail demandé aux agentes (découvertes de concessions…) : sans Google, une tâche à la fois.
+  setInterval(() => void runNextTask(), 20_000);
+  setTimeout(() => void runNextTask(), 15_000);
   const client = oauthClient();
   if (!client) { console.log('[AGENTS] AGENT_GOOGLE_CLIENT_ID / AGENT_GOOGLE_CLIENT_SECRET absents — boîtes d\'Ada et Dana non branchées'); return; }
   const redirect = redirectUri();
