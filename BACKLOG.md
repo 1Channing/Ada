@@ -832,6 +832,22 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **BOÎTE À APPRENDRE (DEV) PASSÉE EN REVUE + CARZILLA : TRI STABLE (16/10,
+  Channing : « enlève ce qui est déjà traité et règle le reste »)**. 28 cas
+  dev ouverts : 27 fermés avec résolution (Mixed Brands lu depuis le 13/10 ;
+  La Centrale transitoire ; Revolut / Pennylane mai-juin déposés ; Pennylane
+  OCR : avertissements attendus et mois justes, noms de fichiers décalés ;
+  Finom corrigé par la chaîne des soldes ; Shine 2025 hors période ; BPGO
+  appris le 02/10 soir, les mois mai-juillet 2026 restent à redéposer ;
+  6 lignes JANVIER « incohérentes » plus signalées depuis 2 099 synchros).
+  Le 28e, Bierschneider : la plateforme carzilla était apprise le 11/10 mais
+  personne n'avait relancé le relevé → relancé, 5 178 véhicules, cas fermé
+  seul. Constat au passage : 5 178 lus pour 6 050 annoncés — l'adresse trie
+  par prix, les ex æquo changent d'ordre entre deux pages (mesuré : 33
+  doublons sur 10 pages, ~15 % perdus). Classe corrigée : le lecteur
+  carzilla pagine avec le tri par date de création (« of=CreatedAt », 0
+  doublon mesuré), quel que soit le tri de l'adresse ; repli sur le tri
+  d'origine si cette page est illisible.
 - **MCP : TRÉSORERIE EN LECTURE COMPLÈTE (16/10, Channing : « donner accès à
   l'onglet trésorerie à GPT MCP, lecture complète »)**. Serveur MCP 0.6.0,
   17 outils. Trois nouveaux, lecture seule : `treasury_statements` (relevés

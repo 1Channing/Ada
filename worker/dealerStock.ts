@@ -728,16 +728,28 @@ async function scrapeCarzilla(url: string, firstHtml: string): Promise<DealerSto
   const perPage = first.length;
   const pagesCap = declared != null && perPage > 0 ? Math.min(400, Math.ceil(declared / perPage)) : MAX_PAGES;
   let pages = 0;
+  // TRI STABLE (16/10, relevé Bierschneider : 5 178 lus pour 6 050 annoncés).
+  // L'adresse de la vitrine trie par prix (« of=SalePrice ») : des dizaines de
+  // véhicules au même prix, l'ordre des ex æquo change d'une page à l'autre,
+  // 15 % des cartes se répètent et autant ne paraissent jamais (mesuré :
+  // 33 doublons sur 10 pages). Trié par date de création (« of=CreatedAt »,
+  // quasi unique), 0 doublon sur les mêmes pages. On relit donc TOUTES les
+  // pages (la première comprise) avec ce tri, quel que soit celui de l'URL.
+  const stableUrl = new URL(url); stableUrl.searchParams.set('of', 'CreatedAt');
+  const resort = stableUrl.searchParams.get('of') !== new URL(url).searchParams.get('of');
   for (let page = 1; page <= pagesCap; page++) {
-    let cards: DealerVehicle[] | null = page === 1 ? first : null;
-    if (page > 1) {
-      const pu = new URL(url); pu.searchParams.set('cp', String(page));
+    let cards: DealerVehicle[] | null = page === 1 && !resort ? first : null;
+    if (cards == null) {
+      const pu = new URL(stableUrl); pu.searchParams.set('cp', String(page));
       for (let attempt = 0; attempt < 2 && cards == null; attempt++) {
         if (attempt > 0) await sleep(1500);
         const r = await getText(pu.toString());
         if (r.status === 200) cards = parseCarzillaCards(r.text, origin);
       }
-      if (cards == null) { warnings.push(`arrêt à la page ${page} : page illisible — relevé partiel (${out.length} / ${declared ?? '?'})`); break; }
+      if (cards == null) {
+        if (page === 1) { cards = first; warnings.push('tri stable (CreatedAt) illisible : pagination avec le tri de l\'adresse (doublons possibles)'); }
+        else { warnings.push(`arrêt à la page ${page} : page illisible — relevé partiel (${out.length} / ${declared ?? '?'})`); break; }
+      }
     }
     pages = page;
     let added = 0;
