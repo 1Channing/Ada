@@ -188,9 +188,17 @@ export function stripQuoted(text: string): string {
     // Un bloc de lignes citées « > » qui court jusqu'à la fin = historique.
     if (/^>/.test(l) && lines.slice(i).every((x) => /^>/.test(x.trim()) || x.trim() === '')) { cut = i; break; }
   }
+  // Signature : coupée au séparateur « -- » ou à la mention d'envoi d'un téléphone
+  // (le message entier reste consultable).
+  for (let i = 0; i < cut; i++) {
+    const l = lines[i].trim();
+    if (i > 0 && (/^--\s*$/.test(lines[i]) || MOBILE_SIGNATURE.test(l))) { cut = i; break; }
+  }
   const fresh = lines.slice(0, cut).join('\n').trim();
   return fresh || (text ?? '').trim();
 }
+
+const MOBILE_SIGNATURE = /^(envoyé de mon|sent from my|verzonden (vanaf|met) mijn|von meinem .{1,30} gesendet|sendt fra min|enviado desde mi|inviato da)\b/i;
 
 export type Headers = Record<string, string>;
 

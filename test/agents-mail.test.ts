@@ -58,6 +58,10 @@ eq(stripQuoted('Yes please.\n\nOn Thu, Oct 16, 2026 at 10:02 AM Ada <ada@mc-expo
 eq(stripQuoted('Ok pour moi.\n\nDe : Dana <dana@mc-export.com>\nEnvoyé : jeudi 16 octobre 2026 10:02\nObjet : C-HR'), 'Ok pour moi.', 'historique cité coupé (Outlook)');
 eq(stripQuoted('Merci.\n> ancien\n> texte'), 'Merci.', 'lignes « > » finales coupées');
 eq(stripQuoted('> tout est cité'), '> tout est cité', 'rien de nouveau : le texte reste entier');
+eq(stripQuoted('lisible ?\n\n-- \nChanning Cloirec\nMC Export'), 'lisible ?', 'signature coupée au séparateur « -- »');
+eq(stripQuoted('Ok pour moi\n\nEnvoyé de mon iPhone'), 'Ok pour moi', 'mention « Envoyé de mon iPhone » coupée');
+eq(stripQuoted('Prijs?\n\nVerzonden vanaf mijn iPhone\n\nOp do 16 okt. 2026 om 10:02 schreef Ada <ada@mc-export.com>:\n> Hallo'), 'Prijs?', 'signature mobile puis historique (néerlandais)');
+eq(stripQuoted('-- \nsignature seule'), '-- \nsignature seule', 'rien avant la signature : le texte reste entier');
 
 // Tri automatique
 const h = headersOf([{ name: 'Auto-Submitted', value: 'auto-replied' }, { name: 'Subject', value: 'x' }]);
