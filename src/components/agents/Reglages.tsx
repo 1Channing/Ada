@@ -3,14 +3,19 @@
  * Google, admin), l'expéditeur et la signature, le rythme anti-spam
  * (plafond du jour, jours et heures d'envoi, écart entre deux premiers
  * contacts), le responsable des alertes — et la liste « ne plus contacter »
- * commune aux deux agentes.
+ * commune aux deux agentes. Phase 2.2 (17/10) : le travail d'Ada par l'IA
+ * (cibles, budget par jour, découvertes et qualifications automatiques,
+ * ajout à la carte au-delà d'un score).
  */
 import { useEffect, useState } from 'react';
-import { Link2, Unlink, Save, Ban, Trash2, Plug } from 'lucide-react';
+import { Link2, Unlink, Save, Ban, Trash2, Plug, Sparkles } from 'lucide-react';
 import {
-  oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression,
-  type AgentKey, type AgentSettings, type EditableSettings, type Suppression,
+  oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, QUALIF_SQL_HINT,
+  type AgentKey, type AgentSettings, type EditableSettings, type Suppression, type AiSpend,
 } from '../../services/agents';
+import { normalizeTargets } from '../../lib/agents/qualification';
+import { DISCOVERY_COUNTRIES } from '../../lib/agents/discovery';
+import { fmtUsd } from '../../lib/agents/aiCost';
 import { listAssignees, type Assignee } from '../../services/userTasks';
 import { AgentBadge } from './shared';
 import { fmtDateTime, fmtRelative } from './helpers';
@@ -19,9 +24,87 @@ const DAYS = [{ d: 1, l: 'L' }, { d: 2, l: 'M' }, { d: 3, l: 'M' }, { d: 4, l: '
 const input = 'rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40 disabled:bg-slate-50 disabled:text-slate-500';
 const REASONS: Record<Suppression['reason'], string> = { stop: 'Demande d\'arrêt', refus: 'Pas intéressé', rebond: 'Adresse morte', plainte: 'Plainte', manuel: 'Ajout manuel' };
 
-interface Props { settings: AgentSettings[]; isAdmin: boolean; userId: string | null; refreshKey: number; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }
+interface Props { settings: AgentSettings[]; isAdmin: boolean; userId: string | null; refreshKey: number; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }
 
-function AgentForm({ s, isAdmin, userId, people, onChanged, onError, onInfo }: { s: AgentSettings; isAdmin: boolean; userId: string | null; people: Assignee[]; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }) {
+const COUNTRY_LABEL: Record<string, string> = { FR: '🇫🇷 France', DE: '🇩🇪 Allemagne', NL: '🇳🇱 Pays-Bas', BE: '🇧🇪 Belgique', ES: '🇪🇸 Espagne', IT: '🇮🇹 Italie' };
+const listOf = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+
+/** Le travail d'Ada par l'IA (phase 2.2) : cibles, budget, automatismes. */
+function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: AgentSettings; isAdmin: boolean; userId: string | null; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }) {
+  const t = normalizeTargets(s.targets);
+  const [countries, setCountries] = useState<string[]>(t.countries);
+  const [brands, setBrands] = useState(t.brands.join(', '));
+  const [vanBrands, setVanBrands] = useState(t.vanBrands.join(', '));
+  const [multibrand, setMultibrand] = useState(t.multibrand);
+  const [budget, setBudget] = useState(Number(s.daily_budget_usd ?? 3));
+  const [autoDisc, setAutoDisc] = useState(!!s.auto_discovery);
+  const [autoQual, setAutoQual] = useState(s.auto_qualify_per_day ?? 0);
+  const [mapAdd, setMapAdd] = useState(s.map_auto_add ?? true);
+  const [mapScore, setMapScore] = useState(s.map_min_score ?? 70);
+  const [busy, setBusy] = useState(false);
+  const ro = !isAdmin;
+  if (s.daily_budget_usd === undefined) return <p className="text-xs text-slate-500">{QUALIF_SQL_HINT}</p>;
+  const today = spend?.[s.agent];
+  const save = async () => {
+    setBusy(true);
+    const e = await updateAiSettings(s.agent, {
+      targets: { countries, brands: listOf(brands), vanBrands: listOf(vanBrands), multibrand },
+      daily_budget_usd: Math.max(0, Math.min(100, Math.round(budget * 100) / 100)),
+      auto_discovery: autoDisc, auto_qualify_per_day: Math.max(0, Math.min(500, Math.round(autoQual))),
+      map_auto_add: mapAdd, map_min_score: Math.max(0, Math.min(100, Math.round(mapScore))),
+    }, userId);
+    setBusy(false);
+    if (e) onError(e); else { onInfo(`Travail de ${s.display_name} enregistré.`); onChanged(); }
+  };
+  return (
+    <div className="rounded-xl border border-violet-200 bg-violet-50/30 p-3 space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Sparkles className="w-4 h-4 text-violet-700" />
+        <p className="text-xs uppercase tracking-wide text-violet-800">Travail de {s.display_name} (IA)</p>
+        <span className="ml-auto text-xs text-slate-500">Dépensé : {fmtUsd(today?.today ?? 0)} aujourd'hui · {fmtUsd(today?.month ?? 0)} ce mois</span>
+      </div>
+      <div className="space-y-1 text-sm">
+        <span className="text-xs text-slate-500">Pays visés</span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button disabled={ro} onClick={() => setCountries([])} className={`text-xs rounded-full px-2 py-0.5 border ${countries.length === 0 ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 text-slate-600'}`}>Pays de nos ventes (automatique)</button>
+          {DISCOVERY_COUNTRIES.map((c) => (
+            <button key={c} disabled={ro} onClick={() => setCountries(countries.includes(c) ? countries.filter((x) => x !== c) : [...countries, c])}
+              className={`text-xs rounded-full px-2 py-0.5 border ${countries.includes(c) ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 text-slate-600'}`}>{COUNTRY_LABEL[c]}</button>
+          ))}
+        </div>
+        <p className="text-[11px] text-slate-400">Les découvertes passent par AutoScout24 (pas de Danemark) ; les garages vus dans les études quotidiennes entrent aussi dans l'annuaire.</p>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="space-y-1 text-sm"><span className="text-xs text-slate-500">Marques (voitures)</span>
+          <input disabled={ro} className={`${input} w-full`} value={brands} onChange={(e) => setBrands(e.target.value)} /></label>
+        <label className="space-y-1 text-sm"><span className="text-xs text-slate-500">Marques d'utilitaires</span>
+          <input disabled={ro} className={`${input} w-full`} value={vanBrands} onChange={(e) => setVanBrands(e.target.value)} /></label>
+      </div>
+      <label className="inline-flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={multibrand} onChange={(e) => setMultibrand(e.target.checked)} /> Les multimarques comptent aussi</label>
+      <div className="flex items-center gap-2 flex-wrap text-sm">
+        <span className="text-slate-600">Budget IA par jour :</span>
+        <input disabled={ro} type="number" min={0} max={100} step={0.5} className={`${input} w-20`} value={budget} onChange={(e) => setBudget(Number(e.target.value))} />
+        <span className="text-slate-600">$</span>
+        <span className="text-xs text-slate-400">Atteint → {s.display_name} s'arrête jusqu'au lendemain. Une qualification coûte de 0,002 à 0,03 $.</span>
+      </div>
+      <label className="flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={autoDisc} onChange={(e) => setAutoDisc(e.target.checked)} /> Découvertes automatiques (jusqu'à 6 par jour, 3 pages chacune, du lundi au vendredi 8 h-19 h) — sans IA</label>
+      <div className="flex items-center gap-2 flex-wrap text-sm">
+        <span className="text-slate-600">Garages qualifiés d'office par jour :</span>
+        <input disabled={ro} type="number" min={0} max={500} className={`${input} w-20`} value={autoQual} onChange={(e) => setAutoQual(Number(e.target.value))} />
+        <span className="text-xs text-slate-400">0 = seulement à la demande (bouton « Qualifier »). Les meilleurs de l'annuaire d'abord.</span>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap text-sm">
+        <label className="inline-flex items-center gap-1.5 text-slate-700"><input disabled={ro} type="checkbox" checked={mapAdd} onChange={(e) => setMapAdd(e.target.checked)} /> Ajouter à la carte du réseau les garages qualifiés à partir de</label>
+        <input disabled={ro || !mapAdd} type="number" min={0} max={100} className={`${input} w-16`} value={mapScore} onChange={(e) => setMapScore(Number(e.target.value))} />
+        <span className="text-slate-600">/100</span>
+        <span className="text-xs text-slate-400">avec le badge « IA · {s.display_name} », et un e-mail vérifié ou un téléphone.</span>
+      </div>
+      {isAdmin && <button disabled={busy} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"><Save className="w-4 h-4" /> Enregistrer le travail de {s.display_name}</button>}
+    </div>
+  );
+}
+
+function AgentForm({ s, isAdmin, userId, people, spend, onChanged, onError, onInfo }: { s: AgentSettings; isAdmin: boolean; userId: string | null; people: Assignee[]; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }) {
   const [f, setF] = useState<EditableSettings>({
     sender_name: s.sender_name, signature: s.signature, daily_first_contact_cap: s.daily_first_contact_cap, send_days: s.send_days,
     send_from: s.send_from.slice(0, 5), send_to: s.send_to.slice(0, 5), min_gap_seconds: s.min_gap_seconds, max_gap_seconds: s.max_gap_seconds, owner_id: s.owner_id,
@@ -123,8 +206,11 @@ function AgentForm({ s, isAdmin, userId, people, onChanged, onError, onInfo }: {
       </div>
       <div className="flex items-center gap-3 flex-wrap">
         {isAdmin && <button disabled={busy} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"><Save className="w-4 h-4" /> Enregistrer</button>}
-        <span className="text-xs text-slate-500">IA : pas encore branchée (phase 2). {s.display_name} est en {s.status === 'active' ? 'activité' : 'pause'}.</span>
+        <span className="text-xs text-slate-500">Envois : {s.display_name} est en {s.status === 'active' ? 'activité' : 'pause'}.</span>
       </div>
+      {s.agent === 'ada'
+        ? <AiForm s={s} isAdmin={isAdmin} userId={userId} spend={spend} onChanged={onChanged} onError={onError} onInfo={onInfo} />
+        : <p className="text-xs text-slate-500">L'IA de {s.display_name} (vendeurs, listes Excel, études) arrive à la phase 3.</p>}
     </div>
   );
 }
@@ -176,7 +262,7 @@ function Suppressions({ userId, refreshKey, onError }: { userId: string | null; 
   );
 }
 
-export function Reglages({ settings, isAdmin, userId, refreshKey, onChanged, onError, onInfo }: Props) {
+export function Reglages({ settings, isAdmin, userId, refreshKey, spend, onChanged, onError, onInfo }: Props) {
   const [people, setPeople] = useState<Assignee[]>([]);
   useEffect(() => { void listAssignees().then(setPeople); }, []);
   return (
@@ -184,7 +270,7 @@ export function Reglages({ settings, isAdmin, userId, refreshKey, onChanged, onE
       <div className="grid xl:grid-cols-2 gap-4">
         {(['ada', 'dana'] as AgentKey[]).map((k) => {
           const s = settings.find((x) => x.agent === k);
-          return s ? <AgentForm key={`${k}-${s.updated_at}-${s.gmail_connected_at ?? ''}`} s={s} isAdmin={isAdmin} userId={userId} people={people} onChanged={onChanged} onError={onError} onInfo={onInfo} /> : null;
+          return s ? <AgentForm key={`${k}-${s.updated_at}-${s.gmail_connected_at ?? ''}`} s={s} isAdmin={isAdmin} userId={userId} people={people} spend={spend} onChanged={onChanged} onError={onError} onInfo={onInfo} /> : null;
         })}
       </div>
       <Suppressions userId={userId} refreshKey={refreshKey} onError={onError} />

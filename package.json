@@ -18,7 +18,8 @@
     "test:site-deal": "tsx test/site-deal-url.test.ts",
     "test:agents": "tsx test/agents-mail.test.ts",
     "test:annuaire": "tsx test/agents-annuaire.test.ts",
-    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median && npm run test:site-deal && npm run test:agents && npm run test:annuaire",
+    "test:qualification": "tsx test/agents-qualification.test.ts",
+    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median && npm run test:site-deal && npm run test:agents && npm run test:annuaire && npm run test:qualification",
     "build:worker": "cd worker && npm ci && npm run build",
     "start:worker": "cd worker && npm start",
     "gate": "tsc --noEmit -p tsconfig.app.json && tsx scripts/grammar-gate.mts && vite build"

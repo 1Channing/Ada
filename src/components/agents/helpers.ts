@@ -2,7 +2,7 @@
  * Onglet Agents (16/10) — fonctions pures partagées : dates, raison pour
  * laquelle un message validé attend encore, contrôle d'un brouillon.
  */
-import type { AgentMessage, AgentSettings, AgentCounts, Draft } from '../../services/agents';
+import type { AgentMessage, AgentSettings, AgentCounts, Draft, ProspectStage } from '../../services/agents';
 import { inSendWindow, nextWindowStart, countsAgainstCap } from '../../lib/agents/sendPolicy';
 import { parseAddressList } from '../../lib/agents/mail';
 
@@ -47,3 +47,19 @@ export function draftProblem(d: Draft): string | null {
 }
 
 export const cleanDraft = (d: Draft): Draft => ({ ...d, to: d.to.map((x) => parseAddressList(x)[0]?.email ?? x.trim()).filter(Boolean) });
+
+// --- Qualification d'Ada (17/10) ---
+export const KIND_LABEL: Record<string, string> = {
+  concession_marque: 'Concession de marque', agent_marque: 'Agent de marque', groupe: 'Groupe de distribution',
+  independant_multimarque: 'Indépendant multimarque', utilitaires: 'Spécialiste utilitaires', negociant_vo: 'Négociant VO',
+  exportateur_concurrent: 'Exportateur (concurrent)', loueur_ou_leasing: 'Loueur / leasing', autre: 'Autre',
+};
+export const STAGE_LABEL: Record<ProspectStage, string> = {
+  qualifie: 'Qualifié', a_contacter: 'À contacter', contacte: 'Contacté', repondu: 'A répondu', interesse: 'Intéressé', client: 'Client', perdu: 'Perdu', ecarte: 'Écarté',
+};
+export const LANG_LABEL: Record<string, string> = { fr: 'français', nl: 'néerlandais', de: 'allemand', en: 'anglais', es: 'espagnol', it: 'italien', da: 'danois' };
+
+export const scoreTone = (s: number | null | undefined) =>
+  s == null ? 'bg-slate-100 text-slate-500 border-slate-200'
+    : s >= 70 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+      : s >= 40 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200';

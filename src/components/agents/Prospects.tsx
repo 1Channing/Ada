@@ -10,28 +10,26 @@
  * - L'annuaire : garages vus sur toutes les pages qu'ADA lit, avec « client
  *   actuel » et « déjà dans le réseau » écartés par défaut, et les annonces
  *   plus chères que nos offres (vitrine des bonnes affaires, HT + TVA du pays).
- * Aucun coût d'IA à ce stade.
+ * - Phase 2.2 : « Qualifier » confie un garage à Ada (Haiku 5.5) — site,
+ *   e-mails publiés vérifiés, à qui écrire, score et raison (QualifCard).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, Radar, Building2, Phone, ExternalLink, MapPin, ChevronDown, X, Plus, TrendingUp } from 'lucide-react';
+import { Search, Radar, Building2, Phone, ExternalLink, MapPin, ChevronDown, X, Plus, TrendingUp, Sparkles, Mail } from 'lucide-react';
 import {
   listDealers, dealerListings, salesProfile, ourOffers, listTasks, queueDiscovery, cancelTask, addDealerToMap,
-  type DealerRow, type DealerListing, type SalesProfile, type AgentTask,
+  queueQualification, prospectDetails, setProspectStage,
+  type DealerRow, type DealerListing, type SalesProfile, type AgentTask, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { opportunities, type OfferLite, type Opportunity } from '../../lib/agents/opportunity';
 import { DISCOVERY_COUNTRIES, discoveryPages } from '../../lib/agents/discovery';
-import { countryVat } from '../../lib/offers/marketCheck';
-import { fmtDateTime, fmtRelative } from './helpers';
+import { countryVat } from '../../lib/offers/vat';
+import { isoOfCountry as isoOf } from '../../lib/agents/keys';
+import { fmtDateTime, fmtRelative, STAGE_LABEL, scoreTone } from './helpers';
+import { QualifCard } from './QualifCard';
+import { fmtUsd } from '../../lib/agents/aiCost';
 
 const FLAG: Record<string, string> = { FR: '🇫🇷', DE: '🇩🇪', NL: '🇳🇱', BE: '🇧🇪', ES: '🇪🇸', IT: '🇮🇹', DK: '🇩🇰', AT: '🇦🇹', LU: '🇱🇺', SE: '🇸🇪' };
 const COUNTRY_NAME: Record<string, string> = { FR: 'France', DE: 'Allemagne', NL: 'Pays-Bas', BE: 'Belgique', ES: 'Espagne', IT: 'Italie' };
-/** Pays d'une fiche client saisie à la main (« Pays-Bas », « netherlands », « NL »…) → code ISO. */
-const ISO_OF: Record<string, string> = {
-  france: 'FR', fr: 'FR', allemagne: 'DE', germany: 'DE', deutschland: 'DE', de: 'DE', 'pays-bas': 'NL', 'pays bas': 'NL', netherlands: 'NL', nederland: 'NL', nl: 'NL', hollande: 'NL',
-  belgique: 'BE', belgium: 'BE', belgie: 'BE', be: 'BE', espagne: 'ES', spain: 'ES', espana: 'ES', es: 'ES', italie: 'IT', italy: 'IT', italia: 'IT', it: 'IT',
-  danemark: 'DK', denmark: 'DK', danmark: 'DK', dk: 'DK',
-};
-const isoOf = (c: string) => ISO_OF[c.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')] ?? (c.trim().length === 2 ? c.trim().toUpperCase() : null);
 const DEFAULT_BRANDS = ['Toyota', 'Suzuki', 'Peugeot', 'Opel', 'Ford', 'Mercedes-Benz', 'Renault', 'Volkswagen', 'Citroën', 'Kia', 'Hyundai', 'Skoda'];
 const nice = (b: string) => b.charAt(0) + b.slice(1).toLowerCase();
 const eur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
@@ -62,6 +60,9 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
   const [vansOnly, setVansOnly] = useState(false);
   const [dearerOnly, setDearerOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [details, setDetails] = useState<Map<string, ProspectDetail>>(new Map());
+  const [qualifiedOnly, setQualifiedOnly] = useState(false);
+  const [sort, setSort] = useState<'activite' | 'score'>('activite');
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [disc, setDisc] = useState({ country: 'FR', brand: 'Toyota', model: '', vans: false, pages: 5 });
 
@@ -71,7 +72,9 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
     const r = await listDealers({ country, brand: brand || null, query });
     if (r.error) { onError(r.error); setLoading(false); return; }
     setRows(r.rows);
-    setListings(await dealerListings(r.rows.map((x) => x.id)));
+    const [ls, det] = await Promise.all([dealerListings(r.rows.map((x) => x.id)), prospectDetails(r.rows.filter((x) => x.prospect).map((x) => x.id))]);
+    setListings(ls);
+    setDetails(new Map(det.filter((x) => x.dealer_id).map((x) => [x.dealer_id as string, x])));
     setLoading(false);
   }, [country, brand, query, onError]);
 
@@ -96,8 +99,15 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
     for (const d of rows) m.set(d.id, opportunities(byDealer.get(d.id) ?? [], offers, countryVat(d.country ?? 'FR')));
     return m;
   }, [rows, byDealer, offers]);
-  const shown = rows.filter((d) => (!hideClients || !d.is_client) && (!hideNetwork || !d.in_network)
-    && (!multiOnly || d.nb_brands >= 3) && (!vansOnly || d.vans > 0) && (!dearerOnly || (oppOf.get(d.id)?.length ?? 0) > 0));
+  // Garages confiés à Ada et pas encore rendus.
+  const queued = useMemo(() => new Set(tasks.filter((t) => t.kind === 'qualification' && (t.status === 'en_attente' || t.status === 'en_cours')).flatMap((t) => t.params.dealer_ids ?? [])), [tasks]);
+  const onMap = (d: DealerRow) => d.in_network || !!d.prospect?.in_map || added.has(d.id);
+  // Un garage qu'Ada a qualifié reste visible même une fois sur la carte (c'est souvent elle qui l'y a mis).
+  const filtered = rows.filter((d) => (!hideClients || !d.is_client) && (!hideNetwork || !d.in_network || !!d.prospect)
+    && (!multiOnly || d.nb_brands >= 3) && (!vansOnly || d.vans > 0) && (!dearerOnly || (oppOf.get(d.id)?.length ?? 0) > 0)
+    && (!qualifiedOnly || !!d.prospect));
+  const shown = sort === 'score' ? [...filtered].sort((a, b) => (b.prospect?.score ?? -1) - (a.prospect?.score ?? -1)) : filtered;
+  const toQualify = shown.filter((d) => !d.prospect && !queued.has(d.id) && !d.is_client).slice(0, 10);
   const countries = useMemo(() => [...new Set(rows.map((d) => d.country).filter(Boolean) as string[])].sort(), [rows]);
   const brandChoices = useMemo(() => {
     const set = new Set<string>(DEFAULT_BRANDS);
@@ -108,6 +118,17 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
   const launch = async () => {
     const e = await queueDiscovery({ country: disc.country, brand: disc.brand.trim(), model: disc.model.trim() || undefined, vans: disc.vans, pages: discoveryPages(disc.pages) }, userId);
     if (e) onError(e); else { onInfo(`Découverte lancée : ${COUNTRY_NAME[disc.country] ?? disc.country} · ${disc.brand}${disc.vans ? ' (utilitaires)' : ''}. Résultat dans une à deux minutes.`); void loadTasks(); }
+  };
+  const qualify = async (ids: string[]) => {
+    const e = await queueQualification(ids, userId);
+    if (e) { onError(e); return; }
+    onInfo(`${ids.length} garage${ids.length > 1 ? 's' : ''} confié${ids.length > 1 ? 's' : ''} à Ada : comptez une minute environ par garage. Rien n'est envoyé à personne.`);
+    void loadTasks();
+  };
+  const changeStage = async (p: ProspectDetail, stage: ProspectStage) => {
+    const e = await setProspectStage(p.id, stage);
+    if (e) { onError(e); return; }
+    setDetails((m) => new Map(m).set(p.dealer_id as string, { ...p, stage }));
   };
   const addToMap = async (d: DealerRow) => {
     const r = await addDealerToMap(d, userId);
@@ -156,8 +177,16 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
             {tasks.slice(0, 8).map((t) => (
               <div key={t.id} className="flex items-center gap-2 py-1.5 text-xs flex-wrap">
                 <span className={`rounded-full px-2 py-0.5 ${TASK_STATUS[t.status].cls}`}>{TASK_STATUS[t.status].label}</span>
-                <span className="font-medium text-slate-800">{FLAG[t.params.country ?? ''] ?? ''} {t.params.brand}{t.params.model ? ` ${t.params.model}` : ''}{t.params.vans ? ' · utilitaires' : ''}</span>
-                {t.status === 'terminee' && t.result && <span className="text-slate-600">{t.result.annonces} annonces lues · {t.result.concessions} concessions, dont {t.result.nouvelles} nouvelles</span>}
+                {t.kind === 'qualification' ? (
+                  <span className="font-medium text-violet-900"><Sparkles className="inline w-3.5 h-3.5 mr-0.5" />Qualification · {t.params.dealer_ids?.length ?? 0} garage{(t.params.dealer_ids?.length ?? 0) > 1 ? 's' : ''}</span>
+                ) : (
+                  <span className="font-medium text-slate-800">{FLAG[t.params.country ?? ''] ?? ''} {t.params.brand}{t.params.model ? ` ${t.params.model}` : ''}{t.params.vans ? ' · utilitaires' : ''}</span>
+                )}
+                {!t.created_by && <span className="text-[10px] rounded-full px-1.5 bg-slate-50 border border-slate-200 text-slate-500">automatique</span>}
+                {t.status === 'terminee' && t.result && t.kind === 'qualification' && (
+                  <span className="text-slate-600">{t.result.qualifies ?? 0} qualifié{(t.result.qualifies ?? 0) > 1 ? 's' : ''}, {t.result.ecartes ?? 0} écarté{(t.result.ecartes ?? 0) > 1 ? 's' : ''}{t.result.echecs ? `, ${t.result.echecs} en échec` : ''}{t.result.carte ? `, ${t.result.carte} sur la carte` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.arret ? ` · arrêt : ${t.result.arret}` : ''}</span>
+                )}
+                {t.status === 'terminee' && t.result && t.kind !== 'qualification' && <span className="text-slate-600">{t.result.annonces} annonces lues · {t.result.concessions} concessions, dont {t.result.nouvelles} nouvelles</span>}
                 {t.status === 'echec' && <span className="text-red-700">{t.error}</span>}
                 <span className="ml-auto text-slate-400">{fmtRelative(t.finished_at ?? t.created_at)}</span>
                 {t.status === 'en_attente' && <button onClick={() => void cancelTask(t.id).then((e) => (e ? onError(e) : void loadTasks()))} className="text-slate-400 hover:text-rose-600" title="Annuler"><X className="w-3.5 h-3.5" /></button>}
@@ -193,6 +222,16 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
             <label className="inline-flex items-center gap-1"><input type="checkbox" checked={multiOnly} onChange={(e) => setMultiOnly(e.target.checked)} /> Multimarques</label>
             <label className="inline-flex items-center gap-1"><input type="checkbox" checked={vansOnly} onChange={(e) => setVansOnly(e.target.checked)} /> Vendent des utilitaires</label>
             <label className="inline-flex items-center gap-1"><input type="checkbox" checked={dearerOnly} onChange={(e) => setDearerOnly(e.target.checked)} /> Plus chers que nos offres</label>
+            <label className="inline-flex items-center gap-1"><input type="checkbox" checked={qualifiedOnly} onChange={(e) => setQualifiedOnly(e.target.checked)} /> Qualifiés par Ada</label>
+            <select value={sort} onChange={(e) => setSort(e.target.value as 'activite' | 'score')} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
+              <option value="activite">Tri : annonces</option>
+              <option value="score">Tri : score d'Ada</option>
+            </select>
+            <button disabled={toQualify.length === 0} onClick={() => void qualify(toQualify.map((d) => d.id))}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2.5 py-1 text-xs font-medium disabled:opacity-40"
+              title="Ada lit leur fiche, leur site, et trouve à qui écrire (Haiku 5.5, quelques centimes la série). Rien n'est envoyé.">
+              <Sparkles className="w-3.5 h-3.5" /> {toQualify.length === 0 ? 'Rien à qualifier ici' : toQualify.length === 1 ? 'Qualifier 1 garage' : `Qualifier ${toQualify.length} garages`}
+            </button>
           </div>
         </div>
         <div className="divide-y divide-slate-100">
@@ -212,7 +251,13 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-slate-900">{d.name}</span>
                       {d.is_client && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200">client actuel</span>}
-                      {(d.in_network || added.has(d.id)) && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-slate-100 text-slate-600 border border-slate-200">sur la carte</span>}
+                      {onMap(d) && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-slate-100 text-slate-600 border border-slate-200">sur la carte</span>}
+                      {d.prospect && (
+                        <button onClick={() => setOpen(isOpen ? null : d.id)} className={`text-[10px] rounded-full px-1.5 py-0.5 border ${d.prospect.stage === 'ecarte' ? 'bg-rose-50 text-rose-700 border-rose-200' : scoreTone(d.prospect.score)}`} title="Fiche d'Ada">
+                          <Sparkles className="inline w-3 h-3 mr-0.5" />{d.prospect.stage === 'ecarte' ? 'écarté par Ada' : `Ada ${d.prospect.score ?? '—'}/100`}{d.prospect.stage !== 'qualifie' && d.prospect.stage !== 'ecarte' ? ` · ${STAGE_LABEL[d.prospect.stage]}` : ''}
+                        </button>
+                      )}
+                      {queued.has(d.id) && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 animate-pulse">Ada qualifie…</span>}
                       {d.nb_brands >= 3 && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-sky-50 text-sky-800 border border-sky-200">multimarques</span>}
                       {d.vans > 0 && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200">utilitaires</span>}
                     </div>
@@ -221,6 +266,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
                       {(d.brands ?? []).slice(0, 6).map((b) => <span key={b} className="text-[10px] rounded-full px-1.5 py-0 bg-slate-50 border border-slate-200 text-slate-600">{nice(b)}</span>)}
                       <span className="text-[11px] text-slate-500">{d.listings} annonce{d.listings > 1 ? 's' : ''}{d.median_price ? ` · prix médian ${eur(d.median_price)}` : ''}</span>
                     </div>
+                    {d.prospect?.email && <p className="mt-1 text-xs text-slate-700"><Mail className="inline w-3.5 h-3.5 mr-1 text-slate-400" />{d.prospect.email}</p>}
                     {opp.length > 0 && (
                       <p className="mt-1 text-xs text-emerald-800">
                         {opp.length} annonce{opp.length > 1 ? 's' : ''} plus chère{opp.length > 1 ? 's' : ''} que nos offres, jusqu'à +{eur(opp[0].gap)} ({opp[0].offer.title})
@@ -231,7 +277,12 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
                     {d.phone && <a href={`tel:${d.phone}`} className="inline-flex items-center gap-1 text-slate-600 hover:text-brand-ocean"><Phone className="w-3.5 h-3.5" /> {d.phone}</a>}
                     {d.site_url && <a href={d.site_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline"><ExternalLink className="w-3.5 h-3.5" /> AutoScout24</a>}
                     {d.imprint_url && <a href={d.imprint_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline"><ExternalLink className="w-3.5 h-3.5" /> Mentions légales</a>}
-                    {canEditMap && !d.in_network && !added.has(d.id) && (
+                    {!d.prospect && !queued.has(d.id) && (
+                      <button onClick={() => void qualify([d.id])} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-white px-2 py-1 text-violet-800 hover:bg-violet-50" title="Ada lit sa fiche et son site, et trouve à qui écrire">
+                        <Sparkles className="w-3.5 h-3.5" /> Qualifier
+                      </button>
+                    )}
+                    {canEditMap && !onMap(d) && (
                       <button onClick={() => void addToMap(d)} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-violet-800 hover:bg-violet-100"><MapPin className="w-3.5 h-3.5" /><Plus className="w-3 h-3" /> Carte</button>
                     )}
                     <button onClick={() => setOpen(isOpen ? null : d.id)} className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-800">
@@ -239,6 +290,9 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
                     </button>
                   </div>
                 </div>
+                {isOpen && details.get(d.id) && (
+                  <QualifCard p={details.get(d.id) as ProspectDetail} onStage={(st) => void changeStage(details.get(d.id) as ProspectDetail, st)} onRequalify={() => void qualify([d.id])} requalifying={queued.has(d.id)} />
+                )}
                 {isOpen && (
                   <div className="mt-2 overflow-x-auto">
                     <table className="w-full min-w-[640px] text-xs">

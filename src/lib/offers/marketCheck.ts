@@ -26,6 +26,7 @@ import { structuredModelMatches, toEur } from '../study-core/business-logic';
 import type { Currency } from '../study-core/types';
 import { titleContradictsModel, attackWindowSize } from '../../services/marketData';
 import type { OfferVehicle } from './parseSupplierFile';
+import { COUNTRY_VAT, countryVat } from './vat';
 
 export interface OfferLot {
   key: string; label: string; brand: string; model: string; year: number | null; fuel: string | null; gearbox: string | null;
@@ -80,11 +81,8 @@ export function applyLotCriteria(lot: OfferLot, c: LotCriteria | undefined): Off
 // brutes ») : le relevé compare notre prix HT au prix AFFICHÉ par les sites,
 // converti en euros et rien d'autre — plus de TVA retirée, plus d'estimation
 // de taxe d'immatriculation danoise. La note par pays reste informative.
-/** TVA standard du pays où l'on revend : le prix affiché d'une annonce est TTC. */
-export const COUNTRY_VAT: Record<string, number> = {
-  FR: 0.2, DE: 0.19, NL: 0.21, BE: 0.21, DK: 0.25, SE: 0.25, ES: 0.21, IT: 0.22, LT: 0.21, HU: 0.27,
-};
-export const countryVat = (country: string) => COUNTRY_VAT[country] ?? 0.2;
+// TVA du pays de revente : table partagée avec le worker (src/lib/offers/vat.ts, 17/10).
+export { COUNTRY_VAT, countryVat };
 export const COUNTRY_CAVEAT: Record<string, string> = { DK: 'prix danois affichés taxe d’immatriculation comprise' };
 
 const FUEL_CRITERIA: Record<string, string> = {

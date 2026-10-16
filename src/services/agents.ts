@@ -12,6 +12,7 @@
  */
 import { supabase } from '../lib/supabase';
 import { replySubject } from '../lib/agents/mail';
+import type { AgentTargets } from '../lib/agents/qualification';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -27,6 +28,9 @@ export interface AgentSettings {
   send_days: number[]; send_from: string; send_to: string; min_gap_seconds: number; max_gap_seconds: number;
   owner_id: string | null; gmail_connected_email: string | null; gmail_connected_at: string | null;
   last_sync_at: string | null; last_sync_error: string | null; next_send_after: string | null; updated_at: string;
+  // Phase 2.2 (17/10) — absents tant que le SQL agents_qualification n'est pas collé.
+  targets?: Partial<AgentTargets> | null; daily_budget_usd?: number | string; auto_discovery?: boolean; auto_qualify_per_day?: number;
+  map_auto_add?: boolean; map_min_score?: number;
 }
 export type EditableSettings = Pick<AgentSettings, 'sender_name' | 'signature' | 'daily_first_contact_cap' | 'send_days' | 'send_from' | 'send_to' | 'min_gap_seconds' | 'max_gap_seconds' | 'owner_id'>;
 
@@ -247,14 +251,34 @@ export interface DealerRow {
   phone: string | null; contact_name: string | null; site_url: string | null; imprint_url: string | null; website: string | null;
   first_seen_at: string; last_seen_at: string; listings: number; listings_brand: number; nb_brands: number; vans: number;
   brands: string[] | null; median_price: number | null; last_listing_at: string | null; is_client: boolean; in_network: boolean;
+  /** Qualification d'Ada (SQL du 17/10 agents_qualification) ; null = pas encore qualifié. */
+  prospect?: DealerProspect | null;
 }
 export interface DealerListing { dealer_id: string; listing_url: string; brand: string | null; model: string | null; title: string | null; year: number | null; mileage: number | null; fuel: string | null; vehicle_type: string | null; price_eur: number | null; last_seen_at: string }
 export interface SalesProfile { countries: Array<{ country: string; n: number }>; brands: Array<{ brand: string; n: number }> }
 export interface AgentTask {
-  id: string; agent: AgentKey; kind: 'decouverte_concessions'; params: { country?: string; brand?: string; model?: string; vans?: boolean; pages?: number };
-  status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee'; result: { annonces?: number; concessions?: number; nouvelles?: number; url?: string } | null;
+  id: string; agent: AgentKey; kind: 'decouverte_concessions' | 'qualification';
+  params: { country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; auto?: boolean };
+  status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee';
+  result: { annonces?: number; concessions?: number; nouvelles?: number; url?: string; garages?: number; qualifies?: number; ecartes?: number; echecs?: number; carte?: number; cout_usd?: number; arret?: string | null } | null;
   error: string | null; created_by: string | null; created_at: string; started_at: string | null; finished_at: string | null;
 }
+/** La qualification d'un garage telle que l'annuaire la porte. */
+export interface DealerProspect { id: string; stage: ProspectStage; score: number | null; kind: string | null; qualified_at: string | null; email: string | null; in_map: boolean }
+export type ProspectStage = 'qualifie' | 'ecarte' | 'a_contacter' | 'contacte' | 'repondu' | 'interesse' | 'client' | 'perdu';
+/** La fiche complète d'un garage qualifié par Ada. */
+export interface ProspectDetail {
+  id: string; dealer_id: string | null; name: string; website: string | null; legal_name: string | null; group_name: string | null; sites: number | null;
+  kind: string | null; brands_official: string[]; emails: Array<{ email: string; nature: string; source: string; mx: boolean }>;
+  people: Array<{ nom: string; fonction: string; email: string | null; source: string }>; best_contact: { nom: string | null; fonction: string | null; email: string | null; pourquoi: string } | null;
+  language: string | null; fit_score: number | null; fit_parts: Array<{ label: string; points: number }>; score: number | null; summary: string | null;
+  exclusion_reason: string | null; evidence: Array<{ url: string; note: string }>; stage: ProspectStage; qualified_at: string | null; qualify_cost_usd: number | string;
+  network_contact_id: string | null; notes: string;
+}
+export type AiSpend = Partial<Record<AgentKey, { today: number; month: number; runs_today: number }>>;
+export type AiSettingsPatch = Required<Pick<AgentSettings, 'targets' | 'daily_budget_usd' | 'auto_discovery' | 'auto_qualify_per_day' | 'map_auto_add' | 'map_min_score'>>;
+export const QUALIF_SQL_HINT = 'Qualification par l\'IA : SQL du 17/10 (agents_qualification) à coller dans Supabase.';
+const errQualif = (m: string) => (missing(m) || /column .* does not exist|agents_ai_spend|agent_prospects|agent_runs|kind_check/i.test(m) ? QUALIF_SQL_HINT : m);
 export const ANNUAIRE_SQL_HINT = 'Annuaire : SQL du 17/10 (agents_annuaire) à coller dans Supabase.';
 const errAnnuaire = (m: string) => (missing(m) ? ANNUAIRE_SQL_HINT : m);
 
@@ -333,4 +357,43 @@ export async function addDealerToMap(d: DealerRow, userId: string | null): Promi
   });
   if (error) return { placed: false, error: /row-level security|permission/i.test(error.message) ? 'Ajout refusé : il faut le droit « Carte du réseau · édition ».' : error.message };
   return { placed: !!at, error: null };
+}
+
+// --- Phase 2.2 (17/10) : la qualification par l'IA ------------------------------------------
+
+/** Qualifier des garages : une tâche par série de 10 (le worker les traite une à une). */
+export async function queueQualification(dealerIds: string[], userId: string | null): Promise<string | null> {
+  const ids = [...new Set(dealerIds)];
+  for (let i = 0; i < ids.length; i += 10) {
+    const { error } = await sb.from('agent_tasks').insert({ agent: 'ada', kind: 'qualification', params: { dealer_ids: ids.slice(i, i + 10) }, created_by: userId });
+    if (error) return errQualif(error.message);
+  }
+  return null;
+}
+
+export async function prospectDetails(dealerIds: string[]): Promise<ProspectDetail[]> {
+  if (dealerIds.length === 0) return [];
+  const out: ProspectDetail[] = [];
+  for (let i = 0; i < dealerIds.length; i += 100) {
+    const { data } = await sb.from('agent_prospects').select('*').in('dealer_id', dealerIds.slice(i, i + 100));
+    out.push(...((data ?? []) as ProspectDetail[]));
+  }
+  return out;
+}
+
+export async function setProspectStage(id: string, stage: ProspectStage): Promise<string | null> {
+  const { error } = await sb.from('agent_prospects').update({ stage, updated_at: new Date().toISOString() }).eq('id', id);
+  return error ? errQualif(error.message) : null;
+}
+
+/** Dépense IA du jour et du mois, par agente (null tant que le SQL n'est pas collé). */
+export async function aiSpend(): Promise<AiSpend | null> {
+  const { data, error } = await sb.rpc('agents_ai_spend');
+  if (error || !data) return null;
+  return data as AiSpend;
+}
+
+export async function updateAiSettings(agent: AgentKey, patch: AiSettingsPatch, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_settings').update({ ...patch, updated_at: new Date().toISOString(), updated_by: userId }).eq('agent', agent);
+  return error ? errQualif(error.message) : null;
 }

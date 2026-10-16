@@ -3,9 +3,10 @@ import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw, Building2 }
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
-  listSettings, countsFor, listJournal, AGENT_LABEL,
-  type AgentKey, type AgentSettings, type AgentCounts, type JournalRow,
+  listSettings, countsFor, listJournal, aiSpend, AGENT_LABEL,
+  type AgentKey, type AgentSettings, type AgentCounts, type JournalRow, type AiSpend,
 } from '../services/agents';
+import { fmtUsd } from '../lib/agents/aiCost';
 import { listAssignees } from '../services/userTasks';
 import { parisDayStart } from '../lib/agents/sendPolicy';
 import { AgentBadge, Banner } from '../components/agents/shared';
@@ -27,7 +28,8 @@ import { Prospects } from '../components/agents/Prospects';
  * d'administrateur), Journal (tout ce qui s'est passé), Réglages (connexion
  * Gmail, signature, rythme anti-spam, « ne plus contacter »).
  * Phase 2 (17/10) : Prospects — l'annuaire des concessions qui vendent ce
- * que nous vendons, plus cher (toujours sans IA).
+ * que nous vendons, plus cher ; Ada les qualifie (Haiku 5.5) dans un budget
+ * par jour, et met les meilleurs sur la carte.
  */
 
 type Tab = 'messagerie' | 'valider' | 'prospects' | 'journal' | 'reglages';
@@ -65,6 +67,7 @@ export function Agents() {
   const [journal, setJournal] = useState<JournalRow[]>([]);
   const [journalAgent, setJournalAgent] = useState<AgentKey | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [spend, setSpend] = useState<AiSpend | null>(null);
 
   const load = useCallback(async () => {
     const r = await listSettings();
@@ -73,6 +76,7 @@ export function Agents() {
     const day = parisDayStart(new Date()).toISOString();
     const entries = await Promise.all(r.rows.map(async (s) => [s.agent, await countsFor(s.agent, day)] as const));
     setCounts(Object.fromEntries(entries));
+    setSpend(await aiSpend());
   }, []);
   const refresh = useCallback(() => { void load(); setRefreshKey((k) => k + 1); }, [load]);
   const onError = useCallback((m: string) => setError(m), []);
@@ -110,9 +114,8 @@ export function Agents() {
         <div>
           <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2"><Bot className="w-7 h-7 text-brand-ocean" /> Agents</h1>
           <p className="text-slate-600 mt-2 max-w-3xl">
-            Ada trouve des acheteurs, Dana des vendeurs, chacune depuis sa propre boîte. Pour l'instant leurs boîtes sont branchées sur ADA :
-            vous écrivez, un administrateur valide, ADA envoie aux horaires de bureau. Ada bâtit déjà l'annuaire des concessions (onglet Prospects) ;
-            l'IA arrive à l'étape suivante.
+            Ada trouve des acheteurs, Dana des vendeurs, chacune depuis sa propre boîte. Ada bâtit l'annuaire des concessions et les qualifie
+            (onglet Prospects) ; rien ne part sans validation : vous écrivez ou relisez, un administrateur valide, ADA envoie aux horaires de bureau.
           </p>
         </div>
         <button onClick={refresh} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
@@ -142,7 +145,9 @@ export function Agents() {
                     {s?.gmail_connected_email
                       ? <span className="rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5">boîte connectée · relevée {fmtRelative(s.last_sync_at)}</span>
                       : <button onClick={() => setTab('reglages')} className="rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 hover:bg-amber-100">boîte pas encore connectée</button>}
-                    <span className="rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-0.5">IA : étape suivante</span>
+                    {k === 'ada' && spend
+                      ? <span className="rounded-full bg-violet-50 text-violet-800 border border-violet-200 px-2 py-0.5" title="Dépense IA (Claude), heure de Paris">IA : {fmtUsd(spend.ada?.today ?? 0)} auj. · {fmtUsd(spend.ada?.month ?? 0)} ce mois{s?.daily_budget_usd !== undefined ? ` · plafond ${Number(s.daily_budget_usd)} $/j` : ''}</span>
+                      : <span className="rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-0.5">IA : {k === 'ada' ? 'SQL du 17/10 à coller' : 'phase 3'}</span>}
                   </div>
                   {s?.last_sync_error && <p className="mt-1 text-[11px] text-red-700">{s.last_sync_error}</p>}
                 </div>
@@ -209,7 +214,7 @@ export function Agents() {
         </div>
       )}
       {tab === 'reglages' && (
-        <Reglages settings={settings} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} onChanged={() => void load()} onError={onError} onInfo={onInfo} />
+        <Reglages settings={settings} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} spend={spend} onChanged={() => void load()} onError={onError} onInfo={onInfo} />
       )}
     </div>
   );
