@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { executeStudy, scrapeSearch, reconScrape, scrapeListingDetailCard, fetchBinaryWithZyte } from './scraper';
 import { runFuelEvidenceHarvest, startFuelEvidenceScheduler } from './fuelEvidence';
 import { findSiteAdapterByDomain, decomposeUrl } from '../src/lib/study-core/marketplaces';
+import { MAX_LISTING_PHOTOS } from '../src/lib/study-core/detailParsers';
 import type { SearchCriteria } from '../src/lib/study-core/marketplaces';
 import { analyzeIngestion } from '../src/lib/study-core/ingestion';
 import { persistIngestionResult } from '../src/lib/linkgen/ingestion';
@@ -201,7 +202,7 @@ app.post('/ingest-url', async (req, res) => {
         const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
         const folder = `negotiations/${Date.now().toString(36)}`;
         const photos: string[] = [];
-        for (let i = 0; i < card.imageUrls.length && photos.length < 20; i++) {
+        for (let i = 0; i < card.imageUrls.length && photos.length < MAX_LISTING_PHOTOS; i++) {
           try {
             // Variantes de taille AS24 : la 1920x1080 est RECONSTRUITE depuis
             // la bande de vignettes — si elle n'existe pas pour cette photo,

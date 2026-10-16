@@ -832,6 +832,15 @@ NORMAL (3, 4, 11, 8 nouveautés sur les quatre dernières vagues, critères
   GC-665-SJ pour GV-665-SJ ; S872 payé 24 500 pour 25 500 au tableur ;
   les ventes arrivent sur le compte principal (absent) qui alimente Revolut
   par « Transfert interne » — sans lui, la marge nette est surestimée.
+- **NÉGOCIATIONS : TOUTES LES PHOTOS DE L'ANNONCE (16/10, signalement
+  Antoine /workflow : « sur 28 photos il n'y en a que 20 »)**. Constat : un
+  plafond de 20 photos codé à DEUX endroits — chaque extracteur de site
+  (detailParsers, 13 `slice(0, 20)`) et la boucle de copie du worker
+  (`photos.length < 20`). Classe corrigée : un seul plafond, en paramètre de
+  `parseDetailPage` — 20 par défaut pour les études (vignettes), 80 pour la
+  fiche négociation (`MAX_LISTING_PHOTOS`), et la boucle de copie suit le
+  même nombre. Vérifié sur une annonce LBC simulée de 28 photos : 20 en
+  étude, 28 / 28 en négociation. Worker + gate passés.
 - **OFFRES : LISTE MG ZS (15/10, Channing : « apprends Ada à lire cette
   liste », Channing_ZS_7u.xlsx — Reg / Reg date / Vin / Make / Model / KM /
   Color, 7 ZS Luxury 45 kWh, sans prix)**. Constat : la colonne « Reg »

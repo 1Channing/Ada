@@ -520,7 +520,7 @@ function extractLeboncoinImages(html: string, listingUrl: string): string[] {
       if (Array.isArray(urls)) urls.forEach(push);
     } catch { /* blob illisible — voie 2 */ }
   }
-  if (images.length > 0) return images.slice(0, 20);
+  if (images.length > 0) return images;
 
   // Voie 2 : nouvelle page LBC (sonde Ignis 02/09) — pageProps ne porte plus
   // « ad », l'annonce vit dans un bloc "list_id":{id}. On relit l'id de
@@ -540,7 +540,7 @@ function extractLeboncoinImages(html: string, listingUrl: string): string[] {
   // les seules rule=ad-image sont les cartes « annonces similaires » — la
   // fiche affichait 11 photos d'AUTRES voitures. Zéro photo honnête vaut
   // mieux que des photos fausses ; l'opérateur relance ou ajoute à la main.
-  return images.slice(0, 20);
+  return images;
 }
 
 /**
@@ -562,7 +562,7 @@ function extractMarktplaatsImages(html: string): string[] {
     seen.add(m[2]);
     push(`https://images.marktplaats.com/api/v1/${m[1]}/images/${m[2]}?rule=ecg_mp_eps$_%23.jpg`);
   }
-  if (images.length > 0) return images.slice(0, 20);
+  if (images.length > 0) return images;
 
   // Ancien hôte eBay (pages d'avant 2025) — gardé tel quel.
   const patterns = [
@@ -572,7 +572,7 @@ function extractMarktplaatsImages(html: string): string[] {
   for (const pattern of patterns) {
     for (const match of html.matchAll(pattern)) push(match[1] || match[0]);
   }
-  return images.slice(0, 20);
+  return images;
 }
 
 /**
@@ -595,7 +595,7 @@ function extractBilbasenImages(html: string): string[] {
   if (images.length === 0) {
     for (const m of norm.matchAll(/https:\/\/billeder\.bilbasen\.dk\/bilinfo\/[0-9a-f-]{36}\.(?:jpe?g|png|webp)(?:\?[^\s"'<>]*)?/gi)) push(m[0]);
   }
-  return images.slice(0, 20);
+  return images;
 }
 
 /**
@@ -612,8 +612,7 @@ function extractMobiledeImages(html: string): string[] {
     if (!seen.has(m[2]) || idx < (seen.get(m[2]) ?? Infinity)) seen.set(m[2], idx);
   }
   return [...seen.entries()].sort((a, b) => a[1] - b[1])
-    .map(([id]) => `https://img.classistatic.de/api/v1/mo-prod/images/${id}?rule=mo-1600`)
-    .slice(0, 20);
+    .map(([id]) => `https://img.classistatic.de/api/v1/mo-prod/images/${id}?rule=mo-1600`);
 }
 
 /**
@@ -636,7 +635,7 @@ function extractBlocketImages(html: string, listingUrl: string): string[] {
     const best = `https://images.blocketcdn.se/dynamic/1600w/item/${m[1]}/${m[2]}`;
     if (!images.includes(best)) images.push(best);
   }
-  return images.slice(0, 20);
+  return images;
 }
 
 /**
@@ -656,7 +655,7 @@ function extractGaspedaalImages(html: string): string[] {
     }
   }
 
-  return images.slice(0, 20);
+  return images;
 }
 
 /**
@@ -707,7 +706,7 @@ function extractGenericImages(html: string): string[] {
     for (const m of html.matchAll(/<meta[^>]+property=["']og:image(?::url)?["'][^>]*content=["']([^"']+)["']/gi)) push(m[1]);
     for (const m of html.matchAll(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image(?::url)?["']/gi)) push(m[1]);
   }
-  return images.slice(0, 20);
+  return images;
 }
 
 /**
@@ -730,8 +729,7 @@ function extractAutoscoutImages(html: string): string[] {
     if (!seen.has(m[1])) seen.set(m[1], order++);
   }
   return [...seen.entries()].sort((a, b) => a[1] - b[1])
-    .map(([id]) => `https://prod.pictures.autoscout24.net/listing-images/${id}.jpg/1920x1080.jpg`)
-    .slice(0, 20);
+    .map(([id]) => `https://prod.pictures.autoscout24.net/listing-images/${id}.jpg/1920x1080.jpg`);
 }
 
 function extractLacentraleImages(html: string, listingUrl: string): string[] {
@@ -752,7 +750,7 @@ function extractLacentraleImages(html: string, listingUrl: string): string[] {
     const url = m[1].replace(/\\u002F/g, '/').replace(/\\\//g, '/');
     if (!seen.has(url)) seen.set(url, order++);
   }
-  return [...seen.entries()].sort((a, b) => a[1] - b[1]).map(([u]) => u).slice(0, 20);
+  return [...seen.entries()].sort((a, b) => a[1] - b[1]).map(([u]) => u);
 }
 
 /**
@@ -771,7 +769,7 @@ function extractSkelbiuImages(html: string): string[] {
     const cur = byIdx.get(idx);
     if (!cur || (big && !cur.big)) byIdx.set(idx, { url: m[0], big });
   }
-  return [...byIdx.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v.url).slice(0, 20);
+  return [...byIdx.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v.url);
 }
 
 /**
@@ -788,10 +786,18 @@ function extractJofogasImages(html: string, listingUrl: string): string[] {
     if (slug && !m[1].startsWith(slug)) continue;
     if (!images.includes(m[0])) images.push(m[0]);
   }
-  return images.slice(0, 20);
+  return images;
 }
 
-function extractCarImages(html: string, listingUrl: string): string[] {
+/**
+ * Plafond de photos par annonce. 20 jusqu'au 15/10 (signalement Antoine :
+ * « sur 28 photos il n'y en a que 20 ») — les études se contentent des
+ * premières, la fiche négociation veut TOUTES les photos de l'annonce.
+ */
+export const MAX_DETAIL_IMAGES = 20;
+export const MAX_LISTING_PHOTOS = 80;
+
+function extractCarImages(html: string, listingUrl: string, maxImages = MAX_DETAIL_IMAGES): string[] {
   let siteImages: string[] = [];
   if (listingUrl.includes('autoscout24.')) {
     siteImages = extractAutoscoutImages(html);
@@ -816,7 +822,7 @@ function extractCarImages(html: string, listingUrl: string): string[] {
   }
   // Extracteur de site muet (ou site sans extracteur) → le repli générique
   // couvre TOUTE la classe d'un coup.
-  return siteImages.length > 0 ? siteImages : extractGenericImages(html);
+  return (siteImages.length > 0 ? siteImages : extractGenericImages(html)).slice(0, maxImages);
 }
 
 /**
@@ -827,13 +833,13 @@ function extractCarImages(html: string, listingUrl: string): string[] {
  * @param listingUrl - Listing URL (for marketplace detection)
  * @returns Enriched detail data with evidence
  */
-export function parseDetailPage(html: string, listingUrl: string): DetailPageData {
+export function parseDetailPage(html: string, listingUrl: string, opts: { maxImages?: number } = {}): DetailPageData {
   const isLeboncoin = listingUrl.includes('leboncoin.fr');
   const sellerContent = extractSellerContent(html, listingUrl);
   // Les PHOTOS ne dépendent PAS du texte vendeur : extraites AVANT le
   // court-circuit fail-closed (constat Yaris Cross 28/08 : description
   // illisible → 0 photo alors que la page en portait 14).
-  const car_image_urls = extractCarImages(html, listingUrl);
+  const car_image_urls = extractCarImages(html, listingUrl, opts.maxImages);
 
   if (!sellerContent.description && sellerContent.structuredEquipment.length === 0) {
     return {

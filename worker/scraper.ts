@@ -25,7 +25,7 @@ import {
   type ScrapedListing,
   type StudyCriteria,
 } from '../src/lib/study-core/index';
-import { parseDetailPage, type DetailPageData } from '../src/lib/study-core/detailParsers';
+import { parseDetailPage, type DetailPageData, MAX_LISTING_PHOTOS } from '../src/lib/study-core/detailParsers';
 import { titleContradictsModel } from '../src/services/marketData';
 import { structuredModelMatches, shouldFilterListing, fxMultiplier } from '../src/lib/study-core/business-logic';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
@@ -653,7 +653,8 @@ export function parseListingDetailCard(html: string, listingUrl: string): Listin
     }
   }
 
-  const detail = parseDetailPage(html, listingUrl);
+  // Fiche négociation : toutes les photos de l'annonce (28 sur 28, pas 20).
+  const detail = parseDetailPage(html, listingUrl, { maxImages: MAX_LISTING_PHOTOS });
   return { title, price, imageUrls: detail.car_image_urls };
 }
 
