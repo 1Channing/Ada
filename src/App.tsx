@@ -10,6 +10,7 @@ import { MarketIntelligence } from './pages/MarketIntelligence';
 import { Workflow } from './pages/Workflow';
 import { Carte } from './pages/Carte';
 import { Offres } from './pages/Offres';
+import { Agents } from './pages/Agents';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Veille } from './pages/Veille';
 import { TruthCenter } from './pages/TruthCenter';
@@ -89,6 +90,7 @@ function App() {
     if (p === '/etudes' || p === '/workflow') return 'workflow';
     if (p === '/carte') return 'carte';
     if (p === '/offres') return 'offres';
+    if (p === '/agents') return 'agents';
     if (p === '/veille') return 'veille';
     if (p === '/verite') return 'truth';
     if (p === '/telemetrie') return 'telemetrie';
@@ -107,6 +109,7 @@ function App() {
       case 'workflow': return <Workflow />;
       case 'carte': return <Carte />;
       case 'offres': return <Offres />;
+      case 'agents': return <Agents />;
       case 'veille': return <Veille />;
       case 'truth': return <TruthCenter />;
       case 'telemetrie': return <Telemetrie />;

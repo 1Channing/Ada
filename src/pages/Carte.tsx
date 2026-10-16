@@ -24,7 +24,7 @@ import { DealerStockModal } from '../components/DealerStockModal';
 import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDealerScanning, activeDealerScans, queueDealerScans, queuedDealerScans, cancelQueuedDealerScans, type LatestStockRun } from '../services/dealerStock';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
-  KIND_LABEL, ROLE_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS,
+  KIND_LABEL, ROLE_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS, isAiContact, AI_SOURCE_LABEL,
   type NetworkContact, type ContactInput, type ContactKind, type ContactRole,
 } from '../services/network';
 import { CITIES, COUNTRY_NAMES, COUNTRY_CENTROIDS, NETWORK_COUNTRIES, findCities, findCity } from '../data/cities';
@@ -81,6 +81,8 @@ export function Carte() {
   const [roleFilter, setRoleFilter] = useState<'tous' | ContactRole>('tous');
   const [countryFilter, setCountryFilter] = useState<string | null>(null);
   const [relationFilter, setRelationFilter] = useState<string | null>(null);
+  // Contacts ajoutés par Ada et Dana (16/10) : un filtre, et un badge « IA » sur chaque ligne.
+  const [aiOnly, setAiOnly] = useState(false);
   const [editing, setEditing] = useState<ContactInput | null>(null);
   const [editModels, setEditModels] = useState<Array<{ brand: string; model: string; qty: number | null; note: string }>>([]);
   const [placing, setPlacing] = useState<'form' | string | null>(null); // 'form' = épingle du formulaire, sinon id du contact à déplacer
@@ -320,7 +322,9 @@ export function Carte() {
     (roleFilter === 'tous' || c.role === roleFilter || c.role === 'les_deux')
     && (!countryFilter || c.country === countryFilter)
     && (!relationFilter || c.relation === relationFilter)
-    && contactMatchesQuery(c, query)), [contacts, roleFilter, countryFilter, relationFilter, query]);
+    && (!aiOnly || isAiContact(c))
+    && contactMatchesQuery(c, query)), [contacts, roleFilter, countryFilter, relationFilter, aiOnly, query]);
+  const aiCount = useMemo(() => contacts.filter(isAiContact).length, [contacts]);
   const selected = contacts.find((c) => c.id === selectedId) ?? null;
   const countries = useMemo(() => [...new Set(contacts.map((c) => c.country))].sort(), [contacts]);
 
@@ -542,8 +546,13 @@ export function Carte() {
                     {FLAG[iso] ?? ''} {COUNTRY_NAMES[iso] ?? iso} <span className="opacity-60">{contacts.filter((c) => c.country === iso).length}</span>
                   </button>
                 ))}
-                {(countryFilter || relationFilter || roleFilter !== 'tous' || query) && (
-                  <button onClick={() => { setCountryFilter(null); setRelationFilter(null); setRoleFilter('tous'); setQuery(''); }} className="text-xs text-slate-500 hover:text-slate-700 underline px-1">tout afficher</button>
+                {aiCount > 0 && (
+                  <button onClick={() => setAiOnly((v) => !v)} title="Contacts ajoutés par Ada (acheteurs) et Dana (vendeurs)" className={`text-xs rounded-full px-2 py-0.5 border transition-colors ${aiOnly ? 'bg-violet-600 text-white border-violet-600' : 'bg-violet-50 border-violet-200 text-violet-700 hover:bg-violet-100'}`}>
+                    Ajoutés par IA <span className="opacity-70">{aiCount}</span>
+                  </button>
+                )}
+                {(countryFilter || relationFilter || roleFilter !== 'tous' || query || aiOnly) && (
+                  <button onClick={() => { setCountryFilter(null); setRelationFilter(null); setRoleFilter('tous'); setQuery(''); setAiOnly(false); }} className="text-xs text-slate-500 hover:text-slate-700 underline px-1">tout afficher</button>
                 )}
               </div>
               {canEdit && (
@@ -598,6 +607,7 @@ export function Carte() {
                     {groupMode && <input type="checkbox" readOnly checked={picked.has(c.id)} disabled={!c.website} aria-label={`Relever ${c.name}`} className="shrink-0" />}
                     <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow" style={{ background: ROLE_COLOR[c.role] }} />
                     <span className="font-medium text-slate-900 truncate">{c.name}</span>
+                    {isAiContact(c) && <span title="Ajouté par une agente IA" className="text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 shrink-0">{AI_SOURCE_LABEL[c.source as 'ada' | 'dana']}</span>}
                     {c.relation && <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: RELATION_COLOR[c.relation] ?? '#64748b' }}>{RELATION_LABEL[c.relation] ?? c.relation}</span>}
                   </div>
                   <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
@@ -713,6 +723,7 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
         </div>
         <div className="flex flex-wrap gap-1.5 mt-3">
           {c.relation && <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 text-white" style={{ background: RELATION_COLOR[c.relation] ?? '#64748b' }}>{RELATION_LABEL[c.relation] ?? c.relation}</span>}
+          {isAiContact(c) && <span className="text-[11px] font-medium rounded-full px-2 py-0.5 bg-violet-50 text-violet-700 border border-violet-200">Ajouté par {c.source === 'ada' ? 'Ada' : 'Dana'} (IA){c.ai_added_at ? ` le ${new Date(c.ai_added_at).toLocaleDateString('fr-FR')}` : ''}</span>}
           {c.market_share != null && <span className="text-[11px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">{c.market_share.toLocaleString('fr-FR')} % du panel</span>}
           <StockFigure c={c} run={run} chip scanning={scanning} />
         </div>

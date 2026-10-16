@@ -20,6 +20,7 @@ import { startSalesSheetSync } from './salesSheetSync';
 import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
 import { startReminderMailer } from './reminderMailer';
+import { registerAgentRoutes, startAgents } from './agents';
 import { runDealerStock } from './dealerStock';
 import { startDealerStockScheduler } from './dealerStockScheduler';
 import { getFxRates } from './fx';
@@ -655,6 +656,9 @@ app.post('/campaign/start', async (req, res) => {
   }
 });
 
+// Ada et Dana (16/10) : retour de l'écran Google quand un admin connecte leur boîte depuis ADA.
+registerAgentRoutes(app);
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[WORKER] ===== MC Export Worker Service Started =====`);
   console.log(`[WORKER] Node version: ${process.version}`);
@@ -701,6 +705,8 @@ app.listen(PORT, "0.0.0.0", () => {
     startMailer();
     // Rappels par e-mail à l'échéance, de soi à soi (comptes du domaine) — 12/10.
     startReminderMailer();
+    // Boîtes d'Ada et Dana (16/10) : envois validés et synchro Gmail.
+    startAgents();
     // Preuve de marché modèle × carburant : première moisson dès que la
     // table existe, puis rafraîchissement mensuel (garde 30 min).
     startFuelEvidenceScheduler();

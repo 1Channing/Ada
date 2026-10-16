@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet, GraduationCap, BarChart3 } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet, GraduationCap, BarChart3, Bot } from 'lucide-react';
 import { listLearningCases } from '../services/learningCases';
 import { countMyOpenTasks } from '../services/userTasks';
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
@@ -118,6 +118,8 @@ export function Layout({ children }: LayoutProps) {
     { path: '/veille', label: 'Veille', icon: <Scale className="w-4 h-4" />, tab: 'veille' },
     { path: '/carte', label: 'Carte', icon: <MapIcon className="w-4 h-4" />, tab: 'carte' },
     { path: '/offres', label: 'Offres', icon: <FileSpreadsheet className="w-4 h-4" />, tab: 'offres' },
+    // Ada et Dana (16/10) : boîtes des deux agentes, messages à valider, journal.
+    { path: '/agents', label: 'Agents', icon: <Bot className="w-4 h-4" />, tab: 'agents' },
     // Statistiques (12/10 soir) : le manager d'une organisation voit la prospection de ses commerciaux ; les admins aussi.
     { path: '/statistiques', label: 'Statistiques', icon: <BarChart3 className="w-4 h-4" />, manager: true },
   ];

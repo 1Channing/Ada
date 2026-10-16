@@ -42,7 +42,15 @@ export interface NetworkContact {
   models: NetworkContactModel[];
   /** Interlocuteurs EN PLUS du contact principal (08/10, signalement Achille). Absent tant que le SQL du 08/10 n'est pas collé. */
   people?: NetworkContactPerson[];
+  /** D'où vient le contact (16/10) : saisi par l'équipe, ou ajouté par Ada / Dana (badge « IA »). Absent tant que le SQL du 16/10 n'est pas collé. */
+  source?: ContactSource;
+  ai_added_at?: string | null;
 }
+
+export type ContactSource = 'manuel' | 'ada' | 'dana';
+/** Contact ajouté par une agente IA (Ada : acheteurs, Dana : vendeurs). */
+export const isAiContact = (c: { source?: ContactSource }) => c.source === 'ada' || c.source === 'dana';
+export const AI_SOURCE_LABEL: Record<'ada' | 'dana', string> = { ada: 'IA · Ada', dana: 'IA · Dana' };
 
 export interface NetworkContactPerson { name: string; role: string; phone: string; email: string }
 
