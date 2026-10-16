@@ -3,6 +3,7 @@ import { Megaphone, ExternalLink, BarChart3, ChevronDown } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listShowcase, showcaseTitle, type IntraItem } from '../services/intra';
 import { verdictOf, COUNTRY_CAVEAT } from '../lib/offers/marketCheck';
+import { siteDealUrl } from '../lib/siteDeal';
 import { OFFER_COUNTRIES } from '../services/offers';
 import { colorLabel } from '../lib/offers/colorTranslate';
 
@@ -13,6 +14,7 @@ import { colorLabel } from '../lib/offers/colorTranslate';
  * véhicule, le prix MC Export HT, le verdict FRANCE du relevé de marché du
  * lot et, derrière « Étude de marché », les recherches françaises du relevé
  * (cliquables, pour vérifier le marché soi-même) — sans quitter l'Accueil.
+ * Un clic sur le véhicule ouvre son annonce sur mc-export.com (16/10).
  * Un seul pays : la vitrine parle à des vendeurs sur le marché français
  * (Channing : « à vendre sur le marché jusqu'à contre-ordre, pas les liens
  * ni l'écart des Pays-Bas »). Lecture seule ; seule l'équipe MC Export
@@ -54,7 +56,7 @@ export function IntraShowcase() {
         <span className="text-xs text-slate-400">{items.length} véhicule{items.length > 1 ? 's' : ''} publié{items.length > 1 ? 's' : ''} par l'équipe MC Export · prix MC Export HT · marché français</span>
       </div>
       {error && <p className="mx-5 mb-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3 px-5 pb-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 px-5 pb-5">
         {items.map((it) => {
           const v = it.vehicle;
           const countries = SHOWCASE_COUNTRIES.filter((c) => it.market?.[c]);
@@ -69,27 +71,33 @@ export function IntraShowcase() {
             colorLabel(v.color, 'fr'),
             v.quantity > 1 ? `${v.quantity} exemplaires` : '',
           ].filter(Boolean);
+          const siteUrl = siteDealUrl(it.id, v);
           return (
             <div key={it.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-2">
-              {/* Photos (13/10) : la première en grand, les autres en vignettes — les mêmes que sur mc-export.com. */}
-              {(it.photos ?? []).length > 0 && (
-                <div className="flex gap-1.5">
-                  <img src={it.photos![0]} alt={`${v.brand} ${v.model}`} className="h-28 flex-1 min-w-0 object-cover rounded-lg border border-slate-200 bg-white" loading="lazy" />
-                  {it.photos!.slice(1, 4).map((p, n) => <img key={p} src={p} alt={`${v.brand} ${v.model} photo ${n + 2}`} className="h-28 w-16 object-cover rounded-lg border border-slate-200 bg-white" loading="lazy" />)}
+              {/* Le véhicule (photos, titre, prix, caractéristiques, mot) ouvre son annonce sur mc-export.com, dans un
+                  nouvel onglet pour garder ADA ouvert (16/10, Channing). Le verdict et l'étude de marché restent hors
+                  du lien : leur bouton et leurs liens marchent comme avant. */}
+              <a href={siteUrl} target="_blank" rel="noopener noreferrer" title="Voir l'annonce sur mc-export.com" className="group block space-y-2 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ocean/40">
+                {/* Photos (13/10) : la première en grand, les autres en vignettes — les mêmes que sur mc-export.com. */}
+                {(it.photos ?? []).length > 0 && (
+                  <div className="flex gap-1.5 transition-opacity group-hover:opacity-90">
+                    <img src={it.photos![0]} alt={`${v.brand} ${v.model}`} className="h-28 flex-1 min-w-0 object-cover rounded-lg border border-slate-200 bg-white" loading="lazy" />
+                    {it.photos!.slice(1, 4).map((p, n) => <img key={p} src={p} alt={`${v.brand} ${v.model} photo ${n + 2}`} className="h-28 w-16 object-cover rounded-lg border border-slate-200 bg-white" loading="lazy" />)}
+                  </div>
+                )}
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-slate-900 truncate group-hover:text-brand-ocean group-hover:underline" title={`${v.brand} ${v.model}`}>{showcaseTitle(it)}</p>
+                    <p className="text-xs text-slate-600 truncate" title={v.version}>{v.engine || v.version}{v.engine && v.version && v.engine !== v.version ? ` · ${v.version}` : ''}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-bold text-brand-encre tabular-nums">{it.price_ht != null ? fmtEur(it.price_ht) : 'sur proposition'}</p>
+                    {it.price_ht != null && <p className="text-[10px] text-slate-400">HT</p>}
+                  </div>
                 </div>
-              )}
-              <div className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-900 truncate" title={`${v.brand} ${v.model}`}>{showcaseTitle(it)}</p>
-                  <p className="text-xs text-slate-600 truncate" title={v.version}>{v.engine || v.version}{v.engine && v.version && v.engine !== v.version ? ` · ${v.version}` : ''}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="font-bold text-brand-encre tabular-nums">{it.price_ht != null ? fmtEur(it.price_ht) : 'sur proposition'}</p>
-                  {it.price_ht != null && <p className="text-[10px] text-slate-400">HT</p>}
-                </div>
-              </div>
-              <p className="text-[11px] text-slate-500">{chips.join(' · ')}{v.damages ? ` · dommages ${fmtEur(v.damages)}` : ''}</p>
-              {it.note && <p className="text-xs text-slate-700 whitespace-pre-wrap">« {it.note} »</p>}
+                <p className="text-[11px] text-slate-500">{chips.join(' · ')}{v.damages ? ` · dommages ${fmtEur(v.damages)}` : ''}</p>
+                {it.note && <p className="text-xs text-slate-700 whitespace-pre-wrap">« {it.note} »</p>}
+              </a>
               <div className="flex items-center gap-2 flex-wrap">
                 {countries.length > 0 ? countries.map((c) => {
                   const res = it.market?.[c];
@@ -119,7 +127,12 @@ export function IntraShowcase() {
                   ))}
                 </div>
               )}
-              <p className="text-[10px] text-slate-400">{it.offer_title || 'offre'} · publié par {it.published_by_name} le {fmtDate(it.published_at)}</p>
+              <div className="flex items-end gap-2">
+                <p className="min-w-0 flex-1 text-[10px] text-slate-400">{it.offer_title || 'offre'} · publié par {it.published_by_name} le {fmtDate(it.published_at)}</p>
+                <a href={siteUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 inline-flex items-center gap-1 text-[11px] text-brand-ocean hover:underline">
+                  Voir l'annonce <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
             </div>
           );
         })}

@@ -15,7 +15,8 @@
     "test:parity:scraping": "tsx test/parity/scraping-parity.test.ts",
     "test:parity:all": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e",
     "test:median": "tsx test/median-calculation.test.ts",
-    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median",
+    "test:site-deal": "tsx test/site-deal-url.test.ts",
+    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median && npm run test:site-deal",
     "build:worker": "cd worker && npm ci && npm run build",
     "start:worker": "cd worker && npm start",
     "gate": "tsc --noEmit -p tsconfig.app.json && tsx scripts/grammar-gate.mts && vite build"
