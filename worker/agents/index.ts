@@ -13,6 +13,8 @@
  * - Les tâches des agentes (découvertes de concessions, qualifications par
  *   l'IA, 17/10), une à la fois toutes les 20 s, et le cycle automatique
  *   toutes les 10 min (./tasks.ts) — sans besoin de Google.
+ * - L'annuaire et les lots précalculés (./indexRefresh.ts) : toutes les
+ *   3 heures et après chaque découverte.
  * Coupe-circuit : AGENTS_ENABLED=0. Sans AGENT_GOOGLE_CLIENT_ID / SECRET, les
  * boîtes ne tournent pas (le reste du worker n'est pas touché).
  */
@@ -22,6 +24,7 @@ import { sb, loadAgents, journal } from './store';
 import { syncMailbox, recordSyncError } from './sync';
 import { sendDue } from './outbox';
 import { runNextTask, autoCycle } from './tasks';
+import { startIndexRefresh } from './indexRefresh';
 
 const TICK_MS = 30_000;
 const SYNC_EVERY_MS = 2 * 60_000;
@@ -118,6 +121,7 @@ export function startAgents(): void {
   setTimeout(() => void runNextTask(), 15_000);
   setInterval(() => void autoCycle(), 10 * 60_000);
   setTimeout(() => void autoCycle(), 60_000);
+  startIndexRefresh();
   const client = oauthClient();
   if (!client) { console.log('[AGENTS] AGENT_GOOGLE_CLIENT_ID / AGENT_GOOGLE_CLIENT_SECRET absents — boîtes d\'Ada et Dana non branchées'); return; }
   const redirect = redirectUri();

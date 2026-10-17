@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Radar, Building2, Phone, ExternalLink, MapPin, ChevronDown, X, Plus, TrendingUp, Sparkles, Mail } from 'lucide-react';
 import {
   listDealers, dealerListings, salesProfile, ourOffers, listTasks, queueDiscovery, cancelTask, addDealerToMap,
-  queueQualification, prospectDetails, setProspectStage, queueFirstMails, threadsOfProspects, SITES_SQL_HINT,
+  queueQualification, prospectDetails, setProspectStage, queueFirstMails, threadsOfProspects, indexMeta, SITES_SQL_HINT,
   type DealerRow, type DealerListing, type SalesProfile, type AgentTask, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { opportunities, type OfferLite, type Opportunity } from '../../lib/agents/opportunity';
@@ -58,6 +58,8 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   const [listings, setListings] = useState<DealerListing[]>([]);
   const [offers, setOffers] = useState<OfferLite[]>([]);
   const [loading, setLoading] = useState(false);
+  // L'annuaire est précalculé par le serveur (SQL agents_index) : l'heure du dernier calcul.
+  const [computedAt, setComputedAt] = useState<string | null>(null);
   const [country, setCountry] = useState<string | null>(null);
   const [brand, setBrand] = useState<string>('');
   const [query, setQuery] = useState('');
@@ -80,6 +82,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   const loadDirectory = useCallback(async () => {
     setLoading(true);
     const r = await listDealers({ country, brand: brand || null, query, exclude: [HOME_COUNTRY] });
+    void indexMeta().then((m) => setComputedAt(m?.computed_at ?? null));
     if (r.error) { onError(r.error); setLoading(false); return; }
     setRows(r.rows);
     // Un garage vu sur plusieurs sites : ses annonces et sa fiche d'Ada sont rangées sous sa ligne.
@@ -136,7 +139,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   const launch = async () => {
     const vans = disc.site === 'AUTOSCOUT' && disc.vans;
     const e = await queueDiscovery({ site: disc.site, country: disc.country, brand: disc.brand.trim(), model: disc.model.trim() || undefined, vans, pages: discoveryPages(disc.pages) }, userId);
-    if (e) onError(e); else { onInfo(`Découverte lancée : ${siteLabel(disc.site)} ${COUNTRY_NAME[disc.country] ?? disc.country} · ${disc.brand}${vans ? ' (utilitaires)' : ''}. Résultat dans une à deux minutes.`); void loadTasks(); }
+    if (e) onError(e); else { onInfo(`Découverte lancée : ${siteLabel(disc.site)} ${COUNTRY_NAME[disc.country] ?? disc.country} · ${disc.brand}${vans ? ' (utilitaires)' : ''}. Résultat d'ici quelques minutes (l'annuaire est recalculé après chaque découverte).`); void loadTasks(); }
   };
   const discSites = DISCOVERY_SITES[disc.country] ?? ['AUTOSCOUT'];
   const qualify = async (ids: string[]) => {
@@ -249,7 +252,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
             <Building2 className="w-4 h-4 text-brand-ocean" />
             <h3 className="text-sm font-semibold text-slate-900">Annuaire des concessions</h3>
             <span className="text-xs text-slate-500">— acheteurs possibles hors de France, vus sur les pages qu'ADA lit (90 derniers jours). Les garages français sont des fournisseurs : onglet Sourcing (Dana).</span>
-            <span className="ml-auto text-xs text-slate-400">{loading ? 'lecture…' : `${shown.length} / ${rows.length}`}</span>
+            <span className="ml-auto text-xs text-slate-400">{loading ? 'lecture…' : `${shown.length} / ${rows.length}`}{computedAt ? ` · recalculé ${fmtRelative(computedAt)}` : ''}</span>
           </div>
           {rows.length > 0 && !rows.some((d) => Array.isArray(d.members)) && <p className="text-[11px] text-amber-700">{SITES_SQL_HINT}</p>}
           <div className="flex items-center gap-1.5 flex-wrap">

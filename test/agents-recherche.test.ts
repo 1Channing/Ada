@@ -145,6 +145,7 @@ const mail: FirstMailOutput = {
   traduction_fr: 'Bonjour, …', faits: [{ fait: 'vend des véhicules récents aux professionnels', source: 'fiche' }],
 };
 let base = '';
+let noCredit = false;
 const calls: Array<{ model: string; system: string; user: string; tools?: Array<{ name: string; max_uses?: number }> }> = [];
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   if (!(req.url?.startsWith('/v1/messages') && req.method === 'POST')) { res.writeHead(404); res.end(); return; }
@@ -154,6 +155,11 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   const system = body.system?.[0]?.text ?? '';
   const user = String(body.messages[0].content);
   calls.push({ model: body.model, system, user, tools: body.tools });
+  if (noCredit) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' } }));
+    return;
+  }
   const usage = { input_tokens: 9000, output_tokens: 900, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, server_tool_use: { web_search_requests: body.tools ? 2 : 0, web_fetch_requests: 0 } };
   const reply = (content: unknown[]) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: body.model, content, stop_reason: 'end_turn', stop_sequence: null, usage })); };
   const results = (urls: string[]) => [
@@ -260,6 +266,20 @@ ok(d3.status === 'redige' && /^Tu es Ada/.test(c5?.system ?? '') && (c5?.user ??
   'revendeur d\'Ada : son type et nos offres du moment', c5?.user.split('\n'));
 ok(db.agent_runs.length === 5 && db.agent_runs[0].purpose === 'recherche_comptes' && db.agent_runs[1].purpose === 'qualification' && db.agent_runs[2].purpose === 'grand_compte' && db.agent_runs[2].model === OPUS,
   'appels inscrits : recherche, qualification, grand compte, premiers mails', db.agent_runs.map((r) => r.purpose));
+
+// 7. Plus de crédits : un message clair ; le travail automatique attend, une tâche lancée à la main réessaie tout de suite.
+const { clearCreditPause } = await import('../worker/agents/claude');
+const before = calls.length;
+noCredit = true;
+const fail = async (id: string) => { try { await researchAccounts(id, { segment: 'loueur', country: 'NL' }, dana); return ''; } catch (e) { return e instanceof Error ? e.message : String(e); } };
+const e1 = await fail('tc1');
+const e2 = await fail('tc2');
+ok(/crédits API Anthropic épuisés : ajoutez-en dans la console Anthropic/.test(e1) && /reprend seul dans l'heure/.test(e2) && calls.length === before + 1,
+  'plus de crédits : message clair, puis le travail automatique attend (aucun nouvel appel)', { e1, e2, appels: calls.length - before });
+noCredit = false;
+clearCreditPause();
+const r5 = await researchAccounts('tc3', { segment: 'loueur', country: 'NL' }, dana);
+ok(calls.length === before + 2 && r5.result.trouves > 0, 'crédits ajoutés : une tâche lancée à la main réessaie tout de suite', r5.summary);
 
 server.close();
 if (fails === 0) {

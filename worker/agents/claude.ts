@@ -12,7 +12,9 @@
  *   par l'API (« pause_turn ») est repris tel quel, trois fois au plus.
  * - Opus 5.5 : repli serveur en cas de refus (fallbacks « default », en-tête
  *   server-side-fallback-2026-07-01), comme recommandé pour ce modèle.
- * - Crédits épuisés : pause de 6 h, une seule alerte.
+ * - Crédits épuisés : le travail automatique s'arrête une heure ; une tâche
+ *   lancée par une personne réessaie tout de suite (des crédits ont pu être
+ *   ajoutés entre-temps).
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { costUsd, addUsage, type UsageLike } from '../../src/lib/agents/aiCost';
@@ -31,6 +33,11 @@ const api = (): Anthropic | null => {
 export const aiConfigured = (): boolean => !!process.env.ANTHROPIC_API_KEY;
 
 let creditPauseUntil = 0;
+const CREDIT_PAUSE_MS = 3600_000;
+const NO_CREDIT = 'crédits API Anthropic épuisés : ajoutez-en dans la console Anthropic (Plans et facturation), puis relancez la tâche';
+
+/** Une tâche lancée par une personne réessaie tout de suite, même pendant la pause « crédits épuisés ». */
+export function clearCreditPause(): void { creditPauseUntil = 0; }
 
 /** Dépense du jour (heure de Paris) d'une agente, en dollars. */
 export async function spentToday(agent: string): Promise<number> {
@@ -97,7 +104,7 @@ function parseJson<T>(blocks: Block[]): { data: T | null; text: string } {
 export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
   const a = api();
   if (!a) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker');
-  if (Date.now() < creditPauseUntil) throw new AiUnavailable('crédits API Anthropic épuisés — reprise automatique dans quelques heures');
+  if (Date.now() < creditPauseUntil) throw new AiUnavailable(`${NO_CREDIT} (le travail automatique reprend seul dans l'heure)`);
   const spent = await spentToday(c.agent);
   if (spent >= c.budgetUsd) throw new BudgetReached(`plafond du jour atteint (${spent.toFixed(2)} $ sur ${c.budgetUsd} $)`);
 
@@ -127,8 +134,10 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (/credit balance|insufficient_quota|billing/i.test(msg)) creditPauseUntil = Date.now() + 6 * 3600_000;
+    const noCredit = /credit balance|insufficient_quota|billing/i.test(msg);
+    if (noCredit) creditPauseUntil = Date.now() + CREDIT_PAUSE_MS;
     await record(c, usage, costUsd(c.model, usage), null, msg);
+    if (noCredit) throw new AiUnavailable(NO_CREDIT);
     throw e instanceof Anthropic.APIError ? new Error(`API Claude ${e.status ?? ''} : ${msg}`.trim()) : e;
   }
   const cost = costUsd(c.model, usage);

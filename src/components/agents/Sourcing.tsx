@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Layers, Radar, ExternalLink, Phone, MapPin, Plus, ChevronDown, X, Sparkles, Crown } from 'lucide-react';
 import {
-  listLots, listTasks, queueDanaDiscovery, cancelTask, addLotDealerToMap, queueQualification, queueFirstMails, prospectDetails, setProspectStage, threadsOfProspects,
+  listLots, listTasks, queueDanaDiscovery, cancelTask, addLotDealerToMap, queueQualification, queueFirstMails, prospectDetails, setProspectStage, threadsOfProspects, indexMeta,
   type DealerLot, type AgentTask, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { QualifCard } from './QualifCard';
@@ -69,10 +69,13 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
   const [details, setDetails] = useState<Map<string, ProspectDetail>>(new Map());
   const [threads, setThreads] = useState<Map<string, string>>(new Map());
   const [card, setCard] = useState<string | null>(null);
+  // Les lots sont précalculés par le serveur (SQL agents_index) : l'heure du dernier calcul.
+  const [computedAt, setComputedAt] = useState<string | null>(null);
 
   const loadLots = useCallback(async () => {
     setLoading(true);
     const r = await listLots({ country, markets, min, brand: brand || null });
+    void indexMeta().then((m) => setComputedAt(m?.computed_at ?? null));
     if (r.error) { setLoading(false); onError(r.error); return; }
     setLots(r.rows);
     const withProspect = r.rows.filter((l) => l.prospect);
@@ -129,7 +132,7 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
 
   const launch = async () => {
     const e = await queueDanaDiscovery({ site: disc.site, country: disc.country, brand: disc.brand.trim(), model: disc.model.trim() || undefined, pages: discoveryPages(disc.pages) }, userId);
-    if (e) onError(e); else { onInfo(`Découverte de Dana lancée : ${siteLabel(disc.site)} ${COUNTRY_NAME[disc.country] ?? disc.country} · ${disc.brand}. Les lots apparaissent ici d'ici une à deux minutes.`); void loadTasks(); }
+    if (e) onError(e); else { onInfo(`Découverte de Dana lancée : ${siteLabel(disc.site)} ${COUNTRY_NAME[disc.country] ?? disc.country} · ${disc.brand}. Les lots apparaissent ici d'ici quelques minutes (ils sont recalculés après chaque découverte).`); void loadTasks(); }
   };
   const discSites = DISCOVERY_SITES[disc.country] ?? ['AUTOSCOUT'];
   const toMap = async (l: DealerLot) => {
@@ -148,7 +151,7 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
             <Layers className="w-4 h-4 text-teal-700" />
             <h3 className="text-sm font-semibold text-slate-900">Lots repérés par Dana</h3>
             <span className="text-xs text-slate-500">— plusieurs véhicules identiques (marque, modèle, année) chez un même garage, tous pays, vus ces 45 derniers jours.</span>
-            <span className="ml-auto text-xs text-slate-400">{loading ? 'lecture…' : `${shown.length} lot${shown.length > 1 ? 's' : ''}`}</span>
+            <span className="ml-auto text-xs text-slate-400">{loading ? 'lecture…' : `${shown.length} lot${shown.length > 1 ? 's' : ''}`}{computedAt ? ` · recalculés ${fmtRelative(computedAt)}` : ''}</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap text-xs">
             {toQualify.length > 0 && (

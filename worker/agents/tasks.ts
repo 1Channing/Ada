@@ -31,9 +31,10 @@
 import { discover } from './discovery';
 import { qualifyDealer, qualifyAccount, seriesContext, nextCandidates, nextLotCandidates, nextAccountCandidates, type AiAgent, type SeriesContext } from './qualify';
 import { researchAccounts } from './research';
+import { refreshSoon } from './indexRefresh';
 import { researchPairs, nextResearchPair, segmentOf, RESEARCH_COUNTRIES, COUNTRY_FR, type ResearchParams } from '../../src/lib/agents/research';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
-import { aiConfigured, spentToday, BudgetReached, AiUnavailable } from './claude';
+import { aiConfigured, spentToday, clearCreditPause, BudgetReached, AiUnavailable } from './claude';
 import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, type DiscoveryParams } from '../../src/lib/agents/discovery';
 import { ensureLearnedTaxonomy } from '../../src/lib/linkgen/taxonomy';
 import { parisClock, parisDayStart } from '../../src/lib/agents/sendPolicy';
@@ -140,10 +141,14 @@ export async function runNextTask(): Promise<void> {
       .eq('id', t.id).eq('status', 'en_attente').select('id');
     if (!claimed || (claimed as unknown[]).length === 0) return;
     const auto = t.created_by ? '' : ' (automatique)';
+    // Lancée par une personne : on réessaie l'IA tout de suite (des crédits ont pu être ajoutés).
+    if (t.created_by) clearCreditPause();
     try {
       if (t.kind === 'decouverte_concessions') {
         const result = await discover(t.params);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
+        // Les garages et les lots trouvés apparaissent après le prochain calcul de l'annuaire.
+        if (Number(result.concessions) > 0) refreshSoon('découverte');
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'decouverte',
           summary: `Découverte ${label(t.params)}${auto} : ${result.annonces} annonces lues, ${result.avec_garage} avec leur garage, ${result.concessions} concessions (dont ${result.nouvelles} nouvelles)`, details: result });
       } else if (t.kind === 'qualification') {

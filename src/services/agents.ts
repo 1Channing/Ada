@@ -316,6 +316,9 @@ const errQualif = (m: string) => (missing(m) || /column .* does not exist|agents
 export const ANNUAIRE_SQL_HINT = 'Annuaire : SQL du 17/10 (agents_annuaire) à coller dans Supabase.';
 export const SITES_SQL_HINT = 'Un même garage vu sur plusieurs sites apparaît encore plusieurs fois : SQL du 17/10 (agents_tous_sites) à coller dans Supabase.';
 const errAnnuaire = (m: string) => (missing(m) ? ANNUAIRE_SQL_HINT : m);
+/** Un calcul trop long pour la base (plus de 8 s) : l'annuaire et les lots se précalculent avec le SQL agents_index. */
+export const INDEX_SQL_HINT = 'SQL du 17/10 (agents_index) à coller dans Supabase : l\'annuaire et les lots seront précalculés par le serveur.';
+const slow = (what: string, m: string) => (/statement timeout|57014/i.test(m) ? `${what} : la base a mis trop de temps à répondre. ${INDEX_SQL_HINT}` : m);
 
 export async function listDealers(f: { country?: string | null; brand?: string | null; query?: string | null; days?: number; limit?: number; exclude?: string[] }): Promise<{ rows: DealerRow[]; error: string | null }> {
   const args = { p_country: f.country || null, p_brand: f.brand || null, p_query: f.query?.trim() || null, p_days: f.days ?? 90, p_limit: f.limit ?? 300 };
@@ -323,7 +326,7 @@ export async function listDealers(f: { country?: string | null; brand?: string |
   const first = await sb.rpc('agents_dealer_directory', exclude.length ? { ...args, p_exclude_countries: exclude } : args);
   if (!first.error) return { rows: (first.data ?? []) as DealerRow[], error: null };
   // SQL du 17/10 (agents_lots) pas encore collé : l'annuaire d'avant, trié ici.
-  if (!exclude.length || !/p_exclude_countries|function|schema cache/i.test(first.error.message)) return { rows: [], error: errAnnuaire(first.error.message) };
+  if (!exclude.length || !/p_exclude_countries|function|schema cache/i.test(first.error.message)) return { rows: [], error: slow('Annuaire', errAnnuaire(first.error.message)) };
   const { data, error } = await sb.rpc('agents_dealer_directory', args);
   if (error) return { rows: [], error: errAnnuaire(error.message) };
   return { rows: ((data ?? []) as DealerRow[]).filter((d) => !exclude.includes((d.country ?? '').toUpperCase())), error: null };
@@ -424,8 +427,15 @@ export async function listLots(f: { country?: string | null; markets: string[]; 
   const { data, error } = await sb.rpc('agents_dealer_lots', {
     p_country: f.country || null, p_markets: f.markets, p_min: f.min ?? 3, p_days: f.days ?? 45, p_brand: f.brand?.trim() || null, p_limit: f.limit ?? 200,
   });
-  if (error) return { rows: [], error: missing(error.message) || /agents_dealer_lots|function/i.test(error.message) ? LOTS_SQL_HINT : error.message };
+  if (error) return { rows: [], error: missing(error.message) || /agents_dealer_lots|function/i.test(error.message) ? LOTS_SQL_HINT : slow('Lots de Dana', error.message) };
   return { rows: (data ?? []) as DealerLot[], error: null };
+}
+
+/** L'heure du dernier calcul de l'annuaire et des lots (null tant que le SQL agents_index n'est pas collé). */
+export async function indexMeta(): Promise<{ computed_at: string; dealers: number; lots: number; refs: number } | null> {
+  const { data, error } = await sb.from('agent_index_meta').select('computed_at, dealers, lots, refs').maybeSingle();
+  if (error || !data?.computed_at) return null;
+  return data as { computed_at: string; dealers: number; lots: number; refs: number };
 }
 
 /** Dana pose une découverte (tous pays, la France comprise) : ses garages et leurs lots entrent dans l'annuaire. */
