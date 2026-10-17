@@ -31,6 +31,7 @@
  * passent par la validation.
  */
 import { live } from './live';
+import { aiProblemOf } from '../../src/lib/agents/aiErrors';
 import { promises as dns } from 'node:dns';
 import { fetchHtmlWithZyte } from '../scraper';
 import { parseDealerInfoPage, extractEmails, mailtoEmails, extractPeople, contactLinks, pageText, type DealerPageInfo } from '../../src/lib/agents/dealerPage';
@@ -540,11 +541,34 @@ export async function nextCandidates(ctx: SeriesContext, limit: number): Promise
   return ((data ?? []) as Array<{ dealer_id: string }>).map((r) => r.dealer_id).filter((id) => !tried.has(id)).slice(0, limit);
 }
 
-/** Les garages et les comptes confiés à cette agente ces 3 derniers jours (fiche faite ou non) : pas repris à chaque cycle. */
+export interface QualificationTaskRow {
+  params: { dealer_ids?: string[]; account_ids?: string[] } | null;
+  status?: string;
+  result?: { echecs_ids?: string[]; arret?: string | null; details?: string[] } | null;
+}
+
+/**
+ * Ce qu'une série de fiches retient (18/10) : ce qu'elle a confié tant qu'elle
+ * tourne, puis seulement ce qui a vraiment échoué. Une panne de l'IA (clé,
+ * crédits, espace de travail), un budget atteint ou un redémarrage ne retient
+ * rien : l'agente reprend tout de suite. Ce qui a sa fiche n'est plus candidat
+ * de toute façon. Les séries d'avant la liste des échecs : une panne ou un
+ * arrêt libère toute la série.
+ */
+export function heldBackIds(t: QualificationTaskRow): string[] {
+  const all = [...(t.params?.dealer_ids ?? []), ...(t.params?.account_ids ?? [])];
+  if (t.status === 'echec' || t.status === 'annulee') return [];
+  if (t.status !== 'terminee') return all;
+  const r = t.result ?? {};
+  if (Array.isArray(r.echecs_ids)) return r.echecs_ids.map(String);
+  const details = r.details ?? [];
+  return r.arret || (details.length > 0 && details.every((d) => !!aiProblemOf(d))) ? [] : all;
+}
+
+/** Les garages et les comptes confiés à cette agente ces 3 derniers jours, sans fiche faute d'y être arrivée : pas repris à chaque cycle. */
 async function recentlyTried(agent: string): Promise<Set<string>> {
-  const { data } = await sb.from('agent_tasks').select('params').eq('agent', agent).eq('kind', 'qualification').gte('created_at', new Date(Date.now() - 3 * 86_400_000).toISOString()).limit(500);
-  return new Set(((data ?? []) as Array<{ params: { dealer_ids?: string[]; account_ids?: string[] } | null }>)
-    .flatMap((t) => [...(t.params?.dealer_ids ?? []), ...(t.params?.account_ids ?? [])]));
+  const { data } = await sb.from('agent_tasks').select('params, status, result').eq('agent', agent).eq('kind', 'qualification').gte('created_at', new Date(Date.now() - 3 * 86_400_000).toISOString()).limit(500);
+  return new Set(((data ?? []) as QualificationTaskRow[]).flatMap(heldBackIds));
 }
 
 /** Les entreprises trouvées par recherche, pas encore qualifiées : elles passent avant l'annuaire (des comptes choisis). */
@@ -594,7 +618,7 @@ interface LotRpcRow { dealer?: { id?: string; name?: string | null; phone?: stri
  * Les prochains fournisseurs que Dana qualifie d'office : les garages aux plus
  * gros lots de véhicules identiques, et aux meilleurs écarts face à nos pays
  * de vente — dans toute l'Europe —, pas encore fichés par elle ni connus de
- * l'équipe. Un garage confié ces 3 derniers jours attend.
+ * l'équipe. Un garage raté ces 3 derniers jours attend (pas une panne de l'IA).
  */
 export async function nextLotCandidates(ctx: SeriesContext, limit: number): Promise<string[]> {
   const { data, error } = await sb.rpc('agents_dealer_lots', { p_markets: ctx.dana.markets, p_min: ctx.dana.minLot, p_limit: 300 });

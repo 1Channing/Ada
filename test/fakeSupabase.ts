@@ -1,7 +1,7 @@
 /**
  * Une base Supabase simulée pour les tests du worker des agentes (17/10) :
  * tables en mémoire, et les gestes du client que le worker utilise (select,
- * eq, neq, gte, in, is, order, limit, maybeSingle, insert, upsert, update, delete),
+ * eq, neq, gte, lt, in, is, order, limit, maybeSingle, insert, upsert, update, delete),
  * et les fonctions (rpc) qu'un test simule.
  * Les défauts de la base (id, created_at) sont posés à l'insertion.
  */
@@ -22,6 +22,7 @@ class Q implements PromiseLike<{ data: unknown; error: null }> {
   eq(c: string, v: unknown) { this.filters.push((r) => r[c] === v); return this; }
   neq(c: string, v: unknown) { this.filters.push((r) => r[c] !== v); return this; }
   gte(c: string, v: string) { this.filters.push((r) => String(r[c] ?? '') >= v); return this; }
+  lt(c: string, v: string) { this.filters.push((r) => r[c] != null && String(r[c]) < v); return this; }
   in(c: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   not() { return this; }
   is(c: string, v: unknown) { this.filters.push((r) => (r[c] ?? null) === v); return this; }

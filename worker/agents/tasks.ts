@@ -43,6 +43,7 @@ import { normalizeDanaTargets, danaScanCountries } from '../../src/lib/agents/so
 import { ensureLearnedTaxonomy } from '../../src/lib/linkgen/taxonomy';
 import { inSendWindow, parisDayStart } from '../../src/lib/agents/sendPolicy';
 import { fmtUsd } from '../../src/lib/agents/aiCost';
+import { aiProblemOf } from '../../src/lib/agents/aiErrors';
 import { sb, journal, loadAgents } from './store';
 import { live, liveDone } from './live';
 
@@ -91,7 +92,9 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
   const items = [...accountIds.map((id) => ({ id, account: true })), ...dealerIds.map((id) => ({ id, account: false }))];
   if (items.length === 0) throw new Error('aucun garage ni compte pour une fiche');
   const ctx = await seriesContext(a, t.id);
-  const r = { garages: dealerIds.length, comptes: accountIds.length, qualifies: 0, ecartes: 0, echecs: 0, carte: 0, cout_usd: 0, arret: null as string | null, details: [] as string[] };
+  // echecs_ids : ce qui a vraiment échoué (attend 3 jours) ; une panne de l'IA ou un arrêt ne retient rien.
+  const r = { garages: dealerIds.length, comptes: accountIds.length, qualifies: 0, ecartes: 0, echecs: 0, carte: 0, cout_usd: 0, arret: null as string | null, details: [] as string[], echecs_ids: [] as string[] };
+  const failed = (id: string, detail: string) => { r.echecs++; r.details.push(detail); if (!aiProblemOf(detail)) r.echecs_ids.push(id); };
   for (const [i, { id, account }] of items.entries()) {
     live(t.id, `Fiche ${i + 1} sur ${items.length}`, { done: i, total: items.length });
     try {
@@ -99,12 +102,11 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
       r.cout_usd += o.cost;
       if (o.status === 'qualifie') r.qualifies++;
       else if (o.status === 'ecarte') r.ecartes++;
-      else { r.echecs++; r.details.push(`${o.name} : ${o.detail}`); }
+      else failed(id, `${o.name} : ${o.detail}`);
       if (o.addedToMap) r.carte++;
     } catch (e) {
       if (e instanceof BudgetReached || e instanceof AiUnavailable) { r.arret = e.message; break; }
-      r.echecs++;
-      r.details.push(e instanceof Error ? e.message : String(e));
+      failed(id, e instanceof Error ? e.message : String(e));
     }
   }
   r.cout_usd = Math.round(r.cout_usd * 10_000) / 10_000;

@@ -198,6 +198,7 @@ const aiOut = (o: Partial<QualifyOutput>): QualifyOutput => ({
 });
 const SOPHIE = 'https://fr.linkedin.com/in/sophie-martin-vo-8b1a2c';
 let base = '';
+let workspaceDown = false;
 const calls: Array<{ model: string; system: string; user: string; tools?: unknown[] }> = [];
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   const send = (code: number, body: string, type = 'text/html') => { res.writeHead(code, { 'content-type': type }); res.end(body); };
@@ -214,6 +215,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const usage = { input_tokens: 6000, output_tokens: 800, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, server_tool_use: { web_search_requests: body.tools ? 1 : 0, web_fetch_requests: 0 } };
     const reply = (content: unknown[]) => send(200, JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: body.model, content, stop_reason: 'end_turn', stop_sequence: null, usage }), 'application/json');
     if (body.model === HAIKU) {
+      if (workspaceDown && user.includes('TOYOTA NANTERRE')) {
+        return send(400, JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header.' } }), 'application/json');
+      }
       if (user.includes('TECHNIC AUTO')) {
         return reply([{ type: 'text', text: JSON.stringify(aiOut({
           site_web: `${base}/technic`, type: 'negociant_vo', ajustement: 5,
@@ -321,6 +325,38 @@ ok(d3.status === 'ignore' && /groupe Groupe Autosphère déjà approché/.test(d
 db.agent_prospects.push({ id: 'ada1', agent: 'ada', dealer_id: 'f1', name: 'TECHNIC AUTO', country: 'NL', stage: 'qualifie', best_contact: { email: 'vo@technic-auto.fr' }, emails: [{ email: 'vo@technic-auto.fr', mx: true }] });
 const d4 = await draftFirstMail('ada1', dana, 't2');
 ok(d4.status === 'ignore' && /fiche d'Ada/.test(d4.detail) && calls.length === 4, 'garde-fou : la fiche d\'Ada n\'est pas rédigée par Dana', d4);
+
+// 7. Après une panne de l'IA (18/10 : la clé sans espace de travail), ce qui n'a pas eu sa fiche est repris
+//    tout de suite ; un vrai échec attend 3 jours. La série tourne comme dans le worker.
+const { heldBackIds } = await import('../worker/agents/qualify');
+const { runNextTask } = await import('../worker/agents/tasks');
+const { clearAiPause } = await import('../worker/agents/claude');
+const WORKSPACE_DETAIL = 'TOYOTA NANTERRE - AUTOSPHERE : API Claude 400 : 400 {"type":"error","error":{"type":"invalid_request_error","message":"This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header."}}';
+const series = (status: string | undefined, result: Record<string, unknown> | null) => ({ params: { dealer_ids: ['a1', 'a2'], account_ids: ['c1'] }, status, result });
+ok(heldBackIds(series('terminee', { echecs: 1, arret: null, details: [WORKSPACE_DETAIL] })).length === 0
+  && heldBackIds(series('terminee', { echecs: 1, arret: 'crédits API Anthropic épuisés', details: ['A1 : site injoignable'] })).length === 0
+  && heldBackIds(series('echec', null)).length === 0 && heldBackIds(series('annulee', null)).length === 0,
+  'série d\'avant le 18/10 : une panne de l\'IA, un arrêt, une série en échec ou annulée ne retiennent rien');
+ok(heldBackIds(series('terminee', { echecs: 1, arret: null, details: ['A1 : site injoignable', WORKSPACE_DETAIL] })).join() === 'a1,a2,c1'
+  && heldBackIds(series('en_cours', null)).join() === 'a1,a2,c1' && heldBackIds(series(undefined, null)).join() === 'a1,a2,c1',
+  'série d\'avant le 18/10 avec un vrai échec, ou qui tourne encore : toute la série attend');
+ok(heldBackIds(series('terminee', { echecs: 2, echecs_ids: ['a2'], arret: 'budget du jour atteint', details: [] })).join() === 'a2', 'série du 18/10 : seuls les vrais échecs attendent');
+
+(db as Record<string, Row[]>).agent_settings = [{ ...(dana as unknown as Row) }];
+db.agent_tasks.push({ id: 'tp', agent: 'dana', kind: 'qualification', status: 'en_attente', params: { dealer_ids: ['f1', 'zz', 'g1'], auto: true }, created_by: null, created_at: new Date().toISOString() });
+workspaceDown = true;
+await runNextTask();
+workspaceDown = false;
+clearAiPause();
+{
+  const tp = db.agent_tasks.find((t) => t.id === 'tp') as (Row & { result: { qualifies: number; echecs: number; echecs_ids: string[]; arret: string | null } }) | undefined;
+  ok(tp?.status === 'terminee' && tp.result.qualifies === 1 && tp.result.echecs === 1 && tp.result.echecs_ids.join() === 'zz' && /espace de travail/.test(tp.result.arret ?? ''),
+    'série coupée par la panne : TECHNIC AUTO a sa fiche, le garage introuvable est un vrai échec, TOYOTA NANTERRE n\'est pas compté', tp && { status: tp.status, result: tp.result, error: tp.error });
+  lotRows.push({ dealer: { id: 'zz', name: 'INTROUVABLE', country: 'DE', phone: null }, brand: 'VW', model: 'Polo', year: 2022, count: 6, price_min: 15_000, price_max: 16_000, km_min: 20_000, km_max: 40_000, first_seen_at: daysAgo(5), markets: [], prospect: null });
+  const after = await nextLotCandidates(ctx as never, 10);
+  ok(after.includes('g1') && !after.includes('zz') && !after.includes('t9'), 'après la panne : TOYOTA NANTERRE est repris tout de suite ; le vrai échec et le garage tout juste confié attendent', after);
+  lotRows.pop();
+}
 
 server.close();
 if (fails === 0) {
