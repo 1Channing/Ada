@@ -145,7 +145,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   const qualify = async (ids: string[]) => {
     const e = await queueQualification(ids, userId);
     if (e) { onError(e); return; }
-    onInfo(`${ids.length} garage${ids.length > 1 ? 's' : ''} confié${ids.length > 1 ? 's' : ''} à Ada : comptez une minute environ par garage. Rien n'est envoyé à personne.`);
+    onInfo(`Ada prépare ${ids.length > 1 ? `${ids.length} fiches` : 'la fiche'} : qui décide, e-mail publié, LinkedIn s'il est trouvé. Une minute environ par fiche. Rien n'est envoyé à personne.`);
     void loadTasks();
   };
   const draft = async (p: ProspectDetail) => {
@@ -216,7 +216,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                 {t.kind === 'premier_mail' ? (
                   <span className="font-medium text-violet-900"><Mail className="inline w-3.5 h-3.5 mr-0.5" />Premiers mails · {t.params.prospect_ids?.length ?? 0} garage{(t.params.prospect_ids?.length ?? 0) > 1 ? 's' : ''}</span>
                 ) : t.kind === 'qualification' ? (
-                  <span className="font-medium text-violet-900"><Sparkles className="inline w-3.5 h-3.5 mr-0.5" />Qualification · {[
+                  <span className="font-medium text-violet-900"><Sparkles className="inline w-3.5 h-3.5 mr-0.5" />Fiches · {[
                     t.params.dealer_ids?.length ? `${t.params.dealer_ids.length} garage${t.params.dealer_ids.length > 1 ? 's' : ''}` : '',
                     t.params.account_ids?.length ? `${t.params.account_ids.length} compte${t.params.account_ids.length > 1 ? 's' : ''}` : '',
                   ].filter(Boolean).join(' et ') || '0 garage'}</span>
@@ -225,7 +225,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                 )}
                 {!t.created_by && <span className="text-[10px] rounded-full px-1.5 bg-slate-50 border border-slate-200 text-slate-500">automatique</span>}
                 {t.status === 'terminee' && t.result && t.kind === 'qualification' && (
-                  <span className="text-slate-600">{t.result.qualifies ?? 0} qualifié{(t.result.qualifies ?? 0) > 1 ? 's' : ''}, {t.result.ecartes ?? 0} écarté{(t.result.ecartes ?? 0) > 1 ? 's' : ''}{t.result.echecs ? `, ${t.result.echecs} en échec` : ''}{t.result.carte ? `, ${t.result.carte} sur la carte` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.arret ? ` · arrêt : ${t.result.arret}` : ''}</span>
+                  <span className="text-slate-600">{t.result.qualifies ?? 0} prête{(t.result.qualifies ?? 0) > 1 ? 's' : ''}, {t.result.ecartes ?? 0} écarté{(t.result.ecartes ?? 0) > 1 ? 's' : ''}{t.result.echecs ? `, ${t.result.echecs} en échec` : ''}{t.result.carte ? `, ${t.result.carte} sur la carte` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.arret ? ` · arrêt : ${t.result.arret}` : ''}</span>
                 )}
                 {t.status === 'terminee' && t.result && t.kind === 'premier_mail' && (
                   <span className="text-slate-600">{t.result.rediges ?? 0} rédigé{(t.result.rediges ?? 0) > 1 ? 's' : ''}, à valider{t.result.ignores ? ` · ${t.result.ignores} ignoré${t.result.ignores > 1 ? 's' : ''}` : ''}{t.result.echecs ? ` · ${t.result.echecs} en échec` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.arret ? ` · arrêt : ${t.result.arret}` : ''}</span>
@@ -272,15 +272,15 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
             <label className="inline-flex items-center gap-1"><input type="checkbox" checked={multiOnly} onChange={(e) => setMultiOnly(e.target.checked)} /> Multimarques</label>
             <label className="inline-flex items-center gap-1"><input type="checkbox" checked={vansOnly} onChange={(e) => setVansOnly(e.target.checked)} /> Vendent des utilitaires</label>
             <label className="inline-flex items-center gap-1"><input type="checkbox" checked={dearerOnly} onChange={(e) => setDearerOnly(e.target.checked)} /> Plus chers que nos offres</label>
-            <label className="inline-flex items-center gap-1"><input type="checkbox" checked={qualifiedOnly} onChange={(e) => setQualifiedOnly(e.target.checked)} /> Qualifiés par Ada</label>
+            <label className="inline-flex items-center gap-1"><input type="checkbox" checked={qualifiedOnly} onChange={(e) => setQualifiedOnly(e.target.checked)} /> Avec une fiche d'Ada</label>
             <select value={sort} onChange={(e) => setSort(e.target.value as 'activite' | 'score')} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
               <option value="activite">Tri : annonces</option>
               <option value="score">Tri : score d'Ada</option>
             </select>
             <button disabled={toQualify.length === 0} onClick={() => void qualify(toQualify.map((d) => d.id))}
               className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2.5 py-1 text-xs font-medium disabled:opacity-40"
-              title="Ada lit leur fiche, leur site, et trouve à qui écrire (Haiku 5.5, quelques centimes la série). Rien n'est envoyé.">
-              <Sparkles className="w-3.5 h-3.5" /> {toQualify.length === 0 ? 'Rien à qualifier ici' : toQualify.length === 1 ? 'Qualifier 1 garage' : `Qualifier ${toQualify.length} garages`}
+              title="Ada lit leurs annonces et leur site, et trouve à qui écrire (quelques centimes la fiche). Rien n'est envoyé.">
+              <Sparkles className="w-3.5 h-3.5" /> {toQualify.length === 0 ? 'Aucune fiche à préparer ici' : toQualify.length === 1 ? 'Préparer 1 fiche' : `Préparer ${toQualify.length} fiches`}
             </button>
           </div>
         </div>
@@ -307,7 +307,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                           <Sparkles className="inline w-3 h-3 mr-0.5" />{d.prospect.stage === 'ecarte' ? 'écarté par Ada' : `Ada ${d.prospect.score ?? '—'}/100`}{d.prospect.stage !== 'qualifie' && d.prospect.stage !== 'ecarte' ? ` · ${STAGE_LABEL[d.prospect.stage]}` : ''}
                         </button>
                       )}
-                      {queued.has(d.id) && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 animate-pulse">Ada qualifie…</span>}
+                      {queued.has(d.id) && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 animate-pulse">fiche en cours…</span>}
                       {d.nb_brands >= 3 && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-sky-50 text-sky-800 border border-sky-200">multimarques</span>}
                       {d.vans > 0 && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200">utilitaires</span>}
                     </div>
@@ -331,8 +331,8 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                     {d.imprint_url && <a href={d.imprint_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline"><ExternalLink className="w-3.5 h-3.5" /> Mentions légales</a>}
                     {d.website && <a href={d.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline"><ExternalLink className="w-3.5 h-3.5" /> Site web</a>}
                     {!d.prospect && !queued.has(d.id) && (
-                      <button onClick={() => void qualify([d.id])} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-white px-2 py-1 text-violet-800 hover:bg-violet-50" title="Ada lit sa fiche et son site, et trouve à qui écrire">
-                        <Sparkles className="w-3.5 h-3.5" /> Qualifier
+                      <button onClick={() => void qualify([d.id])} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-white px-2 py-1 text-violet-800 hover:bg-violet-50" title="Ada lit ses annonces et son site, et trouve à qui écrire">
+                        <Sparkles className="w-3.5 h-3.5" /> Préparer la fiche
                       </button>
                     )}
                     {canEditMap && !onMap(d) && (

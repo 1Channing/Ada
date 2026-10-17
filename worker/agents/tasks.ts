@@ -72,7 +72,7 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
   const accountIds = (Array.isArray(t.params.account_ids) ? t.params.account_ids : []).map(String).slice(0, MAX_SERIES);
   const dealerIds = (Array.isArray(t.params.dealer_ids) ? t.params.dealer_ids : []).map(String).slice(0, MAX_SERIES - accountIds.length);
   const items = [...accountIds.map((id) => ({ id, account: true })), ...dealerIds.map((id) => ({ id, account: false }))];
-  if (items.length === 0) throw new Error('aucun garage ni compte à qualifier');
+  if (items.length === 0) throw new Error('aucun garage ni compte pour une fiche');
   const ctx = await seriesContext(a, t.id);
   const r = { garages: dealerIds.length, comptes: accountIds.length, qualifies: 0, ecartes: 0, echecs: 0, carte: 0, cout_usd: 0, arret: null as string | null, details: [] as string[] };
   for (const { id, account } of items) {
@@ -92,7 +92,7 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
   r.cout_usd = Math.round(r.cout_usd * 10_000) / 10_000;
   if (r.qualifies + r.ecartes === 0 && r.arret) throw new Error(r.arret);
   const what = [dealerIds.length ? `${dealerIds.length} garage${dealerIds.length > 1 ? 's' : ''}` : '', accountIds.length ? `${accountIds.length} compte${accountIds.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' et ');
-  const summary = `Qualification de ${what} : ${r.qualifies} qualifié${r.qualifies > 1 ? 's' : ''}, ${r.ecartes} écarté${r.ecartes > 1 ? 's' : ''}`
+  const summary = `Fiches de ${what} : ${r.qualifies} prête${r.qualifies > 1 ? 's' : ''}, ${r.ecartes} écarté${r.ecartes > 1 ? 's' : ''}`
     + `${r.echecs ? `, ${r.echecs} en échec` : ''}${r.carte ? `, ${r.carte} ajouté${r.carte > 1 ? 's' : ''} à la carte` : ''} — ${fmtUsd(r.cout_usd)}${r.arret ? ` (arrêt : ${r.arret})` : ''}`;
   return { result: r, summary };
 }
@@ -172,7 +172,7 @@ export async function runNextTask(): Promise<void> {
     } catch (e) {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
       await sb.from('agent_tasks').update({ status: 'echec', error: msg, finished_at: new Date().toISOString() }).eq('id', t.id);
-      const what = t.kind === 'qualification' ? 'Qualification' : t.kind === 'premier_mail' ? 'Rédaction des premiers mails'
+      const what = t.kind === 'qualification' ? 'Préparation des fiches' : t.kind === 'premier_mail' ? 'Rédaction des premiers mails'
         : t.kind === 'recherche_comptes' ? `Recherche ${researchLabel(t.agent, t.params)}` : `Découverte ${label(t.params)}`;
       await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: `${t.kind === 'decouverte_concessions' ? 'decouverte' : t.kind}_echec`, summary: `${what}${auto} en échec : ${msg}` });
     }

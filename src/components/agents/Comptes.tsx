@@ -102,7 +102,7 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
     const e = await queueAccountQualification(ids, userId, agent);
     if (e) { onError(e); return; }
     const n = ids.length;
-    onInfo(`${n} compte${n > 1 ? 's' : ''} à qualifier : qui décide, e-mail publié, profil LinkedIn s'il est vu. Environ une minute par compte. Rien n'est envoyé à personne.`);
+    onInfo(`${name} prépare ${n > 1 ? `${n} fiches` : 'la fiche'} : qui décide, e-mail publié, LinkedIn s'il est trouvé. Une minute environ par fiche. Rien n'est envoyé à personne.`);
     void load();
   };
   const status = async (a: AgentAccount, s: 'nouveau' | 'ecarte') => {
@@ -185,16 +185,16 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
               {countries.map((c) => <option key={c} value={c}>{FLAG[c] ?? ''} {COUNTRY_FR[c] ?? c}</option>)}
             </select>
             <select value={statusF} onChange={(e) => setStatusF(e.target.value as StatusFilter)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
-              <option value="a_qualifier">À qualifier</option>
-              <option value="qualifies">Qualifiés</option>
+              <option value="a_qualifier">Sans fiche</option>
+              <option value="qualifies">Avec fiche</option>
               <option value="ecartes">Écartés</option>
               <option value="tous">Tous</option>
             </select>
             <input className={`${input} w-40 sm:ml-auto`} placeholder="Chercher…" value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
           {toQualify.length > 0 && (
-            <button onClick={() => void qualify(toQualify)} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2.5 py-1 text-xs font-medium" title="Haiku 5.5 : qui décide, e-mail publié, profil LinkedIn s'il est vu. Quelques centimes par compte.">
-              <Sparkles className="w-3.5 h-3.5" /> {toQualify.length > 1 ? `Qualifier les ${toQualify.length} premiers comptes` : 'Qualifier 1 compte'}
+            <button onClick={() => void qualify(toQualify)} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2.5 py-1 text-xs font-medium" title="Qui décide, e-mail publié, LinkedIn s'il est trouvé. Quelques centimes la fiche.">
+              <Sparkles className="w-3.5 h-3.5" /> {toQualify.length > 1 ? `Préparer ${toQualify.length} fiches` : 'Préparer 1 fiche'}
             </button>
           )}
         </div>
@@ -236,14 +236,14 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
                         <Sparkles className="w-3.5 h-3.5" /> Fiche {agent === 'ada' ? 'd\'Ada' : 'de Dana'}
                       </button>
                     ) : queued.has(a.id) ? (
-                      <span className="text-violet-800 animate-pulse">qualification…</span>
+                      <span className="text-violet-800 animate-pulse">fiche en cours…</span>
                     ) : a.status === 'nouveau' ? (
-                      <button onClick={() => void qualify([a.id])} className="inline-flex items-center gap-1 rounded-lg border border-violet-300 bg-white px-2 py-1 text-violet-800 hover:bg-violet-50" title="Qui décide, e-mail publié, profil LinkedIn s'il est vu">
-                        <Sparkles className="w-3.5 h-3.5" /> Qualifier
+                      <button onClick={() => void qualify([a.id])} className="inline-flex items-center gap-1 rounded-lg border border-violet-300 bg-white px-2 py-1 text-violet-800 hover:bg-violet-50" title="Qui décide, e-mail publié, LinkedIn s'il est trouvé">
+                        <Sparkles className="w-3.5 h-3.5" /> Préparer la fiche
                       </button>
                     ) : null}
                     {a.status === 'nouveau' && !queued.has(a.id) && (
-                      <button onClick={() => void status(a, 'ecarte')} className="inline-flex items-center gap-1 text-slate-400 hover:text-rose-700" title="Pas pour nous : il ne sera pas qualifié"><Ban className="w-3.5 h-3.5" /> Écarter</button>
+                      <button onClick={() => void status(a, 'ecarte')} className="inline-flex items-center gap-1 text-slate-400 hover:text-rose-700" title="Pas pour nous : pas de fiche"><Ban className="w-3.5 h-3.5" /> Écarter</button>
                     )}
                     {a.status === 'ecarte' && !p && (
                       <button onClick={() => void status(a, 'nouveau')} className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-800"><Undo2 className="w-3.5 h-3.5" /> Remettre</button>

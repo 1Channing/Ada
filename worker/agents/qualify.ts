@@ -466,7 +466,7 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
     agent: ctx.agent.agent, actor: ctx.agent.agent, kind: ai.exclure ? 'qualification_ecarte' : 'qualification',
     summary: ai.exclure
       ? `${label} écarté : ${ai.motif_exclusion ?? 'hors cible'}`
-      : `${label} qualifié ${score}/100 — ${who}${lots[0] ? ` · lot : ${lotLine(lots[0], false)}` : ''}${keyAccount ? ' · grand compte' : ''}${addedToMap ? ' · ajouté à la carte' : ''}`,
+      : `${label} : fiche prête, ${score}/100 — ${who}${lots[0] ? ` · lot : ${lotLine(lots[0], false)}` : ''}${keyAccount ? ' · grand compte' : ''}${addedToMap ? ' · ajouté à la carte' : ''}`,
     details: { dealer_id: s.account ? null : d.id, account_id: s.account?.id ?? null, prospect_id: prospectId, score, fit: fit2.score, cost_usd: Math.round(cost * 10_000) / 10_000, web_search: webSearch, decision_search: decisionSearch, key_account: keyAccount, lots: lots.length, sources },
   });
   return { status: ai.exclure ? 'ecarte' : 'qualifie', name: d.name, score, cost, detail: who, addedToMap };

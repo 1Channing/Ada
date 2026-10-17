@@ -37,7 +37,7 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
     <div className="mt-2 rounded-xl border border-violet-200 bg-violet-50/40 p-3 space-y-2 text-sm">
       <div className="flex items-center gap-2 flex-wrap">
         <span className={`rounded-lg border px-2 py-0.5 text-base font-bold tabular-nums ${scoreTone(p.score)}`}>{p.score ?? '—'}<span className="text-xs font-normal">/100</span></span>
-        <span className="text-xs text-violet-900 font-medium">Qualifié par {agentName} {fmtDateTime(p.qualified_at)}</span>
+        <span className="text-xs text-violet-900 font-medium">Fiche {agentName === 'Ada' ? 'd\'Ada' : 'de Dana'} du {fmtDateTime(p.qualified_at)}</span>
         {key && <span className="inline-flex items-center gap-1 text-[11px] rounded-full px-1.5 py-0.5 bg-violet-600 text-white" title="Groupe, loueur, leasing, flotte : préparé pour vous, vous envoyez vous-même"><Crown className="w-3 h-3" /> grand compte</span>}
         <span className="text-xs text-slate-400">· {fmtUsd(Number(p.qualify_cost_usd))}</span>
         {p.network_contact_id && <span className="inline-flex items-center gap-1 text-[11px] rounded-full px-1.5 py-0.5 bg-slate-100 text-slate-600 border border-slate-200"><MapPin className="w-3 h-3" /> sur la carte</span>}
@@ -45,7 +45,7 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
           {(Object.keys(STAGE_LABEL) as ProspectStage[]).map((k) => <option key={k} value={k}>{STAGE_LABEL[k]}</option>)}
         </select>
         <button disabled={requalifying} onClick={onRequalify} className="inline-flex items-center gap-1 text-xs text-violet-800 hover:underline disabled:opacity-40" title="Relire les pages et refaire la fiche">
-          <RefreshCw className="w-3.5 h-3.5" /> Requalifier
+          <RefreshCw className="w-3.5 h-3.5" /> Refaire la fiche
         </button>
       </div>
       {p.summary && <p className="text-slate-800">{p.summary}</p>}

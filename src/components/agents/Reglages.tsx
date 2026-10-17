@@ -10,8 +10,11 @@
  * automatismes ; ses découvertes se lancent depuis l'onglet Sourcing.
  * 17/10 : une agente à la fois (celle choisie en haut de la page) — sa
  * boîte et son rythme d'envoi à gauche, son travail par l'IA à droite.
+ * 17/10 (Channing : « ce n'est pas notre lexique ») : le travail de chaque
+ * jour en trois étapes, avec les mots de l'équipe — chercher des
+ * entreprises, préparer leur fiche, écrire le premier mail.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link2, Unlink, Save, Ban, Trash2, Plug, Sparkles } from 'lucide-react';
 import {
   oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, updateMailSettings, updateResearchSettings, QUALIF_SQL_HINT, MAILS_SQL_HINT, RECHERCHE_SQL_HINT,
@@ -35,6 +38,24 @@ const COUNTRY_LABEL: Record<string, string> = { FR: '🇫🇷 France', DE: '🇩
 const listOf = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
 const MARKET_CHOICES = ['NL', 'DK', 'BE', 'DE', 'ES', 'IT', 'SE', 'AT'];
 const MARKET_LABEL: Record<string, string> = { ...COUNTRY_LABEL, AT: '🇦🇹 Autriche' };
+
+/** Une étape du travail de chaque jour : combien, ce qu'elle fait, ce qu'elle coûte. */
+function Step({ n, title, unit, value, max, ro, onChange, help, extra }: { n: number; title: string; unit: string; value: number; max: number; ro: boolean; onChange: (v: number) => void; help: string; extra?: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="mt-1.5 w-5 h-5 shrink-0 rounded-full bg-violet-600 text-white text-[11px] font-bold flex items-center justify-center">{n}</span>
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap text-sm">
+          <span className="font-medium text-slate-800">{title}</span>
+          <input disabled={ro} type="number" min={0} max={max} className={`${input} w-20`} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+          <span className="text-slate-600">{unit}</span>
+        </div>
+        <p className="text-xs text-slate-500">{help}</p>
+        {extra}
+      </div>
+    </div>
+  );
+}
 
 /** Le travail d'Ada ou de Dana par l'IA : cibles, budget, automatismes, premiers contacts. */
 function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: AgentSettings; isAdmin: boolean; userId: string | null; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }) {
@@ -126,35 +147,34 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
         <span className="text-slate-600">Budget IA par jour :</span>
         <input disabled={ro} type="number" min={0} max={100} step={0.5} className={`${input} w-20`} value={budget} onChange={(e) => setBudget(Number(e.target.value))} />
         <span className="text-slate-600">$</span>
-        <span className="text-xs text-slate-400">Atteint → {s.display_name} s'arrête jusqu'au lendemain. Une qualification coûte de 0,002 à 0,03 $.</span>
+        <span className="text-xs text-slate-400">Atteint → {s.display_name} s'arrête jusqu'au lendemain.</span>
       </div>
-      {!dana && <label className="flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={autoDisc} onChange={(e) => setAutoDisc(e.target.checked)} /> Découvertes automatiques (jusqu'à 8 par jour, 3 pages chacune, en rotation sur les sites des pays cibles, du lundi au vendredi 8 h-19 h) — sans IA</label>}
-      {researchReady ? (
-        <div className="flex items-center gap-2 flex-wrap text-sm">
-          <span className="text-slate-600">Recherches de comptes d'office par jour :</span>
-          <input disabled={ro} type="number" min={0} max={20} className={`${input} w-20`} value={autoResearch} onChange={(e) => setAutoResearch(Number(e.target.value))} />
-          <span className="text-xs text-slate-400">{dana ? 'Sociétés de leasing, loueurs, flottes, groupes, négociants B2B, dans toute l\'Europe (la France d\'abord)' : 'Groupes, revendeurs, flottes qui renouvellent, dans ses pays d\'export'}, en rotation ; chaque recherche, environ 0,05 $. 0 = seulement à la demande (onglet Comptes). Les comptes trouvés sont qualifiés avant l'annuaire.</span>
+      <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 space-y-3">
+        <p className="text-xs font-medium text-violet-900">Chaque jour, toute seule (du lundi au vendredi, 8 h-19 h) · 0 = seulement quand vous cliquez</p>
+        {researchReady ? (
+          <Step n={1} title="Chercher de nouvelles entreprises" unit="recherches par jour" max={20} ro={ro} value={autoResearch} onChange={setAutoResearch}
+            help={`Sur le web : ${dana ? 'sociétés de leasing, loueurs, flottes, groupes, négociants B2B, un type dans un pays à chaque fois (la France d\'abord, puis toute l\'Europe).' : 'groupes de concessions, revendeurs, flottes qui renouvellent, un type dans un de ses pays d\'export à chaque fois.'} Ce qu'elle trouve arrive dans l'onglet Comptes. Environ 0,05 $ la recherche, au plus une toutes les 90 minutes.`}
+            extra={!dana && <label className="flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={autoDisc} onChange={(e) => setAutoDisc(e.target.checked)} /> Relever aussi les annonces de ses pays, pour trouver de nouveaux garages (jusqu'à 8 relevés par jour, sans IA)</label>} />
+        ) : <p className="text-xs text-slate-500">{RECHERCHE_SQL_HINT}</p>}
+        <Step n={2} title="Préparer la fiche des entreprises trouvées" unit="fiches par jour" max={500} ro={ro} value={autoQual} onChange={setAutoQual}
+          help={`Qui décide, e-mail et téléphone publiés, LinkedIn s'il est trouvé, note sur 100. D'abord les entreprises de l'onglet Comptes, puis ${dana ? 'les garages aux plus gros lots (Sourcing)' : 'les meilleurs garages de l\'annuaire (Acheteurs)'}. De 0,002 à 0,04 $ la fiche.`} />
+        {mailsReady && (
+          <Step n={3} title="Écrire le premier mail" unit="mails par jour" max={200} ro={ro} value={autoDraft} onChange={setAutoDraft}
+            help={`Pour les fiches notées au moins ${mapScore}/100. Ils attendent votre validation dans «\u00a0À valider\u00a0» : rien ne part tout seul. De 0,03 à 0,08 $ le mail.`} />
+        )}
+      </div>
+      <div className="space-y-1.5 text-sm">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-slate-600">Note minimale d'une bonne fiche :</span>
+          <input disabled={ro} type="number" min={0} max={100} className={`${input} w-16`} value={mapScore} onChange={(e) => setMapScore(Number(e.target.value))} />
+          <span className="text-slate-600">/100</span>
+          <span className="text-xs text-slate-400">En dessous, ni mail automatique ni ajout à la carte.</span>
         </div>
-      ) : <p className="text-xs text-slate-500">{RECHERCHE_SQL_HINT}</p>}
-      <div className="flex items-center gap-2 flex-wrap text-sm">
-        <span className="text-slate-600">Garages qualifiés d'office par jour :</span>
-        <input disabled={ro} type="number" min={0} max={500} className={`${input} w-20`} value={autoQual} onChange={(e) => setAutoQual(Number(e.target.value))} />
-        <span className="text-xs text-slate-400">0 = seulement à la demande (bouton « Qualifier »). {dana ? 'Les plus gros lots d\'abord.' : 'Les meilleurs de l\'annuaire d\'abord.'} Du lundi au vendredi, 8 h-19 h.</span>
-      </div>
-      <div className="flex items-center gap-2 flex-wrap text-sm">
-        <label className="inline-flex items-center gap-1.5 text-slate-700"><input disabled={ro} type="checkbox" checked={mapAdd} onChange={(e) => setMapAdd(e.target.checked)} /> Ajouter à la carte du réseau{dana ? ', comme vendeurs,' : ''} les garages qualifiés à partir de</label>
-        <input disabled={ro || !mapAdd} type="number" min={0} max={100} className={`${input} w-16`} value={mapScore} onChange={(e) => setMapScore(Number(e.target.value))} />
-        <span className="text-slate-600">/100</span>
-        <span className="text-xs text-slate-400">avec le badge « IA · {s.display_name} », et un e-mail vérifié ou un téléphone.</span>
+        <label className="flex items-center gap-1.5 text-slate-700"><input disabled={ro} type="checkbox" checked={mapAdd} onChange={(e) => setMapAdd(e.target.checked)} /> Ajouter les bonnes fiches à la carte du réseau, comme {dana ? 'vendeurs' : 'acheteurs'} (badge «&nbsp;IA · {s.display_name}&nbsp;», avec un e-mail vérifié ou un téléphone)</label>
       </div>
       {mailsReady ? (
         <div className="space-y-2 border-t border-violet-100 pt-3">
-          <p className="text-xs uppercase tracking-wide text-violet-800">Premiers contacts (Opus 5.5, rien ne part tout seul)</p>
-          <div className="flex items-center gap-2 flex-wrap text-sm">
-            <span className="text-slate-600">Rédigés d'office par jour :</span>
-            <input disabled={ro} type="number" min={0} max={200} className={`${input} w-20`} value={autoDraft} onChange={(e) => setAutoDraft(Number(e.target.value))} />
-            <span className="text-xs text-slate-400">pour les garages au-dessus du seuil. 0 = seulement à la demande. Environ 0,03 à 0,08 $ le mail.</span>
-          </div>
+          <p className="text-xs uppercase tracking-wide text-violet-800">Premiers mails (rien ne part sans vous)</p>
           <p className="text-[11px] text-slate-500">
             Petit compte avec un e-mail publié et vérifié : {dana ? 'le mail d\'achat de Dana (aucun prix ni estimation : la négociation passe par vous)' : 'le mail de vente d\'Ada'}, dans « À valider », envoyé depuis {s.mailbox} — jamais plus de deux jours d'envois en attente.
             Grand compte (groupe, loueur, leasing, flotte) : le mail (s'il y a un e-mail publié), la note d'invitation LinkedIn et la fiche d'appel, préparés à votre nom dans « À valider › Pour vous » — vous envoyez vous-même ; jamais plus de 10 en attente.

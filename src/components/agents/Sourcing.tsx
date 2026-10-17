@@ -113,7 +113,7 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
   const qualify = async (ids: string[]) => {
     const e = await queueQualification(ids, userId, 'dana');
     if (e) { onError(e); return; }
-    onInfo(`${ids.length} garage${ids.length > 1 ? 's' : ''} confié${ids.length > 1 ? 's' : ''} à Dana : qui vend, e-mail publié, grand compte ou non. Comptez une minute environ par garage. Rien n'est envoyé à personne.`);
+    onInfo(`Dana prépare ${ids.length > 1 ? `${ids.length} fiches` : 'la fiche'} : qui vend, e-mail publié, grand compte ou non. Une minute environ par fiche. Rien n'est envoyé à personne.`);
     void loadTasks();
   };
   const draft = async (p: ProspectDetail) => {
@@ -155,11 +155,11 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
           </div>
           <div className="flex items-center gap-2 flex-wrap text-xs">
             {toQualify.length > 0 && (
-              <button onClick={() => void qualify(toQualify)} className="inline-flex items-center gap-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white px-2.5 py-1 font-medium" title="Haiku 5.5 : qui vend chez eux, e-mail publié, profil LinkedIn s'il est vu, grand compte ou non. Quelques centimes par garage.">
-                <Sparkles className="w-3.5 h-3.5" /> {toQualify.length > 1 ? `Qualifier les ${toQualify.length} premiers garages` : 'Qualifier 1 garage'}
+              <button onClick={() => void qualify(toQualify)} className="inline-flex items-center gap-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white px-2.5 py-1 font-medium" title="Qui vend chez eux, e-mail publié, LinkedIn s'il est trouvé, grand compte ou non. Quelques centimes la fiche.">
+                <Sparkles className="w-3.5 h-3.5" /> {toQualify.length > 1 ? `Préparer ${toQualify.length} fiches` : 'Préparer 1 fiche'}
               </button>
             )}
-            {queued.size > 0 && <span className="text-teal-800 animate-pulse">Dana qualifie {queued.size} garage{queued.size > 1 ? 's' : ''}…</span>}
+            {queued.size > 0 && <span className="text-teal-800 animate-pulse">Dana prépare {queued.size} fiche{queued.size > 1 ? 's' : ''}…</span>}
             {drafting.size > 0 && <span className="text-violet-800 animate-pulse">Dana rédige {drafting.size} premier{drafting.size > 1 ? 's' : ''} contact{drafting.size > 1 ? 's' : ''}…</span>}
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -239,10 +239,10 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
                         <Sparkles className="w-3.5 h-3.5" /> Fiche de Dana
                       </button>
                     ) : queued.has(l.dealer.id) ? (
-                      <span className="text-teal-800 animate-pulse">qualification…</span>
+                      <span className="text-teal-800 animate-pulse">fiche en cours…</span>
                     ) : (
-                      <button onClick={() => void qualify([l.dealer.id])} className="inline-flex items-center gap-1 rounded-lg border border-teal-300 bg-white px-2 py-1 text-teal-800 hover:bg-teal-50" title="Haiku 5.5 : qui vend chez eux, e-mail publié, grand compte ou non">
-                        <Sparkles className="w-3.5 h-3.5" /> Qualifier
+                      <button onClick={() => void qualify([l.dealer.id])} className="inline-flex items-center gap-1 rounded-lg border border-teal-300 bg-white px-2 py-1 text-teal-800 hover:bg-teal-50" title="Qui vend chez eux, e-mail publié, grand compte ou non">
+                        <Sparkles className="w-3.5 h-3.5" /> Préparer la fiche
                       </button>
                     )}
                     {canEditMap && !added.has(l.dealer.id) && !pr && (

@@ -55,7 +55,7 @@ export const KIND_LABEL: Record<string, string> = {
   flotte_entreprise: 'Flotte d\'entreprise', exportateur_concurrent: 'Exportateur (concurrent)', loueur_ou_leasing: 'Loueur / leasing', autre: 'Autre',
 };
 export const STAGE_LABEL: Record<ProspectStage, string> = {
-  qualifie: 'Qualifié', a_contacter: 'À contacter', contacte: 'Contacté', repondu: 'A répondu', interesse: 'Intéressé', client: 'Client', perdu: 'Perdu', ecarte: 'Écarté',
+  qualifie: 'Fiche prête', a_contacter: 'À contacter', contacte: 'Contacté', repondu: 'A répondu', interesse: 'Intéressé', client: 'Client', perdu: 'Perdu', ecarte: 'Écarté',
 };
 export const LANG_LABEL: Record<string, string> = { fr: 'français', nl: 'néerlandais', de: 'allemand', en: 'anglais', es: 'espagnol', it: 'italien', da: 'danois' };
 

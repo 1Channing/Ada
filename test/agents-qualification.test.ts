@@ -209,7 +209,7 @@ ok(p1?.best_contact.email === 'verkoop@busvan.nl' && p1.people.some((x) => x.nom
 ok(calls.length === 1 && !calls[0].tools, 'parcours Busvan : un seul appel, sans recherche web (site et e-mail connus)', calls.length);
 ok(o1.addedToMap && db.network_contacts.length === 1 && db.network_contacts[0].source === 'ada' && db.network_contacts[0].lat === 51.65 && db.network_contacts[0].email === 'verkoop@busvan.nl', 'parcours Busvan : ajouté à la carte (badge Ada, GPS, e-mail du service vente)', db.network_contacts[0]);
 ok(db.agent_runs.length === 1 && Number(db.agent_runs[0].cost_usd) > 0 && db.agent_runs[0].purpose === 'qualification', 'parcours Busvan : appel inscrit avec son coût', db.agent_runs[0]);
-ok(db.agent_journal.some((j) => String(j.summary).startsWith('Busvan (NL) qualifié')), 'parcours Busvan : journal');
+ok(db.agent_journal.some((j) => String(j.summary).startsWith('Busvan (NL) : fiche prête')), 'parcours Busvan : journal');
 
 const o2 = await qualifyDealer('d2', ctx);
 const p2 = db.agent_prospects.find((p) => p.dealer_id === 'd2') as Row & { emails: Array<{ email: string }>; best_contact: { email: string | null; nom: string } };

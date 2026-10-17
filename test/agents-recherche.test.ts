@@ -241,7 +241,7 @@ ok(q.score === 40 + 5 + 15 + 8 + 4 + 5 + 10 && p?.fit_parts.some((x) => x.label 
 ok(arval?.status === 'qualifie' && arval.prospect_id === p?.id, 'le compte passe « qualifié », relié à sa fiche', arval);
 const n2 = db.network_contacts.find((x) => x.name === 'Arval Belgium') as Row | undefined;
 ok(n2?.role === 'vendeur' && n2.kind === 'loueur' && n2.source === 'dana', 'carte : Arval comme vendeur (loueur), badge Dana', n2);
-ok(db.agent_journal.some((j) => /^Arval Belgium \(BE · sociétés de leasing\) qualifié \d+\/100 — Sophie Peeters/.test(String(j.summary))), 'journal : le compte, son type, son score, la personne');
+ok(db.agent_journal.some((j) => /^Arval Belgium \(BE · sociétés de leasing\) : fiche prête, \d+\/100 — Sophie Peeters/.test(String(j.summary))), 'journal : le compte, son type, son score, la personne');
 
 // 4. Le grand compte : préparé pour Channing, avec ce que la recherche a appris.
 const d1 = await draftFirstMail(String(p?.id), dana, 'tm1');
