@@ -210,6 +210,12 @@ export async function runNextTask(): Promise<void> {
 
 // --- Le cycle automatique -------------------------------------------------------------------
 
+/**
+ * Les tâches qui comptent pour le rythme et la rotation : pas celles en échec ni les annulées — après une
+ * panne (clé, crédits), l'agente reprend tout de suite, par ce qui avait échoué.
+ */
+const done = <T extends { status?: string }>(rows: T[]): T[] => rows.filter((h) => h.status !== 'echec' && h.status !== 'annulee');
+
 async function pending(agent: string, kind: string): Promise<boolean> {
   const { data } = await sb.from('agent_tasks').select('id').eq('agent', agent).eq('kind', kind).in('status', ['en_attente', 'en_cours']).limit(1);
   return ((data ?? []) as unknown[]).length > 0;
@@ -217,9 +223,9 @@ async function pending(agent: string, kind: string): Promise<boolean> {
 
 async function autoDiscovery(a: AiAgent, countries: string[], brands: string[], vanBrands: string[]): Promise<void> {
   if (!a.auto_discovery || await pending(a.agent, 'decouverte_concessions')) return;
-  const { data } = await sb.from('agent_tasks').select('params, created_at, created_by').eq('agent', a.agent).eq('kind', 'decouverte_concessions')
+  const { data } = await sb.from('agent_tasks').select('params, created_at, created_by, status').eq('agent', a.agent).eq('kind', 'decouverte_concessions')
     .order('created_at', { ascending: false }).limit(300);
-  const history = (data ?? []) as Array<{ params: Partial<DiscoveryParams> | null; created_at: string; created_by: string | null }>;
+  const history = done((data ?? []) as Array<{ params: Partial<DiscoveryParams> | null; created_at: string; created_by: string | null; status?: string }>);
   const autoOnes = history.filter((h) => !h.created_by);
   const dayStart = parisDayStart(new Date()).getTime();
   if (autoOnes.filter((h) => Date.parse(h.created_at) >= dayStart).length >= AUTO_DISCOVERIES_PER_DAY) return;
@@ -264,9 +270,9 @@ async function autoResearch(a: AiAgent, ctx: SeriesContext): Promise<void> {
   if (!aiConfigured() || aiPaused() || !(perDay > 0) || await pending(a.agent, 'recherche_comptes')) return;
   const budget = Number(a.daily_budget_usd);
   if (!Number.isFinite(budget) || (await spentToday(a.agent)) >= budget) return;
-  const { data } = await sb.from('agent_tasks').select('params, created_at, created_by').eq('agent', a.agent).eq('kind', 'recherche_comptes')
+  const { data } = await sb.from('agent_tasks').select('params, created_at, created_by, status').eq('agent', a.agent).eq('kind', 'recherche_comptes')
     .order('created_at', { ascending: false }).limit(500);
-  const history = (data ?? []) as Array<{ params: Partial<ResearchParams> | null; created_at: string; created_by: string | null }>;
+  const history = done((data ?? []) as Array<{ params: Partial<ResearchParams> | null; created_at: string; created_by: string | null; status?: string }>);
   const autoOnes = history.filter((h) => !h.created_by);
   const dayStart = parisDayStart(new Date()).getTime();
   if (autoOnes.filter((h) => Date.parse(h.created_at) >= dayStart).length >= perDay) return;

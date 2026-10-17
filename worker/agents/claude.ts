@@ -47,8 +47,26 @@ export const aiConfigured = (): boolean => !!apiKey();
 export const NO_KEY = 'aucune clé API Anthropic sur le worker (AGENTS_ANTHROPIC_API_KEY, ou ANTHROPIC_API_KEY) : l\'IA d\'Ada et Dana n\'est pas branchée';
 
 /** Pause du travail automatique après une panne de réglage (crédits, clé, espace de travail, droits). */
-let pause: { until: number; reason: string } | null = null;
+let pause: { until: number; reason: string; short: string } | null = null;
 const PAUSE_MS = 3600_000;
+/** Le dernier appel à l'IA (pour /health) : quand, réussi ou non, et la panne en quelques mots. */
+let lastCall: { at: string; ok: boolean; problem: string | null } | null = null;
+const STARTED_AT = new Date().toISOString();
+
+/**
+ * L'état de l'IA des agentes, sans aucun secret (route /health du worker) : quelle clé est posée,
+ * si l'espace de travail part dans l'en-tête, la pause éventuelle, le dernier appel. De quoi vérifier
+ * de l'extérieur qu'après un changement de variables le worker a redémarré et que l'IA répond.
+ */
+export function aiStatus(): { key: 'agents' | 'worker' | null; workspaceHeader: boolean; paused: string | null; lastCall: typeof lastCall; startedAt: string } {
+  return {
+    key: process.env.AGENTS_ANTHROPIC_API_KEY ? 'agents' : process.env.ANTHROPIC_API_KEY ? 'worker' : null,
+    workspaceHeader: !!workspaceId(),
+    paused: pause && Date.now() < pause.until ? pause.short : null,
+    lastCall,
+    startedAt: STARTED_AT,
+  };
+}
 
 /** Une tâche lancée par une personne réessaie tout de suite, même pendant la pause. */
 export function clearAiPause(): void { pause = null; }
@@ -151,11 +169,13 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const problem = aiProblemOf(msg, e instanceof Anthropic.APIError ? e.status : null);
-    if (problem) pause = { until: Date.now() + PAUSE_MS, reason: problem.text };
+    if (problem) pause = { until: Date.now() + PAUSE_MS, reason: problem.text, short: problem.short };
+    lastCall = { at: new Date().toISOString(), ok: false, problem: problem?.short ?? 'autre erreur de l\'API' };
     await record(c, usage, costUsd(c.model, usage), null, msg);
     if (problem) throw new AiUnavailable(problem.text);
     throw e instanceof Anthropic.APIError ? new Error(`API Claude ${e.status ?? ''} : ${msg}`.trim()) : e;
   }
+  lastCall = { at: new Date().toISOString(), ok: true, problem: null };
   const cost = costUsd(c.model, usage);
   const stop = final?.stop_reason ?? null;
   if (stop === 'refusal') {

@@ -21,6 +21,7 @@ import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
 import { startReminderMailer } from './reminderMailer';
 import { registerAgentRoutes, startAgents } from './agents';
+import { aiStatus } from './agents/claude';
 import { runDealerStock } from './dealerStock';
 import { startDealerStockScheduler } from './dealerStockScheduler';
 import { getFxRates } from './fx';
@@ -115,6 +116,8 @@ app.get('/health', (req, res) => {
       hasSupabaseKey: !!SUPABASE_SERVICE_ROLE_KEY,
       hasZyteKey: !!process.env.ZYTE_API_KEY,
     },
+    // Ada et Dana : clé posée, espace de travail, pause, dernier appel à l'IA (aucun secret).
+    agentsAi: aiStatus(),
     selfCheck,
   });
 });
