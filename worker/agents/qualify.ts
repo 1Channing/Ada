@@ -24,7 +24,7 @@ import { promises as dns } from 'node:dns';
 import { fetchHtmlWithZyte } from '../scraper';
 import { parseDealerInfoPage, extractEmails, mailtoEmails, extractPeople, contactLinks, pageText, type DealerPageInfo } from '../../src/lib/agents/dealerPage';
 import {
-  fitScore, qualifyPrompt, QUALIFY_SYSTEM, QUALIFY_SCHEMA, acceptedEmails, finalScore, normalizeTargets,
+  fitScore, qualifyPrompt, QUALIFY_SYSTEM, QUALIFY_SCHEMA, acceptedEmails, finalScore, normalizeTargets, buyerCountries, HOME_COUNTRY,
   type QualifyOutput, type AgentTargets,
 } from '../../src/lib/agents/qualification';
 import { opportunities, brandKey, type OfferLite, type DealerListingLite } from '../../src/lib/agents/opportunity';
@@ -131,7 +131,8 @@ export interface SeriesContext { agent: AiAgent; taskId: string | null; targets:
 
 export async function seriesContext(agent: AiAgent, taskId: string | null): Promise<SeriesContext> {
   const targets = normalizeTargets(agent.targets);
-  const targetCountries = targets.countries.length ? targets.countries : await salesCountries();
+  // Ada vend à l'export : jamais la France (pays d'achat), même si nos ventes en comptent.
+  const targetCountries = buyerCountries(targets.countries.length ? targets.countries : await salesCountries());
   return { agent, taskId, targets, targetCountries, offers: await loadOffers() };
 }
 
@@ -209,6 +210,10 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
     ...root, city: root.city ?? firstOf(group.map((m) => m.city)), zip: root.zip ?? firstOf(group.map((m) => m.zip)),
     street: root.street ?? firstOf(group.map((m) => m.street)), lat: placed?.lat ?? null, lng: placed?.lng ?? null,
   };
+  // Un garage en France : MC Export y achète — un fournisseur possible pour Dana, pas un acheteur.
+  if ((d.country ?? '').toUpperCase() === HOME_COUNTRY) {
+    return { status: 'ecarte', name: d.name, score: null, cost: 0, detail: 'garage en France : fournisseur possible (Dana), pas un acheteur', addedToMap: false };
+  }
   const ids = group.map((m) => m.id);
   const siteOfRow = (m: DealerDb) => m.site ?? 'autoscout24';
   const sources = [...new Set(group.map((m) => SITE_LABEL[siteOfRow(m)] ?? siteOfRow(m)))];

@@ -11,6 +11,21 @@ import { brandKey } from './opportunity';
 import { MC_EXPORT_FACTS, ADA_IDEAL_BUYER } from './playbook';
 import type { DealerPageInfo } from './dealerPage';
 
+/**
+ * Le pays où MC Export ACHÈTE (17/10, Channing : « Ada est censée trouver des
+ * acheteurs, pas des vendeurs ! nos Toyota on les vend aux Pays-Bas ») : un
+ * garage installé en France est un fournisseur possible (Dana), jamais un
+ * acheteur d'Ada.
+ */
+export const HOME_COUNTRY = 'FR';
+/** Nos marchés d'export quand ni les Réglages ni les ventes n'en donnent (mc-export.com). */
+export const EXPORT_MARKETS = ['NL', 'DK', 'BE', 'DE'];
+/** Les pays où Ada cherche des acheteurs : ceux demandés, jamais la France. */
+export function buyerCountries(countries: string[]): string[] {
+  const out = [...new Set(countries.map((c) => String(c ?? '').trim().toUpperCase()))].filter((c) => c && c !== HOME_COUNTRY);
+  return out.length ? out : EXPORT_MARKETS;
+}
+
 /** Les cibles d'une agente (Réglages) ; pays vide = les pays de nos ventes. */
 export interface AgentTargets { countries: string[]; brands: string[]; vanBrands: string[]; multibrand: boolean }
 export const DEFAULT_ADA_TARGETS: AgentTargets = {
@@ -67,7 +82,7 @@ export function fitScore(i: FitInput): Fit {
 
 // --- L'appel à Haiku 5.5 ----------------------------------------------------------
 
-export const QUALIFY_TYPES = ['concession_marque', 'agent_marque', 'groupe', 'independant_multimarque', 'utilitaires', 'negociant_vo', 'exportateur_concurrent', 'loueur_ou_leasing', 'autre'] as const;
+export const QUALIFY_TYPES = ['concession_marque', 'agent_marque', 'groupe', 'independant_multimarque', 'utilitaires', 'negociant_vo', 'flotte_entreprise', 'exportateur_concurrent', 'loueur_ou_leasing', 'autre'] as const;
 export const QUALIFY_LANGS = ['fr', 'nl', 'de', 'en', 'es', 'it', 'da'] as const;
 
 export interface QualifyOutput {

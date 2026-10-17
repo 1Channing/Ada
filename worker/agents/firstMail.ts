@@ -23,6 +23,7 @@ import { countryVat } from '../../src/lib/offers/vat';
 import { suppressionMatch } from '../../src/lib/agents/sendPolicy';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
 import { loadOffers, dealerGroupIds, type AiAgent } from './qualify';
+import { HOME_COUNTRY } from '../../src/lib/agents/qualification';
 import { sb, journal, loadSuppressions } from './store';
 
 interface ProspectRow {
@@ -47,6 +48,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const email = p.best_contact?.email?.toLowerCase() ?? null;
   if (!email || !(p.emails ?? []).some((e) => e.email === email && e.mx)) return skip('pas d\'e-mail publié et vérifié');
   if (!['qualifie', 'a_contacter'].includes(p.stage)) return skip(`étape « ${p.stage} »`);
+  if ((p.country ?? '').toUpperCase() === HOME_COUNTRY) return skip('garage en France : MC Export y achète, Ada ne lui vend pas');
   const blocked = suppressionMatch([email], await loadSuppressions());
   if (blocked) return skip(`${blocked} est sur « ne plus contacter »`);
   const { data: t1 } = await sb.from('agent_threads').select('id').eq('prospect_id', p.id).limit(1);
@@ -132,9 +134,11 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
 
 /** Les prochains prospects à qui écrire d'office : qualifiés, au-dessus du seuil, e-mail vérifié, jamais contactés. */
 export async function nextDraftCandidates(a: AiAgent, limit: number): Promise<string[]> {
-  const { data } = await sb.from('agent_prospects').select('id, score, best_contact, emails')
+  const { data } = await sb.from('agent_prospects').select('id, score, best_contact, emails, country')
     .eq('agent', a.agent).eq('stage', 'qualifie').gte('score', a.map_min_score ?? 70).order('score', { ascending: false }).limit(40);
-  const rows = (data ?? []) as Array<{ id: string; best_contact: { email: string | null } | null; emails: Array<{ email: string; mx: boolean }> | null }>;
+  const rows = ((data ?? []) as Array<{ id: string; country: string | null; best_contact: { email: string | null } | null; emails: Array<{ email: string; mx: boolean }> | null }>)
+    // Ada vend à l'export : un garage français (qualifié avant le 17/10) n'est pas un acheteur.
+    .filter((r) => (r.country ?? '').toUpperCase() !== HOME_COUNTRY);
   const suppressed = await loadSuppressions();
   const out: string[] = [];
   for (const r of rows) {

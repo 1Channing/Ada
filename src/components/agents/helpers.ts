@@ -52,7 +52,7 @@ export const cleanDraft = (d: Draft): Draft => ({ ...d, to: d.to.map((x) => pars
 export const KIND_LABEL: Record<string, string> = {
   concession_marque: 'Concession de marque', agent_marque: 'Agent de marque', groupe: 'Groupe de distribution',
   independant_multimarque: 'Indépendant multimarque', utilitaires: 'Spécialiste utilitaires', negociant_vo: 'Négociant VO',
-  exportateur_concurrent: 'Exportateur (concurrent)', loueur_ou_leasing: 'Loueur / leasing', autre: 'Autre',
+  flotte_entreprise: 'Flotte d\'entreprise', exportateur_concurrent: 'Exportateur (concurrent)', loueur_ou_leasing: 'Loueur / leasing', autre: 'Autre',
 };
 export const STAGE_LABEL: Record<ProspectStage, string> = {
   qualifie: 'Qualifié', a_contacter: 'À contacter', contacte: 'Contacté', repondu: 'A répondu', interesse: 'Intéressé', client: 'Client', perdu: 'Perdu', ecarte: 'Écarté',

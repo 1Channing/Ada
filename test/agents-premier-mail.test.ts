@@ -55,6 +55,8 @@ const db: FakeDb = {
     prospect('p3', 'info@mort.nl', { emails: [{ email: 'info@mort.nl', mx: false }] }),
     prospect('p4', 'vente@garage-y.nl', { score: 90 }),
     prospect('p5', 'contact@garage-z.nl', { score: 60 }),
+    // Qualifié avant le 17/10 alors qu'il est en France (pays d'achat) : jamais un premier mail d'Ada.
+    prospect('p6', 'vo@garage-lyon.fr', { country: 'FR', score: 95 }),
   ],
   market_dealer_listings: Array.from({ length: 8 }, (_, i) => ({ dealer_id: 'd1', listing_url: `v${i}`, brand: 'FORD', model: 'Transit Custom', year: 2021, mileage: 90_000, price_eur: 27_900, title: '', last_seen_at: now })),
   intra_showcase: [{ id: 'o1', vehicle: { brand: 'Ford', model: 'Transit Custom', year: 2021, km: 85_000 }, price_ht: 19_500, title: 'Ford Transit Custom' }],
@@ -82,7 +84,7 @@ process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${(server.address() as { port
 const { draftFirstMail, nextDraftCandidates } = await import('../worker/agents/firstMail');
 const agent = { agent: 'ada', mailbox: 'ada@mc-export.com', signature: 'Ada\nMC Export', daily_budget_usd: 3, map_min_score: 70, instructions: '', daily_first_contact_cap: 10 } as never;
 
-ok(JSON.stringify(await nextDraftCandidates(agent, 10)) === '["p4","p1"]', 'candidats : au-dessus du seuil, e-mail vérifié, pas sur « ne plus contacter », le meilleur score d\'abord', await nextDraftCandidates(agent, 10));
+ok(JSON.stringify(await nextDraftCandidates(agent, 10)) === '["p4","p1"]', 'candidats : au-dessus du seuil, e-mail vérifié, pas sur « ne plus contacter », hors de France, le meilleur score d\'abord', await nextDraftCandidates(agent, 10));
 
 const o1 = await draftFirstMail('p1', agent, 't1');
 const thread = db.agent_threads[0] as Record<string, unknown> | undefined;
@@ -104,6 +106,9 @@ const sup = await draftFirstMail('p2', agent, 't1');
 ok(sup.status === 'ignore' && sup.detail.includes('ne plus contacter') && calls.length === 1, 'garde-fou : domaine sur « ne plus contacter »', sup);
 const dead = await draftFirstMail('p3', agent, 't1');
 ok(dead.status === 'ignore' && dead.detail.includes('vérifié') && calls.length === 1, 'garde-fou : e-mail dont le domaine ne reçoit pas de courrier', dead);
+
+const fr = await draftFirstMail('p6', agent, 't1');
+ok(fr.status === 'ignore' && /France/.test(fr.detail) && calls.length === 1, 'garde-fou : un garage en France n\'est pas un acheteur (aucun brouillon)', fr);
 
 const o4 = await draftFirstMail('p4', agent, 't1');
 const m4 = db.agent_messages.find((m) => (m.to_emails as string[]).includes('vente@garage-y.nl')) as { ai_notes: { alertes: string[] } } | undefined;

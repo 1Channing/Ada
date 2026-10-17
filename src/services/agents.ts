@@ -293,12 +293,16 @@ export const ANNUAIRE_SQL_HINT = 'Annuaire : SQL du 17/10 (agents_annuaire) à c
 export const SITES_SQL_HINT = 'Un même garage vu sur plusieurs sites apparaît encore plusieurs fois : SQL du 17/10 (agents_tous_sites) à coller dans Supabase.';
 const errAnnuaire = (m: string) => (missing(m) ? ANNUAIRE_SQL_HINT : m);
 
-export async function listDealers(f: { country?: string | null; brand?: string | null; query?: string | null; days?: number; limit?: number }): Promise<{ rows: DealerRow[]; error: string | null }> {
-  const { data, error } = await sb.rpc('agents_dealer_directory', {
-    p_country: f.country || null, p_brand: f.brand || null, p_query: f.query?.trim() || null, p_days: f.days ?? 90, p_limit: f.limit ?? 300,
-  });
+export async function listDealers(f: { country?: string | null; brand?: string | null; query?: string | null; days?: number; limit?: number; exclude?: string[] }): Promise<{ rows: DealerRow[]; error: string | null }> {
+  const args = { p_country: f.country || null, p_brand: f.brand || null, p_query: f.query?.trim() || null, p_days: f.days ?? 90, p_limit: f.limit ?? 300 };
+  const exclude = (f.exclude ?? []).map((c) => c.toUpperCase());
+  const first = await sb.rpc('agents_dealer_directory', exclude.length ? { ...args, p_exclude_countries: exclude } : args);
+  if (!first.error) return { rows: (first.data ?? []) as DealerRow[], error: null };
+  // SQL du 17/10 (agents_lots) pas encore collé : l'annuaire d'avant, trié ici.
+  if (!exclude.length || !/p_exclude_countries|function|schema cache/i.test(first.error.message)) return { rows: [], error: errAnnuaire(first.error.message) };
+  const { data, error } = await sb.rpc('agents_dealer_directory', args);
   if (error) return { rows: [], error: errAnnuaire(error.message) };
-  return { rows: (data ?? []) as DealerRow[], error: null };
+  return { rows: ((data ?? []) as DealerRow[]).filter((d) => !exclude.includes((d.country ?? '').toUpperCase())), error: null };
 }
 
 export async function dealerListings(dealerIds: string[], days = 90): Promise<DealerListing[]> {
@@ -369,6 +373,49 @@ export async function addDealerToMap(d: DealerRow, userId: string | null): Promi
     website: d.website ?? page, relation: 'nouveau', vehicle_types: brands,
     comment: `Trouvé par Ada dans l'annuaire (${sources}) : ${d.listings} annonce${d.listings > 1 ? 's' : ''} sur 90 jours.`,
     source: 'ada', ai_added_at: new Date().toISOString(), created_by: userId,
+  });
+  if (error) return { placed: false, error: /row-level security|permission/i.test(error.message) ? 'Ajout refusé : il faut le droit « Carte du réseau · édition ».' : error.message };
+  return { placed: !!at, error: null };
+}
+
+// --- Dana (17/10) : les lots de véhicules identiques -------------------------------------------
+
+/** Un lot : plusieurs véhicules identiques (marque, modèle, année) chez un même garage, tous pays. */
+export interface DealerLot {
+  dealer: { id: string; name: string; country: string | null; city: string | null; zip: string | null; phone: string | null; site: string | null; site_url: string | null; imprint_url: string | null; website: string | null };
+  members: Array<{ id: string; site: string; site_url: string | null }>;
+  brand: string; model: string; year: number; count: number;
+  price_min: number; price_max: number; price_median: number; km_min: number | null; km_max: number | null; fuels: string[] | null;
+  first_seen_at: string; last_seen_at: string; urls: string[];
+  /** Ce que ces véhicules valent dans nos pays de vente (médiane, nombre d'annonces, écart brut). */
+  markets: Array<{ market: string; n: number; median: number; gap: number }>;
+}
+export const LOTS_SQL_HINT = 'Lots de Dana : SQL du 17/10 (agents_tous_sites puis agents_lots) à coller dans Supabase.';
+
+export async function listLots(f: { country?: string | null; markets: string[]; min?: number; days?: number; brand?: string | null; limit?: number }): Promise<{ rows: DealerLot[]; error: string | null }> {
+  const { data, error } = await sb.rpc('agents_dealer_lots', {
+    p_country: f.country || null, p_markets: f.markets, p_min: f.min ?? 3, p_days: f.days ?? 45, p_brand: f.brand?.trim() || null, p_limit: f.limit ?? 200,
+  });
+  if (error) return { rows: [], error: missing(error.message) || /agents_dealer_lots|function/i.test(error.message) ? LOTS_SQL_HINT : error.message };
+  return { rows: (data ?? []) as DealerLot[], error: null };
+}
+
+/** Dana pose une découverte (tous pays, la France comprise) : ses garages et leurs lots entrent dans l'annuaire. */
+export async function queueDanaDiscovery(params: { site?: string; country: string; brand: string; model?: string; pages?: number }, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').insert({ agent: 'dana', kind: 'decouverte_concessions', params, created_by: userId });
+  return error ? errAnnuaire(error.message) : null;
+}
+
+/** Un garage qui a un lot entre sur la carte du réseau comme vendeur (badge « IA · Dana »). */
+export async function addLotDealerToMap(l: DealerLot, userId: string | null): Promise<{ placed: boolean; error: string | null }> {
+  const at = await geocode({ country: l.dealer.country, zip: l.dealer.zip, city: l.dealer.city } as DealerRow);
+  const page = l.dealer.site_url && !/api\.gaspedaal\.nl\/redirect\//.test(l.dealer.site_url) ? l.dealer.site_url : null;
+  const { error } = await sb.from('network_contacts').insert({
+    name: l.dealer.name, kind: 'concession', role: 'vendeur', country: (l.dealer.country ?? 'FR').toUpperCase(), city: l.dealer.city,
+    lat: at?.lat ?? null, lng: at?.lng ?? null, phone: l.dealer.phone, website: l.dealer.website ?? page, relation: 'nouveau',
+    vehicle_types: `${l.brand.charAt(0)}${l.brand.slice(1).toLowerCase()} ${l.model}`,
+    comment: `Repéré par Dana : ${l.count} ${l.brand} ${l.model} ${l.year} identiques en stock (${Math.round(l.price_min).toLocaleString('fr-FR')} à ${Math.round(l.price_max).toLocaleString('fr-FR')} €).`.slice(0, 1000),
+    source: 'dana', ai_added_at: new Date().toISOString(), created_by: userId,
   });
   if (error) return { placed: false, error: /row-level security|permission/i.test(error.message) ? 'Ajout refusé : il faut le droit « Carte du réseau · édition ».' : error.message };
   return { placed: !!at, error: null };

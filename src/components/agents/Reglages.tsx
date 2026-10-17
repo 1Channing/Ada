@@ -15,6 +15,7 @@ import {
 } from '../../services/agents';
 import { normalizeTargets } from '../../lib/agents/qualification';
 import { DISCOVERY_SITES } from '../../lib/agents/discovery';
+import { HOME_COUNTRY } from '../../lib/agents/qualification';
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { listAssignees, type Assignee } from '../../services/userTasks';
 import { AgentBadge } from './shared';
@@ -71,12 +72,12 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
         <span className="text-xs text-slate-500">Pays visés</span>
         <div className="flex items-center gap-1.5 flex-wrap">
           <button disabled={ro} onClick={() => setCountries([])} className={`text-xs rounded-full px-2 py-0.5 border ${countries.length === 0 ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 text-slate-600'}`}>Pays de nos ventes (automatique)</button>
-          {Object.keys(DISCOVERY_SITES).map((c) => (
+          {Object.keys(DISCOVERY_SITES).filter((c) => c !== HOME_COUNTRY).map((c) => (
             <button key={c} disabled={ro} onClick={() => setCountries(countries.includes(c) ? countries.filter((x) => x !== c) : [...countries, c])}
               className={`text-xs rounded-full px-2 py-0.5 border ${countries.includes(c) ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 text-slate-600'}`}>{COUNTRY_LABEL[c]}</button>
           ))}
         </div>
-        <p className="text-[11px] text-slate-400">Les découvertes passent par tous les sites du pays (AutoScout24, Marktplaats, Gaspedaal, Leboncoin, La Centrale, mobile.de, coches.net, Subito, Bilbasen, Blocket, Jófogás) ; les utilitaires par AutoScout24. Les garages vus dans les études quotidiennes entrent aussi dans l'annuaire.</p>
+        <p className="text-[11px] text-slate-400">Ada vend à l'export : jamais la France, votre pays d'achat (ses garages sont des fournisseurs possibles, pour Dana — onglet Sourcing). Les découvertes passent par tous les sites du pays (AutoScout24, Marktplaats, Gaspedaal, mobile.de, coches.net, Subito, Bilbasen, Blocket, Jófogás) ; les utilitaires par AutoScout24.</p>
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="space-y-1 text-sm"><span className="text-xs text-slate-500">Marques (voitures)</span>

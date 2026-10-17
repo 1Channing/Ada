@@ -16,7 +16,8 @@ import {
 } from '../src/lib/study-core/parsers/seller';
 import { recordDealerSightings, dealerSiteFamily, isVanSearch } from '../src/services/dealerDirectory';
 import { discoveryUrl, discoverySiteKey, discoveryPairs, nextDiscoveryPair, DISCOVERY_SITES } from '../src/lib/agents/discovery';
-import { qualifyPrompt, fitScore, DEFAULT_ADA_TARGETS } from '../src/lib/agents/qualification';
+import { qualifyPrompt, fitScore, DEFAULT_ADA_TARGETS, buyerCountries, EXPORT_MARKETS } from '../src/lib/agents/qualification';
+import { ADA_IDEAL_BUYER } from '../src/lib/agents/playbook';
 
 let fails = 0;
 const ok = (cond: boolean, what: string, got?: unknown) => {
@@ -217,6 +218,11 @@ ok(pr.includes('Annonces vues sur : Marktplaats, Gaspedaal') && pr.includes('(pa
   'consigne : sources du garage, pas de fiche AutoScout24, recherche web demandée');
 const pr2 = qualifyPrompt({ dealer: { name: 'GARAGE MARTIN', country: 'FR', city: 'Lyon', zip: '69003', street: null, phone: '0472000000', contactName: null, sources: ['Leboncoin'], legalId: '123456789' }, fit, stock: { listings: 1, brands: [], vans: 0, medianPrice: null, opportunities: [] }, page: null, emailsFound: [], pages: [], webSearch: true });
 ok(pr2.includes('Identifiant légal déclaré (SIREN…) : 123456789') && pr2.includes('Téléphone (annonces) : 0472000000'), 'consigne : SIREN et téléphone des annonces');
+
+// --- 6. Ada vend à l'export (17/10 : « Ada est censée trouver des acheteurs, pas des vendeurs ! ») --------
+ok(JSON.stringify(buyerCountries(['FR', 'nl', 'DK', 'NL'])) === '["NL","DK"]', 'pays d\'Ada : jamais la France (pays d\'achat), sans doublon', buyerCountries(['FR', 'nl', 'DK', 'NL']));
+ok(JSON.stringify(buyerCountries(['FR'])) === JSON.stringify(EXPORT_MARKETS) && JSON.stringify(buyerCountries([])) === JSON.stringify(EXPORT_MARKETS), 'pays d\'Ada : nos marchés d\'export quand il ne reste rien', buyerCountries(['FR']));
+ok(/HORS DE FRANCE/.test(ADA_IDEAL_BUYER) && /tout garage installé en France/.test(ADA_IDEAL_BUYER) && /flotte d'entreprise qui renouvelle/.test(ADA_IDEAL_BUYER), 'consigne d\'Ada : acheteurs hors de France, flottes qui renouvellent leur parc');
 
 if (fails === 0) {
   console.log('\n✅ ALL TESTS PASSED');

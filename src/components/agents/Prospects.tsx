@@ -27,6 +27,7 @@ import { DISCOVERY_SITES, DISCOVERY_SITE_LABEL, discoveryPages } from '../../lib
 import { SITE_LABEL } from '../../services/dealerDirectory';
 import { countryVat } from '../../lib/offers/vat';
 import { isoOfCountry as isoOf } from '../../lib/agents/keys';
+import { HOME_COUNTRY } from '../../lib/agents/qualification';
 import { fmtDateTime, fmtRelative, STAGE_LABEL, scoreTone } from './helpers';
 import { QualifCard } from './QualifCard';
 import { fmtUsd } from '../../lib/agents/aiCost';
@@ -71,12 +72,13 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   const [qualifiedOnly, setQualifiedOnly] = useState(false);
   const [sort, setSort] = useState<'activite' | 'score'>('activite');
   const [added, setAdded] = useState<Set<string>>(new Set());
-  const [disc, setDisc] = useState({ site: 'AUTOSCOUT', country: 'FR', brand: 'Toyota', model: '', vans: false, pages: 5 });
+  // Ada vend à l'export (17/10) : la découverte part des Pays-Bas, jamais de la France (pays d'achat).
+  const [disc, setDisc] = useState({ site: 'AUTOSCOUT', country: 'NL', brand: 'Toyota', model: '', vans: false, pages: 5 });
 
-  const loadTasks = useCallback(async () => { const r = await listTasks(); if (r.error) onError(r.error); else setTasks(r.rows); }, [onError]);
+  const loadTasks = useCallback(async () => { const r = await listTasks(); if (r.error) onError(r.error); else setTasks(r.rows.filter((t) => t.agent === 'ada')); }, [onError]);
   const loadDirectory = useCallback(async () => {
     setLoading(true);
-    const r = await listDealers({ country, brand: brand || null, query });
+    const r = await listDealers({ country, brand: brand || null, query, exclude: [HOME_COUNTRY] });
     if (r.error) { onError(r.error); setLoading(false); return; }
     setRows(r.rows);
     // Un garage vu sur plusieurs sites : ses annonces et sa fiche d'Ada sont rangées sous sa ligne.
@@ -169,7 +171,9 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
           <div className="flex flex-wrap gap-1.5 items-center text-xs">
             <span className="text-slate-500">Pays :</span>
             {profile.countries.length === 0 && <span className="text-slate-400">aucun renseigné sur les fiches acheteurs</span>}
-            {profile.countries.map((c) => { const iso = isoOf(c.country); return (
+            {profile.countries.map((c) => { const iso = isoOf(c.country); return iso === HOME_COUNTRY ? (
+              <span key={c.country} className="rounded-full border border-dashed border-slate-200 px-2 py-0.5 text-slate-400" title="Votre pays d'achat : Ada n'y cherche pas d'acheteurs">{FLAG[iso]} {c.country} <span className="opacity-60">{c.n}</span> · pays d'achat</span>
+            ) : (
               <button key={c.country} onClick={() => iso && setCountry(country === iso ? null : iso)} className={`rounded-full border px-2 py-0.5 ${iso && country === iso ? 'border-brand-ocean bg-blue-50 text-brand-encre' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>{iso ? FLAG[iso] ?? '' : ''} {c.country} <span className="opacity-60">{c.n}</span></button>
             ); })}
             <span className="text-slate-500 ml-2">Marques :</span>
@@ -185,7 +189,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
         <div className="flex items-center gap-2 flex-wrap"><Radar className="w-4 h-4 text-brand-ocean" /><h3 className="text-sm font-semibold text-slate-900">Découvrir des concessions</h3><span className="text-xs text-slate-500">— Ada lit les annonces d'un site (AutoScout24, Marktplaats, Leboncoin, mobile.de…) et garde chaque garage, rapproché de ses fiches des autres sites. Sans IA.</span></div>
         <div className="flex items-center gap-2 flex-wrap text-sm">
           <select className={input} value={disc.country} onChange={(e) => { const c = e.target.value; const sites = DISCOVERY_SITES[c] ?? ['AUTOSCOUT']; setDisc({ ...disc, country: c, site: sites.includes(disc.site) ? disc.site : sites[0] }); }}>
-            {Object.keys(DISCOVERY_SITES).map((c) => <option key={c} value={c}>{FLAG[c]} {COUNTRY_NAME[c] ?? c}</option>)}
+            {Object.keys(DISCOVERY_SITES).filter((c) => c !== HOME_COUNTRY).map((c) => <option key={c} value={c}>{FLAG[c]} {COUNTRY_NAME[c] ?? c}</option>)}
           </select>
           <select className={input} value={disc.site} onChange={(e) => setDisc({ ...disc, site: e.target.value })} title="Le site d'annonces à lire">
             {discSites.map((x) => <option key={x} value={x}>{siteLabel(x)}</option>)}
@@ -240,7 +244,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
           <div className="flex items-center gap-2 flex-wrap">
             <Building2 className="w-4 h-4 text-brand-ocean" />
             <h3 className="text-sm font-semibold text-slate-900">Annuaire des concessions</h3>
-            <span className="text-xs text-slate-500">— garages vus sur les pages qu'ADA lit (90 derniers jours).</span>
+            <span className="text-xs text-slate-500">— acheteurs possibles hors de France, vus sur les pages qu'ADA lit (90 derniers jours). Les garages français sont des fournisseurs : onglet Sourcing (Dana).</span>
             <span className="ml-auto text-xs text-slate-400">{loading ? 'lecture…' : `${shown.length} / ${rows.length}`}</span>
           </div>
           {rows.length > 0 && !rows.some((d) => Array.isArray(d.members)) && <p className="text-[11px] text-amber-700">{SITES_SQL_HINT}</p>}

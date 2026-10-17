@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw, Building2 } from 'lucide-react';
+import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw, Building2, Layers } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
@@ -15,6 +15,7 @@ import { Messagerie } from '../components/agents/Messagerie';
 import { ValidationQueue } from '../components/agents/ValidationQueue';
 import { Reglages } from '../components/agents/Reglages';
 import { Prospects } from '../components/agents/Prospects';
+import { Sourcing } from '../components/agents/Sourcing';
 
 /**
  * AGENTS — Ada et Dana (16/10, Channing : « deux agents qui travaillent en
@@ -28,14 +29,17 @@ import { Prospects } from '../components/agents/Prospects';
  * d'administrateur), Journal (tout ce qui s'est passé), Réglages (connexion
  * Gmail, signature, rythme anti-spam, « ne plus contacter »).
  * Phase 2 (17/10) : Prospects — l'annuaire des concessions qui vendent ce
- * que nous vendons, plus cher ; Ada les qualifie (Haiku 5.5) dans un budget
- * par jour, et met les meilleurs sur la carte.
+ * que nous vendons, plus cher, hors de France (Ada vend à l'export) ; Ada
+ * les qualifie (Haiku 5.5) dans un budget par jour, et met les meilleurs sur
+ * la carte. Sourcing — les lots de véhicules identiques que Dana repère
+ * chez les garages de toute l'Europe.
  */
 
-type Tab = 'messagerie' | 'valider' | 'prospects' | 'journal' | 'reglages';
+type Tab = 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'journal' | 'reglages';
 const TABS: Array<{ key: Tab; label: string; icon: ReactNode }> = [
   { key: 'messagerie', label: 'Messagerie', icon: <Inbox className="w-4 h-4" /> },
-  { key: 'prospects', label: 'Prospects', icon: <Building2 className="w-4 h-4" /> },
+  { key: 'prospects', label: 'Acheteurs (Ada)', icon: <Building2 className="w-4 h-4" /> },
+  { key: 'sourcing', label: 'Sourcing (Dana)', icon: <Layers className="w-4 h-4" /> },
   { key: 'valider', label: 'À valider', icon: <CheckCircle2 className="w-4 h-4" /> },
   { key: 'journal', label: 'Journal', icon: <ScrollText className="w-4 h-4" /> },
   { key: 'reglages', label: 'Réglages', icon: <Settings2 className="w-4 h-4" /> },
@@ -114,8 +118,8 @@ export function Agents() {
         <div>
           <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2"><Bot className="w-7 h-7 text-brand-ocean" /> Agents</h1>
           <p className="text-slate-600 mt-2 max-w-3xl">
-            Ada trouve des acheteurs, Dana des vendeurs, chacune depuis sa propre boîte. Ada bâtit l'annuaire des concessions et les qualifie
-            (onglet Prospects) ; rien ne part sans validation : vous écrivez ou relisez, un administrateur valide, ADA envoie aux horaires de bureau.
+            Ada trouve des acheteurs à l'export, Dana des fournisseurs dans toute l'Europe, chacune depuis sa propre boîte : des relations durables, pas des affaires à l'unité.
+            Rien ne part sans validation : vous écrivez ou relisez, un administrateur valide, ADA envoie aux horaires de bureau.
           </p>
         </div>
         <button onClick={refresh} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
@@ -190,6 +194,9 @@ export function Agents() {
       )}
       {tab === 'prospects' && (
         <Prospects userId={userId} canEditMap={canSeeTab(allowedTabs, isAdmin, 'carte:edition')} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />
+      )}
+      {tab === 'sourcing' && (
+        <Sourcing userId={userId} canEditMap={canSeeTab(allowedTabs, isAdmin, 'carte:edition')} refreshKey={refreshKey} onError={onError} onInfo={onInfo} />
       )}
       {tab === 'journal' && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">

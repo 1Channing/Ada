@@ -113,7 +113,9 @@ type Row = Record<string, unknown>;
 const db: Record<string, Row[]> = {
   market_dealers: [
     { id: 'd1', name: 'Busvan', country: 'NL', city: 'Raamsdonksveer', zip: '4941 VN', street: 'Ramgatseweg 59', phone: '+31481788261', contact_name: 'Afdeling Verkoop', site_url: null, imprint_url: null, website: null },
-    { id: 'd2', name: 'Pinson Automobiles', country: 'FR', city: 'Cercottes', zip: '45520', street: '1 rue des Pinsons', phone: '+33219089211', contact_name: 'Arnaud PINSON', site_url: null, imprint_url: null, website: null },
+    { id: 'd2', name: 'Pinson Automobiles', country: 'BE', city: 'Mons', zip: '7000', street: '1 rue des Pinsons', phone: '+3265000000', contact_name: 'Arnaud PINSON', site_url: null, imprint_url: null, website: null },
+    // Un garage français : MC Export y achète (17/10, « Ada est censée trouver des acheteurs, pas des vendeurs ! »).
+    { id: 'd5', name: 'Garage Martin', country: 'FR', city: 'Lyon', zip: '69003', street: null, phone: '+33472000000', contact_name: null, site_url: null, imprint_url: null, website: null },
     // Un garage vu sur Marktplaats (fiche principale) et sur Gaspedaal (rattachée), sans fiche AutoScout24.
     { id: 'd3', site: 'marktplaats', parent_id: null, name: 'Tesselaar BV', country: 'NL', city: 'Hoorn', zip: null, street: null, phone: null, contact_name: null, site_url: 'https://www.marktplaats.nl/u/tesselaar-bv/555/', imprint_url: null, website: null, lat: 52.64, lng: 5.06, legal_id: null },
     { id: 'd4', site: 'gaspedaal', parent_id: 'd3', name: 'Tesselaar BV', country: 'NL', city: null, zip: null, street: null, phone: null, contact_name: null, site_url: 'https://api.gaspedaal.nl/redirect/vehicle/1', imprint_url: null, website: null, lat: null, lng: null, legal_id: null },
@@ -129,7 +131,7 @@ const db: Record<string, Row[]> = {
   agent_prospects: [{ id: 'p-old', agent: 'ada', dealer_id: 'd4', name: 'Tesselaar BV', stage: 'a_contacter', score: 60, network_contact_id: null }], agent_runs: [], agent_journal: [], network_contacts: [], intra_showcase: [], transactions_admin: [], contacts: [],
 };
 setSharedSupabase(fakeSupabase(db) as never);
-(dns as unknown as { resolveMx: (d: string) => Promise<unknown[]> }).resolveMx = async (d: string) => (['busvan.nl', 'pinson-auto.fr', 'tesselaarbv.nl'].includes(d) ? [{ exchange: `mx.${d}`, priority: 10 }] : []);
+(dns as unknown as { resolveMx: (d: string) => Promise<unknown[]> }).resolveMx = async (d: string) => (['busvan.nl', 'pinson-auto.be', 'tesselaarbv.nl'].includes(d) ? [{ exchange: `mx.${d}`, priority: 10 }] : []);
 
 // Faux internet : la fiche AutoScout24, le site du garage, et l'API Claude.
 const calls: Array<{ messages: unknown[]; tools?: unknown[] }> = [];
@@ -150,9 +152,9 @@ const answers: Record<string, QualifyOutput> = {
   }),
   Pinson: aiOut({
     site_web: 'BASE/pinson', type: 'independant_multimarque', langue: 'fr', ajustement: 0,
-    emails: [{ email: 'contact@pinson-auto.fr', nature: 'generique', source: 'BASE/pinson' }, { email: 'arnaud@pinson-auto.fr', nature: 'nominatif', source: 'BASE/pinson' }],
-    meilleur_contact: { nom: 'Arnaud Pinson', fonction: 'gérant', email: 'arnaud@pinson-auto.fr', pourquoi: 'Gérant.' },
-    resume: 'Petit garage multimarque près d\'Orléans.',
+    emails: [{ email: 'contact@pinson-auto.be', nature: 'generique', source: 'BASE/pinson' }, { email: 'arnaud@pinson-auto.be', nature: 'nominatif', source: 'BASE/pinson' }],
+    meilleur_contact: { nom: 'Arnaud Pinson', fonction: 'gérant', email: 'arnaud@pinson-auto.be', pourquoi: 'Gérant.' },
+    resume: 'Petit garage multimarque près de Mons.',
   }),
 };
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -161,7 +163,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (req.url?.startsWith('/garages/pinson')) return send(200, dealerInfo({ customerName: 'PINSON AUTOMOBILES', homepageUrl: null, imprint: null, contactPersons: [], dealerTypes: [] }));
   if (req.url === '/busvan') return send(200, `<html><body>${'Welkom bij busvan, bedrijfswagens. '.repeat(40)}<a href="/busvan/contact">Contact</a></body></html>`);
   if (req.url === '/busvan/contact') return send(200, `<html><body>${'Neem contact op. '.repeat(60)}<a href="mailto:verkoop@busvan.nl">verkoop@busvan.nl</a></body></html>`);
-  if (req.url === '/pinson') return send(200, `<html><body>${'Pinson Automobiles, Cercottes. '.repeat(40)} Écrivez-nous : contact@pinson-auto.fr</body></html>`);
+  if (req.url === '/pinson') return send(200, `<html><body>${'Pinson Automobiles, Mons. '.repeat(40)} Écrivez-nous : contact@pinson-auto.be</body></html>`);
   if (req.url === '/') return send(200, `<html><body>${'Tesselaar BV, Toyota-dealer in Hoorn. '.repeat(40)}<a href="mailto:verkoop@tesselaarbv.nl">verkoop@tesselaarbv.nl</a></body></html>`);
   if (req.url === '/v1/messages' && req.method === 'POST') {
     let raw = '';
@@ -173,7 +175,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const usage = { input_tokens: 9000, output_tokens: 700, cache_creation_input_tokens: 0, cache_read_input_tokens: 1500, server_tool_use: { web_search_requests: key === 'Pinson' ? 1 : 0, web_fetch_requests: 0 } };
     // Pinson : la recherche web met d'abord le tour en pause, la reprise rend la fiche.
     if (key === 'Pinson' && body.messages.length === 1) {
-      return send(200, JSON.stringify({ id: 'm1', type: 'message', role: 'assistant', model: HAIKU, content: [{ type: 'server_tool_use', id: 'srv1', name: 'web_search', input: { query: 'Pinson Automobiles Cercottes' } }], stop_reason: 'pause_turn', stop_sequence: null, usage }), 'application/json');
+      return send(200, JSON.stringify({ id: 'm1', type: 'message', role: 'assistant', model: HAIKU, content: [{ type: 'server_tool_use', id: 'srv1', name: 'web_search', input: { query: 'Pinson Automobiles Mons' } }], stop_reason: 'pause_turn', stop_sequence: null, usage }), 'application/json');
     }
     const text = JSON.stringify(answers[key]).split('BASE').join(base);
     return send(200, JSON.stringify({ id: 'm2', type: 'message', role: 'assistant', model: HAIKU, content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage }), 'application/json');
@@ -197,7 +199,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
 const { qualifyDealer } = await import('../worker/agents/qualify');
 const agent = { agent: 'ada', daily_budget_usd: 3, map_auto_add: true, map_min_score: 70, targets: targets, auto_discovery: false, auto_qualify_per_day: 0 } as never;
-const ctx = { agent, taskId: 't1', targets, targetCountries: ['NL', 'FR'], offers: [{ id: 'o1', brand: 'Ford', model: 'Transit Custom', year: 2021, km: 85_000, priceHt: 19_500, title: 'Ford Transit Custom 2021' }] };
+const ctx = { agent, taskId: 't1', targets, targetCountries: ['NL', 'BE'], offers: [{ id: 'o1', brand: 'Ford', model: 'Transit Custom', year: 2021, km: 85_000, priceHt: 19_500, title: 'Ford Transit Custom 2021' }] };
 
 const o1 = await qualifyDealer('d1', ctx);
 const p1 = db.agent_prospects.find((p) => p.dealer_id === 'd1') as Row & { emails: Array<{ email: string; mx: boolean }>; best_contact: { email: string }; people: Array<{ nom: string }> };
@@ -213,7 +215,7 @@ const o2 = await qualifyDealer('d2', ctx);
 const p2 = db.agent_prospects.find((p) => p.dealer_id === 'd2') as Row & { emails: Array<{ email: string }>; best_contact: { email: string | null; nom: string } };
 const pinsonCalls = calls.slice(1);
 ok(pinsonCalls.length === 2 && Array.isArray(pinsonCalls[0].tools) && (pinsonCalls[1].messages as unknown[]).length === 2, 'parcours Pinson : recherche web activée, tour en pause repris tel quel', pinsonCalls.map((c) => (c.messages as unknown[]).length));
-ok(p2?.emails.map((e) => e.email).join(' ') === 'contact@pinson-auto.fr' && p2.best_contact.email === 'contact@pinson-auto.fr', 'parcours Pinson : seul l\'e-mail écrit sur la page trouvée est gardé (pas celui qu\'on suppose)', { emails: p2?.emails, best: p2?.best_contact });
+ok(p2?.emails.map((e) => e.email).join(' ') === 'contact@pinson-auto.be' && p2.best_contact.email === 'contact@pinson-auto.be', 'parcours Pinson : seul l\'e-mail écrit sur la page trouvée est gardé (pas celui qu\'on suppose)', { emails: p2?.emails, best: p2?.best_contact });
 ok(o2.status === 'qualifie' && p2?.website === `${base}/pinson`, 'parcours Pinson : site trouvé par la recherche', { o2, site: p2?.website });
 ok(db.agent_runs.length === 2 && Number(db.agent_runs[1].web_searches) === 2, 'parcours Pinson : un seul appel inscrit, recherches des deux tours additionnées', db.agent_runs[1]);
 
@@ -238,6 +240,12 @@ p1.stage = 'contacte';
 await qualifyDealer('d1', ctx);
 const busvanOnMap = db.network_contacts.filter((n) => n.name === 'Busvan').length;
 ok(p1.stage === 'contacte' && busvanOnMap === 1, 'requalification : étape « contacté » conservée, pas de doublon sur la carte', { stage: p1.stage, carte: busvanOnMap });
+
+// Un garage français n'est jamais qualifié par Ada : aucun appel, pas de fiche prospect.
+const callsBeforeFr = calls.length;
+const o5 = await qualifyDealer('d5', ctx);
+ok(o5.status === 'ecarte' && /France/.test(o5.detail) && calls.length === callsBeforeFr && !db.agent_prospects.some((p) => p.dealer_id === 'd5'),
+  'garage en France : écarté sans appel à l\'IA (pays d\'achat, fournisseur possible pour Dana)', o5);
 
 // Plafond : au-delà du budget du jour, aucun appel.
 const before = calls.length;
