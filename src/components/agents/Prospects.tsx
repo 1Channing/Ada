@@ -75,7 +75,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   // Ada vend à l'export (17/10) : la découverte part des Pays-Bas, jamais de la France (pays d'achat).
   const [disc, setDisc] = useState({ site: 'AUTOSCOUT', country: 'NL', brand: 'Toyota', model: '', vans: false, pages: 5 });
 
-  const loadTasks = useCallback(async () => { const r = await listTasks(); if (r.error) onError(r.error); else setTasks(r.rows.filter((t) => t.agent === 'ada')); }, [onError]);
+  const loadTasks = useCallback(async () => { const r = await listTasks(30, 'ada'); if (r.error) onError(r.error); else setTasks(r.rows); }, [onError]);
   const loadDirectory = useCallback(async () => {
     setLoading(true);
     const r = await listDealers({ country, brand: brand || null, query, exclude: [HOME_COUNTRY] });

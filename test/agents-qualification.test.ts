@@ -199,7 +199,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
 const { qualifyDealer } = await import('../worker/agents/qualify');
 const agent = { agent: 'ada', daily_budget_usd: 3, map_auto_add: true, map_min_score: 70, targets: targets, auto_discovery: false, auto_qualify_per_day: 0 } as never;
-const ctx = { agent, taskId: 't1', targets, targetCountries: ['NL', 'BE'], offers: [{ id: 'o1', brand: 'Ford', model: 'Transit Custom', year: 2021, km: 85_000, priceHt: 19_500, title: 'Ford Transit Custom 2021' }] };
+const ctx = { agent, taskId: 't1', role: 'ada' as const, dana: { minLot: 3, markets: ['NL', 'DK', 'BE', 'DE'] }, targets, targetCountries: ['NL', 'BE'], offers: [{ id: 'o1', brand: 'Ford', model: 'Transit Custom', year: 2021, km: 85_000, priceHt: 19_500, title: 'Ford Transit Custom 2021' }] };
 
 const o1 = await qualifyDealer('d1', ctx);
 const p1 = db.agent_prospects.find((p) => p.dealer_id === 'd1') as Row & { emails: Array<{ email: string; mx: boolean }>; best_contact: { email: string }; people: Array<{ nom: string }> };

@@ -24,6 +24,8 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   echec: { label: 'Échec', cls: 'bg-red-50 text-red-800 border-red-200' },
   refuse: { label: 'Refusé', cls: 'bg-slate-100 text-slate-500 border-slate-200 line-through' },
   recu: { label: 'Reçu', cls: 'bg-white text-slate-600 border-slate-200' },
+  pour_channing: { label: 'Pour vous', cls: 'bg-violet-50 text-violet-800 border-violet-200' },
+  envoye_main: { label: 'Envoyé par vous', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
 };
 export function StatusChip({ status }: { status: string }) {
   const s = STATUS[status] ?? { label: status, cls: 'bg-slate-100 text-slate-600 border-slate-200' };

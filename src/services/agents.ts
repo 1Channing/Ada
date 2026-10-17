@@ -13,6 +13,7 @@
 import { supabase } from '../lib/supabase';
 import { replySubject } from '../lib/agents/mail';
 import type { AgentTargets } from '../lib/agents/qualification';
+import type { DanaTargets, LotFact } from '../lib/agents/sourcing';
 import { SITE_LABEL } from './dealerDirectory';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,7 +31,8 @@ export interface AgentSettings {
   owner_id: string | null; gmail_connected_email: string | null; gmail_connected_at: string | null;
   last_sync_at: string | null; last_sync_error: string | null; next_send_after: string | null; updated_at: string;
   // Phase 2.2 (17/10) — absents tant que le SQL agents_qualification n'est pas collé.
-  targets?: Partial<AgentTargets> | null; daily_budget_usd?: number | string; auto_discovery?: boolean; auto_qualify_per_day?: number;
+  // Ada : pays et marques visés ; Dana : taille d'un lot et nos pays de vente.
+  targets?: (Partial<AgentTargets> & Partial<DanaTargets>) | null; daily_budget_usd?: number | string; auto_discovery?: boolean; auto_qualify_per_day?: number;
   map_auto_add?: boolean; map_min_score?: number;
   // Phase 2.3 (17/10) — SQL agents_premiers_mails.
   instructions?: string; auto_draft_per_day?: number;
@@ -44,7 +46,8 @@ export interface AgentThread {
   unread: boolean; archived: boolean; created_at: string;
 }
 
-export type MessageStatus = 'brouillon' | 'a_valider' | 'valide' | 'envoi' | 'envoye' | 'echec' | 'refuse' | 'recu';
+// pour_channing / envoye_main (17/10, SQL agents_comptes) : préparé pour un grand compte, envoyé par Channing lui-même.
+export type MessageStatus = 'brouillon' | 'a_valider' | 'valide' | 'envoi' | 'envoye' | 'echec' | 'refuse' | 'recu' | 'pour_channing' | 'envoye_main';
 export type MessageKind = 'premier_contact' | 'relance' | 'reponse' | 'recu';
 export interface Attachment { path: string; name: string; mime: string; size: number }
 export interface AgentMessage {
@@ -54,9 +57,14 @@ export interface AgentMessage {
   attachments: Attachment[]; classification: string | null; auto_reply: boolean; author: 'humain' | 'ada' | 'dana' | 'systeme';
   created_by: string | null; approved_by: string | null; approved_at: string | null; refused_reason: string | null; error: string | null;
   sent_at: string | null; received_at: string | null; created_at: string; updated_at: string;
-  /** Brouillon d'Ada (17/10) : modèle, coût, langue, faits cités, points à vérifier. */
-  ai_notes?: { modele?: string; cout_usd?: number; langue?: string; mots?: number; faits?: Array<{ fait: string; source: string }>; alertes?: string[] } | null;
+  /** Brouillon d'une agente (17/10) : modèle, coût, langue, faits cités, points à vérifier ; pour un grand compte, la fiche d'appel et LinkedIn. */
+  ai_notes?: {
+    modele?: string; cout_usd?: number; langue?: string; mots?: number; faits?: Array<{ fait: string; source: string }>; alertes?: string[];
+    grand_compte?: boolean; fiche_appel?: CallSheet | null; linkedin_url?: string | null; linkedin_nom?: string | null; linkedin_recherche?: string | null;
+  } | null;
 }
+/** La fiche d'appel d'un grand compte, préparée pour Channing. */
+export interface CallSheet { interlocuteur: string | null; pourquoi: string; accroche: string; points: string[]; questions: string[] }
 export interface QueuedMessage extends AgentMessage { thread: Pick<AgentThread, 'subject' | 'counterpart_email' | 'counterpart_name'> | null }
 
 export interface JournalRow { id: number; at: string; agent: AgentKey | null; actor: string; actor_id: string | null; kind: string; summary: string; thread_id: string | null; message_id: string | null }
@@ -189,12 +197,12 @@ export async function listQueue(): Promise<{ rows: QueuedMessage[]; error: strin
   return { rows: (data ?? []) as QueuedMessage[], error: null };
 }
 
-export interface AgentCounts { aValider: number; enAttente: number; echecs: number; nonLus: number; recusAujourdhui: number; envoyesAujourdhui: number; premiersContactsAujourdhui: number }
+export interface AgentCounts { aValider: number; enAttente: number; echecs: number; nonLus: number; recusAujourdhui: number; envoyesAujourdhui: number; premiersContactsAujourdhui: number; pourVous: number }
 
 export async function countsFor(agent: AgentKey, dayStartIso: string): Promise<AgentCounts> {
   const head = { count: 'exact', head: true };
   const q = () => sb.from('agent_messages').select('id', head).eq('agent', agent);
-  const [a, w, f, u, r, s, c] = await Promise.all([
+  const [a, w, f, u, r, s, c, v] = await Promise.all([
     q().eq('status', 'a_valider'),
     q().in('status', ['valide', 'envoi']),
     q().eq('status', 'echec'),
@@ -202,8 +210,11 @@ export async function countsFor(agent: AgentKey, dayStartIso: string): Promise<A
     q().eq('direction', 'in').gte('received_at', dayStartIso),
     q().eq('status', 'envoye').gte('sent_at', dayStartIso),
     q().eq('status', 'envoye').in('kind', ['premier_contact', 'relance']).gte('sent_at', dayStartIso),
+    // Grands comptes préparés pour vous (un fil = un compte ; 0 tant que le SQL agents_comptes n'est pas collé).
+    sb.from('agent_messages').select('thread_id').eq('agent', agent).eq('status', 'pour_channing').limit(500),
   ]);
-  return { aValider: a.count ?? 0, enAttente: w.count ?? 0, echecs: f.count ?? 0, nonLus: u.count ?? 0, recusAujourdhui: r.count ?? 0, envoyesAujourdhui: s.count ?? 0, premiersContactsAujourdhui: c.count ?? 0 };
+  const pourVous = new Set(((v.data ?? []) as Array<{ thread_id: string }>).map((m) => m.thread_id)).size;
+  return { aValider: a.count ?? 0, enAttente: w.count ?? 0, echecs: f.count ?? 0, nonLus: u.count ?? 0, recusAujourdhui: r.count ?? 0, envoyesAujourdhui: s.count ?? 0, premiersContactsAujourdhui: c.count ?? 0, pourVous };
 }
 
 export async function listJournal(agent: AgentKey | null, limit = 200): Promise<{ rows: JournalRow[]; error: string | null }> {
@@ -276,11 +287,15 @@ export interface AgentTask {
 /** La qualification d'un garage telle que l'annuaire la porte (dealer_id : la fiche qualifiée, tous sites). */
 export interface DealerProspect { id: string; dealer_id?: string; stage: ProspectStage; score: number | null; kind: string | null; qualified_at: string | null; email: string | null; in_map: boolean }
 export type ProspectStage = 'qualifie' | 'ecarte' | 'a_contacter' | 'contacte' | 'repondu' | 'interesse' | 'client' | 'perdu';
-/** La fiche complète d'un garage qualifié par Ada. */
+/** La fiche complète d'un garage qualifié par Ada ou Dana. */
 export interface ProspectDetail {
-  id: string; dealer_id: string | null; name: string; website: string | null; legal_name: string | null; group_name: string | null; sites: number | null;
+  id: string; agent?: AgentKey; dealer_id: string | null; name: string; website: string | null; legal_name: string | null; group_name: string | null; sites: number | null;
   kind: string | null; brands_official: string[]; emails: Array<{ email: string; nature: string; source: string; mx: boolean }>;
-  people: Array<{ nom: string; fonction: string; email: string | null; source: string }>; best_contact: { nom: string | null; fonction: string | null; email: string | null; pourquoi: string } | null;
+  people: Array<{ nom: string; fonction: string; email: string | null; source: string; linkedin?: string | null }>;
+  best_contact: { nom: string | null; fonction: string | null; email: string | null; pourquoi: string; linkedin?: string | null } | null;
+  phone?: string | null; country?: string | null; city?: string | null;
+  /** SQL agents_comptes (17/10) : grand compte (préparé pour Channing), nature du compte, lots vus par Dana. */
+  key_account?: boolean; account_kind?: string | null; lots?: LotFact[];
   language: string | null; fit_score: number | null; fit_parts: Array<{ label: string; points: number }>; score: number | null; summary: string | null;
   exclusion_reason: string | null; evidence: Array<{ url: string; note: string }>; stage: ProspectStage; qualified_at: string | null; qualify_cost_usd: number | string;
   network_contact_id: string | null; notes: string;
@@ -331,8 +346,10 @@ export async function ourOffers(): Promise<Array<{ id: string; brand: string; mo
     .map((r) => ({ id: r.id, brand: r.vehicle?.brand ?? '', model: r.vehicle?.model ?? '', year: r.vehicle?.year ?? null, km: r.vehicle?.km ?? null, priceHt: r.price_ht, title: (r.title ?? '').trim() || `${r.vehicle?.brand ?? ''} ${r.vehicle?.model ?? ''}`.trim() }));
 }
 
-export async function listTasks(limit = 15): Promise<{ rows: AgentTask[]; error: string | null }> {
-  const { data, error } = await sb.from('agent_tasks').select('*').order('created_at', { ascending: false }).limit(limit);
+export async function listTasks(limit = 15, agent?: AgentKey): Promise<{ rows: AgentTask[]; error: string | null }> {
+  let q = sb.from('agent_tasks').select('*').order('created_at', { ascending: false }).limit(limit);
+  if (agent) q = q.eq('agent', agent);
+  const { data, error } = await q;
   if (error) return { rows: [], error: errAnnuaire(error.message) };
   return { rows: (data ?? []) as AgentTask[], error: null };
 }
@@ -389,6 +406,8 @@ export interface DealerLot {
   first_seen_at: string; last_seen_at: string; urls: string[];
   /** Ce que ces véhicules valent dans nos pays de vente (médiane, nombre d'annonces, écart brut). */
   markets: Array<{ market: string; n: number; median: number; gap: number }>;
+  /** La fiche de Dana pour ce garage (SQL agents_comptes), ou null s'il n'est pas encore qualifié. */
+  prospect?: { id: string; dealer_id: string; stage: ProspectStage; score: number | null; key_account: boolean; email: string | null; qualified_at: string | null } | null;
 }
 export const LOTS_SQL_HINT = 'Lots de Dana : SQL du 17/10 (agents_tous_sites puis agents_lots) à coller dans Supabase.';
 
@@ -423,21 +442,22 @@ export async function addLotDealerToMap(l: DealerLot, userId: string | null): Pr
 
 // --- Phase 2.2 (17/10) : la qualification par l'IA ------------------------------------------
 
-/** Qualifier des garages : une tâche par série de 10 (le worker les traite une à une). */
-export async function queueQualification(dealerIds: string[], userId: string | null): Promise<string | null> {
+/** Qualifier des garages (Ada : acheteurs ; Dana : fournisseurs) : une tâche par série de 10 (le worker les traite une à une). */
+export async function queueQualification(dealerIds: string[], userId: string | null, agent: AgentKey = 'ada'): Promise<string | null> {
   const ids = [...new Set(dealerIds)];
   for (let i = 0; i < ids.length; i += 10) {
-    const { error } = await sb.from('agent_tasks').insert({ agent: 'ada', kind: 'qualification', params: { dealer_ids: ids.slice(i, i + 10) }, created_by: userId });
+    const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'qualification', params: { dealer_ids: ids.slice(i, i + 10) }, created_by: userId });
     if (error) return errQualif(error.message);
   }
   return null;
 }
 
-export async function prospectDetails(dealerIds: string[]): Promise<ProspectDetail[]> {
+/** Les fiches d'une agente pour ces garages (un même garage peut être un acheteur pour Ada et un fournisseur pour Dana). */
+export async function prospectDetails(dealerIds: string[], agent: AgentKey = 'ada'): Promise<ProspectDetail[]> {
   if (dealerIds.length === 0) return [];
   const out: ProspectDetail[] = [];
   for (let i = 0; i < dealerIds.length; i += 100) {
-    const { data } = await sb.from('agent_prospects').select('*').in('dealer_id', dealerIds.slice(i, i + 100));
+    const { data } = await sb.from('agent_prospects').select('*').eq('agent', agent).in('dealer_id', dealerIds.slice(i, i + 100));
     out.push(...((data ?? []) as ProspectDetail[]));
   }
   return out;
@@ -465,11 +485,14 @@ export async function updateAiSettings(agent: AgentKey, patch: AiSettingsPatch, 
 export const MAILS_SQL_HINT = 'Premiers mails d\'Ada : SQL du 17/10 (agents_premiers_mails) à coller dans Supabase.';
 const errMails = (m: string) => (missing(m) || /prospect_id|ai_notes|instructions|auto_draft_per_day|kind_check/i.test(m) ? MAILS_SQL_HINT : m);
 
-/** Ada rédige le premier mail de ces prospects (5 par tâche) ; les brouillons arrivent dans « À valider ». */
-export async function queueFirstMails(prospectIds: string[], userId: string | null): Promise<string | null> {
+/**
+ * L'agente rédige le premier contact de ces prospects (5 par tâche) : un petit
+ * compte arrive dans « À valider », un grand compte dans « Pour vous ».
+ */
+export async function queueFirstMails(prospectIds: string[], userId: string | null, agent: AgentKey = 'ada'): Promise<string | null> {
   const ids = [...new Set(prospectIds)];
   for (let i = 0; i < ids.length; i += 5) {
-    const { error } = await sb.from('agent_tasks').insert({ agent: 'ada', kind: 'premier_mail', params: { prospect_ids: ids.slice(i, i + 5) }, created_by: userId });
+    const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'premier_mail', params: { prospect_ids: ids.slice(i, i + 5) }, created_by: userId });
     if (error) return errMails(error.message);
   }
   return null;
@@ -488,3 +511,41 @@ export async function updateMailSettings(agent: AgentKey, patch: { instructions:
   const { error } = await sb.from('agent_settings').update({ ...patch, updated_at: new Date().toISOString(), updated_by: userId }).eq('agent', agent);
   return error ? errMails(error.message) : null;
 }
+
+// --- Grands comptes (17/10) : préparé pour vous, envoyé par vous ------------------------------
+
+export const COMPTES_SQL_HINT = 'Grands comptes et Dana : SQL du 17/10 (agents_comptes) à coller dans Supabase.';
+const errComptes = (m: string) => (missing(m) || /pour_channing|envoye_main|status_check|key_account/i.test(m) ? COMPTES_SQL_HINT : m);
+
+/** Le grand compte d'un envoi préparé : ce qu'il faut pour appeler, écrire, inviter. */
+export interface ForYouProspect {
+  id: string; name: string; country: string | null; city: string | null; phone: string | null; website: string | null;
+  group_name: string | null; kind: string | null; account_kind: string | null; score: number | null; summary: string | null; stage: ProspectStage;
+  best_contact: ProspectDetail['best_contact']; people: ProspectDetail['people'];
+}
+export interface ForYouMessage extends AgentMessage {
+  thread: (Pick<AgentThread, 'subject' | 'counterpart_email' | 'counterpart_name'> & { prospect_id: string | null; prospect: ForYouProspect | null }) | null;
+}
+
+/** Ce qu'Ada et Dana ont préparé pour vous (grands comptes) : mails, notes LinkedIn et fiches d'appel, à envoyer vous-même. */
+export async function listForYou(): Promise<{ rows: ForYouMessage[]; error: string | null }> {
+  const { data, error } = await sb.from('agent_messages')
+    .select('*, thread:agent_threads(subject, counterpart_email, counterpart_name, prospect_id, prospect:agent_prospects(id, name, country, city, phone, website, group_name, kind, account_kind, score, summary, stage, best_contact, people))')
+    .eq('status', 'pour_channing').order('created_at', { ascending: true }).limit(300);
+  if (error) {
+    // SQL agents_comptes pas encore collé : rien n'a pu être préparé, la file reste vide.
+    if (/account_kind|key_account/i.test(error.message) || missing(error.message)) return { rows: [], error: null };
+    return { rows: [], error: error.message };
+  }
+  return { rows: (data ?? []) as ForYouMessage[], error: null };
+}
+
+/** Vous l'avez envoyé (votre boîte, votre LinkedIn) : le message est figé, le prospect passe « contacté ». */
+export async function markSentByHand(id: string): Promise<string | null> {
+  const { error } = await sb.from('agent_messages').update({ status: 'envoye_main' }).eq('id', id);
+  return error ? errComptes(error.message) : null;
+}
+
+/** Un lien Gmail qui ouvre le mail prêt à partir, dans votre boîte. */
+export const gmailComposeUrl = (to: string[], subject: string, body: string) =>
+  `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to.join(','))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;

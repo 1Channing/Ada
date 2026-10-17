@@ -1,7 +1,8 @@
 /**
  * Une base Supabase simulée pour les tests du worker des agentes (17/10) :
  * tables en mémoire, et les gestes du client que le worker utilise (select,
- * eq, gte, in, is, order, limit, maybeSingle, insert, upsert, update, delete).
+ * eq, neq, gte, in, is, order, limit, maybeSingle, insert, upsert, update, delete),
+ * et les fonctions (rpc) qu'un test simule.
  * Les défauts de la base (id, created_at) sont posés à l'insertion.
  */
 type Row = Record<string, unknown>;
@@ -19,6 +20,7 @@ class Q implements PromiseLike<{ data: unknown; error: null }> {
   constructor(private db: FakeDb, private t: string) {}
   select() { return this; }
   eq(c: string, v: unknown) { this.filters.push((r) => r[c] === v); return this; }
+  neq(c: string, v: unknown) { this.filters.push((r) => r[c] !== v); return this; }
   gte(c: string, v: string) { this.filters.push((r) => String(r[c] ?? '') >= v); return this; }
   in(c: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   not() { return this; }
@@ -57,5 +59,11 @@ class Q implements PromiseLike<{ data: unknown; error: null }> {
   }
 }
 
-/** Le client simulé : `from(table)` et un `rpc` qui ne rend rien. */
-export const fakeSupabase = (db: FakeDb) => ({ from: (t: string) => new Q(db, t), rpc: async () => ({ data: [], error: null }) });
+/** Une fonction de la base simulée : ce qu'elle rend pour ces arguments. */
+export type FakeRpc = (args: Record<string, unknown>) => { data: unknown; error: { message: string } | null };
+
+/** Le client simulé : `from(table)`, et un `rpc` qui ne rend rien sauf les fonctions simulées par le test. */
+export const fakeSupabase = (db: FakeDb, rpcs: Record<string, FakeRpc> = {}) => ({
+  from: (t: string) => new Q(db, t),
+  rpc: async (fn: string, args: Record<string, unknown> = {}) => (rpcs[fn] ? rpcs[fn](args) : { data: [], error: null }),
+});

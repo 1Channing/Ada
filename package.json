@@ -21,7 +21,8 @@
     "test:qualification": "tsx test/agents-qualification.test.ts",
     "test:premier-mail": "tsx test/agents-premier-mail.test.ts",
     "test:sites": "tsx test/agents-sites.test.ts",
-    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median && npm run test:site-deal && npm run test:agents && npm run test:annuaire && npm run test:qualification && npm run test:premier-mail && npm run test:sites",
+    "test:dana": "tsx test/agents-dana.test.ts",
+    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median && npm run test:site-deal && npm run test:agents && npm run test:annuaire && npm run test:qualification && npm run test:premier-mail && npm run test:sites && npm run test:dana",
     "build:worker": "cd worker && npm ci && npm run build",
     "start:worker": "cd worker && npm start",
     "gate": "tsc --noEmit -p tsconfig.app.json && tsx scripts/grammar-gate.mts && vite build"

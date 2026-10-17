@@ -3,12 +3,15 @@
  * envoyer passe ici — à valider, puis validé en attente d'envoi (avec la
  * raison : horaires, plafond, écart, boîte), puis les échecs. Pendant le
  * copilote, rien ne part sans un clic d'administrateur.
+ * « Pour vous » (17/10) : les grands comptes, préparés par Ada et Dana, que
+ * vous envoyez vous-même (votre Gmail, votre LinkedIn, votre téléphone).
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
-import { listQueue, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage } from '../../services/agents';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { CheckCircle2, Clock, AlertTriangle, Crown } from 'lucide-react';
+import { listQueue, listForYou, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage, type ForYouMessage } from '../../services/agents';
 import { AgentBadge } from './shared';
 import { MessageCard } from './MessageCard';
+import { ForYouCard } from './ForYou';
 
 interface Props {
   settings: AgentSettings[];
@@ -22,12 +25,20 @@ interface Props {
 
 export function ValidationQueue({ settings, counts, isAdmin, refreshKey, onOpenThread, onChanged, onError }: Props) {
   const [rows, setRows] = useState<QueuedMessage[]>([]);
+  const [forYou, setForYou] = useState<ForYouMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
-    const r = await listQueue();
+    const [r, f] = await Promise.all([listQueue(), listForYou()]);
     if (r.error) onError(r.error); else setRows(r.rows);
+    if (f.error) onError(f.error); else setForYou(f.rows);
     setLoaded(true);
   }, [onError]);
+  // Un grand compte = un fil : son mail et sa note LinkedIn ensemble.
+  const accounts = useMemo(() => {
+    const m = new Map<string, ForYouMessage[]>();
+    for (const x of forYou) (m.get(x.thread_id) ?? m.set(x.thread_id, []).get(x.thread_id)!).push(x);
+    return [...m.values()];
+  }, [forYou]);
   useEffect(() => { void load(); }, [load, refreshKey]);
   const changed = () => { void load(); onChanged(); };
   const byAgent = (k: AgentKey) => settings.find((s) => s.agent === k);
@@ -41,16 +52,27 @@ export function ValidationQueue({ settings, counts, isAdmin, refreshKey, onOpenT
       hint: 'Rien n\'est renvoyé tout seul : corrigez (repasser en brouillon) puis revalidez.' },
   ];
 
-  if (loaded && rows.length === 0) {
+  if (loaded && rows.length === 0 && accounts.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-12 text-center text-sm text-slate-500">
         <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
-        Rien à valider. Les messages soumis par l'équipe (et, en phase 2, ceux préparés par Ada et Dana) arrivent ici.
+        Rien à valider. Les premiers mails d'Ada et Dana, et les messages soumis par l'équipe, arrivent ici ; les grands comptes qu'elles préparent pour vous aussi.
       </div>
     );
   }
   return (
     <div className="space-y-5">
+      {accounts.length > 0 && (
+        <section className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Crown className="w-4 h-4 text-violet-600" />
+            <h3 className="text-sm font-semibold text-slate-900">Pour vous — grands comptes</h3>
+            <span className="text-xs text-slate-400">{accounts.length}</span>
+            <span className="text-xs text-slate-500">— groupes, loueurs, leasings, flottes : Ada et Dana préparent, vous envoyez (votre Gmail, votre LinkedIn, votre téléphone), puis « Marquer envoyé ».</span>
+          </div>
+          {accounts.map((items) => <ForYouCard key={items[0].thread_id} items={items} isAdmin={isAdmin} onOpenThread={onOpenThread} onChanged={changed} onError={onError} />)}
+        </section>
+      )}
       {groups.filter((g) => g.items.length > 0).map((g) => (
         <section key={g.key} className="space-y-2">
           <div className="flex items-center gap-2">

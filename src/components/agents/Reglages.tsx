@@ -5,7 +5,9 @@
  * contacts), le responsable des alertes — et la liste « ne plus contacter »
  * commune aux deux agentes. Phase 2.2 (17/10) : le travail d'Ada par l'IA
  * (cibles, budget par jour, découvertes et qualifications automatiques,
- * ajout à la carte au-delà d'un score).
+ * ajout à la carte au-delà d'un score). Dana (17/10) : la taille d'un lot,
+ * nos pays de vente (pour les écarts), le même budget, les mêmes
+ * automatismes ; ses découvertes se lancent depuis l'onglet Sourcing.
  */
 import { useEffect, useState } from 'react';
 import { Link2, Unlink, Save, Ban, Trash2, Plug, Sparkles } from 'lucide-react';
@@ -14,6 +16,7 @@ import {
   type AgentKey, type AgentSettings, type EditableSettings, type Suppression, type AiSpend,
 } from '../../services/agents';
 import { normalizeTargets } from '../../lib/agents/qualification';
+import { normalizeDanaTargets } from '../../lib/agents/sourcing';
 import { DISCOVERY_SITES } from '../../lib/agents/discovery';
 import { HOME_COUNTRY } from '../../lib/agents/qualification';
 import { fmtUsd } from '../../lib/agents/aiCost';
@@ -29,10 +32,16 @@ interface Props { settings: AgentSettings[]; isAdmin: boolean; userId: string | 
 
 const COUNTRY_LABEL: Record<string, string> = { FR: '🇫🇷 France', DE: '🇩🇪 Allemagne', NL: '🇳🇱 Pays-Bas', BE: '🇧🇪 Belgique', ES: '🇪🇸 Espagne', IT: '🇮🇹 Italie', DK: '🇩🇰 Danemark', SE: '🇸🇪 Suède', HU: '🇭🇺 Hongrie' };
 const listOf = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+const MARKET_CHOICES = ['NL', 'DK', 'BE', 'DE', 'ES', 'IT', 'SE', 'AT'];
+const MARKET_LABEL: Record<string, string> = { ...COUNTRY_LABEL, AT: '🇦🇹 Autriche' };
 
-/** Le travail d'Ada par l'IA (phase 2.2) : cibles, budget, automatismes. */
+/** Le travail d'Ada ou de Dana par l'IA : cibles, budget, automatismes, premiers contacts. */
 function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: AgentSettings; isAdmin: boolean; userId: string | null; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }) {
+  const dana = s.agent === 'dana';
   const t = normalizeTargets(s.targets);
+  const dt = normalizeDanaTargets(s.targets);
+  const [minLot, setMinLot] = useState(dt.minLot);
+  const [markets, setMarkets] = useState<string[]>(dt.markets);
   const [countries, setCountries] = useState<string[]>(t.countries);
   const [brands, setBrands] = useState(t.brands.join(', '));
   const [vanBrands, setVanBrands] = useState(t.vanBrands.join(', '));
@@ -51,8 +60,9 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
   const today = spend?.[s.agent];
   const save = async () => {
     setBusy(true);
+    if (dana && markets.length === 0) { setBusy(false); onError('Cochez au moins un pays de vente : c\'est là que Dana mesure les écarts.'); return; }
     const e = await updateAiSettings(s.agent, {
-      targets: { countries, brands: listOf(brands), vanBrands: listOf(vanBrands), multibrand },
+      targets: dana ? { minLot, markets } : { countries, brands: listOf(brands), vanBrands: listOf(vanBrands), multibrand },
       daily_budget_usd: Math.max(0, Math.min(100, Math.round(budget * 100) / 100)),
       auto_discovery: autoDisc, auto_qualify_per_day: Math.max(0, Math.min(500, Math.round(autoQual))),
       map_auto_add: mapAdd, map_min_score: Math.max(0, Math.min(100, Math.round(mapScore))),
@@ -68,6 +78,27 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
         <p className="text-xs uppercase tracking-wide text-violet-800">Travail de {s.display_name} (IA)</p>
         <span className="ml-auto text-xs text-slate-500">Dépensé : {fmtUsd(today?.today ?? 0)} aujourd'hui · {fmtUsd(today?.month ?? 0)} ce mois</span>
       </div>
+      {dana ? (
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-slate-600">Un lot, c'est à partir de</span>
+            <select disabled={ro} className={input} value={minLot} onChange={(e) => setMinLot(Number(e.target.value))}>
+              {[2, 3, 4, 5, 6, 8, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <span className="text-slate-600">véhicules identiques (marque, modèle, année) chez un même garage.</span>
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs text-slate-500">Nos pays de vente (Dana y mesure l'écart brut de chaque lot)</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {MARKET_CHOICES.map((c) => (
+                <button key={c} disabled={ro} onClick={() => setMarkets(markets.includes(c) ? markets.filter((x) => x !== c) : [...markets, c])}
+                  className={`text-xs rounded-full px-2 py-0.5 border ${markets.includes(c) ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-200 text-slate-600'}`}>{MARKET_LABEL[c] ?? c}</button>
+              ))}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400">Dana cherche dans toute l'Europe, la France comprise : les garages aux plus gros lots d'abord, puis aux meilleurs écarts, hors contacts que l'équipe connaît déjà (carte, fournisseurs du Workflow). Ses découvertes se lancent depuis l'onglet Sourcing.</p>
+        </div>
+      ) : (<>
       <div className="space-y-1 text-sm">
         <span className="text-xs text-slate-500">Pays visés</span>
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -86,35 +117,42 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
           <input disabled={ro} className={`${input} w-full`} value={vanBrands} onChange={(e) => setVanBrands(e.target.value)} /></label>
       </div>
       <label className="inline-flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={multibrand} onChange={(e) => setMultibrand(e.target.checked)} /> Les multimarques comptent aussi</label>
+      </>)}
       <div className="flex items-center gap-2 flex-wrap text-sm">
         <span className="text-slate-600">Budget IA par jour :</span>
         <input disabled={ro} type="number" min={0} max={100} step={0.5} className={`${input} w-20`} value={budget} onChange={(e) => setBudget(Number(e.target.value))} />
         <span className="text-slate-600">$</span>
         <span className="text-xs text-slate-400">Atteint → {s.display_name} s'arrête jusqu'au lendemain. Une qualification coûte de 0,002 à 0,03 $.</span>
       </div>
-      <label className="flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={autoDisc} onChange={(e) => setAutoDisc(e.target.checked)} /> Découvertes automatiques (jusqu'à 8 par jour, 3 pages chacune, en rotation sur les sites des pays cibles, du lundi au vendredi 8 h-19 h) — sans IA</label>
+      {!dana && <label className="flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={autoDisc} onChange={(e) => setAutoDisc(e.target.checked)} /> Découvertes automatiques (jusqu'à 8 par jour, 3 pages chacune, en rotation sur les sites des pays cibles, du lundi au vendredi 8 h-19 h) — sans IA</label>}
       <div className="flex items-center gap-2 flex-wrap text-sm">
         <span className="text-slate-600">Garages qualifiés d'office par jour :</span>
         <input disabled={ro} type="number" min={0} max={500} className={`${input} w-20`} value={autoQual} onChange={(e) => setAutoQual(Number(e.target.value))} />
-        <span className="text-xs text-slate-400">0 = seulement à la demande (bouton « Qualifier »). Les meilleurs de l'annuaire d'abord.</span>
+        <span className="text-xs text-slate-400">0 = seulement à la demande (bouton « Qualifier »). {dana ? 'Les plus gros lots d\'abord.' : 'Les meilleurs de l\'annuaire d\'abord.'} Du lundi au vendredi, 8 h-19 h.</span>
       </div>
       <div className="flex items-center gap-2 flex-wrap text-sm">
-        <label className="inline-flex items-center gap-1.5 text-slate-700"><input disabled={ro} type="checkbox" checked={mapAdd} onChange={(e) => setMapAdd(e.target.checked)} /> Ajouter à la carte du réseau les garages qualifiés à partir de</label>
+        <label className="inline-flex items-center gap-1.5 text-slate-700"><input disabled={ro} type="checkbox" checked={mapAdd} onChange={(e) => setMapAdd(e.target.checked)} /> Ajouter à la carte du réseau{dana ? ', comme vendeurs,' : ''} les garages qualifiés à partir de</label>
         <input disabled={ro || !mapAdd} type="number" min={0} max={100} className={`${input} w-16`} value={mapScore} onChange={(e) => setMapScore(Number(e.target.value))} />
         <span className="text-slate-600">/100</span>
         <span className="text-xs text-slate-400">avec le badge « IA · {s.display_name} », et un e-mail vérifié ou un téléphone.</span>
       </div>
       {mailsReady ? (
         <div className="space-y-2 border-t border-violet-100 pt-3">
-          <p className="text-xs uppercase tracking-wide text-violet-800">Premiers mails (Opus 5.5, toujours à valider)</p>
+          <p className="text-xs uppercase tracking-wide text-violet-800">Premiers contacts (Opus 5.5, rien ne part tout seul)</p>
           <div className="flex items-center gap-2 flex-wrap text-sm">
             <span className="text-slate-600">Rédigés d'office par jour :</span>
             <input disabled={ro} type="number" min={0} max={200} className={`${input} w-20`} value={autoDraft} onChange={(e) => setAutoDraft(Number(e.target.value))} />
-            <span className="text-xs text-slate-400">pour les garages au-dessus du seuil, avec un e-mail vérifié. 0 = seulement à la demande. Jamais plus de deux jours d'envois en attente de validation. Environ 0,03 à 0,08 $ le mail.</span>
+            <span className="text-xs text-slate-400">pour les garages au-dessus du seuil. 0 = seulement à la demande. Environ 0,03 à 0,08 $ le mail.</span>
           </div>
+          <p className="text-[11px] text-slate-500">
+            Petit compte avec un e-mail publié et vérifié : {dana ? 'le mail d\'achat de Dana (aucun prix ni estimation : la négociation passe par vous)' : 'le mail de vente d\'Ada'}, dans « À valider », envoyé depuis {s.mailbox} — jamais plus de deux jours d'envois en attente.
+            Grand compte (groupe, loueur, leasing, flotte) : le mail (s'il y a un e-mail publié), la note d'invitation LinkedIn et la fiche d'appel, préparés à votre nom dans « À valider › Pour vous » — vous envoyez vous-même ; jamais plus de 10 en attente.
+          </p>
           <label className="block space-y-1 text-sm"><span className="text-xs text-slate-500">Vos consignes à {s.display_name} — elle n'affirme aucune condition qui n'est pas écrite ici</span>
             <textarea disabled={ro} className={`${input} w-full min-h-[110px]`} value={instructions} onChange={(e) => setInstructions(e.target.value)}
-              placeholder={'Ex. : Paiement par virement à la commande, enlèvement ou livraison par notre convoyeur (devis à part).\nVéhicules contrôlés, carnet d\'entretien et deux clés.\nNe jamais donner de prix ferme au premier mail.\nNe pas démarcher les concessions du groupe X.'} />
+              placeholder={dana
+                ? 'Ex. : Nous reprenons des lots entiers ou partiels, paiement par virement à l\'enlèvement.\nEnlèvement par notre convoyeur, partout en Europe.\nVéhicules récents seulement (moins de 4 ans), carnet d\'entretien.\nNe jamais citer de prix : je rappelle moi-même.'
+                : 'Ex. : Paiement par virement à la commande, enlèvement ou livraison par notre convoyeur (devis à part).\nVéhicules contrôlés, carnet d\'entretien et deux clés.\nNe jamais donner de prix ferme au premier mail.\nNe pas démarcher les concessions du groupe X.'} />
           </label>
         </div>
       ) : <p className="text-xs text-slate-500 border-t border-violet-100 pt-3">{MAILS_SQL_HINT}</p>}
@@ -227,9 +265,7 @@ function AgentForm({ s, isAdmin, userId, people, spend, onChanged, onError, onIn
         {isAdmin && <button disabled={busy} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"><Save className="w-4 h-4" /> Enregistrer</button>}
         <span className="text-xs text-slate-500">Copilote : chaque mail de {s.display_name} part seulement après la validation d'un administrateur.</span>
       </div>
-      {s.agent === 'ada'
-        ? <AiForm s={s} isAdmin={isAdmin} userId={userId} spend={spend} onChanged={onChanged} onError={onError} onInfo={onInfo} />
-        : <p className="text-xs text-slate-500">L'IA de {s.display_name} (vendeurs, listes Excel, études) arrive à la phase 3.</p>}
+      <AiForm s={s} isAdmin={isAdmin} userId={userId} spend={spend} onChanged={onChanged} onError={onError} onInfo={onInfo} />
     </div>
   );
 }

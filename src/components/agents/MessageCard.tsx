@@ -13,7 +13,7 @@ import { StatusChip, ClassificationChip, DraftEditor } from './shared';
 import { draftProblem, cleanDraft, pendingReason, fmtDateTime } from './helpers';
 import { fmtUsd } from '../../lib/agents/aiCost';
 
-const FACT_SOURCE: Record<string, string> = { fiche: 'sa fiche', stock: 'son stock', offre: 'nos offres', mc_export: 'MC Export', consignes: 'vos consignes' };
+const FACT_SOURCE: Record<string, string> = { fiche: 'sa fiche', stock: 'son stock', lot: 'ses lots', offre: 'nos offres', mc_export: 'MC Export', consignes: 'vos consignes' };
 
 const KIND_LABEL: Record<string, string> = { premier_contact: 'Premier contact', relance: 'Relance', reponse: 'Réponse' };
 const btn = 'inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50';
@@ -77,6 +77,8 @@ export function MessageCard({ m, settings, counts, isAdmin, context, flat, onCha
         {out && KIND_LABEL[m.kind] && <span className="text-[11px] text-slate-500">{KIND_LABEL[m.kind]}</span>}
         <ClassificationChip c={m.classification} />
         {out && m.author !== 'humain' && <span className="text-[11px] text-violet-700">rédigé par {m.author === 'ada' ? 'Ada' : m.author === 'dana' ? 'Dana' : 'ADA'}</span>}
+        {m.channel === 'linkedin' && <span className="text-[11px] rounded-full px-1.5 py-0 bg-sky-50 text-sky-800 border border-sky-200">LinkedIn</span>}
+        {m.ai_notes?.grand_compte && <span className="text-[11px] rounded-full px-1.5 py-0 bg-violet-50 text-violet-800 border border-violet-200">grand compte</span>}
       </div>
       {m.subject && !editing && <p className="text-sm font-semibold text-slate-900">{m.subject}</p>}
       {editing ? <DraftEditor draft={editing} onChange={setEditing} autoFocus /> : <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{text || <span className="text-slate-400">(vide)</span>}</p>}
@@ -117,8 +119,10 @@ export function MessageCard({ m, settings, counts, isAdmin, context, flat, onCha
       {m.status === 'echec' && m.error && <p className="text-xs text-red-700">{m.error}</p>}
       {m.status === 'refuse' && m.refused_reason && <p className="text-xs text-slate-500">Motif du refus : {m.refused_reason}</p>}
       {(m.status === 'valide' || m.status === 'envoi') && <p className="text-[11px] text-blue-800">{pendingReason(m, settings, counts)}</p>}
+      {m.status === 'pour_channing' && <p className="text-[11px] text-violet-800">Préparé pour vous (grand compte) : vous l'envoyez vous-même, depuis « À valider » › « Pour vous ».</p>}
 
-      {out && (
+      {/* Un message préparé pour Channing (grand compte) ou une note LinkedIn ne passe pas par la boîte de l'agente. */}
+      {out && m.channel === 'mail' && !m.ai_notes?.grand_compte && (
         <div className="flex items-center gap-1.5 flex-wrap pt-1">
           {editing ? (
             <>

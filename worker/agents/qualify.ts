@@ -17,6 +17,13 @@
  *    et son domaine doit recevoir du courrier (MX).
  * 6. Au-delà du seuil des Réglages, le garage entre sur la carte du réseau
  *    avec le badge « IA · Ada » (coordonnées GPS par OpenStreetMap).
+ * Dana (17/10) : le même chemin pour un FOURNISSEUR — ses lots de véhicules
+ * identiques (agents_dealer_lots) font le score, la consigne cherche qui
+ * vend (VO, négoce, remarketing) ; carte : « vendeur ».
+ * Grand compte (groupe, loueur, leasing, flotte) : recherche web de la
+ * personne qui décide pour le groupe et de son profil LinkedIn (gardé
+ * seulement s'il apparaît dans un résultat lu) ; ses envois sont préparés
+ * pour Channing, qui les fait lui-même.
  * Rien n'est envoyé à qui que ce soit : les mails restent à l'étape 2.3, et
  * passent par la validation.
  */
@@ -24,11 +31,14 @@ import { promises as dns } from 'node:dns';
 import { fetchHtmlWithZyte } from '../scraper';
 import { parseDealerInfoPage, extractEmails, mailtoEmails, extractPeople, contactLinks, pageText, type DealerPageInfo } from '../../src/lib/agents/dealerPage';
 import {
-  fitScore, qualifyPrompt, QUALIFY_SYSTEM, QUALIFY_SCHEMA, acceptedEmails, finalScore, normalizeTargets, buyerCountries, HOME_COUNTRY,
-  type QualifyOutput, type AgentTargets,
+  fitScore, qualifyPrompt, QUALIFY_SYSTEM, DANA_QUALIFY_SYSTEM, qualifySchema, acceptedEmails, acceptedLinkedin, finalScore, normalizeTargets, buyerCountries, HOME_COUNTRY,
+  type QualifyOutput, type AgentTargets, type QualifyRole, type Fit,
 } from '../../src/lib/agents/qualification';
+import {
+  danaFitScore, lotFactOf, lotsFromListings, lotLine, normalizeDanaTargets, isKeyAccount, looksLikeGroup, type LotFact, type DanaTargets,
+} from '../../src/lib/agents/sourcing';
 import { opportunities, brandKey, type OfferLite, type DealerListingLite } from '../../src/lib/agents/opportunity';
-import { sameDealer, isoOfCountry } from '../../src/lib/agents/keys';
+import { sameDealer, isoOfCountry, nameKey, phoneKey9 } from '../../src/lib/agents/keys';
 import { SITE_LABEL } from '../../src/services/dealerDirectory';
 import { countryVat } from '../../src/lib/offers/vat';
 import { HAIKU } from '../../src/lib/agents/aiCost';
@@ -127,13 +137,27 @@ export async function salesCountries(): Promise<string[]> {
   return rows;
 }
 
-export interface SeriesContext { agent: AiAgent; taskId: string | null; targets: AgentTargets; targetCountries: string[]; offers: OfferLite[] }
+export interface SeriesContext {
+  agent: AiAgent; taskId: string | null; role: QualifyRole;
+  targets: AgentTargets; targetCountries: string[]; offers: OfferLite[];
+  /** Dana : taille d'un lot et nos pays de vente (pour les écarts). */
+  dana: DanaTargets;
+}
 
 export async function seriesContext(agent: AiAgent, taskId: string | null): Promise<SeriesContext> {
-  const targets = normalizeTargets(agent.targets);
+  const role: QualifyRole = agent.agent === 'dana' ? 'dana' : 'ada';
+  const targets = normalizeTargets(role === 'ada' ? agent.targets : null);
+  const dana = normalizeDanaTargets(role === 'dana' ? agent.targets : null);
   // Ada vend à l'export : jamais la France (pays d'achat), même si nos ventes en comptent.
-  const targetCountries = buyerCountries(targets.countries.length ? targets.countries : await salesCountries());
-  return { agent, taskId, targets, targetCountries, offers: await loadOffers() };
+  const targetCountries = role === 'ada' ? buyerCountries(targets.countries.length ? targets.countries : await salesCountries()) : [];
+  return { agent, taskId, role, targets, targetCountries, offers: role === 'ada' ? await loadOffers() : [], dana };
+}
+
+/** Les lots d'un garage (sa fiche principale et toutes ses fiches), avec leurs écarts face à nos pays de vente ; repli sans la base. */
+export async function lotsOfDealer(rootId: string, listings: Array<DealerListingLite>, dana: DanaTargets): Promise<LotFact[]> {
+  const { data, error } = await sb.rpc('agents_dealer_lots', { p_dealer: rootId, p_markets: dana.markets, p_min: dana.minLot, p_limit: 20 });
+  if (!error && Array.isArray(data)) return (data as Array<Parameters<typeof lotFactOf>[0]>).map(lotFactOf);
+  return lotsFromListings(listings, dana.minLot);
 }
 
 // --- Un garage --------------------------------------------------------------------------------
@@ -210,8 +234,8 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
     ...root, city: root.city ?? firstOf(group.map((m) => m.city)), zip: root.zip ?? firstOf(group.map((m) => m.zip)),
     street: root.street ?? firstOf(group.map((m) => m.street)), lat: placed?.lat ?? null, lng: placed?.lng ?? null,
   };
-  // Un garage en France : MC Export y achète — un fournisseur possible pour Dana, pas un acheteur.
-  if ((d.country ?? '').toUpperCase() === HOME_COUNTRY) {
+  // Un garage en France : MC Export y achète — un fournisseur possible pour Dana, pas un acheteur d'Ada.
+  if (ctx.role === 'ada' && (d.country ?? '').toUpperCase() === HOME_COUNTRY) {
     return { status: 'ecarte', name: d.name, score: null, cost: 0, detail: 'garage en France : fournisseur possible (Dana), pas un acheteur', addedToMap: false };
   }
   const ids = group.map((m) => m.id);
@@ -267,10 +291,18 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   const people = [...(page?.contactPersons ?? []).map((p) => ({ nom: p.name, fonction: p.position ?? 'vente', email: null as string | null, source: 'fiche AutoScout24' })),
     ...extractPeople(page?.imprint ?? '').map((p) => ({ nom: p.name, fonction: p.role, email: null as string | null, source: 'Impressum AutoScout24' }))];
   const brandsSeen = [...new Set(listings.map((l) => l.brand).filter((b): b is string => !!b))];
+  // Dana : ses lots de véhicules identiques (avec les écarts face à nos pays de vente) font le score.
+  const lots = ctx.role === 'dana' ? await lotsOfDealer(d.id, listings, ctx.dana) : [];
   const fitIn = { country: d.country, targetCountries: ctx.targetCountries, targets: ctx.targets, listings, opportunities: opps.length, nbBrands: brandsSeen.length };
-  const fit = fitScore({ ...fitIn, hasEmail: emailsFound.length > 0, hasNamedContact: people.length > 0 });
+  const fitOf = (hasEmail: boolean, hasNamedContact: boolean): Fit => (ctx.role === 'dana'
+    ? danaFitScore({ lots, listings: listings.length, hasEmail, hasNamedContact })
+    : fitScore({ ...fitIn, hasEmail, hasNamedContact }));
+  const fit = fitOf(emailsFound.length > 0, people.length > 0);
   const webSearch = !website && emailsFound.length === 0;
+  // Grand compte probable (groupe, plusieurs sites) : on cherche la personne qui décide pour tout le groupe.
+  const decisionSearch = !webSearch && (looksLikeGroup(d.name) || (page?.branches.length ?? 0) >= 2);
   const prompt = qualifyPrompt({
+    role: ctx.role, lots: lots.slice(0, 6).map((l) => lotLine(l, true)), decisionSearch,
     dealer: { name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street, phone, contactName, sources, legalId: firstOf(group.map((m) => m.legal_id)) },
     fit,
     stock: {
@@ -283,21 +315,24 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
 
   // 3. Haiku 5.5
   // Déjà qualifié par une de ses fiches (avant le rapprochement des sites) : c'est la même fiche prospect.
-  const { data: existing } = await sb.from('agent_prospects').select('id, stage, network_contact_id, dealer_id').in('dealer_id', ids).limit(1);
+  const { data: existing } = await sb.from('agent_prospects').select('id, stage, network_contact_id, dealer_id').eq('agent', ctx.agent.agent).in('dealer_id', ids).limit(1);
   const prev = (((existing ?? []) as Array<{ id: string; stage: string; network_contact_id: string | null; dealer_id: string }>)[0]) ?? null;
   let ai: QualifyOutput;
   let cost = 0;
+  let seenUrls: string[] = [];
+  const searched = webSearch || decisionSearch;
   try {
     const budget = Number(ctx.agent.daily_budget_usd);
     const r = await callClaude<QualifyOutput>({
       // Un budget illisible vaut 0 (pas d'appel), jamais « sans limite ».
       agent: ctx.agent.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'qualification', model: HAIKU,
-      system: QUALIFY_SYSTEM, user: prompt, schema: QUALIFY_SCHEMA as unknown as Record<string, unknown>,
-      tools: webSearch ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 3 }] : undefined,
+      system: ctx.role === 'dana' ? DANA_QUALIFY_SYSTEM : QUALIFY_SYSTEM, user: prompt, schema: qualifySchema(ctx.role) as unknown as Record<string, unknown>,
+      tools: searched ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 3 }] : undefined,
       maxTokens: 6000, effort: 'low', prospectId: prev?.id ?? null, taskId: ctx.taskId,
     });
     ai = r.data as QualifyOutput;
     cost = r.costUsd;
+    seenUrls = r.seenUrls ?? [];
   } catch (e) {
     if (e instanceof BudgetReached || e instanceof AiUnavailable) throw e;
     return { status: 'echec', name: d.name, score: null, cost: 0, detail: e instanceof Error ? e.message : String(e), addedToMap: false };
@@ -305,7 +340,7 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
 
   // 4. Contrôle des e-mails : écrits dans une page lue, domaine qui reçoit du courrier
   const confirmed = new Set<string>();
-  if (webSearch) {
+  if (searched) {
     for (const e of ai.emails ?? []) {
       const email = String(e.email ?? '').toLowerCase();
       if (!email || !/^https?:\/\//i.test(e.source ?? '')) continue;
@@ -318,11 +353,18 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   }
   const emails = await Promise.all(acceptedEmails(ai.emails, emailsFound, prompt, confirmed).map(async (e) => ({ ...e, mx: await hasMx(e.email.split('@')[1] ?? '') })));
   const okEmails = new Set(emails.filter((e) => e.mx).map((e) => e.email));
-  const best = { ...ai.meilleur_contact, email: ai.meilleur_contact?.email && okEmails.has(ai.meilleur_contact.email.toLowerCase()) ? ai.meilleur_contact.email.toLowerCase() : null };
-  if (!best.email) best.email = emails.find((e) => e.mx && /^(vo|occasion|gebraucht|used|verkoop|vente|sales|verkauf)/.test(e.email))?.email ?? emails.find((e) => e.mx)?.email ?? null;
-  const contacts = [...people, ...(ai.contacts ?? []).filter((c) => c.nom && !people.some((p) => p.nom.toLowerCase() === c.nom.toLowerCase()))]
-    .map((c) => ({ ...c, email: c.email && okEmails.has(c.email.toLowerCase()) ? c.email.toLowerCase() : null })).slice(0, 12);
-  const fit2 = fitScore({ ...fitIn, hasEmail: okEmails.size > 0, hasNamedContact: contacts.length > 0 });
+  // Un profil LinkedIn n'est gardé que s'il a été vu dans un résultat lu (ou dans le matériel) et porte le nom de la personne.
+  const li = (url: string | null | undefined, name: string | null | undefined) => acceptedLinkedin(url, name, seenUrls, prompt);
+  const best = {
+    ...ai.meilleur_contact,
+    email: ai.meilleur_contact?.email && okEmails.has(ai.meilleur_contact.email.toLowerCase()) ? ai.meilleur_contact.email.toLowerCase() : null,
+    linkedin: li(ai.meilleur_contact?.linkedin, ai.meilleur_contact?.nom),
+  };
+  if (!best.email) best.email = emails.find((e) => e.mx && /^(vo|occasion|gebraucht|used|verkoop|vente|sales|verkauf|achat|inkoop|einkauf)/.test(e.email))?.email ?? emails.find((e) => e.mx)?.email ?? null;
+  const contacts = [...people.map((p) => ({ ...p, linkedin: null as string | null })), ...(ai.contacts ?? []).filter((c) => c.nom && !people.some((p) => p.nom.toLowerCase() === c.nom.toLowerCase()))]
+    .map((c) => ({ ...c, email: c.email && okEmails.has(c.email.toLowerCase()) ? c.email.toLowerCase() : null, linkedin: li(c.linkedin, c.nom) })).slice(0, 12);
+  const keyAccount = !ai.exclure && isKeyAccount(ai.grand_compte, ai.type, ai.nb_sites ?? (page?.branches.length || null));
+  const fit2 = fitOf(okEmails.size > 0, contacts.length > 0);
   const score = finalScore(fit2.score, ai);
   const site = website ?? (ai.site_web && /^https?:\/\//i.test(ai.site_web) ? ai.site_web : null);
 
@@ -336,11 +378,21 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
     emails, people: contacts, best_contact: best, language: ai.langue, fit_score: fit2.score, fit_parts: fit2.parts, score,
     summary: ai.resume, exclusion_reason: ai.exclure ? ai.motif_exclusion : null, evidence, qualified_at: now,
     qualify_cost_usd: Math.round(cost * 10_000) / 10_000, updated_at: now,
+    // SQL agents_comptes (17/10) : grand compte, nature du compte, lots vus par Dana.
+    key_account: keyAccount, account_kind: ai.type, lots: lots.slice(0, 6),
   };
   if (!prev || ['qualifie', 'ecarte'].includes(prev.stage)) row.stage = stage;
-  const { data: saved, error } = prev
+  let { data: saved, error } = prev
     ? await sb.from('agent_prospects').update(row).eq('id', prev.id).select('id')
-    : await sb.from('agent_prospects').upsert(row, { onConflict: 'dealer_id' }).select('id');
+    : await sb.from('agent_prospects').insert(row).select('id');
+  if (error && /key_account|account_kind|lots/.test(error.message)) {
+    // SQL agents_comptes pas encore collé : la fiche d'avant, sans ces trois colonnes.
+    const { key_account: _k, account_kind: _a, lots: _l, ...legacy } = row;
+    void _k; void _a; void _l;
+    ({ data: saved, error } = prev
+      ? await sb.from('agent_prospects').update(legacy).eq('id', prev.id).select('id')
+      : await sb.from('agent_prospects').insert(legacy).select('id'));
+  }
   if (error) return { status: 'echec', name: d.name, score, cost, detail: `fiche non enregistrée : ${error.message}`, addedToMap: false };
   const prospectId = ((saved ?? []) as Array<{ id: string }>)[0]?.id ?? prev?.id ?? null;
   if (site && site !== d.website) await sb.from('market_dealers').update({ website: site }).eq('id', d.id);
@@ -350,7 +402,10 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   const reachable = okEmails.size > 0 || !!(phone ?? page?.phones[0]);
   if (prospectId && !prev?.network_contact_id && !ai.exclure && ctx.agent.map_auto_add && score >= ctx.agent.map_min_score && reachable) {
     const at = d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null;
-    addedToMap = await addToMap(ctx.agent.agent, prospectId, d, { score, summary: ai.resume, best, contacts, site, brands: brandsSeen, phone: phone ?? page?.phones[0] ?? null, at });
+    addedToMap = await addToMap(ctx.agent.agent, prospectId, d, {
+      score, summary: ai.resume, best, contacts, site, brands: brandsSeen, phone: phone ?? page?.phones[0] ?? null, at,
+      role: ctx.role === 'dana' ? 'vendeur' : 'acheteur', kind: ai.type, lotNote: lots[0] ? lotLine(lots[0], false) : null,
+    });
   }
 
   const who = best.nom ? `${best.nom}${best.fonction ? ` (${best.fonction})` : ''}` : best.email ?? 'pas encore d\'interlocuteur';
@@ -358,8 +413,8 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
     agent: ctx.agent.agent, actor: ctx.agent.agent, kind: ai.exclure ? 'qualification_ecarte' : 'qualification',
     summary: ai.exclure
       ? `${d.name} (${d.country ?? '?'}) écarté : ${ai.motif_exclusion ?? 'hors cible'}`
-      : `${d.name} (${d.country ?? '?'}) qualifié ${score}/100 — ${who}${addedToMap ? ' · ajouté à la carte' : ''}`,
-    details: { dealer_id: d.id, prospect_id: prospectId, score, fit: fit2.score, cost_usd: Math.round(cost * 10_000) / 10_000, web_search: webSearch, sources },
+      : `${d.name} (${d.country ?? '?'}) qualifié ${score}/100 — ${who}${lots[0] ? ` · lot : ${lotLine(lots[0], false)}` : ''}${keyAccount ? ' · grand compte' : ''}${addedToMap ? ' · ajouté à la carte' : ''}`,
+    details: { dealer_id: d.id, prospect_id: prospectId, score, fit: fit2.score, cost_usd: Math.round(cost * 10_000) / 10_000, web_search: webSearch, decision_search: decisionSearch, key_account: keyAccount, lots: lots.length, sources },
   });
   return { status: ai.exclure ? 'ecarte' : 'qualifie', name: d.name, score, cost, detail: who, addedToMap };
 }
@@ -370,23 +425,40 @@ function median(xs: number[]): number | null {
   return Math.round(s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2);
 }
 
+/** La nature d'un compte → le type d'un contact de la carte (concession, loueur, trader, autre). */
+export function mapKind(type: string | null | undefined): 'concession' | 'loueur' | 'trader' | 'autre' {
+  if (type === 'loueur_ou_leasing') return 'loueur';
+  if (type === 'negociant_vo' || type === 'exportateur_concurrent') return 'trader';
+  if (type === 'flotte_entreprise') return 'autre';
+  return 'concession';
+}
+
 async function addToMap(agent: string, prospectId: string, d: DealerDb, q: {
   score: number; summary: string; best: { nom: string | null; fonction: string | null; email: string | null }; contacts: Array<{ nom: string; fonction: string; email: string | null }>;
   site: string | null; brands: string[]; phone: string | null;
   /** Position donnée par l'annonce (Marktplaats, Blocket, Leboncoin…) ; sinon OpenStreetMap. */
   at?: { lat: number; lng: number } | null;
+  /** Ada trouve des acheteurs, Dana des vendeurs ; la nature du compte (groupe, loueur…) ; le plus gros lot vu par Dana. */
+  role?: 'acheteur' | 'vendeur'; kind?: string | null; lotNote?: string | null;
 }): Promise<boolean> {
   // Déjà sur la carte sous un autre nom ou le même téléphone : on relie, on n'ajoute pas.
-  const { data: near } = await sb.from('network_contacts').select('id, name, phone').eq('country', (d.country ?? 'FR').toUpperCase()).limit(2000);
-  const twin = ((near ?? []) as Array<{ id: string; name: string; phone: string | null }>).find((n) => sameDealer(n, { name: d.name, phone: q.phone }));
-  if (twin) { await sb.from('agent_prospects').update({ network_contact_id: twin.id }).eq('id', prospectId); return false; }
+  const { data: near } = await sb.from('network_contacts').select('id, name, phone, role, source').eq('country', (d.country ?? 'FR').toUpperCase()).limit(2000);
+  const twin = ((near ?? []) as Array<{ id: string; name: string; phone: string | null; role?: string; source?: string }>).find((n) => sameDealer(n, { name: d.name, phone: q.phone }));
+  if (twin) {
+    // Ajouté par l'autre agente (Ada : acheteur, Dana : vendeur) : il devient « acheteur & vendeur ». Un contact saisi par l'équipe n'est pas touché.
+    if ((twin.source === 'ada' || twin.source === 'dana') && q.role && twin.role && twin.role !== q.role && twin.role !== 'les_deux') {
+      await sb.from('network_contacts').update({ role: 'les_deux' }).eq('id', twin.id);
+    }
+    await sb.from('agent_prospects').update({ network_contact_id: twin.id }).eq('id', prospectId);
+    return false;
+  }
   const at = q.at ?? await geocode(d.country, d.zip, d.city);
   const label = agent === 'dana' ? 'Dana' : 'Ada';
   const { data, error } = await sb.from('network_contacts').insert({
-    name: d.name, kind: 'concession', role: 'acheteur', country: (d.country ?? 'FR').toUpperCase(), city: d.city,
+    name: d.name, kind: mapKind(q.kind), role: q.role ?? 'acheteur', country: (d.country ?? 'FR').toUpperCase(), city: d.city,
     lat: at?.lat ?? null, lng: at?.lng ?? null, contact_name: q.best.nom, phone: q.phone, email: q.best.email, website: q.site,
     relation: 'nouveau', vehicle_types: q.brands.slice(0, 6).map((b) => b.charAt(0) + b.slice(1).toLowerCase()).join(', '),
-    comment: `Ajouté par ${label} (IA), score ${q.score}/100 : ${q.summary}`.slice(0, 1000),
+    comment: `Ajouté par ${label} (IA), score ${q.score}/100 : ${q.summary}${q.lotNote ? ` Lot vu : ${q.lotNote}.` : ''}`.slice(0, 1000),
     people: q.contacts.slice(0, 6).map((c) => ({ name: c.nom, role: c.fonction ?? '', phone: '', email: c.email ?? '' })),
     source: agent, ai_added_at: new Date().toISOString(),
   }).select('id');
@@ -406,7 +478,64 @@ export async function nextCandidates(ctx: SeriesContext, limit: number): Promise
     p_countries: ctx.targetCountries, p_brand_keys: ctx.targets.brands.map(brandKey), p_van_keys: ctx.targets.vanBrands.map(brandKey), p_limit: 50,
   });
   if (error) { if (!/does not exist|schema cache/i.test(error.message)) console.warn(`[AGENTS] candidats illisibles : ${error.message}`); return []; }
-  const { data: recent } = await sb.from('agent_tasks').select('params').eq('kind', 'qualification').gte('created_at', new Date(Date.now() - 3 * 86_400_000).toISOString()).limit(500);
-  const tried = new Set(((recent ?? []) as Array<{ params: { dealer_ids?: string[] } | null }>).flatMap((t) => t.params?.dealer_ids ?? []));
+  const tried = await recentlyTried(ctx.agent.agent);
   return ((data ?? []) as Array<{ dealer_id: string }>).map((r) => r.dealer_id).filter((id) => !tried.has(id)).slice(0, limit);
+}
+
+/** Les garages confiés à cette agente ces 3 derniers jours (fiche faite ou non) : pas repris à chaque cycle. */
+async function recentlyTried(agent: string): Promise<Set<string>> {
+  const { data } = await sb.from('agent_tasks').select('params').eq('agent', agent).eq('kind', 'qualification').gte('created_at', new Date(Date.now() - 3 * 86_400_000).toISOString()).limit(500);
+  return new Set(((data ?? []) as Array<{ params: { dealer_ids?: string[] } | null }>).flatMap((t) => t.params?.dealer_ids ?? []));
+}
+
+let knownCache: { at: number; names: Set<string>; phones: Set<string> } | null = null;
+/** Ceux que l'équipe connaît déjà (carte du réseau, fournisseurs et vendeurs du Workflow) : Dana ne leur écrit pas à froid. */
+async function knownCounterparts(): Promise<{ names: Set<string>; phones: Set<string> }> {
+  if (knownCache && Date.now() - knownCache.at < 60 * 60_000) return knownCache;
+  const names = new Set<string>();
+  const phones = new Set<string>();
+  const add = (name: string | null, phone: string | null) => {
+    const n = nameKey(name);
+    const p = phoneKey9(phone);
+    if (n) names.add(n);
+    if (p.length === 9) phones.add(p);
+  };
+  const { data: net } = await sb.from('network_contacts').select('name, phone').limit(5000);
+  for (const c of (net ?? []) as Array<{ name: string | null; phone: string | null }>) add(c.name, c.phone);
+  const { data: tx } = await sb.from('transactions_admin').select('supplier_contact_id, seller_contact_id, seller_contact_id_2').limit(5000);
+  const ids = [...new Set(((tx ?? []) as Array<Record<string, string | null>>)
+    .flatMap((t) => [t.supplier_contact_id, t.seller_contact_id, t.seller_contact_id_2]).filter((x): x is string => !!x))];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await sb.from('contacts').select('company_name, phone').in('id', ids.slice(i, i + 200));
+    for (const c of (data ?? []) as Array<{ company_name: string | null; phone: string | null }>) if (!/mc[ -]?export/i.test(c.company_name ?? '')) add(c.company_name, c.phone);
+  }
+  knownCache = { at: Date.now(), names, phones };
+  return knownCache;
+}
+
+interface LotRpcRow { dealer?: { id?: string; name?: string | null; phone?: string | null } | null; count?: number; markets?: Array<{ gap: number }> | null; prospect?: { id: string } | null }
+
+/**
+ * Les prochains fournisseurs que Dana qualifie d'office : les garages aux plus
+ * gros lots de véhicules identiques, et aux meilleurs écarts face à nos pays
+ * de vente — dans toute l'Europe —, pas encore fichés par elle ni connus de
+ * l'équipe. Un garage confié ces 3 derniers jours attend.
+ */
+export async function nextLotCandidates(ctx: SeriesContext, limit: number): Promise<string[]> {
+  const { data, error } = await sb.rpc('agents_dealer_lots', { p_markets: ctx.dana.markets, p_min: ctx.dana.minLot, p_limit: 300 });
+  if (error) { if (!/does not exist|schema cache|function/i.test(error.message)) console.warn(`[AGENTS] lots illisibles : ${error.message}`); return []; }
+  const tried = await recentlyTried(ctx.agent.agent);
+  const known = await knownCounterparts();
+  const byDealer = new Map<string, { n: number; gap: number; lots: number }>();
+  for (const r of (data ?? []) as LotRpcRow[]) {
+    const id = r.dealer?.id;
+    if (!id || r.prospect || tried.has(id)) continue;
+    if (known.names.has(nameKey(r.dealer?.name)) || known.phones.has(phoneKey9(r.dealer?.phone))) continue;
+    const gap = Math.max(0, ...(r.markets ?? []).map((m) => Number(m.gap) || 0));
+    const cur = byDealer.get(id) ?? { n: 0, gap: 0, lots: 0 };
+    byDealer.set(id, { n: Math.max(cur.n, r.count ?? 0), gap: Math.max(cur.gap, gap), lots: cur.lots + 1 });
+  }
+  // Le plus gros lot d'abord, puis l'écart (100 € = 1 point, 50 au plus), puis le nombre de lots.
+  const rank = (x: { n: number; gap: number; lots: number }) => x.n * 10 + Math.min(50, x.gap / 100) + (x.lots - 1) * 5;
+  return [...byDealer].sort((a, b) => rank(b[1]) - rank(a[1])).map(([id]) => id).slice(0, limit);
 }

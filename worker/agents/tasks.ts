@@ -11,14 +11,19 @@
  *
  * Le cycle automatique (toutes les 10 min, du lundi au vendredi, 8 h-19 h à
  * Paris) pose lui-même des tâches quand les Réglages le permettent :
- * jusqu'à 8 découvertes par jour (cibles en rotation sur tous les sites des
- * pays cibles, 3 pages chacune), les
- * qualifications du jour (auto_qualify_per_day) et les premiers mails du
- * jour (auto_draft_per_day ; pas plus de deux jours d'envois en attente de
- * validation), dans le budget. Les tâches automatiques n'ont pas d'auteur.
+ * - Ada : jusqu'à 8 découvertes par jour (cibles en rotation sur tous les
+ *   sites des pays cibles, 3 pages chacune), les qualifications du jour
+ *   (auto_qualify_per_day) parmi les garages de ses pays et marques ;
+ * - Dana : les qualifications du jour parmi les garages aux plus gros lots
+ *   de véhicules identiques, dans toute l'Europe (ses découvertes se lancent
+ *   depuis l'onglet Sourcing) ;
+ * - pour les deux : les premiers contacts du jour (auto_draft_per_day) —
+ *   pas plus de deux jours d'envois en attente de validation, ni plus de 10
+ *   grands comptes en attente dans « Pour vous » —, dans le budget.
+ * Les tâches automatiques n'ont pas d'auteur.
  */
 import { discover } from './discovery';
-import { qualifyDealer, seriesContext, nextCandidates, type AiAgent } from './qualify';
+import { qualifyDealer, seriesContext, nextCandidates, nextLotCandidates, type AiAgent } from './qualify';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
 import { aiConfigured, spentToday, BudgetReached, AiUnavailable } from './claude';
 import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, type DiscoveryParams } from '../../src/lib/agents/discovery';
@@ -31,6 +36,8 @@ const STUCK_MS = 45 * 60 * 1000;
 const MAX_SERIES = 10;
 const AUTO_DISCOVERIES_PER_DAY = 8;
 const AUTO_DISCOVERY_GAP_MS = 45 * 60 * 1000;
+/** Grands comptes préparés et pas encore traités par Channing : au-delà, l'agente n'en prépare pas d'autres. */
+const KEY_ACCOUNT_BACKLOG = 10;
 
 interface Task { id: string; agent: string; kind: string; params: Record<string, unknown>; created_by: string | null }
 
@@ -45,7 +52,7 @@ async function agentRow(agent: string): Promise<AiAgent | null> {
 async function runQualification(t: Task): Promise<{ result: Record<string, unknown>; summary: string }> {
   const a = await agentRow(t.agent);
   if (!a) throw new Error('agente introuvable');
-  if (!aiConfigured()) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker : l\'IA d\'Ada n\'est pas branchée.');
+  if (!aiConfigured()) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker : l\'IA d\'Ada et Dana n\'est pas branchée.');
   const ids = (Array.isArray(t.params.dealer_ids) ? t.params.dealer_ids : []).map(String).slice(0, MAX_SERIES);
   if (ids.length === 0) throw new Error('aucun garage à qualifier');
   const ctx = await seriesContext(a, t.id);
@@ -74,7 +81,7 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
 async function runDrafts(t: Task): Promise<{ result: Record<string, unknown>; summary: string }> {
   const a = await agentRow(t.agent);
   if (!a) throw new Error('agente introuvable');
-  if (!aiConfigured()) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker : l\'IA d\'Ada n\'est pas branchée.');
+  if (!aiConfigured()) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker : l\'IA d\'Ada et Dana n\'est pas branchée.');
   const ids = (Array.isArray(t.params.prospect_ids) ? t.params.prospect_ids : []).map(String).slice(0, 5);
   if (ids.length === 0) throw new Error('aucun prospect');
   const r = { prospects: ids.length, rediges: 0, ignores: 0, echecs: 0, cout_usd: 0, arret: null as string | null, details: [] as string[] };
@@ -92,7 +99,7 @@ async function runDrafts(t: Task): Promise<{ result: Record<string, unknown>; su
   }
   r.cout_usd = Math.round(r.cout_usd * 10_000) / 10_000;
   if (r.rediges === 0 && r.arret) throw new Error(r.arret);
-  const summary = `Premiers mails : ${r.rediges} rédigé${r.rediges > 1 ? 's' : ''} (à valider)${r.ignores ? `, ${r.ignores} ignoré${r.ignores > 1 ? 's' : ''}` : ''}${r.echecs ? `, ${r.echecs} en échec` : ''} — ${fmtUsd(r.cout_usd)}${r.arret ? ` (arrêt : ${r.arret})` : ''}`;
+  const summary = `Premiers contacts : ${r.rediges} rédigé${r.rediges > 1 ? 's' : ''} (à valider ou pour vous)${r.ignores ? `, ${r.ignores} ignoré${r.ignores > 1 ? 's' : ''}` : ''}${r.echecs ? `, ${r.echecs} en échec` : ''} — ${fmtUsd(r.cout_usd)}${r.arret ? ` (arrêt : ${r.arret})` : ''}`;
   return { result: r, summary };
 }
 
@@ -178,7 +185,8 @@ async function autoQualify(a: AiAgent): Promise<void> {
   const budget = Number(a.daily_budget_usd);
   if (remaining <= 0 || !Number.isFinite(budget) || (await spentToday(a.agent)) >= budget) return;
   const ctx = await seriesContext(a, null);
-  const ids = await nextCandidates(ctx, Math.min(MAX_SERIES, remaining));
+  // Ada : des acheteurs dans ses pays et ses marques ; Dana : les garages aux plus gros lots.
+  const ids = ctx.role === 'dana' ? await nextLotCandidates(ctx, Math.min(MAX_SERIES, remaining)) : await nextCandidates(ctx, Math.min(MAX_SERIES, remaining));
   if (ids.length === 0) return;
   const { error } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'qualification', params: { dealer_ids: ids, auto: true }, created_by: null });
   if (error) console.warn(`[AGENTS] qualification automatique non posée : ${error.message}`);
@@ -187,31 +195,40 @@ async function autoQualify(a: AiAgent): Promise<void> {
 async function autoDraft(a: AiAgent): Promise<void> {
   if (!aiConfigured() || !((a.auto_draft_per_day ?? 0) > 0) || await pending(a.agent, 'premier_mail')) return;
   const dayStart = parisDayStart(new Date()).toISOString();
-  const { data: today } = await sb.from('agent_messages').select('id').eq('agent', a.agent).eq('author', a.agent).eq('kind', 'premier_contact').gte('created_at', dayStart).limit(500);
-  const remaining = (a.auto_draft_per_day ?? 0) - ((today ?? []) as unknown[]).length;
-  // Pas plus de deux jours d'envois qui attendent la validation : Ada n'empile pas.
-  const { data: waiting } = await sb.from('agent_messages').select('id').eq('agent', a.agent).eq('kind', 'premier_contact').in('status', ['a_valider', 'valide']).limit(500);
-  const backlog = ((waiting ?? []) as unknown[]).length;
+  // Un premier contact = un fil (un grand compte en compte deux messages : le mail et la note LinkedIn).
+  const threads = (rows: unknown) => new Set(((rows ?? []) as Array<{ thread_id: string }>).map((m) => m.thread_id)).size;
+  const { data: today } = await sb.from('agent_messages').select('thread_id').eq('agent', a.agent).eq('author', a.agent).eq('kind', 'premier_contact').gte('created_at', dayStart).limit(500);
+  const remaining = (a.auto_draft_per_day ?? 0) - threads(today);
+  // Pas plus de deux jours d'envois qui attendent la validation : l'agente n'empile pas.
+  const { data: waiting } = await sb.from('agent_messages').select('thread_id').eq('agent', a.agent).eq('kind', 'premier_contact').in('status', ['a_valider', 'valide']).limit(500);
+  const { data: forYou } = await sb.from('agent_messages').select('thread_id').eq('agent', a.agent).eq('status', 'pour_channing').limit(500);
+  const allow = { small: threads(waiting) < 2 * Math.max(1, a.daily_first_contact_cap), big: threads(forYou) < KEY_ACCOUNT_BACKLOG };
   const budget = Number(a.daily_budget_usd);
-  if (remaining <= 0 || backlog >= 2 * Math.max(1, a.daily_first_contact_cap) || !Number.isFinite(budget) || (await spentToday(a.agent)) >= budget) return;
-  const ids = await nextDraftCandidates(a, Math.min(5, remaining));
+  if (remaining <= 0 || (!allow.small && !allow.big) || !Number.isFinite(budget) || (await spentToday(a.agent)) >= budget) return;
+  const ids = await nextDraftCandidates(a, Math.min(5, remaining), allow);
   if (ids.length === 0) return;
   const { error } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'premier_mail', params: { prospect_ids: ids, auto: true }, created_by: null });
   if (error) console.warn(`[AGENTS] premiers mails automatiques non posés : ${error.message}`);
 }
 
-/** Le cycle : du lundi au vendredi, 8 h-19 h à Paris. Ada seulement pour l'instant (Dana : phase 3). */
+/** Le cycle : du lundi au vendredi, 8 h-19 h à Paris, pour Ada puis Dana. */
 export async function autoCycle(): Promise<void> {
   const clock = parisClock(new Date());
   if (clock.isoDay > 5 || clock.minutes < 8 * 60 || clock.minutes >= 19 * 60) return;
-  try {
-    const a = await agentRow('ada');
-    if (!a || a.targets == null) return; // SQL du 17/10 (qualification) pas encore collé
-    const ctx = await seriesContext(a, null);
-    await autoDiscovery(a, ctx.targetCountries, ctx.targets.brands, ctx.targets.vanBrands);
-    await autoQualify(a);
-    await autoDraft(a);
-  } catch (e) {
-    console.warn(`[AGENTS] cycle automatique : ${e instanceof Error ? e.message : String(e)}`);
+  for (const agent of ['ada', 'dana']) {
+    try {
+      const a = await agentRow(agent);
+      if (!a || a.targets == null) continue; // SQL du 17/10 (qualification) pas encore collé
+      // Dana attend ses réglages (SQL agents_comptes : taille des lots, pays de vente).
+      if (agent === 'dana' && !(a.targets && typeof a.targets === 'object' && 'minLot' in a.targets)) continue;
+      if (agent === 'ada') {
+        const ctx = await seriesContext(a, null);
+        await autoDiscovery(a, ctx.targetCountries, ctx.targets.brands, ctx.targets.vanBrands);
+      }
+      await autoQualify(a);
+      await autoDraft(a);
+    } catch (e) {
+      console.warn(`[AGENTS] cycle automatique (${agent}) : ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 }

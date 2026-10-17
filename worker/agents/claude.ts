@@ -55,7 +55,19 @@ export interface ClaudeCall {
   /** Repli serveur sur un autre modèle si celui-ci décline (Opus 5.5). */
   fallbacks?: boolean;
 }
-export interface ClaudeResult<T> { data: T | null; text: string; costUsd: number; stopReason: string | null; webSearches: number }
+export interface ClaudeResult<T> {
+  data: T | null; text: string; costUsd: number; stopReason: string | null; webSearches: number;
+  /** Les adresses réellement vues dans les résultats de recherche ou de lecture web (pour vérifier un profil cité). */
+  seenUrls: string[];
+}
+
+/** Les adresses des résultats d'outils serveur (recherche web, lecture de page) d'une réponse. */
+function toolResultUrls(blocks: Block[], into: Set<string>): void {
+  for (const b of blocks) {
+    if (!/_tool_result$/.test(String(b.type ?? ''))) continue;
+    for (const m of JSON.stringify(b).matchAll(/"url"\s*:\s*"(https?:\/\/[^"\\]+)"/g)) into.add(m[1]);
+  }
+}
 
 async function record(c: ClaudeCall, usage: UsageLike, cost: number, stopReason: string | null, error: string | null): Promise<string | null> {
   const { data, error: e } = await sb.from('agent_runs').insert({
@@ -92,6 +104,7 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
   const messages: Anthropic.Messages.MessageParam[] = [{ role: 'user', content: c.user }];
   let usage: UsageLike = {};
   let final: { content: Block[]; stop_reason: string | null } | null = null;
+  const seen = new Set<string>();
   try {
     for (let i = 0; i < 4; i++) {
       const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
@@ -107,6 +120,7 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
         : await a.messages.create(params);
       usage = addUsage(usage, res.usage as UsageLike);
       final = { content: res.content as Block[], stop_reason: res.stop_reason };
+      toolResultUrls(final.content, seen);
       if (res.stop_reason !== 'pause_turn') break;
       // Tour d'outils serveur mis en pause : on renvoie la réponse telle quelle, l'API reprend.
       messages.push({ role: 'assistant', content: res.content as Anthropic.Messages.ContentBlockParam[] });
@@ -133,5 +147,5 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
     throw new Error('réponse illisible (JSON attendu)');
   }
   await record(c, usage, cost, stop, null);
-  return { data, text, costUsd: cost, stopReason: stop, webSearches: usage.server_tool_use?.web_search_requests ?? 0 };
+  return { data, text, costUsd: cost, stopReason: stop, webSearches: usage.server_tool_use?.web_search_requests ?? 0, seenUrls: [...seen] };
 }
