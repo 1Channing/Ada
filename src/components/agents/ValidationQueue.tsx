@@ -12,6 +12,7 @@ import { CheckCircle2, Clock, AlertTriangle, Crown } from 'lucide-react';
 import { listQueue, listForYou, AGENT_LABEL, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage, type ForYouMessage } from '../../services/agents';
 import { MessageCard } from './MessageCard';
 import { ForYouCard } from './ForYou';
+import { deName } from './helpers';
 
 interface Props {
   agent: AgentKey;
@@ -58,7 +59,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, refreshKey, 
     return (
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-12 text-center text-sm text-slate-500">
         <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
-        Rien à valider. Les premiers mails de {name} et les messages soumis par l'équipe depuis sa boîte arrivent ici ; les grands comptes qu'elle prépare pour vous aussi.
+        Rien à valider. Les premiers mails {deName(name)} et les messages soumis par l'équipe depuis sa boîte arrivent ici ; les grands comptes qu'elle prépare pour vous aussi.
       </div>
     );
   }

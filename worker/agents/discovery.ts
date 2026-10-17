@@ -10,13 +10,14 @@
  * (scrapeSearch). Le résultat dit combien d'annonces nommaient leur garage :
  * c'est la couverture réelle du site. La file des tâches est dans ./tasks.ts.
  */
+import { live } from './live';
 import { recordDealerSightings, dealerSiteFamily } from '../../src/services/dealerDirectory';
 import { discoveryUrl, discoveryPages, discoverySiteKey, DISCOVERY_SITE_LABEL, type DiscoveryParams } from '../../src/lib/agents/discovery';
 import { ensureLearnedTaxonomy } from '../../src/lib/linkgen/taxonomy';
 import { scrapeSearch } from '../scraper';
 import { sb } from './store';
 
-export async function discover(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function discover(params: Record<string, unknown>, taskId: string | null = null): Promise<Record<string, unknown>> {
   const p = params as unknown as DiscoveryParams;
   const pages = discoveryPages(p.pages);
   // Les marques apprises par ADA sur chaque site (identifiants, slugs) : sans elles, seules les graines.
@@ -24,9 +25,11 @@ export async function discover(params: Record<string, unknown>): Promise<Record<
   const url = discoveryUrl(p);
   const siteKey = discoverySiteKey(p);
   const label = DISCOVERY_SITE_LABEL[String(p.site ?? 'AUTOSCOUT').toUpperCase()] ?? siteKey;
+  live(taskId, `Lecture des annonces sur ${label} (${pages} page${pages > 1 ? 's' : ''} au plus)`);
   const res = await scrapeSearch(url, 'full', { maxPagesCap: pages, maxListingsCap: pages * 40 });
   if (res.error && res.listings.length === 0) throw new Error(`lecture ${label} impossible : ${res.error}`);
   const named = res.listings.filter((l) => l.seller?.id && l.seller?.name);
+  live(taskId, `${res.listings.length} annonce${res.listings.length > 1 ? 's' : ''} lue${res.listings.length > 1 ? 's' : ''}, ${named.length} avec le nom du garage : enregistrement dans l'annuaire`);
   const ids = [...new Set(named.map((l) => l.seller?.id as string))];
   let known = 0;
   if (ids.length > 0) {

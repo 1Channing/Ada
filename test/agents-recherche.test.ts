@@ -222,12 +222,22 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 const { researchAccounts } = await import('../worker/agents/research');
 const { qualifyAccount, nextAccountCandidates } = await import('../worker/agents/qualify');
 const { draftFirstMail } = await import('../worker/agents/firstMail');
+const { liveDone } = await import('../worker/agents/live');
 const dana = { agent: 'dana', mailbox: 'dana@mc-export.com', signature: 'Dana\nMC Export — achats', daily_budget_usd: 3, map_auto_add: true, map_min_score: 60, targets: { minLot: 3, markets: ['NL', 'DK', 'BE', 'DE'] }, instructions: '', daily_first_contact_cap: 10 } as never;
 const ada = { agent: 'ada', mailbox: 'ada@mc-export.com', signature: 'Ada\nMC Export', daily_budget_usd: 3, map_auto_add: false, map_min_score: 70, targets: { countries: ['NL'] }, instructions: '', daily_first_contact_cap: 10 } as never;
 const ctx = { agent: dana, taskId: 'tr1', role: 'dana' as const, dana: { minLot: 3, markets: ['NL', 'DK', 'BE', 'DE'] }, targets: { countries: [], brands: [], vanBrands: [], multibrand: true }, targetCountries: [], offers: [] };
 
-// 1. La recherche : sociétés de leasing en Belgique.
+// 1. La recherche : sociétés de leasing en Belgique (la tâche est en cours : l'onglet Live suit ses étapes).
+db.agent_tasks.push({ id: 'tr1', agent: 'dana', kind: 'recherche_comptes', params: {}, status: 'en_cours', result: null });
 const r1 = await researchAccounts('tr1', { segment: 'leasing', country: 'be' }, dana);
+await liveDone('tr1');
+{
+  const lv = (db.agent_tasks.find((t) => t.id === 'tr1')?.result as { live?: { step: string; done: number | null; total: number | null; log: Array<{ at: string; text: string }> } } | null)?.live;
+  const texts = (lv?.log ?? []).map((x) => x.text);
+  ok(texts[1] === 'Recherche sur le web : sociétés de leasing en Belgique (4 recherches au plus)' && texts.some((x) => /^\d+ entreprises trouvées \(\d+ recherches?\) : contrôle de leur site$/.test(x))
+    && texts.some((x) => /^Contrôle 1 sur \d+ : /.test(x)) && lv?.total === texts.filter((x) => x.startsWith('Contrôle ')).length && (lv?.log ?? []).every((x) => !Number.isNaN(Date.parse(x.at))),
+    'en direct : la tâche écrit ses étapes (ce qu\'on connaît, la recherche, le contrôle de chaque site), horodatées, avec le compte', texts);
+}
 const c1 = calls[0];
 const found = db.agent_accounts.filter((a) => a.task_id === 'tr1') as Array<Row & { sources: string[] }>;
 ok(c1?.model === HAIKU && /Tu es Dana, de l'équipe achats/.test(c1.system) && c1.user.includes('Déjà connues (ne les rends pas) : Alphabet Belgium')

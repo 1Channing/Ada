@@ -34,6 +34,7 @@ import { lotLine, normalizeDanaTargets, groupKey, type LotFact } from '../../src
 import { countryVat } from '../../src/lib/offers/vat';
 import { suppressionMatch } from '../../src/lib/agents/sendPolicy';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
+import { live } from './live';
 import { loadOffers, dealerGroupIds, lotsOfDealer, type AiAgent } from './qualify';
 import { HOME_COUNTRY } from '../../src/lib/agents/qualification';
 import { sb, journal, loadSuppressions } from './store';
@@ -162,6 +163,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const prompt = key ? keyAccountPrompt(base, people) : base;
 
   // 3. Opus 5.5
+  live(taskId, key ? `${p.name} : grand compte — mail, note LinkedIn et fiche d'appel préparés pour vous (IA)` : `${p.name} : rédaction du premier mail (IA)`);
   let out: KeyAccountOutput | FirstMailOutput;
   let cost = 0;
   try {
@@ -179,6 +181,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
     return { status: 'echec', name: p.name, detail: e instanceof Error ? e.message : String(e), cost: 0 };
   }
   if (!out?.objet?.trim() || !out?.corps?.trim()) return { status: 'echec', name: p.name, detail: 'brouillon vide', cost };
+  live(taskId, `${p.name} : contrôle du mail (chaque fait vient d'ADA, aucun prix inventé)`);
   const check: DraftCheck = key ? checkKeyAccount(out as KeyAccountOutput, prompt, role) : role === 'dana' ? checkDanaMail(out, prompt) : checkFirstMail(out, prompt);
   const subject = out.objet.trim().slice(0, 200);
   const notes = { modele: OPUS, cout_usd: Math.round(cost * 10_000) / 10_000, langue: language, mots: check.words, faits: (out.faits ?? []).slice(0, 12), alertes: check.warnings };

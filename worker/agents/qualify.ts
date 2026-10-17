@@ -30,6 +30,7 @@
  * Rien n'est envoyé à qui que ce soit : les mails restent à l'étape 2.3, et
  * passent par la validation.
  */
+import { live } from './live';
 import { promises as dns } from 'node:dns';
 import { fetchHtmlWithZyte } from '../scraper';
 import { parseDealerInfoPage, extractEmails, mailtoEmails, extractPeople, contactLinks, pageText, type DealerPageInfo } from '../../src/lib/agents/dealerPage';
@@ -309,6 +310,8 @@ interface Subject {
 
 async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOutcome> {
   const { d, listings, phone, contactName, page, website, evidence, sources } = s;
+  const named = `${d.name}${d.country ? ` (${d.country})` : ''}`;
+  live(ctx.taskId, website ? `${named} : lecture de son site` : `${named} : pas de site connu`);
   const opps = opportunities(listings, ctx.offers, countryVat(d.country ?? 'FR'));
   const found = new Map<string, string>();
   for (const e of extractEmails(page?.imprint ?? '')) found.set(e, 'Impressum AutoScout24');
@@ -370,6 +373,7 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
   let cost = 0;
   let seenUrls: string[] = [];
   const searched = webSearch || decisionSearch;
+  live(ctx.taskId, webSearch ? `${named} : recherche de son site et de ses contacts sur le web (IA)` : decisionSearch ? `${named} : recherche de la personne qui décide (IA, web)` : `${named} : analyse par l'IA`);
   try {
     const budget = Number(ctx.agent.daily_budget_usd);
     const r = await callClaude<QualifyOutput>({
@@ -388,6 +392,7 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
   }
 
   // 4. Contrôle des e-mails : écrits dans une page lue, domaine qui reçoit du courrier
+  live(ctx.taskId, `${named} : contrôle des e-mails (publiés, domaine qui reçoit du courrier) et du profil LinkedIn`);
   const confirmed = new Set<string>();
   if (searched) {
     for (const e of ai.emails ?? []) {

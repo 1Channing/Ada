@@ -208,12 +208,12 @@ export async function listQueue(agent?: AgentKey): Promise<{ rows: QueuedMessage
   return { rows: (data ?? []) as QueuedMessage[], error: null };
 }
 
-export interface AgentCounts { aValider: number; enAttente: number; echecs: number; nonLus: number; recusAujourdhui: number; envoyesAujourdhui: number; premiersContactsAujourdhui: number; pourVous: number }
+export interface AgentCounts { aValider: number; enAttente: number; echecs: number; nonLus: number; recusAujourdhui: number; envoyesAujourdhui: number; premiersContactsAujourdhui: number; pourVous: number; auTravail: boolean }
 
 export async function countsFor(agent: AgentKey, dayStartIso: string): Promise<AgentCounts> {
   const head = { count: 'exact', head: true };
   const q = () => sb.from('agent_messages').select('id', head).eq('agent', agent);
-  const [a, w, f, u, r, s, c, v] = await Promise.all([
+  const [a, w, f, u, r, s, c, v, t] = await Promise.all([
     q().eq('status', 'a_valider'),
     q().in('status', ['valide', 'envoi']),
     q().eq('status', 'echec'),
@@ -223,9 +223,11 @@ export async function countsFor(agent: AgentKey, dayStartIso: string): Promise<A
     q().eq('status', 'envoye').in('kind', ['premier_contact', 'relance']).gte('sent_at', dayStartIso),
     // Grands comptes préparés pour vous (un fil = un compte ; 0 tant que le SQL agents_comptes n'est pas collé).
     sb.from('agent_messages').select('thread_id').eq('agent', agent).eq('status', 'pour_channing').limit(500),
+    // Une tâche en cours : l'agente est au travail (pastille de l'onglet Live).
+    sb.from('agent_tasks').select('id', head).eq('agent', agent).eq('status', 'en_cours'),
   ]);
   const pourVous = new Set(((v.data ?? []) as Array<{ thread_id: string }>).map((m) => m.thread_id)).size;
-  return { aValider: a.count ?? 0, enAttente: w.count ?? 0, echecs: f.count ?? 0, nonLus: u.count ?? 0, recusAujourdhui: r.count ?? 0, envoyesAujourdhui: s.count ?? 0, premiersContactsAujourdhui: c.count ?? 0, pourVous };
+  return { aValider: a.count ?? 0, enAttente: w.count ?? 0, echecs: f.count ?? 0, nonLus: u.count ?? 0, recusAujourdhui: r.count ?? 0, envoyesAujourdhui: s.count ?? 0, premiersContactsAujourdhui: c.count ?? 0, pourVous, auTravail: (t.count ?? 0) > 0 };
 }
 
 export async function listJournal(agent: AgentKey | null, limit = 200): Promise<{ rows: JournalRow[]; error: string | null }> {
@@ -288,6 +290,9 @@ export interface DealerRow {
 export interface DealerMember { id: string; site: string; name: string; site_url: string | null; imprint_url: string | null; website: string | null; phone: string | null; city: string | null }
 export interface DealerListing { dealer_id: string; listing_url: string; brand: string | null; model: string | null; title: string | null; year: number | null; mileage: number | null; fuel: string | null; vehicle_type: string | null; price_eur: number | null; last_seen_at: string }
 export interface SalesProfile { countries: Array<{ country: string; n: number }>; brands: Array<{ brand: string; n: number }> }
+/** Le suivi d'une tâche en cours : l'étape du moment, le compte (3 sur 10), les dernières étapes. */
+export interface TaskLive { step: string; done: number | null; total: number | null; log: Array<{ at: string; text: string }> }
+
 export interface AgentTask {
   id: string; agent: AgentKey; kind: 'decouverte_concessions' | 'qualification' | 'premier_mail' | 'recherche_comptes';
   params: { site?: string; country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; account_ids?: string[]; prospect_ids?: string[]; segment?: string; auto?: boolean };
@@ -297,6 +302,8 @@ export interface AgentTask {
     cout_usd?: number; arret?: string | null; rediges?: number; ignores?: number; details?: string[];
     // Recherche de comptes (étape 2).
     trouves?: number; gardes?: number; deja?: number; remarque?: string | null;
+    // En cours (17/10) : où la tâche en est, écrit par le worker pour l'onglet Live.
+    live?: TaskLive;
   } | null;
   error: string | null; created_by: string | null; created_at: string; started_at: string | null; finished_at: string | null;
 }
@@ -497,6 +504,16 @@ export async function setProspectStage(id: string, stage: ProspectStage): Promis
 }
 
 /** Dépense IA du jour et du mois, par agente (null tant que le SQL n'est pas collé). */
+/** Un appel à l'IA tel que l'onglet Live le montre (sans le texte : rien de ce qui est envoyé à l'IA n'est relu ici). */
+export interface AiRun { id: string; purpose: string; task_id: string | null; prospect_id: string | null; web_searches: number; web_fetches: number; cost_usd: number | string; stop_reason: string | null; error: string | null; created_at: string }
+
+export async function listRuns(agent: AgentKey, limit = 30): Promise<{ rows: AiRun[]; error: string | null }> {
+  const { data, error } = await sb.from('agent_runs').select('id, purpose, task_id, prospect_id, web_searches, web_fetches, cost_usd, stop_reason, error, created_at')
+    .eq('agent', agent).order('created_at', { ascending: false }).limit(limit);
+  if (error) return { rows: [], error: errQualif(error.message) };
+  return { rows: (data ?? []) as AiRun[], error: null };
+}
+
 export async function aiSpend(): Promise<AiSpend | null> {
   const { data, error } = await sb.rpc('agents_ai_spend');
   if (error || !data) return null;

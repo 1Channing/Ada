@@ -21,6 +21,7 @@ import {
   type ResearchOutput, type AgentRole, type Known,
 } from '../../src/lib/agents/research';
 import { HOME_COUNTRY } from '../../src/lib/agents/qualification';
+import { live } from './live';
 import { nameKey } from '../../src/lib/agents/keys';
 import { callClaude } from './claude';
 import { fetchPage, knownCounterparts, type AiAgent } from './qualify';
@@ -65,7 +66,9 @@ export async function researchAccounts(taskId: string | null, params: Record<str
   if (role === 'ada' && country === HOME_COUNTRY) throw new Error('Ada vend à l\'export : pas de recherche d\'acheteurs en France');
 
   // 1-2. Ce qu'on connaît déjà, puis la recherche.
+  live(taskId, `Ce que l'équipe connaît déjà en ${COUNTRY_FR[country] ?? country} (pour ne pas le chercher deux fois)`);
   const known = await knownFor(a.agent, role, country);
+  live(taskId, `Recherche sur le web : ${segment.label.toLowerCase()} en ${COUNTRY_FR[country] ?? country} (4 recherches au plus)`);
   const budget = Number(a.daily_budget_usd);
   const r = await callClaude<ResearchOutput>({
     // Un budget illisible vaut 0 (pas d'appel), jamais « sans limite ».
@@ -78,8 +81,11 @@ export async function researchAccounts(taskId: string | null, params: Record<str
 
   // 3. Le contrôle : site vu ou qui répond et porte son nom ; pas déjà connue.
   const { kept, dropped } = acceptedAccounts(r.data, r.seenUrls, known);
+  const proposed = r.data?.comptes?.length ?? 0;
+  live(taskId, `${proposed} entreprise${proposed > 1 ? 's' : ''} trouvée${proposed > 1 ? 's' : ''} (${r.webSearches} recherche${r.webSearches > 1 ? 's' : ''}) : contrôle de leur site`);
   const verified: typeof kept = [];
-  for (const k of kept) {
+  for (const [i, k] of kept.entries()) {
+    live(taskId, `Contrôle ${i + 1} sur ${kept.length} : ${k.name}`, { done: i, total: kept.length });
     if (k.siteSeen) { verified.push(k); continue; }
     const html = await fetchPage(k.website, false);
     if (html && siteNamesCompany(html, k.name)) verified.push(k);

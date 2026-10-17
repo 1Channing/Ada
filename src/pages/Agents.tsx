@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw, Building2, Layers, Briefcase } from 'lucide-react';
+import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw, Building2, Layers, Briefcase, Activity } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
@@ -17,6 +17,7 @@ import { Reglages } from '../components/agents/Reglages';
 import { Prospects } from '../components/agents/Prospects';
 import { Sourcing } from '../components/agents/Sourcing';
 import { Comptes } from '../components/agents/Comptes';
+import { Live } from '../components/agents/Live';
 
 /**
  * AGENTS — Ada et Dana (16/10, Channing : « deux agents qui travaillent en
@@ -33,10 +34,14 @@ import { Comptes } from '../components/agents/Comptes';
  * Sourcing (Dana : les lots de véhicules identiques), ses Comptes (ses types
  * de comptes, trouvés par recherche web), ce qui l'attend À valider, son
  * Journal, ses Réglages. Rien ne part sans un clic d'administrateur.
+ * Live (17/10, Channing : « voir en direct ce que l'agent fait ») : le
+ * premier onglet, ouvert d'office — sauf un lien vers un fil, qui ouvre la
+ * Messagerie.
  */
 
-type Tab = 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'comptes' | 'journal' | 'reglages';
+type Tab = 'live' | 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'comptes' | 'journal' | 'reglages';
 const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
+  live: { label: 'Live', icon: <Activity className="w-4 h-4" /> },
   messagerie: { label: 'Messagerie', icon: <Inbox className="w-4 h-4" /> },
   prospects: { label: 'Acheteurs', icon: <Building2 className="w-4 h-4" /> },
   sourcing: { label: 'Sourcing', icon: <Layers className="w-4 h-4" /> },
@@ -47,8 +52,8 @@ const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
 };
 /** Les fonctions de chacune : Ada vend (l'annuaire des acheteurs), Dana achète (le sourcing des lots). */
 const TABS_OF: Record<AgentKey, Tab[]> = {
-  ada: ['messagerie', 'prospects', 'comptes', 'valider', 'journal', 'reglages'],
-  dana: ['messagerie', 'sourcing', 'comptes', 'valider', 'journal', 'reglages'],
+  ada: ['live', 'messagerie', 'prospects', 'comptes', 'valider', 'journal', 'reglages'],
+  dana: ['live', 'messagerie', 'sourcing', 'comptes', 'valider', 'journal', 'reglages'],
 };
 const SIDE: Record<AgentKey, string> = { ada: 'acheteurs', dana: 'fournisseurs' };
 /** L'onglet d'une agente vu depuis l'autre (Acheteurs ↔ Sourcing). */
@@ -78,7 +83,8 @@ export function Agents() {
   const [agent, setAgent] = useState<AgentKey>(() => initialAgent(params));
   const [tab, setTab] = useState<Tab>(() => {
     const o = params.get('onglet') as Tab | null;
-    return o && o in TAB ? tabFor(initialAgent(params), o) : 'messagerie';
+    if (o && o in TAB) return tabFor(initialAgent(params), o);
+    return params.get('fil') ? 'messagerie' : 'live';
   });
   const [openThread, setOpenThread] = useState<string | null>(params.get('fil'));
   const [settings, setSettings] = useState<AgentSettings[]>([]);
@@ -162,6 +168,7 @@ export function Agents() {
                 className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${on ? (k === 'ada' ? 'bg-indigo-600 text-white' : 'bg-teal-600 text-white') : 'text-slate-600 hover:bg-slate-50'}`}>
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${on ? 'bg-white/20 text-white' : k === 'ada' ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-teal-700'}`}>{AGENT_LABEL[k].name[0]}</span>
                 {AGENT_LABEL[k].name}
+                {counts[k]?.auTravail && <span className={`w-2 h-2 rounded-full animate-pulse ${on ? 'bg-white' : 'bg-emerald-500'}`} title="Au travail en ce moment" />}
                 <span className={`hidden sm:inline text-xs font-normal ${on ? 'text-white/80' : 'text-slate-400'}`}>{SIDE[k]}</span>
                 {!on && waiting > 0 && <span className="rounded-full bg-amber-500 text-white text-[10px] px-1.5" title="À valider ou préparé pour vous">{waiting}</span>}
               </button>
@@ -213,11 +220,15 @@ export function Agents() {
           <button key={k} onClick={() => setTab(k)}
             className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === k ? 'border-brand-ocean text-brand-encre' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
             {TAB[k].icon} {TAB[k].label}
+            {k === 'live' && c?.auTravail && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Au travail en ce moment" />}
             {k === 'valider' && pendingOf(agent) > 0 && <span className="ml-1 rounded-full bg-amber-500 text-white text-[10px] px-1.5">{pendingOf(agent)}</span>}
           </button>
         ))}
       </div>
 
+      {tab === 'live' && (
+        <Live key={agent} agent={agent} settings={s} otherBusy={!!counts[agent === 'ada' ? 'dana' : 'ada']?.auTravail} isAdmin={isAdmin} refreshKey={refreshKey} onError={onError} onOpenThread={openFromQueue} />
+      )}
       {tab === 'messagerie' && (
         <Messagerie key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} openThreadId={openThread} refreshKey={refreshKey} onChanged={() => void load()} onError={onError} />
       )}

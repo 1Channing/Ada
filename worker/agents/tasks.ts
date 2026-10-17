@@ -11,8 +11,10 @@
  * - « premier_mail » : rédiger les premiers mails de 5 prospects au plus
  *   (./firstMail.ts), qui entrent dans « À valider ».
  *
- * Le cycle automatique (toutes les 10 min, du lundi au vendredi, 8 h-19 h à
- * Paris) pose lui-même des tâches quand les Réglages le permettent :
+ * Le cycle automatique (toutes les 10 min, dans les jours et heures de
+ * travail de chaque agente — Réglages, heure de Paris ; du lundi au vendredi,
+ * 8 h 30-18 h au départ) pose lui-même des tâches quand les Réglages le
+ * permettent :
  * - Ada : jusqu'à 8 découvertes par jour (cibles en rotation sur tous les
  *   sites des pays cibles, 3 pages chacune), les qualifications du jour
  *   (auto_qualify_per_day) parmi les garages de ses pays et marques ;
@@ -37,9 +39,10 @@ import { draftFirstMail, nextDraftCandidates } from './firstMail';
 import { aiConfigured, spentToday, clearCreditPause, BudgetReached, AiUnavailable, NO_KEY } from './claude';
 import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, type DiscoveryParams } from '../../src/lib/agents/discovery';
 import { ensureLearnedTaxonomy } from '../../src/lib/linkgen/taxonomy';
-import { parisClock, parisDayStart } from '../../src/lib/agents/sendPolicy';
+import { inSendWindow, parisDayStart } from '../../src/lib/agents/sendPolicy';
 import { fmtUsd } from '../../src/lib/agents/aiCost';
 import { sb, journal, loadAgents } from './store';
+import { live, liveDone } from './live';
 
 const STUCK_MS = 45 * 60 * 1000;
 const MAX_SERIES = 10;
@@ -60,6 +63,18 @@ const researchLabel = (agent: string, p: Partial<ResearchParams>) => {
   return `${seg ? seg.label.toLowerCase() : p.segment ?? '?'} · ${COUNTRY_FR[c] ?? c}`;
 };
 
+/** Ce que la tâche va faire, en clair (première ligne de l'onglet Live). */
+function startLabel(t: Task): string {
+  const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
+  if (t.kind === 'qualification') {
+    const k = n(t.params.account_ids) + n(t.params.dealer_ids);
+    return `${k} fiche${k > 1 ? 's' : ''} à préparer`;
+  }
+  if (t.kind === 'premier_mail') { const k = n(t.params.prospect_ids); return `${k} premier${k > 1 ? 's' : ''} mail${k > 1 ? 's' : ''} à écrire`; }
+  if (t.kind === 'recherche_comptes') return `recherche web — ${researchLabel(t.agent, t.params)}`;
+  return `relevé d'annonces — ${label(t.params)}`;
+}
+
 async function agentRow(agent: string): Promise<AiAgent | null> {
   return ((await loadAgents()) as AiAgent[]).find((a) => a.agent === agent) ?? null;
 }
@@ -75,7 +90,8 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
   if (items.length === 0) throw new Error('aucun garage ni compte pour une fiche');
   const ctx = await seriesContext(a, t.id);
   const r = { garages: dealerIds.length, comptes: accountIds.length, qualifies: 0, ecartes: 0, echecs: 0, carte: 0, cout_usd: 0, arret: null as string | null, details: [] as string[] };
-  for (const { id, account } of items) {
+  for (const [i, { id, account }] of items.entries()) {
+    live(t.id, `Fiche ${i + 1} sur ${items.length}`, { done: i, total: items.length });
     try {
       const o = account ? await qualifyAccount(id, ctx) : await qualifyDealer(id, ctx);
       r.cout_usd += o.cost;
@@ -104,7 +120,8 @@ async function runDrafts(t: Task): Promise<{ result: Record<string, unknown>; su
   const ids = (Array.isArray(t.params.prospect_ids) ? t.params.prospect_ids : []).map(String).slice(0, 5);
   if (ids.length === 0) throw new Error('aucun prospect');
   const r = { prospects: ids.length, rediges: 0, ignores: 0, echecs: 0, cout_usd: 0, arret: null as string | null, details: [] as string[] };
-  for (const id of ids) {
+  for (const [i, id] of ids.entries()) {
+    live(t.id, `Mail ${i + 1} sur ${ids.length}`, { done: i, total: ids.length });
     try {
       const o = await draftFirstMail(id, a, t.id);
       r.cout_usd += o.cost;
@@ -143,9 +160,11 @@ export async function runNextTask(): Promise<void> {
     const auto = t.created_by ? '' : ' (automatique)';
     // Lancée par une personne : on réessaie l'IA tout de suite (des crédits ont pu être ajoutés).
     if (t.created_by) clearCreditPause();
+    live(t.id, `Démarrage : ${startLabel(t)}${auto}`);
     try {
       if (t.kind === 'decouverte_concessions') {
-        const result = await discover(t.params);
+        const result = await discover(t.params, t.id);
+        await liveDone(t.id);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         // Les garages et les lots trouvés apparaissent après le prochain calcul de l'annuaire.
         if (Number(result.concessions) > 0) refreshSoon('découverte');
@@ -153,10 +172,12 @@ export async function runNextTask(): Promise<void> {
           summary: `Découverte ${label(t.params)}${auto} : ${result.annonces} annonces lues, ${result.avec_garage} avec leur garage, ${result.concessions} concessions (dont ${result.nouvelles} nouvelles)`, details: result });
       } else if (t.kind === 'qualification') {
         const { result, summary } = await runQualification(t);
+        await liveDone(t.id);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'qualification_serie', summary: `${summary}${auto}`, details: result });
       } else if (t.kind === 'premier_mail') {
         const { result, summary } = await runDrafts(t);
+        await liveDone(t.id);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'premiers_mails', summary: `${summary}${auto}`, details: result });
       } else if (t.kind === 'recherche_comptes') {
@@ -164,6 +185,7 @@ export async function runNextTask(): Promise<void> {
         if (!a) throw new Error('agente introuvable');
         if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
         const { result, summary } = await researchAccounts(t.id, t.params, a);
+        await liveDone(t.id);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'recherche_comptes', summary: `${summary}${auto}`, details: result as unknown as Record<string, unknown> });
       } else {
@@ -171,6 +193,7 @@ export async function runNextTask(): Promise<void> {
       }
     } catch (e) {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
+      await liveDone(t.id);
       await sb.from('agent_tasks').update({ status: 'echec', error: msg, finished_at: new Date().toISOString() }).eq('id', t.id);
       const what = t.kind === 'qualification' ? 'Préparation des fiches' : t.kind === 'premier_mail' ? 'Rédaction des premiers mails'
         : t.kind === 'recherche_comptes' ? `Recherche ${researchLabel(t.agent, t.params)}` : `Découverte ${label(t.params)}`;
@@ -271,14 +294,13 @@ async function autoDraft(a: AiAgent): Promise<void> {
   if (error) console.warn(`[AGENTS] premiers mails automatiques non posés : ${error.message}`);
 }
 
-/** Le cycle : du lundi au vendredi, 8 h-19 h à Paris, pour Ada puis Dana. */
+/** Le cycle, pour Ada puis Dana : chacune dans ses jours et heures de travail (Réglages, heure de Paris — les mêmes que pour l'envoi). */
 export async function autoCycle(): Promise<void> {
-  const clock = parisClock(new Date());
-  if (clock.isoDay > 5 || clock.minutes < 8 * 60 || clock.minutes >= 19 * 60) return;
   for (const agent of ['ada', 'dana']) {
     try {
       const a = await agentRow(agent);
       if (!a || a.targets == null) continue; // SQL du 17/10 (qualification) pas encore collé
+      if (!inSendWindow(new Date(), a)) continue;
       // Dana attend ses réglages (SQL agents_comptes : taille des lots, pays de vente).
       if (agent === 'dana' && !(a.targets && typeof a.targets === 'object' && 'minLot' in a.targets)) continue;
       const ctx = await seriesContext(a, null);

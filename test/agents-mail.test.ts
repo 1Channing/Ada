@@ -91,6 +91,12 @@ ok(!inSendWindow(new Date('2026-10-17T09:00:00Z'), w), 'créneau : samedi, ferm�
 eq(nextWindowStart(new Date('2026-10-16T17:00:00Z'), w)?.toISOString(), '2026-10-19T06:30:00.000Z', 'créneau : vendredi soir → lundi 8 h 30 (Paris)');
 eq(nextWindowStart(new Date('2026-10-23T17:00:00Z'), w)?.toISOString(), '2026-10-26T07:30:00.000Z', 'créneau : passage à l\'heure d\'hiver respecté');
 eq(nextWindowStart(new Date('2026-10-16T08:00:00Z'), { ...w, send_days: [] }), null, 'créneau : aucun jour coché → null');
+const allDay = { send_days: [1, 2, 3, 4, 5, 6, 7], send_from: '00:00', send_to: '00:00' };
+ok(inSendWindow(new Date('2026-10-17T21:30:00Z'), allDay) && inSendWindow(new Date('2026-10-17T22:10:00Z'), allDay) && inSendWindow(new Date('2026-10-18T03:00:00Z'), allDay),
+  'créneau : « 00:00 à 00:00 » = toute la journée (samedi 23 h 30, dimanche 0 h 10 et 5 h)');
+ok(inSendWindow(new Date('2026-10-16T21:30:00Z'), { ...w, send_to: '00:00' }) && !inSendWindow(new Date('2026-10-16T06:00:00Z'), { ...w, send_to: '00:00' }),
+  'créneau : « 08:30 à 00:00 » = jusqu\'à minuit (vendredi 23 h 30 ouvert, 8 h fermé)');
+eq(nextWindowStart(new Date('2026-10-17T09:00:00Z'), { ...allDay, send_days: [1, 2, 3, 4, 5] })?.toISOString(), '2026-10-18T22:00:00.000Z', 'créneau : toute la journée en semaine → samedi, reprise lundi 0 h (Paris)');
 eq(parisDayStart(new Date('2026-10-16T08:00:00Z')).toISOString(), '2026-10-15T22:00:00.000Z', 'plafond : le jour commence à minuit, heure de Paris');
 const gap = randomGapMs(150, 420, () => 0.5);
 eq(gap, 285000, 'écart : au milieu de 150 et 420 s');

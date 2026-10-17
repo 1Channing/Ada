@@ -2,7 +2,9 @@
  * QUAND ADA ET DANA PEUVENT ENVOYER (16/10) — logique pure, partagée par le
  * worker (file d'envoi) et l'onglet Agents (« prochain créneau »).
  *
- * - Horaires de bureau à l'heure de Paris (jours et heures réglables).
+ * - Horaires de bureau à l'heure de Paris (jours et heures réglables). Une
+ *   fin à « 00:00 » veut dire minuit : « 00:00 à 00:00 » = toute la journée.
+ *   Ce sont aussi les horaires du travail automatique (17/10).
  * - Plafond du jour sur les premiers contacts et relances (les réponses à
  *   une personne qui a écrit ne sont pas plafonnées).
  * - Liste « ne plus contacter » : une adresse, ou « @domaine » pour tout un
@@ -61,17 +63,20 @@ export const toMinutes = (hhmm: string): number => {
   return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(mi) ? mi : 0);
 };
 
+/** La fin d'un créneau, en minutes depuis minuit : « 00:00 » en fin veut dire minuit (24 h). */
+export const endMinutes = (hhmm: string): number => toMinutes(hhmm) || 24 * 60;
+
 /** Dans les horaires d'envoi (heure de Paris) ? */
 export function inSendWindow(at: Date, w: SendWindow): boolean {
   const c = parisClock(at);
   if (!w.send_days.includes(c.isoDay)) return false;
-  return c.minutes >= toMinutes(w.send_from) && c.minutes < toMinutes(w.send_to);
+  return c.minutes >= toMinutes(w.send_from) && c.minutes < endMinutes(w.send_to);
 }
 
 /** Le prochain instant où l'envoi est permis (maintenant s'il l'est déjà). Null si aucun jour n'est coché. */
 export function nextWindowStart(at: Date, w: SendWindow): Date | null {
   if (inSendWindow(at, w)) return at;
-  if (w.send_days.length === 0 || toMinutes(w.send_to) <= toMinutes(w.send_from)) return null;
+  if (w.send_days.length === 0 || endMinutes(w.send_to) <= toMinutes(w.send_from)) return null;
   for (let k = 0; k < 8; k++) {
     const probe = new Date(at.getTime() + k * 86_400_000);
     const c = parisClock(probe);

@@ -13,8 +13,12 @@
  * 17/10 (Channing : « ce n'est pas notre lexique ») : le travail de chaque
  * jour en trois étapes, avec les mots de l'équipe — chercher des
  * entreprises, préparer leur fiche, écrire le premier mail.
+ * 17/10 : un seul « Enregistrer » pour tous les réglages de l'agente (les
+ * deux colonnes), toujours en vue ; ses jours et heures de travail valent
+ * pour le travail automatique comme pour l'envoi (00:00 à 00:00 = toute la
+ * journée).
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
 import { Link2, Unlink, Save, Ban, Trash2, Plug, Sparkles } from 'lucide-react';
 import {
   oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, updateMailSettings, updateResearchSettings, QUALIF_SQL_HINT, MAILS_SQL_HINT, RECHERCHE_SQL_HINT,
@@ -27,7 +31,8 @@ import { DISCOVERY_SITES } from '../../lib/agents/discovery';
 import { HOME_COUNTRY } from '../../lib/agents/qualification';
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { listAssignees, type Assignee } from '../../services/userTasks';
-import { fmtDateTime, fmtRelative } from './helpers';
+import { fmtDateTime, fmtRelative, workHoursLabel, deName } from './helpers';
+import { toMinutes, endMinutes } from '../../lib/agents/sendPolicy';
 import { InfoTip } from './shared';
 
 const DAYS = [{ d: 1, l: 'L' }, { d: 2, l: 'M' }, { d: 3, l: 'M' }, { d: 4, l: 'J' }, { d: 5, l: 'V' }, { d: 6, l: 'S' }, { d: 7, l: 'D' }];
@@ -35,6 +40,11 @@ const input = 'rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:ou
 const REASONS: Record<Suppression['reason'], string> = { stop: 'Demande d\'arrêt', refus: 'Pas intéressé', rebond: 'Adresse morte', plainte: 'Plainte', manuel: 'Ajout manuel' };
 
 interface Props { agent: AgentKey; settings: AgentSettings[]; isAdmin: boolean; userId: string | null; refreshKey: number; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }
+
+/** Ce que chaque colonne des Réglages donne au bouton « Enregistrer » commun : un contrôle, puis l'enregistrement (null = tout va bien). */
+interface FormHandle { check: () => string | null; save: () => Promise<string | null> }
+/** Un clic sur une pastille à cocher (jours, pays) : une modification. */
+const toggled = (e: React.MouseEvent) => !!(e.target as HTMLElement).closest('button[aria-pressed]');
 
 const COUNTRY_LABEL: Record<string, string> = {
   FR: '🇫🇷 France', DE: '🇩🇪 Allemagne', NL: '🇳🇱 Pays-Bas', BE: '🇧🇪 Belgique', ES: '🇪🇸 Espagne', IT: '🇮🇹 Italie', DK: '🇩🇰 Danemark', SE: '🇸🇪 Suède', HU: '🇭🇺 Hongrie',
@@ -71,7 +81,7 @@ function ScoreHelp({ dana, name }: { dana: boolean; name: string }) {
         <div className="space-y-2.5">
           {rows('Pour toutes, si on peut la joindre', REACH_SCORE_HELP)}
           <div className="space-y-1">
-            <p className="font-medium text-slate-900">Puis l'avis de {name}, après lecture du site : de&nbsp;{minus(AI_ADJUST.min)} à&nbsp;+{AI_ADJUST.max}</p>
+            <p className="font-medium text-slate-900">Puis l'avis {deName(name)}, après lecture du site : de&nbsp;{minus(AI_ADJUST.min)} à&nbsp;+{AI_ADJUST.max}</p>
             <p>{dana
               ? 'Par exemple +10 pour un groupe, un loueur, un leasing ou une flotte (volumes réguliers), +5 pour un interlocuteur VO ou remarketing identifié, −10 pour une très petite structure, −20 si l\'activité principale n\'est pas le VO récent.'
               : 'Par exemple +10 pour une concession officielle de nos marques ou un spécialiste utilitaires, +5 pour un groupe ou un interlocuteur VO identifié, −10 pour une très petite structure, −20 si l\'activité principale n\'est pas le VO.'}
@@ -104,7 +114,7 @@ function Step({ n, title, unit, value, max, ro, onChange, help, extra }: { n: nu
 }
 
 /** Le travail d'Ada ou de Dana par l'IA : cibles, budget, automatismes, premiers contacts. */
-function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: AgentSettings; isAdmin: boolean; userId: string | null; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }) {
+const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; userId: string | null; spend: AiSpend | null }>(function AiForm({ s, isAdmin, userId, spend }, ref) {
   const dana = s.agent === 'dana';
   const t = normalizeTargets(s.targets);
   const dt = normalizeDanaTargets(s.targets);
@@ -123,30 +133,32 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
   const [autoDraft, setAutoDraft] = useState(s.auto_draft_per_day ?? 0);
   const [autoResearch, setAutoResearch] = useState(s.auto_research_per_day ?? 0);
   const researchReady = s.auto_research_per_day !== undefined;
-  const [busy, setBusy] = useState(false);
   const mailsReady = s.instructions !== undefined;
+  const aiReady = s.daily_budget_usd !== undefined;
   const ro = !isAdmin;
-  if (s.daily_budget_usd === undefined) return <div className="bg-white border border-violet-200 rounded-2xl shadow-sm p-4 text-xs text-slate-500">{QUALIF_SQL_HINT}</div>;
+  useImperativeHandle(ref, () => ({
+    check: () => (aiReady && dana && markets.length === 0 ? 'Cochez au moins un pays où nous revendons : c\'est là que Dana compare le prix des lots.' : null),
+    save: async () => {
+      if (!aiReady) return null;
+      const e = await updateAiSettings(s.agent, {
+        targets: dana ? { minLot, markets } : { countries, brands: listOf(brands), vanBrands: listOf(vanBrands), multibrand },
+        daily_budget_usd: Math.max(0, Math.min(100, Math.round(budget * 100) / 100)),
+        auto_discovery: autoDisc, auto_qualify_per_day: Math.max(0, Math.min(500, Math.round(autoQual))),
+        map_auto_add: mapAdd, map_min_score: Math.max(0, Math.min(100, Math.round(mapScore))),
+      }, userId);
+      if (e) return e;
+      const e2 = mailsReady ? await updateMailSettings(s.agent, { instructions: instructions.trim(), auto_draft_per_day: Math.max(0, Math.min(200, Math.round(autoDraft))) }, userId) : null;
+      if (e2) return e2;
+      return researchReady ? updateResearchSettings(s.agent, Math.max(0, Math.min(20, Math.round(autoResearch))), userId) : null;
+    },
+  }));
+  if (!aiReady) return <div className="bg-white border border-violet-200 rounded-2xl shadow-sm p-4 text-xs text-slate-500">{QUALIF_SQL_HINT}</div>;
   const today = spend?.[s.agent];
-  const save = async () => {
-    setBusy(true);
-    if (dana && markets.length === 0) { setBusy(false); onError('Cochez au moins un pays de vente : c\'est là que Dana mesure les écarts.'); return; }
-    const e = await updateAiSettings(s.agent, {
-      targets: dana ? { minLot, markets } : { countries, brands: listOf(brands), vanBrands: listOf(vanBrands), multibrand },
-      daily_budget_usd: Math.max(0, Math.min(100, Math.round(budget * 100) / 100)),
-      auto_discovery: autoDisc, auto_qualify_per_day: Math.max(0, Math.min(500, Math.round(autoQual))),
-      map_auto_add: mapAdd, map_min_score: Math.max(0, Math.min(100, Math.round(mapScore))),
-    }, userId);
-    const e2 = !e && mailsReady ? await updateMailSettings(s.agent, { instructions: instructions.trim(), auto_draft_per_day: Math.max(0, Math.min(200, Math.round(autoDraft))) }, userId) : null;
-    const e3 = !e && !e2 && researchReady ? await updateResearchSettings(s.agent, Math.max(0, Math.min(20, Math.round(autoResearch))), userId) : null;
-    setBusy(false);
-    if (e || e2 || e3) onError((e ?? e2 ?? e3) as string); else { onInfo(`Travail de ${s.display_name} enregistré.`); onChanged(); }
-  };
   return (
     <div className="bg-white border border-violet-200 rounded-2xl shadow-sm p-4 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
         <Sparkles className="w-4 h-4 text-violet-700" />
-        <p className="text-xs uppercase tracking-wide text-violet-800">Travail de {s.display_name} (IA)</p>
+        <p className="text-xs uppercase tracking-wide text-violet-800">Travail {deName(s.display_name)} (IA)</p>
         <span className="ml-auto text-xs text-slate-500">Dépensé : {fmtUsd(today?.today ?? 0)} aujourd'hui · {fmtUsd(today?.month ?? 0)} ce mois</span>
       </div>
       {dana ? (
@@ -168,7 +180,7 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
             <span className="text-xs text-slate-500">Où nous revendons : Dana y compare le prix de chaque lot (l'écart de prix), quel que soit le pays où elle l'a trouvé</span>
             <div className="flex items-center gap-1.5 flex-wrap">
               {MARKET_CHOICES.map((c) => (
-                <button key={c} disabled={ro} onClick={() => setMarkets(markets.includes(c) ? markets.filter((x) => x !== c) : [...markets, c])}
+                <button key={c} disabled={ro} aria-pressed={markets.includes(c)} onClick={() => setMarkets(markets.includes(c) ? markets.filter((x) => x !== c) : [...markets, c])}
                   className={`text-xs rounded-full px-2 py-0.5 border ${markets.includes(c) ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-200 text-slate-600'}`}>{MARKET_LABEL[c] ?? c}</button>
               ))}
             </div>
@@ -179,9 +191,9 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
       <div className="space-y-1 text-sm">
         <span className="text-xs text-slate-500">Pays visés</span>
         <div className="flex items-center gap-1.5 flex-wrap">
-          <button disabled={ro} onClick={() => setCountries([])} className={`text-xs rounded-full px-2 py-0.5 border ${countries.length === 0 ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 text-slate-600'}`}>Pays de nos ventes (automatique)</button>
+          <button disabled={ro} aria-pressed={countries.length === 0} onClick={() => setCountries([])} className={`text-xs rounded-full px-2 py-0.5 border ${countries.length === 0 ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 text-slate-600'}`}>Pays de nos ventes (automatique)</button>
           {Object.keys(DISCOVERY_SITES).filter((c) => c !== HOME_COUNTRY).map((c) => (
-            <button key={c} disabled={ro} onClick={() => setCountries(countries.includes(c) ? countries.filter((x) => x !== c) : [...countries, c])}
+            <button key={c} disabled={ro} aria-pressed={countries.includes(c)} onClick={() => setCountries(countries.includes(c) ? countries.filter((x) => x !== c) : [...countries, c])}
               className={`text-xs rounded-full px-2 py-0.5 border ${countries.includes(c) ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 text-slate-600'}`}>{COUNTRY_LABEL[c]}</button>
           ))}
         </div>
@@ -202,7 +214,7 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
         <span className="text-xs text-slate-400">Atteint → {s.display_name} s'arrête jusqu'au lendemain.</span>
       </div>
       <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 space-y-3">
-        <p className="text-xs font-medium text-violet-900">Chaque jour, toute seule (du lundi au vendredi, 8 h-19 h) · 0 = seulement quand vous cliquez</p>
+        <p className="text-xs font-medium text-violet-900">Chaque jour de travail, toute seule ({workHoursLabel(s)}) · 0 = seulement quand vous cliquez</p>
         {researchReady ? (
           <Step n={1} title="Chercher de nouvelles entreprises" unit="recherches par jour" max={20} ro={ro} value={autoResearch} onChange={setAutoResearch}
             help={`Sur le web : ${dana ? 'sociétés de leasing, loueurs, flottes, groupes, négociants B2B, un type dans un pays à chaque fois (la France d\'abord, puis toute l\'Europe).' : 'groupes de concessions, revendeurs, flottes qui renouvellent, un type dans un de ses pays d\'export à chaque fois.'} Ce qu'elle trouve arrive dans l'onglet Comptes. Environ 0,05 $ la recherche, au plus une toutes les 90 minutes.`}
@@ -240,12 +252,11 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
           </label>
         </div>
       ) : <p className="text-xs text-slate-500 border-t border-violet-100 pt-3">{MAILS_SQL_HINT}</p>}
-      {isAdmin && <button disabled={busy} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"><Save className="w-4 h-4" /> Enregistrer le travail de {s.display_name}</button>}
     </div>
   );
-}
+});
 
-function AgentForm({ s, isAdmin, userId, people, onChanged, onError, onInfo }: { s: AgentSettings; isAdmin: boolean; userId: string | null; people: Assignee[]; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }) {
+const AgentForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; userId: string | null; people: Assignee[]; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }>(function AgentForm({ s, isAdmin, userId, people, onChanged, onError, onInfo }, ref) {
   const [f, setF] = useState<EditableSettings>({
     sender_name: s.sender_name, signature: s.signature, daily_first_contact_cap: s.daily_first_contact_cap, send_days: s.send_days,
     send_from: s.send_from.slice(0, 5), send_to: s.send_to.slice(0, 5), min_gap_seconds: s.min_gap_seconds, max_gap_seconds: s.max_gap_seconds, owner_id: s.owner_id,
@@ -266,17 +277,17 @@ function AgentForm({ s, isAdmin, userId, people, onChanged, onError, onInfo }: {
     const e = await disconnectMailbox(s.agent);
     if (e) onError(e); else { onInfo(`${s.mailbox} débranchée.`); onChanged(); }
   };
-  const save = async () => {
-    if (f.send_days.length === 0) { onError('Cochez au moins un jour d\'envoi.'); return; }
-    if (f.send_to <= f.send_from) { onError('L\'heure de fin doit suivre l\'heure de début.'); return; }
-    setBusy(true);
-    const e = await updateSettings(s.agent, {
+  useImperativeHandle(ref, () => ({
+    check: () => {
+      if (f.send_days.length === 0) return 'Cochez au moins un jour de travail.';
+      if (endMinutes(f.send_to) <= toMinutes(f.send_from)) return 'L\'heure de fin doit suivre l\'heure de début (00:00 en fin = minuit ; 00:00 à 00:00 = toute la journée).';
+      return null;
+    },
+    save: () => updateSettings(s.agent, {
       ...f, daily_first_contact_cap: Math.max(0, Math.min(200, Math.round(f.daily_first_contact_cap))),
       min_gap_seconds: Math.max(0, Math.round(f.min_gap_seconds)), max_gap_seconds: Math.max(0, Math.round(f.max_gap_seconds)),
-    }, userId);
-    setBusy(false);
-    if (e) onError(e); else { onInfo(`Réglages de ${s.display_name} enregistrés.`); onChanged(); }
-  };
+    }, userId),
+  }));
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 space-y-4">
@@ -314,23 +325,26 @@ function AgentForm({ s, isAdmin, userId, people, onChanged, onError, onInfo }: {
         <textarea disabled={ro} className={`${input} w-full min-h-[80px]`} value={f.signature} onChange={(e) => set('signature', e.target.value)} /></label>
 
       <div className="rounded-xl border border-slate-200 p-3 space-y-3">
-        <p className="text-xs uppercase tracking-wide text-slate-400">Rythme anti-spam</p>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Horaires et rythme anti-spam</p>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className="text-slate-600">Jours et heures de travail :</span>
+            {DAYS.map((d) => (
+              <button key={d.d} disabled={ro} aria-pressed={f.send_days.includes(d.d)} onClick={() => set('send_days', f.send_days.includes(d.d) ? f.send_days.filter((x) => x !== d.d) : [...f.send_days, d.d].sort())}
+                className={`w-7 h-7 rounded-full border text-xs ${f.send_days.includes(d.d) ? 'border-brand-ocean bg-blue-50 text-brand-encre font-semibold' : 'border-slate-200 text-slate-400'}`}>{d.l}</button>
+            ))}
+            <span className="text-slate-600 ml-2">de</span>
+            <input disabled={ro} type="time" className={input} value={f.send_from} onChange={(e) => set('send_from', e.target.value)} />
+            <span className="text-slate-600">à</span>
+            <input disabled={ro} type="time" className={input} value={f.send_to} onChange={(e) => set('send_to', e.target.value)} />
+            <span className="text-xs text-slate-400">(heure de Paris)</span>
+          </div>
+          <p className="text-xs text-slate-400">{s.display_name} cherche, prépare ses fiches, écrit et envoie dans ces horaires. 00:00 en fin = minuit ; 00:00 à 00:00 = toute la journée.</p>
+        </div>
         <div className="flex items-center gap-2 flex-wrap text-sm">
           <span className="text-slate-600">Premiers contacts et relances par jour :</span>
           <input disabled={ro} type="number" min={0} max={200} className={`${input} w-20`} value={f.daily_first_contact_cap} onChange={(e) => set('daily_first_contact_cap', Number(e.target.value))} />
           <span className="text-xs text-slate-400">10 la 1re semaine, puis 20, puis 30 à 40 au plus. Les réponses ne sont pas plafonnées.</span>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap text-sm">
-          <span className="text-slate-600">Jours :</span>
-          {DAYS.map((d) => (
-            <button key={d.d} disabled={ro} onClick={() => set('send_days', f.send_days.includes(d.d) ? f.send_days.filter((x) => x !== d.d) : [...f.send_days, d.d].sort())}
-              className={`w-7 h-7 rounded-full border text-xs ${f.send_days.includes(d.d) ? 'border-brand-ocean bg-blue-50 text-brand-encre font-semibold' : 'border-slate-200 text-slate-400'}`}>{d.l}</button>
-          ))}
-          <span className="text-slate-600 ml-2">de</span>
-          <input disabled={ro} type="time" className={input} value={f.send_from} onChange={(e) => set('send_from', e.target.value)} />
-          <span className="text-slate-600">à</span>
-          <input disabled={ro} type="time" className={input} value={f.send_to} onChange={(e) => set('send_to', e.target.value)} />
-          <span className="text-xs text-slate-400">(heure de Paris)</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap text-sm">
           <span className="text-slate-600">Écart entre deux premiers contacts : de</span>
@@ -340,13 +354,9 @@ function AgentForm({ s, isAdmin, userId, people, onChanged, onError, onInfo }: {
           <span className="text-slate-600">minutes (au hasard)</span>
         </div>
       </div>
-      <div className="flex items-center gap-3 flex-wrap">
-        {isAdmin && <button disabled={busy} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"><Save className="w-4 h-4" /> Enregistrer</button>}
-        <span className="text-xs text-slate-500">Copilote : chaque mail de {s.display_name} part seulement après la validation d'un administrateur.</span>
-      </div>
     </div>
   );
-}
+});
 
 function Suppressions({ userId, refreshKey, onError }: { userId: string | null; refreshKey: number; onError: (m: string) => void }) {
   const [rows, setRows] = useState<Suppression[]>([]);
@@ -401,14 +411,40 @@ export function Reglages({ agent, settings, isAdmin, userId, refreshKey, spend, 
   const s = settings.find((x) => x.agent === agent);
   // Les formulaires repartent des valeurs enregistrées après chaque enregistrement (ou connexion de la boîte).
   const key = s ? `${agent}-${s.updated_at}-${s.gmail_connected_at ?? ''}` : agent;
+  const left = useRef<FormHandle>(null);
+  const right = useRef<FormHandle>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setDirty(false), [key]);
+  const name = s?.display_name ?? agent;
+  const saveAll = async () => {
+    const problem = left.current?.check() ?? right.current?.check() ?? null;
+    if (problem) { onError(problem); return; }
+    setSaving(true);
+    const e = (await left.current?.save()) ?? (await right.current?.save()) ?? null;
+    setSaving(false);
+    if (e) { onError(e); return; }
+    setDirty(false);
+    onInfo(`Réglages ${deName(name)} enregistrés.`);
+    onChanged();
+  };
   return (
     <div className="space-y-4">
       {s && (
-        <div className="grid xl:grid-cols-2 gap-4 items-start">
-          <AgentForm key={key} s={s} isAdmin={isAdmin} userId={userId} people={people} onChanged={onChanged} onError={onError} onInfo={onInfo} />
-          <AiForm key={`ia-${key}`} s={s} isAdmin={isAdmin} userId={userId} spend={spend} onChanged={onChanged} onError={onError} onInfo={onInfo} />
+        <div className="grid xl:grid-cols-2 gap-4 items-start" onChangeCapture={() => setDirty(true)} onClickCapture={(e) => { if (toggled(e)) setDirty(true); }}>
+          <AgentForm ref={left} key={key} s={s} isAdmin={isAdmin} userId={userId} people={people} onChanged={onChanged} onError={onError} onInfo={onInfo} />
+          <AiForm ref={right} key={`ia-${key}`} s={s} isAdmin={isAdmin} userId={userId} spend={spend} />
         </div>
       )}
+      {s && (isAdmin ? (
+        <div className="sticky bottom-3 z-20 flex items-center gap-3 flex-wrap rounded-2xl border border-slate-200 bg-white/95 backdrop-blur px-4 py-2.5 shadow-lg">
+          <span className={`text-sm ${dirty ? 'font-medium text-amber-700' : 'text-slate-500'}`}>{dirty ? 'Modifications non enregistrées' : `Réglages ${deName(name)} à jour`}</span>
+          <span className="hidden md:inline text-xs text-slate-400">Copilote : chaque mail {deName(name)} part seulement après la validation d'un administrateur.</span>
+          <button disabled={saving} onClick={() => void saveAll()} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-4 py-2 text-sm font-medium disabled:opacity-50">
+            <Save className="w-4 h-4" /> {saving ? 'Enregistrement…' : `Enregistrer les réglages ${deName(name)}`}
+          </button>
+        </div>
+      ) : <p className="text-xs text-slate-500">Seul un administrateur modifie ces réglages.</p>)}
       <Suppressions userId={userId} refreshKey={refreshKey} onError={onError} />
     </div>
   );
