@@ -107,6 +107,7 @@ export function Agents() {
     setAgent(k);
     setTab((t) => tabFor(k, t));
     setOpenThread(null);
+    setJournal([]);
     try { window.localStorage.setItem(AGENT_STORE, k); } catch { /* stockage indisponible */ }
   };
 
@@ -221,7 +222,7 @@ export function Agents() {
         <Messagerie key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} openThreadId={openThread} refreshKey={refreshKey} onChanged={() => void load()} onError={onError} />
       )}
       {tab === 'valider' && (
-        <ValidationQueue agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} refreshKey={refreshKey} onOpenThread={openFromQueue} onChanged={() => void load()} onError={onError} />
+        <ValidationQueue key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} refreshKey={refreshKey} onOpenThread={openFromQueue} onChanged={() => void load()} onError={onError} />
       )}
       {tab === 'prospects' && agent === 'ada' && (
         <Prospects userId={userId} canEditMap={canEditMap} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />
