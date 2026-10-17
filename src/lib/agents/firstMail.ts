@@ -21,8 +21,8 @@ ${MC_EXPORT_FACTS}
 
 Ce qui fait répondre (et évite les spams) :
 - 60 à 120 mots, texte simple, phrases courtes, ton d'un professionnel qui écrit à un autre professionnel. Pas de formule creuse (« j'espère que vous allez bien », « solution innovante », « partenaire de confiance »), pas de superlatifs, pas de majuscules ni de points d'exclamation pour vendre.
-- La première phrase après la salutation part d'un FAIT VRAI qui le concerne, pris dans le matériel : ce qu'il a en stock, un modèle précis, un écart de prix mesuré. C'est ce qui montre que le mail est écrit pour lui.
-- Puis une phrase pour dire qui tu es (Ada, de MC Export) et ce que MC Export peut lui apporter de concret : un ou deux véhicules de nos offres qui correspondent à ce qu'il vend, avec année et kilométrage, et l'écart de prix s'il est donné dans le matériel (formulé en « environ … % sous vos prix affichés pour des modèles comparables », jamais un prix ferme).
+- La première phrase après la salutation part d'un FAIT VRAI qui le concerne, pris dans le matériel : ce qu'il a en stock, un modèle précis, un écart de prix mesuré — ou, pour une entreprise trouvée par une recherche web, son activité (sa flotte, son réseau). C'est ce qui montre que le mail est écrit pour lui.
+- Puis une phrase pour dire qui tu es (Ada, de MC Export) et ce que MC Export peut lui apporter de concret : un ou deux véhicules de nos offres qui correspondent à ce qu'il vend ou à sa flotte, avec année et kilométrage, et l'écart de prix s'il est donné dans le matériel (formulé en « environ … % sous vos prix affichés pour des modèles comparables », jamais un prix ferme).
 - Une seule question, facile, qui appelle une réponse courte (« Je vous envoie les fiches ? », « Ça vous intéresse que je vous en réserve un ? »).
 - Une dernière phrase humaine pour sortir : s'il n'est pas intéressé, qu'il le dise et tu ne le relanceras pas.
 - Pas de lien, pas de pièce jointe, pas de numéro de téléphone, pas de signature (elle est ajoutée ensuite).
@@ -69,6 +69,8 @@ export interface FirstMailMaterial {
   officialBrands: string[];
   summary: string | null;
   stock: { listings: number; byBrand: Array<{ brand: string; n: number }>; models: string[] };
+  /** Entreprise trouvée par recherche web (17/10, étape 2) : son type, sa taille, pourquoi elle compte. */
+  account?: AccountFacts | null;
   /** « leur C-HR 2021 affiché 23 900 € TTC ; notre C-HR 2021 ≈ 20 400 € TVA comprise, environ 15 % de moins ». */
   gaps: string[];
   offers: OfferFact[];
@@ -76,6 +78,13 @@ export interface FirstMailMaterial {
 }
 
 const eur = (n: number | null) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
+
+/** Ce qu'on sait d'une entreprise trouvée par recherche web. */
+export interface AccountFacts { segment: string; size: string | null; why: string | null }
+const accountLines = (a: AccountFacts | null | undefined): string[] => (a
+  ? [`Trouvée par une recherche web : ${a.segment}${a.size ? ` — ${a.size}` : ''}`, ...(a.why ? [`Pourquoi elle compte : ${a.why}`] : [])]
+  : []);
+const NO_LISTINGS = '(entreprise trouvée par une recherche web : ADA ne suit pas ses annonces)';
 
 /** Le message de l'appel : tout ce qu'Ada peut citer, et rien d'autre. */
 export function firstMailPrompt(m: FirstMailMaterial): string {
@@ -88,10 +97,11 @@ export function firstMailPrompt(m: FirstMailMaterial): string {
   l.push(`Personne : ${m.contact.name ? `${m.contact.name}${m.contact.role ? `, ${m.contact.role}` : ''}` : 'inconnue (salutation générale)'}`);
   if (m.kind) l.push(`Type : ${m.kind}${m.group ? ` ; groupe ${m.group}` : ''}${m.officialBrands.length ? ` ; officiel ${m.officialBrands.join(', ')}` : ''}`);
   if (m.summary) l.push(`Ce qu'ADA sait d'eux : ${m.summary}`);
+  l.push(...accountLines(m.account));
   l.push('</destinataire>');
   l.push('');
   l.push('<stock_vu_par_ada>');
-  l.push(`${m.stock.listings} annonces en ligne ces 90 derniers jours ; par marque : ${m.stock.byBrand.map((b) => `${b.brand} ${b.n}`).join(', ') || '—'}`);
+  l.push(m.account && m.stock.listings === 0 ? NO_LISTINGS : `${m.stock.listings} annonces en ligne ces 90 derniers jours ; par marque : ${m.stock.byBrand.map((b) => `${b.brand} ${b.n}`).join(', ') || '—'}`);
   if (m.stock.models.length) l.push(`Modèles : ${m.stock.models.join(', ')}`);
   for (const g of m.gaps) l.push(`Écart mesuré : ${g}`);
   l.push('</stock_vu_par_ada>');
@@ -115,8 +125,8 @@ ${DANA_FACTS}
 
 Ce qui fait répondre (et évite les spams) :
 - 60 à 120 mots, texte simple, phrases courtes, ton d'un acheteur professionnel qui écrit à un vendeur professionnel. Pas de formule creuse, pas de superlatifs, pas de majuscules ni de points d'exclamation.
-- La première phrase après la salutation part d'un FAIT VRAI de son stock, pris dans le matériel : le lot (« vos cinq Toyota Yaris Cross de 2023 »).
-- Puis qui tu es (Dana, aux achats chez MC Export) et ce que tu proposes : reprendre le lot, ou une partie, en une fois ; et, si c'est son métier, des véhicules récents régulièrement — c'est une relation durable que l'on cherche.
+- La première phrase après la salutation part d'un FAIT VRAI qui le concerne, pris dans le matériel : son lot (« vos cinq Toyota Yaris Cross de 2023 ») ou, pour une entreprise trouvée par une recherche web, son activité (ses fins de leasing ou de location, sa flotte, son réseau).
+- Puis qui tu es (Dana, aux achats chez MC Export) et ce que tu proposes : reprendre le lot, ou une partie, en une fois — ou les véhicules récents qui sortent de son parc — ; et, si c'est son métier, des véhicules récents régulièrement — c'est une relation durable que l'on cherche.
 - Une seule question, facile (« Seriez-vous ouvert à une offre pour les cinq ? », « Ce lot est-il disponible pour un marchand ? »).
 - Une dernière phrase humaine pour sortir : s'il n'est pas vendeur, qu'il le dise et tu ne le relanceras pas.
 - Pas de lien, pas de pièce jointe, pas de numéro de téléphone, pas de signature (elle est ajoutée ensuite).
@@ -138,6 +148,8 @@ export interface DanaMailMaterial {
   stock: { listings: number; byBrand: Array<{ brand: string; n: number }> };
   /** Lignes de lotLine(…, false) : modèle, nombre, années, km — jamais de prix. */
   lots: string[];
+  /** Entreprise trouvée par recherche web (17/10, étape 2). */
+  account?: AccountFacts | null;
   instructions: string;
 }
 
@@ -151,10 +163,11 @@ export function danaFirstMailPrompt(m: DanaMailMaterial): string {
   l.push(`Personne : ${m.contact.name ? `${m.contact.name}${m.contact.role ? `, ${m.contact.role}` : ''}` : 'inconnue (salutation générale)'}`);
   if (m.kind) l.push(`Type : ${m.kind}${m.group ? ` ; groupe ${m.group}` : ''}`);
   if (m.summary) l.push(`Ce que Dana sait d'eux : ${m.summary}`);
+  l.push(...accountLines(m.account));
   l.push('</destinataire>');
   l.push('');
   l.push('<son_stock_vu_par_dana>');
-  l.push(`${m.stock.listings} annonces en ligne ces 90 derniers jours ; par marque : ${m.stock.byBrand.map((b) => `${b.brand} ${b.n}`).join(', ') || '—'}`);
+  l.push(m.account && m.stock.listings === 0 ? NO_LISTINGS : `${m.stock.listings} annonces en ligne ces 90 derniers jours ; par marque : ${m.stock.byBrand.map((b) => `${b.brand} ${b.n}`).join(', ') || '—'}`);
   for (const x of m.lots) l.push(`Lot : ${x}`);
   l.push('</son_stock_vu_par_dana>');
   l.push('');

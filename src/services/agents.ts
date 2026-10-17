@@ -36,6 +36,8 @@ export interface AgentSettings {
   map_auto_add?: boolean; map_min_score?: number;
   // Phase 2.3 (17/10) — SQL agents_premiers_mails.
   instructions?: string; auto_draft_per_day?: number;
+  // Étape 2 (17/10) — SQL agents_recherche : recherches de comptes lancées d'office par jour.
+  auto_research_per_day?: number;
 }
 export type EditableSettings = Pick<AgentSettings, 'sender_name' | 'signature' | 'daily_first_contact_cap' | 'send_days' | 'send_from' | 'send_to' | 'min_gap_seconds' | 'max_gap_seconds' | 'owner_id'>;
 
@@ -278,10 +280,15 @@ export interface DealerMember { id: string; site: string; name: string; site_url
 export interface DealerListing { dealer_id: string; listing_url: string; brand: string | null; model: string | null; title: string | null; year: number | null; mileage: number | null; fuel: string | null; vehicle_type: string | null; price_eur: number | null; last_seen_at: string }
 export interface SalesProfile { countries: Array<{ country: string; n: number }>; brands: Array<{ brand: string; n: number }> }
 export interface AgentTask {
-  id: string; agent: AgentKey; kind: 'decouverte_concessions' | 'qualification' | 'premier_mail';
-  params: { site?: string; country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; prospect_ids?: string[]; auto?: boolean };
+  id: string; agent: AgentKey; kind: 'decouverte_concessions' | 'qualification' | 'premier_mail' | 'recherche_comptes';
+  params: { site?: string; country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; account_ids?: string[]; prospect_ids?: string[]; segment?: string; auto?: boolean };
   status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee';
-  result: { annonces?: number; avec_garage?: number; concessions?: number; nouvelles?: number; url?: string; site?: string; garages?: number; qualifies?: number; ecartes?: number; echecs?: number; carte?: number; cout_usd?: number; arret?: string | null; rediges?: number; ignores?: number; details?: string[] } | null;
+  result: {
+    annonces?: number; avec_garage?: number; concessions?: number; nouvelles?: number; url?: string; site?: string; garages?: number; comptes?: number | string[]; qualifies?: number; ecartes?: number; echecs?: number; carte?: number;
+    cout_usd?: number; arret?: string | null; rediges?: number; ignores?: number; details?: string[];
+    // Recherche de comptes (étape 2).
+    trouves?: number; gardes?: number; deja?: number; remarque?: string | null;
+  } | null;
   error: string | null; created_by: string | null; created_at: string; started_at: string | null; finished_at: string | null;
 }
 /** La qualification d'un garage telle que l'annuaire la porte (dealer_id : la fiche qualifiée, tous sites). */
@@ -296,6 +303,8 @@ export interface ProspectDetail {
   phone?: string | null; country?: string | null; city?: string | null;
   /** SQL agents_comptes (17/10) : grand compte (préparé pour Channing), nature du compte, lots vus par Dana. */
   key_account?: boolean; account_kind?: string | null; lots?: LotFact[];
+  /** SQL agents_recherche (17/10) : l'entreprise trouvée par recherche web. */
+  account_id?: string | null;
   language: string | null; fit_score: number | null; fit_parts: Array<{ label: string; points: number }>; score: number | null; summary: string | null;
   exclusion_reason: string | null; evidence: Array<{ url: string; note: string }>; stage: ProspectStage; qualified_at: string | null; qualify_cost_usd: number | string;
   network_contact_id: string | null; notes: string;
@@ -549,3 +558,59 @@ export async function markSentByHand(id: string): Promise<string | null> {
 /** Un lien Gmail qui ouvre le mail prêt à partir, dans votre boîte. */
 export const gmailComposeUrl = (to: string[], subject: string, body: string) =>
   `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to.join(','))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+// --- Étape 2 (17/10) : la recherche de comptes ------------------------------------------------
+
+export const RECHERCHE_SQL_HINT = 'Recherche de comptes : SQL du 17/10 (agents_recherche) à coller dans Supabase.';
+const errRecherche = (m: string) => (missing(m) || /agent_accounts|account_id|recherche_comptes|kind_check|auto_research_per_day/i.test(m) ? RECHERCHE_SQL_HINT : m);
+
+/** Une entreprise trouvée par une recherche web (leasing, loueur, flotte, groupe, négociant B2B, revendeur). */
+export interface AgentAccount {
+  id: string; agent: AgentKey; segment: string; country: string | null; name: string; website: string; city: string | null;
+  size_hint: string | null; why: string | null; sources: string[]; status: 'nouveau' | 'qualifie' | 'ecarte';
+  task_id: string | null; prospect_id: string | null; found_at: string; updated_at: string;
+}
+
+export async function listAccounts(): Promise<{ rows: AgentAccount[]; error: string | null }> {
+  const { data, error } = await sb.from('agent_accounts').select('*').order('found_at', { ascending: false }).limit(1000);
+  if (error) return { rows: [], error: errRecherche(error.message) };
+  return { rows: (data ?? []) as AgentAccount[], error: null };
+}
+
+/** Les fiches des comptes (une par agente et par compte). */
+export async function accountProspects(accountIds: string[]): Promise<ProspectDetail[]> {
+  if (accountIds.length === 0) return [];
+  const out: ProspectDetail[] = [];
+  for (let i = 0; i < accountIds.length; i += 100) {
+    const { data } = await sb.from('agent_prospects').select('*').in('account_id', accountIds.slice(i, i + 100));
+    out.push(...((data ?? []) as ProspectDetail[]));
+  }
+  return out;
+}
+
+/** Une agente cherche sur le web un type de compte dans un pays (Haiku 5.5, 4 recherches au plus). */
+export async function queueResearch(agent: AgentKey, params: { segment: string; country: string }, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'recherche_comptes', params, created_by: userId });
+  return error ? errRecherche(error.message) : null;
+}
+
+/** Qualifier des comptes trouvés par recherche : une tâche par série de 10. */
+export async function queueAccountQualification(accountIds: string[], userId: string | null, agent: AgentKey): Promise<string | null> {
+  const ids = [...new Set(accountIds)];
+  for (let i = 0; i < ids.length; i += 10) {
+    const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'qualification', params: { account_ids: ids.slice(i, i + 10) }, created_by: userId });
+    if (error) return errRecherche(error.message);
+  }
+  return null;
+}
+
+/** Écarter un compte (ou le remettre à qualifier). */
+export async function setAccountStatus(id: string, status: 'nouveau' | 'ecarte'): Promise<string | null> {
+  const { error } = await sb.from('agent_accounts').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+  return error ? errRecherche(error.message) : null;
+}
+
+export async function updateResearchSettings(agent: AgentKey, perDay: number, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_settings').update({ auto_research_per_day: perDay, updated_at: new Date().toISOString(), updated_by: userId }).eq('agent', agent);
+  return error ? errRecherche(error.message) : null;
+}

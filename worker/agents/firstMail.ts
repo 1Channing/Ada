@@ -8,8 +8,9 @@
  * - le matériel factuel : pour Ada (acheteurs), sa fiche, son stock, les
  *   écarts mesurés avec nos offres, nos offres de ses marques ; pour Dana
  *   (fournisseurs), sa fiche et ses lots de véhicules identiques, relus à
- *   l'instant — sans aucun prix (la négociation passe par Channing) ; les
- *   consignes de Channing (Réglages) ;
+ *   l'instant — sans aucun prix (la négociation passe par Channing) ; pour
+ *   une entreprise trouvée par recherche web (étape 2), son type de compte,
+ *   sa taille et pourquoi elle compte ; les consignes de Channing (Réglages) ;
  * - petit compte (e-mail publié et vérifié) : Opus 5.5 écrit dans sa langue,
  *   avec la traduction et les faits cités ; le brouillon entre dans « À
  *   valider », depuis la boîte de l'agente ;
@@ -25,8 +26,9 @@ import { OPUS } from '../../src/lib/agents/aiCost';
 import {
   FIRST_MAIL_SYSTEM, FIRST_MAIL_SCHEMA, firstMailPrompt, checkFirstMail, withAgentSignature, LANG_OF_COUNTRY,
   DANA_FIRST_MAIL_SYSTEM, danaFirstMailPrompt, checkDanaMail, keyAccountSystem, KEY_ACCOUNT_SCHEMA, keyAccountPrompt, checkKeyAccount, linkedinSearchUrl,
-  type FirstMailOutput, type KeyAccountOutput, type OfferFact, type DraftCheck,
+  type FirstMailOutput, type KeyAccountOutput, type OfferFact, type DraftCheck, type AccountFacts,
 } from '../../src/lib/agents/firstMail';
+import { segmentOf } from '../../src/lib/agents/research';
 import { opportunities, brandKey, type DealerListingLite } from '../../src/lib/agents/opportunity';
 import { lotLine, normalizeDanaTargets, groupKey, type LotFact } from '../../src/lib/agents/sourcing';
 import { countryVat } from '../../src/lib/offers/vat';
@@ -46,6 +48,8 @@ interface ProspectRow {
   people?: Person[] | null;
   // SQL agents_comptes (17/10) ; absents avant : un petit compte, sans lots.
   key_account?: boolean | null; lots?: LotFact[] | null;
+  // SQL agents_recherche (17/10) : une entreprise trouvée par recherche web.
+  account_id?: string | null;
 }
 export interface DraftOutcome { status: 'redige' | 'ignore' | 'echec'; name: string; detail: string; cost: number; threadId?: string }
 
@@ -116,15 +120,22 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const brandsTop = [...byBrand].sort((x, y) => y[1] - x[1]).slice(0, 6).map(([brand, n]) => ({ brand: nice(brand), n }));
   const language = p.language || LANG_OF_COUNTRY[(p.country ?? '').toUpperCase()] || 'en';
   const contact = { name: p.best_contact?.nom ?? null, role: p.best_contact?.fonction ?? null };
+  // Une entreprise trouvée par recherche web : son type de compte, sa taille, pourquoi elle compte.
+  let account: AccountFacts | null = null;
+  if (p.account_id) {
+    const { data: acc } = await sb.from('agent_accounts').select('segment, size_hint, why').eq('id', p.account_id).maybeSingle();
+    const x = acc as { segment: string; size_hint: string | null; why: string | null } | null;
+    if (x) account = { segment: segmentOf(role, x.segment)?.label ?? x.segment, size: x.size_hint, why: x.why };
+  }
   let base: string;
   let lots: LotFact[] = [];
   if (role === 'dana') {
     // Les lots relus à l'instant (un lot vendu depuis la qualification ne doit pas être cité).
     lots = ids.length ? await lotsOfDealer(ids[0], listings, normalizeDanaTargets(a.targets)) : [];
-    if (lots.length === 0 && !key) return skip('plus de lot de véhicules identiques en ligne');
+    if (lots.length === 0 && !key && !p.account_id) return skip('plus de lot de véhicules identiques en ligne');
     base = danaFirstMailPrompt({
       company: p.name, country: p.country, city: p.city, language, contact, kind: p.kind, group: p.group_name, summary: p.summary,
-      stock: { listings: listings.length, byBrand: brandsTop }, lots: lots.slice(0, 4).map((l) => lotLine(l, false)), instructions: a.instructions ?? '',
+      stock: { listings: listings.length, byBrand: brandsTop }, lots: lots.slice(0, 4).map((l) => lotLine(l, false)), account, instructions: a.instructions ?? '',
     });
   } else {
     const vat = countryVat((p.country ?? 'FR').toUpperCase());
@@ -132,13 +143,16 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
     const opps = opportunities(listings, offers, vat).slice(0, 3);
     const gaps = opps.map((o) => `leur ${nice(o.listing.brand ?? '')} ${o.listing.model ?? ''} ${o.listing.year ?? ''}${o.listing.mileage != null ? ` (${o.listing.mileage.toLocaleString('fr-FR')} km)` : ''} affiché ${eur(o.listing.price_eur ?? 0)} TTC ; notre ${o.offer.title}${o.offer.year ? ` ${o.offer.year}` : ''}${o.offer.km != null ? ` (${o.offer.km.toLocaleString('fr-FR')} km)` : ''} ≈ ${eur(o.ourTtc)} TVA de son pays comprise, environ ${o.gapPct} % de moins`);
     const theirBrands = new Set([...byBrand.keys()].map(brandKey));
-    const shownOffers = [...new Set([...opps.map((o) => o.offer), ...offers.filter((o) => theirBrands.has(brandKey(o.brand)))])].slice(0, 4);
+    // Sans annonces suivies (entreprise trouvée par recherche, flotte) : nos offres du moment.
+    const shownOffers = listings.length
+      ? [...new Set([...opps.map((o) => o.offer), ...offers.filter((o) => theirBrands.has(brandKey(o.brand)))])].slice(0, 4)
+      : offers.slice(0, 4);
     const offerFacts: OfferFact[] = shownOffers.map((o) => ({ title: o.title, year: o.year, km: o.km, priceHt: o.priceHt, withVat: o.priceHt ? Math.round(o.priceHt * (1 + vat)) : null }));
     base = firstMailPrompt({
       company: p.name, country: p.country, city: p.city, language, contact,
       kind: p.kind, group: p.group_name, officialBrands: p.brands_official ?? [], summary: p.summary,
       stock: { listings: listings.length, byBrand: brandsTop, models: [...models].sort((x, y) => y[1] - x[1]).slice(0, 8).map(([m, n]) => `${m} (${n})`) },
-      gaps, offers: offerFacts, instructions: a.instructions ?? '',
+      account, gaps, offers: offerFacts, instructions: a.instructions ?? '',
     });
   }
   const people = [
@@ -216,7 +230,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
     summary: key
       ? `Grand compte ${p.name} (${p.country ?? '?'}) préparé pour vous : ${verified ? `mail à ${email}, ` : ''}note LinkedIn et fiche d'appel${points}`
       : `Premier mail rédigé pour ${p.name} (${p.country ?? '?'}) → ${email}, à valider${points}`,
-    details: { prospect_id: p.id, cost_usd: Math.round(cost * 10_000) / 10_000, langue: language, grand_compte: key, lots: lots.length },
+    details: { prospect_id: p.id, cost_usd: Math.round(cost * 10_000) / 10_000, langue: language, grand_compte: key, lots: lots.length, compte: p.account_id ?? null },
   });
   return { status: 'redige', name: p.name, detail: key ? `grand compte, pour vous${verified ? ` (${email})` : ''}` : email ?? '', cost, threadId };
 }

@@ -75,7 +75,8 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   // Ada vend à l'export (17/10) : la découverte part des Pays-Bas, jamais de la France (pays d'achat).
   const [disc, setDisc] = useState({ site: 'AUTOSCOUT', country: 'NL', brand: 'Toyota', model: '', vans: false, pages: 5 });
 
-  const loadTasks = useCallback(async () => { const r = await listTasks(30, 'ada'); if (r.error) onError(r.error); else setTasks(r.rows); }, [onError]);
+  // Les recherches de comptes se suivent dans l'onglet Comptes.
+  const loadTasks = useCallback(async () => { const r = await listTasks(30, 'ada'); if (r.error) onError(r.error); else setTasks(r.rows.filter((t) => t.kind !== 'recherche_comptes')); }, [onError]);
   const loadDirectory = useCallback(async () => {
     setLoading(true);
     const r = await listDealers({ country, brand: brand || null, query, exclude: [HOME_COUNTRY] });
@@ -212,7 +213,10 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                 {t.kind === 'premier_mail' ? (
                   <span className="font-medium text-violet-900"><Mail className="inline w-3.5 h-3.5 mr-0.5" />Premiers mails · {t.params.prospect_ids?.length ?? 0} garage{(t.params.prospect_ids?.length ?? 0) > 1 ? 's' : ''}</span>
                 ) : t.kind === 'qualification' ? (
-                  <span className="font-medium text-violet-900"><Sparkles className="inline w-3.5 h-3.5 mr-0.5" />Qualification · {t.params.dealer_ids?.length ?? 0} garage{(t.params.dealer_ids?.length ?? 0) > 1 ? 's' : ''}</span>
+                  <span className="font-medium text-violet-900"><Sparkles className="inline w-3.5 h-3.5 mr-0.5" />Qualification · {[
+                    t.params.dealer_ids?.length ? `${t.params.dealer_ids.length} garage${t.params.dealer_ids.length > 1 ? 's' : ''}` : '',
+                    t.params.account_ids?.length ? `${t.params.account_ids.length} compte${t.params.account_ids.length > 1 ? 's' : ''}` : '',
+                  ].filter(Boolean).join(' et ') || '0 garage'}</span>
                 ) : (
                   <span className="font-medium text-slate-800">{FLAG[t.params.country ?? ''] ?? ''} {siteLabel(t.params.site)} · {t.params.brand}{t.params.model ? ` ${t.params.model}` : ''}{t.params.vans ? ' · utilitaires' : ''}</span>
                 )}

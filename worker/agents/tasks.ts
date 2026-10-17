@@ -4,8 +4,10 @@
  * un redémarrage repart en échec) :
  * - « decouverte_concessions » : lire des pages d'annonces d'un site
  *   (AutoScout24, Marktplaats, Leboncoin… — ./discovery.ts) ;
- * - « qualification » : qualifier une série de garages, 10 au plus
- *   (./qualify.ts) ; la série s'arrête au plafond de dépense du jour ;
+ * - « qualification » : qualifier une série de garages ou de comptes, 10 au
+ *   plus (./qualify.ts) ; la série s'arrête au plafond de dépense du jour ;
+ * - « recherche_comptes » (étape 2) : chercher sur le web un type de compte
+ *   dans un pays (./research.ts) ;
  * - « premier_mail » : rédiger les premiers mails de 5 prospects au plus
  *   (./firstMail.ts), qui entrent dans « À valider ».
  *
@@ -17,13 +19,19 @@
  * - Dana : les qualifications du jour parmi les garages aux plus gros lots
  *   de véhicules identiques, dans toute l'Europe (ses découvertes se lancent
  *   depuis l'onglet Sourcing) ;
- * - pour les deux : les premiers contacts du jour (auto_draft_per_day) —
- *   pas plus de deux jours d'envois en attente de validation, ni plus de 10
- *   grands comptes en attente dans « Pour vous » —, dans le budget.
+ * - pour les deux : les recherches de comptes du jour
+ *   (auto_research_per_day ; types de comptes et pays en rotation, Ada dans
+ *   ses pays d'export, Dana dans toute l'Europe), les comptes trouvés étant
+ *   qualifiés avant l'annuaire ; les premiers contacts du jour
+ *   (auto_draft_per_day) — pas plus de deux jours d'envois en attente de
+ *   validation, ni plus de 10 grands comptes en attente dans « Pour
+ *   vous » —, dans le budget.
  * Les tâches automatiques n'ont pas d'auteur.
  */
 import { discover } from './discovery';
-import { qualifyDealer, seriesContext, nextCandidates, nextLotCandidates, type AiAgent } from './qualify';
+import { qualifyDealer, qualifyAccount, seriesContext, nextCandidates, nextLotCandidates, nextAccountCandidates, type AiAgent, type SeriesContext } from './qualify';
+import { researchAccounts } from './research';
+import { researchPairs, nextResearchPair, segmentOf, RESEARCH_COUNTRIES, COUNTRY_FR, type ResearchParams } from '../../src/lib/agents/research';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
 import { aiConfigured, spentToday, BudgetReached, AiUnavailable } from './claude';
 import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, type DiscoveryParams } from '../../src/lib/agents/discovery';
@@ -36,6 +44,7 @@ const STUCK_MS = 45 * 60 * 1000;
 const MAX_SERIES = 10;
 const AUTO_DISCOVERIES_PER_DAY = 8;
 const AUTO_DISCOVERY_GAP_MS = 45 * 60 * 1000;
+const AUTO_RESEARCH_GAP_MS = 90 * 60 * 1000;
 /** Grands comptes préparés et pas encore traités par Channing : au-delà, l'agente n'en prépare pas d'autres. */
 const KEY_ACCOUNT_BACKLOG = 10;
 
@@ -44,6 +53,11 @@ interface Task { id: string; agent: string; kind: string; params: Record<string,
 const missing = (m: string) => /does not exist|schema cache|column/i.test(m);
 const label = (p: Partial<DiscoveryParams>) =>
   `${DISCOVERY_SITE_LABEL[String(p.site ?? 'AUTOSCOUT').toUpperCase()] ?? p.site} ${p.country ?? '?'} · ${p.brand ?? '?'}${p.model ? ` ${p.model}` : ''}${p.vans ? ' (utilitaires)' : ''}`;
+const researchLabel = (agent: string, p: Partial<ResearchParams>) => {
+  const seg = segmentOf(agent === 'dana' ? 'dana' : 'ada', p.segment);
+  const c = String(p.country ?? '?').toUpperCase();
+  return `${seg ? seg.label.toLowerCase() : p.segment ?? '?'} · ${COUNTRY_FR[c] ?? c}`;
+};
 
 async function agentRow(agent: string): Promise<AiAgent | null> {
   return ((await loadAgents()) as AiAgent[]).find((a) => a.agent === agent) ?? null;
@@ -53,13 +67,16 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
   const a = await agentRow(t.agent);
   if (!a) throw new Error('agente introuvable');
   if (!aiConfigured()) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker : l\'IA d\'Ada et Dana n\'est pas branchée.');
-  const ids = (Array.isArray(t.params.dealer_ids) ? t.params.dealer_ids : []).map(String).slice(0, MAX_SERIES);
-  if (ids.length === 0) throw new Error('aucun garage à qualifier');
+  // Les comptes trouvés par recherche d'abord, puis les garages de l'annuaire : 10 au plus en tout.
+  const accountIds = (Array.isArray(t.params.account_ids) ? t.params.account_ids : []).map(String).slice(0, MAX_SERIES);
+  const dealerIds = (Array.isArray(t.params.dealer_ids) ? t.params.dealer_ids : []).map(String).slice(0, MAX_SERIES - accountIds.length);
+  const items = [...accountIds.map((id) => ({ id, account: true })), ...dealerIds.map((id) => ({ id, account: false }))];
+  if (items.length === 0) throw new Error('aucun garage ni compte à qualifier');
   const ctx = await seriesContext(a, t.id);
-  const r = { garages: ids.length, qualifies: 0, ecartes: 0, echecs: 0, carte: 0, cout_usd: 0, arret: null as string | null, details: [] as string[] };
-  for (const id of ids) {
+  const r = { garages: dealerIds.length, comptes: accountIds.length, qualifies: 0, ecartes: 0, echecs: 0, carte: 0, cout_usd: 0, arret: null as string | null, details: [] as string[] };
+  for (const { id, account } of items) {
     try {
-      const o = await qualifyDealer(id, ctx);
+      const o = account ? await qualifyAccount(id, ctx) : await qualifyDealer(id, ctx);
       r.cout_usd += o.cost;
       if (o.status === 'qualifie') r.qualifies++;
       else if (o.status === 'ecarte') r.ecartes++;
@@ -73,7 +90,8 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
   }
   r.cout_usd = Math.round(r.cout_usd * 10_000) / 10_000;
   if (r.qualifies + r.ecartes === 0 && r.arret) throw new Error(r.arret);
-  const summary = `Qualification de ${ids.length} garage${ids.length > 1 ? 's' : ''} : ${r.qualifies} qualifié${r.qualifies > 1 ? 's' : ''}, ${r.ecartes} écarté${r.ecartes > 1 ? 's' : ''}`
+  const what = [dealerIds.length ? `${dealerIds.length} garage${dealerIds.length > 1 ? 's' : ''}` : '', accountIds.length ? `${accountIds.length} compte${accountIds.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' et ');
+  const summary = `Qualification de ${what} : ${r.qualifies} qualifié${r.qualifies > 1 ? 's' : ''}, ${r.ecartes} écarté${r.ecartes > 1 ? 's' : ''}`
     + `${r.echecs ? `, ${r.echecs} en échec` : ''}${r.carte ? `, ${r.carte} ajouté${r.carte > 1 ? 's' : ''} à la carte` : ''} — ${fmtUsd(r.cout_usd)}${r.arret ? ` (arrêt : ${r.arret})` : ''}`;
   return { result: r, summary };
 }
@@ -136,13 +154,21 @@ export async function runNextTask(): Promise<void> {
         const { result, summary } = await runDrafts(t);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'premiers_mails', summary: `${summary}${auto}`, details: result });
+      } else if (t.kind === 'recherche_comptes') {
+        const a = await agentRow(t.agent);
+        if (!a) throw new Error('agente introuvable');
+        if (!aiConfigured()) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker : l\'IA d\'Ada et Dana n\'est pas branchée.');
+        const { result, summary } = await researchAccounts(t.id, t.params, a);
+        await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
+        await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'recherche_comptes', summary: `${summary}${auto}`, details: result as unknown as Record<string, unknown> });
       } else {
         throw new Error(`tâche inconnue : ${t.kind}`);
       }
     } catch (e) {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
       await sb.from('agent_tasks').update({ status: 'echec', error: msg, finished_at: new Date().toISOString() }).eq('id', t.id);
-      const what = t.kind === 'qualification' ? 'Qualification' : t.kind === 'premier_mail' ? 'Rédaction des premiers mails' : `Découverte ${label(t.params)}`;
+      const what = t.kind === 'qualification' ? 'Qualification' : t.kind === 'premier_mail' ? 'Rédaction des premiers mails'
+        : t.kind === 'recherche_comptes' ? `Recherche ${researchLabel(t.agent, t.params)}` : `Découverte ${label(t.params)}`;
       await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: `${t.kind === 'decouverte_concessions' ? 'decouverte' : t.kind}_echec`, summary: `${what}${auto} en échec : ${msg}` });
     }
   } catch (e) {
@@ -185,11 +211,40 @@ async function autoQualify(a: AiAgent): Promise<void> {
   const budget = Number(a.daily_budget_usd);
   if (remaining <= 0 || !Number.isFinite(budget) || (await spentToday(a.agent)) >= budget) return;
   const ctx = await seriesContext(a, null);
-  // Ada : des acheteurs dans ses pays et ses marques ; Dana : les garages aux plus gros lots.
-  const ids = ctx.role === 'dana' ? await nextLotCandidates(ctx, Math.min(MAX_SERIES, remaining)) : await nextCandidates(ctx, Math.min(MAX_SERIES, remaining));
-  if (ids.length === 0) return;
-  const { error } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'qualification', params: { dealer_ids: ids, auto: true }, created_by: null });
+  const n = Math.min(MAX_SERIES, remaining);
+  // Les comptes trouvés par recherche d'abord ; puis, Ada : des acheteurs dans ses pays et ses marques ; Dana : les garages aux plus gros lots.
+  const accountIds = await nextAccountCandidates(ctx, n);
+  const dealerIds = accountIds.length >= n ? [] : ctx.role === 'dana' ? await nextLotCandidates(ctx, n - accountIds.length) : await nextCandidates(ctx, n - accountIds.length);
+  if (accountIds.length + dealerIds.length === 0) return;
+  const params: Record<string, unknown> = { auto: true };
+  if (accountIds.length) params.account_ids = accountIds;
+  if (dealerIds.length) params.dealer_ids = dealerIds;
+  const { error } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'qualification', params, created_by: null });
   if (error) console.warn(`[AGENTS] qualification automatique non posée : ${error.message}`);
+}
+
+/**
+ * Les recherches de comptes du jour (auto_research_per_day), 90 minutes au
+ * moins entre deux : chaque type de compte dans chaque pays, une fois, puis
+ * de nouveau au bout de 30 jours. Ada dans ses pays d'export, Dana dans toute
+ * l'Europe (la France d'abord).
+ */
+async function autoResearch(a: AiAgent, ctx: SeriesContext): Promise<void> {
+  const perDay = Number(a.auto_research_per_day ?? 0);
+  if (!aiConfigured() || !(perDay > 0) || await pending(a.agent, 'recherche_comptes')) return;
+  const budget = Number(a.daily_budget_usd);
+  if (!Number.isFinite(budget) || (await spentToday(a.agent)) >= budget) return;
+  const { data } = await sb.from('agent_tasks').select('params, created_at, created_by').eq('agent', a.agent).eq('kind', 'recherche_comptes')
+    .order('created_at', { ascending: false }).limit(500);
+  const history = (data ?? []) as Array<{ params: Partial<ResearchParams> | null; created_at: string; created_by: string | null }>;
+  const autoOnes = history.filter((h) => !h.created_by);
+  const dayStart = parisDayStart(new Date()).getTime();
+  if (autoOnes.filter((h) => Date.parse(h.created_at) >= dayStart).length >= perDay) return;
+  if (autoOnes[0] && Date.now() - Date.parse(autoOnes[0].created_at) < AUTO_RESEARCH_GAP_MS) return;
+  const next = nextResearchPair(researchPairs(ctx.role, ctx.role === 'dana' ? RESEARCH_COUNTRIES : ctx.targetCountries), history);
+  if (!next) return;
+  const { error } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'recherche_comptes', params: { ...next, auto: true }, created_by: null });
+  if (error && !missing(error.message)) console.warn(`[AGENTS] recherche automatique non posée : ${error.message}`);
 }
 
 async function autoDraft(a: AiAgent): Promise<void> {
@@ -221,10 +276,9 @@ export async function autoCycle(): Promise<void> {
       if (!a || a.targets == null) continue; // SQL du 17/10 (qualification) pas encore collé
       // Dana attend ses réglages (SQL agents_comptes : taille des lots, pays de vente).
       if (agent === 'dana' && !(a.targets && typeof a.targets === 'object' && 'minLot' in a.targets)) continue;
-      if (agent === 'ada') {
-        const ctx = await seriesContext(a, null);
-        await autoDiscovery(a, ctx.targetCountries, ctx.targets.brands, ctx.targets.vanBrands);
-      }
+      const ctx = await seriesContext(a, null);
+      if (agent === 'ada') await autoDiscovery(a, ctx.targetCountries, ctx.targets.brands, ctx.targets.vanBrands);
+      await autoResearch(a, ctx);
       await autoQualify(a);
       await autoDraft(a);
     } catch (e) {

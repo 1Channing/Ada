@@ -172,7 +172,7 @@ export function qualifySchema(role: QualifyRole) {
 export const QUALIFY_SCHEMA = qualifySchema('ada');
 
 /** Consigne fixe (mise en cache d'un appel à l'autre). */
-export const QUALIFY_SYSTEM = `Tu es Ada, l'assistante de prospection de MC Export. Ton travail ici : qualifier un garage repéré dans les annonces, pour savoir s'il peut acheter nos véhicules et à qui écrire.
+export const QUALIFY_SYSTEM = `Tu es Ada, l'assistante de prospection de MC Export. Ton travail ici : qualifier un garage repéré dans les annonces, ou une entreprise trouvée par une recherche web (groupe, revendeur, flotte), pour savoir s'il peut acheter nos véhicules et à qui écrire.
 
 ${MC_EXPORT_FACTS}
 
@@ -190,7 +190,7 @@ Règles :
 - Réponds en français pour « pourquoi », « motif_exclusion » et « resume ».`;
 
 /** Consigne fixe de Dana (fournisseurs) — même règles, autre but. */
-export const DANA_QUALIFY_SYSTEM = `Tu es Dana, de l'équipe achats de MC Export. Ton travail ici : qualifier un professionnel repéré dans les annonces — souvent parce qu'il a plusieurs véhicules identiques en stock (un lot) — pour savoir s'il peut devenir un fournisseur régulier de MC Export et à qui écrire.
+export const DANA_QUALIFY_SYSTEM = `Tu es Dana, de l'équipe achats de MC Export. Ton travail ici : qualifier un professionnel repéré dans les annonces — souvent parce qu'il a plusieurs véhicules identiques en stock (un lot) —, ou une entreprise trouvée par une recherche web (leasing, loueur, flotte, groupe, négociant B2B), pour savoir s'il peut devenir un fournisseur régulier de MC Export et à qui écrire.
 
 ${DANA_FACTS}
 
@@ -214,6 +214,8 @@ export interface QualifyMaterial {
   lots?: string[];
   /** Grand compte probable : chercher sur le web la personne qui décide pour le groupe, et son profil LinkedIn. */
   decisionSearch?: boolean;
+  /** Entreprise trouvée par recherche web (17/10, étape 2) : son type, qui décide chez elle, sa taille, pourquoi elle compte. */
+  account?: { segment: string; roles: string; size: string | null; why: string | null };
   dealer: {
     name: string; country: string | null; city: string | null; zip: string | null; street: string | null; phone: string | null; contactName: string | null;
     /** Les sites où ADA a vu ses annonces (« AutoScout24 », « Marktplaats »…) ; absent = AutoScout24. */
@@ -235,18 +237,22 @@ export function qualifyPrompt(m: QualifyMaterial): string {
   const sources = m.dealer.sources?.length ? m.dealer.sources : ['AutoScout24'];
   const onAs24 = sources.includes('AutoScout24');
   const lines: string[] = [];
-  lines.push(`Garage : ${m.dealer.name} — ${[m.dealer.street, [m.dealer.zip, m.dealer.city].filter(Boolean).join(' '), m.dealer.country].filter(Boolean).join(', ')}`);
-  lines.push(`Annonces vues sur : ${sources.join(', ')}`);
+  const a = m.account;
+  lines.push(`${a ? 'Entreprise' : 'Garage'} : ${m.dealer.name} — ${[m.dealer.street, [m.dealer.zip, m.dealer.city].filter(Boolean).join(' '), m.dealer.country].filter(Boolean).join(', ')}`);
+  if (a) {
+    lines.push(`Trouvée par une recherche web : ${a.segment}${a.size ? ` — ${a.size}` : ''}`);
+    if (a.why) lines.push(`Pourquoi elle compte : ${a.why}`);
+  } else lines.push(`Annonces vues sur : ${sources.join(', ')}`);
   if (m.dealer.phone) lines.push(`Téléphone (annonces) : ${m.dealer.phone}`);
   if (m.dealer.contactName) lines.push(`Contact affiché sur les annonces : ${m.dealer.contactName}`);
   if (m.dealer.legalId) lines.push(`Identifiant légal déclaré (SIREN…) : ${m.dealer.legalId}`);
   lines.push(`Score d'adéquation calculé par ADA : ${m.fit.score}/100 (${m.fit.parts.map((x) => `${x.label} +${x.points}`).join(', ') || 'aucun critère'})`);
-  lines.push(`Stock vu en 90 jours : ${m.stock.listings} annonces ; marques : ${m.stock.brands.join(', ') || '—'} ; utilitaires : ${m.stock.vans}${m.stock.medianPrice ? ` ; prix médian ${m.stock.medianPrice} €` : ''}`);
+  if (!a) lines.push(`Stock vu en 90 jours : ${m.stock.listings} annonces ; marques : ${m.stock.brands.join(', ') || '—'} ; utilitaires : ${m.stock.vans}${m.stock.medianPrice ? ` ; prix médian ${m.stock.medianPrice} €` : ''}`);
   if (m.stock.opportunities.length) lines.push(`Plus cher que MC Export : ${m.stock.opportunities.join(' ; ')}`);
   if (m.lots?.length) lines.push(`Lots de véhicules identiques vus par Dana : ${m.lots.join(' ; ')}`);
   lines.push('');
   lines.push('<fiche_autoscout24>');
-  if (!p) lines.push(onAs24 ? '(fiche illisible)' : `(pas de fiche AutoScout24 : garage vu sur ${sources.join(', ')})`);
+  if (!p) lines.push(a ? '(entreprise trouvée par recherche web : pas de fiche AutoScout24)' : onAs24 ? '(fiche illisible)' : `(pas de fiche AutoScout24 : garage vu sur ${sources.join(', ')})`);
   else {
     if (p.website) lines.push(`Site : ${p.website}`);
     if (p.dealerTypes.length) lines.push(`Type déclaré : ${p.dealerTypes.map((t) => `${t.label}${t.makes.length ? ` (${t.makes.join(', ')})` : ''}`).join(' ; ')}`);
@@ -259,10 +265,11 @@ export function qualifyPrompt(m: QualifyMaterial): string {
   if (m.emailsFound.length) lines.push(`\nE-mails relevés par ADA (écrits dans les pages) : ${m.emailsFound.map((e) => `${e.email} [${e.source}]`).join(' ; ')}`);
   for (const pg of m.pages) lines.push(`\n<page url="${pg.url}">\n${pg.text}\n</page>`);
   lines.push('');
-  const who = (m.role ?? 'ada') === 'dana'
+  const who = a ? `la personne qui décide (${a.roles})` : (m.role ?? 'ada') === 'dana'
     ? 'la personne qui décide des ventes de VO ou des cessions de stock (directeur VO, remarketing, ventes aux marchands)'
     : 'la personne qui décide des achats de VO (acheteur ou directeur VO)';
   if (m.webSearch) lines.push('Ni site ni e-mail connus : cherche sur le web le site officiel et un e-mail publié de ce garage (2 ou 3 recherches au plus), lis la page contact ou les mentions légales, puis réponds.');
+  else if (m.decisionSearch && a) lines.push(`Compte trouvé par recherche : cherche sur le web (2 ou 3 recherches au plus) ${who}, pour ce pays, avec son profil LinkedIn s'il apparaît dans les résultats ; sinon qualifie avec ce matériel.`);
   else if (m.decisionSearch) lines.push(`Grand compte probable : cherche sur le web (2 ou 3 recherches au plus) ${who} pour tout le groupe, avec son profil LinkedIn s'il apparaît dans les résultats ; sinon qualifie avec ce matériel.`);
   else lines.push('Qualifie ce garage avec ce matériel seulement.');
   return lines.join('\n');

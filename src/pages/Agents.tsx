@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw, Building2, Layers } from 'lucide-react';
+import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw, Building2, Layers, Briefcase } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
@@ -16,6 +16,7 @@ import { ValidationQueue } from '../components/agents/ValidationQueue';
 import { Reglages } from '../components/agents/Reglages';
 import { Prospects } from '../components/agents/Prospects';
 import { Sourcing } from '../components/agents/Sourcing';
+import { Comptes } from '../components/agents/Comptes';
 
 /**
  * AGENTS — Ada et Dana (16/10, Channing : « deux agents qui travaillent en
@@ -32,14 +33,17 @@ import { Sourcing } from '../components/agents/Sourcing';
  * que nous vendons, plus cher, hors de France (Ada vend à l'export) ; Ada
  * les qualifie (Haiku 5.5) dans un budget par jour, et met les meilleurs sur
  * la carte. Sourcing — les lots de véhicules identiques que Dana repère
- * chez les garages de toute l'Europe.
+ * chez les garages de toute l'Europe. Comptes (étape 2) — ce que les annonces
+ * ne montrent pas : sociétés de leasing, loueurs, flottes, groupes,
+ * négociants B2B, trouvés par recherche web et vérifiés.
  */
 
-type Tab = 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'journal' | 'reglages';
+type Tab = 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'comptes' | 'journal' | 'reglages';
 const TABS: Array<{ key: Tab; label: string; icon: ReactNode }> = [
   { key: 'messagerie', label: 'Messagerie', icon: <Inbox className="w-4 h-4" /> },
   { key: 'prospects', label: 'Acheteurs (Ada)', icon: <Building2 className="w-4 h-4" /> },
   { key: 'sourcing', label: 'Sourcing (Dana)', icon: <Layers className="w-4 h-4" /> },
+  { key: 'comptes', label: 'Comptes (recherche)', icon: <Briefcase className="w-4 h-4" /> },
   { key: 'valider', label: 'À valider', icon: <CheckCircle2 className="w-4 h-4" /> },
   { key: 'journal', label: 'Journal', icon: <ScrollText className="w-4 h-4" /> },
   { key: 'reglages', label: 'Réglages', icon: <Settings2 className="w-4 h-4" /> },
@@ -198,6 +202,9 @@ export function Agents() {
       )}
       {tab === 'sourcing' && (
         <Sourcing userId={userId} canEditMap={canSeeTab(allowedTabs, isAdmin, 'carte:edition')} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />
+      )}
+      {tab === 'comptes' && (
+        <Comptes userId={userId} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />
       )}
       {tab === 'journal' && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">

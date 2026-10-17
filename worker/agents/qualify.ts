@@ -24,6 +24,9 @@
  * personne qui décide pour le groupe et de son profil LinkedIn (gardé
  * seulement s'il apparaît dans un résultat lu) ; ses envois sont préparés
  * pour Channing, qui les fait lui-même.
+ * Étape 2 (17/10) : le même chemin pour une entreprise trouvée par une
+ * recherche web (./research.ts) — son site, la personne qui décide selon
+ * son type de compte, un score de compte (type, taille, pays, joignable).
  * Rien n'est envoyé à qui que ce soit : les mails restent à l'étape 2.3, et
  * passent par la validation.
  */
@@ -37,6 +40,7 @@ import {
 import {
   danaFitScore, lotFactOf, lotsFromListings, lotLine, normalizeDanaTargets, isKeyAccount, looksLikeGroup, type LotFact, type DanaTargets,
 } from '../../src/lib/agents/sourcing';
+import { accountFitScore, segmentOf } from '../../src/lib/agents/research';
 import { opportunities, brandKey, type OfferLite, type DealerListingLite } from '../../src/lib/agents/opportunity';
 import { sameDealer, isoOfCountry, nameKey, phoneKey9 } from '../../src/lib/agents/keys';
 import { SITE_LABEL } from '../../src/services/dealerDirectory';
@@ -49,6 +53,8 @@ export interface AiSettings {
   targets: Partial<AgentTargets> | null; daily_budget_usd: number | string; auto_discovery: boolean; auto_qualify_per_day: number; map_auto_add: boolean; map_min_score: number;
   // Phase 2.3 (SQL agents_premiers_mails) : consignes de Channing, premiers mails rédigés d'office par jour.
   instructions?: string; auto_draft_per_day?: number;
+  // Étape 2 (SQL agents_recherche) : recherches de comptes lancées d'office par jour.
+  auto_research_per_day?: number;
 }
 export type AiAgent = AgentRow & AiSettings;
 
@@ -68,7 +74,7 @@ async function fetchDirect(url: string): Promise<string | null> {
 const looksBlocked = (html: string | null) => !html || html.length < 800 || /captcha|cf-chl|access denied|just a moment/i.test(html.slice(0, 6000));
 
 /** Une page : lecture directe, puis Zyte si elle résiste (`zyte`). */
-async function fetchPage(url: string, zyte: boolean): Promise<string | null> {
+export async function fetchPage(url: string, zyte: boolean): Promise<string | null> {
   const direct = await fetchDirect(url);
   if (!looksBlocked(direct) || !zyte) return direct;
   const z = await fetchHtmlWithZyte(url, 1).catch(() => null);
@@ -244,7 +250,6 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
   const { data: lRows } = await sb.from('market_dealer_listings').select('listing_url, brand, model, title, year, mileage, price_eur, vehicle_type').in('dealer_id', ids).gte('last_seen_at', since).limit(1000);
   const listings = (lRows ?? []) as Array<DealerListingLite & { vehicle_type: string | null }>;
-  const opps = opportunities(listings, ctx.offers, countryVat(d.country ?? 'FR'));
   const phone = firstOf(group.map((m) => m.phone));
   const contactName = firstOf(group.map((m) => m.contact_name));
 
@@ -268,6 +273,43 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
       if (website) { evidence.push({ url: m.site_url as string, note: 'lien Gaspedaal vers le site du garage' }); break; }
     }
   }
+  return qualifySubject({ d, dealerIds: ids, account: null, sources, listings, phone, contactName, legalId: firstOf(group.map((m) => m.legal_id)), page, website, evidence }, ctx);
+}
+
+/** Une entreprise trouvée par une recherche web (étape 2). */
+interface AccountRow {
+  id: string; agent: string; segment: string; country: string | null; name: string; website: string; city: string | null;
+  size_hint: string | null; why: string | null; sources: string[] | null; status: string; prospect_id: string | null;
+}
+
+/** Qualifier une entreprise trouvée par recherche web : son site, la personne qui décide selon son type, un score de compte. */
+export async function qualifyAccount(accountId: string, ctx: SeriesContext): Promise<QualifyOutcome> {
+  const { data } = await sb.from('agent_accounts').select('*').eq('id', accountId).maybeSingle();
+  const a = data as AccountRow | null;
+  if (!a) return { status: 'echec', name: accountId, score: null, cost: 0, detail: 'compte introuvable', addedToMap: false };
+  if (a.agent !== ctx.agent.agent) return { status: 'echec', name: a.name, score: null, cost: 0, detail: `compte trouvé par ${a.agent === 'dana' ? 'Dana' : 'Ada'}`, addedToMap: false };
+  if (ctx.role === 'ada' && (a.country ?? '').toUpperCase() === HOME_COUNTRY) {
+    return { status: 'ecarte', name: a.name, score: null, cost: 0, detail: 'entreprise en France : pas un acheteur (Ada vend à l\'export)', addedToMap: false };
+  }
+  const d: DealerDb = {
+    id: a.id, name: a.name, country: a.country, city: a.city, zip: null, street: null, phone: null, contact_name: null,
+    site_url: null, imprint_url: null, website: a.website, lat: null, lng: null,
+  };
+  const evidence = (a.sources ?? []).slice(0, 5).map((url) => ({ url, note: 'vue par la recherche web' }));
+  return qualifySubject({ d, dealerIds: [], account: a, sources: ['Recherche web'], listings: [], phone: null, contactName: null, legalId: null, page: null, website: a.website, evidence }, ctx);
+}
+
+/** Ce qu'on qualifie : un garage de l'annuaire (ses fiches réunies) ou une entreprise trouvée par recherche web. */
+interface Subject {
+  d: DealerDb; dealerIds: string[]; account: AccountRow | null; sources: string[];
+  listings: Array<DealerListingLite & { vehicle_type: string | null }>;
+  phone: string | null; contactName: string | null; legalId: string | null;
+  page: DealerPageInfo | null; website: string | null; evidence: Array<{ url: string; note: string }>;
+}
+
+async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOutcome> {
+  const { d, listings, phone, contactName, page, website, evidence, sources } = s;
+  const opps = opportunities(listings, ctx.offers, countryVat(d.country ?? 'FR'));
   const found = new Map<string, string>();
   for (const e of extractEmails(page?.imprint ?? '')) found.set(e, 'Impressum AutoScout24');
   const pages: Array<{ url: string; text: string }> = [];
@@ -277,7 +319,7 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
     if (home) {
       note(home, website);
       pages.push({ url: website, text: pageText(home, 2500) });
-      evidence.push({ url: website, note: 'site du garage' });
+      evidence.push({ url: website, note: s.account ? 'site de l\'entreprise' : 'site du garage' });
       for (const link of contactLinks(home, website, 2)) {
         const h = await fetchPage(link, false);
         if (!h) continue;
@@ -292,18 +334,23 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
     ...extractPeople(page?.imprint ?? '').map((p) => ({ nom: p.name, fonction: p.role, email: null as string | null, source: 'Impressum AutoScout24' }))];
   const brandsSeen = [...new Set(listings.map((l) => l.brand).filter((b): b is string => !!b))];
   // Dana : ses lots de véhicules identiques (avec les écarts face à nos pays de vente) font le score.
-  const lots = ctx.role === 'dana' ? await lotsOfDealer(d.id, listings, ctx.dana) : [];
+  const lots = ctx.role === 'dana' && s.dealerIds.length ? await lotsOfDealer(d.id, listings, ctx.dana) : [];
+  // Une entreprise trouvée par recherche : le score d'un compte (type, pays, taille, joignable).
+  const segment = s.account ? segmentOf(ctx.role, s.account.segment) : null;
   const fitIn = { country: d.country, targetCountries: ctx.targetCountries, targets: ctx.targets, listings, opportunities: opps.length, nbBrands: brandsSeen.length };
-  const fitOf = (hasEmail: boolean, hasNamedContact: boolean): Fit => (ctx.role === 'dana'
-    ? danaFitScore({ lots, listings: listings.length, hasEmail, hasNamedContact })
-    : fitScore({ ...fitIn, hasEmail, hasNamedContact }));
+  const fitOf = (hasEmail: boolean, hasNamedContact: boolean, hasLinkedin = false): Fit => (s.account
+    ? accountFitScore({ role: ctx.role, segment, country: d.country, targetCountries: ctx.targetCountries, size: s.account.size_hint, hasEmail, hasNamedContact, hasLinkedin })
+    : ctx.role === 'dana'
+      ? danaFitScore({ lots, listings: listings.length, hasEmail, hasNamedContact })
+      : fitScore({ ...fitIn, hasEmail, hasNamedContact }));
   const fit = fitOf(emailsFound.length > 0, people.length > 0);
   const webSearch = !website && emailsFound.length === 0;
-  // Grand compte probable (groupe, plusieurs sites) : on cherche la personne qui décide pour tout le groupe.
-  const decisionSearch = !webSearch && (looksLikeGroup(d.name) || (page?.branches.length ?? 0) >= 2);
+  // Grand compte probable (groupe, plusieurs sites) ou entreprise trouvée par recherche : on cherche la personne qui décide.
+  const decisionSearch = !webSearch && (!!s.account || looksLikeGroup(d.name) || (page?.branches.length ?? 0) >= 2);
   const prompt = qualifyPrompt({
     role: ctx.role, lots: lots.slice(0, 6).map((l) => lotLine(l, true)), decisionSearch,
-    dealer: { name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street, phone, contactName, sources, legalId: firstOf(group.map((m) => m.legal_id)) },
+    account: s.account ? { segment: segment?.label ?? s.account.segment, roles: segment?.roles ?? 'la direction', size: s.account.size_hint, why: s.account.why } : undefined,
+    dealer: { name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street, phone, contactName, sources, legalId: s.legalId },
     fit,
     stock: {
       listings: listings.length, brands: brandsSeen.slice(0, 12), vans: listings.filter((l) => IS_VAN.test(l.vehicle_type ?? '')).length,
@@ -315,7 +362,9 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
 
   // 3. Haiku 5.5
   // Déjà qualifié par une de ses fiches (avant le rapprochement des sites) : c'est la même fiche prospect.
-  const { data: existing } = await sb.from('agent_prospects').select('id, stage, network_contact_id, dealer_id').eq('agent', ctx.agent.agent).in('dealer_id', ids).limit(1);
+  const { data: existing } = s.account
+    ? await sb.from('agent_prospects').select('id, stage, network_contact_id, dealer_id').eq('agent', ctx.agent.agent).eq('account_id', s.account.id).limit(1)
+    : await sb.from('agent_prospects').select('id, stage, network_contact_id, dealer_id').eq('agent', ctx.agent.agent).in('dealer_id', s.dealerIds).limit(1);
   const prev = (((existing ?? []) as Array<{ id: string; stage: string; network_contact_id: string | null; dealer_id: string }>)[0]) ?? null;
   let ai: QualifyOutput;
   let cost = 0;
@@ -363,8 +412,8 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   if (!best.email) best.email = emails.find((e) => e.mx && /^(vo|occasion|gebraucht|used|verkoop|vente|sales|verkauf|achat|inkoop|einkauf)/.test(e.email))?.email ?? emails.find((e) => e.mx)?.email ?? null;
   const contacts = [...people.map((p) => ({ ...p, linkedin: null as string | null })), ...(ai.contacts ?? []).filter((c) => c.nom && !people.some((p) => p.nom.toLowerCase() === c.nom.toLowerCase()))]
     .map((c) => ({ ...c, email: c.email && okEmails.has(c.email.toLowerCase()) ? c.email.toLowerCase() : null, linkedin: li(c.linkedin, c.nom) })).slice(0, 12);
-  const keyAccount = !ai.exclure && isKeyAccount(ai.grand_compte, ai.type, ai.nb_sites ?? (page?.branches.length || null));
-  const fit2 = fitOf(okEmails.size > 0, contacts.length > 0);
+  const keyAccount = !ai.exclure && (isKeyAccount(ai.grand_compte, ai.type, ai.nb_sites ?? (page?.branches.length || null)) || segment?.keyAccount === true);
+  const fit2 = fitOf(okEmails.size > 0, contacts.length > 0, !!best.linkedin || contacts.some((c) => !!c.linkedin));
   const score = finalScore(fit2.score, ai);
   const site = website ?? (ai.site_web && /^https?:\/\//i.test(ai.site_web) ? ai.site_web : null);
 
@@ -372,15 +421,17 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   const now = new Date().toISOString();
   const stage = ai.exclure ? 'ecarte' : 'qualifie';
   const row: Record<string, unknown> = {
-    agent: ctx.agent.agent, dealer_id: prev?.dealer_id ?? d.id, name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street,
+    agent: ctx.agent.agent, dealer_id: s.account ? null : prev?.dealer_id ?? d.id, name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street,
     phone: phone ?? page?.phones[0] ?? null, website: site, legal_name: ai.raison_sociale, group_name: ai.groupe,
     sites: ai.nb_sites ?? (page?.branches.length || null), kind: ai.type, brands_official: (ai.marques_officielles ?? []).slice(0, 12),
     emails, people: contacts, best_contact: best, language: ai.langue, fit_score: fit2.score, fit_parts: fit2.parts, score,
     summary: ai.resume, exclusion_reason: ai.exclure ? ai.motif_exclusion : null, evidence, qualified_at: now,
     qualify_cost_usd: Math.round(cost * 10_000) / 10_000, updated_at: now,
     // SQL agents_comptes (17/10) : grand compte, nature du compte, lots vus par Dana.
-    key_account: keyAccount, account_kind: ai.type, lots: lots.slice(0, 6),
+    key_account: keyAccount, account_kind: ai.type ?? segment?.kind ?? null, lots: lots.slice(0, 6),
   };
+  // SQL agents_recherche (17/10) : la fiche d'une entreprise trouvée par recherche web.
+  if (s.account) row.account_id = s.account.id;
   if (!prev || ['qualifie', 'ecarte'].includes(prev.stage)) row.stage = stage;
   let { data: saved, error } = prev
     ? await sb.from('agent_prospects').update(row).eq('id', prev.id).select('id')
@@ -395,7 +446,8 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   }
   if (error) return { status: 'echec', name: d.name, score, cost, detail: `fiche non enregistrée : ${error.message}`, addedToMap: false };
   const prospectId = ((saved ?? []) as Array<{ id: string }>)[0]?.id ?? prev?.id ?? null;
-  if (site && site !== d.website) await sb.from('market_dealers').update({ website: site }).eq('id', d.id);
+  if (s.account) await sb.from('agent_accounts').update({ status: ai.exclure ? 'ecarte' : 'qualifie', prospect_id: prospectId, updated_at: now }).eq('id', s.account.id);
+  else if (site && site !== d.website) await sb.from('market_dealers').update({ website: site }).eq('id', d.id);
 
   // 6. La carte du réseau
   let addedToMap = false;
@@ -409,12 +461,13 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   }
 
   const who = best.nom ? `${best.nom}${best.fonction ? ` (${best.fonction})` : ''}` : best.email ?? 'pas encore d\'interlocuteur';
+  const label = `${d.name} (${d.country ?? '?'}${segment ? ` · ${segment.label.toLowerCase()}` : ''})`;
   await journal({
     agent: ctx.agent.agent, actor: ctx.agent.agent, kind: ai.exclure ? 'qualification_ecarte' : 'qualification',
     summary: ai.exclure
-      ? `${d.name} (${d.country ?? '?'}) écarté : ${ai.motif_exclusion ?? 'hors cible'}`
-      : `${d.name} (${d.country ?? '?'}) qualifié ${score}/100 — ${who}${lots[0] ? ` · lot : ${lotLine(lots[0], false)}` : ''}${keyAccount ? ' · grand compte' : ''}${addedToMap ? ' · ajouté à la carte' : ''}`,
-    details: { dealer_id: d.id, prospect_id: prospectId, score, fit: fit2.score, cost_usd: Math.round(cost * 10_000) / 10_000, web_search: webSearch, decision_search: decisionSearch, key_account: keyAccount, lots: lots.length, sources },
+      ? `${label} écarté : ${ai.motif_exclusion ?? 'hors cible'}`
+      : `${label} qualifié ${score}/100 — ${who}${lots[0] ? ` · lot : ${lotLine(lots[0], false)}` : ''}${keyAccount ? ' · grand compte' : ''}${addedToMap ? ' · ajouté à la carte' : ''}`,
+    details: { dealer_id: s.account ? null : d.id, account_id: s.account?.id ?? null, prospect_id: prospectId, score, fit: fit2.score, cost_usd: Math.round(cost * 10_000) / 10_000, web_search: webSearch, decision_search: decisionSearch, key_account: keyAccount, lots: lots.length, sources },
   });
   return { status: ai.exclure ? 'ecarte' : 'qualifie', name: d.name, score, cost, detail: who, addedToMap };
 }
@@ -482,16 +535,31 @@ export async function nextCandidates(ctx: SeriesContext, limit: number): Promise
   return ((data ?? []) as Array<{ dealer_id: string }>).map((r) => r.dealer_id).filter((id) => !tried.has(id)).slice(0, limit);
 }
 
-/** Les garages confiés à cette agente ces 3 derniers jours (fiche faite ou non) : pas repris à chaque cycle. */
+/** Les garages et les comptes confiés à cette agente ces 3 derniers jours (fiche faite ou non) : pas repris à chaque cycle. */
 async function recentlyTried(agent: string): Promise<Set<string>> {
   const { data } = await sb.from('agent_tasks').select('params').eq('agent', agent).eq('kind', 'qualification').gte('created_at', new Date(Date.now() - 3 * 86_400_000).toISOString()).limit(500);
-  return new Set(((data ?? []) as Array<{ params: { dealer_ids?: string[] } | null }>).flatMap((t) => t.params?.dealer_ids ?? []));
+  return new Set(((data ?? []) as Array<{ params: { dealer_ids?: string[]; account_ids?: string[] } | null }>)
+    .flatMap((t) => [...(t.params?.dealer_ids ?? []), ...(t.params?.account_ids ?? [])]));
 }
 
-let knownCache: { at: number; names: Set<string>; phones: Set<string> } | null = null;
-/** Ceux que l'équipe connaît déjà (carte du réseau, fournisseurs et vendeurs du Workflow) : Dana ne leur écrit pas à froid. */
-async function knownCounterparts(): Promise<{ names: Set<string>; phones: Set<string> }> {
-  if (knownCache && Date.now() - knownCache.at < 60 * 60_000) return knownCache;
+/** Les entreprises trouvées par recherche, pas encore qualifiées : elles passent avant l'annuaire (des comptes choisis). */
+export async function nextAccountCandidates(ctx: SeriesContext, limit: number): Promise<string[]> {
+  if (limit <= 0) return [];
+  const { data, error } = await sb.from('agent_accounts').select('id').eq('agent', ctx.agent.agent).eq('status', 'nouveau').order('found_at', { ascending: true }).limit(100);
+  if (error) return []; // SQL agents_recherche pas encore collé
+  const tried = await recentlyTried(ctx.agent.agent);
+  return ((data ?? []) as Array<{ id: string }>).map((r) => r.id).filter((id) => !tried.has(id)).slice(0, limit);
+}
+
+const knownCache = new Map<string, { at: number; names: Set<string>; phones: Set<string> }>();
+/**
+ * Ceux que l'équipe connaît déjà : la carte du réseau, et les fournisseurs et
+ * vendeurs du Workflow (Dana) ou ses clients (Ada) — une agente ne leur
+ * écrit pas à froid.
+ */
+export async function knownCounterparts(side: 'fournisseurs' | 'clients' = 'fournisseurs'): Promise<{ names: Set<string>; phones: Set<string> }> {
+  const cached = knownCache.get(side);
+  if (cached && Date.now() - cached.at < 60 * 60_000) return cached;
   const names = new Set<string>();
   const phones = new Set<string>();
   const add = (name: string | null, phone: string | null) => {
@@ -502,15 +570,17 @@ async function knownCounterparts(): Promise<{ names: Set<string>; phones: Set<st
   };
   const { data: net } = await sb.from('network_contacts').select('name, phone').limit(5000);
   for (const c of (net ?? []) as Array<{ name: string | null; phone: string | null }>) add(c.name, c.phone);
-  const { data: tx } = await sb.from('transactions_admin').select('supplier_contact_id, seller_contact_id, seller_contact_id_2').limit(5000);
+  const cols = side === 'clients' ? ['buyer_contact_id', 'buyer_contact_id_2'] : ['supplier_contact_id', 'seller_contact_id', 'seller_contact_id_2'];
+  const { data: tx } = await sb.from('transactions_admin').select(cols.join(', ')).limit(5000);
   const ids = [...new Set(((tx ?? []) as Array<Record<string, string | null>>)
-    .flatMap((t) => [t.supplier_contact_id, t.seller_contact_id, t.seller_contact_id_2]).filter((x): x is string => !!x))];
+    .flatMap((t) => cols.map((c) => t[c])).filter((x): x is string => !!x))];
   for (let i = 0; i < ids.length; i += 200) {
     const { data } = await sb.from('contacts').select('company_name, phone').in('id', ids.slice(i, i + 200));
     for (const c of (data ?? []) as Array<{ company_name: string | null; phone: string | null }>) if (!/mc[ -]?export/i.test(c.company_name ?? '')) add(c.company_name, c.phone);
   }
-  knownCache = { at: Date.now(), names, phones };
-  return knownCache;
+  const out = { at: Date.now(), names, phones };
+  knownCache.set(side, out);
+  return out;
 }
 
 interface LotRpcRow { dealer?: { id?: string; name?: string | null; phone?: string | null } | null; count?: number; markets?: Array<{ gap: number }> | null; prospect?: { id: string } | null }

@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'react';
 import { Link2, Unlink, Save, Ban, Trash2, Plug, Sparkles } from 'lucide-react';
 import {
-  oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, updateMailSettings, QUALIF_SQL_HINT, MAILS_SQL_HINT,
+  oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, updateMailSettings, updateResearchSettings, QUALIF_SQL_HINT, MAILS_SQL_HINT, RECHERCHE_SQL_HINT,
   type AgentKey, type AgentSettings, type EditableSettings, type Suppression, type AiSpend,
 } from '../../services/agents';
 import { normalizeTargets } from '../../lib/agents/qualification';
@@ -53,6 +53,8 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
   const [mapScore, setMapScore] = useState(s.map_min_score ?? 70);
   const [instructions, setInstructions] = useState(s.instructions ?? '');
   const [autoDraft, setAutoDraft] = useState(s.auto_draft_per_day ?? 0);
+  const [autoResearch, setAutoResearch] = useState(s.auto_research_per_day ?? 0);
+  const researchReady = s.auto_research_per_day !== undefined;
   const [busy, setBusy] = useState(false);
   const mailsReady = s.instructions !== undefined;
   const ro = !isAdmin;
@@ -68,8 +70,9 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
       map_auto_add: mapAdd, map_min_score: Math.max(0, Math.min(100, Math.round(mapScore))),
     }, userId);
     const e2 = !e && mailsReady ? await updateMailSettings(s.agent, { instructions: instructions.trim(), auto_draft_per_day: Math.max(0, Math.min(200, Math.round(autoDraft))) }, userId) : null;
+    const e3 = !e && !e2 && researchReady ? await updateResearchSettings(s.agent, Math.max(0, Math.min(20, Math.round(autoResearch))), userId) : null;
     setBusy(false);
-    if (e || e2) onError((e ?? e2) as string); else { onInfo(`Travail de ${s.display_name} enregistré.`); onChanged(); }
+    if (e || e2 || e3) onError((e ?? e2 ?? e3) as string); else { onInfo(`Travail de ${s.display_name} enregistré.`); onChanged(); }
   };
   return (
     <div className="rounded-xl border border-violet-200 bg-violet-50/30 p-3 space-y-3">
@@ -125,6 +128,13 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
         <span className="text-xs text-slate-400">Atteint → {s.display_name} s'arrête jusqu'au lendemain. Une qualification coûte de 0,002 à 0,03 $.</span>
       </div>
       {!dana && <label className="flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={autoDisc} onChange={(e) => setAutoDisc(e.target.checked)} /> Découvertes automatiques (jusqu'à 8 par jour, 3 pages chacune, en rotation sur les sites des pays cibles, du lundi au vendredi 8 h-19 h) — sans IA</label>}
+      {researchReady ? (
+        <div className="flex items-center gap-2 flex-wrap text-sm">
+          <span className="text-slate-600">Recherches de comptes d'office par jour :</span>
+          <input disabled={ro} type="number" min={0} max={20} className={`${input} w-20`} value={autoResearch} onChange={(e) => setAutoResearch(Number(e.target.value))} />
+          <span className="text-xs text-slate-400">{dana ? 'Sociétés de leasing, loueurs, flottes, groupes, négociants B2B, dans toute l\'Europe (la France d\'abord)' : 'Groupes, revendeurs, flottes qui renouvellent, dans ses pays d\'export'}, en rotation ; chaque recherche, environ 0,05 $. 0 = seulement à la demande (onglet Comptes). Les comptes trouvés sont qualifiés avant l'annuaire.</span>
+        </div>
+      ) : <p className="text-xs text-slate-500">{RECHERCHE_SQL_HINT}</p>}
       <div className="flex items-center gap-2 flex-wrap text-sm">
         <span className="text-slate-600">Garages qualifiés d'office par jour :</span>
         <input disabled={ro} type="number" min={0} max={500} className={`${input} w-20`} value={autoQual} onChange={(e) => setAutoQual(Number(e.target.value))} />
