@@ -104,7 +104,7 @@ export async function sendDue(agents: AgentRow[]): Promise<void> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await fail(m, e instanceof NotConnected ? `Boîte non connectée : ${msg}` : msg);
-      void recordLearningCase({ kind: 'agent_mail_failed', key: m.id, title: `${a.display_name} : un mail validé n'est pas parti`, actor: 'equipe', link: `/agents?fil=${m.thread_id}`, detail: { error: msg.slice(0, 500), agent: a.agent } });
+      void recordLearningCase({ kind: 'agent_mail_failed', key: m.id, title: `${a.display_name} : un mail validé n'est pas parti`, actor: 'equipe', link: `/agents?agente=${a.agent}&fil=${m.thread_id}`, detail: { error: msg.slice(0, 500), agent: a.agent } });
     }
   }
 }

@@ -3,12 +3,16 @@
  * acheteurs / vendeurs des gros groupes de concessions, les fleet managers,
  * les revendeurs B2B… il y a tous les pays à travailler »).
  *
- * Ce que les annonces ne montrent pas. Ada ou Dana cherchent sur le web un
- * type de compte dans un pays (Haiku 5.5, 4 recherches au plus) ; seules
- * les entreprises vues pour de vrai sont gardées (site officiel vérifié),
- * puis qualifiées (qui décide, e-mail publié, LinkedIn). Un grand compte
- * est préparé pour vous (« À valider › Pour vous ») ; un petit reçoit le
- * premier mail de l'agente, à valider. Rien n'est envoyé d'ici.
+ * Ce que les annonces ne montrent pas. L'agente choisie en haut de la page
+ * (17/10 : une à la fois, chacune ses comptes) cherche sur le web un de SES
+ * types de compte dans un de SES pays (Haiku 5.5, 4 recherches au plus) —
+ * Dana : leasing, loueurs, flottes, groupes, négociants B2B, toute
+ * l'Europe ; Ada : groupes, revendeurs, flottes qui renouvellent, jamais la
+ * France. Seules les entreprises vues pour de vrai sont gardées (site
+ * officiel vérifié), puis qualifiées (qui décide, e-mail publié, LinkedIn).
+ * Un grand compte est préparé pour vous (« À valider › Pour vous ») ; un
+ * petit reçoit le premier mail de l'agente, à valider. Rien n'est envoyé
+ * d'ici.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, ExternalLink, Sparkles, Crown, X, Undo2, Ban } from 'lucide-react';
@@ -18,7 +22,6 @@ import {
 } from '../../services/agents';
 import { SEGMENTS, RESEARCH_COUNTRIES, COUNTRY_FR, segmentOf } from '../../lib/agents/research';
 import { fmtUsd } from '../../lib/agents/aiCost';
-import { AgentBadge } from './shared';
 import { QualifCard } from './QualifCard';
 import { fmtRelative, STAGE_LABEL, scoreTone } from './helpers';
 
@@ -38,24 +41,24 @@ const isOpen = (t: AgentTask) => t.status === 'en_attente' || t.status === 'en_c
 
 type StatusFilter = 'a_qualifier' | 'qualifies' | 'ecartes' | 'tous';
 
-interface Props { userId: string | null; refreshKey: number; onError: (m: string) => void; onInfo: (m: string) => void; onOpenThread: (id: string) => void }
+interface Props { agent: AgentKey; userId: string | null; refreshKey: number; onError: (m: string) => void; onInfo: (m: string) => void; onOpenThread: (id: string) => void }
 
-export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: Props) {
+export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThread }: Props) {
   const [accounts, setAccounts] = useState<AgentAccount[]>([]);
   const [details, setDetails] = useState<Map<string, ProspectDetail>>(new Map());
   const [threads, setThreads] = useState<Map<string, string>>(new Map());
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [agentF, setAgentF] = useState<AgentKey | null>(null);
   const [segmentF, setSegmentF] = useState('');
   const [countryF, setCountryF] = useState('');
   const [statusF, setStatusF] = useState<StatusFilter>('a_qualifier');
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
-  const [launch, setLaunch] = useState<{ agent: AgentKey; segment: string; country: string }>({ agent: 'dana', segment: SEGMENTS.dana[0].key, country: 'FR' });
+  const [launch, setLaunch] = useState<{ segment: string; country: string }>(() => ({ segment: SEGMENTS[agent][0].key, country: agent === 'ada' ? 'NL' : 'FR' }));
+  const name = AGENT_LABEL[agent].name;
 
   const load = useCallback(async () => {
-    const [r, t] = await Promise.all([listAccounts(), listTasks(60)]);
+    const [r, t] = await Promise.all([listAccounts(agent), listTasks(60, agent)]);
     if (r.error) onError(r.error);
     else {
       setAccounts(r.rows);
@@ -65,7 +68,7 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
     }
     if (t.error) onError(t.error); else setTasks(t.rows.filter((x) => x.kind === 'recherche_comptes' || x.kind === 'qualification' || x.kind === 'premier_mail'));
     setLoaded(true);
-  }, [onError]);
+  }, [agent, onError]);
   useEffect(() => { void load(); }, [load, refreshKey]);
   const busy = tasks.some(isOpen);
   useEffect(() => {
@@ -79,34 +82,26 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
   const drafting = useMemo(() => new Set(tasks.filter((t) => t.kind === 'premier_mail' && isOpen(t)).flatMap((t) => t.params.prospect_ids ?? [])), [tasks]);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return accounts.filter((a) => (!agentF || a.agent === agentF) && (!segmentF || a.segment === segmentF) && (!countryF || a.country === countryF)
+    return accounts.filter((a) => (!segmentF || a.segment === segmentF) && (!countryF || a.country === countryF)
       && (statusF === 'tous' || (statusF === 'a_qualifier' ? a.status === 'nouveau' : statusF === 'qualifies' ? a.status === 'qualifie' : a.status === 'ecarte'))
       && (!q || `${a.name} ${a.city ?? ''} ${a.website}`.toLowerCase().includes(q)));
-  }, [accounts, agentF, segmentF, countryF, statusF, query]);
+  }, [accounts, segmentF, countryF, statusF, query]);
   const countries = useMemo(() => [...new Set(accounts.map((a) => a.country).filter(Boolean) as string[])].sort(), [accounts]);
-  const segmentChoices = agentF ? SEGMENTS[agentF] : [...SEGMENTS.dana, ...SEGMENTS.ada.filter((s) => !SEGMENTS.dana.some((d) => d.key === s.key))];
-  // Les prochains comptes à qualifier : 10 au plus par agente.
-  const toQualify = useMemo(() => {
-    const out: Record<AgentKey, string[]> = { ada: [], dana: [] };
-    for (const a of shown) if (a.status === 'nouveau' && !queued.has(a.id) && out[a.agent].length < 10) out[a.agent].push(a.id);
-    return out;
-  }, [shown, queued]);
-  const nToQualify = toQualify.ada.length + toQualify.dana.length;
+  // Les prochains comptes à qualifier : 10 au plus.
+  const toQualify = useMemo(() => shown.filter((a) => a.status === 'nouveau' && !queued.has(a.id)).slice(0, 10).map((a) => a.id), [shown, queued]);
 
   const start = async () => {
-    const e = await queueResearch(launch.agent, { segment: launch.segment, country: launch.country }, userId);
+    const e = await queueResearch(agent, { segment: launch.segment, country: launch.country }, userId);
     if (e) { onError(e); return; }
-    const seg = segmentOf(launch.agent, launch.segment);
-    onInfo(`${AGENT_LABEL[launch.agent].name} cherche : ${seg?.label.toLowerCase() ?? launch.segment}, ${COUNTRY_FR[launch.country] ?? launch.country}. Les entreprises trouvées arrivent ici d'ici une à deux minutes.`);
+    const seg = segmentOf(agent, launch.segment);
+    onInfo(`${name} cherche : ${seg?.label.toLowerCase() ?? launch.segment}, ${COUNTRY_FR[launch.country] ?? launch.country}. Les entreprises trouvées arrivent ici d'ici une à deux minutes.`);
     void load();
   };
-  const qualify = async (ids: Record<AgentKey, string[]>) => {
-    for (const k of ['ada', 'dana'] as AgentKey[]) {
-      if (!ids[k].length) continue;
-      const e = await queueAccountQualification(ids[k], userId, k);
-      if (e) { onError(e); return; }
-    }
-    const n = ids.ada.length + ids.dana.length;
+  const qualify = async (ids: string[]) => {
+    if (!ids.length) return;
+    const e = await queueAccountQualification(ids, userId, agent);
+    if (e) { onError(e); return; }
+    const n = ids.length;
     onInfo(`${n} compte${n > 1 ? 's' : ''} à qualifier : qui décide, e-mail publié, profil LinkedIn s'il est vu. Environ une minute par compte. Rien n'est envoyé à personne.`);
     void load();
   };
@@ -118,15 +113,15 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
     const e = await queueFirstMails([p.id], userId, a.agent);
     if (e) { onError(e); return; }
     onInfo(p.key_account
-      ? `${AGENT_LABEL[a.agent].name} prépare pour vous ${p.name} (mail, note LinkedIn, fiche d'appel) : « À valider › Pour vous » d'ici une minute.`
-      : `${AGENT_LABEL[a.agent].name} rédige le premier mail pour ${p.name} : il arrivera dans « À valider » d'ici une minute.`);
+      ? `${name} prépare pour vous ${p.name} (mail, note LinkedIn, fiche d'appel) : « À valider › Pour vous » d'ici une minute.`
+      : `${name} rédige le premier mail pour ${p.name} : il arrivera dans « À valider » d'ici une minute.`);
     void load();
   };
   const changeStage = async (a: AgentAccount, p: ProspectDetail, stage: ProspectStage) => {
     const e = await setProspectStage(p.id, stage);
     if (e) onError(e); else setDetails((m) => new Map(m).set(a.id, { ...p, stage }));
   };
-  const segs = SEGMENTS[launch.agent];
+  const segs = SEGMENTS[agent];
 
   return (
     <div className="space-y-4">
@@ -135,27 +130,19 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
         <div className="flex items-center gap-2 flex-wrap">
           <Search className="w-4 h-4 text-brand-ocean" />
           <h3 className="text-sm font-semibold text-slate-900">Chercher des comptes</h3>
-          <span className="text-xs text-slate-500">— ce que les annonces ne montrent pas : sociétés de leasing, loueurs, flottes, groupes, négociants B2B. L'agente cherche sur le web (4 recherches au plus, quelques centimes), ne garde que les entreprises dont le site officiel est vérifié, puis les qualifie.</span>
+          <span className="text-xs text-slate-500">— {name} cherche sur le web (4 recherches au plus, quelques centimes) et ne garde que les entreprises au site officiel vérifié.</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap text-sm">
-          <div className="inline-flex rounded-lg border border-slate-300 overflow-hidden">
-            {(['dana', 'ada'] as AgentKey[]).map((k) => (
-              <button key={k} onClick={() => setLaunch({ agent: k, segment: SEGMENTS[k][0].key, country: k === 'ada' ? 'NL' : 'FR' })}
-                className={`px-3 py-1.5 text-sm ${launch.agent === k ? (k === 'ada' ? 'bg-indigo-600 text-white' : 'bg-teal-700 text-white') : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
-                {AGENT_LABEL[k].name} · {k === 'ada' ? 'acheteurs' : 'fournisseurs'}
-              </button>
-            ))}
-          </div>
           <select className={input} value={launch.segment} onChange={(e) => setLaunch({ ...launch, segment: e.target.value })}>
             {segs.map((sg) => <option key={sg.key} value={sg.key}>{sg.label}</option>)}
           </select>
           <select className={input} value={launch.country} onChange={(e) => setLaunch({ ...launch, country: e.target.value })}>
-            {countriesOf(launch.agent).map((c) => <option key={c} value={c}>{FLAG[c] ?? ''} {COUNTRY_FR[c] ?? c}</option>)}
+            {countriesOf(agent).map((c) => <option key={c} value={c}>{FLAG[c] ?? ''} {COUNTRY_FR[c] ?? c}</option>)}
           </select>
           <button onClick={() => void start()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium"><Search className="w-4 h-4" /> Lancer la recherche</button>
         </div>
         {(() => {
-          const sg = segmentOf(launch.agent, launch.segment);
+          const sg = segmentOf(agent, launch.segment);
           return sg ? <p className="text-[11px] text-slate-400">{sg.who.charAt(0).toUpperCase()}{sg.who.slice(1)} — chez eux, qui décide : {sg.roles}.</p> : null;
         })()}
         {research.length > 0 && (
@@ -165,7 +152,6 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
               return (
                 <div key={t.id} className="flex items-center gap-2 py-1.5 text-xs flex-wrap">
                   <span className={`rounded-full px-2 py-0.5 ${TASK_STATUS[t.status].cls}`}>{TASK_STATUS[t.status].label}</span>
-                  <AgentBadge agent={t.agent} small />
                   <span className="font-medium text-slate-800">{seg?.label ?? t.params.segment} · {FLAG[t.params.country ?? ''] ?? ''} {COUNTRY_FR[t.params.country ?? ''] ?? t.params.country}{t.params.auto ? ' (automatique)' : ''}</span>
                   {t.status === 'terminee' && t.result && (
                     <span className="text-slate-600">{t.result.gardes ?? 0} trouvé{(t.result.gardes ?? 0) > 1 ? 's' : ''}{t.result.deja ? `, ${t.result.deja} déjà connu${t.result.deja > 1 ? 's' : ''}` : ''}{t.result.ecartes ? `, ${t.result.ecartes} écarté${t.result.ecartes > 1 ? 's' : ''}` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}</span>
@@ -190,12 +176,9 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
             <span className="ml-auto text-xs text-slate-400">{shown.length} compte{shown.length > 1 ? 's' : ''}</span>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap text-xs">
-            {([null, 'dana', 'ada'] as Array<AgentKey | null>).map((k) => (
-              <button key={k ?? 'tous'} onClick={() => { setAgentF(k); setSegmentF(''); }} className={`rounded-full border px-2 py-0.5 ${agentF === k ? 'border-brand-ocean bg-blue-50 text-brand-encre' : 'border-slate-200 text-slate-600'}`}>{k ? AGENT_LABEL[k].name : 'Les deux'}</button>
-            ))}
             <select value={segmentF} onChange={(e) => setSegmentF(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
               <option value="">Tous les types</option>
-              {segmentChoices.map((sg) => <option key={sg.key} value={sg.key}>{sg.label}</option>)}
+              {segs.map((sg) => <option key={sg.key} value={sg.key}>{sg.label}</option>)}
             </select>
             <select value={countryF} onChange={(e) => setCountryF(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
               <option value="">Tous pays</option>
@@ -209,9 +192,9 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
             </select>
             <input className={`${input} w-40 sm:ml-auto`} placeholder="Chercher…" value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
-          {nToQualify > 0 && (
+          {toQualify.length > 0 && (
             <button onClick={() => void qualify(toQualify)} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2.5 py-1 text-xs font-medium" title="Haiku 5.5 : qui décide, e-mail publié, profil LinkedIn s'il est vu. Quelques centimes par compte.">
-              <Sparkles className="w-3.5 h-3.5" /> {nToQualify > 1 ? `Qualifier les ${nToQualify} premiers comptes` : 'Qualifier 1 compte'}
+              <Sparkles className="w-3.5 h-3.5" /> {toQualify.length > 1 ? `Qualifier les ${toQualify.length} premiers comptes` : 'Qualifier 1 compte'}
             </button>
           )}
         </div>
@@ -230,7 +213,6 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
                 <div className="flex items-start gap-x-3 gap-y-1.5 flex-wrap">
                   <div className="min-w-0 flex-1 basis-full sm:basis-0">
                     <p className="text-sm text-slate-900 flex items-center gap-1.5 flex-wrap">
-                      <AgentBadge agent={a.agent} small />
                       <span className="font-semibold">{a.name}</span>
                       <span className="text-xs text-slate-500">{FLAG[a.country ?? ''] ?? ''} {[a.city, COUNTRY_FR[a.country ?? ''] ?? a.country].filter(Boolean).join(', ')}</span>
                       {seg && <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-slate-50 border border-slate-200 text-slate-600">{seg.label}</span>}
@@ -251,12 +233,12 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
                   <div className="flex items-center gap-2 flex-wrap text-xs">
                     {p ? (
                       <button onClick={() => setOpen(cardOpen ? null : a.id)} className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${cardOpen ? 'border-violet-400 bg-violet-100 text-violet-900' : 'border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>
-                        <Sparkles className="w-3.5 h-3.5" /> Fiche de {AGENT_LABEL[a.agent].name}
+                        <Sparkles className="w-3.5 h-3.5" /> Fiche {agent === 'ada' ? 'd\'Ada' : 'de Dana'}
                       </button>
                     ) : queued.has(a.id) ? (
                       <span className="text-violet-800 animate-pulse">qualification…</span>
                     ) : a.status === 'nouveau' ? (
-                      <button onClick={() => void qualify({ ada: a.agent === 'ada' ? [a.id] : [], dana: a.agent === 'dana' ? [a.id] : [] })} className="inline-flex items-center gap-1 rounded-lg border border-violet-300 bg-white px-2 py-1 text-violet-800 hover:bg-violet-50" title="Qui décide, e-mail publié, profil LinkedIn s'il est vu">
+                      <button onClick={() => void qualify([a.id])} className="inline-flex items-center gap-1 rounded-lg border border-violet-300 bg-white px-2 py-1 text-violet-800 hover:bg-violet-50" title="Qui décide, e-mail publié, profil LinkedIn s'il est vu">
                         <Sparkles className="w-3.5 h-3.5" /> Qualifier
                       </button>
                     ) : null}
@@ -269,8 +251,8 @@ export function Comptes({ userId, refreshKey, onError, onInfo, onOpenThread }: P
                   </div>
                 </div>
                 {cardOpen && p && (
-                  <QualifCard p={p} agentName={AGENT_LABEL[a.agent].name as 'Ada' | 'Dana'} onStage={(st) => void changeStage(a, p, st)}
-                    onRequalify={() => void qualify({ ada: a.agent === 'ada' ? [a.id] : [], dana: a.agent === 'dana' ? [a.id] : [] })} requalifying={queued.has(a.id)}
+                  <QualifCard p={p} agentName={name as 'Ada' | 'Dana'} onStage={(st) => void changeStage(a, p, st)}
+                    onRequalify={() => void qualify([a.id])} requalifying={queued.has(a.id)}
                     threadId={threads.get(p.id) ?? null} onDraft={() => void draft(a, p)} drafting={drafting.has(p.id)} onOpenThread={onOpenThread} />
                 )}
               </div>

@@ -10,7 +10,6 @@
 import { useState } from 'react';
 import { Mail, Linkedin, PhoneCall, Copy, Check, ExternalLink, Send, XCircle, ClipboardList, Search } from 'lucide-react';
 import { markSentByHand, setMessageStatus, gmailComposeUrl, type ForYouMessage, type CallSheet } from '../../services/agents';
-import { AgentBadge } from './shared';
 import { KIND_LABEL, fmtDateTime, scoreTone } from './helpers';
 
 const FLAG: Record<string, string> = { FR: '🇫🇷', DE: '🇩🇪', NL: '🇳🇱', BE: '🇧🇪', ES: '🇪🇸', IT: '🇮🇹', DK: '🇩🇰', AT: '🇦🇹', LU: '🇱🇺', SE: '🇸🇪', HU: '🇭🇺', LT: '🇱🇹', PL: '🇵🇱', PT: '🇵🇹', CH: '🇨🇭' };
@@ -141,12 +140,11 @@ export function ForYouCard({ items, isAdmin, onOpenThread, onChanged, onError }:
       <div className="flex items-start gap-2 flex-wrap">
         <div className="min-w-0 flex-1 basis-full sm:basis-0">
           <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5 flex-wrap">
-            <AgentBadge agent={first.agent} small />
             {p?.name ?? first.thread?.counterpart_name ?? first.thread?.subject ?? 'Grand compte'}
             {p?.country && <span className="text-xs font-normal text-slate-500">{FLAG[p.country] ?? ''} {[p.city, p.country].filter(Boolean).join(', ')}</span>}
           </p>
           <p className="text-xs text-slate-600">
-            {[kind ? KIND_LABEL[kind] ?? kind : null, p?.group_name ? `groupe ${p.group_name}` : null, first.agent === 'dana' ? 'fournisseur possible (Dana)' : 'acheteur possible (Ada)'].filter(Boolean).join(' · ')}
+            {[kind ? KIND_LABEL[kind] ?? kind : null, p?.group_name ? `groupe ${p.group_name}` : null, first.agent === 'dana' ? 'fournisseur possible' : 'acheteur possible'].filter(Boolean).join(' · ')}
           </p>
         </div>
         {p?.score != null && <span className={`rounded-lg border px-2 py-0.5 text-sm font-bold tabular-nums ${scoreTone(p.score)}`}>{p.score}<span className="text-[10px] font-normal">/100</span></span>}

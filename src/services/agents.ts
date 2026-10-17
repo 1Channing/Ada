@@ -120,6 +120,13 @@ export async function listThreads(opts: { agent?: AgentKey | null; archived?: bo
   return { rows: (data ?? []) as AgentThread[], error: null };
 }
 
+/** L'agente d'un fil (un lien d'alerte « /agents?fil=… » ouvre la bonne). */
+export async function threadAgent(id: string): Promise<AgentKey | null> {
+  const { data } = await sb.from('agent_threads').select('agent').eq('id', id).maybeSingle();
+  const a = (data as { agent?: string } | null)?.agent;
+  return a === 'ada' || a === 'dana' ? a : null;
+}
+
 export async function getThread(id: string): Promise<{ thread: AgentThread | null; messages: AgentMessage[]; error: string | null }> {
   const [{ data: t, error: e1 }, { data: m, error: e2 }] = await Promise.all([
     sb.from('agent_threads').select('*').eq('id', id).maybeSingle(),
@@ -190,11 +197,13 @@ export async function setThreadFlags(id: string, flags: Partial<Pick<AgentThread
 }
 
 /** File de validation : à valider, puis validés en attente d'envoi, puis échecs. */
-export async function listQueue(): Promise<{ rows: QueuedMessage[]; error: string | null }> {
-  const { data, error } = await sb.from('agent_messages')
+export async function listQueue(agent?: AgentKey): Promise<{ rows: QueuedMessage[]; error: string | null }> {
+  let q = sb.from('agent_messages')
     .select('*, thread:agent_threads(subject, counterpart_email, counterpart_name)')
     .eq('direction', 'out').in('status', ['a_valider', 'valide', 'envoi', 'echec'])
     .order('created_at', { ascending: true }).limit(300);
+  if (agent) q = q.eq('agent', agent);
+  const { data, error } = await q;
   if (error) return { rows: [], error: err(error.message) };
   return { rows: (data ?? []) as QueuedMessage[], error: null };
 }
@@ -547,10 +556,12 @@ export interface ForYouMessage extends AgentMessage {
 }
 
 /** Ce qu'Ada et Dana ont préparé pour vous (grands comptes) : mails, notes LinkedIn et fiches d'appel, à envoyer vous-même. */
-export async function listForYou(): Promise<{ rows: ForYouMessage[]; error: string | null }> {
-  const { data, error } = await sb.from('agent_messages')
+export async function listForYou(agent?: AgentKey): Promise<{ rows: ForYouMessage[]; error: string | null }> {
+  let q = sb.from('agent_messages')
     .select('*, thread:agent_threads(subject, counterpart_email, counterpart_name, prospect_id, prospect:agent_prospects(id, name, country, city, phone, website, group_name, kind, account_kind, score, summary, stage, best_contact, people))')
     .eq('status', 'pour_channing').order('created_at', { ascending: true }).limit(300);
+  if (agent) q = q.eq('agent', agent);
+  const { data, error } = await q;
   if (error) {
     // SQL agents_comptes pas encore collé : rien n'a pu être préparé, la file reste vide.
     if (/account_kind|key_account/i.test(error.message) || missing(error.message)) return { rows: [], error: null };
@@ -581,8 +592,10 @@ export interface AgentAccount {
   task_id: string | null; prospect_id: string | null; found_at: string; updated_at: string;
 }
 
-export async function listAccounts(): Promise<{ rows: AgentAccount[]; error: string | null }> {
-  const { data, error } = await sb.from('agent_accounts').select('*').order('found_at', { ascending: false }).limit(1000);
+export async function listAccounts(agent?: AgentKey): Promise<{ rows: AgentAccount[]; error: string | null }> {
+  let q = sb.from('agent_accounts').select('*').order('found_at', { ascending: false }).limit(1000);
+  if (agent) q = q.eq('agent', agent);
+  const { data, error } = await q;
   if (error) return { rows: [], error: errRecherche(error.message) };
   return { rows: (data ?? []) as AgentAccount[], error: null };
 }

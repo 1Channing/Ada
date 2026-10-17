@@ -1,19 +1,20 @@
 /**
- * « À valider » (16/10) : tout ce qu'Ada et Dana (et l'équipe) veulent
- * envoyer passe ici — à valider, puis validé en attente d'envoi (avec la
- * raison : horaires, plafond, écart, boîte), puis les échecs. Pendant le
- * copilote, rien ne part sans un clic d'administrateur.
- * « Pour vous » (17/10) : les grands comptes, préparés par Ada et Dana, que
- * vous envoyez vous-même (votre Gmail, votre LinkedIn, votre téléphone).
+ * « À valider » (16/10) : tout ce que l'agente choisie en haut de la page
+ * (et l'équipe, depuis sa boîte) veut envoyer passe ici — à valider, puis
+ * validé en attente d'envoi (avec la raison : horaires, plafond, écart,
+ * boîte), puis les échecs. Pendant le copilote, rien ne part sans un clic
+ * d'administrateur.
+ * « Pour vous » (17/10) : les grands comptes qu'elle a préparés, que vous
+ * envoyez vous-même (votre Gmail, votre LinkedIn, votre téléphone).
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, Clock, AlertTriangle, Crown } from 'lucide-react';
-import { listQueue, listForYou, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage, type ForYouMessage } from '../../services/agents';
-import { AgentBadge } from './shared';
+import { listQueue, listForYou, AGENT_LABEL, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage, type ForYouMessage } from '../../services/agents';
 import { MessageCard } from './MessageCard';
 import { ForYouCard } from './ForYou';
 
 interface Props {
+  agent: AgentKey;
   settings: AgentSettings[];
   counts: Partial<Record<AgentKey, AgentCounts>>;
   isAdmin: boolean;
@@ -23,16 +24,16 @@ interface Props {
   onError: (msg: string) => void;
 }
 
-export function ValidationQueue({ settings, counts, isAdmin, refreshKey, onOpenThread, onChanged, onError }: Props) {
+export function ValidationQueue({ agent, settings, counts, isAdmin, refreshKey, onOpenThread, onChanged, onError }: Props) {
   const [rows, setRows] = useState<QueuedMessage[]>([]);
   const [forYou, setForYou] = useState<ForYouMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
-    const [r, f] = await Promise.all([listQueue(), listForYou()]);
+    const [r, f] = await Promise.all([listQueue(agent), listForYou(agent)]);
     if (r.error) onError(r.error); else setRows(r.rows);
     if (f.error) onError(f.error); else setForYou(f.rows);
     setLoaded(true);
-  }, [onError]);
+  }, [agent, onError]);
   // Un grand compte = un fil : son mail et sa note LinkedIn ensemble.
   const accounts = useMemo(() => {
     const m = new Map<string, ForYouMessage[]>();
@@ -41,7 +42,8 @@ export function ValidationQueue({ settings, counts, isAdmin, refreshKey, onOpenT
   }, [forYou]);
   useEffect(() => { void load(); }, [load, refreshKey]);
   const changed = () => { void load(); onChanged(); };
-  const byAgent = (k: AgentKey) => settings.find((s) => s.agent === k);
+  const mine = settings.find((s) => s.agent === agent);
+  const name = AGENT_LABEL[agent].name;
 
   const groups: Array<{ key: string; title: string; icon: ReactNode; items: QueuedMessage[]; hint: string }> = [
     { key: 'a_valider', title: 'À valider', icon: <CheckCircle2 className="w-4 h-4 text-amber-600" />, items: rows.filter((m) => m.status === 'a_valider'),
@@ -56,7 +58,7 @@ export function ValidationQueue({ settings, counts, isAdmin, refreshKey, onOpenT
     return (
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-12 text-center text-sm text-slate-500">
         <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
-        Rien à valider. Les premiers mails d'Ada et Dana, et les messages soumis par l'équipe, arrivent ici ; les grands comptes qu'elles préparent pour vous aussi.
+        Rien à valider. Les premiers mails de {name} et les messages soumis par l'équipe depuis sa boîte arrivent ici ; les grands comptes qu'elle prépare pour vous aussi.
       </div>
     );
   }
@@ -68,7 +70,7 @@ export function ValidationQueue({ settings, counts, isAdmin, refreshKey, onOpenT
             <Crown className="w-4 h-4 text-violet-600" />
             <h3 className="text-sm font-semibold text-slate-900">Pour vous — grands comptes</h3>
             <span className="text-xs text-slate-400">{accounts.length}</span>
-            <span className="text-xs text-slate-500">— groupes, loueurs, leasings, flottes : Ada et Dana préparent, vous envoyez (votre Gmail, votre LinkedIn, votre téléphone), puis « Marquer envoyé ».</span>
+            <span className="text-xs text-slate-500">— {name} prépare, vous envoyez (votre Gmail, votre LinkedIn, votre téléphone), puis « Marquer envoyé ».</span>
           </div>
           {accounts.map((items) => <ForYouCard key={items[0].thread_id} items={items} isAdmin={isAdmin} onOpenThread={onOpenThread} onChanged={changed} onError={onError} />)}
         </section>
@@ -86,10 +88,9 @@ export function ValidationQueue({ settings, counts, isAdmin, refreshKey, onOpenT
             return (
               <div key={`${m.id}-${m.updated_at}`} className="space-y-1">
                 <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <AgentBadge agent={m.agent} small />
                   <button onClick={() => onOpenThread(m.thread_id)} className="text-brand-ocean hover:underline truncate">ouvrir le fil{who ? ` avec ${who}` : ''}</button>
                 </div>
-                <MessageCard m={m} settings={byAgent(m.agent)} counts={counts[m.agent]} isAdmin={isAdmin} flat onChanged={changed} onError={onError} />
+                <MessageCard m={m} settings={mine} counts={counts[agent]} isAdmin={isAdmin} flat onChanged={changed} onError={onError} />
               </div>
             );
           })}

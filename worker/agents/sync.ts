@@ -165,7 +165,7 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
   if (!bulk && classification !== 'absence' && Date.now() - at.getTime() < ALERT_WINDOW_MS) {
     const name = a.display_name;
     const title = classification === 'stop' ? `${name} : ${who} demande à ne plus être contacté` : `${name} : réponse de ${who}`;
-    await alertOwner(a, `agent-mail:${row.id}`, title, `« ${subject} »\n\n${(fresh ?? '').slice(0, 600)}`, `/agents?fil=${thread.id}`);
+    await alertOwner(a, `agent-mail:${row.id}`, title, `« ${subject} »\n\n${(fresh ?? '').slice(0, 600)}`, `/agents?agente=${a.agent}&fil=${thread.id}`);
   }
   return true;
 }

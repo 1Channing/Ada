@@ -1,7 +1,8 @@
 /**
  * ADA ET DANA — L'APPEL À CLAUDE (17/10, phase 2.2). SDK officiel
- * (@anthropic-ai/sdk), variable Railway ANTHROPIC_API_KEY (la même que la
- * veille juridique).
+ * (@anthropic-ai/sdk). La clé : AGENTS_ANTHROPIC_API_KEY (une clé à part
+ * pour les agentes : leur dépense se suit et se coupe sans toucher la veille
+ * juridique), sinon ANTHROPIC_API_KEY (celle du worker).
  *
  * - Plafond par jour et par agente (agent_settings.daily_budget_usd) : lu
  *   dans agent_runs avant chaque appel ; atteint → l'appel n'a pas lieu.
@@ -24,13 +25,16 @@ import { sb } from './store';
 export class AiUnavailable extends Error {}
 export class BudgetReached extends Error {}
 
+const apiKey = (): string => process.env.AGENTS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '';
 let client: Anthropic | null = null;
 const api = (): Anthropic | null => {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  client ??= new Anthropic({ maxRetries: 2, timeout: 5 * 60_000 });
+  if (!apiKey()) return null;
+  client ??= new Anthropic({ apiKey: apiKey(), maxRetries: 2, timeout: 5 * 60_000 });
   return client;
 };
-export const aiConfigured = (): boolean => !!process.env.ANTHROPIC_API_KEY;
+export const aiConfigured = (): boolean => !!apiKey();
+/** Le message quand aucune clé n'est posée sur le worker. */
+export const NO_KEY = 'aucune clé API Anthropic sur le worker (AGENTS_ANTHROPIC_API_KEY, ou ANTHROPIC_API_KEY) : l\'IA d\'Ada et Dana n\'est pas branchée';
 
 let creditPauseUntil = 0;
 const CREDIT_PAUSE_MS = 3600_000;
@@ -103,7 +107,7 @@ function parseJson<T>(blocks: Block[]): { data: T | null; text: string } {
 
 export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
   const a = api();
-  if (!a) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker');
+  if (!a) throw new AiUnavailable(NO_KEY);
   if (Date.now() < creditPauseUntil) throw new AiUnavailable(`${NO_CREDIT} (le travail automatique reprend seul dans l'heure)`);
   const spent = await spentToday(c.agent);
   if (spent >= c.budgetUsd) throw new BudgetReached(`plafond du jour atteint (${spent.toFixed(2)} $ sur ${c.budgetUsd} $)`);

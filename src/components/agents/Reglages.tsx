@@ -8,6 +8,8 @@
  * ajout à la carte au-delà d'un score). Dana (17/10) : la taille d'un lot,
  * nos pays de vente (pour les écarts), le même budget, les mêmes
  * automatismes ; ses découvertes se lancent depuis l'onglet Sourcing.
+ * 17/10 : une agente à la fois (celle choisie en haut de la page) — sa
+ * boîte et son rythme d'envoi à gauche, son travail par l'IA à droite.
  */
 import { useEffect, useState } from 'react';
 import { Link2, Unlink, Save, Ban, Trash2, Plug, Sparkles } from 'lucide-react';
@@ -21,14 +23,13 @@ import { DISCOVERY_SITES } from '../../lib/agents/discovery';
 import { HOME_COUNTRY } from '../../lib/agents/qualification';
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { listAssignees, type Assignee } from '../../services/userTasks';
-import { AgentBadge } from './shared';
 import { fmtDateTime, fmtRelative } from './helpers';
 
 const DAYS = [{ d: 1, l: 'L' }, { d: 2, l: 'M' }, { d: 3, l: 'M' }, { d: 4, l: 'J' }, { d: 5, l: 'V' }, { d: 6, l: 'S' }, { d: 7, l: 'D' }];
 const input = 'rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40 disabled:bg-slate-50 disabled:text-slate-500';
 const REASONS: Record<Suppression['reason'], string> = { stop: 'Demande d\'arrêt', refus: 'Pas intéressé', rebond: 'Adresse morte', plainte: 'Plainte', manuel: 'Ajout manuel' };
 
-interface Props { settings: AgentSettings[]; isAdmin: boolean; userId: string | null; refreshKey: number; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }
+interface Props { agent: AgentKey; settings: AgentSettings[]; isAdmin: boolean; userId: string | null; refreshKey: number; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }
 
 const COUNTRY_LABEL: Record<string, string> = { FR: '🇫🇷 France', DE: '🇩🇪 Allemagne', NL: '🇳🇱 Pays-Bas', BE: '🇧🇪 Belgique', ES: '🇪🇸 Espagne', IT: '🇮🇹 Italie', DK: '🇩🇰 Danemark', SE: '🇸🇪 Suède', HU: '🇭🇺 Hongrie' };
 const listOf = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
@@ -58,7 +59,7 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
   const [busy, setBusy] = useState(false);
   const mailsReady = s.instructions !== undefined;
   const ro = !isAdmin;
-  if (s.daily_budget_usd === undefined) return <p className="text-xs text-slate-500">{QUALIF_SQL_HINT}</p>;
+  if (s.daily_budget_usd === undefined) return <div className="bg-white border border-violet-200 rounded-2xl shadow-sm p-4 text-xs text-slate-500">{QUALIF_SQL_HINT}</div>;
   const today = spend?.[s.agent];
   const save = async () => {
     setBusy(true);
@@ -75,7 +76,7 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
     if (e || e2 || e3) onError((e ?? e2 ?? e3) as string); else { onInfo(`Travail de ${s.display_name} enregistré.`); onChanged(); }
   };
   return (
-    <div className="rounded-xl border border-violet-200 bg-violet-50/30 p-3 space-y-3">
+    <div className="bg-white border border-violet-200 rounded-2xl shadow-sm p-4 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
         <Sparkles className="w-4 h-4 text-violet-700" />
         <p className="text-xs uppercase tracking-wide text-violet-800">Travail de {s.display_name} (IA)</p>
@@ -171,7 +172,7 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
   );
 }
 
-function AgentForm({ s, isAdmin, userId, people, spend, onChanged, onError, onInfo }: { s: AgentSettings; isAdmin: boolean; userId: string | null; people: Assignee[]; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }) {
+function AgentForm({ s, isAdmin, userId, people, onChanged, onError, onInfo }: { s: AgentSettings; isAdmin: boolean; userId: string | null; people: Assignee[]; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }) {
   const [f, setF] = useState<EditableSettings>({
     sender_name: s.sender_name, signature: s.signature, daily_first_contact_cap: s.daily_first_contact_cap, send_days: s.send_days,
     send_from: s.send_from.slice(0, 5), send_to: s.send_to.slice(0, 5), min_gap_seconds: s.min_gap_seconds, max_gap_seconds: s.max_gap_seconds, owner_id: s.owner_id,
@@ -206,11 +207,6 @@ function AgentForm({ s, isAdmin, userId, people, spend, onChanged, onError, onIn
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 space-y-4">
-      <div className="flex items-center gap-2">
-        <AgentBadge agent={s.agent} />
-        <span className="text-sm text-slate-600">{s.role === 'acheteurs' ? 'trouve des acheteurs' : 'trouve des vendeurs'}</span>
-      </div>
-
       <div className="rounded-xl border border-slate-200 p-3 space-y-2">
         <p className="text-xs uppercase tracking-wide text-slate-400">Boîte Gmail</p>
         <div className="flex items-center gap-2 flex-wrap">
@@ -275,7 +271,6 @@ function AgentForm({ s, isAdmin, userId, people, spend, onChanged, onError, onIn
         {isAdmin && <button disabled={busy} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"><Save className="w-4 h-4" /> Enregistrer</button>}
         <span className="text-xs text-slate-500">Copilote : chaque mail de {s.display_name} part seulement après la validation d'un administrateur.</span>
       </div>
-      <AiForm s={s} isAdmin={isAdmin} userId={userId} spend={spend} onChanged={onChanged} onError={onError} onInfo={onInfo} />
     </div>
   );
 }
@@ -327,17 +322,20 @@ function Suppressions({ userId, refreshKey, onError }: { userId: string | null; 
   );
 }
 
-export function Reglages({ settings, isAdmin, userId, refreshKey, spend, onChanged, onError, onInfo }: Props) {
+export function Reglages({ agent, settings, isAdmin, userId, refreshKey, spend, onChanged, onError, onInfo }: Props) {
   const [people, setPeople] = useState<Assignee[]>([]);
   useEffect(() => { void listAssignees().then(setPeople); }, []);
+  const s = settings.find((x) => x.agent === agent);
+  // Les formulaires repartent des valeurs enregistrées après chaque enregistrement (ou connexion de la boîte).
+  const key = s ? `${agent}-${s.updated_at}-${s.gmail_connected_at ?? ''}` : agent;
   return (
     <div className="space-y-4">
-      <div className="grid xl:grid-cols-2 gap-4">
-        {(['ada', 'dana'] as AgentKey[]).map((k) => {
-          const s = settings.find((x) => x.agent === k);
-          return s ? <AgentForm key={`${k}-${s.updated_at}-${s.gmail_connected_at ?? ''}`} s={s} isAdmin={isAdmin} userId={userId} people={people} spend={spend} onChanged={onChanged} onError={onError} onInfo={onInfo} /> : null;
-        })}
-      </div>
+      {s && (
+        <div className="grid xl:grid-cols-2 gap-4 items-start">
+          <AgentForm key={key} s={s} isAdmin={isAdmin} userId={userId} people={people} onChanged={onChanged} onError={onError} onInfo={onInfo} />
+          <AiForm key={`ia-${key}`} s={s} isAdmin={isAdmin} userId={userId} spend={spend} onChanged={onChanged} onError={onError} onInfo={onInfo} />
+        </div>
+      )}
       <Suppressions userId={userId} refreshKey={refreshKey} onError={onError} />
     </div>
   );

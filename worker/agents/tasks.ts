@@ -34,7 +34,7 @@ import { researchAccounts } from './research';
 import { refreshSoon } from './indexRefresh';
 import { researchPairs, nextResearchPair, segmentOf, RESEARCH_COUNTRIES, COUNTRY_FR, type ResearchParams } from '../../src/lib/agents/research';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
-import { aiConfigured, spentToday, clearCreditPause, BudgetReached, AiUnavailable } from './claude';
+import { aiConfigured, spentToday, clearCreditPause, BudgetReached, AiUnavailable, NO_KEY } from './claude';
 import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, type DiscoveryParams } from '../../src/lib/agents/discovery';
 import { ensureLearnedTaxonomy } from '../../src/lib/linkgen/taxonomy';
 import { parisClock, parisDayStart } from '../../src/lib/agents/sendPolicy';
@@ -67,7 +67,7 @@ async function agentRow(agent: string): Promise<AiAgent | null> {
 async function runQualification(t: Task): Promise<{ result: Record<string, unknown>; summary: string }> {
   const a = await agentRow(t.agent);
   if (!a) throw new Error('agente introuvable');
-  if (!aiConfigured()) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker : l\'IA d\'Ada et Dana n\'est pas branchée.');
+  if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
   // Les comptes trouvés par recherche d'abord, puis les garages de l'annuaire : 10 au plus en tout.
   const accountIds = (Array.isArray(t.params.account_ids) ? t.params.account_ids : []).map(String).slice(0, MAX_SERIES);
   const dealerIds = (Array.isArray(t.params.dealer_ids) ? t.params.dealer_ids : []).map(String).slice(0, MAX_SERIES - accountIds.length);
@@ -100,7 +100,7 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
 async function runDrafts(t: Task): Promise<{ result: Record<string, unknown>; summary: string }> {
   const a = await agentRow(t.agent);
   if (!a) throw new Error('agente introuvable');
-  if (!aiConfigured()) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker : l\'IA d\'Ada et Dana n\'est pas branchée.');
+  if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
   const ids = (Array.isArray(t.params.prospect_ids) ? t.params.prospect_ids : []).map(String).slice(0, 5);
   if (ids.length === 0) throw new Error('aucun prospect');
   const r = { prospects: ids.length, rediges: 0, ignores: 0, echecs: 0, cout_usd: 0, arret: null as string | null, details: [] as string[] };
@@ -162,7 +162,7 @@ export async function runNextTask(): Promise<void> {
       } else if (t.kind === 'recherche_comptes') {
         const a = await agentRow(t.agent);
         if (!a) throw new Error('agente introuvable');
-        if (!aiConfigured()) throw new AiUnavailable('ANTHROPIC_API_KEY absente sur le worker : l\'IA d\'Ada et Dana n\'est pas branchée.');
+        if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
         const { result, summary } = await researchAccounts(t.id, t.params, a);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'recherche_comptes', summary: `${summary}${auto}`, details: result as unknown as Record<string, unknown> });
