@@ -9,7 +9,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as dns } from 'node:dns';
 import { parseDealerInfoPage, extractEmails, mailtoEmails, extractPeople, contactLinks, dealerKindHint } from '../src/lib/agents/dealerPage';
-import { fitScore, acceptedEmails, finalScore, normalizeTargets, qualifyPrompt, DEFAULT_ADA_TARGETS, type QualifyOutput } from '../src/lib/agents/qualification';
+import { fitScore, acceptedEmails, finalScore, normalizeTargets, qualifyPrompt, DEFAULT_ADA_TARGETS, ADA_SCORE_HELP, REACH_SCORE_HELP, AI_ADJUST, type QualifyOutput } from '../src/lib/agents/qualification';
 import { costUsd, addUsage, HAIKU, OPUS } from '../src/lib/agents/aiCost';
 import { nameKey, sameDealer, isoOfCountry, phoneKey9 } from '../src/lib/agents/keys';
 import { discoveryPairs, nextDiscoveryPair } from '../src/lib/agents/discovery';
@@ -67,6 +67,30 @@ const fit = fitScore({
 });
 ok(fit.score === 25 + 8 + 15 + 16 + 7 + 6 + 8 + 4, 'score : pays, marques, utilitaires, plus cher que nous, stock, multimarque, joignable', fit);
 ok(fitScore({ country: 'IT', targetCountries: ['NL'], targets, listings: [{ brand: 'FERRARI', vehicle_type: null }], opportunities: 0, nbBrands: 1, hasEmail: false, hasNamedContact: false }).score === 0, 'score : hors cible = 0');
+
+// Le « i » des Réglages dit vrai : chaque barème affiché est celui du calcul.
+{
+  const pts = (f: ReturnType<typeof fitScore>, re: RegExp) => f.parts.find((p) => re.test(p.label))?.points ?? 0;
+  const base = { country: 'IT', targetCountries: ['NL'], targets: { ...targets, multibrand: true }, listings: [] as Array<{ brand: string | null; vehicle_type: string | null }>, opportunities: 0, nbBrands: 1, hasEmail: false, hasNamedContact: false };
+  const cars = (n: number, inBrand: number) => Array.from({ length: n }, (_, i) => ({ brand: i < inBrand ? targets.brands[0] : 'FERRARI', vehicle_type: null }));
+  const list = (xs: number[]) => xs.map((p) => `+${p}`).join(', ');
+  const shown = ADA_SCORE_HELP.map(([, p]) => p);
+  const brandMin = pts(fitScore({ ...base, listings: cars(20, 1) }), /dans nos marques$/);
+  const brandMax = pts(fitScore({ ...base, listings: cars(20, 20) }), /dans nos marques$/);
+  const opp = (n: number) => pts(fitScore({ ...base, opportunities: n }), /plus chères? que nos offres$/);
+  const computed = [
+    list([pts(fitScore({ ...base, country: 'NL' }), /^pays cible$/)]),
+    `+${brandMin} à +${brandMax}`,
+    list([pts(fitScore({ ...base, listings: [{ brand: targets.vanBrands[0], vehicle_type: 'Utilitaire' }] }), /utilitaires? de nos marques$/)]),
+    `+${opp(1)} chacune, +${opp(10)} au plus`,
+    list([8, 20, 50].map((n) => pts(fitScore({ ...base, listings: cars(n, 0) }), /^stock suivi/))),
+    list([pts(fitScore({ ...base, nbBrands: 3 }), /^multimarque$/)]),
+  ];
+  const reach = fitScore({ ...base, hasEmail: true, hasNamedContact: true }).parts.map((p) => `+${p.points}`);
+  const ai = [finalScore(50, { ajustement: -100, exclure: false }) - 50, finalScore(50, { ajustement: 100, exclure: false }) - 50];
+  ok(shown.join(' | ') === computed.join(' | ') && REACH_SCORE_HELP.map(([, p]) => p).join() === reach.join() && ai.join() === `${AI_ADJUST.min},${AI_ADJUST.max}`,
+    'la note d\'Ada expliquée (le « i » des Réglages) : les barèmes affichés sont ceux du calcul, l\'avis de l\'IA borné comme affiché', { shown, computed, reach, ai });
+}
 ok(normalizeTargets(null).brands.join() === DEFAULT_ADA_TARGETS.brands.join() && normalizeTargets({ countries: ['nl'] }).countries[0] === 'NL', 'cibles : par défaut, pays en majuscules');
 
 // --- Coût d'un appel -------------------------------------------------------------------------------

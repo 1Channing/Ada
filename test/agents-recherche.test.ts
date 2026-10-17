@@ -16,9 +16,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { promises as dns } from 'node:dns';
 import {
   SEGMENTS, segmentOf, webKey, acceptedAccounts, nameTokens, siteNamesCompany, researchPrompt, researchSystem, researchPairs, nextResearchPair,
-  sizeNumber, accountFitScore, RESEARCH_SCHEMA, RESEARCH_COUNTRIES, type ResearchOutput,
+  sizeNumber, accountFitScore, accountScoreHelp, RESEARCH_SCHEMA, RESEARCH_COUNTRIES, type ResearchOutput,
 } from '../src/lib/agents/research';
-import { qualifyPrompt, type QualifyOutput } from '../src/lib/agents/qualification';
+import { qualifyPrompt, REACH_SCORE_HELP, type QualifyOutput } from '../src/lib/agents/qualification';
 import { firstMailPrompt, danaFirstMailPrompt, type FirstMailOutput, type KeyAccountOutput } from '../src/lib/agents/firstMail';
 import { HAIKU, OPUS } from '../src/lib/agents/aiCost';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
@@ -89,6 +89,26 @@ ok(f1.score === 40 + 10 + 15 + 8 + 4 + 5, 'score : leasing, en France, grande fl
 ok(accountFitScore({ role: 'ada', segment: segmentOf('ada', 'flotte'), country: 'NL', targetCountries: ['NL'], size: null, hasEmail: false, hasNamedContact: false, hasLinkedin: false }).score === 50
   && accountFitScore({ role: 'ada', segment: segmentOf('ada', 'flotte'), country: 'SE', targetCountries: ['NL'], size: null, hasEmail: false, hasNamedContact: false, hasLinkedin: false }).score === 30,
   'score d\'Ada : un pays cible compte (+20)');
+
+// Le « i » des Réglages dit vrai : chaque barème affiché est celui du calcul, pour Ada comme pour Dana.
+for (const role of ['ada', 'dana'] as const) {
+  const base = { role, segment: null, country: null, targetCountries: ['NL'], size: null, hasEmail: false, hasNamedContact: false, hasLinkedin: false };
+  const only = (x: Partial<typeof base> & { segment?: ReturnType<typeof segmentOf> }) => accountFitScore({ ...base, ...x }).score;
+  const list = (xs: number[]) => xs.map((p) => `+${p}`).join(', ');
+  const help = accountScoreHelp(role);
+  const lcFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+  // Chaque type de compte est sur une ligne au barème du calcul (les types de même barème regroupés).
+  const typesOk = SEGMENTS[role].every((s) => help.some(([l, p]) => l.split(', ').includes(lcFirst(s.label)) && p === `+${only({ segment: s })}`));
+  const shown = help.slice(new Set(SEGMENTS[role].map((s) => s.points)).size).map(([, p]) => p);
+  const computed = [
+    role === 'ada' ? list([only({ country: 'NL' })]) : list([only({ country: 'FR' }), only({ country: 'DE' })]),
+    list(['50 salariés', '150 véhicules', '1 200 véhicules'].map((size) => only({ size }))),
+    list([only({ hasLinkedin: true })]),
+  ];
+  const reach = [only({ hasEmail: true }), only({ hasNamedContact: true })].map((p) => `+${p}`);
+  ok(typesOk && shown.join(' | ') === computed.join(' | ') && REACH_SCORE_HELP.map(([, p]) => p).join() === reach.join(),
+    `la note d'un compte ${role === 'ada' ? 'd\'Ada' : 'de Dana'} expliquée (le « i » des Réglages) : les barèmes affichés sont ceux du calcul`, { shown, computed, reach });
+}
 
 // --- Qualification et mails d'un compte ----------------------------------------------------------------
 const qp = qualifyPrompt({

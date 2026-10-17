@@ -14,9 +14,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as dns } from 'node:dns';
 import {
-  normalizeDanaTargets, lotFactOf, lotsFromListings, lotLine, danaFitScore, isKeyAccount, groupKey, looksLikeGroup, DEFAULT_DANA_TARGETS,
+  normalizeDanaTargets, lotFactOf, lotsFromListings, lotLine, danaFitScore, isKeyAccount, groupKey, looksLikeGroup, DEFAULT_DANA_TARGETS, DANA_SCORE_HELP,
 } from '../src/lib/agents/sourcing';
-import { qualifySchema, qualifyPrompt, acceptedLinkedin, QUALIFY_SCHEMA, type QualifyOutput } from '../src/lib/agents/qualification';
+import { qualifySchema, qualifyPrompt, acceptedLinkedin, QUALIFY_SCHEMA, REACH_SCORE_HELP, type QualifyOutput } from '../src/lib/agents/qualification';
 import {
   danaFirstMailPrompt, checkDanaMail, keyAccountPrompt, keyAccountSystem, checkKeyAccount, linkedinSearchUrl, KEY_ACCOUNT_SCHEMA,
   type FirstMailOutput, type KeyAccountOutput,
@@ -61,6 +61,25 @@ const fit = danaFitScore({ lots: [lot, { ...lot, model: 'Corolla', count: 3, bes
 ok(fit.score === 22 + 10 + 25 + 10 + 5 + 8 + 4 && fit.parts.length === 7 && fit.parts.some((p) => /^écart brut \+4\s200 € \(NL\)$/.test(p.label)),
   'score fournisseur : lot de 5, deux lots, écart, ancienneté, stock suivi, e-mail, interlocuteur', fit);
 ok(danaFitScore({ lots: [], listings: 3, hasEmail: false, hasNamedContact: false }).score === 0, 'score fournisseur : sans lot ni contact = 0');
+
+// Le « i » des Réglages dit vrai : chaque barème affiché est celui du calcul.
+{
+  const pts = (f: ReturnType<typeof danaFitScore>, re: RegExp) => f.parts.find((p) => re.test(p.label))?.points ?? 0;
+  const bare = { listings: 0, hasEmail: false, hasNamedContact: false };
+  const one = (count: number, extra: Partial<typeof lot> = {}) => ({ ...lot, count, bestGap: null, bestMarket: null, firstSeenAt: daysAgo(1), ...extra });
+  const list = (xs: number[]) => xs.map((p) => `+${p}`).join(', ');
+  const shown = DANA_SCORE_HELP.map(([, p]) => p);
+  const computed = [
+    list([2, 3, 4, 6].map((n) => pts(danaFitScore({ ...bare, lots: [one(n)] }), /^lot de/))),
+    list([pts(danaFitScore({ ...bare, lots: [one(3), one(3, { model: 'Corolla' })] }), / lots$/)]),
+    list([500, 1000, 3000].map((g) => pts(danaFitScore({ ...bare, lots: [one(3, { bestGap: g, bestMarket: 'NL' })] }), /^écart brut/))),
+    list([pts(danaFitScore({ ...bare, lots: [one(3, { firstSeenAt: daysAgo(31) })] }), /^en stock depuis/)]),
+    list([20, 50].map((n) => pts(danaFitScore({ ...bare, listings: n, lots: [] }), /^stock suivi/))),
+  ];
+  const reach = danaFitScore({ lots: [], listings: 0, hasEmail: true, hasNamedContact: true }).parts.map((p) => `+${p.points}`);
+  ok(shown.join(' | ') === computed.join(' | ') && REACH_SCORE_HELP.map(([, p]) => p).join() === reach.join(),
+    'la note de Dana expliquée (le « i » des Réglages) : les barèmes affichés sont ceux du calcul', { shown, computed, reach });
+}
 
 ok(isKeyAccount(true, null, null) && isKeyAccount(false, 'loueur_ou_leasing', 1) && isKeyAccount(null, 'flotte_entreprise', null) && isKeyAccount(false, 'concession_marque', 3) && !isKeyAccount(false, 'independant_multimarque', 1),
   'grand compte : l\'IA le dit, ou groupe / loueur / leasing / flotte, ou 3 sites et plus');

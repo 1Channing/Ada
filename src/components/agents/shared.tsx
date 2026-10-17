@@ -1,8 +1,9 @@
 /**
  * Onglet Agents (16/10) — petites briques partagées : badges d'Ada et Dana,
- * statut et classement d'un message, éditeur de brouillon, bandeau.
+ * statut et classement d'un message, éditeur de brouillon, bandeau, et le
+ * petit « i » d'information (17/10).
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { AGENT_LABEL, type AgentKey, type Draft } from '../../services/agents';
 
 export function AgentBadge({ agent, small }: { agent: AgentKey | null; small?: boolean }) {
@@ -69,5 +70,62 @@ export function Banner({ tone, children, onClose }: { tone: 'ok' | 'warn' | 'err
       <div className="flex-1">{children}</div>
       {onClose && <button onClick={onClose} className="text-xs opacity-70 hover:opacity-100">Fermer</button>}
     </div>
+  );
+}
+
+/**
+ * Un petit « i » : l'explication s'affiche au survol (au toucher sur téléphone,
+ * au clavier aussi). Mesurée avant d'apparaître, elle tient toujours dans
+ * l'écran sans jamais couvrir le « i » (sinon, sur téléphone, la fin du
+ * toucher tombe sur elle) : dessous, ou au-dessus s'il manque de place, et
+ * elle défile si aucun côté ne suffit. On peut y entrer avec le curseur ou le
+ * doigt sans qu'elle se ferme ; elle se ferme en sortant, en touchant
+ * ailleurs ou avec Échap.
+ */
+export function InfoTip({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {
+  const btn = useRef<HTMLButtonElement>(null);
+  const tip = useRef<HTMLDivElement>(null);
+  const leaving = useRef<number | null>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  const width = () => Math.min(wide ? 640 : 360, window.innerWidth - 16);
+  const show = () => { if (leaving.current) window.clearTimeout(leaving.current); setOpen(true); };
+  const hide = () => { setOpen(false); setPos(null); };
+  const hideSoon = () => { leaving.current = window.setTimeout(hide, 150); };
+  const inside = (n: EventTarget | null) => !!n && (tip.current?.contains(n as Node) || btn.current?.contains(n as Node));
+  useLayoutEffect(() => {
+    if (!open || !btn.current || !tip.current) return;
+    const r = btn.current.getBoundingClientRect();
+    const w = width();
+    const h = tip.current.scrollHeight;
+    const left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8));
+    const below = window.innerHeight - r.bottom - 16;
+    const above = r.top - 16;
+    if (h <= below || below >= above) setPos({ left, top: r.bottom + 8, maxHeight: below });
+    else setPos({ left, top: Math.max(8, r.top - 8 - h), maxHeight: above });
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!open) return;
+    const onScroll = (e: Event) => { if (!inside(e.target)) hide(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') hide(); };
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', hide);
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', hide); window.removeEventListener('keydown', onKey); };
+  }, [open]);
+  useEffect(() => () => { if (leaving.current) window.clearTimeout(leaving.current); }, []);
+  return (
+    <>
+      <button ref={btn} type="button" aria-label={label} aria-expanded={open} onMouseEnter={show} onMouseLeave={hideSoon} onFocus={show} onClick={show}
+        onBlur={(e) => { if (!inside(e.relatedTarget)) hide(); }}
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 text-[10px] font-semibold italic leading-none text-slate-500 hover:border-brand-ocean hover:text-brand-ocean focus:outline-none focus:ring-2 focus:ring-brand-ocean/40">i</button>
+      {open && (
+        <div ref={tip} role="tooltip" tabIndex={-1} onMouseEnter={show} onMouseLeave={hide} onBlur={(e) => { if (!inside(e.relatedTarget)) hide(); }}
+          style={{ position: 'fixed', left: pos?.left ?? 0, top: pos?.top ?? 0, width: width(), maxHeight: pos?.maxHeight, visibility: pos ? 'visible' : 'hidden' }}
+          className="z-50 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg focus:outline-none">
+          {children}
+        </div>
+      )}
+    </>
   );
 }

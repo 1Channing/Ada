@@ -116,6 +116,15 @@ export function danaFitScore(i: DanaFitInput, now = Date.now()): Fit {
   return { score: Math.min(100, parts.reduce((s, p) => s + p.points, 0)), parts };
 }
 
+/** La note d'un garage à lots de Dana, en clair (le « i » des Réglages) : à tenir à jour avec danaFitScore ci-dessus. */
+export const DANA_SCORE_HELP: Array<[string, string]> = [
+  ['plus gros lot : 2, 3, 4 ou 5, 6 véhicules et plus', '+8, +15, +22, +30'],
+  ['deux lots ou plus', '+10'],
+  ['écart de prix avec nos pays de revente : moins de 1 000 €, dès 1 000 €, dès 3 000 €', '+10, +18, +25'],
+  ['en stock depuis 30 jours ou plus', '+10'],
+  ['stock suivi : 20, 50 annonces et plus', '+5, +8'],
+];
+
 /** Les natures de compte qu'on traite en grand compte (Channing envoie lui-même). */
 export const KEY_ACCOUNT_KINDS = ['groupe', 'loueur_ou_leasing', 'flotte_entreprise'];
 

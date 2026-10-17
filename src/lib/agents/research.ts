@@ -246,6 +246,18 @@ export interface AccountFitInput {
   hasEmail: boolean; hasNamedContact: boolean; hasLinkedin: boolean;
 }
 
+/** La note d'un compte trouvé sur le web, en clair (le « i » des Réglages) : à tenir à jour avec accountFitScore ci-dessous. */
+export function accountScoreHelp(role: AgentRole): Array<[string, string]> {
+  const byPoints = new Map<number, string[]>();
+  for (const s of SEGMENTS[role]) byPoints.set(s.points, [...(byPoints.get(s.points) ?? []), s.label.charAt(0).toLowerCase() + s.label.slice(1)]);
+  return [
+    ...[...byPoints].sort((a, b) => b[0] - a[0]).map(([p, labels]): [string, string] => [labels.join(', '), `+${p}`]),
+    role === 'ada' ? ['dans un pays visé', '+20'] : ['en France, ailleurs en Europe', '+10, +5'],
+    ['taille (véhicules, sites…) : moins de 100, dès 100, dès 1 000', '+5, +10, +15'],
+    ['profil LinkedIn trouvé', '+5'],
+  ];
+}
+
 /** Score d'un compte trouvé par recherche, 0-100, explicable ligne par ligne (aucune IA). */
 export function accountFitScore(i: AccountFitInput): Fit {
   const parts: Fit['parts'] = [];

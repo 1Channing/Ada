@@ -81,6 +81,22 @@ export function fitScore(i: FitInput): Fit {
   return { score: Math.min(100, parts.reduce((s, p) => s + p.points, 0)), parts };
 }
 
+/** Joignable : compte dans les trois notes (garage d'Ada, garage à lots de Dana, compte trouvé sur le web). */
+export const REACH_SCORE_HELP: Array<[string, string]> = [
+  ['e-mail publié', '+8'],
+  ['interlocuteur nommé', '+4'],
+];
+
+/** La note d'un garage d'Ada, en clair (le « i » des Réglages) : à tenir à jour avec fitScore ci-dessus. */
+export const ADA_SCORE_HELP: Array<[string, string]> = [
+  ['dans un pays visé', '+25'],
+  ['annonces dans nos marques (selon leur part du stock)', '+8 à +25'],
+  ['utilitaires de nos marques', '+15'],
+  ['annonces plus chères que nos offres', '+8 chacune, +24 au plus'],
+  ['stock suivi : 8, 20, 50 annonces et plus', '+4, +7, +10'],
+  ['multimarque (si la case est cochée)', '+6'],
+];
+
 // --- L'appel à Haiku 5.5 ----------------------------------------------------------
 
 export const QUALIFY_TYPES = ['concession_marque', 'agent_marque', 'groupe', 'independant_multimarque', 'utilitaires', 'negociant_vo', 'flotte_entreprise', 'exportateur_concurrent', 'loueur_ou_leasing', 'autre'] as const;
@@ -320,7 +336,10 @@ export function acceptedLinkedin(url: string | null | undefined, name: string | 
   return u.startsWith('https://www.') ? u : u.replace(/^https:\/\/(?:[a-z]{2,3}\.)?/, 'https://www.');
 }
 
+/** L'avis de l'IA sur la note, borné (le « i » des Réglages affiche ces bornes). */
+export const AI_ADJUST = { min: -40, max: 15 } as const;
+
 /** Score final : l'adéquation + l'ajustement de l'IA (borné), 0 si à écarter. */
 export function finalScore(fit: number, ai: Pick<QualifyOutput, 'ajustement' | 'exclure'>): number {
-  return ai.exclure ? 0 : clamp(fit + clamp(ai.ajustement, -40, 15), 0, 100);
+  return ai.exclure ? 0 : clamp(fit + clamp(ai.ajustement, AI_ADJUST.min, AI_ADJUST.max), 0, 100);
 }

@@ -20,13 +20,15 @@ import {
   oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, updateMailSettings, updateResearchSettings, QUALIF_SQL_HINT, MAILS_SQL_HINT, RECHERCHE_SQL_HINT,
   type AgentKey, type AgentSettings, type EditableSettings, type Suppression, type AiSpend,
 } from '../../services/agents';
-import { normalizeTargets } from '../../lib/agents/qualification';
-import { normalizeDanaTargets } from '../../lib/agents/sourcing';
+import { normalizeTargets, ADA_SCORE_HELP, REACH_SCORE_HELP, AI_ADJUST } from '../../lib/agents/qualification';
+import { normalizeDanaTargets, DANA_SCORE_HELP } from '../../lib/agents/sourcing';
+import { accountScoreHelp, RESEARCH_COUNTRIES } from '../../lib/agents/research';
 import { DISCOVERY_SITES } from '../../lib/agents/discovery';
 import { HOME_COUNTRY } from '../../lib/agents/qualification';
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { listAssignees, type Assignee } from '../../services/userTasks';
 import { fmtDateTime, fmtRelative } from './helpers';
+import { InfoTip } from './shared';
 
 const DAYS = [{ d: 1, l: 'L' }, { d: 2, l: 'M' }, { d: 3, l: 'M' }, { d: 4, l: 'J' }, { d: 5, l: 'V' }, { d: 6, l: 'S' }, { d: 7, l: 'D' }];
 const input = 'rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40 disabled:bg-slate-50 disabled:text-slate-500';
@@ -34,10 +36,54 @@ const REASONS: Record<Suppression['reason'], string> = { stop: 'Demande d\'arrê
 
 interface Props { agent: AgentKey; settings: AgentSettings[]; isAdmin: boolean; userId: string | null; refreshKey: number; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }
 
-const COUNTRY_LABEL: Record<string, string> = { FR: '🇫🇷 France', DE: '🇩🇪 Allemagne', NL: '🇳🇱 Pays-Bas', BE: '🇧🇪 Belgique', ES: '🇪🇸 Espagne', IT: '🇮🇹 Italie', DK: '🇩🇰 Danemark', SE: '🇸🇪 Suède', HU: '🇭🇺 Hongrie' };
+const COUNTRY_LABEL: Record<string, string> = {
+  FR: '🇫🇷 France', DE: '🇩🇪 Allemagne', NL: '🇳🇱 Pays-Bas', BE: '🇧🇪 Belgique', ES: '🇪🇸 Espagne', IT: '🇮🇹 Italie', DK: '🇩🇰 Danemark', SE: '🇸🇪 Suède', HU: '🇭🇺 Hongrie',
+  LU: '🇱🇺 Luxembourg', AT: '🇦🇹 Autriche', PT: '🇵🇹 Portugal', PL: '🇵🇱 Pologne',
+};
 const listOf = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
 const MARKET_CHOICES = ['NL', 'DK', 'BE', 'DE', 'ES', 'IT', 'SE', 'AT'];
-const MARKET_LABEL: Record<string, string> = { ...COUNTRY_LABEL, AT: '🇦🇹 Autriche' };
+const MARKET_LABEL = COUNTRY_LABEL;
+/** Où Dana cherche : les pays de ses recherches web et ceux dont ADA relève les annonces, la France d'abord. */
+const DANA_COUNTRIES = [...new Set([...RESEARCH_COUNTRIES, ...Object.keys(DISCOVERY_SITES)])];
+
+/** Comment se calcule la note d'une fiche (le « i » à côté de la note minimale) : les barèmes du calcul, tels quels. */
+function ScoreHelp({ dana, name }: { dana: boolean; name: string }) {
+  const rows = (title: string, lines: Array<[string, string]>) => (
+    <div className="space-y-0.5">
+      <p className="font-medium text-slate-900">{title}</p>
+      {lines.map(([l, p]) => (
+        <div key={l} className="flex items-baseline gap-3">
+          <span className="flex-1">{l}</span>
+          <span className="shrink-0 tabular-nums text-violet-800">{p}</span>
+        </div>
+      ))}
+    </div>
+  );
+  const minus = (n: number) => `−${Math.abs(n)}`;
+  return (
+    <div className="space-y-2.5">
+      <p className="font-semibold text-slate-900">Comment se calcule la note (sur 100)</p>
+      <div className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+        <div className="space-y-2.5">
+          {rows(dana ? 'Garage avec des lots (onglet Sourcing)' : 'Garage de l\'annuaire (onglet Acheteurs)', dana ? DANA_SCORE_HELP : ADA_SCORE_HELP)}
+          {rows('Entreprise trouvée sur le web (onglet Comptes)', accountScoreHelp(dana ? 'dana' : 'ada'))}
+        </div>
+        <div className="space-y-2.5">
+          {rows('Pour toutes, si on peut la joindre', REACH_SCORE_HELP)}
+          <div className="space-y-1">
+            <p className="font-medium text-slate-900">Puis l'avis de {name}, après lecture du site : de&nbsp;{minus(AI_ADJUST.min)} à&nbsp;+{AI_ADJUST.max}</p>
+            <p>{dana
+              ? 'Par exemple +10 pour un groupe, un loueur, un leasing ou une flotte (volumes réguliers), +5 pour un interlocuteur VO ou remarketing identifié, −10 pour une très petite structure, −20 si l\'activité principale n\'est pas le VO récent.'
+              : 'Par exemple +10 pour une concession officielle de nos marques ou un spécialiste utilitaires, +5 pour un groupe ou un interlocuteur VO identifié, −10 pour une très petite structure, −20 si l\'activité principale n\'est pas le VO.'}
+            </p>
+            <p>Hors cible (un concurrent, par exemple) : la fiche est écartée, note 0.</p>
+          </div>
+          <p className="text-slate-500">La note ne dépasse pas 100. À partir de la note minimale : premier mail automatique et ajout à la carte.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Une étape du travail de chaque jour : combien, ce qu'elle fait, ce qu'elle coûte. */
 function Step({ n, title, unit, value, max, ro, onChange, help, extra }: { n: number; title: string; unit: string; value: number; max: number; ro: boolean; onChange: (v: number) => void; help: string; extra?: ReactNode }) {
@@ -113,7 +159,13 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
             <span className="text-slate-600">véhicules identiques (marque, modèle, année) chez un même garage.</span>
           </div>
           <div className="space-y-1">
-            <span className="text-xs text-slate-500">Nos pays de vente (Dana y mesure l'écart brut de chaque lot)</span>
+            <span className="text-xs text-slate-500">Où Dana cherche : la France d'abord, puis toute l'Europe</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {DANA_COUNTRIES.map((c) => <span key={c} className="text-xs rounded-full px-2 py-0.5 border border-slate-200 bg-slate-50 text-slate-700">{COUNTRY_LABEL[c] ?? c}</span>)}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs text-slate-500">Où nous revendons : Dana y compare le prix de chaque lot (l'écart de prix), quel que soit le pays où elle l'a trouvé</span>
             <div className="flex items-center gap-1.5 flex-wrap">
               {MARKET_CHOICES.map((c) => (
                 <button key={c} disabled={ro} onClick={() => setMarkets(markets.includes(c) ? markets.filter((x) => x !== c) : [...markets, c])}
@@ -121,7 +173,7 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
               ))}
             </div>
           </div>
-          <p className="text-[11px] text-slate-400">Dana cherche dans toute l'Europe, la France comprise : les garages aux plus gros lots d'abord, puis aux meilleurs écarts, hors contacts que l'équipe connaît déjà (carte, fournisseurs du Workflow). Ses découvertes se lancent depuis l'onglet Sourcing.</p>
+          <p className="text-[11px] text-slate-400">Les garages aux plus gros lots d'abord, puis aux meilleurs écarts, hors contacts que l'équipe connaît déjà (carte, fournisseurs du Workflow). Les relevés d'annonces se lancent depuis l'onglet Sourcing ; les recherches web, depuis l'onglet Comptes.</p>
         </div>
       ) : (<>
       <div className="space-y-1 text-sm">
@@ -168,6 +220,7 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
           <span className="text-slate-600">Note minimale d'une bonne fiche :</span>
           <input disabled={ro} type="number" min={0} max={100} className={`${input} w-16`} value={mapScore} onChange={(e) => setMapScore(Number(e.target.value))} />
           <span className="text-slate-600">/100</span>
+          <InfoTip wide label="Comment se calcule la note"><ScoreHelp dana={dana} name={s.display_name} /></InfoTip>
           <span className="text-xs text-slate-400">En dessous, ni mail automatique ni ajout à la carte.</span>
         </div>
         <label className="flex items-center gap-1.5 text-slate-700"><input disabled={ro} type="checkbox" checked={mapAdd} onChange={(e) => setMapAdd(e.target.checked)} /> Ajouter les bonnes fiches à la carte du réseau, comme {dana ? 'vendeurs' : 'acheteurs'} (badge «&nbsp;IA · {s.display_name}&nbsp;», avec un e-mail vérifié ou un téléphone)</label>
