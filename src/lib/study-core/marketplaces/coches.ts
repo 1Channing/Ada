@@ -42,6 +42,7 @@ import type {
 } from './types';
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
+import { cochesSeller } from '../parsers/seller';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose, fiscalTerritoryOf, isElectricSiblingOf, wantsElectricSibling } from '../business-logic';
 import { bodyLabel, canonicalizeBody } from '../bodyTypes';
@@ -117,7 +118,8 @@ function setParamSurgical(url: string, param: string, value: string | null): str
 interface CnItem {
   id?: string | number; url?: string; title?: string; price?: number; km?: number; year?: number;
   fuelType?: string; fuelTypeId?: number; make?: string; makeId?: number; model?: string; modelId?: number;
-  hp?: number; bodyTypeId?: number; isProfessional?: boolean; seller?: { name?: string };
+  hp?: number; bodyTypeId?: number; isProfessional?: boolean; seller?: { name?: string; contractId?: string; isProfessional?: boolean } | null;
+  phone?: string;
   publicationDate?: string; creationDate?: string; photos?: string[]; img?: string;
   priceDrop?: { originalPrice?: number; percentage?: number; daysSinceUpdate?: number };
   offerType?: { id?: number; literal?: string }; includesTaxes?: boolean;
@@ -126,7 +128,7 @@ interface CnItem {
   taxTypeId?: number;
   /** N° de province INE = préfixe postal (35 Las Palmas, 38 Tenerife, 51 Ceuta, 52 Melilla). */
   provinceId?: number;
-  location?: { mainProvince?: string; regionLiteral?: string; mainProvinceId?: number };
+  location?: { mainProvince?: string; regionLiteral?: string; mainProvinceId?: number; cityLiteral?: string };
 }
 interface CnProps {
   initialResults?: { items?: CnItem[]; totalResults?: number; totalPages?: number };
@@ -194,6 +196,8 @@ function parseSearchResults(html: string): ScrapedListing[] {
       // foi (taxTypeId 2 = IGIC → Canaries), la province en repli (35/38
       // Canaries, 51/52 Ceuta / Melilla — IPSI, que le site range sous IVA).
       fiscalTerritory: it.taxTypeId === 2 ? 'Canaries (IGIC)' : fiscalTerritoryOf('ES', provincePrefix),
+      // Le garage (annuaire d'Ada, 17/10) : seller {name, contractId}, téléphone et ville.
+      seller: cochesSeller(it),
     });
   }
   return out;

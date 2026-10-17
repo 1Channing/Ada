@@ -35,7 +35,9 @@ class Q implements PromiseLike<{ data: unknown; error: null }> {
     if (this.op === 'insert' || this.op === 'upsert') {
       const rows = (Array.isArray(this.payload) ? this.payload : [this.payload]) as Row[];
       return rows.map((r) => {
-        const twin = this.op === 'upsert' ? table.find((x) => x[this.conflict!] === r[this.conflict!]) : null;
+        // Clé de conflit simple ou composée (« site,site_dealer_id »).
+        const keys = (this.conflict ?? 'id').split(',').map((k) => k.trim());
+        const twin = this.op === 'upsert' ? table.find((x) => keys.every((k) => x[k] !== undefined && x[k] === r[k])) : null;
         if (twin) { Object.assign(twin, r); return twin; }
         const row = { id: `${this.t}-${++seq}`, created_at: new Date().toISOString(), ...r }; // défauts de la base
         table.push(row);

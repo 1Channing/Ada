@@ -14,7 +14,7 @@ import {
   type AgentKey, type AgentSettings, type EditableSettings, type Suppression, type AiSpend,
 } from '../../services/agents';
 import { normalizeTargets } from '../../lib/agents/qualification';
-import { DISCOVERY_COUNTRIES } from '../../lib/agents/discovery';
+import { DISCOVERY_SITES } from '../../lib/agents/discovery';
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { listAssignees, type Assignee } from '../../services/userTasks';
 import { AgentBadge } from './shared';
@@ -26,7 +26,7 @@ const REASONS: Record<Suppression['reason'], string> = { stop: 'Demande d\'arrê
 
 interface Props { settings: AgentSettings[]; isAdmin: boolean; userId: string | null; refreshKey: number; spend: AiSpend | null; onChanged: () => void; onError: (m: string) => void; onInfo: (m: string) => void }
 
-const COUNTRY_LABEL: Record<string, string> = { FR: '🇫🇷 France', DE: '🇩🇪 Allemagne', NL: '🇳🇱 Pays-Bas', BE: '🇧🇪 Belgique', ES: '🇪🇸 Espagne', IT: '🇮🇹 Italie' };
+const COUNTRY_LABEL: Record<string, string> = { FR: '🇫🇷 France', DE: '🇩🇪 Allemagne', NL: '🇳🇱 Pays-Bas', BE: '🇧🇪 Belgique', ES: '🇪🇸 Espagne', IT: '🇮🇹 Italie', DK: '🇩🇰 Danemark', SE: '🇸🇪 Suède', HU: '🇭🇺 Hongrie' };
 const listOf = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
 
 /** Le travail d'Ada par l'IA (phase 2.2) : cibles, budget, automatismes. */
@@ -71,12 +71,12 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
         <span className="text-xs text-slate-500">Pays visés</span>
         <div className="flex items-center gap-1.5 flex-wrap">
           <button disabled={ro} onClick={() => setCountries([])} className={`text-xs rounded-full px-2 py-0.5 border ${countries.length === 0 ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 text-slate-600'}`}>Pays de nos ventes (automatique)</button>
-          {DISCOVERY_COUNTRIES.map((c) => (
+          {Object.keys(DISCOVERY_SITES).map((c) => (
             <button key={c} disabled={ro} onClick={() => setCountries(countries.includes(c) ? countries.filter((x) => x !== c) : [...countries, c])}
               className={`text-xs rounded-full px-2 py-0.5 border ${countries.includes(c) ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 text-slate-600'}`}>{COUNTRY_LABEL[c]}</button>
           ))}
         </div>
-        <p className="text-[11px] text-slate-400">Les découvertes passent par AutoScout24 (pas de Danemark) ; les garages vus dans les études quotidiennes entrent aussi dans l'annuaire.</p>
+        <p className="text-[11px] text-slate-400">Les découvertes passent par tous les sites du pays (AutoScout24, Marktplaats, Gaspedaal, Leboncoin, La Centrale, mobile.de, coches.net, Subito, Bilbasen, Blocket, Jófogás) ; les utilitaires par AutoScout24. Les garages vus dans les études quotidiennes entrent aussi dans l'annuaire.</p>
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="space-y-1 text-sm"><span className="text-xs text-slate-500">Marques (voitures)</span>
@@ -91,7 +91,7 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
         <span className="text-slate-600">$</span>
         <span className="text-xs text-slate-400">Atteint → {s.display_name} s'arrête jusqu'au lendemain. Une qualification coûte de 0,002 à 0,03 $.</span>
       </div>
-      <label className="flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={autoDisc} onChange={(e) => setAutoDisc(e.target.checked)} /> Découvertes automatiques (jusqu'à 6 par jour, 3 pages chacune, du lundi au vendredi 8 h-19 h) — sans IA</label>
+      <label className="flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={autoDisc} onChange={(e) => setAutoDisc(e.target.checked)} /> Découvertes automatiques (jusqu'à 8 par jour, 3 pages chacune, en rotation sur les sites des pays cibles, du lundi au vendredi 8 h-19 h) — sans IA</label>
       <div className="flex items-center gap-2 flex-wrap text-sm">
         <span className="text-slate-600">Garages qualifiés d'office par jour :</span>
         <input disabled={ro} type="number" min={0} max={500} className={`${input} w-20`} value={autoQual} onChange={(e) => setAutoQual(Number(e.target.value))} />

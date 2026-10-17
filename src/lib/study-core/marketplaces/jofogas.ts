@@ -30,6 +30,7 @@ import type {
 } from './types';
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
+import { jofogasSeller } from '../parsers/seller';
 import { resolveYearRange } from './urlTemplate';
 import { modelFamilyKey } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
@@ -65,8 +66,61 @@ const canonKey = (v: string) =>
 const slugify = (s: string) =>
   s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-/** Cartes microdata `reListElement` — champs 100 % structurés. */
+type JfParam = { key?: string; values?: Array<{ value?: unknown; label?: unknown }> };
+type JfAd = {
+  url?: string; subject?: string; body?: string; company_ad?: boolean;
+  price?: { value?: unknown }; parameters?: JfParam[]; list_time?: { value?: unknown };
+};
+
+/**
+ * Page Next.js (relevé 17/10 sur auto.jofogas.hu : plus aucune carte
+ * `reListElement`) : les annonces vivent dans __NEXT_DATA__ →
+ * props.pageProps.adList.ads, chacune avec ses paramètres structurés
+ * (brand_cars, model_cars, regdate, mileage, fuel, car_type, zipcode, city)
+ * et son vendeur (company_ad, company_name, account_list_id, profileData).
+ */
+function parseNextAds(html: string): ScrapedListing[] | null {
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  let ads: JfAd[];
+  try {
+    const data = JSON.parse(m[1]) as { props?: { pageProps?: { adList?: { ads?: unknown } } } };
+    const list = data.props?.pageProps?.adList?.ads;
+    if (!Array.isArray(list)) return null;
+    ads = list as JfAd[];
+  } catch { return null; }
+  const param = (ad: JfAd, key: string, field: 'value' | 'label'): string | null => {
+    const v = ad.parameters?.find((p) => p.key === key)?.values?.[0]?.[field];
+    return v == null ? null : String(v).trim() || null;
+  };
+  const out: ScrapedListing[] = [];
+  for (const ad of ads) {
+    const price = Number(ad.price?.value);
+    const url = ad.url ?? '';
+    if (!Number.isFinite(price) || price <= 0 || !url) continue;
+    const year = Number(param(ad, 'regdate', 'value'));
+    const mileage = Number(param(ad, 'mileage', 'value'));
+    const listed = Number(ad.list_time?.value);
+    out.push({
+      title: ad.subject ?? '', description: (ad.body ?? '').replace(/<br\s*\/?>/gi, ' ').slice(0, 300),
+      price, currency: 'HUF', price_type: 'one-off',
+      year: Number.isFinite(year) && year > 1900 ? year : null,
+      mileage: Number.isFinite(mileage) && mileage > 0 ? mileage : null,
+      trim: null, listing_url: url,
+      brand: param(ad, 'brand_cars', 'label'), model: param(ad, 'model_cars', 'label'),
+      fuel: param(ad, 'fuel', 'label'), vehicleType: param(ad, 'car_type', 'label'),
+      sellerType: ad.company_ad ? 'pro' : 'private',
+      publishedAt: Number.isFinite(listed) && listed > 0 ? parsePublishedAt(new Date(listed * 1000).toISOString()) : null,
+      seller: jofogasSeller(ad),
+    });
+  }
+  return out;
+}
+
+/** Cartes microdata `reListElement` — champs 100 % structurés (ancienne page) ; la page Next.js d'abord. */
 function parseSearchResults(html: string): ScrapedListing[] {
+  const fromNext = parseNextAds(html);
+  if (fromNext && fromNext.length > 0) return fromNext;
   const out: ScrapedListing[] = [];
   const cards = html.split(/class="[^"]*reListElement[^"]*"/).slice(1);
   for (const c of cards) {

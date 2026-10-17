@@ -5,9 +5,11 @@
  * van, Ford, Mercedes »).
  *
  * - Vos ventes : pays et marques du Workflow → Ventes (cibles par défaut).
- * - Découvrir : un pays + une marque → le worker lit les pages AutoScout24
- *   (les plus récentes d'abord) et l'annuaire garde chaque garage.
- * - L'annuaire : garages vus sur toutes les pages qu'ADA lit, avec « client
+ * - Découvrir : un site + un pays + une marque → le worker lit les pages
+ *   (AutoScout24 : les plus récentes d'abord ; Marktplaats, Leboncoin,
+ *   mobile.de… : la recherche des études) et l'annuaire garde chaque garage.
+ * - L'annuaire : garages vus sur toutes les pages qu'ADA lit, tous sites
+ *   (un même garage vu sur plusieurs sites = une ligne et ses sources), avec « client
  *   actuel » et « déjà dans le réseau » écartés par défaut, et les annonces
  *   plus chères que nos offres (vitrine des bonnes affaires, HT + TVA du pays).
  * - Phase 2.2 : « Qualifier » confie un garage à Ada (Haiku 5.5) — site,
@@ -17,19 +19,23 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Radar, Building2, Phone, ExternalLink, MapPin, ChevronDown, X, Plus, TrendingUp, Sparkles, Mail } from 'lucide-react';
 import {
   listDealers, dealerListings, salesProfile, ourOffers, listTasks, queueDiscovery, cancelTask, addDealerToMap,
-  queueQualification, prospectDetails, setProspectStage, queueFirstMails, threadsOfProspects,
+  queueQualification, prospectDetails, setProspectStage, queueFirstMails, threadsOfProspects, SITES_SQL_HINT,
   type DealerRow, type DealerListing, type SalesProfile, type AgentTask, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { opportunities, type OfferLite, type Opportunity } from '../../lib/agents/opportunity';
-import { DISCOVERY_COUNTRIES, discoveryPages } from '../../lib/agents/discovery';
+import { DISCOVERY_SITES, DISCOVERY_SITE_LABEL, discoveryPages } from '../../lib/agents/discovery';
+import { SITE_LABEL } from '../../services/dealerDirectory';
 import { countryVat } from '../../lib/offers/vat';
 import { isoOfCountry as isoOf } from '../../lib/agents/keys';
 import { fmtDateTime, fmtRelative, STAGE_LABEL, scoreTone } from './helpers';
 import { QualifCard } from './QualifCard';
 import { fmtUsd } from '../../lib/agents/aiCost';
 
-const FLAG: Record<string, string> = { FR: '🇫🇷', DE: '🇩🇪', NL: '🇳🇱', BE: '🇧🇪', ES: '🇪🇸', IT: '🇮🇹', DK: '🇩🇰', AT: '🇦🇹', LU: '🇱🇺', SE: '🇸🇪' };
-const COUNTRY_NAME: Record<string, string> = { FR: 'France', DE: 'Allemagne', NL: 'Pays-Bas', BE: 'Belgique', ES: 'Espagne', IT: 'Italie' };
+const FLAG: Record<string, string> = { FR: '🇫🇷', DE: '🇩🇪', NL: '🇳🇱', BE: '🇧🇪', ES: '🇪🇸', IT: '🇮🇹', DK: '🇩🇰', AT: '🇦🇹', LU: '🇱🇺', SE: '🇸🇪', HU: '🇭🇺', LT: '🇱🇹' };
+const COUNTRY_NAME: Record<string, string> = { FR: 'France', DE: 'Allemagne', NL: 'Pays-Bas', BE: 'Belgique', ES: 'Espagne', IT: 'Italie', DK: 'Danemark', SE: 'Suède', HU: 'Hongrie', AT: 'Autriche', LU: 'Luxembourg', LT: 'Lituanie' };
+const siteLabel = (s: string | undefined) => DISCOVERY_SITE_LABEL[String(s ?? 'AUTOSCOUT').toUpperCase()] ?? s ?? 'AutoScout24';
+/** Les fiches d'un garage (une seule avant le SQL « tous sites »). */
+const membersOf = (d: DealerRow) => d.members?.length ? d.members : [{ id: d.id, site: d.site ?? 'autoscout24', name: d.name, site_url: d.site_url, imprint_url: d.imprint_url, website: d.website, phone: d.phone, city: d.city }];
 const DEFAULT_BRANDS = ['Toyota', 'Suzuki', 'Peugeot', 'Opel', 'Ford', 'Mercedes-Benz', 'Renault', 'Volkswagen', 'Citroën', 'Kia', 'Hyundai', 'Skoda'];
 const nice = (b: string) => b.charAt(0) + b.slice(1).toLowerCase();
 const eur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
@@ -65,7 +71,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   const [qualifiedOnly, setQualifiedOnly] = useState(false);
   const [sort, setSort] = useState<'activite' | 'score'>('activite');
   const [added, setAdded] = useState<Set<string>>(new Set());
-  const [disc, setDisc] = useState({ country: 'FR', brand: 'Toyota', model: '', vans: false, pages: 5 });
+  const [disc, setDisc] = useState({ site: 'AUTOSCOUT', country: 'FR', brand: 'Toyota', model: '', vans: false, pages: 5 });
 
   const loadTasks = useCallback(async () => { const r = await listTasks(); if (r.error) onError(r.error); else setTasks(r.rows); }, [onError]);
   const loadDirectory = useCallback(async () => {
@@ -73,9 +79,15 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
     const r = await listDealers({ country, brand: brand || null, query });
     if (r.error) { onError(r.error); setLoading(false); return; }
     setRows(r.rows);
-    const [ls, det] = await Promise.all([dealerListings(r.rows.map((x) => x.id)), prospectDetails(r.rows.filter((x) => x.prospect).map((x) => x.id))]);
-    setListings(ls);
-    setDetails(new Map(det.filter((x) => x.dealer_id).map((x) => [x.dealer_id as string, x])));
+    // Un garage vu sur plusieurs sites : ses annonces et sa fiche d'Ada sont rangées sous sa ligne.
+    const rootOf = new Map<string, string>();
+    for (const d of r.rows) for (const m of membersOf(d)) rootOf.set(m.id, d.id);
+    const [ls, det] = await Promise.all([
+      dealerListings([...rootOf.keys()]),
+      prospectDetails(r.rows.filter((x) => x.prospect).map((x) => x.prospect?.dealer_id ?? x.id)),
+    ]);
+    setListings(ls.map((l) => ({ ...l, dealer_id: rootOf.get(l.dealer_id) ?? l.dealer_id })));
+    setDetails(new Map(det.filter((x) => x.dealer_id).map((x) => [rootOf.get(x.dealer_id as string) ?? (x.dealer_id as string), x])));
     setThreads(await threadsOfProspects(det.map((x) => x.id)));
     setLoading(false);
   }, [country, brand, query, onError]);
@@ -119,9 +131,11 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   }, [profile]);
 
   const launch = async () => {
-    const e = await queueDiscovery({ country: disc.country, brand: disc.brand.trim(), model: disc.model.trim() || undefined, vans: disc.vans, pages: discoveryPages(disc.pages) }, userId);
-    if (e) onError(e); else { onInfo(`Découverte lancée : ${COUNTRY_NAME[disc.country] ?? disc.country} · ${disc.brand}${disc.vans ? ' (utilitaires)' : ''}. Résultat dans une à deux minutes.`); void loadTasks(); }
+    const vans = disc.site === 'AUTOSCOUT' && disc.vans;
+    const e = await queueDiscovery({ site: disc.site, country: disc.country, brand: disc.brand.trim(), model: disc.model.trim() || undefined, vans, pages: discoveryPages(disc.pages) }, userId);
+    if (e) onError(e); else { onInfo(`Découverte lancée : ${siteLabel(disc.site)} ${COUNTRY_NAME[disc.country] ?? disc.country} · ${disc.brand}${vans ? ' (utilitaires)' : ''}. Résultat dans une à deux minutes.`); void loadTasks(); }
   };
+  const discSites = DISCOVERY_SITES[disc.country] ?? ['AUTOSCOUT'];
   const qualify = async (ids: string[]) => {
     const e = await queueQualification(ids, userId);
     if (e) { onError(e); return; }
@@ -168,18 +182,23 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
 
       {/* Découvrir */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 space-y-3">
-        <div className="flex items-center gap-2 flex-wrap"><Radar className="w-4 h-4 text-brand-ocean" /><h3 className="text-sm font-semibold text-slate-900">Découvrir des concessions</h3><span className="text-xs text-slate-500">— Ada lit les annonces AutoScout24 les plus récentes d'un pays et garde chaque garage. Sans IA.</span></div>
+        <div className="flex items-center gap-2 flex-wrap"><Radar className="w-4 h-4 text-brand-ocean" /><h3 className="text-sm font-semibold text-slate-900">Découvrir des concessions</h3><span className="text-xs text-slate-500">— Ada lit les annonces d'un site (AutoScout24, Marktplaats, Leboncoin, mobile.de…) et garde chaque garage, rapproché de ses fiches des autres sites. Sans IA.</span></div>
         <div className="flex items-center gap-2 flex-wrap text-sm">
-          <select className={input} value={disc.country} onChange={(e) => setDisc({ ...disc, country: e.target.value })}>
-            {DISCOVERY_COUNTRIES.map((c) => <option key={c} value={c}>{FLAG[c]} {COUNTRY_NAME[c]}</option>)}
+          <select className={input} value={disc.country} onChange={(e) => { const c = e.target.value; const sites = DISCOVERY_SITES[c] ?? ['AUTOSCOUT']; setDisc({ ...disc, country: c, site: sites.includes(disc.site) ? disc.site : sites[0] }); }}>
+            {Object.keys(DISCOVERY_SITES).map((c) => <option key={c} value={c}>{FLAG[c]} {COUNTRY_NAME[c] ?? c}</option>)}
+          </select>
+          <select className={input} value={disc.site} onChange={(e) => setDisc({ ...disc, site: e.target.value })} title="Le site d'annonces à lire">
+            {discSites.map((x) => <option key={x} value={x}>{siteLabel(x)}</option>)}
           </select>
           <input className={`${input} w-40`} list="ada-brands" placeholder="Marque" value={disc.brand} onChange={(e) => setDisc({ ...disc, brand: e.target.value })} />
           <datalist id="ada-brands">{brandChoices.map((b) => <option key={b} value={b} />)}</datalist>
           <input className={`${input} w-40`} placeholder="Modèle (facultatif)" value={disc.model} onChange={(e) => setDisc({ ...disc, model: e.target.value })} />
-          <label className="inline-flex items-center gap-1 text-slate-700"><input type="checkbox" checked={disc.vans} onChange={(e) => setDisc({ ...disc, vans: e.target.checked })} /> Utilitaires (vans)</label>
+          <label className={`inline-flex items-center gap-1 ${disc.site === 'AUTOSCOUT' ? 'text-slate-700' : 'text-slate-400'}`} title={disc.site === 'AUTOSCOUT' ? '' : 'Utilitaires : AutoScout24 seulement pour l\'instant'}>
+            <input type="checkbox" disabled={disc.site !== 'AUTOSCOUT'} checked={disc.site === 'AUTOSCOUT' && disc.vans} onChange={(e) => setDisc({ ...disc, vans: e.target.checked })} /> Utilitaires (vans)
+          </label>
           <label className="inline-flex items-center gap-1 text-slate-700"><input type="number" min={1} max={10} className={`${input} w-16`} value={disc.pages} onChange={(e) => setDisc({ ...disc, pages: Number(e.target.value) })} /> pages</label>
           <button disabled={!disc.brand.trim()} onClick={() => void launch()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium disabled:opacity-40"><Radar className="w-4 h-4" /> Lancer</button>
-          <span className="text-xs text-slate-400">{discoveryPages(disc.pages)} page{discoveryPages(disc.pages) > 1 ? 's' : ''} ≈ {discoveryPages(disc.pages) * 20} annonces</span>
+          <span className="text-xs text-slate-400">{discoveryPages(disc.pages)} page{discoveryPages(disc.pages) > 1 ? 's' : ''} ≈ {discoveryPages(disc.pages) * 20} à {discoveryPages(disc.pages) * 35} annonces</span>
         </div>
         {tasks.length > 0 && (
           <div className="divide-y divide-slate-100 border-t border-slate-100">
@@ -191,7 +210,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                 ) : t.kind === 'qualification' ? (
                   <span className="font-medium text-violet-900"><Sparkles className="inline w-3.5 h-3.5 mr-0.5" />Qualification · {t.params.dealer_ids?.length ?? 0} garage{(t.params.dealer_ids?.length ?? 0) > 1 ? 's' : ''}</span>
                 ) : (
-                  <span className="font-medium text-slate-800">{FLAG[t.params.country ?? ''] ?? ''} {t.params.brand}{t.params.model ? ` ${t.params.model}` : ''}{t.params.vans ? ' · utilitaires' : ''}</span>
+                  <span className="font-medium text-slate-800">{FLAG[t.params.country ?? ''] ?? ''} {siteLabel(t.params.site)} · {t.params.brand}{t.params.model ? ` ${t.params.model}` : ''}{t.params.vans ? ' · utilitaires' : ''}</span>
                 )}
                 {!t.created_by && <span className="text-[10px] rounded-full px-1.5 bg-slate-50 border border-slate-200 text-slate-500">automatique</span>}
                 {t.status === 'terminee' && t.result && t.kind === 'qualification' && (
@@ -200,7 +219,12 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                 {t.status === 'terminee' && t.result && t.kind === 'premier_mail' && (
                   <span className="text-slate-600">{t.result.rediges ?? 0} rédigé{(t.result.rediges ?? 0) > 1 ? 's' : ''}, à valider{t.result.ignores ? ` · ${t.result.ignores} ignoré${t.result.ignores > 1 ? 's' : ''}` : ''}{t.result.echecs ? ` · ${t.result.echecs} en échec` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.arret ? ` · arrêt : ${t.result.arret}` : ''}</span>
                 )}
-                {t.status === 'terminee' && t.result && t.kind === 'decouverte_concessions' && <span className="text-slate-600">{t.result.annonces} annonces lues · {t.result.concessions} concessions, dont {t.result.nouvelles} nouvelles</span>}
+                {t.status === 'terminee' && t.result && t.kind === 'decouverte_concessions' && (
+                  <span className="text-slate-600">
+                    {t.result.annonces} annonces lues{t.result.avec_garage != null ? ` · ${t.result.avec_garage} avec leur garage` : ''} · {t.result.concessions} concessions, dont {t.result.nouvelles} nouvelles
+                    {t.result.avec_garage === 0 && (t.result.annonces ?? 0) > 0 && <span className="ml-1 text-amber-700">— le site n'a nommé aucun garage sur ces pages</span>}
+                  </span>
+                )}
                 {t.status === 'echec' && <span className="text-red-700">{t.error}</span>}
                 <span className="ml-auto text-slate-400">{fmtRelative(t.finished_at ?? t.created_at)}</span>
                 {t.status === 'en_attente' && <button onClick={() => void cancelTask(t.id).then((e) => (e ? onError(e) : void loadTasks()))} className="text-slate-400 hover:text-rose-600" title="Annuler"><X className="w-3.5 h-3.5" /></button>}
@@ -219,6 +243,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
             <span className="text-xs text-slate-500">— garages vus sur les pages qu'ADA lit (90 derniers jours).</span>
             <span className="ml-auto text-xs text-slate-400">{loading ? 'lecture…' : `${shown.length} / ${rows.length}`}</span>
           </div>
+          {rows.length > 0 && !rows.some((d) => Array.isArray(d.members)) && <p className="text-[11px] text-amber-700">{SITES_SQL_HINT}</p>}
           <div className="flex items-center gap-1.5 flex-wrap">
             <button onClick={() => setCountry(null)} className={`text-xs rounded-full px-2 py-0.5 border ${country === null ? 'bg-brand-ocean text-white border-brand-ocean' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>Tous pays</button>
             {[...new Set([...countries, ...(country ? [country] : [])])].map((c) => (
@@ -251,7 +276,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
         <div className="divide-y divide-slate-100">
           {!loading && shown.length === 0 && (
             <p className="px-4 py-10 text-center text-sm text-slate-400">
-              {rows.length === 0 ? 'L\'annuaire se remplit à chaque page d\'annonces AutoScout24 qu\'ADA lit (études quotidiennes, études, offres) — ou tout de suite avec « Découvrir » ci-dessus.' : 'Aucun garage ne correspond à ces filtres.'}
+              {rows.length === 0 ? 'L\'annuaire se remplit à chaque page d\'annonces qu\'ADA lit, sur tous les sites (études quotidiennes, études, offres) — ou tout de suite avec « Découvrir » ci-dessus.' : 'Aucun garage ne correspond à ces filtres.'}
             </p>
           )}
           {shown.map((d) => {
@@ -289,8 +314,11 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                   </div>
                   <div className="flex items-center gap-2 flex-wrap text-xs">
                     {d.phone && <a href={`tel:${d.phone}`} className="inline-flex items-center gap-1 text-slate-600 hover:text-brand-ocean"><Phone className="w-3.5 h-3.5" /> {d.phone}</a>}
-                    {d.site_url && <a href={d.site_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline"><ExternalLink className="w-3.5 h-3.5" /> AutoScout24</a>}
+                    {membersOf(d).map((m) => m.site_url
+                      ? <a key={m.id} href={m.site_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline" title={m.site === 'gaspedaal' ? 'Son annonce, chez lui (lien Gaspedaal)' : `Sa page sur ${SITE_LABEL[m.site] ?? m.site}`}><ExternalLink className="w-3.5 h-3.5" /> {SITE_LABEL[m.site] ?? m.site}</a>
+                      : <span key={m.id} className="text-[11px] rounded-full px-1.5 py-0.5 bg-slate-50 border border-slate-200 text-slate-500" title="Vu sur ce site">{SITE_LABEL[m.site] ?? m.site}</span>)}
                     {d.imprint_url && <a href={d.imprint_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline"><ExternalLink className="w-3.5 h-3.5" /> Mentions légales</a>}
+                    {d.website && <a href={d.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline"><ExternalLink className="w-3.5 h-3.5" /> Site web</a>}
                     {!d.prospect && !queued.has(d.id) && (
                       <button onClick={() => void qualify([d.id])} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-white px-2 py-1 text-violet-800 hover:bg-violet-50" title="Ada lit sa fiche et son site, et trouve à qui écrire">
                         <Sparkles className="w-3.5 h-3.5" /> Qualifier

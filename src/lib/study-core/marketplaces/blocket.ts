@@ -31,6 +31,7 @@ import type { ScrapedListing } from '../types';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose, modelFamilyKey, electricSiblingLabels } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
+import { blocketSeller } from '../parsers/seller';
 
 const URL_TEMPLATE = 'https://www.blocket.se/mobility/search/car?variant={brand}&year_from={yearFrom}&year_to={yearTo}';
 
@@ -153,6 +154,31 @@ function jsonLdCollection(html: string): { items: BlProduct[]; total: number | n
   return { items: [], total: null };
 }
 
+/**
+ * Les annonces du state React-Query de la page (bloc base64
+ * `data-react-query-state`, page réelle 17/10) : chaque doc porte org_id,
+ * organisation_name et dealer_segment (« Företag » / « Privat ») — le garage
+ * de l'annonce pour l'annuaire d'Ada. Par id d'annonce ; vide si illisible.
+ */
+function stateDocsById(html: string): Map<string, Record<string, unknown>> {
+  const out = new Map<string, Record<string, unknown>>();
+  const m = html.match(/<script[^>]*data-react-query-state[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return out;
+  try {
+    const bin = atob(m[1].trim());
+    const state = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))) as { queries?: Array<{ state?: { data?: { docs?: unknown } } }> };
+    for (const q of state.queries ?? []) {
+      const docs = q.state?.data?.docs;
+      if (!Array.isArray(docs)) continue;
+      for (const d of docs) {
+        const id = d && typeof d === 'object' ? String((d as { id?: unknown }).id ?? '') : '';
+        if (id && !out.has(id)) out.set(id, d as Record<string, unknown>);
+      }
+    }
+  } catch { /* bloc illisible : annonces sans garage, jamais bloquant */ }
+  return out;
+}
+
 /** Carburants suédois de la légende (libellés vus sur les cartes, 21/09). */
 const SV_FUEL = /^(El|Bensin|Diesel|Hybrid bensin|Hybrid diesel|Laddhybrid|Elhybrid|Gas|Etanol|Miljöbränsle\/Hybrid)$/i;
 const SV_GEARBOX = /^(Automatisk|Manuell)$/i;
@@ -219,6 +245,7 @@ function priceTypeOf(html: string, id: string, price: number): ScrapedListing['p
 function parseSearchResults(html: string): ScrapedListing[] {
   const out: ScrapedListing[] = [];
   const { items } = jsonLdCollection(html);
+  const docs = stateDocsById(html);
   for (const it of items) {
     const price = Number(it.offers?.price);
     if (!Number.isFinite(price) || price <= 0) continue;
@@ -235,6 +262,8 @@ function parseSearchResults(html: string): ScrapedListing[] {
       brand: it.brand?.name ?? null, model: it.model ?? null,
       fuel: cap.fuel, gearbox: cap.gearbox,
       powerDin: powerFromText(it.description),
+      // Le garage (annuaire d'Ada, 17/10) : org_id + organisation_name du state.
+      seller: id ? blocketSeller(docs.get(id)) : null,
     });
   }
   return out;

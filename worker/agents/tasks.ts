@@ -2,7 +2,8 @@
  * ADA ET DANA — LA FILE DE TRAVAIL (17/10). Les tâches de agent_tasks, une
  * à la fois (réservée par mise à jour conditionnelle ; une tâche coupée par
  * un redémarrage repart en échec) :
- * - « decouverte_concessions » : lire des pages AutoScout24 (./discovery.ts) ;
+ * - « decouverte_concessions » : lire des pages d'annonces d'un site
+ *   (AutoScout24, Marktplaats, Leboncoin… — ./discovery.ts) ;
  * - « qualification » : qualifier une série de garages, 10 au plus
  *   (./qualify.ts) ; la série s'arrête au plafond de dépense du jour ;
  * - « premier_mail » : rédiger les premiers mails de 5 prospects au plus
@@ -10,7 +11,8 @@
  *
  * Le cycle automatique (toutes les 10 min, du lundi au vendredi, 8 h-19 h à
  * Paris) pose lui-même des tâches quand les Réglages le permettent :
- * jusqu'à 6 découvertes par jour (cibles en rotation, 3 pages chacune), les
+ * jusqu'à 8 découvertes par jour (cibles en rotation sur tous les sites des
+ * pays cibles, 3 pages chacune), les
  * qualifications du jour (auto_qualify_per_day) et les premiers mails du
  * jour (auto_draft_per_day ; pas plus de deux jours d'envois en attente de
  * validation), dans le budget. Les tâches automatiques n'ont pas d'auteur.
@@ -19,20 +21,22 @@ import { discover } from './discovery';
 import { qualifyDealer, seriesContext, nextCandidates, type AiAgent } from './qualify';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
 import { aiConfigured, spentToday, BudgetReached, AiUnavailable } from './claude';
-import { discoveryPairs, nextDiscoveryPair, type DiscoveryParams } from '../../src/lib/agents/discovery';
+import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, type DiscoveryParams } from '../../src/lib/agents/discovery';
+import { ensureLearnedTaxonomy } from '../../src/lib/linkgen/taxonomy';
 import { parisClock, parisDayStart } from '../../src/lib/agents/sendPolicy';
 import { fmtUsd } from '../../src/lib/agents/aiCost';
 import { sb, journal, loadAgents } from './store';
 
 const STUCK_MS = 45 * 60 * 1000;
 const MAX_SERIES = 10;
-const AUTO_DISCOVERIES_PER_DAY = 6;
-const AUTO_DISCOVERY_GAP_MS = 60 * 60 * 1000;
+const AUTO_DISCOVERIES_PER_DAY = 8;
+const AUTO_DISCOVERY_GAP_MS = 45 * 60 * 1000;
 
 interface Task { id: string; agent: string; kind: string; params: Record<string, unknown>; created_by: string | null }
 
 const missing = (m: string) => /does not exist|schema cache|column/i.test(m);
-const label = (p: Partial<DiscoveryParams>) => `${p.country ?? '?'} · ${p.brand ?? '?'}${p.model ? ` ${p.model}` : ''}${p.vans ? ' (utilitaires)' : ''}`;
+const label = (p: Partial<DiscoveryParams>) =>
+  `${DISCOVERY_SITE_LABEL[String(p.site ?? 'AUTOSCOUT').toUpperCase()] ?? p.site} ${p.country ?? '?'} · ${p.brand ?? '?'}${p.model ? ` ${p.model}` : ''}${p.vans ? ' (utilitaires)' : ''}`;
 
 async function agentRow(agent: string): Promise<AiAgent | null> {
   return ((await loadAgents()) as AiAgent[]).find((a) => a.agent === agent) ?? null;
@@ -116,7 +120,7 @@ export async function runNextTask(): Promise<void> {
         const result = await discover(t.params);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'decouverte',
-          summary: `Découverte ${label(t.params)}${auto} : ${result.annonces} annonces lues, ${result.concessions} concessions (dont ${result.nouvelles} nouvelles)`, details: result });
+          summary: `Découverte ${label(t.params)}${auto} : ${result.annonces} annonces lues, ${result.avec_garage} avec leur garage, ${result.concessions} concessions (dont ${result.nouvelles} nouvelles)`, details: result });
       } else if (t.kind === 'qualification') {
         const { result, summary } = await runQualification(t);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
@@ -157,7 +161,10 @@ async function autoDiscovery(a: AiAgent, countries: string[], brands: string[], 
   const dayStart = parisDayStart(new Date()).getTime();
   if (autoOnes.filter((h) => Date.parse(h.created_at) >= dayStart).length >= AUTO_DISCOVERIES_PER_DAY) return;
   if (autoOnes[0] && Date.now() - Date.parse(autoOnes[0].created_at) < AUTO_DISCOVERY_GAP_MS) return;
-  const next = nextDiscoveryPair(discoveryPairs(countries, brands, vanBrands), history);
+  // Une marque pas encore apprise sur un site : la découverte est sautée (elle reviendra quand ADA la connaîtra).
+  await ensureLearnedTaxonomy().catch(() => undefined);
+  const usable = (p: DiscoveryParams) => { try { discoveryUrl(p); return true; } catch { return false; } };
+  const next = nextDiscoveryPair(discoveryPairs(countries, brands, vanBrands), history, usable);
   if (!next) return;
   const { error } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'decouverte_concessions', params: { ...next, pages: 3 }, created_by: null });
   if (error) console.warn(`[AGENTS] découverte automatique non posée : ${error.message}`);

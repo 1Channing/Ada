@@ -22,7 +22,7 @@ import { opportunities, brandKey, type DealerListingLite } from '../../src/lib/a
 import { countryVat } from '../../src/lib/offers/vat';
 import { suppressionMatch } from '../../src/lib/agents/sendPolicy';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
-import { loadOffers, type AiAgent } from './qualify';
+import { loadOffers, dealerGroupIds, type AiAgent } from './qualify';
 import { sb, journal, loadSuppressions } from './store';
 
 interface ProspectRow {
@@ -55,8 +55,9 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
 
   // 2. Le matériel
   const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
+  // Son stock sur tous les sites où ADA le voit (fiches rapprochées).
   const { data: lRows } = p.dealer_id
-    ? await sb.from('market_dealer_listings').select('listing_url, brand, model, title, year, mileage, price_eur').eq('dealer_id', p.dealer_id).gte('last_seen_at', since).limit(1000)
+    ? await sb.from('market_dealer_listings').select('listing_url, brand, model, title, year, mileage, price_eur').in('dealer_id', await dealerGroupIds(p.dealer_id)).gte('last_seen_at', since).limit(1000)
     : { data: [] };
   const listings = (lRows ?? []) as DealerListingLite[];
   const byBrand = new Map<string, number>();

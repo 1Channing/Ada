@@ -15,8 +15,9 @@
  * legacy parser when this yields nothing.
  */
 
-import type { ScrapedListing, Currency } from '../types';
+import type { ScrapedListing, Currency, ListingSeller } from '../types';
 import { parsePublishedAt } from './shared';
+import { genericSeller, probeSellerShape } from './seller';
 
 const DKK_TO_EUR = 0.134; // in sync with parsers/shared.ts, business-logic.ts, marketData.ts
 
@@ -298,6 +299,9 @@ export interface NextDataConfig {
    * structure is still being learned (mobile.de); cheap no-op elsewhere.
    */
   verbose?: boolean;
+  /** Le garage de l'annonce, lu à la façon du site (annuaire d'Ada, 17/10) ;
+   *  absent = lecture générique (seller, dealer, owner, contactInfo…). */
+  sellerOf?: (ad: unknown) => ListingSeller | null;
 }
 
 export function parseNextDataListings(html: string, cfg: NextDataConfig): ScrapedListing[] {
@@ -414,10 +418,14 @@ export function parseNextDataListings(html: string, cfg: NextDataConfig): Scrape
       // → on retire « ,- » avant de lire les chiffres). Fait déclaré, pas
       // une déduction ; absent = null, sans invention.
       previousPrice: previousPriceOf(ad, cfg.currency),
+      // Le garage (annuaire d'Ada) : à la façon du site, sinon lecture générique.
+      seller: cfg.sellerOf ? cfg.sellerOf(ad) : genericSeller(ad, { type: str(readField(ad, ['sellerType', 'sellerKind'], []) as string | null) }),
     });
   }
 
   diag(`[NEXTDATA] ${cfg.siteLabel}: extracted ${out.length} priced listings`);
+  // Annuaire d'Ada : aucune annonce n'a nommé son garage → clés de la 1re (sonde, une fois).
+  if (out.length > 0 && !out.some((l) => l.seller)) probeSellerShape(cfg.siteLabel, ads[0]);
   // Calibration: the raw fuel strings AS EXTRACTED, with counts — this is the
   // exact evidence needed when fuel confirmation votes look impossible
   // (e.g. "petrol" on an electric-only model page = wrong source field).

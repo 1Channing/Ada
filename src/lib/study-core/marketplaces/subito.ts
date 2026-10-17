@@ -27,6 +27,7 @@ import type {
 } from './types';
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
+import { genericSeller, probeSellerShape } from '../parsers/seller';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose, modelFamilyKey } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
@@ -146,8 +147,11 @@ function parseSearchResults(html: string, _url: string): ScrapedListing[] {
       gearbox: fv(ad, '/gearbox')?.value ?? null,
       sellerType: null,
       publishedAt: parsePublishedAt(adAny.date ?? adAny.datePublished ?? ldDates.get(listingUrl)),
+      // Le garage (annuaire d'Ada, 17/10) : advertiser {name, company…} et geo — forme à confirmer.
+      seller: genericSeller(ad),
     });
   }
+  if (out.length > 0 && !out.some((l) => l.seller)) probeSellerShape('SUBITO', data.ads.find((a) => a.kind === 'AdItem'));
   return out;
 }
 

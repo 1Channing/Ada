@@ -35,6 +35,7 @@ import { bodyLabel } from '../bodyTypes';
 import { defaultBuildPaginatedUrl } from './registry';
 import { parseNextDataListings, readField, deepFindPrice, toInt, toYear, toHp } from '../parsers/nextdata';
 import { parseListings as genericParseListings } from '../parsers/generic';
+import { genericSeller, probeSellerShape } from '../parsers/seller';
 
 /** Valeur site → clé interne (miroir des autres adaptateurs). */
 function reverseLookup(map: Record<string, string>, siteValue: string): string {
@@ -646,8 +647,11 @@ function parseFlightListings(html: string): ScrapedListing[] {
       vehicleType: readField(ad, ['category', 'bodyType'], ['c']),
       sellerType: readField(ad, ['sellerType', 'st'], []),
       priceType: null,
+      // Le garage (annuaire d'Ada, 17/10) : lecture générique (contactInfo, sellerId… à confirmer).
+      seller: genericSeller(ad, { type: readField(ad, ['sellerType', 'st'], []) }),
     });
   }
+  if (out.length > 0 && !out.some((l) => l.seller)) probeSellerShape('MOBILE_DE', ads[0]);
   if (foreign.size > 0) {
     const detail = [...foreign.entries()].map(([c, n]) => `${c}×${n}`).join(', ');
     console.warn(`[MOBILEDE_OBS] ${[...foreign.values()].reduce((a, b) => a + b, 0)} annonce(s) hors Allemagne écartée(s) (${detail})`);

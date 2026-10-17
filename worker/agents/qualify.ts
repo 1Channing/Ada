@@ -1,9 +1,13 @@
 /**
- * ADA QUALIFIE UN GARAGE (17/10, phase 2.2). Pour chaque garage de l'annuaire :
- * 1. La fiche AutoScout24 du garage (site web, Impressum, vendeurs, type de
- *    concession, succursales) — lecture directe, Zyte si la page résiste.
- * 2. Son site : l'accueil et deux pages « contact / équipe / mentions » ;
- *    les e-mails publiés sont relevés sans IA.
+ * ADA QUALIFIE UN GARAGE (17/10, phase 2.2). Pour chaque garage de l'annuaire
+ * — avec toutes ses fiches, quand il est vu sur plusieurs sites :
+ * 1. Sa fiche AutoScout24 s'il en a une (site web, Impressum, vendeurs, type
+ *    de concession, succursales) — lecture directe, Zyte si la page résiste.
+ * 2. Son site : celui de la fiche, celui déclaré par un autre site
+ *    (Marktplaats…), ou celui où mène son lien Gaspedaal ; l'accueil et deux
+ *    pages « contact / équipe / mentions » ; les e-mails publiés sont relevés
+ *    sans IA. Sans site ni e-mail (garage vu seulement sur Leboncoin,
+ *    coches.net…), Haiku cherche sur le web (point 4).
  * 3. Le score d'adéquation (pays, marques, utilitaires, « plus cher que
  *    nous », taille, joignable) — sans IA.
  * 4. Haiku 5.5 lit ce matériel et rend une fiche (type, groupe, bonne
@@ -25,6 +29,7 @@ import {
 } from '../../src/lib/agents/qualification';
 import { opportunities, brandKey, type OfferLite, type DealerListingLite } from '../../src/lib/agents/opportunity';
 import { sameDealer, isoOfCountry } from '../../src/lib/agents/keys';
+import { SITE_LABEL } from '../../src/services/dealerDirectory';
 import { countryVat } from '../../src/lib/offers/vat';
 import { HAIKU } from '../../src/lib/agents/aiCost';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
@@ -132,31 +137,108 @@ export async function seriesContext(agent: AiAgent, taskId: string | null): Prom
 
 // --- Un garage --------------------------------------------------------------------------------
 
-interface DealerDb { id: string; name: string; country: string | null; city: string | null; zip: string | null; street: string | null; phone: string | null; contact_name: string | null; site_url: string | null; imprint_url: string | null; website: string | null }
+interface DealerDb {
+  id: string; name: string; country: string | null; city: string | null; zip: string | null; street: string | null; phone: string | null; contact_name: string | null;
+  site_url: string | null; imprint_url: string | null; website: string | null;
+  // SQL agents_tous_sites (17/10) ; absents avant : une fiche seule, AutoScout24.
+  site?: string | null; parent_id?: string | null; lat?: number | null; lng?: number | null; legal_id?: string | null;
+}
 export interface QualifyOutcome { status: 'qualifie' | 'ecarte' | 'echec'; name: string; score: number | null; cost: number; detail: string; addedToMap: boolean }
 
 const IS_VAN = /(van|utilit|transport|bestel|kasten|furg|camion)/i;
 
+const BASE_COLS = 'id, name, country, city, zip, street, phone, contact_name, site_url, imprint_url, website, site';
+const GROUP_COLS = `${BASE_COLS}, parent_id, lat, lng, legal_id`;
+
+/** Un garage et toutes ses fiches (le même garage vu sur d'autres sites), la fiche principale d'abord. */
+async function loadDealerGroup(dealerId: string): Promise<DealerDb[]> {
+  const first = await sb.from('market_dealers').select(GROUP_COLS).eq('id', dealerId).maybeSingle();
+  if (first.error) {
+    // SQL « tous sites » pas encore collé : une fiche seule, comme avant.
+    const { data } = await sb.from('market_dealers').select(BASE_COLS).eq('id', dealerId).maybeSingle();
+    return data ? [data as DealerDb] : [];
+  }
+  let root = first.data as DealerDb | null;
+  if (!root) return [];
+  if (root.parent_id) {
+    const { data } = await sb.from('market_dealers').select(GROUP_COLS).eq('id', root.parent_id).maybeSingle();
+    if (data) root = data as DealerDb;
+  }
+  const { data: kids } = await sb.from('market_dealers').select(GROUP_COLS).eq('parent_id', root.id).limit(50);
+  return [root, ...((kids ?? []) as DealerDb[]).filter((k) => k.id !== root?.id)];
+}
+
+/** Les identifiants de toutes les fiches d'un garage (lui seul tant que le SQL « tous sites » n'est pas collé). */
+export async function dealerGroupIds(dealerId: string): Promise<string[]> {
+  const ids = (await loadDealerGroup(dealerId)).map((m) => m.id);
+  return ids.length ? ids : [dealerId];
+}
+
+const MARKET_HOST = /(^|\.)(gaspedaal|autoscout24|marktplaats|autotrack|autotelegraaf|viabovag|2dehands|2ememain|mobile|leboncoin|lacentrale|kleinanzeigen|facebook|google)\./i;
+
+/**
+ * Le site d'un garage vu sur Gaspedaal : son lien « dealer » (api.gaspedaal.nl/
+ * redirect/…) mène à l'annonce chez lui (preuve 07/09 : → tesselaarbv.nl/
+ * occasions/…). On lit seulement l'adresse de la redirection ; une page qui
+ * refuse (403) n'est pas forcée — la recherche web prend le relais.
+ */
+async function siteFromRedirect(url: string): Promise<string | null> {
+  try {
+    let current = url;
+    for (let hop = 0; hop < 4; hop++) {
+      const res = await fetch(current, { headers: { 'user-agent': UA }, redirect: 'manual', signal: AbortSignal.timeout(10_000) });
+      const loc = res.headers.get('location');
+      if (res.status < 300 || res.status >= 400 || !loc) break;
+      current = new URL(loc, current).toString();
+    }
+    if (current === url) return null;
+    const u = new URL(current);
+    return MARKET_HOST.test(u.hostname) ? null : `${u.origin}/`;
+  } catch { return null; }
+}
+
+const firstOf = <T>(xs: Array<T | null | undefined>): T | null => xs.find((x): x is T => x != null && x !== '') ?? null;
+
 export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promise<QualifyOutcome> {
-  const { data: dRow } = await sb.from('market_dealers').select('id, name, country, city, zip, street, phone, contact_name, site_url, imprint_url, website').eq('id', dealerId).maybeSingle();
-  const d = dRow as DealerDb | null;
-  if (!d) return { status: 'echec', name: dealerId, score: null, cost: 0, detail: 'garage introuvable dans l\'annuaire', addedToMap: false };
+  const group = await loadDealerGroup(dealerId);
+  const root = group[0] as DealerDb | undefined;
+  if (!root) return { status: 'echec', name: dealerId, score: null, cost: 0, detail: 'garage introuvable dans l\'annuaire', addedToMap: false };
+  // La fiche principale, complétée par ses autres fiches (ville, code postal, rue, position).
+  const placed = group.find((m) => m.lat != null && m.lng != null);
+  const d: DealerDb = {
+    ...root, city: root.city ?? firstOf(group.map((m) => m.city)), zip: root.zip ?? firstOf(group.map((m) => m.zip)),
+    street: root.street ?? firstOf(group.map((m) => m.street)), lat: placed?.lat ?? null, lng: placed?.lng ?? null,
+  };
+  const ids = group.map((m) => m.id);
+  const siteOfRow = (m: DealerDb) => m.site ?? 'autoscout24';
+  const sources = [...new Set(group.map((m) => SITE_LABEL[siteOfRow(m)] ?? siteOfRow(m)))];
   const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
-  const { data: lRows } = await sb.from('market_dealer_listings').select('listing_url, brand, model, title, year, mileage, price_eur, vehicle_type').eq('dealer_id', d.id).gte('last_seen_at', since).limit(1000);
+  const { data: lRows } = await sb.from('market_dealer_listings').select('listing_url, brand, model, title, year, mileage, price_eur, vehicle_type').in('dealer_id', ids).gte('last_seen_at', since).limit(1000);
   const listings = (lRows ?? []) as Array<DealerListingLite & { vehicle_type: string | null }>;
   const opps = opportunities(listings, ctx.offers, countryVat(d.country ?? 'FR'));
+  const phone = firstOf(group.map((m) => m.phone));
+  const contactName = firstOf(group.map((m) => m.contact_name));
 
-  // 1. La fiche AutoScout24
+  // 1. La fiche AutoScout24 (s'il en a une)
   const evidence: Array<{ url: string; note: string }> = [];
   let page: DealerPageInfo | null = null;
-  for (const u of [d.imprint_url, d.site_url].filter((x): x is string => !!x)) {
-    const html = await fetchPage(u, true);
-    page = html ? parseDealerInfoPage(html) : null;
-    if (page) { evidence.push({ url: u, note: 'fiche AutoScout24' }); break; }
+  for (const m of group.filter((x) => siteOfRow(x) === 'autoscout24')) {
+    for (const u of [m.imprint_url, m.site_url].filter((x): x is string => !!x)) {
+      const html = await fetchPage(u, true);
+      page = html ? parseDealerInfoPage(html) : null;
+      if (page) { evidence.push({ url: u, note: 'fiche AutoScout24' }); break; }
+    }
+    if (page) break;
   }
 
-  // 2. Le site du garage
-  const website = page?.website ?? d.website ?? null;
+  // 2. Le site du garage : sa fiche AutoScout24, un site déclaré ailleurs, ou son lien Gaspedaal
+  let website = page?.website ?? firstOf(group.map((m) => m.website));
+  if (!website) {
+    for (const m of group.filter((x) => siteOfRow(x) === 'gaspedaal' && x.site_url)) {
+      website = await siteFromRedirect(m.site_url as string);
+      if (website) { evidence.push({ url: m.site_url as string, note: 'lien Gaspedaal vers le site du garage' }); break; }
+    }
+  }
   const found = new Map<string, string>();
   for (const e of extractEmails(page?.imprint ?? '')) found.set(e, 'Impressum AutoScout24');
   const pages: Array<{ url: string; text: string }> = [];
@@ -184,7 +266,7 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   const fit = fitScore({ ...fitIn, hasEmail: emailsFound.length > 0, hasNamedContact: people.length > 0 });
   const webSearch = !website && emailsFound.length === 0;
   const prompt = qualifyPrompt({
-    dealer: { name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street, phone: d.phone, contactName: d.contact_name },
+    dealer: { name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street, phone, contactName, sources, legalId: firstOf(group.map((m) => m.legal_id)) },
     fit,
     stock: {
       listings: listings.length, brands: brandsSeen.slice(0, 12), vans: listings.filter((l) => IS_VAN.test(l.vehicle_type ?? '')).length,
@@ -195,8 +277,9 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   });
 
   // 3. Haiku 5.5
-  const { data: existing } = await sb.from('agent_prospects').select('id, stage, network_contact_id').eq('dealer_id', d.id).maybeSingle();
-  const prev = existing as { id: string; stage: string; network_contact_id: string | null } | null;
+  // Déjà qualifié par une de ses fiches (avant le rapprochement des sites) : c'est la même fiche prospect.
+  const { data: existing } = await sb.from('agent_prospects').select('id, stage, network_contact_id, dealer_id').in('dealer_id', ids).limit(1);
+  const prev = (((existing ?? []) as Array<{ id: string; stage: string; network_contact_id: string | null; dealer_id: string }>)[0]) ?? null;
   let ai: QualifyOutput;
   let cost = 0;
   try {
@@ -242,24 +325,27 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   const now = new Date().toISOString();
   const stage = ai.exclure ? 'ecarte' : 'qualifie';
   const row: Record<string, unknown> = {
-    agent: ctx.agent.agent, dealer_id: d.id, name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street,
-    phone: d.phone ?? page?.phones[0] ?? null, website: site, legal_name: ai.raison_sociale, group_name: ai.groupe,
+    agent: ctx.agent.agent, dealer_id: prev?.dealer_id ?? d.id, name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street,
+    phone: phone ?? page?.phones[0] ?? null, website: site, legal_name: ai.raison_sociale, group_name: ai.groupe,
     sites: ai.nb_sites ?? (page?.branches.length || null), kind: ai.type, brands_official: (ai.marques_officielles ?? []).slice(0, 12),
     emails, people: contacts, best_contact: best, language: ai.langue, fit_score: fit2.score, fit_parts: fit2.parts, score,
     summary: ai.resume, exclusion_reason: ai.exclure ? ai.motif_exclusion : null, evidence, qualified_at: now,
     qualify_cost_usd: Math.round(cost * 10_000) / 10_000, updated_at: now,
   };
   if (!prev || ['qualifie', 'ecarte'].includes(prev.stage)) row.stage = stage;
-  const { data: saved, error } = await sb.from('agent_prospects').upsert(row, { onConflict: 'dealer_id' }).select('id');
+  const { data: saved, error } = prev
+    ? await sb.from('agent_prospects').update(row).eq('id', prev.id).select('id')
+    : await sb.from('agent_prospects').upsert(row, { onConflict: 'dealer_id' }).select('id');
   if (error) return { status: 'echec', name: d.name, score, cost, detail: `fiche non enregistrée : ${error.message}`, addedToMap: false };
   const prospectId = ((saved ?? []) as Array<{ id: string }>)[0]?.id ?? prev?.id ?? null;
   if (site && site !== d.website) await sb.from('market_dealers').update({ website: site }).eq('id', d.id);
 
   // 6. La carte du réseau
   let addedToMap = false;
-  const reachable = okEmails.size > 0 || !!(d.phone ?? page?.phones[0]);
+  const reachable = okEmails.size > 0 || !!(phone ?? page?.phones[0]);
   if (prospectId && !prev?.network_contact_id && !ai.exclure && ctx.agent.map_auto_add && score >= ctx.agent.map_min_score && reachable) {
-    addedToMap = await addToMap(ctx.agent.agent, prospectId, d, { score, summary: ai.resume, best, contacts, site, brands: brandsSeen, phone: d.phone ?? page?.phones[0] ?? null });
+    const at = d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null;
+    addedToMap = await addToMap(ctx.agent.agent, prospectId, d, { score, summary: ai.resume, best, contacts, site, brands: brandsSeen, phone: phone ?? page?.phones[0] ?? null, at });
   }
 
   const who = best.nom ? `${best.nom}${best.fonction ? ` (${best.fonction})` : ''}` : best.email ?? 'pas encore d\'interlocuteur';
@@ -268,7 +354,7 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
     summary: ai.exclure
       ? `${d.name} (${d.country ?? '?'}) écarté : ${ai.motif_exclusion ?? 'hors cible'}`
       : `${d.name} (${d.country ?? '?'}) qualifié ${score}/100 — ${who}${addedToMap ? ' · ajouté à la carte' : ''}`,
-    details: { dealer_id: d.id, prospect_id: prospectId, score, fit: fit2.score, cost_usd: Math.round(cost * 10_000) / 10_000, web_search: webSearch },
+    details: { dealer_id: d.id, prospect_id: prospectId, score, fit: fit2.score, cost_usd: Math.round(cost * 10_000) / 10_000, web_search: webSearch, sources },
   });
   return { status: ai.exclure ? 'ecarte' : 'qualifie', name: d.name, score, cost, detail: who, addedToMap };
 }
@@ -282,12 +368,14 @@ function median(xs: number[]): number | null {
 async function addToMap(agent: string, prospectId: string, d: DealerDb, q: {
   score: number; summary: string; best: { nom: string | null; fonction: string | null; email: string | null }; contacts: Array<{ nom: string; fonction: string; email: string | null }>;
   site: string | null; brands: string[]; phone: string | null;
+  /** Position donnée par l'annonce (Marktplaats, Blocket, Leboncoin…) ; sinon OpenStreetMap. */
+  at?: { lat: number; lng: number } | null;
 }): Promise<boolean> {
   // Déjà sur la carte sous un autre nom ou le même téléphone : on relie, on n'ajoute pas.
   const { data: near } = await sb.from('network_contacts').select('id, name, phone').eq('country', (d.country ?? 'FR').toUpperCase()).limit(2000);
   const twin = ((near ?? []) as Array<{ id: string; name: string; phone: string | null }>).find((n) => sameDealer(n, { name: d.name, phone: q.phone }));
   if (twin) { await sb.from('agent_prospects').update({ network_contact_id: twin.id }).eq('id', prospectId); return false; }
-  const at = await geocode(d.country, d.zip, d.city);
+  const at = q.at ?? await geocode(d.country, d.zip, d.city);
   const label = agent === 'dana' ? 'Dana' : 'Ada';
   const { data, error } = await sb.from('network_contacts').insert({
     name: d.name, kind: 'concession', role: 'acheteur', country: (d.country ?? 'FR').toUpperCase(), city: d.city,

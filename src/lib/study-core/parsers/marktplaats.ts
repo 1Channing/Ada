@@ -10,6 +10,7 @@
 import type { ScrapedListing } from '../types';
 import { extractEuroPrice, extractYear, extractMileage } from './shared';
 import { parseNextDataListings } from './nextdata';
+import { marktplaatsSeller } from './seller';
 
 /**
  * Parse Marktplaats search results HTML into listings
@@ -21,7 +22,7 @@ import { parseNextDataListings } from './nextdata';
 export function parseListings(html: string, _url: string): ScrapedListing[] {
   // Strategy 0 (preferred): structured __NEXT_DATA__ — gives brand/fuel/gearbox/
   // power/reliable mileage, not just price+title.
-  const structured = parseNextDataListings(html, { host: 'https://www.marktplaats.nl', currency: 'EUR', siteLabel: 'MARKTPLAATS' });
+  const structured = parseNextDataListings(html, { host: 'https://www.marktplaats.nl', currency: 'EUR', siteLabel: 'MARKTPLAATS', sellerOf: marktplaatsSeller });
   if (structured.length > 0) return structured;
 
   // Fallbacks (legacy): HTML cards, then generic embedded JSON.

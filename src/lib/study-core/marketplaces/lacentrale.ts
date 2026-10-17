@@ -39,6 +39,7 @@ import type {
 } from './types';
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
+import { genericSeller, probeSellerShape } from '../parsers/seller';
 import { resolveYearRange } from './urlTemplate';
 import { modelFamilyKey, seriesFamilyKey } from '../business-logic';
 import { bodyLabel } from '../bodyTypes';
@@ -253,8 +254,11 @@ function parseSearchResults(html: string): ScrapedListing[] {
       sellerType: h.customerType?.trim() || null,
       // firstOnlineDate "2026-07-01" — marqueur vélocité natif au jour.
       publishedAt: parsePublishedAt(h.firstOnlineDate),
+      // Le garage (annuaire d'Ada, 17/10) : lecture générique du hit (forme à confirmer).
+      seller: genericSeller(h, { type: h.customerType ?? null }),
     });
   }
+  if (out.length > 0 && !out.some((l) => l.seller)) probeSellerShape('LACENTRALE', hits.values().next().value);
   return out;
 }
 

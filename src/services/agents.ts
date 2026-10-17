@@ -13,6 +13,7 @@
 import { supabase } from '../lib/supabase';
 import { replySubject } from '../lib/agents/mail';
 import type { AgentTargets } from '../lib/agents/qualification';
+import { SITE_LABEL } from './dealerDirectory';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -257,18 +258,23 @@ export interface DealerRow {
   brands: string[] | null; median_price: number | null; last_listing_at: string | null; is_client: boolean; in_network: boolean;
   /** Qualification d'Ada (SQL du 17/10 agents_qualification) ; null = pas encore qualifié. */
   prospect?: DealerProspect | null;
+  /** Tous sites (SQL du 17/10 agents_tous_sites) : le site de la fiche principale, toutes les
+   *  fiches du garage (le même garage vu sur d'autres sites), sa position, son SIREN. */
+  site?: string; sites?: string[]; members?: DealerMember[]; lat?: number | null; lng?: number | null; legal_id?: string | null;
 }
+/** Une fiche du garage sur un site d'annonces. */
+export interface DealerMember { id: string; site: string; name: string; site_url: string | null; imprint_url: string | null; website: string | null; phone: string | null; city: string | null }
 export interface DealerListing { dealer_id: string; listing_url: string; brand: string | null; model: string | null; title: string | null; year: number | null; mileage: number | null; fuel: string | null; vehicle_type: string | null; price_eur: number | null; last_seen_at: string }
 export interface SalesProfile { countries: Array<{ country: string; n: number }>; brands: Array<{ brand: string; n: number }> }
 export interface AgentTask {
   id: string; agent: AgentKey; kind: 'decouverte_concessions' | 'qualification' | 'premier_mail';
-  params: { country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; prospect_ids?: string[]; auto?: boolean };
+  params: { site?: string; country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; prospect_ids?: string[]; auto?: boolean };
   status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee';
-  result: { annonces?: number; concessions?: number; nouvelles?: number; url?: string; garages?: number; qualifies?: number; ecartes?: number; echecs?: number; carte?: number; cout_usd?: number; arret?: string | null; rediges?: number; ignores?: number; details?: string[] } | null;
+  result: { annonces?: number; avec_garage?: number; concessions?: number; nouvelles?: number; url?: string; site?: string; garages?: number; qualifies?: number; ecartes?: number; echecs?: number; carte?: number; cout_usd?: number; arret?: string | null; rediges?: number; ignores?: number; details?: string[] } | null;
   error: string | null; created_by: string | null; created_at: string; started_at: string | null; finished_at: string | null;
 }
-/** La qualification d'un garage telle que l'annuaire la porte. */
-export interface DealerProspect { id: string; stage: ProspectStage; score: number | null; kind: string | null; qualified_at: string | null; email: string | null; in_map: boolean }
+/** La qualification d'un garage telle que l'annuaire la porte (dealer_id : la fiche qualifiée, tous sites). */
+export interface DealerProspect { id: string; dealer_id?: string; stage: ProspectStage; score: number | null; kind: string | null; qualified_at: string | null; email: string | null; in_map: boolean }
 export type ProspectStage = 'qualifie' | 'ecarte' | 'a_contacter' | 'contacte' | 'repondu' | 'interesse' | 'client' | 'perdu';
 /** La fiche complète d'un garage qualifié par Ada. */
 export interface ProspectDetail {
@@ -284,6 +290,7 @@ export type AiSettingsPatch = Required<Pick<AgentSettings, 'targets' | 'daily_bu
 export const QUALIF_SQL_HINT = 'Qualification par l\'IA : SQL du 17/10 (agents_qualification) à coller dans Supabase.';
 const errQualif = (m: string) => (missing(m) || /column .* does not exist|agents_ai_spend|agent_prospects|agent_runs|kind_check/i.test(m) ? QUALIF_SQL_HINT : m);
 export const ANNUAIRE_SQL_HINT = 'Annuaire : SQL du 17/10 (agents_annuaire) à coller dans Supabase.';
+export const SITES_SQL_HINT = 'Un même garage vu sur plusieurs sites apparaît encore plusieurs fois : SQL du 17/10 (agents_tous_sites) à coller dans Supabase.';
 const errAnnuaire = (m: string) => (missing(m) ? ANNUAIRE_SQL_HINT : m);
 
 export async function listDealers(f: { country?: string | null; brand?: string | null; query?: string | null; days?: number; limit?: number }): Promise<{ rows: DealerRow[]; error: string | null }> {
@@ -326,7 +333,7 @@ export async function listTasks(limit = 15): Promise<{ rows: AgentTask[]; error:
   return { rows: (data ?? []) as AgentTask[], error: null };
 }
 
-export async function queueDiscovery(params: { country: string; brand: string; model?: string; vans?: boolean; pages?: number }, userId: string | null): Promise<string | null> {
+export async function queueDiscovery(params: { site?: string; country: string; brand: string; model?: string; vans?: boolean; pages?: number }, userId: string | null): Promise<string | null> {
   const { error } = await sb.from('agent_tasks').insert({ agent: 'ada', kind: 'decouverte_concessions', params, created_by: userId });
   return error ? errAnnuaire(error.message) : null;
 }
@@ -350,13 +357,17 @@ async function geocode(d: DealerRow): Promise<{ lat: number; lng: number } | nul
 
 /** Ajoute un garage de l'annuaire à la carte du réseau (acheteur potentiel, badge « IA · Ada »). */
 export async function addDealerToMap(d: DealerRow, userId: string | null): Promise<{ placed: boolean; error: string | null }> {
-  const at = await geocode(d);
+  // La position donnée par l'annonce d'abord (Marktplaats, Blocket, Leboncoin…), sinon OpenStreetMap.
+  const at = d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : await geocode(d);
   const brands = (d.brands ?? []).slice(0, 6).map((b) => b.charAt(0) + b.slice(1).toLowerCase()).join(', ');
+  const sources = (d.sites ?? [d.site ?? 'autoscout24']).map((x) => SITE_LABEL[x] ?? x).join(', ');
+  // Un lien de redirection Gaspedaal n'est pas un site web.
+  const page = d.site_url && !/api\.gaspedaal\.nl\/redirect\//.test(d.site_url) ? d.site_url : null;
   const { error } = await sb.from('network_contacts').insert({
     name: d.name, kind: 'concession', role: 'acheteur', country: (d.country ?? 'FR').toUpperCase(), city: d.city,
     lat: at?.lat ?? null, lng: at?.lng ?? null, contact_name: d.contact_name, phone: d.phone,
-    website: d.website ?? d.site_url, relation: 'nouveau', vehicle_types: brands,
-    comment: `Trouvé par Ada dans l'annuaire (AutoScout24) : ${d.listings} annonce${d.listings > 1 ? 's' : ''} sur 90 jours.`,
+    website: d.website ?? page, relation: 'nouveau', vehicle_types: brands,
+    comment: `Trouvé par Ada dans l'annuaire (${sources}) : ${d.listings} annonce${d.listings > 1 ? 's' : ''} sur 90 jours.`,
     source: 'ada', ai_added_at: new Date().toISOString(), created_by: userId,
   });
   if (error) return { placed: false, error: /row-level security|permission/i.test(error.message) ? 'Ajout refusé : il faut le droit « Carte du réseau · édition ».' : error.message };

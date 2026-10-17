@@ -96,6 +96,12 @@ export interface ListingSeller {
   zip?: string | null;
   city?: string | null;
   street?: string | null;
+  /** Tous sites (17/10) : site web déclaré, coordonnées GPS de l'annonce,
+   *  identifiant légal (SIREN Leboncoin…) quand la page les donne. */
+  website?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  legalId?: string | null;
 }
 
 /**

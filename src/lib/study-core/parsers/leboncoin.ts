@@ -10,6 +10,7 @@
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from './shared';
 import { fiscalTerritoryOf } from '../business-logic';
+import { leboncoinSeller, probeSellerShape } from './seller';
 
 /**
  * Read one attribute from a Leboncoin ad, tolerant of both shapes seen in
@@ -298,8 +299,11 @@ export function parseListings(html: string, url: string): ScrapedListing[] {
         // fail-open si absente) → exclusion des DOM-COM (hors TVA UE).
         postalCode: lbcZip,
         fiscalTerritory: fiscalTerritoryOf('FR', lbcZip),
+        // Le garage (annuaire d'Ada, 17/10) : owner {type 'pro', store_id, name, siren}.
+        seller: leboncoinSeller(ad),
       });
     }
+    if (listings.length > 0 && !listings.some((l) => l.seller)) probeSellerShape('LEBONCOIN', adsArray[0]);
   } catch (error) {
     console.error('[LEBONCOIN] ❌ Error parsing __NEXT_DATA__:', error instanceof Error ? error.message : String(error));
     // Return empty array on error

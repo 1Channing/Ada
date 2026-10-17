@@ -3,7 +3,8 @@
  * AutoScout24, e-mails publiés, dirigeants, pages contact), le score
  * d'adéquation, le coût d'un appel, le contrôle de la réponse de l'IA, la
  * rotation des découvertes automatiques — puis le parcours complet du worker
- * avec un faux serveur Claude, de fausses pages et une base simulée.
+ * avec un faux serveur Claude, de fausses pages et une base simulée, dont un
+ * garage vu sur deux sites hors d'AutoScout24 (17/10, « tous les sites »).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as dns } from 'node:dns';
@@ -101,10 +102,11 @@ ok(phoneKey9('+33 (0)1 72 39 63 87') === '172396387' && sameDealer({ name: 'X', 
 ok(isoOfCountry('Pays-Bas') === 'NL' && isoOfCountry('Danemark') === 'DK' && isoOfCountry('nl') === 'NL' && isoOfCountry('Narnia') === null, 'pays : « Pays-Bas » → NL');
 
 // --- Rotation des découvertes automatiques ------------------------------------------------------------
-const pairs = discoveryPairs(['NL', 'DK', 'fr'], ['Toyota', 'Suzuki'], ['Ford']);
-ok(pairs.length === 6 && !pairs.some((p) => p.country === 'DK') && pairs[0].brand === 'Toyota' && pairs[1].vans && pairs[2].country === 'FR', 'découvertes : pays couverts seulement (pas DK), voitures et utilitaires alternés', pairs);
+const pairs = discoveryPairs(['NL', 'DK', 'fr', 'LT'], ['Toyota', 'Suzuki'], ['Ford']);
+ok(pairs.length === 16 && pairs.some((p) => p.site === 'BILBASEN' && p.country === 'DK') && !pairs.some((p) => p.country === 'LT') && pairs[0].brand === 'Toyota' && pairs[1].vans && pairs.filter((p) => p.vans).every((p) => p.site === 'AUTOSCOUT'),
+  'découvertes : tous les sites des pays cibles (le Danemark par Bilbasen, pas la Lituanie), voitures et utilitaires alternés', pairs);
 const nextPair = nextDiscoveryPair(pairs, [{ params: { country: 'NL', brand: 'Toyota' }, created_at: '2026-10-16T08:00:00Z' }]);
-ok(nextPair?.country === 'NL' && nextPair.brand === 'Ford' && nextPair.vans, 'découvertes : la prochaine jamais faite', nextPair);
+ok(nextPair?.site === 'AUTOSCOUT' && nextPair.country === 'NL' && nextPair.brand === 'Ford' && nextPair.vans, 'découvertes : la prochaine jamais faite', nextPair);
 
 // --- Le parcours complet du worker ---------------------------------------------------------------------
 type Row = Record<string, unknown>;
@@ -112,15 +114,22 @@ const db: Record<string, Row[]> = {
   market_dealers: [
     { id: 'd1', name: 'Busvan', country: 'NL', city: 'Raamsdonksveer', zip: '4941 VN', street: 'Ramgatseweg 59', phone: '+31481788261', contact_name: 'Afdeling Verkoop', site_url: null, imprint_url: null, website: null },
     { id: 'd2', name: 'Pinson Automobiles', country: 'FR', city: 'Cercottes', zip: '45520', street: '1 rue des Pinsons', phone: '+33219089211', contact_name: 'Arnaud PINSON', site_url: null, imprint_url: null, website: null },
+    // Un garage vu sur Marktplaats (fiche principale) et sur Gaspedaal (rattachée), sans fiche AutoScout24.
+    { id: 'd3', site: 'marktplaats', parent_id: null, name: 'Tesselaar BV', country: 'NL', city: 'Hoorn', zip: null, street: null, phone: null, contact_name: null, site_url: 'https://www.marktplaats.nl/u/tesselaar-bv/555/', imprint_url: null, website: null, lat: 52.64, lng: 5.06, legal_id: null },
+    { id: 'd4', site: 'gaspedaal', parent_id: 'd3', name: 'Tesselaar BV', country: 'NL', city: null, zip: null, street: null, phone: null, contact_name: null, site_url: 'https://api.gaspedaal.nl/redirect/vehicle/1', imprint_url: null, website: null, lat: null, lng: null, legal_id: null },
   ],
   market_dealer_listings: [
     ...Array.from({ length: 8 }, (_, i) => ({ dealer_id: 'd1', listing_url: `v${i}`, brand: 'FORD', model: 'Transit Custom', year: 2021, mileage: 90_000, price_eur: 27_900, vehicle_type: 'utilitaire', title: '', last_seen_at: new Date().toISOString() })),
     { dealer_id: 'd2', listing_url: 'p1', brand: 'TOYOTA', model: 'C-HR', year: 2021, mileage: 40_000, price_eur: 23_900, vehicle_type: null, title: '', last_seen_at: new Date().toISOString() },
+    { dealer_id: 'd3', listing_url: 't1', brand: 'TOYOTA', model: 'C-HR', year: 2021, mileage: 30_000, price_eur: 24_900, vehicle_type: null, title: '', last_seen_at: new Date().toISOString() },
+    { dealer_id: 'd4', listing_url: 't2', brand: 'TOYOTA', model: 'Yaris', year: 2022, mileage: 20_000, price_eur: 19_900, vehicle_type: null, title: '', last_seen_at: new Date().toISOString() },
+    { dealer_id: 'd4', listing_url: 't3', brand: 'TOYOTA', model: 'Yaris Cross', year: 2023, mileage: 18_000, price_eur: 26_950, vehicle_type: null, title: '', last_seen_at: new Date().toISOString() },
   ],
-  agent_prospects: [], agent_runs: [], agent_journal: [], network_contacts: [], intra_showcase: [], transactions_admin: [], contacts: [],
+  // Qualifié une première fois par sa fiche Gaspedaal, avant le rapprochement des sites.
+  agent_prospects: [{ id: 'p-old', agent: 'ada', dealer_id: 'd4', name: 'Tesselaar BV', stage: 'a_contacter', score: 60, network_contact_id: null }], agent_runs: [], agent_journal: [], network_contacts: [], intra_showcase: [], transactions_admin: [], contacts: [],
 };
 setSharedSupabase(fakeSupabase(db) as never);
-(dns as unknown as { resolveMx: (d: string) => Promise<unknown[]> }).resolveMx = async (d: string) => (d === 'busvan.nl' || d === 'pinson-auto.fr' ? [{ exchange: `mx.${d}`, priority: 10 }] : []);
+(dns as unknown as { resolveMx: (d: string) => Promise<unknown[]> }).resolveMx = async (d: string) => (['busvan.nl', 'pinson-auto.fr', 'tesselaarbv.nl'].includes(d) ? [{ exchange: `mx.${d}`, priority: 10 }] : []);
 
 // Faux internet : la fiche AutoScout24, le site du garage, et l'API Claude.
 const calls: Array<{ messages: unknown[]; tools?: unknown[] }> = [];
@@ -132,6 +141,12 @@ const answers: Record<string, QualifyOutput> = {
     contacts: [{ nom: 'Thomas Kuhn', fonction: 'Verkoop (vente)', email: null, source: 'fiche AutoScout24' }],
     meilleur_contact: { nom: 'Thomas Kuhn', fonction: 'Verkoop (vente)', email: 'verkoop@busvan.nl', pourquoi: 'Service vente des utilitaires.' },
     resume: 'Spécialiste néerlandais des utilitaires d\'occasion, Ford et Mercedes. Bon acheteur pour nos Transit.',
+  }),
+  Tesselaar: aiOut({
+    site_web: null, type: 'concession_officielle', langue: 'nl', ajustement: 10, marques_officielles: ['Toyota'],
+    emails: [{ email: 'verkoop@tesselaarbv.nl', nature: 'vo', source: 'BASE/' }],
+    meilleur_contact: { nom: null, fonction: 'verkoop', email: 'verkoop@tesselaarbv.nl', pourquoi: 'Service vente.' },
+    resume: 'Concession Toyota à Hoorn.',
   }),
   Pinson: aiOut({
     site_web: 'BASE/pinson', type: 'independant_multimarque', langue: 'fr', ajustement: 0,
@@ -147,13 +162,14 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (req.url === '/busvan') return send(200, `<html><body>${'Welkom bij busvan, bedrijfswagens. '.repeat(40)}<a href="/busvan/contact">Contact</a></body></html>`);
   if (req.url === '/busvan/contact') return send(200, `<html><body>${'Neem contact op. '.repeat(60)}<a href="mailto:verkoop@busvan.nl">verkoop@busvan.nl</a></body></html>`);
   if (req.url === '/pinson') return send(200, `<html><body>${'Pinson Automobiles, Cercottes. '.repeat(40)} Écrivez-nous : contact@pinson-auto.fr</body></html>`);
+  if (req.url === '/') return send(200, `<html><body>${'Tesselaar BV, Toyota-dealer in Hoorn. '.repeat(40)}<a href="mailto:verkoop@tesselaarbv.nl">verkoop@tesselaarbv.nl</a></body></html>`);
   if (req.url === '/v1/messages' && req.method === 'POST') {
     let raw = '';
     for await (const ch of req) raw += ch;
     const body = JSON.parse(raw) as { messages: Array<{ role: string; content: unknown }>; tools?: unknown[] };
     calls.push({ messages: body.messages, tools: body.tools });
     const user = String(body.messages[0].content);
-    const key = user.includes('Busvan') ? 'Busvan' : 'Pinson';
+    const key = user.includes('Busvan') ? 'Busvan' : user.includes('Tesselaar') ? 'Tesselaar' : 'Pinson';
     const usage = { input_tokens: 9000, output_tokens: 700, cache_creation_input_tokens: 0, cache_read_input_tokens: 1500, server_tool_use: { web_search_requests: key === 'Pinson' ? 1 : 0, web_fetch_requests: 0 } };
     // Pinson : la recherche web met d'abord le tour en pause, la reprise rend la fiche.
     if (key === 'Pinson' && body.messages.length === 1) {
@@ -174,6 +190,8 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const u = String(input instanceof Request ? input.url : input);
   if (u.startsWith('https://nominatim.openstreetmap.org/')) return new Response(JSON.stringify([{ lat: '51.65', lon: '4.87' }]), { headers: { 'content-type': 'application/json' } });
+  // Le lien « dealer » de Gaspedaal redirige vers l'annonce chez le garage.
+  if (u === 'https://api.gaspedaal.nl/redirect/vehicle/1') return new Response(null, { status: 302, headers: { location: `${base}/tess/occasions/toyota-c-hr` } });
   return realFetch(input, init);
 }) as typeof fetch;
 
@@ -199,10 +217,27 @@ ok(p2?.emails.map((e) => e.email).join(' ') === 'contact@pinson-auto.fr' && p2.b
 ok(o2.status === 'qualifie' && p2?.website === `${base}/pinson`, 'parcours Pinson : site trouvé par la recherche', { o2, site: p2?.website });
 ok(db.agent_runs.length === 2 && Number(db.agent_runs[1].web_searches) === 2, 'parcours Pinson : un seul appel inscrit, recherches des deux tours additionnées', db.agent_runs[1]);
 
+// Un garage vu hors d'AutoScout24, sur deux sites : toutes ses fiches, son site par Gaspedaal, la fiche prospect déjà faite.
+const tessCtx = { ...ctx, agent: { ...(agent as object), map_min_score: 0 } as never };
+const o3 = await qualifyDealer('d4', tessCtx);
+const tessCall = calls[calls.length - 1];
+const tessPrompt = String((tessCall?.messages[0] as { content: unknown } | undefined)?.content ?? '');
+const tess = db.agent_prospects.filter((p) => p.name === 'Tesselaar BV') as Array<Row & { emails: Array<{ email: string; mx: boolean }>; evidence: Array<{ note: string }> }>;
+ok(o3.status === 'qualifie' && tess.length === 1 && tess[0].id === 'p-old' && tess[0].dealer_id === 'd4' && tess[0].stage === 'a_contacter',
+  'tous sites : la fiche prospect faite par une autre fiche du garage est reprise (pas de doublon, étape gardée)', { o3, tess });
+ok(tessPrompt.includes('Annonces vues sur : Marktplaats, Gaspedaal') && tessPrompt.includes('pas de fiche AutoScout24') && tessPrompt.includes('Stock vu en 90 jours : 3 annonces') && !tessCall?.tools,
+  'tous sites : consigne avec ses deux sources et son stock réuni (3 annonces), sans recherche web (site trouvé)', tessPrompt.slice(0, 400));
+ok(tess[0]?.website === `${base}/` && tess[0].emails.some((e) => e.email === 'verkoop@tesselaarbv.nl' && e.mx) && tess[0].evidence.some((e) => /lien Gaspedaal/.test(e.note)),
+  'tous sites : son site trouvé par le lien Gaspedaal, e-mail publié et vérifié', { site: tess[0]?.website, emails: tess[0]?.emails });
+ok(db.market_dealers.find((d) => d.id === 'd3')?.website === `${base}/`, 'tous sites : le site est noté sur la fiche principale du garage');
+const tessMap = db.network_contacts.find((n) => n.name === 'Tesselaar BV');
+ok(tessMap?.lat === 52.64 && tessMap?.lng === 5.06, 'tous sites : sur la carte à la position donnée par l\'annonce (pas OpenStreetMap)', tessMap);
+
 // Une étape avancée par l'équipe n'est pas ramenée en arrière par une nouvelle qualification.
 p1.stage = 'contacte';
 await qualifyDealer('d1', ctx);
-ok(p1.stage === 'contacte' && db.network_contacts.length === 1, 'requalification : étape « contacté » conservée, pas de doublon sur la carte', { stage: p1.stage, carte: db.network_contacts.length });
+const busvanOnMap = db.network_contacts.filter((n) => n.name === 'Busvan').length;
+ok(p1.stage === 'contacte' && busvanOnMap === 1, 'requalification : étape « contacté » conservée, pas de doublon sur la carte', { stage: p1.stage, carte: busvanOnMap });
 
 // Plafond : au-delà du budget du jour, aucun appel.
 const before = calls.length;

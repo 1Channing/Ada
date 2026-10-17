@@ -30,6 +30,7 @@ import type {
 } from './types';
 import type { ScrapedListing } from '../types';
 import { parsePublishedAt } from '../parsers/shared';
+import { gaspedaalSeller } from '../parsers/seller';
 import { defaultBuildPaginatedUrl } from './registry';
 import { resolveYearRange } from './urlTemplate';
 import { modelKeyLoose, modelFamilyKey, electricSiblingLabels } from '../business-logic';
@@ -183,7 +184,7 @@ function publishedDatesById(html: string): Map<string, string> {
  *  vehicle/203151549 → tesselaarbv.nl/occasions/toyota/corolla-touring-
  *  sports/hybrid-140-gr-sport-…). Portail « dealer » préféré, sinon le
  *  premier. Fail-open : id absent du flux = l'@id JSON-LD reste l'URL. */
-interface GpDetail { url?: string; trim?: string; powerKw?: number }
+interface GpDetail { url?: string; trim?: string; powerKw?: number; dealerUrl?: string }
 function detailsById(html: string): Map<string, GpDetail> {
   const out = new Map<string, GpDetail>();
   // Le flux est une chaîne JS : guillemets échappés (\") — on les déplie.
@@ -202,8 +203,11 @@ function detailsById(html: string): Map<string, GpDetail> {
     if (Number.isFinite(kw) && kw > 0) d.powerKw = kw;
     const portals = [...w.matchAll(/"klikUrl":"(https:\/\/api\.gaspedaal\.nl\/redirect\/vehicle\/\d+)"[^}]*?"portaalType":"(\w+)"/g)]
       .map((m) => ({ url: m[1], type: m[2] }));
-    const pick = portals.find((p) => p.type === 'dealer') ?? portals[0];
+    const dealer = portals.find((p) => p.type === 'dealer');
+    const pick = dealer ?? portals[0];
     if (pick) d.url = pick.url;
+    // Portail « dealer » : la fiche chez le garage lui-même (annuaire d'Ada, 17/10).
+    if (dealer) d.dealerUrl = dealer.url;
     out.set(id, d);
   }
   return out;
@@ -239,6 +243,8 @@ function parseSearchResults(html: string, _url: string): ScrapedListing[] {
       color: it.color ?? null,
       doors: typeof it.numberOfDoors === 'number' ? it.numberOfDoors : null,
       sellerType: it.offers?.seller?.['@type'] ?? null,
+      // Le garage (annuaire d'Ada, 17/10) : JSON-LD offers.seller (nom, adresse si présente).
+      seller: gaspedaalSeller(it, det?.dealerUrl),
     });
   }
   return out;
