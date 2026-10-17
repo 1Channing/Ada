@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import { Link2, Unlink, Save, Ban, Trash2, Plug, Sparkles } from 'lucide-react';
 import {
-  oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, QUALIF_SQL_HINT,
+  oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, updateMailSettings, QUALIF_SQL_HINT, MAILS_SQL_HINT,
   type AgentKey, type AgentSettings, type EditableSettings, type Suppression, type AiSpend,
 } from '../../services/agents';
 import { normalizeTargets } from '../../lib/agents/qualification';
@@ -41,7 +41,10 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
   const [autoQual, setAutoQual] = useState(s.auto_qualify_per_day ?? 0);
   const [mapAdd, setMapAdd] = useState(s.map_auto_add ?? true);
   const [mapScore, setMapScore] = useState(s.map_min_score ?? 70);
+  const [instructions, setInstructions] = useState(s.instructions ?? '');
+  const [autoDraft, setAutoDraft] = useState(s.auto_draft_per_day ?? 0);
   const [busy, setBusy] = useState(false);
+  const mailsReady = s.instructions !== undefined;
   const ro = !isAdmin;
   if (s.daily_budget_usd === undefined) return <p className="text-xs text-slate-500">{QUALIF_SQL_HINT}</p>;
   const today = spend?.[s.agent];
@@ -53,8 +56,9 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
       auto_discovery: autoDisc, auto_qualify_per_day: Math.max(0, Math.min(500, Math.round(autoQual))),
       map_auto_add: mapAdd, map_min_score: Math.max(0, Math.min(100, Math.round(mapScore))),
     }, userId);
+    const e2 = !e && mailsReady ? await updateMailSettings(s.agent, { instructions: instructions.trim(), auto_draft_per_day: Math.max(0, Math.min(200, Math.round(autoDraft))) }, userId) : null;
     setBusy(false);
-    if (e) onError(e); else { onInfo(`Travail de ${s.display_name} enregistré.`); onChanged(); }
+    if (e || e2) onError((e ?? e2) as string); else { onInfo(`Travail de ${s.display_name} enregistré.`); onChanged(); }
   };
   return (
     <div className="rounded-xl border border-violet-200 bg-violet-50/30 p-3 space-y-3">
@@ -99,6 +103,20 @@ function AiForm({ s, isAdmin, userId, spend, onChanged, onError, onInfo }: { s: 
         <span className="text-slate-600">/100</span>
         <span className="text-xs text-slate-400">avec le badge « IA · {s.display_name} », et un e-mail vérifié ou un téléphone.</span>
       </div>
+      {mailsReady ? (
+        <div className="space-y-2 border-t border-violet-100 pt-3">
+          <p className="text-xs uppercase tracking-wide text-violet-800">Premiers mails (Opus 5.5, toujours à valider)</p>
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className="text-slate-600">Rédigés d'office par jour :</span>
+            <input disabled={ro} type="number" min={0} max={200} className={`${input} w-20`} value={autoDraft} onChange={(e) => setAutoDraft(Number(e.target.value))} />
+            <span className="text-xs text-slate-400">pour les garages au-dessus du seuil, avec un e-mail vérifié. 0 = seulement à la demande. Jamais plus de deux jours d'envois en attente de validation. Environ 0,03 à 0,08 $ le mail.</span>
+          </div>
+          <label className="block space-y-1 text-sm"><span className="text-xs text-slate-500">Vos consignes à {s.display_name} — elle n'affirme aucune condition qui n'est pas écrite ici</span>
+            <textarea disabled={ro} className={`${input} w-full min-h-[110px]`} value={instructions} onChange={(e) => setInstructions(e.target.value)}
+              placeholder={'Ex. : Paiement par virement à la commande, enlèvement ou livraison par notre convoyeur (devis à part).\nVéhicules contrôlés, carnet d\'entretien et deux clés.\nNe jamais donner de prix ferme au premier mail.\nNe pas démarcher les concessions du groupe X.'} />
+          </label>
+        </div>
+      ) : <p className="text-xs text-slate-500 border-t border-violet-100 pt-3">{MAILS_SQL_HINT}</p>}
       {isAdmin && <button disabled={busy} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"><Save className="w-4 h-4" /> Enregistrer le travail de {s.display_name}</button>}
     </div>
   );
@@ -206,7 +224,7 @@ function AgentForm({ s, isAdmin, userId, people, spend, onChanged, onError, onIn
       </div>
       <div className="flex items-center gap-3 flex-wrap">
         {isAdmin && <button disabled={busy} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"><Save className="w-4 h-4" /> Enregistrer</button>}
-        <span className="text-xs text-slate-500">Envois : {s.display_name} est en {s.status === 'active' ? 'activité' : 'pause'}.</span>
+        <span className="text-xs text-slate-500">Copilote : chaque mail de {s.display_name} part seulement après la validation d'un administrateur.</span>
       </div>
       {s.agent === 'ada'
         ? <AiForm s={s} isAdmin={isAdmin} userId={userId} spend={spend} onChanged={onChanged} onError={onError} onInfo={onInfo} />

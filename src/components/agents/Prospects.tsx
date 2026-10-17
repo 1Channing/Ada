@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Radar, Building2, Phone, ExternalLink, MapPin, ChevronDown, X, Plus, TrendingUp, Sparkles, Mail } from 'lucide-react';
 import {
   listDealers, dealerListings, salesProfile, ourOffers, listTasks, queueDiscovery, cancelTask, addDealerToMap,
-  queueQualification, prospectDetails, setProspectStage,
+  queueQualification, prospectDetails, setProspectStage, queueFirstMails, threadsOfProspects,
   type DealerRow, type DealerListing, type SalesProfile, type AgentTask, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { opportunities, type OfferLite, type Opportunity } from '../../lib/agents/opportunity';
@@ -42,9 +42,9 @@ const TASK_STATUS: Record<AgentTask['status'], { label: string; cls: string }> =
   annulee: { label: 'annulée', cls: 'bg-slate-100 text-slate-400' },
 };
 
-interface Props { userId: string | null; canEditMap: boolean; refreshKey: number; onError: (m: string) => void; onInfo: (m: string) => void }
+interface Props { userId: string | null; canEditMap: boolean; refreshKey: number; onError: (m: string) => void; onInfo: (m: string) => void; onOpenThread: (id: string) => void }
 
-export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: Props) {
+export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onOpenThread }: Props) {
   const [profile, setProfile] = useState<SalesProfile | null>(null);
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [rows, setRows] = useState<DealerRow[]>([]);
@@ -61,6 +61,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
   const [dearerOnly, setDearerOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [details, setDetails] = useState<Map<string, ProspectDetail>>(new Map());
+  const [threads, setThreads] = useState<Map<string, string>>(new Map());
   const [qualifiedOnly, setQualifiedOnly] = useState(false);
   const [sort, setSort] = useState<'activite' | 'score'>('activite');
   const [added, setAdded] = useState<Set<string>>(new Set());
@@ -75,6 +76,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
     const [ls, det] = await Promise.all([dealerListings(r.rows.map((x) => x.id)), prospectDetails(r.rows.filter((x) => x.prospect).map((x) => x.id))]);
     setListings(ls);
     setDetails(new Map(det.filter((x) => x.dealer_id).map((x) => [x.dealer_id as string, x])));
+    setThreads(await threadsOfProspects(det.map((x) => x.id)));
     setLoading(false);
   }, [country, brand, query, onError]);
 
@@ -101,6 +103,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
   }, [rows, byDealer, offers]);
   // Garages confiés à Ada et pas encore rendus.
   const queued = useMemo(() => new Set(tasks.filter((t) => t.kind === 'qualification' && (t.status === 'en_attente' || t.status === 'en_cours')).flatMap((t) => t.params.dealer_ids ?? [])), [tasks]);
+  const drafting = useMemo(() => new Set(tasks.filter((t) => t.kind === 'premier_mail' && (t.status === 'en_attente' || t.status === 'en_cours')).flatMap((t) => t.params.prospect_ids ?? [])), [tasks]);
   const onMap = (d: DealerRow) => d.in_network || !!d.prospect?.in_map || added.has(d.id);
   // Un garage qu'Ada a qualifié reste visible même une fois sur la carte (c'est souvent elle qui l'y a mis).
   const filtered = rows.filter((d) => (!hideClients || !d.is_client) && (!hideNetwork || !d.in_network || !!d.prospect)
@@ -123,6 +126,12 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
     const e = await queueQualification(ids, userId);
     if (e) { onError(e); return; }
     onInfo(`${ids.length} garage${ids.length > 1 ? 's' : ''} confié${ids.length > 1 ? 's' : ''} à Ada : comptez une minute environ par garage. Rien n'est envoyé à personne.`);
+    void loadTasks();
+  };
+  const draft = async (p: ProspectDetail) => {
+    const e = await queueFirstMails([p.id], userId);
+    if (e) { onError(e); return; }
+    onInfo(`Ada rédige le premier mail pour ${p.name} : il arrivera dans « À valider » d'ici une minute. Rien ne part sans validation.`);
     void loadTasks();
   };
   const changeStage = async (p: ProspectDetail, stage: ProspectStage) => {
@@ -177,7 +186,9 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
             {tasks.slice(0, 8).map((t) => (
               <div key={t.id} className="flex items-center gap-2 py-1.5 text-xs flex-wrap">
                 <span className={`rounded-full px-2 py-0.5 ${TASK_STATUS[t.status].cls}`}>{TASK_STATUS[t.status].label}</span>
-                {t.kind === 'qualification' ? (
+                {t.kind === 'premier_mail' ? (
+                  <span className="font-medium text-violet-900"><Mail className="inline w-3.5 h-3.5 mr-0.5" />Premiers mails · {t.params.prospect_ids?.length ?? 0} garage{(t.params.prospect_ids?.length ?? 0) > 1 ? 's' : ''}</span>
+                ) : t.kind === 'qualification' ? (
                   <span className="font-medium text-violet-900"><Sparkles className="inline w-3.5 h-3.5 mr-0.5" />Qualification · {t.params.dealer_ids?.length ?? 0} garage{(t.params.dealer_ids?.length ?? 0) > 1 ? 's' : ''}</span>
                 ) : (
                   <span className="font-medium text-slate-800">{FLAG[t.params.country ?? ''] ?? ''} {t.params.brand}{t.params.model ? ` ${t.params.model}` : ''}{t.params.vans ? ' · utilitaires' : ''}</span>
@@ -186,7 +197,10 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
                 {t.status === 'terminee' && t.result && t.kind === 'qualification' && (
                   <span className="text-slate-600">{t.result.qualifies ?? 0} qualifié{(t.result.qualifies ?? 0) > 1 ? 's' : ''}, {t.result.ecartes ?? 0} écarté{(t.result.ecartes ?? 0) > 1 ? 's' : ''}{t.result.echecs ? `, ${t.result.echecs} en échec` : ''}{t.result.carte ? `, ${t.result.carte} sur la carte` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.arret ? ` · arrêt : ${t.result.arret}` : ''}</span>
                 )}
-                {t.status === 'terminee' && t.result && t.kind !== 'qualification' && <span className="text-slate-600">{t.result.annonces} annonces lues · {t.result.concessions} concessions, dont {t.result.nouvelles} nouvelles</span>}
+                {t.status === 'terminee' && t.result && t.kind === 'premier_mail' && (
+                  <span className="text-slate-600">{t.result.rediges ?? 0} rédigé{(t.result.rediges ?? 0) > 1 ? 's' : ''}, à valider{t.result.ignores ? ` · ${t.result.ignores} ignoré${t.result.ignores > 1 ? 's' : ''}` : ''}{t.result.echecs ? ` · ${t.result.echecs} en échec` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.arret ? ` · arrêt : ${t.result.arret}` : ''}</span>
+                )}
+                {t.status === 'terminee' && t.result && t.kind === 'decouverte_concessions' && <span className="text-slate-600">{t.result.annonces} annonces lues · {t.result.concessions} concessions, dont {t.result.nouvelles} nouvelles</span>}
                 {t.status === 'echec' && <span className="text-red-700">{t.error}</span>}
                 <span className="ml-auto text-slate-400">{fmtRelative(t.finished_at ?? t.created_at)}</span>
                 {t.status === 'en_attente' && <button onClick={() => void cancelTask(t.id).then((e) => (e ? onError(e) : void loadTasks()))} className="text-slate-400 hover:text-rose-600" title="Annuler"><X className="w-3.5 h-3.5" /></button>}
@@ -291,7 +305,9 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo }: P
                   </div>
                 </div>
                 {isOpen && details.get(d.id) && (
-                  <QualifCard p={details.get(d.id) as ProspectDetail} onStage={(st) => void changeStage(details.get(d.id) as ProspectDetail, st)} onRequalify={() => void qualify([d.id])} requalifying={queued.has(d.id)} />
+                  <QualifCard p={details.get(d.id) as ProspectDetail} onStage={(st) => void changeStage(details.get(d.id) as ProspectDetail, st)} onRequalify={() => void qualify([d.id])} requalifying={queued.has(d.id)}
+                    threadId={threads.get((details.get(d.id) as ProspectDetail).id) ?? null} onDraft={() => void draft(details.get(d.id) as ProspectDetail)}
+                    drafting={drafting.has((details.get(d.id) as ProspectDetail).id)} onOpenThread={onOpenThread} />
                 )}
                 {isOpen && (
                   <div className="mt-2 overflow-x-auto">

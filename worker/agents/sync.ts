@@ -16,7 +16,7 @@ import {
   headersOf, parseAddressList, stripQuoted, htmlToText, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8,
 } from '../../src/lib/agents/mail';
 import { gmail, GmailError, NotConnected } from './google';
-import { sb, journal, alertOwner, suppress, updateAgent, type AgentRow } from './store';
+import { sb, journal, alertOwner, suppress, updateAgent, advanceProspect, type AgentRow } from './store';
 
 interface GmailPart {
   partId?: string; mimeType?: string; filename?: string;
@@ -143,6 +143,8 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
   }).eq('id', thread.id);
 
   if (direction !== 'in') return true;
+  if (classification === 'stop') await advanceProspect(thread.id, 'perdu');
+  else if (!autoReply && classification !== 'rebond') await advanceProspect(thread.id, 'repondu');
   const who = from?.name || from?.email || '?';
   if (classification === 'rebond') {
     for (const dead of bouncedRecipients(h, text, ownMailboxes)) {

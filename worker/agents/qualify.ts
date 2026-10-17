@@ -30,7 +30,11 @@ import { HAIKU } from '../../src/lib/agents/aiCost';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
 import { sb, journal, type AgentRow } from './store';
 
-export interface AiSettings { targets: Partial<AgentTargets> | null; daily_budget_usd: number | string; auto_discovery: boolean; auto_qualify_per_day: number; map_auto_add: boolean; map_min_score: number }
+export interface AiSettings {
+  targets: Partial<AgentTargets> | null; daily_budget_usd: number | string; auto_discovery: boolean; auto_qualify_per_day: number; map_auto_add: boolean; map_min_score: number;
+  // Phase 2.3 (SQL agents_premiers_mails) : consignes de Channing, premiers mails rédigés d'office par jour.
+  instructions?: string; auto_draft_per_day?: number;
+}
 export type AiAgent = AgentRow & AiSettings;
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36';

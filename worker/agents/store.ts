@@ -82,6 +82,19 @@ export async function alertOwner(a: AgentRow, key: string, title: string, note: 
   if (error) console.warn(`[AGENTS] alerte non posée : ${error.message}`);
 }
 
+/**
+ * L'étape du prospect rattaché à un fil avance (17/10) : envoyé → « contacté »,
+ * réponse → « a répondu », demande d'arrêt → « perdu ». Jamais en arrière ; sans
+ * effet tant que le SQL des premiers mails n'est pas collé (colonne absente).
+ */
+export async function advanceProspect(threadId: string, to: 'contacte' | 'repondu' | 'perdu'): Promise<void> {
+  const { data, error } = await sb.from('agent_threads').select('prospect_id').eq('id', threadId).maybeSingle();
+  const prospectId = (data as { prospect_id?: string | null } | null)?.prospect_id;
+  if (error || !prospectId) return;
+  const from = to === 'contacte' ? ['qualifie', 'a_contacter'] : to === 'repondu' ? ['qualifie', 'a_contacter', 'contacte'] : ['qualifie', 'a_contacter', 'contacte', 'repondu', 'interesse'];
+  await sb.from('agent_prospects').update({ stage: to, updated_at: new Date().toISOString() }).eq('id', prospectId).in('stage', from);
+}
+
 /** Liste « ne plus contacter » (adresses et « @domaines »). */
 export async function loadSuppressions(): Promise<string[]> {
   const { data, error } = await sb.from('email_suppressions').select('email');

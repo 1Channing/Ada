@@ -11,6 +11,9 @@ import {
 } from '../../services/agents';
 import { StatusChip, ClassificationChip, DraftEditor } from './shared';
 import { draftProblem, cleanDraft, pendingReason, fmtDateTime } from './helpers';
+import { fmtUsd } from '../../lib/agents/aiCost';
+
+const FACT_SOURCE: Record<string, string> = { fiche: 'sa fiche', stock: 'son stock', offre: 'nos offres', mc_export: 'MC Export', consignes: 'vos consignes' };
 
 const KIND_LABEL: Record<string, string> = { premier_contact: 'Premier contact', relance: 'Relance', reponse: 'Réponse' };
 const btn = 'inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50';
@@ -86,6 +89,20 @@ export function MessageCard({ m, settings, counts, isAdmin, context, flat, onCha
         <div className="rounded-lg bg-white/70 border border-slate-200 px-3 py-2">
           <p className="text-[10px] uppercase tracking-wide text-slate-400">Traduction française</p>
           <p className="whitespace-pre-wrap text-xs text-slate-700">{m.translation_fr}</p>
+        </div>
+      )}
+      {out && m.ai_notes && !editing && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-2 space-y-1">
+          {m.ai_notes.alertes?.length
+            ? <div><p className="text-[10px] uppercase tracking-wide text-amber-700">À vérifier avant de valider</p>{m.ai_notes.alertes.map((a) => <p key={a} className="text-xs text-amber-900">• {a}</p>)}</div>
+            : <p className="text-[11px] text-emerald-700">Contrôle d'ADA : longueur, question, liens et chiffres en ordre.</p>}
+          {(m.ai_notes.faits?.length ?? 0) > 0 && (
+            <details>
+              <summary className="text-[11px] text-violet-800 cursor-pointer">Faits cités ({m.ai_notes.faits?.length}), avec leur source</summary>
+              {m.ai_notes.faits?.map((f) => <p key={f.fait} className="text-xs text-slate-700">• {f.fait} <span className="text-slate-400">({FACT_SOURCE[f.source] ?? f.source})</span></p>)}
+            </details>
+          )}
+          <p className="text-[10px] text-slate-400">{[m.ai_notes.modele, m.ai_notes.mots ? `${m.ai_notes.mots} mots` : null, m.ai_notes.cout_usd != null ? fmtUsd(m.ai_notes.cout_usd) : null].filter(Boolean).join(' · ')}</p>
         </div>
       )}
       {m.attachments.length > 0 && (

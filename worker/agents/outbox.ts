@@ -17,7 +17,7 @@ import { buildMime, headersOf, replyReferences } from '../../src/lib/agents/mail
 import { inSendWindow, parisDayStart, randomGapMs, suppressionMatch, countsAgainstCap } from '../../src/lib/agents/sendPolicy';
 import { gmail, NotConnected } from './google';
 import { recordLearningCase } from '../learningBox';
-import { sb, loadSuppressions, updateAgent, type AgentRow } from './store';
+import { sb, loadSuppressions, updateAgent, advanceProspect, type AgentRow } from './store';
 
 const STUCK_MS = 10 * 60 * 1000;
 
@@ -99,6 +99,7 @@ export async function sendDue(agents: AgentRow[]): Promise<void> {
         last_message_at: new Date().toISOString(), last_direction: 'out',
       }).eq('id', m.thread_id);
       if (cold) await updateAgent(a.agent, { next_send_after: new Date(Date.now() + randomGapMs(a.min_gap_seconds, a.max_gap_seconds)).toISOString() });
+      await advanceProspect(m.thread_id, 'contacte');
       console.warn(`[AGENTS] ${a.agent} : 1 mail envoyé (${m.kind})`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

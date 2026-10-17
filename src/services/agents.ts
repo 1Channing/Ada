@@ -31,6 +31,8 @@ export interface AgentSettings {
   // Phase 2.2 (17/10) — absents tant que le SQL agents_qualification n'est pas collé.
   targets?: Partial<AgentTargets> | null; daily_budget_usd?: number | string; auto_discovery?: boolean; auto_qualify_per_day?: number;
   map_auto_add?: boolean; map_min_score?: number;
+  // Phase 2.3 (17/10) — SQL agents_premiers_mails.
+  instructions?: string; auto_draft_per_day?: number;
 }
 export type EditableSettings = Pick<AgentSettings, 'sender_name' | 'signature' | 'daily_first_contact_cap' | 'send_days' | 'send_from' | 'send_to' | 'min_gap_seconds' | 'max_gap_seconds' | 'owner_id'>;
 
@@ -51,6 +53,8 @@ export interface AgentMessage {
   attachments: Attachment[]; classification: string | null; auto_reply: boolean; author: 'humain' | 'ada' | 'dana' | 'systeme';
   created_by: string | null; approved_by: string | null; approved_at: string | null; refused_reason: string | null; error: string | null;
   sent_at: string | null; received_at: string | null; created_at: string; updated_at: string;
+  /** Brouillon d'Ada (17/10) : modèle, coût, langue, faits cités, points à vérifier. */
+  ai_notes?: { modele?: string; cout_usd?: number; langue?: string; mots?: number; faits?: Array<{ fait: string; source: string }>; alertes?: string[] } | null;
 }
 export interface QueuedMessage extends AgentMessage { thread: Pick<AgentThread, 'subject' | 'counterpart_email' | 'counterpart_name'> | null }
 
@@ -257,10 +261,10 @@ export interface DealerRow {
 export interface DealerListing { dealer_id: string; listing_url: string; brand: string | null; model: string | null; title: string | null; year: number | null; mileage: number | null; fuel: string | null; vehicle_type: string | null; price_eur: number | null; last_seen_at: string }
 export interface SalesProfile { countries: Array<{ country: string; n: number }>; brands: Array<{ brand: string; n: number }> }
 export interface AgentTask {
-  id: string; agent: AgentKey; kind: 'decouverte_concessions' | 'qualification';
-  params: { country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; auto?: boolean };
+  id: string; agent: AgentKey; kind: 'decouverte_concessions' | 'qualification' | 'premier_mail';
+  params: { country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; prospect_ids?: string[]; auto?: boolean };
   status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee';
-  result: { annonces?: number; concessions?: number; nouvelles?: number; url?: string; garages?: number; qualifies?: number; ecartes?: number; echecs?: number; carte?: number; cout_usd?: number; arret?: string | null } | null;
+  result: { annonces?: number; concessions?: number; nouvelles?: number; url?: string; garages?: number; qualifies?: number; ecartes?: number; echecs?: number; carte?: number; cout_usd?: number; arret?: string | null; rediges?: number; ignores?: number; details?: string[] } | null;
   error: string | null; created_by: string | null; created_at: string; started_at: string | null; finished_at: string | null;
 }
 /** La qualification d'un garage telle que l'annuaire la porte. */
@@ -396,4 +400,33 @@ export async function aiSpend(): Promise<AiSpend | null> {
 export async function updateAiSettings(agent: AgentKey, patch: AiSettingsPatch, userId: string | null): Promise<string | null> {
   const { error } = await sb.from('agent_settings').update({ ...patch, updated_at: new Date().toISOString(), updated_by: userId }).eq('agent', agent);
   return error ? errQualif(error.message) : null;
+}
+
+// --- Phase 2.3 (17/10) : les premiers mails d'Ada ----------------------------------------------
+
+export const MAILS_SQL_HINT = 'Premiers mails d\'Ada : SQL du 17/10 (agents_premiers_mails) à coller dans Supabase.';
+const errMails = (m: string) => (missing(m) || /prospect_id|ai_notes|instructions|auto_draft_per_day|kind_check/i.test(m) ? MAILS_SQL_HINT : m);
+
+/** Ada rédige le premier mail de ces prospects (5 par tâche) ; les brouillons arrivent dans « À valider ». */
+export async function queueFirstMails(prospectIds: string[], userId: string | null): Promise<string | null> {
+  const ids = [...new Set(prospectIds)];
+  for (let i = 0; i < ids.length; i += 5) {
+    const { error } = await sb.from('agent_tasks').insert({ agent: 'ada', kind: 'premier_mail', params: { prospect_ids: ids.slice(i, i + 5) }, created_by: userId });
+    if (error) return errMails(error.message);
+  }
+  return null;
+}
+
+/** Le fil de chaque prospect (s'il y en a un). */
+export async function threadsOfProspects(prospectIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (prospectIds.length === 0) return out;
+  const { data } = await sb.from('agent_threads').select('id, prospect_id').in('prospect_id', prospectIds.slice(0, 300));
+  for (const r of (data ?? []) as Array<{ id: string; prospect_id: string }>) if (!out.has(r.prospect_id)) out.set(r.prospect_id, r.id);
+  return out;
+}
+
+export async function updateMailSettings(agent: AgentKey, patch: { instructions: string; auto_draft_per_day: number }, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_settings').update({ ...patch, updated_at: new Date().toISOString(), updated_by: userId }).eq('agent', agent);
+  return error ? errMails(error.message) : null;
 }

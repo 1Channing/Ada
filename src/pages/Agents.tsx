@@ -189,7 +189,7 @@ export function Agents() {
         <ValidationQueue settings={settings} counts={counts} isAdmin={isAdmin} refreshKey={refreshKey} onOpenThread={openFromQueue} onChanged={() => void load()} onError={onError} />
       )}
       {tab === 'prospects' && (
-        <Prospects userId={userId} canEditMap={canSeeTab(allowedTabs, isAdmin, 'carte:edition')} refreshKey={refreshKey} onError={onError} onInfo={onInfo} />
+        <Prospects userId={userId} canEditMap={canSeeTab(allowedTabs, isAdmin, 'carte:edition')} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />
       )}
       {tab === 'journal' && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">

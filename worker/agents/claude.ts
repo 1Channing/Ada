@@ -10,6 +10,8 @@
  * - Consigne fixe mise en cache (même texte d'un appel à l'autre).
  * - Outils serveur (recherche web, lecture de page) : un tour mis en pause
  *   par l'API (« pause_turn ») est repris tel quel, trois fois au plus.
+ * - Opus 5.5 : repli serveur en cas de refus (fallbacks « default », en-tête
+ *   server-side-fallback-2026-07-01), comme recommandé pour ce modèle.
  * - Crédits épuisés : pause de 6 h, une seule alerte.
  */
 import Anthropic from '@anthropic-ai/sdk';
@@ -50,6 +52,8 @@ export interface ClaudeCall {
   effort?: 'low' | 'medium' | 'high';
   prospectId?: string | null;
   taskId?: string | null;
+  /** Repli serveur sur un autre modèle si celui-ci décline (Opus 5.5). */
+  fallbacks?: boolean;
 }
 export interface ClaudeResult<T> { data: T | null; text: string; costUsd: number; stopReason: string | null; webSearches: number }
 
@@ -65,9 +69,12 @@ async function record(c: ClaudeCall, usage: UsageLike, cost: number, stopReason:
   return ((data ?? []) as Array<{ id: string }>)[0]?.id ?? null;
 }
 
+type Block = { type: string; text?: string };
+const textsOf = (blocks: Block[]) => blocks.filter((b) => b.type === 'text' && typeof b.text === 'string').map((b) => b.text as string);
+
 /** Le texte JSON de la réponse : le dernier bloc texte qui se lit, sinon tout le texte. */
-function parseJson<T>(blocks: Anthropic.Messages.ContentBlock[]): { data: T | null; text: string } {
-  const texts = blocks.filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text').map((b) => b.text);
+function parseJson<T>(blocks: Block[]): { data: T | null; text: string } {
+  const texts = textsOf(blocks);
   for (const t of [...texts].reverse()) {
     try { return { data: JSON.parse(t) as T, text: t }; } catch { /* bloc intermédiaire */ }
   }
@@ -84,22 +91,25 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
 
   const messages: Anthropic.Messages.MessageParam[] = [{ role: 'user', content: c.user }];
   let usage: UsageLike = {};
-  let final: Anthropic.Messages.Message | null = null;
+  let final: { content: Block[]; stop_reason: string | null } | null = null;
   try {
     for (let i = 0; i < 4; i++) {
-      const res = await a.messages.create({
+      const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
         model: c.model,
         max_tokens: c.maxTokens ?? 8000,
         system: [{ type: 'text', text: c.system, cache_control: { type: 'ephemeral' } }],
         messages,
         ...(c.tools?.length ? { tools: c.tools } : {}),
         output_config: { effort: c.effort ?? 'low', ...(c.schema ? { format: { type: 'json_schema', schema: c.schema } } : {}) },
-      });
+      };
+      const res = c.fallbacks
+        ? await a.beta.messages.create({ ...(params as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming), betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
+        : await a.messages.create(params);
       usage = addUsage(usage, res.usage as UsageLike);
-      final = res;
+      final = { content: res.content as Block[], stop_reason: res.stop_reason };
       if (res.stop_reason !== 'pause_turn') break;
       // Tour d'outils serveur mis en pause : on renvoie la réponse telle quelle, l'API reprend.
-      messages.push({ role: 'assistant', content: res.content });
+      messages.push({ role: 'assistant', content: res.content as Anthropic.Messages.ContentBlockParam[] });
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -117,7 +127,7 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
     await record(c, usage, cost, stop, 'réponse incomplète');
     throw new Error(`réponse incomplète (${stop})`);
   }
-  const { data, text } = c.schema ? parseJson<T>(final?.content ?? []) : { data: null, text: (final?.content ?? []).filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text').map((b) => b.text).join('') };
+  const { data, text } = c.schema ? parseJson<T>(final?.content ?? []) : { data: null, text: textsOf(final?.content ?? []).join('') };
   if (c.schema && data == null) {
     await record(c, usage, cost, stop, 'réponse illisible');
     throw new Error('réponse illisible (JSON attendu)');

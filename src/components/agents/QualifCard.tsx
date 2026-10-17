@@ -5,14 +5,18 @@
  * l'étape (à contacter, écarté…) ; le reste vient du worker.
  */
 import { useState } from 'react';
-import { CheckCircle2, XCircle, ExternalLink, RefreshCw, User, Mail, MapPin } from 'lucide-react';
+import { CheckCircle2, XCircle, ExternalLink, RefreshCw, User, Mail, MapPin, PenLine, MessagesSquare } from 'lucide-react';
 import type { ProspectDetail, ProspectStage } from '../../services/agents';
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { fmtDateTime, KIND_LABEL, STAGE_LABEL, LANG_LABEL, scoreTone } from './helpers';
 
-interface Props { p: ProspectDetail; onStage: (s: ProspectStage) => void; onRequalify: () => void; requalifying: boolean }
+interface Props {
+  p: ProspectDetail; onStage: (s: ProspectStage) => void; onRequalify: () => void; requalifying: boolean;
+  /** Le fil de ce garage, s'il existe ; sinon Ada peut rédiger le premier mail. */
+  threadId: string | null; onDraft: () => void; drafting: boolean; onOpenThread: (id: string) => void;
+}
 
-export function QualifCard({ p, onStage, onRequalify, requalifying }: Props) {
+export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, onDraft, drafting, onOpenThread }: Props) {
   const [allEmails, setAllEmails] = useState(false);
   const best = p.best_contact;
   const emails = allEmails ? p.emails : p.emails.slice(0, 5);
@@ -46,6 +50,17 @@ export function QualifCard({ p, onStage, onRequalify, requalifying }: Props) {
             {best.email && <> · <Mail className="inline w-3.5 h-3.5 mx-1 text-slate-400" /><span className="font-medium">{best.email}</span></>}
           </p>
           {best.pourquoi && <p className="text-xs text-slate-500">{best.pourquoi}</p>}
+          <div className="mt-1.5">
+            {threadId ? (
+              <button onClick={() => onOpenThread(threadId)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"><MessagesSquare className="w-3.5 h-3.5" /> Voir la conversation</button>
+            ) : drafting ? (
+              <span className="text-xs text-violet-700 animate-pulse">Ada rédige le premier mail…</span>
+            ) : best.email && p.emails.some((e) => e.email === best.email && e.mx) && ['qualifie', 'a_contacter'].includes(p.stage) ? (
+              <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 text-xs font-medium" title="Opus 5.5 écrit dans sa langue, avec la traduction ; le brouillon arrive dans « À valider ». Rien ne part sans validation.">
+                <PenLine className="w-3.5 h-3.5" /> Rédiger le premier mail
+              </button>
+            ) : <span className="text-[11px] text-slate-400">Pas de premier mail : il faut un e-mail publié et vérifié.</span>}
+          </div>
         </div>
       )}
       {p.people.length > 0 && (

@@ -13,6 +13,7 @@ import { costUsd, addUsage, HAIKU, OPUS } from '../src/lib/agents/aiCost';
 import { nameKey, sameDealer, isoOfCountry, phoneKey9 } from '../src/lib/agents/keys';
 import { discoveryPairs, nextDiscoveryPair } from '../src/lib/agents/discovery';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
+import { fakeSupabase } from './fakeSupabase';
 
 let fails = 0;
 const ok = (cond: boolean, what: string, got?: unknown) => {
@@ -118,49 +119,7 @@ const db: Record<string, Row[]> = {
   ],
   agent_prospects: [], agent_runs: [], agent_journal: [], network_contacts: [], intra_showcase: [], transactions_admin: [], contacts: [],
 };
-let seq = 0;
-class Q implements PromiseLike<{ data: unknown; error: null }> {
-  private filters: Array<(r: Row) => boolean> = [];
-  private op: 'select' | 'insert' | 'upsert' | 'update' = 'select';
-  private payload: Row | Row[] | null = null;
-  private conflict: string | null = null;
-  private single = false;
-  private lim = Infinity;
-  constructor(private t: string) {}
-  select() { return this; }
-  eq(c: string, v: unknown) { this.filters.push((r) => r[c] === v); return this; }
-  gte(c: string, v: string) { this.filters.push((r) => String(r[c] ?? '') >= v); return this; }
-  in(c: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
-  not() { return this; }
-  is(c: string, v: unknown) { this.filters.push((r) => (r[c] ?? null) === v); return this; }
-  order() { return this; }
-  limit(n: number) { this.lim = n; return this; }
-  maybeSingle() { this.single = true; return this; }
-  insert(p: Row | Row[]) { this.op = 'insert'; this.payload = p; return this; }
-  upsert(p: Row | Row[], o?: { onConflict?: string }) { this.op = 'upsert'; this.payload = p; this.conflict = o?.onConflict ?? 'id'; return this; }
-  update(p: Row) { this.op = 'update'; this.payload = p; return this; }
-  private run(): unknown {
-    const table = (db[this.t] ??= []);
-    if (this.op === 'insert' || this.op === 'upsert') {
-      const rows = (Array.isArray(this.payload) ? this.payload : [this.payload]) as Row[];
-      return rows.map((r) => {
-        const twin = this.op === 'upsert' ? table.find((x) => x[this.conflict!] === r[this.conflict!]) : null;
-        if (twin) { Object.assign(twin, r); return twin; }
-        const row = { id: `${this.t}-${++seq}`, created_at: new Date().toISOString(), ...r }; // défauts de la base
-        table.push(row);
-        return row;
-      });
-    }
-    const hit = table.filter((r) => this.filters.every((f) => f(r)));
-    if (this.op === 'update') { hit.forEach((r) => Object.assign(r, this.payload)); return hit; }
-    const rows = hit.slice(0, this.lim);
-    return this.single ? rows[0] ?? null : rows;
-  }
-  then<A, B>(ok1?: ((v: { data: unknown; error: null }) => A | PromiseLike<A>) | null, ko?: ((e: unknown) => B | PromiseLike<B>) | null) {
-    return Promise.resolve({ data: this.run(), error: null as null }).then(ok1, ko);
-  }
-}
-setSharedSupabase({ from: (t: string) => new Q(t), rpc: async () => ({ data: [], error: null }) } as never);
+setSharedSupabase(fakeSupabase(db) as never);
 (dns as unknown as { resolveMx: (d: string) => Promise<unknown[]> }).resolveMx = async (d: string) => (d === 'busvan.nl' || d === 'pinson-auto.fr' ? [{ exchange: `mx.${d}`, priority: 10 }] : []);
 
 // Faux internet : la fiche AutoScout24, le site du garage, et l'API Claude.
