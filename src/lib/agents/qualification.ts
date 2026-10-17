@@ -81,20 +81,23 @@ export function fitScore(i: FitInput): Fit {
   return { score: Math.min(100, parts.reduce((s, p) => s + p.points, 0)), parts };
 }
 
+/** Une ligne de barème : ce qui compte, les points (dans l'ordre des seuils), et les seuils s'il y en a. */
+export type ScoreLine = [label: string, points: string, detail?: string];
+
 /** Joignable : compte dans les trois notes (garage d'Ada, garage à lots de Dana, compte trouvé sur le web). */
-export const REACH_SCORE_HELP: Array<[string, string]> = [
+export const REACH_SCORE_HELP: ScoreLine[] = [
   ['e-mail publié', '+8'],
   ['interlocuteur nommé', '+4'],
 ];
 
 /** La note d'un garage d'Ada, en clair (le « i » des Réglages) : à tenir à jour avec fitScore ci-dessus. */
-export const ADA_SCORE_HELP: Array<[string, string]> = [
+export const ADA_SCORE_HELP: ScoreLine[] = [
   ['dans un pays visé', '+25'],
-  ['annonces dans nos marques (selon leur part du stock)', '+8 à +25'],
+  ['annonces dans nos marques', '+8 à +25', 'selon leur part de son stock'],
   ['utilitaires de nos marques', '+15'],
   ['annonces plus chères que nos offres', '+8 chacune, +24 au plus'],
-  ['stock suivi : 8, 20, 50 annonces et plus', '+4, +7, +10'],
-  ['multimarque (si la case est cochée)', '+6'],
+  ['stock suivi', '+4, +7, +10', '8, 20, 50 annonces et plus'],
+  ['multimarque', '+6', 'si la case « multimarques » est cochée'],
 ];
 
 // --- L'appel à Haiku 5.5 ----------------------------------------------------------

@@ -18,9 +18,10 @@
  * - Ada : jusqu'à 8 découvertes par jour (cibles en rotation sur tous les
  *   sites des pays cibles, 3 pages chacune), les qualifications du jour
  *   (auto_qualify_per_day) parmi les garages de ses pays et marques ;
- * - Dana : les qualifications du jour parmi les garages aux plus gros lots
- *   de véhicules identiques, dans toute l'Europe (ses découvertes se lancent
- *   depuis l'onglet Sourcing) ;
+ * - Dana : ses relevés d'annonces s'ils sont cochés (18/10 : comme Ada,
+ *   jusqu'à 8 par jour, la France d'abord puis toute l'Europe, dans ses
+ *   marques), les qualifications du jour parmi les garages aux plus gros
+ *   lots de véhicules identiques ;
  * - pour les deux : les recherches de comptes du jour
  *   (auto_research_per_day ; types de comptes et pays en rotation, Ada dans
  *   ses pays d'export, Dana dans toute l'Europe), les comptes trouvés étant
@@ -36,8 +37,9 @@ import { researchAccounts } from './research';
 import { refreshSoon } from './indexRefresh';
 import { researchPairs, nextResearchPair, segmentOf, RESEARCH_COUNTRIES, COUNTRY_FR, type ResearchParams } from '../../src/lib/agents/research';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
-import { aiConfigured, spentToday, clearCreditPause, BudgetReached, AiUnavailable, NO_KEY } from './claude';
-import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, type DiscoveryParams } from '../../src/lib/agents/discovery';
+import { aiConfigured, aiPaused, spentToday, clearAiPause, BudgetReached, AiUnavailable, NO_KEY } from './claude';
+import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, DISCOVERY_SITES, type DiscoveryParams } from '../../src/lib/agents/discovery';
+import { normalizeDanaTargets, danaScanCountries } from '../../src/lib/agents/sourcing';
 import { ensureLearnedTaxonomy } from '../../src/lib/linkgen/taxonomy';
 import { inSendWindow, parisDayStart } from '../../src/lib/agents/sendPolicy';
 import { fmtUsd } from '../../src/lib/agents/aiCost';
@@ -158,8 +160,8 @@ export async function runNextTask(): Promise<void> {
       .eq('id', t.id).eq('status', 'en_attente').select('id');
     if (!claimed || (claimed as unknown[]).length === 0) return;
     const auto = t.created_by ? '' : ' (automatique)';
-    // Lancée par une personne : on réessaie l'IA tout de suite (des crédits ont pu être ajoutés).
-    if (t.created_by) clearCreditPause();
+    // Lancée par une personne : on réessaie l'IA tout de suite (crédits ajoutés, clé corrigée…).
+    if (t.created_by) clearAiPause();
     live(t.id, `Démarrage : ${startLabel(t)}${auto}`);
     try {
       if (t.kind === 'decouverte_concessions') {
@@ -232,7 +234,7 @@ async function autoDiscovery(a: AiAgent, countries: string[], brands: string[], 
 }
 
 async function autoQualify(a: AiAgent): Promise<void> {
-  if (!aiConfigured() || !(a.auto_qualify_per_day > 0) || await pending(a.agent, 'qualification')) return;
+  if (!aiConfigured() || aiPaused() || !(a.auto_qualify_per_day > 0) || await pending(a.agent, 'qualification')) return;
   const dayStart = parisDayStart(new Date()).toISOString();
   const { data } = await sb.from('agent_prospects').select('id').eq('agent', a.agent).gte('qualified_at', dayStart).limit(1000);
   const remaining = a.auto_qualify_per_day - ((data ?? []) as unknown[]).length;
@@ -259,7 +261,7 @@ async function autoQualify(a: AiAgent): Promise<void> {
  */
 async function autoResearch(a: AiAgent, ctx: SeriesContext): Promise<void> {
   const perDay = Number(a.auto_research_per_day ?? 0);
-  if (!aiConfigured() || !(perDay > 0) || await pending(a.agent, 'recherche_comptes')) return;
+  if (!aiConfigured() || aiPaused() || !(perDay > 0) || await pending(a.agent, 'recherche_comptes')) return;
   const budget = Number(a.daily_budget_usd);
   if (!Number.isFinite(budget) || (await spentToday(a.agent)) >= budget) return;
   const { data } = await sb.from('agent_tasks').select('params, created_at, created_by').eq('agent', a.agent).eq('kind', 'recherche_comptes')
@@ -276,7 +278,7 @@ async function autoResearch(a: AiAgent, ctx: SeriesContext): Promise<void> {
 }
 
 async function autoDraft(a: AiAgent): Promise<void> {
-  if (!aiConfigured() || !((a.auto_draft_per_day ?? 0) > 0) || await pending(a.agent, 'premier_mail')) return;
+  if (!aiConfigured() || aiPaused() || !((a.auto_draft_per_day ?? 0) > 0) || await pending(a.agent, 'premier_mail')) return;
   const dayStart = parisDayStart(new Date()).toISOString();
   // Un premier contact = un fil (un grand compte en compte deux messages : le mail et la note LinkedIn).
   const threads = (rows: unknown) => new Set(((rows ?? []) as Array<{ thread_id: string }>).map((m) => m.thread_id)).size;
@@ -304,7 +306,9 @@ export async function autoCycle(): Promise<void> {
       // Dana attend ses réglages (SQL agents_comptes : taille des lots, pays de vente).
       if (agent === 'dana' && !(a.targets && typeof a.targets === 'object' && 'minLot' in a.targets)) continue;
       const ctx = await seriesContext(a, null);
+      // Les relevés d'annonces (sans IA) : Ada dans ses pays d'export ; Dana partout, la France d'abord, dans ses marques.
       if (agent === 'ada') await autoDiscovery(a, ctx.targetCountries, ctx.targets.brands, ctx.targets.vanBrands);
+      else await autoDiscovery(a, danaScanCountries(Object.keys(DISCOVERY_SITES)), normalizeDanaTargets(a.targets).brands, []);
       await autoResearch(a, ctx);
       await autoQualify(a);
       await autoDraft(a);

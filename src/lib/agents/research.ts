@@ -14,7 +14,7 @@
 import { MC_EXPORT_FACTS } from './playbook';
 import { DANA_FACTS } from './sourcing';
 import { nameKey } from './keys';
-import type { Fit } from './qualification';
+import type { Fit, ScoreLine } from './qualification';
 
 export type AgentRole = 'ada' | 'dana';
 
@@ -247,13 +247,13 @@ export interface AccountFitInput {
 }
 
 /** La note d'un compte trouvé sur le web, en clair (le « i » des Réglages) : à tenir à jour avec accountFitScore ci-dessous. */
-export function accountScoreHelp(role: AgentRole): Array<[string, string]> {
+export function accountScoreHelp(role: AgentRole): ScoreLine[] {
   const byPoints = new Map<number, string[]>();
   for (const s of SEGMENTS[role]) byPoints.set(s.points, [...(byPoints.get(s.points) ?? []), s.label.charAt(0).toLowerCase() + s.label.slice(1)]);
   return [
-    ...[...byPoints].sort((a, b) => b[0] - a[0]).map(([p, labels]): [string, string] => [labels.join(', '), `+${p}`]),
+    ...[...byPoints].sort((a, b) => b[0] - a[0]).map(([p, labels]): ScoreLine => [labels.join(', '), `+${p}`]),
     role === 'ada' ? ['dans un pays visé', '+20'] : ['en France, ailleurs en Europe', '+10, +5'],
-    ['taille (véhicules, sites…) : moins de 100, dès 100, dès 1 000', '+5, +10, +15'],
+    ['taille connue', '+5, +10, +15', 'moins de 100, dès 100, dès 1 000 (véhicules, sites…)'],
     ['profil LinkedIn trouvé', '+5'],
   ];
 }

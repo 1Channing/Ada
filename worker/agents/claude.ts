@@ -13,12 +13,17 @@
  *   par l'API (« pause_turn ») est repris tel quel, trois fois au plus.
  * - Opus 5.5 : repli serveur en cas de refus (fallbacks « default », en-tête
  *   server-side-fallback-2026-07-01), comme recommandé pour ce modèle.
- * - Crédits épuisés : le travail automatique s'arrête une heure ; une tâche
- *   lancée par une personne réessaie tout de suite (des crédits ont pu être
- *   ajoutés entre-temps).
+ * - Une clé « multi-espaces » (pas rattachée à un espace de travail) doit
+ *   dire dans quel espace travailler : AGENTS_ANTHROPIC_WORKSPACE_ID
+ *   (wrkspc_…) part alors dans l'en-tête anthropic-workspace-id (18/10).
+ * - Panne de réglage (crédits épuisés, clé refusée, clé sans espace de
+ *   travail, droits) : message en clair (src/lib/agents/aiErrors.ts), et le
+ *   travail automatique d'Ada et Dana s'arrête une heure ; une tâche lancée
+ *   par une personne réessaie tout de suite (le réglage a pu être corrigé).
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { costUsd, addUsage, type UsageLike } from '../../src/lib/agents/aiCost';
+import { aiProblemOf } from '../../src/lib/agents/aiErrors';
 import { parisDayStart } from '../../src/lib/agents/sendPolicy';
 import { sb } from './store';
 
@@ -26,22 +31,29 @@ export class AiUnavailable extends Error {}
 export class BudgetReached extends Error {}
 
 const apiKey = (): string => process.env.AGENTS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '';
+/** L'espace de travail d'une clé qui n'y est pas rattachée (wrkspc_…), facultatif. */
+const workspaceId = (): string => (process.env.AGENTS_ANTHROPIC_WORKSPACE_ID ?? '').trim();
 let client: Anthropic | null = null;
 const api = (): Anthropic | null => {
   if (!apiKey()) return null;
-  client ??= new Anthropic({ apiKey: apiKey(), maxRetries: 2, timeout: 5 * 60_000 });
+  client ??= new Anthropic({
+    apiKey: apiKey(), maxRetries: 2, timeout: 5 * 60_000,
+    ...(workspaceId() ? { defaultHeaders: { 'anthropic-workspace-id': workspaceId() } } : {}),
+  });
   return client;
 };
 export const aiConfigured = (): boolean => !!apiKey();
 /** Le message quand aucune clé n'est posée sur le worker. */
 export const NO_KEY = 'aucune clé API Anthropic sur le worker (AGENTS_ANTHROPIC_API_KEY, ou ANTHROPIC_API_KEY) : l\'IA d\'Ada et Dana n\'est pas branchée';
 
-let creditPauseUntil = 0;
-const CREDIT_PAUSE_MS = 3600_000;
-const NO_CREDIT = 'crédits API Anthropic épuisés : ajoutez-en dans la console Anthropic (Plans et facturation), puis relancez la tâche';
+/** Pause du travail automatique après une panne de réglage (crédits, clé, espace de travail, droits). */
+let pause: { until: number; reason: string } | null = null;
+const PAUSE_MS = 3600_000;
 
-/** Une tâche lancée par une personne réessaie tout de suite, même pendant la pause « crédits épuisés ». */
-export function clearCreditPause(): void { creditPauseUntil = 0; }
+/** Une tâche lancée par une personne réessaie tout de suite, même pendant la pause. */
+export function clearAiPause(): void { pause = null; }
+/** Le travail automatique attend (panne de réglage dans l'heure) : pas de nouvelle tâche d'IA d'office. */
+export const aiPaused = (): boolean => !!pause && Date.now() < pause.until;
 
 /** Dépense du jour (heure de Paris) d'une agente, en dollars. */
 export async function spentToday(agent: string): Promise<number> {
@@ -108,7 +120,7 @@ function parseJson<T>(blocks: Block[]): { data: T | null; text: string } {
 export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
   const a = api();
   if (!a) throw new AiUnavailable(NO_KEY);
-  if (Date.now() < creditPauseUntil) throw new AiUnavailable(`${NO_CREDIT} (le travail automatique reprend seul dans l'heure)`);
+  if (pause && Date.now() < pause.until) throw new AiUnavailable(`${pause.reason} (le travail automatique reprend seul dans l'heure)`);
   const spent = await spentToday(c.agent);
   if (spent >= c.budgetUsd) throw new BudgetReached(`plafond du jour atteint (${spent.toFixed(2)} $ sur ${c.budgetUsd} $)`);
 
@@ -138,10 +150,10 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const noCredit = /credit balance|insufficient_quota|billing/i.test(msg);
-    if (noCredit) creditPauseUntil = Date.now() + CREDIT_PAUSE_MS;
+    const problem = aiProblemOf(msg, e instanceof Anthropic.APIError ? e.status : null);
+    if (problem) pause = { until: Date.now() + PAUSE_MS, reason: problem.text };
     await record(c, usage, costUsd(c.model, usage), null, msg);
-    if (noCredit) throw new AiUnavailable(NO_CREDIT);
+    if (problem) throw new AiUnavailable(problem.text);
     throw e instanceof Anthropic.APIError ? new Error(`API Claude ${e.status ?? ''} : ${msg}`.trim()) : e;
   }
   const cost = costUsd(c.model, usage);

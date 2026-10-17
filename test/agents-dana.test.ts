@@ -14,7 +14,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as dns } from 'node:dns';
 import {
-  normalizeDanaTargets, lotFactOf, lotsFromListings, lotLine, danaFitScore, isKeyAccount, groupKey, looksLikeGroup, DEFAULT_DANA_TARGETS, DANA_SCORE_HELP,
+  normalizeDanaTargets, lotFactOf, lotsFromListings, lotLine, danaFitScore, isKeyAccount, groupKey, looksLikeGroup, DEFAULT_DANA_TARGETS, DANA_SCORE_HELP, danaScanCountries,
 } from '../src/lib/agents/sourcing';
 import { qualifySchema, qualifyPrompt, acceptedLinkedin, QUALIFY_SCHEMA, REACH_SCORE_HELP, type QualifyOutput } from '../src/lib/agents/qualification';
 import {
@@ -39,6 +39,9 @@ ok(JSON.stringify(normalizeDanaTargets(null)) === JSON.stringify(DEFAULT_DANA_TA
 const t1 = normalizeDanaTargets({ minLot: 1, markets: ['nl', 'NL', 'xx1', 'dk'] });
 ok(t1.minLot === 3 && t1.markets.join() === 'NL,DK', 'réglages : un « lot » de 1 refusé, pays en majuscules sans doublon ni code invalide', t1);
 ok(normalizeDanaTargets({ minLot: 50 }).minLot === 20, 'réglages : lot de 20 au plus');
+ok(normalizeDanaTargets({}).brands.join() === 'Toyota,Suzuki,Peugeot,Opel' && normalizeDanaTargets({ brands: [' toyota ', 'Toyota', 'Suzuki', ''] }).brands.join() === 'Toyota,Suzuki'
+  && danaScanCountries(['NL', 'FR', 'DE', 'HU']).join() === 'FR,NL,DE,HU',
+  'relevés de Dana : ses marques (Toyota, Suzuki, Peugeot, Opel d\'office ; sans doublon), la France d\'abord puis le reste de l\'Europe');
 
 const lot = lotFactOf({
   brand: 'TOYOTA', model: 'Yaris Cross', year: 2023, count: 5, price_min: 22_900, price_max: 24_500, km_min: 15_000, km_max: 30_000, first_seen_at: daysAgo(40),

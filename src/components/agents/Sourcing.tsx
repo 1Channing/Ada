@@ -9,8 +9,9 @@
  *   quand ADA le voit, et ce que ces véhicules valent dans nos pays de vente
  *   (annonces des garages et relevés des études) : un écart BRUT, avant
  *   taxes d'immatriculation, transport et frais.
- * - Découvrir : Dana lit les pages d'un site (tous pays, la France
- *   comprise) pour trouver d'autres garages et leurs lots. Sans IA.
+ * - Relevé ciblé (18/10 : Dana relève déjà les annonces toute seule si
+ *   c'est coché dans ses Réglages) : tout de suite, une marque ou un modèle
+ *   précis dans un pays (tous pays, la France comprise). Sans IA.
  * - Qualifier (17/10, Haiku 5.5) : qui vend chez ce garage (VO, négoce,
  *   remarketing), son e-mail publié, son profil LinkedIn s'il est vu ; un
  *   groupe, un loueur, un leasing, une flotte = un grand compte.
@@ -65,6 +66,7 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
   const [open, setOpen] = useState<string | null>(null);
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [disc, setDisc] = useState({ site: 'AUTOSCOUT', country: 'FR', brand: 'Toyota', model: '', pages: 5 });
+  const [targeted, setTargeted] = useState(false);
   // Les fiches de Dana (par prospect) et leurs fils ; la fiche ouverte (par garage).
   const [details, setDetails] = useState<Map<string, ProspectDetail>>(new Map());
   const [threads, setThreads] = useState<Map<string, string>>(new Map());
@@ -268,10 +270,17 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
         </div>
       </div>
 
-      {/* Découvrir (Dana : tous pays) */}
+      {/* Relevés d'annonces : automatiques (Réglages), ou ciblés ici, tout de suite */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 space-y-3">
-        <div className="flex items-center gap-2 flex-wrap"><Radar className="w-4 h-4 text-teal-700" /><h3 className="text-sm font-semibold text-slate-900">Découvrir des fournisseurs</h3><span className="text-xs text-slate-500">— Dana lit les annonces d'un site, dans n'importe quel pays, et repère les lots des garages. Sans IA.</span></div>
-        <div className="flex items-center gap-2 flex-wrap text-sm">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Radar className="w-4 h-4 text-teal-700" />
+          <h3 className="text-sm font-semibold text-slate-900">Relevés d'annonces</h3>
+          <span className="text-xs text-slate-500">— Dana les fait toute seule si c'est coché dans ses Réglages. Un relevé ciblé ici : une marque ou un modèle précis, dans un pays, tout de suite. Sans IA.</span>
+          <button onClick={() => setTargeted((v) => !v)} className="ml-auto inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-800 hover:bg-teal-100">
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${targeted ? 'rotate-180' : ''}`} /> Relevé ciblé
+          </button>
+        </div>
+        {targeted && <div className="flex items-center gap-2 flex-wrap text-sm">
           <select className={input} value={disc.country} onChange={(e) => { const c = e.target.value; const sites = DISCOVERY_SITES[c] ?? ['AUTOSCOUT']; setDisc({ ...disc, country: c, site: sites.includes(disc.site) ? disc.site : sites[0] }); }}>
             {Object.keys(DISCOVERY_SITES).map((c) => <option key={c} value={c}>{FLAG[c]} {COUNTRY_NAME[c] ?? c}</option>)}
           </select>
@@ -282,13 +291,14 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
           <input className={`${input} w-40`} placeholder="Modèle (facultatif)" value={disc.model} onChange={(e) => setDisc({ ...disc, model: e.target.value })} />
           <label className="inline-flex items-center gap-1 text-slate-700"><input type="number" min={1} max={10} className={`${input} w-16`} value={disc.pages} onChange={(e) => setDisc({ ...disc, pages: Number(e.target.value) })} /> pages</label>
           <button disabled={!disc.brand.trim()} onClick={() => void launch()} className="inline-flex items-center gap-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-40"><Radar className="w-4 h-4" /> Lancer</button>
-        </div>
+        </div>}
         {discoveries.length > 0 && (
           <div className="divide-y divide-slate-100 border-t border-slate-100">
             {discoveries.slice(0, 6).map((t) => (
               <div key={t.id} className="flex items-center gap-2 py-1.5 text-xs flex-wrap">
                 <span className={`rounded-full px-2 py-0.5 ${TASK_STATUS[t.status].cls}`}>{TASK_STATUS[t.status].label}</span>
                 <span className="font-medium text-slate-800">{FLAG[t.params.country ?? ''] ?? ''} {siteLabel(t.params.site)} · {t.params.brand}{t.params.model ? ` ${t.params.model}` : ''}</span>
+                {!t.created_by && <span className="text-[10px] rounded-full px-1.5 bg-slate-50 border border-slate-200 text-slate-500">automatique</span>}
                 {t.status === 'terminee' && t.result && <span className="text-slate-600">{t.result.annonces} annonces lues{t.result.avec_garage != null ? ` · ${t.result.avec_garage} avec leur garage` : ''} · {t.result.concessions} garages</span>}
                 {t.status === 'echec' && <span className="text-red-700">{t.error}</span>}
                 <span className="ml-auto text-slate-400">{fmtRelative(t.finished_at ?? t.created_at)}</span>

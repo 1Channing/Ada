@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, CheckCircle2, ScrollText, Settings2, RefreshCw, Building2, Layers, Briefcase, Activity } from 'lucide-react';
+import { Bot, Inbox, CheckCircle2, Settings2, RefreshCw, Building2, Layers, Briefcase, Activity } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
-  listSettings, countsFor, listJournal, aiSpend, threadAgent, AGENT_LABEL,
-  type AgentKey, type AgentSettings, type AgentCounts, type JournalRow, type AiSpend,
+  listSettings, countsFor, aiSpend, threadAgent, AGENT_LABEL,
+  type AgentKey, type AgentSettings, type AgentCounts, type AiSpend,
 } from '../services/agents';
 import { fmtUsd } from '../lib/agents/aiCost';
-import { listAssignees } from '../services/userTasks';
 import { parisDayStart } from '../lib/agents/sendPolicy';
 import { Banner } from '../components/agents/shared';
-import { fmtDateTime, fmtRelative } from '../components/agents/helpers';
+import { fmtRelative } from '../components/agents/helpers';
 import { Messagerie } from '../components/agents/Messagerie';
 import { ValidationQueue } from '../components/agents/ValidationQueue';
 import { Reglages } from '../components/agents/Reglages';
@@ -34,12 +33,14 @@ import { Live } from '../components/agents/Live';
  * Sourcing (Dana : les lots de véhicules identiques), ses Comptes (ses types
  * de comptes, trouvés par recherche web), ce qui l'attend À valider, son
  * Journal, ses Réglages. Rien ne part sans un clic d'administrateur.
+ * 18/10 : le Journal est retiré — Live montre les mêmes événements, en direct,
+ * avec l'historique plus bas.
  * Live (17/10, Channing : « voir en direct ce que l'agent fait ») : le
  * premier onglet, ouvert d'office — sauf un lien vers un fil, qui ouvre la
  * Messagerie.
  */
 
-type Tab = 'live' | 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'comptes' | 'journal' | 'reglages';
+type Tab = 'live' | 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'comptes' | 'reglages';
 const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
   live: { label: 'Live', icon: <Activity className="w-4 h-4" /> },
   messagerie: { label: 'Messagerie', icon: <Inbox className="w-4 h-4" /> },
@@ -47,13 +48,12 @@ const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
   sourcing: { label: 'Sourcing', icon: <Layers className="w-4 h-4" /> },
   comptes: { label: 'Comptes', icon: <Briefcase className="w-4 h-4" /> },
   valider: { label: 'À valider', icon: <CheckCircle2 className="w-4 h-4" /> },
-  journal: { label: 'Journal', icon: <ScrollText className="w-4 h-4" /> },
   reglages: { label: 'Réglages', icon: <Settings2 className="w-4 h-4" /> },
 };
 /** Les fonctions de chacune : Ada vend (l'annuaire des acheteurs), Dana achète (le sourcing des lots). */
 const TABS_OF: Record<AgentKey, Tab[]> = {
-  ada: ['live', 'messagerie', 'prospects', 'comptes', 'valider', 'journal', 'reglages'],
-  dana: ['live', 'messagerie', 'sourcing', 'comptes', 'valider', 'journal', 'reglages'],
+  ada: ['live', 'messagerie', 'prospects', 'comptes', 'valider', 'reglages'],
+  dana: ['live', 'messagerie', 'sourcing', 'comptes', 'valider', 'reglages'],
 };
 const SIDE: Record<AgentKey, string> = { ada: 'acheteurs', dana: 'fournisseurs' };
 /** L'onglet d'une agente vu depuis l'autre (Acheteurs ↔ Sourcing). */
@@ -74,7 +74,7 @@ const CONNEXION: Record<string, { tone: 'ok' | 'warn' | 'err'; text: (mailbox: s
   'mauvaise-boite': { tone: 'err', text: (b) => `Ce n'est pas la bonne boîte : sur l'écran Google, connectez-vous avec ${b}.` },
   'sans-jeton': { tone: 'err', text: () => 'Google n\'a pas donné d\'accès durable : recommencez (l\'écran doit demander votre accord).' },
   droits: { tone: 'err', text: () => 'L\'accès à Gmail n\'a pas été accordé : recommencez et cochez l\'accès à Gmail.' },
-  erreur: { tone: 'err', text: () => 'La connexion a échoué côté worker : réessayez ; si ça persiste, voir le Journal.' },
+  erreur: { tone: 'err', text: () => 'La connexion a échoué côté worker : réessayez ; si ça persiste, voir l\'onglet Live.' },
 };
 
 export function Agents() {
@@ -92,8 +92,6 @@ export function Agents() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<{ tone: 'ok' | 'warn' | 'err'; text: string } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [journal, setJournal] = useState<JournalRow[]>([]);
-  const [names, setNames] = useState<Record<string, string>>({});
   const [spend, setSpend] = useState<AiSpend | null>(null);
 
   const load = useCallback(async () => {
@@ -113,7 +111,6 @@ export function Agents() {
     setAgent(k);
     setTab((t) => tabFor(k, t));
     setOpenThread(null);
-    setJournal([]);
     try { window.localStorage.setItem(AGENT_STORE, k); } catch { /* stockage indisponible */ }
   };
 
@@ -143,11 +140,6 @@ export function Agents() {
     window.addEventListener('focus', onFocus);
     return () => { window.clearInterval(id); window.removeEventListener('focus', onFocus); };
   }, [load, refresh]);
-  useEffect(() => {
-    if (tab !== 'journal') return;
-    void listJournal(agent).then((r) => (r.error ? setError(r.error) : setJournal(r.rows)));
-    if (Object.keys(names).length === 0) void listAssignees().then((p) => setNames(Object.fromEntries(p.map((x) => [x.id, x.name]))));
-  }, [tab, agent, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openFromQueue = (id: string) => { setOpenThread(id); setTab('messagerie'); };
   const s = settings.find((x) => x.agent === agent);
@@ -204,7 +196,7 @@ export function Agents() {
             { n: c?.aValider ?? 0, l: 'à valider', sub: '', hot: (c?.aValider ?? 0) > 0, go: () => setTab('valider') },
             { n: c?.nonLus ?? 0, l: 'non lus', sub: '', hot: (c?.nonLus ?? 0) > 0, go: () => setTab('messagerie') },
             { n: c?.recusAujourdhui ?? 0, l: 'reçus auj.', sub: '', hot: false, go: () => setTab('messagerie') },
-            { n: c?.envoyesAujourdhui ?? 0, l: 'envoyés auj.', sub: s ? `1ers contacts ${c?.premiersContactsAujourdhui ?? 0}/${s.daily_first_contact_cap}` : '', hot: false, go: () => setTab('journal') },
+            { n: c?.envoyesAujourdhui ?? 0, l: 'envoyés auj.', sub: s ? `1ers contacts ${c?.premiersContactsAujourdhui ?? 0}/${s.daily_first_contact_cap}` : '', hot: false, go: () => setTab('live') },
           ].map((x) => (
             <button key={x.l} onClick={x.go} className={`md:w-28 rounded-xl border px-1.5 py-2 ${x.hot ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50/60'} hover:border-brand-ocean`}>
               <p className="text-xl font-bold text-slate-900 tabular-nums">{x.n}</p>
@@ -243,24 +235,6 @@ export function Agents() {
       )}
       {tab === 'comptes' && (
         <Comptes key={agent} agent={agent} userId={userId} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />
-      )}
-      {tab === 'journal' && (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-          <div className="flex items-center px-4 py-2.5 border-b border-slate-100">
-            <span className="ml-auto text-xs text-slate-400">{journal.length} entrée{journal.length > 1 ? 's' : ''} (200 dernières)</span>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {journal.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">Rien encore : connexions de la boîte, mails reçus, recherches, validations et envois s'inscrivent ici.</p>}
-            {journal.map((j) => (
-              <div key={j.id} className="px-4 py-2 flex items-start gap-3 text-sm">
-                <span className="shrink-0 w-24 text-xs text-slate-400 tabular-nums">{fmtDateTime(j.at)}</span>
-                <span className="shrink-0 w-28 text-xs text-slate-500 truncate">{j.actor === 'humain' ? (j.actor_id ? names[j.actor_id] ?? 'équipe' : 'équipe') : j.actor === 'systeme' ? 'ADA (automatique)' : AGENT_LABEL[j.actor as AgentKey]?.name ?? j.actor}</span>
-                <span className="min-w-0 flex-1 text-slate-800">{j.summary}</span>
-                {j.thread_id && <button onClick={() => openFromQueue(j.thread_id!)} className="shrink-0 text-xs text-brand-ocean hover:underline">fil</button>}
-              </div>
-            ))}
-          </div>
-        </div>
       )}
       {tab === 'reglages' && (
         <Reglages agent={agent} settings={settings} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} spend={spend} onChanged={() => void load()} onError={onError} onInfo={onInfo} />

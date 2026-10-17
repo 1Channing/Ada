@@ -11,7 +11,7 @@
  * Testée par test/agents-dana.test.ts.
  */
 import { brandKey, modelKey } from './opportunity';
-import type { Fit } from './qualification';
+import type { Fit, ScoreLine } from './qualification';
 
 /** Ce que Dana peut dire de MC Export comme ACHETEUR (rien d'autre). */
 export const DANA_FACTS = `MC Export — 88 B avenue Jean Boutton, 49130 Les Ponts-de-Cé (près d'Angers), France. Société créée en juin 2024, commerce de voitures et de véhicules légers (NAF 45.11Z).
@@ -21,15 +21,22 @@ Ce que MC Export achète surtout : Toyota (beaucoup d'hybrides), Suzuki, Peugeot
 export const DANA_IDEAL_SELLER = `Le fournisseur idéal de Dana : un professionnel, dans n'importe quel pays d'Europe, qui a régulièrement des véhicules récents à céder, de préférence plusieurs identiques (retours de flotte ou de leasing, fins de location, stock d'un groupe) : concession ou groupe de distribution (son responsable VO ou des ventes aux marchands), loueur ou société de leasing (son remarketing), flotte d'entreprise (son gestionnaire de parc), négociant B2B. On cherche une relation durable et des lots réguliers, pas une voiture isolée ; un groupe de plusieurs sites, un loueur ou un leasing valent davantage.
 Pas des fournisseurs pour Dana : les particuliers ; les garages sans véhicules récents à vendre ; les spécialistes du luxe, de la collection, des camping-cars, des poids lourds ou des motos ; les sites d'annonces eux-mêmes.`;
 
-/** Les réglages de Dana (agent_settings.targets) : taille d'un lot, nos pays de vente. */
-export interface DanaTargets { minLot: number; markets: string[] }
-export const DEFAULT_DANA_TARGETS: DanaTargets = { minLot: 3, markets: ['NL', 'DK', 'BE', 'DE'] };
+/** Les réglages de Dana (agent_settings.targets) : taille d'un lot, nos pays de vente, les marques de ses relevés d'annonces (18/10). */
+export interface DanaTargets { minLot: number; markets: string[]; brands: string[] }
+export const DEFAULT_DANA_TARGETS: DanaTargets = { minLot: 3, markets: ['NL', 'DK', 'BE', 'DE'], brands: ['Toyota', 'Suzuki', 'Peugeot', 'Opel'] };
 export function normalizeDanaTargets(t: unknown): DanaTargets {
-  const o = (t && typeof t === 'object' ? t : {}) as { minLot?: unknown; markets?: unknown };
+  const o = (t && typeof t === 'object' ? t : {}) as { minLot?: unknown; markets?: unknown; brands?: unknown };
   const min = Math.round(Number(o.minLot));
   const markets = Array.isArray(o.markets) ? o.markets.map((x) => String(x ?? '').trim().toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x)) : [];
-  return { minLot: Number.isFinite(min) && min >= 2 ? Math.min(20, min) : DEFAULT_DANA_TARGETS.minLot, markets: markets.length ? [...new Set(markets)] : DEFAULT_DANA_TARGETS.markets };
+  const brands = Array.isArray(o.brands) ? o.brands.map((x) => String(x ?? '').trim()).filter(Boolean).slice(0, 12) : null;
+  return {
+    minLot: Number.isFinite(min) && min >= 2 ? Math.min(20, min) : DEFAULT_DANA_TARGETS.minLot,
+    markets: markets.length ? [...new Set(markets)] : DEFAULT_DANA_TARGETS.markets,
+    brands: brands ? [...new Map(brands.map((b) => [brandKey(b), b])).values()] : DEFAULT_DANA_TARGETS.brands,
+  };
 }
+/** Les pays des relevés d'annonces de Dana : la France d'abord, puis le reste de l'Europe (ceux dont ADA sait lire les sites). */
+export const danaScanCountries = (siteCountries: string[]): string[] => ['FR', ...siteCountries.filter((c) => c !== 'FR')];
 
 /** Un lot tel que Dana le lit : véhicules identiques chez un garage, et l'écart brut face à nos pays de vente. */
 export interface LotFact {
@@ -117,12 +124,12 @@ export function danaFitScore(i: DanaFitInput, now = Date.now()): Fit {
 }
 
 /** La note d'un garage à lots de Dana, en clair (le « i » des Réglages) : à tenir à jour avec danaFitScore ci-dessus. */
-export const DANA_SCORE_HELP: Array<[string, string]> = [
-  ['plus gros lot : 2, 3, 4 ou 5, 6 véhicules et plus', '+8, +15, +22, +30'],
+export const DANA_SCORE_HELP: ScoreLine[] = [
+  ['plus gros lot', '+8, +15, +22, +30', '2, 3, 4 ou 5, 6 véhicules identiques et plus'],
   ['deux lots ou plus', '+10'],
-  ['écart de prix avec nos pays de revente : moins de 1 000 €, dès 1 000 €, dès 3 000 €', '+10, +18, +25'],
+  ['écart de prix avec nos pays de revente', '+10, +18, +25', 'moins de 1 000 €, dès 1 000 €, dès 3 000 €'],
   ['en stock depuis 30 jours ou plus', '+10'],
-  ['stock suivi : 20, 50 annonces et plus', '+5, +8'],
+  ['stock suivi', '+5, +8', '20, 50 annonces et plus'],
 ];
 
 /** Les natures de compte qu'on traite en grand compte (Channing envoie lui-même). */

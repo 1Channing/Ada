@@ -9,7 +9,10 @@
  *   (« Fiche 3 sur 10 », « Arval Belgium : lecture de son site »…) ;
  * - la file d'attente (annulable tant qu'elle n'a pas commencé) ;
  * - le fil des derniers événements : appels à l'IA (recherches web, pages
- *   lues, coût), fiches prêtes, mails écrits, tâches terminées ou en échec.
+ *   lues, coût), fiches prêtes, mails écrits, tâches terminées ou en échec,
+ *   gestes de l'équipe (avec son nom) — et, plus bas, l'historique (18/10 :
+ *   l'onglet Journal est retiré, Live le remplace).
+ * Les pannes de l'IA s'affichent en clair : que faire (aiErrors.ts).
  * Rien ne se lance d'ici : c'est un écran pour regarder.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -22,6 +25,8 @@ import { inSendWindow, nextWindowStart, parisClock } from '../../lib/agents/send
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { segmentOf, COUNTRY_FR } from '../../lib/agents/research';
 import { DISCOVERY_SITE_LABEL } from '../../lib/agents/discovery';
+import { aiProblemOf, apiMessage } from '../../lib/agents/aiErrors';
+import { listAssignees } from '../../services/userTasks';
 import { Banner } from './shared';
 import { fmtDateTime, workHoursLabel, deName } from './helpers';
 
@@ -79,12 +84,23 @@ function since(iso: string | null, now: number): string {
   if (s < 3600) return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`;
   return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`;
 }
-/** Un échec de l'IA, en clair (crédits, clé), ou tel quel. */
-function aiProblem(error: string): string {
-  if (/credit balance|insufficient_quota|billing|crédits/i.test(error)) return 'Crédits API Anthropic épuisés : ajoutez-en dans la console Anthropic (Plans et facturation). Le travail automatique reprend seul dans l\'heure ; ce que vous lancez à la main réessaie tout de suite.';
-  if (/authentication|x-api-key|invalid api key|401|permission/i.test(error)) return 'Clé API refusée par Anthropic (désactivée ou erronée) : vérifiez AGENTS_ANTHROPIC_API_KEY sur le worker (Railway).';
-  return `Le dernier appel à l'IA a échoué : ${error.slice(0, 220)}`;
+/** Un échec de l'IA, en clair : une panne de réglage (et que faire), sinon son message sans le JSON. */
+function aiProblemText(error: string): string {
+  const p = aiProblemOf(error);
+  if (!p) return `Le dernier appel à l'IA a échoué : ${apiMessage(error)}`;
+  return `${p.text.charAt(0).toUpperCase()}${p.text.slice(1)}. En attendant, le travail automatique d'Ada et de Dana se met en pause une heure ; ce que vous lancez à la main réessaie tout de suite.`;
 }
+/** Une ligne du journal qui porte une erreur brute de l'API (avant le 18/10) : la panne en quelques mots. */
+function cleanSummary(summary: string): string {
+  const i = summary.indexOf(' en échec : ');
+  if (i < 0 || !/\{"type"\s*:\s*"error"/.test(summary)) return summary;
+  const rest = summary.slice(i + ' en échec : '.length);
+  return `${summary.slice(0, i)} en échec : ${aiProblemOf(rest)?.short ?? apiMessage(rest)}`;
+}
+/** L'historique : 30 événements de chaque sorte, puis 50 de plus à chaque « Afficher plus ancien ». */
+const DEPTH = 30;
+const MORE = 50;
+const MAX_DEPTH = 500;
 
 interface Ev { key: string; at: string; icon: ReactNode; text: string; tone: 'ai' | 'journal' | 'err'; cost: number; thread: string | null }
 
@@ -95,18 +111,21 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
   const [spend, setSpend] = useState<AiSpend | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [depth, setDepth] = useState(DEPTH);
+  const [names, setNames] = useState<Record<string, string>>({});
   const polls = useRef(0);
 
+  useEffect(() => { void listAssignees().then((p) => setNames(Object.fromEntries(p.map((x) => [x.id, x.name])))); }, []);
   const load = useCallback(async () => {
     const withSpend = polls.current++ % SPEND_EVERY === 0;
-    const [t, r, j, sp] = await Promise.all([listTasks(20, agent), listRuns(agent, 30), listJournal(agent, 30), withSpend ? aiSpend() : Promise.resolve(undefined)]);
+    const [t, r, j, sp] = await Promise.all([listTasks(20, agent), listRuns(agent, depth), listJournal(agent, depth), withSpend ? aiSpend() : Promise.resolve(undefined)]);
     if (t.error) onError(t.error); else setTasks(t.rows);
     // SQL de la qualification pas encore collé : pas d'appels à montrer, rien de grave.
     if (!r.error) setRuns(r.rows);
     if (j.error) onError(j.error); else setJournal(j.rows);
     if (sp !== undefined) setSpend(sp);
     setLoaded(true);
-  }, [agent, onError]);
+  }, [agent, depth, onError]);
   useEffect(() => { void load(); }, [load, refreshKey]);
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
@@ -126,7 +145,7 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
   const pct = today != null && budget ? (today / budget) * 100 : 0;
   // Le dernier appel à l'IA a échoué (dans l'heure) : on le dit en clair.
   const lastRun = runs[0];
-  const problem = lastRun?.error && now - Date.parse(lastRun.created_at) < 3600_000 ? aiProblem(lastRun.error) : null;
+  const problem = lastRun?.error && now - Date.parse(lastRun.created_at) < 3600_000 ? aiProblemText(lastRun.error) : null;
   // Une tâche en file depuis un moment sans que rien ne tourne : le worker est-il en route ?
   const waitingLong = !running && queued[0] && now - Date.parse(queued[0].created_at) > 120_000;
 
@@ -135,14 +154,16 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
       const bits = [r.web_searches ? `${r.web_searches} recherche${pl(r.web_searches)} web` : '', r.web_fetches ? `${r.web_fetches} page${pl(r.web_fetches)} lue${pl(r.web_fetches)}` : ''].filter(Boolean);
       return {
         key: `r-${r.id}`, at: r.created_at, icon: <Sparkles className="w-3.5 h-3.5" />, tone: r.error ? 'err' : 'ai', cost: Number(r.cost_usd) || 0, thread: null,
-        text: `IA · ${PURPOSE[r.purpose] ?? r.purpose}${bits.length ? ` · ${bits.join(', ')}` : ''}${r.error ? ` — échec : ${r.error.slice(0, 160)}` : ''}`,
+        text: `IA · ${PURPOSE[r.purpose] ?? r.purpose}${bits.length ? ` · ${bits.join(', ')}` : ''}${r.error ? ` — échec : ${aiProblemOf(r.error)?.short ?? apiMessage(r.error).slice(0, 160)}` : ''}`,
       };
     }),
     ...journal.map((j): Ev => ({
       key: `j-${j.id}`, at: j.at, icon: <ScrollText className="w-3.5 h-3.5" />, tone: /_echec$/.test(j.kind) ? 'err' : 'journal', cost: 0, thread: j.thread_id,
-      text: j.actor === 'humain' ? `Équipe : ${j.summary}` : j.summary,
+      text: j.actor === 'humain' ? `${(j.actor_id && names[j.actor_id]) || 'Équipe'} : ${j.summary}` : cleanSummary(j.summary),
     })),
-  ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 40), [runs, journal]);
+  ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, depth + 10), [runs, journal, names, depth]);
+  // Il reste plus ancien à lire : une des deux listes est pleine.
+  const moreToRead = depth < MAX_DEPTH && (runs.length >= depth || journal.length >= depth);
 
   const state = running ? 'work' : queued.length ? 'wait' : 'idle';
   return (
@@ -253,6 +274,11 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
               </li>
             ))}
           </ol>
+          {moreToRead && (
+            <button onClick={() => setDepth((d) => Math.min(MAX_DEPTH, d + MORE))} className="w-full rounded-lg border border-slate-200 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+              Afficher plus ancien
+            </button>
+          )}
         </section>
       </div>
     </div>

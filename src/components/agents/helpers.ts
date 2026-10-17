@@ -26,11 +26,15 @@ const hm = (m: number) => `${Math.floor(m / 60)} h${m % 60 ? ` ${String(m % 60).
 /** Les jours et heures de travail d'une agente, en clair : « du lundi au vendredi, 8 h 30-18 h », « tous les jours, 24 h sur 24 ». */
 export function workHoursLabel(w: SendWindow): string {
   const days = [...new Set(w.send_days)].filter((d) => d >= 1 && d <= 7).sort();
-  const run = days.length > 1 && days.every((d, i) => i === 0 || d === days[i - 1] + 1);
-  const dayText = days.length === 7 ? 'tous les jours' : days.length === 0 ? 'aucun jour' : run ? `du ${DAY_NAME[days[0]]} au ${DAY_NAME[days[days.length - 1]]}` : days.map((d) => DAY_NAME[d]).join(', ');
+  // Les jours qui se suivent : « du lundi au vendredi » (trois et plus), sinon chaque jour par son nom.
+  const runs: number[][] = [];
+  for (const d of days) { const last = runs[runs.length - 1]; if (last && d === last[last.length - 1] + 1) last.push(d); else runs.push([d]); }
+  const parts = runs.flatMap((r) => (r.length >= 3 ? [`du ${DAY_NAME[r[0]]} au ${DAY_NAME[r[r.length - 1]]}`] : r.map((d) => DAY_NAME[d])));
+  const dayText = days.length === 7 ? 'tous les jours' : days.length === 0 ? 'aucun jour'
+    : parts.length > 1 ? `${parts.slice(0, -1).join(', ')} et ${parts[parts.length - 1]}` : parts[0];
   const from = toMinutes(w.send_from);
   const to = endMinutes(w.send_to);
-  return `${dayText}, ${from === 0 && to === 24 * 60 ? '24 h sur 24' : `${hm(from)}-${hm(to)}`}`;
+  return `${dayText}, ${from === 0 && to === 24 * 60 ? '24 h sur 24' : `${hm(from)}-${to === 24 * 60 ? 'minuit' : hm(to)}`}`;
 }
 
 /** Pourquoi un message validé n'est pas encore parti (estimation côté écran ; le worker fait foi). */

@@ -19,6 +19,7 @@ import {
   sizeNumber, accountFitScore, accountScoreHelp, RESEARCH_SCHEMA, RESEARCH_COUNTRIES, type ResearchOutput,
 } from '../src/lib/agents/research';
 import { qualifyPrompt, REACH_SCORE_HELP, type QualifyOutput } from '../src/lib/agents/qualification';
+import { aiProblemOf, apiMessage } from '../src/lib/agents/aiErrors';
 import { firstMailPrompt, danaFirstMailPrompt, type FirstMailOutput, type KeyAccountOutput } from '../src/lib/agents/firstMail';
 import { HAIKU, OPUS } from '../src/lib/agents/aiCost';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
@@ -166,6 +167,9 @@ const mail: FirstMailOutput = {
 };
 let base = '';
 let noCredit = false;
+let noWorkspace = false;
+const WORKSPACE_ERROR = 'This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use. Add the header, or use an API key that is scoped to a workspace.';
+const workspaceHeaders: Array<string | undefined> = [];
 const calls: Array<{ model: string; system: string; user: string; tools?: Array<{ name: string; max_uses?: number }> }> = [];
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   if (!(req.url?.startsWith('/v1/messages') && req.method === 'POST')) { res.writeHead(404); res.end(); return; }
@@ -175,6 +179,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   const system = body.system?.[0]?.text ?? '';
   const user = String(body.messages[0].content);
   calls.push({ model: body.model, system, user, tools: body.tools });
+  workspaceHeaders.push(req.headers['anthropic-workspace-id'] as string | undefined);
+  if (noWorkspace) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: WORKSPACE_ERROR }, request_id: 'req_011Cg8bMeqij2rVfxE1eph25' }));
+    return;
+  }
   if (noCredit) {
     res.writeHead(400, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' } }));
@@ -204,6 +214,8 @@ await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
 base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 process.env.ANTHROPIC_API_KEY = 'cle-de-test';
 process.env.ANTHROPIC_BASE_URL = base;
+// Une clé « multi-espaces » : l'espace de travail part dans l'en-tête anthropic-workspace-id.
+process.env.AGENTS_ANTHROPIC_WORKSPACE_ID = ' wrkspc_01TEST ';
 // Faux internet : les sites des entreprises (pas de vraie requête sortante).
 const realFetch = globalThis.fetch;
 const pages: Record<string, string> = {
@@ -298,7 +310,7 @@ ok(db.agent_runs.length === 5 && db.agent_runs[0].purpose === 'recherche_comptes
   'appels inscrits : recherche, qualification, grand compte, premiers mails', db.agent_runs.map((r) => r.purpose));
 
 // 7. Plus de crédits : un message clair ; le travail automatique attend, une tâche lancée à la main réessaie tout de suite.
-const { clearCreditPause } = await import('../worker/agents/claude');
+const { clearAiPause, aiPaused } = await import('../worker/agents/claude');
 const before = calls.length;
 noCredit = true;
 const fail = async (id: string) => { try { await researchAccounts(id, { segment: 'loueur', country: 'NL' }, dana); return ''; } catch (e) { return e instanceof Error ? e.message : String(e); } };
@@ -307,9 +319,28 @@ const e2 = await fail('tc2');
 ok(/crédits API Anthropic épuisés : ajoutez-en dans la console Anthropic/.test(e1) && /reprend seul dans l'heure/.test(e2) && calls.length === before + 1,
   'plus de crédits : message clair, puis le travail automatique attend (aucun nouvel appel)', { e1, e2, appels: calls.length - before });
 noCredit = false;
-clearCreditPause();
+clearAiPause();
 const r5 = await researchAccounts('tc3', { segment: 'loueur', country: 'NL' }, dana);
 ok(calls.length === before + 2 && r5.result.trouves > 0, 'crédits ajoutés : une tâche lancée à la main réessaie tout de suite', r5.summary);
+
+// 8. Clé « multi-espaces » sans espace de travail (la panne vue par Channing le 18/10) : en clair, pause, puis reprise à la main.
+ok(workspaceHeaders.length > 0 && workspaceHeaders.every((h) => h === 'wrkspc_01TEST'), 'espace de travail : AGENTS_ANTHROPIC_WORKSPACE_ID part dans l\'en-tête anthropic-workspace-id de chaque appel', [...new Set(workspaceHeaders)]);
+const raw = `400 ${JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: WORKSPACE_ERROR }, request_id: 'req_x' })}`;
+ok(aiProblemOf(raw, 400)?.kind === 'workspace' && aiProblemOf('anthropic-workspace-id is required when authenticating with an identity-linked API key; send the id of the workspace this request acts in.')?.kind === 'workspace'
+  && aiProblemOf('anthropic-workspace-id header must be a valid workspace ID.')?.kind === 'workspace_id' && aiProblemOf('Workspace `wrkspc_x` not found.', 404)?.kind === 'workspace_id'
+  && aiProblemOf('invalid x-api-key', 401)?.kind === 'key' && aiProblemOf('permission_error', 403)?.kind === 'permission' && aiProblemOf('Your credit balance is too low')?.kind === 'credits'
+  && aiProblemOf('Overloaded', 529) === null && apiMessage(raw) === WORKSPACE_ERROR,
+  'pannes de l\'IA : espace de travail, identifiant d\'espace, clé, droits, crédits reconnus ; une surcharge n\'en est pas une ; le message sans le JSON');
+const before2 = calls.length;
+noWorkspace = true;
+const w1 = await fail('tw1');
+const w2 = await fail('tw2');
+ok(/rattachée à aucun espace de travail/.test(w1) && /AGENTS_ANTHROPIC_WORKSPACE_ID/.test(w1) && !/\{"type"/.test(w1) && /reprend seul dans l'heure/.test(w2) && aiPaused() && calls.length === before2 + 1,
+  'clé sans espace de travail : message en clair (que faire), puis le travail automatique attend (aucun nouvel appel)', { w1, w2, appels: calls.length - before2 });
+noWorkspace = false;
+clearAiPause();
+const r6 = await researchAccounts('tw3', { segment: 'loueur', country: 'NL' }, dana);
+ok(calls.length === before2 + 2 && r6.result.trouves > 0 && !aiPaused(), 'clé corrigée : une tâche lancée à la main réessaie tout de suite', r6.summary);
 
 server.close();
 if (fails === 0) {

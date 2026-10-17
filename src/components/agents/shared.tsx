@@ -88,7 +88,7 @@ export function InfoTip({ label, wide, children }: { label: string; wide?: boole
   const leaving = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
-  const width = () => Math.min(wide ? 640 : 360, window.innerWidth - 16);
+  const width = () => Math.min(wide ? 900 : 360, window.innerWidth - 16);
   const show = () => { if (leaving.current) window.clearTimeout(leaving.current); setOpen(true); };
   const hide = () => { setOpen(false); setPos(null); };
   const hideSoon = () => { leaving.current = window.setTimeout(hide, 150); };
@@ -122,7 +122,7 @@ export function InfoTip({ label, wide, children }: { label: string; wide?: boole
       {open && (
         <div ref={tip} role="tooltip" tabIndex={-1} onMouseEnter={show} onMouseLeave={hide} onBlur={(e) => { if (!inside(e.relatedTarget)) hide(); }}
           style={{ position: 'fixed', left: pos?.left ?? 0, top: pos?.top ?? 0, width: width(), maxHeight: pos?.maxHeight, visibility: pos ? 'visible' : 'hidden' }}
-          className="z-50 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg focus:outline-none">
+          className="z-50 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 text-[13px] leading-snug text-slate-700 shadow-lg focus:outline-none">
           {children}
         </div>
       )}
