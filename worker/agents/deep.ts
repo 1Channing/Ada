@@ -75,7 +75,8 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
       agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'recherche_approfondie', model: HAIKU,
       system: deepSystem(role), user: prompt, schema: deepSchema(role) as unknown as Record<string, unknown>,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: DEEP_SEARCHES }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: DEEP_FETCHES }],
-      maxTokens: 8000, effort: 'medium', prospectId: row.id, taskId,
+      // 18/10 : 8 000 jetons ne suffisaient pas toujours (Arval France : réponse coupée) — 16 000, moins de 0,01 $ de plus.
+      maxTokens: 16_000, effort: 'medium', prospectId: row.id, taskId,
     });
     cost = r.costUsd;
     if (!r.data) return { status: 'echec', name: row.name, detail: 'réponse de l\'IA illisible', cost, prepared: false };

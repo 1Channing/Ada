@@ -15,7 +15,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as dns } from 'node:dns';
 import {
-  deepSystem, deepSchema, deepPrompt, missingOf, isIncomplete, phonesIn, phoneWritten, rescoreReach, mergeDeep, deepSummary, lastDeepAt, deepPerDayOf,
+  deepSystem, deepSchema, deepPrompt, missingOf, isIncomplete, phonesIn, phoneWritten, rescoreReach, mergeDeep, deepSummary, lastDeepAt, deepPerDayOf, groupName,
   DEEP_SEARCHES, DEEP_FETCHES, type DeepOutput, type DeepProspect, type DeepChecked,
 } from '../src/lib/agents/deepResearch';
 import type { KeyAccountOutput } from '../src/lib/agents/firstMail';
@@ -57,6 +57,9 @@ ok(missingOf(reachable).join(' | ') === 'pas d\'e-mail direct pour elle | pas de
 ok(lastDeepAt(bare.evidence) === null && lastDeepAt([{ url: '', note: 'recherche approfondie', via: 'approfondie', at: '2026-10-18T07:00:00.000Z' }, { url: '', note: 'x', via: 'approfondie', at: '2026-10-17T07:00:00.000Z' }]) === '2026-10-18T07:00:00.000Z',
   'dernière recherche approfondie : la trace la plus récente');
 ok(deepPerDayOf(null) === 5 && deepPerDayOf({ deepPerDay: 0 }) === 0 && deepPerDayOf({ deepPerDay: 99 }) === 20 && deepPerDayOf({ deepPerDay: 'x' }) === 5, 'recherches approfondies d\'office : 5 au départ, de 0 à 20');
+ok(groupName('Avis Budget Group (rattachée depuis 2016, selon une publication LinkedIn)') === 'Avis Budget Group' && groupName('Fliit SAS, exploitante de cargo-flex.fr (SAS basée à Evreux)') === 'Fliit SAS'
+  && groupName('Hess Automobile') === 'Hess Automobile' && groupName('Mercedes-Benz Retail') === 'Mercedes-Benz Retail' && groupName('Groupe Bernier — 30 concessions') === 'Groupe Bernier' && groupName('') === null,
+  'nom du groupe : sans le commentaire ajouté par l\'IA (vu sur Avis France et CarGo, 18/10)');
 
 // --- La consigne d'une fiche ----------------------------------------------------------------------
 const prompt = deepPrompt({ role: 'dana', p: bare });
@@ -166,6 +169,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (/aller plus loin/.test(system)) {
     if (user.includes('TECHNIC AUTO FORBACH')) return reply([...results(seenUrls), { type: 'text', text: JSON.stringify(hessOut) }]);
     if (user.includes('Arval France')) return reply([...results(['https://www.arval.fr/remarketing', SOPHIE]), { type: 'text', text: JSON.stringify(arvalOut) }]);
+    if (user.includes('Réponse coupée')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: '{"proprietaire":' }], stop_reason: 'max_tokens', stop_sequence: null, usage })); return; }
     return reply([{ type: 'text', text: JSON.stringify({ ...hessOut, proprietaire: { groupe: null, site_officiel: null, nb_sites: null, siege: null, source: null }, canaux: [], personnes: [], emails: [], telephones: [], meilleur_contact: { nom: null, fonction: null, email: null, telephone: null, linkedin: null, pourquoi: 'rien' }, pistes: [], resume: '' }) }]);
   }
   return reply([{ type: 'text', text: JSON.stringify(keyOut) }]);
@@ -209,7 +213,9 @@ const db: FakeDb = {
     }),
     prospect('p-kinto', { name: 'KINTO France', score: 67, group_name: null, evidence: [] }),
     prospect('p-panne', { name: 'Fast Lease', score: 60, group_name: null, evidence: [] }),
-    prospect('p-mois', { name: 'Déjà vue ce mois', score: 90, group_name: null }),
+    prospect('p-mois', { name: 'Déjà vue ce mois', score: 90, group_name: null, evidence: [{ url: '', note: 'recherche approfondie', via: 'approfondie', at: daysAgo(10) }] }),
+    prospect('p-vieille', { name: 'Vue il y a deux mois', score: 55, group_name: null, evidence: [{ url: '', note: 'recherche approfondie', via: 'approfondie', at: daysAgo(60) }] }),
+    prospect('p-coupee', { name: 'Réponse coupée', score: 50, group_name: null, evidence: [] }),
     prospect('p-petit', { name: 'Petit garage', key_account: false, score: 95, group_name: null }),
     prospect('p-ada', { agent: 'ada', name: 'Groupe Ada', score: 99, group_name: null }),
   ],
@@ -270,13 +276,18 @@ const queued = () => { for (const t of db.agent_tasks) if (!t.status) t.status =
 await autoDeep({ ...dana } as never);
 queued();
 const auto = db.agent_tasks.find((t) => !t.created_by && (t.params as { approfondie?: boolean; auto?: boolean }).approfondie && t.status === 'en_attente' && t.id !== 'tp2') as Row & { params: { prospect_ids: string[] } } | undefined;
-ok(auto?.params.prospect_ids.join() === 'p-kinto,p-panne', 'cycle : KINTO puis Fast Lease (reprise après une panne) ; ni la fiche faite ce mois-ci, ni un petit compte, ni une fiche d\'Ada, ni les fiches complètes', auto?.params);
+ok(auto?.params.prospect_ids.join() === 'p-kinto,p-panne,p-vieille,p-coupee', 'cycle : KINTO, Fast Lease (reprise après une panne), une fiche vue il y a deux mois, puis la suivante ; ni la fiche faite ce mois-ci, ni un petit compte, ni une fiche d\'Ada, ni les fiches complètes', auto?.params);
 const before = db.agent_tasks.length;
 await autoDeep({ ...dana } as never);
 ok(db.agent_tasks.length === before, 'cycle : une recherche approfondie à la fois');
 await runNextTask();
-await autoDeep({ ...dana, targets: { ...dana.targets, deepPerDay: 3 } } as never);
-ok(db.agent_tasks.length === before, 'cycle : le nombre du jour atteint (3 : Arval, KINTO, Fast Lease), plus rien ce jour-là', db.agent_tasks.length - before);
+await autoDeep({ ...dana, targets: { ...dana.targets, deepPerDay: 5 } } as never);
+ok(db.agent_tasks.length === before, 'cycle : le nombre du jour atteint (5 : Arval, puis les quatre de la série), plus rien ce jour-là', db.agent_tasks.length - before);
+const coupee = db.agent_prospects.find((p) => p.id === 'p-coupee') as Row & DeepProspect;
+ok(!lastDeepAt(coupee.evidence) && (db.agent_tasks.find((t) => t.id === auto?.id) as Row & { result: { echecs: number; details: string[] } }).result.details.some((d) => /^Réponse coupée : /.test(d)),
+  'réponse coupée (max_tokens) : la fiche ne garde pas de trace, elle sera reprise un autre jour', coupee.evidence);
+await autoDeep({ ...dana, targets: { ...dana.targets, deepPerDay: 20 } } as never);
+ok(db.agent_tasks.length === before, 'même avec un plus grand nombre : une fiche essayée aujourd\'hui n\'est pas reprise le même jour', db.agent_tasks.slice(before).map((t) => t.params));
 const kinto = db.agent_prospects.find((p) => p.id === 'p-kinto') as Row & DeepProspect;
 ok(kinto.evidence.some((e) => e.note === 'recherche approfondie') && kinto.best_contact?.nom === null && db.agent_journal.some((j) => /^KINTO France : recherche approfondie, rien de plus de sûr$/.test(String(j.summary))),
   'rien trouvé : la fiche garde sa trace (pas de nouvelle recherche avant un mois), le journal le dit', db.agent_journal.map((j) => j.summary));

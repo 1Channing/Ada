@@ -54,7 +54,7 @@ import { ensureLearnedTaxonomy } from '../../src/lib/linkgen/taxonomy';
 import { inSendWindow, parisDayStart } from '../../src/lib/agents/sendPolicy';
 import { fmtUsd } from '../../src/lib/agents/aiCost';
 import { aiProblemOf } from '../../src/lib/agents/aiErrors';
-import { isIncomplete, deepPerDayOf } from '../../src/lib/agents/deepResearch';
+import { isIncomplete, deepPerDayOf, lastDeepAt, type DeepEvidence } from '../../src/lib/agents/deepResearch';
 import { sb, journal, loadAgents } from './store';
 import { live, liveDone } from './live';
 
@@ -350,20 +350,24 @@ export async function autoDeep(a: AiAgent): Promise<void> {
   if (!aiConfigured() || aiPaused() || perDay <= 0 || await pending(a.agent, 'qualification', true)) return;
   const budget = Number(a.daily_budget_usd);
   if (!Number.isFinite(budget) || (await spentToday(a.agent)) >= budget) return;
+  const dayStart = parisDayStart(new Date());
   const { data } = await sb.from('agent_tasks').select('params, created_at, created_by, status').eq('agent', a.agent).eq('kind', 'qualification')
-    .gte('created_at', new Date(Date.now() - DEEP_AGAIN_MS).toISOString()).order('created_at', { ascending: false }).limit(1000);
-  const history = done((data ?? []) as Array<{ params: { approfondie?: boolean; prospect_ids?: string[] } | null; created_at: string; created_by: string | null; status?: string }>)
+    .gte('created_at', dayStart.toISOString()).order('created_at', { ascending: false }).limit(500);
+  // Aujourd'hui : les fiches confiées (une panne ou une annulation ne compte pas, elles sont reprises) ; chacune une fois par jour au plus.
+  const todayRows = done((data ?? []) as Array<{ params: { approfondie?: boolean; prospect_ids?: string[] } | null; created_at: string; created_by: string | null; status?: string }>)
     .filter((t) => t.params?.approfondie);
-  const dayStart = parisDayStart(new Date()).getTime();
-  const today = history.filter((t) => !t.created_by && Date.parse(t.created_at) >= dayStart).reduce((n, t) => n + (t.params?.prospect_ids?.length ?? 0), 0);
-  const remaining = perDay - today;
+  const used = todayRows.filter((t) => !t.created_by).reduce((n, t) => n + (t.params?.prospect_ids?.length ?? 0), 0);
+  const remaining = perDay - used;
   if (remaining <= 0) return;
-  const seen = new Set(history.flatMap((t) => t.params?.prospect_ids ?? []));
-  const { data: ps, error } = await sb.from('agent_prospects').select('id, best_contact, emails, score')
+  const triedToday = new Set(todayRows.flatMap((t) => t.params?.prospect_ids ?? []));
+  const { data: ps, error } = await sb.from('agent_prospects').select('id, best_contact, emails, score, evidence')
     .eq('agent', a.agent).eq('key_account', true).in('stage', ['qualifie', 'a_contacter']).order('score', { ascending: false }).limit(200);
   if (error) return; // SQL agents_comptes pas encore collé : pas de grand compte
-  const ids = ((ps ?? []) as Array<{ id: string; best_contact: { nom: string | null } | null; emails: Array<{ email: string; mx: boolean }> | null }>)
-    .filter((p) => !seen.has(p.id) && isIncomplete({ best_contact: p.best_contact as never, emails: (p.emails ?? []) as never }))
+  // Une fois par mois : la date de la dernière recherche se lit sur la fiche (une recherche ratée n'en laisse pas, elle est reprise le lendemain).
+  const monthAgo = Date.now() - DEEP_AGAIN_MS;
+  const ids = ((ps ?? []) as Array<{ id: string; best_contact: { nom: string | null } | null; emails: Array<{ email: string; mx: boolean }> | null; evidence: DeepEvidence[] | null }>)
+    .filter((p) => !triedToday.has(p.id) && Date.parse(lastDeepAt(p.evidence) ?? '1970-01-01') < monthAgo
+      && isIncomplete({ best_contact: p.best_contact as never, emails: (p.emails ?? []) as never }))
     .slice(0, Math.min(MAX_DEEP_SERIES, remaining)).map((p) => p.id);
   if (ids.length === 0) return;
   const { error: e2 } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'qualification', params: { prospect_ids: ids, approfondie: true, auto: true }, created_by: null });

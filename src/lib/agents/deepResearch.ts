@@ -101,7 +101,7 @@ export function deepSchema(role: DeepRole) {
       proprietaire: {
         type: 'object',
         properties: {
-          groupe: SN('Le groupe auquel elle appartient, tel qu\'écrit, ou null (indépendante ou inconnu).'),
+          groupe: SN('Le NOM du groupe auquel elle appartient, seul, tel qu\'écrit (« Hess Automobile »), sans commentaire ; ou null (indépendante ou inconnu).'),
           site_officiel: SN('Site officiel du groupe, sinon de l\'entreprise (https://…), ou null.'),
           nb_sites: { type: ['integer', 'null'], description: 'Nombre de sites du groupe s\'il est écrit, sinon null.' },
           siege: SN('Ville du siège, si elle est écrite.'),
@@ -282,6 +282,11 @@ export interface DeepChecked {
 
 export interface DeepNews { personnes: number; emails: number; telephones: number; linkedin: number; groupe: string | null; contact: boolean; pistes: number }
 
+/** Le nom d'un groupe, sans le commentaire que l'IA y ajoute parfois (« Avis Budget Group (rattachée depuis 2016…) » → « Avis Budget Group »). */
+export function groupName(raw: string | null | undefined): string | null {
+  const x = String(raw ?? '').split(/\s[([]|[;,:]\s|\s[—–-]\s/)[0].trim();
+  return x.length >= 2 && x.length <= 60 ? x : null;
+}
 const nameKey = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
 const httpUrl = (u: string | null | undefined): string | null => (u && /^https?:\/\/[^\s]+$/i.test(u.trim()) ? u.trim() : null);
 const REACH = ['e-mail publié', 'interlocuteur nommé', 'profil LinkedIn vu'];
@@ -369,7 +374,7 @@ export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: 
 
   // Le propriétaire, le site, le téléphone : complétés, jamais remplacés.
   const owner = out.proprietaire ?? { groupe: null, site_officiel: null, nb_sites: null, siege: null, source: null };
-  const groupe = owner.groupe?.trim() || null;
+  const groupe = groupName(owner.groupe);
   const firstPhone = best?.telephone ?? c.phones[0]?.numero ?? null;
   // Les téléphones nouveaux (celui de la fiche n'en est pas un).
   const known = String(p.phone ?? '').replace(/\D/g, '').slice(-8);
