@@ -129,3 +129,60 @@ export function InfoTip({ label, wide, children }: { label: string; wide?: boole
     </>
   );
 }
+
+/**
+ * Un menu déroulant à cocher (18/10, Channing : « des marques à cocher, via un
+ * menu déroulant plutôt que des marques à écrire : cela évite les erreurs
+ * humaines de précipitation » ; les types d'une recherche aussi). Fermé, il
+ * dit ce qui est coché ; ouvert, une case par choix, avec « Tout cocher » et
+ * « Tout décocher ». Se ferme d'un clic à côté ou avec Échap.
+ */
+export function CheckDropdown({ options, selected, onChange, disabled, allLabel = 'Tout', emptyLabel = 'Rien de coché', unit = 'cochés', className = '' }: {
+  options: Array<{ key: string; label: string; hint?: string }>;
+  selected: string[];
+  onChange: (keys: string[]) => void;
+  disabled?: boolean;
+  /** Ce que dit le bouton quand tout est coché, quand rien ne l'est, et après un nombre (« 5 cochés »). */
+  allLabel?: string; emptyLabel?: string; unit?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent | TouchEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('touchstart', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('touchstart', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  const on = options.filter((o) => selected.includes(o.key));
+  const text = on.length === 0 ? emptyLabel : on.length === options.length ? allLabel : on.length <= 3 ? on.map((o) => o.label).join(', ') : `${on.length} ${unit}`;
+  const toggle = (k: string) => onChange(selected.includes(k) ? selected.filter((x) => x !== k) : options.map((o) => o.key).filter((x) => x === k || selected.includes(x)));
+  return (
+    <div ref={box} className={`relative inline-block ${className}`}>
+      <button type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}
+        className="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 hover:bg-slate-50 disabled:bg-slate-50 disabled:text-slate-500">
+        <span className="truncate">{text}</span>
+        <svg className={`w-4 h-4 shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
+      </button>
+      {open && (
+        <div role="listbox" aria-multiselectable="true" className="absolute left-0 z-30 mt-1 w-max min-w-full max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white shadow-lg">
+          <div className="flex items-center gap-3 border-b border-slate-100 px-3 py-1.5 text-xs">
+            <button type="button" data-modifie onClick={() => onChange(options.map((o) => o.key))} className="text-brand-ocean hover:underline">Tout cocher</button>
+            <button type="button" data-modifie onClick={() => onChange([])} className="text-slate-500 hover:underline">Tout décocher</button>
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            {options.map((o) => (
+              <label key={o.key} className="flex items-start gap-2 px-3 py-1.5 text-sm text-slate-800 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" className="mt-0.5" checked={selected.includes(o.key)} onChange={() => toggle(o.key)} />
+                <span>{o.label}{o.hint && <span className="block text-[11px] text-slate-500">{o.hint}</span>}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,5 +1,10 @@
 /**
- * Comptes (17/10, étape 2 ; Channing : « les retours leasing, loueurs, les
+ * Recherche — l'onglet Comptes renommé le 18/10 (Channing : « l'onglet
+ * comptes je veux le nommer recherche » ; « je veux pouvoir lancer des
+ * recherches sur plusieurs types… qu'elle travaille les uns après les
+ * autres ») : tous les types cochés d'office, une tâche par type, traitées
+ * l'une après l'autre ; la liste montre tous les comptes trouvés, avec ou
+ * sans fiche. L'origine (17/10, étape 2 ; Channing : « les retours leasing, loueurs, les
  * acheteurs / vendeurs des gros groupes de concessions, les fleet managers,
  * les revendeurs B2B… il y a tous les pays à travailler »).
  *
@@ -16,8 +21,9 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, ExternalLink, Sparkles, Crown, X, Undo2, Ban } from 'lucide-react';
+import { CheckDropdown } from './shared';
 import {
-  listAccounts, accountProspects, listTasks, queueResearch, queueAccountQualification, setAccountStatus, queueFirstMails, setProspectStage, threadsOfProspects, cancelTask,
+  listAccounts, accountProspects, listTasks, queueResearch, queueAccountQualification, setAccountStatus, queueFirstMails, setProspectStage, threadsOfProspects, cancelTask, queueDeepResearch,
   AGENT_LABEL, type AgentAccount, type AgentKey, type AgentTask, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { SEGMENTS, RESEARCH_COUNTRIES, COUNTRY_FR, segmentOf } from '../../lib/agents/research';
@@ -51,10 +57,11 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
   const [loaded, setLoaded] = useState(false);
   const [segmentF, setSegmentF] = useState('');
   const [countryF, setCountryF] = useState('');
-  const [statusF, setStatusF] = useState<StatusFilter>('a_qualifier');
+  const [statusF, setStatusF] = useState<StatusFilter>('tous');
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
-  const [launch, setLaunch] = useState<{ segment: string; country: string }>(() => ({ segment: SEGMENTS[agent][0].key, country: agent === 'ada' ? 'NL' : 'FR' }));
+  // Tous les types cochés d'office (18/10) : une recherche par type, l'une après l'autre.
+  const [launch, setLaunch] = useState<{ segments: string[]; country: string }>(() => ({ segments: SEGMENTS[agent].map((x) => x.key), country: agent === 'ada' ? 'NL' : 'FR' }));
   const name = AGENT_LABEL[agent].name;
 
   const load = useCallback(async () => {
@@ -80,6 +87,7 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
   const research = tasks.filter((t) => t.kind === 'recherche_comptes');
   const queued = useMemo(() => new Set(tasks.filter((t) => t.kind === 'qualification' && isOpen(t)).flatMap((t) => t.params.account_ids ?? [])), [tasks]);
   const drafting = useMemo(() => new Set(tasks.filter((t) => t.kind === 'premier_mail' && isOpen(t)).flatMap((t) => t.params.prospect_ids ?? [])), [tasks]);
+  const deeping = useMemo(() => new Set(tasks.filter((t) => t.kind === 'qualification' && t.params.approfondie && isOpen(t)).flatMap((t) => t.params.prospect_ids ?? [])), [tasks]);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return accounts.filter((a) => (!segmentF || a.segment === segmentF) && (!countryF || a.country === countryF)
@@ -87,14 +95,23 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
       && (!q || `${a.name} ${a.city ?? ''} ${a.website}`.toLowerCase().includes(q)));
   }, [accounts, segmentF, countryF, statusF, query]);
   const countries = useMemo(() => [...new Set(accounts.map((a) => a.country).filter(Boolean) as string[])].sort(), [accounts]);
+  const byStatus = useMemo(() => ({
+    nouveau: accounts.filter((a) => a.status === 'nouveau').length, qualifie: accounts.filter((a) => a.status === 'qualifie').length, ecarte: accounts.filter((a) => a.status === 'ecarte').length,
+  }), [accounts]);
   // Les prochains comptes à qualifier : 10 au plus.
   const toQualify = useMemo(() => shown.filter((a) => a.status === 'nouveau' && !queued.has(a.id)).slice(0, 10).map((a) => a.id), [shown, queued]);
 
   const start = async () => {
-    const e = await queueResearch(agent, { segment: launch.segment, country: launch.country }, userId);
-    if (e) { onError(e); return; }
-    const seg = segmentOf(agent, launch.segment);
-    onInfo(`${name} cherche : ${seg?.label.toLowerCase() ?? launch.segment}, ${COUNTRY_FR[launch.country] ?? launch.country}. Les entreprises trouvées arrivent ici d'ici une à deux minutes.`);
+    const segs = SEGMENTS[agent].filter((x) => launch.segments.includes(x.key));
+    if (!segs.length) return;
+    for (const sg of segs) {
+      const e = await queueResearch(agent, { segment: sg.key, country: launch.country }, userId);
+      if (e) { onError(e); void load(); return; }
+    }
+    const where = COUNTRY_FR[launch.country] ?? launch.country;
+    onInfo(segs.length > 1
+      ? `${name} cherche ${segs.length} types d'entreprises en ${where}, l'un après l'autre (une à deux minutes chacun) : ${segs.map((x) => x.label.toLowerCase()).join(', ')}. Ce qu'elle trouve arrive ici au fur et à mesure.`
+      : `${name} cherche : ${segs[0].label.toLowerCase()}, ${where}. Les entreprises trouvées arrivent ici d'ici une à deux minutes.`);
     void load();
   };
   const qualify = async (ids: string[]) => {
@@ -121,6 +138,12 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
     const e = await setProspectStage(p.id, stage);
     if (e) onError(e); else setDetails((m) => new Map(m).set(a.id, { ...p, stage }));
   };
+  const deepen = async (p: ProspectDetail) => {
+    const e = await queueDeepResearch([p.id], userId, agent);
+    if (e) { onError(e); return; }
+    onInfo(`${name} cherche plus loin pour ${p.name} : à qui elle appartient, qui décide, les e-mails et téléphones publiés. Une à deux minutes.`);
+    void load();
+  };
   const segs = SEGMENTS[agent];
 
   return (
@@ -129,22 +152,23 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
           <Search className="w-4 h-4 text-brand-ocean" />
-          <h3 className="text-sm font-semibold text-slate-900">Chercher des comptes</h3>
-          <span className="text-xs text-slate-500">— {name} cherche sur le web (4 recherches au plus, quelques centimes) et ne garde que les entreprises au site officiel vérifié.</span>
+          <h3 className="text-sm font-semibold text-slate-900">Lancer une recherche</h3>
+          <span className="text-xs text-slate-500">— {name} cherche aussi toute seule, chaque jour de travail (le nombre se règle dans Réglages) ; ici, vous lancez tout de suite les recherches de votre choix. Sur le web, 4 recherches au plus par type (environ 0,05 $), et seules les entreprises au site officiel vérifié sont gardées.</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap text-sm">
-          <select className={input} value={launch.segment} onChange={(e) => setLaunch({ ...launch, segment: e.target.value })}>
-            {segs.map((sg) => <option key={sg.key} value={sg.key}>{sg.label}</option>)}
-          </select>
+          <CheckDropdown className="w-64 max-w-full" options={segs.map((sg) => ({ key: sg.key, label: sg.label, hint: `qui décide : ${sg.roles}` }))} selected={launch.segments}
+            onChange={(segments) => setLaunch({ ...launch, segments })} allLabel={`Tous les types (${segs.length})`} emptyLabel="Aucun type coché" unit="types" />
           <select className={input} value={launch.country} onChange={(e) => setLaunch({ ...launch, country: e.target.value })}>
             {countriesOf(agent).map((c) => <option key={c} value={c}>{FLAG[c] ?? ''} {COUNTRY_FR[c] ?? c}</option>)}
           </select>
-          <button onClick={() => void start()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium"><Search className="w-4 h-4" /> Lancer la recherche</button>
+          <button disabled={launch.segments.length === 0} onClick={() => void start()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium disabled:opacity-40">
+            <Search className="w-4 h-4" /> {launch.segments.length > 1 ? `Lancer ${launch.segments.length} recherches` : 'Lancer la recherche'}
+          </button>
         </div>
-        {(() => {
-          const sg = segmentOf(agent, launch.segment);
-          return sg ? <p className="text-[11px] text-slate-400">{sg.who.charAt(0).toUpperCase()}{sg.who.slice(1)} — chez eux, qui décide : {sg.roles}.</p> : null;
-        })()}
+        <p className="text-[11px] text-slate-400">{launch.segments.length > 1 ? `Une recherche par type coché, l'une après l'autre : environ ${(launch.segments.length * 0.05).toFixed(2).replace('.', ',')} $ en tout.` : (() => {
+          const sg = segmentOf(agent, launch.segments[0]);
+          return sg ? `${sg.who.charAt(0).toUpperCase()}${sg.who.slice(1)} — chez eux, qui décide : ${sg.roles}.` : 'Cochez au moins un type d\'entreprise.';
+        })()}</p>
         {research.length > 0 && (
           <div className="divide-y divide-slate-100 border-t border-slate-100">
             {research.slice(0, 6).map((t) => {
@@ -171,9 +195,9 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
         <div className="px-4 py-3 border-b border-slate-100 space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <Crown className="w-4 h-4 text-violet-600" />
-            <h3 className="text-sm font-semibold text-slate-900">Comptes trouvés</h3>
-            <span className="text-xs text-slate-500">— chacun vu dans les résultats de recherche (site officiel), jamais deviné.</span>
-            <span className="ml-auto text-xs text-slate-400">{shown.length} compte{shown.length > 1 ? 's' : ''}</span>
+            <h3 className="text-sm font-semibold text-slate-900">Entreprises trouvées</h3>
+            <span className="text-xs text-slate-500">— chacune vue dans les résultats de recherche (site officiel), jamais devinée.</span>
+            <span className="ml-auto text-xs text-slate-400">{shown.length} sur {accounts.length}</span>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap text-xs">
             <select value={segmentF} onChange={(e) => setSegmentF(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
@@ -185,10 +209,10 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
               {countries.map((c) => <option key={c} value={c}>{FLAG[c] ?? ''} {COUNTRY_FR[c] ?? c}</option>)}
             </select>
             <select value={statusF} onChange={(e) => setStatusF(e.target.value as StatusFilter)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
-              <option value="a_qualifier">Sans fiche</option>
-              <option value="qualifies">Avec fiche</option>
-              <option value="ecartes">Écartés</option>
-              <option value="tous">Tous</option>
+              <option value="tous">Tous ({accounts.length})</option>
+              <option value="a_qualifier">Sans fiche ({byStatus.nouveau})</option>
+              <option value="qualifies">Avec fiche ({byStatus.qualifie})</option>
+              <option value="ecartes">Écartés ({byStatus.ecarte})</option>
             </select>
             <input className={`${input} w-40 sm:ml-auto`} placeholder="Chercher…" value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
@@ -200,9 +224,16 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
         </div>
         <div className="divide-y divide-slate-100">
           {loaded && shown.length === 0 && (
-            <p className="px-4 py-10 text-center text-sm text-slate-400">
-              {accounts.length === 0 ? 'Aucun compte pour l\'instant : lancez une recherche ci-dessus (ou laissez les recherches automatiques des Réglages travailler).' : 'Aucun compte ne correspond à ces filtres.'}
-            </p>
+            <div className="px-4 py-10 text-center text-sm text-slate-400 space-y-2">
+              <p>{accounts.length === 0
+                ? 'Aucune entreprise trouvée pour l\'instant : lancez une recherche ci-dessus (ou laissez les recherches automatiques des Réglages travailler).'
+                : statusF === 'a_qualifier' && byStatus.nouveau === 0
+                  ? `Aucune entreprise sans fiche : ${name} a déjà préparé la fiche des ${byStatus.qualifie} entreprise${byStatus.qualifie > 1 ? 's' : ''} trouvée${byStatus.qualifie > 1 ? 's' : ''}.`
+                  : 'Aucune entreprise ne correspond à ces filtres.'}</p>
+              {accounts.length > 0 && (statusF !== 'tous' || segmentF || countryF || query) && (
+                <button onClick={() => { setStatusF('tous'); setSegmentF(''); setCountryF(''); setQuery(''); }} className="text-brand-ocean hover:underline">Voir les {accounts.length} entreprises trouvées</button>
+              )}
+            </div>
           )}
           {shown.map((a) => {
             const seg = segmentOf(a.agent, a.segment);
@@ -253,7 +284,8 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
                 {cardOpen && p && (
                   <QualifCard p={p} agentName={name as 'Ada' | 'Dana'} onStage={(st) => void changeStage(a, p, st)}
                     onRequalify={() => void qualify([a.id])} requalifying={queued.has(a.id)}
-                    threadId={threads.get(p.id) ?? null} onDraft={() => void draft(a, p)} drafting={drafting.has(p.id)} onOpenThread={onOpenThread} />
+                    threadId={threads.get(p.id) ?? null} onDraft={() => void draft(a, p)} drafting={drafting.has(p.id)} onOpenThread={onOpenThread}
+                    onDeep={() => void deepen(p)} deeping={deeping.has(p.id)} />
                 )}
               </div>
             );

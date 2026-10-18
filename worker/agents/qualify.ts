@@ -232,6 +232,39 @@ async function siteFromRedirect(url: string): Promise<string | null> {
 
 const firstOf = <T>(xs: Array<T | null | undefined>): T | null => xs.find((x): x is T => x != null && x !== '') ?? null;
 
+/** La fiche d'avant (pour ne pas ramener une étape en arrière, ni perdre une recherche approfondie). */
+interface PrevProspect {
+  id: string; stage: string; network_contact_id: string | null; dealer_id: string;
+  people?: Array<{ nom: string; fonction: string; email: string | null; source: string; linkedin?: string | null; via?: string }> | null;
+  emails?: Array<{ email: string; nature: string; source: string; mx: boolean; via?: string }> | null;
+  evidence?: Array<{ url: string; note: string; via?: string }> | null;
+  best_contact?: { nom: string | null; fonction: string | null; email: string | null; linkedin?: string | null; pourquoi: string; telephone?: string | null } | null;
+}
+
+/**
+ * Ce qu'une recherche approfondie avait trouvé (via « approfondie ») revient
+ * dans la fiche refaite : ses personnes, ses e-mails vérifiés, ses pistes et
+ * ses sources ; et son meilleur contact, si la fiche refaite n'en nomme pas.
+ * Les listes sont complétées sur place.
+ */
+export function keepDeep(
+  prev: PrevProspect | null,
+  contacts: Array<{ nom: string; fonction: string; email: string | null; source: string; linkedin: string | null }>,
+  emails: Array<{ email: string; nature: string; source: string; mx: boolean }>,
+  evidence: Array<{ url: string; note: string }>,
+  best: { nom: string | null; fonction: string | null; email: string | null; linkedin: string | null; pourquoi: string },
+): { hasEmail: boolean; keyAccount: boolean } {
+  if (!prev) return { hasEmail: false, keyAccount: false };
+  const deepPeople = (prev.people ?? []).filter((x) => x.via === 'approfondie');
+  for (const x of deepPeople) if (!contacts.some((c) => c.nom.toLowerCase() === x.nom.toLowerCase())) contacts.push({ ...x, linkedin: x.linkedin ?? null });
+  const deepEmails = (prev.emails ?? []).filter((e) => e.via === 'approfondie');
+  for (const e of deepEmails) if (!emails.some((x) => x.email === e.email)) emails.push(e);
+  for (const e of (prev.evidence ?? []).filter((x) => x.via === 'approfondie')) if (!evidence.some((x) => x.url && x.url === e.url && x.note === e.note)) evidence.push(e);
+  const pb = prev.best_contact;
+  if (!best.nom && pb?.nom && deepPeople.some((x) => x.nom.toLowerCase() === pb.nom?.toLowerCase())) Object.assign(best, pb);
+  return { hasEmail: deepEmails.some((e) => e.mx), keyAccount: (prev.evidence ?? []).some((x) => x.via === 'approfondie' && /^groupe /.test(x.note)) };
+}
+
 export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promise<QualifyOutcome> {
   const group = await loadDealerGroup(dealerId);
   const root = group[0] as DealerDb | undefined;
@@ -366,10 +399,11 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
 
   // 3. Haiku 5.5
   // Déjà qualifié par une de ses fiches (avant le rapprochement des sites) : c'est la même fiche prospect.
+  const PREV_COLS = 'id, stage, network_contact_id, dealer_id, people, emails, evidence, best_contact';
   const { data: existing } = s.account
-    ? await sb.from('agent_prospects').select('id, stage, network_contact_id, dealer_id').eq('agent', ctx.agent.agent).eq('account_id', s.account.id).limit(1)
-    : await sb.from('agent_prospects').select('id, stage, network_contact_id, dealer_id').eq('agent', ctx.agent.agent).in('dealer_id', s.dealerIds).limit(1);
-  const prev = (((existing ?? []) as Array<{ id: string; stage: string; network_contact_id: string | null; dealer_id: string }>)[0]) ?? null;
+    ? await sb.from('agent_prospects').select(PREV_COLS).eq('agent', ctx.agent.agent).eq('account_id', s.account.id).limit(1)
+    : await sb.from('agent_prospects').select(PREV_COLS).eq('agent', ctx.agent.agent).in('dealer_id', s.dealerIds).limit(1);
+  const prev = (((existing ?? []) as PrevProspect[])[0]) ?? null;
   let ai: QualifyOutput;
   let cost = 0;
   let seenUrls: string[] = [];
@@ -418,8 +452,10 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
   if (!best.email) best.email = emails.find((e) => e.mx && /^(vo|occasion|gebraucht|used|verkoop|vente|sales|verkauf|achat|inkoop|einkauf)/.test(e.email))?.email ?? emails.find((e) => e.mx)?.email ?? null;
   const contacts = [...people.map((p) => ({ ...p, linkedin: null as string | null })), ...(ai.contacts ?? []).filter((c) => c.nom && !people.some((p) => p.nom.toLowerCase() === c.nom.toLowerCase()))]
     .map((c) => ({ ...c, email: c.email && okEmails.has(c.email.toLowerCase()) ? c.email.toLowerCase() : null, linkedin: li(c.linkedin, c.nom) })).slice(0, 12);
-  const keyAccount = !ai.exclure && (isKeyAccount(ai.grand_compte, ai.type, ai.nb_sites ?? (page?.branches.length || null)) || segment?.keyAccount === true);
-  const fit2 = fitOf(okEmails.size > 0, contacts.length > 0, !!best.linkedin || contacts.some((c) => !!c.linkedin));
+  // Refaire la fiche ne perd pas une recherche approfondie (18/10) : ses personnes, e-mails, pistes et sources sont gardés.
+  const kept = keepDeep(prev, contacts, emails, evidence, best);
+  const keyAccount = !ai.exclure && (isKeyAccount(ai.grand_compte, ai.type, ai.nb_sites ?? (page?.branches.length || null)) || segment?.keyAccount === true || kept.keyAccount);
+  const fit2 = fitOf(okEmails.size > 0 || kept.hasEmail, contacts.length > 0, !!best.linkedin || contacts.some((c) => !!c.linkedin));
   const score = finalScore(fit2.score, ai);
   const site = website ?? (ai.site_web && /^https?:\/\//i.test(ai.site_web) ? ai.site_web : null);
 

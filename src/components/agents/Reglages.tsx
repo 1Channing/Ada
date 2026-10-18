@@ -17,6 +17,9 @@
  * deux colonnes), toujours en vue ; ses jours et heures de travail valent
  * pour le travail automatique comme pour l'envoi (00:00 à 00:00 = toute la
  * journée).
+ * 18/10 : les marques à cocher dans un menu déroulant (plus de saisie) ; une
+ * étape de plus, « aller plus loin » sur les grands comptes à compléter
+ * (recherches approfondies d'office par jour, gardées dans targets).
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
 import { Link2, Unlink, Save, Ban, Trash2, Plug, Sparkles } from 'lucide-react';
@@ -33,7 +36,9 @@ import { fmtUsd } from '../../lib/agents/aiCost';
 import { listAssignees, type Assignee } from '../../services/userTasks';
 import { fmtDateTime, fmtRelative, workHoursLabel, deName } from './helpers';
 import { toMinutes, endMinutes } from '../../lib/agents/sendPolicy';
-import { InfoTip } from './shared';
+import { InfoTip, CheckDropdown } from './shared';
+import { CAR_BRANDS, VAN_BRANDS, brandChoices } from '../../lib/agents/brands';
+import { deepPerDayOf } from '../../lib/agents/deepResearch';
 
 const DAYS = [{ d: 1, l: 'L' }, { d: 2, l: 'M' }, { d: 3, l: 'M' }, { d: 4, l: 'J' }, { d: 5, l: 'V' }, { d: 6, l: 'S' }, { d: 7, l: 'D' }];
 const input = 'rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40 disabled:bg-slate-50 disabled:text-slate-500';
@@ -43,16 +48,16 @@ interface Props { agent: AgentKey; settings: AgentSettings[]; isAdmin: boolean; 
 
 /** Ce que chaque colonne des Réglages donne au bouton « Enregistrer » commun : un contrôle, puis l'enregistrement (null = tout va bien). */
 interface FormHandle { check: () => string | null; save: () => Promise<string | null> }
-/** Un clic sur une pastille à cocher (jours, pays) : une modification. */
-const toggled = (e: React.MouseEvent) => !!(e.target as HTMLElement).closest('button[aria-pressed]');
+/** Un clic sur une pastille à cocher (jours, pays) ou sur « Tout cocher / Tout décocher » d'un menu : une modification. */
+const toggled = (e: React.MouseEvent) => !!(e.target as HTMLElement).closest('button[aria-pressed], button[data-modifie]');
 
 const COUNTRY_LABEL: Record<string, string> = {
   FR: '🇫🇷 France', DE: '🇩🇪 Allemagne', NL: '🇳🇱 Pays-Bas', BE: '🇧🇪 Belgique', ES: '🇪🇸 Espagne', IT: '🇮🇹 Italie', DK: '🇩🇰 Danemark', SE: '🇸🇪 Suède', HU: '🇭🇺 Hongrie',
   LU: '🇱🇺 Luxembourg', AT: '🇦🇹 Autriche', PT: '🇵🇹 Portugal', PL: '🇵🇱 Pologne',
 };
-const listOf = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
 const MARKET_CHOICES = ['NL', 'DK', 'BE', 'DE', 'ES', 'IT', 'SE', 'AT'];
 const MARKET_LABEL = COUNTRY_LABEL;
+const clampInt = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(Number.isFinite(n) ? n : 0)));
 /** Où Dana cherche : les pays de ses recherches web et ceux dont ADA relève les annonces, la France d'abord. */
 const DANA_COUNTRIES = [...new Set([...RESEARCH_COUNTRIES, ...Object.keys(DISCOVERY_SITES)])];
 
@@ -76,7 +81,7 @@ function ScoreHelp({ dana, name }: { dana: boolean; name: string }) {
       <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
         <div className="space-y-2.5">
           {rows(dana ? 'Garage avec des lots (onglet Sourcing)' : 'Garage de l\'annuaire (onglet Acheteurs)', dana ? DANA_SCORE_HELP : ADA_SCORE_HELP)}
-          {rows('Entreprise trouvée sur le web (onglet Comptes)', accountScoreHelp(dana ? 'dana' : 'ada'))}
+          {rows('Entreprise trouvée sur le web (onglet Recherche)', accountScoreHelp(dana ? 'dana' : 'ada'))}
         </div>
         <div className="space-y-2.5">
           {rows('Pour toutes, si on peut la joindre', REACH_SCORE_HELP)}
@@ -120,10 +125,15 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
   const dt = normalizeDanaTargets(s.targets);
   const [minLot, setMinLot] = useState(dt.minLot);
   const [markets, setMarkets] = useState<string[]>(dt.markets);
-  const [danaBrands, setDanaBrands] = useState(dt.brands.join(', '));
+  // Les marques à cocher (18/10) : la liste, plus celles déjà enregistrées qui n'y sont pas.
+  const [danaChoice] = useState(() => brandChoices(CAR_BRANDS, dt.brands));
+  const [carChoice] = useState(() => brandChoices(CAR_BRANDS, t.brands));
+  const [vanChoice] = useState(() => brandChoices(VAN_BRANDS, t.vanBrands));
+  const [danaBrands, setDanaBrands] = useState<string[]>(danaChoice.selected);
   const [countries, setCountries] = useState<string[]>(t.countries);
-  const [brands, setBrands] = useState(t.brands.join(', '));
-  const [vanBrands, setVanBrands] = useState(t.vanBrands.join(', '));
+  const [brands, setBrands] = useState<string[]>(carChoice.selected);
+  const [vanBrands, setVanBrands] = useState<string[]>(vanChoice.selected);
+  const [deepPerDay, setDeepPerDay] = useState(deepPerDayOf(s.targets));
   const [multibrand, setMultibrand] = useState(t.multibrand);
   const [budget, setBudget] = useState(Number(s.daily_budget_usd ?? 3));
   const [autoDisc, setAutoDisc] = useState(!!s.auto_discovery);
@@ -138,11 +148,13 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
   const aiReady = s.daily_budget_usd !== undefined;
   const ro = !isAdmin;
   useImperativeHandle(ref, () => ({
-    check: () => (aiReady && dana && markets.length === 0 ? 'Cochez au moins un pays où nous revendons : c\'est là que Dana compare le prix des lots.' : null),
+    check: () => (aiReady && dana && markets.length === 0 ? 'Cochez au moins un pays où nous revendons : c\'est là que Dana compare le prix des lots.'
+      : aiReady && dana && autoDisc && danaBrands.length === 0 ? 'Cochez au moins une marque pour les relevés d\'annonces de Dana (ou décochez « Relever aussi les annonces »).'
+        : aiReady && !dana && brands.length === 0 && vanBrands.length === 0 ? 'Cochez au moins une marque (voitures ou utilitaires) : c\'est ce qu\'Ada cherche chez les garages.' : null),
     save: async () => {
       if (!aiReady) return null;
       const e = await updateAiSettings(s.agent, {
-        targets: dana ? { minLot, markets, brands: listOf(danaBrands) } : { countries, brands: listOf(brands), vanBrands: listOf(vanBrands), multibrand },
+        targets: dana ? { minLot, markets, brands: danaBrands, deepPerDay: clampInt(deepPerDay, 0, 20) } : { countries, brands, vanBrands, multibrand, deepPerDay: clampInt(deepPerDay, 0, 20) },
         daily_budget_usd: Math.max(0, Math.min(100, Math.round(budget * 100) / 100)),
         auto_discovery: autoDisc, auto_qualify_per_day: Math.max(0, Math.min(500, Math.round(autoQual))),
         map_auto_add: mapAdd, map_min_score: Math.max(0, Math.min(100, Math.round(mapScore))),
@@ -186,8 +198,9 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
               ))}
             </div>
           </div>
-          <label className="block space-y-1"><span className="text-xs text-slate-500">Marques de ses relevés d'annonces (ce que MC Export achète surtout)</span>
-            <input disabled={ro} className={`${input} w-full`} value={danaBrands} onChange={(e) => setDanaBrands(e.target.value)} placeholder="Toyota, Suzuki, Peugeot, Opel" /></label>
+          <div className="space-y-1"><span className="block text-xs text-slate-500">Marques de ses relevés d'annonces (ce que MC Export achète surtout)</span>
+            <CheckDropdown disabled={ro} className="w-full" options={danaChoice.options.map((b) => ({ key: b, label: b }))} selected={danaBrands} onChange={setDanaBrands}
+              allLabel="Toutes les marques" emptyLabel="Aucune marque cochée" unit="marques" /></div>
           <p className="text-[11px] text-slate-400">Les garages aux plus gros lots d'abord, puis aux meilleurs écarts, hors contacts que l'équipe connaît déjà (carte, fournisseurs du Workflow).</p>
         </div>
       ) : (<>
@@ -203,10 +216,12 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
         <p className="text-[11px] text-slate-400">Ada vend à l'export : jamais la France, votre pays d'achat (ses garages sont des fournisseurs possibles, pour Dana — onglet Sourcing). Les découvertes passent par tous les sites du pays (AutoScout24, Marktplaats, Gaspedaal, mobile.de, coches.net, Subito, Bilbasen, Blocket, Jófogás) ; les utilitaires par AutoScout24.</p>
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
-        <label className="space-y-1 text-sm"><span className="text-xs text-slate-500">Marques (voitures)</span>
-          <input disabled={ro} className={`${input} w-full`} value={brands} onChange={(e) => setBrands(e.target.value)} /></label>
-        <label className="space-y-1 text-sm"><span className="text-xs text-slate-500">Marques d'utilitaires</span>
-          <input disabled={ro} className={`${input} w-full`} value={vanBrands} onChange={(e) => setVanBrands(e.target.value)} /></label>
+        <div className="space-y-1 text-sm"><span className="block text-xs text-slate-500">Marques (voitures)</span>
+          <CheckDropdown disabled={ro} className="w-full" options={carChoice.options.map((b) => ({ key: b, label: b }))} selected={brands} onChange={setBrands}
+            allLabel="Toutes les marques" emptyLabel="Aucune marque cochée" unit="marques" /></div>
+        <div className="space-y-1 text-sm"><span className="block text-xs text-slate-500">Marques d'utilitaires</span>
+          <CheckDropdown disabled={ro} className="w-full" options={vanChoice.options.map((b) => ({ key: b, label: b }))} selected={vanBrands} onChange={setVanBrands}
+            allLabel="Toutes les marques" emptyLabel="Aucune marque cochée" unit="marques" /></div>
       </div>
       <label className="inline-flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={multibrand} onChange={(e) => setMultibrand(e.target.checked)} /> Les multimarques comptent aussi</label>
       </>)}
@@ -220,15 +235,17 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
         <p className="text-xs font-medium text-violet-900">Chaque jour de travail, toute seule ({workHoursLabel(s)}) · 0 = seulement quand vous cliquez</p>
         {researchReady ? (
           <Step n={1} title="Chercher de nouvelles entreprises" unit="recherches par jour" max={20} ro={ro} value={autoResearch} onChange={setAutoResearch}
-            help={`Sur le web : ${dana ? 'sociétés de leasing, loueurs, flottes, groupes, négociants B2B, un type dans un pays à chaque fois (la France d\'abord, puis toute l\'Europe).' : 'groupes de concessions, revendeurs, flottes qui renouvellent, un type dans un de ses pays d\'export à chaque fois.'} Ce qu'elle trouve arrive dans l'onglet Comptes. Environ 0,05 $ la recherche, au plus une toutes les 90 minutes.`}
+            help={`Sur le web : ${dana ? 'sociétés de leasing, loueurs, flottes, groupes, négociants B2B, un type dans un pays à chaque fois (la France d\'abord, puis toute l\'Europe).' : 'groupes de concessions, revendeurs, flottes qui renouvellent, un type dans un de ses pays d\'export à chaque fois.'} Ce qu'elle trouve arrive dans l'onglet Recherche. Environ 0,05 $ la recherche, au plus une toutes les 90 minutes.`}
             extra={<label className="flex items-center gap-1.5 text-sm text-slate-700"><input disabled={ro} type="checkbox" checked={autoDisc} onChange={(e) => setAutoDisc(e.target.checked)} /> {dana
               ? 'Relever aussi les annonces (la France d\'abord, puis toute l\'Europe), dans ses marques, pour trouver de nouveaux lots : jusqu\'à 8 relevés par jour, sans IA'
               : 'Relever aussi les annonces de ses pays, pour trouver de nouveaux garages : jusqu\'à 8 relevés par jour, sans IA'}</label>} />
         ) : <p className="text-xs text-slate-500">{RECHERCHE_SQL_HINT}</p>}
         <Step n={2} title="Préparer la fiche des entreprises trouvées" unit="fiches par jour" max={500} ro={ro} value={autoQual} onChange={setAutoQual}
-          help={`Qui décide, e-mail et téléphone publiés, LinkedIn s'il est trouvé, note sur 100. D'abord les entreprises de l'onglet Comptes, puis ${dana ? 'les garages aux plus gros lots (Sourcing)' : 'les meilleurs garages de l\'annuaire (Acheteurs)'}. De 0,002 à 0,04 $ la fiche.`} />
+          help={`Qui décide, e-mail et téléphone publiés, LinkedIn s'il est trouvé, note sur 100. D'abord les entreprises de l'onglet Recherche, puis ${dana ? 'les garages aux plus gros lots (Sourcing)' : 'les meilleurs garages de l\'annuaire (Acheteurs)'}. De 0,002 à 0,04 $ la fiche.`} />
+        <Step n={3} title="Aller plus loin sur les grands comptes à compléter" unit="par jour" max={20} ro={ro} value={deepPerDay} onChange={setDeepPerDay}
+          help={`Quand la fiche d'un grand compte n'a ni la personne qui décide ni e-mail publié : à qui appartient l'entreprise, qui décide${dana ? ' des ventes en lots ou du de-fleet' : ' des achats'} (au niveau du groupe d'abord), les e-mails et téléphones publiés, des pistes pour l'approcher. Une fois par compte et par mois ; aussi à la demande, depuis chaque fiche. Environ 0,10 $ la recherche.`} />
         {mailsReady && (
-          <Step n={3} title="Écrire le premier mail" unit="mails par jour" max={200} ro={ro} value={autoDraft} onChange={setAutoDraft}
+          <Step n={4} title="Écrire le premier mail" unit="mails par jour" max={200} ro={ro} value={autoDraft} onChange={setAutoDraft}
             help={`Pour les fiches notées au moins ${mapScore}/100. Ils attendent votre validation dans «\u00a0À valider\u00a0» : rien ne part tout seul. De 0,03 à 0,08 $ le mail.`} />
         )}
       </div>

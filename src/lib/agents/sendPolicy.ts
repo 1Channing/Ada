@@ -67,6 +67,22 @@ export const toMinutes = (hhmm: string): number => {
 export const endMinutes = (hhmm: string): number => toMinutes(hhmm) || 24 * 60;
 
 /** Dans les horaires d'envoi (heure de Paris) ? */
+const DAY_NAME = ['', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+const hm = (m: number) => `${Math.floor(m / 60)} h${m % 60 ? ` ${String(m % 60).padStart(2, '0')}` : ''}`;
+/** Les jours et heures de travail d'une agente, en clair : « du lundi au vendredi, 8 h 30-18 h », « tous les jours, 24 h sur 24 ». */
+export function workHoursLabel(w: SendWindow): string {
+  const days = [...new Set(w.send_days)].filter((d) => d >= 1 && d <= 7).sort();
+  // Les jours qui se suivent : « du lundi au vendredi » (trois et plus), sinon chaque jour par son nom.
+  const runs: number[][] = [];
+  for (const d of days) { const last = runs[runs.length - 1]; if (last && d === last[last.length - 1] + 1) last.push(d); else runs.push([d]); }
+  const parts = runs.flatMap((r) => (r.length >= 3 ? [`du ${DAY_NAME[r[0]]} au ${DAY_NAME[r[r.length - 1]]}`] : r.map((d) => DAY_NAME[d])));
+  const dayText = days.length === 7 ? 'tous les jours' : days.length === 0 ? 'aucun jour'
+    : parts.length > 1 ? `${parts.slice(0, -1).join(', ')} et ${parts[parts.length - 1]}` : parts[0];
+  const from = toMinutes(w.send_from);
+  const to = endMinutes(w.send_to);
+  return `${dayText}, ${from === 0 && to === 24 * 60 ? '24 h sur 24' : `${hm(from)}-${to === 24 * 60 ? 'minuit' : hm(to)}`}`;
+}
+
 export function inSendWindow(at: Date, w: SendWindow): boolean {
   const c = parisClock(at);
   if (!w.send_days.includes(c.isoDay)) return false;

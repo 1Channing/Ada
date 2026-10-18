@@ -16,10 +16,10 @@
  *   e-mails publiés vérifiés, à qui écrire, score et raison (QualifCard).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, Radar, Building2, Phone, ExternalLink, MapPin, ChevronDown, X, Plus, TrendingUp, Sparkles, Mail } from 'lucide-react';
+import { Search, Radar, Building2, Phone, ExternalLink, MapPin, ChevronDown, X, Plus, TrendingUp, Sparkles, Mail, Telescope } from 'lucide-react';
 import {
   listDealers, dealerListings, salesProfile, ourOffers, listTasks, queueDiscovery, cancelTask, addDealerToMap,
-  queueQualification, prospectDetails, setProspectStage, queueFirstMails, threadsOfProspects, indexMeta, SITES_SQL_HINT,
+  queueQualification, prospectDetails, setProspectStage, queueFirstMails, threadsOfProspects, indexMeta, queueDeepResearch, SITES_SQL_HINT,
   type DealerRow, type DealerListing, type SalesProfile, type AgentTask, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { opportunities, type OfferLite, type Opportunity } from '../../lib/agents/opportunity';
@@ -77,7 +77,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   // Ada vend à l'export (17/10) : la découverte part des Pays-Bas, jamais de la France (pays d'achat).
   const [disc, setDisc] = useState({ site: 'AUTOSCOUT', country: 'NL', brand: 'Toyota', model: '', vans: false, pages: 5 });
 
-  // Les recherches de comptes se suivent dans l'onglet Comptes.
+  // Les recherches de comptes se suivent dans l'onglet Recherche.
   const loadTasks = useCallback(async () => { const r = await listTasks(30, 'ada'); if (r.error) onError(r.error); else setTasks(r.rows.filter((t) => t.kind !== 'recherche_comptes')); }, [onError]);
   const loadDirectory = useCallback(async () => {
     setLoading(true);
@@ -122,6 +122,8 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   // Garages confiés à Ada et pas encore rendus.
   const queued = useMemo(() => new Set(tasks.filter((t) => t.kind === 'qualification' && (t.status === 'en_attente' || t.status === 'en_cours')).flatMap((t) => t.params.dealer_ids ?? [])), [tasks]);
   const drafting = useMemo(() => new Set(tasks.filter((t) => t.kind === 'premier_mail' && (t.status === 'en_attente' || t.status === 'en_cours')).flatMap((t) => t.params.prospect_ids ?? [])), [tasks]);
+  // Fiches en recherche approfondie (18/10).
+  const deeping = useMemo(() => new Set(tasks.filter((t) => t.kind === 'qualification' && t.params.approfondie && (t.status === 'en_attente' || t.status === 'en_cours')).flatMap((t) => t.params.prospect_ids ?? [])), [tasks]);
   const onMap = (d: DealerRow) => d.in_network || !!d.prospect?.in_map || added.has(d.id);
   // Un garage qu'Ada a qualifié reste visible même une fois sur la carte (c'est souvent elle qui l'y a mis).
   const filtered = rows.filter((d) => (!hideClients || !d.is_client) && (!hideNetwork || !d.in_network || !!d.prospect)
@@ -158,6 +160,12 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
     const e = await setProspectStage(p.id, stage);
     if (e) { onError(e); return; }
     setDetails((m) => new Map(m).set(p.dealer_id as string, { ...p, stage }));
+  };
+  const deepen = async (p: ProspectDetail) => {
+    const e = await queueDeepResearch([p.id], userId, 'ada');
+    if (e) { onError(e); return; }
+    onInfo(`Ada cherche plus loin pour ${p.name} : à qui il appartient, qui décide des achats, les e-mails et téléphones publiés. Une à deux minutes.`);
+    void loadTasks();
   };
   const addToMap = async (d: DealerRow) => {
     const r = await addDealerToMap(d, userId);
@@ -215,6 +223,8 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                 <span className={`rounded-full px-2 py-0.5 ${TASK_STATUS[t.status].cls}`}>{TASK_STATUS[t.status].label}</span>
                 {t.kind === 'premier_mail' ? (
                   <span className="font-medium text-violet-900"><Mail className="inline w-3.5 h-3.5 mr-0.5" />Premiers mails · {t.params.prospect_ids?.length ?? 0} garage{(t.params.prospect_ids?.length ?? 0) > 1 ? 's' : ''}</span>
+                ) : t.kind === 'qualification' && t.params.approfondie ? (
+                  <span className="font-medium text-indigo-900"><Telescope className="inline w-3.5 h-3.5 mr-0.5" />Recherche approfondie · {t.params.prospect_ids?.length ?? 0} fiche{(t.params.prospect_ids?.length ?? 0) > 1 ? 's' : ''}</span>
                 ) : t.kind === 'qualification' ? (
                   <span className="font-medium text-violet-900"><Sparkles className="inline w-3.5 h-3.5 mr-0.5" />Fiches · {[
                     t.params.dealer_ids?.length ? `${t.params.dealer_ids.length} garage${t.params.dealer_ids.length > 1 ? 's' : ''}` : '',
@@ -224,7 +234,10 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                   <span className="font-medium text-slate-800">{FLAG[t.params.country ?? ''] ?? ''} {siteLabel(t.params.site)} · {t.params.brand}{t.params.model ? ` ${t.params.model}` : ''}{t.params.vans ? ' · utilitaires' : ''}</span>
                 )}
                 {!t.created_by && <span className="text-[10px] rounded-full px-1.5 bg-slate-50 border border-slate-200 text-slate-500">automatique</span>}
-                {t.status === 'terminee' && t.result && t.kind === 'qualification' && (
+                {t.status === 'terminee' && t.result && t.kind === 'qualification' && t.params.approfondie && (
+                  <span className="text-slate-600">{t.result.enrichies ?? 0} complétée{(t.result.enrichies ?? 0) > 1 ? 's' : ''}{t.result.rien ? ` · ${t.result.rien} sans rien de plus` : ''}{t.result.preparees ? ` · ${t.result.preparees} préparée${t.result.preparees > 1 ? 's' : ''} pour vous` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.arret ? ` · arrêt : ${t.result.arret}` : ''}</span>
+                )}
+                {t.status === 'terminee' && t.result && t.kind === 'qualification' && !t.params.approfondie && (
                   <span className="text-slate-600">{t.result.qualifies ?? 0} prête{(t.result.qualifies ?? 0) > 1 ? 's' : ''}, {t.result.ecartes ?? 0} écarté{(t.result.ecartes ?? 0) > 1 ? 's' : ''}{t.result.echecs ? `, ${t.result.echecs} en échec` : ''}{t.result.carte ? `, ${t.result.carte} sur la carte` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.arret ? ` · arrêt : ${t.result.arret}` : ''}</span>
                 )}
                 {t.status === 'terminee' && t.result && t.kind === 'premier_mail' && (
@@ -346,7 +359,8 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                 {isOpen && details.get(d.id) && (
                   <QualifCard p={details.get(d.id) as ProspectDetail} onStage={(st) => void changeStage(details.get(d.id) as ProspectDetail, st)} onRequalify={() => void qualify([d.id])} requalifying={queued.has(d.id)}
                     threadId={threads.get((details.get(d.id) as ProspectDetail).id) ?? null} onDraft={() => void draft(details.get(d.id) as ProspectDetail)}
-                    drafting={drafting.has((details.get(d.id) as ProspectDetail).id)} onOpenThread={onOpenThread} />
+                    drafting={drafting.has((details.get(d.id) as ProspectDetail).id)} onOpenThread={onOpenThread}
+                    onDeep={() => void deepen(details.get(d.id) as ProspectDetail)} deeping={deeping.has((details.get(d.id) as ProspectDetail).id)} />
                 )}
                 {isOpen && (
                   <div className="mt-2 overflow-x-auto">

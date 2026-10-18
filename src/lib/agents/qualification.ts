@@ -296,7 +296,7 @@ export function qualifyPrompt(m: QualifyMaterial): string {
 
 // --- Contrôle de la réponse ------------------------------------------------------------
 
-const EMAIL_OK = /^[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,24}$/;
+export const EMAIL_OK = /^[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,24}$/;
 export const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(Number.isFinite(n) ? n : 0)));
 
 /**

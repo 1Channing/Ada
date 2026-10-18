@@ -3,7 +3,7 @@
  * laquelle un message validé attend encore, contrôle d'un brouillon.
  */
 import type { AgentMessage, AgentSettings, AgentCounts, Draft, ProspectStage } from '../../services/agents';
-import { inSendWindow, nextWindowStart, countsAgainstCap, toMinutes, endMinutes, type SendWindow } from '../../lib/agents/sendPolicy';
+import { inSendWindow, nextWindowStart, countsAgainstCap } from '../../lib/agents/sendPolicy';
 import { parseAddressList } from '../../lib/agents/mail';
 
 /** Date et heure de Paris (les horaires d'envoi sont réglés à l'heure de Paris). */
@@ -21,21 +21,8 @@ export function fmtRelative(iso: string | null | undefined): string {
 /** « d'Ada », « de Dana » : l'élision devant une voyelle. */
 export const deName = (name: string): string => (/^[aeiouyàâéèêëîïôûüh]/i.test(name) ? `d'${name}` : `de ${name}`);
 
-const DAY_NAME = ['', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
-const hm = (m: number) => `${Math.floor(m / 60)} h${m % 60 ? ` ${String(m % 60).padStart(2, '0')}` : ''}`;
-/** Les jours et heures de travail d'une agente, en clair : « du lundi au vendredi, 8 h 30-18 h », « tous les jours, 24 h sur 24 ». */
-export function workHoursLabel(w: SendWindow): string {
-  const days = [...new Set(w.send_days)].filter((d) => d >= 1 && d <= 7).sort();
-  // Les jours qui se suivent : « du lundi au vendredi » (trois et plus), sinon chaque jour par son nom.
-  const runs: number[][] = [];
-  for (const d of days) { const last = runs[runs.length - 1]; if (last && d === last[last.length - 1] + 1) last.push(d); else runs.push([d]); }
-  const parts = runs.flatMap((r) => (r.length >= 3 ? [`du ${DAY_NAME[r[0]]} au ${DAY_NAME[r[r.length - 1]]}`] : r.map((d) => DAY_NAME[d])));
-  const dayText = days.length === 7 ? 'tous les jours' : days.length === 0 ? 'aucun jour'
-    : parts.length > 1 ? `${parts.slice(0, -1).join(', ')} et ${parts[parts.length - 1]}` : parts[0];
-  const from = toMinutes(w.send_from);
-  const to = endMinutes(w.send_to);
-  return `${dayText}, ${from === 0 && to === 24 * 60 ? '24 h sur 24' : `${hm(from)}-${to === 24 * 60 ? 'minuit' : hm(to)}`}`;
-}
+/** Les jours et heures de travail d'une agente, en clair (logique pure, partagée avec le bilan du jour du worker). */
+export { workHoursLabel } from '../../lib/agents/sendPolicy';
 
 /** Pourquoi un message validé n'est pas encore parti (estimation côté écran ; le worker fait foi). */
 export function pendingReason(m: AgentMessage, s: AgentSettings | undefined, c: AgentCounts | undefined): string {

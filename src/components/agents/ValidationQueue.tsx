@@ -6,12 +6,20 @@
  * d'administrateur.
  * « Pour vous » (17/10) : les grands comptes qu'elle a préparés, que vous
  * envoyez vous-même (votre Gmail, votre LinkedIn, votre téléphone).
+ * 18/10 : repliés par défaut (une vue d'ensemble, on ouvre l'un ou
+ * l'autre) ; et les grands comptes à compléter — fiche faite, rien de
+ * préparé —, avec ce qui manque, la recherche approfondie et « Préparer
+ * quand même ».
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CheckCircle2, Clock, AlertTriangle, Crown } from 'lucide-react';
-import { listQueue, listForYou, AGENT_LABEL, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage, type ForYouMessage } from '../../services/agents';
+import { CheckCircle2, Clock, AlertTriangle, Crown, Telescope } from 'lucide-react';
+import {
+  listQueue, listForYou, listKeyAccounts, threadsOfProspects, prospectWork, queueDeepResearch, queueFirstMails, queueQualification, queueAccountQualification, setProspectStage,
+  AGENT_LABEL, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage, type ForYouMessage, type ProspectDetail, type ProspectStage,
+} from '../../services/agents';
 import { MessageCard } from './MessageCard';
 import { ForYouCard } from './ForYou';
+import { ToComplete } from './ToComplete';
 import { deName } from './helpers';
 
 interface Props {
@@ -19,20 +27,31 @@ interface Props {
   settings: AgentSettings[];
   counts: Partial<Record<AgentKey, AgentCounts>>;
   isAdmin: boolean;
+  userId: string | null;
   refreshKey: number;
   onOpenThread: (id: string) => void;
   onChanged: () => void;
   onError: (msg: string) => void;
+  onInfo: (msg: string) => void;
 }
 
-export function ValidationQueue({ agent, settings, counts, isAdmin, refreshKey, onOpenThread, onChanged, onError }: Props) {
+export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refreshKey, onOpenThread, onChanged, onError, onInfo }: Props) {
   const [rows, setRows] = useState<QueuedMessage[]>([]);
   const [forYou, setForYou] = useState<ForYouMessage[]>([]);
+  const [keyAccounts, setKeyAccounts] = useState<ProspectDetail[]>([]);
+  const [work, setWork] = useState<{ deep: Set<string>; draft: Set<string> }>({ deep: new Set(), draft: new Set() });
   const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
-    const [r, f] = await Promise.all([listQueue(agent), listForYou(agent)]);
+    const [r, f, k, w] = await Promise.all([listQueue(agent), listForYou(agent), listKeyAccounts(agent), prospectWork(agent)]);
     if (r.error) onError(r.error); else setRows(r.rows);
     if (f.error) onError(f.error); else setForYou(f.rows);
+    if (k.error) onError(k.error);
+    else {
+      // À compléter : les grands comptes qui n'ont pas encore de fil (rien de préparé, rien d'envoyé).
+      const threads = await threadsOfProspects(k.rows.map((p) => p.id));
+      setKeyAccounts(k.rows.filter((p) => !threads.has(p.id)));
+    }
+    setWork(w);
     setLoaded(true);
   }, [agent, onError]);
   // Un grand compte = un fil : son mail et sa note LinkedIn ensemble.
@@ -42,9 +61,36 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, refreshKey, 
     return [...m.values()];
   }, [forYou]);
   useEffect(() => { void load(); }, [load, refreshKey]);
+  // Une recherche approfondie ou une préparation en cours : on relit plus souvent.
+  const busy = work.deep.size + work.draft.size > 0;
+  useEffect(() => {
+    if (!busy) return;
+    const id = window.setInterval(() => void load(), 10_000);
+    return () => window.clearInterval(id);
+  }, [busy, load]);
   const changed = () => { void load(); onChanged(); };
   const mine = settings.find((s) => s.agent === agent);
   const name = AGENT_LABEL[agent].name;
+  const deepen = async (prospectId: string, label: string) => {
+    const e = await queueDeepResearch([prospectId], userId, agent);
+    if (e) { onError(e); return; }
+    onInfo(`${name} cherche plus loin pour ${label} : à qui appartient l'entreprise, qui décide, les e-mails et téléphones publiés. Une à deux minutes ; si elle trouve la personne qui décide, le compte est préparé pour vous.`);
+    void load();
+  };
+  const prepare = async (p: ProspectDetail) => {
+    const e = await queueFirstMails([p.id], userId, agent);
+    if (e) { onError(e); return; }
+    onInfo(`${name} prépare pour vous ${p.name} (mail s'il y a un e-mail publié, note LinkedIn, fiche d'appel) : il arrive dans « Pour vous » d'ici une minute.`);
+    void load();
+  };
+  const restage = async (p: ProspectDetail, stage: ProspectStage) => {
+    const e = await setProspectStage(p.id, stage);
+    if (e) onError(e); else void load();
+  };
+  const requalify = async (p: ProspectDetail) => {
+    const e = p.account_id ? await queueAccountQualification([p.account_id], userId, agent) : p.dealer_id ? await queueQualification([p.dealer_id], userId, agent) : 'Fiche sans garage ni compte d\'origine : impossible de la refaire.';
+    if (e) onError(e); else onInfo(`${name} refait la fiche de ${p.name} (ce que la recherche approfondie a trouvé reste).`);
+  };
 
   const groups: Array<{ key: string; title: string; icon: ReactNode; items: QueuedMessage[]; hint: string }> = [
     { key: 'a_valider', title: 'À valider', icon: <CheckCircle2 className="w-4 h-4 text-amber-600" />, items: rows.filter((m) => m.status === 'a_valider'),
@@ -55,7 +101,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, refreshKey, 
       hint: 'Rien n\'est renvoyé tout seul : corrigez (repasser en brouillon) puis revalidez.' },
   ];
 
-  if (loaded && rows.length === 0 && accounts.length === 0) {
+  if (loaded && rows.length === 0 && accounts.length === 0 && keyAccounts.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-12 text-center text-sm text-slate-500">
         <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
@@ -73,7 +119,23 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, refreshKey, 
             <span className="text-xs text-slate-400">{accounts.length}</span>
             <span className="text-xs text-slate-500">— {name} prépare, vous envoyez (votre Gmail, votre LinkedIn, votre téléphone), puis « Marquer envoyé ».</span>
           </div>
-          {accounts.map((items) => <ForYouCard key={items[0].thread_id} items={items} isAdmin={isAdmin} onOpenThread={onOpenThread} onChanged={changed} onError={onError} />)}
+          {accounts.map((items) => {
+            const pid = items[0].thread?.prospect?.id ?? '';
+            return <ForYouCard key={items[0].thread_id} items={items} isAdmin={isAdmin} onOpenThread={onOpenThread} onChanged={changed} onError={onError}
+              onDeep={(id) => void deepen(id, items[0].thread?.prospect?.name ?? 'ce compte')} deeping={work.deep.has(pid) || work.draft.has(pid)} />;
+          })}
+        </section>
+      )}
+      {keyAccounts.length > 0 && (
+        <section className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Telescope className="w-4 h-4 text-amber-600" />
+            <h3 className="text-sm font-semibold text-slate-900">Grands comptes à compléter</h3>
+            <span className="text-xs text-slate-400">{keyAccounts.length}</span>
+            <span className="text-xs text-slate-500">— la fiche est faite, rien n'est encore préparé : voici ce qui manque. Les plus durs à joindre sont souvent ceux qui rapportent le plus.</span>
+          </div>
+          <ToComplete agent={agent} rows={keyAccounts} deep={work.deep} draft={work.draft} minScore={mine?.map_min_score ?? 70} autoDraft={mine?.auto_draft_per_day ?? 0} isAdmin={isAdmin}
+            onDeep={(p) => void deepen(p.id, p.name)} onPrepare={(p) => void prepare(p)} onStage={(p, st) => void restage(p, st)} onRequalify={(p) => void requalify(p)} onOpenThread={onOpenThread} />
         </section>
       )}
       {groups.filter((g) => g.items.length > 0).map((g) => (

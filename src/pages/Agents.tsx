@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, CheckCircle2, Settings2, RefreshCw, Building2, Layers, Briefcase, Activity } from 'lucide-react';
+import { Bot, Inbox, CheckCircle2, Settings2, RefreshCw, Building2, Layers, Search, Activity } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
@@ -46,7 +46,8 @@ const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
   messagerie: { label: 'Messagerie', icon: <Inbox className="w-4 h-4" /> },
   prospects: { label: 'Acheteurs', icon: <Building2 className="w-4 h-4" /> },
   sourcing: { label: 'Sourcing', icon: <Layers className="w-4 h-4" /> },
-  comptes: { label: 'Comptes', icon: <Briefcase className="w-4 h-4" /> },
+  // 18/10 (Channing : « l'onglet comptes je veux le nommer recherche ») : l'adresse reste ?onglet=comptes.
+  comptes: { label: 'Recherche', icon: <Search className="w-4 h-4" /> },
   valider: { label: 'À valider', icon: <CheckCircle2 className="w-4 h-4" /> },
   reglages: { label: 'Réglages', icon: <Settings2 className="w-4 h-4" /> },
 };
@@ -191,11 +192,15 @@ export function Agents() {
           </div>
           {s?.last_sync_error && <p className="mt-1 text-[11px] text-red-700">{s.last_sync_error}</p>}
         </div>
+        {/* 18/10 (« les stats en haut ne se mettent pas à jour ») : « à valider » compte aussi les grands comptes préparés pour vous ;
+            le travail du jour (fiches, entreprises trouvées) ; la boîte dit si elle n'est pas encore connectée. */}
         <div className="grid grid-cols-4 gap-2 text-center w-full md:w-auto">
           {[
-            { n: c?.aValider ?? 0, l: 'à valider', sub: '', hot: (c?.aValider ?? 0) > 0, go: () => setTab('valider') },
-            { n: c?.nonLus ?? 0, l: 'non lus', sub: '', hot: (c?.nonLus ?? 0) > 0, go: () => setTab('messagerie') },
-            { n: c?.recusAujourdhui ?? 0, l: 'reçus auj.', sub: '', hot: false, go: () => setTab('messagerie') },
+            { n: pendingOf(agent), l: 'à valider', sub: (c?.pourVous ?? 0) > 0 ? `dont ${c?.pourVous} pour vous` : '', hot: pendingOf(agent) > 0, go: () => setTab('valider') },
+            { n: c?.fichesAujourdhui ?? 0, l: 'fiches auj.', sub: (c?.trouvesAujourdhui ?? 0) > 0 ? `${c?.trouvesAujourdhui} entreprise${(c?.trouvesAujourdhui ?? 0) > 1 ? 's' : ''} trouvée${(c?.trouvesAujourdhui ?? 0) > 1 ? 's' : ''}` : '', hot: false, go: () => setTab('live') },
+            s?.gmail_connected_email
+              ? { n: c?.nonLus ?? 0, l: 'non lus', sub: `${c?.recusAujourdhui ?? 0} reçu${(c?.recusAujourdhui ?? 0) > 1 ? 's' : ''} auj.`, hot: (c?.nonLus ?? 0) > 0, go: () => setTab('messagerie') }
+              : { n: '—', l: 'mails reçus', sub: 'boîte pas connectée', hot: false, go: () => setTab('reglages') },
             { n: c?.envoyesAujourdhui ?? 0, l: 'envoyés auj.', sub: s ? `1ers contacts ${c?.premiersContactsAujourdhui ?? 0}/${s.daily_first_contact_cap}` : '', hot: false, go: () => setTab('live') },
           ].map((x) => (
             <button key={x.l} onClick={x.go} className={`md:w-28 rounded-xl border px-1.5 py-2 ${x.hot ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50/60'} hover:border-brand-ocean`}>
@@ -225,7 +230,7 @@ export function Agents() {
         <Messagerie key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} openThreadId={openThread} refreshKey={refreshKey} onChanged={() => void load()} onError={onError} />
       )}
       {tab === 'valider' && (
-        <ValidationQueue key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} refreshKey={refreshKey} onOpenThread={openFromQueue} onChanged={() => void load()} onError={onError} />
+        <ValidationQueue key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} onOpenThread={openFromQueue} onChanged={() => void load()} onError={onError} onInfo={onInfo} />
       )}
       {tab === 'prospects' && agent === 'ada' && (
         <Prospects userId={userId} canEditMap={canEditMap} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />

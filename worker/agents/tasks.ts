@@ -10,6 +10,9 @@
  *   dans un pays (./research.ts) ;
  * - « premier_mail » : rédiger les premiers mails de 5 prospects au plus
  *   (./firstMail.ts), qui entrent dans « À valider ».
+ * - « qualification » avec params.approfondie (18/10) : la recherche
+ *   approfondie de 5 fiches au plus (./deep.ts) — à qui appartient
+ *   l'entreprise, qui décide, comment l'approcher.
  *
  * Le cycle automatique (toutes les 10 min, dans les jours et heures de
  * travail de chaque agente — Réglages, heure de Paris ; du lundi au vendredi,
@@ -28,7 +31,12 @@
  *   qualifiés avant l'annuaire ; les premiers contacts du jour
  *   (auto_draft_per_day) — pas plus de deux jours d'envois en attente de
  *   validation, ni plus de 10 grands comptes en attente dans « Pour
- *   vous » —, dans le budget.
+ *   vous » —, dans le budget ;
+ * - 18/10 : les recherches approfondies du jour (targets.deepPerDay, 5 au
+ *   départ) sur les grands comptes à compléter — la personne qui décide pas
+ *   trouvée, ou aucun e-mail publié —, une fois par fiche et par mois ;
+ * - 18/10 : le bilan du jour à toute l'équipe MC Export (./recap.ts), dès
+ *   que l'agente a fini, sinon à la fin de ses heures — pas avant 7 h.
  * Les tâches automatiques n'ont pas d'auteur.
  */
 import { discover } from './discovery';
@@ -37,6 +45,8 @@ import { researchAccounts } from './research';
 import { refreshSoon } from './indexRefresh';
 import { researchPairs, nextResearchPair, segmentOf, RESEARCH_COUNTRIES, COUNTRY_FR, type ResearchParams } from '../../src/lib/agents/research';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
+import { deepResearch } from './deep';
+import { maybeSendRecap } from './recap';
 import { aiConfigured, aiPaused, spentToday, clearAiPause, BudgetReached, AiUnavailable, NO_KEY } from './claude';
 import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, DISCOVERY_SITES, type DiscoveryParams } from '../../src/lib/agents/discovery';
 import { normalizeDanaTargets, danaScanCountries } from '../../src/lib/agents/sourcing';
@@ -44,6 +54,7 @@ import { ensureLearnedTaxonomy } from '../../src/lib/linkgen/taxonomy';
 import { inSendWindow, parisDayStart } from '../../src/lib/agents/sendPolicy';
 import { fmtUsd } from '../../src/lib/agents/aiCost';
 import { aiProblemOf } from '../../src/lib/agents/aiErrors';
+import { isIncomplete, deepPerDayOf } from '../../src/lib/agents/deepResearch';
 import { sb, journal, loadAgents } from './store';
 import { live, liveDone } from './live';
 
@@ -54,6 +65,9 @@ const AUTO_DISCOVERY_GAP_MS = 45 * 60 * 1000;
 const AUTO_RESEARCH_GAP_MS = 90 * 60 * 1000;
 /** Grands comptes préparés et pas encore traités par Channing : au-delà, l'agente n'en prépare pas d'autres. */
 const KEY_ACCOUNT_BACKLOG = 10;
+/** Une recherche approfondie : 5 fiches au plus par tâche, chacune une fois par mois (sauf à la main). */
+const MAX_DEEP_SERIES = 5;
+const DEEP_AGAIN_MS = 30 * 86_400_000;
 
 interface Task { id: string; agent: string; kind: string; params: Record<string, unknown>; created_by: string | null }
 
@@ -69,6 +83,10 @@ const researchLabel = (agent: string, p: Partial<ResearchParams>) => {
 /** Ce que la tâche va faire, en clair (première ligne de l'onglet Live). */
 function startLabel(t: Task): string {
   const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
+  if (t.kind === 'qualification' && t.params.approfondie) {
+    const k = n(t.params.prospect_ids);
+    return `recherche approfondie de ${k} fiche${k > 1 ? 's' : ''}`;
+  }
   if (t.kind === 'qualification') {
     const k = n(t.params.account_ids) + n(t.params.dealer_ids);
     return `${k} fiche${k > 1 ? 's' : ''} à préparer`;
@@ -114,6 +132,39 @@ async function runQualification(t: Task): Promise<{ result: Record<string, unkno
   const what = [dealerIds.length ? `${dealerIds.length} garage${dealerIds.length > 1 ? 's' : ''}` : '', accountIds.length ? `${accountIds.length} compte${accountIds.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' et ');
   const summary = `Fiches de ${what} : ${r.qualifies} prête${r.qualifies > 1 ? 's' : ''}, ${r.ecartes} écarté${r.ecartes > 1 ? 's' : ''}`
     + `${r.echecs ? `, ${r.echecs} en échec` : ''}${r.carte ? `, ${r.carte} ajouté${r.carte > 1 ? 's' : ''} à la carte` : ''} — ${fmtUsd(r.cout_usd)}${r.arret ? ` (arrêt : ${r.arret})` : ''}`;
+  return { result: r, summary };
+}
+
+/** La recherche approfondie d'une série de fiches (5 au plus) ; elle s'arrête au plafond de dépense ou à une panne de l'IA. */
+async function runDeep(t: Task): Promise<{ result: Record<string, unknown>; summary: string }> {
+  const a = await agentRow(t.agent);
+  if (!a) throw new Error('agente introuvable');
+  if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
+  const ids = (Array.isArray(t.params.prospect_ids) ? t.params.prospect_ids : []).map(String).slice(0, MAX_DEEP_SERIES);
+  if (ids.length === 0) throw new Error('aucune fiche à approfondir');
+  const r = { approfondie: true, fiches: ids.length, enrichies: 0, rien: 0, ignorees: 0, echecs: 0, preparees: 0, cout_usd: 0, arret: null as string | null, details: [] as string[] };
+  for (const [i, id] of ids.entries()) {
+    live(t.id, `Fiche ${i + 1} sur ${ids.length}`, { done: i, total: ids.length });
+    try {
+      const o = await deepResearch(id, a, t.id, !!t.created_by);
+      r.cout_usd += o.cost;
+      if (o.status === 'enrichi') r.enrichies++;
+      else if (o.status === 'rien') r.rien++;
+      else if (o.status === 'ignore') { r.ignorees++; r.details.push(`${o.name} : ${o.detail}`); }
+      else { r.echecs++; r.details.push(`${o.name} : ${o.detail}`); }
+      if (o.prepared) r.preparees++;
+    } catch (e) {
+      if (e instanceof BudgetReached || e instanceof AiUnavailable) { r.arret = e.message; break; }
+      r.echecs++;
+      r.details.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+  r.cout_usd = Math.round(r.cout_usd * 10_000) / 10_000;
+  if (r.enrichies + r.rien === 0 && r.arret) throw new Error(r.arret);
+  const k = ids.length;
+  const summary = `Recherche approfondie de ${k} fiche${k > 1 ? 's' : ''} : ${r.enrichies} complétée${r.enrichies > 1 ? 's' : ''}`
+    + `${r.rien ? `, ${r.rien} sans rien de plus de sûr` : ''}${r.preparees ? `, ${r.preparees} préparée${r.preparees > 1 ? 's' : ''} pour vous` : ''}`
+    + `${r.echecs ? `, ${r.echecs} en échec` : ''} — ${fmtUsd(r.cout_usd)}${r.arret ? ` (arrêt : ${r.arret})` : ''}`;
   return { result: r, summary };
 }
 
@@ -175,10 +226,11 @@ export async function runNextTask(): Promise<void> {
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'decouverte',
           summary: `Découverte ${label(t.params)}${auto} : ${result.annonces} annonces lues, ${result.avec_garage} avec leur garage, ${result.concessions} concessions (dont ${result.nouvelles} nouvelles)`, details: result });
       } else if (t.kind === 'qualification') {
-        const { result, summary } = await runQualification(t);
+        const deep = !!t.params.approfondie;
+        const { result, summary } = deep ? await runDeep(t) : await runQualification(t);
         await liveDone(t.id);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
-        await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'qualification_serie', summary: `${summary}${auto}`, details: result });
+        await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: deep ? 'recherche_approfondie_serie' : 'qualification_serie', summary: `${summary}${auto}`, details: result });
       } else if (t.kind === 'premier_mail') {
         const { result, summary } = await runDrafts(t);
         await liveDone(t.id);
@@ -199,7 +251,7 @@ export async function runNextTask(): Promise<void> {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
       await liveDone(t.id);
       await sb.from('agent_tasks').update({ status: 'echec', error: msg, finished_at: new Date().toISOString() }).eq('id', t.id);
-      const what = t.kind === 'qualification' ? 'Préparation des fiches' : t.kind === 'premier_mail' ? 'Rédaction des premiers mails'
+      const what = t.kind === 'qualification' ? (t.params.approfondie ? 'Recherche approfondie' : 'Préparation des fiches') : t.kind === 'premier_mail' ? 'Rédaction des premiers mails'
         : t.kind === 'recherche_comptes' ? `Recherche ${researchLabel(t.agent, t.params)}` : `Découverte ${label(t.params)}`;
       await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: `${t.kind === 'decouverte_concessions' ? 'decouverte' : t.kind}_echec`, summary: `${what}${auto} en échec : ${msg}` });
     }
@@ -218,9 +270,11 @@ export async function runNextTask(): Promise<void> {
  */
 const done = <T extends { status?: string }>(rows: T[]): T[] => rows.filter((h) => h.status !== 'echec' && h.status !== 'annulee');
 
-async function pending(agent: string, kind: string): Promise<boolean> {
-  const { data } = await sb.from('agent_tasks').select('id').eq('agent', agent).eq('kind', kind).in('status', ['en_attente', 'en_cours']).limit(1);
-  return ((data ?? []) as unknown[]).length > 0;
+/** Une tâche de ce genre attend ou tourne. Pour les fiches, la recherche approfondie (params.approfondie) compte à part. */
+async function pending(agent: string, kind: string, deep = false): Promise<boolean> {
+  const { data } = await sb.from('agent_tasks').select('id, params').eq('agent', agent).eq('kind', kind).in('status', ['en_attente', 'en_cours']).limit(20);
+  const rows = (data ?? []) as Array<{ params: { approfondie?: boolean } | null }>;
+  return kind === 'qualification' ? rows.some((t) => !!t.params?.approfondie === deep) : rows.length > 0;
 }
 
 async function autoDiscovery(a: AiAgent, countries: string[], brands: string[], vanBrands: string[]): Promise<void> {
@@ -285,6 +339,37 @@ async function autoResearch(a: AiAgent, ctx: SeriesContext): Promise<void> {
   if (error && !missing(error.message)) console.warn(`[AGENTS] recherche automatique non posée : ${error.message}`);
 }
 
+/**
+ * Les recherches approfondies du jour (targets.deepPerDay, 5 au départ) :
+ * les grands comptes à compléter — la personne qui décide pas trouvée, ou
+ * aucun e-mail publié —, les mieux notés d'abord, chacun une fois par mois
+ * (une recherche en échec ou annulée ne compte pas : elle est reprise).
+ */
+export async function autoDeep(a: AiAgent): Promise<void> {
+  const perDay = deepPerDayOf(a.targets);
+  if (!aiConfigured() || aiPaused() || perDay <= 0 || await pending(a.agent, 'qualification', true)) return;
+  const budget = Number(a.daily_budget_usd);
+  if (!Number.isFinite(budget) || (await spentToday(a.agent)) >= budget) return;
+  const { data } = await sb.from('agent_tasks').select('params, created_at, created_by, status').eq('agent', a.agent).eq('kind', 'qualification')
+    .gte('created_at', new Date(Date.now() - DEEP_AGAIN_MS).toISOString()).order('created_at', { ascending: false }).limit(1000);
+  const history = done((data ?? []) as Array<{ params: { approfondie?: boolean; prospect_ids?: string[] } | null; created_at: string; created_by: string | null; status?: string }>)
+    .filter((t) => t.params?.approfondie);
+  const dayStart = parisDayStart(new Date()).getTime();
+  const today = history.filter((t) => !t.created_by && Date.parse(t.created_at) >= dayStart).reduce((n, t) => n + (t.params?.prospect_ids?.length ?? 0), 0);
+  const remaining = perDay - today;
+  if (remaining <= 0) return;
+  const seen = new Set(history.flatMap((t) => t.params?.prospect_ids ?? []));
+  const { data: ps, error } = await sb.from('agent_prospects').select('id, best_contact, emails, score')
+    .eq('agent', a.agent).eq('key_account', true).in('stage', ['qualifie', 'a_contacter']).order('score', { ascending: false }).limit(200);
+  if (error) return; // SQL agents_comptes pas encore collé : pas de grand compte
+  const ids = ((ps ?? []) as Array<{ id: string; best_contact: { nom: string | null } | null; emails: Array<{ email: string; mx: boolean }> | null }>)
+    .filter((p) => !seen.has(p.id) && isIncomplete({ best_contact: p.best_contact as never, emails: (p.emails ?? []) as never }))
+    .slice(0, Math.min(MAX_DEEP_SERIES, remaining)).map((p) => p.id);
+  if (ids.length === 0) return;
+  const { error: e2 } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'qualification', params: { prospect_ids: ids, approfondie: true, auto: true }, created_by: null });
+  if (e2) console.warn(`[AGENTS] recherche approfondie automatique non posée : ${e2.message}`);
+}
+
 async function autoDraft(a: AiAgent): Promise<void> {
   if (!aiConfigured() || aiPaused() || !((a.auto_draft_per_day ?? 0) > 0) || await pending(a.agent, 'premier_mail')) return;
   const dayStart = parisDayStart(new Date()).toISOString();
@@ -310,6 +395,8 @@ export async function autoCycle(): Promise<void> {
     try {
       const a = await agentRow(agent);
       if (!a || a.targets == null) continue; // SQL du 17/10 (qualification) pas encore collé
+      // Le bilan du jour à l'équipe (18/10) : dès qu'elle a fini, ou à la fin de ses heures — donc aussi hors de ses heures.
+      await maybeSendRecap(a).catch((e: unknown) => console.warn(`[AGENTS] bilan du jour (${agent}) : ${e instanceof Error ? e.message : String(e)}`));
       if (!inSendWindow(new Date(), a)) continue;
       // Dana attend ses réglages (SQL agents_comptes : taille des lots, pays de vente).
       if (agent === 'dana' && !(a.targets && typeof a.targets === 'object' && 'minLot' in a.targets)) continue;
@@ -319,6 +406,7 @@ export async function autoCycle(): Promise<void> {
       else await autoDiscovery(a, danaScanCountries(Object.keys(DISCOVERY_SITES)), normalizeDanaTargets(a.targets).brands, []);
       await autoResearch(a, ctx);
       await autoQualify(a);
+      await autoDeep(a);
       await autoDraft(a);
     } catch (e) {
       console.warn(`[AGENTS] cycle automatique (${agent}) : ${e instanceof Error ? e.message : String(e)}`);

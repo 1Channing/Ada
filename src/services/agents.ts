@@ -15,6 +15,7 @@ import { replySubject } from '../lib/agents/mail';
 import type { AgentTargets } from '../lib/agents/qualification';
 import type { DanaTargets, LotFact } from '../lib/agents/sourcing';
 import { SITE_LABEL } from './dealerDirectory';
+import type { DeepEvidence } from '../lib/agents/deepResearch';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -32,7 +33,8 @@ export interface AgentSettings {
   last_sync_at: string | null; last_sync_error: string | null; next_send_after: string | null; updated_at: string;
   // Phase 2.2 (17/10) — absents tant que le SQL agents_qualification n'est pas collé.
   // Ada : pays et marques visés ; Dana : taille d'un lot et nos pays de vente.
-  targets?: (Partial<AgentTargets> & Partial<DanaTargets>) | null; daily_budget_usd?: number | string; auto_discovery?: boolean; auto_qualify_per_day?: number;
+  // 18/10 : recherches approfondies d'office par jour (deepPerDay), gardées avec les cibles.
+  targets?: (Partial<AgentTargets> & Partial<DanaTargets> & { deepPerDay?: number }) | null; daily_budget_usd?: number | string; auto_discovery?: boolean; auto_qualify_per_day?: number;
   map_auto_add?: boolean; map_min_score?: number;
   // Phase 2.3 (17/10) — SQL agents_premiers_mails.
   instructions?: string; auto_draft_per_day?: number;
@@ -208,12 +210,16 @@ export async function listQueue(agent?: AgentKey): Promise<{ rows: QueuedMessage
   return { rows: (data ?? []) as QueuedMessage[], error: null };
 }
 
-export interface AgentCounts { aValider: number; enAttente: number; echecs: number; nonLus: number; recusAujourdhui: number; envoyesAujourdhui: number; premiersContactsAujourdhui: number; pourVous: number; auTravail: boolean }
+export interface AgentCounts {
+  aValider: number; enAttente: number; echecs: number; nonLus: number; recusAujourdhui: number; envoyesAujourdhui: number; premiersContactsAujourdhui: number; pourVous: number; auTravail: boolean;
+  /** 18/10 : le travail du jour — fiches faites, entreprises trouvées sur le web. */
+  fichesAujourdhui: number; trouvesAujourdhui: number;
+}
 
 export async function countsFor(agent: AgentKey, dayStartIso: string): Promise<AgentCounts> {
   const head = { count: 'exact', head: true };
   const q = () => sb.from('agent_messages').select('id', head).eq('agent', agent);
-  const [a, w, f, u, r, s, c, v, t] = await Promise.all([
+  const [a, w, f, u, r, s, c, v, t, fq, x] = await Promise.all([
     q().eq('status', 'a_valider'),
     q().in('status', ['valide', 'envoi']),
     q().eq('status', 'echec'),
@@ -225,9 +231,15 @@ export async function countsFor(agent: AgentKey, dayStartIso: string): Promise<A
     sb.from('agent_messages').select('thread_id').eq('agent', agent).eq('status', 'pour_channing').limit(500),
     // Une tâche en cours : l'agente est au travail (pastille de l'onglet Live).
     sb.from('agent_tasks').select('id', head).eq('agent', agent).eq('status', 'en_cours'),
+    // Le travail du jour (18/10) : 0 tant que les SQL du 17/10 ne sont pas collés.
+    sb.from('agent_prospects').select('id', head).eq('agent', agent).gte('qualified_at', dayStartIso),
+    sb.from('agent_accounts').select('id', head).eq('agent', agent).gte('found_at', dayStartIso),
   ]);
   const pourVous = new Set(((v.data ?? []) as Array<{ thread_id: string }>).map((m) => m.thread_id)).size;
-  return { aValider: a.count ?? 0, enAttente: w.count ?? 0, echecs: f.count ?? 0, nonLus: u.count ?? 0, recusAujourdhui: r.count ?? 0, envoyesAujourdhui: s.count ?? 0, premiersContactsAujourdhui: c.count ?? 0, pourVous, auTravail: (t.count ?? 0) > 0 };
+  return {
+    aValider: a.count ?? 0, enAttente: w.count ?? 0, echecs: f.count ?? 0, nonLus: u.count ?? 0, recusAujourdhui: r.count ?? 0, envoyesAujourdhui: s.count ?? 0, premiersContactsAujourdhui: c.count ?? 0,
+    pourVous, auTravail: (t.count ?? 0) > 0, fichesAujourdhui: fq.count ?? 0, trouvesAujourdhui: x.count ?? 0,
+  };
 }
 
 export async function listJournal(agent: AgentKey | null, limit = 200): Promise<{ rows: JournalRow[]; error: string | null }> {
@@ -295,13 +307,17 @@ export interface TaskLive { step: string; done: number | null; total: number | n
 
 export interface AgentTask {
   id: string; agent: AgentKey; kind: 'decouverte_concessions' | 'qualification' | 'premier_mail' | 'recherche_comptes';
-  params: { site?: string; country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; account_ids?: string[]; prospect_ids?: string[]; segment?: string; auto?: boolean };
+  params: { site?: string; country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; account_ids?: string[]; prospect_ids?: string[]; segment?: string; auto?: boolean;
+    /** 18/10 : une série de fiches à approfondir (prospect_ids), pas à préparer. */
+    approfondie?: boolean };
   status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee';
   result: {
     annonces?: number; avec_garage?: number; concessions?: number; nouvelles?: number; url?: string; site?: string; garages?: number; comptes?: number | string[]; qualifies?: number; ecartes?: number; echecs?: number; carte?: number;
     cout_usd?: number; arret?: string | null; rediges?: number; ignores?: number; details?: string[];
     // Recherche de comptes (étape 2).
     trouves?: number; gardes?: number; deja?: number; remarque?: string | null;
+    // Recherche approfondie (18/10).
+    enrichies?: number; rien?: number; preparees?: number;
     // En cours (17/10) : où la tâche en est, écrit par le worker pour l'onglet Live.
     live?: TaskLive;
   } | null;
@@ -314,15 +330,16 @@ export type ProspectStage = 'qualifie' | 'ecarte' | 'a_contacter' | 'contacte' |
 export interface ProspectDetail {
   id: string; agent?: AgentKey; dealer_id: string | null; name: string; website: string | null; legal_name: string | null; group_name: string | null; sites: number | null;
   kind: string | null; brands_official: string[]; emails: Array<{ email: string; nature: string; source: string; mx: boolean }>;
-  people: Array<{ nom: string; fonction: string; email: string | null; source: string; linkedin?: string | null }>;
-  best_contact: { nom: string | null; fonction: string | null; email: string | null; pourquoi: string; linkedin?: string | null } | null;
+  /** La recherche approfondie (18/10) ajoute le téléphone, le périmètre (groupe, pays, site) et sa marque (via « approfondie »). */
+  people: Array<{ nom: string; fonction: string; email: string | null; source: string; linkedin?: string | null; telephone?: string | null; perimetre?: string | null; via?: string }>;
+  best_contact: { nom: string | null; fonction: string | null; email: string | null; pourquoi: string; linkedin?: string | null; telephone?: string | null } | null;
   phone?: string | null; country?: string | null; city?: string | null;
   /** SQL agents_comptes (17/10) : grand compte (préparé pour Channing), nature du compte, lots vus par Dana. */
   key_account?: boolean; account_kind?: string | null; lots?: LotFact[];
   /** SQL agents_recherche (17/10) : l'entreprise trouvée par recherche web. */
   account_id?: string | null;
   language: string | null; fit_score: number | null; fit_parts: Array<{ label: string; points: number }>; score: number | null; summary: string | null;
-  exclusion_reason: string | null; evidence: Array<{ url: string; note: string }>; stage: ProspectStage; qualified_at: string | null; qualify_cost_usd: number | string;
+  exclusion_reason: string | null; evidence: DeepEvidence[]; stage: ProspectStage; qualified_at: string | null; qualify_cost_usd: number | string;
   network_contact_id: string | null; notes: string;
 }
 export type AiSpend = Partial<Record<AgentKey, { today: number; month: number; runs_today: number }>>;
@@ -567,6 +584,8 @@ export interface ForYouProspect {
   id: string; name: string; country: string | null; city: string | null; phone: string | null; website: string | null;
   group_name: string | null; kind: string | null; account_kind: string | null; score: number | null; summary: string | null; stage: ProspectStage;
   best_contact: ProspectDetail['best_contact']; people: ProspectDetail['people'];
+  /** 18/10 : ce qui manque se lit dans les e-mails ; les pistes de la recherche approfondie dans les pages lues. */
+  emails?: ProspectDetail['emails']; evidence?: ProspectDetail['evidence'];
 }
 export interface ForYouMessage extends AgentMessage {
   thread: (Pick<AgentThread, 'subject' | 'counterpart_email' | 'counterpart_name'> & { prospect_id: string | null; prospect: ForYouProspect | null }) | null;
@@ -575,7 +594,7 @@ export interface ForYouMessage extends AgentMessage {
 /** Ce qu'Ada et Dana ont préparé pour vous (grands comptes) : mails, notes LinkedIn et fiches d'appel, à envoyer vous-même. */
 export async function listForYou(agent?: AgentKey): Promise<{ rows: ForYouMessage[]; error: string | null }> {
   let q = sb.from('agent_messages')
-    .select('*, thread:agent_threads(subject, counterpart_email, counterpart_name, prospect_id, prospect:agent_prospects(id, name, country, city, phone, website, group_name, kind, account_kind, score, summary, stage, best_contact, people))')
+    .select('*, thread:agent_threads(subject, counterpart_email, counterpart_name, prospect_id, prospect:agent_prospects(id, name, country, city, phone, website, group_name, kind, account_kind, score, summary, stage, best_contact, people, emails, evidence))')
     .eq('status', 'pour_channing').order('created_at', { ascending: true }).limit(300);
   if (agent) q = q.eq('agent', agent);
   const { data, error } = await q;
@@ -653,4 +672,38 @@ export async function setAccountStatus(id: string, status: 'nouveau' | 'ecarte')
 export async function updateResearchSettings(agent: AgentKey, perDay: number, userId: string | null): Promise<string | null> {
   const { error } = await sb.from('agent_settings').update({ auto_research_per_day: perDay, updated_at: new Date().toISOString(), updated_by: userId }).eq('agent', agent);
   return error ? errRecherche(error.message) : null;
+}
+
+// --- 18/10 : la recherche approfondie et les grands comptes à compléter -------------------------------
+
+/** L'agente va plus loin sur ces fiches (5 par tâche) : à qui appartient l'entreprise, qui décide, comment l'approcher. */
+export async function queueDeepResearch(prospectIds: string[], userId: string | null, agent: AgentKey): Promise<string | null> {
+  const ids = [...new Set(prospectIds)];
+  for (let i = 0; i < ids.length; i += 5) {
+    const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'qualification', params: { prospect_ids: ids.slice(i, i + 5), approfondie: true }, created_by: userId });
+    if (error) return errQualif(error.message);
+  }
+  return null;
+}
+
+/** Les grands comptes de l'agente qui ont leur fiche (qualifiés ou à contacter), les mieux notés d'abord. */
+export async function listKeyAccounts(agent: AgentKey): Promise<{ rows: ProspectDetail[]; error: string | null }> {
+  const { data, error } = await sb.from('agent_prospects').select('*').eq('agent', agent).eq('key_account', true)
+    .in('stage', ['qualifie', 'a_contacter']).order('score', { ascending: false, nullsFirst: false }).limit(300);
+  if (error) {
+    // SQL agents_comptes pas encore collé : pas de grand compte.
+    if (/key_account/i.test(error.message) || missing(error.message)) return { rows: [], error: null };
+    return { rows: [], error: error.message };
+  }
+  return { rows: (data ?? []) as ProspectDetail[], error: null };
+}
+
+/** Les fiches en travail (tâches en attente ou en cours) : en recherche approfondie, ou en préparation de leur premier contact. */
+export async function prospectWork(agent: AgentKey): Promise<{ deep: Set<string>; draft: Set<string> }> {
+  const { data } = await sb.from('agent_tasks').select('kind, params').eq('agent', agent).in('kind', ['qualification', 'premier_mail']).in('status', ['en_attente', 'en_cours']).limit(100);
+  const rows = (data ?? []) as Array<{ kind: string; params: { approfondie?: boolean; prospect_ids?: string[] } | null }>;
+  return {
+    deep: new Set(rows.filter((t) => t.kind === 'qualification' && t.params?.approfondie).flatMap((t) => t.params?.prospect_ids ?? [])),
+    draft: new Set(rows.filter((t) => t.kind === 'premier_mail').flatMap((t) => t.params?.prospect_ids ?? [])),
+  };
 }

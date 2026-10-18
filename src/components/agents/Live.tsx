@@ -16,7 +16,7 @@
  * Rien ne se lance d'ici : c'est un écran pour regarder.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Activity, Sparkles, ScrollText, Clock, Loader2, X, Search, Layers, Mail, Moon, Hourglass } from 'lucide-react';
+import { Activity, Sparkles, ScrollText, Clock, Loader2, X, Search, Layers, Mail, Moon, Hourglass, Telescope } from 'lucide-react';
 import {
   listTasks, listRuns, listJournal, aiSpend, cancelTask, AGENT_LABEL,
   type AgentKey, type AgentSettings, type AgentTask, type AiRun, type JournalRow, type AiSpend,
@@ -51,8 +51,11 @@ const KIND: Record<AgentTask['kind'], { label: string; icon: ReactNode }> = {
   premier_mail: { label: 'Premiers mails', icon: <Mail className="w-4 h-4" /> },
   decouverte_concessions: { label: 'Relevé d\'annonces', icon: <Layers className="w-4 h-4" /> },
 };
+/** Le titre d'une tâche : une série de fiches à approfondir (18/10) a le sien. */
+const kindOf = (t: AgentTask) => (t.kind === 'qualification' && t.params?.approfondie ? { label: 'Recherche approfondie', icon: <Telescope className="w-4 h-4" /> } : KIND[t.kind]);
 const PURPOSE: Record<string, string> = {
   qualification: 'fiche', recherche_comptes: 'recherche d\'entreprises sur le web', premier_mail: 'premier mail', grand_compte: 'grand compte (mail, note LinkedIn, fiche d\'appel)',
+  recherche_approfondie: 'recherche approfondie (à qui appartient l\'entreprise, qui décide)',
 };
 const pl = (n: number) => (n > 1 ? 's' : '');
 
@@ -65,6 +68,7 @@ function what(t: AgentTask): string {
     const c = String(p.country ?? '').toUpperCase();
     return `${seg ? seg.label.toLowerCase() : p.segment ?? ''} · ${COUNTRY_FR[c] ?? c}`;
   }
+  if (t.kind === 'qualification' && p.approfondie) { const k = n(p.prospect_ids); return `${k} fiche${pl(k)} à approfondir`; }
   if (t.kind === 'qualification') { const k = n(p.account_ids) + n(p.dealer_ids); return `${k} fiche${pl(k)}`; }
   if (t.kind === 'premier_mail') { const k = n(p.prospect_ids); return `${k} mail${pl(k)}`; }
   return `${DISCOVERY_SITE_LABEL[String(p.site ?? 'AUTOSCOUT').toUpperCase()] ?? p.site ?? ''} ${p.country ?? ''} · ${p.brand ?? ''}${p.model ? ` ${p.model}` : ''}`;
@@ -178,7 +182,7 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
           <div className="min-w-0">
             <p className="text-base font-semibold text-slate-900">{state === 'work' ? `${name} travaille` : state === 'wait' ? `${name} va s'y mettre` : `${name} est au repos`}</p>
             <p className="text-sm text-slate-600">
-              {running ? `${KIND[running.kind].label} — ${what(running)}`
+              {running ? `${kindOf(running).label} — ${what(running)}`
                 : queued.length ? `${queued.length} tâche${pl(queued.length)} en file : elle les prend une par une.${otherBusy ? ` Le worker fait une chose à la fois : il termine d'abord celle ${deName(agent === 'ada' ? 'Dana' : 'Ada')}.` : ''}`
                   : inHours ? 'Rien à faire pour l\'instant : son travail automatique repasse toutes les 10 minutes.'
                     : `Hors de ses horaires de travail (${s ? workHoursLabel(s) : '—'})${next ? ` : reprise ${fmtDateTime(next.toISOString())}` : ''}. Ce que vous lancez à la main part tout de suite.`}
@@ -206,7 +210,7 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
           {running ? (
             <>
               <div className="flex items-center gap-2 flex-wrap text-sm">
-                <span className="inline-flex items-center gap-1.5 font-medium text-slate-900">{KIND[running.kind].icon} {KIND[running.kind].label}</span>
+                <span className="inline-flex items-center gap-1.5 font-medium text-slate-900">{kindOf(running).icon} {kindOf(running).label}</span>
                 <span className="text-slate-600">{what(running)}</span>
                 {!running.created_by && <span className="text-[10px] rounded-full px-1.5 bg-slate-50 border border-slate-200 text-slate-500">automatique</span>}
                 <span className="ml-auto text-xs text-slate-400 tabular-nums">depuis {since(running.started_at, now)}</span>
@@ -241,7 +245,7 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
               {queued.map((t) => (
                 <div key={t.id} className="flex items-center gap-x-2 gap-y-0.5 flex-wrap text-xs">
                   <Clock className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-                  <span className="font-medium text-slate-800">{KIND[t.kind].label}</span>
+                  <span className="font-medium text-slate-800">{kindOf(t).label}</span>
                   <span className="min-w-0 truncate text-slate-600">{what(t)}</span>
                   {!t.created_by && <span className="shrink-0 text-[10px] rounded-full px-1.5 bg-slate-50 border border-slate-200 text-slate-500">automatique</span>}
                   <span className="ml-auto shrink-0 text-slate-400">en file depuis {since(t.created_at, now)}</span>

@@ -28,7 +28,7 @@ export function normalizeDanaTargets(t: unknown): DanaTargets {
   const o = (t && typeof t === 'object' ? t : {}) as { minLot?: unknown; markets?: unknown; brands?: unknown };
   const min = Math.round(Number(o.minLot));
   const markets = Array.isArray(o.markets) ? o.markets.map((x) => String(x ?? '').trim().toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x)) : [];
-  const brands = Array.isArray(o.brands) ? o.brands.map((x) => String(x ?? '').trim()).filter(Boolean).slice(0, 12) : null;
+  const brands = Array.isArray(o.brands) ? o.brands.map((x) => String(x ?? '').trim()).filter(Boolean).slice(0, 40) : null;
   return {
     minLot: Number.isFinite(min) && min >= 2 ? Math.min(20, min) : DEFAULT_DANA_TARGETS.minLot,
     markets: markets.length ? [...new Set(markets)] : DEFAULT_DANA_TARGETS.markets,

@@ -6,12 +6,17 @@
  * (groupe, loueur, leasing, flotte) est préparé pour Channing, qui envoie
  * lui-même. L'équipe change l'étape (à contacter, écarté…) ; le reste vient
  * du worker.
+ * 18/10 (Channing : « les contacts les plus durs à contacter sont ceux qui
+ * rapportent le plus ») : ce qui manque pour les approcher, et la
+ * recherche approfondie — à qui appartient l'entreprise, comment elle
+ * revend (ou achète), qui décide, des pistes pour l'approcher.
  */
 import { useState } from 'react';
-import { CheckCircle2, XCircle, ExternalLink, RefreshCw, User, Mail, MapPin, PenLine, MessagesSquare, Crown, Linkedin, Layers } from 'lucide-react';
+import { CheckCircle2, XCircle, ExternalLink, RefreshCw, User, Mail, MapPin, PenLine, MessagesSquare, Crown, Linkedin, Layers, Telescope, Phone, Lightbulb } from 'lucide-react';
 import type { ProspectDetail, ProspectStage } from '../../services/agents';
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { lotLine } from '../../lib/agents/sourcing';
+import { missingOf, lastDeepAt, CHANNEL_LABEL } from '../../lib/agents/deepResearch';
 import { fmtDateTime, KIND_LABEL, STAGE_LABEL, LANG_LABEL, scoreTone } from './helpers';
 
 interface Props {
@@ -20,19 +25,30 @@ interface Props {
   threadId: string | null; onDraft: () => void; drafting: boolean; onOpenThread: (id: string) => void;
   /** Qui l'a qualifié : Ada (acheteurs, par défaut) ou Dana (fournisseurs). */
   agentName?: 'Ada' | 'Dana';
+  /** 18/10 : lancer la recherche approfondie (absent = pas de bouton), et si elle est en cours. */
+  onDeep?: () => void; deeping?: boolean;
 }
+
+const PERIMETER: Record<string, string> = { groupe: 'groupe', pays: 'pays', site: 'site' };
 
 const LiLink = ({ url }: { url: string | null | undefined }) => (url
   ? <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center text-sky-700 hover:text-sky-900" title="Profil LinkedIn (vu dans une page lue)"><Linkedin className="w-3.5 h-3.5" /></a>
   : null);
 
-export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, onDraft, drafting, onOpenThread, agentName = 'Ada' }: Props) {
+export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, onDraft, drafting, onOpenThread, agentName = 'Ada', onDeep, deeping }: Props) {
   const [allEmails, setAllEmails] = useState(false);
   const best = p.best_contact;
   const emails = allEmails ? p.emails : p.emails.slice(0, 5);
   const key = p.key_account === true;
   const verified = !!best?.email && p.emails.some((e) => e.email === best.email && e.mx);
   const open = ['qualifie', 'a_contacter'].includes(p.stage);
+  // La recherche approfondie : sa trace, comment ils revendent (ou achètent), les pistes ; les pages lues, à part.
+  const deepAt = lastDeepAt(p.evidence);
+  const deepCost = p.evidence.filter((e) => e.via === 'approfondie' && e.note === 'recherche approfondie' && !e.url).reduce((n, e) => n + Number(e.cout_usd ?? 0), 0);
+  const channels = p.evidence.filter((e) => !!e.canal);
+  const leads = p.evidence.filter((e) => e.piste);
+  const pagesRead = p.evidence.filter((e) => !!e.url && !e.canal && !e.piste);
+  const missing = open ? missingOf(p) : [];
   return (
     <div className="mt-2 rounded-xl border border-violet-200 bg-violet-50/40 p-3 space-y-2 text-sm">
       <div className="flex items-center gap-2 flex-wrap">
@@ -44,11 +60,38 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
         <select value={p.stage} onChange={(e) => onStage(e.target.value as ProspectStage)} className="ml-auto rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs">
           {(Object.keys(STAGE_LABEL) as ProspectStage[]).map((k) => <option key={k} value={k}>{STAGE_LABEL[k]}</option>)}
         </select>
-        <button disabled={requalifying} onClick={onRequalify} className="inline-flex items-center gap-1 text-xs text-violet-800 hover:underline disabled:opacity-40" title="Relire les pages et refaire la fiche">
+        <button disabled={requalifying} onClick={onRequalify} className="inline-flex items-center gap-1 text-xs text-violet-800 hover:underline disabled:opacity-40" title="Relire les pages et refaire la fiche (ce que la recherche approfondie a trouvé reste)">
           <RefreshCw className="w-3.5 h-3.5" /> Refaire la fiche
         </button>
+        {onDeep && open && (deeping
+          ? <span className="text-xs text-indigo-700 animate-pulse">{agentName} cherche plus loin…</span>
+          : <button onClick={onDeep} className="inline-flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-2 py-0.5 text-xs font-medium text-indigo-800 hover:bg-indigo-50"
+              title={`${agentName} va plus loin sur le web : à qui appartient l'entreprise, comment elle ${agentName === 'Dana' ? 'revend' : 'achète'} ses véhicules, qui en décide (au niveau du groupe d'abord), les e-mails et téléphones publiés, des pistes pour l'approcher. Environ 0,10 $.`}>
+              <Telescope className="w-3.5 h-3.5" /> {deepAt ? 'Chercher encore plus loin' : 'Recherche approfondie'}
+            </button>)}
       </div>
       {p.summary && <p className="text-slate-800">{p.summary}</p>}
+      {missing.length > 0 && <p className="text-xs text-amber-800">Ce qui manque pour l'approcher : {missing.join(' · ')}.</p>}
+      {(deepAt || channels.length > 0 || leads.length > 0) && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 px-2.5 py-2 space-y-1.5 text-xs">
+          <p className="text-indigo-900 font-medium inline-flex items-center gap-1"><Telescope className="w-3.5 h-3.5" /> Recherche approfondie{deepAt ? ` du ${fmtDateTime(deepAt)}` : ''}{deepCost ? ` · ${fmtUsd(deepCost)}` : ''}</p>
+          {channels.length > 0 && (
+            <div>
+              <p className="text-slate-500">{agentName === 'Dana' ? 'Comment ils revendent leurs véhicules' : 'Comment ils achètent leurs véhicules'}</p>
+              {channels.map((c, i) => (
+                <p key={`${c.note}-${i}`} className="text-slate-800">• {CHANNEL_LABEL[c.canal as keyof typeof CHANNEL_LABEL] ?? c.canal} : {c.url ? <a href={c.url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline">{c.note}</a> : c.note}</p>
+              ))}
+            </div>
+          )}
+          {leads.length > 0 && (
+            <div>
+              <p className="text-slate-500 inline-flex items-center gap-1"><Lightbulb className="w-3 h-3" /> Pistes pour les approcher</p>
+              {leads.map((l, i) => <p key={`${l.note}-${i}`} className="text-slate-800">• {l.note}</p>)}
+            </div>
+          )}
+          {deepAt && channels.length === 0 && leads.length === 0 && <p className="text-slate-500">Rien de plus de sûr sur le web ; essayez le téléphone de la fiche, ou relancez plus tard.</p>}
+        </div>
+      )}
       {(p.lots?.length ?? 0) > 0 && (
         <div className="text-xs space-y-0.5">
           <p className="text-slate-400 inline-flex items-center gap-1"><Layers className="w-3 h-3" /> Lots vus par Dana</p>
@@ -69,6 +112,7 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
             <p className="text-slate-900">
               <User className="inline w-3.5 h-3.5 mr-1 text-slate-400" />{best.nom ?? 'service'}{best.fonction ? ` — ${best.fonction}` : ''} <LiLink url={best.linkedin} />
               {best.email && <> · <Mail className="inline w-3.5 h-3.5 mx-1 text-slate-400" /><span className="font-medium">{best.email}</span></>}
+              {best.telephone && <> · <Phone className="inline w-3.5 h-3.5 mx-1 text-slate-400" /><a href={`tel:${best.telephone}`} className="font-medium hover:text-brand-ocean">{best.telephone}</a></>}
             </p>
           ) : <p className="text-xs text-slate-500">Personne de nommé : la fiche d'appel dira quelle fonction demander.</p>}
           {best?.pourquoi && <p className="text-xs text-slate-500">{best.pourquoi}</p>}
@@ -91,7 +135,7 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
       )}
       {p.people.length > 0 && (
         <p className="text-xs text-slate-600"><span className="text-slate-400">Personnes :</span> {p.people.map((x, i) => (
-          <span key={`${x.nom}-${i}`}>{i > 0 ? ' · ' : ''}{x.nom}{x.fonction ? ` (${x.fonction})` : ''}{x.email ? ` ${x.email}` : ''} <LiLink url={x.linkedin} /></span>
+          <span key={`${x.nom}-${i}`}>{i > 0 ? ' · ' : ''}{x.nom}{x.fonction ? ` (${x.fonction}${x.perimetre && PERIMETER[x.perimetre] ? `, ${PERIMETER[x.perimetre]}` : ''})` : ''}{x.email ? ` ${x.email}` : ''}{x.telephone ? ` ${x.telephone}` : ''} <LiLink url={x.linkedin} /></span>
         ))}</p>
       )}
       {p.emails.length > 0 && (
@@ -115,10 +159,10 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
           {p.score != null && p.fit_score != null && p.score !== p.fit_score && <span className="text-slate-500">· avis de {agentName} {p.score - p.fit_score > 0 ? '+' : ''}{p.score - p.fit_score}</span>}
         </div>
       )}
-      {p.evidence.length > 0 && (
+      {pagesRead.length > 0 && (
         <p className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
           <span className="text-slate-400">Pages lues :</span>
-          {p.evidence.map((e) => <a key={e.url} href={e.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-brand-ocean hover:underline"><ExternalLink className="w-3 h-3" />{e.note}</a>)}
+          {pagesRead.map((e, i) => <a key={`${e.url}-${i}`} href={e.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-brand-ocean hover:underline"><ExternalLink className="w-3 h-3" />{e.note}</a>)}
         </p>
       )}
     </div>
