@@ -7,13 +7,17 @@
  * refuse cette boîte (pas encore créée), chacun le reçoit de sa propre
  * adresse. Un verrou par agente et par jour (app_config, posé AVANT l'envoi)
  * : deux workers, pendant un redéploiement, n'envoient jamais deux bilans.
+ * Le mail porte l'en-tête interne d'ADA : la synchro de la boîte le laisse
+ * dans Gmail, hors de la Messagerie et des chiffres (le 18/10, ses 4 copies
+ * comptaient comme « envoyés »).
  */
-import { sb, journal } from './store';
+import { sb, journal, loadSuppressions } from './store';
 import { mailCreds, sendPlainMail } from '../mailer';
 import { spentToday } from './claude';
 import type { AiAgent } from './qualify';
 import { recapDue, recapMail, type RecapInput } from '../../src/lib/agents/recap';
-import { parisClock, parisDayStart, workHoursLabel } from '../../src/lib/agents/sendPolicy';
+import { parisClock, parisDayStart, workHoursLabel, suppressionMatch } from '../../src/lib/agents/sendPolicy';
+import { INTERNAL_HEADER } from '../../src/lib/agents/mail';
 import { segmentOf, COUNTRY_FR } from '../../src/lib/agents/research';
 
 /** Les relevés d'annonces d'office par jour (le même nombre que le cycle de ./tasks.ts). */
@@ -38,6 +42,14 @@ export async function mcExportEmails(): Promise<string[]> {
     if (users.length < 200) break;
   }
   return [...out].sort();
+}
+
+/** Les destinataires du bilan : ces comptes, sauf les boîtes des agentes et les adresses « ne plus
+ *  contacter » (le 18/10, le compte de test ada-test@, sans boîte Gmail, avait rebondi). */
+export async function recapRecipients(): Promise<string[]> {
+  const [all, suppressed, { data: boxes }] = await Promise.all([mcExportEmails(), loadSuppressions(), sb.from('agent_settings').select('mailbox')]);
+  const own = new Set(((boxes ?? []) as Array<{ mailbox: string | null }>).map((b) => (b.mailbox ?? '').trim().toLowerCase()));
+  return all.filter((e) => !own.has(e) && !suppressionMatch([e], suppressed));
 }
 
 /** Le bilan d'une agente : envoyé s'il est dû (au plus une fois par jour). */
@@ -70,7 +82,7 @@ export async function maybeSendRecap(a: AiAgent, now = new Date()): Promise<'env
   });
   if (!due) return 'pas_encore';
   // Personne à prévenir (profils illisibles) : pas de verrou, on réessaie au cycle suivant.
-  const to = await mcExportEmails();
+  const to = await recapRecipients();
   if (to.length === 0) { console.warn(`[AGENTS] bilan du jour ${a.agent} : aucun compte MC Export trouvé`); return 'pas_encore'; }
 
   // Le verrou du jour, posé avant d'envoyer : un second worker trouve la clé et s'arrête.
@@ -119,6 +131,7 @@ export async function maybeSendRecap(a: AiAgent, now = new Date()): Promise<'env
   const mail = recapMail(input);
 
   // L'envoi : depuis la boîte de l'agente ; si Google la refuse, chacun de sa propre adresse.
+  const internal = { [INTERNAL_HEADER]: 'bilan' };
   let sent = 0;
   let fromSelf = 0;
   const failed: string[] = [];
@@ -126,12 +139,12 @@ export async function maybeSendRecap(a: AiAgent, now = new Date()): Promise<'env
   for (const r of to) {
     try {
       if (!agentBoxOk) throw new Error('boîte de l\'agente refusée');
-      await sendPlainMail(creds, { from: a.mailbox, fromName: `${a.display_name} (ADA)`, to: r, subject: mail.subject, body: mail.body });
+      await sendPlainMail(creds, { from: a.mailbox, fromName: `${a.display_name} (ADA)`, to: r, subject: mail.subject, body: mail.body, headers: internal });
       sent++;
     } catch {
       agentBoxOk = false;
       try {
-        await sendPlainMail(creds, { from: r, fromName: `${a.display_name} (ADA)`, to: r, subject: mail.subject, body: mail.body });
+        await sendPlainMail(creds, { from: r, fromName: `${a.display_name} (ADA)`, to: r, subject: mail.subject, body: mail.body, headers: internal });
         sent++; fromSelf++;
       } catch { failed.push(r); }
     }

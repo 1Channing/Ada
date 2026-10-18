@@ -399,21 +399,28 @@ export async function autoCycle(): Promise<void> {
     try {
       const a = await agentRow(agent);
       if (!a || a.targets == null) continue; // SQL du 17/10 (qualification) pas encore collé
+      await autoWork(a).catch((e: unknown) => console.warn(`[AGENTS] cycle automatique (${agent}) : ${e instanceof Error ? e.message : String(e)}`));
       // Le bilan du jour à l'équipe (18/10) : dès qu'elle a fini, ou à la fin de ses heures — donc aussi hors de ses heures.
+      // APRÈS le travail du cycle : une tâche qu'il vient de poser le repousse (le 18/10, il était parti 4 s avant
+      // les recherches approfondies du jour, posées par ce même cycle, et disait « 0 »).
       await maybeSendRecap(a).catch((e: unknown) => console.warn(`[AGENTS] bilan du jour (${agent}) : ${e instanceof Error ? e.message : String(e)}`));
-      if (!inSendWindow(new Date(), a)) continue;
-      // Dana attend ses réglages (SQL agents_comptes : taille des lots, pays de vente).
-      if (agent === 'dana' && !(a.targets && typeof a.targets === 'object' && 'minLot' in a.targets)) continue;
-      const ctx = await seriesContext(a, null);
-      // Les relevés d'annonces (sans IA) : Ada dans ses pays d'export ; Dana partout, la France d'abord, dans ses marques.
-      if (agent === 'ada') await autoDiscovery(a, ctx.targetCountries, ctx.targets.brands, ctx.targets.vanBrands);
-      else await autoDiscovery(a, danaScanCountries(Object.keys(DISCOVERY_SITES)), normalizeDanaTargets(a.targets).brands, []);
-      await autoResearch(a, ctx);
-      await autoQualify(a);
-      await autoDeep(a);
-      await autoDraft(a);
     } catch (e) {
       console.warn(`[AGENTS] cycle automatique (${agent}) : ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+}
+
+/** Le travail d'office d'un cycle, dans ses heures : chaque étape pose ses tâches (au plus ses quotas du jour). */
+async function autoWork(a: AiAgent): Promise<void> {
+  if (!inSendWindow(new Date(), a)) return;
+  // Dana attend ses réglages (SQL agents_comptes : taille des lots, pays de vente).
+  if (a.agent === 'dana' && !(a.targets && typeof a.targets === 'object' && 'minLot' in a.targets)) return;
+  const ctx = await seriesContext(a, null);
+  // Les relevés d'annonces (sans IA) : Ada dans ses pays d'export ; Dana partout, la France d'abord, dans ses marques.
+  if (a.agent === 'ada') await autoDiscovery(a, ctx.targetCountries, ctx.targets.brands, ctx.targets.vanBrands);
+  else await autoDiscovery(a, danaScanCountries(Object.keys(DISCOVERY_SITES)), normalizeDanaTargets(a.targets).brands, []);
+  await autoResearch(a, ctx);
+  await autoQualify(a);
+  await autoDeep(a);
+  await autoDraft(a);
 }

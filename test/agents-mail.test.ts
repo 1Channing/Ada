@@ -5,7 +5,7 @@
  */
 import {
   parseAddressList, replySubject, buildMime, replyReferences, htmlToText, stripQuoted,
-  headersOf, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, utf8ToBase64Url, encodeHeaderWord,
+  headersOf, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, utf8ToBase64Url, encodeHeaderWord, isInternalMail,
 } from '../src/lib/agents/mail';
 import {
   parisClock, inSendWindow, nextWindowStart, parisDayStart, randomGapMs, suppressionMatch, countsAgainstCap,
@@ -69,6 +69,7 @@ ok(isAutoReply(h, 'Bonjour'), 'absence : en-tête Auto-Submitted');
 ok(isAutoReply({}, 'Réponse automatique : absent jusqu\'au 20/10'), 'absence : objet français');
 ok(isAutoReply({}, 'Afwezig tot maandag'), 'absence : objet néerlandais');
 ok(!isAutoReply({ 'auto-submitted': 'no' }, 'Re: Vos 4 C-HR'), 'pas d\'absence pour une vraie réponse');
+ok(isInternalMail(headersOf([{ name: 'X-ADA-Interne', value: 'bilan' }])) && !isInternalMail(h), 'bilan du jour (en-tête interne) : pas une conversation, la synchro le laisse dans Gmail');
 ok(isBounce('mailer-daemon@googlemail.com', 'Delivery Status Notification (Failure)', {}), 'rebond : avis Gmail');
 ok(isBounce('postmaster@outlook.com', 'Non remis : Vos 4 C-HR', {}), 'rebond : avis Outlook');
 ok(!isBounce('jean@garage.fr', 'Re: Vos 4 C-HR', {}), 'pas de rebond pour une réponse');

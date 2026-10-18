@@ -209,6 +209,14 @@ export function headersOf(list: Array<{ name?: string; value?: string }> | null 
   return out;
 }
 
+/** L'en-tête des mails internes d'ADA (le bilan du jour à l'équipe, 18/10) : ils restent dans Gmail, hors de la Messagerie. */
+export const INTERNAL_HEADER = 'X-ADA-Interne';
+
+/** Un mail interne d'ADA (en-tête ci-dessus), pas une conversation ? */
+export function isInternalMail(h: Headers): boolean {
+  return !!h[INTERNAL_HEADER.toLowerCase()];
+}
+
 const AUTO_SUBJECT = /^(automatic reply|auto(matic)?[- ]?reply|autoreply|out of (the )?office|réponse automatique|absence|abwesen|automatische antwort|afwezig|automatisch antwoord|fravær|autosvar|automatisk svar|respuesta automática|fuera de la oficina|risposta automatica|fuori ufficio)/i;
 
 /** Réponse automatique (absence, accusé de réception) : en-têtes d'abord, objet ensuite. */

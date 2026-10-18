@@ -41,10 +41,11 @@ export function mailCreds(): Creds | null {
 }
 
 /** Un e-mail texte simple AU NOM de `from` (adresse du domaine Google Workspace),
- *  sans pièce jointe — rappels (12/10). Mêmes refus que les dossiers : hors
- *  domaine, Google refuse le jeton et l'erreur remonte telle quelle. */
-export async function sendPlainMail(creds: Creds, mail: { from: string; fromName?: string | null; to: string; subject: string; body: string }): Promise<{ id: string; threadId: string }> {
-  return sendOne(creds, { id: '', to_email: mail.to, subject: mail.subject, body: mail.body, attachments: [], sender_email: mail.from, sender_name: mail.fromName ?? null, sent_by: null });
+ *  sans pièce jointe — rappels (12/10), bilan du jour des agentes (18/10, avec
+ *  son en-tête interne). Mêmes refus que les dossiers : hors domaine, Google
+ *  refuse le jeton et l'erreur remonte telle quelle. */
+export async function sendPlainMail(creds: Creds, mail: { from: string; fromName?: string | null; to: string; subject: string; body: string; headers?: Record<string, string> }): Promise<{ id: string; threadId: string }> {
+  return sendOne(creds, { id: '', to_email: mail.to, subject: mail.subject, body: mail.body, attachments: [], sender_email: mail.from, sender_name: mail.fromName ?? null, sent_by: null }, mail.headers);
 }
 
 export function startMailer(): void {
@@ -130,7 +131,7 @@ async function gmailToken(creds: Creds, sub: string): Promise<string> {
 const encodeHeader = (s: string) => (/[^\x20-\x7e]/.test(s) ? `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=` : s);
 const wrap76 = (b64: string) => b64.replace(/(.{76})/g, '$1\r\n');
 
-async function sendOne(creds: Creds, m: QueuedMail): Promise<{ id: string; threadId: string }> {
+async function sendOne(creds: Creds, m: QueuedMail, extraHeaders: Record<string, string> = {}): Promise<{ id: string; threadId: string }> {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m.to_email)) throw new Error(`destinataire invalide : « ${m.to_email} »`);
   const token = await gmailToken(creds, m.sender_email);
   const boundary = `ada_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
@@ -147,6 +148,7 @@ async function sendOne(creds: Creds, m: QueuedMail): Promise<{ id: string; threa
   }
   const mime = [
     `From: ${from}`, `To: ${m.to_email}`, `Subject: ${encodeHeader(m.subject)}`, 'MIME-Version: 1.0',
+    ...Object.entries(extraHeaders).map(([k, v]) => `${k}: ${v.replace(/[\r\n]+/g, ' ')}`),
     `Content-Type: multipart/mixed; boundary="${boundary}"`, '', ...parts, `--${boundary}--`, '',
   ].join('\r\n');
   const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {

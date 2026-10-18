@@ -64,7 +64,7 @@ const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 process.env.GOOGLE_SERVICE_ACCOUNT_JSON = JSON.stringify({ client_email: 'ada@projet.iam.gserviceaccount.com', client_id: '123', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) });
 process.env.ADA_APP_URL = 'https://ada-ui-test.up.railway.app/';
 const refused = new Set<string>();
-const sent: Array<{ from: string; to: string; subject: string; body: string }> = [];
+const sent: Array<{ from: string; to: string; subject: string; body: string; interne: string }> = [];
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const u = String(input instanceof Request ? input.url : input);
@@ -79,7 +79,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const header = (k: string) => raw.match(new RegExp(`^${k}: (.*)$`, 'm'))?.[1] ?? '';
     const subject = header('Subject').replace(/^=\?UTF-8\?B\?(.*)\?=$/, (_, b) => Buffer.from(b, 'base64').toString());
     const b64 = raw.split('Content-Transfer-Encoding: base64\r\n\r\n')[1]?.split('\r\n--')[0] ?? '';
-    sent.push({ from: header('From'), to: header('To'), subject, body: Buffer.from(b64.replace(/\r\n/g, ''), 'base64').toString() });
+    sent.push({ from: header('From'), to: header('To'), subject, body: Buffer.from(b64.replace(/\r\n/g, ''), 'base64').toString(), interne: header('X-ADA-Interne') });
     return new Response(JSON.stringify({ id: `m${sent.length}`, threadId: 't' }));
   }
   return realFetch(input, init);
@@ -90,7 +90,11 @@ const db: FakeDb = {
   profiles: [
     { id: 'u-channing', organisation: 'MC Export', blocked: false }, { id: 'u-equipe', organisation: null, blocked: false }, { id: 'u-vente', organisation: '', blocked: false },
     { id: 'u-autre', organisation: 'Garage Partenaire', blocked: false }, { id: 'u-bloque', organisation: 'MC Export', blocked: true },
+    { id: 'u-test', organisation: 'MC Export', blocked: false }, { id: 'u-dana', organisation: 'MC Export', blocked: false },
   ],
+  // Le compte de test sans boîte Gmail a rebondi (18/10) ; le compte ADA de Dana a l'adresse de sa boîte.
+  email_suppressions: [{ email: 'ada-test@mc-export.com', reason: 'rebond' }],
+  agent_settings: [{ agent: 'ada', mailbox: 'ada@mc-export.com' }, { agent: 'dana', mailbox: 'Dana@mc-export.com' }],
   app_config: [],
   agent_tasks: [
     { agent: 'dana', kind: 'recherche_comptes', status: 'terminee', params: { segment: 'leasing', country: 'FR', auto: true }, result: { gardes: 5 }, created_by: null, created_at: T('00:00'), finished_at: T('00:02') },
@@ -114,19 +118,22 @@ const db: FakeDb = {
 const users = [
   { id: 'u-channing', email: 'channing@mc-export.com' }, { id: 'u-equipe', email: 'Equipe@MC-Export.com' }, { id: 'u-vente', email: 'vente@mc-export.com' },
   { id: 'u-autre', email: 'contact@partenaire.fr' }, { id: 'u-bloque', email: 'ancien@mc-export.com' },
+  { id: 'u-test', email: 'ada-test@mc-export.com' }, { id: 'u-dana', email: 'dana@mc-export.com' },
 ];
 setSharedSupabase({ ...fakeSupabase(db), auth: { admin: { listUsers: async () => ({ data: { users }, error: null }) } } } as never);
-const { maybeSendRecap, mcExportEmails } = await import('../worker/agents/recap');
+const { maybeSendRecap, mcExportEmails, recapRecipients } = await import('../worker/agents/recap');
 
 const agentDana = {
   agent: 'dana', display_name: 'Dana', mailbox: 'dana@mc-export.com', send_days: [1, 2, 3, 4, 5, 7], send_from: '00:00:00', send_to: '18:00:00',
   daily_budget_usd: 3, auto_research_per_day: 2, auto_discovery: false, targets: {},
 };
-ok((await mcExportEmails()).join() === 'channing@mc-export.com,equipe@mc-export.com,vente@mc-export.com', 'destinataires : les comptes MC Export (organisation vide comprise), ni une autre organisation, ni un compte bloqué');
+ok((await mcExportEmails()).join() === 'ada-test@mc-export.com,channing@mc-export.com,dana@mc-export.com,equipe@mc-export.com,vente@mc-export.com', 'les comptes MC Export (organisation vide comprise), ni une autre organisation, ni un compte bloqué');
+ok((await recapRecipients()).join() === 'channing@mc-export.com,equipe@mc-export.com,vente@mc-export.com', 'destinataires du bilan : ni la boîte d\'une agente, ni une adresse « ne plus contacter »', await recapRecipients());
 ok(await maybeSendRecap(agentDana as never, at('2026-10-18T04:00:00Z')) === 'pas_encore' && sent.length === 0 && db.app_config.length === 0, '6 h : pas encore (rien envoyé, pas de verrou)');
 const r1 = await maybeSendRecap(agentDana as never, at('2026-10-18T05:10:00Z'));
 ok(r1 === 'envoye' && sent.length === 3 && sent.every((x) => x.from === 'Dana (ADA) <dana@mc-export.com>' && x.subject === 'Dana — bilan du dimanche 18 octobre'),
   '7 h 10 : envoyé aux trois comptes, depuis dana@mc-export.com', sent.map((x) => [x.from, x.to, x.subject]));
+ok(sent.every((x) => x.interne === 'bilan'), 'en-tête interne : la synchro de la boîte le laisse dans Gmail (ni Messagerie ni « envoyés »)', sent.map((x) => x.interne));
 const body = sent[0]?.body ?? '';
 ok(body.includes('• Recherches sur le web : 2 — 11 entreprises trouvées (sociétés de leasing · France : 5 ; loueurs courte durée · France : 6)')
   && body.includes('• Fiches préparées : 2, dont 2 grands comptes — les mieux notées : Ayvens France 92 · TECHNIC AUTO FORBACH 37')
@@ -145,7 +152,7 @@ db.agent_tasks.push({ agent: 'ada', kind: 'recherche_comptes', status: 'terminee
 const agentAda = { ...agentDana, agent: 'ada', display_name: 'Ada', mailbox: 'ada@mc-export.com', send_days: [1, 2, 3, 4, 5, 6, 7], send_from: '08:30:00', send_to: '18:00:00', auto_research_per_day: 1 };
 const r2 = await maybeSendRecap(agentAda as never, at('2026-10-18T09:00:00Z'));
 const adaMails = sent.slice(3);
-ok(r2 === 'envoye' && adaMails.length === 3 && adaMails.every((x) => x.from === `Ada (ADA) <${x.to}>`) && adaMails[0].subject === 'Ada — bilan du dimanche 18 octobre'
+ok(r2 === 'envoye' && adaMails.length === 3 && adaMails.every((x) => x.from === `Ada (ADA) <${x.to}>` && x.interne === 'bilan') && adaMails[0].subject === 'Ada — bilan du dimanche 18 octobre'
   && db.agent_journal.some((j) => j.kind === 'bilan_jour' && /3 depuis leur propre adresse/.test(String(j.summary))),
   'boîte de l\'agente refusée : chacun le reçoit de sa propre adresse, le journal le dit', adaMails.map((x) => [x.from, x.to]));
 

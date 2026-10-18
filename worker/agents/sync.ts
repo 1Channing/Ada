@@ -9,11 +9,12 @@
  *   demande d'arrêt explicite (→ « ne plus contacter ») ;
  * - une vraie réponse sonne dans la cloche du responsable (et part par
  *   e-mail via les rappels) ;
- * - un mail envoyé depuis Gmail lui-même (hors ADA) est aussi archivé.
+ * - un mail envoyé depuis Gmail lui-même (hors ADA) est aussi archivé ;
+ *   pas le bilan du jour à l'équipe (en-tête interne, 18/10).
  * Aucun contenu de mail n'est écrit dans les logs (worker_logs est lisible).
  */
 import {
-  headersOf, parseAddressList, stripQuoted, htmlToText, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8,
+  headersOf, parseAddressList, stripQuoted, htmlToText, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, isInternalMail,
 } from '../../src/lib/agents/mail';
 import { gmail, GmailError, NotConnected } from './google';
 import { sb, journal, alertOwner, suppress, updateAgent, advanceProspect, type AgentRow } from './store';
@@ -99,6 +100,8 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
   const labels = m.labelIds ?? [];
   if (labels.includes('DRAFT') || labels.includes('SPAM') || labels.includes('TRASH')) return false;
   const h = headersOf(m.payload?.headers);
+  // Le bilan du jour à l'équipe (18/10) part de cette boîte mais n'est pas une conversation : il reste dans Gmail.
+  if (isInternalMail(h)) return false;
   const from = parseAddressList(h['from'])[0];
   const direction: 'in' | 'out' = from?.email === a.mailbox ? 'out' : 'in';
   const to = parseAddressList(h['to']);
