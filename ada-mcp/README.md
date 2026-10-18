@@ -20,6 +20,7 @@ Depuis fin juillet 2026, la vérité d'ADA vit dans ces tables. Le connecteur ne
 | Stock relevé des vitrines de concession (arrivées, départs, prix) | `network_stock_runs`, `network_stock_vehicles` | `dealer_stock` |
 | Boîte à apprendre (cas qu'ADA ne sait pas encore traiter) | `learning_cases` | `learning_cases` |
 | Trésorerie (relevés de compte, mouvements classés et rapprochés, TVA, point de départ) | `bank_statements`, `bank_lines`, `vat_returns`, `app_config` | `treasury_statements`, `treasury_lines`, `treasury_monthly` |
+| Agents Ada et Dana (réglages, boîtes mail, fils et messages, fiches qualifiées, annuaire des garages, lots, comptes trouvés, journal, tâches, appels IA) | `agent_settings`, `agent_threads`, `agent_messages`, `agent_prospects`, `agent_accounts`, `agent_tasks`, `agent_runs`, `agent_journal`, `agent_index_meta` + RPC `agents_dealer_directory`, `agents_dealer_lots`, `agents_ai_spend` | `agents_overview`, `agents_mailbox`, `agents_thread`, `agents_queue`, `agents_prospects`, `agents_directory`, `agents_lots`, `agents_accounts`, `agents_journal` |
 
 Les tables `studies_v2` / `study_runs` / `study_run_results` / `study_source_listings` de l'ancienne architecture (dernière écriture le 17/07/2026) **ne sont pas lues** : elles ne reflètent plus ADA.
 
@@ -43,6 +44,15 @@ Les tables `studies_v2` / `study_runs` / `study_run_results` / `study_source_lis
 | `treasury_statements` | L'onglet Trésorerie, vue d'ensemble : chaque relevé déposé (banque, compte, mois ou période partielle, soldes, lignes, avertissements, PDF conservé), les mois manquants par compte, les déclarations de TVA et le point de départ au 31/12/2025 |
 | `treasury_lines` | Les mouvements bancaires, filtrés par mois ou dates, compte, catégorie, texte, montant minimum, ou seulement les flux véhicule sans dossier ; chaque ligne avec sa catégorie (corrigée à la main ou non) et les dossiers du tableau de ventes reliés ; totaux entrées / sorties et par catégorie sur le filtre |
 | `treasury_monthly` | Le tableau mensuel par catégorie, regroupé comme dans ADA : frais véhicules, fonctionnement, prestataires, impôts / TVA, flux véhicules (capital), transferts internes |
+| `agents_overview` | L'onglet Agents, vue d'ensemble : Ada (trouve des acheteurs) et Dana (trouve des vendeurs) — réglages, boîte connectée, compteurs du jour, dépense IA, tâches en cours (Live), heure du dernier calcul de l'annuaire |
+| `agents_mailbox` | La Messagerie d'une agente par dossier (réception, brouillons, envoyés, archives), chaque fil avec ce qui attend et son dernier message |
+| `agents_thread` | Un fil complet : tous les messages, texte entier, traduction, notes de l'IA (faits, alertes, fiche d'appel), validations, erreurs, et la fiche du prospect lié |
+| `agents_queue` | À valider et « pour vous » : les messages sortants en attente (brouillon à relire, validé, en cours, échec) et ceux préparés pour un grand compte, avec leur prospect |
+| `agents_prospects` | Les fiches qualifiées par l'IA (acheteurs d'Ada, fournisseurs de Dana) : score, étape, résumé, meilleur contact ; une fiche complète par identifiant |
+| `agents_directory` | L'annuaire des garages vus sur les sites d'annonces (un garage = une ligne, tous sites), avec sa qualification |
+| `agents_lots` | Le Sourcing de Dana : lots de véhicules identiques chez un même garage et ce qu'ils valent dans nos pays de vente |
+| `agents_accounts` | L'onglet Recherche : entreprises trouvées par recherche web (leasing, loueurs, flottes, groupes, négociants) et leur fiche |
+| `agents_journal` | Journal des agentes, tâches (paramètres, statut, résultat) et appels à l'IA (coût, recherches web) |
 | `learning_cases` | La boîte à apprendre : les cas rencontrés sans savoir les traiter (vitrines non reconnues : hôte, URL, titre, indices techniques), statut open / done / ignored, résolution notée — pour préparer les adaptateurs à écrire |
 
 Tous les outils sont déclarés lecture seule, non destructifs, idempotents, à monde fermé, et bornés par une limite.
