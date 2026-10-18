@@ -8,6 +8,7 @@ import {
   headersOf, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, utf8ToBase64Url, encodeHeaderWord, isInternalMail, htmlBody, pngSize,
 } from '../src/lib/agents/mail';
 import { readFileSync } from 'node:fs';
+import { mailboxFacts, folderThreads, folderOf, type MailboxFacts } from '../src/lib/agents/mailbox';
 import {
   parisClock, inSendWindow, nextWindowStart, parisDayStart, randomGapMs, suppressionMatch, countsAgainstCap,
 } from '../src/lib/agents/sendPolicy';
@@ -60,6 +61,23 @@ ok(/^Content-Type: multipart\/alternative; boundary="ada_alt_/m.test(withLogo) &
 ok(plainPart.endsWith('Dana\r\nMC Export') && html.includes('Un &lt;test&gt; &amp; deux.') && !html.includes('MC Export</p>') && html.includes('width="300"'),
   'MIME avec logo : la version texte garde la signature texte ; en HTML, le logo la remplace, le texte est échappé', { plainPart, html: html.slice(0, 400) });
 ok(htmlBody('Bonjour,\nligne 2\n\nFin', null, sigImg, 'c').includes('<p style="margin:0 0 12px">Bonjour,<br>ligne 2</p><p style="margin:0 0 12px">Fin</p>'), 'HTML : paragraphes et retours à la ligne gardés');
+
+// Les dossiers de la Messagerie (18/10) : Réception, Brouillons (comme « À valider »), Envoyés, Archives.
+const T0 = '2026-10-18T08:00:00Z';
+const mm = (o: Partial<{ direction: string; status: string; channel: string; classification: string | null }>) => ({ direction: 'out', status: 'envoye', channel: 'mail', classification: null, received_at: null, sent_at: T0, created_at: T0, ...o });
+const th = (id: string, ms: ReturnType<typeof mm>[], archived = false): MailboxFacts & { id: string } => ({ id, archived, last_message_at: T0, created_at: T0, ...mailboxFacts(ms) });
+const box = [
+  th('repondu', [mm({}), mm({ direction: 'in', status: 'recu', received_at: '2026-10-18T09:00:00Z' }), mm({ status: 'a_valider', sent_at: null })]),
+  th('pour-vous', [mm({ status: 'pour_channing', sent_at: null }), mm({ status: 'pour_channing', channel: 'linkedin', sent_at: null })]),
+  th('rebond', [mm({}), mm({ direction: 'in', status: 'recu', classification: 'rebond' })]),
+  th('bilan-range', [mm({})], true),
+  th('ecarte', [mm({ status: 'refuse', sent_at: null })]),
+];
+const ids = (f: 'reception' | 'brouillons' | 'envoyes' | 'archives') => folderThreads(box, f).map((x) => x.id).join();
+ok(ids('reception') === 'repondu' && ids('brouillons') === 'repondu,pour-vous' && ids('envoyes') === 'repondu,rebond' && ids('archives') === 'bilan-range,ecarte',
+  'dossiers : un mail reçu (pas un rebond) en Réception ; ce qui attend en Brouillons ; un fil archivé ou tout écarté seulement en Archives', { r: ids('reception'), b: ids('brouillons'), e: ids('envoyes'), a: ids('archives') });
+ok(box[1].linkedinOnly === false && th('li', [mm({ status: 'pour_channing', channel: 'linkedin', sent_at: null })]).linkedinOnly && folderOf(box[0]) === 'brouillons' && folderOf(box[3]) === 'archives' && folderOf(box[2]) === 'envoyes',
+  'un fil ouvert depuis ailleurs : là où il attend d\'abord ; une note LinkedIn seule est marquée comme telle');
 ok(encodeHeaderWord('Proposition pour vos véhicules électriques en stock depuis longtemps').split(' ').every((w) => w.length <= 75), 'MIME : objet long découpé en mots de 75 caractères au plus');
 eq(base64UrlToUtf8(utf8ToBase64Url('Ærø — Køb')), 'Ærø — Køb', 'base64url : aller-retour UTF-8');
 eq(replyReferences('<a@x> <b@x>', '<c@x>'), '<a@x> <b@x> <c@x>', 'References : chaîne du fil complétée');

@@ -6,7 +6,8 @@
  * (hors rebond), Brouillons s'il a quelque chose qui attend (les mêmes
  * messages que « À valider » : brouillon, à valider, préparé pour vous,
  * validé pas encore parti, échec), Envoyés s'il a un message parti, Archives
- * s'il est archivé — ou s'il n'a plus que des messages écartés.
+ * s'il est archivé — ou s'il n'a plus que des messages écartés. Un fil
+ * archivé n'est plus que dans Archives (rangé, il ne revient nulle part).
  * La partie pure ; la lecture : listMailbox (services/agents.ts).
  */
 
@@ -54,8 +55,7 @@ export function mailboxFacts(ms: MailboxMessageLite[]): Omit<MailboxFacts, 'arch
 export function folderThreads<T extends MailboxFacts>(rows: T[], f: MailFolder): T[] {
   const at = (x: T) => (f === 'reception' ? x.lastIn : f === 'envoyes' ? x.lastOut : null) ?? x.last_message_at ?? x.created_at;
   const inFolder = (x: T) => (f === 'archives' ? x.archived || x.dead
-    : f === 'envoyes' ? x.sent
-      : !x.archived && !x.dead && (f === 'reception' ? x.received : x.waiting > 0));
+    : !x.archived && !x.dead && (f === 'reception' ? x.received : f === 'envoyes' ? x.sent : x.waiting > 0));
   return rows.filter(inFolder).sort((a, b) => at(b).localeCompare(at(a)));
 }
 
