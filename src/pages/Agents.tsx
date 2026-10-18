@@ -227,7 +227,7 @@ export function Agents() {
         <Live key={agent} agent={agent} settings={s} otherBusy={!!counts[agent === 'ada' ? 'dana' : 'ada']?.auTravail} isAdmin={isAdmin} refreshKey={refreshKey} onError={onError} onOpenThread={openFromQueue} />
       )}
       {tab === 'messagerie' && (
-        <Messagerie key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} openThreadId={openThread} refreshKey={refreshKey} onChanged={() => void load()} onError={onError} />
+        <Messagerie key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} openThreadId={openThread} refreshKey={refreshKey} onChanged={() => void load()} onError={onError} onInfo={onInfo} />
       )}
       {tab === 'valider' && (
         <ValidationQueue key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} onOpenThread={openFromQueue} onChanged={() => void load()} onError={onError} onInfo={onInfo} />

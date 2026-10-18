@@ -18,7 +18,8 @@ import {
   deepSystem, deepSchema, deepPrompt, missingOf, isIncomplete, phonesIn, phoneWritten, rescoreReach, mergeDeep, deepSummary, lastDeepAt, deepPerDayOf, groupName,
   DEEP_SEARCHES, DEEP_FETCHES, type DeepOutput, type DeepProspect, type DeepChecked,
 } from '../src/lib/agents/deepResearch';
-import type { KeyAccountOutput } from '../src/lib/agents/firstMail';
+import { contactLines, type KeyAccountOutput } from '../src/lib/agents/firstMail';
+import { addressKind } from '../src/lib/agents/qualification';
 import { HAIKU, OPUS } from '../src/lib/agents/aiCost';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
 import { fakeSupabase, type FakeDb } from './fakeSupabase';
@@ -132,6 +133,33 @@ const prevMail: DeepProspect = { ...bare, emails: [{ email: 'vo.forbach@groupehe
 const m3 = mergeDeep(prevMail, { ...hessOut, meilleur_contact: { ...hessOut.meilleur_contact, email: null } }, { ...checked, emails: [] }, AT);
 ok(m3.patch.best_contact?.nom === 'Paul Roth' && m3.patch.best_contact?.email === 'vo.forbach@groupehess.com', 'fusion : un contact joignable par e-mail reste devant un nom sans e-mail', m3.patch.best_contact);
 
+// --- L'adresse du mail (18/10, Channing : le mail ciblé d'Ayvens partait vers relation.clients@…) ---------------
+ok(addressKind('relation.clients.ayvens@ayvens.com', 'autre', 'Guillaume de Raffin') === 'generique' && addressKind('sav-agilauto-lld@ca-cf.fr') === 'generique'
+  && addressKind('service-clientele@rentacar.fr') === 'generique' && addressKind('contact@garage-martin.fr', null, 'Paul Martin') === 'generique' && addressKind('vo@x.fr', 'generique') === 'generique',
+  'adresse générale : service client, SAV, contact@ (même quand la personne est connue)');
+ok(addressKind('eci.remarketing@europcar.com') === 'service' && addressKind('vo@hess.fr') === 'service' && addressKind('2ndmovefr@europcar.com', 'commercial') === 'service' && addressKind('carmarket@ayvens.com') === 'service',
+  'adresse d\'un service utile : remarketing, VO, plateforme pour les professionnels');
+ok(addressKind('g.deraffin@ayvens.com', null, 'Guillaume de Raffin') === 'personne' && addressKind('m.hess@groupehess.com', 'nominatif') === 'personne' && addressKind('jean.dupont@garage.fr') === 'personne',
+  'adresse d\'une personne : son nom dans l\'adresse, nature « nominatif », prénom.nom');
+const ayvens: DeepProspect = { ...bare, name: 'Ayvens France', emails: [{ email: 'relation.clients.ayvens@ayvens.com', nature: 'autre', source: 'x', mx: true }],
+  best_contact: { nom: 'Guillaume de Raffin', fonction: 'Directeur Remarketing & Flex', email: 'relation.clients.ayvens@ayvens.com', pourquoi: '' } };
+ok(missingOf(ayvens).includes('pas d\'e-mail direct pour elle (seulement une adresse générale)') && isIncomplete(ayvens), 'seulement une adresse générale pour la personne qui décide : « à compléter »', missingOf(ayvens));
+const withNote = deepPrompt({ role: 'dana', p: ayvens, note: 'Trouve le moyen de joindre directement Guillaume de Raffin, ou au moins le service remarketing.' });
+ok(withNote.includes('<consigne_de_channing>\nTrouve le moyen de joindre directement Guillaume de Raffin') && withNote.includes('Suis cette consigne en priorité') && withNote.includes('Adresse retenue pour l\'instant : relation.clients.ayvens@ayvens.com (une adresse générale'),
+  'consigne de Channing : dans la demande, avec l\'adresse générale à dépasser', withNote.split('\n').slice(-8));
+ok(!deepPrompt({ role: 'dana', p: ayvens }).includes('consigne_de_channing') && /Une adresse de service client, de SAV ou « contact@ » n'est qu'un dernier recours/.test(deepSystem('dana')) && /dernier recours/.test(deepSystem('ada')),
+  'sans consigne, pas de bloc ; la consigne générale cherche le chemin le plus direct');
+// La recherche trouve l'adresse du service remarketing : elle remplace l'adresse générale du même contact.
+const raffin: DeepOutput = { ...hessOut, personnes: [], meilleur_contact: { nom: 'Guillaume de Raffin', fonction: 'Directeur Remarketing & Flex', email: 'remarketing@ayvens.com', telephone: null, linkedin: null, pourquoi: 'Il pilote le remarketing.' } };
+const m4 = mergeDeep(ayvens, raffin, { ...checked, emails: [{ email: 'remarketing@ayvens.com', nature: 'vo', source: 'https://www.ayvens.com/fr-fr/remarketing', mx: true }] }, AT);
+ok(m4.patch.best_contact?.email === 'remarketing@ayvens.com' && m4.news.contact, 'fusion : l\'adresse du service remarketing remplace celle du service client', m4.patch.best_contact);
+const lines = contactLines({ name: 'Guillaume de Raffin', role: 'Directeur Remarketing & Flex', email: 'relation.clients.ayvens@ayvens.com', address: 'generique' });
+ok(lines[0] === 'Personne : Guillaume de Raffin, Directeur Remarketing & Flex' && lines[1].includes('ne la lit pas elle-même') && lines[1].includes('demande en une phrase de transmettre ce message à Guillaume de Raffin, Directeur Remarketing & Flex'),
+  'premier mail vers une adresse générale : salutation sans nom, et demande de transmettre à la bonne personne', lines);
+ok(contactLines({ name: 'Marc Hess', role: null, email: 'm.hess@groupehess.com', address: 'personne' })[1].includes('salue-la par son nom')
+  && contactLines({ name: 'Marc Hess', role: 'directeur VO', email: 'vo@hess.fr', address: 'service' })[1].includes('« à l\'attention de Marc Hess, directeur VO »')
+  && contactLines({ name: null, role: null }).length === 1, 'premier mail : la personne elle-même, ou un service « à l\'attention de »');
+
 // --- Le worker ---------------------------------------------------------------------------------------------------
 const keyOut: KeyAccountOutput = {
   objet: 'Vos véhicules récents en lots',
@@ -233,12 +261,13 @@ const { runNextTask, autoDeep } = await import('../worker/agents/tasks');
 const { keepDeep } = await import('../worker/agents/qualify');
 
 // 1. À la main : Dana approfondit Technic Auto Forbach, puis prépare le grand compte pour Channing.
-db.agent_tasks.push({ id: 'tp1', agent: 'dana', kind: 'qualification', status: 'en_attente', params: { prospect_ids: ['p-hess'], approfondie: true }, created_by: 'channing', created_at: new Date().toISOString() });
+db.agent_tasks.push({ id: 'tp1', agent: 'dana', kind: 'qualification', status: 'en_attente', params: { prospect_ids: ['p-hess'], approfondie: true, note: 'Qui gère le de-fleet du groupe ?' }, created_by: 'channing', created_at: new Date().toISOString() });
 await runNextTask();
 const hess = db.agent_prospects.find((p) => p.id === 'p-hess') as Row & DeepProspect;
 const c1 = calls[0];
-ok(c1?.model === HAIKU && /aller plus loin/.test(c1.system) && c1.tools?.find((t) => t.name === 'web_search')?.max_uses === 8 && c1.tools?.find((t) => t.name === 'web_fetch')?.max_uses === 5 && c1.user.includes('groupe déjà repéré : Hess Automobile'),
-  'appel : Haiku 5.5, consigne approfondie, 8 recherches et 5 pages, la fiche telle qu\'elle est', c1 && { model: c1.model, tools: c1.tools });
+ok(c1?.model === HAIKU && /aller plus loin/.test(c1.system) && c1.tools?.find((t) => t.name === 'web_search')?.max_uses === 8 && c1.tools?.find((t) => t.name === 'web_fetch')?.max_uses === 5 && c1.user.includes('groupe déjà repéré : Hess Automobile')
+  && c1.user.includes('<consigne_de_channing>\nQui gère le de-fleet du groupe ?\n</consigne_de_channing>'),
+  'appel : Haiku 5.5, consigne approfondie, 8 recherches et 5 pages, la fiche telle qu\'elle est, la consigne de Channing', c1 && { model: c1.model, tools: c1.tools });
 ok(hess.best_contact?.nom === 'Marc Hess' && hess.best_contact?.email === 'm.hess@groupehess.com' && hess.emails.length === 1 && hess.emails[0].mx && hess.score === 37,
   'fiche : le directeur VO du groupe, son e-mail relu dans la page (domaine qui reçoit), note 37', { best: hess.best_contact, emails: hess.emails, score: hess.score });
 const th = db.agent_threads.find((t) => t.prospect_id === 'p-hess') as Row | undefined;

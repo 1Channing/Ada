@@ -46,6 +46,8 @@ import { refreshSoon } from './indexRefresh';
 import { researchPairs, nextResearchPair, segmentOf, RESEARCH_COUNTRIES, COUNTRY_FR, type ResearchParams } from '../../src/lib/agents/research';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
 import { deepResearch } from './deep';
+import { draftReply } from './reply';
+import { targetedResearch, lotMail } from './targeted';
 import { maybeSendRecap } from './recap';
 import { aiConfigured, aiPaused, spentToday, clearAiPause, BudgetReached, AiUnavailable, NO_KEY } from './claude';
 import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, DISCOVERY_SITES, type DiscoveryParams } from '../../src/lib/agents/discovery';
@@ -91,7 +93,9 @@ function startLabel(t: Task): string {
     const k = n(t.params.account_ids) + n(t.params.dealer_ids);
     return `${k} fiche${k > 1 ? 's' : ''} à préparer`;
   }
+  if (t.kind === 'premier_mail' && t.params.reponse_a) return 'réponse à un mail reçu, à préparer';
   if (t.kind === 'premier_mail') { const k = n(t.params.prospect_ids); return `${k} premier${k > 1 ? 's' : ''} mail${k > 1 ? 's' : ''} à écrire`; }
+  if (t.kind === 'recherche_comptes' && typeof t.params.notes === 'string' && t.params.notes.trim()) return 'recherche ciblée, avec vos notes';
   if (t.kind === 'recherche_comptes') return `recherche web — ${researchLabel(t.agent, t.params)}`;
   return `relevé d'annonces — ${label(t.params)}`;
 }
@@ -146,7 +150,7 @@ async function runDeep(t: Task): Promise<{ result: Record<string, unknown>; summ
   for (const [i, id] of ids.entries()) {
     live(t.id, `Fiche ${i + 1} sur ${ids.length}`, { done: i, total: ids.length });
     try {
-      const o = await deepResearch(id, a, t.id, !!t.created_by);
+      const o = await deepResearch(id, a, t.id, !!t.created_by, typeof t.params.note === 'string' ? t.params.note : '');
       r.cout_usd += o.cost;
       if (o.status === 'enrichi') r.enrichies++;
       else if (o.status === 'rien') r.rien++;
@@ -194,6 +198,18 @@ async function runDrafts(t: Task): Promise<{ result: Record<string, unknown>; su
   return { result: r, summary };
 }
 
+/** La réponse préparée à un mail reçu (18/10 ; ./reply.ts) : une tâche « premier_mail » avec params.reponse_a. */
+async function runReply(t: Task): Promise<{ result: Record<string, unknown>; summary: string }> {
+  const a = await agentRow(t.agent);
+  if (!a) throw new Error('agente introuvable');
+  if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
+  const o = await draftReply(String(t.params.reponse_a), a, t.id);
+  const result = { reponse: true, redige: o.status === 'redige', statut: o.status, cout_usd: Math.round(o.cost * 10_000) / 10_000, detail: o.detail };
+  if (o.status === 'echec') throw new Error(`${o.name} : ${o.detail}`);
+  const summary = o.status === 'redige' ? `Réponse préparée pour ${o.name} : ${o.detail} — à valider (${fmtUsd(o.cost)})` : `Pas de réponse préparée pour ${o.name} : ${o.detail}`;
+  return { result, summary };
+}
+
 let running = false;
 
 /** Traite la prochaine tâche en attente (une à la fois). */
@@ -232,18 +248,24 @@ export async function runNextTask(): Promise<void> {
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: deep ? 'recherche_approfondie_serie' : 'qualification_serie', summary: `${summary}${auto}`, details: result });
       } else if (t.kind === 'premier_mail') {
-        const { result, summary } = await runDrafts(t);
+        const reply = !!t.params.reponse_a;
+        const { result, summary } = reply ? await runReply(t) : await runDrafts(t);
         await liveDone(t.id);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
-        await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'premiers_mails', summary: `${summary}${auto}`, details: result });
+        // La réponse préparée a sa ligne au journal (./reply.ts) ; seule une réponse non préparée s'y explique.
+        if (!reply || !result.redige) await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: reply ? 'reponse_preparee' : 'premiers_mails', summary: `${summary}${reply ? '' : auto}`, details: result });
       } else if (t.kind === 'recherche_comptes') {
         const a = await agentRow(t.agent);
         if (!a) throw new Error('agente introuvable');
         if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
-        const { result, summary } = await researchAccounts(t.id, t.params, a);
+        // Avec des notes : la recherche ciblée, ses fiches, sa recherche approfondie et son bilan par mail (./targeted.ts).
+        const targeted = typeof t.params.notes === 'string' && t.params.notes.trim() !== '';
+        const { result, summary } = targeted ? await targetedResearch(t, a) : await researchAccounts(t.id, t.params, a);
         await liveDone(t.id);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'recherche_comptes', summary: `${summary}${auto}`, details: result as unknown as Record<string, unknown> });
+        // Sans notes : le bilan part quand la dernière recherche du même lancement est finie.
+        if (!targeted) await lotMail(t, a).catch((e: unknown) => console.warn(`[AGENTS] bilan de recherche : ${e instanceof Error ? e.message : String(e)}`));
       } else {
         throw new Error(`tâche inconnue : ${t.kind}`);
       }
@@ -251,9 +273,14 @@ export async function runNextTask(): Promise<void> {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
       await liveDone(t.id);
       await sb.from('agent_tasks').update({ status: 'echec', error: msg, finished_at: new Date().toISOString() }).eq('id', t.id);
-      const what = t.kind === 'qualification' ? (t.params.approfondie ? 'Recherche approfondie' : 'Préparation des fiches') : t.kind === 'premier_mail' ? 'Rédaction des premiers mails'
+      const what = t.kind === 'qualification' ? (t.params.approfondie ? 'Recherche approfondie' : 'Préparation des fiches') : t.kind === 'premier_mail' ? (t.params.reponse_a ? 'Préparation d\'une réponse' : 'Rédaction des premiers mails')
         : t.kind === 'recherche_comptes' ? `Recherche ${researchLabel(t.agent, t.params)}` : `Découverte ${label(t.params)}`;
       await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: `${t.kind === 'decouverte_concessions' ? 'decouverte' : t.kind}_echec`, summary: `${what}${auto} en échec : ${msg}` });
+      // Une recherche d'un lancement qui échoue (budget, IA) : le bilan du lancement le dit, avec ce qui reste à faire.
+      if (t.kind === 'recherche_comptes' && t.created_by) {
+        const a = await agentRow(t.agent);
+        if (a) await lotMail(t, a).catch(() => undefined);
+      }
     }
   } catch (e) {
     console.warn(`[AGENTS] tâche en échec : ${e instanceof Error ? e.message : String(e)}`);

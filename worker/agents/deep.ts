@@ -43,7 +43,7 @@ async function preparedThread(prospectId: string): Promise<{ kind: 'aucun' } | {
   return { kind: 'prepare', id: threads[0].id };
 }
 
-export async function deepResearch(prospectId: string, a: AiAgent, taskId: string | null, manual: boolean): Promise<DeepOutcome> {
+export async function deepResearch(prospectId: string, a: AiAgent, taskId: string | null, manual: boolean, note = '', model: string = HAIKU): Promise<DeepOutcome> {
   const { data } = await sb.from('agent_prospects').select('*').eq('id', prospectId).maybeSingle();
   const row = data as Row | null;
   if (!row) return { status: 'echec', name: prospectId, detail: 'fiche introuvable', cost: 0, prepared: false };
@@ -62,9 +62,10 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
     const seg = x ? segmentOf(role, x.segment) : null;
     if (seg) segment = { label: seg.label, roles: seg.roles, size: x?.size_hint ?? null };
   }
-  const prompt = deepPrompt({ role, p, segment });
+  // La consigne laissée par Channing en lançant la recherche (18/10).
+  const prompt = deepPrompt({ role, p, segment, note });
   const named = `${row.name}${row.country ? ` (${row.country})` : ''}`;
-  live(taskId, `${named} : recherche approfondie sur le web — à qui elle appartient, qui décide (${DEEP_SEARCHES} recherches au plus)`);
+  live(taskId, `${named} : recherche approfondie sur le web — ${note.trim() ? 'avec votre consigne' : 'à qui elle appartient, qui décide'} (${DEEP_SEARCHES} recherches au plus)`);
   let out: DeepOutput;
   let cost = 0;
   let seenUrls: string[] = [];
@@ -72,7 +73,8 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
     const budget = Number(a.daily_budget_usd);
     const r = await callClaude<DeepOutput>({
       // Un budget illisible vaut 0 (pas d'appel), jamais « sans limite ».
-      agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'recherche_approfondie', model: HAIKU,
+      // Haiku 5.5 ; une recherche ciblée (notes de Channing, 18/10) passe par Opus 5.5.
+      agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'recherche_approfondie', model,
       system: deepSystem(role), user: prompt, schema: deepSchema(role) as unknown as Record<string, unknown>,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: DEEP_SEARCHES }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: DEEP_FETCHES }],
       // 18/10 : 8 000 jetons ne suffisaient pas toujours (Arval France : réponse coupée) — 16 000, moins de 0,01 $ de plus.

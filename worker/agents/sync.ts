@@ -9,6 +9,8 @@
  *   demande d'arrêt explicite (→ « ne plus contacter ») ;
  * - une vraie réponse sonne dans la cloche du responsable (et part par
  *   e-mail via les rappels) ;
+ * - une vraie réponse d'un prospect : l'agente prépare la sienne (18/10,
+ *   ./reply.ts), à valider sous le mail reçu ;
  * - un mail envoyé depuis Gmail lui-même (hors ADA) est aussi archivé ;
  *   pas le bilan du jour à l'équipe (en-tête interne, 18/10).
  * Aucun contenu de mail n'est écrit dans les logs (worker_logs est lisible).
@@ -18,6 +20,7 @@ import {
 } from '../../src/lib/agents/mail';
 import { gmail, GmailError, NotConnected } from './google';
 import { sb, journal, alertOwner, suppress, updateAgent, advanceProspect, type AgentRow } from './store';
+import { queueReplyDraft } from './reply';
 
 interface GmailPart {
   partId?: string; mimeType?: string; filename?: string;
@@ -170,6 +173,8 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
     const title = classification === 'stop' ? `${name} : ${who} demande à ne plus être contacté` : `${name} : réponse de ${who}`;
     await alertOwner(a, `agent-mail:${row.id}`, title, `« ${subject} »\n\n${(fresh ?? '').slice(0, 600)}`, `/agents?agente=${a.agent}&fil=${thread.id}`);
   }
+  // Une vraie réponse (ni absence, ni arrêt, ni lettre d'information) : l'agente prépare la sienne.
+  if (!bulk && !autoReply && classification === null) await queueReplyDraft(a.agent, thread.id, row.id, at).catch((e: unknown) => console.warn(`[AGENTS] ${a.agent} : réponse préparée non demandée (${e instanceof Error ? e.message : String(e)})`));
   return true;
 }
 

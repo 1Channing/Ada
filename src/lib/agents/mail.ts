@@ -107,6 +107,35 @@ export interface OutgoingMail {
   body: string;
   inReplyTo?: string | null;
   references?: string | null;
+  /** La signature avec logo de l'agente (18/10) : l'image, intégrée au mail (jamais un lien vers une image hébergée). */
+  signatureImage?: SignatureImage | null;
+  /** La signature texte qui termine le corps : remplacée par l'image dans la version HTML. */
+  signatureText?: string | null;
+}
+
+/** Une image de signature (PNG) : son contenu en base64, ses dimensions d'affichage et son texte de remplacement. */
+export interface SignatureImage { base64: string; name: string; alt: string; width: number; height: number }
+
+/** Les dimensions d'un PNG, lues dans son en-tête (null si ce n'en est pas un). */
+export function pngSize(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.length < 24 || bytes[0] !== 0x89 || bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) return null;
+  const n = (i: number) => ((bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3]) >>> 0;
+  return { width: n(16), height: n(20) };
+}
+
+const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** La version HTML d'un mail en texte simple : les paragraphes, les retours à la ligne, puis la signature avec logo. */
+export function htmlBody(body: string, signatureText: string | null | undefined, img: SignatureImage, cid: string): string {
+  let text = body.replace(/\r\n/g, '\n').trim();
+  const sig = (signatureText ?? '').replace(/\r\n/g, '\n').trim();
+  // La signature texte (« Dana\nMC Export ») cède la place au logo, qui porte déjà le nom.
+  if (sig && text.endsWith(sig)) text = text.slice(0, -sig.length).trimEnd();
+  const paragraphs = text.split(/\n{2,}/).map((p) => `<p style="margin:0 0 12px">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join('');
+  const w = Math.round(img.width / 2);
+  const h = Math.round(img.height / 2);
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0"><div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#1f2937">${paragraphs}`
+    + `<p style="margin:16px 0 0"><img src="cid:${cid}" alt="${escapeHtml(img.alt)}" width="${w}" height="${h}" style="display:block;border:0;width:${w}px;height:${h}px"></p></div></body></html>`;
 }
 
 /** Le message prêt pour l'API Gmail (champ raw, encodé ensuite en base64url). */
@@ -126,11 +155,24 @@ export function buildMime(m: OutgoingMail): string {
     ...(m.inReplyTo ? [`In-Reply-To: ${m.inReplyTo.replace(/[\r\n]/g, '')}`] : []),
     ...(m.references ? [`References: ${m.references.replace(/[\r\n]+/g, ' ')}`] : []),
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset="UTF-8"',
-    'Content-Transfer-Encoding: base64',
   ];
   const body = m.body.replace(/\r?\n/g, '\r\n');
-  return `${headers.join('\r\n')}\r\n\r\n${wrap76(utf8ToBase64(body))}\r\n`;
+  const text = ['Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', wrap76(utf8ToBase64(body))];
+  const img = m.signatureImage;
+  if (!img) return `${[...headers, ...text.slice(0, 2)].join('\r\n')}\r\n\r\n${text[3]}\r\n`;
+  // Avec le logo : le texte simple, et le HTML qui montre l'image jointe au mail (cid) — rien à télécharger ailleurs.
+  const tag = Math.random().toString(36).slice(2, 10);
+  const alt = `ada_alt_${tag}`;
+  const rel = `ada_rel_${tag}`;
+  const cid = `${img.name.replace(/[^a-z0-9.-]/gi, '')}.${tag}@mc-export.com`;
+  return [
+    ...headers, `Content-Type: multipart/alternative; boundary="${alt}"`, '',
+    `--${alt}`, ...text,
+    `--${alt}`, `Content-Type: multipart/related; boundary="${rel}"`, '',
+    `--${rel}`, 'Content-Type: text/html; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', wrap76(utf8ToBase64(htmlBody(m.body, m.signatureText, img, cid))),
+    `--${rel}`, `Content-Type: image/png; name="${img.name}"`, 'Content-Transfer-Encoding: base64', `Content-ID: <${cid}>`, `Content-Disposition: inline; filename="${img.name}"`, '', wrap76(img.base64.replace(/\s+/g, '')),
+    `--${rel}--`, `--${alt}--`, '',
+  ].join('\r\n');
 }
 
 /** « References » d'une réponse : celles du message auquel on répond, plus son identifiant. */

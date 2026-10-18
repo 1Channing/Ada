@@ -161,10 +161,10 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
     if (e) { onError(e); return; }
     setDetails((m) => new Map(m).set(p.dealer_id as string, { ...p, stage }));
   };
-  const deepen = async (p: ProspectDetail) => {
-    const e = await queueDeepResearch([p.id], userId, 'ada');
+  const deepen = async (p: ProspectDetail, note = '') => {
+    const e = await queueDeepResearch([p.id], userId, 'ada', note);
     if (e) { onError(e); return; }
-    onInfo(`Ada cherche plus loin pour ${p.name} : à qui il appartient, qui décide des achats, les e-mails et téléphones publiés. Une à deux minutes.`);
+    onInfo(`Ada cherche plus loin pour ${p.name}${note.trim() ? ', avec votre consigne' : ''} : à qui il appartient, qui décide des achats, comment le joindre directement. Une à deux minutes.`);
     void loadTasks();
   };
   const addToMap = async (d: DealerRow) => {
@@ -360,7 +360,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
                   <QualifCard p={details.get(d.id) as ProspectDetail} onStage={(st) => void changeStage(details.get(d.id) as ProspectDetail, st)} onRequalify={() => void qualify([d.id])} requalifying={queued.has(d.id)}
                     threadId={threads.get((details.get(d.id) as ProspectDetail).id) ?? null} onDraft={() => void draft(details.get(d.id) as ProspectDetail)}
                     drafting={drafting.has((details.get(d.id) as ProspectDetail).id)} onOpenThread={onOpenThread}
-                    onDeep={() => void deepen(details.get(d.id) as ProspectDetail)} deeping={deeping.has((details.get(d.id) as ProspectDetail).id)} />
+                    onDeep={(note) => void deepen(details.get(d.id) as ProspectDetail, note)} deeping={deeping.has((details.get(d.id) as ProspectDetail).id)} />
                 )}
                 {isOpen && (
                   <div className="mt-2 overflow-x-auto">

@@ -346,3 +346,34 @@ export const AI_ADJUST = { min: -40, max: 15 } as const;
 export function finalScore(fit: number, ai: Pick<QualifyOutput, 'ajustement' | 'exclure'>): number {
   return ai.exclure ? 0 : clamp(fit + clamp(ai.ajustement, AI_ADJUST.min, AI_ADJUST.max), 0, 100);
 }
+
+// --- Ce qu'est une adresse (18/10) -----------------------------------------------------------
+
+/**
+ * Celle d'une personne, celle d'un service utile (VO, remarketing, achats, flotte…), ou une adresse
+ * générale (service client, SAV, contact@, info@) que la personne visée ne lira pas elle-même —
+ * Channing, 18/10 : le mail ciblé d'Ayvens partait vers relation.clients@… en saluant le directeur
+ * du remarketing. La nature notée à la fiche passe d'abord ; sinon, les mots de l'adresse.
+ */
+export type AddressKind = 'personne' | 'service' | 'generique';
+const GENERIC_WORD = /^(contacts?|info|infos|informations?|accueil|hello|hallo|hola|bonjour|relations?|clients?|clientele|customers?|customercare|care|klantenservice|kundenservice|kundendienst|sav|support|helpdesk|reception|secretariat|standard|communication|presse|press|rh|hr|recrutement|jobs|careers|webmaster|noreply|admin|office|mail|email|privacy|rgpd|dpo|compta|comptabilite|factures?|billing)$/;
+const GENERIC_START = /^(client|relation|contact|custom|info|klant|kunde)/;
+const SERVICE_WORD = /^(vo|vn|vu|pro|pros|b2b|lld|loa|leasing|lease|fleet|stock|negoce|achat|achats|inkoop|einkauf|compras|acquisti|purchasing|procurement|sales|verkoop|verkauf|ventas|vendite|trade|dealer|dealers)$/;
+const SERVICE_START = /^(occasion|remarket|flott|fleet|defleet|achat|vente|marchand|professionn|commerci|used|usedcar|carmarket|gebraucht|tweedehands|ocasion|usato|brugt)/;
+const plain = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+export function addressKind(email: string, nature?: string | null, person?: string | null): AddressKind {
+  const tokens = plain(String(email).split('@')[0] ?? '').split(/[^a-z]+/).filter(Boolean);
+  if (nature === 'generique' || tokens.some((t) => GENERIC_WORD.test(t) || GENERIC_START.test(t))) return 'generique';
+  if (nature === 'nominatif') return 'personne';
+  // Le nom de la personne dans l'adresse (« g.deraffin@ », « guillaume.de-raffin@ »).
+  const names = plain(person ?? '').split(/[^a-z]+/).filter((w) => w.length >= 3 && !['les', 'des', 'van', 'von', 'der', 'den'].includes(w));
+  const joined = tokens.join('');
+  if (names.length && names.some((w) => joined.includes(w))) return 'personne';
+  if (nature === 'vo' || nature === 'achats' || nature === 'commercial' || tokens.some((t) => SERVICE_WORD.test(t) || SERVICE_START.test(t))) return 'service';
+  // « prenom.nom@ » : une personne ; le reste, par prudence, une adresse générale.
+  return tokens.length === 2 && tokens.every((t) => t.length >= 2) ? 'personne' : 'generique';
+}
+
+/** Du meilleur au moins bon : l'adresse de la personne, celle de son service, une adresse générale. */
+export const ADDRESS_RANK: Record<AddressKind, number> = { personne: 3, service: 2, generique: 1 };

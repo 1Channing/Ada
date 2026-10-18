@@ -18,7 +18,7 @@
  */
 import { MC_EXPORT_FACTS } from './playbook';
 import { DANA_FACTS, isKeyAccount, lotLine, type LotFact } from './sourcing';
-import { clamp } from './qualification';
+import { clamp, addressKind, ADDRESS_RANK } from './qualification';
 
 export type DeepRole = 'ada' | 'dana';
 export const DEEP_SEARCHES = 8;
@@ -51,6 +51,9 @@ export interface DeepOutput {
 
 // --- La consigne -------------------------------------------------------------------------
 
+/** Joindre la personne elle-même, pas le service client (18/10, Channing). */
+const DIRECT = `Le moyen le plus direct de joindre la personne qui décide, ou au moins son service : son e-mail s'il est publié, l'adresse publiée de son service (remarketing, VO, ventes aux professionnels, flotte, achats), l'adresse ou le formulaire de la plateforme pour les professionnels, la ligne directe ou le standard du siège qui la passera. Une adresse de service client, de SAV ou « contact@ » n'est qu'un dernier recours : la personne ne la lit pas elle-même. Dans « emails », la nature « generique » pour ces adresses-là.`;
+
 const RULES = `Recherches : ${DEEP_SEARCHES} au plus (dans la langue du pays, puis en anglais) ; pages lues : ${DEEP_FETCHES} au plus. Ne relis pas les pages déjà lues pour la fiche (listées).
 
 Règles non négociables :
@@ -71,6 +74,7 @@ Cherche, dans cet ordre :
 2. Comment elle se sépare de ses véhicules d'occasion récents : ventes aux marchands (négoce, B2B), plateforme de remarketing réservée aux professionnels, ventes aux enchères (BCA, VPauto, Alcopa, Autorola, Openlane…), retours de location ou de leasing (de-fleet). Avec l'adresse de la page si elle est publique.
 3. Qui décide de ces ventes, au niveau du groupe d'abord : directeur VO du groupe, responsable remarketing, responsable des ventes aux marchands, responsable de-fleet, gestionnaire de parc ; puis au niveau du site. Nom, fonction, périmètre, e-mail et téléphone s'ils sont publiés, profil LinkedIn s'il apparaît dans un résultat.
 4. Les e-mails et téléphones publiés utiles pour l'approcher (service VO, ventes aux professionnels, standard du groupe).
+5. ${DIRECT}
 Puis : le meilleur premier contact et pourquoi, et de 2 à 4 pistes d'approche concrètes, une phrase chacune (« s'inscrire comme marchand sur la plateforme X », « appeler le standard du groupe et demander le responsable des ventes aux marchands »).
 
 ${RULES}`;
@@ -84,6 +88,7 @@ Cherche, dans cet ordre :
 2. Comment elle achète ses véhicules d'occasion récents : à l'import, auprès de marchands, aux enchères, par les reprises ; les volumes s'ils sont écrits. Avec l'adresse de la page si elle est publique.
 3. Qui décide de ces achats, au niveau du groupe d'abord : directeur VO du groupe, acheteur VO, responsable des achats ou du stock VO ; puis au niveau du site. Nom, fonction, périmètre, e-mail et téléphone s'ils sont publiés, profil LinkedIn s'il apparaît dans un résultat.
 4. Les e-mails et téléphones publiés utiles pour l'approcher (service VO, achats, standard du groupe).
+5. ${DIRECT}
 Puis : le meilleur premier contact et pourquoi, et de 2 à 4 pistes d'approche concrètes, une phrase chacune.
 
 ${RULES}`;
@@ -213,13 +218,20 @@ export function missingOf(p: Pick<DeepProspect, 'best_contact' | 'emails' | 'peo
   if (!best?.nom) out.push('la personne qui décide n\'est pas trouvée');
   if (!p.emails.some((e) => e.mx)) out.push('aucun e-mail publié');
   else if (best?.nom && !verifiedEmail(p, best.email)) out.push('pas d\'e-mail direct pour elle');
+  else if (best?.nom && generalOnly(p)) out.push('pas d\'e-mail direct pour elle (seulement une adresse générale)');
   if (!best?.linkedin && !p.people.some((x) => !!x.linkedin)) out.push('pas de profil LinkedIn vu');
   if (!p.phone && !best?.telephone) out.push('pas de téléphone');
   return out;
 }
 
-/** Une fiche à compléter : personne qui décide inconnue, ou aucun e-mail publié. */
-export const isIncomplete = (p: Pick<DeepProspect, 'best_contact' | 'emails'>): boolean => !p.best_contact?.nom || !p.emails.some((e) => e.mx);
+/** La personne qui décide n'est joignable que par une adresse générale (service client, SAV, contact@). */
+function generalOnly(p: Pick<DeepProspect, 'best_contact' | 'emails'>): boolean {
+  const e = p.best_contact?.email?.toLowerCase();
+  return !!e && addressKind(e, p.emails.find((x) => x.email === e)?.nature, p.best_contact?.nom) === 'generique';
+}
+
+/** Une fiche à compléter : personne qui décide inconnue, aucun e-mail publié, ou seulement une adresse générale pour la joindre. */
+export const isIncomplete = (p: Pick<DeepProspect, 'best_contact' | 'emails'>): boolean => !p.best_contact?.nom || !p.emails.some((e) => e.mx) || generalOnly(p);
 
 /** La date de la dernière recherche approfondie d'une fiche (sa trace dans les pages lues), ou null. */
 export function lastDeepAt(evidence: DeepEvidence[] | null | undefined): string | null {
@@ -227,7 +239,11 @@ export function lastDeepAt(evidence: DeepEvidence[] | null | undefined): string 
   return at.length ? at[at.length - 1] : null;
 }
 
-export interface DeepMaterial { role: DeepRole; p: DeepProspect; segment?: { label: string; roles: string; size: string | null } | null }
+export interface DeepMaterial {
+  role: DeepRole; p: DeepProspect; segment?: { label: string; roles: string; size: string | null } | null;
+  /** La consigne laissée par Channing en lançant la recherche (18/10), s'il en a écrit une. */
+  note?: string | null;
+}
 
 /** Le message de l'appel : la fiche telle qu'elle est, ce qui manque, les pages déjà lues. */
 export function deepPrompt(m: DeepMaterial): string {
@@ -250,6 +266,16 @@ export function deepPrompt(m: DeepMaterial): string {
   lines.push(`Ce qui manque : ${missing.length ? missing.join(' ; ') : 'rien d\'essentiel — confirme et complète'}`);
   const read = p.evidence.filter((e) => /^https?:\/\//i.test(e.url)).map((e) => e.url);
   if (read.length) lines.push(`Pages déjà lues pour la fiche (ne les relis pas) : ${[...new Set(read)].slice(0, 12).join(' ; ')}`);
+  const best = p.best_contact;
+  if (best?.nom && best.email) lines.push(`Adresse retenue pour l'instant : ${best.email} (${addressKind(best.email, p.emails.find((e) => e.email === best.email)?.nature, best.nom) === 'generique' ? 'une adresse générale, que la personne ne lit pas elle-même : trouve mieux' : 'à garder si tu ne trouves pas plus direct'})`);
+  const note = (m.note ?? '').trim();
+  if (note) {
+    lines.push('');
+    lines.push('<consigne_de_channing>');
+    lines.push(note.slice(0, 1000));
+    lines.push('</consigne_de_channing>');
+    lines.push('Suis cette consigne en priorité, dans le respect des règles : rien d\'inventé, aucune adresse devinée.');
+  }
   lines.push('');
   lines.push('Fais la recherche approfondie, puis réponds.');
   return lines.join('\n');
@@ -359,17 +385,25 @@ export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: 
     linkedin: c.linkedin(m?.linkedin, m?.nom), telephone: phoneOf(m?.telephone),
   };
   const prevMail = verifiedEmail(p, prev?.email) ? prev?.email ?? null : null;
+  // L'adresse la plus directe : celle de la personne, puis celle de son service, puis une adresse générale.
+  const rank = (e: string | null | undefined, who: string | null | undefined) => (e ? ADDRESS_RANK[addressKind(e, emails.find((x) => x.email === e)?.nature, who)] : 0);
   let best: DeepBest | null = prev ? { ...prev } : null;
   const same = !!cand.nom && !!prev?.nom && nameKey(cand.nom) === nameKey(prev.nom);
   if (same && best) {
-    // La même personne : complétée.
-    best.email = prevMail ?? cand.email; best.linkedin = best.linkedin ?? cand.linkedin; best.telephone = best.telephone ?? cand.telephone;
+    // La même personne : complétée (une adresse plus directe remplace une adresse générale).
+    best.email = cand.email && rank(cand.email, best.nom) > rank(prevMail, best.nom) ? cand.email : prevMail ?? cand.email;
+    best.linkedin = best.linkedin ?? cand.linkedin; best.telephone = best.telephone ?? cand.telephone;
   } else if (cand.nom && (!prev?.nom || !prevMail || !!cand.email)) {
     // Une personne nommée par la recherche : elle passe devant, sauf un contact d'avant joignable par e-mail qu'elle ne vaut pas.
     best = cand;
   } else if (!prev?.nom && !prevMail && (cand.email || cand.telephone)) best = cand;
   if (best?.nom && !best.email) best.email = people.find((y) => nameKey(y.nom) === nameKey(best?.nom ?? ''))?.email ?? null;
   if (best && !best.email) best.email = emails.find((e) => e.mx && e.via === VIA && /^(vo|achats|commercial|nominatif)$/.test(e.nature))?.email ?? prevMail;
+  // Joignable seulement par une adresse générale : l'adresse publiée d'un service utile, si la recherche en a trouvé une.
+  if (best?.email && rank(best.email, best.nom) === ADDRESS_RANK.generique) {
+    const service = emails.find((e) => e.mx && e.via === VIA && rank(e.email, best?.nom) > ADDRESS_RANK.generique)?.email;
+    if (service) best.email = service;
+  }
   const contact = (best?.nom ?? null) !== (prev?.nom ?? null) || (best?.email ?? null) !== (prevMail ?? null);
 
   // Le propriétaire, le site, le téléphone : complétés, jamais remplacés.

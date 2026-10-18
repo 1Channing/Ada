@@ -19,13 +19,14 @@
  * journée).
  * 18/10 : les marques à cocher dans un menu déroulant (plus de saisie) ; une
  * étape de plus, « aller plus loin » sur les grands comptes à compléter
- * (recherches approfondies d'office par jour, gardées dans targets).
+ * (recherches approfondies d'office par jour, gardées dans targets) ; à qui
+ * part le bilan du jour (les comptes MC Export cochés, targets.recapTo).
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
 import { Link2, Unlink, Save, Ban, Trash2, Plug, Sparkles } from 'lucide-react';
 import {
-  oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, updateMailSettings, updateResearchSettings, QUALIF_SQL_HINT, MAILS_SQL_HINT, RECHERCHE_SQL_HINT,
-  type AgentKey, type AgentSettings, type EditableSettings, type Suppression, type AiSpend,
+  oauthUrl, disconnectMailbox, updateSettings, listSuppressions, addSuppression, removeSuppression, updateAiSettings, updateMailSettings, updateResearchSettings, listMcExportAccounts, QUALIF_SQL_HINT, MAILS_SQL_HINT, RECHERCHE_SQL_HINT,
+  type AgentKey, type AgentSettings, type EditableSettings, type Suppression, type AiSpend, type TeamAccount,
 } from '../../services/agents';
 import { normalizeTargets, ADA_SCORE_HELP, REACH_SCORE_HELP, AI_ADJUST, type ScoreLine } from '../../lib/agents/qualification';
 import { normalizeDanaTargets, DANA_SCORE_HELP } from '../../lib/agents/sourcing';
@@ -35,7 +36,8 @@ import { HOME_COUNTRY } from '../../lib/agents/qualification';
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { listAssignees, type Assignee } from '../../services/userTasks';
 import { fmtDateTime, fmtRelative, workHoursLabel, deName } from './helpers';
-import { toMinutes, endMinutes } from '../../lib/agents/sendPolicy';
+import { toMinutes, endMinutes, suppressionMatch } from '../../lib/agents/sendPolicy';
+import { recapToOf } from '../../lib/agents/recap';
 import { InfoTip, CheckDropdown } from './shared';
 import { CAR_BRANDS, VAN_BRANDS, brandChoices } from '../../lib/agents/brands';
 import { deepPerDayOf } from '../../lib/agents/deepResearch';
@@ -119,7 +121,7 @@ function Step({ n, title, unit, value, max, ro, onChange, help, extra }: { n: nu
 }
 
 /** Le travail d'Ada ou de Dana par l'IA : cibles, budget, automatismes, premiers contacts. */
-const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; userId: string | null; spend: AiSpend | null }>(function AiForm({ s, isAdmin, userId, spend }, ref) {
+const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; userId: string | null; spend: AiSpend | null; team: TeamAccount[] }>(function AiForm({ s, isAdmin, userId, spend, team }, ref) {
   const dana = s.agent === 'dana';
   const t = normalizeTargets(s.targets);
   const dt = normalizeDanaTargets(s.targets);
@@ -143,6 +145,9 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
   const [instructions, setInstructions] = useState(s.instructions ?? '');
   const [autoDraft, setAutoDraft] = useState(s.auto_draft_per_day ?? 0);
   const [autoResearch, setAutoResearch] = useState(s.auto_research_per_day ?? 0);
+  // Le bilan du jour : les comptes cochés (null = jamais choisis : toute l'équipe).
+  const [recapTo, setRecapTo] = useState<string[] | null>(recapToOf(s.targets));
+  const teamIds = team.map((p) => p.id);
   const researchReady = s.auto_research_per_day !== undefined;
   const mailsReady = s.instructions !== undefined;
   const aiReady = s.daily_budget_usd !== undefined;
@@ -154,7 +159,12 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
     save: async () => {
       if (!aiReady) return null;
       const e = await updateAiSettings(s.agent, {
-        targets: dana ? { minLot, markets, brands: danaBrands, deepPerDay: clampInt(deepPerDay, 0, 20) } : { countries, brands, vanBrands, multibrand, deepPerDay: clampInt(deepPerDay, 0, 20) },
+        // Les clés que ce formulaire ne connaît pas restent (rien ne se perd à l'enregistrement).
+        targets: {
+          ...(s.targets ?? {}),
+          ...(dana ? { minLot, markets, brands: danaBrands, deepPerDay: clampInt(deepPerDay, 0, 20) } : { countries, brands, vanBrands, multibrand, deepPerDay: clampInt(deepPerDay, 0, 20) }),
+          ...(recapTo ? { recapTo: team.length ? recapTo.filter((id) => teamIds.includes(id)) : recapTo } : {}),
+        },
         daily_budget_usd: Math.max(0, Math.min(100, Math.round(budget * 100) / 100)),
         auto_discovery: autoDisc, auto_qualify_per_day: Math.max(0, Math.min(500, Math.round(autoQual))),
         map_auto_add: mapAdd, map_min_score: Math.max(0, Math.min(100, Math.round(mapScore))),
@@ -264,7 +274,7 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
           <p className="text-xs uppercase tracking-wide text-violet-800">Premiers mails (rien ne part sans vous)</p>
           <p className="text-[11px] text-slate-500">
             Petit compte avec un e-mail publié et vérifié : {dana ? 'le mail d\'achat de Dana (aucun prix ni estimation : la négociation passe par vous)' : 'le mail de vente d\'Ada'}, dans « À valider », envoyé depuis {s.mailbox} — jamais plus de deux jours d'envois en attente.
-            Grand compte (groupe, loueur, leasing, flotte) : le mail (s'il y a un e-mail publié), la note d'invitation LinkedIn et la fiche d'appel, préparés à votre nom dans « À valider › Pour vous » — vous envoyez vous-même ; jamais plus de 10 en attente.
+            Grand compte (groupe, loueur, leasing, flotte) : le mail (s'il y a un e-mail publié), la note d'invitation LinkedIn et la fiche d'appel, préparés dans « À valider › Pour vous » — « Envoyer » fait partir le mail de {s.mailbox}, signé {s.display_name} (ou vous l'envoyez de votre boîte) ; la note LinkedIn et l'appel restent à vous ; jamais plus de 10 en attente.
           </p>
           <label className="block space-y-1 text-sm"><span className="text-xs text-slate-500">Vos consignes à {s.display_name} — elle n'affirme aucune condition qui n'est pas écrite ici</span>
             <textarea disabled={ro} className={`${input} w-full min-h-[110px]`} value={instructions} onChange={(e) => setInstructions(e.target.value)}
@@ -274,6 +284,15 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
           </label>
         </div>
       ) : <p className="text-xs text-slate-500 border-t border-violet-100 pt-3">{MAILS_SQL_HINT}</p>}
+      <div className="space-y-1.5 border-t border-violet-100 pt-3 text-sm">
+        <p className="text-xs uppercase tracking-wide text-violet-800">Bilan du jour par mail</p>
+        {team.length > 0 ? (
+          <CheckDropdown disabled={ro} className="w-full" options={team.map((p) => ({ key: p.id, label: p.name, hint: p.email }))}
+            selected={(recapTo ?? teamIds).filter((id) => teamIds.includes(id))} onChange={setRecapTo}
+            allLabel={`Toute l'équipe MC Export (${team.length})`} emptyLabel="Personne : pas de bilan" unit="personnes" />
+        ) : <p className="text-xs text-slate-500">{isAdmin ? 'Liste de l\'équipe illisible pour l\'instant.' : 'Un administrateur choisit qui le reçoit.'}</p>}
+        <p className="text-[11px] text-slate-500">Une fois par jour, dès que {s.display_name} a fini sa journée (sinon à la fin de ses heures, jamais avant 7 h), depuis {s.mailbox} : ses recherches, ses fiches, ce qu'elle a préparé, ce qui vous attend. Ni les boîtes des agentes ni les adresses de « Ne plus contacter » ne sont proposées.</p>
+      </div>
     </div>
   );
 });
@@ -345,6 +364,10 @@ const AgentForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; u
       </div>
       <label className="block space-y-1 text-sm"><span className="text-xs text-slate-500">Signature (ajoutée à chaque nouveau message, modifiable avant envoi)</span>
         <textarea disabled={ro} className={`${input} w-full min-h-[80px]`} value={f.signature} onChange={(e) => set('signature', e.target.value)} /></label>
+      <div className="space-y-1">
+        <p className="text-xs text-slate-500">Dans chaque mail qui part de {s.mailbox}, le logo remplace cette signature (image jointe au mail, pas un lien) :</p>
+        <img src={`/signatures/${s.agent}.png`} alt={`Signature ${deName(s.display_name)}`} width={300} className="max-w-full h-auto rounded-lg border border-slate-200 bg-white" />
+      </div>
 
       <div className="rounded-xl border border-slate-200 p-3 space-y-3">
         <p className="text-xs uppercase tracking-wide text-slate-400">Horaires et rythme anti-spam</p>
@@ -430,6 +453,16 @@ function Suppressions({ userId, refreshKey, onError }: { userId: string | null; 
 export function Reglages({ agent, settings, isAdmin, userId, refreshKey, spend, onChanged, onError, onInfo }: Props) {
   const [people, setPeople] = useState<Assignee[]>([]);
   useEffect(() => { void listAssignees().then(setPeople); }, []);
+  // Les destinataires possibles du bilan : l'équipe MC Export, sans les boîtes des agentes ni les adresses mortes.
+  const [team, setTeam] = useState<TeamAccount[]>([]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    void Promise.all([listMcExportAccounts(), listSuppressions()]).then(([acc, sup]) => {
+      const boxes = new Set(settings.map((x) => x.mailbox.toLowerCase()));
+      const dead = sup.rows.map((r) => r.email);
+      setTeam(acc.rows.filter((p) => !boxes.has(p.email) && !suppressionMatch([p.email], dead)));
+    });
+  }, [isAdmin, settings, refreshKey]);
   const s = settings.find((x) => x.agent === agent);
   // Les formulaires repartent des valeurs enregistrées après chaque enregistrement (ou connexion de la boîte).
   const key = s ? `${agent}-${s.updated_at}-${s.gmail_connected_at ?? ''}` : agent;
@@ -455,7 +488,7 @@ export function Reglages({ agent, settings, isAdmin, userId, refreshKey, spend, 
       {s && (
         <div className="grid xl:grid-cols-2 gap-4 items-start" onChangeCapture={() => setDirty(true)} onClickCapture={(e) => { if (toggled(e)) setDirty(true); }}>
           <AgentForm ref={left} key={key} s={s} isAdmin={isAdmin} userId={userId} people={people} onChanged={onChanged} onError={onError} onInfo={onInfo} />
-          <AiForm ref={right} key={`ia-${key}`} s={s} isAdmin={isAdmin} userId={userId} spend={spend} />
+          <AiForm ref={right} key={`ia-${key}`} s={s} isAdmin={isAdmin} userId={userId} spend={spend} team={team} />
         </div>
       )}
       {s && (isAdmin ? (

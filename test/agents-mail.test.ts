@@ -5,8 +5,9 @@
  */
 import {
   parseAddressList, replySubject, buildMime, replyReferences, htmlToText, stripQuoted,
-  headersOf, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, utf8ToBase64Url, encodeHeaderWord, isInternalMail,
+  headersOf, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, utf8ToBase64Url, encodeHeaderWord, isInternalMail, htmlBody, pngSize,
 } from '../src/lib/agents/mail';
+import { readFileSync } from 'node:fs';
 import {
   parisClock, inSendWindow, nextWindowStart, parisDayStart, randomGapMs, suppressionMatch, countsAgainstCap,
 } from '../src/lib/agents/sendPolicy';
@@ -44,6 +45,21 @@ eq(base64UrlToUtf8(bodyB64.replace(/\+/g, '-').replace(/\//g, '_')), 'Bonjour,\r
 let threw = false;
 try { buildMime({ fromEmail: 'dana@mc-export.com', to: ['pas une adresse'], subject: 'x', body: 'y' }); } catch { threw = true; }
 ok(threw, 'MIME : destinataire invalide refusé');
+// La signature avec logo (18/10) : le texte simple, puis le HTML qui montre l'image jointe au mail.
+const logo = readFileSync('public/signatures/dana.png');
+const size = pngSize(logo);
+ok(size?.width === 600 && size.height > 300 && pngSize(new Uint8Array([1, 2, 3])) === null, 'logo de Dana : un PNG de 600 px de large (affiché à 300)', size);
+const sigImg = { base64: logo.toString('base64'), name: 'signature-dana.png', alt: 'Dana — MC Export · mc-export.com', width: size?.width ?? 0, height: size?.height ?? 0 };
+const withLogo = buildMime({ fromEmail: 'dana@mc-export.com', fromName: 'Dana — MC Export', to: ['x@garage.fr'], subject: 'Vos lots', body: 'Bonjour,\n\nUn <test> & deux.\n\nDana\nMC Export', signatureImage: sigImg, signatureText: 'Dana\nMC Export' });
+const cid = withLogo.match(/Content-ID: <([^>]+)>/)?.[1] ?? '';
+const parts = withLogo.split(/\r\n--ada_(?:alt|rel)_[a-z0-9]+/);
+const html = Buffer.from((parts.find((x) => x.includes('text/html')) ?? '').split('\r\n\r\n')[1]?.replace(/\r\n/g, '') ?? '', 'base64').toString();
+const plainPart = Buffer.from((parts.find((x) => x.includes('text/plain')) ?? '').split('\r\n\r\n')[1]?.replace(/\r\n/g, '') ?? '', 'base64').toString();
+ok(/^Content-Type: multipart\/alternative; boundary="ada_alt_/m.test(withLogo) && /Content-Type: multipart\/related/.test(withLogo) && /Content-Disposition: inline; filename="signature-dana.png"/.test(withLogo)
+  && !!cid && html.includes(`src="cid:${cid}"`) && !/https?:\/\//.test(html), 'MIME avec logo : texte simple + HTML et l\'image jointe (cid), aucun lien externe');
+ok(plainPart.endsWith('Dana\r\nMC Export') && html.includes('Un &lt;test&gt; &amp; deux.') && !html.includes('MC Export</p>') && html.includes('width="300"'),
+  'MIME avec logo : la version texte garde la signature texte ; en HTML, le logo la remplace, le texte est échappé', { plainPart, html: html.slice(0, 400) });
+ok(htmlBody('Bonjour,\nligne 2\n\nFin', null, sigImg, 'c').includes('<p style="margin:0 0 12px">Bonjour,<br>ligne 2</p><p style="margin:0 0 12px">Fin</p>'), 'HTML : paragraphes et retours à la ligne gardés');
 ok(encodeHeaderWord('Proposition pour vos véhicules électriques en stock depuis longtemps').split(' ').every((w) => w.length <= 75), 'MIME : objet long découpé en mots de 75 caractères au plus');
 eq(base64UrlToUtf8(utf8ToBase64Url('Ærø — Køb')), 'Ærø — Køb', 'base64url : aller-retour UTF-8');
 eq(replyReferences('<a@x> <b@x>', '<c@x>'), '<a@x> <b@x> <c@x>', 'References : chaîne du fil complétée');

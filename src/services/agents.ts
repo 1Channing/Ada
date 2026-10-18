@@ -16,6 +16,7 @@ import type { AgentTargets } from '../lib/agents/qualification';
 import type { DanaTargets, LotFact } from '../lib/agents/sourcing';
 import { SITE_LABEL } from './dealerDirectory';
 import type { DeepEvidence } from '../lib/agents/deepResearch';
+import { mailboxFacts, type MailboxFacts, type MailboxMessageLite } from '../lib/agents/mailbox';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -34,7 +35,7 @@ export interface AgentSettings {
   // Phase 2.2 (17/10) — absents tant que le SQL agents_qualification n'est pas collé.
   // Ada : pays et marques visés ; Dana : taille d'un lot et nos pays de vente.
   // 18/10 : recherches approfondies d'office par jour (deepPerDay), gardées avec les cibles.
-  targets?: (Partial<AgentTargets> & Partial<DanaTargets> & { deepPerDay?: number }) | null; daily_budget_usd?: number | string; auto_discovery?: boolean; auto_qualify_per_day?: number;
+  targets?: (Partial<AgentTargets> & Partial<DanaTargets> & { deepPerDay?: number; recapTo?: string[] }) | null; daily_budget_usd?: number | string; auto_discovery?: boolean; auto_qualify_per_day?: number;
   map_auto_add?: boolean; map_min_score?: number;
   // Phase 2.3 (17/10) — SQL agents_premiers_mails.
   instructions?: string; auto_draft_per_day?: number;
@@ -65,6 +66,8 @@ export interface AgentMessage {
   ai_notes?: {
     modele?: string; cout_usd?: number; langue?: string; mots?: number; faits?: Array<{ fait: string; source: string }>; alertes?: string[];
     grand_compte?: boolean; fiche_appel?: CallSheet | null; linkedin_url?: string | null; linkedin_nom?: string | null; linkedin_recherche?: string | null;
+    /** Une réponse préparée à un mail reçu (18/10) : ce qu'il dit ou veut, son intention, s'il faut l'appeler. */
+    resume?: string; intention?: string; appel?: boolean;
   } | null;
 }
 /** La fiche d'appel d'un grand compte, préparée pour Channing. */
@@ -120,6 +123,22 @@ export async function listThreads(opts: { agent?: AgentKey | null; archived?: bo
   const { data, error } = await q;
   if (error) return { rows: [], error: err(error.message) };
   return { rows: (data ?? []) as AgentThread[], error: null };
+}
+
+/** Un fil et ce qu'il contient : de quoi le ranger dans Réception, Brouillons, Envoyés, Archives (src/lib/agents/mailbox.ts). */
+export type MailboxThread = AgentThread & MailboxFacts;
+
+/** Les fils de la boîte d'une agente, avec de quoi les ranger dans ses dossiers (18/10). */
+export async function listMailbox(agent: AgentKey): Promise<{ rows: MailboxThread[]; error: string | null }> {
+  const [t, m] = await Promise.all([
+    sb.from('agent_threads').select('*').eq('agent', agent).order('last_message_at', { ascending: false, nullsFirst: true }).order('created_at', { ascending: false }).limit(1000),
+    sb.from('agent_messages').select('thread_id, direction, status, channel, classification, received_at, sent_at, created_at').eq('agent', agent).order('created_at', { ascending: false }).limit(5000),
+  ]);
+  const e = t.error ?? m.error;
+  if (e) return { rows: [], error: err(e.message) };
+  const by = new Map<string, MailboxMessageLite[]>();
+  for (const x of (m.data ?? []) as Array<MailboxMessageLite & { thread_id: string }>) by.set(x.thread_id, [...(by.get(x.thread_id) ?? []), x]);
+  return { rows: ((t.data ?? []) as AgentThread[]).map((th) => ({ ...th, ...mailboxFacts(by.get(th.id) ?? []) })), error: null };
 }
 
 /** L'agente d'un fil (un lien d'alerte « /agents?fil=… » ouvre la bonne). */
@@ -308,8 +327,12 @@ export interface TaskLive { step: string; done: number | null; total: number | n
 export interface AgentTask {
   id: string; agent: AgentKey; kind: 'decouverte_concessions' | 'qualification' | 'premier_mail' | 'recherche_comptes';
   params: { site?: string; country?: string; brand?: string; model?: string; vans?: boolean; pages?: number; dealer_ids?: string[]; account_ids?: string[]; prospect_ids?: string[]; segment?: string; auto?: boolean;
-    /** 18/10 : une série de fiches à approfondir (prospect_ids), pas à préparer. */
-    approfondie?: boolean };
+    /** 18/10 : une série de fiches à approfondir (prospect_ids), pas à préparer — avec la consigne de Channing. */
+    approfondie?: boolean; note?: string;
+    /** 18/10 : la réponse à préparer à ce mail reçu (tâche « premier_mail »). */
+    reponse_a?: string;
+    /** 18/10 : une recherche ciblée (notes de Channing, types visés, limite de dépense) et le lancement dont elle fait partie. */
+    notes?: string; segments?: string[]; limite_usd?: number; lot?: string };
   status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee';
   result: {
     annonces?: number; avec_garage?: number; concessions?: number; nouvelles?: number; url?: string; site?: string; garages?: number; comptes?: number | string[]; qualifies?: number; ecartes?: number; echecs?: number; carte?: number;
@@ -318,6 +341,8 @@ export interface AgentTask {
     trouves?: number; gardes?: number; deja?: number; remarque?: string | null;
     // Recherche approfondie (18/10).
     enrichies?: number; rien?: number; preparees?: number;
+    // Recherche ciblée (18/10) : ses fiches, ses recherches approfondies, sa limite.
+    ciblee?: boolean; fiches?: number; approfondies?: number; limite_usd?: number | null;
     // En cours (17/10) : où la tâche en est, écrit par le worker pour l'onglet Live.
     live?: TaskLive;
   } | null;
@@ -542,6 +567,22 @@ export async function updateAiSettings(agent: AgentKey, patch: AiSettingsPatch, 
   return error ? errQualif(error.message) : null;
 }
 
+/** Un compte MC Export d'ADA (destinataire possible du bilan du jour). */
+export interface TeamAccount { id: string; name: string; email: string }
+
+/** Les comptes MC Export d'ADA (organisation MC Export ou vide, non bloqués), comme le worker les lit — pour un administrateur. */
+export async function listMcExportAccounts(): Promise<{ rows: TeamAccount[]; error: string | null }> {
+  const [acc, prof] = await Promise.all([sb.rpc('admin_list_accounts'), sb.from('profiles').select('id, organisation, blocked').limit(1000)]);
+  if (acc.error) return { rows: [], error: acc.error.message };
+  const ok = new Set(((prof.data ?? []) as Array<{ id: string; organisation: string | null; blocked: boolean | null }>)
+    .filter((p) => !p.blocked && (!(p.organisation ?? '').trim() || p.organisation === 'MC Export')).map((p) => p.id));
+  const rows = ((acc.data ?? []) as Array<{ id: string; email: string | null; display_name: string | null; first_name: string | null; last_name: string | null }>)
+    .filter((u) => ok.has(u.id) && !!u.email)
+    .map((u) => ({ id: u.id, email: String(u.email).toLowerCase(), name: u.display_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || String(u.email) }))
+    .sort((x, y) => x.name.localeCompare(y.name, 'fr'));
+  return { rows, error: null };
+}
+
 // --- Phase 2.3 (17/10) : les premiers mails d'Ada ----------------------------------------------
 
 export const MAILS_SQL_HINT = 'Premiers mails d\'Ada : SQL du 17/10 (agents_premiers_mails) à coller dans Supabase.';
@@ -607,6 +648,22 @@ export async function listForYou(agent?: AgentKey): Promise<{ rows: ForYouMessag
 }
 
 /** Vous l'avez envoyé (votre boîte, votre LinkedIn) : le message est figé, le prospect passe « contacté ». */
+/**
+ * « Envoyer » (18/10, Channing : « un bouton Envoyer, qui permette d'envoyer l'email directement avec
+ * l'adresse de l'agente ») : un mail préparé part de la boîte de l'agente. Préparé pour vous (grand
+ * compte), il reçoit d'abord la signature de l'agente (pour_channing → brouillon), puis il est validé ;
+ * la boîte l'envoie ensuite dans ses horaires, sous son plafond du jour et avec l'écart entre deux envois.
+ */
+export async function sendFromAgent(m: Pick<AgentMessage, 'id' | 'status' | 'body_text'>, s: Pick<AgentSettings, 'signature'>): Promise<string | null> {
+  if (m.status === 'pour_channing') {
+    const sig = (s.signature ?? '').trim();
+    const body = m.body_text.trim();
+    const { error } = await sb.from('agent_messages').update({ status: 'brouillon', body_text: sig && !body.endsWith(sig) ? `${body}\n\n${sig}` : body }).eq('id', m.id);
+    if (error) return errComptes(error.message);
+  }
+  return setMessageStatus(m.id, 'valide');
+}
+
 export async function markSentByHand(id: string): Promise<string | null> {
   const { error } = await sb.from('agent_messages').update({ status: 'envoye_main' }).eq('id', id);
   return error ? errComptes(error.message) : null;
@@ -648,7 +705,21 @@ export async function accountProspects(accountIds: string[]): Promise<ProspectDe
 }
 
 /** Une agente cherche sur le web un type de compte dans un pays (Haiku 5.5, 4 recherches au plus). */
-export async function queueResearch(agent: AgentKey, params: { segment: string; country: string }, userId: string | null): Promise<string | null> {
+export async function queueResearch(agent: AgentKey, params: { segment: string; country: string; lot?: string }, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'recherche_comptes', params, created_by: userId });
+  return error ? errRecherche(error.message) : null;
+}
+
+/**
+ * La recherche ciblée (18/10, Channing : « type, pays, et des notes (Opus 5.5 lorsqu'il y a des notes) ; une
+ * limite de dépense en option ») : une seule tâche, qui suit les notes, prépare les fiches de ce qu'elle trouve,
+ * va plus loin dessus et envoie son bilan par mail à qui l'a lancée.
+ */
+export async function queueTargetedResearch(agent: AgentKey, p: { segments: string[]; country: string; notes: string; limit: number | null }, userId: string | null): Promise<string | null> {
+  const params = {
+    segment: p.segments[0], segments: p.segments, country: p.country, notes: p.notes.trim().slice(0, 2000),
+    ...(p.limit && p.limit > 0 ? { limite_usd: Math.round(p.limit * 100) / 100 } : {}),
+  };
   const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'recherche_comptes', params, created_by: userId });
   return error ? errRecherche(error.message) : null;
 }
@@ -677,10 +748,12 @@ export async function updateResearchSettings(agent: AgentKey, perDay: number, us
 // --- 18/10 : la recherche approfondie et les grands comptes à compléter -------------------------------
 
 /** L'agente va plus loin sur ces fiches (5 par tâche) : à qui appartient l'entreprise, qui décide, comment l'approcher. */
-export async function queueDeepResearch(prospectIds: string[], userId: string | null, agent: AgentKey): Promise<string | null> {
+export async function queueDeepResearch(prospectIds: string[], userId: string | null, agent: AgentKey, note = ''): Promise<string | null> {
   const ids = [...new Set(prospectIds)];
+  // La consigne laissée à l'agente (18/10), si elle est écrite.
+  const consigne = note.trim().slice(0, 1000);
   for (let i = 0; i < ids.length; i += 5) {
-    const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'qualification', params: { prospect_ids: ids.slice(i, i + 5), approfondie: true }, created_by: userId });
+    const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'qualification', params: { prospect_ids: ids.slice(i, i + 5), approfondie: true, ...(consigne ? { note: consigne } : {}) }, created_by: userId });
     if (error) return errQualif(error.message);
   }
   return null;

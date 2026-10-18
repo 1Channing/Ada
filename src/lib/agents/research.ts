@@ -114,8 +114,54 @@ export const RESEARCH_SCHEMA = {
 } as const;
 
 export interface ResearchOutput {
-  comptes: Array<{ nom: string; site_web: string; ville: string | null; taille: string | null; pourquoi: string; sources: string[] }>;
+  comptes: Array<{ nom: string; site_web: string; ville: string | null; taille: string | null; pourquoi: string; sources: string[]; type?: string }>;
   remarque: string | null;
+}
+
+// --- La recherche ciblée (18/10) ------------------------------------------------------------------
+
+/**
+ * Channing : « pouvoir lancer une recherche ciblée sur une entreprise donnée, avec comme critères le
+ * type, le pays et des notes (Opus 5.5 lorsqu'il y a des notes) ». Les notes passent devant : une
+ * entreprise ou un groupe nommé est cherché lui-même ; sinon, ce qui y répond le mieux. Chaque
+ * entreprise rendue porte son type, parmi ceux qui sont cochés.
+ */
+export const TARGETED_SEARCHES = 6;
+export const TARGETED_FETCHES = 4;
+
+export interface TargetedInput { role: AgentRole; segments: Segment[]; country: string; notes: string; known: string[] }
+
+export function targetedPrompt(i: TargetedInput): string {
+  const c = i.country.toUpperCase();
+  return [
+    `Recherche ciblée demandée par Channing, en ${COUNTRY_FR[c] ?? c} (${c}).`,
+    '<notes_de_channing>',
+    i.notes.trim().slice(0, 2000),
+    '</notes_de_channing>',
+    `Types d'entreprises visés : ${i.segments.map((x) => `${x.label} (« ${x.key} »)`).join(' ; ')}. Chez eux, qui décide : ${[...new Set(i.segments.map((x) => x.roles))].join(' ; ')}.`,
+    'Suis ces notes en priorité : si elles nomment une entreprise ou un groupe, trouve-le lui-même (son site officiel, ses entités dans le pays) ; sinon, les entreprises qui y répondent le mieux. Ne cherche pas encore les personnes : seulement les entreprises.',
+    `Déjà connues de l'équipe : ${i.known.length ? i.known.slice(0, 60).join(' ; ') : 'aucune'} — n'en rends une que si les notes la visent nommément.`,
+    `Fais ${TARGETED_SEARCHES} recherches au plus (dans la langue du pays, puis en anglais si besoin), lis ${TARGETED_FETCHES} pages au plus, puis rends de 1 à 10 entreprises, chacune avec son type parmi les types visés.`,
+  ].join('\n');
+}
+
+/** Le schéma de la recherche ciblée : celui de la recherche, plus le type de chaque entreprise. */
+export function targetedSchema(keys: string[]) {
+  const item = RESEARCH_SCHEMA.properties.comptes.items;
+  return {
+    ...RESEARCH_SCHEMA,
+    properties: {
+      ...RESEARCH_SCHEMA.properties,
+      comptes: {
+        ...RESEARCH_SCHEMA.properties.comptes,
+        items: {
+          ...item,
+          properties: { ...item.properties, type: { type: 'string', enum: keys, description: 'Son type, parmi les types visés.' } },
+          required: [...item.required, 'type'],
+        },
+      },
+    },
+  };
 }
 
 // --- Le contrôle ------------------------------------------------------------------------------
@@ -142,6 +188,8 @@ export interface FoundAccount {
   sources: string[];
   /** Son site est apparu dans les résultats lus ; sinon le worker vérifie qu'il répond et porte son nom. */
   siteSeen: boolean;
+  /** Recherche ciblée : son type, parmi ceux qui étaient cochés. */
+  type?: string | null;
 }
 
 /**
@@ -150,11 +198,11 @@ export interface FoundAccount {
  * recherche a réellement lu (son site, ou une page qui la cite). Jamais
  * reconstruit : un site ou une source jamais vus sont écartés.
  */
-export function acceptedAccounts(out: ResearchOutput | null, seen: Iterable<string>, known: Known): { kept: FoundAccount[]; dropped: Array<{ name: string; reason: string }> } {
+export function acceptedAccounts(out: ResearchOutput | null, seen: Iterable<string>, known: Known): { kept: FoundAccount[]; dropped: Array<{ name: string; reason: string; webKey?: string }> } {
   const seenUrls = new Set([...seen].map(normUrl));
   const seenKeys = new Set([...seenUrls].map(webKey).filter(Boolean));
   const kept: FoundAccount[] = [];
-  const dropped: Array<{ name: string; reason: string }> = [];
+  const dropped: Array<{ name: string; reason: string; webKey?: string }> = [];
   for (const c of out?.comptes ?? []) {
     const name = clean(c.nom).slice(0, 200);
     if (!name) continue;
@@ -170,11 +218,11 @@ export function acceptedAccounts(out: ResearchOutput | null, seen: Iterable<stri
     if (!k || DIRECTORY.test(k)) { dropped.push({ name, reason: 'pas un site d\'entreprise' }); continue; }
     if (kept.some((x) => x.webKey === k)) { dropped.push({ name, reason: 'en double' }); continue; }
     const nk = nameKey(name);
-    if (known.webKeys.has(k) || (nk && known.nameKeys.has(nk))) { dropped.push({ name, reason: 'déjà connue' }); continue; }
+    if (known.webKeys.has(k) || (nk && known.nameKeys.has(nk))) { dropped.push({ name, reason: 'déjà connue', webKey: k }); continue; }
     const sources = (c.sources ?? []).map(clean).filter((s) => /^https?:\/\//i.test(s) && seenUrls.has(normUrl(s))).slice(0, 5);
     const siteSeen = seenKeys.has(k);
     if (!siteSeen && sources.length === 0) { dropped.push({ name, reason: 'jamais vue dans les résultats' }); continue; }
-    kept.push({ name, website, webKey: k, city: clean(c.ville) || null, size: clean(c.taille).slice(0, 200) || null, why: clean(c.pourquoi).slice(0, 500), sources, siteSeen });
+    kept.push({ name, website, webKey: k, city: clean(c.ville) || null, size: clean(c.taille).slice(0, 200) || null, why: clean(c.pourquoi).slice(0, 500), sources, siteSeen, type: c.type ?? null });
   }
   return { kept, dropped };
 }

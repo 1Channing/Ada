@@ -8,6 +8,7 @@
  * - premiers contacts et relances : plafond du jour et écart aléatoire entre
  *   deux envois (les réponses à quelqu'un qui a écrit partent tout de suite) ;
  * - le texte est EXACTEMENT celui validé (agent_message_unchanged).
+ * Le mail porte la signature avec logo de l'agente (18/10 ; ./signature.ts).
  * Puis réservation (valide → envoi : deux workers n'envoient jamais le même
  * mail), envoi Gmail dans le même fil, et l'identifiant du message gardé
  * pour que la réponse suivante reste dans la conversation.
@@ -16,6 +17,7 @@
 import { buildMime, headersOf, replyReferences } from '../../src/lib/agents/mail';
 import { inSendWindow, parisDayStart, randomGapMs, suppressionMatch, countsAgainstCap } from '../../src/lib/agents/sendPolicy';
 import { gmail, NotConnected } from './google';
+import { signatureImage } from './signature';
 import { recordLearningCase } from '../learningBox';
 import { sb, loadSuppressions, updateAgent, advanceProspect, type AgentRow } from './store';
 
@@ -75,6 +77,7 @@ export async function sendDue(agents: AgentRow[]): Promise<void> {
       const raw = buildMime({
         fromEmail: a.mailbox, fromName: a.sender_name, to: m.to_emails, cc: m.cc_emails, subject: m.subject, body: m.body_text,
         inReplyTo: p?.rfc_message_id ?? null, references: replyReferences(p?.references_header, p?.rfc_message_id),
+        signatureImage: await signatureImage(a.agent, a.display_name), signatureText: a.signature,
       });
       const t = thread as { id: string; gmail_thread_id: string | null } | null;
       const sent = await gmail<{ id: string; threadId: string }>(a.mailbox, '/messages/send', {

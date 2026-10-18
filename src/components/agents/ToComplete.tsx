@@ -11,6 +11,7 @@
  */
 import { useState } from 'react';
 import { ChevronRight, Telescope, Crown, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { DeepAsk } from './shared';
 import type { AgentKey, ProspectDetail, ProspectStage } from '../../services/agents';
 import { missingOf, lastDeepAt } from '../../lib/agents/deepResearch';
 import { QualifCard } from './QualifCard';
@@ -32,7 +33,7 @@ function whyNotPrepared(p: ProspectDetail, minScore: number, autoDraft: number):
 
 interface Props {
   agent: AgentKey; rows: ProspectDetail[]; deep: Set<string>; draft: Set<string>; minScore: number; autoDraft: number; isAdmin: boolean;
-  onDeep: (p: ProspectDetail) => void; onPrepare: (p: ProspectDetail) => void; onStage: (p: ProspectDetail, s: ProspectStage) => void; onRequalify: (p: ProspectDetail) => void;
+  onDeep: (p: ProspectDetail, note: string) => void; onPrepare: (p: ProspectDetail) => void; onStage: (p: ProspectDetail, s: ProspectStage) => void; onRequalify: (p: ProspectDetail) => void;
   onOpenThread: (id: string) => void;
 }
 
@@ -68,10 +69,8 @@ function Row({ p, agent, deeping, drafting, minScore, autoDraft, isAdmin, onDeep
           {deeping
             ? <span className="text-indigo-700 animate-pulse">{name} cherche plus loin…</span>
             : (
-              <button onClick={() => onDeep(p)} className="inline-flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-2 py-1 font-medium text-indigo-800 hover:bg-indigo-50"
-                title={`${name} va plus loin sur le web : à qui appartient l'entreprise, qui décide (au niveau du groupe d'abord), les e-mails et téléphones publiés, des pistes. Si elle trouve la personne qui décide, le compte est préparé pour vous. Environ 0,10 $.`}>
-                <Telescope className="w-3.5 h-3.5" /> {deepAt ? 'Chercher encore plus loin' : 'Recherche approfondie'}
-              </button>
+              <DeepAsk name={name} again={!!deepAt} label="Recherche approfondie" onLaunch={(note) => onDeep(p, note)}
+                title={`${name} va plus loin sur le web : à qui appartient l'entreprise, qui décide (au niveau du groupe d'abord), comment la joindre directement, des pistes. Si elle trouve la personne qui décide, le compte est préparé pour vous. Environ 0,10 $.`} />
             )}
           {drafting
             ? <span className="text-violet-700 animate-pulse">préparation…</span>
@@ -86,7 +85,7 @@ function Row({ p, agent, deeping, drafting, minScore, autoDraft, isAdmin, onDeep
       {open && (
         <div className="px-4 pb-4">
           <QualifCard p={p} agentName={name} onStage={(st) => onStage(p, st)} onRequalify={() => onRequalify(p)} requalifying={false}
-            threadId={null} onDraft={() => onPrepare(p)} drafting={drafting} onOpenThread={onOpenThread} onDeep={() => onDeep(p)} deeping={deeping} />
+            threadId={null} onDraft={() => onPrepare(p)} drafting={drafting} onOpenThread={onOpenThread} onDeep={(note) => onDeep(p, note)} deeping={deeping} />
         </div>
       )}
     </div>

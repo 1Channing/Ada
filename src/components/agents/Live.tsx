@@ -16,7 +16,7 @@
  * Rien ne se lance d'ici : c'est un écran pour regarder.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Activity, Sparkles, ScrollText, Clock, Loader2, X, Search, Layers, Mail, Moon, Hourglass, Telescope } from 'lucide-react';
+import { Activity, Sparkles, ScrollText, Clock, Loader2, X, Search, Layers, Mail, Moon, Hourglass, Telescope, Reply } from 'lucide-react';
 import {
   listTasks, listRuns, listJournal, aiSpend, cancelTask, AGENT_LABEL,
   type AgentKey, type AgentSettings, type AgentTask, type AiRun, type JournalRow, type AiSpend,
@@ -51,11 +51,13 @@ const KIND: Record<AgentTask['kind'], { label: string; icon: ReactNode }> = {
   premier_mail: { label: 'Premiers mails', icon: <Mail className="w-4 h-4" /> },
   decouverte_concessions: { label: 'Relevé d\'annonces', icon: <Layers className="w-4 h-4" /> },
 };
-/** Le titre d'une tâche : une série de fiches à approfondir (18/10) a le sien. */
-const kindOf = (t: AgentTask) => (t.kind === 'qualification' && t.params?.approfondie ? { label: 'Recherche approfondie', icon: <Telescope className="w-4 h-4" /> } : KIND[t.kind]);
+/** Le titre d'une tâche : une série de fiches à approfondir et une réponse à un mail reçu (18/10) ont le leur. */
+const kindOf = (t: AgentTask) => (t.kind === 'qualification' && t.params?.approfondie ? { label: 'Recherche approfondie', icon: <Telescope className="w-4 h-4" /> }
+  : t.kind === 'premier_mail' && t.params?.reponse_a ? { label: 'Réponse à un mail reçu', icon: <Reply className="w-4 h-4" /> }
+    : t.kind === 'recherche_comptes' && t.params?.notes ? { label: 'Recherche ciblée', icon: <Search className="w-4 h-4" /> } : KIND[t.kind]);
 const PURPOSE: Record<string, string> = {
   qualification: 'fiche', recherche_comptes: 'recherche d\'entreprises sur le web', premier_mail: 'premier mail', grand_compte: 'grand compte (mail, note LinkedIn, fiche d\'appel)',
-  recherche_approfondie: 'recherche approfondie (à qui appartient l\'entreprise, qui décide)',
+  recherche_approfondie: 'recherche approfondie (à qui appartient l\'entreprise, qui décide)', reponse: 'réponse à un mail reçu',
 };
 const pl = (n: number) => (n > 1 ? 's' : '');
 
@@ -66,10 +68,12 @@ function what(t: AgentTask): string {
   if (t.kind === 'recherche_comptes') {
     const seg = segmentOf(t.agent, p.segment);
     const c = String(p.country ?? '').toUpperCase();
+    if (p.notes) return `${COUNTRY_FR[c] ?? c} — « ${p.notes.length > 70 ? `${p.notes.slice(0, 67)}…` : p.notes} »${p.limite_usd ? ` (limite ${p.limite_usd} $)` : ''}`;
     return `${seg ? seg.label.toLowerCase() : p.segment ?? ''} · ${COUNTRY_FR[c] ?? c}`;
   }
   if (t.kind === 'qualification' && p.approfondie) { const k = n(p.prospect_ids); return `${k} fiche${pl(k)} à approfondir`; }
   if (t.kind === 'qualification') { const k = n(p.account_ids) + n(p.dealer_ids); return `${k} fiche${pl(k)}`; }
+  if (t.kind === 'premier_mail' && p.reponse_a) return 'la réponse, à valider';
   if (t.kind === 'premier_mail') { const k = n(p.prospect_ids); return `${k} mail${pl(k)}`; }
   return `${DISCOVERY_SITE_LABEL[String(p.site ?? 'AUTOSCOUT').toUpperCase()] ?? p.site ?? ''} ${p.country ?? ''} · ${p.brand ?? ''}${p.model ? ` ${p.model}` : ''}`;
 }

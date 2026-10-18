@@ -20,10 +20,10 @@
  * d'ici.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, ExternalLink, Sparkles, Crown, X, Undo2, Ban } from 'lucide-react';
+import { Search, ExternalLink, Sparkles, Crown, X, Undo2, Ban, ChevronRight } from 'lucide-react';
 import { CheckDropdown } from './shared';
 import {
-  listAccounts, accountProspects, listTasks, queueResearch, queueAccountQualification, setAccountStatus, queueFirstMails, setProspectStage, threadsOfProspects, cancelTask, queueDeepResearch,
+  listAccounts, accountProspects, listTasks, queueResearch, queueTargetedResearch, queueAccountQualification, setAccountStatus, queueFirstMails, setProspectStage, threadsOfProspects, cancelTask, queueDeepResearch,
   AGENT_LABEL, type AgentAccount, type AgentKey, type AgentTask, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { SEGMENTS, RESEARCH_COUNTRIES, COUNTRY_FR, segmentOf } from '../../lib/agents/research';
@@ -61,7 +61,9 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   // Tous les types cochés d'office (18/10) : une recherche par type, l'une après l'autre.
-  const [launch, setLaunch] = useState<{ segments: string[]; country: string }>(() => ({ segments: SEGMENTS[agent].map((x) => x.key), country: agent === 'ada' ? 'NL' : 'FR' }));
+  const [launch, setLaunch] = useState<{ segments: string[]; country: string; notes: string; limit: string }>(() => ({ segments: SEGMENTS[agent].map((x) => x.key), country: agent === 'ada' ? 'NL' : 'FR', notes: '', limit: '' }));
+  // Des notes (18/10) : une recherche ciblée, sur Opus 5.5, avec une limite de dépense facultative.
+  const targeted = launch.notes.trim().length > 0;
   const name = AGENT_LABEL[agent].name;
 
   const load = useCallback(async () => {
@@ -104,14 +106,25 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
   const start = async () => {
     const segs = SEGMENTS[agent].filter((x) => launch.segments.includes(x.key));
     if (!segs.length) return;
+    const where = COUNTRY_FR[launch.country] ?? launch.country;
+    if (targeted) {
+      const limit = Number(launch.limit.replace(',', '.'));
+      const e = await queueTargetedResearch(agent, { segments: segs.map((x) => x.key), country: launch.country, notes: launch.notes, limit: Number.isFinite(limit) && limit > 0 ? limit : null }, userId);
+      if (e) { onError(e); return; }
+      onInfo(`${name} lance la recherche ciblée en ${where}, avec vos notes : elle cherche, prépare les fiches et va plus loin sur ce qu'elle trouve (quelques minutes). Le bilan vous arrive par mail.`);
+      setLaunch({ ...launch, notes: '', limit: '' });
+      void load();
+      return;
+    }
+    // Un même lancement : un seul bilan par mail, quand la dernière recherche est finie.
+    const lot = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     for (const sg of segs) {
-      const e = await queueResearch(agent, { segment: sg.key, country: launch.country }, userId);
+      const e = await queueResearch(agent, { segment: sg.key, country: launch.country, lot }, userId);
       if (e) { onError(e); void load(); return; }
     }
-    const where = COUNTRY_FR[launch.country] ?? launch.country;
     onInfo(segs.length > 1
-      ? `${name} cherche ${segs.length} types d'entreprises en ${where}, l'un après l'autre (une à deux minutes chacun) : ${segs.map((x) => x.label.toLowerCase()).join(', ')}. Ce qu'elle trouve arrive ici au fur et à mesure.`
-      : `${name} cherche : ${segs[0].label.toLowerCase()}, ${where}. Les entreprises trouvées arrivent ici d'ici une à deux minutes.`);
+      ? `${name} cherche ${segs.length} types d'entreprises en ${where}, l'un après l'autre (une à deux minutes chacun) : ${segs.map((x) => x.label.toLowerCase()).join(', ')}. Ce qu'elle trouve arrive ici au fur et à mesure ; le bilan vous arrive par mail à la fin.`
+      : `${name} cherche : ${segs[0].label.toLowerCase()}, ${where}. Les entreprises trouvées arrivent ici d'ici une à deux minutes ; le bilan vous arrive par mail.`);
     void load();
   };
   const qualify = async (ids: string[]) => {
@@ -138,10 +151,10 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
     const e = await setProspectStage(p.id, stage);
     if (e) onError(e); else setDetails((m) => new Map(m).set(a.id, { ...p, stage }));
   };
-  const deepen = async (p: ProspectDetail) => {
-    const e = await queueDeepResearch([p.id], userId, agent);
+  const deepen = async (p: ProspectDetail, note = '') => {
+    const e = await queueDeepResearch([p.id], userId, agent, note);
     if (e) { onError(e); return; }
-    onInfo(`${name} cherche plus loin pour ${p.name} : à qui elle appartient, qui décide, les e-mails et téléphones publiés. Une à deux minutes.`);
+    onInfo(`${name} cherche plus loin pour ${p.name}${note.trim() ? ', avec votre consigne' : ''} : à qui elle appartient, qui décide, comment la joindre directement. Une à deux minutes.`);
     void load();
   };
   const segs = SEGMENTS[agent];
@@ -162,13 +175,28 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
             {countriesOf(agent).map((c) => <option key={c} value={c}>{FLAG[c] ?? ''} {COUNTRY_FR[c] ?? c}</option>)}
           </select>
           <button disabled={launch.segments.length === 0} onClick={() => void start()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-3 py-1.5 text-sm font-medium disabled:opacity-40">
-            <Search className="w-4 h-4" /> {launch.segments.length > 1 ? `Lancer ${launch.segments.length} recherches` : 'Lancer la recherche'}
+            <Search className="w-4 h-4" /> {targeted ? 'Lancer la recherche ciblée' : launch.segments.length > 1 ? `Lancer ${launch.segments.length} recherches` : 'Lancer la recherche'}
           </button>
         </div>
-        <p className="text-[11px] text-slate-400">{launch.segments.length > 1 ? `Une recherche par type coché, l'une après l'autre : environ ${(launch.segments.length * 0.05).toFixed(2).replace('.', ',')} $ en tout.` : (() => {
-          const sg = segmentOf(agent, launch.segments[0]);
-          return sg ? `${sg.who.charAt(0).toUpperCase()}${sg.who.slice(1)} — chez eux, qui décide : ${sg.roles}.` : 'Cochez au moins un type d\'entreprise.';
-        })()}</p>
+        <label className="block space-y-1">
+          <span className="text-xs text-slate-500">Notes (facultatif) — une entreprise, un groupe, ce que vous cherchez exactement : la recherche devient ciblée</span>
+          <textarea value={launch.notes} onChange={(e) => setLaunch({ ...launch, notes: e.target.value })} maxLength={2000} rows={2}
+            placeholder={agent === 'dana' ? 'Ex. : le groupe Hess et ses concessions en Moselle — qui gère la revente des VO et le de-fleet, et comment le joindre directement ?' : 'Ex. : le groupe Van Mossel aux Pays-Bas — qui achète les VO récents pour ses concessions ?'}
+            className={`${input} w-full min-h-[56px]`} />
+        </label>
+        {targeted && (
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className="text-slate-600">Limite de dépense (facultatif) :</span>
+            <input type="number" min={0} step={0.5} value={launch.limit} onChange={(e) => setLaunch({ ...launch, limit: e.target.value })} placeholder="ex. 2" className={`${input} w-24`} />
+            <span className="text-slate-600">$</span>
+          </div>
+        )}
+        <p className="text-[11px] text-slate-400">{targeted
+          ? `Recherche ciblée sur Opus 5.5 : elle suit vos notes, prépare la fiche de ce qu'elle trouve (5 au plus) et va plus loin dessus (3 au plus), avec vos notes en consigne — environ 0,50 à 2 $. La limite est relue entre deux étapes ; le budget du jour ${agent === 'dana' ? 'de Dana' : 'd\'Ada'} reste le plafond. Le bilan vous arrive par mail, avec ce qui reste à faire si elle s'arrête faute de budget.`
+          : launch.segments.length > 1 ? `Une recherche par type coché, l'une après l'autre : environ ${(launch.segments.length * 0.05).toFixed(2).replace('.', ',')} $ en tout. Le bilan vous arrive par mail à la fin.` : (() => {
+            const sg = segmentOf(agent, launch.segments[0]);
+            return sg ? `${sg.who.charAt(0).toUpperCase()}${sg.who.slice(1)} — chez eux, qui décide : ${sg.roles}. Le bilan vous arrive par mail.` : 'Cochez au moins un type d\'entreprise.';
+          })()}</p>
         {research.length > 0 && (
           <div className="divide-y divide-slate-100 border-t border-slate-100">
             {research.slice(0, 6).map((t) => {
@@ -176,9 +204,10 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
               return (
                 <div key={t.id} className="flex items-center gap-2 py-1.5 text-xs flex-wrap">
                   <span className={`rounded-full px-2 py-0.5 ${TASK_STATUS[t.status].cls}`}>{TASK_STATUS[t.status].label}</span>
-                  <span className="font-medium text-slate-800">{seg?.label ?? t.params.segment} · {FLAG[t.params.country ?? ''] ?? ''} {COUNTRY_FR[t.params.country ?? ''] ?? t.params.country}{t.params.auto ? ' (automatique)' : ''}</span>
+                  <span className="font-medium text-slate-800">{t.params.notes ? 'Recherche ciblée' : seg?.label ?? t.params.segment} · {FLAG[t.params.country ?? ''] ?? ''} {COUNTRY_FR[t.params.country ?? ''] ?? t.params.country}{t.params.auto ? ' (automatique)' : ''}</span>
+                  {t.params.notes && <span className="text-slate-500 truncate max-w-[22rem]" title={t.params.notes}>« {t.params.notes} »</span>}
                   {t.status === 'terminee' && t.result && (
-                    <span className="text-slate-600">{t.result.gardes ?? 0} trouvé{(t.result.gardes ?? 0) > 1 ? 's' : ''}{t.result.deja ? `, ${t.result.deja} déjà connu${t.result.deja > 1 ? 's' : ''}` : ''}{t.result.ecartes ? `, ${t.result.ecartes} écarté${t.result.ecartes > 1 ? 's' : ''}` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}</span>
+                    <span className="text-slate-600">{t.result.gardes ?? 0} trouvé{(t.result.gardes ?? 0) > 1 ? 's' : ''}{t.result.deja ? `, ${t.result.deja} déjà connu${t.result.deja > 1 ? 's' : ''}` : ''}{t.result.ecartes ? `, ${t.result.ecartes} écarté${t.result.ecartes > 1 ? 's' : ''}` : ''}{t.result.ciblee ? `, ${t.result.fiches ?? 0} fiche${(t.result.fiches ?? 0) > 1 ? 's' : ''}, ${t.result.approfondies ?? 0} approfondie${(t.result.approfondies ?? 0) > 1 ? 's' : ''}` : ''} · {fmtUsd(t.result.cout_usd ?? 0)}{t.result.limite_usd ? ` (limite ${fmtUsd(t.result.limite_usd)})` : ''}{t.result.arret ? ` — arrêtée : ${t.result.arret}` : ''}</span>
                   )}
                   {t.status === 'echec' && <span className="text-red-700">{t.error}</span>}
                   <span className="ml-auto text-slate-400">{fmtRelative(t.finished_at ?? t.created_at)}</span>
@@ -263,8 +292,8 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
                   </div>
                   <div className="flex items-center gap-2 flex-wrap text-xs">
                     {p ? (
-                      <button onClick={() => setOpen(cardOpen ? null : a.id)} className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${cardOpen ? 'border-violet-400 bg-violet-100 text-violet-900' : 'border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>
-                        <Sparkles className="w-3.5 h-3.5" /> Fiche {agent === 'ada' ? 'd\'Ada' : 'de Dana'}
+                      <button onClick={() => setOpen(cardOpen ? null : a.id)} aria-expanded={cardOpen} className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 font-medium ${cardOpen ? 'bg-violet-100 text-violet-900' : 'text-violet-800 hover:bg-violet-50'}`}>
+                        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${cardOpen ? 'rotate-90' : ''}`} /> Fiche complète
                       </button>
                     ) : queued.has(a.id) ? (
                       <span className="text-violet-800 animate-pulse">fiche en cours…</span>
@@ -285,7 +314,7 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
                   <QualifCard p={p} agentName={name as 'Ada' | 'Dana'} onStage={(st) => void changeStage(a, p, st)}
                     onRequalify={() => void qualify([a.id])} requalifying={queued.has(a.id)}
                     threadId={threads.get(p.id) ?? null} onDraft={() => void draft(a, p)} drafting={drafting.has(p.id)} onOpenThread={onOpenThread}
-                    onDeep={() => void deepen(p)} deeping={deeping.has(p.id)} />
+                    onDeep={(note) => void deepen(p, note)} deeping={deeping.has(p.id)} />
                 )}
               </div>
             );

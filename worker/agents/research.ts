@@ -14,11 +14,16 @@
  * 4. Elles entrent dans agent_accounts ; la qualification (qui décide,
  *    e-mail publié, LinkedIn) les reprend ensuite, avant l'annuaire.
  * Rien n'est envoyé à personne.
+ * 18/10 — la recherche ciblée (params.notes) : Opus 5.5 suit les notes de
+ * Channing, 6 recherches et 4 pages au plus, plusieurs types possibles
+ * (chaque entreprise rendue porte le sien) ; la suite (fiches, recherche
+ * approfondie, bilan par mail) : ./targeted.ts.
  */
-import { HAIKU, fmtUsd } from '../../src/lib/agents/aiCost';
+import { HAIKU, OPUS, fmtUsd } from '../../src/lib/agents/aiCost';
 import {
   segmentOf, researchSystem, researchPrompt, RESEARCH_SCHEMA, acceptedAccounts, siteNamesCompany, webKey, COUNTRY_FR,
-  type ResearchOutput, type AgentRole, type Known,
+  targetedPrompt, targetedSchema, TARGETED_SEARCHES, TARGETED_FETCHES,
+  type ResearchOutput, type AgentRole, type Known, type Segment,
 } from '../../src/lib/agents/research';
 import { HOME_COUNTRY } from '../../src/lib/agents/qualification';
 import { live } from './live';
@@ -30,6 +35,10 @@ import { sb } from './store';
 export interface ResearchResult {
   segment: string; country: string; trouves: number; gardes: number; deja: number; ecartes: number;
   cout_usd: number; comptes: string[]; remarque: string | null; details: string[];
+  /** Les comptes enregistrés (identifiants), et les entreprises déjà connues que la recherche a rendues (nom, site). */
+  ids?: string[]; connues?: Array<{ name: string; webKey: string | null }>;
+  /** Une recherche ciblée : ses notes. */
+  ciblee?: boolean;
 }
 
 /** Ce qu'on connaît déjà dans ce pays (sites et noms), et les noms à citer dans la consigne. */
@@ -59,7 +68,11 @@ async function knownFor(agent: string, role: AgentRole, country: string): Promis
 
 export async function researchAccounts(taskId: string | null, params: Record<string, unknown>, a: AiAgent): Promise<{ result: ResearchResult; summary: string }> {
   const role: AgentRole = a.agent === 'dana' ? 'dana' : 'ada';
-  const segment = segmentOf(role, String(params.segment ?? ''));
+  const notes = typeof params.notes === 'string' ? params.notes.trim() : '';
+  // Une recherche ciblée peut viser plusieurs types ; sinon, un seul.
+  const keys = notes && Array.isArray(params.segments) && params.segments.length ? params.segments.map(String) : [String(params.segment ?? '')];
+  const segments = keys.map((k) => segmentOf(role, k)).filter((x): x is Segment => !!x);
+  const segment = segments[0];
   const country = String(params.country ?? '').trim().toUpperCase();
   if (!segment) throw new Error(`type de compte inconnu : ${String(params.segment ?? '?')}`);
   if (!/^[A-Z]{2}$/.test(country)) throw new Error('pays manquant');
@@ -68,9 +81,17 @@ export async function researchAccounts(taskId: string | null, params: Record<str
   // 1-2. Ce qu'on connaît déjà, puis la recherche.
   live(taskId, `Ce que l'équipe connaît déjà en ${COUNTRY_FR[country] ?? country} (pour ne pas le chercher deux fois)`);
   const known = await knownFor(a.agent, role, country);
-  live(taskId, `Recherche sur le web : ${segment.label.toLowerCase()} en ${COUNTRY_FR[country] ?? country} (4 recherches au plus)`);
+  live(taskId, notes
+    ? `Recherche ciblée sur le web, avec vos notes (Opus 5.5) : ${COUNTRY_FR[country] ?? country}, ${TARGETED_SEARCHES} recherches au plus`
+    : `Recherche sur le web : ${segment.label.toLowerCase()} en ${COUNTRY_FR[country] ?? country} (4 recherches au plus)`);
   const budget = Number(a.daily_budget_usd);
-  const r = await callClaude<ResearchOutput>({
+  const r = await callClaude<ResearchOutput>(notes ? {
+    agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'recherche_ciblee', model: OPUS,
+    system: researchSystem(role), user: targetedPrompt({ role, segments, country, notes, known: known.names }),
+    schema: targetedSchema(segments.map((x) => x.key)) as unknown as Record<string, unknown>,
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: TARGETED_SEARCHES }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: TARGETED_FETCHES }],
+    maxTokens: 12_000, effort: 'medium', taskId, fallbacks: true,
+  } : {
     // Un budget illisible vaut 0 (pas d'appel), jamais « sans limite ».
     agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'recherche_comptes', model: HAIKU,
     system: researchSystem(role), user: researchPrompt({ role, segment, country, known: known.names }),
@@ -94,14 +115,16 @@ export async function researchAccounts(taskId: string | null, params: Record<str
 
   // 4. Les comptes trouvés (une fois par agente, site et pays).
   let saved: string[] = [];
+  let ids: string[] = [];
   if (verified.length) {
     const rows = verified.map((k) => ({
-      agent: a.agent, segment: segment.key, country, name: k.name, website: k.website, city: k.city, size_hint: k.size, why: k.why,
+      agent: a.agent, segment: k.type && keys.includes(k.type) ? k.type : segment.key, country, name: k.name, website: k.website, city: k.city, size_hint: k.size, why: k.why,
       sources: k.sources, task_id: taskId, status: 'nouveau',
     }));
-    const { data, error } = await sb.from('agent_accounts').upsert(rows, { onConflict: 'agent,web_key,country', ignoreDuplicates: true }).select('name');
+    const { data, error } = await sb.from('agent_accounts').upsert(rows, { onConflict: 'agent,web_key,country', ignoreDuplicates: true }).select('id, name');
     if (error) throw new Error(`comptes non enregistrés : ${error.message}`);
     saved = ((data ?? []) as Array<{ name: string }>).map((x) => x.name);
+    ids = ((data ?? []) as Array<{ id: string }>).map((x) => x.id);
   }
   const deja = dropped.filter((x) => x.reason === 'déjà connue' || x.reason === 'en double').length;
   const ecartes = dropped.length - deja;
@@ -109,9 +132,10 @@ export async function researchAccounts(taskId: string | null, params: Record<str
     segment: segment.key, country, trouves: r.data?.comptes?.length ?? 0, gardes: saved.length, deja, ecartes,
     cout_usd: Math.round(r.costUsd * 10_000) / 10_000, comptes: saved, remarque: r.data?.remarque ?? null,
     details: dropped.map((x) => `${x.name} : ${x.reason}`).slice(0, 20),
+    ids, connues: dropped.filter((x) => x.reason === 'déjà connue').map((x) => ({ name: x.name, webKey: x.webKey ?? null })), ciblee: !!notes,
   };
   const pl = (n: number) => (n > 1 ? 's' : '');
-  const summary = `Recherche ${segment.label.toLowerCase()} · ${COUNTRY_FR[country] ?? country} : ${saved.length} compte${pl(saved.length)} trouvé${pl(saved.length)}`
+  const summary = `Recherche ${notes ? 'ciblée' : segment.label.toLowerCase()} · ${COUNTRY_FR[country] ?? country} : ${saved.length} compte${pl(saved.length)} trouvé${pl(saved.length)}`
     + `${deja ? `, ${deja} déjà connu${pl(deja)}` : ''}${ecartes ? `, ${ecartes} écarté${pl(ecartes)} (invérifiable${pl(ecartes)})` : ''} — ${fmtUsd(result.cout_usd)}`;
   return { result, summary };
 }

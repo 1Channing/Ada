@@ -5,7 +5,8 @@
  * boîte), puis les échecs. Pendant le copilote, rien ne part sans un clic
  * d'administrateur.
  * « Pour vous » (17/10) : les grands comptes qu'elle a préparés, que vous
- * envoyez vous-même (votre Gmail, votre LinkedIn, votre téléphone).
+ * envoyez (18/10 : « Envoyer » fait partir le mail de la boîte de l'agente,
+ * signé par elle ; la note LinkedIn et l'appel restent à vous).
  * 18/10 : repliés par défaut (une vue d'ensemble, on ouvre l'un ou
  * l'autre) ; et les grands comptes à compléter — fiche faite, rien de
  * préparé —, avec ce qui manque, la recherche approfondie et « Préparer
@@ -71,10 +72,10 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
   const changed = () => { void load(); onChanged(); };
   const mine = settings.find((s) => s.agent === agent);
   const name = AGENT_LABEL[agent].name;
-  const deepen = async (prospectId: string, label: string) => {
-    const e = await queueDeepResearch([prospectId], userId, agent);
+  const deepen = async (prospectId: string, label: string, note = '') => {
+    const e = await queueDeepResearch([prospectId], userId, agent, note);
     if (e) { onError(e); return; }
-    onInfo(`${name} cherche plus loin pour ${label} : à qui appartient l'entreprise, qui décide, les e-mails et téléphones publiés. Une à deux minutes ; si elle trouve la personne qui décide, le compte est préparé pour vous.`);
+    onInfo(`${name} cherche plus loin pour ${label}${note.trim() ? ', avec votre consigne' : ''} : à qui appartient l'entreprise, qui décide, les e-mails et téléphones publiés. Une à deux minutes ; si elle trouve mieux, ce qui est préparé est refait.`);
     void load();
   };
   const prepare = async (p: ProspectDetail) => {
@@ -94,7 +95,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
 
   const groups: Array<{ key: string; title: string; icon: ReactNode; items: QueuedMessage[]; hint: string }> = [
     { key: 'a_valider', title: 'À valider', icon: <CheckCircle2 className="w-4 h-4 text-amber-600" />, items: rows.filter((m) => m.status === 'a_valider'),
-      hint: isAdmin ? 'Relisez, corrigez si besoin, puis validez : le message part aux horaires d\'envoi.' : 'Un administrateur valide ces messages avant qu\'ils partent.' },
+      hint: isAdmin ? 'Relisez, corrigez si besoin, puis « Envoyer » : le message part de la boîte de l\'agente, à ses horaires d\'envoi.' : 'Un administrateur envoie ces messages après les avoir relus.' },
     { key: 'valide', title: 'Validés, en attente d\'envoi', icon: <Clock className="w-4 h-4 text-blue-600" />, items: rows.filter((m) => m.status === 'valide' || m.status === 'envoi'),
       hint: 'Le worker les envoie dès que les horaires, le plafond du jour et l\'écart entre deux envois le permettent.' },
     { key: 'echec', title: 'Échecs', icon: <AlertTriangle className="w-4 h-4 text-red-600" />, items: rows.filter((m) => m.status === 'echec'),
@@ -117,12 +118,12 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
             <Crown className="w-4 h-4 text-violet-600" />
             <h3 className="text-sm font-semibold text-slate-900">Pour vous — grands comptes</h3>
             <span className="text-xs text-slate-400">{accounts.length}</span>
-            <span className="text-xs text-slate-500">— {name} prépare, vous envoyez (votre Gmail, votre LinkedIn, votre téléphone), puis « Marquer envoyé ».</span>
+            <span className="text-xs text-slate-500">— {name} prépare : « Envoyer » fait partir le mail de sa boîte, signé par elle ; la note LinkedIn et l'appel restent à vous.</span>
           </div>
           {accounts.map((items) => {
             const pid = items[0].thread?.prospect?.id ?? '';
-            return <ForYouCard key={items[0].thread_id} items={items} isAdmin={isAdmin} onOpenThread={onOpenThread} onChanged={changed} onError={onError}
-              onDeep={(id) => void deepen(id, items[0].thread?.prospect?.name ?? 'ce compte')} deeping={work.deep.has(pid) || work.draft.has(pid)} />;
+            return <ForYouCard key={items[0].thread_id} items={items} settings={mine} counts={counts[agent]} isAdmin={isAdmin} onOpenThread={onOpenThread} onChanged={changed} onError={onError} onInfo={onInfo}
+              onDeep={(id, note) => void deepen(id, items[0].thread?.prospect?.name ?? 'ce compte', note)} deeping={work.deep.has(pid) || work.draft.has(pid)} />;
           })}
         </section>
       )}
@@ -135,7 +136,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
             <span className="text-xs text-slate-500">— la fiche est faite, rien n'est encore préparé : voici ce qui manque. Les plus durs à joindre sont souvent ceux qui rapportent le plus.</span>
           </div>
           <ToComplete agent={agent} rows={keyAccounts} deep={work.deep} draft={work.draft} minScore={mine?.map_min_score ?? 70} autoDraft={mine?.auto_draft_per_day ?? 0} isAdmin={isAdmin}
-            onDeep={(p) => void deepen(p.id, p.name)} onPrepare={(p) => void prepare(p)} onStage={(p, st) => void restage(p, st)} onRequalify={(p) => void requalify(p)} onOpenThread={onOpenThread} />
+            onDeep={(p, note) => void deepen(p.id, p.name, note)} onPrepare={(p) => void prepare(p)} onStage={(p, st) => void restage(p, st)} onRequalify={(p) => void requalify(p)} onOpenThread={onOpenThread} />
         </section>
       )}
       {groups.filter((g) => g.items.length > 0).map((g) => (
@@ -153,7 +154,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <button onClick={() => onOpenThread(m.thread_id)} className="text-brand-ocean hover:underline truncate">ouvrir le fil{who ? ` avec ${who}` : ''}</button>
                 </div>
-                <MessageCard m={m} settings={mine} counts={counts[agent]} isAdmin={isAdmin} flat onChanged={changed} onError={onError} />
+                <MessageCard m={m} settings={mine} counts={counts[agent]} isAdmin={isAdmin} flat onChanged={changed} onError={onError} onInfo={onInfo} />
               </div>
             );
           })}

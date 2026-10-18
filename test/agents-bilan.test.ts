@@ -9,7 +9,7 @@
  * adresse si Google refuse cette boîte —, une seule fois par jour.
  */
 import { generateKeyPairSync } from 'node:crypto';
-import { recapDue, recapEndMinutes, recapMail, RECAP_ALL_DAY_AT, type RecapDueInput } from '../src/lib/agents/recap';
+import { recapDue, recapEndMinutes, recapMail, recapToOf, RECAP_ALL_DAY_AT, type RecapDueInput } from '../src/lib/agents/recap';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
 import { fakeSupabase, type FakeDb } from './fakeSupabase';
 
@@ -128,7 +128,13 @@ const agentDana = {
   daily_budget_usd: 3, auto_research_per_day: 2, auto_discovery: false, targets: {},
 };
 ok((await mcExportEmails()).join() === 'ada-test@mc-export.com,channing@mc-export.com,dana@mc-export.com,equipe@mc-export.com,vente@mc-export.com', 'les comptes MC Export (organisation vide comprise), ni une autre organisation, ni un compte bloqué');
-ok((await recapRecipients()).join() === 'channing@mc-export.com,equipe@mc-export.com,vente@mc-export.com', 'destinataires du bilan : ni la boîte d\'une agente, ni une adresse « ne plus contacter »', await recapRecipients());
+ok((await recapRecipients(agentDana)).join() === 'channing@mc-export.com,equipe@mc-export.com,vente@mc-export.com', 'destinataires du bilan (rien de choisi : toute l\'équipe) : ni la boîte d\'une agente, ni une adresse « ne plus contacter »', await recapRecipients(agentDana));
+// Les comptes cochés dans les Réglages (18/10) ; une adresse morte cochée reste écartée.
+ok(recapToOf({ recapTo: ['u-channing'] })?.join() === 'u-channing' && recapToOf({ deepPerDay: 5 }) === null && recapToOf(null) === null, 'les comptes choisis : la liste, ou null tant que rien n\'est choisi');
+ok((await recapRecipients({ targets: { recapTo: ['u-channing', 'u-vente', 'u-test', 'u-autre'] } })).join() === 'channing@mc-export.com,vente@mc-export.com',
+  'seulement les comptes cochés (jamais une adresse morte ni hors MC Export)');
+ok(await maybeSendRecap({ ...agentDana, targets: { recapTo: [] } } as never, at('2026-10-18T05:10:00Z')) === 'personne' && sent.length === 0 && db.app_config.length === 0,
+  'personne de coché : pas de bilan (ni envoi, ni verrou)');
 ok(await maybeSendRecap(agentDana as never, at('2026-10-18T04:00:00Z')) === 'pas_encore' && sent.length === 0 && db.app_config.length === 0, '6 h : pas encore (rien envoyé, pas de verrou)');
 const r1 = await maybeSendRecap(agentDana as never, at('2026-10-18T05:10:00Z'));
 ok(r1 === 'envoye' && sent.length === 3 && sent.every((x) => x.from === 'Dana (ADA) <dana@mc-export.com>' && x.subject === 'Dana — bilan du dimanche 18 octobre'),

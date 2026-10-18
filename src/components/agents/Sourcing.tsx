@@ -27,7 +27,7 @@
  * Rien n'est envoyé à personne d'ici.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Layers, Radar, ExternalLink, Phone, MapPin, Plus, ChevronDown, X, Sparkles, Crown, Telescope, Search, AlertTriangle, User } from 'lucide-react';
+import { Layers, Radar, ExternalLink, Phone, MapPin, Plus, ChevronDown, ChevronRight, X, Sparkles, Crown, Telescope, Search, AlertTriangle, User } from 'lucide-react';
 import {
   listLots, listTasks, queueDanaDiscovery, cancelTask, addLotDealerToMap, queueQualification, queueFirstMails, prospectDetails, setProspectStage, threadsOfProspects, indexMeta, queueDeepResearch,
   type DealerLot, type AgentTask, type ProspectDetail, type ProspectStage,
@@ -39,6 +39,7 @@ import { looksLikeGroup } from '../../lib/agents/sourcing';
 import { missingOf, lastDeepAt } from '../../lib/agents/deepResearch';
 import { SITE_LABEL } from '../../services/dealerDirectory';
 import { fmtRelative, fmtDateTime, STAGE_LABEL, scoreTone } from './helpers';
+import { DeepAsk } from './shared';
 
 const FLAG: Record<string, string> = { FR: '🇫🇷', DE: '🇩🇪', NL: '🇳🇱', BE: '🇧🇪', ES: '🇪🇸', IT: '🇮🇹', DK: '🇩🇰', AT: '🇦🇹', LU: '🇱🇺', SE: '🇸🇪', HU: '🇭🇺', LT: '🇱🇹' };
 const COUNTRY_NAME: Record<string, string> = { FR: 'France', DE: 'Allemagne', NL: 'Pays-Bas', BE: 'Belgique', ES: 'Espagne', IT: 'Italie', DK: 'Danemark', SE: 'Suède', HU: 'Hongrie', AT: 'Autriche', LU: 'Luxembourg', LT: 'Lituanie' };
@@ -159,10 +160,10 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
     if (e) { onError(e); return; }
     setDetails((m) => new Map(m).set(p.id, { ...p, stage }));
   };
-  const deepen = async (p: ProspectDetail) => {
-    const e = await queueDeepResearch([p.id], userId, 'dana');
+  const deepen = async (p: ProspectDetail, note = '') => {
+    const e = await queueDeepResearch([p.id], userId, 'dana', note);
     if (e) { onError(e); return; }
-    onInfo(`Dana cherche plus loin pour ${p.name} : à qui appartient le garage, qui décide des ventes en lots ou du de-fleet, les e-mails et téléphones publiés. Une à deux minutes.`);
+    onInfo(`Dana cherche plus loin pour ${p.name}${note.trim() ? ', avec votre consigne' : ''} : à qui appartient le garage, qui décide des ventes en lots ou du de-fleet, comment le joindre directement. Une à deux minutes.`);
     void loadTasks();
   };
 
@@ -306,8 +307,8 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
                 </div>
                 <div className="flex items-center gap-2 flex-wrap text-xs">
                   {pr ? (
-                    <button onClick={() => setCard(cardOpen ? null : s.id)} className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${cardOpen ? 'border-violet-400 bg-violet-100 text-violet-900' : 'border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>
-                      <Sparkles className="w-3.5 h-3.5" /> Fiche de Dana
+                    <button onClick={() => setCard(cardOpen ? null : s.id)} aria-expanded={cardOpen} className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 font-medium ${cardOpen ? 'bg-violet-100 text-violet-900' : 'text-violet-800 hover:bg-violet-50'}`}>
+                      <ChevronRight className={`w-3.5 h-3.5 transition-transform ${cardOpen ? 'rotate-90' : ''}`} /> Fiche complète
                     </button>
                   ) : queued.has(s.id) ? (
                     <span className="text-teal-800 animate-pulse">fiche en cours…</span>
@@ -319,10 +320,8 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
                   {det && ['qualifie', 'a_contacter'].includes(det.stage) && (deeping.has(det.id)
                     ? <span className="text-indigo-700 animate-pulse">Dana cherche plus loin…</span>
                     : (
-                      <button onClick={() => void deepen(det)} className="inline-flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-2 py-1 font-medium text-indigo-800 hover:bg-indigo-50"
-                        title="À qui appartient le garage, qui décide des ventes en lots ou du de-fleet (au niveau du groupe d'abord), les e-mails et téléphones publiés, des pistes pour l'approcher. Environ 0,10 $.">
-                        <Telescope className="w-3.5 h-3.5" /> {deepAt ? 'Chercher encore plus loin' : 'Recherche approfondie'}
-                      </button>
+                      <DeepAsk name="Dana" again={!!deepAt} label="Recherche approfondie" onLaunch={(note) => void deepen(det, note)}
+                        title="À qui appartient le garage, qui décide des ventes en lots ou du de-fleet (au niveau du groupe d'abord), comment le joindre directement, des pistes pour l'approcher. Environ 0,10 $." />
                     ))}
                   {canEditMap && !added.has(s.id) && !pr && (
                     <button onClick={() => void toMap(s.lots[0])} className="inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2 py-1 text-teal-800 hover:bg-teal-100" title="Sur la carte du réseau, comme vendeur"><MapPin className="w-3.5 h-3.5" /><Plus className="w-3 h-3" /> Carte</button>
@@ -334,7 +333,7 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
                 {cardOpen && pr && (det
                   ? <QualifCard p={det} agentName="Dana" onStage={(st) => void changeStage(det, st)} onRequalify={() => void qualify([s.id])} requalifying={queued.has(s.id)}
                       threadId={threads.get(det.id) ?? null} onDraft={() => void draft(det)} drafting={drafting.has(det.id)} onOpenThread={onOpenThread}
-                      onDeep={() => void deepen(det)} deeping={deeping.has(det.id)} />
+                      onDeep={(note) => void deepen(det, note)} deeping={deeping.has(det.id)} />
                   : <p className="mt-2 text-xs text-slate-400">Fiche en lecture…</p>)}
                 {lotsOpen && (
                   <div className="mt-1 space-y-1.5 text-xs">

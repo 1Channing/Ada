@@ -11,7 +11,11 @@
  * Quoi : un mail en texte simple — ses recherches et ce qu'elles ont trouvé,
  * les fiches, les recherches approfondies, ce qui est préparé pour Channing,
  * les premiers mails à valider, la dépense, ce qui attend dans ADA.
- * La partie pure (le moment, le texte) ; l'envoi : worker/agents/recap.ts.
+ * Qui : les comptes MC Export cochés dans les Réglages de l'agente (18/10,
+ * Channing : « je veux pouvoir choisir à qui on envoie les mails de bilan »),
+ * tous tant que rien n'est coché ; jamais une boîte d'agente ni une adresse
+ * « ne plus contacter ».
+ * La partie pure (le moment, le texte, les destinataires choisis) ; l'envoi : worker/agents/recap.ts.
  * Testée par test/agents-bilan.test.ts.
  */
 import { parisClock, toMinutes, endMinutes, type SendWindow } from './sendPolicy';
@@ -34,6 +38,12 @@ export interface RecapDueInput {
   researchQuota: number; researchToday: number;
   discoveryOn: boolean; discoveryQuota: number; discoveryToday: number;
   budgetReached: boolean;
+}
+
+/** Les comptes choisis pour le bilan (identifiants, targets.recapTo) ; null = pas encore choisis (tous les comptes MC Export). */
+export function recapToOf(targets: unknown): string[] | null {
+  const v = targets && typeof targets === 'object' ? (targets as { recapTo?: unknown }).recapTo : undefined;
+  return Array.isArray(v) ? v.map(String) : null;
 }
 
 /** L'heure de fin de journée de l'agente, en minutes (20 h si elle travaille toute la journée). */
@@ -64,6 +74,8 @@ export interface RecapInput {
   fiches: number; keyFiches: number; top: Array<{ name: string; score: number | null }>;
   deep: { done: number; enriched: number; found: string[] };
   prepared: string[]; drafts: number; map: number;
+  /** Les réponses préparées aux mails reçus (18/10). */
+  replies?: number;
   spent: number; budget: number;
   waiting: { forYou: number; toComplete: number; toValidate: number };
   link: string;
@@ -88,6 +100,7 @@ export function recapMail(i: RecapInput): { subject: string; body: string } {
     `• Recherches approfondies : ${i.deep.done}${i.deep.done ? ` — ${i.deep.enriched} fiche${s(i.deep.enriched)} complétée${s(i.deep.enriched)}${i.deep.found.length ? ` (${i.deep.found.join(' ; ')})` : ''}` : ''}`,
     `• Préparé pour Channing (grands comptes) : ${i.prepared.length}${i.prepared.length ? ` — ${i.prepared.join(', ')}` : ''}`,
     `• Premiers mails à valider : ${i.drafts}`,
+    ...(i.replies ? [`• Réponses préparées aux mails reçus : ${i.replies}`] : []),
     `• Ajoutés à la carte du réseau : ${i.map}`,
     `• Dépense IA : ${usd(i.spent)} sur ${usd(i.budget)}`,
     '',

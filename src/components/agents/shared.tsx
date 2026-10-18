@@ -4,6 +4,7 @@
  * petit « i » d'information (17/10).
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Telescope, Copy, Check } from 'lucide-react';
 import { AGENT_LABEL, type AgentKey, type Draft } from '../../services/agents';
 
 export function AgentBadge({ agent, small }: { agent: AgentKey | null; small?: boolean }) {
@@ -184,5 +185,73 @@ export function CheckDropdown({ options, selected, onChange, disabled, allLabel 
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * « Chercher plus loin » (18/10, Channing : « pouvoir laisser une note à l'agente pour qu'elle s'en
+ * serve ») : le bouton ouvre une consigne facultative — « trouve le moyen de joindre directement la
+ * bonne personne, ou au moins son service » —, puis lance la recherche approfondie.
+ */
+export function DeepAsk({ name, again, label, title, onLaunch, small }: {
+  /** Ada ou Dana. */
+  name: string;
+  /** Déjà approfondie : « Chercher encore plus loin ». */
+  again?: boolean;
+  /** Le libellé du bouton quand ce n'est pas encore fait (« Chercher plus loin », « Recherche approfondie »). */
+  label?: string;
+  title?: string;
+  onLaunch: (note: string) => void;
+  small?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState('');
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} title={title}
+        className={`inline-flex items-center gap-1 rounded-lg border border-indigo-300 bg-white font-medium text-indigo-800 hover:bg-indigo-50 ${small ? 'px-2 py-0.5 text-xs' : 'px-2 py-1 text-xs'}`}>
+        <Telescope className="w-3.5 h-3.5" />
+        {again ? 'Chercher encore plus loin' : label ?? 'Chercher plus loin'}
+      </button>
+    );
+  }
+  const launch = () => { onLaunch(note.trim().slice(0, 1000)); setOpen(false); setNote(''); };
+  return (
+    <div className="w-full basis-full rounded-lg border border-indigo-200 bg-indigo-50/60 p-2 space-y-1.5 text-left">
+      <label className="block text-xs font-medium text-indigo-900" htmlFor="deep-note">Une consigne pour {name} (facultatif)</label>
+      <textarea id="deep-note" autoFocus value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000}
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) launch(); if (e.key === 'Escape') setOpen(false); }}
+        placeholder="Ex. : trouve le moyen de joindre directement la personne qui décide, ou au moins son service — pas l'adresse du service client."
+        className="w-full min-h-[64px] rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="button" onClick={launch} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 text-xs font-medium">Lancer la recherche</button>
+        <button type="button" onClick={() => setOpen(false)} className="text-xs text-slate-500 hover:text-slate-800">Annuler</button>
+        <span className="text-[11px] text-slate-500">Environ 0,10 $. Elle suit votre consigne sans jamais deviner une adresse ; si elle trouve mieux, ce qui est préparé est refait.</span>
+      </div>
+    </div>
+  );
+}
+
+/** Copier un texte (presse-papiers, ou l'ancienne méthode si le navigateur la refuse). */
+async function copyText(text: string): Promise<boolean> {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* repli ci-dessous */ }
+  try {
+    const t = document.createElement('textarea');
+    t.value = text;
+    document.body.appendChild(t);
+    t.select();
+    const ok = document.execCommand('copy');
+    t.remove();
+    return ok;
+  } catch { return false; }
+}
+
+export function CopyButton({ text, label, className = '' }: { text: string; label: string; className?: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button type="button" onClick={() => void copyText(text).then((ok) => { setDone(ok); if (ok) window.setTimeout(() => setDone(false), 1500); })}
+      className={`inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 ${className}`}>
+      {done ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />} {done ? 'Copié' : label}
+    </button>
   );
 }

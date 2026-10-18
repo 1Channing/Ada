@@ -15,10 +15,14 @@
  *   avec la traduction et les faits cités ; le brouillon entre dans « À
  *   valider », depuis la boîte de l'agente ;
  * - grand compte (groupe, loueur, leasing, flotte — Channing : « elles
- *   préparent, vous envoyez ») : Opus 5.5 prépare, au nom de Channing, le mail
- *   (s'il y a un e-mail publié et vérifié), la note d'invitation LinkedIn et
- *   la fiche d'appel ; ils entrent dans « Pour vous » : Channing envoie
- *   lui-même (sa boîte, son LinkedIn), puis les marque envoyés.
+ *   préparent, vous envoyez ») : Opus 5.5 prépare le mail (s'il y a un e-mail
+ *   publié et vérifié ; écrit sans nommer l'expéditeur), la note d'invitation
+ *   LinkedIn et la fiche d'appel ; ils entrent dans « Pour vous » : « Envoyer »
+ *   fait partir le mail de la boîte de l'agente, signé par elle (18/10), ou
+ *   Channing l'envoie de sa boîte et le marque envoyé ; la note LinkedIn et
+ *   l'appel restent à lui.
+ * L'adresse du mail est dite à Opus (18/10) : celle de la personne, d'un
+ * service, ou une adresse générale — on demande alors de transmettre.
  * Rien ne part sans le clic d'un administrateur ; l'envoi par la boîte de
  * l'agente respecte les horaires, le plafond du jour et l'étalement.
  */
@@ -36,7 +40,7 @@ import { suppressionMatch } from '../../src/lib/agents/sendPolicy';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
 import { live } from './live';
 import { loadOffers, dealerGroupIds, lotsOfDealer, type AiAgent } from './qualify';
-import { HOME_COUNTRY } from '../../src/lib/agents/qualification';
+import { HOME_COUNTRY, addressKind } from '../../src/lib/agents/qualification';
 import { sb, journal, loadSuppressions } from './store';
 
 interface Person { nom: string; fonction: string | null; email: string | null; linkedin?: string | null }
@@ -45,7 +49,7 @@ interface ProspectRow {
   group_name: string | null; kind: string | null; brands_official: string[] | null; language: string | null; summary: string | null;
   stage: string; score: number | null; network_contact_id: string | null;
   best_contact: { nom: string | null; fonction: string | null; email: string | null; linkedin?: string | null } | null;
-  emails: Array<{ email: string; mx: boolean }> | null;
+  emails: Array<{ email: string; mx: boolean; nature?: string }> | null;
   people?: Person[] | null;
   // SQL agents_comptes (17/10) ; absents avant : un petit compte, sans lots.
   key_account?: boolean | null; lots?: LotFact[] | null;
@@ -120,7 +124,11 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   }
   const brandsTop = [...byBrand].sort((x, y) => y[1] - x[1]).slice(0, 6).map(([brand, n]) => ({ brand: nice(brand), n }));
   const language = p.language || LANG_OF_COUNTRY[(p.country ?? '').toUpperCase()] || 'en';
-  const contact = { name: p.best_contact?.nom ?? null, role: p.best_contact?.fonction ?? null };
+  // L'adresse du mail et ce qu'elle est : celle de la personne, d'un service, ou une adresse générale (on demande alors de transmettre).
+  const contact = {
+    name: p.best_contact?.nom ?? null, role: p.best_contact?.fonction ?? null, email: verified ? email : null,
+    address: verified && email ? addressKind(email, (p.emails ?? []).find((e) => e.email === email)?.nature, p.best_contact?.nom) : null,
+  };
   // Une entreprise trouvée par recherche web : son type de compte, sa taille, pourquoi elle compte.
   let account: AccountFacts | null = null;
   if (p.account_id) {
