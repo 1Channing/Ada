@@ -14,7 +14,8 @@
  *    sa réponse donne le contact → la fiche, puis le vrai premier mail ;
  * C. « Le bon contact est… » : la fiche, et une leçon proposée sans nom ;
  * D. une copie de l'équipe : les contacts appris, la fiche complétée ;
- * E. les brouillons refusés ou corrigés : des leçons proposées.
+ * E. les brouillons refusés ou corrigés : des leçons proposées ;
+ * F. sans la table des leçons (SQL pas collé) : rien d'appelé ni de perdu.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as dns } from 'node:dns';
@@ -236,7 +237,7 @@ setSharedSupabase(fakeSupabase(db) as never);
 const { deepResearch } = await import('../worker/agents/deep');
 const { runNextTask } = await import('../worker/agents/tasks');
 const { queueReplyDraft } = await import('../worker/agents/reply');
-const { autoLessons } = await import('../worker/agents/lessons');
+const { autoLessons, forgetLessons } = await import('../worker/agents/lessons');
 const task = (o: Row) => { db.agent_tasks.push({ id: `t${db.agent_tasks.length + 1}`, agent: 'dana', status: 'en_attente', created_by: null, created_at: new Date().toISOString(), ...o }); };
 // Les défauts de la base pour les tâches posées par le worker lui-même (statut « en attente »).
 const settle = () => { for (const t of db.agent_tasks) { t.status ??= 'en_attente'; t.created_at ??= new Date().toISOString(); } };
@@ -332,6 +333,21 @@ ok(db.agent_lessons.length === before + 2 && ['r1', 'r2'].every((id) => !!((db.a
   'E. un refus motivé et une vraie correction : deux leçons proposées ; un texte inchangé : rien', db.agent_lessons.map((l) => l.source));
 await autoLessons(dana as never);
 ok(db.agent_lessons.length === before + 2, 'E. chaque correction une fois');
+
+// F. Le SQL agents_lecons pas encore collé : pas d'appel à Haiku, la correction n'est pas marquée — elle sert une fois la table créée.
+const real = fakeSupabase(db);
+const noTable = { select: () => ({ limit: async () => ({ data: null, error: { message: 'relation "public.agent_lessons" does not exist' } }) }) };
+setSharedSupabase({ ...real, from: (t: string) => (t === 'agent_lessons' ? noTable : real.from(t)) } as never);
+forgetLessons();
+db.agent_messages.push({ id: 'r4', thread_id: 'th-e', agent: 'dana', direction: 'out', status: 'refuse', author: 'dana', subject: 'Vos VO', body_text: 'Bonjour, votre groupe compte 12 sites…', refused_reason: 'Trop long, va droit au but.', updated_at: today, ai_notes: { texte_initial: 'Bonjour, votre groupe compte 12 sites…' } });
+const nCalls = calls.length;
+await autoLessons(dana as never);
+const r4 = () => ((db.agent_messages.find((m) => m.id === 'r4') as Row).ai_notes as { lecon?: string });
+ok(calls.length === nCalls && !r4().lecon && db.agent_lessons.length === before + 2, 'F. sans la table des leçons : aucun appel, la correction attend', { appels: calls.length - nCalls, lecon: r4().lecon });
+setSharedSupabase(real as never);
+forgetLessons();
+await autoLessons(dana as never);
+ok(!!r4().lecon && r4().lecon !== 'aucune' && db.agent_lessons.length === before + 3, 'F. la table créée : la correction devient une leçon proposée', r4());
 
 server.close();
 if (fails === 0) {

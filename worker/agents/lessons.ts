@@ -17,6 +17,18 @@ import type { AiAgent } from './qualify';
 const TTL_MS = 5 * 60_000;
 const cache = new Map<string, { at: number; rows: Lesson[] }>();
 const missing = (m: string) => /does not exist|schema cache|relation .*agent_lessons/i.test(m);
+let table: { at: number; ok: boolean } | null = null;
+
+/**
+ * La table agent_lessons existe-t-elle (SQL agents_lecons collé) ? Sans elle, aucune leçon n'est
+ * proposée — pas d'appel à Haiku, et les corrections ne sont pas marquées : elles serviront une fois la table créée.
+ */
+async function lessonsTable(): Promise<boolean> {
+  if (table && Date.now() - table.at < TTL_MS) return table.ok;
+  const { error } = await sb.from('agent_lessons').select('id').limit(1);
+  table = { at: Date.now(), ok: !(error && missing(error.message)) };
+  return table.ok;
+}
 
 /** Les leçons d'une agente (relues toutes les 5 minutes ; aucune tant que le SQL n'est pas collé). */
 export async function loadLessons(agent: string): Promise<Lesson[]> {
@@ -27,7 +39,7 @@ export async function loadLessons(agent: string): Promise<Lesson[]> {
   cache.set(agent, { at: Date.now(), rows });
   return rows;
 }
-export const forgetLessons = (): void => { cache.clear(); };
+export const forgetLessons = (): void => { cache.clear(); table = null; };
 
 /** Les lignes de leçons d'une consigne (recherche, ou mails), pour ce type d'entreprise et ce pays. */
 export async function lessonsBlock(agent: string, scope: 'recherche' | 'mail', ctx: { segment?: string | null; kind?: string | null; country?: string | null }): Promise<string[]> {
@@ -39,6 +51,7 @@ export async function lessonsBlock(agent: string, scope: 'recherche' | 'mail', c
  * rien ne change dans les consignes tant que Channing ne l'a pas validée. Rend l'identifiant, ou null.
  */
 export async function proposeLesson(a: AiAgent, m: LessonMaterial, details: Record<string, unknown>, taskId: string | null): Promise<string | null> {
+  if (!(await lessonsTable())) return null;
   let out: LessonOutput | null = null;
   try {
     const budget = Number(a.daily_budget_usd);
@@ -87,6 +100,7 @@ export function reallyEdited(before: string, after: string): boolean {
  * deviennent des leçons proposées — trois au plus par cycle, chacun une fois (noté sur le message).
  */
 export async function autoLessons(a: AiAgent): Promise<void> {
+  if (!(await lessonsTable())) return;
   const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const { data, error } = await sb.from('agent_messages').select('id, thread_id, agent, status, subject, body_text, refused_reason, updated_at, ai_notes')
     .eq('agent', a.agent).eq('direction', 'out').eq('author', a.agent).in('status', ['refuse', 'valide', 'envoi', 'envoye']).gte('updated_at', since).limit(200);
