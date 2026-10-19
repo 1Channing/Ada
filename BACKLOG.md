@@ -134,6 +134,19 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **MCP : L'ONGLET AGENTS EN LECTURE (18/10, Channing : « ajoute la lecture
+  de l'onglet Agents au MCP »)**. Serveur MCP 0.7.0, 26 outils. Neuf
+  nouveaux, lecture seule, un par onglet de la page Agents :
+  `agents_overview` (Live + Réglages : statut, boîte connectée, compteurs du
+  jour, dépense IA, tâches en cours), `agents_mailbox` (Messagerie par
+  dossier, même rangement que src/lib/agents/mailbox.ts), `agents_thread`
+  (un fil entier avec notes IA et fiche liée), `agents_queue` (À valider et
+  « pour vous »), `agents_prospects` (fiches qualifiées, fiche complète par
+  id), `agents_directory` (annuaire, RPC agents_dealer_directory),
+  `agents_lots` (Sourcing de Dana, RPC agents_dealer_lots),
+  `agents_accounts` (Recherche), `agents_journal` (journal / tâches /
+  appels IA). Rien n'est validé ni envoyé par le MCP. Requêtes vérifiées
+  sur la base avec le compte admin de test.
 - **Blocket** : complétude année/km tombée de 80 % à 37 % — la légende de
   carte suit un carrousel de 4 000 à 11 300 caractères, la fenêtre de
   lecture faisait 6 000. Fenêtre = jusqu'à la carte suivante. 18/19 lus.

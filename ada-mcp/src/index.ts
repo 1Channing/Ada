@@ -1271,6 +1271,411 @@ function buildServer(): McpServer {
     },
   );
 
+  // ── Agents Ada et Dana (18/10, demande Channing : « ajoute la lecture de
+  //    l'onglet Agents au MCP ») : un outil par onglet, lecture seule. Ada
+  //    (ada@mc-export.com) trouve des ACHETEURS, Dana (dana@mc-export.com)
+  //    des VENDEURS. Rien n'est envoyé ni validé par ces outils. ─────────────
+  const AGENT_ENUM = z.enum(['ada', 'dana']);
+  const AGENT_ROLE: Record<string, string> = { ada: 'trouve des acheteurs (vend nos véhicules à l\'export)', dana: 'trouve des vendeurs (sourcing de lots)' };
+  const dayStart = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.toISOString(); };
+  const headCount = async (q: PromiseLike<{ count: number | null; error: { message: string } | null }>) => { const r = await q; return r.error ? null : r.count ?? 0; };
+  const clip = (t: unknown, n: number) => { const x = typeof t === 'string' ? t : t == null ? '' : String(t); return x.length > n ? `${x.slice(0, n)}… [${x.length - n} caractères coupés]` : x; };
+  const threadCard = (t: Record<string, unknown>) => ({
+    id: t.id, agent: t.agent, subject: t.subject, counterpartEmail: t.counterpart_email ?? null, counterpartName: t.counterpart_name ?? null,
+    prospectId: t.prospect_id ?? null, networkContactId: t.network_contact_id ?? null, lastMessageAt: t.last_message_at ?? null, lastDirection: t.last_direction ?? null,
+    lastClassification: t.last_classification ?? null, unread: !!t.unread, archived: !!t.archived, createdAt: t.created_at,
+  });
+  const messageCard = (m: Record<string, unknown>, full: boolean) => ({
+    id: m.id, threadId: m.thread_id, agent: m.agent, channel: m.channel, direction: m.direction, status: m.status, kind: m.kind, author: m.author,
+    from: m.from_email ?? null, fromName: m.from_name ?? null, to: m.to_emails ?? [], cc: m.cc_emails ?? [], subject: m.subject,
+    body: clip(full ? m.body_text : (m.body_new ?? m.body_text), full ? 6000 : 600), translationFr: full ? clip(m.translation_fr, 4000) || null : undefined,
+    classification: m.classification ?? null, autoReply: !!m.auto_reply, attachments: Array.isArray(m.attachments) ? (m.attachments as Array<{ name?: string; size?: number }>).map((a) => ({ name: a.name, size: a.size })) : [],
+    aiNotes: m.ai_notes ?? null, approvedBy: m.approved_by ?? null, approvedAt: m.approved_at ?? null, refusedReason: m.refused_reason ?? null, error: m.error ?? null,
+    sentAt: m.sent_at ?? null, receivedAt: m.received_at ?? null, createdAt: m.created_at,
+  });
+  const prospectCard = (p: Record<string, unknown>, full: boolean) => ({
+    id: p.id, agent: p.agent, name: p.name, country: p.country ?? null, city: p.city ?? null, phone: p.phone ?? null, website: p.website ?? null,
+    legalName: p.legal_name ?? null, groupName: p.group_name ?? null, kind: p.kind ?? null, accountKind: p.account_kind ?? null, keyAccount: !!p.key_account,
+    stage: p.stage, score: p.score ?? null, fitScore: p.fit_score ?? null, summary: clip(p.summary, full ? 4000 : 400) || null, exclusionReason: p.exclusion_reason ?? null,
+    language: p.language ?? null, bestContact: p.best_contact ?? null, emails: full ? p.emails : Array.isArray(p.emails) ? (p.emails as unknown[]).length : 0,
+    people: full ? p.people : Array.isArray(p.people) ? (p.people as unknown[]).length : 0, brandsOfficial: p.brands_official ?? [],
+    lots: full ? p.lots ?? [] : undefined, evidence: full ? p.evidence ?? [] : undefined, fitParts: full ? p.fit_parts ?? [] : undefined,
+    dealerId: p.dealer_id ?? null, accountId: p.account_id ?? null, networkContactId: p.network_contact_id ?? null, inMap: p.network_contact_id != null,
+    qualifiedAt: p.qualified_at ?? null, qualifyCostUsd: p.qualify_cost_usd != null ? Number(p.qualify_cost_usd) : null, notes: full ? p.notes ?? '' : undefined, updatedAt: p.updated_at,
+  });
+
+  server.registerTool(
+    'agents_overview',
+    {
+      title: 'ADA : agents — vue d\'ensemble (Live + Réglages)',
+      description: "L'onglet Agents d'ADA : Ada (trouve des acheteurs) et Dana (trouve des vendeurs), deux agentes IA avec chacune sa boîte mail. Pour chaque agente : réglages (statut pause / active, boîte connectée ou non, dernière synchro, plafond de premiers contacts par jour, jours et horaires d'envoi, cibles, budget IA par jour, travail automatique : découvertes, qualifications, premiers mails, recherches, consignes), compteurs du jour (mails à valider, en attente d'envoi, échecs, fils non lus, reçus et envoyés aujourd'hui, fiches qualifiées et comptes trouvés aujourd'hui, grands comptes préparés « pour vous »), dépense IA du jour et du mois, tâches en cours ou récentes avec leur suivi (onglet Live), heure du dernier calcul de l'annuaire. Lecture seule.",
+      inputSchema: z.object({ agent: AGENT_ENUM.optional() }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ agent }) => {
+      let sq = supabase.from('agent_settings').select('*').order('agent');
+      if (agent) sq = sq.eq('agent', agent);
+      const { data: settings, error } = await sq;
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Tables des agents absentes (SQL du 16/10 agents_socle non collé).', agents: [] });
+      assertDb(error, 'Unable to read agent settings');
+      const [spend, meta] = await Promise.all([supabase.rpc('agents_ai_spend'), supabase.from('agent_index_meta').select('computed_at, dealers, lots, refs').maybeSingle()]);
+      const day = dayStart();
+      const agents = [];
+      for (const st of (settings || []) as Array<Record<string, unknown>>) {
+        const a = String(st.agent);
+        const m = () => supabase.from('agent_messages').select('id', { count: 'exact', head: true }).eq('agent', a);
+        const [aValider, enAttente, echecs, nonLus, recus, envoyes, pourVous, fiches, comptes, tasks] = await Promise.all([
+          headCount(m().eq('status', 'a_valider')), headCount(m().in('status', ['valide', 'envoi'])), headCount(m().eq('status', 'echec')),
+          headCount(supabase.from('agent_threads').select('id', { count: 'exact', head: true }).eq('agent', a).eq('unread', true).eq('archived', false)),
+          headCount(m().eq('direction', 'in').gte('received_at', day)), headCount(m().eq('status', 'envoye').gte('sent_at', day)),
+          supabase.from('agent_messages').select('thread_id').eq('agent', a).eq('status', 'pour_channing').limit(500),
+          headCount(supabase.from('agent_prospects').select('id', { count: 'exact', head: true }).eq('agent', a).gte('qualified_at', day)),
+          headCount(supabase.from('agent_accounts').select('id', { count: 'exact', head: true }).eq('agent', a).gte('found_at', day)),
+          supabase.from('agent_tasks').select('id, kind, status, params, result, error, created_by, created_at, started_at, finished_at').eq('agent', a).order('created_at', { ascending: false }).limit(8),
+        ]);
+        agents.push({
+          agent: a, name: st.display_name, role: AGENT_ROLE[a] ?? st.role, mailbox: st.mailbox, senderName: st.sender_name, status: st.status,
+          mailboxConnected: !!st.gmail_connected_email, connectedEmail: st.gmail_connected_email ?? null, lastSyncAt: st.last_sync_at ?? null, lastSyncError: st.last_sync_error ?? null, nextSendAfter: st.next_send_after ?? null,
+          sending: { dailyFirstContactCap: st.daily_first_contact_cap, sendDays: st.send_days, sendFrom: st.send_from, sendTo: st.send_to, minGapSeconds: st.min_gap_seconds, maxGapSeconds: st.max_gap_seconds },
+          ai: { targets: st.targets ?? null, dailyBudgetUsd: st.daily_budget_usd != null ? Number(st.daily_budget_usd) : null, autoDiscovery: st.auto_discovery ?? null, autoQualifyPerDay: st.auto_qualify_per_day ?? null, autoDraftPerDay: st.auto_draft_per_day ?? null, autoResearchPerDay: st.auto_research_per_day ?? null, mapAutoAdd: st.map_auto_add ?? null, mapMinScore: st.map_min_score ?? null, instructions: clip(st.instructions, 3000) || null },
+          today: { toValidate: aValider, waitingToSend: enAttente, failed: echecs, unreadThreads: nonLus, received: recus, sent: envoyes, preparedForYou: new Set(((pourVous.data ?? []) as Array<{ thread_id: string }>).map((x) => x.thread_id)).size, qualifiedToday: fiches, accountsFoundToday: comptes },
+          spend: spend.error ? null : (spend.data as Record<string, unknown> | null)?.[a] ?? null,
+          atWork: ((tasks.data ?? []) as Array<{ status: string }>).some((t) => t.status === 'en_cours'),
+          recentTasks: ((tasks.data ?? []) as Array<Record<string, unknown>>).map((t) => ({ id: t.id, kind: t.kind, status: t.status, params: t.params, result: t.result, error: t.error, createdAt: t.created_at, startedAt: t.started_at, finishedAt: t.finished_at })),
+          signature: clip(st.signature, 600) || null,
+        });
+      }
+      return jsonToolResult({
+        note: 'Rien n\'est envoyé sans le clic d\'un administrateur dans ADA (« À valider »). preparedForYou = grands comptes préparés par l\'agente, que Channing envoie lui-même. Fils et mails : agents_mailbox / agents_thread ; à valider : agents_queue ; fiches : agents_prospects ; annuaire : agents_directory ; lots de Dana : agents_lots ; comptes trouvés : agents_accounts ; journal / tâches / appels IA : agents_journal.',
+        index: meta.error ? null : meta.data ?? null,
+        agents,
+      });
+    },
+  );
+
+  server.registerTool(
+    'agents_mailbox',
+    {
+      title: 'ADA : agents — messagerie (fils)',
+      description: "La Messagerie d'une agente, rangée en dossiers comme dans ADA : reception (fils avec un mail reçu, hors rebond), brouillons (fils où quelque chose attend : brouillon, à valider, préparé pour vous, validé pas encore parti, échec), envoyes (fils avec un message parti), archives (fils archivés ou qui n'ont plus que des messages refusés), ou tous. Chaque fil : objet, interlocuteur, prospect lié, dernier mouvement, non lu, ce qui attend, dernier reçu / dernier parti, et le dernier message en résumé. Filtre texte (objet, interlocuteur). Pour lire un fil entier : agents_thread. Lecture seule.",
+      inputSchema: z.object({
+        agent: AGENT_ENUM,
+        folder: z.enum(['reception', 'brouillons', 'envoyes', 'archives', 'tous']).default('reception'),
+        query: z.string().trim().min(1).optional(),
+        unreadOnly: z.boolean().default(false),
+        limit: z.number().int().min(1).max(300).default(50),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ agent, folder, query, unreadOnly, limit }) => {
+      const [t, m] = await Promise.all([
+        supabase.from('agent_threads').select('*').eq('agent', agent).order('last_message_at', { ascending: false, nullsFirst: true }).order('created_at', { ascending: false }).limit(1000),
+        supabase.from('agent_messages').select('id, thread_id, direction, status, channel, classification, kind, author, subject, body_new, body_text, received_at, sent_at, created_at, from_email').eq('agent', agent).order('created_at', { ascending: false }).limit(5000),
+      ]);
+      if (isMissingSchema(t.error)) return jsonToolResult({ note: 'Tables des agents absentes (SQL du 16/10 non collé).', threads: [] });
+      assertDb(t.error ?? m.error, 'Unable to read agent mailbox');
+      const WAITING = ['brouillon', 'a_valider', 'pour_channing', 'valide', 'envoi', 'echec'];
+      const by = new Map<string, Array<Record<string, unknown>>>();
+      for (const x of (m.data ?? []) as Array<Record<string, unknown>>) by.set(String(x.thread_id), [...(by.get(String(x.thread_id)) ?? []), x]);
+      const latest = (xs: string[]) => xs.filter(Boolean).sort().pop() ?? null;
+      const needle = normalizeText(query)?.toLowerCase();
+      const rows = ((t.data ?? []) as Array<Record<string, unknown>>).map((th) => {
+        const ms = by.get(String(th.id)) ?? [];
+        const ins = ms.filter((x) => x.direction === 'in' && x.classification !== 'rebond');
+        const outs = ms.filter((x) => x.direction === 'out' && (x.status === 'envoye' || x.status === 'envoye_main'));
+        const waiting = ms.filter((x) => x.direction === 'out' && WAITING.includes(String(x.status)));
+        const facts = {
+          received: ins.length > 0, lastIn: latest(ins.map((x) => String(x.received_at ?? x.created_at))),
+          sent: outs.length > 0, lastOut: latest(outs.map((x) => String(x.sent_at ?? x.created_at))),
+          waiting: waiting.length, waitingStatuses: [...new Set(waiting.map((x) => String(x.status)))],
+          linkedinOnly: ms.length > 0 && ms.every((x) => x.channel === 'linkedin'),
+          dead: ms.length > 0 && ms.every((x) => x.direction === 'out' && x.status === 'refuse'),
+        };
+        const inFolder = folder === 'tous' ? true : folder === 'archives' ? (!!th.archived || facts.dead)
+          : !th.archived && !facts.dead && (folder === 'reception' ? facts.received : folder === 'envoyes' ? facts.sent : facts.waiting > 0);
+        const last = ms[0];
+        const sortAt = (folder === 'reception' ? facts.lastIn : folder === 'envoyes' ? facts.lastOut : null) ?? String(th.last_message_at ?? th.created_at);
+        return { th, facts, inFolder, last, sortAt, messages: ms.length };
+      }).filter((r) => r.inFolder)
+        .filter((r) => !unreadOnly || !!r.th.unread)
+        .filter((r) => !needle || `${r.th.subject ?? ''} ${r.th.counterpart_email ?? ''} ${r.th.counterpart_name ?? ''}`.toLowerCase().includes(needle))
+        .sort((a, b) => b.sortAt.localeCompare(a.sortAt));
+      return jsonToolResult({
+        agent, folder, matched: rows.length, returned: Math.min(rows.length, limit),
+        threads: rows.slice(0, limit).map((r) => ({
+          ...threadCard(r.th), messages: r.messages, ...r.facts,
+          lastMessage: r.last ? { direction: r.last.direction, status: r.last.status, kind: r.last.kind, author: r.last.author, from: r.last.from_email ?? null, at: r.last.received_at ?? r.last.sent_at ?? r.last.created_at, preview: clip(r.last.body_new ?? r.last.body_text, 300) } : null,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    'agents_thread',
+    {
+      title: 'ADA : agents — un fil de la messagerie',
+      description: "Un fil complet de la messagerie d'Ada ou Dana : le fil (objet, interlocuteur, prospect lié) et tous ses messages dans l'ordre, avec le texte entier, la traduction française d'un mail reçu quand elle existe, les notes de l'IA sur un brouillon (modèle, coût, langue, faits cités et leurs sources, points à vérifier, fiche d'appel et LinkedIn pour un grand compte, résumé et intention d'un mail reçu), les pièces jointes (nom, taille), qui a validé ou refusé et pourquoi, les erreurs d'envoi. Avec la fiche du prospect lié (résumé, score, étape, meilleur contact). Lecture seule.",
+      inputSchema: z.object({ threadId: z.string().uuid() }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ threadId }) => {
+      const [t, m] = await Promise.all([
+        supabase.from('agent_threads').select('*').eq('id', threadId).maybeSingle(),
+        supabase.from('agent_messages').select('*').eq('thread_id', threadId).order('created_at', { ascending: true }).limit(500),
+      ]);
+      if (isMissingSchema(t.error)) return jsonToolResult({ note: 'Tables des agents absentes (SQL du 16/10 non collé).' });
+      assertDb(t.error ?? m.error, 'Unable to read agent thread');
+      if (!t.data) return jsonToolResult({ error: `Fil inconnu : ${threadId}` });
+      const th = t.data as Record<string, unknown>;
+      const prospect = th.prospect_id ? await supabase.from('agent_prospects').select('*').eq('id', th.prospect_id).maybeSingle() : null;
+      return jsonToolResult({
+        thread: threadCard(th),
+        prospect: prospect?.data ? prospectCard(prospect.data as Record<string, unknown>, false) : null,
+        messages: ((m.data ?? []) as Array<Record<string, unknown>>).map((x) => messageCard(x, true)),
+      });
+    },
+  );
+
+  server.registerTool(
+    'agents_queue',
+    {
+      title: 'ADA : agents — à valider et « pour vous »',
+      description: "L'onglet À valider : les messages sortants qui attendent une décision ou un envoi — a_valider (brouillon de l'agente à relire), valide (validé, part dans les horaires de la boîte), envoi (en cours), echec (l'envoi a raté, l'erreur est donnée) — et les messages « pour vous » (pour_channing) : ce qu'une agente a préparé pour un grand compte et que Channing envoie lui-même (mail, note LinkedIn, fiche d'appel). Chaque message avec son fil, son prospect (nom, pays, score, étape, meilleur contact) et les notes de l'IA. Lecture seule : rien n'est validé ni envoyé ici.",
+      inputSchema: z.object({
+        agent: AGENT_ENUM.optional(),
+        what: z.enum(['a_valider', 'pour_vous', 'tout']).default('tout'),
+        limit: z.number().int().min(1).max(300).default(100),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ agent, what, limit }) => {
+      const statuses = what === 'a_valider' ? ['a_valider', 'valide', 'envoi', 'echec'] : what === 'pour_vous' ? ['pour_channing'] : ['a_valider', 'valide', 'envoi', 'echec', 'pour_channing'];
+      let q = supabase.from('agent_messages').select('*, thread:agent_threads(id, subject, counterpart_email, counterpart_name, prospect_id)').eq('direction', 'out').in('status', statuses).order('created_at', { ascending: true }).limit(limit);
+      if (agent) q = q.eq('agent', agent);
+      const { data, error } = await q;
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Tables des agents absentes (SQL du 16/10 non collé).', messages: [] });
+      assertDb(error, 'Unable to read agent queue');
+      const rows = (data || []) as Array<Record<string, unknown> & { thread?: Record<string, unknown> | null }>;
+      const pids = [...new Set(rows.map((r) => r.thread?.prospect_id).filter((x): x is string => typeof x === 'string'))];
+      const prospects = new Map<string, Record<string, unknown>>();
+      for (let i = 0; i < pids.length; i += 100) {
+        const { data: ps } = await supabase.from('agent_prospects').select('*').in('id', pids.slice(i, i + 100));
+        for (const p of (ps || []) as Array<Record<string, unknown>>) prospects.set(String(p.id), p);
+      }
+      const counts: Record<string, number> = {};
+      for (const r of rows) counts[String(r.status)] = (counts[String(r.status)] ?? 0) + 1;
+      return jsonToolResult({
+        what, counts, returned: rows.length,
+        note: 'pour_channing = préparé pour un grand compte, à envoyer par Channing lui-même ; a_valider = brouillon de l\'agente à relire dans ADA.',
+        messages: rows.map((r) => ({
+          ...messageCard(r, true),
+          thread: r.thread ? { id: r.thread.id, subject: r.thread.subject, counterpartEmail: r.thread.counterpart_email, counterpartName: r.thread.counterpart_name } : null,
+          prospect: r.thread?.prospect_id && prospects.get(String(r.thread.prospect_id)) ? prospectCard(prospects.get(String(r.thread.prospect_id))!, false) : null,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    'agents_prospects',
+    {
+      title: 'ADA : agents — fiches qualifiées (acheteurs d\'Ada, fournisseurs de Dana)',
+      description: "Les fiches qu'Ada (acheteurs) et Dana (fournisseurs) ont qualifiées par l'IA : garage ou entreprise, pays, ville, site web, groupe, nature (concession, groupe, loueur, leasing, flotte, négociant…), grand compte ou non, score et score d'adéquation, résumé, raison d'écart, meilleur contact (nom, fonction, e-mail, pourquoi), nombre d'e-mails publiés et de personnes trouvées, étape du suivi (qualifie, ecarte, a_contacter, contacte, repondu, interesse, client, perdu), déjà sur la carte du réseau, coût de la qualification. Filtres : agente, étape, pays, grands comptes seulement, texte (nom, ville, groupe), score minimum. Avec prospectId : la fiche COMPLÈTE (e-mails avec nature et source, personnes avec fonction / LinkedIn / téléphone, pages lues, détail du score, lots vus par Dana, notes de l'équipe). Lecture seule.",
+      inputSchema: z.object({
+        agent: AGENT_ENUM.optional(),
+        prospectId: z.string().uuid().optional(),
+        stage: z.enum(['qualifie', 'ecarte', 'a_contacter', 'contacte', 'repondu', 'interesse', 'client', 'perdu']).optional(),
+        country: z.string().trim().length(2).optional().describe('code pays ISO : NL, DK, BE, DE, FR…'),
+        keyAccountsOnly: z.boolean().default(false),
+        minScore: z.number().int().min(0).max(100).optional(),
+        query: z.string().trim().min(1).optional(),
+        limit: z.number().int().min(1).max(500).default(100),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ agent, prospectId, stage, country, keyAccountsOnly, minScore, query, limit }) => {
+      if (prospectId) {
+        const { data, error } = await supabase.from('agent_prospects').select('*').eq('id', prospectId).maybeSingle();
+        if (isMissingSchema(error)) return jsonToolResult({ note: 'SQL du 17/10 (agents_qualification) non collé.' });
+        assertDb(error, 'Unable to read prospect');
+        if (!data) return jsonToolResult({ error: `Fiche inconnue : ${prospectId}` });
+        const threads = await supabase.from('agent_threads').select('*').eq('prospect_id', prospectId).order('created_at', { ascending: false }).limit(20);
+        return jsonToolResult({ prospect: prospectCard(data as Record<string, unknown>, true), threads: ((threads.data || []) as Array<Record<string, unknown>>).map(threadCard) });
+      }
+      let q = supabase.from('agent_prospects').select('*').order('score', { ascending: false, nullsFirst: false }).order('qualified_at', { ascending: false }).limit(2000);
+      if (agent) q = q.eq('agent', agent);
+      if (stage) q = q.eq('stage', stage);
+      if (country) q = q.eq('country', country.toUpperCase());
+      if (keyAccountsOnly) q = q.eq('key_account', true);
+      if (minScore != null) q = q.gte('score', minScore);
+      const { data, error } = await q;
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'SQL du 17/10 (agents_qualification) non collé.', prospects: [] });
+      assertDb(error, 'Unable to read prospects');
+      const needle = normalizeText(query)?.toLowerCase();
+      const rows = ((data || []) as Array<Record<string, unknown>>).filter((p) => !needle || `${p.name ?? ''} ${p.city ?? ''} ${p.group_name ?? ''} ${p.legal_name ?? ''} ${p.website ?? ''}`.toLowerCase().includes(needle));
+      const byStage: Record<string, number> = {};
+      for (const p of rows) byStage[String(p.stage)] = (byStage[String(p.stage)] ?? 0) + 1;
+      return jsonToolResult({ matched: rows.length, returned: Math.min(rows.length, limit), byStage, prospects: rows.slice(0, limit).map((p) => prospectCard(p, false)) });
+    },
+  );
+
+  server.registerTool(
+    'agents_directory',
+    {
+      title: 'ADA : agents — annuaire des garages (onglet Acheteurs)',
+      description: "L'annuaire des garages vus sur les sites d'annonces qu'ADA lit (AutoScout24, Marktplaats, Gaspedaal, Leboncoin, La Centrale, mobile.de, Bilbasen, Blocket…), un garage = une ligne même vu sur plusieurs sites : nom, pays, ville, téléphone, site web, annonces des 90 derniers jours, marques, utilitaires, prix médian, client actuel (acheteur d'une vente du Workflow), déjà sur la carte, et sa qualification par Ada si elle existe (étape, score). Filtres : pays, marque, texte, pays exclus (l'onglet Acheteurs d'Ada exclut la France, pays d'achat). Précalculé par le serveur (agents_index) : réponse en moins d'une seconde. Lecture seule.",
+      inputSchema: z.object({
+        country: z.string().trim().length(2).optional(),
+        brand: z.string().trim().min(1).optional(),
+        query: z.string().trim().min(1).optional(),
+        excludeCountries: z.array(z.string().trim().length(2)).default([]).describe('ex. ["FR"] pour la vue d\'Ada'),
+        days: z.number().int().min(1).max(365).default(90),
+        limit: z.number().int().min(1).max(500).default(100),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ country, brand, query, excludeCountries, days, limit }) => {
+      const args: Record<string, unknown> = { p_country: country?.toUpperCase() ?? null, p_brand: brand ?? null, p_query: query ?? null, p_days: days, p_limit: limit };
+      if (excludeCountries.length) args.p_exclude_countries = excludeCountries.map((c) => c.toUpperCase());
+      const { data, error } = await supabase.rpc('agents_dealer_directory', args);
+      if (isMissingSchema(error) || (error && /function|p_exclude_countries/i.test(error.message))) return jsonToolResult({ note: 'Annuaire : SQL du 17/10 (agents_annuaire / agents_lots / agents_index) non collé.', dealers: [] });
+      assertDb(error, 'Unable to read dealer directory');
+      const rows = (data || []) as Array<Record<string, unknown>>;
+      return jsonToolResult({
+        count: rows.length, note: 'prices en euros TTC tels qu\'affichés sur les sites ; isClient = acheteur d\'une vente du Workflow ; inNetwork = déjà sur la carte.',
+        dealers: rows.map((d) => ({
+          id: d.id, name: d.name, country: d.country, city: d.city, zip: d.zip, phone: d.phone, contactName: d.contact_name, website: d.website, siteUrl: d.site_url, imprintUrl: d.imprint_url,
+          site: d.site, sites: d.sites, legalId: d.legal_id, listings: d.listings, listingsBrand: d.listings_brand, nbBrands: d.nb_brands, vans: d.vans, brands: d.brands, medianPrice: d.median_price,
+          firstSeenAt: d.first_seen_at, lastSeenAt: d.last_seen_at, lastListingAt: d.last_listing_at, isClient: !!d.is_client, inNetwork: !!d.in_network, prospect: d.prospect ?? null,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    'agents_lots',
+    {
+      title: 'ADA : agents — lots de véhicules identiques (onglet Sourcing de Dana)',
+      description: "Le Sourcing de Dana : chez chaque garage de l'annuaire, les véhicules identiques (même marque, même modèle, même année) à partir de N exemplaires, vus ces derniers jours — prix min / max / médian, km, énergies, depuis quand ADA les voit, les annonces, et ce que ces véhicules valent dans nos pays de vente (médiane, nombre d'annonces, écart BRUT avant taxes d'immatriculation, transport et frais). Avec la fiche de Dana pour le garage quand il est qualifié (étape, score, grand compte). Filtres : pays du garage, marque, taille minimum du lot, fenêtre en jours, pays de vente à comparer (défaut NL, DK, BE, DE). Lecture seule.",
+      inputSchema: z.object({
+        country: z.string().trim().length(2).optional(),
+        brand: z.string().trim().min(1).optional(),
+        markets: z.array(z.string().trim().length(2)).default(['NL', 'DK', 'BE', 'DE']),
+        min: z.number().int().min(2).max(50).default(3),
+        days: z.number().int().min(1).max(180).default(45),
+        limit: z.number().int().min(1).max(500).default(100),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ country, brand, markets, min, days, limit }) => {
+      const { data, error } = await supabase.rpc('agents_dealer_lots', { p_country: country?.toUpperCase() ?? null, p_markets: markets.map((m) => m.toUpperCase()), p_min: min, p_days: days, p_brand: brand ?? null, p_limit: limit });
+      if (isMissingSchema(error) || (error && /function/i.test(error.message))) return jsonToolResult({ note: 'Lots de Dana : SQL du 17/10 (agents_lots / agents_index) non collé.', lots: [] });
+      assertDb(error, 'Unable to read dealer lots');
+      const rows = (data || []) as Array<Record<string, unknown>>;
+      return jsonToolResult({ count: rows.length, note: 'Montants en euros TTC tels qu\'affichés ; gap = écart brut entre la médiane du pays de vente et le prix médian du lot.', lots: rows });
+    },
+  );
+
+  server.registerTool(
+    'agents_accounts',
+    {
+      title: 'ADA : agents — comptes trouvés par recherche web (onglet Recherche)',
+      description: "L'onglet Recherche : les entreprises qu'Ada ou Dana trouvent par recherche web, que les annonces ne montrent pas — pour Dana : sociétés de leasing, loueurs, flottes, groupes, négociants B2B ; pour Ada : groupes, revendeurs, flottes qui renouvellent. Pour chacune : segment, pays, ville, site officiel, taille estimée, pourquoi elle compte, pages où elle a été vue, statut (nouveau, qualifie, ecarte), fiche qualifiée liée (score, étape, meilleur contact) et la tâche de recherche d'origine. Filtres : agente, segment, pays, statut, texte. Lecture seule.",
+      inputSchema: z.object({
+        agent: AGENT_ENUM.optional(),
+        segment: z.string().trim().min(1).optional().describe('leasing | loueur | flotte | groupe | negociant_b2b | revendeur…'),
+        country: z.string().trim().length(2).optional(),
+        status: z.enum(['nouveau', 'qualifie', 'ecarte']).optional(),
+        query: z.string().trim().min(1).optional(),
+        limit: z.number().int().min(1).max(500).default(100),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ agent, segment, country, status, query, limit }) => {
+      let q = supabase.from('agent_accounts').select('*').order('found_at', { ascending: false }).limit(2000);
+      if (agent) q = q.eq('agent', agent);
+      if (normalizeText(segment)) q = q.eq('segment', normalizeText(segment));
+      if (country) q = q.eq('country', country.toUpperCase());
+      if (status) q = q.eq('status', status);
+      const { data, error } = await q;
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Recherche de comptes : SQL du 17/10 (agents_recherche) non collé.', accounts: [] });
+      assertDb(error, 'Unable to read agent accounts');
+      const needle = normalizeText(query)?.toLowerCase();
+      const rows = ((data || []) as Array<Record<string, unknown>>).filter((a) => !needle || `${a.name ?? ''} ${a.city ?? ''} ${a.website ?? ''} ${a.why ?? ''}`.toLowerCase().includes(needle)).slice(0, limit);
+      const pids = [...new Set(rows.map((a) => a.prospect_id).filter((x): x is string => typeof x === 'string'))];
+      const prospects = new Map<string, Record<string, unknown>>();
+      for (let i = 0; i < pids.length; i += 100) {
+        const { data: ps } = await supabase.from('agent_prospects').select('*').in('id', pids.slice(i, i + 100));
+        for (const p of (ps || []) as Array<Record<string, unknown>>) prospects.set(String(p.id), p);
+      }
+      const bySegment: Record<string, number> = {};
+      for (const a of rows) bySegment[String(a.segment)] = (bySegment[String(a.segment)] ?? 0) + 1;
+      return jsonToolResult({
+        returned: rows.length, bySegment,
+        accounts: rows.map((a) => ({
+          id: a.id, agent: a.agent, segment: a.segment, country: a.country, city: a.city, name: a.name, website: a.website, sizeHint: a.size_hint, why: a.why, sources: a.sources, status: a.status,
+          taskId: a.task_id, foundAt: a.found_at, updatedAt: a.updated_at, prospect: a.prospect_id && prospects.get(String(a.prospect_id)) ? prospectCard(prospects.get(String(a.prospect_id))!, false) : null,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    'agents_journal',
+    {
+      title: 'ADA : agents — journal, tâches, appels IA',
+      description: "Ce qui s'est passé chez les agentes : journal (synchro des boîtes, mails reçus / préparés / envoyés, rebonds et désinscriptions, découvertes, qualifications, recherches, bilan du jour — qui a fait quoi, humain ou agente), tâches (découverte de concessions, qualification, premier mail, recherche de comptes : paramètres, statut en_attente / en_cours / terminee / echec / annulee, résultat chiffré, suivi en cours, erreur) et appels à l'IA (but, recherches et pages web, coût, raison d'arrêt, erreur). Filtres : agente, sorte, texte, nombre de jours. Lecture seule.",
+      inputSchema: z.object({
+        what: z.enum(['journal', 'taches', 'ia']).default('journal'),
+        agent: AGENT_ENUM.optional(),
+        kind: z.string().trim().min(1).optional().describe('journal : bilan_jour, premier_contact, reponse, rebond, qualification… ; tâches : decouverte_concessions, qualification, premier_mail, recherche_comptes'),
+        query: z.string().trim().min(1).optional(),
+        days: z.number().min(0.05).max(365).default(7),
+        limit: z.number().int().min(1).max(1000).default(200),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ what, agent, kind, query, days, limit }) => {
+      const since = sinceIso(days);
+      const needle = normalizeText(query)?.toLowerCase();
+      if (what === 'taches') {
+        let q = supabase.from('agent_tasks').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(limit);
+        if (agent) q = q.eq('agent', agent);
+        if (normalizeText(kind)) q = q.eq('kind', normalizeText(kind));
+        const { data, error } = await q;
+        if (isMissingSchema(error)) return jsonToolResult({ note: 'SQL du 17/10 (agents_annuaire) non collé.', tasks: [] });
+        assertDb(error, 'Unable to read agent tasks');
+        const rows = ((data || []) as Array<Record<string, unknown>>).filter((t) => !needle || JSON.stringify([t.params, t.result, t.error]).toLowerCase().includes(needle));
+        return jsonToolResult({ since, count: rows.length, tasks: rows.map((t) => ({ id: t.id, agent: t.agent, kind: t.kind, status: t.status, params: t.params, result: t.result, error: t.error, createdBy: t.created_by, createdAt: t.created_at, startedAt: t.started_at, finishedAt: t.finished_at })) });
+      }
+      if (what === 'ia') {
+        let q = supabase.from('agent_runs').select('id, agent, purpose, task_id, prospect_id, model, input_tokens, output_tokens, web_searches, web_fetches, cost_usd, stop_reason, error, created_at').gte('created_at', since).order('created_at', { ascending: false }).limit(limit);
+        if (agent) q = q.eq('agent', agent);
+        const { data, error } = await q;
+        if (isMissingSchema(error)) {
+          const r2 = await supabase.from('agent_runs').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(limit);
+          if (isMissingSchema(r2.error)) return jsonToolResult({ note: 'SQL du 17/10 (agents_qualification) non collé.', runs: [] });
+          assertDb(r2.error, 'Unable to read agent runs');
+          return jsonToolResult({ since, count: (r2.data || []).length, runs: r2.data });
+        }
+        assertDb(error, 'Unable to read agent runs');
+        const rows = ((data || []) as Array<Record<string, unknown>>).filter((r) => !needle || `${r.purpose ?? ''} ${r.error ?? ''} ${r.stop_reason ?? ''}`.toLowerCase().includes(needle));
+        const cost = rows.reduce((a, r) => a + Number(r.cost_usd ?? 0), 0);
+        return jsonToolResult({ since, count: rows.length, totalCostUsd: Math.round(cost * 10000) / 10000, runs: rows });
+      }
+      let q = supabase.from('agent_journal').select('*').gte('at', since).order('at', { ascending: false }).limit(limit);
+      if (agent) q = q.eq('agent', agent);
+      if (normalizeText(kind)) q = q.eq('kind', normalizeText(kind));
+      const { data, error } = await q;
+      if (isMissingSchema(error)) return jsonToolResult({ note: 'Tables des agents absentes (SQL du 16/10 non collé).', journal: [] });
+      assertDb(error, 'Unable to read agent journal');
+      const rows = ((data || []) as Array<Record<string, unknown>>).filter((j) => !needle || `${j.summary ?? ''} ${j.actor ?? ''}`.toLowerCase().includes(needle));
+      const byKind: Record<string, number> = {};
+      for (const j of rows) byKind[String(j.kind)] = (byKind[String(j.kind)] ?? 0) + 1;
+      return jsonToolResult({ since, count: rows.length, byKind, journal: rows.map((j) => ({ id: j.id, at: j.at, agent: j.agent, actor: j.actor, kind: j.kind, summary: j.summary, threadId: j.thread_id, messageId: j.message_id })) });
+    },
+  );
+
   return server;
 }
 
@@ -1291,8 +1696,8 @@ const outer = express();
 // ChatGPT ne voyait que 9 outils — impossible de savoir, depuis le
 // navigateur, si le service avait redéployé ou si le connecteur gardait
 // une liste en cache). Aucune donnée, aucun secret.
-const MCP_VERSION = '0.6.0';
-const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts', 'dealer_stock', 'learning_cases', 'treasury_statements', 'treasury_lines', 'treasury_monthly'];
+const MCP_VERSION = '0.7.0';
+const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts', 'dealer_stock', 'learning_cases', 'treasury_statements', 'treasury_lines', 'treasury_monthly', 'agents_overview', 'agents_mailbox', 'agents_thread', 'agents_queue', 'agents_prospects', 'agents_directory', 'agents_lots', 'agents_accounts', 'agents_journal'];
 outer.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
