@@ -43,28 +43,28 @@ async function preparedThread(prospectId: string): Promise<{ kind: 'aucun' } | {
   return { kind: 'prepare', id: threads[0].id };
 }
 
-export async function deepResearch(prospectId: string, a: AiAgent, taskId: string | null, manual: boolean, note = '', model: string = HAIKU): Promise<DeepOutcome> {
-  const { data } = await sb.from('agent_prospects').select('*').eq('id', prospectId).maybeSingle();
-  const row = data as Row | null;
-  if (!row) return { status: 'echec', name: prospectId, detail: 'fiche introuvable', cost: 0, prepared: false };
-  const skip = (detail: string): DeepOutcome => ({ status: 'ignore', name: row.name, detail, cost: 0, prepared: false });
-  if (row.agent !== a.agent) return skip(row.agent === 'dana' ? 'fiche de Dana' : 'fiche d\'Ada');
-  if (row.stage === 'ecarte') return skip('fiche écartée');
-  const role: 'ada' | 'dana' = a.agent === 'dana' ? 'dana' : 'ada';
-  if (role === 'ada' && (row.country ?? '').toUpperCase() === HOME_COUNTRY) return skip('entreprise en France : pas un acheteur pour Ada');
-  const p: DeepProspect = { ...row, emails: row.emails ?? [], people: row.people ?? [], evidence: row.evidence ?? [], fit_parts: row.fit_parts ?? [] };
+/** Ce que la recherche approfondie rend, vérifié par ADA, avant toute écriture sur la fiche. */
+export interface DeepRun { out: DeepOutput; checked: DeepChecked; cost: number }
 
-  // Une entreprise trouvée par recherche web : son type de compte et qui décide chez elle.
-  let segment: { label: string; roles: string; size: string | null } | null = null;
-  if (row.account_id) {
-    const { data: acc } = await sb.from('agent_accounts').select('segment, size_hint').eq('id', row.account_id).maybeSingle();
-    const x = acc as { segment: string; size_hint: string | null } | null;
-    const seg = x ? segmentOf(role, x.segment) : null;
-    if (seg) segment = { label: seg.label, roles: seg.roles, size: x?.size_hint ?? null };
-  }
-  // La consigne laissée par Channing en lançant la recherche (18/10).
-  const prompt = deepPrompt({ role, p, segment, note });
-  const named = `${row.name}${row.country ? ` (${row.country})` : ''}`;
+export interface DeepCoreInput {
+  role: 'ada' | 'dana'; p: DeepProspect; a: AiAgent; taskId: string | null;
+  note?: string; model?: string; segment?: { label: string; roles: string; size: string | null } | null;
+  /** La fiche en base (l'appel lui est rattaché), ou null : le banc d'essai travaille « à blanc ». */
+  prospectId: string | null;
+  /** Le banc d'essai (19/10) a sa propre limite de dépense : ses appels ne comptent pas dans le budget du jour. */
+  bench?: boolean;
+}
+
+/**
+ * La recherche elle-même (18/10 ; à part depuis le 19/10 pour le banc d'essai) : l'appel à l'IA, puis le
+ * contrôle — chaque e-mail et chaque téléphone relus dans la page citée, le domaine de l'e-mail qui reçoit
+ * du courrier, un profil LinkedIn seulement s'il a été vu. Rien n'est écrit ici.
+ */
+export async function deepCore(i: DeepCoreInput): Promise<DeepRun | { error: string; cost: number }> {
+  const { role, p, a, taskId } = i;
+  const note = i.note ?? '';
+  const prompt = deepPrompt({ role, p, segment: i.segment ?? null, note });
+  const named = `${p.name}${p.country ? ` (${p.country})` : ''}`;
   live(taskId, `${named} : recherche approfondie sur le web — ${note.trim() ? 'avec votre consigne' : 'à qui elle appartient, qui décide'} (${DEEP_SEARCHES} recherches au plus)`);
   let out: DeepOutput;
   let cost = 0;
@@ -72,21 +72,22 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
   try {
     const budget = Number(a.daily_budget_usd);
     const r = await callClaude<DeepOutput>({
-      // Un budget illisible vaut 0 (pas d'appel), jamais « sans limite ».
+      // Un budget illisible vaut 0 (pas d'appel), jamais « sans limite » ; le banc d'essai a sa limite à lui.
       // Haiku 5.5 ; une recherche ciblée (notes de Channing, 18/10) passe par Opus 5.5.
-      agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'recherche_approfondie', model,
+      agent: a.agent, budgetUsd: i.bench ? Number.POSITIVE_INFINITY : Number.isFinite(budget) ? budget : 0,
+      purpose: i.bench ? 'banc_essai' : 'recherche_approfondie', model: i.model ?? HAIKU,
       system: deepSystem(role), user: prompt, schema: deepSchema(role) as unknown as Record<string, unknown>,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: DEEP_SEARCHES }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: DEEP_FETCHES }],
       // 18/10 : 8 000 jetons ne suffisaient pas toujours (Arval France : réponse coupée) — 16 000, moins de 0,01 $ de plus.
-      maxTokens: 16_000, effort: 'medium', prospectId: row.id, taskId,
+      maxTokens: 16_000, effort: 'medium', prospectId: i.prospectId, taskId,
     });
     cost = r.costUsd;
-    if (!r.data) return { status: 'echec', name: row.name, detail: 'réponse de l\'IA illisible', cost, prepared: false };
+    if (!r.data) return { error: 'réponse de l\'IA illisible', cost };
     out = r.data;
     seenUrls = r.seenUrls ?? [];
   } catch (e) {
     if (e instanceof BudgetReached || e instanceof AiUnavailable) throw e;
-    return { status: 'echec', name: row.name, detail: e instanceof Error ? e.message : String(e), cost: 0, prepared: false };
+    return { error: e instanceof Error ? e.message : String(e), cost: 0 };
   }
 
   // Le contrôle : chaque e-mail et chaque téléphone relus dans la page citée.
@@ -111,7 +112,7 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
     if (!html || ![...mailtoEmails(html), ...extractEmails(pageText(html, 200_000))].includes(c.email)) continue;
     emails.push({ ...c, mx: await hasMx(c.email.split('@')[1] ?? '') });
   }
-  const phones: DeepChecked['phones'] = row.phone ? [{ numero: row.phone, service: 'téléphone de la fiche', source: '' }] : [];
+  const phones: DeepChecked['phones'] = p.phone ? [{ numero: p.phone, service: 'téléphone de la fiche', source: '' }] : [];
   const phoneCands = [
     ...(out.telephones ?? []).map((t) => ({ numero: t.numero, service: t.service, source: t.source })),
     ...(out.personnes ?? []).filter((x) => x.telephone).map((x) => ({ numero: String(x.telephone), service: x.nom, source: x.source })),
@@ -131,6 +132,32 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
     linkedin: (url, name) => acceptedLinkedin(url, name, seenUrls, prompt),
     seen: (url) => !!url && (seen.has(normUrl(url)) || !!pages.get(url) || seenHosts.has(hostOf(url))),
   };
+  return { out, checked, cost };
+}
+
+export async function deepResearch(prospectId: string, a: AiAgent, taskId: string | null, manual: boolean, note = '', model: string = HAIKU): Promise<DeepOutcome> {
+  const { data } = await sb.from('agent_prospects').select('*').eq('id', prospectId).maybeSingle();
+  const row = data as Row | null;
+  if (!row) return { status: 'echec', name: prospectId, detail: 'fiche introuvable', cost: 0, prepared: false };
+  const skip = (detail: string): DeepOutcome => ({ status: 'ignore', name: row.name, detail, cost: 0, prepared: false });
+  if (row.agent !== a.agent) return skip(row.agent === 'dana' ? 'fiche de Dana' : 'fiche d\'Ada');
+  if (row.stage === 'ecarte') return skip('fiche écartée');
+  const role: 'ada' | 'dana' = a.agent === 'dana' ? 'dana' : 'ada';
+  if (role === 'ada' && (row.country ?? '').toUpperCase() === HOME_COUNTRY) return skip('entreprise en France : pas un acheteur pour Ada');
+  const p: DeepProspect = { ...row, emails: row.emails ?? [], people: row.people ?? [], evidence: row.evidence ?? [], fit_parts: row.fit_parts ?? [] };
+
+  // Une entreprise trouvée par recherche web : son type de compte et qui décide chez elle.
+  let segment: { label: string; roles: string; size: string | null } | null = null;
+  if (row.account_id) {
+    const { data: acc } = await sb.from('agent_accounts').select('segment, size_hint').eq('id', row.account_id).maybeSingle();
+    const x = acc as { segment: string; size_hint: string | null } | null;
+    const seg = x ? segmentOf(role, x.segment) : null;
+    if (seg) segment = { label: seg.label, roles: seg.roles, size: x?.size_hint ?? null };
+  }
+  // La consigne laissée par Channing en lançant la recherche (18/10).
+  const run = await deepCore({ role, p, a, taskId, note, model, segment, prospectId: row.id });
+  if ('error' in run) return { status: 'echec', name: row.name, detail: run.error, cost: run.cost, prepared: false };
+  const { out, checked, cost } = run;
 
   // La fiche complétée, la note à jour.
   const at = new Date().toISOString();
@@ -161,7 +188,7 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
         await sb.from('agent_messages').delete().eq('thread_id', t.id);
         await sb.from('agent_threads').delete().eq('id', t.id);
       }
-      live(taskId, `${named} : ${t.kind === 'prepare' ? 'nouvelle préparation' : 'préparation'} pour vous, avec ce qui a été trouvé (IA)`);
+      live(taskId, `${row.name}${row.country ? ` (${row.country})` : ''} : ${t.kind === 'prepare' ? 'nouvelle préparation' : 'préparation'} pour vous, avec ce qui a été trouvé (IA)`);
       prepared = (await draftFirstMail(row.id, a, taskId)).status === 'redige';
     }
   }

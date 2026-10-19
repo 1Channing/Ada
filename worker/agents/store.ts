@@ -109,3 +109,9 @@ export async function suppress(email: string, reason: 'stop' | 'refus' | 'rebond
   if (error) { console.warn(`[AGENTS] « ne plus contacter » non enregistré : ${error.message}`); return false; }
   return ((data ?? []) as unknown[]).length > 0;
 }
+
+/** Ce qu'une tâche a coûté jusqu'ici (tous ses appels à l'IA, agent_runs). */
+export async function taskSpend(taskId: string): Promise<number> {
+  const { data } = await sb.from('agent_runs').select('cost_usd').eq('task_id', taskId).limit(1000);
+  return ((data ?? []) as Array<{ cost_usd: number | string | null }>).reduce((n, r) => n + Number(r.cost_usd ?? 0), 0);
+}

@@ -13,6 +13,9 @@
  * - « qualification » avec params.approfondie (18/10) : la recherche
  *   approfondie de 5 fiches au plus (./deep.ts) — à qui appartient
  *   l'entreprise, qui décide, comment l'approcher.
+ * - « qualification » avec params.banc (19/10) : le banc d'essai
+ *   (./bench.ts) — la recherche approfondie « à blanc » sur des entreprises
+ *   de la carte dont l'équipe connaît le bon contact, et le verdict.
  *
  * Le cycle automatique (toutes les 10 min, dans les jours et heures de
  * travail de chaque agente — Réglages, heure de Paris ; du lundi au vendredi,
@@ -48,6 +51,7 @@ import { draftFirstMail, nextDraftCandidates } from './firstMail';
 import { deepResearch } from './deep';
 import { draftReply } from './reply';
 import { targetedResearch, lotMail } from './targeted';
+import { runBench } from './bench';
 import { maybeSendRecap } from './recap';
 import { aiConfigured, aiPaused, spentToday, clearAiPause, BudgetReached, AiUnavailable, NO_KEY } from './claude';
 import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, DISCOVERY_SITES, type DiscoveryParams } from '../../src/lib/agents/discovery';
@@ -85,6 +89,7 @@ const researchLabel = (agent: string, p: Partial<ResearchParams>) => {
 /** Ce que la tâche va faire, en clair (première ligne de l'onglet Live). */
 function startLabel(t: Task): string {
   const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
+  if (t.kind === 'qualification' && t.params.banc) return `banc d'essai (${Number(t.params.n) || 10} entreprises de la carte)`;
   if (t.kind === 'qualification' && t.params.approfondie) {
     const k = n(t.params.prospect_ids);
     return `recherche approfondie de ${k} fiche${k > 1 ? 's' : ''}`;
@@ -241,6 +246,14 @@ export async function runNextTask(): Promise<void> {
         if (Number(result.concessions) > 0) refreshSoon('découverte');
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'decouverte',
           summary: `Découverte ${label(t.params)}${auto} : ${result.annonces} annonces lues, ${result.avec_garage} avec leur garage, ${result.concessions} concessions (dont ${result.nouvelles} nouvelles)`, details: result });
+      } else if (t.kind === 'qualification' && t.params.banc) {
+        const a = await agentRow(t.agent);
+        if (!a) throw new Error('agente introuvable');
+        if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
+        const { result, summary } = await runBench(t, a);
+        await liveDone(t.id);
+        await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
+        await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'banc_essai', summary, details: { ...result, essais: undefined } });
       } else if (t.kind === 'qualification') {
         const deep = !!t.params.approfondie;
         const { result, summary } = deep ? await runDeep(t) : await runQualification(t);
@@ -273,7 +286,7 @@ export async function runNextTask(): Promise<void> {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
       await liveDone(t.id);
       await sb.from('agent_tasks').update({ status: 'echec', error: msg, finished_at: new Date().toISOString() }).eq('id', t.id);
-      const what = t.kind === 'qualification' ? (t.params.approfondie ? 'Recherche approfondie' : 'Préparation des fiches') : t.kind === 'premier_mail' ? (t.params.reponse_a ? 'Préparation d\'une réponse' : 'Rédaction des premiers mails')
+      const what = t.kind === 'qualification' ? (t.params.banc ? 'Banc d\'essai' : t.params.approfondie ? 'Recherche approfondie' : 'Préparation des fiches') : t.kind === 'premier_mail' ? (t.params.reponse_a ? 'Préparation d\'une réponse' : 'Rédaction des premiers mails')
         : t.kind === 'recherche_comptes' ? `Recherche ${researchLabel(t.agent, t.params)}` : `Découverte ${label(t.params)}`;
       await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: `${t.kind === 'decouverte_concessions' ? 'decouverte' : t.kind}_echec`, summary: `${what}${auto} en échec : ${msg}` });
       // Une recherche d'un lancement qui échoue (budget, IA) : le bilan du lancement le dit, avec ce qui reste à faire.

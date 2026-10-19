@@ -73,9 +73,15 @@ export function clearAiPause(): void { pause = null; }
 /** Le travail automatique attend (panne de réglage dans l'heure) : pas de nouvelle tâche d'IA d'office. */
 export const aiPaused = (): boolean => !!pause && Date.now() < pause.until;
 
-/** Dépense du jour (heure de Paris) d'une agente, en dollars. */
-export async function spentToday(agent: string): Promise<number> {
-  const { data, error } = await sb.from('agent_runs').select('cost_usd').eq('agent', agent).gte('created_at', parisDayStart(new Date()).toISOString());
+/**
+ * Dépense du jour (heure de Paris) d'une agente, en dollars — hors banc d'essai (19/10 : il a sa propre
+ * limite). `at` : un autre jour que celui d'aujourd'hui (le bilan d'une journée se compte sur sa journée).
+ */
+export async function spentToday(agent: string, at: Date = new Date()): Promise<number> {
+  const start = parisDayStart(at);
+  const next = parisDayStart(new Date(start.getTime() + 26 * 3600_000));
+  const { data, error } = await sb.from('agent_runs').select('cost_usd').eq('agent', agent).neq('purpose', 'banc_essai')
+    .gte('created_at', start.toISOString()).lt('created_at', next.toISOString());
   if (error) return 0;
   return ((data ?? []) as Array<{ cost_usd: number | string }>).reduce((s, r) => s + Number(r.cost_usd || 0), 0);
 }

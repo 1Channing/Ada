@@ -30,7 +30,7 @@ import { deepResearch } from './deep';
 import { mcExportAccounts } from './recap';
 import { sendInternal } from './internalMail';
 import { BudgetReached, AiUnavailable } from './claude';
-import { sb, journal } from './store';
+import { sb, journal, taskSpend } from './store';
 import { live } from './live';
 
 interface Task { id: string; agent: string; kind: string; params: Record<string, unknown>; created_by: string | null }
@@ -40,12 +40,6 @@ const MAX_FICHES = 5;
 const MAX_DEEP = 3;
 const usd = (n: number) => `${n.toFixed(2).replace('.', ',')} $`;
 const pl = (n: number) => (n > 1 ? 's' : '');
-
-/** Ce que la tâche a coûté jusqu'ici (tous ses appels à l'IA). */
-async function taskSpend(taskId: string): Promise<number> {
-  const { data } = await sb.from('agent_runs').select('cost_usd').eq('task_id', taskId).limit(1000);
-  return ((data ?? []) as Array<{ cost_usd: number | string | null }>).reduce((n, r) => n + Number(r.cost_usd ?? 0), 0);
-}
 
 /** L'adresse du compte qui a lancé la recherche. */
 async function userEmail(id: string): Promise<string | null> {

@@ -74,7 +74,7 @@ export async function maybeSendRecap(a: AiAgent, now = new Date()): Promise<'env
   const since = parisDayStart(now).toISOString();
   const { data: tRows } = await sb.from('agent_tasks').select('kind, status, params, result, created_by, created_at, finished_at').eq('agent', a.agent).gte('created_at', since).limit(500);
   const tasks = (tRows ?? []) as TaskRow[];
-  const spent = await spentToday(a.agent);
+  const spent = await spentToday(a.agent, now);
   const ok = (t: TaskRow) => t.status !== 'echec' && t.status !== 'annulee';
   const auto = (t: TaskRow) => !t.created_by;
   const research = tasks.filter((t) => t.kind === 'recherche_comptes');
