@@ -19,6 +19,10 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
+      # Les tests des agentes importent le code du worker, et ses dépendances (dont @anthropic-ai/sdk).
+      - name: Dépendances du worker (pour les tests des agentes)
+        run: npm ci --no-audit --no-fund
+        working-directory: worker
       - name: Gate (typecheck, grammaires d'URL, build)
         run: npm run gate
       - name: Tests (calculs et lecture des annonces)
