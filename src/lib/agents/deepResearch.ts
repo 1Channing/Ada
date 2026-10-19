@@ -25,7 +25,7 @@ export type DeepRole = 'ada' | 'dana';
 export const DEEP_SEARCHES = 8;
 export const DEEP_FETCHES = 5;
 /** La méthode du moment (le banc d'essai la note sur chaque passage, pour comparer avant et après). */
-export const DEEP_METHOD = 'v2 — mémoire de l\'équipe, qui traite puis qui décide, aiguilleur, fraîcheur (19/10)';
+export const DEEP_METHOD = 'v2.1 — mémoire de l\'équipe, qui traite puis qui décide, aiguilleur, fraîcheur ; sans réponses coupées ni adresse d\'un collègue (19/10)';
 /** Les natures de fiche, en clair (pour la consigne). */
 const KIND_FR: Record<string, string> = {
   concession_marque: 'concession de marque', agent_marque: 'agent de marque', groupe: 'groupe de distribution', independant_multimarque: 'indépendant multimarque',
