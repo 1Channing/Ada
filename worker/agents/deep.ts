@@ -100,7 +100,9 @@ export async function deepCore(i: DeepCoreInput): Promise<DeepRun | { error: str
       system: deepSystem(role), user: prompt, schema: deepSchema(role) as unknown as Record<string, unknown>,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: DEEP_SEARCHES }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: DEEP_FETCHES }],
       // 18/10 : 8 000 jetons ne suffisaient pas toujours (Arval France : réponse coupée) — 16 000, moins de 0,01 $ de plus.
-      maxTokens: 16_000, effort: 'medium', prospectId: i.prospectId, taskId,
+      // 19/10 : la méthode v2 (deux personnes, aiguilleur, fraîcheur) fait réfléchir Haiku plus longtemps sur les grands
+      // groupes — 3 réponses coupées sur 10 au banc d'essai. 32 000 (payés seulement s'ils servent), 10 minutes au plus.
+      maxTokens: 32_000, timeoutMs: 10 * 60_000, effort: 'medium', prospectId: i.prospectId, taskId,
     });
     cost = r.costUsd;
     if (!r.data) return { error: 'réponse de l\'IA illisible', cost };

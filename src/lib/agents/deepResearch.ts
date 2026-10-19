@@ -147,8 +147,8 @@ export function deepSchema(role: DeepRole) {
       personnes: {
         type: 'array',
         description: dana
-          ? 'Les personnes utiles : celle qui vend aux marchands au quotidien (pour démarrer), son responsable (pour décider), quelqu\'un de joignable qui peut donner le bon contact (pour aiguiller).'
-          : 'Les personnes utiles : celle qui achète les VO au quotidien (pour démarrer), son responsable (pour décider), quelqu\'un de joignable qui peut donner le bon contact (pour aiguiller).',
+          ? 'Les personnes utiles : celle qui vend aux marchands au quotidien (pour démarrer), son responsable (pour décider), quelqu\'un de joignable qui peut donner le bon contact (pour aiguiller). 10 au plus : pas toute l\'équipe d\'une page.'
+          : 'Les personnes utiles : celle qui achète les VO au quotidien (pour démarrer), son responsable (pour décider), quelqu\'un de joignable qui peut donner le bon contact (pour aiguiller). 10 au plus : pas toute l\'équipe d\'une page.',
         items: {
           type: 'object',
           properties: {

@@ -96,6 +96,8 @@ export interface ClaudeCall {
   schema?: Record<string, unknown>;
   tools?: Anthropic.Messages.ToolUnion[];
   maxTokens?: number;
+  /** Délai d'une requête, si elle peut être longue (recherche approfondie) ; sinon celui du client (5 minutes). */
+  timeoutMs?: number;
   effort?: 'low' | 'medium' | 'high';
   prospectId?: string | null;
   taskId?: string | null;
@@ -162,9 +164,10 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
         ...(c.tools?.length ? { tools: c.tools } : {}),
         output_config: { effort: c.effort ?? 'low', ...(c.schema ? { format: { type: 'json_schema', schema: c.schema } } : {}) },
       };
+      const opts = c.timeoutMs ? { timeout: c.timeoutMs } : undefined;
       const res = c.fallbacks
-        ? await a.beta.messages.create({ ...(params as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming), betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
-        : await a.messages.create(params);
+        ? await a.beta.messages.create({ ...(params as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming), betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }, opts)
+        : await a.messages.create(params, opts);
       usage = addUsage(usage, res.usage as UsageLike);
       final = { content: res.content as Block[], stop_reason: res.stop_reason };
       toolResultUrls(final.content, seen);

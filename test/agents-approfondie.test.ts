@@ -179,15 +179,15 @@ const arvalOut: DeepOutput = {
   pistes: ['S\'inscrire comme acheteur professionnel sur Arval Remarketing.'],
   resume: 'Arval France, filiale de BNP Paribas, revend ses fins de contrat aux professionnels.',
 };
-const calls: Array<{ model: string; system: string; user: string; tools?: Array<{ name: string; max_uses?: number }> }> = [];
+const calls: Array<{ model: string; system: string; user: string; tools?: Array<{ name: string; max_uses?: number }>; max_tokens?: number }> = [];
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   if (!(req.url?.startsWith('/v1/messages') && req.method === 'POST')) { res.writeHead(404); res.end(); return; }
   let raw = '';
   for await (const ch of req) raw += ch;
-  const body = JSON.parse(raw) as { model: string; system: Array<{ text: string }>; messages: Array<{ content: unknown }>; tools?: Array<{ name: string; max_uses?: number }> };
+  const body = JSON.parse(raw) as { model: string; system: Array<{ text: string }>; messages: Array<{ content: unknown }>; tools?: Array<{ name: string; max_uses?: number }>; max_tokens?: number };
   const system = body.system?.[0]?.text ?? '';
   const user = String(body.messages[0].content);
-  calls.push({ model: body.model, system, user, tools: body.tools });
+  calls.push({ model: body.model, system, user, tools: body.tools, max_tokens: body.max_tokens });
   const usage = { input_tokens: 30_000, output_tokens: 1500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, server_tool_use: { web_search_requests: body.tools ? 6 : 0, web_fetch_requests: body.tools ? 2 : 0 } };
   const reply = (content: unknown[]) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: body.model, content, stop_reason: 'end_turn', stop_sequence: null, usage })); };
   const results = (urls: string[]) => [
@@ -268,6 +268,7 @@ const c1 = calls[0];
 ok(c1?.model === HAIKU && /aller plus loin/.test(c1.system) && c1.tools?.find((t) => t.name === 'web_search')?.max_uses === 8 && c1.tools?.find((t) => t.name === 'web_fetch')?.max_uses === 5 && c1.user.includes('groupe déjà repéré : Hess Automobile')
   && c1.user.includes('<consigne_de_channing>\nQui gère le de-fleet du groupe ?\n</consigne_de_channing>'),
   'appel : Haiku 5.5, consigne approfondie, 8 recherches et 5 pages, la fiche telle qu\'elle est, la consigne de Channing', c1 && { model: c1.model, tools: c1.tools });
+ok(c1?.max_tokens === 32_000, 'appel : 32 000 jetons de sortie au plus (19/10 : des réponses coupées sur les grands groupes à 16 000)', c1?.max_tokens);
 ok(hess.best_contact?.nom === 'Marc Hess' && hess.best_contact?.email === 'm.hess@groupehess.com' && hess.emails.length === 1 && hess.emails[0].mx && hess.score === 37,
   'fiche : le directeur VO du groupe, son e-mail relu dans la page (domaine qui reçoit), note 37', { best: hess.best_contact, emails: hess.emails, score: hess.score });
 const th = db.agent_threads.find((t) => t.prospect_id === 'p-hess') as Row | undefined;
