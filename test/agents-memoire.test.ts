@@ -248,8 +248,8 @@ const task = (o: Row) => { db.agent_tasks.push({ id: `t${db.agent_tasks.length +
 // Les défauts de la base pour les tâches posées par le worker lui-même (statut « en attente »).
 const settle = () => { for (const t of db.agent_tasks) { t.status ??= 'en_attente'; t.created_at ??= new Date().toISOString(); } };
 
-// A. DMD : la mémoire de l'équipe, l'adresse probable, pas de mail d'office.
-const o = await deepResearch('p-dmd', dana as never, null, false);
+// A. DMD : la mémoire de l'équipe, l'adresse probable, pas de mail d'office — même lancée à la main (« Chercher plus loin »).
+const o = await deepResearch('p-dmd', dana as never, null, true);
 const deepCall = calls.find((c) => /aller plus loin/.test(c.system));
 ok(o.status === 'enrichi' && !!deepCall && deepCall.user.includes('<ce_que_l_equipe_sait_deja>') && deepCall.user.includes('FLORENT JABOUILLE') && deepCall.user.includes('client : 5 ventes')
   && !deepCall.user.includes('Christophe Delteil — contact de') && deepCall.user.includes('Pour démarrer (qui traite au quotidien) : commercial VO marchands') && /POUR DÉMARRER/.test(deepCall.system),
@@ -263,6 +263,9 @@ ok(florent?.connu === true && florent.via === 'carte' && florent.email === 'fjab
 ok(delteil?.niveau === 'decider' && delteil.a_confirmer === true && delteil.date_source === '2024' && delteil.email_probable === 'cdelteil@groupe-dmd.fr' && /fjabouille@groupe-dmd\.fr/.test(delteil.motif ?? ''),
   'A. le directeur : pour décider, à confirmer (source 2024), adresse probable cdelteil@groupe-dmd.fr (format prouvé par Florent)', delteil);
 ok(paul?.niveau === 'aiguilleur' && paul.email === 'pmartin@groupe-dmd.fr' && (pd.best_contact as { nom?: string }).nom === 'Christophe Delteil', 'A. l\'aiguilleur relevé, son adresse vérifiée ; le contact retenu reste le directeur', { paul, best: pd.best_contact });
+ok(!o.prepared && db.agent_messages.length === 0 && db.agent_threads.length === 0
+  && db.agent_journal.some((j) => j.kind === 'deja_connue' && /déjà connue de l'équipe \(FLORENT JABOUILLE \(carte du réseau\)\) — rien de préparé d'office/.test(String(j.summary))),
+  'A. grand compte, recherche lancée à la main : rien de préparé d\'office (ni aiguillage, ni LinkedIn, ni fiche d\'appel) — l\'équipe connaît Florent', { prepared: o.prepared, messages: db.agent_messages.length, journal: db.agent_journal.map((j) => j.kind) });
 task({ kind: 'premier_mail', params: { prospect_ids: ['p-dmd'], auto: true } });
 await runNextTask();
 ok(db.agent_messages.length === 0 && /déjà connue de l'équipe : FLORENT JABOUILLE \(carte du réseau\)/.test(String((db.agent_tasks[0].result as { details?: string[] })?.details?.[0] ?? '')),

@@ -28,7 +28,7 @@ import {
   deepSystem, deepSchema, deepPrompt, mergeDeep, deepSummary, phoneWritten, DEEP_SEARCHES, DEEP_FETCHES,
   type DeepOutput, type DeepProspect, type DeepChecked, type DeepPerson,
 } from '../../src/lib/agents/deepResearch';
-import { teamPromptLines, teamPeople, withTeamPeople, companyKeys, type TeamMatch } from '../../src/lib/agents/teamMemory';
+import { teamPromptLines, teamPeople, withTeamPeople, companyKeys, teamKnownOf, TEAM_SOURCE_LABEL, type TeamMatch, type TeamSource } from '../../src/lib/agents/teamMemory';
 import { ROLES_BY_SEGMENT, rolesForKind } from '../../src/lib/agents/roles';
 import { provenFormats, withProbableEmails, type KnownPair } from '../../src/lib/agents/emailPattern';
 import { emailDomain } from '../../src/lib/agents/people';
@@ -227,7 +227,17 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
   // lancée à la main, la recherche prépare aussi un grand compte qui ne l'était pas.
   let prepared = false;
   const fresh = news.contact || news.emails > 0 || news.linkedin > 0;
-  if (fresh) {
+  // 19/10 : une entreprise que l'équipe connaît déjà (Florent Jabouille chez DMD, sur la carte) : rien de préparé d'office,
+  // même après une recherche lancée à la main — « Préparer pour vous » reste sur la fiche, pour un choix explicite.
+  const known = teamKnownOf(patch.people ?? p.people);
+  if (fresh && known.length) {
+    const who = known.slice(0, 2).map((x) => `${x.nom}${x.via ? ` (${TEAM_SOURCE_LABEL[x.via as TeamSource] ?? x.via})` : ''}`).join(', ');
+    await journal({
+      agent: a.agent, actor: a.agent, kind: 'deja_connue',
+      summary: `${row.name} : déjà connue de l'équipe (${who}) — rien de préparé d'office ; « Préparer pour vous » reste possible sur la fiche`,
+      details: { prospect_id: row.id },
+    });
+  } else if (fresh) {
     const t = await preparedThread(row.id);
     if (t.kind === 'prepare' || (t.kind === 'aucun' && manual && patch.key_account)) {
       if (t.kind === 'prepare') {
