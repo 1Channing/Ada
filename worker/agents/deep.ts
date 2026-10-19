@@ -10,16 +10,29 @@
  * Un grand compte déjà préparé pour Channing, sans rien d'envoyé, est
  * repréparé avec ce qui a été trouvé ; lancée à la main, la recherche
  * prépare aussi un grand compte qui ne l'était pas. Rien n'est envoyé.
+ * 19/10 (le test DMD) : avant de chercher, ce que l'équipe sait déjà de
+ * l'entreprise (./team.ts) ; qui chercher — pour démarrer, pour décider,
+ * l'aiguilleur — et la méthode ; les leçons validées par Channing ; après,
+ * les personnes connues de l'équipe ajoutées à la fiche et l'adresse
+ * probable de celles qui n'en ont pas, quand le format de la société est
+ * prouvé par une vraie adresse (jamais utilisée sans clic).
  */
 import { live } from './live';
-import { sb, journal } from './store';
+import { sb, journal, loadSuppressions } from './store';
+import { teamFor, type TeamMask } from './team';
+import { lessonsBlock } from './lessons';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
 import { fetchPage, hasMx, type AiAgent } from './qualify';
 import { draftFirstMail } from './firstMail';
 import {
   deepSystem, deepSchema, deepPrompt, mergeDeep, deepSummary, phoneWritten, DEEP_SEARCHES, DEEP_FETCHES,
-  type DeepOutput, type DeepProspect, type DeepChecked,
+  type DeepOutput, type DeepProspect, type DeepChecked, type DeepPerson,
 } from '../../src/lib/agents/deepResearch';
+import { teamPromptLines, teamPeople, withTeamPeople, companyKeys, type TeamMatch } from '../../src/lib/agents/teamMemory';
+import { ROLES_BY_SEGMENT, rolesForKind } from '../../src/lib/agents/roles';
+import { provenFormats, withProbableEmails, type KnownPair } from '../../src/lib/agents/emailPattern';
+import { emailDomain } from '../../src/lib/agents/people';
+import { suppressionMatch } from '../../src/lib/agents/sendPolicy';
 import { acceptedLinkedin, EMAIL_OK, HOME_COUNTRY } from '../../src/lib/agents/qualification';
 import { segmentOf } from '../../src/lib/agents/research';
 import { mailtoEmails, extractEmails, pageText } from '../../src/lib/agents/dealerPage';
@@ -43,12 +56,14 @@ async function preparedThread(prospectId: string): Promise<{ kind: 'aucun' } | {
   return { kind: 'prepare', id: threads[0].id };
 }
 
-/** Ce que la recherche approfondie rend, vérifié par ADA, avant toute écriture sur la fiche. */
-export interface DeepRun { out: DeepOutput; checked: DeepChecked; cost: number }
+/** Ce que la recherche approfondie rend, vérifié par ADA, avant toute écriture sur la fiche ; et ce que l'équipe en savait. */
+export interface DeepRun { out: DeepOutput; checked: DeepChecked; cost: number; team: TeamMatch[] }
 
 export interface DeepCoreInput {
   role: 'ada' | 'dana'; p: DeepProspect; a: AiAgent; taskId: string | null;
-  note?: string; model?: string; segment?: { label: string; roles: string; size: string | null } | null;
+  note?: string; model?: string; segment?: { key?: string; label: string; roles: string; size: string | null } | null;
+  /** Le banc d'essai (19/10) cache l'entreprise testée à la mémoire de l'équipe. */
+  mask?: TeamMask;
   /** La fiche en base (l'appel lui est rattaché), ou null : le banc d'essai travaille « à blanc ». */
   prospectId: string | null;
   /** Le banc d'essai (19/10) a sa propre limite de dépense : ses appels ne comptent pas dans le budget du jour. */
@@ -63,7 +78,13 @@ export interface DeepCoreInput {
 export async function deepCore(i: DeepCoreInput): Promise<DeepRun | { error: string; cost: number }> {
   const { role, p, a, taskId } = i;
   const note = i.note ?? '';
-  const prompt = deepPrompt({ role, p, segment: i.segment ?? null, note });
+  // 19/10 : ce que l'équipe sait déjà, qui chercher, les leçons de Channing.
+  const team = await teamFor(p, i.mask ?? {});
+  if (team.length) live(taskId, `${p.name} : déjà connue de l'équipe (${team.length} contact${team.length > 1 ? 's' : ''} : carte, Workflow, mails…)`);
+  const segKey = i.segment?.key ?? null;
+  const roles = (segKey && ROLES_BY_SEGMENT[role][segKey]) || rolesForKind(role, p.kind);
+  const lessons = await lessonsBlock(a.agent, 'recherche', { segment: segKey, kind: p.kind, country: p.country });
+  const prompt = deepPrompt({ role, p, segment: i.segment ?? null, note, roles, team: teamPromptLines(team), lessons });
   const named = `${p.name}${p.country ? ` (${p.country})` : ''}`;
   live(taskId, `${named} : recherche approfondie sur le web — ${note.trim() ? 'avec votre consigne' : 'à qui elle appartient, qui décide'} (${DEEP_SEARCHES} recherches au plus)`);
   let out: DeepOutput;
@@ -132,7 +153,30 @@ export async function deepCore(i: DeepCoreInput): Promise<DeepRun | { error: str
     linkedin: (url, name) => acceptedLinkedin(url, name, seenUrls, prompt),
     seen: (url) => !!url && (seen.has(normUrl(url)) || !!pages.get(url) || seenHosts.has(hostOf(url))),
   };
-  return { out, checked, cost };
+  return { out, checked, cost, team };
+}
+
+/**
+ * Après la fusion (19/10) : les personnes connues de l'équipe sur la fiche, et l'adresse probable de
+ * celles qui n'ont pas d'adresse — dans le format prouvé par une vraie adresse nominative de la
+ * société (équipe, ou page lue), sur un domaine de l'entreprise qui reçoit du courrier, jamais une
+ * adresse sur « ne plus contacter ».
+ */
+export async function withTeamAndProbable(p: DeepProspect, people: DeepPerson[], emails: DeepProspect['emails'], team: TeamMatch[]): Promise<DeepPerson[]> {
+  const all = withTeamPeople(people, teamPeople(team));
+  const pairs: KnownPair[] = [
+    ...team.filter((m) => m.person && m.email).map((m) => ({ name: m.person as string, email: m.email as string, source: m.source })),
+    ...all.filter((x) => x.email && emails.some((e) => e.email === x.email && e.mx)).map((x) => ({ name: x.nom, email: x.email as string, source: 'page' })),
+  ];
+  const formats = provenFormats(pairs);
+  if (!formats.length) return all;
+  // Les domaines de l'entreprise : sa fiche, et ceux par lesquels l'équipe l'a reconnue.
+  const keys = companyKeys({ name: p.name, group_name: p.group_name, website: p.website, emails: emails.map((e) => e.email), phone: p.phone, city: p.city, country: p.country });
+  const domains = [...new Set([...keys.domains, ...team.filter((m) => m.email && (m.source === 'carte' || m.source === 'workflow' || m.why !== 'nom')).map((m) => emailDomain(m.email))].filter(Boolean))];
+  const usable: typeof formats = [];
+  for (const f of formats) if (await hasMx(f.domain)) usable.push(f);
+  const blocked = await loadSuppressions();
+  return withProbableEmails(all, usable, domains, (e) => !!suppressionMatch([e], blocked));
 }
 
 export async function deepResearch(prospectId: string, a: AiAgent, taskId: string | null, manual: boolean, note = '', model: string = HAIKU): Promise<DeepOutcome> {
@@ -147,21 +191,22 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
   const p: DeepProspect = { ...row, emails: row.emails ?? [], people: row.people ?? [], evidence: row.evidence ?? [], fit_parts: row.fit_parts ?? [] };
 
   // Une entreprise trouvée par recherche web : son type de compte et qui décide chez elle.
-  let segment: { label: string; roles: string; size: string | null } | null = null;
+  let segment: { key: string; label: string; roles: string; size: string | null } | null = null;
   if (row.account_id) {
     const { data: acc } = await sb.from('agent_accounts').select('segment, size_hint').eq('id', row.account_id).maybeSingle();
     const x = acc as { segment: string; size_hint: string | null } | null;
     const seg = x ? segmentOf(role, x.segment) : null;
-    if (seg) segment = { label: seg.label, roles: seg.roles, size: x?.size_hint ?? null };
+    if (seg) segment = { key: seg.key, label: seg.label, roles: seg.roles, size: x?.size_hint ?? null };
   }
   // La consigne laissée par Channing en lançant la recherche (18/10).
   const run = await deepCore({ role, p, a, taskId, note, model, segment, prospectId: row.id });
   if ('error' in run) return { status: 'echec', name: row.name, detail: run.error, cost: run.cost, prepared: false };
   const { out, checked, cost } = run;
 
-  // La fiche complétée, la note à jour.
+  // La fiche complétée, la note à jour ; les personnes connues de l'équipe, les adresses probables (19/10).
   const at = new Date().toISOString();
   const { patch, news } = mergeDeep(p, out, checked, at, cost);
+  patch.people = (await withTeamAndProbable(p, patch.people ?? [], patch.emails ?? p.emails, run.team)).slice(0, 20);
   let { error } = await sb.from('agent_prospects').update({ ...patch, updated_at: at }).eq('id', row.id);
   if (error && /key_account/.test(error.message)) {
     // SQL agents_comptes pas encore collé : sans la colonne « grand compte ».
@@ -189,7 +234,7 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
         await sb.from('agent_threads').delete().eq('id', t.id);
       }
       live(taskId, `${row.name}${row.country ? ` (${row.country})` : ''} : ${t.kind === 'prepare' ? 'nouvelle préparation' : 'préparation'} pour vous, avec ce qui a été trouvé (IA)`);
-      prepared = (await draftFirstMail(row.id, a, taskId)).status === 'redige';
+      prepared = (await draftFirstMail(row.id, a, taskId, { manual })).status === 'redige';
     }
   }
   return { status: fresh || news.groupe || news.pistes || news.personnes ? 'enrichi' : 'rien', name: row.name, detail: summary, cost, prepared };

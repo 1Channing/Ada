@@ -105,7 +105,7 @@ ok(again.status === 'ignore' && /conversation|étape/.test(again.detail) && call
 const sup = await draftFirstMail('p2', agent, 't1');
 ok(sup.status === 'ignore' && sup.detail.includes('ne plus contacter') && calls.length === 1, 'garde-fou : domaine sur « ne plus contacter »', sup);
 const dead = await draftFirstMail('p3', agent, 't1');
-ok(dead.status === 'ignore' && dead.detail.includes('vérifié') && calls.length === 1, 'garde-fou : e-mail dont le domaine ne reçoit pas de courrier', dead);
+ok(dead.status === 'ignore' && dead.detail.includes('adresse directe') && calls.length === 1, 'garde-fou : e-mail dont le domaine ne reçoit pas de courrier (ni adresse directe, ni personne à qui demander le bon contact)', dead);
 
 const fr = await draftFirstMail('p6', agent, 't1');
 ok(fr.status === 'ignore' && /France/.test(fr.detail) && calls.length === 1, 'garde-fou : un garage en France n\'est pas un acheteur (aucun brouillon)', fr);

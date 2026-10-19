@@ -76,6 +76,8 @@ export interface RecapInput {
   prepared: string[]; drafts: number; map: number;
   /** Les réponses préparées aux mails reçus (18/10). */
   replies?: number;
+  /** 19/10 : les mails d'aiguillage préparés aujourd'hui, et les leçons qui attendent votre validation. */
+  routing?: number; lessons?: number;
   spent: number; budget: number;
   waiting: { forYou: number; toComplete: number; toValidate: number };
   link: string;
@@ -99,7 +101,7 @@ export function recapMail(i: RecapInput): { subject: string; body: string } {
     `• Fiches préparées : ${i.fiches}${i.keyFiches ? `, dont ${i.keyFiches} grand${s(i.keyFiches)} compte${s(i.keyFiches)}` : ''}${i.top.length ? ` — les mieux notées : ${i.top.map((t) => `${t.name} ${t.score ?? '—'}`).join(' · ')}` : ''}`,
     `• Recherches approfondies : ${i.deep.done}${i.deep.done ? ` — ${i.deep.enriched} fiche${s(i.deep.enriched)} complétée${s(i.deep.enriched)}${i.deep.found.length ? ` (${i.deep.found.join(' ; ')})` : ''}` : ''}`,
     `• Préparé pour Channing (grands comptes) : ${i.prepared.length}${i.prepared.length ? ` — ${i.prepared.join(', ')}` : ''}`,
-    `• Premiers mails à valider : ${i.drafts}`,
+    `• Premiers mails à valider : ${i.drafts}${i.routing ? `, dont ${i.routing} aiguillage${s(i.routing)} (pour obtenir le bon contact)` : ''}`,
     ...(i.replies ? [`• Réponses préparées aux mails reçus : ${i.replies}`] : []),
     `• Ajoutés à la carte du réseau : ${i.map}`,
     `• Dépense IA : ${usd(i.spent)} sur ${usd(i.budget)}`,
@@ -109,6 +111,7 @@ export function recapMail(i: RecapInput): { subject: string; body: string } {
     i.waiting.forYou ? `${i.waiting.forYou} grand${s(i.waiting.forYou)} compte${s(i.waiting.forYou)} « Pour vous »` : null,
     i.waiting.toValidate ? `${i.waiting.toValidate} mail${s(i.waiting.toValidate)} à valider` : null,
     i.waiting.toComplete ? `${i.waiting.toComplete} grand${s(i.waiting.toComplete)} compte${s(i.waiting.toComplete)} à compléter` : null,
+    i.lessons ? `${i.lessons} leçon${s(i.lessons)} à valider (« Ce que ${i.name} sait »)` : null,
   ].filter(Boolean);
   lines.push(todo.length ? `À traiter dans ADA : ${todo.join(', ')}.` : 'Rien n\'attend dans ADA.');
   lines.push(`Ouvrir : ${i.link}`);

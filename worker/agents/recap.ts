@@ -101,8 +101,10 @@ export async function maybeSendRecap(a: AiAgent, now = new Date()): Promise<'env
   // Les chiffres.
   const { data: pRows } = await sb.from('agent_prospects').select('id, name, score, key_account, network_contact_id, stage').eq('agent', a.agent).gte('qualified_at', since).order('score', { ascending: false }).limit(500);
   const fiches = (pRows ?? []) as Array<{ id: string; name: string; score: number | null; key_account?: boolean; network_contact_id: string | null; stage: string }>;
-  const { data: mRows } = await sb.from('agent_messages').select('thread_id, status, kind, author, created_at, thread:agent_threads(prospect:agent_prospects(name))').eq('agent', a.agent).gte('created_at', since).limit(500);
-  const msgs = (mRows ?? []) as Array<{ thread_id: string; status: string; kind: string; author?: string; thread: { prospect: { name: string } | null } | null }>;
+  const { data: mRows } = await sb.from('agent_messages').select('thread_id, status, kind, author, created_at, ai_notes, thread:agent_threads(prospect:agent_prospects(name))').eq('agent', a.agent).gte('created_at', since).limit(500);
+  const msgs = (mRows ?? []) as Array<{ thread_id: string; status: string; kind: string; author?: string; ai_notes?: { aiguillage?: unknown } | null; thread: { prospect: { name: string } | null } | null }>;
+  // 19/10 : les leçons qui attendent votre validation (rien tant que le SQL agents_lecons n'est pas collé).
+  const { data: lRows } = await sb.from('agent_lessons').select('id').eq('agent', a.agent).eq('status', 'proposee').limit(200);
   const preparedNames = [...new Map(msgs.filter((m) => m.status === 'pour_channing').map((m) => [m.thread_id, m.thread?.prospect?.name ?? 'grand compte'])).values()];
   const { data: wFor } = await sb.from('agent_messages').select('thread_id').eq('agent', a.agent).eq('status', 'pour_channing').limit(500);
   const { data: wVal } = await sb.from('agent_messages').select('id').eq('agent', a.agent).eq('status', 'a_valider').limit(500);
@@ -130,6 +132,8 @@ export async function maybeSendRecap(a: AiAgent, now = new Date()): Promise<'env
     deep: { done: deepTasks.reduce((n, t) => n + Number(t.result?.fiches ?? 0), 0), enriched: deepTasks.reduce((n, t) => n + Number(t.result?.enrichies ?? 0), 0), found: deepFound },
     prepared: preparedNames, drafts: msgs.filter((m) => m.status === 'a_valider' && m.kind === 'premier_contact').length,
     replies: msgs.filter((m) => m.kind === 'reponse' && m.author === a.agent).length,
+    routing: msgs.filter((m) => m.kind === 'premier_contact' && !!m.ai_notes?.aiguillage).length,
+    lessons: ((lRows ?? []) as unknown[]).length,
     map: fiches.filter((p) => !!p.network_contact_id).length,
     spent, budget: Number.isFinite(budget) ? budget : 0,
     waiting: {

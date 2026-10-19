@@ -16,7 +16,11 @@ export interface ResearchMailCompany {
   /** Déjà connue de l'équipe (fiche, carte, Workflow) : pas une nouveauté. */
   known?: boolean;
   /** Sa fiche, si elle est prête : note, grand compte, qui contacter, comment, ce qui manque, les pistes. */
-  fiche?: { score: number | null; key: boolean; contact: string | null; email: string | null; phone: string | null; missing: string[]; leads: string[] } | null;
+  fiche?: {
+    score: number | null; key: boolean; contact: string | null; email: string | null; phone: string | null; missing: string[]; leads: string[];
+    /** 19/10 : qui l'équipe y connaît déjà (« Florent Jabouille (carte du réseau) »). */
+    team?: string | null;
+  } | null;
 }
 
 export interface ResearchMailInput {
@@ -42,7 +46,7 @@ export const googleUrl = (q: string) => `https://www.google.com/search?q=${encod
 
 export function researchMail(i: ResearchMailInput): { subject: string; body: string } {
   const what = i.ask.notes ? `« ${i.ask.notes.length > 60 ? `${i.ask.notes.slice(0, 57)}…` : i.ask.notes} »` : i.ask.types.join(', ');
-  const fresh = i.companies.filter((c) => !c.known);
+  const fresh = i.companies.filter((c) => !c.known && !c.fiche?.team);
   const lines: string[] = [
     'Bonjour,',
     '',
@@ -52,11 +56,12 @@ export function researchMail(i: ResearchMailInput): { subject: string; body: str
   lines.push('');
   lines.push(`• Entreprises trouvées : ${fresh.length}${i.companies.length > fresh.length ? ` (et ${i.companies.length - fresh.length} déjà connue${s(i.companies.length - fresh.length)} de l'équipe)` : ''}${i.dropped ? ` — ${i.dropped} écartée${s(i.dropped)} (site invérifiable ou hors sujet)` : ''}`);
   for (const c of i.companies) {
-    const head = [`  – ${c.name}${c.city ? ` (${c.city})` : ''}`, c.type, c.known ? 'déjà connue' : null].filter(Boolean).join(' · ');
+    const head = [`  – ${c.name}${c.city ? ` (${c.city})` : ''}`, c.type, c.known || c.fiche?.team ? 'déjà connue' : null].filter(Boolean).join(' · ');
     lines.push(head);
     const f = c.fiche;
     if (!f) continue;
     const who = [f.contact, f.email, f.phone].filter(Boolean).join(' — ');
+    if (f.team) lines.push(`    déjà connue de l'équipe : ${f.team}`);
     lines.push(`    fiche ${f.score ?? '—'}/100${f.key ? ' · grand compte' : ''}${who ? ` · à contacter : ${who}` : ''}`);
     if (f.missing.length) lines.push(`    ce qui manque : ${f.missing.join(', ')}`);
     for (const l of f.leads.slice(0, 3)) lines.push(`    piste : ${l}`);

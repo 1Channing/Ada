@@ -23,6 +23,18 @@
  *   l'appel restent à lui.
  * L'adresse du mail est dite à Opus (18/10) : celle de la personne, d'un
  * service, ou une adresse générale — on demande alors de transmettre.
+ * 19/10 (Channing, après le test DMD) :
+ * - sans adresse directe (rien, ou seulement contact@) : pas de
+ *   présentation dans le vide, un MAIL D'AIGUILLAGE à quelqu'un de joignable
+ *   (un commercial d'un site, sinon le service, sinon l'adresse générale)
+ *   pour obtenir le contact direct ; il arrive marqué dans « À valider » ;
+ * - une entreprise que l'équipe connaît déjà (carte, Workflow, copies…)
+ *   n'a pas de premier mail d'office — à la main, si Channing le demande ;
+ * - l'adresse probable (format prouvé) seulement sur le clic d'un
+ *   administrateur ;
+ * - droit au but : un mail qui récite les chiffres du prospect est signalé ;
+ *   le texte d'origine est gardé (ai_notes.texte_initial) pour apprendre des
+ *   corrections.
  * Rien ne part sans le clic d'un administrateur ; l'envoi par la boîte de
  * l'agente respecte les horaires, le plafond du jour et l'étalement.
  */
@@ -31,7 +43,10 @@ import {
   FIRST_MAIL_SYSTEM, FIRST_MAIL_SCHEMA, firstMailPrompt, checkFirstMail, withAgentSignature, LANG_OF_COUNTRY,
   DANA_FIRST_MAIL_SYSTEM, danaFirstMailPrompt, checkDanaMail, keyAccountSystem, KEY_ACCOUNT_SCHEMA, keyAccountPrompt, checkKeyAccount, linkedinSearchUrl,
   type FirstMailOutput, type KeyAccountOutput, type OfferFact, type DraftCheck, type AccountFacts,
+  routingSystem, routingPrompt, ROUTING_SCHEMA, checkRouting, pickRouter, routingWanted, theirFigures, type RoutingOutput, type RouterPick,
 } from '../../src/lib/agents/firstMail';
+import { teamKnownOf, TEAM_SOURCE_LABEL, type TeamSource } from '../../src/lib/agents/teamMemory';
+import { lessonsBlock } from './lessons';
 import { segmentOf } from '../../src/lib/agents/research';
 import { opportunities, brandKey, type DealerListingLite } from '../../src/lib/agents/opportunity';
 import { lotLine, normalizeDanaTargets, groupKey, type LotFact } from '../../src/lib/agents/sourcing';
@@ -43,7 +58,7 @@ import { loadOffers, dealerGroupIds, lotsOfDealer, type AiAgent } from './qualif
 import { HOME_COUNTRY, addressKind } from '../../src/lib/agents/qualification';
 import { sb, journal, loadSuppressions } from './store';
 
-interface Person { nom: string; fonction: string | null; email: string | null; linkedin?: string | null }
+interface Person { nom: string; fonction: string; email: string | null; linkedin?: string | null; niveau?: string | null; perimetre?: string | null; connu?: boolean; via?: string | null }
 interface ProspectRow {
   id: string; agent: string; dealer_id: string | null; name: string; country: string | null; city: string | null;
   group_name: string | null; kind: string | null; brands_official: string[] | null; language: string | null; summary: string | null;
@@ -82,7 +97,16 @@ async function groupConflict(agent: string, p: ProspectRow, key: boolean): Promi
   return head ? `groupe ${p.group_name} traité en grand compte (${head.name})` : null;
 }
 
-export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: string | null): Promise<DraftOutcome> {
+export interface DraftOptions {
+  /** Demandé par une personne (un clic) : une entreprise que l'équipe connaît déjà peut quand même recevoir un mail. */
+  manual?: boolean;
+  /** Après un aiguillage réussi (19/10) : le fil de l'aiguillage n'empêche pas le premier mail à la personne donnée. */
+  afterRouting?: boolean;
+  /** L'adresse probable choisie par un administrateur (19/10) : le mail lui est écrit, marqué comme tel. */
+  probable?: { email: string; motif: string } | null;
+}
+
+export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: string | null, opts: DraftOptions = {}): Promise<DraftOutcome> {
   const { data } = await sb.from('agent_prospects').select('*').eq('id', prospectId).maybeSingle();
   const p = data as ProspectRow | null;
   if (!p) return { status: 'echec', name: prospectId, detail: 'prospect introuvable', cost: 0 };
@@ -92,20 +116,30 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
 
   // 1. Garde-fous
   if (p.agent !== a.agent) return skip(p.agent === 'dana' ? 'fiche de Dana' : 'fiche d\'Ada');
-  const email = p.best_contact?.email?.toLowerCase() ?? null;
-  const verified = !!email && (p.emails ?? []).some((e) => e.email === email && e.mx);
+  const probable = opts.probable?.email ? { email: opts.probable.email.trim().toLowerCase(), motif: opts.probable.motif } : null;
+  const email = probable?.email ?? p.best_contact?.email?.toLowerCase() ?? null;
+  const verified = !!probable || (!!email && (p.emails ?? []).some((e) => e.email === email && e.mx));
+  // 19/10 : sans adresse directe (rien, ou une adresse générale), un aiguillage plutôt qu'une présentation dans le vide.
+  const kind = verified && email ? (probable ? 'personne' : addressKind(email, (p.emails ?? []).find((e) => e.email === email)?.nature, p.best_contact?.nom)) : null;
+  const router: RouterPick | null = !verified || kind === 'generique' ? pickRouter((p.people ?? []) as Person[], (p.emails ?? []).map((e) => ({ email: e.email, nature: e.nature ?? 'autre', mx: e.mx })), p.best_contact, addressKind) : null;
   // Un grand compte sans e-mail publié reste joignable : LinkedIn et la fiche d'appel, préparés pour Channing.
-  if (!verified && !key) return skip('pas d\'e-mail publié et vérifié');
+  if (!router && !(verified && kind !== 'generique') && !key) return skip('pas d\'adresse directe, ni personne à qui demander le bon contact');
   if (!['qualifie', 'a_contacter'].includes(p.stage)) return skip(`étape « ${p.stage} »`);
   if (role === 'ada' && (p.country ?? '').toUpperCase() === HOME_COUNTRY) return skip('garage en France : MC Export y achète, Ada ne lui vend pas');
+  // 19/10 : une entreprise que l'équipe connaît déjà n'a pas de mail à froid d'office.
+  const known = teamKnownOf(p.people);
+  if (known.length && !opts.manual && !opts.afterRouting) {
+    return skip(`déjà connue de l'équipe : ${known.slice(0, 2).map((x) => `${x.nom}${x.via ? ` (${TEAM_SOURCE_LABEL[x.via as TeamSource] ?? x.via})` : ''}`).join(', ')} — pas de premier mail d'office`);
+  }
   // Une adresse de l'entreprise (ou son domaine) sur « ne plus contacter » vaut pour toute l'entreprise, et pour les deux agentes.
-  const blocked = suppressionMatch([email ?? '', ...(p.emails ?? []).map((e) => e.email)], await loadSuppressions());
+  const target = router?.email ?? email;
+  const blocked = suppressionMatch([target ?? '', email ?? '', ...(p.emails ?? []).map((e) => e.email)], await loadSuppressions());
   if (blocked) return skip(`${blocked} est sur « ne plus contacter »`);
   const { data: t1 } = await sb.from('agent_threads').select('id').eq('prospect_id', p.id).limit(1);
-  // En conversation avec l'une ou l'autre agente : pas de premier contact à froid.
-  const { data: t2 } = email ? await sb.from('agent_threads').select('id').eq('counterpart_email', email).limit(1) : { data: [] };
-  if (((t1 ?? []) as unknown[]).length || ((t2 ?? []) as unknown[]).length) return skip('déjà en conversation');
-  const conflict = await groupConflict(a.agent, p, key);
+  // En conversation avec l'une ou l'autre agente : pas de premier contact à froid (sauf la personne donnée par un aiguillage).
+  const { data: t2 } = target ? await sb.from('agent_threads').select('id').eq('counterpart_email', target).limit(1) : { data: [] };
+  if ((!opts.afterRouting && ((t1 ?? []) as unknown[]).length) || ((t2 ?? []) as unknown[]).length) return skip('déjà en conversation');
+  const conflict = opts.afterRouting ? null : await groupConflict(a.agent, p, key);
   if (conflict) return skip(conflict);
 
   // 2. Le matériel
@@ -126,25 +160,32 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const language = p.language || LANG_OF_COUNTRY[(p.country ?? '').toUpperCase()] || 'en';
   // L'adresse du mail et ce qu'elle est : celle de la personne, d'un service, ou une adresse générale (on demande alors de transmettre).
   const contact = {
-    name: p.best_contact?.nom ?? null, role: p.best_contact?.fonction ?? null, email: verified ? email : null,
-    address: verified && email ? addressKind(email, (p.emails ?? []).find((e) => e.email === email)?.nature, p.best_contact?.nom) : null,
+    name: p.best_contact?.nom ?? null, role: p.best_contact?.fonction ?? null, email: verified && !router ? email : null,
+    address: verified && email && !router ? kind : null,
   };
   // Une entreprise trouvée par recherche web : son type de compte, sa taille, pourquoi elle compte.
   let account: AccountFacts | null = null;
+  let segKey: string | null = null;
   if (p.account_id) {
     const { data: acc } = await sb.from('agent_accounts').select('segment, size_hint, why').eq('id', p.account_id).maybeSingle();
     const x = acc as { segment: string; size_hint: string | null; why: string | null } | null;
-    if (x) account = { segment: segmentOf(role, x.segment)?.label ?? x.segment, size: x.size_hint, why: x.why };
+    if (x) { account = { segment: segmentOf(role, x.segment)?.label ?? x.segment, size: x.size_hint, why: x.why }; segKey = x.segment; }
   }
+  // 19/10 : les leçons de Channing pour écrire.
+  const lessons = await lessonsBlock(a.agent, 'mail', { segment: segKey, kind: p.kind, country: p.country });
+  const withLessons = (prompt: string) => (lessons.length ? `${prompt}\n\n${lessons.join('\n')}` : prompt);
   let base: string;
   let lots: LotFact[] = [];
+  let ours: string[] = [];
   if (role === 'dana') {
     // Les lots relus à l'instant (un lot vendu depuis la qualification ne doit pas être cité).
     lots = ids.length ? await lotsOfDealer(ids[0], listings, normalizeDanaTargets(a.targets)) : [];
     if (lots.length === 0 && !key && !p.account_id) return skip('plus de lot de véhicules identiques en ligne');
+    const lotLines = lots.slice(0, 4).map((l) => lotLine(l, false));
+    ours = lotLines;
     base = danaFirstMailPrompt({
       company: p.name, country: p.country, city: p.city, language, contact, kind: p.kind, group: p.group_name, summary: p.summary,
-      stock: { listings: listings.length, byBrand: brandsTop }, lots: lots.slice(0, 4).map((l) => lotLine(l, false)), account, instructions: a.instructions ?? '',
+      stock: { listings: listings.length, byBrand: brandsTop }, lots: lotLines, account, instructions: a.instructions ?? '',
     });
   } else {
     const vat = countryVat((p.country ?? 'FR').toUpperCase());
@@ -157,6 +198,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
       ? [...new Set([...opps.map((o) => o.offer), ...offers.filter((o) => theirBrands.has(brandKey(o.brand)))])].slice(0, 4)
       : offers.slice(0, 4);
     const offerFacts: OfferFact[] = shownOffers.map((o) => ({ title: o.title, year: o.year, km: o.km, priceHt: o.priceHt, withVat: o.priceHt ? Math.round(o.priceHt * (1 + vat)) : null }));
+    ours = [...gaps, ...offerFacts.map((o) => `${o.title} ${o.year ?? ''} ${o.km ?? ''} ${o.priceHt ?? ''} ${o.withVat ?? ''}`)];
     base = firstMailPrompt({
       company: p.name, country: p.country, city: p.city, language, contact,
       kind: p.kind, group: p.group_name, officialBrands: p.brands_official ?? [], summary: p.summary,
@@ -164,64 +206,121 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
       account, gaps, offers: offerFacts, instructions: a.instructions ?? '',
     });
   }
+  // 19/10 : les chiffres de l'entreprise elle-même (taille, volumes…) — un mail qui les récite est signalé.
+  const figures = theirFigures([p.summary, account?.size, account?.why], ours);
   const people = [
     ...(p.best_contact?.nom ? [{ nom: p.best_contact.nom, fonction: p.best_contact.fonction ?? null, linkedin: p.best_contact.linkedin ?? null }] : []),
-    ...(p.people ?? []).filter((x) => x.nom && x.nom !== p.best_contact?.nom).map((x) => ({ nom: x.nom, fonction: x.fonction ?? null, linkedin: x.linkedin ?? null })),
+    ...(p.people ?? []).filter((x) => x.nom && x.nom !== p.best_contact?.nom && !x.connu).map((x) => ({ nom: x.nom, fonction: x.fonction ?? null, linkedin: x.linkedin ?? null })),
   ];
-  const prompt = key ? keyAccountPrompt(base, people) : base;
+  const prompt = withLessons(key ? keyAccountPrompt(base, people) : base);
+  const budget = Number(a.daily_budget_usd);
 
-  // 3. Opus 5.5
-  live(taskId, key ? `${p.name} : grand compte — mail, note LinkedIn et fiche d'appel préparés pour vous (IA)` : `${p.name} : rédaction du premier mail (IA)`);
-  let out: KeyAccountOutput | FirstMailOutput;
-  let cost = 0;
-  try {
-    const budget = Number(a.daily_budget_usd);
-    const r = await callClaude<KeyAccountOutput | FirstMailOutput>({
-      agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: key ? 'grand_compte' : 'premier_mail', model: OPUS,
-      system: key ? keyAccountSystem(role) : role === 'dana' ? DANA_FIRST_MAIL_SYSTEM : FIRST_MAIL_SYSTEM, user: prompt,
-      schema: (key ? KEY_ACCOUNT_SCHEMA : FIRST_MAIL_SCHEMA) as unknown as Record<string, unknown>,
-      maxTokens: key ? 10_000 : 8000, effort: 'medium', prospectId: p.id, taskId, fallbacks: true,
-    });
-    out = r.data as KeyAccountOutput | FirstMailOutput;
-    cost = r.costUsd;
-  } catch (e) {
-    if (e instanceof BudgetReached || e instanceof AiUnavailable) throw e;
-    return { status: 'echec', name: p.name, detail: e instanceof Error ? e.message : String(e), cost: 0 };
+  // 3a. L'aiguillage (19/10) : pas d'adresse directe — un mail court pour obtenir le bon contact.
+  let routing: { row: Record<string, unknown>; subject: string; cost: number; warnings: number } | null = null;
+  if (router) {
+    live(taskId, `${p.name} : pas d'adresse directe — mail d'aiguillage à ${router.name ?? router.email} pour obtenir le bon contact (IA)`);
+    const wanted = routingWanted(role, segKey ?? p.kind);
+    const targetName = p.best_contact?.nom ?? null;
+    const rp = withLessons(routingPrompt({
+      role, company: p.name, country: p.country, language, router, target: { name: targetName, role: p.best_contact?.fonction ?? null }, wanted, instructions: a.instructions ?? '',
+    }));
+    let ro: RoutingOutput | null = null;
+    let rcost = 0;
+    try {
+      const r = await callClaude<RoutingOutput>({
+        agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'aiguillage', model: OPUS,
+        system: routingSystem(role), user: rp, schema: ROUTING_SCHEMA as unknown as Record<string, unknown>,
+        maxTokens: 3000, effort: 'low', prospectId: p.id, taskId, fallbacks: true,
+      });
+      ro = r.data;
+      rcost = r.costUsd;
+    } catch (e) {
+      if (e instanceof BudgetReached || e instanceof AiUnavailable) throw e;
+      return { status: 'echec', name: p.name, detail: e instanceof Error ? e.message : String(e), cost: 0 };
+    }
+    if (!ro?.objet?.trim() || !ro?.corps?.trim()) return { status: 'echec', name: p.name, detail: 'aiguillage vide', cost: rcost };
+    const rc = checkRouting(ro, role);
+    const rsubject = ro.objet.trim().slice(0, 200);
+    routing = {
+      subject: rsubject, cost: rcost, warnings: rc.warnings.length,
+      row: {
+        channel: 'mail', status: 'a_valider', to_emails: [router.email], subject: rsubject, body_text: withAgentSignature(ro.corps, a.signature ?? ''),
+        translation_fr: language === 'fr' ? null : (ro.traduction_fr ?? null),
+        ai_notes: {
+          modele: OPUS, cout_usd: Math.round(rcost * 10_000) / 10_000, langue: language, mots: rc.words, faits: [], alertes: rc.warnings, texte_initial: ro.corps.trim(),
+          aiguillage: {
+            cible: targetName ? `${targetName}${p.best_contact?.fonction ? ` — ${p.best_contact.fonction}` : ''}` : null, cherche: wanted,
+            routeur: router.name, routeur_fonction: router.role, adresse: router.address,
+          },
+        },
+      },
+    };
   }
-  if (!out?.objet?.trim() || !out?.corps?.trim()) return { status: 'echec', name: p.name, detail: 'brouillon vide', cost };
-  live(taskId, `${p.name} : contrôle du mail (chaque fait vient d'ADA, aucun prix inventé)`);
-  const check: DraftCheck = key ? checkKeyAccount(out as KeyAccountOutput, prompt, role) : role === 'dana' ? checkDanaMail(out, prompt) : checkFirstMail(out, prompt);
-  const subject = out.objet.trim().slice(0, 200);
-  const notes = { modele: OPUS, cout_usd: Math.round(cost * 10_000) / 10_000, langue: language, mots: check.words, faits: (out.faits ?? []).slice(0, 12), alertes: check.warnings };
+
+  // 3b. Opus 5.5 : le premier mail (adresse directe), ou la préparation d'un grand compte (note LinkedIn, fiche d'appel ; le mail seulement vers une adresse directe).
+  let out: KeyAccountOutput | FirstMailOutput | null = null;
+  let cost = routing?.cost ?? 0;
+  let check: DraftCheck = { words: 0, warnings: [] };
+  if (!routing || key) {
+    live(taskId, key ? `${p.name} : grand compte — ${routing ? 'note LinkedIn et fiche d\'appel' : 'mail, note LinkedIn et fiche d\'appel'} préparés pour vous (IA)` : `${p.name} : rédaction du premier mail (IA)`);
+    try {
+      const r = await callClaude<KeyAccountOutput | FirstMailOutput>({
+        agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: key ? 'grand_compte' : 'premier_mail', model: OPUS,
+        system: key ? keyAccountSystem(role) : role === 'dana' ? DANA_FIRST_MAIL_SYSTEM : FIRST_MAIL_SYSTEM, user: prompt,
+        schema: (key ? KEY_ACCOUNT_SCHEMA : FIRST_MAIL_SCHEMA) as unknown as Record<string, unknown>,
+        maxTokens: key ? 10_000 : 8000, effort: 'medium', prospectId: p.id, taskId, fallbacks: true,
+      });
+      out = r.data as KeyAccountOutput | FirstMailOutput;
+      cost += r.costUsd;
+    } catch (e) {
+      if (e instanceof BudgetReached || e instanceof AiUnavailable) throw e;
+      if (!routing) return { status: 'echec', name: p.name, detail: e instanceof Error ? e.message : String(e), cost: 0 };
+      out = null;
+    }
+    if (!routing && (!out?.objet?.trim() || !out?.corps?.trim())) return { status: 'echec', name: p.name, detail: 'brouillon vide', cost };
+    if (out?.objet?.trim() && out?.corps?.trim()) {
+      live(taskId, `${p.name} : contrôle du mail (chaque fait vient d'ADA, aucun prix inventé, droit au but)`);
+      check = key ? checkKeyAccount(out as KeyAccountOutput, prompt, role, figures) : role === 'dana' ? checkDanaMail(out, prompt, figures) : checkFirstMail(out, prompt, figures);
+    }
+  }
+  const subject = (routing?.subject ?? out?.objet ?? p.name).trim().slice(0, 200);
+  const notes = {
+    modele: OPUS, cout_usd: Math.round((cost - (routing?.cost ?? 0)) * 10_000) / 10_000, langue: language, mots: check.words, faits: (out?.faits ?? []).slice(0, 12), alertes: check.warnings,
+    texte_initial: out?.corps?.trim() ?? null,
+    // 19/10 : l'adresse probable, choisie par un administrateur.
+    ...(probable ? { adresse_probable: probable.email, motif_adresse: probable.motif, alertes: [`Adresse probable, non publiée (${probable.motif}) : un rebond abîme la réputation de mc-export.com.`, ...check.warnings] } : {}),
+  };
 
   // 4. Le fil, et le brouillon à valider — ou, pour un grand compte, ce que Channing envoie lui-même
+  const counterpart = routing ? router?.email ?? null : verified ? email : null;
   const { data: th, error: e1 } = await sb.from('agent_threads').insert({
-    agent: a.agent, mailbox: a.mailbox, subject, counterpart_email: verified ? email : null, counterpart_name: p.best_contact?.nom ?? null,
+    agent: a.agent, mailbox: a.mailbox, subject, counterpart_email: counterpart, counterpart_name: routing ? router?.name ?? null : p.best_contact?.nom ?? null,
     prospect_id: p.id, network_contact_id: p.network_contact_id,
   }).select('id');
   const threadId = ((th ?? []) as Array<{ id: string }>)[0]?.id;
   if (e1 || !threadId) return { status: 'echec', name: p.name, detail: `fil non créé : ${e1?.message ?? '?'}`, cost };
   const rows: Array<Record<string, unknown>> = [];
   const common = { thread_id: threadId, agent: a.agent, mailbox: a.mailbox, direction: 'out', kind: 'premier_contact', author: a.agent };
-  if (key) {
+  if (routing) rows.push({ ...common, ...routing.row });
+  if (key && out) {
     const k = out as KeyAccountOutput;
-    const target = people.find((x) => x.linkedin) ?? null;
-    const linkedinUrl = target?.linkedin ?? null;
+    const linkedTarget = people.find((x) => x.linkedin) ?? null;
+    const linkedinUrl = linkedTarget?.linkedin ?? null;
     const card = {
       ...notes, grand_compte: true, fiche_appel: k.fiche_appel ?? null,
-      linkedin_url: linkedinUrl, linkedin_nom: target?.nom ?? null,
+      linkedin_url: linkedinUrl, linkedin_nom: linkedTarget?.nom ?? null,
       linkedin_recherche: linkedinUrl ? null : linkedinSearchUrl(p.group_name || p.name, role, language, p.best_contact?.nom ?? null),
     };
     const translation = language === 'fr' ? null : (k.traduction_fr ?? null);
-    // Le mail seulement vers une adresse publiée et vérifiée (Channing : « publiées seulement + LinkedIn »).
-    if (verified) rows.push({ ...common, channel: 'mail', status: 'pour_channing', to_emails: [email], subject, body_text: k.corps.trim(), translation_fr: translation, ai_notes: card });
+    // Le mail seulement vers une adresse directe publiée (Channing : « publiées seulement + LinkedIn ») ; sinon l'aiguillage.
+    if (verified && !routing && k.corps?.trim()) rows.push({ ...common, channel: 'mail', status: 'pour_channing', to_emails: [email], subject, body_text: k.corps.trim(), translation_fr: translation, ai_notes: card });
     if ((k.linkedin ?? '').trim()) {
       rows.push({
-        ...common, channel: 'linkedin', status: 'pour_channing', to_emails: [], subject: `LinkedIn — ${target?.nom ?? p.best_contact?.nom ?? p.group_name ?? p.name}`.slice(0, 200),
+        ...common, channel: 'linkedin', status: 'pour_channing', to_emails: [], subject: `LinkedIn — ${linkedTarget?.nom ?? p.best_contact?.nom ?? p.group_name ?? p.name}`.slice(0, 200),
         body_text: k.linkedin.trim(), translation_fr: translation, ai_notes: card,
       });
     }
-  } else {
+  } else if (!routing && out) {
     rows.push({
       ...common, channel: 'mail', status: 'a_valider', to_emails: [email], subject, body_text: withAgentSignature(out.corps, a.signature ?? ''),
       translation_fr: language === 'fr' ? null : (out.traduction_fr ?? null), ai_notes: notes,
@@ -235,15 +334,23 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   }
   await sb.from('agent_threads').update({ last_message_at: new Date().toISOString(), last_direction: 'out' }).eq('id', threadId);
   if (p.stage === 'qualifie') await sb.from('agent_prospects').update({ stage: 'a_contacter', updated_at: new Date().toISOString() }).eq('id', p.id);
-  const points = check.warnings.length ? ` — ${check.warnings.length} point${check.warnings.length > 1 ? 's' : ''} à vérifier` : '';
+  const warnings = check.warnings.length + (routing?.warnings ?? 0);
+  const points = warnings ? ` — ${warnings} point${warnings > 1 ? 's' : ''} à vérifier` : '';
+  const who = router ? (router.name ? `${router.name}${router.role ? ` (${router.role})` : ''}` : router.email) : '';
+  const lookingFor = p.best_contact?.nom ?? `la personne qui ${routingWanted(role, segKey ?? p.kind)}`;
   await journal({
-    agent: a.agent, actor: a.agent, kind: key ? 'grand_compte' : 'premier_mail', threadId, messageId,
+    agent: a.agent, actor: a.agent, kind: routing ? 'aiguillage' : key ? 'grand_compte' : 'premier_mail', threadId, messageId,
     summary: key
-      ? `Grand compte ${p.name} (${p.country ?? '?'}) préparé pour vous : ${verified ? `mail à ${email}, ` : ''}note LinkedIn et fiche d'appel${points}`
-      : `Premier mail rédigé pour ${p.name} (${p.country ?? '?'}) → ${email}, à valider${points}`,
-    details: { prospect_id: p.id, cost_usd: Math.round(cost * 10_000) / 10_000, langue: language, grand_compte: key, lots: lots.length, compte: p.account_id ?? null },
+      ? `Grand compte ${p.name} (${p.country ?? '?'}) préparé pour vous : ${routing ? `aiguillage à ${who}, ` : verified ? `mail à ${email}, ` : ''}note LinkedIn et fiche d'appel${points}`
+      : routing
+        ? `Aiguillage préparé pour ${p.name} (${p.country ?? '?'}) : à ${who}, pour obtenir le contact de ${lookingFor} — à valider${points}`
+        : `Premier mail rédigé pour ${p.name} (${p.country ?? '?'}) → ${email}${probable ? ' (adresse probable)' : ''}, à valider${points}`,
+    details: { prospect_id: p.id, cost_usd: Math.round(cost * 10_000) / 10_000, langue: language, grand_compte: key, lots: lots.length, compte: p.account_id ?? null, aiguillage: !!routing },
   });
-  return { status: 'redige', name: p.name, detail: key ? `grand compte, pour vous${verified ? ` (${email})` : ''}` : email ?? '', cost, threadId };
+  return {
+    status: 'redige', name: p.name, cost, threadId,
+    detail: routing ? `aiguillage à ${router?.email}${key ? ' ; grand compte pour vous' : ''}` : key ? `grand compte, pour vous${verified ? ` (${email})` : ''}` : email ?? '',
+  };
 }
 
 /**
@@ -268,7 +375,11 @@ export async function nextDraftCandidates(a: AiAgent, limit: number, allow: { sm
     if (key ? !allow.big : !allow.small) continue;
     const email = r.best_contact?.email?.toLowerCase();
     const verified = !!email && (r.emails ?? []).some((e) => e.email === email && e.mx);
-    if (!verified && !key) continue;
+    // 19/10 : sans adresse directe, un aiguillage s'il y a quelqu'un à qui demander ; une entreprise connue de l'équipe attend.
+    const direct = verified && addressKind(email as string, (r.emails ?? []).find((e) => e.email === email)?.nature, r.best_contact?.nom) !== 'generique';
+    const routable = !direct && !!pickRouter((r.people ?? []) as Person[], (r.emails ?? []).map((e) => ({ email: e.email, nature: e.nature ?? 'autre', mx: e.mx })), r.best_contact, addressKind);
+    if (!direct && !routable && !key) continue;
+    if (teamKnownOf(r.people).length) continue;
     if (suppressionMatch([email ?? '', ...(r.emails ?? []).map((e) => e.email)], suppressed)) continue;
     // Deux fiches du même groupe dans la même série : une seule ; un site d'un groupe traité en grand compte : aucune.
     const g = groupKey(r.group_name);

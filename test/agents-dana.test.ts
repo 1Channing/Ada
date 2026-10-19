@@ -99,8 +99,8 @@ const prDana = qualifyPrompt({
   dealer: { name: 'TOYOTA NANTERRE - AUTOSPHERE', country: 'FR', city: 'Nanterre', zip: '92000', street: null, phone: null, contactName: null, sources: ['Leboncoin'] },
   fit, stock: { listings: 25, brands: ['TOYOTA'], vans: 0, medianPrice: 23_500, opportunities: [] }, page: null, emailsFound: [], pages: [], webSearch: false,
 });
-ok(prDana.includes('Lots de véhicules identiques vus par Dana : 5 × Toyota Yaris Cross 2023') && /Grand compte probable : cherche sur le web .*ventes de VO ou des cessions de stock.*LinkedIn/.test(prDana),
-  'consigne de Dana : ses lots, et la recherche de la personne qui décide des cessions pour un groupe', prDana.split('\n').slice(-1));
+ok(prDana.includes('Lots de véhicules identiques vus par Dana : 5 × Toyota Yaris Cross 2023') && /Grand compte probable : cherche sur le web .*vend aux marchands au quotidien \(pour démarrer\) et son responsable \(pour décider\).*LinkedIn/.test(prDana),
+  'consigne de Dana : ses lots, et la recherche de qui vend aux marchands (pour démarrer) et de son responsable (pour décider), pour un groupe', prDana.split('\n').slice(-1));
 
 // --- Profil LinkedIn : seulement s'il a été vu, au nom de la personne ----------------------------
 const seen = ['https://fr.linkedin.com/in/sophie-martin-vo-8b1a2c?trk=public', 'https://www.linkedin.com/company/autosphere'];

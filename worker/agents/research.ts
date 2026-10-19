@@ -31,6 +31,9 @@ import { nameKey } from '../../src/lib/agents/keys';
 import { callClaude } from './claude';
 import { fetchPage, knownCounterparts, type AiAgent } from './qualify';
 import { sb } from './store';
+import { loadTeamRecords } from './team';
+import { distinctiveTokens, similarNames, sameDomain, hostOf } from '../../src/lib/agents/teamMemory';
+import { emailDomain, isWebmail } from '../../src/lib/agents/people';
 
 export interface ResearchResult {
   segment: string; country: string; trouves: number; gardes: number; deja: number; ecartes: number;
@@ -41,8 +44,13 @@ export interface ResearchResult {
   ciblee?: boolean;
 }
 
-/** Ce qu'on connaît déjà dans ce pays (sites et noms), et les noms à citer dans la consigne. */
-async function knownFor(agent: string, role: AgentRole, country: string): Promise<Known & { names: string[] }> {
+/**
+ * Ce qu'on connaît déjà dans ce pays (sites et noms), et les noms à citer dans la consigne. 19/10 : avec
+ * l'équipe (`team`), aussi les noms proches (« Mustiète » / « Mustière ») et les domaines des adresses de
+ * la carte, du Workflow et des mails ; une recherche ciblée ne l'écarte pas (elle vise peut-être une
+ * entreprise que l'équipe connaît : sa fiche dira ce que l'équipe sait déjà).
+ */
+async function knownFor(agent: string, role: AgentRole, country: string, team = true): Promise<Known & { names: string[] }> {
   const webKeys = new Set<string>();
   const nameKeys = new Set<string>();
   const names: string[] = [];
@@ -59,11 +67,21 @@ async function knownFor(agent: string, role: AgentRole, country: string): Promis
   // Ses fiches dans ce pays (garages de l'annuaire compris), la carte du réseau dans ce pays.
   const { data: pr } = await sb.from('agent_prospects').select('name, website').eq('agent', agent).eq('country', country).limit(5000);
   for (const x of (pr ?? []) as Array<{ name: string; website: string | null }>) add(x.name, x.website);
+  if (!team) return { webKeys, nameKeys, names: [...new Set(names)].slice(0, 60) };
   const { data: net } = await sb.from('network_contacts').select('name, website').eq('country', country).limit(5000);
   for (const x of (net ?? []) as Array<{ name: string; website: string | null }>) add(x.name, x.website);
   // Les fournisseurs (Dana) ou les clients (Ada) du Workflow, tous pays.
   for (const n of (await knownCounterparts(role === 'dana' ? 'fournisseurs' : 'clients')).names) nameKeys.add(n);
-  return { webKeys, nameKeys, names: [...new Set(names)].slice(0, 60) };
+  // 19/10 : les noms proches et les domaines de ce que l'équipe sait (carte saisie par l'équipe, Workflow, offres, mails).
+  const records = await loadTeamRecords();
+  const teamNames = records.filter((r) => r.company && (!r.country || r.country.toUpperCase() === country)).map((r) => distinctiveTokens(r.company)).filter((t) => t.length);
+  const teamDomains = [...new Set(records.map((r) => emailDomain(r.email) || hostOf(r.website)).filter((d) => d && !isWebmail(d)))];
+  const similar = (name: string, website: string) => {
+    const t = distinctiveTokens(name);
+    const h = hostOf(website);
+    return (t.length > 0 && teamNames.some((x) => similarNames(t, x))) || (!!h && teamDomains.some((d) => sameDomain(d, h)));
+  };
+  return { webKeys, nameKeys, names: [...new Set(names)].slice(0, 60), similar };
 }
 
 export async function researchAccounts(taskId: string | null, params: Record<string, unknown>, a: AiAgent): Promise<{ result: ResearchResult; summary: string }> {
@@ -80,7 +98,7 @@ export async function researchAccounts(taskId: string | null, params: Record<str
 
   // 1-2. Ce qu'on connaît déjà, puis la recherche.
   live(taskId, `Ce que l'équipe connaît déjà en ${COUNTRY_FR[country] ?? country} (pour ne pas le chercher deux fois)`);
-  const known = await knownFor(a.agent, role, country);
+  const known = await knownFor(a.agent, role, country, !notes);
   live(taskId, notes
     ? `Recherche ciblée sur le web, avec vos notes (Opus 5.5) : ${COUNTRY_FR[country] ?? country}, ${TARGETED_SEARCHES} recherches au plus`
     : `Recherche sur le web : ${segment.label.toLowerCase()} en ${COUNTRY_FR[country] ?? country} (4 recherches au plus)`);

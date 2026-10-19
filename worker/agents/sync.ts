@@ -12,7 +12,12 @@
  * - une vraie réponse d'un prospect : l'agente prépare la sienne (18/10,
  *   ./reply.ts), à valider sous le mail reçu ;
  * - un mail envoyé depuis Gmail lui-même (hors ADA) est aussi archivé ;
- *   pas le bilan du jour à l'équipe (en-tête interne, 18/10).
+ *   pas le bilan du jour à l'équipe (en-tête interne, 18/10) ;
+ * - 19/10, les copies de l'équipe : un mail où l'agente n'est qu'en copie, ou
+ *   qu'un membre de l'équipe lui écrit ou lui transfère, est classé
+ *   « copie » — ni alerte, ni réponse préparée ; le fil porte le nom de
+ *   l'interlocuteur extérieur, et l'agente en apprend les contacts
+ *   (./copies.ts).
  * Aucun contenu de mail n'est écrit dans les logs (worker_logs est lisible).
  */
 import {
@@ -21,6 +26,8 @@ import {
 import { gmail, GmailError, NotConnected } from './google';
 import { sb, journal, alertOwner, suppress, updateAgent, advanceProspect, type AgentRow } from './store';
 import { queueReplyDraft } from './reply';
+import { forwardedSender } from './copies';
+import { emailDomain } from '../../src/lib/agents/people';
 
 interface GmailPart {
   partId?: string; mimeType?: string; filename?: string;
@@ -117,13 +124,22 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
 
   let classification: string | null = null;
   let autoReply = false;
+  // 19/10 : une copie de l'équipe — l'agente seulement en copie, ou un mail d'un membre de l'équipe (écrit ou transféré).
+  const team = emailDomain(a.mailbox);
+  const isTeam = (e: string | undefined) => !!e && emailDomain(e) === team;
+  const copy = direction === 'in' && ((!!from && isTeam(from.email) && !ownMailboxes.includes(from.email))
+    || (!to.some((x) => x.email === a.mailbox) && cc.some((x) => x.email === a.mailbox)));
   if (direction === 'in') {
     if (isBounce(from?.email ?? '', subject, h)) classification = 'rebond';
     else if (isAutoReply(h, subject)) { classification = 'absence'; autoReply = true; }
+    else if (copy) classification = 'copie';
     else if (isStopRequest(fresh ?? '')) classification = 'stop';
   }
 
-  const counterpart = direction === 'in' ? from : to[0];
+  // Le fil porte le nom de l'interlocuteur extérieur : pour une copie, celui des destinataires (ou du mail transféré).
+  const external = [from, ...to, ...cc].find((x) => !!x?.email && !isTeam(x.email) && x.email !== a.mailbox);
+  const forwarded = copy && !external ? forwardedSender(text) : null;
+  const counterpart = classification === 'copie' ? (external ?? (forwarded ? { name: forwarded.name ?? '', email: forwarded.email } : from)) : direction === 'in' ? from : to[0];
   const thread = await threadFor(a, m, subject, counterpart);
   if (!thread) return false;
   const attachments = await saveAttachments(a, m, body.attachments);
@@ -145,10 +161,16 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
   await sb.from('agent_threads').update({
     last_message_at: at.toISOString(), last_direction: direction,
     last_classification: classification ?? (direction === 'in' ? 'reponse' : null),
-    unread: direction === 'in' && !autoReply && classification !== 'rebond' ? true : thread.unread,
+    unread: direction === 'in' && !autoReply && classification !== 'rebond' && classification !== 'copie' ? true : thread.unread,
   }).eq('id', thread.id);
 
   if (direction !== 'in') return true;
+  // Une copie de l'équipe : ni étape, ni alerte, ni réponse — l'agente en apprend les contacts.
+  if (classification === 'copie') {
+    const { error: e3 } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'qualification', params: { copie: row.id, auto: true }, created_by: null });
+    if (e3) console.warn(`[AGENTS] ${a.agent} : copie de l'équipe non apprise (${e3.message})`);
+    return true;
+  }
   if (classification === 'stop') await advanceProspect(thread.id, 'perdu');
   else if (!autoReply && classification !== 'rebond') await advanceProspect(thread.id, 'repondu');
   const who = from?.name || from?.email || '?';

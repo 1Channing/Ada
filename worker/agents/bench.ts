@@ -13,7 +13,7 @@
 import { HAIKU, OPUS, fmtUsd } from '../../src/lib/agents/aiCost';
 import { mergeDeep, DEEP_METHOD } from '../../src/lib/agents/deepResearch';
 import { benchCandidates, benchProspect, benchVerdict, benchTally, BENCH_DEFAULT, VERDICT_POINTS, type BenchContact, type BenchTrial } from '../../src/lib/agents/bench';
-import { deepCore } from './deep';
+import { deepCore, withTeamAndProbable } from './deep';
 import { BudgetReached, AiUnavailable } from './claude';
 import { sb, taskSpend } from './store';
 import { live } from './live';
@@ -43,7 +43,8 @@ export async function runBench(t: Task, a: AiAgent): Promise<{ result: Record<st
     const p = benchProspect(c);
     try {
       const before = await taskSpend(t.id);
-      const run = await deepCore({ role, p, a, taskId: t.id, model: opus ? OPUS : HAIKU, prospectId: null, bench: true });
+      // La mémoire de l'équipe sans l'entreprise testée : ni sa ligne de la carte, ni son adresse ailleurs.
+      const run = await deepCore({ role, p, a, taskId: t.id, model: opus ? OPUS : HAIKU, prospectId: null, bench: true, mask: { refs: [c.id], emails: c.email ? [c.email] : [] } });
       const cost = Math.round(((await taskSpend(t.id)) - before) * 10_000) / 10_000;
       const known = { nom: c.contact_name ?? '', email: (c.email ?? '').toLowerCase() };
       if ('error' in run) {
@@ -52,10 +53,12 @@ export async function runBench(t: Task, a: AiAgent): Promise<{ result: Record<st
       }
       const { patch } = mergeDeep(p, run.out, run.checked, new Date().toISOString(), run.cost);
       const best = patch.best_contact ?? null;
-      const v = benchVerdict({ name: known.nom, email: known.email }, { best, people: patch.people ?? [], emails: patch.emails ?? [] });
+      const people = await withTeamAndProbable(p, patch.people ?? [], patch.emails ?? [], run.team);
+      const probable = people.filter((x) => !!x.email_probable).map((x) => ({ nom: x.nom, email: x.email_probable as string }));
+      const v = benchVerdict({ name: known.nom, email: known.email }, { best, people, emails: patch.emails ?? [], probable });
       trials.push({
         contact_id: c.id, entreprise: c.name, pays: c.country, connu: known,
-        trouve: { nom: best?.nom ?? null, fonction: best?.fonction ?? null, email: best?.email ?? null },
+        trouve: { nom: best?.nom ?? null, fonction: best?.fonction ?? null, email: best?.email ?? null, niveau: best?.niveau ?? null },
         verdict: v.verdict, detail: v.detail, points: VERDICT_POINTS[v.verdict], cout_usd: cost,
       });
     } catch (e) {

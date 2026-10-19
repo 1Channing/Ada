@@ -21,6 +21,7 @@ import { OPUS, fmtUsd } from '../../src/lib/agents/aiCost';
 import { segmentOf, webKey, COUNTRY_FR } from '../../src/lib/agents/research';
 import { researchMail, googleUrl, type ResearchMailCompany, type ResearchMailInput } from '../../src/lib/agents/researchMail';
 import { missingOf, type DeepProspect } from '../../src/lib/agents/deepResearch';
+import { teamKnownOf, TEAM_SOURCE_LABEL, type TeamSource } from '../../src/lib/agents/teamMemory';
 import { linkedinSearchUrl } from '../../src/lib/agents/firstMail';
 import { nameKey } from '../../src/lib/agents/keys';
 import { mailCreds } from '../mailer';
@@ -81,6 +82,7 @@ function ficheOf(p: FicheRow): NonNullable<ResearchMailCompany['fiche']> {
     email: best?.email ?? null, phone: best?.telephone ?? p.phone ?? null,
     missing: missingOf({ best_contact: p.best_contact, emails: p.emails ?? [], people: p.people ?? [], phone: p.phone }),
     leads: (p.evidence ?? []).filter((e) => e.piste).map((e) => e.note),
+    team: teamKnownOf(p.people).map((x) => `${x.nom}${x.via ? ` (${TEAM_SOURCE_LABEL[x.via as TeamSource] ?? x.via})` : ''}`).join(', ') || null,
   };
 }
 

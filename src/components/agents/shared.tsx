@@ -3,9 +3,17 @@
  * statut et classement d'un message, éditeur de brouillon, bandeau, et le
  * petit « i » d'information (17/10).
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Telescope, Copy, Check } from 'lucide-react';
 import { AGENT_LABEL, type AgentKey, type Draft } from '../../services/agents';
+
+/**
+ * Ce que tout l'onglet sait (19/10) : l'agente choisie, le compte connecté, s'il est administrateur, et où
+ * dire ce qui se passe — pour les gestes de la fiche (« Le bon contact est… », l'adresse probable) sans
+ * les faire passer par chaque écran.
+ */
+export interface AgentsCtxValue { agent: AgentKey; userId: string | null; isAdmin: boolean; onError: (m: string) => void; onInfo: (m: string) => void }
+export const AgentsCtx = createContext<AgentsCtxValue | null>(null);
 
 export function AgentBadge({ agent, small }: { agent: AgentKey | null; small?: boolean }) {
   if (!agent) return <span className="text-[11px] text-slate-400">—</span>;
@@ -42,6 +50,7 @@ const CLASSES: Record<string, { label: string; cls: string }> = {
   rebond: { label: 'Adresse morte', cls: 'bg-red-50 text-red-700 border-red-200' },
   stop: { label: 'Ne plus contacter', cls: 'bg-red-50 text-red-700 border-red-200' },
   reponse: { label: 'Réponse', cls: 'bg-sky-50 text-sky-800 border-sky-200' },
+  copie: { label: 'Copie de l\'équipe', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
 };
 export function ClassificationChip({ c }: { c: string | null }) {
   if (!c || !CLASSES[c]) return null;

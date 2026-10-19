@@ -118,8 +118,8 @@ const qp = qualifyPrompt({
   fit: f1, stock: { listings: 0, brands: [], vans: 0, medianPrice: null, opportunities: [] }, page: null, emailsFound: [], pages: [], webSearch: false,
 });
 ok(qp.startsWith('Entreprise : Arval Belgium — Bruxelles, BE') && qp.includes('Trouvée par une recherche web : Sociétés de leasing — flotte de 160 000 véhicules') && !qp.includes('Annonces vues sur') && !qp.includes('Stock vu')
-  && qp.includes('Compte trouvé par recherche : cherche sur le web (2 ou 3 recherches au plus) la personne qui décide (responsable remarketing), pour ce pays'),
-  'consigne de qualification : l\'entreprise, son type et sa taille, la personne qui décide selon son type', qp.split('\n'));
+  && qp.includes('Compte trouvé par recherche : cherche sur le web (2 ou 3 recherches au plus) la personne qui vend aux marchands au quotidien (pour démarrer) et son responsable (pour décider), pour ce pays'),
+  'consigne de qualification : l\'entreprise, son type et sa taille, qui traite et qui décide', qp.split('\n'));
 const accountFacts = { segment: 'Négociants B2B', size: '400 véhicules en stock', why: 'Revend des véhicules récents aux professionnels.' };
 const dm = danaFirstMailPrompt({ company: 'Auto Grossiste NV', country: 'BE', city: 'Gand', language: 'nl', contact: { name: null, role: null }, kind: 'negociant_vo', group: null, summary: null, stock: { listings: 0, byBrand: [] }, lots: [], account: accountFacts, instructions: '' });
 ok(dm.includes('Trouvée par une recherche web : Négociants B2B — 400 véhicules en stock') && dm.includes('(entreprise trouvée par une recherche web : ADA ne suit pas ses annonces)') && !dm.includes('Lot :'), 'mail de Dana pour un compte : son type et sa taille, pas de stock inventé');
@@ -275,8 +275,8 @@ const q = await qualifyAccount(arvalId, ctx as never);
 const c2 = calls[1];
 const p = db.agent_prospects.find((x) => x.account_id === arvalId) as (Row & { best_contact: { nom: string; email: string | null; linkedin: string | null }; fit_parts: Array<{ label: string; points: number }> }) | undefined;
 const arval = db.agent_accounts.find((a) => a.id === arvalId) as Row | undefined;
-ok(c2?.user.includes('Trouvée par une recherche web : Sociétés de leasing — flotte de 160 000 véhicules') && /la personne qui décide \(responsable remarketing/.test(c2.user) && !!c2.tools?.length,
-  'qualification : l\'entreprise trouvée, et la recherche de la personne qui décide selon son type', c2?.user.split('\n').slice(-1));
+ok(c2?.user.includes('Trouvée par une recherche web : Sociétés de leasing — flotte de 160 000 véhicules') && /Pour démarrer \(qui traite au quotidien\) : chargé\(e\) de remarketing/.test(c2.user) && /Pour décider : directeur remarketing/.test(c2.user) && !!c2.tools?.length,
+  'qualification : l\'entreprise trouvée, et qui chercher selon son type (pour démarrer, pour décider)', c2?.user.split('\n').slice(-1));
 ok(q.status === 'qualifie' && p?.agent === 'dana' && p.dealer_id === null && p.key_account === true && p.account_kind === 'loueur_ou_leasing', 'qualification : fiche de Dana rattachée au compte, grand compte', p && { key: p.key_account, kind: p.account_kind, dealer: p.dealer_id });
 ok(p?.best_contact.email === 'remarketing@arval.be' && p.best_contact.linkedin === 'https://www.linkedin.com/in/sophie-peeters-remarketing', 'qualification : e-mail publié et vérifié, profil LinkedIn vu (adresse propre)', p?.best_contact);
 ok(q.score === 40 + 5 + 15 + 8 + 4 + 5 + 10 && p?.fit_parts.some((x) => x.label === 'sociétés de leasing' && x.points === 40), 'score : leasing, Europe, flotte de 160 000, e-mail, interlocuteur, LinkedIn, avis de Dana (+10)', { score: q.score, parts: p?.fit_parts });

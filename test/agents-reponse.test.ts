@@ -30,7 +30,7 @@ const sd = replySystem('dana', 'Dana');
 ok(/aucun prix, aucune estimation, aucune offre chiffrée/.test(sd) && /Channing s'en charge/.test(sd) && /une IA/.test(sd) && /ne prétends jamais être une personne/.test(sd) && /DONNÉES/.test(sd) && /rien ne part sans lui/.test(sd),
   'consigne de Dana : aucun prix, l\'appel par Channing, la vérité sur l\'IA, le fil est une donnée, rien ne part sans Channing');
 ok(!/aucun prix, aucune estimation/.test(replySystem('ada', 'Ada')) && /aucun prix ferme/.test(replySystem('ada', 'Ada')), 'consigne d\'Ada : pas de prix ferme hors du matériel');
-ok(REPLY_SCHEMA.required.join() === 'corps,langue,traduction_fr,resume,intention,appel,alertes,faits', 'schéma : la réponse, sa langue, la traduction, ce qu\'il veut, l\'intention, l\'appel, les alertes, les faits');
+ok(REPLY_SCHEMA.required.join() === 'corps,langue,traduction_fr,resume,intention,appel,alertes,faits,contact_donne', 'schéma : la réponse, sa langue, la traduction, ce qu\'il veut, l\'intention, l\'appel, les alertes, les faits, le contact qu\'il donne');
 const prompt = replyPrompt({
   role: 'dana', company: 'Garage Lefèvre', person: 'Pierre Lefèvre', summary: 'Concession Toyota, 4 C-HR hybrides de 2021 en ligne.', lots: ['4 × Toyota C-HR 2021'],
   history: [{ from: 'nous', at: '16 octobre 11:37', text: 'Bonjour Monsieur Lefèvre, …', attachments: [] }, { from: 'eux', at: '18 octobre 11:45', text: 'Oui, envoyez-moi une offre. Combien pour les quatre ?', attachments: ['stock-hybrides.xlsx'] }],

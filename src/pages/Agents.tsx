@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, CheckCircle2, Settings2, RefreshCw, Building2, Layers, Search, Activity } from 'lucide-react';
+import { Bot, Inbox, CheckCircle2, Settings2, RefreshCw, Building2, Layers, Search, Activity, BookOpen } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
@@ -8,7 +8,7 @@ import {
 } from '../services/agents';
 import { fmtUsd } from '../lib/agents/aiCost';
 import { parisDayStart } from '../lib/agents/sendPolicy';
-import { Banner } from '../components/agents/shared';
+import { Banner, AgentsCtx, type AgentsCtxValue } from '../components/agents/shared';
 import { fmtRelative } from '../components/agents/helpers';
 import { Messagerie } from '../components/agents/Messagerie';
 import { ValidationQueue } from '../components/agents/ValidationQueue';
@@ -17,6 +17,7 @@ import { Prospects } from '../components/agents/Prospects';
 import { Sourcing } from '../components/agents/Sourcing';
 import { Comptes } from '../components/agents/Comptes';
 import { Live } from '../components/agents/Live';
+import { Savoir } from '../components/agents/Savoir';
 
 /**
  * AGENTS — Ada et Dana (16/10, Channing : « deux agents qui travaillent en
@@ -40,7 +41,7 @@ import { Live } from '../components/agents/Live';
  * Messagerie.
  */
 
-type Tab = 'live' | 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'comptes' | 'reglages';
+type Tab = 'live' | 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'comptes' | 'savoir' | 'reglages';
 const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
   live: { label: 'Live', icon: <Activity className="w-4 h-4" /> },
   messagerie: { label: 'Messagerie', icon: <Inbox className="w-4 h-4" /> },
@@ -49,12 +50,14 @@ const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
   // 18/10 (Channing : « l'onglet comptes je veux le nommer recherche ») : l'adresse reste ?onglet=comptes.
   comptes: { label: 'Recherche', icon: <Search className="w-4 h-4" /> },
   valider: { label: 'À valider', icon: <CheckCircle2 className="w-4 h-4" /> },
+  // 19/10 (Channing : « c'est ici qu'il faut affûter nos armes ! ») : ses leçons, le banc d'essai, sa méthode ; le libellé porte son nom.
+  savoir: { label: 'Ce qu\'elle sait', icon: <BookOpen className="w-4 h-4" /> },
   reglages: { label: 'Réglages', icon: <Settings2 className="w-4 h-4" /> },
 };
 /** Les fonctions de chacune : Ada vend (l'annuaire des acheteurs), Dana achète (le sourcing des lots). */
 const TABS_OF: Record<AgentKey, Tab[]> = {
-  ada: ['live', 'messagerie', 'prospects', 'comptes', 'valider', 'reglages'],
-  dana: ['live', 'messagerie', 'sourcing', 'comptes', 'valider', 'reglages'],
+  ada: ['live', 'messagerie', 'prospects', 'comptes', 'valider', 'savoir', 'reglages'],
+  dana: ['live', 'messagerie', 'sourcing', 'comptes', 'valider', 'savoir', 'reglages'],
 };
 const SIDE: Record<AgentKey, string> = { ada: 'acheteurs', dana: 'fournisseurs' };
 /** L'onglet d'une agente vu depuis l'autre (Acheteurs ↔ Sourcing). */
@@ -147,6 +150,8 @@ export function Agents() {
   const c = counts[agent];
   const pendingOf = (k: AgentKey) => (counts[k]?.aValider ?? 0) + (counts[k]?.pourVous ?? 0);
   const canEditMap = canSeeTab(allowedTabs, isAdmin, 'carte:edition');
+  // 19/10 : les gestes de la fiche (« Le bon contact est… », l'adresse probable) connaissent l'agente, le compte et ses droits.
+  const ctx = useMemo<AgentsCtxValue>(() => ({ agent, userId, isAdmin, onError, onInfo }), [agent, userId, isAdmin, onError, onInfo]);
 
   return (
     <div className="space-y-5">
@@ -216,13 +221,14 @@ export function Agents() {
         {TABS_OF[agent].map((k) => (
           <button key={k} onClick={() => setTab(k)}
             className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === k ? 'border-brand-ocean text-brand-encre' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
-            {TAB[k].icon} {TAB[k].label}
+            {TAB[k].icon} {k === 'savoir' ? `Ce que ${AGENT_LABEL[agent].name} sait` : TAB[k].label}
             {k === 'live' && c?.auTravail && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Au travail en ce moment" />}
             {k === 'valider' && pendingOf(agent) > 0 && <span className="ml-1 rounded-full bg-amber-500 text-white text-[10px] px-1.5">{pendingOf(agent)}</span>}
           </button>
         ))}
       </div>
 
+      <AgentsCtx.Provider value={ctx}>
       {tab === 'live' && (
         <Live key={agent} agent={agent} settings={s} otherBusy={!!counts[agent === 'ada' ? 'dana' : 'ada']?.auTravail} isAdmin={isAdmin} refreshKey={refreshKey} onError={onError} onOpenThread={openFromQueue} />
       )}
@@ -241,9 +247,13 @@ export function Agents() {
       {tab === 'comptes' && (
         <Comptes key={agent} agent={agent} userId={userId} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />
       )}
+      {tab === 'savoir' && (
+        <Savoir key={agent} agent={agent} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} onError={onError} onInfo={onInfo} />
+      )}
       {tab === 'reglages' && (
         <Reglages agent={agent} settings={settings} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} spend={spend} onChanged={() => void load()} onError={onError} onInfo={onInfo} />
       )}
+      </AgentsCtx.Provider>
     </div>
   );
 }

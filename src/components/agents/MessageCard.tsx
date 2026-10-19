@@ -8,9 +8,12 @@
  * avec ses gestes. Préparé pour vous : Envoyer (depuis la boîte de l'agente,
  * signé par elle), Modifier, l'ouvrir dans votre Gmail, Marquer envoyé,
  * Écarter. Une note LinkedIn : la copier, ouvrir le profil, Marquer envoyée.
+ * 19/10 : un aiguillage est marqué (qui on cherche, à qui on le demande) ;
+ * une réponse dit le contact qu'il a donné ; une copie de l'équipe, ce que
+ * l'agente en a appris.
  */
 import { useState } from 'react';
-import { Paperclip, Pencil, Send, XCircle, Undo2, Trash2, ChevronDown, ExternalLink, Search, Linkedin, CheckCircle2 } from 'lucide-react';
+import { Paperclip, Pencil, Send, XCircle, Undo2, Trash2, ChevronDown, ExternalLink, Search, Linkedin, CheckCircle2, Compass, UserCheck, Users } from 'lucide-react';
 import {
   attachmentUrl, editDraft, setMessageStatus, deleteDraft, sendFromAgent, markSentByHand, gmailComposeUrl,
   type AgentMessage, type AgentSettings, type AgentCounts, type Draft,
@@ -117,6 +120,8 @@ export function MessageCard({ m, settings, counts, isAdmin, context, flat, onCha
         <ClassificationChip c={m.classification} />
         {out && m.author !== 'humain' && <span className="text-[11px] text-violet-700">rédigé par {m.author === 'ada' ? 'Ada' : m.author === 'dana' ? 'Dana' : 'ADA'}</span>}
         {n.grand_compte && <span className="text-[11px] rounded-full px-1.5 py-0 bg-violet-50 text-violet-800 border border-violet-200">grand compte</span>}
+        {n.aiguillage && <span className="inline-flex items-center gap-0.5 text-[11px] rounded-full px-1.5 py-0 bg-indigo-600 text-white"><Compass className="w-3 h-3" /> aiguillage</span>}
+        {n.adresse_probable && <span className="text-[11px] rounded-full px-1.5 py-0 bg-amber-50 text-amber-800 border border-amber-300">adresse probable</span>}
         {linkedin && <span className={`text-[11px] ${m.body_text.length > LINKEDIN_MAX ? 'text-rose-700' : 'text-slate-400'}`}>{m.body_text.length}/{LINKEDIN_MAX} caractères</span>}
       </div>
       {m.subject && !linkedin && !editing && <p className="text-sm font-semibold text-slate-900">{m.subject}</p>}
@@ -135,6 +140,23 @@ export function MessageCard({ m, settings, counts, isAdmin, context, flat, onCha
           <summary className="text-[11px] text-slate-500 cursor-pointer">Traduction française</summary>
           <p className="whitespace-pre-wrap text-xs text-slate-700 mt-1">{m.translation_fr}</p>
         </details>
+      )}
+      {n.aiguillage && !editing && (
+        <p className="text-xs text-indigo-900 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1.5">
+          <Compass className="inline w-3.5 h-3.5 -mt-0.5 mr-1" />Pour obtenir le contact direct de <span className="font-medium">{n.aiguillage.cible ?? `la personne qui ${n.aiguillage.cherche}`}</span>
+          {' '}— demandé à {n.aiguillage.routeur ? `${n.aiguillage.routeur}${n.aiguillage.routeur_fonction ? ` (${n.aiguillage.routeur_fonction})` : ''}` : n.aiguillage.adresse === 'service' ? 'son service' : 'l\'adresse générale de l\'entreprise'}. Court, sans présentation : à envoyer sans attendre.
+        </p>
+      )}
+      {n.contact_donne && !editing && (
+        <p className="text-xs text-emerald-900 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5">
+          <UserCheck className="inline w-3.5 h-3.5 -mt-0.5 mr-1" />Contact donné : <span className="font-medium">{n.contact_donne.nom ?? n.contact_donne.email}</span>{n.contact_donne.fonction ? ` — ${n.contact_donne.fonction}` : ''} · {n.contact_donne.email}{n.contact_donne.telephone ? ` · ${n.contact_donne.telephone}` : ''} — ajouté à la fiche ; le premier mail lui est préparé (à valider).
+        </p>
+      )}
+      {!out && m.classification === 'copie' && (
+        <div className="text-xs rounded-lg bg-emerald-50/60 border border-emerald-200 px-3 py-1.5 space-y-0.5">
+          <p className="text-emerald-900"><Users className="inline w-3.5 h-3.5 -mt-0.5 mr-1" />Copie de l'équipe : {name} n'y répond pas, elle en apprend.{n.resume ? ` ${n.resume}` : ''}</p>
+          {(n.contacts ?? []).map((c, i) => <p key={`${c.email ?? c.nom}-${i}`} className="text-slate-700">• {c.nom ?? '—'}{c.fonction ? ` — ${c.fonction}` : ''}{c.entreprise ? ` (${c.entreprise})` : ''}{c.email ? ` · ${c.email}` : ''}{c.telephone ? ` · ${c.telephone}` : ''}</p>)}
+        </div>
       )}
       {out && m.ai_notes && !editing && (
         <div className="rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-2 space-y-1">

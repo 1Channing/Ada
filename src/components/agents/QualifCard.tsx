@@ -10,15 +10,22 @@
  * rapportent le plus ») : ce qui manque pour les approcher, et la
  * recherche approfondie — à qui appartient l'entreprise, comment elle
  * revend (ou achète), qui décide, des pistes pour l'approcher.
+ * 19/10 (le test DMD) : ce que l'équipe sait déjà, qui contacter — pour
+ * démarrer, pour décider, l'aiguillage —, l'adresse probable, et « Le bon
+ * contact est… » (./Contacts.tsx).
  */
 import { useState } from 'react';
-import { CheckCircle2, XCircle, ExternalLink, RefreshCw, User, Mail, MapPin, PenLine, MessagesSquare, Crown, Linkedin, Layers, Telescope, Phone, Lightbulb } from 'lucide-react';
+import { CheckCircle2, XCircle, ExternalLink, RefreshCw, User, Mail, MapPin, PenLine, MessagesSquare, Crown, Linkedin, Layers, Telescope, Lightbulb } from 'lucide-react';
 import type { ProspectDetail, ProspectStage } from '../../services/agents';
 import { fmtUsd } from '../../lib/agents/aiCost';
 import { lotLine } from '../../lib/agents/sourcing';
 import { missingOf, lastDeepAt, CHANNEL_LABEL } from '../../lib/agents/deepResearch';
 import { fmtDateTime, KIND_LABEL, STAGE_LABEL, LANG_LABEL, scoreTone } from './helpers';
 import { DeepAsk } from './shared';
+import { TeamKnown, WhoToContact, RightContactForm } from './Contacts';
+import { addressKind } from '../../lib/agents/qualification';
+import { pickRouter } from '../../lib/agents/firstMail';
+import { LEVEL_LABEL } from '../../lib/agents/deepResearch';
 
 interface Props {
   p: ProspectDetail; onStage: (s: ProspectStage) => void; onRequalify: () => void; requalifying: boolean;
@@ -42,6 +49,9 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
   const emails = allEmails ? p.emails : p.emails.slice(0, 5);
   const key = p.key_account === true;
   const verified = !!best?.email && p.emails.some((e) => e.email === best.email && e.mx);
+  // 19/10 : une adresse directe (la sienne ou celle de son service) ; sinon l'aiguillage, s'il y a quelqu'un à qui demander.
+  const direct = verified && addressKind(best?.email as string, p.emails.find((e) => e.email === best?.email)?.nature, best?.nom) !== 'generique';
+  const router = direct ? null : pickRouter(p.people, p.emails, best, addressKind);
   const open = ['qualifie', 'a_contacter'].includes(p.stage);
   // La recherche approfondie : sa trace, comment ils revendent (ou achètent), les pistes ; les pages lues, à part.
   const deepAt = lastDeepAt(p.evidence);
@@ -70,6 +80,7 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
               title={`${agentName} va plus loin sur le web : à qui appartient l'entreprise, comment elle ${agentName === 'Dana' ? 'revend' : 'achète'} ses véhicules, qui en décide (au niveau du groupe d'abord), comment la joindre directement, des pistes pour l'approcher. Environ 0,10 $.`} />)}
       </div>
       {p.summary && <p className="text-slate-800">{p.summary}</p>}
+      <TeamKnown p={p} />
       {missing.length > 0 && <p className="text-xs text-amber-800">Ce qui manque pour l'approcher : {missing.join(' · ')}.</p>}
       {(deepAt || channels.length > 0 || leads.length > 0) && (
         <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 px-2.5 py-2 space-y-1.5 text-xs">
@@ -104,18 +115,16 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
           p.legal_name].filter(Boolean).join(' · ')}
         {p.website && <> · <a href={p.website} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline">{p.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a></>}
       </p>
-      {((best && (best.nom || best.email)) || key) && (
-        <div className="rounded-lg bg-white border border-slate-200 px-2.5 py-1.5">
-          <p className="text-xs text-slate-500">{key ? 'Qui décide (grand compte : vous écrivez vous-même)' : 'À qui écrire'}</p>
-          {best && (best.nom || best.email) ? (
-            <p className="text-slate-900">
-              <User className="inline w-3.5 h-3.5 mr-1 text-slate-400" />{best.nom ?? 'service'}{best.fonction ? ` — ${best.fonction}` : ''} <LiLink url={best.linkedin} />
-              {best.email && <> · <Mail className="inline w-3.5 h-3.5 mx-1 text-slate-400" /><span className="font-medium">{best.email}</span></>}
-              {best.telephone && <> · <Phone className="inline w-3.5 h-3.5 mx-1 text-slate-400" /><a href={`tel:${best.telephone}`} className="font-medium hover:text-brand-ocean">{best.telephone}</a></>}
-            </p>
-          ) : <p className="text-xs text-slate-500">Personne de nommé : la fiche d'appel dira quelle fonction demander.</p>}
+      {((best && (best.nom || best.email)) || key || p.people.length > 0 || !!router) && (
+        <div className="rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 space-y-1">
+          <p className="text-xs text-slate-500">{key ? 'Qui contacter (grand compte : préparé pour vous)' : 'Qui contacter'}</p>
+          <WhoToContact p={p} agentName={agentName} />
+          {best && !best.nom && best.email && (
+            <p className="text-slate-900"><User className="inline w-3.5 h-3.5 mr-1 text-slate-400" />service · <Mail className="inline w-3.5 h-3.5 mx-1 text-slate-400" /><span className="font-medium">{best.email}</span></p>
+          )}
+          {!best?.nom && !p.people.some((x) => !x.connu) && <p className="text-xs text-slate-500">Personne de nommé : la fiche d'appel dira quelle fonction demander.</p>}
           {best?.pourquoi && <p className="text-xs text-slate-500">{best.pourquoi}</p>}
-          <div className="mt-1.5">
+          <div className="mt-1.5 flex items-center gap-3 flex-wrap">
             {threadId ? (
               <button onClick={() => onOpenThread(threadId)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"><MessagesSquare className="w-3.5 h-3.5" /> {key ? 'Voir ce qui a été préparé' : 'Voir la conversation'}</button>
             ) : drafting ? (
@@ -124,17 +133,22 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
               <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 text-xs font-medium" title="Opus 5.5 prépare le mail (si un e-mail publié est vérifié), la note d'invitation LinkedIn et la fiche d'appel. Ils arrivent dans « À valider › Pour vous » : « Envoyer » fait partir le mail de la boîte de l'agente ; la note et l'appel restent à vous.">
                 <Crown className="w-3.5 h-3.5" /> Préparer pour vous
               </button>
-            ) : verified && open ? (
+            ) : direct && open ? (
               <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 text-xs font-medium" title="Opus 5.5 écrit dans sa langue, avec la traduction ; le brouillon arrive dans « À valider ». Rien ne part sans validation.">
                 <PenLine className="w-3.5 h-3.5" /> Rédiger le premier mail
               </button>
-            ) : <span className="text-[11px] text-slate-400">{open ? 'Pas de premier mail : il faut un e-mail publié et vérifié.' : `Étape « ${STAGE_LABEL[p.stage]} ».`}</span>}
+            ) : router && open ? (
+              <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 text-xs font-medium" title="Un mail très court pour obtenir le contact direct de la bonne personne ; il arrive dans « À valider », marqué « aiguillage ». Rien ne part sans validation.">
+                <PenLine className="w-3.5 h-3.5" /> Préparer l'aiguillage
+              </button>
+            ) : <span className="text-[11px] text-slate-400">{open ? 'Pas de premier mail : ni adresse directe, ni personne à qui demander le bon contact.' : `Étape « ${STAGE_LABEL[p.stage]} ».`}</span>}
+            <RightContactForm p={p} agentName={agentName} />
           </div>
         </div>
       )}
-      {p.people.length > 0 && (
-        <p className="text-xs text-slate-600"><span className="text-slate-400">Personnes :</span> {p.people.map((x, i) => (
-          <span key={`${x.nom}-${i}`}>{i > 0 ? ' · ' : ''}{x.nom}{x.fonction ? ` (${x.fonction}${x.perimetre && PERIMETER[x.perimetre] ? `, ${PERIMETER[x.perimetre]}` : ''})` : ''}{x.email ? ` ${x.email}` : ''}{x.telephone ? ` ${x.telephone}` : ''} <LiLink url={x.linkedin} /></span>
+      {p.people.some((x) => !x.connu) && (
+        <p className="text-xs text-slate-600"><span className="text-slate-400">Personnes :</span> {p.people.filter((x) => !x.connu).map((x, i) => (
+          <span key={`${x.nom}-${i}`}>{i > 0 ? ' · ' : ''}{x.nom}{x.fonction ? ` (${x.fonction}${x.perimetre && PERIMETER[x.perimetre] ? `, ${PERIMETER[x.perimetre]}` : ''}${x.niveau && x.niveau !== 'autre' ? `, ${LEVEL_LABEL[x.niveau]}` : ''})` : ''}{x.email ? ` ${x.email}` : ''}{x.telephone ? ` ${x.telephone}` : ''}{x.a_confirmer ? ' — à confirmer' : ''} <LiLink url={x.linkedin} /></span>
         ))}</p>
       )}
       {p.emails.length > 0 && (

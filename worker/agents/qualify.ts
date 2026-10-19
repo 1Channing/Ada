@@ -50,6 +50,11 @@ import { countryVat } from '../../src/lib/offers/vat';
 import { HAIKU } from '../../src/lib/agents/aiCost';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
 import { sb, journal, type AgentRow } from './store';
+import { teamFor } from './team';
+import { lessonsBlock } from './lessons';
+import { teamPromptLines, teamPeople, withTeamPeople } from '../../src/lib/agents/teamMemory';
+import { ROLES_BY_SEGMENT, rolesForKind, rolesPromptLines } from '../../src/lib/agents/roles';
+import { preferStart } from '../../src/lib/agents/deepResearch';
 
 export interface AiSettings {
   targets: Partial<AgentTargets> | null; daily_budget_usd: number | string; auto_discovery: boolean; auto_qualify_per_day: number; map_auto_add: boolean; map_min_score: number;
@@ -247,21 +252,26 @@ interface PrevProspect {
  * ses sources ; et son meilleur contact, si la fiche refaite n'en nomme pas.
  * Les listes sont complétées sur place.
  */
+/** Ce qu'une nouvelle fiche ne perd jamais : la recherche approfondie, et ce que l'équipe a donné (19/10 : le bon contact, l'aiguillage, la mémoire). */
+const KEPT_VIAS = new Set(['approfondie', 'channing', 'aiguillage', 'copie', 'carte', 'workflow', 'mail', 'offre']);
+
 export function keepDeep(
   prev: PrevProspect | null,
-  contacts: Array<{ nom: string; fonction: string; email: string | null; source: string; linkedin: string | null }>,
+  contacts: Array<{ nom: string; fonction: string; email: string | null; source: string; linkedin?: string | null }>,
   emails: Array<{ email: string; nature: string; source: string; mx: boolean }>,
   evidence: Array<{ url: string; note: string }>,
   best: { nom: string | null; fonction: string | null; email: string | null; linkedin: string | null; pourquoi: string },
 ): { hasEmail: boolean; keyAccount: boolean } {
   if (!prev) return { hasEmail: false, keyAccount: false };
-  const deepPeople = (prev.people ?? []).filter((x) => x.via === 'approfondie');
+  const deepPeople = (prev.people ?? []).filter((x) => !!x.via && KEPT_VIAS.has(x.via));
   for (const x of deepPeople) if (!contacts.some((c) => c.nom.toLowerCase() === x.nom.toLowerCase())) contacts.push({ ...x, linkedin: x.linkedin ?? null });
-  const deepEmails = (prev.emails ?? []).filter((e) => e.via === 'approfondie');
+  const deepEmails = (prev.emails ?? []).filter((e) => !!e.via && KEPT_VIAS.has(e.via));
   for (const e of deepEmails) if (!emails.some((x) => x.email === e.email)) emails.push(e);
   for (const e of (prev.evidence ?? []).filter((x) => x.via === 'approfondie')) if (!evidence.some((x) => x.url && x.url === e.url && x.note === e.note)) evidence.push(e);
   const pb = prev.best_contact;
-  if (!best.nom && pb?.nom && deepPeople.some((x) => x.nom.toLowerCase() === pb.nom?.toLowerCase())) Object.assign(best, pb);
+  // Le bon contact donné par Channing (ou obtenu par un aiguillage) reste le contact retenu.
+  const given = pb?.nom ? (prev.people ?? []).find((x) => x.nom.toLowerCase() === pb.nom?.toLowerCase() && (x.via === 'channing' || x.via === 'aiguillage')) : undefined;
+  if (pb?.nom && (given || (!best.nom && deepPeople.some((x) => x.nom.toLowerCase() === pb.nom?.toLowerCase())))) Object.assign(best, pb);
   return { hasEmail: deepEmails.some((e) => e.mx), keyAccount: (prev.evidence ?? []).some((x) => x.via === 'approfondie' && /^groupe /.test(x.note)) };
 }
 
@@ -384,7 +394,14 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
   const webSearch = !website && emailsFound.length === 0;
   // Grand compte probable (groupe, plusieurs sites) ou entreprise trouvée par recherche : on cherche la personne qui décide.
   const decisionSearch = !webSearch && (!!s.account || looksLikeGroup(d.name) || (page?.branches.length ?? 0) >= 2);
+  // 19/10 : ce que l'équipe sait déjà de lui, qui chercher (pour démarrer, pour décider), les leçons de Channing.
+  const team = await teamFor({ name: d.name, group_name: null, website, emails: emailsFound.map((e) => ({ email: e.email, nature: 'autre', source: e.source, mx: true })), phone, city: d.city, country: d.country, evidence: [] });
+  if (team.length) live(ctx.taskId, `${named} : déjà connu de l'équipe (${team.length} contact${team.length > 1 ? 's' : ''})`);
+  const roleKey = s.account?.segment ?? null;
+  const roles = (roleKey && ROLES_BY_SEGMENT[ctx.role][roleKey]) || rolesForKind(ctx.role, looksLikeGroup(d.name) ? 'groupe' : null);
+  const lessons = await lessonsBlock(ctx.agent.agent, 'recherche', { segment: roleKey, kind: null, country: d.country });
   const prompt = qualifyPrompt({
+    roles: rolesPromptLines(ctx.role, roles, d.country), team: teamPromptLines(team), lessons,
     role: ctx.role, lots: lots.slice(0, 6).map((l) => lotLine(l, true)), decisionSearch,
     account: s.account ? { segment: segment?.label ?? s.account.segment, roles: segment?.roles ?? 'la direction', size: s.account.size_hint, why: s.account.why } : undefined,
     dealer: { name: d.name, country: d.country, city: d.city, zip: d.zip, street: d.street, phone, contactName, sources, legalId: s.legalId },
@@ -444,14 +461,19 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
   const okEmails = new Set(emails.filter((e) => e.mx).map((e) => e.email));
   // Un profil LinkedIn n'est gardé que s'il a été vu dans un résultat lu (ou dans le matériel) et porte le nom de la personne.
   const li = (url: string | null | undefined, name: string | null | undefined) => acceptedLinkedin(url, name, seenUrls, prompt);
-  const best = {
+  let best = {
     ...ai.meilleur_contact,
     email: ai.meilleur_contact?.email && okEmails.has(ai.meilleur_contact.email.toLowerCase()) ? ai.meilleur_contact.email.toLowerCase() : null,
     linkedin: li(ai.meilleur_contact?.linkedin, ai.meilleur_contact?.nom),
+    niveau: ai.meilleur_contact?.niveau ?? null,
   };
   if (!best.email) best.email = emails.find((e) => e.mx && /^(vo|occasion|gebraucht|used|verkoop|vente|sales|verkauf|achat|inkoop|einkauf)/.test(e.email))?.email ?? emails.find((e) => e.mx)?.email ?? null;
-  const contacts = [...people.map((p) => ({ ...p, linkedin: null as string | null })), ...(ai.contacts ?? []).filter((c) => c.nom && !people.some((p) => p.nom.toLowerCase() === c.nom.toLowerCase()))]
-    .map((c) => ({ ...c, email: c.email && okEmails.has(c.email.toLowerCase()) ? c.email.toLowerCase() : null, linkedin: li(c.linkedin, c.nom) })).slice(0, 12);
+  const fromPages = [...people.map((p) => ({ ...p, linkedin: null as string | null, niveau: (ai.contacts ?? []).find((c) => c.nom?.toLowerCase() === p.nom.toLowerCase())?.niveau ?? null })),
+    ...(ai.contacts ?? []).filter((c) => c.nom && !people.some((p) => p.nom.toLowerCase() === c.nom.toLowerCase()))]
+    .map((c) => ({ ...c, email: c.email && okEmails.has(c.email.toLowerCase()) ? c.email.toLowerCase() : null, linkedin: li(c.linkedin, c.nom), niveau: c.niveau ?? null })).slice(0, 12);
+  // 19/10 : les personnes que l'équipe connaît déjà, sur la fiche ; la personne qui traite d'abord, si elle est joignable.
+  const contacts = withTeamPeople(fromPages, teamPeople(team));
+  best = { ...best, ...(preferStart(best, contacts, emails) ?? {}) };
   // Refaire la fiche ne perd pas une recherche approfondie (18/10) : ses personnes, e-mails, pistes et sources sont gardés.
   const kept = keepDeep(prev, contacts, emails, evidence, best);
   const keyAccount = !ai.exclure && (isKeyAccount(ai.grand_compte, ai.type, ai.nb_sites ?? (page?.branches.length || null)) || segment?.keyAccount === true || kept.keyAccount);

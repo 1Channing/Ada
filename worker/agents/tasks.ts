@@ -16,6 +16,12 @@
  * - « qualification » avec params.banc (19/10) : le banc d'essai
  *   (./bench.ts) — la recherche approfondie « à blanc » sur des entreprises
  *   de la carte dont l'équipe connaît le bon contact, et le verdict.
+ * - « qualification » avec params.bon_contact (19/10) : le bon contact donné
+ *   par l'équipe sur une fiche, et la leçon proposée (./rightContact.ts) ;
+ *   params.copie : ce qu'une copie de l'équipe apprend (./copies.ts).
+ * - « premier_mail » avec params.apres_aiguillage (19/10) : le premier mail
+ *   à la personne donnée en réponse à un aiguillage ; params.adresse_probable :
+ *   à l'adresse probable choisie par un administrateur.
  *
  * Le cycle automatique (toutes les 10 min, dans les jours et heures de
  * travail de chaque agente — Réglages, heure de Paris ; du lundi au vendredi,
@@ -52,6 +58,9 @@ import { deepResearch } from './deep';
 import { draftReply } from './reply';
 import { targetedResearch, lotMail } from './targeted';
 import { runBench } from './bench';
+import { applyRightContact } from './rightContact';
+import { learnFromCopy } from './copies';
+import { autoLessons } from './lessons';
 import { maybeSendRecap } from './recap';
 import { aiConfigured, aiPaused, spentToday, clearAiPause, BudgetReached, AiUnavailable, NO_KEY } from './claude';
 import { discoveryPairs, nextDiscoveryPair, discoveryUrl, DISCOVERY_SITE_LABEL, DISCOVERY_SITES, type DiscoveryParams } from '../../src/lib/agents/discovery';
@@ -90,6 +99,9 @@ const researchLabel = (agent: string, p: Partial<ResearchParams>) => {
 function startLabel(t: Task): string {
   const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
   if (t.kind === 'qualification' && t.params.banc) return `banc d'essai (${Number(t.params.n) || 10} entreprises de la carte)`;
+  if (t.kind === 'qualification' && t.params.bon_contact) return 'le bon contact donné par l\'équipe, sur sa fiche';
+  if (t.kind === 'qualification' && t.params.copie) return 'une copie de l\'équipe : ce qu\'elle apprend';
+  if (t.kind === 'premier_mail' && t.params.apres_aiguillage) return 'premier mail à la personne donnée par un aiguillage';
   if (t.kind === 'qualification' && t.params.approfondie) {
     const k = n(t.params.prospect_ids);
     return `recherche approfondie de ${k} fiche${k > 1 ? 's' : ''}`;
@@ -103,6 +115,12 @@ function startLabel(t: Task): string {
   if (t.kind === 'recherche_comptes' && typeof t.params.notes === 'string' && t.params.notes.trim()) return 'recherche ciblée, avec vos notes';
   if (t.kind === 'recherche_comptes') return `recherche web — ${researchLabel(t.agent, t.params)}`;
   return `relevé d'annonces — ${label(t.params)}`;
+}
+
+/** Le compte est-il administrateur ? (L'adresse probable ne s'utilise que sur son clic, 19/10.) */
+async function isAdmin(userId: string): Promise<boolean> {
+  const { data } = await sb.from('profiles').select('is_admin').eq('id', userId).maybeSingle();
+  return (data as { is_admin?: boolean } | null)?.is_admin === true;
 }
 
 async function agentRow(agent: string): Promise<AiAgent | null> {
@@ -187,7 +205,14 @@ async function runDrafts(t: Task): Promise<{ result: Record<string, unknown>; su
   for (const [i, id] of ids.entries()) {
     live(t.id, `Mail ${i + 1} sur ${ids.length}`, { done: i, total: ids.length });
     try {
-      const o = await draftFirstMail(id, a, t.id);
+      // 19/10 : à la main, après un aiguillage, ou à l'adresse probable choisie par un administrateur (et seulement par lui).
+      const probable = t.params.adresse_probable as { email?: string; motif?: string } | undefined;
+      const byAdmin = !!probable?.email && !!t.created_by && await isAdmin(t.created_by);
+      const o = await draftFirstMail(id, a, t.id, {
+        manual: !!t.created_by, afterRouting: !!t.params.apres_aiguillage,
+        probable: byAdmin ? { email: String(probable?.email), motif: String(probable?.motif ?? 'adresse probable') } : null,
+      });
+      if (probable?.email && !byAdmin) r.details.push('adresse probable ignorée : seul un administrateur peut la choisir');
       r.cout_usd += o.cost;
       if (o.status === 'redige') r.rediges++;
       else { if (o.status === 'ignore') r.ignores++; else r.echecs++; r.details.push(`${o.name} : ${o.detail}`); }
@@ -246,6 +271,13 @@ export async function runNextTask(): Promise<void> {
         if (Number(result.concessions) > 0) refreshSoon('découverte');
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'decouverte',
           summary: `Découverte ${label(t.params)}${auto} : ${result.annonces} annonces lues, ${result.avec_garage} avec leur garage, ${result.concessions} concessions (dont ${result.nouvelles} nouvelles)`, details: result });
+      } else if (t.kind === 'qualification' && (t.params.bon_contact || t.params.copie)) {
+        const a = await agentRow(t.agent);
+        if (!a) throw new Error('agente introuvable');
+        const { result, summary } = t.params.bon_contact ? await applyRightContact(t, a) : await learnFromCopy(t, a);
+        await liveDone(t.id);
+        await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
+        void summary; // la ligne du journal est écrite par la tâche elle-même
       } else if (t.kind === 'qualification' && t.params.banc) {
         const a = await agentRow(t.agent);
         if (!a) throw new Error('agente introuvable');
@@ -286,7 +318,7 @@ export async function runNextTask(): Promise<void> {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
       await liveDone(t.id);
       await sb.from('agent_tasks').update({ status: 'echec', error: msg, finished_at: new Date().toISOString() }).eq('id', t.id);
-      const what = t.kind === 'qualification' ? (t.params.banc ? 'Banc d\'essai' : t.params.approfondie ? 'Recherche approfondie' : 'Préparation des fiches') : t.kind === 'premier_mail' ? (t.params.reponse_a ? 'Préparation d\'une réponse' : 'Rédaction des premiers mails')
+      const what = t.kind === 'qualification' ? (t.params.banc ? 'Banc d\'essai' : t.params.bon_contact ? 'Le bon contact' : t.params.copie ? 'Copie de l\'équipe' : t.params.approfondie ? 'Recherche approfondie' : 'Préparation des fiches') : t.kind === 'premier_mail' ? (t.params.reponse_a ? 'Préparation d\'une réponse' : 'Rédaction des premiers mails')
         : t.kind === 'recherche_comptes' ? `Recherche ${researchLabel(t.agent, t.params)}` : `Découverte ${label(t.params)}`;
       await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: `${t.kind === 'decouverte_concessions' ? 'decouverte' : t.kind}_echec`, summary: `${what}${auto} en échec : ${msg}` });
       // Une recherche d'un lancement qui échoue (budget, IA) : le bilan du lancement le dit, avec ce qui reste à faire.
@@ -463,4 +495,6 @@ async function autoWork(a: AiAgent): Promise<void> {
   await autoQualify(a);
   await autoDeep(a);
   await autoDraft(a);
+  // 19/10 : les brouillons refusés avec un motif et ceux corrigés avant l'envoi deviennent des leçons proposées.
+  if (aiConfigured() && !aiPaused()) await autoLessons(a).catch((e: unknown) => console.warn(`[AGENTS] leçons (${a.agent}) : ${e instanceof Error ? e.message : String(e)}`));
 }

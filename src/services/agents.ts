@@ -15,7 +15,9 @@ import { replySubject } from '../lib/agents/mail';
 import type { AgentTargets } from '../lib/agents/qualification';
 import type { DanaTargets, LotFact } from '../lib/agents/sourcing';
 import { SITE_LABEL } from './dealerDirectory';
-import type { DeepEvidence } from '../lib/agents/deepResearch';
+import type { DeepEvidence, DeepPerson, DeepBest, ContactLevel } from '../lib/agents/deepResearch';
+import type { BenchTrial } from '../lib/agents/bench';
+import type { Lesson, LessonScope } from '../lib/agents/lessons';
 import { mailboxFacts, type MailboxFacts, type MailboxMessageLite } from '../lib/agents/mailbox';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -68,6 +70,13 @@ export interface AgentMessage {
     grand_compte?: boolean; fiche_appel?: CallSheet | null; linkedin_url?: string | null; linkedin_nom?: string | null; linkedin_recherche?: string | null;
     /** Une réponse préparée à un mail reçu (18/10) : ce qu'il dit ou veut, son intention, s'il faut l'appeler. */
     resume?: string; intention?: string; appel?: boolean;
+    /** 19/10 : un mail d'aiguillage — qui on cherche, à qui on le demande. */
+    aiguillage?: { cible: string | null; cherche: string; routeur: string | null; routeur_fonction?: string | null; adresse: 'personne' | 'service' | 'generique' } | null;
+    /** 19/10 : le contact donné dans une réponse ; l'adresse probable choisie par un administrateur ; le texte d'origine de l'agente. */
+    contact_donne?: { nom: string | null; fonction: string | null; email: string; telephone: string | null } | null;
+    adresse_probable?: string; motif_adresse?: string; texte_initial?: string | null;
+    /** 19/10 : une copie de l'équipe — les contacts qu'elle donne, son sujet. */
+    contacts?: Array<{ nom: string | null; fonction: string | null; entreprise: string | null; email: string | null; telephone: string | null }>; sujet?: string;
   } | null;
 }
 /** La fiche d'appel d'un grand compte, préparée pour Channing. */
@@ -332,7 +341,10 @@ export interface AgentTask {
     /** 18/10 : la réponse à préparer à ce mail reçu (tâche « premier_mail »). */
     reponse_a?: string;
     /** 18/10 : une recherche ciblée (notes de Channing, types visés, limite de dépense) et le lancement dont elle fait partie. */
-    notes?: string; segments?: string[]; limite_usd?: number; lot?: string };
+    notes?: string; segments?: string[]; limite_usd?: number; lot?: string;
+    /** 19/10 : le banc d'essai ; le bon contact donné sur une fiche ; une copie de l'équipe ; le premier mail après un aiguillage ou à l'adresse probable. */
+    banc?: boolean; n?: number; modele?: 'haiku' | 'opus'; contact_ids?: string[]; bon_contact?: RightContact; copie?: string; apres_aiguillage?: boolean;
+    adresse_probable?: { email: string; motif: string } };
   status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee';
   result: {
     annonces?: number; avec_garage?: number; concessions?: number; nouvelles?: number; url?: string; site?: string; garages?: number; comptes?: number | string[]; qualifies?: number; ecartes?: number; echecs?: number; carte?: number;
@@ -345,6 +357,8 @@ export interface AgentTask {
     ciblee?: boolean; fiches?: number; approfondies?: number; limite_usd?: number | null;
     // En cours (17/10) : où la tâche en est, écrit par le worker pour l'onglet Live.
     live?: TaskLive;
+    // Le banc d'essai (19/10).
+    banc?: boolean; methode?: string; modele?: string; essais?: BenchTrial[]; note?: number | null; par_verdict?: Record<string, number>; n?: number;
   } | null;
   error: string | null; created_by: string | null; created_at: string; started_at: string | null; finished_at: string | null;
 }
@@ -355,9 +369,9 @@ export type ProspectStage = 'qualifie' | 'ecarte' | 'a_contacter' | 'contacte' |
 export interface ProspectDetail {
   id: string; agent?: AgentKey; dealer_id: string | null; name: string; website: string | null; legal_name: string | null; group_name: string | null; sites: number | null;
   kind: string | null; brands_official: string[]; emails: Array<{ email: string; nature: string; source: string; mx: boolean }>;
-  /** La recherche approfondie (18/10) ajoute le téléphone, le périmètre (groupe, pays, site) et sa marque (via « approfondie »). */
-  people: Array<{ nom: string; fonction: string; email: string | null; source: string; linkedin?: string | null; telephone?: string | null; perimetre?: string | null; via?: string }>;
-  best_contact: { nom: string | null; fonction: string | null; email: string | null; pourquoi: string; linkedin?: string | null; telephone?: string | null } | null;
+  /** La recherche approfondie (18/10) ajoute le téléphone, le périmètre (groupe, pays, site) et sa marque (via « approfondie ») ; 19/10 : son niveau, sa fraîcheur, s'il est connu de l'équipe, son adresse probable. */
+  people: DeepPerson[];
+  best_contact: DeepBest | null;
   phone?: string | null; country?: string | null; city?: string | null;
   /** SQL agents_comptes (17/10) : grand compte (préparé pour Channing), nature du compte, lots vus par Dana. */
   key_account?: boolean; account_kind?: string | null; lots?: LotFact[];
@@ -779,4 +793,65 @@ export async function prospectWork(agent: AgentKey): Promise<{ deep: Set<string>
     deep: new Set(rows.filter((t) => t.kind === 'qualification' && t.params?.approfondie).flatMap((t) => t.params?.prospect_ids ?? [])),
     draft: new Set(rows.filter((t) => t.kind === 'premier_mail').flatMap((t) => t.params?.prospect_ids ?? [])),
   };
+}
+
+// --- 19/10 : le bon contact, l'adresse probable, les leçons, le banc d'essai --------------------------
+
+/** Le bon contact donné par l'équipe sur une fiche (et comment elle l'a eu). */
+export interface RightContact { prospect_id: string; nom: string; fonction: string | null; email: string | null; telephone: string | null; comment: string | null; niveau: ContactLevel }
+
+/** « Le bon contact est… » : il entre sur la fiche, devient le contact retenu, et l'agente propose une leçon. */
+export async function queueRightContact(agent: AgentKey, c: RightContact, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'qualification', params: { bon_contact: c }, created_by: userId });
+  return error ? errQualif(error.message) : null;
+}
+
+/** Écrire à l'adresse probable (un administrateur l'a choisie, en connaissant le risque de rebond) : l'agente prépare le premier mail, à valider. */
+export async function queueProbableMail(agent: AgentKey, prospectId: string, email: string, motif: string, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'premier_mail', params: { prospect_ids: [prospectId], adresse_probable: { email, motif } }, created_by: userId });
+  return error ? errMails(error.message) : null;
+}
+
+export const LECONS_SQL_HINT = 'Leçons des agentes : SQL du 19/10 (agents_lecons) à coller dans Supabase.';
+const errLecons = (m: string) => (missing(m) ? LECONS_SQL_HINT : m);
+
+/** Toutes les leçons d'une agente (proposées, validées, rejetées), les plus récentes d'abord. */
+export async function listLessons(agent: AgentKey): Promise<{ rows: Lesson[]; error: string | null }> {
+  const { data, error } = await sb.from('agent_lessons').select('*').eq('agent', agent).order('created_at', { ascending: false }).limit(300);
+  if (error) return { rows: [], error: errLecons(error.message) };
+  return { rows: (data ?? []) as Lesson[], error: null };
+}
+
+/** Valider, reformuler, rejeter une leçon (un administrateur). */
+export async function decideLesson(id: string, patch: { status?: 'validee' | 'rejetee' | 'proposee'; text?: string; scope?: LessonScope; segment?: string | null; country?: string | null }, userId: string | null): Promise<string | null> {
+  const now = new Date().toISOString();
+  const row: Record<string, unknown> = { ...patch, updated_at: now };
+  if (patch.status && patch.status !== 'proposee') { row.decided_by = userId; row.decided_at = now; }
+  const { error } = await sb.from('agent_lessons').update(row).eq('id', id);
+  return error ? errLecons(error.message) : null;
+}
+
+/** Une leçon écrite par l'équipe (validée d'office). */
+export async function addLesson(agent: AgentKey, l: { text: string; scope: LessonScope; segment: string | null; country: string | null }, userId: string | null): Promise<string | null> {
+  const now = new Date().toISOString();
+  const { error } = await sb.from('agent_lessons').insert({ agent, status: 'validee', source: 'manuel', text: l.text.trim(), scope: l.scope, segment: l.segment, country: l.country, created_by: userId, decided_by: userId, decided_at: now });
+  return error ? errLecons(error.message) : null;
+}
+
+export async function deleteLesson(id: string): Promise<string | null> {
+  const { error } = await sb.from('agent_lessons').delete().eq('id', id);
+  return error ? errLecons(error.message) : null;
+}
+
+/** Le banc d'essai : n entreprises de la carte dont l'équipe connaît le bon contact (Haiku par défaut, limite 3 $). */
+export async function queueBench(agent: AgentKey, p: { n: number; modele: 'haiku' | 'opus'; limite_usd: number }, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'qualification', params: { banc: true, n: p.n, modele: p.modele, limite_usd: p.limite_usd }, created_by: userId });
+  return error ? errQualif(error.message) : null;
+}
+
+/** Les passages du banc d'essai d'une agente, les plus récents d'abord. */
+export async function listBenchRuns(agent: AgentKey): Promise<{ rows: AgentTask[]; error: string | null }> {
+  const { data, error } = await sb.from('agent_tasks').select('*').eq('agent', agent).eq('kind', 'qualification').eq('params->>banc', 'true').order('created_at', { ascending: false }).limit(30);
+  if (error) return { rows: [], error: error.message };
+  return { rows: (data ?? []) as AgentTask[], error: null };
 }

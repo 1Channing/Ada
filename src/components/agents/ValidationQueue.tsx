@@ -11,11 +11,15 @@
  * l'autre) ; et les grands comptes à compléter — fiche faite, rien de
  * préparé —, avec ce qui manque, la recherche approfondie et « Préparer
  * quand même ».
+ * 19/10 (Channing : « il faut bien démarquer les mails d'aiguillage pour un
+ * envoi rapide sans perdre de temps ») : les aiguillages à part, en tête,
+ * avec « Envoyer les aiguillages » (une confirmation, puis chacun part de la
+ * boîte de l'agente, dans ses horaires).
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CheckCircle2, Clock, AlertTriangle, Crown, Telescope } from 'lucide-react';
+import { CheckCircle2, Clock, AlertTriangle, Crown, Telescope, Compass, Send } from 'lucide-react';
 import {
-  listQueue, listForYou, listKeyAccounts, threadsOfProspects, prospectWork, queueDeepResearch, queueFirstMails, queueQualification, queueAccountQualification, setProspectStage,
+  listQueue, listForYou, listKeyAccounts, threadsOfProspects, prospectWork, queueDeepResearch, queueFirstMails, queueQualification, queueAccountQualification, setProspectStage, sendFromAgent,
   AGENT_LABEL, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage, type ForYouMessage, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { MessageCard } from './MessageCard';
@@ -93,8 +97,30 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
     if (e) onError(e); else onInfo(`${name} refait la fiche de ${p.name} (ce que la recherche approfondie a trouvé reste).`);
   };
 
-  const groups: Array<{ key: string; title: string; icon: ReactNode; items: QueuedMessage[]; hint: string }> = [
-    { key: 'a_valider', title: 'À valider', icon: <CheckCircle2 className="w-4 h-4 text-amber-600" />, items: rows.filter((m) => m.status === 'a_valider'),
+  // 19/10 : les aiguillages, à part et en tête : courts, sans présentation, à envoyer sans attendre.
+  const routing = rows.filter((m) => m.status === 'a_valider' && !!m.ai_notes?.aiguillage);
+  const sendRouting = async () => {
+    if (!mine || routing.length === 0) return;
+    const to = routing.map((m) => `• ${m.to_emails.join(', ')}`).join('\n');
+    if (!window.confirm(`Envoyer ${routing.length} aiguillage${routing.length > 1 ? 's' : ''} depuis ${mine.mailbox}, signé${routing.length > 1 ? 's' : ''} ${name} ?\n\n${to}\n\nIls partent dans ses horaires d'envoi, sous son plafond du jour, espacés.`)) return;
+    let ok = 0;
+    for (const m of routing) {
+      const e = await sendFromAgent({ id: m.id, status: m.status, body_text: m.body_text }, mine);
+      if (e) { onError(e); break; }
+      ok++;
+    }
+    if (ok) onInfo(`${ok} aiguillage${ok > 1 ? 's' : ''} validé${ok > 1 ? 's' : ''} : ils partent de ${mine.mailbox} dès que ses horaires, son plafond du jour et l'écart entre deux envois le permettent.`);
+    changed();
+  };
+  const groups: Array<{ key: string; title: string; icon: ReactNode; items: QueuedMessage[]; hint: string; action?: ReactNode }> = [
+    { key: 'aiguillage', title: 'Aiguillages — pour obtenir le bon contact', icon: <Compass className="w-4 h-4 text-indigo-600" />, items: routing,
+      hint: 'des mails très courts, sans présentation, pour obtenir le contact direct de la bonne personne : à envoyer sans attendre.',
+      action: isAdmin && routing.length > 0 ? (
+        <button onClick={() => void sendRouting()} className="ml-auto inline-flex items-center gap-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 text-xs font-medium">
+          <Send className="w-3 h-3" /> Envoyer {routing.length > 1 ? `les ${routing.length} aiguillages` : 'l\'aiguillage'}
+        </button>
+      ) : undefined },
+    { key: 'a_valider', title: 'À valider', icon: <CheckCircle2 className="w-4 h-4 text-amber-600" />, items: rows.filter((m) => m.status === 'a_valider' && !m.ai_notes?.aiguillage),
       hint: isAdmin ? 'Relisez, corrigez si besoin, puis « Envoyer » : le message part de la boîte de l\'agente, à ses horaires d\'envoi.' : 'Un administrateur envoie ces messages après les avoir relus.' },
     { key: 'valide', title: 'Validés, en attente d\'envoi', icon: <Clock className="w-4 h-4 text-blue-600" />, items: rows.filter((m) => m.status === 'valide' || m.status === 'envoi'),
       hint: 'Le worker les envoie dès que les horaires, le plafond du jour et l\'écart entre deux envois le permettent.' },
@@ -141,11 +167,12 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
       )}
       {groups.filter((g) => g.items.length > 0).map((g) => (
         <section key={g.key} className="space-y-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {g.icon}
             <h3 className="text-sm font-semibold text-slate-900">{g.title}</h3>
             <span className="text-xs text-slate-400">{g.items.length}</span>
             <span className="text-xs text-slate-500 hidden md:inline">— {g.hint}</span>
+            {g.action}
           </div>
           {g.items.map((m) => {
             const who = m.thread?.counterpart_name || m.thread?.counterpart_email || m.to_emails[0] || '';

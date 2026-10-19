@@ -181,7 +181,11 @@ const normUrl = (x: string) => x.trim().replace(/[?#].*$/, '').replace(/\/+$/, '
 const clean = (s: string | null | undefined) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 /** Ce qu'on connaît déjà : sites (dans ce pays : la filiale d'un autre pays reste à trouver) et noms. */
-export interface Known { webKeys: Set<string>; nameKeys: Set<string> }
+export interface Known {
+  webKeys: Set<string>; nameKeys: Set<string>;
+  /** 19/10 : déjà connue de l'équipe — un nom proche (faute de frappe comprise) ou un domaine de ses adresses. */
+  similar?: (name: string, website: string) => boolean;
+}
 export interface FoundAccount {
   name: string; website: string; webKey: string; city: string | null; size: string | null; why: string;
   /** Les pages vues qui la citent. */
@@ -218,7 +222,7 @@ export function acceptedAccounts(out: ResearchOutput | null, seen: Iterable<stri
     if (!k || DIRECTORY.test(k)) { dropped.push({ name, reason: 'pas un site d\'entreprise' }); continue; }
     if (kept.some((x) => x.webKey === k)) { dropped.push({ name, reason: 'en double' }); continue; }
     const nk = nameKey(name);
-    if (known.webKeys.has(k) || (nk && known.nameKeys.has(nk))) { dropped.push({ name, reason: 'déjà connue', webKey: k }); continue; }
+    if (known.webKeys.has(k) || (nk && known.nameKeys.has(nk)) || known.similar?.(name, website)) { dropped.push({ name, reason: 'déjà connue', webKey: k }); continue; }
     const sources = (c.sources ?? []).map(clean).filter((s) => /^https?:\/\//i.test(s) && seenUrls.has(normUrl(s))).slice(0, 5);
     const siteSeen = seenKeys.has(k);
     if (!siteSeen && sources.length === 0) { dropped.push({ name, reason: 'jamais vue dans les résultats' }); continue; }

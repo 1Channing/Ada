@@ -19,12 +19,13 @@
 import { MC_EXPORT_FACTS } from './playbook';
 import { DANA_FACTS, isKeyAccount, lotLine, type LotFact } from './sourcing';
 import { clamp, addressKind, ADDRESS_RANK } from './qualification';
+import { methodText, rolesPromptLines, staleSource, type ContactRoles } from './roles';
 
 export type DeepRole = 'ada' | 'dana';
 export const DEEP_SEARCHES = 8;
 export const DEEP_FETCHES = 5;
 /** La méthode du moment (le banc d'essai la note sur chaque passage, pour comparer avant et après). */
-export const DEEP_METHOD = 'v1 — qui décide, au niveau du groupe d\'abord (18/10)';
+export const DEEP_METHOD = 'v2 — mémoire de l\'équipe, qui traite puis qui décide, aiguilleur, fraîcheur (19/10)';
 /** Les natures de fiche, en clair (pour la consigne). */
 const KIND_FR: Record<string, string> = {
   concession_marque: 'concession de marque', agent_marque: 'agent de marque', groupe: 'groupe de distribution', independant_multimarque: 'indépendant multimarque',
@@ -39,14 +40,21 @@ export const CHANNEL_LABEL: Record<typeof DEEP_CHANNELS[number], string> = {
   achat_import: 'achats à l\'import', reprise: 'reprises', autre: 'autre',
 };
 export const PERIMETERS = ['groupe', 'pays', 'site', 'inconnu'] as const;
+/** 19/10 : pour démarrer (qui traite au quotidien), pour décider (son responsable), pour aiguiller (qui peut donner le bon contact). */
+export const LEVELS = ['demarrer', 'decider', 'aiguilleur', 'autre'] as const;
+export const LEVEL_LABEL: Record<typeof LEVELS[number], string> = { demarrer: 'pour démarrer', decider: 'pour décider', aiguilleur: 'pour aiguiller', autre: 'autre' };
 
 export interface DeepOutput {
   proprietaire: { groupe: string | null; site_officiel: string | null; nb_sites: number | null; siege: string | null; source: string | null };
   canaux: Array<{ type: typeof DEEP_CHANNELS[number]; nom: string; url: string | null; detail: string }>;
-  personnes: Array<{ nom: string; fonction: string; perimetre: typeof PERIMETERS[number]; email: string | null; telephone: string | null; linkedin: string | null; source: string }>;
+  personnes: Array<{
+    nom: string; fonction: string; perimetre: typeof PERIMETERS[number]; email: string | null; telephone: string | null; linkedin: string | null; source: string;
+    /** 19/10 : pour démarrer, pour décider, pour aiguiller. */
+    niveau?: typeof LEVELS[number]; date_source?: string | null; confirme_recent?: boolean;
+  }>;
   emails: Array<{ email: string; nature: 'vo' | 'achats' | 'commercial' | 'generique' | 'nominatif' | 'autre'; source: string }>;
   telephones: Array<{ numero: string; service: string; source: string }>;
-  meilleur_contact: { nom: string | null; fonction: string | null; email: string | null; telephone: string | null; linkedin: string | null; pourquoi: string };
+  meilleur_contact: { nom: string | null; fonction: string | null; email: string | null; telephone: string | null; linkedin: string | null; pourquoi: string; niveau?: typeof LEVELS[number] };
   pistes: string[];
   resume: string;
 }
@@ -54,7 +62,7 @@ export interface DeepOutput {
 // --- La consigne -------------------------------------------------------------------------
 
 /** Joindre la personne elle-même, pas le service client (18/10, Channing). */
-const DIRECT = `Le moyen le plus direct de joindre la personne qui décide, ou au moins son service : son e-mail s'il est publié, l'adresse publiée de son service (remarketing, VO, ventes aux professionnels, flotte, achats), l'adresse ou le formulaire de la plateforme pour les professionnels, la ligne directe ou le standard du siège qui la passera. Une adresse de service client, de SAV ou « contact@ » n'est qu'un dernier recours : la personne ne la lit pas elle-même. Dans « emails », la nature « generique » pour ces adresses-là.`;
+const DIRECT = `Le moyen le plus direct de joindre la personne à contacter (pour démarrer, sinon pour décider), ou au moins son service : son e-mail s'il est publié, l'adresse publiée de son service (remarketing, VO, ventes aux professionnels, flotte, achats), l'adresse ou le formulaire de la plateforme pour les professionnels, la ligne directe ou le standard du siège qui la passera. Une adresse de service client, de SAV ou « contact@ » n'est qu'un dernier recours : la personne ne la lit pas elle-même. Dans « emails », la nature « generique » pour ces adresses-là.`;
 
 const RULES = `Recherches : ${DEEP_SEARCHES} au plus (dans la langue du pays, puis en anglais) ; pages lues : ${DEEP_FETCHES} au plus. Ne relis pas les pages déjà lues pour la fiche (listées).
 
@@ -74,10 +82,12 @@ ${DANA_FACTS}
 Cherche, dans cet ordre :
 1. À qui elle appartient. Un garage peut être un site d'un groupe (« TECHNIC AUTO FORBACH » appartient au groupe Hess Automobile) : le groupe, son site officiel, son nombre de sites, son siège. Sinon, une entreprise indépendante.
 2. Comment elle se sépare de ses véhicules d'occasion récents : ventes aux marchands (négoce, B2B), plateforme de remarketing réservée aux professionnels, ventes aux enchères (BCA, VPauto, Alcopa, Autorola, Openlane…), retours de location ou de leasing (de-fleet). Avec l'adresse de la page si elle est publique.
-3. Qui décide de ces ventes, au niveau du groupe d'abord : directeur VO du groupe, responsable remarketing, responsable des ventes aux marchands, responsable de-fleet, gestionnaire de parc ; puis au niveau du site. Nom, fonction, périmètre, e-mail et téléphone s'ils sont publiés, profil LinkedIn s'il apparaît dans un résultat.
-4. Les e-mails et téléphones publiés utiles pour l'approcher (service VO, ventes aux professionnels, standard du groupe).
+3. Les personnes, selon la méthode ci-dessous : POUR DÉMARRER, celle qui vend aux marchands au quotidien (commercial VO marchands, vendeur VO aux professionnels, remarketing, de-fleet) ; POUR DÉCIDER, son responsable (directeur VO du groupe, directeur remarketing) ; et un AIGUILLEUR joignable si la première ne l'est pas. Pour chacune : nom, fonction, périmètre (groupe, pays, site), e-mail et téléphone s'ils sont publiés, profil LinkedIn s'il apparaît dans un résultat, l'année de la page qui la cite.
+4. Les e-mails et téléphones publiés utiles pour l'approcher (service VO, ventes aux professionnels, standard du groupe, ceux de ses concessions).
 5. ${DIRECT}
-Puis : le meilleur premier contact et pourquoi, et de 2 à 4 pistes d'approche concrètes, une phrase chacune (« s'inscrire comme marchand sur la plateforme X », « appeler le standard du groupe et demander le responsable des ventes aux marchands »).
+Puis : le meilleur premier contact — la personne pour démarrer si tu l'as, sinon celle pour décider — et pourquoi, et de 2 à 4 pistes d'approche concrètes, une phrase chacune (« demander à Paul Martin, commercial VO de la concession de Rezé, le contact de la personne qui vend aux marchands pour le groupe », « s'inscrire comme marchand sur la plateforme X : un commercial attitré rappelle »).
+
+${methodText('dana')}
 
 ${RULES}`;
   }
@@ -88,10 +98,12 @@ ${MC_EXPORT_FACTS}
 Cherche, dans cet ordre :
 1. À qui elle appartient : le groupe (son site officiel, son nombre de sites, son siège), ou une entreprise indépendante.
 2. Comment elle achète ses véhicules d'occasion récents : à l'import, auprès de marchands, aux enchères, par les reprises ; les volumes s'ils sont écrits. Avec l'adresse de la page si elle est publique.
-3. Qui décide de ces achats, au niveau du groupe d'abord : directeur VO du groupe, acheteur VO, responsable des achats ou du stock VO ; puis au niveau du site. Nom, fonction, périmètre, e-mail et téléphone s'ils sont publiés, profil LinkedIn s'il apparaît dans un résultat.
-4. Les e-mails et téléphones publiés utiles pour l'approcher (service VO, achats, standard du groupe).
+3. Les personnes, selon la méthode ci-dessous : POUR DÉMARRER, celle qui achète les véhicules d'occasion au quotidien (acheteur VO, responsable des achats ou du stock VO) ; POUR DÉCIDER, son responsable (directeur VO du groupe) ; et un AIGUILLEUR joignable si la première ne l'est pas. Pour chacune : nom, fonction, périmètre (groupe, pays, site), e-mail et téléphone s'ils sont publiés, profil LinkedIn s'il apparaît dans un résultat, l'année de la page qui la cite.
+4. Les e-mails et téléphones publiés utiles pour l'approcher (service VO, achats, standard du groupe, ceux de ses sites).
 5. ${DIRECT}
-Puis : le meilleur premier contact et pourquoi, et de 2 à 4 pistes d'approche concrètes, une phrase chacune.
+Puis : le meilleur premier contact — la personne pour démarrer si tu l'as, sinon celle pour décider — et pourquoi, et de 2 à 4 pistes d'approche concrètes, une phrase chacune.
+
+${methodText('ada')}
 
 ${RULES}`;
 }
@@ -134,19 +146,24 @@ export function deepSchema(role: DeepRole) {
       },
       personnes: {
         type: 'array',
-        description: dana ? 'Les personnes qui décident des ventes de VO ou des cessions de stock (groupe d\'abord).' : 'Les personnes qui décident des achats de VO (groupe d\'abord).',
+        description: dana
+          ? 'Les personnes utiles : celle qui vend aux marchands au quotidien (pour démarrer), son responsable (pour décider), quelqu\'un de joignable qui peut donner le bon contact (pour aiguiller).'
+          : 'Les personnes utiles : celle qui achète les VO au quotidien (pour démarrer), son responsable (pour décider), quelqu\'un de joignable qui peut donner le bon contact (pour aiguiller).',
         items: {
           type: 'object',
           properties: {
             nom: S('Prénom et nom, tels qu\'écrits.'),
             fonction: S('Fonction telle qu\'écrite (traduite en français entre parenthèses si besoin).'),
+            niveau: { type: 'string', enum: [...LEVELS], description: '« demarrer » : qui traite au quotidien ; « decider » : son responsable ; « aiguilleur » : joignable, peut donner le bon contact (un commercial d\'une concession du groupe) ; « autre ».' },
             perimetre: { type: 'string', enum: [...PERIMETERS], description: 'Pour tout le groupe, un pays, un site, ou inconnu.' },
             email: SN('Son e-mail s\'il est écrit, sinon null.'),
             telephone: SN('Son téléphone s\'il est écrit, sinon null.'),
             linkedin: SN('Son profil LinkedIn (https://www.linkedin.com/in/…) s\'il apparaît dans un résultat, sinon null.'),
             source: S('La page où il est cité (https://…).'),
+            date_source: SN('L\'année ou la date de cette page si elle est écrite (« 2024 », « mars 2023 »), sinon null.'),
+            confirme_recent: { type: 'boolean', description: 'true si une page de moins d\'un an (site de l\'entreprise à jour, profil LinkedIn actuel) le montre dans ce poste aujourd\'hui.' },
           },
-          required: ['nom', 'fonction', 'perimetre', 'email', 'telephone', 'linkedin', 'source'],
+          required: ['nom', 'fonction', 'niveau', 'perimetre', 'email', 'telephone', 'linkedin', 'source', 'date_source', 'confirme_recent'],
           additionalProperties: false,
         },
       },
@@ -176,12 +193,16 @@ export function deepSchema(role: DeepRole) {
       },
       meilleur_contact: {
         type: 'object',
-        description: dana ? 'À qui s\'adresser en premier pour acheter des véhicules (en lots).' : 'À qui s\'adresser en premier pour leur vendre des véhicules.',
+        description: dana
+          ? 'À qui s\'adresser en premier pour acheter des véhicules (en lots) : la personne pour démarrer si tu l\'as, sinon celle pour décider.'
+          : 'À qui s\'adresser en premier pour leur vendre des véhicules : la personne pour démarrer si tu l\'as, sinon celle pour décider.',
         properties: {
-          nom: SN('Nom, ou null si seulement un service.'), fonction: SN('Fonction.'), email: SN('E-mail (parmi ceux rendus), ou null.'),
+          nom: SN('Nom, ou null si seulement un service.'), fonction: SN('Fonction.'),
+          niveau: { type: 'string', enum: [...LEVELS], description: 'Pour démarrer, pour décider, ou (s\'il n\'y a personne d\'autre) pour aiguiller.' },
+          email: SN('E-mail (parmi ceux rendus), ou null.'),
           telephone: SN('Téléphone (parmi ceux rendus), ou null.'), linkedin: SN('Profil LinkedIn vu, ou null.'), pourquoi: S('Une phrase en français.'),
         },
-        required: ['nom', 'fonction', 'email', 'telephone', 'linkedin', 'pourquoi'],
+        required: ['nom', 'fonction', 'niveau', 'email', 'telephone', 'linkedin', 'pourquoi'],
         additionalProperties: false,
       },
       pistes: { type: 'array', items: { type: 'string' }, description: 'De 2 à 4 actions concrètes pour les approcher, une phrase chacune, en français.' },
@@ -197,8 +218,23 @@ export function deepSchema(role: DeepRole) {
 // --- La fiche telle que la recherche la lit et la complète ----------------------------------
 
 export interface DeepEmail { email: string; nature: string; source: string; mx: boolean; via?: string }
-export interface DeepPerson { nom: string; fonction: string; email: string | null; source: string; linkedin?: string | null; telephone?: string | null; perimetre?: string | null; via?: string }
-export interface DeepBest { nom: string | null; fonction: string | null; email: string | null; pourquoi: string; linkedin?: string | null; telephone?: string | null }
+/** Le rôle d'une personne pour MC Export (19/10) : celle qui traite au quotidien, celle qui décide, ou celle qui peut nous donner le bon contact. */
+export type ContactLevel = 'demarrer' | 'decider' | 'aiguilleur' | 'autre';
+export interface DeepPerson {
+  nom: string; fonction: string; email: string | null; source: string; linkedin?: string | null; telephone?: string | null; perimetre?: string | null; via?: string;
+  /** 19/10 : pour démarrer (qui traite), pour décider, ou pour aiguiller. */
+  niveau?: ContactLevel | null;
+  /** 19/10 : l'année ou la date de la page qui le cite, et s'il reste à confirmer (source de plus d'un an, rien de récent). */
+  date_source?: string | null; a_confirmer?: boolean;
+  /** 19/10 : connu de l'équipe (carte, Workflow, copies…), pas trouvé sur le web. */
+  connu?: boolean;
+  /** 19/10 : son adresse probable (format prouvé par une vraie adresse de la société), jamais utilisée sans clic. */
+  email_probable?: string | null; motif?: string | null;
+}
+export interface DeepBest {
+  nom: string | null; fonction: string | null; email: string | null; pourquoi: string; linkedin?: string | null; telephone?: string | null;
+  niveau?: ContactLevel | null; date_source?: string | null; a_confirmer?: boolean;
+}
 /** Une page lue ; la recherche approfondie y ajoute ses pistes (piste), les façons de revendre ou d'acheter (canal) et sa trace (via, at). */
 export interface DeepEvidence { url: string; note: string; via?: string; at?: string; piste?: boolean; canal?: string; cout_usd?: number }
 export interface DeepProspect {
@@ -245,9 +281,15 @@ export interface DeepMaterial {
   role: DeepRole; p: DeepProspect; segment?: { label: string; roles: string; size: string | null } | null;
   /** La consigne laissée par Channing en lançant la recherche (18/10), s'il en a écrit une. */
   note?: string | null;
+  /** 19/10 : qui chercher — pour démarrer, pour décider (par type de compte, sinon par nature de fiche). */
+  roles?: ContactRoles | null;
+  /** 19/10 : ce que l'équipe sait déjà de l'entreprise (lignes de teamPromptLines). */
+  team?: string[];
+  /** 19/10 : les leçons validées par Channing (lignes de lessonLines). */
+  lessons?: string[];
 }
 
-/** Le message de l'appel : la fiche telle qu'elle est, ce qui manque, les pages déjà lues. */
+/** Le message de l'appel : la fiche telle qu'elle est, ce qui manque, les pages déjà lues, qui chercher, ce que l'équipe sait. */
 export function deepPrompt(m: DeepMaterial): string {
   const { p } = m;
   const lines: string[] = [];
@@ -260,9 +302,17 @@ export function deepPrompt(m: DeepMaterial): string {
     p.phone ? `téléphone : ${p.phone}` : null,
   ].filter(Boolean);
   if (facts.length) lines.push(facts.join(' ; '));
-  if (m.segment) lines.push(`Trouvée par une recherche web : ${m.segment.label}${m.segment.size ? ` — ${m.segment.size}` : ''} ; chez eux, qui décide : ${m.segment.roles}`);
+  if (m.segment) lines.push(`Trouvée par une recherche web : ${m.segment.label}${m.segment.size ? ` — ${m.segment.size}` : ''}`);
   if (m.role === 'dana' && p.lots?.length) lines.push(`Lots de véhicules identiques vus par Dana : ${p.lots.slice(0, 4).map((l) => lotLine(l, false)).join(' ; ')}`);
-  lines.push(`Personnes déjà connues : ${p.people.length ? p.people.slice(0, 10).map((x) => `${x.nom} — ${x.fonction}`).join(' ; ') : 'aucune'}`);
+  if (m.roles) {
+    lines.push('');
+    lines.push('Qui chercher :');
+    lines.push(...rolesPromptLines(m.role, m.roles, p.country));
+  }
+  const level = (x: DeepPerson) => (x.niveau && x.niveau !== 'autre' ? `, ${LEVEL_LABEL[x.niveau]}` : '');
+  const fromWeb = p.people.filter((x) => !x.connu);
+  lines.push('');
+  lines.push(`Personnes déjà sur la fiche : ${fromWeb.length ? fromWeb.slice(0, 10).map((x) => `${x.nom} — ${x.fonction}${level(x)}${x.a_confirmer ? ' (à confirmer)' : ''}`).join(' ; ') : 'aucune'}`);
   lines.push(`E-mails déjà connus : ${p.emails.length ? p.emails.slice(0, 10).map((e) => e.email).join(' ; ') : 'aucun'}`);
   const missing = missingOf(p);
   lines.push(`Ce qui manque : ${missing.length ? missing.join(' ; ') : 'rien d\'essentiel — confirme et complète'}`);
@@ -270,6 +320,14 @@ export function deepPrompt(m: DeepMaterial): string {
   if (read.length) lines.push(`Pages déjà lues pour la fiche (ne les relis pas) : ${[...new Set(read)].slice(0, 12).join(' ; ')}`);
   const best = p.best_contact;
   if (best?.nom && best.email) lines.push(`Adresse retenue pour l'instant : ${best.email} (${addressKind(best.email, p.emails.find((e) => e.email === best.email)?.nature, best.nom) === 'generique' ? 'une adresse générale, que la personne ne lit pas elle-même : trouve mieux' : 'à garder si tu ne trouves pas plus direct'})`);
+  if (m.team?.length) {
+    lines.push('');
+    lines.push(...m.team);
+  }
+  if (m.lessons?.length) {
+    lines.push('');
+    lines.push(...m.lessons);
+  }
   const note = (m.note ?? '').trim();
   if (note) {
     lines.push('');
@@ -334,6 +392,27 @@ export function rescoreReach(p: Pick<DeepProspect, 'fit_parts' | 'fit_score' | '
   return { fit_score: fit, fit_parts: parts, score: clamp(fit + adjust, 0, 100) };
 }
 
+/**
+ * Le contact à qui écrire (19/10) : la personne POUR DÉMARRER si elle est joignable directement (son
+ * adresse ou celle de son service) ; sinon celle POUR DÉCIDER si elle l'est ; sinon le contact retenu.
+ * Une personne connue de l'équipe n'est jamais choisie ici (on ne lui écrit pas à froid).
+ */
+export function preferStart(best: DeepBest | null, people: DeepPerson[], emails: DeepEmail[]): DeepBest | null {
+  const direct = (e: string | null | undefined, who: string | null | undefined) => {
+    if (!e || !emails.some((x) => x.email === e && x.mx)) return false;
+    return addressKind(e, emails.find((x) => x.email === e)?.nature, who) !== 'generique';
+  };
+  if (best?.niveau === 'demarrer' && direct(best.email, best.nom)) return best;
+  const pick = (level: 'demarrer' | 'decider') => people.find((x) => x.niveau === level && !x.connu && direct(x.email, x.nom));
+  const better = pick('demarrer') ?? (best && direct(best.email, best.nom) ? null : pick('decider'));
+  if (!better || (best?.nom && nameKey(best.nom) === nameKey(better.nom))) return best;
+  return {
+    nom: better.nom, fonction: better.fonction || null, email: better.email, linkedin: better.linkedin ?? null, telephone: better.telephone ?? null,
+    niveau: better.niveau ?? null, date_source: better.date_source ?? null, a_confirmer: better.a_confirmer ?? false,
+    pourquoi: better.niveau === 'demarrer' ? `${better.fonction || 'Cette personne'} traite au quotidien, et son adresse est publiée.` : `${better.fonction || 'Cette personne'} décide, et son adresse est publiée.`,
+  };
+}
+
 /** Ce que la recherche ajoute à la fiche : jamais rien de ce qu'ADA n'a pas vérifié ; ce qui était connu reste. */
 export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: string, costUsd = 0): { patch: Partial<DeepProspect>; news: DeepNews } {
   const okMail = new Map(c.emails.map((e) => [e.email.toLowerCase(), e]));
@@ -365,13 +444,21 @@ export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: 
     const nom = String(x.nom ?? '').trim();
     if (nameKey(nom).length < 3) continue;
     const li = c.linkedin(x.linkedin, nom);
-    const add: DeepPerson = { nom, fonction: String(x.fonction ?? '').trim(), email: mailOf(x.email), source: x.source, linkedin: li, telephone: phoneOf(x.telephone), perimetre: x.perimetre, via: VIA };
+    // 19/10 : pour démarrer, pour décider ou pour aiguiller ; l'année de la page ; à confirmer si elle a plus d'un an sans rien de récent.
+    const date = String(x.date_source ?? '').trim() || null;
+    const add: DeepPerson = {
+      nom, fonction: String(x.fonction ?? '').trim(), email: mailOf(x.email), source: x.source, linkedin: li, telephone: phoneOf(x.telephone), perimetre: x.perimetre, via: VIA,
+      niveau: x.niveau ?? null, date_source: date, a_confirmer: staleSource(date, x.confirme_recent === true, new Date(at)),
+    };
     const known = people.find((y) => nameKey(y.nom) === nameKey(nom));
     if (known) {
       if (!known.email && add.email) known.email = add.email;
       if (!known.linkedin && li) { known.linkedin = li; newLinkedin++; }
       if (!known.telephone && add.telephone) known.telephone = add.telephone;
       if (!known.perimetre && add.perimetre !== 'inconnu') known.perimetre = add.perimetre;
+      if ((!known.niveau || known.niveau === 'autre') && add.niveau) known.niveau = add.niveau;
+      // Une page plus récente le confirme : il n'est plus « à confirmer ».
+      if (date && (!known.date_source || x.confirme_recent)) { known.date_source = date; known.a_confirmer = add.a_confirmer; }
       continue;
     }
     people.push(add);
@@ -382,9 +469,11 @@ export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: 
   // Le meilleur contact : celui de la recherche s'il est nommé (ou joignable), sinon celui d'avant, complété.
   const prev = p.best_contact;
   const m = out.meilleur_contact;
+  const candPerson = m?.nom ? people.find((y) => nameKey(y.nom) === nameKey(m.nom ?? '')) : undefined;
   const cand: DeepBest = {
     nom: m?.nom?.trim() || null, fonction: m?.fonction?.trim() || null, email: mailOf(m?.email), pourquoi: String(m?.pourquoi ?? '').trim(),
     linkedin: c.linkedin(m?.linkedin, m?.nom), telephone: phoneOf(m?.telephone),
+    niveau: m?.niveau ?? candPerson?.niveau ?? null, date_source: candPerson?.date_source ?? null, a_confirmer: candPerson?.a_confirmer ?? false,
   };
   const prevMail = verifiedEmail(p, prev?.email) ? prev?.email ?? null : null;
   // L'adresse la plus directe : celle de la personne, puis celle de son service, puis une adresse générale.
@@ -406,6 +495,8 @@ export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: 
     const service = emails.find((e) => e.mx && e.via === VIA && rank(e.email, best?.nom) > ADDRESS_RANK.generique)?.email;
     if (service) best.email = service;
   }
+  // 19/10 : la personne qui traite d'abord, si elle est joignable directement ; sinon celle qui décide (« déjà excellent »).
+  best = preferStart(best, people, emails);
   const contact = (best?.nom ?? null) !== (prev?.nom ?? null) || (best?.email ?? null) !== (prevMail ?? null);
 
   // Le propriétaire, le site, le téléphone : complétés, jamais remplacés.
