@@ -91,7 +91,9 @@ export function WhoToContact({ p, agentName }: { p: ProspectDetail; agentName: '
   // Une fiche d'avant le 19/10 : le contact retenu, sans niveau.
   const legacy = !start && !decide && best?.nom ? ({ ...best, nom: best.nom } as Line) : null;
   const direct = !!best?.email && kindOf(best.email, best.nom) !== null && kindOf(best.email, best.nom) !== 'generique';
-  const router = direct ? null : pickRouter(p.people, p.emails, best, addressKind);
+  // L'équipe connaît déjà quelqu'un ici (« Déjà connue de l'équipe », au-dessus) : ni aiguillage d'office, ni personne à chercher à froid.
+  const teamKnows = teamKnownOf(p.people).length > 0;
+  const router = direct || teamKnows ? null : pickRouter(p.people, p.emails, best, addressKind);
   const side = agentName === 'Dana' ? 'dana' : 'ada';
   const probable = async (email: string, motif: string) => {
     if (!ctx) return;
@@ -105,7 +107,7 @@ export function WhoToContact({ p, agentName }: { p: ProspectDetail; agentName: '
       <PersonLine label="Pour démarrer" x={start} kind={kindOf(start?.email, start?.nom)} probable={canProbable} onProbable={(e, m) => void probable(e, m)} />
       <PersonLine label="Pour décider" x={decide} kind={kindOf(decide?.email, decide?.nom)} probable={canProbable} onProbable={(e, m) => void probable(e, m)} />
       <PersonLine label="Contact retenu" x={legacy} kind={kindOf(legacy?.email, legacy?.nom)} probable={canProbable} onProbable={(e, m) => void probable(e, m)} />
-      {!start && (
+      {!start && !teamKnows && (
         <p className="text-xs text-slate-500">
           La personne qui traite au quotidien n'est pas encore trouvée{decide ? ' : celle qui décide est déjà un excellent contact' : ''}.{' '}
           <a href={linkedinPeopleSearch(p.group_name || p.name, side, p.country)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-sky-700 hover:underline" title="À ouvrir connecté à LinkedIn : il montre ce que les moteurs de recherche ne montrent pas">
