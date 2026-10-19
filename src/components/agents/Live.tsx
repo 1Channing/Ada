@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Activity, Sparkles, ScrollText, Clock, Loader2, X, Search, Layers, Mail, Moon, Hourglass, Telescope, Reply } from 'lucide-react';
 import {
-  listTasks, listRuns, listJournal, aiSpend, cancelTask, AGENT_LABEL,
+  listTasks, listRuns, listJournal, aiSpend, budgetSpendToday, cancelTask, AGENT_LABEL,
   type AgentKey, type AgentSettings, type AgentTask, type AiRun, type JournalRow, type AiSpend,
 } from '../../services/agents';
 import { inSendWindow, nextWindowStart, parisClock } from '../../lib/agents/sendPolicy';
@@ -148,7 +148,9 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
   const lv = running?.result?.live ?? null;
   const inHours = s ? inSendWindow(new Date(now), s) : true;
   const next = s && !inHours ? nextWindowStart(new Date(now), s) : null;
-  const today = spend?.[agent]?.today ?? null;
+  // Ce qui compte pour le plafond : sans le banc d'essai (montré à part).
+  const today = spend?.[agent] ? budgetSpendToday(spend[agent]) : null;
+  const benchToday = spend?.[agent]?.bench_today ?? 0;
   const budget = s?.daily_budget_usd !== undefined ? Number(s.daily_budget_usd) : null;
   const pct = today != null && budget ? (today / budget) * 100 : 0;
   // Le dernier appel à l'IA a échoué (dans l'heure) : on le dit en clair.
@@ -201,6 +203,7 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
               <div className={`h-full rounded-full ${pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-violet-500'}`} style={{ width: `${Math.min(100, pct)}%` }} />
             </div>
           ) : null}
+          {benchToday > 0 && <p className="mt-1 text-[11px] text-slate-500">+ {fmtUsd(benchToday)} de banc d'essai (hors plafond)</p>}
         </div>
       </div>
 

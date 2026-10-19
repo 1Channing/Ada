@@ -381,7 +381,8 @@ export interface ProspectDetail {
   exclusion_reason: string | null; evidence: DeepEvidence[]; stage: ProspectStage; qualified_at: string | null; qualify_cost_usd: number | string;
   network_contact_id: string | null; notes: string;
 }
-export type AiSpend = Partial<Record<AgentKey, { today: number; month: number; runs_today: number }>>;
+/** Dépense IA par agente ; bench_today : la part du banc d'essai aujourd'hui, comptée dans today mais hors du plafond du jour. */
+export type AiSpend = Partial<Record<AgentKey, { today: number; month: number; runs_today: number; bench_today?: number }>>;
 export type AiSettingsPatch = Required<Pick<AgentSettings, 'targets' | 'daily_budget_usd' | 'auto_discovery' | 'auto_qualify_per_day' | 'map_auto_add' | 'map_min_score'>>;
 export const QUALIF_SQL_HINT = 'Qualification par l\'IA : SQL du 17/10 (agents_qualification) à coller dans Supabase.';
 const errQualif = (m: string) => (missing(m) || /column .* does not exist|agents_ai_spend|agent_prospects|agent_runs|kind_check/i.test(m) ? QUALIF_SQL_HINT : m);
@@ -573,8 +574,22 @@ export async function listRuns(agent: AgentKey, limit = 30): Promise<{ rows: AiR
 export async function aiSpend(): Promise<AiSpend | null> {
   const { data, error } = await sb.rpc('agents_ai_spend');
   if (error || !data) return null;
-  return data as AiSpend;
+  const out = data as AiSpend;
+  // Le banc d'essai a sa propre limite, hors du plafond du jour : sa part du jour (heure de Paris) est montrée à part.
+  const { data: bench } = await sb.from('agent_runs').select('agent, cost_usd, created_at').eq('purpose', 'banc_essai')
+    .gte('created_at', new Date(Date.now() - 30 * 3600_000).toISOString()).limit(2000);
+  const parisDay = (d: Date) => d.toLocaleDateString('fr-CA', { timeZone: 'Europe/Paris' });
+  const today = parisDay(new Date());
+  for (const r of (bench ?? []) as Array<{ agent: AgentKey; cost_usd: number | string; created_at: string }>) {
+    const x = out[r.agent];
+    if (!x || parisDay(new Date(r.created_at)) !== today) continue;
+    x.bench_today = Math.round(((x.bench_today ?? 0) + (Number(r.cost_usd) || 0)) * 10_000) / 10_000;
+  }
+  return out;
 }
+
+/** La dépense du jour qui compte pour le plafond (sans le banc d'essai). */
+export const budgetSpendToday = (x: { today: number; bench_today?: number } | undefined): number => Math.max(0, Math.round(((x?.today ?? 0) - (x?.bench_today ?? 0)) * 10_000) / 10_000);
 
 export async function updateAiSettings(agent: AgentKey, patch: AiSettingsPatch, userId: string | null): Promise<string | null> {
   const { error } = await sb.from('agent_settings').update({ ...patch, updated_at: new Date().toISOString(), updated_by: userId }).eq('agent', agent);

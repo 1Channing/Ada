@@ -182,7 +182,7 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
       <div className="flex items-center gap-2 flex-wrap">
         <Sparkles className="w-4 h-4 text-violet-700" />
         <p className="text-xs uppercase tracking-wide text-violet-800">Travail {deName(s.display_name)} (IA)</p>
-        <span className="ml-auto text-xs text-slate-500">Dépensé : {fmtUsd(today?.today ?? 0)} aujourd'hui · {fmtUsd(today?.month ?? 0)} ce mois</span>
+        <span className="ml-auto text-xs text-slate-500">Dépensé : {fmtUsd(today?.today ?? 0)} aujourd'hui{today?.bench_today ? ` (dont ${fmtUsd(today.bench_today)} de banc d'essai, hors plafond)` : ''} · {fmtUsd(today?.month ?? 0)} ce mois</span>
       </div>
       {dana ? (
         <div className="space-y-2 text-sm">

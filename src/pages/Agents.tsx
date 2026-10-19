@@ -3,7 +3,7 @@ import { Bot, Inbox, CheckCircle2, Settings2, RefreshCw, Building2, Layers, Sear
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
-  listSettings, countsFor, aiSpend, threadAgent, AGENT_LABEL,
+  listSettings, countsFor, aiSpend, budgetSpendToday, threadAgent, AGENT_LABEL,
   type AgentKey, type AgentSettings, type AgentCounts, type AiSpend,
 } from '../services/agents';
 import { fmtUsd } from '../lib/agents/aiCost';
@@ -190,7 +190,7 @@ export function Agents() {
               ? <span className="rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5">boîte connectée · relevée {fmtRelative(s.last_sync_at)}</span>
               : <button onClick={() => setTab('reglages')} className="rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 hover:bg-amber-100">boîte pas encore connectée</button>}
             {spend
-              ? <span className="rounded-full bg-violet-50 text-violet-800 border border-violet-200 px-2 py-0.5" title="Dépense IA (Claude), heure de Paris">IA : {fmtUsd(spend[agent]?.today ?? 0)} auj. · {fmtUsd(spend[agent]?.month ?? 0)} ce mois{s?.daily_budget_usd !== undefined ? ` · plafond ${Number(s.daily_budget_usd)} $/j` : ''}</span>
+              ? <span className="rounded-full bg-violet-50 text-violet-800 border border-violet-200 px-2 py-0.5" title="Dépense IA (Claude), heure de Paris. Le banc d'essai a sa propre limite : il ne compte pas dans le plafond du jour.">IA : {fmtUsd(budgetSpendToday(spend[agent]))} auj.{spend[agent]?.bench_today ? ` (+ ${fmtUsd(spend[agent]?.bench_today ?? 0)} de banc d'essai, hors plafond)` : ''} · {fmtUsd(spend[agent]?.month ?? 0)} ce mois{s?.daily_budget_usd !== undefined ? ` · plafond ${Number(s.daily_budget_usd)} $/j` : ''}</span>
               : <span className="rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-0.5">IA : SQL du 17/10 à coller</span>}
             {(c?.pourVous ?? 0) > 0 && <button onClick={() => setTab('valider')} className="rounded-full bg-violet-600 text-white px-2 py-0.5 hover:bg-violet-700">{c?.pourVous} grand{(c?.pourVous ?? 0) > 1 ? 's' : ''} compte{(c?.pourVous ?? 0) > 1 ? 's' : ''} pour vous</button>}
             {(c?.echecs ?? 0) > 0 && <button onClick={() => setTab('valider')} className="rounded-full bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 hover:bg-red-100">{c?.echecs} envoi{(c?.echecs ?? 0) > 1 ? 's' : ''} en échec</button>}
