@@ -113,6 +113,12 @@ ok(pickRouter([pm, { nom: 'Christophe Delteil', fonction: 'directeur', email: nu
 ok(pickRouter([], mails.filter((e) => e.nature === 'generique'), decider, addressKind)?.address === 'generique' && pickRouter([], [], decider, addressKind) === null
   && pickRouter([{ ...pm, email: 'contact@centrevoapro.com', nom: 'Christophe Delteil' }], mails.slice(0, 1), decider, addressKind)?.name === null,
   'sinon le service, sinon l\'adresse générale, sinon personne — jamais la personne cherchée elle-même');
+const fernau = { nom: 'Andreas Fernau', fonction: 'Geschäftsführer', email: null, source: 'x', niveau: 'decider' as const };
+const autexx: DeepEmail[] = [{ email: 's.heitmann@autexx.de', nature: 'nominatif', source: 'x', mx: true }, { email: 'info@autexx.de', nature: 'generique', source: 'x', mx: true }];
+const viaColleague = pickRouter([fernau], autexx, fernau, addressKind);
+ok(viaColleague?.email === 's.heitmann@autexx.de' && viaColleague.address === 'personne' && viaColleague.name === null
+  && routingPrompt({ role: 'dana', company: 'Autexx', country: 'DE', language: 'de', router: viaColleague, target: { name: 'Andreas Fernau', role: 'Geschäftsführer' }, wanted: 'vend aux marchands', instructions: '' }).includes('un collègue, à son adresse (s.heitmann@autexx.de)'),
+  'l\'adresse d\'un collègue sans son nom (s.heitmann@ pour Andreas Fernau) : l\'aiguillage passe par elle, plutôt que par info@');
 
 // --- Les mails ---------------------------------------------------------------------------------------
 ok(/Droit au but/.test(DANA_FIRST_MAIL_SYSTEM) && /Ne lui récite pas son entreprise ni ses propres chiffres/.test(DANA_FIRST_MAIL_SYSTEM) && !/part d'un FAIT VRAI qui le concerne/.test(DANA_FIRST_MAIL_SYSTEM)

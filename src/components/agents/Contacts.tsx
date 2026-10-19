@@ -19,7 +19,7 @@ import { useContext, useState } from 'react';
 import { Users, UserCheck, Mail, Phone, Linkedin, AlertTriangle, Search, Send, Compass } from 'lucide-react';
 import { queueRightContact, queueProbableMail, type ProspectDetail } from '../../services/agents';
 import { teamKnownOf } from '../../lib/agents/teamMemory';
-import { addressKind, type AddressKind } from '../../lib/agents/qualification';
+import { addressKind, someoneElsesMail, type AddressKind } from '../../lib/agents/qualification';
 import { pickRouter } from '../../lib/agents/firstMail';
 import { linkedinPeopleSearch } from '../../lib/agents/roles';
 import type { DeepPerson, ContactLevel } from '../../lib/agents/deepResearch';
@@ -58,7 +58,7 @@ function PersonLine({ label, x, kind, probable, onProbable }: { label: string; x
       <span className="text-[10px] uppercase tracking-wide text-slate-400 mr-1.5">{label}</span>
       <span className="text-slate-900 font-medium">{x.nom}</span>{x.fonction ? <span className="text-slate-700"> — {x.fonction}</span> : null}
       {x.linkedin && <a href={x.linkedin} target="_blank" rel="noreferrer" className="inline-flex items-center ml-1 text-sky-700 hover:text-sky-900" title="Profil LinkedIn (vu dans une page lue)"><Linkedin className="w-3.5 h-3.5" /></a>}
-      {x.email && <span className="text-xs"> · <Mail className="inline w-3.5 h-3.5 mx-0.5 text-slate-400" /><span className="font-medium">{x.email}</span>{kind && <span className={`ml-1 ${KIND_CLS[kind]}`}>({KIND_TXT[kind]})</span>}</span>}
+      {x.email && <span className="text-xs"> · <Mail className="inline w-3.5 h-3.5 mx-0.5 text-slate-400" /><span className="font-medium">{x.email}</span>{kind && <span className={`ml-1 ${KIND_CLS[kind]}`}>({someoneElsesMail(x.email, x.nom) ? 'adresse d\'un collègue' : KIND_TXT[kind]})</span>}</span>}
       {x.telephone && <span className="text-xs"> · <Phone className="inline w-3.5 h-3.5 mx-0.5 text-slate-400" /><a href={`tel:${x.telephone}`} className="hover:text-brand-ocean">{x.telephone}</a></span>}
       {x.a_confirmer && <span className="ml-1.5 text-[11px] rounded-full px-1.5 bg-amber-50 text-amber-800 border border-amber-200" title="La page qui le cite a plus d'un an, et rien de récent ne le confirme dans ce poste">à confirmer{x.date_source ? ` (source ${x.date_source})` : ''}</span>}
       {!x.email && x.email_probable && (
@@ -117,7 +117,7 @@ export function WhoToContact({ p, agentName }: { p: ProspectDetail; agentName: '
         <p className="text-xs text-indigo-900">
           <Compass className="inline w-3.5 h-3.5 -mt-0.5 mr-0.5" /> Pas d'adresse directe : {agentName} prépare un mail d'aiguillage à{' '}
           <span className="font-medium">{router.name ? `${router.name}${router.role ? ` (${router.role})` : ''}` : router.email}</span>
-          {router.name ? ` — ${router.email}` : router.address === 'service' ? ' (adresse du service)' : ' (adresse générale)'} pour obtenir le contact direct.
+          {router.name ? ` — ${router.email}` : router.address === 'service' ? ' (adresse du service)' : router.address === 'personne' ? ' (adresse d\'un collègue)' : ' (adresse générale)'} pour obtenir le contact direct.
         </p>
       )}
     </div>

@@ -404,7 +404,8 @@ export function routingPrompt(m: RoutingMaterial): string {
   const r = m.router;
   const to = r.address === 'personne' && r.name
     ? `${r.name}${r.role ? `, ${r.role}` : ''}${r.site ? ` (${r.site})` : ''} — son adresse : salue-le par son nom.`
-    : r.address === 'service' ? `le service (${r.email}) — salutation sobre, sans nom.` : `l'adresse générale de l'entreprise (${r.email}) — salutation sobre, sans nom ; demande de transmettre.`;
+    : r.address === 'personne' ? `un collègue, à son adresse (${r.email}) ; son nom n'est pas sur la fiche — salutation sobre, sans nom.`
+      : r.address === 'service' ? `le service (${r.email}) — salutation sobre, sans nom.` : `l'adresse générale de l'entreprise (${r.email}) — salutation sobre, sans nom ; demande de transmettre.`;
   const target = m.target.name ? `${m.target.name}${m.target.role ? `, ${m.target.role}` : ''} (à confirmer : est-ce bien elle, et comment la joindre directement ?)` : `la personne qui ${m.wanted}`;
   return [
     `Écris le mail d'aiguillage en ${lang}.`,
@@ -450,6 +451,9 @@ export function pickRouter(
   const verified = emails.filter((x) => x.mx);
   const service = verified.find((x) => kindOf(x.email, x.nature, null) === 'service');
   if (service) return { name: null, role: null, email: service.email, address: 'service', site: null };
+  // L'adresse nominative d'un collègue sans son nom sur la fiche (« s.heitmann@ ») : quelqu'un la lit, mieux qu'une adresse générale.
+  const colleague = verified.find((x) => kindOf(x.email, x.nature, null) === 'personne' && !people.some((y) => y.email === x.email));
+  if (colleague) return { name: null, role: null, email: colleague.email, address: 'personne', site: null };
   const general = verified.find((x) => kindOf(x.email, x.nature, null) === 'generique');
   return general ? { name: null, role: null, email: general.email, address: 'generique', site: null } : null;
 }

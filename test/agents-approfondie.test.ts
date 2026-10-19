@@ -19,7 +19,7 @@ import {
   DEEP_SEARCHES, DEEP_FETCHES, type DeepOutput, type DeepProspect, type DeepChecked,
 } from '../src/lib/agents/deepResearch';
 import { contactLines, type KeyAccountOutput } from '../src/lib/agents/firstMail';
-import { addressKind } from '../src/lib/agents/qualification';
+import { addressKind, someoneElsesMail } from '../src/lib/agents/qualification';
 import { HAIKU, OPUS } from '../src/lib/agents/aiCost';
 import { setSharedSupabase } from '../src/lib/supabaseShared';
 import { fakeSupabase, type FakeDb } from './fakeSupabase';
@@ -141,6 +141,23 @@ ok(addressKind('eci.remarketing@europcar.com') === 'service' && addressKind('vo@
   'adresse d\'un service utile : remarketing, VO, plateforme pour les professionnels');
 ok(addressKind('g.deraffin@ayvens.com', null, 'Guillaume de Raffin') === 'personne' && addressKind('m.hess@groupehess.com', 'nominatif') === 'personne' && addressKind('jean.dupont@garage.fr') === 'personne',
   'adresse d\'une personne : son nom dans l\'adresse, nature « nominatif », prénom.nom');
+
+// --- L'adresse d'un collègue (19/10, banc d'essai : s.heitmann@ donnée pour Andreas Fernau, jean-baptiste.a@ pour Yann Abrassart) ---
+ok(someoneElsesMail('s.heitmann@autexx.de', 'Andreas Fernau') && someoneElsesMail('jean-baptiste.a@carizy.com', 'Yann Abrassart') && someoneElsesMail('anna@garage.de', 'Peter Müller'),
+  'l\'adresse d\'un collègue : un autre nom dans l\'adresse, rien du sien');
+ok(!someoneElsesMail('fjabouille@groupe-dmd.fr', 'Florent Jabouille') && !someoneElsesMail('g.deraffin@ayvens.com', 'Guillaume de Raffin') && !someoneElsesMail('m.hess@groupehess.com', 'Marc Hess')
+  && !someoneElsesMail('volker@gw-deutschland.de', 'Volker Kürten') && !someoneElsesMail('lmu@bonyautomobiles.com', 'Laurent Murgia') && !someoneElsesMail('contact@centrevoapro.com', 'Christophe Delteil')
+  && !someoneElsesMail('vo.marchands@hess.fr', 'Marc Hess') && !someoneElsesMail('s.heitmann@autexx.de', null),
+  'la sienne (nom, prénom, initiale + nom), des initiales seules, une adresse générale ou de service, ou personne de nommé : pas « d\'un collègue »');
+ok(addressKind('s.heitmann@autexx.de', 'nominatif', 'Andreas Fernau') === 'generique' && addressKind('s.heitmann@autexx.de', 'nominatif', 'Sebastian Heitmann') === 'personne',
+  'l\'adresse d\'un collègue ne joint pas la personne directement (aiguillage) ; c\'est celle du collègue');
+const fernauOut: DeepOutput = { ...hessOut,
+  personnes: [{ nom: 'Andreas Fernau', fonction: 'Geschäftsführer', perimetre: 'groupe', email: 's.heitmann@autexx.de', telephone: null, linkedin: null, source: 'https://www.autexx.de/team' }],
+  emails: [{ email: 's.heitmann@autexx.de', nature: 'nominatif', source: 'https://www.autexx.de/team' }],
+  meilleur_contact: { nom: 'Andreas Fernau', fonction: 'Geschäftsführer', email: 's.heitmann@autexx.de', telephone: null, linkedin: null, pourquoi: 'Il dirige les achats et les ventes.' } };
+const mF = mergeDeep({ ...bare, emails: [], people: [], best_contact: null }, fernauOut, { ...checked, emails: [{ email: 's.heitmann@autexx.de', nature: 'nominatif', source: 'https://www.autexx.de/team', mx: true }] }, AT);
+ok(mF.patch.people?.find((x) => x.nom === 'Andreas Fernau')?.email === null && mF.patch.best_contact?.email !== 's.heitmann@autexx.de' && (mF.patch.emails ?? []).some((e) => e.email === 's.heitmann@autexx.de'),
+  'fusion : l\'adresse d\'un collègue n\'est pas rattachée à la personne ; elle reste dans les e-mails de l\'entreprise', { people: mF.patch.people, best: mF.patch.best_contact });
 const ayvens: DeepProspect = { ...bare, name: 'Ayvens France', emails: [{ email: 'relation.clients.ayvens@ayvens.com', nature: 'autre', source: 'x', mx: true }],
   best_contact: { nom: 'Guillaume de Raffin', fonction: 'Directeur Remarketing & Flex', email: 'relation.clients.ayvens@ayvens.com', pourquoi: '' } };
 ok(missingOf(ayvens).includes('pas d\'e-mail direct pour elle (seulement une adresse générale)') && isIncomplete(ayvens), 'seulement une adresse générale pour la personne qui décide : « à compléter »', missingOf(ayvens));

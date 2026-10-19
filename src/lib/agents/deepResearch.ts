@@ -18,7 +18,7 @@
  */
 import { MC_EXPORT_FACTS } from './playbook';
 import { DANA_FACTS, isKeyAccount, lotLine, type LotFact } from './sourcing';
-import { clamp, addressKind, ADDRESS_RANK } from './qualification';
+import { clamp, addressKind, someoneElsesMail, ADDRESS_RANK } from './qualification';
 import { methodText, rolesPromptLines, staleSource, type ContactRoles } from './roles';
 
 export type DeepRole = 'ada' | 'dana';
@@ -420,6 +420,11 @@ export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: 
     const x = okMail.get(String(e ?? '').trim().toLowerCase());
     return x && x.mx ? x.email.toLowerCase() : null;
   };
+  // Son adresse à elle : pas celle d'un collègue (« s.heitmann@ » pour Andreas Fernau) — qui reste dans les e-mails de l'entreprise.
+  const ownMail = (e: string | null | undefined, who: string | null | undefined) => {
+    const m = mailOf(e);
+    return m && !someoneElsesMail(m, who) ? m : null;
+  };
   const phoneOf = (n: string | null | undefined) => {
     const d = String(n ?? '').replace(/\D/g, '');
     if (d.length < 8) return null;
@@ -447,7 +452,7 @@ export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: 
     // 19/10 : pour démarrer, pour décider ou pour aiguiller ; l'année de la page ; à confirmer si elle a plus d'un an sans rien de récent.
     const date = String(x.date_source ?? '').trim() || null;
     const add: DeepPerson = {
-      nom, fonction: String(x.fonction ?? '').trim(), email: mailOf(x.email), source: x.source, linkedin: li, telephone: phoneOf(x.telephone), perimetre: x.perimetre, via: VIA,
+      nom, fonction: String(x.fonction ?? '').trim(), email: ownMail(x.email, nom), source: x.source, linkedin: li, telephone: phoneOf(x.telephone), perimetre: x.perimetre, via: VIA,
       niveau: x.niveau ?? null, date_source: date, a_confirmer: staleSource(date, x.confirme_recent === true, new Date(at)),
     };
     const known = people.find((y) => nameKey(y.nom) === nameKey(nom));
@@ -471,7 +476,7 @@ export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: 
   const m = out.meilleur_contact;
   const candPerson = m?.nom ? people.find((y) => nameKey(y.nom) === nameKey(m.nom ?? '')) : undefined;
   const cand: DeepBest = {
-    nom: m?.nom?.trim() || null, fonction: m?.fonction?.trim() || null, email: mailOf(m?.email), pourquoi: String(m?.pourquoi ?? '').trim(),
+    nom: m?.nom?.trim() || null, fonction: m?.fonction?.trim() || null, email: ownMail(m?.email, m?.nom), pourquoi: String(m?.pourquoi ?? '').trim(),
     linkedin: c.linkedin(m?.linkedin, m?.nom), telephone: phoneOf(m?.telephone),
     niveau: m?.niveau ?? candPerson?.niveau ?? null, date_source: candPerson?.date_source ?? null, a_confirmer: candPerson?.a_confirmer ?? false,
   };
@@ -489,7 +494,7 @@ export function mergeDeep(p: DeepProspect, out: DeepOutput, c: DeepChecked, at: 
     best = cand;
   } else if (!prev?.nom && !prevMail && (cand.email || cand.telephone)) best = cand;
   if (best?.nom && !best.email) best.email = people.find((y) => nameKey(y.nom) === nameKey(best?.nom ?? ''))?.email ?? null;
-  if (best && !best.email) best.email = emails.find((e) => e.mx && e.via === VIA && /^(vo|achats|commercial|nominatif)$/.test(e.nature))?.email ?? prevMail;
+  if (best && !best.email) best.email = emails.find((e) => e.mx && e.via === VIA && /^(vo|achats|commercial|nominatif)$/.test(e.nature) && !someoneElsesMail(e.email, best?.nom))?.email ?? prevMail;
   // Joignable seulement par une adresse générale : l'adresse publiée d'un service utile, si la recherche en a trouvé une.
   if (best?.email && rank(best.email, best.nom) === ADDRESS_RANK.generique) {
     const service = emails.find((e) => e.mx && e.via === VIA && rank(e.email, best?.nom) > ADDRESS_RANK.generique)?.email;

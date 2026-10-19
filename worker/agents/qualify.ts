@@ -36,7 +36,7 @@ import { promises as dns } from 'node:dns';
 import { fetchHtmlWithZyte } from '../scraper';
 import { parseDealerInfoPage, extractEmails, mailtoEmails, extractPeople, contactLinks, pageText, type DealerPageInfo } from '../../src/lib/agents/dealerPage';
 import {
-  fitScore, qualifyPrompt, QUALIFY_SYSTEM, DANA_QUALIFY_SYSTEM, qualifySchema, acceptedEmails, acceptedLinkedin, finalScore, normalizeTargets, buyerCountries, HOME_COUNTRY,
+  fitScore, qualifyPrompt, QUALIFY_SYSTEM, DANA_QUALIFY_SYSTEM, qualifySchema, acceptedEmails, acceptedLinkedin, finalScore, normalizeTargets, buyerCountries, HOME_COUNTRY, someoneElsesMail,
   type QualifyOutput, type AgentTargets, type QualifyRole, type Fit,
 } from '../../src/lib/agents/qualification';
 import {
@@ -463,14 +463,16 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
   const li = (url: string | null | undefined, name: string | null | undefined) => acceptedLinkedin(url, name, seenUrls, prompt);
   let best = {
     ...ai.meilleur_contact,
-    email: ai.meilleur_contact?.email && okEmails.has(ai.meilleur_contact.email.toLowerCase()) ? ai.meilleur_contact.email.toLowerCase() : null,
+    email: ai.meilleur_contact?.email && okEmails.has(ai.meilleur_contact.email.toLowerCase()) && !someoneElsesMail(ai.meilleur_contact.email, ai.meilleur_contact.nom) ? ai.meilleur_contact.email.toLowerCase() : null,
     linkedin: li(ai.meilleur_contact?.linkedin, ai.meilleur_contact?.nom),
     niveau: ai.meilleur_contact?.niveau ?? null,
   };
-  if (!best.email) best.email = emails.find((e) => e.mx && /^(vo|occasion|gebraucht|used|verkoop|vente|sales|verkauf|achat|inkoop|einkauf)/.test(e.email))?.email ?? emails.find((e) => e.mx)?.email ?? null;
+  // Faute de son adresse : celle de son service, sinon une adresse de l'entreprise — celle d'un collègue en dernier.
+  if (!best.email) best.email = emails.find((e) => e.mx && /^(vo|occasion|gebraucht|used|verkoop|vente|sales|verkauf|achat|inkoop|einkauf)/.test(e.email))?.email
+    ?? emails.find((e) => e.mx && !someoneElsesMail(e.email, best.nom))?.email ?? emails.find((e) => e.mx)?.email ?? null;
   const fromPages = [...people.map((p) => ({ ...p, linkedin: null as string | null, niveau: (ai.contacts ?? []).find((c) => c.nom?.toLowerCase() === p.nom.toLowerCase())?.niveau ?? null })),
     ...(ai.contacts ?? []).filter((c) => c.nom && !people.some((p) => p.nom.toLowerCase() === c.nom.toLowerCase()))]
-    .map((c) => ({ ...c, email: c.email && okEmails.has(c.email.toLowerCase()) ? c.email.toLowerCase() : null, linkedin: li(c.linkedin, c.nom), niveau: c.niveau ?? null })).slice(0, 12);
+    .map((c) => ({ ...c, email: c.email && okEmails.has(c.email.toLowerCase()) && !someoneElsesMail(c.email, c.nom) ? c.email.toLowerCase() : null, linkedin: li(c.linkedin, c.nom), niveau: c.niveau ?? null })).slice(0, 12);
   // 19/10 : les personnes que l'équipe connaît déjà, sur la fiche ; la personne qui traite d'abord, si elle est joignable.
   const contacts = withTeamPeople(fromPages, teamPeople(team));
   best = { ...best, ...(preferStart(best, contacts, emails) ?? {}) };

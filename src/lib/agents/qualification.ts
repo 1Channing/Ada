@@ -378,9 +378,26 @@ const SERVICE_WORD = /^(vo|vn|vu|pro|pros|b2b|lld|loa|leasing|lease|fleet|stock|
 const SERVICE_START = /^(occasion|remarket|flott|fleet|defleet|achat|vente|marchand|professionn|commerci|used|usedcar|carmarket|gebraucht|tweedehands|ocasion|usato|brugt)/;
 const plain = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+/**
+ * L'adresse nominative de quelqu'un d'autre (19/10, banc d'essai : « s.heitmann@ » donnée pour Andreas Fernau,
+ * « jean-baptiste.a@ » pour Yann Abrassart) : un mot de 4 lettres ou plus qui n'est ni son prénom ni son nom,
+ * et rien de son nom dans l'adresse. Les initiales seules (« lmu@ ») et les adresses de service ou générales ne disent rien.
+ */
+export function someoneElsesMail(email: string, person: string | null | undefined): boolean {
+  const names = plain(person ?? '').split(/[^a-z]+/).filter((w) => w.length >= 3 && !['les', 'des', 'van', 'von', 'der', 'den'].includes(w));
+  if (!names.length) return false;
+  const tokens = plain(String(email).split('@')[0] ?? '').split(/[^a-z]+/).filter(Boolean);
+  if (!tokens.length || tokens.some((t) => GENERIC_WORD.test(t) || GENERIC_START.test(t) || SERVICE_WORD.test(t) || SERVICE_START.test(t))) return false;
+  const joined = tokens.join('');
+  if (names.some((w) => joined.includes(w))) return false;
+  return tokens.some((t) => t.length >= 4 && !names.some((w) => w.startsWith(t) || t.startsWith(w)));
+}
+
 export function addressKind(email: string, nature?: string | null, person?: string | null): AddressKind {
   const tokens = plain(String(email).split('@')[0] ?? '').split(/[^a-z]+/).filter(Boolean);
   if (nature === 'generique' || tokens.some((t) => GENERIC_WORD.test(t) || GENERIC_START.test(t))) return 'generique';
+  // L'adresse d'un collègue : elle ne joint pas cette personne directement (quelqu'un devra transmettre).
+  if (someoneElsesMail(email, person)) return 'generique';
   if (nature === 'nominatif') return 'personne';
   // Le nom de la personne dans l'adresse (« g.deraffin@ », « guillaume.de-raffin@ »).
   const names = plain(person ?? '').split(/[^a-z]+/).filter((w) => w.length >= 3 && !['les', 'des', 'van', 'von', 'der', 'den'].includes(w));
