@@ -320,16 +320,10 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   };
 
   // 4. Le fil, et le brouillon à valider — ou, pour un grand compte, ce que Channing envoie lui-même
-  const counterpart = routing ? router?.email ?? null : mailTo?.email ?? null;
-  const { data: th, error: e1 } = await sb.from('agent_threads').insert({
-    agent: a.agent, mailbox: a.mailbox, subject, counterpart_email: counterpart, counterpart_name: routing ? router?.name ?? null : mailTo?.nom ?? p.best_contact?.nom ?? null,
-    prospect_id: p.id, network_contact_id: p.network_contact_id,
-  }).select('id');
-  const threadId = ((th ?? []) as Array<{ id: string }>)[0]?.id;
-  if (e1 || !threadId) return { status: 'echec', name: p.name, detail: `fil non créé : ${e1?.message ?? '?'}`, cost };
-  const rows: Array<Record<string, unknown>> = [];
-  const common = { thread_id: threadId, agent: a.agent, mailbox: a.mailbox, direction: 'out', kind: 'premier_contact', author: a.agent };
-  if (routing) rows.push({ ...common, ...routing.row });
+  const own = { agent: a.agent, mailbox: a.mailbox, direction: 'out', kind: 'premier_contact', author: a.agent };
+  const routingRows: Array<Record<string, unknown>> = routing ? [{ ...own, ...routing.row }] : [];
+  const planRows: Array<Record<string, unknown>> = [];
+  const mailSubject = (out?.objet?.trim() || subject).slice(0, 200);
   let liNotes: Array<{ nom: string | null; note: string; url: string | null }> = [];
   if (key && out) {
     const k = out as KeyAccountOutput;
@@ -348,32 +342,56 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
       const guessed = mailTo.probable && !probable
         ? { adresse_probable: mailTo.probable.email, motif_adresse: mailTo.probable.motif, alertes: [`Adresse probable, non publiée (${mailTo.probable.motif}) : seul un administrateur l'envoie ; un rebond abîme la réputation de mc-export.com.`, ...check.warnings] }
         : {};
-      rows.push({ ...common, channel: 'mail', status: 'pour_channing', to_emails: [mailTo.email], subject, body_text: k.corps.trim(), translation_fr: translation, ai_notes: { ...card, personne: mailTo.nom, ...guessed } });
+      planRows.push({ ...own, channel: 'mail', status: 'pour_channing', to_emails: [mailTo.email], subject: mailSubject, body_text: k.corps.trim(), translation_fr: translation, ai_notes: { ...card, personne: mailTo.nom, ...guessed } });
     }
     // Une note par personne du plan, avec son profil (ou la recherche LinkedIn de son nom).
     for (const n of liNotes) {
-      rows.push({
-        ...common, channel: 'linkedin', status: 'pour_channing', to_emails: [], subject: `LinkedIn — ${n.nom ?? p.group_name ?? p.name}`.slice(0, 200),
+      planRows.push({
+        ...own, channel: 'linkedin', status: 'pour_channing', to_emails: [], subject: `LinkedIn — ${n.nom ?? p.group_name ?? p.name}`.slice(0, 200),
         body_text: n.note, translation_fr: translation,
         // Son texte d'origine : la note (pas le mail) — une note corrigée apprend une leçon, une note envoyée telle quelle non.
         ai_notes: { ...card, texte_initial: n.note, personne: n.nom, linkedin_url: n.url, linkedin_nom: n.nom, linkedin_recherche: n.url ? null : linkedinSearchUrl(p.group_name || p.name, role, language, n.nom) },
       });
     }
   } else if (!routing && out && mailTo) {
-    rows.push({
-      ...common, channel: 'mail', status: 'a_valider', to_emails: [mailTo.email], subject, body_text: withAgentSignature(out.corps, a.signature ?? ''),
+    planRows.push({
+      ...own, channel: 'mail', status: 'a_valider', to_emails: [mailTo.email], subject: mailSubject, body_text: withAgentSignature(out.corps, a.signature ?? ''),
       translation_fr: language === 'fr' ? null : (out.traduction_fr ?? null), ai_notes: notes,
     });
   }
-  const { data: msg, error: e2 } = rows.length ? await sb.from('agent_messages').insert(rows).select('id') : { data: [], error: { message: 'ni mail ni note LinkedIn' } };
-  const messageId = ((msg ?? []) as Array<{ id: string }>)[0]?.id;
-  if (e2 || !messageId) {
-    await sb.from('agent_threads').delete().eq('id', threadId);
-    return { status: 'echec', name: p.name, detail: `brouillon non enregistré : ${e2?.message ?? '?'}`, cost };
+  // 20/10 : l'aiguillage et le mail à une autre personne sont deux conversations, deux fils : dans le fil de l'aiguillage,
+  // le mail à celle qui traite partirait en réponse au mail à l'aiguilleur (et sa réponse arriverait dans ce fil-là).
+  const mailRow = planRows.find((r) => r.channel === 'mail') ?? null;
+  const groups = routing && mailRow
+    ? [
+      { subject, email: router?.email ?? null, name: router?.name ?? null, rows: routingRows },
+      { subject: mailSubject, email: mailTo?.email ?? null, name: mailTo?.nom ?? null, rows: planRows },
+    ]
+    : [{
+      subject, email: routing ? router?.email ?? null : mailTo?.email ?? null, name: routing ? router?.name ?? null : mailTo?.nom ?? p.best_contact?.nom ?? null,
+      rows: [...routingRows, ...planRows],
+    }];
+  if (!groups.some((g) => g.rows.length)) return { status: 'echec', name: p.name, detail: 'brouillon non enregistré : ni mail ni note LinkedIn', cost };
+  const made: string[] = [];
+  let messageId: string | undefined;
+  for (const g of groups) {
+    const { data: th, error: e1 } = await sb.from('agent_threads').insert({
+      agent: a.agent, mailbox: a.mailbox, subject: g.subject, counterpart_email: g.email, counterpart_name: g.name, prospect_id: p.id, network_contact_id: p.network_contact_id,
+    }).select('id');
+    const id = ((th ?? []) as Array<{ id: string }>)[0]?.id;
+    const { data: msg, error: e2 } = id ? await sb.from('agent_messages').insert(g.rows.map((r) => ({ ...r, thread_id: id }))).select('id') : { data: [], error: e1 };
+    const first = ((msg ?? []) as Array<{ id: string }>)[0]?.id;
+    if (id) made.push(id);
+    if (e1 || e2 || !id || !first) {
+      for (const x of made) { await sb.from('agent_messages').delete().eq('thread_id', x); await sb.from('agent_threads').delete().eq('id', x); }
+      return { status: 'echec', name: p.name, detail: `${id ? 'brouillon non enregistré' : 'fil non créé'} : ${(e2 ?? e1)?.message ?? '?'}`, cost };
+    }
+    messageId ??= first;
+    await sb.from('agent_threads').update({ last_message_at: new Date().toISOString(), last_direction: 'out' }).eq('id', id);
   }
-  await sb.from('agent_threads').update({ last_message_at: new Date().toISOString(), last_direction: 'out' }).eq('id', threadId);
+  const threadId = made[0];
   // 20/10 : la préparation d'avant laisse la place, maintenant que la nouvelle est enregistrée (./prepared.ts).
-  if (replaced.size) await dropPrepared([...replaced].filter((id) => id !== threadId));
+  if (replaced.size) await dropPrepared([...replaced].filter((id) => !made.includes(id)));
   if (p.stage === 'qualifie') await sb.from('agent_prospects').update({ stage: 'a_contacter', updated_at: new Date().toISOString() }).eq('id', p.id);
   const warnings = check.warnings.length + (routing?.warnings ?? 0);
   const points = warnings ? ` — ${warnings} point${warnings > 1 ? 's' : ''} à vérifier` : '';
@@ -382,7 +400,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const named = liNotes.map((n) => n.nom).filter(Boolean).join(', ');
   const prepared = [
     routing ? `aiguillage à ${who}` : null,
-    mailTo && rows.some((r) => r.channel === 'mail' && r.status === 'pour_channing') ? `mail à ${mailTo.nom ? `${mailTo.nom} (${mailTo.email}${mailTo.probable && !probable ? ', adresse probable' : ''})` : mailTo.email}` : null,
+    mailTo && planRows.some((r) => r.channel === 'mail' && r.status === 'pour_channing') ? `mail à ${mailTo.nom ? `${mailTo.nom} (${mailTo.email}${mailTo.probable && !probable ? ', adresse probable' : ''})` : mailTo.email}` : null,
     liNotes.length ? `${liNotes.length > 1 ? `${liNotes.length} notes LinkedIn` : 'note LinkedIn'}${named ? ` (${named})` : ''}` : null,
     'fiche d\'appel',
   ].filter(Boolean).join(', ');

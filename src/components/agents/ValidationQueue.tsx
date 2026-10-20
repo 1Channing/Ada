@@ -59,10 +59,10 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
     setWork(w);
     setLoaded(true);
   }, [agent, onError]);
-  // Un grand compte = un fil : son mail et sa note LinkedIn ensemble.
+  // Un grand compte = une carte : tout son plan, sur un fil ou deux (20/10 : l'aiguillage à part quand le mail va à une autre personne).
   const accounts = useMemo(() => {
     const m = new Map<string, ForYouMessage[]>();
-    for (const x of forYou) (m.get(x.thread_id) ?? m.set(x.thread_id, []).get(x.thread_id)!).push(x);
+    for (const x of forYou) { const k = x.thread?.prospect_id ?? x.thread_id; (m.get(k) ?? m.set(k, []).get(k)!).push(x); }
     return [...m.values()];
   }, [forYou]);
   useEffect(() => { void load(); }, [load, refreshKey]);
@@ -156,7 +156,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
           </div>
           {accounts.map((items) => {
             const pid = items[0].thread?.prospect?.id ?? '';
-            return <ForYouCard key={items[0].thread_id} items={items} settings={mine} counts={counts[agent]} isAdmin={isAdmin} onOpenThread={onOpenThread} onChanged={changed} onError={onError} onInfo={onInfo}
+            return <ForYouCard key={pid || items[0].thread_id} items={items} settings={mine} counts={counts[agent]} isAdmin={isAdmin} onOpenThread={onOpenThread} onChanged={changed} onError={onError} onInfo={onInfo}
               onDeep={(id, note) => void deepen(id, items[0].thread?.prospect?.name ?? 'ce compte', note)} deeping={work.deep.has(pid)}
               onRedo={(id) => void redo(id, items[0].thread?.prospect?.name ?? 'ce compte')} redoing={work.draft.has(pid)} />;
           })}

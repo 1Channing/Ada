@@ -675,11 +675,15 @@ export async function listForYou(agent?: AgentKey): Promise<{ rows: ForYouMessag
     return { rows: [], error: error.message };
   }
   const rows = (data ?? []) as ForYouMessage[];
-  // 20/10 (le plan préparé) : l'aiguillage d'un grand compte, « à valider », est aussi sur sa carte, avec le reste du plan.
-  const threads = [...new Set(rows.map((m) => m.thread_id))].slice(0, 200);
-  if (threads.length) {
-    const { data: more } = await sb.from('agent_messages').select(cols).eq('status', 'a_valider').in('thread_id', threads).order('created_at', { ascending: true });
+  // 20/10 (le plan préparé) : l'aiguillage d'un grand compte, « à valider » — dans son propre fil quand le mail va à une
+  // autre personne —, est aussi sur sa carte, avec le reste du plan.
+  const prospects = [...new Set(rows.map((m) => m.thread?.prospect_id).filter((x): x is string => !!x))].slice(0, 50);
+  if (prospects.length) {
+    const { data: ths } = await sb.from('agent_threads').select('id').in('prospect_id', prospects).limit(150);
+    const ids = ((ths ?? []) as Array<{ id: string }>).map((t) => t.id);
+    const { data: more } = ids.length ? await sb.from('agent_messages').select(cols).eq('status', 'a_valider').in('thread_id', ids) : { data: [] };
     rows.push(...((more ?? []) as ForYouMessage[]));
+    rows.sort((x, y) => x.created_at.localeCompare(y.created_at));
   }
   return { rows, error: null };
 }

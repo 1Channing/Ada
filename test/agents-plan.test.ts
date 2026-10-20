@@ -198,7 +198,9 @@ const inThread = (id: string | undefined) => db.agent_messages.filter((m) => m.t
 
 // A. Agilauto : tout le plan préparé.
 const a = await draftFirstMail('p-agil', dana as never, null);
-const msgsA = inThread(a.threadId);
+// Deux conversations : l'aiguillage (à Julien Gervais) dans son fil, le mail (à Mathieu Dalmas) et les notes dans un autre.
+const threadsA = db.agent_threads.filter((t) => t.prospect_id === 'p-agil') as Array<Row & { id: string }>;
+const msgsA = threadsA.flatMap((t) => inThread(t.id));
 const routingA = msgsA.find((m) => notesOfRow(m).aiguillage);
 const mailA = msgsA.find((m) => m.channel === 'mail' && m.status === 'pour_channing');
 const notesA = msgsA.filter((m) => m.channel === 'linkedin');
@@ -221,14 +223,20 @@ const jA = db.agent_journal.find((j) => j.kind === 'aiguillage');
 ok(/^Grand compte Agilauto \(FR\) préparé pour vous : aiguillage à Julien Gervais \(Directeur commercial\), mail à Mathieu Dalmas \(mdalmas@ca-agilauto\.fr, adresse probable\), 3 notes LinkedIn \(Mathieu Dalmas, Antoine Garel, Thierry Fabre\), fiche d'appel/.test(String(jA?.summary))
   && (db.agent_threads.find((t) => t.id === a.threadId) as Row).counterpart_email === 'jgervais@ca-agilauto.fr',
 'A. le journal dit tout ce qui est prêt', jA?.summary);
+const planThread = threadsA.find((t) => t.id === mailA?.thread_id);
+ok(threadsA.length === 2 && inThread(a.threadId).length === 1 && routingA?.thread_id === a.threadId && planThread?.counterpart_email === 'mdalmas@ca-agilauto.fr'
+  && planThread.subject === 'Vos véhicules restitués' && mailA?.subject === 'Vos véhicules restitués' && notesA.every((m) => m.thread_id === planThread.id),
+'A. deux conversations : l\'aiguillage dans son fil ; le mail à Mathieu Dalmas, avec son propre objet, et les notes dans un autre (envoyé dans le fil de l\'aiguillage, il partirait en réponse au mail à Julien Gervais)',
+threadsA.map((t) => ({ to: t.counterpart_email, subject: t.subject, n: inThread(t.id).length })));
 
 // B. « Chercher plus loin » trouve l'adresse de Mathieu Dalmas.
 const routingBody = String(routingA?.body_text);
 routingA!.body_text = 'Bonjour Julien,\n\nÀ qui dois-je m\'adresser pour reprendre vos véhicules restitués ? Merci d\'avance.\n\nDana\nMC Export';
 const b1 = await deepResearch('p-agil', dana as never, null, true);
 const pAfter = db.agent_prospects.find((p) => p.id === 'p-agil') as Row & { people: Row[]; best_contact: Row };
-ok(b1.status === 'enrichi' && !b1.prepared && inThread(a.threadId).length === 5 && db.agent_threads.some((t) => t.id === a.threadId) && String(inThread(a.threadId).find((m) => m.id === routingA!.id)?.body_text).startsWith('Bonjour Julien,'),
-  'B. l\'aiguillage corrigé à la main : la préparation n\'est pas refaite (la correction n\'est pas jetée)', { prepared: b1.prepared, messages: inThread(a.threadId).length });
+const allA = () => threadsA.flatMap((t) => inThread(t.id));
+ok(b1.status === 'enrichi' && !b1.prepared && allA().length === 5 && threadsA.every((t) => db.agent_threads.includes(t)) && String(allA().find((m) => m.id === routingA!.id)?.body_text).startsWith('Bonjour Julien,'),
+  'B. l\'aiguillage corrigé à la main : la préparation n\'est pas refaite (la correction n\'est pas jetée)', { prepared: b1.prepared, messages: allA().length });
 ok(pAfter.people.find((x) => x.nom === 'Mathieu Dalmas')?.email === 'mdalmas@ca-agilauto.fr' && pAfter.best_contact.nom === 'Mathieu Dalmas',
   'B. la fiche : son adresse vérifiée (la page, le domaine) ; joignable directement, il devient le contact retenu', pAfter.best_contact);
 // Sans la correction : la fiche d'avant la recherche, l'aiguillage tel que Dana l'a écrit.
@@ -240,8 +248,8 @@ const b2 = await deepResearch('p-agil', dana as never, null, true);
 const threadB = db.agent_threads.find((t) => t.prospect_id === 'p-agil') as Row | undefined;
 const msgsB = inThread(threadB?.id as string | undefined);
 const mailB = msgsB.find((m) => m.channel === 'mail');
-ok(b2.prepared && !db.agent_threads.some((t) => t.id === a.threadId) && inThread(a.threadId).length === 0,
-  'B. rien d\'envoyé, rien de corrigé : la préparation d\'avant laisse la place (l\'aiguillage à valider compris)', { prepared: b2.prepared, old: inThread(a.threadId).length });
+ok(b2.prepared && !threadsA.some((t) => db.agent_threads.includes(t)) && allA().length === 0 && db.agent_threads.filter((t) => t.prospect_id === 'p-agil').length === 1,
+  'B. rien d\'envoyé, rien de corrigé : la préparation d\'avant laisse la place (ses deux fils, l\'aiguillage à valider compris)', { prepared: b2.prepared, old: allA().length });
 ok(!!mailB && mailB.status === 'pour_channing' && (mailB.to_emails as string[]).join() === 'mdalmas@ca-agilauto.fr' && !notesOfRow(mailB).adresse_probable && notesOfRow(mailB).personne === 'Mathieu Dalmas'
   && !msgsB.some((m) => m.status === 'a_valider') && threadB?.counterpart_email === 'mdalmas@ca-agilauto.fr',
 'B. la nouvelle préparation : le mail à sa vraie adresse — plus d\'adresse probable, plus d\'aiguillage', msgsB.map((m) => ({ s: m.status, c: m.channel, to: m.to_emails, p: notesOfRow(m).personne })));

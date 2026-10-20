@@ -139,7 +139,7 @@ export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onC
         {p?.website && <a href={p.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline"><ExternalLink className="w-3.5 h-3.5" /> {p.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a>}
         {p?.best_contact?.nom && <span className="text-slate-700">{p.best_contact.nom}{p.best_contact.fonction ? ` — ${p.best_contact.fonction}` : ''}</span>}
         {!mail.length && <span className="text-slate-500">Pas d'e-mail publié : LinkedIn et téléphone.</span>}
-        <button onClick={() => onOpenThread(first.thread_id)} className="ml-auto text-brand-ocean hover:underline">Ouvrir le fil</button>
+        <button onClick={() => onOpenThread((directMails[0] ?? notes[0] ?? first).thread_id)} className="ml-auto text-brand-ocean hover:underline">Ouvrir le fil</button>
       </div>
       {sheet && <Sheet s={sheet} />}
       {[...mail, ...notes].map((m) => <MessageCard key={`${m.id}-${m.updated_at}`} m={m} settings={settings} counts={counts} isAdmin={isAdmin} flat onChanged={onChanged} onError={onError} onInfo={onInfo} />)}
