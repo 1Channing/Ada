@@ -25,6 +25,7 @@ import { callClaude, BudgetReached, AiUnavailable } from './claude';
 import { fetchPage, hasMx, type AiAgent } from './qualify';
 import { draftFirstMail } from './firstMail';
 import { preparedThreads } from './prepared';
+import { isSetAside } from '../../src/lib/agents/setAside';
 import {
   deepSystem, deepSchema, deepPrompt, mergeDeep, deepSummary, phoneWritten, DEEP_SEARCHES, DEEP_FETCHES,
   type DeepOutput, type DeepProspect, type DeepChecked, type DeepPerson,
@@ -179,7 +180,7 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
   if (!row) return { status: 'echec', name: prospectId, detail: 'fiche introuvable', cost: 0, prepared: false };
   const skip = (detail: string): DeepOutcome => ({ status: 'ignore', name: row.name, detail, cost: 0, prepared: false });
   if (row.agent !== a.agent) return skip(row.agent === 'dana' ? 'fiche de Dana' : 'fiche d\'Ada');
-  if (row.stage === 'ecarte') return skip('fiche écartée');
+  if (row.stage === 'ecarte') return skip(isSetAside(row) ? 'fiche mise de côté par l\'équipe : rien à chercher' : 'fiche écartée');
   const role: 'ada' | 'dana' = a.agent === 'dana' ? 'dana' : 'ada';
   if (role === 'ada' && (row.country ?? '').toUpperCase() === HOME_COUNTRY) return skip('entreprise en France : pas un acheteur pour Ada');
   const p: DeepProspect = { ...row, emails: row.emails ?? [], people: row.people ?? [], evidence: row.evidence ?? [], fit_parts: row.fit_parts ?? [] };

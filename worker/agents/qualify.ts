@@ -55,6 +55,7 @@ import { lessonsBlock } from './lessons';
 import { teamPromptLines, teamPeople, withTeamPeople } from '../../src/lib/agents/teamMemory';
 import { ROLES_BY_SEGMENT, rolesForKind, rolesPromptLines } from '../../src/lib/agents/roles';
 import { preferStart } from '../../src/lib/agents/deepResearch';
+import { isSetAside } from '../../src/lib/agents/setAside';
 
 export interface AiSettings {
   targets: Partial<AgentTargets> | null; daily_budget_usd: number | string; auto_discovery: boolean; auto_qualify_per_day: number; map_auto_add: boolean; map_min_score: number;
@@ -239,7 +240,7 @@ const firstOf = <T>(xs: Array<T | null | undefined>): T | null => xs.find((x): x
 
 /** La fiche d'avant (pour ne pas ramener une étape en arrière, ni perdre une recherche approfondie). */
 interface PrevProspect {
-  id: string; stage: string; network_contact_id: string | null; dealer_id: string;
+  id: string; stage: string; network_contact_id: string | null; dealer_id: string; exclusion_reason?: string | null;
   people?: Array<{ nom: string; fonction: string; email: string | null; source: string; linkedin?: string | null; via?: string }> | null;
   emails?: Array<{ email: string; nature: string; source: string; mx: boolean; via?: string }> | null;
   evidence?: Array<{ url: string; note: string; via?: string }> | null;
@@ -416,7 +417,7 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
 
   // 3. Haiku 5.5
   // Déjà qualifié par une de ses fiches (avant le rapprochement des sites) : c'est la même fiche prospect.
-  const PREV_COLS = 'id, stage, network_contact_id, dealer_id, people, emails, evidence, best_contact';
+  const PREV_COLS = 'id, stage, network_contact_id, dealer_id, people, emails, evidence, best_contact, exclusion_reason';
   const { data: existing } = s.account
     ? await sb.from('agent_prospects').select(PREV_COLS).eq('agent', ctx.agent.agent).eq('account_id', s.account.id).limit(1)
     : await sb.from('agent_prospects').select(PREV_COLS).eq('agent', ctx.agent.agent).in('dealer_id', s.dealerIds).limit(1);
@@ -498,7 +499,10 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
   };
   // SQL agents_recherche (17/10) : la fiche d'une entreprise trouvée par recherche web.
   if (s.account) row.account_id = s.account.id;
-  if (!prev || ['qualifie', 'ecarte'].includes(prev.stage)) row.stage = stage;
+  // 20/10 : une fiche mise de côté par l'équipe y reste — seule l'équipe la remet dans la liste (src/lib/agents/setAside.ts).
+  const aside = !!prev && isSetAside(prev);
+  if (aside) delete row.exclusion_reason;
+  if (!prev || (['qualifie', 'ecarte'].includes(prev.stage) && !aside)) row.stage = stage;
   let { data: saved, error } = prev
     ? await sb.from('agent_prospects').update(row).eq('id', prev.id).select('id')
     : await sb.from('agent_prospects').insert(row).select('id');
@@ -512,13 +516,13 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
   }
   if (error) return { status: 'echec', name: d.name, score, cost, detail: `fiche non enregistrée : ${error.message}`, addedToMap: false };
   const prospectId = ((saved ?? []) as Array<{ id: string }>)[0]?.id ?? prev?.id ?? null;
-  if (s.account) await sb.from('agent_accounts').update({ status: ai.exclure ? 'ecarte' : 'qualifie', prospect_id: prospectId, updated_at: now }).eq('id', s.account.id);
+  if (s.account) await sb.from('agent_accounts').update({ status: ai.exclure || aside ? 'ecarte' : 'qualifie', prospect_id: prospectId, updated_at: now }).eq('id', s.account.id);
   else if (site && site !== d.website) await sb.from('market_dealers').update({ website: site }).eq('id', d.id);
 
   // 6. La carte du réseau
   let addedToMap = false;
   const reachable = okEmails.size > 0 || !!(phone ?? page?.phones[0]);
-  if (prospectId && !prev?.network_contact_id && !ai.exclure && ctx.agent.map_auto_add && score >= ctx.agent.map_min_score && reachable) {
+  if (prospectId && !prev?.network_contact_id && !ai.exclure && !aside && ctx.agent.map_auto_add && score >= ctx.agent.map_min_score && reachable) {
     const at = d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null;
     addedToMap = await addToMap(ctx.agent.agent, prospectId, d, {
       score, summary: ai.resume, best, contacts, site, brands: brandsSeen, phone: phone ?? page?.phones[0] ?? null, at,
@@ -530,9 +534,11 @@ async function qualifySubject(s: Subject, ctx: SeriesContext): Promise<QualifyOu
   const label = `${d.name} (${d.country ?? '?'}${segment ? ` · ${segment.label.toLowerCase()}` : ''})`;
   await journal({
     agent: ctx.agent.agent, actor: ctx.agent.agent, kind: ai.exclure ? 'qualification_ecarte' : 'qualification',
-    summary: ai.exclure
-      ? `${label} écarté : ${ai.motif_exclusion ?? 'hors cible'}`
-      : `${label} : fiche prête, ${score}/100 — ${who}${lots[0] ? ` · lot : ${lotLine(lots[0], false)}` : ''}${keyAccount ? ' · grand compte' : ''}${addedToMap ? ' · ajouté à la carte' : ''}`,
+    summary: aside
+      ? `${label} : fiche refaite, ${score}/100 — ${who} · reste mise de côté (seule l'équipe la remet dans la liste)`
+      : ai.exclure
+        ? `${label} écarté : ${ai.motif_exclusion ?? 'hors cible'}`
+        : `${label} : fiche prête, ${score}/100 — ${who}${lots[0] ? ` · lot : ${lotLine(lots[0], false)}` : ''}${keyAccount ? ' · grand compte' : ''}${addedToMap ? ' · ajouté à la carte' : ''}`,
     details: { dealer_id: s.account ? null : d.id, account_id: s.account?.id ?? null, prospect_id: prospectId, score, fit: fit2.score, cost_usd: Math.round(cost * 10_000) / 10_000, web_search: webSearch, decision_search: decisionSearch, key_account: keyAccount, lots: lots.length, sources },
   });
   return { status: ai.exclure ? 'ecarte' : 'qualifie', name: d.name, score, cost, detail: who, addedToMap };

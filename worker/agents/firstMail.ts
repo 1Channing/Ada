@@ -60,6 +60,7 @@ import { loadOffers, dealerGroupIds, lotsOfDealer, type AiAgent } from './qualif
 import { HOME_COUNTRY, addressKind, type AddressKind } from '../../src/lib/agents/qualification';
 import { sb, journal, loadSuppressions } from './store';
 import { dropPrepared } from './prepared';
+import { isSetAside } from '../../src/lib/agents/setAside';
 
 interface Person { nom: string; fonction: string; email: string | null; linkedin?: string | null; niveau?: string | null; perimetre?: string | null; connu?: boolean; via?: string | null; email_probable?: string | null; motif?: string | null }
 interface ProspectRow {
@@ -145,7 +146,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
         : null;
   // Un grand compte sans e-mail publié reste joignable : LinkedIn et la fiche d'appel, préparés pour Channing.
   if (!router && !mailTo && !key) return skip('pas d\'adresse directe, ni personne à qui demander le bon contact');
-  if (!['qualifie', 'a_contacter'].includes(p.stage)) return skip(`étape « ${p.stage} »`);
+  if (!['qualifie', 'a_contacter'].includes(p.stage)) return skip(isSetAside(p) ? 'fiche mise de côté par l\'équipe' : `étape « ${p.stage} »`);
   if (role === 'ada' && (p.country ?? '').toUpperCase() === HOME_COUNTRY) return skip('garage en France : MC Export y achète, Ada ne lui vend pas');
   // 19/10 : une entreprise que l'équipe connaît déjà n'a pas de mail à froid d'office.
   const known = teamKnownOf(p.people);

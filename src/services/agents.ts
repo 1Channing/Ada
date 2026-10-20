@@ -19,6 +19,7 @@ import type { DeepEvidence, DeepPerson, DeepBest, ContactLevel } from '../lib/ag
 import type { BenchTrial } from '../lib/agents/bench';
 import type { Lesson, LessonScope } from '../lib/agents/lessons';
 import { mailboxFacts, type MailboxFacts, type MailboxMessageLite } from '../lib/agents/mailbox';
+import { asideLine, restoreLine, withNoteLine, isSetAside } from '../lib/agents/setAside';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -560,6 +561,42 @@ export async function prospectDetails(dealerIds: string[], agent: AgentKey = 'ad
 export async function setProspectStage(id: string, stage: ProspectStage): Promise<string | null> {
   const { error } = await sb.from('agent_prospects').update({ stage, updated_at: new Date().toISOString() }).eq('id', id);
   return error ? errQualif(error.message) : null;
+}
+
+// --- 20/10 : mettre de côté une fiche (src/lib/agents/setAside.ts) -----------------------------------
+
+/**
+ * « Mettre de côté » (20/10, Channing : « pour qu'elles ne soient pas faites à la reprise de l'agente, et ne pas
+ * cramer des crédits ») : pas pertinentes, ces fiches sont écartées par l'équipe — plus de recherche approfondie ni de
+ * préparation, aucun crédit dépensé ; la date et le motif vont dans leurs notes ; leur compte trouvé par une
+ * recherche est écarté aussi.
+ */
+export async function setAsideProspects(rows: Array<Pick<ProspectDetail, 'id' | 'notes' | 'account_id'>>, reason: string): Promise<string | null> {
+  const now = new Date();
+  const line = asideLine(now, reason);
+  for (const p of rows) {
+    const { error } = await sb.from('agent_prospects').update({ stage: 'ecarte', notes: withNoteLine(p.notes, line), updated_at: now.toISOString() }).eq('id', p.id);
+    if (error) return errQualif(error.message);
+    if (p.account_id) await sb.from('agent_accounts').update({ status: 'ecarte', updated_at: now.toISOString() }).eq('id', p.account_id);
+  }
+  return null;
+}
+
+/** La remettre dans la liste : de nouveau « qualifiée » (son compte aussi) — l'agente peut de nouveau la compléter et la préparer. */
+export async function restoreProspect(p: Pick<ProspectDetail, 'id' | 'notes' | 'account_id'>): Promise<string | null> {
+  const now = new Date();
+  const { error } = await sb.from('agent_prospects').update({ stage: 'qualifie', notes: withNoteLine(p.notes, restoreLine(now)), updated_at: now.toISOString() }).eq('id', p.id);
+  if (error) return errQualif(error.message);
+  if (p.account_id) await sb.from('agent_accounts').update({ status: 'qualifie', updated_at: now.toISOString() }).eq('id', p.account_id);
+  return null;
+}
+
+/** Les fiches mises de côté par l'équipe (écartées sans motif de l'IA), les plus récentes d'abord. */
+export async function listSetAside(agent: AgentKey): Promise<{ rows: ProspectDetail[]; error: string | null }> {
+  const { data, error } = await sb.from('agent_prospects').select('*').eq('agent', agent).eq('stage', 'ecarte')
+    .order('updated_at', { ascending: false }).limit(500);
+  if (error) return { rows: [], error: errQualif(error.message) };
+  return { rows: ((data ?? []) as ProspectDetail[]).filter(isSetAside), error: null };
 }
 
 /** Dépense IA du jour et du mois, par agente (null tant que le SQL n'est pas collé). */

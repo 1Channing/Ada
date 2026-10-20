@@ -343,6 +343,26 @@ clearAiPause();
 const r6 = await researchAccounts('tw3', { segment: 'loueur', country: 'NL' }, dana);
 ok(calls.length === before2 + 2 && r6.result.trouves > 0 && !aiPaused(), 'clé corrigée : une tâche lancée à la main réessaie tout de suite', r6.summary);
 
+// 9. « Mettre de côté » (20/10) : Arval, pas pertinente — ni recherche ni préparation, et « Refaire la fiche » ne la remet pas dans la liste.
+const { asideLine, withNoteLine, isSetAside, lastAside } = await import('../src/lib/agents/setAside');
+const { deepResearch } = await import('../worker/agents/deep');
+const { autoDeep } = await import('../worker/agents/tasks');
+const pa = db.agent_prospects.find((x) => x.account_id === arvalId) as Row;
+// Ce que fait l'appli (étape et notes, les seules colonnes qu'elle peut modifier ; le compte aussi).
+Object.assign(pa, { stage: 'ecarte', notes: withNoteLine(pa.notes as string | null, asideLine(new Date('2026-10-20T10:00:00Z'), 'pas pertinent : filiale belge')) });
+(db.agent_accounts.find((a) => a.id === arvalId) as Row).status = 'ecarte';
+const nAside = calls.length;
+const deepAside = await deepResearch(String(pa.id), dana, null, true);
+const draftAside = await draftFirstMail(String(pa.id), dana, null, { manual: true });
+await autoDeep(dana);
+ok(deepAside.status === 'ignore' && deepAside.detail === 'fiche mise de côté par l\'équipe : rien à chercher' && draftAside.status === 'ignore' && draftAside.detail === 'fiche mise de côté par l\'équipe' && calls.length === nAside
+  && !db.agent_tasks.some((t) => ((t.params as { prospect_ids?: string[] } | null)?.prospect_ids ?? []).includes(String(pa.id))),
+'mise de côté : ni recherche approfondie ni préparation, même lancées à la main, et la recherche automatique ne la reprend pas — aucun appel', { deep: deepAside.detail, draft: draftAside.detail, appels: calls.length - nAside });
+const q2 = await qualifyAccount(arvalId, ctx as never);
+ok(q2.status === 'qualifie' && pa.stage === 'ecarte' && isSetAside(pa as never) && lastAside(pa.notes as string)?.reason === 'pas pertinent : filiale belge' && (db.agent_accounts.find((a) => a.id === arvalId) as Row).status === 'ecarte'
+  && db.agent_journal.some((j) => /^Arval Belgium \(BE · sociétés de leasing\) : fiche refaite, \d+\/100 — .* · reste mise de côté \(seule l'équipe la remet dans la liste\)$/.test(String(j.summary))),
+'« Refaire la fiche » : elle reste mise de côté, son motif et son compte écarté aussi (seule l\'équipe la remet dans la liste)', { stage: pa.stage, raison: pa.exclusion_reason, notes: pa.notes });
+
 server.close();
 if (fails === 0) {
   console.log('\n✅ ALL TESTS PASSED');

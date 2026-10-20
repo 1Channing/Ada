@@ -19,12 +19,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, Clock, AlertTriangle, Crown, Telescope, Compass, Send } from 'lucide-react';
 import {
-  listQueue, listForYou, listKeyAccounts, threadsOfProspects, prospectWork, queueDeepResearch, queueFirstMails, queueRedoPlan, queueQualification, queueAccountQualification, setProspectStage, sendFromAgent,
+  listQueue, listForYou, listKeyAccounts, listSetAside, setAsideProspects, restoreProspect, threadsOfProspects, prospectWork, queueDeepResearch, queueFirstMails, queueRedoPlan, queueQualification, queueAccountQualification, setProspectStage, sendFromAgent,
   AGENT_LABEL, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage, type ForYouMessage, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { MessageCard } from './MessageCard';
 import { ForYouCard } from './ForYou';
-import { ToComplete } from './ToComplete';
+import { ToComplete, SetAsideList } from './ToComplete';
 import { deName } from './helpers';
 
 interface Props {
@@ -44,10 +44,11 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
   const [rows, setRows] = useState<QueuedMessage[]>([]);
   const [forYou, setForYou] = useState<ForYouMessage[]>([]);
   const [keyAccounts, setKeyAccounts] = useState<ProspectDetail[]>([]);
+  const [aside, setAside] = useState<ProspectDetail[]>([]);
   const [work, setWork] = useState<{ deep: Set<string>; draft: Set<string> }>({ deep: new Set(), draft: new Set() });
   const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
-    const [r, f, k, w] = await Promise.all([listQueue(agent), listForYou(agent), listKeyAccounts(agent), prospectWork(agent)]);
+    const [r, f, k, w, s] = await Promise.all([listQueue(agent), listForYou(agent), listKeyAccounts(agent), prospectWork(agent), listSetAside(agent)]);
     if (r.error) onError(r.error); else setRows(r.rows);
     if (f.error) onError(f.error); else setForYou(f.rows);
     if (k.error) onError(k.error);
@@ -57,6 +58,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
       setKeyAccounts(k.rows.filter((p) => !threads.has(p.id)));
     }
     setWork(w);
+    if (s.error) onError(s.error); else setAside(s.rows);
     setLoaded(true);
   }, [agent, onError]);
   // Un grand compte = une carte : tout son plan, sur un fil ou deux (20/10 : l'aiguillage à part quand le mail va à une autre personne).
@@ -94,6 +96,19 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
     const e = await queueRedoPlan(agent, prospectId, userId);
     if (e) { onError(e); return; }
     onInfo(`${name} refait le plan de ${label} : il remplace l'ancien ici d'ici une minute.`);
+    void load();
+  };
+  // 20/10 : « Mettre de côté » — plus aucune recherche ni préparation sur ces fiches ; « Remettre » les rend à l'agente.
+  const putAside = async (ps: ProspectDetail[], reason: string) => {
+    const e = await setAsideProspects(ps, reason);
+    if (e) { onError(e); return; }
+    onInfo(`${ps.length > 1 ? `${ps.length} fiches mises` : `${ps[0].name} : mise`} de côté — plus aucune recherche ni préparation, aucun crédit dépensé. ${ps.length > 1 ? 'Elles restent' : 'Elle reste'} dans « Mis de côté », plus bas.`);
+    void load();
+  };
+  const restore = async (p: ProspectDetail) => {
+    const e = await restoreProspect(p);
+    if (e) { onError(e); return; }
+    onInfo(`${p.name} revient dans la liste : ${name} peut de nouveau la compléter et la préparer.`);
     void load();
   };
   const restage = async (p: ProspectDetail, stage: ProspectStage) => {
@@ -136,7 +151,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
       hint: 'Rien n\'est renvoyé tout seul : corrigez (repasser en brouillon) puis revalidez.' },
   ];
 
-  if (loaded && rows.length === 0 && accounts.length === 0 && keyAccounts.length === 0) {
+  if (loaded && rows.length === 0 && accounts.length === 0 && keyAccounts.length === 0 && aside.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-12 text-center text-sm text-slate-500">
         <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
@@ -171,9 +186,11 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
             <span className="text-xs text-slate-500">— la fiche est faite, rien n'est encore préparé : voici ce qui manque. Les plus durs à joindre sont souvent ceux qui rapportent le plus.</span>
           </div>
           <ToComplete agent={agent} rows={keyAccounts} deep={work.deep} draft={work.draft} minScore={mine?.map_min_score ?? 70} autoDraft={mine?.auto_draft_per_day ?? 0} isAdmin={isAdmin}
-            onDeep={(p, note) => void deepen(p.id, p.name, note)} onPrepare={(p) => void prepare(p)} onStage={(p, st) => void restage(p, st)} onRequalify={(p) => void requalify(p)} onOpenThread={onOpenThread} />
+            onDeep={(p, note) => void deepen(p.id, p.name, note)} onPrepare={(p) => void prepare(p)} onStage={(p, st) => void restage(p, st)} onRequalify={(p) => void requalify(p)} onOpenThread={onOpenThread}
+            onAside={(ps, reason) => void putAside(ps, reason)} />
         </section>
       )}
+      {aside.length > 0 && <SetAsideList rows={aside} onRestore={(p) => void restore(p)} />}
       {groups.filter((g) => g.items.length > 0).map((g) => (
         <section key={g.key} className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">

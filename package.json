@@ -32,7 +32,8 @@
     "test:linkedin": "tsx test/agents-linkedin.test.ts",
     "test:tableur": "tsx test/sheet-sync.test.ts",
     "test:plan": "tsx test/agents-plan.test.ts",
-    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median && npm run test:site-deal && npm run test:agents && npm run test:annuaire && npm run test:qualification && npm run test:premier-mail && npm run test:sites && npm run test:dana && npm run test:recherche && npm run test:approfondie && npm run test:bilan && npm run test:reponse && npm run test:ciblee && npm run test:banc && npm run test:memoire && npm run test:linkedin && npm run test:tableur && npm run test:plan",
+    "test:cote": "tsx test/agents-cote.test.ts",
+    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median && npm run test:site-deal && npm run test:agents && npm run test:annuaire && npm run test:qualification && npm run test:premier-mail && npm run test:sites && npm run test:dana && npm run test:recherche && npm run test:approfondie && npm run test:bilan && npm run test:reponse && npm run test:ciblee && npm run test:banc && npm run test:memoire && npm run test:linkedin && npm run test:tableur && npm run test:plan && npm run test:cote",
     "build:worker": "cd worker && npm ci && npm run build",
     "start:worker": "cd worker && npm start",
     "gate": "tsc --noEmit -p tsconfig.app.json && tsx scripts/grammar-gate.mts && vite build"
