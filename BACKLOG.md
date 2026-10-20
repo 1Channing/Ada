@@ -134,6 +134,28 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **AGENTS : L'ÉCHELLE D'UN GROUPE — PÔLE ACHATS ET DIRECTEURS DE CONCESSION
+  (20/10, Channing : « des directeurs VO dans un groupe il peut y en avoir
+  un paquet, autant que de concessions… il y a bien souvent un pôle achat
+  (qui peut aussi faire vente B2B négociant), et chaque concession possède
+  son manager / directeur VO… les mettre dans leur propre catégorie ; s'il
+  n'y a pas de pôle achat B2B, contacter les directeurs VO / de plaque de
+  chaque concession »)**. Dans la recherche LinkedIn par poste, pour un
+  groupe (nature « groupe », plusieurs sites ou nom de groupe) : les
+  intitulés de NIVEAU GROUPE d'abord (Ada : « pôle achats VO »,
+  « responsable achats VO groupe » ; Dana : « responsable ventes B2B
+  groupe », « plateforme VO professionnels »), puis ceux de NIVEAU
+  CONCESSION (« directeur VO », « directeur de plaque », « chef des ventes
+  VO »), par langue (fr, nl, de, en). Chaque personne trouvée porte son
+  périmètre (groupe / site / inconnu) et sa concession (people[].site) ;
+  jusqu'à 8 directeurs de concession par passage, un titre qui nomme un
+  site sans le dire = site. Contact retenu quand la fiche n'en a pas : le
+  pôle d'abord (qui traite, sinon qui décide) ; sans pôle, le premier
+  directeur de concession et la fiche dit « les autres sont à contacter un
+  par un (N sur la fiche) ». Fiche (Contacts) : deux blocs à part, « Niveau
+  groupe — pôle achats / ventes B2B » et « Par concession — directeurs VO /
+  de plaque (N) », avec la règle écrite. Tests : agents-linkedin étendu
+  (groupe, périmètres, contact retenu, plafond).
 - **AGENTS : LINKEDIN CHERCHÉ POUR DE BON — PAR POSTE, PUIS PAR NOM (20/10,
   Channing, le profil de Florent Jabouille sous les yeux : « tu avais dit
   que Jabouille n'était pas sur LinkedIn, il y est et sa position est

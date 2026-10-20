@@ -11,7 +11,7 @@
  */
 import {
   linkedinLookupCandidates, applyLinkedinLookup, displayName, linkedinLookupPrompt, lookupNote, LINKEDIN_LOOKUP_MAX,
-  discoveryTitles, linkedinDiscoveryPrompt, acceptDiscovered, LINKEDIN_DISCOVERY_SEARCHES,
+  discoveryTitles, linkedinDiscoveryPrompt, acceptDiscovered, isGroup, bestFromDiscovered, LINKEDIN_DISCOVERY_SEARCHES, LINKEDIN_DISCOVERY_MAX_SITES,
 } from '../src/lib/agents/linkedinLookup';
 import { acceptedLinkedin } from '../src/lib/agents/qualification';
 import type { DeepPerson } from '../src/lib/agents/deepResearch';
@@ -80,6 +80,37 @@ ok(added[0].linkedin === 'https://www.linkedin.com/in/florent-jabouille-1a2b3c' 
   && added[0].linkedin_recherche === 'trouvé par recherche LinkedIn par poste le 20/10/2026 (« Acheteur chez Groupe DMD »)' && added[0].date_source === '2026' && added[0].a_confirmer === false,
   'une personne trouvée par poste : nom, titre, profil, niveau, source et trace', added[0]);
 ok(acceptDiscovered(null, [], 'X', null, () => null, AT).length === 0 && acceptDiscovered({ profils: [] }, [], 'X', null, () => null, AT).length === 0, 'réponse vide ou illisible : rien d\'ajouté');
+ok(added.every((x) => x.perimetre === 'inconnu' && x.site === null), 'sans périmètre rendu ni site : « inconnu »', added.map((x) => x.perimetre));
+
+// --- L'échelle d'un groupe (20/10, Channing : « des directeurs VO dans un groupe il peut y en avoir un paquet ») ---
+ok(isGroup({ kind: 'groupe' }) && isGroup({ sites: 3 }) && isGroup({ group_name: 'Groupe DMD' }) && !isGroup({ kind: 'concession', sites: 1, group_name: null }), 'un groupe : la nature, plusieurs sites ou un nom de groupe');
+const gfr = discoveryTitles('ada', 'FR', { group: true });
+ok(gfr.map((t) => `${t.titre}/${t.perimetre}`).join('|') === 'pôle achats VO/groupe|responsable achats VO groupe/groupe|directeur VO/site|directeur de plaque/site|acheteur VO groupe/groupe',
+  'groupe français, Ada : le pôle achats d\'abord (niveau groupe), puis directeur VO et directeur de plaque (niveau concession)', gfr);
+ok(discoveryTitles('dana', 'FR', { group: true })[0].titre === 'responsable ventes B2B groupe' && discoveryTitles('dana', 'FR', { group: true }).some((t) => t.titre === 'directeur de plaque'), 'groupe français, Dana : le service de vente aux professionnels, puis les plaques');
+ok(discoveryTitles('ada', 'NL', { group: true }).map((t) => t.titre).slice(0, 3).join('|') === 'inkoop occasions groep|centrale inkoop gebruikte auto\'s|manager occasions', 'groupe néerlandais : les intitulés néerlandais', discoveryTitles('ada', 'NL', { group: true }));
+const gp = linkedinDiscoveryPrompt('Groupe DMD', 'Groupe DMD', 'FR', gfr, { group: true });
+ok(gp.includes('un GROUPE de concessions') && gp.includes('(niveau groupe : le pôle)') && gp.includes('(niveau concession : un par site)') && gp.includes('même s\'ils sont nombreux'), 'consigne pour un groupe : le pôle, et chaque concession, même nombreuses', gp);
+const seen3 = ['https://www.linkedin.com/in/pierre-pole', 'https://www.linkedin.com/in/anne-angers', 'https://www.linkedin.com/in/luc-nantes', 'https://www.linkedin.com/in/marc-poitiers'];
+const gout = { profils: [
+  { nom: 'Anne Angers', titre: 'Directrice VO — Toyota Angers (Groupe DMD)', linkedin: 'https://www.linkedin.com/in/anne-angers', entreprise_vue: true, niveau: 'decider' as const, perimetre: 'site' as const, site: 'Toyota Angers' },
+  { nom: 'Pierre Pole', titre: 'Responsable pôle achats VO Groupe DMD', linkedin: 'https://www.linkedin.com/in/pierre-pole', entreprise_vue: true, niveau: 'demarrer' as const, perimetre: 'groupe' as const, site: null },
+  { nom: 'Luc Nantes', titre: 'Directeur de plaque Nantes', linkedin: 'https://www.linkedin.com/in/luc-nantes', entreprise_vue: true, niveau: 'decider' as const, perimetre: 'inconnu' as const, site: 'Nantes' },
+  { nom: 'Marc Poitiers', titre: 'Chef des ventes VO Poitiers', linkedin: 'https://www.linkedin.com/in/marc-poitiers', entreprise_vue: true, niveau: 'decider' as const, perimetre: 'site' as const, site: 'Poitiers' },
+] };
+const g = acceptDiscovered(gout, [], 'Groupe DMD', 'Groupe DMD', (u, n) => acceptedLinkedin(u, n, seen3, ''), AT);
+ok(g.map((x) => `${x.nom}:${x.perimetre}:${x.site ?? '-'}`).join('|') === 'Anne Angers:site:Toyota Angers|Pierre Pole:groupe:-|Luc Nantes:site:Nantes|Marc Poitiers:site:Poitiers',
+  'chaque personne porte son périmètre et sa concession ; un site nommé sans périmètre = site', g.map((x) => `${x.nom}:${x.perimetre}:${x.site}`));
+const best1 = bestFromDiscovered(null, g);
+ok(best1?.nom === 'Pierre Pole' && best1.niveau === 'demarrer' && /pôle du groupe/.test(best1.pourquoi) && best1.linkedin === 'https://www.linkedin.com/in/pierre-pole', 'contact retenu : le pôle du groupe d\'abord, même trouvé après les directeurs', best1);
+const best2 = bestFromDiscovered(null, g.filter((x) => x.perimetre !== 'groupe'));
+ok(best2?.nom === 'Anne Angers' && /Pas de pôle achats/.test(best2.pourquoi) && /2 autres sur la fiche/.test(best2.pourquoi), 'sans pôle : le premier directeur VO de concession, et la fiche dit que les autres sont à contacter un par un', best2);
+const keep = { nom: 'Déjà Là', fonction: 'x', email: 'd@x.fr', pourquoi: 'déjà retenu' };
+ok(bestFromDiscovered(keep, g) === keep && bestFromDiscovered(null, []) === null, 'un contact déjà retenu reste ; rien de trouvé : rien');
+const towns = ['Angers', 'Nantes', 'Rennes', 'Brest', 'Tours', 'Laval', 'Vannes', 'Lorient', 'Niort', 'Cholet', 'Saumur', 'Poitiers'];
+const many = { profils: towns.map((t) => ({ nom: `Dir ${t}`, titre: `Directeur VO ${t}`, linkedin: `https://www.linkedin.com/in/dir-${t.toLowerCase()}`, entreprise_vue: true, niveau: 'decider' as const, perimetre: 'site' as const, site: t })) };
+const gm = acceptDiscovered(many, [], 'Groupe X', null, (u, n) => acceptedLinkedin(u, n, many.profils.map((x) => x.linkedin), ''), AT);
+ok(gm.length === LINKEDIN_DISCOVERY_MAX_SITES, `autant de directeurs que de concessions, ${LINKEDIN_DISCOVERY_MAX_SITES} au plus par passage`, gm.length);
 
 console.log(failed ? `\n❌ ${failed} TEST(S) FAILED` : '\n✅ ALL TESTS PASSED');
 process.exit(failed ? 1 : 0);

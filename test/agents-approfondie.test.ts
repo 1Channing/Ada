@@ -296,8 +296,9 @@ const ms = db.agent_messages.filter((m) => m.thread_id === th?.id);
 // 20/10 : entre la recherche et le grand compte, LinkedIn est cherché par poste (1 appel) puis par nom (Julie Martin, sans profil vu).
 const keyCall = calls.find((c) => /GRAND COMPTE/.test(c.system));
 const liCalls = calls.filter((c) => /QUI occupe certains postes|profil LinkedIn public d'une personne/.test(c.system));
-ok(liCalls.length === 2 && /« commercial VO marchands » Hess Automobile linkedin|« commercial VO marchands » TECHNIC AUTO FORBACH linkedin/.test(liCalls[0].user) && liCalls[0].tools?.find((t) => t.name === 'web_search')?.max_uses === 4 && /« Julie Martin »/.test(liCalls[1].user),
-  'LinkedIn cherché pour de bon : par poste (intitulés français, 4 recherches), puis par nom pour Julie Martin (sans profil) — pas pour Marc Hess (profil déjà vu)', liCalls.map((c) => c.user.slice(0, 120)));
+ok(liCalls.length === 2 && /un GROUPE de concessions/.test(liCalls[0].user) && /« responsable ventes B2B groupe » Hess Automobile linkedin  \(niveau groupe : le pôle\)/.test(liCalls[0].user) && /« directeur VO » Hess Automobile linkedin  \(niveau concession : un par site\)/.test(liCalls[0].user)
+  && liCalls[0].tools?.find((t) => t.name === 'web_search')?.max_uses === 5 && /« Julie Martin »/.test(liCalls[1].user),
+  'LinkedIn cherché pour de bon : par poste à l\'échelle du groupe (le pôle B2B, puis chaque concession ; intitulés français, 5 recherches), puis par nom pour Julie Martin (sans profil) — pas pour Marc Hess (profil déjà vu)', liCalls.map((c) => c.user.slice(0, 400)));
 ok(hess.people.find((x) => x.nom === 'Julie Martin')?.linkedin_recherche === `cherché sur LinkedIn le ${new Date().toISOString().slice(0, 10).split('-').reverse().join('/')} : rien trouvé`, 'rien de vu : la fiche de Julie Martin porte la trace « cherché, rien trouvé »', hess.people.find((x) => x.nom === 'Julie Martin'));
 ok(keyCall?.model === OPUS && ms.length === 2 && ms.every((m) => m.status === 'pour_channing') && ms.some((m) => m.channel === 'mail' && (m.to_emails as string[]).join() === 'm.hess@groupehess.com'),
   'lancée à la main : le grand compte est préparé pour Channing, le mail au directeur VO trouvé', ms.map((m) => [m.channel, m.status, m.to_emails]));

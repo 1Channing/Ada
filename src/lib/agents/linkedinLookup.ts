@@ -104,37 +104,93 @@ export function applyLinkedinLookup(x: DeepPerson, accepted: string | null, out:
 
 import { localTitles, type RoleSide } from './roles';
 
-/** Au plus N recherches web par fiche (un intitulé chacune), N profils gardés. */
-export const LINKEDIN_DISCOVERY_SEARCHES = 4;
+/** Au plus N recherches web par fiche (un intitulé chacune) ; N profils gardés au niveau du groupe, N par concession. */
+export const LINKEDIN_DISCOVERY_SEARCHES = 5;
 export const LINKEDIN_DISCOVERY_MAX = 5;
+export const LINKEDIN_DISCOVERY_MAX_SITES = 8;
 
 const inQuotes = (s: string): string[] => [...s.matchAll(/«\s*([^»]+?)\s*»/g)].map((m) => m[1].trim());
 
-/** Les intitulés à chercher, dans la langue du pays puis en anglais : ceux qui traitent d'abord, puis ceux qui décident. */
-export function discoveryTitles(side: RoleSide, country: string | null | undefined, max = LINKEDIN_DISCOVERY_SEARCHES): Array<{ titre: string; niveau: 'demarrer' | 'decider' }> {
-  const out: Array<{ titre: string; niveau: 'demarrer' | 'decider' }> = [];
+export type DiscoveryScope = 'groupe' | 'site';
+export interface DiscoveryTitle { titre: string; niveau: 'demarrer' | 'decider'; perimetre: DiscoveryScope }
+
+/**
+ * L'ÉCHELLE D'UN GROUPE (20/10, Channing : « des directeurs VO dans un groupe il peut y en avoir un
+ * paquet, autant que de concessions… il y a bien souvent un pôle achat (qui peut aussi faire vente B2B
+ * négociant), et chaque concession possède son manager / directeur VO… les mettre dans leur propre
+ * catégorie ») : au niveau du GROUPE, le pôle achats ou le service de vente aux marchands — à contacter
+ * d'abord ; au niveau de CHAQUE CONCESSION, le directeur VO ou de plaque — à contacter un par un s'il n'y a
+ * pas de pôle. Intitulés par langue ; Ada cherche qui achète, Dana qui vend aux professionnels.
+ */
+const GROUP_TITLES: Record<string, Record<RoleSide, { groupe: string[]; site: string[] }>> = {
+  fr: {
+    ada: { groupe: ['pôle achats VO', 'responsable achats VO groupe', 'acheteur VO groupe'], site: ['directeur VO', 'directeur de plaque', 'chef des ventes VO'] },
+    dana: { groupe: ['responsable ventes B2B groupe', 'plateforme VO professionnels', 'commercial VO marchands groupe'], site: ['directeur VO', 'directeur de plaque', 'chef des ventes VO'] },
+  },
+  nl: {
+    ada: { groupe: ['inkoop occasions groep', 'centrale inkoop gebruikte auto\'s'], site: ['manager occasions', 'vestigingsmanager'] },
+    dana: { groupe: ['B2B verkoop groep', 'handelsverkoop groep'], site: ['manager occasions', 'vestigingsmanager'] },
+  },
+  de: {
+    ada: { groupe: ['zentraler Einkauf Gebrauchtwagen', 'Gebrauchtwageneinkauf Gruppe'], site: ['Leiter Gebrauchtwagen', 'Standortleiter'] },
+    dana: { groupe: ['Händlerverkauf Gruppe', 'B2B Vertrieb Gebrauchtwagen'], site: ['Leiter Gebrauchtwagen', 'Standortleiter'] },
+  },
+  en: {
+    ada: { groupe: ['group used car buyer', 'central used car purchasing'], site: ['used car manager', 'site director'] },
+    dana: { groupe: ['group trade sales', 'B2B remarketing'], site: ['used car manager', 'site director'] },
+  },
+};
+
+/**
+ * Les intitulés à chercher, dans la langue du pays puis en anglais. Pour une entreprise à un seul site :
+ * ceux qui traitent d'abord, puis ceux qui décident. Pour un GROUPE : le pôle (niveau groupe) d'abord,
+ * puis les directeurs de chaque concession (niveau site), chacun avec son périmètre.
+ */
+export function discoveryTitles(side: RoleSide, country: string | null | undefined, opts: { group?: boolean; max?: number } = {}): DiscoveryTitle[] {
+  // Une entreprise à un seul site : 4 intitulés ; un groupe : 5 (le pôle, puis les concessions).
+  const max = opts.max ?? (opts.group ? LINKEDIN_DISCOVERY_SEARCHES : 4);
+  const out: DiscoveryTitle[] = [];
   const seen = new Set<string>();
-  const push = (titre: string, niveau: 'demarrer' | 'decider') => { const k = titre.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push({ titre, niveau }); } };
+  const push = (titre: string, niveau: 'demarrer' | 'decider', perimetre: DiscoveryScope) => { const k = titre.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push({ titre, niveau, perimetre }); } };
   // La langue du pays d'abord (« commercial VO marchands », « directeur VO », « vendeur VO B2B »…) ; l'anglais
   // seulement s'il reste de la place : « trade sales » ne trouve personne chez un groupe français.
   const langs = localTitles(side, country);
   const local = langs.filter((l) => l.lang !== 'en' || langs.length === 1);
+  const en = langs.find((l) => l.lang === 'en');
+  if (opts.group) {
+    // La langue du pays d'abord : le pôle (2), les concessions (2), le reste ; l'anglais seulement s'il reste de la place.
+    const locals = local.map((l) => l.lang).filter((lang) => GROUP_TITLES[lang]);
+    const langsInOrder = locals.length ? [...locals, ...(en ? ['en'] : [])] : ['en'];
+    for (const lang of langsInOrder) {
+      const g = GROUP_TITLES[lang][side];
+      if (g.groupe[0]) push(g.groupe[0], 'demarrer', 'groupe'); if (g.groupe[1]) push(g.groupe[1], 'decider', 'groupe');
+      for (const t of g.site.slice(0, 2)) push(t, 'decider', 'site');
+      for (const t of g.groupe.slice(2)) push(t, 'demarrer', 'groupe');
+      for (const t of g.site.slice(2)) push(t, 'decider', 'site');
+      if (out.length >= max) break;
+    }
+    return out.slice(0, max);
+  }
   for (const l of local) {
     const st = inQuotes(l.roles.start), de = inQuotes(l.roles.decide);
-    for (let i = 0; i < Math.max(st.length, de.length); i++) { if (st[i]) push(st[i], 'demarrer'); if (de[i]) push(de[i], 'decider'); }
+    for (let i = 0; i < Math.max(st.length, de.length); i++) { if (st[i]) push(st[i], 'demarrer', 'site'); if (de[i]) push(de[i], 'decider', 'site'); }
   }
-  const en = langs.find((l) => l.lang === 'en');
-  if (en && local.length) { const st = inQuotes(en.roles.start), de = inQuotes(en.roles.decide); if (st[0]) push(st[0], 'demarrer'); if (de[0]) push(de[0], 'decider'); }
+  if (en && local.length) { const st = inQuotes(en.roles.start), de = inQuotes(en.roles.decide); if (st[0]) push(st[0], 'demarrer', 'site'); if (de[0]) push(de[0], 'decider', 'site'); }
   return out.slice(0, max);
 }
+
+/** Un groupe : plusieurs sites, un nom de groupe, ou la nature « groupe ». */
+export const isGroup = (p: { kind?: string | null; sites?: number | null; group_name?: string | null }): boolean =>
+  p.kind === 'groupe' || (p.sites ?? 0) > 1 || !!(p.group_name ?? '').trim();
 
 export const LINKEDIN_DISCOVERY_SYSTEM = [
   'Tu cherches, sur LinkedIn, QUI occupe certains postes dans une entreprise précise, avec des recherches web ciblées (un intitulé par recherche, « intitulé » entreprise linkedin).',
   'Tu ne rends que des profils vus dans les résultats : l\'adresse exacte (https://www.linkedin.com/in/…), le nom et le titre tels qu\'affichés dans le résultat, et si ce résultat cite bien l\'entreprise (ou son groupe).',
+  'Dans un groupe de concessions, distingue le PÉRIMÈTRE : « groupe » = le pôle achats, le service de vente aux professionnels, la direction VO du groupe (un titre qui parle du groupe, de la centrale, de la plateforme) ; « site » = le directeur VO, le directeur de plaque, le chef des ventes d\'UNE concession (un titre qui nomme une ville, une marque, un site) — il peut y en avoir autant que de concessions, rends-les tous avec le site. « inconnu » sinon.',
   'Les profils d\'anciens salariés (« ex- », « ancien », dates passées) ou d\'une autre entreprise ne comptent pas. N\'invente rien ; si rien n\'apparaît, rends une liste vide.',
 ].join(' ');
 
-export interface LinkedinDiscoveryOutput { profils: Array<{ nom: string; titre: string; linkedin: string; entreprise_vue: boolean; niveau: 'demarrer' | 'decider' | 'autre' }> }
+export interface LinkedinDiscoveryOutput { profils: Array<{ nom: string; titre: string; linkedin: string; entreprise_vue: boolean; niveau: 'demarrer' | 'decider' | 'autre'; perimetre?: 'groupe' | 'site' | 'inconnu'; site?: string | null }> }
 
 export const LINKEDIN_DISCOVERY_SCHEMA = {
   type: 'object',
@@ -149,8 +205,10 @@ export const LINKEDIN_DISCOVERY_SCHEMA = {
           linkedin: { type: 'string', description: 'L\'adresse du profil vue dans le résultat (https://www.linkedin.com/in/…).' },
           entreprise_vue: { type: 'boolean', description: 'true si le résultat cite l\'entreprise cherchée ou son groupe.' },
           niveau: { type: 'string', enum: ['demarrer', 'decider', 'autre'], description: 'demarrer = traite au quotidien ; decider = son responsable ; autre.' },
+          perimetre: { type: 'string', enum: ['groupe', 'site', 'inconnu'], description: 'groupe = pôle achats / ventes B2B / direction VO du groupe ; site = une concession ; inconnu.' },
+          site: { type: ['string', 'null'], description: 'Pour un périmètre « site » : la concession, la marque ou la ville lue dans le titre, sinon null.' },
         },
-        required: ['nom', 'titre', 'linkedin', 'entreprise_vue', 'niveau'],
+        required: ['nom', 'titre', 'linkedin', 'entreprise_vue', 'niveau', 'perimetre', 'site'],
         additionalProperties: false,
       },
     },
@@ -159,13 +217,16 @@ export const LINKEDIN_DISCOVERY_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-export function linkedinDiscoveryPrompt(company: string, group: string | null, country: string | null, titles: Array<{ titre: string; niveau: string }>): string {
+export function linkedinDiscoveryPrompt(company: string, group: string | null, country: string | null, titles: Array<{ titre: string; niveau: string; perimetre?: DiscoveryScope }>, opts: { group?: boolean } = {}): string {
   const where = group && group.trim().toLowerCase() !== company.trim().toLowerCase() ? `${company} (groupe ${group})` : company;
+  const scope = (t: { niveau: string; perimetre?: DiscoveryScope }) => (t.perimetre === 'groupe' ? 'niveau groupe : le pôle' : t.perimetre === 'site' && opts.group ? 'niveau concession : un par site' : t.niveau === 'decider' ? 'pour décider' : 'pour démarrer');
   return [
-    `Entreprise : ${where}${country ? ` (${country})` : ''}.`,
+    `Entreprise : ${where}${country ? ` (${country})` : ''}${opts.group ? ' — un GROUPE de concessions (plusieurs marques et sites).' : '.'}`,
     'Postes à trouver, un par recherche, dans cet ordre :',
-    ...titles.map((t, i) => `${i + 1}. « ${t.titre} » ${group?.trim() ? group.trim() : company} linkedin  (${t.niveau === 'decider' ? 'pour décider' : 'pour démarrer'})`),
-    'Rends tous les profils vus dans ces résultats qui sont dans l\'entreprise aujourd\'hui, avec leur niveau.',
+    ...titles.map((t, i) => `${i + 1}. « ${t.titre} » ${group?.trim() ? group.trim() : company} linkedin  (${scope(t)})`),
+    opts.group
+      ? 'Rends tous les profils vus dans ces résultats qui sont dans le groupe aujourd\'hui : ceux du pôle (périmètre groupe) ET les directeurs VO / de plaque de chaque concession (périmètre site, avec le site), même s\'ils sont nombreux.'
+      : 'Rends tous les profils vus dans ces résultats qui sont dans l\'entreprise aujourd\'hui, avec leur niveau.',
   ].join('\n');
 }
 
@@ -180,12 +241,13 @@ const companyTokens = (...names: Array<string | null | undefined>) =>
  */
 export function acceptDiscovered(
   out: LinkedinDiscoveryOutput | null, existing: DeepPerson[], company: string, group: string | null,
-  accept: (url: string, nom: string) => string | null, at: string, max = LINKEDIN_DISCOVERY_MAX,
+  accept: (url: string, nom: string) => string | null, at: string, max = LINKEDIN_DISCOVERY_MAX, maxSites = LINKEDIN_DISCOVERY_MAX_SITES,
 ): DeepPerson[] {
   const known = new Set(existing.map((x) => nameKey(x.nom)));
   const tokens = companyTokens(company, group);
   const day = at.slice(0, 10).split('-').reverse().join('/');
   const added: DeepPerson[] = [];
+  let nGroup = 0, nSites = 0;
   for (const pr of out?.profils ?? []) {
     const nom = String(pr.nom ?? '').trim();
     if (nom.split(/\s+/).length < 2 || known.has(nameKey(nom))) continue;
@@ -195,13 +257,40 @@ export function acceptDiscovered(
     const t = deburrLc(titre);
     if (!pr.entreprise_vue && !tokens.some((k) => t.includes(k))) continue;
     if (/\b(ex|ancien|ancienne|former|voormalig|ehemalig)\b/.test(t)) continue;
+    // Le périmètre : celui que l'IA a lu dans le titre ; un titre qui nomme une ville / un site sans le dire = site.
+    const perimetre: 'groupe' | 'site' | 'inconnu' = pr.perimetre === 'groupe' || pr.perimetre === 'site' ? pr.perimetre : pr.site?.trim() ? 'site' : 'inconnu';
+    if (perimetre === 'site' ? nSites >= maxSites : nGroup >= max) continue;
+    if (perimetre === 'site') nSites++; else nGroup++;
     known.add(nameKey(nom));
+    const site = perimetre === 'site' ? String(pr.site ?? '').trim() || null : null;
     added.push({
       nom, fonction: titre || 'poste vu sur LinkedIn', email: null, telephone: null, source: 'LinkedIn (recherche par poste)', linkedin: url, via: 'linkedin',
-      niveau: pr.niveau === 'decider' ? 'decider' : pr.niveau === 'demarrer' ? 'demarrer' : null, date_source: at.slice(0, 4), a_confirmer: false,
+      niveau: pr.niveau === 'decider' ? 'decider' : pr.niveau === 'demarrer' ? 'demarrer' : null, perimetre, site, date_source: at.slice(0, 4), a_confirmer: false,
       linkedin_recherche: `trouvé par recherche LinkedIn par poste le ${day}${titre ? ` (« ${titre} »)` : ''}`,
     });
-    if (added.length >= max) break;
   }
   return added;
+}
+
+/**
+ * LE CONTACT RETENU À L'ÉCHELLE DU GROUPE (20/10) : quand la fiche n'en a pas, le pôle (périmètre groupe)
+ * d'abord — celui qui traite, sinon celui qui décide ; s'il n'y a PAS de pôle, le premier directeur VO de
+ * concession, et la fiche dit que les autres sont à contacter un par un. Rien si rien de trouvé.
+ */
+export function bestFromDiscovered(best: DeepBest | null, people: DeepPerson[]): DeepBest | null {
+  if (best?.nom) return best;
+  const found = people.filter((x) => x.via === 'linkedin' && x.linkedin);
+  const groupLevel = found.filter((x) => x.perimetre === 'groupe');
+  const pick = (xs: DeepPerson[]) => xs.find((x) => x.niveau === 'demarrer') ?? xs.find((x) => x.niveau === 'decider') ?? xs[0];
+  const g = pick(groupLevel);
+  if (g) {
+    return { nom: g.nom, fonction: g.fonction || null, email: null, telephone: null, linkedin: g.linkedin ?? null, niveau: g.niveau ?? null, date_source: g.date_source ?? null, a_confirmer: false,
+      pourquoi: `Le pôle du groupe (${g.fonction || 'poste vu sur LinkedIn'}) : c'est lui qui ${g.niveau === 'demarrer' ? 'traite' : 'décide'} pour toutes les concessions. Profil LinkedIn vu, pas d'adresse publiée.` };
+  }
+  const sites = found.filter((x) => x.perimetre === 'site');
+  const s0 = pick(sites);
+  if (!s0) return best;
+  const others = sites.filter((x) => x !== s0);
+  return { nom: s0.nom, fonction: s0.fonction || null, email: null, telephone: null, linkedin: s0.linkedin ?? null, niveau: s0.niveau ?? null, date_source: s0.date_source ?? null, a_confirmer: false,
+    pourquoi: `Pas de pôle achats ni de service B2B trouvé au niveau du groupe : les directeurs VO de chaque concession sont à contacter un par un${others.length ? ` (${others.length} autre${others.length > 1 ? 's' : ''} sur la fiche)` : ''}. Profil LinkedIn vu, pas d'adresse publiée.` };
 }

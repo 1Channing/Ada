@@ -35,6 +35,7 @@ import { emailDomain } from '../../src/lib/agents/people';
 import { suppressionMatch } from '../../src/lib/agents/sendPolicy';
 import { acceptedLinkedin, EMAIL_OK, HOME_COUNTRY } from '../../src/lib/agents/qualification';
 import { lookupLinkedin, discoverLinkedin } from './linkedin';
+import { bestFromDiscovered } from '../../src/lib/agents/linkedinLookup';
 import { segmentOf } from '../../src/lib/agents/research';
 import { mailtoEmails, extractEmails, pageText } from '../../src/lib/agents/dealerPage';
 import { HAIKU } from '../../src/lib/agents/aiCost';
@@ -231,6 +232,10 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
     news.linkedin += li.found;
     cost += li.cost;
   }
+  // 20/10 : sans contact retenu, le pôle du groupe trouvé sur LinkedIn ; sans pôle, le premier directeur VO de
+  // concession — et la fiche dit que les autres sont à contacter un par un.
+  const fromLi = bestFromDiscovered(patch.best_contact ?? p.best_contact ?? null, patch.people ?? []);
+  if (fromLi && fromLi !== (patch.best_contact ?? p.best_contact ?? null)) { patch.best_contact = fromLi; news.contact = true; }
   let { error } = await sb.from('agent_prospects').update({ ...patch, updated_at: at }).eq('id', row.id);
   if (error && /key_account/.test(error.message)) {
     // SQL agents_comptes pas encore collé : sans la colonne « grand compte ».

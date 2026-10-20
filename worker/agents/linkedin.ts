@@ -15,7 +15,7 @@ import { acceptedLinkedin } from '../../src/lib/agents/qualification';
 import { HAIKU } from '../../src/lib/agents/aiCost';
 import {
   linkedinLookupCandidates, linkedinLookupPrompt, applyLinkedinLookup, displayName, LINKEDIN_LOOKUP_SYSTEM, LINKEDIN_LOOKUP_SCHEMA,
-  discoveryTitles, linkedinDiscoveryPrompt, acceptDiscovered, LINKEDIN_DISCOVERY_SYSTEM, LINKEDIN_DISCOVERY_SCHEMA, LINKEDIN_DISCOVERY_SEARCHES,
+  discoveryTitles, linkedinDiscoveryPrompt, acceptDiscovered, isGroup, LINKEDIN_DISCOVERY_SYSTEM, LINKEDIN_DISCOVERY_SCHEMA, LINKEDIN_DISCOVERY_SEARCHES,
   type LinkedinLookupOutput, type LinkedinDiscoveryOutput,
 } from '../../src/lib/agents/linkedinLookup';
 import type { RoleSide } from '../../src/lib/agents/roles';
@@ -67,24 +67,28 @@ export interface LinkedinDiscoveryResult { people: DeepPerson[]; added: number; 
  * (nom, titre, adresse) ; ceux déjà connus n'y entrent pas deux fois. Fail-open.
  */
 export async function discoverLinkedin(
-  p: Pick<DeepProspect, 'name' | 'group_name' | 'country'>, people: DeepPerson[], side: RoleSide,
+  p: Pick<DeepProspect, 'name' | 'group_name' | 'country' | 'kind' | 'sites'>, people: DeepPerson[], side: RoleSide,
   a: AiAgent, taskId: string | null, prospectId: string | null, opts: { budgetUsd?: number } = {},
 ): Promise<LinkedinDiscoveryResult> {
-  const titles = discoveryTitles(side, p.country);
+  const group = isGroup(p);
+  const titles = discoveryTitles(side, p.country, { group });
   if (!titles.length) return { people, added: 0, titles: [], cost: 0 };
-  live(taskId, `${p.name} : qui occupe les postes visés, sur LinkedIn — ${titles.map((t) => `« ${t.titre} »`).join(', ')}`);
+  live(taskId, `${p.name} : qui occupe les postes visés, sur LinkedIn${group ? ' (groupe : le pôle, puis chaque concession)' : ''} — ${titles.map((t) => `« ${t.titre} »`).join(', ')}`);
   try {
     const budget = opts.budgetUsd ?? Number(a.daily_budget_usd);
     const r = await callClaude<LinkedinDiscoveryOutput>({
       agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'linkedin_postes', model: HAIKU,
-      system: LINKEDIN_DISCOVERY_SYSTEM, user: linkedinDiscoveryPrompt(p.name, p.group_name ?? null, p.country ?? null, titles),
+      system: LINKEDIN_DISCOVERY_SYSTEM, user: linkedinDiscoveryPrompt(p.name, p.group_name ?? null, p.country ?? null, titles, { group }),
       schema: LINKEDIN_DISCOVERY_SCHEMA as unknown as Record<string, unknown>,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: LINKEDIN_DISCOVERY_SEARCHES }],
-      maxTokens: 3_000, effort: 'low', prospectId, taskId,
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: Math.max(LINKEDIN_DISCOVERY_SEARCHES, titles.length) }],
+      maxTokens: 4_000, effort: 'low', prospectId, taskId,
     });
     const at = new Date().toISOString();
     const added = acceptDiscovered(r.data, people, p.name, p.group_name ?? null, (url, nom) => acceptedLinkedin(url, nom, r.seenUrls ?? [], r.text ?? ''), at);
-    if (added.length) live(taskId, `${p.name} : ${added.length} profil${added.length > 1 ? 's' : ''} LinkedIn par poste — ${added.map((x) => `${x.nom} (${x.fonction})`).join(', ')}`);
+    if (added.length) {
+      const g = added.filter((x) => x.perimetre === 'groupe').length, st = added.filter((x) => x.perimetre === 'site').length;
+      live(taskId, `${p.name} : ${added.length} profil${added.length > 1 ? 's' : ''} LinkedIn par poste${group ? ` — ${g} au niveau du groupe, ${st} par concession` : ''} : ${added.map((x) => `${x.nom} (${x.fonction}${x.site ? `, ${x.site}` : ''})`).join(', ')}`);
+    }
     return { people: [...people, ...added], added: added.length, titles: titles.map((t) => t.titre), cost: r.costUsd };
   } catch (e) {
     if (e instanceof BudgetReached || e instanceof AiUnavailable) throw e;
