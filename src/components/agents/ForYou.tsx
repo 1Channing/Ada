@@ -19,9 +19,9 @@
  * ou probable et marquée), une note LinkedIn par personne, la fiche d'appel —
  * et chaque piste dit ce qui est prêt pour elle.
  */
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Mail, Linkedin, PhoneCall, ExternalLink, ClipboardList, ChevronRight, Telescope, AlertTriangle, Compass, CheckCircle2, RefreshCw } from 'lucide-react';
-import type { ForYouMessage, CallSheet, AgentSettings, AgentCounts } from '../../services/agents';
+import type { ForYouMessage, CallSheet, AgentSettings, AgentCounts, ProspectDetail } from '../../services/agents';
 import { MessageCard } from './MessageCard';
 import { missingOf, lastDeepAt } from '../../lib/agents/deepResearch';
 import { deburr } from '../../lib/agents/people';
@@ -48,13 +48,15 @@ function Sheet({ s }: { s: CallSheet }) {
 }
 
 /** Un grand compte, replié sur deux lignes (qui, note, ce qui est prêt, ce qui manque) ; ouvert : la fiche d'appel, l'aiguillage, le mail et les notes LinkedIn préparés. */
-export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onChanged, onError, onInfo, onDeep, deeping, onRedo, redoing }: {
+export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onChanged, onError, onInfo, onDeep, deeping, onRedo, redoing, twins = [], actions }: {
   items: ForYouMessage[]; settings: AgentSettings | undefined; counts: AgentCounts | undefined; isAdmin: boolean;
   onOpenThread: (id: string) => void; onChanged: () => void; onError: (e: string) => void; onInfo?: (m: string) => void;
   /** La recherche approfondie de ce compte (18/10) : à lancer, ou en cours. */
   onDeep?: (prospectId: string, note: string) => void; deeping?: boolean;
   /** 20/10 : « Refaire le plan » avec la fiche telle qu'elle est (un administrateur) ; ou la préparation en cours. */
   onRedo?: (prospectId: string) => void; redoing?: boolean;
+  /** 20/10 (le Workflow) : les autres fiches de la même entreprise, réunies sur cette carte ; d'autres boutons (mettre de côté, passer en discussion). */
+  twins?: ProspectDetail[]; actions?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const first = items[0];
@@ -97,6 +99,7 @@ export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onC
             {sheet && <span className="inline-flex items-center gap-0.5 text-slate-700"><ClipboardList className="w-3 h-3" /> fiche d'appel</span>}
             {deepAt && <span className="inline-flex items-center gap-0.5 text-indigo-800"><Telescope className="w-3 h-3" /> recherche approfondie</span>}
             {missing.length > 0 && <span className="inline-flex items-center gap-0.5 text-amber-800"><AlertTriangle className="w-3 h-3" /> manque : {missing.join(', ')}</span>}
+            {twins.length > 0 && <span className="text-slate-500">+ {twins.length} autre{twins.length > 1 ? 's' : ''} fiche{twins.length > 1 ? 's' : ''} de l'entreprise</span>}
           </p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
@@ -132,8 +135,12 @@ export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onC
             )}
             <DeepAsk name={first.agent === 'dana' ? 'Dana' : 'Ada'} again={!!deepAt} onLaunch={(note) => onDeep(p.id, note)}
               title="L'agente va plus loin sur le web (à qui appartient l'entreprise, qui décide, comment la joindre directement) ; si elle trouve mieux, le plan préparé (aiguillage, mail, notes LinkedIn, fiche d'appel) est refait — sauf un brouillon que vous avez corrigé. Environ 0,10 $, plus la nouvelle préparation." />
+            {actions}
           </div>
         ))}
+      {twins.length > 0 && (
+        <p className="text-xs text-slate-600">Autres fiches de cette entreprise (même site ou même domaine d'adresse), réunies ici : {twins.map((t) => `${t.name}${t.city ? ` (${t.city})` : ''}${t.best_contact?.nom ? ` — ${t.best_contact.nom}` : ''}`).join(' · ')}.</p>
+      )}
       <div className="flex items-center gap-3 flex-wrap text-xs">
         {p?.phone && <a href={`tel:${p.phone}`} className="inline-flex items-center gap-1 text-slate-700 hover:text-brand-ocean"><PhoneCall className="w-3.5 h-3.5" /> {p.phone}</a>}
         {p?.website && <a href={p.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-ocean hover:underline"><ExternalLink className="w-3.5 h-3.5" /> {p.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a>}

@@ -43,10 +43,12 @@ interface Props {
   onOpenThread: (id: string) => void;
   /** 20/10 : « Mettre de côté » ces fiches (pas pertinentes), avec le motif. */
   onAside: (rows: ProspectDetail[], reason: string) => void;
+  /** 20/10 (le Workflow) : les autres fiches de la même entreprise, réunies sur la ligne de celle-ci. */
+  twinsOf?: (p: ProspectDetail) => ProspectDetail[];
 }
 
 /** « Mettre de côté » : le motif (facultatif) et, à cocher, les autres fiches de la même enseigne. */
-function AsideAsk({ p, twins, onAside }: { p: ProspectDetail; twins: ProspectDetail[]; onAside: (rows: ProspectDetail[], reason: string) => void }) {
+export function AsideAsk({ p, twins, onAside }: { p: ProspectDetail; twins: ProspectDetail[]; onAside: (rows: ProspectDetail[], reason: string) => void }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [all, setAll] = useState(false);
@@ -83,7 +85,7 @@ function AsideAsk({ p, twins, onAside }: { p: ProspectDetail; twins: ProspectDet
   );
 }
 
-function Row({ p, twins, agent, deeping, drafting, minScore, autoDraft, isAdmin, onDeep, onPrepare, onStage, onRequalify, onOpenThread, onAside }: Omit<Props, 'rows' | 'deep' | 'draft'> & { p: ProspectDetail; twins: ProspectDetail[]; deeping: boolean; drafting: boolean }) {
+function Row({ p, twins, company, agent, deeping, drafting, minScore, autoDraft, isAdmin, onDeep, onPrepare, onStage, onRequalify, onOpenThread, onAside }: Omit<Props, 'rows' | 'deep' | 'draft' | 'twinsOf'> & { p: ProspectDetail; twins: ProspectDetail[]; company: ProspectDetail[]; deeping: boolean; drafting: boolean }) {
   const [open, setOpen] = useState(false);
   const name = agent === 'dana' ? 'Dana' : 'Ada';
   const kind = p.account_kind ?? p.kind;
@@ -108,6 +110,7 @@ function Row({ p, twins, agent, deeping, drafting, minScore, autoDraft, isAdmin,
                 : <span className="inline-flex items-center gap-0.5 text-emerald-700"><CheckCircle2 className="w-3 h-3" /> {ready}</span>}
               {extra.length > 0 && <span className="text-slate-500">{missing.length ? 'et ' : 'en plus, '}{extra.join(', ')}</span>}
               {deepAt && <span className="inline-flex items-center gap-0.5 text-indigo-800"><Telescope className="w-3 h-3" /> recherche approfondie du {fmtDateTime(deepAt)}</span>}
+              {company.length > 0 && <span className="text-slate-500" title={company.map((t) => `${t.name}${t.city ? ` (${t.city})` : ''}`).join(' · ')}>+ {company.length} autre{company.length > 1 ? 's' : ''} fiche{company.length > 1 ? 's' : ''} de l'entreprise</span>}
             </span>
           </span>
         </button>
@@ -139,8 +142,13 @@ function Row({ p, twins, agent, deeping, drafting, minScore, autoDraft, isAdmin,
   );
 }
 
-export function ToComplete({ rows, deep, draft, ...rest }: Props) {
-  return <>{rows.map((p) => <Row key={p.id} p={p} twins={sameBrand(p, rows)} deeping={deep.has(p.id)} drafting={draft.has(p.id)} {...rest} />)}</>;
+export function ToComplete({ rows, deep, draft, twinsOf, ...rest }: Props) {
+  return <>{rows.map((p) => {
+    // Les fiches de la même entreprise (le Workflow les réunit), et celles de la même enseigne dans la liste : à mettre de côté d'un coup.
+    const company = twinsOf?.(p) ?? [];
+    const twins = [...company, ...sameBrand(p, rows).filter((x) => !company.some((y) => y.id === x.id))];
+    return <Row key={p.id} p={p} twins={twins} company={company} deeping={deep.has(p.id)} drafting={draft.has(p.id)} {...rest} />;
+  })}</>;
 }
 
 /** « Mis de côté » (20/10) : les fiches que l'équipe a jugées pas pertinentes — plus rien n'y est fait ; « Remettre » les rend à l'agente. */

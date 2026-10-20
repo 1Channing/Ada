@@ -151,8 +151,8 @@ export function Sourcing({ userId, canEditMap, refreshKey, onError, onInfo, onOp
     const e = await queueFirstMails([p.id], userId, 'dana');
     if (e) { onError(e); return; }
     onInfo(p.key_account
-      ? `Dana prépare pour vous le grand compte ${p.name} (mail ou aiguillage, notes LinkedIn, fiche d'appel) : « À valider › Pour vous » d'ici une minute.`
-      : `Dana rédige le premier mail pour ${p.name} : il arrivera dans « À valider » d'ici une minute. Rien ne part sans validation.`);
+      ? `Dana prépare pour vous le grand compte ${p.name} (mail ou aiguillage, notes LinkedIn, fiche d'appel) : « Workflow › Fiches » d'ici une minute.`
+      : `Dana rédige le premier mail pour ${p.name} : il arrivera dans « Workflow › Fiches » d'ici une minute. Rien ne part sans validation.`);
     void loadTasks();
   };
   const changeStage = async (p: ProspectDetail, stage: ProspectStage) => {

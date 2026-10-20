@@ -20,6 +20,7 @@ import { gmail, NotConnected } from './google';
 import { signatureImage } from './signature';
 import { recordLearningCase } from '../learningBox';
 import { sb, loadSuppressions, updateAgent, advanceProspect, type AgentRow } from './store';
+import { linkThread } from './link';
 
 const STUCK_MS = 10 * 60 * 1000;
 
@@ -102,6 +103,8 @@ export async function sendDue(agents: AgentRow[]): Promise<void> {
         last_message_at: new Date().toISOString(), last_direction: 'out',
       }).eq('id', m.thread_id);
       if (cold) await updateAgent(a.agent, { next_send_after: new Date(Date.now() + randomGapMs(a.min_gap_seconds, a.max_gap_seconds)).toISOString() });
+      // 20/10 : un mail de l'équipe (la Messagerie) dans un fil sans fiche se rattache à celle de l'entreprise, qui passe « contactée ».
+      await linkThread(a.agent, a.mailbox, m.thread_id, [...m.to_emails, ...(m.cc_emails ?? [])]).catch(() => null);
       await advanceProspect(m.thread_id, 'contacte');
       console.warn(`[AGENTS] ${a.agent} : 1 mail envoyé (${m.kind})`);
     } catch (e) {

@@ -65,7 +65,7 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
       <div className="flex items-center gap-2 flex-wrap">
         <span className={`rounded-lg border px-2 py-0.5 text-base font-bold tabular-nums ${scoreTone(p.score)}`}>{p.score ?? '—'}<span className="text-xs font-normal">/100</span></span>
         <span className="text-xs text-violet-900 font-medium">Fiche complète <span className="font-normal text-violet-700">· préparée par {agentName} le {fmtDateTime(p.qualified_at)}</span></span>
-        {key && <span className="inline-flex items-center gap-1 text-[11px] rounded-full px-1.5 py-0.5 bg-violet-600 text-white" title="Groupe, loueur, leasing, flotte : préparé pour vous, dans « À valider › Pour vous »"><Crown className="w-3 h-3" /> grand compte</span>}
+        {key && <span className="inline-flex items-center gap-1 text-[11px] rounded-full px-1.5 py-0.5 bg-violet-600 text-white" title="Groupe, loueur, leasing, flotte : préparé pour vous, dans « Workflow › Fiches »"><Crown className="w-3 h-3" /> grand compte</span>}
         <span className="text-xs text-slate-400">· {fmtUsd(Number(p.qualify_cost_usd))}</span>
         {p.network_contact_id && <span className="inline-flex items-center gap-1 text-[11px] rounded-full px-1.5 py-0.5 bg-slate-100 text-slate-600 border border-slate-200"><MapPin className="w-3 h-3" /> sur la carte</span>}
         <select value={p.stage} onChange={(e) => onStage(e.target.value as ProspectStage)} className="ml-auto rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs">
@@ -130,15 +130,15 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
             ) : drafting ? (
               <span className="text-xs text-violet-700 animate-pulse">{agentName} {key ? 'prépare le plan : mail, notes LinkedIn, fiche d\'appel…' : 'rédige le premier mail…'}</span>
             ) : key && open ? (
-              <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 text-xs font-medium" title="Opus 5.5 prépare le mail (si un e-mail publié est vérifié), la note d'invitation LinkedIn et la fiche d'appel. Ils arrivent dans « À valider › Pour vous » : « Envoyer » fait partir le mail de la boîte de l'agente ; la note et l'appel restent à vous.">
+              <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 text-xs font-medium" title="Opus 5.5 prépare le mail (si un e-mail publié est vérifié), la note d'invitation LinkedIn et la fiche d'appel. Ils arrivent dans « Workflow › Fiches » : « Envoyer » fait partir le mail de la boîte de l'agente ; la note et l'appel restent à vous.">
                 <Crown className="w-3.5 h-3.5" /> Préparer pour vous
               </button>
             ) : direct && open ? (
-              <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 text-xs font-medium" title="Opus 5.5 écrit dans sa langue, avec la traduction ; le brouillon arrive dans « À valider ». Rien ne part sans validation.">
+              <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 text-xs font-medium" title="Opus 5.5 écrit dans sa langue, avec la traduction ; le brouillon arrive dans « Workflow › Fiches ». Rien ne part sans validation.">
                 <PenLine className="w-3.5 h-3.5" /> Rédiger le premier mail
               </button>
             ) : router && open ? (
-              <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 text-xs font-medium" title="Un mail très court pour obtenir le contact direct de la bonne personne ; il arrive dans « À valider », marqué « aiguillage ». Rien ne part sans validation.">
+              <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 text-xs font-medium" title="Un mail très court pour obtenir le contact direct de la bonne personne ; il arrive dans « Workflow › Fiches », marqué « aiguillage ». Rien ne part sans validation.">
                 <PenLine className="w-3.5 h-3.5" /> Préparer l'aiguillage
               </button>
             ) : <span className="text-[11px] text-slate-400">{open ? 'Pas de premier mail : ni adresse directe, ni personne à qui demander le bon contact.' : `Étape « ${STAGE_LABEL[p.stage]} ».`}</span>}

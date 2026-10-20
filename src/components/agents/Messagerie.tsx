@@ -163,7 +163,7 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
           <div className="flex items-center gap-2 px-1 pb-1 text-xs text-slate-600 whitespace-nowrap">
             {folder === 'reception'
               ? <label className="inline-flex items-center gap-1"><input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} /> Non lus</label>
-              : <span className="text-slate-400 truncate">{folder === 'brouillons' ? 'Comme « À valider »' : folder === 'envoyes' ? 'Partis' : 'Rangés'}</span>}
+              : <span className="text-slate-400 truncate">{folder === 'brouillons' ? 'À valider (comme le Workflow)' : folder === 'envoyes' ? 'Partis' : 'Rangés'}</span>}
             <span className="text-slate-400">{shown.length} fil{shown.length > 1 ? 's' : ''}</span>
             <button disabled={!mine} onClick={() => { setComposing({ to: [], subject: '', body: mine ? withSignature(mine) : '' }); setSelected(null); }} title="Nouveau message (premier contact)"
               className="ml-auto inline-flex items-center gap-1 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white px-2.5 py-1 text-xs font-medium disabled:opacity-50">
@@ -176,7 +176,7 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
             <div className="px-4 py-10 text-center text-sm text-slate-400">
               <Inbox className="w-8 h-8 mx-auto mb-2 text-slate-300" />
               {folder === 'reception' ? (unreadOnly ? 'Aucun mail non lu.' : `Aucun mail reçu. Ceux de ${mailbox} arrivent ici dès que la boîte est connectée.`)
-                : folder === 'brouillons' ? `Rien en attente : ce que ${name} prépare et ce que l'équipe écrit arrive ici (et dans « À valider »).`
+                : folder === 'brouillons' ? `Rien en attente : ce que ${name} prépare et ce que l'équipe écrit arrive ici (et dans le Workflow, sur la carte de l'entreprise).`
                   : folder === 'envoyes' ? 'Rien d\'envoyé pour l\'instant.' : 'Aucun fil archivé.'}
             </div>
           )}

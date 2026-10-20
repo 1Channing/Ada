@@ -153,7 +153,7 @@ export function Prospects({ userId, canEditMap, refreshKey, onError, onInfo, onO
   const draft = async (p: ProspectDetail) => {
     const e = await queueFirstMails([p.id], userId);
     if (e) { onError(e); return; }
-    onInfo(`Ada rédige le premier mail pour ${p.name} : il arrivera dans « À valider » d'ici une minute. Rien ne part sans validation.`);
+    onInfo(`Ada rédige le premier mail pour ${p.name} : il arrivera dans « Workflow › Fiches » d'ici une minute. Rien ne part sans validation.`);
     void loadTasks();
   };
   const changeStage = async (p: ProspectDetail, stage: ProspectStage) => {

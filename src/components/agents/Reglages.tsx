@@ -256,7 +256,7 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
           help={`Quand la fiche d'un grand compte n'a ni la personne qui décide ni e-mail publié : à qui appartient l'entreprise, qui décide${dana ? ' des ventes en lots ou du de-fleet' : ' des achats'} (au niveau du groupe d'abord), les e-mails et téléphones publiés, des pistes pour l'approcher. Une fois par compte et par mois ; aussi à la demande, depuis chaque fiche. Environ 0,10 $ la recherche.`} />
         {mailsReady && (
           <Step n={4} title="Écrire le premier mail" unit="mails par jour" max={200} ro={ro} value={autoDraft} onChange={setAutoDraft}
-            help={`Pour les fiches notées au moins ${mapScore}/100. Ils attendent votre validation dans «\u00a0À valider\u00a0» : rien ne part tout seul. De 0,03 à 0,08 $ le mail.`} />
+            help={`Pour les fiches notées au moins ${mapScore}/100. Ils attendent votre validation dans «\u00a0Workflow\u00a0›\u00a0Fiches\u00a0» : rien ne part tout seul. De 0,03 à 0,08 $ le mail.`} />
         )}
       </div>
       <div className="space-y-1.5 text-sm">
@@ -273,8 +273,8 @@ const AiForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; user
         <div className="space-y-2 border-t border-violet-100 pt-3">
           <p className="text-xs uppercase tracking-wide text-violet-800">Premiers mails (rien ne part sans vous)</p>
           <p className="text-[11px] text-slate-500">
-            Petit compte avec un e-mail publié et vérifié : {dana ? 'le mail d\'achat de Dana (aucun prix ni estimation : la négociation passe par vous)' : 'le mail de vente d\'Ada'}, dans « À valider », envoyé depuis {s.mailbox} — jamais plus de deux jours d'envois en attente.
-            Grand compte (groupe, loueur, leasing, flotte) : tout le plan, préparé dans « À valider › Pour vous » — l'aiguillage s'il n'y a pas d'adresse directe, le mail (à l'adresse publiée de la personne, sinon à son adresse probable, que seul un administrateur envoie), une note d'invitation LinkedIn par personne du plan et la fiche d'appel ; « Envoyer » fait partir le mail de {s.mailbox}, signé {s.display_name} (ou vous l'envoyez de votre boîte) ; les notes LinkedIn et l'appel restent à vous ; jamais plus de 10 en attente.
+            Petit compte avec un e-mail publié et vérifié : {dana ? 'le mail d\'achat de Dana (aucun prix ni estimation : la négociation passe par vous)' : 'le mail de vente d\'Ada'}, dans « Workflow › Fiches », envoyé depuis {s.mailbox} — jamais plus de deux jours d'envois en attente.
+            Grand compte (groupe, loueur, leasing, flotte) : tout le plan, préparé dans « Workflow › Fiches » — l'aiguillage s'il n'y a pas d'adresse directe, le mail (à l'adresse publiée de la personne, sinon à son adresse probable, que seul un administrateur envoie), une note d'invitation LinkedIn par personne du plan et la fiche d'appel ; « Envoyer » fait partir le mail de {s.mailbox}, signé {s.display_name} (ou vous l'envoyez de votre boîte) ; les notes LinkedIn et l'appel restent à vous ; jamais plus de 10 en attente.
           </p>
           <label className="block space-y-1 text-sm"><span className="text-xs text-slate-500">Vos consignes à {s.display_name} — elle n'affirme aucune condition qui n'est pas écrite ici</span>
             <textarea disabled={ro} className={`${input} w-full min-h-[110px]`} value={instructions} onChange={(e) => setInstructions(e.target.value)}

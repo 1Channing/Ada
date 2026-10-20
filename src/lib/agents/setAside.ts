@@ -12,7 +12,9 @@ import { distinctiveTokens } from './teamMemory';
 /** La ligne des notes qui dit qu'une fiche a été mise de côté, et pourquoi. */
 const ASIDE = /^Mis de côté le (\d{2}\/\d{2}\/\d{4})(?: : (.+))?$/;
 
-const day = (at: Date) => at.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric' });
+/** « 20/10/2026 », à l'heure de Paris. */
+export const dayFr = (at: Date): string => at.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric' });
+const day = dayFr;
 
 /** « Mis de côté le 20/10/2026 : pas pertinent, enseigne de VO grand public » (le motif est facultatif). */
 export function asideLine(at: Date, reason: string): string {

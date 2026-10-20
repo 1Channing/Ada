@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, CheckCircle2, Settings2, RefreshCw, Building2, Layers, Search, Activity, BookOpen } from 'lucide-react';
+import { Bot, Inbox, Workflow as WorkflowIcon, Settings2, RefreshCw, Building2, Layers, Search, Activity, BookOpen } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
@@ -11,7 +11,8 @@ import { parisDayStart } from '../lib/agents/sendPolicy';
 import { Banner, AgentsCtx, type AgentsCtxValue } from '../components/agents/shared';
 import { fmtRelative } from '../components/agents/helpers';
 import { Messagerie } from '../components/agents/Messagerie';
-import { ValidationQueue } from '../components/agents/ValidationQueue';
+import { Workflow } from '../components/agents/Workflow';
+import type { WfColumn } from '../lib/agents/workflow';
 import { Reglages } from '../components/agents/Reglages';
 import { Prospects } from '../components/agents/Prospects';
 import { Sourcing } from '../components/agents/Sourcing';
@@ -34,6 +35,9 @@ import { Savoir } from '../components/agents/Savoir';
  * Sourcing (Dana : les lots de véhicules identiques), ses Comptes (ses types
  * de comptes, trouvés par recherche web), ce qui l'attend À valider, son
  * Journal, ses Réglages. Rien ne part sans un clic d'administrateur.
+ * 20/10 (Channing) : « À valider » devient « Workflow » — Discussions en cours,
+ * Fiches, Brouillons (./../components/agents/Workflow.tsx) ; l'adresse reste
+ * ?onglet=valider (?onglet=workflow aussi).
  * 18/10 : le Journal est retiré — Live montre les mêmes événements, en direct,
  * avec l'historique plus bas.
  * Live (17/10, Channing : « voir en direct ce que l'agent fait ») : le
@@ -49,7 +53,7 @@ const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
   sourcing: { label: 'Sourcing', icon: <Layers className="w-4 h-4" /> },
   // 18/10 (Channing : « l'onglet comptes je veux le nommer recherche ») : l'adresse reste ?onglet=comptes.
   comptes: { label: 'Recherche', icon: <Search className="w-4 h-4" /> },
-  valider: { label: 'À valider', icon: <CheckCircle2 className="w-4 h-4" /> },
+  valider: { label: 'Workflow', icon: <WorkflowIcon className="w-4 h-4" /> },
   // 19/10 (Channing : « c'est ici qu'il faut affûter nos armes ! ») : ses leçons, le banc d'essai, sa méthode ; le libellé porte son nom.
   savoir: { label: 'Ce qu\'elle sait', icon: <BookOpen className="w-4 h-4" /> },
   reglages: { label: 'Réglages', icon: <Settings2 className="w-4 h-4" /> },
@@ -86,10 +90,13 @@ export function Agents() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const [agent, setAgent] = useState<AgentKey>(() => initialAgent(params));
   const [tab, setTab] = useState<Tab>(() => {
-    const o = params.get('onglet') as Tab | null;
+    const o = (params.get('onglet') === 'workflow' ? 'valider' : params.get('onglet')) as Tab | null;
     if (o && o in TAB) return tabFor(initialAgent(params), o);
     return params.get('fil') ? 'messagerie' : 'live';
   });
+  // 20/10 : la catégorie du Workflow ouverte par une pastille (« pour vous » : les fiches).
+  const [wfView, setWfView] = useState<{ v: WfColumn; at: number } | null>(() => { const v = params.get('vue'); return v === 'discussions' || v === 'fiches' || v === 'brouillons' ? { v, at: 0 } : null; });
+  const openWorkflow = (v: WfColumn | null) => { if (v) setWfView({ v, at: Date.now() }); setTab('valider'); };
   const [openThread, setOpenThread] = useState<string | null>(params.get('fil'));
   const [settings, setSettings] = useState<AgentSettings[]>([]);
   const [counts, setCounts] = useState<Partial<Record<AgentKey, AgentCounts>>>({});
@@ -192,8 +199,8 @@ export function Agents() {
             {spend
               ? <span className="rounded-full bg-violet-50 text-violet-800 border border-violet-200 px-2 py-0.5" title="Dépense IA (Claude), heure de Paris. Le banc d'essai a sa propre limite : il ne compte pas dans le plafond du jour.">IA : {fmtUsd(budgetSpendToday(spend[agent]))} auj.{spend[agent]?.bench_today ? ` (+ ${fmtUsd(spend[agent]?.bench_today ?? 0)} de banc d'essai, hors plafond)` : ''} · {fmtUsd(spend[agent]?.month ?? 0)} ce mois{s?.daily_budget_usd !== undefined ? ` · plafond ${Number(s.daily_budget_usd)} $/j` : ''}</span>
               : <span className="rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-0.5">IA : SQL du 17/10 à coller</span>}
-            {(c?.pourVous ?? 0) > 0 && <button onClick={() => setTab('valider')} className="rounded-full bg-violet-600 text-white px-2 py-0.5 hover:bg-violet-700">{c?.pourVous} grand{(c?.pourVous ?? 0) > 1 ? 's' : ''} compte{(c?.pourVous ?? 0) > 1 ? 's' : ''} pour vous</button>}
-            {(c?.echecs ?? 0) > 0 && <button onClick={() => setTab('valider')} className="rounded-full bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 hover:bg-red-100">{c?.echecs} envoi{(c?.echecs ?? 0) > 1 ? 's' : ''} en échec</button>}
+            {(c?.pourVous ?? 0) > 0 && <button onClick={() => openWorkflow('fiches')} className="rounded-full bg-violet-600 text-white px-2 py-0.5 hover:bg-violet-700">{c?.pourVous} grand{(c?.pourVous ?? 0) > 1 ? 's' : ''} compte{(c?.pourVous ?? 0) > 1 ? 's' : ''} pour vous</button>}
+            {(c?.echecs ?? 0) > 0 && <button onClick={() => openWorkflow(null)} className="rounded-full bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 hover:bg-red-100">{c?.echecs} envoi{(c?.echecs ?? 0) > 1 ? 's' : ''} en échec</button>}
           </div>
           {s?.last_sync_error && <p className="mt-1 text-[11px] text-red-700">{s.last_sync_error}</p>}
         </div>
@@ -236,7 +243,7 @@ export function Agents() {
         <Messagerie key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} openThreadId={openThread} refreshKey={refreshKey} onChanged={() => void load()} onError={onError} onInfo={onInfo} />
       )}
       {tab === 'valider' && (
-        <ValidationQueue key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} onOpenThread={openFromQueue} onChanged={() => void load()} onError={onError} onInfo={onInfo} />
+        <Workflow key={agent} agent={agent} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} view={wfView} onOpenThread={openFromQueue} onChanged={() => void load()} onError={onError} onInfo={onInfo} />
       )}
       {tab === 'prospects' && agent === 'ada' && (
         <Prospects userId={userId} canEditMap={canEditMap} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />

@@ -25,6 +25,7 @@ import {
 } from '../../src/lib/agents/mail';
 import { gmail, GmailError, NotConnected } from './google';
 import { sb, journal, alertOwner, suppress, updateAgent, advanceProspect, type AgentRow } from './store';
+import { linkThread } from './link';
 import { queueReplyDraft } from './reply';
 import { forwardedSender } from './copies';
 import { emailDomain } from '../../src/lib/agents/people';
@@ -164,7 +165,16 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
     unread: direction === 'in' && !autoReply && classification !== 'rebond' && classification !== 'copie' ? true : thread.unread,
   }).eq('id', thread.id);
 
-  if (direction !== 'in') return true;
+  // 20/10 : le fil se rattache à la fiche de son entreprise — une réponse reçue, un mail de l'équipe envoyé depuis Gmail
+  // (pas un avis de non-remise, pas une copie de l'équipe : ./copies.ts s'en charge).
+  if (classification !== 'rebond' && classification !== 'copie') {
+    await linkThread(a.agent, a.mailbox, thread.id, direction === 'in' ? [from?.email] : [...to, ...cc].map((x) => x.email)).catch(() => null);
+  }
+  if (direction !== 'in') {
+    // Envoyé depuis Gmail (un envoi d'ADA est déjà enregistré, il n'arrive pas jusqu'ici) : la fiche passe « contactée ».
+    await advanceProspect(thread.id, 'contacte');
+    return true;
+  }
   // Une copie de l'équipe : ni étape, ni alerte, ni réponse — l'agente en apprend les contacts.
   if (classification === 'copie') {
     const { error: e3 } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'qualification', params: { copie: row.id, auto: true }, created_by: null });

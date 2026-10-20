@@ -20,6 +20,7 @@ import type { BenchTrial } from '../lib/agents/bench';
 import type { Lesson, LessonScope } from '../lib/agents/lessons';
 import { mailboxFacts, type MailboxFacts, type MailboxMessageLite } from '../lib/agents/mailbox';
 import { asideLine, restoreLine, withNoteLine, isSetAside } from '../lib/agents/setAside';
+import { DISCUSSION_STAGES, PENDING_STATUSES, noteLine } from '../lib/agents/workflow';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -52,6 +53,8 @@ export interface AgentThread {
   counterpart_email: string | null; counterpart_name: string | null; network_contact_id: string | null;
   last_message_at: string | null; last_direction: 'in' | 'out' | null; last_classification: string | null;
   unread: boolean; archived: boolean; created_at: string;
+  /** La fiche de l'entreprise (17/10 ; 20/10 : rattachée aussi à l'envoi ou à la réception d'un mail). */
+  prospect_id?: string | null;
 }
 
 // pour_channing / envoye_main (17/10, SQL agents_comptes) : préparé pour un grand compte, envoyé par Channing lui-même.
@@ -258,15 +261,17 @@ export async function countsFor(agent: AgentKey, dayStartIso: string): Promise<A
     q().eq('direction', 'in').gte('received_at', dayStartIso),
     q().eq('status', 'envoye').gte('sent_at', dayStartIso),
     q().eq('status', 'envoye').in('kind', ['premier_contact', 'relance']).gte('sent_at', dayStartIso),
-    // Grands comptes préparés pour vous (un fil = un compte ; 0 tant que le SQL agents_comptes n'est pas collé).
-    sb.from('agent_messages').select('thread_id').eq('agent', agent).eq('status', 'pour_channing').limit(500),
+    // Grands comptes préparés pour vous (une fiche = un compte, pas encore en discussion ; 0 tant que le SQL agents_comptes n'est pas collé).
+    sb.from('agent_messages').select('thread_id, thread:agent_threads(prospect_id, prospect:agent_prospects(stage))').eq('agent', agent).eq('status', 'pour_channing').limit(500),
     // Une tâche en cours : l'agente est au travail (pastille de l'onglet Live).
     sb.from('agent_tasks').select('id', head).eq('agent', agent).eq('status', 'en_cours'),
     // Le travail du jour (18/10) : 0 tant que les SQL du 17/10 ne sont pas collés.
     sb.from('agent_prospects').select('id', head).eq('agent', agent).gte('qualified_at', dayStartIso),
     sb.from('agent_accounts').select('id', head).eq('agent', agent).gte('found_at', dayStartIso),
   ]);
-  const pourVous = new Set(((v.data ?? []) as Array<{ thread_id: string }>).map((m) => m.thread_id)).size;
+  // 20/10 : une fiche en discussion (Autohaus Bleker, contacté, sa note LinkedIn encore à envoyer) n'est plus « pour vous ».
+  type ForYouRow = { thread_id: string; thread?: { prospect_id?: string | null; prospect?: { stage?: string } | null } | null };
+  const pourVous = new Set(((v.data ?? []) as ForYouRow[]).filter((m) => !DISCUSSION_STAGES.includes(m.thread?.prospect?.stage ?? '')).map((m) => m.thread?.prospect_id ?? m.thread_id)).size;
   return {
     aValider: a.count ?? 0, enAttente: w.count ?? 0, echecs: f.count ?? 0, nonLus: u.count ?? 0, recusAujourdhui: r.count ?? 0, envoyesAujourdhui: s.count ?? 0, premiersContactsAujourdhui: c.count ?? 0,
     pourVous, auTravail: (t.count ?? 0) > 0, fichesAujourdhui: fq.count ?? 0, trouvesAujourdhui: x.count ?? 0,
@@ -571,13 +576,18 @@ export async function setProspectStage(id: string, stage: ProspectStage): Promis
  * préparation, aucun crédit dépensé ; la date et le motif vont dans leurs notes ; leur compte trouvé par une
  * recherche est écarté aussi.
  */
-export async function setAsideProspects(rows: Array<Pick<ProspectDetail, 'id' | 'notes' | 'account_id'>>, reason: string): Promise<string | null> {
+export async function setAsideProspects(rows: Array<Pick<ProspectDetail, 'id' | 'notes' | 'account_id'>>, reason: string, pendingIds: string[] = []): Promise<string | null> {
   const now = new Date();
   const line = asideLine(now, reason);
   for (const p of rows) {
     const { error } = await sb.from('agent_prospects').update({ stage: 'ecarte', notes: withNoteLine(p.notes, line), updated_at: now.toISOString() }).eq('id', p.id);
     if (error) return errQualif(error.message);
     if (p.account_id) await sb.from('agent_accounts').update({ status: 'ecarte', updated_at: now.toISOString() }).eq('id', p.account_id);
+  }
+  // 20/10 : ce qui était préparé pour elles (pas encore validé) est écarté aussi — sans motif : ce n'est pas une leçon de rédaction.
+  if (pendingIds.length) {
+    const { error } = await sb.from('agent_messages').update({ status: 'refuse', refused_reason: null }).in('id', pendingIds.slice(0, 100)).in('status', ['a_valider', 'pour_channing', 'brouillon']);
+    if (error) return err(error.message);
   }
   return null;
 }
@@ -589,6 +599,45 @@ export async function restoreProspect(p: Pick<ProspectDetail, 'id' | 'notes' | '
   if (error) return errQualif(error.message);
   if (p.account_id) await sb.from('agent_accounts').update({ status: 'qualifie', updated_at: now.toISOString() }).eq('id', p.account_id);
   return null;
+}
+
+// --- 20/10 : le Workflow (src/lib/agents/workflow.ts) ------------------------------------------------
+
+/** Ce que le Workflow répartit : les fiches (ouvertes, en discussion, écartées), leurs fils, et tout ce qui n'est pas encore parti. */
+export interface WorkflowData { prospects: ProspectDetail[]; threads: AgentThread[]; messages: ForYouMessage[] }
+
+export async function listWorkflow(agent: AgentKey): Promise<{ data: WorkflowData | null; error: string | null }> {
+  const fiches = (stages: string[], order: string, limit: number) => sb.from('agent_prospects').select('*').eq('agent', agent).in('stage', stages)
+    .order(order, { ascending: false, nullsFirst: false }).limit(limit);
+  const [open, talk, out, th, ms] = await Promise.all([
+    fiches(['qualifie', 'a_contacter'], 'score', 800),
+    fiches(DISCUSSION_STAGES, 'updated_at', 400),
+    fiches(['ecarte'], 'updated_at', 400),
+    sb.from('agent_threads').select('*').eq('agent', agent).not('prospect_id', 'is', null).order('last_message_at', { ascending: false, nullsFirst: false }).limit(1500),
+    sb.from('agent_messages').select(FOR_YOU_COLS).eq('agent', agent).eq('direction', 'out').in('status', PENDING_STATUSES).order('created_at', { ascending: true }).limit(600),
+  ]);
+  const e = open.error ?? talk.error ?? out.error ?? th.error ?? ms.error;
+  if (e) return { data: null, error: errQualif(e.message) };
+  const prospects = [...(open.data ?? []), ...(talk.data ?? []), ...(out.data ?? [])] as ProspectDetail[];
+  return {
+    data: { prospects: prospects.map((p) => ({ ...p, emails: p.emails ?? [], people: p.people ?? [], evidence: p.evidence ?? [] })), threads: (th.data ?? []) as AgentThread[], messages: (ms.data ?? []) as ForYouMessage[] },
+    error: null,
+  };
+}
+
+/** Les notes de l'équipe sur une fiche (Discussions en cours : « on peut ajouter des notes »). */
+export async function setProspectNotes(id: string, notes: string): Promise<string | null> {
+  const { error } = await sb.from('agent_prospects').update({ notes: notes.slice(-4000), updated_at: new Date().toISOString() }).eq('id', id);
+  return error ? errQualif(error.message) : null;
+}
+
+/** « Passer en discussion » : contactée en dehors d'ADA (téléphone, salon…) — la fiche rejoint Discussions en cours. */
+export async function startDiscussion(p: Pick<ProspectDetail, 'id' | 'notes'>, how: string): Promise<string | null> {
+  const now = new Date();
+  const { error } = await sb.from('agent_prospects').update({
+    stage: 'contacte', notes: withNoteLine(p.notes, noteLine(now, `passée en discussion${how.trim() ? ` : ${how.trim()}` : ''}`)), updated_at: now.toISOString(),
+  }).eq('id', p.id);
+  return error ? errQualif(error.message) : null;
 }
 
 /** Les fiches mises de côté par l'équipe (écartées sans motif de l'IA), les plus récentes d'abord. */
@@ -701,8 +750,11 @@ export interface ForYouMessage extends AgentMessage {
 }
 
 /** Ce qu'Ada et Dana ont préparé pour vous (grands comptes) : mails, notes LinkedIn et fiches d'appel, à envoyer vous-même. */
+/** Un message et sa fiche (le fil, l'entreprise) : ce que montrent les cartes du Workflow. */
+const FOR_YOU_COLS = '*, thread:agent_threads(subject, counterpart_email, counterpart_name, prospect_id, prospect:agent_prospects(id, name, country, city, phone, website, group_name, kind, account_kind, score, summary, stage, best_contact, people, emails, evidence))';
+
 export async function listForYou(agent?: AgentKey): Promise<{ rows: ForYouMessage[]; error: string | null }> {
-  const cols = '*, thread:agent_threads(subject, counterpart_email, counterpart_name, prospect_id, prospect:agent_prospects(id, name, country, city, phone, website, group_name, kind, account_kind, score, summary, stage, best_contact, people, emails, evidence))';
+  const cols = FOR_YOU_COLS;
   let q = sb.from('agent_messages').select(cols).eq('status', 'pour_channing').order('created_at', { ascending: true }).limit(300);
   if (agent) q = q.eq('agent', agent);
   const { data, error } = await q;

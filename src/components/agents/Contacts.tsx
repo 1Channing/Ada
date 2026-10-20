@@ -99,9 +99,9 @@ export function WhoToContact({ p, agentName }: { p: ProspectDetail; agentName: '
   const side = agentName === 'Dana' ? 'dana' : 'ada';
   const probable = async (email: string, motif: string) => {
     if (!ctx) return;
-    if (!window.confirm(`Écrire à ${email} ?\n\nCette adresse n'est pas publiée : elle est déduite du format de la société (${motif}). Si elle n'existe pas, le mail revient en rebond, et les rebonds abîment la réputation de mc-export.com.\n\n${agentName} prépare le premier mail ; il arrive dans « À valider », marqué « adresse probable ».`)) return;
+    if (!window.confirm(`Écrire à ${email} ?\n\nCette adresse n'est pas publiée : elle est déduite du format de la société (${motif}). Si elle n'existe pas, le mail revient en rebond, et les rebonds abîment la réputation de mc-export.com.\n\n${agentName} prépare le premier mail ; il arrive dans « Workflow › Fiches », marqué « adresse probable ».`)) return;
     const e = await queueProbableMail(ctx.agent, p.id, email, motif, ctx.userId);
-    if (e) ctx.onError(e); else ctx.onInfo(`${agentName} prépare le premier mail à ${email} (adresse probable) : il arrive dans « À valider » d'ici une minute.`);
+    if (e) ctx.onError(e); else ctx.onInfo(`${agentName} prépare le premier mail à ${email} (adresse probable) : il arrive dans « Workflow › Fiches » d'ici une minute.`);
   };
   const canProbable = !!ctx?.isAdmin;
   return (

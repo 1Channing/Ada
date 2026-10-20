@@ -143,8 +143,8 @@ export function Comptes({ agent, userId, refreshKey, onError, onInfo, onOpenThre
     const e = await queueFirstMails([p.id], userId, a.agent);
     if (e) { onError(e); return; }
     onInfo(p.key_account
-      ? `${name} prépare pour vous ${p.name} (mail ou aiguillage, notes LinkedIn, fiche d'appel) : « À valider › Pour vous » d'ici une minute.`
-      : `${name} rédige le premier mail pour ${p.name} : il arrivera dans « À valider » d'ici une minute.`);
+      ? `${name} prépare pour vous ${p.name} (mail ou aiguillage, notes LinkedIn, fiche d'appel) : « Workflow › Fiches » d'ici une minute.`
+      : `${name} rédige le premier mail pour ${p.name} : il arrivera dans « Workflow › Fiches » d'ici une minute.`);
     void load();
   };
   const changeStage = async (a: AgentAccount, p: ProspectDetail, stage: ProspectStage) => {
