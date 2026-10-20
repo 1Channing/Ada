@@ -134,6 +134,58 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **AGENTS : L'ÉCHELLE D'UN GROUPE — PÔLE ACHATS ET DIRECTEURS DE CONCESSION
+  (20/10, Channing : « des directeurs VO dans un groupe il peut y en avoir
+  un paquet, autant que de concessions… il y a bien souvent un pôle achat
+  (qui peut aussi faire vente B2B négociant), et chaque concession possède
+  son manager / directeur VO… les mettre dans leur propre catégorie ; s'il
+  n'y a pas de pôle achat B2B, contacter les directeurs VO / de plaque de
+  chaque concession »)**. Dans la recherche LinkedIn par poste, pour un
+  groupe (nature « groupe », plusieurs sites ou nom de groupe) : les
+  intitulés de NIVEAU GROUPE d'abord (Ada : « pôle achats VO »,
+  « responsable achats VO groupe » ; Dana : « responsable ventes B2B
+  groupe », « plateforme VO professionnels »), puis ceux de NIVEAU
+  CONCESSION (« directeur VO », « directeur de plaque », « chef des ventes
+  VO »), par langue (fr, nl, de, en). Chaque personne trouvée porte son
+  périmètre (groupe / site / inconnu) et sa concession (people[].site) ;
+  jusqu'à 8 directeurs de concession par passage, un titre qui nomme un
+  site sans le dire = site. Contact retenu quand la fiche n'en a pas : le
+  pôle d'abord (qui traite, sinon qui décide) ; sans pôle, le premier
+  directeur de concession et la fiche dit « les autres sont à contacter un
+  par un (N sur la fiche) ». Fiche (Contacts) : deux blocs à part, « Niveau
+  groupe — pôle achats / ventes B2B » et « Par concession — directeurs VO /
+  de plaque (N) », avec la règle écrite. Tests : agents-linkedin étendu
+  (groupe, périmètres, contact retenu, plafond).
+- **AGENTS : LINKEDIN CHERCHÉ POUR DE BON — PAR POSTE, PUIS PAR NOM (20/10,
+  Channing, le profil de Florent Jabouille sous les yeux : « tu avais dit
+  que Jabouille n'était pas sur LinkedIn, il y est et sa position est
+  clairement notée… fais en sorte de pouvoir les trouver » ; puis « pour
+  99 % nous n'avons pas le nom du contact… il faut bien chercher sur
+  LinkedIn en fonction du poste »)**. Constat : la recherche approfondie ne
+  gardait un profil que s'il tombait par hasard dans ses 8 résultats, et les
+  contacts connus de l'équipe (carte, Workflow) entraient sur la fiche APRÈS
+  la recherche sans jamais être cherchés — « pas de profil LinkedIn vu » ne
+  voulait pas dire « pas de profil ». Classe corrigée, deux étapes à part
+  après la recherche approfondie (src/lib/agents/linkedinLookup.ts,
+  worker/agents/linkedin.ts) : (1) PAR POSTE, sans nom — un appel Haiku, 4
+  recherches « intitulé » entreprise linkedin avec les intitulés de la
+  langue du pays d'abord (« commercial VO marchands », « directeur VO »…,
+  l'anglais seulement s'il reste de la place) ; les profils vus dans les
+  résultats entrent sur la fiche avec nom, titre, niveau (qui traite / qui
+  décide), source « LinkedIn (recherche par poste) » — jamais un ancien
+  (« ex- »), ni une autre entreprise, ni un profil non vu, ni un doublon ;
+  (2) PAR NOM — pour 4 personnes au plus sans profil (l'équipe d'abord, puis
+  le meilleur contact, ceux qui décident), une recherche « Prénom Nom »
+  entreprise linkedin ; un contact de l'équipe sans fonction reçoit la
+  fonction lue sur LinkedIn, marquée « (LinkedIn) ». Même règle d'acceptation
+  qu'avant (vu dans un résultat + adresse qui porte le nom). Dans tous les
+  cas la fiche garde la TRACE : « cherché sur LinkedIn le … : profil trouvé
+  (« titre ») / rien trouvé » (nouveau champ people[].linkedin_recherche,
+  affiché dans Contacts), et personne n'est recherché deux fois. Le meilleur
+  contact hérite du profil trouvé ; plafond du jour atteint → fiche
+  enregistrée telle quelle. Coût : ~0,01 $ par recherche web. Tests :
+  test/agents-linkedin.test.ts (20 cas), agents-approfondie adapté (repère
+  l'appel grand compte par son contenu, vérifie les deux étapes).
 - **MCP : L'ONGLET AGENTS EN LECTURE (18/10, Channing : « ajoute la lecture
   de l'onglet Agents au MCP »)**. Serveur MCP 0.7.0, 26 outils. Neuf
   nouveaux, lecture seule, un par onglet de la page Agents :

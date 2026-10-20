@@ -29,7 +29,7 @@ const KIND_TXT: Record<AddressKind, string> = { personne: 'son adresse', service
 const KIND_CLS: Record<AddressKind, string> = { personne: 'text-emerald-700', service: 'text-sky-700', generique: 'text-amber-700' };
 const field = 'rounded-lg border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-ocean/40';
 
-type Line = Pick<DeepPerson, 'nom' | 'fonction' | 'email' | 'telephone' | 'linkedin' | 'a_confirmer' | 'date_source' | 'email_probable' | 'motif'>;
+type Line = Pick<DeepPerson, 'nom' | 'fonction' | 'email' | 'telephone' | 'linkedin' | 'a_confirmer' | 'date_source' | 'email_probable' | 'motif' | 'linkedin_recherche' | 'site' | 'perimetre'>;
 
 /** Ce que l'équipe sait déjà de l'entreprise (carte, Workflow, copies, Channing). */
 export function TeamKnown({ p }: { p: ProspectDetail }) {
@@ -43,6 +43,7 @@ export function TeamKnown({ p }: { p: ProspectDetail }) {
           • <span className="font-medium">{x.nom}</span>{x.fonction && x.fonction !== 'contact de l\'équipe' ? ` — ${x.fonction}` : ''}
           {x.email ? <> · <Mail className="inline w-3 h-3 mx-0.5 text-slate-400" />{x.email}</> : null}
           {x.telephone ? <> · <Phone className="inline w-3 h-3 mx-0.5 text-slate-400" />{x.telephone}</> : null}
+          {x.linkedin ? <> · <a href={x.linkedin} target="_blank" rel="noreferrer" className="inline-flex items-center text-sky-700 hover:text-sky-900" title={x.linkedin_recherche ?? 'Profil LinkedIn'}><Linkedin className="w-3 h-3" /></a></> : x.linkedin_recherche ? <span className="text-slate-400"> · {x.linkedin_recherche}</span> : null}
           <span className="text-slate-500"> ({x.source})</span>
         </p>
       ))}
@@ -57,7 +58,8 @@ function PersonLine({ label, x, kind, probable, onProbable }: { label: string; x
     <div className="text-sm">
       <span className="text-[10px] uppercase tracking-wide text-slate-400 mr-1.5">{label}</span>
       <span className="text-slate-900 font-medium">{x.nom}</span>{x.fonction ? <span className="text-slate-700"> — {x.fonction}</span> : null}
-      {x.linkedin && <a href={x.linkedin} target="_blank" rel="noreferrer" className="inline-flex items-center ml-1 text-sky-700 hover:text-sky-900" title="Profil LinkedIn (vu dans une page lue)"><Linkedin className="w-3.5 h-3.5" /></a>}
+      {x.linkedin && <a href={x.linkedin} target="_blank" rel="noreferrer" className="inline-flex items-center ml-1 text-sky-700 hover:text-sky-900" title={x.linkedin_recherche ? `Profil LinkedIn (${x.linkedin_recherche})` : 'Profil LinkedIn (vu dans une page lue)'}><Linkedin className="w-3.5 h-3.5" /></a>}
+      {!x.linkedin && x.linkedin_recherche && <span className="ml-1.5 text-[11px] text-slate-400" title="Recherche web ciblée (« Prénom Nom » entreprise linkedin) : aucun profil vu dans les résultats">{x.linkedin_recherche}</span>}
       {x.email && <span className="text-xs"> · <Mail className="inline w-3.5 h-3.5 mx-0.5 text-slate-400" /><span className="font-medium">{x.email}</span>{kind && <span className={`ml-1 ${KIND_CLS[kind]}`}>({someoneElsesMail(x.email, x.nom) ? 'adresse d\'un collègue' : KIND_TXT[kind]})</span>}</span>}
       {x.telephone && <span className="text-xs"> · <Phone className="inline w-3.5 h-3.5 mx-0.5 text-slate-400" /><a href={`tel:${x.telephone}`} className="hover:text-brand-ocean">{x.telephone}</a></span>}
       {x.a_confirmer && <span className="ml-1.5 text-[11px] rounded-full px-1.5 bg-amber-50 text-amber-800 border border-amber-200" title="La page qui le cite a plus d'un an, et rien de récent ne le confirme dans ce poste">à confirmer{x.date_source ? ` (source ${x.date_source})` : ''}</span>}
@@ -115,12 +117,52 @@ export function WhoToContact({ p, agentName }: { p: ProspectDetail; agentName: '
           </a>
         </p>
       )}
+      <GroupScale p={p} start={start} decide={decide} />
       {router && (
         <p className="text-xs text-indigo-900">
           <Compass className="inline w-3.5 h-3.5 -mt-0.5 mr-0.5" /> Pas d'adresse directe : {agentName} prépare un mail d'aiguillage à{' '}
           <span className="font-medium">{router.name ? `${router.name}${router.role ? ` (${router.role})` : ''}` : router.email}</span>
           {router.name ? ` — ${router.email}` : router.address === 'service' ? ' (adresse du service)' : router.address === 'personne' ? ' (adresse d\'un collègue)' : ' (adresse générale)'} pour obtenir le contact direct.
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * L'ÉCHELLE D'UN GROUPE (20/10, Channing) : deux catégories à part — le pôle achats / ventes B2B au niveau du
+ * groupe (à contacter d'abord) et les directeurs VO / de plaque de chaque concession (à contacter un par un
+ * s'il n'y a pas de pôle). Les personnes trouvées par la recherche LinkedIn par poste, hors celles déjà
+ * affichées « pour démarrer » / « pour décider ».
+ */
+function GroupScale({ p, start, decide }: { p: ProspectDetail; start: Line | null; decide: Line | null }) {
+  const shown = new Set([start?.nom, decide?.nom].filter(Boolean));
+  const found = p.people.filter((x) => !x.connu && !shown.has(x.nom) && (x.perimetre === 'groupe' || x.perimetre === 'site'));
+  const groupLevel = found.filter((x) => x.perimetre === 'groupe');
+  const sites = found.filter((x) => x.perimetre === 'site');
+  if (!groupLevel.length && !sites.length) return null;
+  const hasPole = groupLevel.length > 0 || start?.perimetre === 'groupe' || decide?.perimetre === 'groupe';
+  const li = (x: DeepPerson) => (
+    <li key={`${x.nom}-${x.linkedin ?? ''}`} className="text-slate-800">
+      <span className="font-medium">{x.nom}</span>{x.fonction ? <span className="text-slate-700"> — {x.fonction}</span> : null}{x.site ? <span className="text-slate-500"> · {x.site}</span> : null}
+      {x.linkedin && <a href={x.linkedin} target="_blank" rel="noreferrer" className="inline-flex items-center ml-1 text-sky-700 hover:text-sky-900" title={x.linkedin_recherche ?? 'Profil LinkedIn'}><Linkedin className="w-3.5 h-3.5" /></a>}
+      {x.email && <span className="text-xs"> · <Mail className="inline w-3.5 h-3.5 mx-0.5 text-slate-400" />{x.email}</span>}
+    </li>
+  );
+  return (
+    <div className="mt-1.5 space-y-1.5 text-sm">
+      {groupLevel.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-slate-400">Niveau groupe — pôle achats / ventes B2B</p>
+          <ul className="space-y-0.5">{groupLevel.map(li)}</ul>
+        </div>
+      )}
+      {sites.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-slate-400">Par concession — directeurs VO / de plaque ({sites.length})</p>
+          <ul className="space-y-0.5">{sites.map(li)}</ul>
+          <p className="text-xs text-slate-500">{hasPole ? 'Le pôle du groupe passe d\'abord ; ces directeurs restent de bons contacts, concession par concession.' : 'Pas de pôle achats ni de service B2B trouvé au niveau du groupe : à contacter un par un, chacun pour sa concession.'}</p>
+        </div>
       )}
     </div>
   );

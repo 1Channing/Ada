@@ -78,8 +78,14 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (/aller plus loin/.test(system)) {
     return reply([{ type: 'text', text: JSON.stringify({ proprietaire: { groupe: null, site_officiel: null, nb_sites: null, siege: null, source: null }, canaux: [], personnes: [], emails: [], telephones: [], meilleur_contact: { nom: null, fonction: null, email: null, telephone: null, linkedin: null, pourquoi: 'rien de plus' }, pistes: [], resume: '' }) }]);
   }
+  // 20/10 : les recherches LinkedIn (par poste, puis par nom) qui suivent la recherche approfondie — rien de vu ici, hors sujet pour ce test (sans jetons).
+  if (/QUI occupe certains postes|profil LinkedIn public d'une personne/.test(system)) {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: JSON.stringify(/QUI occupe/.test(system) ? { profils: [] } : { linkedin: null, titre: null, entreprise_vue: false, source: null }) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, server_tool_use: { web_search_requests: 0, web_fetch_requests: 0 } } }));
+    return;
+  }
   // La recherche (ciblée ou non) : sans notes, une entreprise différente à chaque recherche.
-  const plain = ['Leasing Est', 'Loueur Est'][calls.filter((c) => !c.user.includes('<notes_de_channing>') && !/aller plus loin/.test(c.system)).length - 1] ?? 'Autre Est';
+  const plain = ['Leasing Est', 'Loueur Est'][calls.filter((c) => !c.user.includes('<notes_de_channing>') && !/aller plus loin|QUI occupe certains postes|profil LinkedIn public/.test(c.system)).length - 1] ?? 'Autre Est';
   const comptes = user.includes('<notes_de_channing>')
     ? [
       { nom: 'Garage Rauch', site_web: RAUCH, ville: 'Metz', taille: null, pourquoi: 'Concession du secteur.', sources: [RAUCH], type: 'groupe' },

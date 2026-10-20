@@ -34,6 +34,8 @@ import { provenFormats, withProbableEmails, type KnownPair } from '../../src/lib
 import { emailDomain } from '../../src/lib/agents/people';
 import { suppressionMatch } from '../../src/lib/agents/sendPolicy';
 import { acceptedLinkedin, EMAIL_OK, HOME_COUNTRY } from '../../src/lib/agents/qualification';
+import { lookupLinkedin, discoverLinkedin } from './linkedin';
+import { bestFromDiscovered } from '../../src/lib/agents/linkedinLookup';
 import { segmentOf } from '../../src/lib/agents/research';
 import { mailtoEmails, extractEmails, pageText } from '../../src/lib/agents/dealerPage';
 import { HAIKU } from '../../src/lib/agents/aiCost';
@@ -203,12 +205,37 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
   // La consigne laissée par Channing en lançant la recherche (18/10).
   const run = await deepCore({ role, p, a, taskId, note, model, segment, prospectId: row.id });
   if ('error' in run) return { status: 'echec', name: row.name, detail: run.error, cost: run.cost, prepared: false };
-  const { out, checked, cost } = run;
+  const { out, checked } = run;
+  let cost = run.cost;
 
   // La fiche complétée, la note à jour ; les personnes connues de l'équipe, les adresses probables (19/10).
   const at = new Date().toISOString();
   const { patch, news } = mergeDeep(p, out, checked, at, cost);
   patch.people = (await withTeamAndProbable(p, patch.people ?? [], patch.emails ?? p.emails, run.team)).slice(0, 20);
+  // 20/10 : LinkedIn cherché pour de bon — d'abord PAR POSTE (« acheteur VO » Groupe DMD… : pour 99 % des
+  // fiches on n'a aucun nom), puis UN PAR UN pour les personnes nommées sans profil (l'équipe d'abord :
+  // Florent Jabouille chez DMD y était, personne ne l'avait cherché).
+  let aiStopped = false; // plafond du jour atteint ou IA en panne : la fiche est enregistrée telle quelle
+  try {
+    const d = await discoverLinkedin(p, patch.people, role, a, taskId, row.id);
+    if (d.added) { patch.people = d.people.slice(0, 20); news.personnes += d.added; news.linkedin += d.added; }
+    cost += d.cost;
+  } catch (e) {
+    if (e instanceof BudgetReached || e instanceof AiUnavailable) aiStopped = true; else throw e;
+  }
+  const li = aiStopped ? null : await lookupLinkedin(p, patch.people, patch.best_contact ?? p.best_contact ?? null, a, taskId, row.id);
+  if (li && li.searched) {
+    patch.people = li.people;
+    const best = patch.best_contact ?? p.best_contact ?? null;
+    const bestFound = best?.nom && !best.linkedin ? li.people.find((x) => x.linkedin && x.nom.trim().toLowerCase() === String(best.nom).trim().toLowerCase())?.linkedin ?? null : null;
+    if (bestFound && best) patch.best_contact = { ...best, linkedin: bestFound };
+    news.linkedin += li.found;
+    cost += li.cost;
+  }
+  // 20/10 : sans contact retenu, le pôle du groupe trouvé sur LinkedIn ; sans pôle, le premier directeur VO de
+  // concession — et la fiche dit que les autres sont à contacter un par un.
+  const fromLi = bestFromDiscovered(patch.best_contact ?? p.best_contact ?? null, patch.people ?? []);
+  if (fromLi && fromLi !== (patch.best_contact ?? p.best_contact ?? null)) { patch.best_contact = fromLi; news.contact = true; }
   let { error } = await sb.from('agent_prospects').update({ ...patch, updated_at: at }).eq('id', row.id);
   if (error && /key_account/.test(error.message)) {
     // SQL agents_comptes pas encore collé : sans la colonne « grand compte ».
