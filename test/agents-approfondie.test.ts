@@ -217,6 +217,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     if (user.includes('Réponse coupée')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: '{"proprietaire":' }], stop_reason: 'max_tokens', stop_sequence: null, usage })); return; }
     return reply([{ type: 'text', text: JSON.stringify({ ...hessOut, proprietaire: { groupe: null, site_officiel: null, nb_sites: null, siege: null, source: null }, canaux: [], personnes: [], emails: [], telephones: [], meilleur_contact: { nom: null, fonction: null, email: null, telephone: null, linkedin: null, pourquoi: 'rien' }, pistes: [], resume: '' }) }]);
   }
+  // 20/10 : les recherches LinkedIn (par poste, puis par nom) — rien de vu ici, la fiche garde la trace.
+  if (/QUI occupe certains postes/.test(system)) return reply([{ type: 'text', text: JSON.stringify({ profils: [] }) }]);
+  if (/profil LinkedIn public d'une personne/.test(system)) return reply([{ type: 'text', text: JSON.stringify({ linkedin: null, titre: null, entreprise_vue: false, source: null }) }]);
   return reply([{ type: 'text', text: JSON.stringify(keyOut) }]);
 });
 await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
@@ -290,7 +293,13 @@ ok(hess.best_contact?.nom === 'Marc Hess' && hess.best_contact?.email === 'm.hes
   'fiche : le directeur VO du groupe, son e-mail relu dans la page (domaine qui reçoit), note 37', { best: hess.best_contact, emails: hess.emails, score: hess.score });
 const th = db.agent_threads.find((t) => t.prospect_id === 'p-hess') as Row | undefined;
 const ms = db.agent_messages.filter((m) => m.thread_id === th?.id);
-ok(calls[1]?.model === OPUS && /GRAND COMPTE/.test(calls[1]?.system ?? '') && ms.length === 2 && ms.every((m) => m.status === 'pour_channing') && ms.some((m) => m.channel === 'mail' && (m.to_emails as string[]).join() === 'm.hess@groupehess.com'),
+// 20/10 : entre la recherche et le grand compte, LinkedIn est cherché par poste (1 appel) puis par nom (Julie Martin, sans profil vu).
+const keyCall = calls.find((c) => /GRAND COMPTE/.test(c.system));
+const liCalls = calls.filter((c) => /QUI occupe certains postes|profil LinkedIn public d'une personne/.test(c.system));
+ok(liCalls.length === 2 && /« commercial VO marchands » Hess Automobile linkedin|« commercial VO marchands » TECHNIC AUTO FORBACH linkedin/.test(liCalls[0].user) && liCalls[0].tools?.find((t) => t.name === 'web_search')?.max_uses === 4 && /« Julie Martin »/.test(liCalls[1].user),
+  'LinkedIn cherché pour de bon : par poste (intitulés français, 4 recherches), puis par nom pour Julie Martin (sans profil) — pas pour Marc Hess (profil déjà vu)', liCalls.map((c) => c.user.slice(0, 120)));
+ok(hess.people.find((x) => x.nom === 'Julie Martin')?.linkedin_recherche === `cherché sur LinkedIn le ${new Date().toISOString().slice(0, 10).split('-').reverse().join('/')} : rien trouvé`, 'rien de vu : la fiche de Julie Martin porte la trace « cherché, rien trouvé »', hess.people.find((x) => x.nom === 'Julie Martin'));
+ok(keyCall?.model === OPUS && ms.length === 2 && ms.every((m) => m.status === 'pour_channing') && ms.some((m) => m.channel === 'mail' && (m.to_emails as string[]).join() === 'm.hess@groupehess.com'),
   'lancée à la main : le grand compte est préparé pour Channing, le mail au directeur VO trouvé', ms.map((m) => [m.channel, m.status, m.to_emails]));
 const tp1 = db.agent_tasks.find((t) => t.id === 'tp1') as Row & { result: { enrichies: number; preparees: number; cout_usd: number; live?: unknown } };
 ok(tp1.status === 'terminee' && tp1.result.enrichies === 1 && tp1.result.preparees === 1 && !tp1.result.live

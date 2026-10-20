@@ -29,7 +29,7 @@ const KIND_TXT: Record<AddressKind, string> = { personne: 'son adresse', service
 const KIND_CLS: Record<AddressKind, string> = { personne: 'text-emerald-700', service: 'text-sky-700', generique: 'text-amber-700' };
 const field = 'rounded-lg border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-ocean/40';
 
-type Line = Pick<DeepPerson, 'nom' | 'fonction' | 'email' | 'telephone' | 'linkedin' | 'a_confirmer' | 'date_source' | 'email_probable' | 'motif'>;
+type Line = Pick<DeepPerson, 'nom' | 'fonction' | 'email' | 'telephone' | 'linkedin' | 'a_confirmer' | 'date_source' | 'email_probable' | 'motif' | 'linkedin_recherche'>;
 
 /** Ce que l'équipe sait déjà de l'entreprise (carte, Workflow, copies, Channing). */
 export function TeamKnown({ p }: { p: ProspectDetail }) {
@@ -43,6 +43,7 @@ export function TeamKnown({ p }: { p: ProspectDetail }) {
           • <span className="font-medium">{x.nom}</span>{x.fonction && x.fonction !== 'contact de l\'équipe' ? ` — ${x.fonction}` : ''}
           {x.email ? <> · <Mail className="inline w-3 h-3 mx-0.5 text-slate-400" />{x.email}</> : null}
           {x.telephone ? <> · <Phone className="inline w-3 h-3 mx-0.5 text-slate-400" />{x.telephone}</> : null}
+          {x.linkedin ? <> · <a href={x.linkedin} target="_blank" rel="noreferrer" className="inline-flex items-center text-sky-700 hover:text-sky-900" title={x.linkedin_recherche ?? 'Profil LinkedIn'}><Linkedin className="w-3 h-3" /></a></> : x.linkedin_recherche ? <span className="text-slate-400"> · {x.linkedin_recherche}</span> : null}
           <span className="text-slate-500"> ({x.source})</span>
         </p>
       ))}
@@ -57,7 +58,8 @@ function PersonLine({ label, x, kind, probable, onProbable }: { label: string; x
     <div className="text-sm">
       <span className="text-[10px] uppercase tracking-wide text-slate-400 mr-1.5">{label}</span>
       <span className="text-slate-900 font-medium">{x.nom}</span>{x.fonction ? <span className="text-slate-700"> — {x.fonction}</span> : null}
-      {x.linkedin && <a href={x.linkedin} target="_blank" rel="noreferrer" className="inline-flex items-center ml-1 text-sky-700 hover:text-sky-900" title="Profil LinkedIn (vu dans une page lue)"><Linkedin className="w-3.5 h-3.5" /></a>}
+      {x.linkedin && <a href={x.linkedin} target="_blank" rel="noreferrer" className="inline-flex items-center ml-1 text-sky-700 hover:text-sky-900" title={x.linkedin_recherche ? `Profil LinkedIn (${x.linkedin_recherche})` : 'Profil LinkedIn (vu dans une page lue)'}><Linkedin className="w-3.5 h-3.5" /></a>}
+      {!x.linkedin && x.linkedin_recherche && <span className="ml-1.5 text-[11px] text-slate-400" title="Recherche web ciblée (« Prénom Nom » entreprise linkedin) : aucun profil vu dans les résultats">{x.linkedin_recherche}</span>}
       {x.email && <span className="text-xs"> · <Mail className="inline w-3.5 h-3.5 mx-0.5 text-slate-400" /><span className="font-medium">{x.email}</span>{kind && <span className={`ml-1 ${KIND_CLS[kind]}`}>({someoneElsesMail(x.email, x.nom) ? 'adresse d\'un collègue' : KIND_TXT[kind]})</span>}</span>}
       {x.telephone && <span className="text-xs"> · <Phone className="inline w-3.5 h-3.5 mx-0.5 text-slate-400" /><a href={`tel:${x.telephone}`} className="hover:text-brand-ocean">{x.telephone}</a></span>}
       {x.a_confirmer && <span className="ml-1.5 text-[11px] rounded-full px-1.5 bg-amber-50 text-amber-800 border border-amber-200" title="La page qui le cite a plus d'un an, et rien de récent ne le confirme dans ce poste">à confirmer{x.date_source ? ` (source ${x.date_source})` : ''}</span>}

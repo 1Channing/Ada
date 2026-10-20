@@ -230,6 +230,8 @@ export interface DeepPerson {
   connu?: boolean;
   /** 19/10 : son adresse probable (format prouvé par une vraie adresse de la société), jamais utilisée sans clic. */
   email_probable?: string | null; motif?: string | null;
+  /** 20/10 : la trace de la recherche LinkedIn dédiée (« cherché sur LinkedIn le … : profil trouvé / rien trouvé »). */
+  linkedin_recherche?: string | null;
 }
 export interface DeepBest {
   nom: string | null; fonction: string | null; email: string | null; pourquoi: string; linkedin?: string | null; telephone?: string | null;
