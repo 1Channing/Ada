@@ -76,7 +76,7 @@ async function sheetsGet(token: string, path: string): Promise<unknown> {
 }
 
 // ── Lecture d'un onglet mensuel ─────────────────────────────────────────────
-interface SheetSale {
+export interface SheetSale {
   ref: string; facture: string; vehicule: string; vin: string; ville: string;
   prixAchat: number | null; prixVente: number | null; commissions: number | null;
   commissionHt: number | null; fraisHt: number | null; modePaiement: string;
@@ -185,6 +185,99 @@ export function parseTab(values: string[][]): SheetSale[] {
   return out;
 }
 
+// ── Une REF sur plusieurs lignes (19/10) ───────────────────────────────────
+// Constat : 10 REF du tableur (YC134 … YC979) désignent chacune DEUX Yaris Cross (autre fin de VIN, souvent
+// autre finition, autre mois). ADA n'a qu'un dossier par REF : chaque passage y recopiait le véhicule et le VIN
+// d'une ligne puis de l'autre (20 écritures toutes les 10 minutes), l'astérisque de l'autre voiture posait
+// « TVA récupérable » sur le dossier, et la seconde vente n'avait pas de dossier.
+
+/** Une ligne du tableur, avec son onglet. */
+export interface TabRow { tab: string; row: SheetSale }
+/** Ce que chaque ligne fait dans ADA, pour toutes les REF du passage. */
+export interface RefPlan {
+  /** Les lignes qui écrivent dans ADA : une seule par REF. */
+  writes: Set<SheetSale>;
+  /** L'onglet du dossier de chaque REF présente dans le tableur. */
+  tabOf: Map<string, string>;
+  /** Une REF sur plusieurs véhicules : la ligne du dossier, et les autres (sans dossier tant qu'elles n'ont pas leur REF). */
+  conflicts: Array<{ ref: string; kept: TabRow; others: TabRow[] }>;
+  /** Le même véhicule recopié dans plusieurs onglets (onglets du plus ancien au plus récent). */
+  copies: Array<{ ref: string; kept: TabRow; tabs: string[] }>;
+}
+
+const vinKey = (v: string) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const labelKey = (v: string) => String(v ?? '').toUpperCase().replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+/** « * » en fin de véhicule = TVA récupérable ; « ** » = import acheté HT, sans TVA récupérable (03/10 soir). */
+export const starOf = (vehicule: string | null | undefined) => /\*\s*$/.test(vehicule ?? '') && !/\*\*\s*$/.test(vehicule ?? '');
+
+/** Deux lignes d'une même REF : le même véhicule ? La fin de VIN si les deux l'ont, sinon le libellé et les deux prix. */
+export function sameVehicle(a: SheetSale, b: SheetSale): boolean {
+  const va = vinKey(a.vin), vb = vinKey(b.vin);
+  if (va && vb) return va === vb;
+  return labelKey(a.vehicule) === labelKey(b.vehicule) && a.prixAchat === b.prixAchat && a.prixVente === b.prixVente;
+}
+
+/**
+ * Qui alimente le dossier d'une REF vue sur plusieurs lignes : la ligne dont les prix sont ceux du dossier ADA
+ * (ses chiffres viennent d'elle), sinon la première — onglet le plus ancien, puis la plus haute. Les autres lignes
+ * n'écrivent rien. `sheets` : onglets du plus ancien au plus récent.
+ */
+export function refPlan(
+  sheets: Array<{ tab: string; rows: SheetSale[] }>,
+  dossier: (ref: string) => { purchase_price: number | null; sale_price: number | null } | null,
+): RefPlan {
+  const byRef = new Map<string, TabRow[]>();
+  for (const sh of sheets) for (const row of sh.rows) (byRef.get(row.ref) ?? byRef.set(row.ref, []).get(row.ref)!).push({ tab: sh.tab, row });
+  const plan: RefPlan = { writes: new Set(), tabOf: new Map(), conflicts: [], copies: [] };
+  for (const [ref, rows] of byRef) {
+    const d = dossier(ref);
+    const priced = d && rows.length > 1 ? rows.filter((x) => x.row.prixAchat != null && x.row.prixAchat === d.purchase_price && x.row.prixVente === d.sale_price) : [];
+    const kept = priced.length === 1 ? priced[0] : rows[0];
+    plan.writes.add(kept.row);
+    const others = rows.filter((x) => x !== kept && !sameVehicle(kept.row, x.row));
+    const tabs = [...new Set(rows.map((x) => x.tab))];
+    if (others.length) {
+      plan.conflicts.push({ ref, kept, others });
+      plan.tabOf.set(ref, kept.tab);
+    } else {
+      // Recopie du même véhicule (04/10) : le dossier reste au plus ancien onglet — la première apparition est le mois de vente.
+      if (tabs.length > 1) plan.copies.push({ ref, kept, tabs });
+      plan.tabOf.set(ref, tabs[0]);
+    }
+  }
+  return plan;
+}
+
+/** Les REF à plusieurs lignes dans la boîte à apprendre (équipe), fermées seules une fois le tableur corrigé ; un log quand la liste change. */
+let lastDuplicates = '';
+async function reportRefDuplicates(plan: RefPlan): Promise<void> {
+  const desc = (x: TabRow) => `${x.tab} : ${x.row.vehicule || 'véhicule ?'}${x.row.vin ? ` (VIN …${x.row.vin})` : ''}`;
+  const info = (x: TabRow) => ({ onglet: x.tab, vehicule: x.row.vehicule || null, vin: x.row.vin || null, achat: x.row.prixAchat, vente: x.row.prixVente, client: x.row.client || null, commercial: x.row.seller || null });
+  for (const c of plan.conflicts) {
+    void recordLearningCase({
+      kind: 'sheet_ref_duplicate', key: c.ref, actor: 'equipe', link: '/ventes',
+      title: `Tableur : la REF ${c.ref} désigne ${c.others.length + 1} véhicules — ${desc(c.kept)} a le dossier ADA ; ${c.others.map(desc).join(' ; ')} ${c.others.length > 1 ? 'n\'en ont pas : leur donner chacun sa propre REF dans le tableur, ADA créera leurs dossiers' : 'n\'en a pas : lui donner sa propre REF dans le tableur, ADA créera son dossier'}`,
+      detail: { ref: c.ref, dossier: info(c.kept), sans_dossier: c.others.map(info) },
+    });
+  }
+  for (const c of plan.copies) {
+    void recordLearningCase({
+      kind: 'sheet_ref_duplicate', key: c.ref, actor: 'equipe', link: '/ventes',
+      title: `Tableur : la REF ${c.ref} (même véhicule) est recopiée dans ${c.tabs.length} onglets (${c.tabs.join(', ')}) — gardée dans ${c.tabs[0]} ; supprimer la recopie`,
+      detail: { ref: c.ref, tabs: c.tabs, kept: c.tabs[0] },
+    });
+  }
+  const open = new Set([...plan.conflicts, ...plan.copies].map((c) => c.ref));
+  const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const { data } = await sb.from('learning_cases').select('key').eq('kind', 'sheet_ref_duplicate').eq('status', 'open');
+  for (const r of (data ?? []) as Array<{ key: string }>) if (!open.has(r.key)) void resolveLearningCase('sheet_ref_duplicate', r.key, 'une seule ligne pour cette REF dans le tableur');
+  const sig = plan.conflicts.map((c) => `${c.ref} (${[c.kept, ...c.others].map((x) => x.tab).join(' / ')})`).join(', ');
+  if (sig !== lastDuplicates) {
+    lastDuplicates = sig;
+    if (sig) console.warn(`[SHEET_SYNC] ${plan.conflicts.length} REF sur plusieurs véhicules — seule la ligne du dossier ADA écrit, les autres attendent leur propre REF : ${sig}`);
+  }
+}
+
 // ── Boucle ──────────────────────────────────────────────────────────────────
 export function startSalesSheetSync(): void {
   const creds = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -197,7 +290,7 @@ export function startSalesSheetSync(): void {
   console.log('[SHEET_SYNC] synchro tableur active (poll 10 min)');
 }
 
-async function syncOnce(creds: string): Promise<void> {
+export async function syncOnce(creds: string): Promise<void> {
   const { data } = await supabase.from('app_config').select('value').eq('key', 'gsheet_sales').maybeSingle();
   const cfg = (data?.value ?? null) as { spreadsheetId?: string; sinceMonth?: string } | null;
   if (!cfg?.spreadsheetId) {
@@ -281,29 +374,36 @@ async function syncOnce(creds: string): Promise<void> {
 
   let inserted = 0, skipped = 0, matched = 0, completed = 0;
   const refreshed: string[] = [];
-  // REF vues dans le tableur à ce passage, avec leur onglet : une ligne déplacée d'un onglet à
-  // l'autre suit, une ligne disparue est marquée « absente » (03/10 soir : janvier avait 14 Swift
-  // dans ADA pour 10 dans le tableur, 800 € de frais de trop dans le mois).
-  const seenTab = new Map<string, Set<string>>();
-  const seen = (ref: string, tab: string) => (seenTab.get(ref) ?? seenTab.set(ref, new Set()).get(ref)!).add(tab);
-  for (const tab of tabs) {
+  // LIGNE INCOHÉRENTE (02/10, onglet JANVIER 2026 : cellules décalées sur
+  // un brouillon → « prix achat » 175 €, « véhicule » FILLINGE). Un achat
+  // sous 20 % de la vente n'est pas un prix. Si la MÊME REF a aussi une
+  // ligne cohérente dans l'onglet (brouillon laissé à côté de la ligne
+  // corrigée, constat Channing 02/10 soir), le brouillon est ignoré et le
+  // cas se ferme ; sinon rien n'est écrit (données fausses < zéro donnée),
+  // la commission HT reste, et le cas va dans la boîte avec l'en-tête.
+  const incoherent = (s: SheetSale) => s.prixAchat != null && s.prixVente != null && s.prixAchat < s.prixVente * 0.2;
+  // Tous les onglets d'abord, du plus ancien au plus récent (19/10) : une REF vue sur plusieurs lignes
+  // n'alimente son dossier que par UNE ligne (refPlan) — une ligne déplacée d'un onglet à l'autre suit,
+  // une REF disparue est marquée « absente » (03/10 soir : janvier avait 14 Swift dans ADA pour 10 dans
+  // le tableur, 800 € de frais de trop dans le mois).
+  const sheets: Array<{ tab: string; rows: SheetSale[] }> = [];
+  for (const tab of [...tabs].sort((a, b) => (monthOfTab(a) ?? '').localeCompare(monthOfTab(b) ?? ''))) {
     const res = (await sheetsGet(token, `${cfg.spreadsheetId}/values/${encodeURIComponent(`'${tab}'!A1:AH1050`)}`)) as { values?: string[][] };
-    // LIGNE INCOHÉRENTE (02/10, onglet JANVIER 2026 : cellules décalées sur
-    // un brouillon → « prix achat » 175 €, « véhicule » FILLINGE). Un achat
-    // sous 20 % de la vente n'est pas un prix. Si la MÊME REF a aussi une
-    // ligne cohérente dans l'onglet (brouillon laissé à côté de la ligne
-    // corrigée, constat Channing 02/10 soir), le brouillon est ignoré et le
-    // cas se ferme ; sinon rien n'est écrit (données fausses < zéro donnée),
-    // la commission HT reste, et le cas va dans la boîte avec l'en-tête.
-    const incoherent = (s: SheetSale) => s.prixAchat != null && s.prixVente != null && s.prixAchat < s.prixVente * 0.2;
     const parsed = parseTab(res.values ?? []);
     const okRefs = new Set(parsed.filter((s) => !incoherent(s)).map((s) => s.ref));
-    const rows = parsed.filter((s) => {
+    sheets.push({ tab, rows: parsed.filter((s) => {
       if (!incoherent(s) || !okRefs.has(s.ref)) return true;
       void resolveLearningCase('sheet_row_incoherent', `${tab}|${s.ref}`, 'ligne corrigée dans le tableur — brouillon ignoré');
       return false;
-    });
+    }) });
+  }
+  const plan = refPlan(sheets, (ref) => known.get(ref) ?? null);
+  const conflictOf = new Map(plan.conflicts.map((c) => [c.ref, c]));
+  await reportRefDuplicates(plan);
+  for (const { tab, rows } of sheets) {
     for (const s of rows) {
+      // Une autre ligne de la même REF (autre véhicule, ou recopie) : rien d'écrit — le dossier a déjà sa ligne.
+      if (!plan.writes.has(s)) continue;
       if (incoherent(s)) {
         void recordLearningCase({ kind: 'sheet_row_incoherent', key: `${tab}|${s.ref}`, actor: 'dev', link: '/admin', title: `Tableur ${tab} : ligne ${s.ref} incohérente (achat ${s.prixAchat} €, vente ${s.prixVente} €) — colonnes du bloc à vérifier`, detail: { tab, ref: s.ref, header: s.header, vehicule: s.vehicule, prixAchat: s.prixAchat, prixVente: s.prixVente, fraisHt: s.fraisHt, commissionHt: s.commissionHt } });
         s.prixAchat = null; s.prixVente = null; s.fraisHt = null;
@@ -352,9 +452,15 @@ async function syncOnce(creds: string): Promise<void> {
         if (prev.commission_ht != null && s.prixAchat == null && s.prixVente == null && prev.purchase_price == null && prev.sale_price == null) patch.commission_ht = null;
         if (!prev.commercial && s.seller) patch.commercial = s.seller;
         if (hasVat) {
-          const star = /\*\s*$/.test(s.vehicule ?? '') && !/\*\*\s*$/.test(s.vehicule ?? ''); // « ** » = import HT, pas de TVA récupérable (03/10 soir)
+          const star = starOf(s.vehicule); // « ** » = import HT, pas de TVA récupérable (03/10 soir)
+          const other = conflictOf.get(s.ref)?.others.find((x) => starOf(x.row.vehicule));
           if (star && prev.vat_recoverable !== true) patch.vat_recoverable = true;
           else if (!star && prev.vat_recoverable == null) patch.vat_recoverable = false;
+          else if (!star && prev.vat_recoverable === true && other) {
+            // 19/10 : posée par l'astérisque de l'AUTRE véhicule de la REF (YC134, YC206, YC250, YC979) — retirée.
+            patch.vat_recoverable = false;
+            console.warn(`[SHEET_SYNC] ${s.ref} : TVA récupérable retirée — l'astérisque venait de l'autre véhicule de la REF (${other.tab} : ${other.row.vehicule})`);
+          }
         }
         if (!prev.buyer_contact_id && buyerId) patch.buyer_contact_id = buyerId;
         if (!prev.transaction_date && s.dateAchat) patch.transaction_date = s.dateAchat;
@@ -372,7 +478,6 @@ async function syncOnce(creds: string): Promise<void> {
           patch.buyer_contact_id = client && client !== mcId ? client : null;
           if (!prev.client_contact_id && client && client !== mcId) patch.client_contact_id = client;
         }
-        seen(s.ref, tab);
         if (!(prev.notes ?? '').includes('[Tableur')) patch.notes = [prev.notes, tableurNotes].filter(Boolean).join('\n');
         else if ((prev.notes ?? '').includes('[Tableur : absent')) { patch.notes = (prev.notes ?? '').replace(/\n?\[Tableur : absent[^\]]*\]/g, ''); console.warn(`[SHEET_SYNC] ${s.ref} : revenu dans le tableur (${tab})`); }
         // Libellé véhicule relu à chaque passage : les étoiles (« * » TVA récupérable, « ** » import HT) sont une
@@ -392,7 +497,7 @@ async function syncOnce(creds: string): Promise<void> {
           };
           upsert('Véhicule', s.vehicule); upsert('Facture', s.facture); upsert('VIN (fin)', s.vin);
         }
-        // L'onglet du dossier est décidé APRÈS la lecture de tous les onglets (une REF vue dans plusieurs onglets, 04/10).
+        // L'onglet du dossier est décidé par refPlan, sur tous les onglets (une REF vue dans plusieurs onglets, 04/10).
         if (Object.keys(patch).length === 0) { skipped++; continue; }
         const { error } = await supabase.from('transactions_admin').update(patch as never).eq('id', prev.id);
         if (error) { console.warn(`[SHEET_SYNC] complétion ${s.ref} impossible: ${error.message}`); continue; }
@@ -418,7 +523,6 @@ async function syncOnce(creds: string): Promise<void> {
         notes: tableurNotes,
       }).select('id').single();
       if (error) { console.warn(`[SHEET_SYNC] insert ${s.ref} impossible: ${error.message}`); continue; }
-      seen(s.ref, tab);
       known.set(s.ref, { id: (ins as { id: string }).id, reference: s.ref, notes: tableurNotes, purchase_price: s.prixAchat, sale_price: s.prixVente, fees: s.fraisHt, commission_ht: s.commissionHt, commercial: s.seller || null, buyer_contact_id: buyerId, transaction_date: s.dateAchat, status: closed ? 'cloturee' : 'en_cours', closed_at: null, transaction_type: 'sale' });
       inserted++;
     }
@@ -429,20 +533,16 @@ async function syncOnce(creds: string): Promise<void> {
   // Dossiers venus du tableur (onglet ≥ since) dont la REF n'est plus dans aucun onglet : marqués
   // « absent » (jamais supprimés), exclus des totaux du mois côté trésorerie ; le marqueur tombe si la ligne revient.
   // ONGLET D'UN DOSSIER (04/10, constat : SW350/370/644/868 et YC427 « déplacés » en février / mars alors
-  // qu'ils sont toujours dans janvier, 779 + 800 € de frais sortis du mois) : une REF vue dans PLUSIEURS
-  // onglets (recopie, brouillon, ou deux véhicules sous la même REF) reste au plus ANCIEN — un véhicule
-  // est facturé une fois, la première apparition est le mois de vente — et le cas va dans la boîte.
+  // qu'ils sont toujours dans janvier, 779 + 800 € de frais sortis du mois) : celui de sa ligne (refPlan) —
+  // une recopie du même véhicule reste au plus ANCIEN onglet (la première apparition est le mois de vente).
   for (const k of known.values()) {
     const m = (k.notes ?? '').match(/\[Tableur ([A-ZÉÛ]+ \d{4})\]/);
     if (!m || !k.reference) continue;
-    const tabsSeen = seenTab.get(k.reference);
-    if (tabsSeen && tabsSeen.size > 0) {
-      const sorted = [...tabsSeen].sort((a, b) => (monthOfTab(a) ?? '').localeCompare(monthOfTab(b) ?? ''));
-      const target = sorted[0];
-      if (tabsSeen.size > 1) void recordLearningCase({ kind: 'sheet_ref_duplicate', key: k.reference, actor: 'equipe', link: '/ventes', title: `Tableur : la REF ${k.reference} est dans ${tabsSeen.size} onglets (${sorted.join(', ')}) — gardée dans ${target} ; renommer l'autre si c'est un autre véhicule`, detail: { ref: k.reference, tabs: sorted, kept: target } });
+    const target = plan.tabOf.get(k.reference);
+    if (target) {
       if (target !== m[1]) {
         await supabase.from('transactions_admin').update({ notes: (k.notes ?? '').replace(/\[Tableur [A-ZÉÛ]+ \d{4}\]/, `[Tableur ${target}]`) } as never).eq('id', k.id);
-        console.warn(`[SHEET_SYNC] ${k.reference} : onglet ${m[1]} → ${target}${tabsSeen.size > 1 ? ` (vue aussi dans ${sorted.slice(1).join(', ')})` : ''}`);
+        console.warn(`[SHEET_SYNC] ${k.reference} : onglet ${m[1]} → ${target}`);
       }
       continue;
     }
