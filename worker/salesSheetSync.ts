@@ -187,9 +187,11 @@ export function parseTab(values: string[][]): SheetSale[] {
 
 // ── Une REF sur plusieurs lignes (19/10) ───────────────────────────────────
 // Constat : 10 REF du tableur (YC134 … YC979) désignent chacune DEUX Yaris Cross (autre fin de VIN, souvent
-// autre finition, autre mois). ADA n'a qu'un dossier par REF : chaque passage y recopiait le véhicule et le VIN
-// d'une ligne puis de l'autre (20 écritures toutes les 10 minutes), l'astérisque de l'autre voiture posait
-// « TVA récupérable » sur le dossier, et la seconde vente n'avait pas de dossier.
+// autre finition, autre mois), toutes vendues à Autogroep Oostendorp. ADA n'a qu'un dossier par REF : chaque
+// passage y recopiait le véhicule et le VIN d'une ligne puis de l'autre (20 écritures toutes les 10 minutes),
+// le dossier gardait ceux de l'autre voiture (et son astérisque, que la Trésorerie lit pour la TVA), YC206 et
+// YC301 étaient comptés en février avec les prix des voitures de juillet, YC206 avait la TVA récupérable de
+// l'autre voiture, et la seconde vente n'avait pas de dossier.
 
 /** Une ligne du tableur, avec son onglet. */
 export interface TabRow { tab: string; row: SheetSale }
@@ -457,7 +459,7 @@ export async function syncOnce(creds: string): Promise<void> {
           if (star && prev.vat_recoverable !== true) patch.vat_recoverable = true;
           else if (!star && prev.vat_recoverable == null) patch.vat_recoverable = false;
           else if (!star && prev.vat_recoverable === true && other) {
-            // 19/10 : posée par l'astérisque de l'AUTRE véhicule de la REF (YC134, YC206, YC250, YC979) — retirée.
+            // 19/10 : posée par l'astérisque de l'AUTRE véhicule de la REF (YC206 : sa voiture de juillet n'en a pas) — retirée.
             patch.vat_recoverable = false;
             console.warn(`[SHEET_SYNC] ${s.ref} : TVA récupérable retirée — l'astérisque venait de l'autre véhicule de la REF (${other.tab} : ${other.row.vehicule})`);
           }

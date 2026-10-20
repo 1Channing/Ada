@@ -2,8 +2,8 @@
  * La synchro du tableur des ventes (19/10) : une REF sur deux véhicules.
  * Constat : 10 REF (YC134 … YC979) désignaient chacune deux Yaris Cross (autre
  * fin de VIN, autre mois). Chaque passage réécrivait le dossier ADA deux fois
- * (véhicule, VIN), l'astérisque de l'autre voiture posait « TVA récupérable »
- * (YC134, YC206, YC250, YC979), et la seconde vente n'avait pas de dossier.
+ * (véhicule, VIN) et lui laissait ceux de l'autre voiture ; YC206 avait la
+ * « TVA récupérable » de l'autre voiture ; la seconde vente n'avait pas de dossier.
  * La partie pure (sameVehicle, refPlan), puis deux passages complets avec une
  * fausse API Google Sheets et une base simulée.
  */
