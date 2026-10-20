@@ -21,7 +21,9 @@
  *   params.copie : ce qu'une copie de l'équipe apprend (./copies.ts).
  * - « premier_mail » avec params.apres_aiguillage (19/10) : le premier mail
  *   à la personne donnée en réponse à un aiguillage ; params.adresse_probable :
- *   à l'adresse probable choisie par un administrateur.
+ *   à l'adresse probable choisie par un administrateur ; params.refaire (20/10,
+ *   « Refaire le plan ») : la préparation est refaite et remplace l'ancienne,
+ *   si rien n'en est parti et que personne ne l'a corrigée (./prepared.ts).
  *
  * Le cycle automatique (toutes les 10 min, dans les jours et heures de
  * travail de chaque agente — Réglages, heure de Paris ; du lundi au vendredi,
@@ -55,6 +57,7 @@ import { refreshSoon } from './indexRefresh';
 import { researchPairs, nextResearchPair, segmentOf, RESEARCH_COUNTRIES, COUNTRY_FR, type ResearchParams } from '../../src/lib/agents/research';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
 import { deepResearch } from './deep';
+import { preparedThreads } from './prepared';
 import { draftReply } from './reply';
 import { targetedResearch, lotMail } from './targeted';
 import { runBench } from './bench';
@@ -102,6 +105,7 @@ function startLabel(t: Task): string {
   if (t.kind === 'qualification' && t.params.bon_contact) return 'le bon contact donné par l\'équipe, sur sa fiche';
   if (t.kind === 'qualification' && t.params.copie) return 'une copie de l\'équipe : ce qu\'elle apprend';
   if (t.kind === 'premier_mail' && t.params.apres_aiguillage) return 'premier mail à la personne donnée par un aiguillage';
+  if (t.kind === 'premier_mail' && t.params.refaire) return 'le plan préparé, refait avec la fiche telle qu\'elle est';
   if (t.kind === 'qualification' && t.params.approfondie) {
     const k = n(t.params.prospect_ids);
     return `recherche approfondie de ${k} fiche${k > 1 ? 's' : ''}`;
@@ -208,9 +212,22 @@ async function runDrafts(t: Task): Promise<{ result: Record<string, unknown>; su
       // 19/10 : à la main, après un aiguillage, ou à l'adresse probable choisie par un administrateur (et seulement par lui).
       const probable = t.params.adresse_probable as { email?: string; motif?: string } | undefined;
       const byAdmin = !!probable?.email && !!t.created_by && await isAdmin(t.created_by);
+      // 20/10 : « Refaire le plan » — la nouvelle préparation remplace l'ancienne, si rien n'en est parti et que personne ne l'a corrigée.
+      let replacing: string[] | undefined;
+      if (t.params.refaire) {
+        const prev = await preparedThreads(id);
+        if (prev.kind === 'vivant') {
+          const { data: pr } = await sb.from('agent_prospects').select('name').eq('id', id).maybeSingle();
+          r.ignores++;
+          r.details.push(`${(pr as { name?: string } | null)?.name ?? id} : un message est parti, ou un brouillon a été corrigé à la main — rien de refait`);
+          continue;
+        }
+        if (prev.kind === 'prepare') replacing = prev.ids;
+      }
       const o = await draftFirstMail(id, a, t.id, {
         manual: !!t.created_by, afterRouting: !!t.params.apres_aiguillage,
         probable: byAdmin ? { email: String(probable?.email), motif: String(probable?.motif ?? 'adresse probable') } : null,
+        replacing,
       });
       if (probable?.email && !byAdmin) r.details.push('adresse probable ignorée : seul un administrateur peut la choisir');
       r.cout_usd += o.cost;

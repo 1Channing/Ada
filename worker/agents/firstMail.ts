@@ -59,6 +59,7 @@ import { live } from './live';
 import { loadOffers, dealerGroupIds, lotsOfDealer, type AiAgent } from './qualify';
 import { HOME_COUNTRY, addressKind, type AddressKind } from '../../src/lib/agents/qualification';
 import { sb, journal, loadSuppressions } from './store';
+import { dropPrepared } from './prepared';
 
 interface Person { nom: string; fonction: string; email: string | null; linkedin?: string | null; niveau?: string | null; perimetre?: string | null; connu?: boolean; via?: string | null; email_probable?: string | null; motif?: string | null }
 interface ProspectRow {
@@ -106,6 +107,8 @@ export interface DraftOptions {
   afterRouting?: boolean;
   /** L'adresse probable choisie par un administrateur (19/10) : le mail lui est écrit, marqué comme tel. */
   probable?: { email: string; motif: string } | null;
+  /** 20/10 : les fils de la préparation d'avant (rien d'envoyé, rien de corrigé), remplacés une fois la nouvelle enregistrée. */
+  replacing?: string[];
 }
 
 export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: string | null, opts: DraftOptions = {}): Promise<DraftOutcome> {
@@ -153,11 +156,14 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const target = router?.email ?? mailTo?.email ?? email;
   const blocked = suppressionMatch([target ?? '', email ?? '', mailTo?.email ?? '', ...(p.emails ?? []).map((e) => e.email)], await loadSuppressions());
   if (blocked) return skip(`${blocked} est sur « ne plus contacter »`);
-  const { data: t1 } = await sb.from('agent_threads').select('id').eq('prospect_id', p.id).limit(1);
-  // En conversation avec l'une ou l'autre agente : pas de premier contact à froid (sauf la personne donnée par un aiguillage).
+  // En conversation avec l'une ou l'autre agente : pas de premier contact à froid (sauf la personne donnée par un aiguillage) ;
+  // la préparation qu'on refait ne compte pas.
+  const replaced = new Set(opts.replacing ?? []);
+  const others = (rows: unknown) => ((rows ?? []) as Array<{ id: string }>).filter((x) => !replaced.has(x.id)).length;
+  const { data: t1 } = await sb.from('agent_threads').select('id').eq('prospect_id', p.id).limit(10);
   const targets = [...new Set([router?.email, mailTo?.email].filter((x): x is string => !!x))];
-  const { data: t2 } = targets.length ? await sb.from('agent_threads').select('id').in('counterpart_email', targets).limit(1) : { data: [] };
-  if ((!opts.afterRouting && ((t1 ?? []) as unknown[]).length) || ((t2 ?? []) as unknown[]).length) return skip('déjà en conversation');
+  const { data: t2 } = targets.length ? await sb.from('agent_threads').select('id').in('counterpart_email', targets).limit(10) : { data: [] };
+  if ((!opts.afterRouting && others(t1)) || others(t2)) return skip('déjà en conversation');
   const conflict = opts.afterRouting ? null : await groupConflict(a.agent, p, key);
   if (conflict) return skip(conflict);
 
@@ -366,6 +372,8 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
     return { status: 'echec', name: p.name, detail: `brouillon non enregistré : ${e2?.message ?? '?'}`, cost };
   }
   await sb.from('agent_threads').update({ last_message_at: new Date().toISOString(), last_direction: 'out' }).eq('id', threadId);
+  // 20/10 : la préparation d'avant laisse la place, maintenant que la nouvelle est enregistrée (./prepared.ts).
+  if (replaced.size) await dropPrepared([...replaced].filter((id) => id !== threadId));
   if (p.stage === 'qualifie') await sb.from('agent_prospects').update({ stage: 'a_contacter', updated_at: new Date().toISOString() }).eq('id', p.id);
   const warnings = check.warnings.length + (routing?.warnings ?? 0);
   const points = warnings ? ` — ${warnings} point${warnings > 1 ? 's' : ''} à vérifier` : '';

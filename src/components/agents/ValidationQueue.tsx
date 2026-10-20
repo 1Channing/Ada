@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, Clock, AlertTriangle, Crown, Telescope, Compass, Send } from 'lucide-react';
 import {
-  listQueue, listForYou, listKeyAccounts, threadsOfProspects, prospectWork, queueDeepResearch, queueFirstMails, queueQualification, queueAccountQualification, setProspectStage, sendFromAgent,
+  listQueue, listForYou, listKeyAccounts, threadsOfProspects, prospectWork, queueDeepResearch, queueFirstMails, queueRedoPlan, queueQualification, queueAccountQualification, setProspectStage, sendFromAgent,
   AGENT_LABEL, type AgentKey, type AgentSettings, type AgentCounts, type QueuedMessage, type ForYouMessage, type ProspectDetail, type ProspectStage,
 } from '../../services/agents';
 import { MessageCard } from './MessageCard';
@@ -88,6 +88,14 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
     onInfo(`${name} prépare pour vous ${p.name} (tout le plan : le mail ou l'aiguillage, une note LinkedIn par personne, la fiche d'appel) : il arrive dans « Pour vous » d'ici une minute.`);
     void load();
   };
+  // 20/10 : « Refaire le plan » — avec la fiche telle qu'elle est ; la nouvelle préparation remplace l'ancienne.
+  const redo = async (prospectId: string, label: string) => {
+    if (!window.confirm(`${name} refait tout le plan de ${label} avec la fiche telle qu'elle est : l'aiguillage, le mail, une note LinkedIn par personne, la fiche d'appel.\n\nCe qui est préparé et pas encore parti est remplacé — sauf un brouillon que vous avez corrigé. Environ 0,10 $.`)) return;
+    const e = await queueRedoPlan(agent, prospectId, userId);
+    if (e) { onError(e); return; }
+    onInfo(`${name} refait le plan de ${label} : il remplace l'ancien ici d'ici une minute.`);
+    void load();
+  };
   const restage = async (p: ProspectDetail, stage: ProspectStage) => {
     const e = await setProspectStage(p.id, stage);
     if (e) onError(e); else void load();
@@ -149,7 +157,8 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
           {accounts.map((items) => {
             const pid = items[0].thread?.prospect?.id ?? '';
             return <ForYouCard key={items[0].thread_id} items={items} settings={mine} counts={counts[agent]} isAdmin={isAdmin} onOpenThread={onOpenThread} onChanged={changed} onError={onError} onInfo={onInfo}
-              onDeep={(id, note) => void deepen(id, items[0].thread?.prospect?.name ?? 'ce compte', note)} deeping={work.deep.has(pid) || work.draft.has(pid)} />;
+              onDeep={(id, note) => void deepen(id, items[0].thread?.prospect?.name ?? 'ce compte', note)} deeping={work.deep.has(pid)}
+              onRedo={(id) => void redo(id, items[0].thread?.prospect?.name ?? 'ce compte')} redoing={work.draft.has(pid)} />;
           })}
         </section>
       )}

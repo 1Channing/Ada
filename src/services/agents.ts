@@ -835,6 +835,15 @@ export async function queueProbableMail(agent: AgentKey, prospectId: string, ema
   return error ? errMails(error.message) : null;
 }
 
+/**
+ * « Refaire le plan » d'un compte (20/10) : l'agente refait toute la préparation avec la fiche telle qu'elle est ; la
+ * nouvelle remplace l'ancienne si rien n'en est parti et que personne ne l'a corrigée (sinon, rien n'est refait).
+ */
+export async function queueRedoPlan(agent: AgentKey, prospectId: string, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'premier_mail', params: { prospect_ids: [prospectId], refaire: true }, created_by: userId });
+  return error ? errMails(error.message) : null;
+}
+
 export const LECONS_SQL_HINT = 'Leçons des agentes : SQL du 19/10 (agents_lecons) à coller dans Supabase.';
 const errLecons = (m: string) => (missing(m) ? LECONS_SQL_HINT : m);
 

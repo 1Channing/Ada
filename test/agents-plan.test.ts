@@ -13,7 +13,10 @@
  * B. « Chercher plus loin » trouve l'adresse de celle qui traite : un aiguillage corrigé à la main
  *    n'est pas jeté ; sinon la préparation est refaite — le mail à sa vraie adresse, plus d'aiguillage ;
  * C. un petit compte : la recherche lancée à la main prépare son premier mail, à valider ; lancée
- *    d'office, rien.
+ *    d'office, rien ;
+ * D. « Refaire le plan » : la nouvelle préparation d'abord, l'ancienne laisse la place ensuite — rien
+ *    de perdu au plafond du jour, rien de refait sur un brouillon corrigé, un message validé entre-temps
+ *    reste.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as dns } from 'node:dns';
@@ -254,6 +257,43 @@ ok(c1.prepared && mailC?.status === 'a_valider' && mailC.channel === 'mail' && m
 'C. un petit compte, recherche lancée à la main : son premier mail à Claire Martin, à valider (signé Dana)', mailC && { s: mailC.status, to: mailC.to_emails });
 const c2 = await deepResearch('p-negoce2', dana as never, null, false);
 ok(c2.status === 'enrichi' && !c2.prepared && !db.agent_threads.some((t) => t.prospect_id === 'p-negoce2'), 'C. lancée d\'office : la fiche complétée, rien de préparé', { status: c2.status, prepared: c2.prepared });
+
+// D. « Refaire le plan » (la tâche que pose le bouton) : la nouvelle préparation d'abord, l'ancienne laisse la place ensuite.
+const { runNextTask } = await import('../worker/agents/tasks');
+const { dropPrepared } = await import('../worker/agents/prepared');
+const task = (o: Row) => { db.agent_tasks.push({ id: `t${db.agent_tasks.length + 1}`, agent: 'dana', status: 'en_attente', created_by: 'u-channing', created_at: new Date().toISOString(), ...o }); };
+type TaskRow = Row & { status: string; error?: string; result?: { rediges?: number; ignores?: number; details?: string[] } };
+const lastTask = () => db.agent_tasks[db.agent_tasks.length - 1] as TaskRow;
+const agilThreads = () => db.agent_threads.filter((t) => t.prospect_id === 'p-agil').map((t) => t.id as string);
+const prevThread = threadB?.id as string;
+const settings = db.agent_settings[0] as Row;
+settings.daily_budget_usd = 0;
+task({ kind: 'premier_mail', params: { prospect_ids: ['p-agil'], refaire: true } });
+await runNextTask();
+ok(lastTask().status === 'echec' && /plafond du jour/.test(String(lastTask().error)) && agilThreads().join() === prevThread && inThread(prevThread).length === 3,
+  'D. le plafond du jour atteint : rien n\'est effacé avant que la nouvelle préparation soit enregistrée — la fiche garde son plan', { status: lastTask().status, error: lastTask().error, threads: agilThreads() });
+settings.daily_budget_usd = 5;
+const mailPrev = inThread(prevThread).find((m) => m.channel === 'mail') as Row;
+const mailText = String(mailPrev.body_text);
+mailPrev.body_text = 'Bonjour Monsieur Dalmas,\n\nUn mot de Channing : nous reprenons volontiers vos véhicules restitués, en une fois. Avez-vous un moment cette semaine ?';
+task({ kind: 'premier_mail', params: { prospect_ids: ['p-agil'], refaire: true } });
+await runNextTask();
+ok(lastTask().status === 'terminee' && lastTask().result?.ignores === 1 && /Agilauto : un message est parti, ou un brouillon a été corrigé à la main — rien de refait/.test(String(lastTask().result?.details?.[0]))
+  && agilThreads().join() === prevThread && String(mailPrev.body_text).includes('Un mot de Channing'),
+'D. un mail corrigé à la main : rien de refait, la correction reste', lastTask().result);
+mailPrev.body_text = mailText;
+const nCalls = calls.length;
+task({ kind: 'premier_mail', params: { prospect_ids: ['p-agil'], refaire: true } });
+await runNextTask();
+const redone = agilThreads();
+const msgsD = inThread(redone[0]);
+ok(lastTask().status === 'terminee' && lastTask().result?.rediges === 1 && redone.length === 1 && redone[0] !== prevThread && inThread(prevThread).length === 0
+  && msgsD.map((m) => `${m.channel}:${notesOfRow(m).personne}`).join() === 'mail:Mathieu Dalmas,linkedin:Mathieu Dalmas,linkedin:Antoine Garel' && calls.length === nCalls + 1,
+'D. sinon : le plan refait avec la fiche telle qu\'elle est (une seule préparation, sans nouvelle recherche), l\'ancien effacé ensuite', msgsD.map((m) => `${m.channel}:${notesOfRow(m).personne}`));
+// Entre-temps (le temps que l'IA écrive), quelqu'un valide un message de l'ancienne préparation : il reste.
+db.agent_threads.push({ id: 'th-old', agent: 'dana', prospect_id: 'p-agil', subject: 'x' });
+db.agent_messages.push({ id: 'm-old', thread_id: 'th-old', agent: 'dana', direction: 'out', channel: 'mail', status: 'valide', author: 'dana', body_text: 'x', ai_notes: { texte_initial: 'x' } });
+ok(await dropPrepared(['th-old']) === 0 && db.agent_threads.some((t) => t.id === 'th-old') && db.agent_messages.some((m) => m.id === 'm-old'), 'D. un message validé entre-temps : son fil n\'est pas effacé');
 
 server.close();
 if (fails === 0) {

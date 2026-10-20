@@ -20,7 +20,7 @@
  * et chaque piste dit ce qui est prêt pour elle.
  */
 import { useState } from 'react';
-import { Mail, Linkedin, PhoneCall, ExternalLink, ClipboardList, ChevronRight, Telescope, AlertTriangle, Compass, CheckCircle2 } from 'lucide-react';
+import { Mail, Linkedin, PhoneCall, ExternalLink, ClipboardList, ChevronRight, Telescope, AlertTriangle, Compass, CheckCircle2, RefreshCw } from 'lucide-react';
 import type { ForYouMessage, CallSheet, AgentSettings, AgentCounts } from '../../services/agents';
 import { MessageCard } from './MessageCard';
 import { missingOf, lastDeepAt } from '../../lib/agents/deepResearch';
@@ -48,11 +48,13 @@ function Sheet({ s }: { s: CallSheet }) {
 }
 
 /** Un grand compte, replié sur deux lignes (qui, note, ce qui est prêt, ce qui manque) ; ouvert : la fiche d'appel, l'aiguillage, le mail et les notes LinkedIn préparés. */
-export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onChanged, onError, onInfo, onDeep, deeping }: {
+export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onChanged, onError, onInfo, onDeep, deeping, onRedo, redoing }: {
   items: ForYouMessage[]; settings: AgentSettings | undefined; counts: AgentCounts | undefined; isAdmin: boolean;
   onOpenThread: (id: string) => void; onChanged: () => void; onError: (e: string) => void; onInfo?: (m: string) => void;
   /** La recherche approfondie de ce compte (18/10) : à lancer, ou en cours. */
   onDeep?: (prospectId: string, note: string) => void; deeping?: boolean;
+  /** 20/10 : « Refaire le plan » avec la fiche telle qu'elle est (un administrateur) ; ou la préparation en cours. */
+  onRedo?: (prospectId: string) => void; redoing?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const first = items[0];
@@ -115,11 +117,19 @@ export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onC
           ))}
         </div>
       )}
-      {p && onDeep && (deeping
+      {p && onDeep && (redoing
+        ? <p className="text-xs text-violet-700 animate-pulse">{first.agent === 'dana' ? 'Dana' : 'Ada'} refait le plan : aiguillage, mail, notes LinkedIn, fiche d'appel…</p>
+        : deeping
         ? <p className="text-xs text-indigo-700 animate-pulse">{first.agent === 'dana' ? 'Dana' : 'Ada'} cherche plus loin : à qui appartient l'entreprise, qui décide… la préparation sera refaite si elle trouve mieux.</p>
         : (
           <div className="flex items-center gap-2 flex-wrap text-xs">
             {missing.length > 0 && <span className="text-amber-800">Il manque : {missing.join(', ')}.</span>}
+            {isAdmin && onRedo && (
+              <button onClick={() => onRedo(p.id)} className="inline-flex items-center gap-1 rounded-lg border border-violet-300 bg-white px-2 py-1 font-medium text-violet-800 hover:bg-violet-50"
+                title="L'agente refait tout le plan avec la fiche telle qu'elle est : l'aiguillage, le mail, une note LinkedIn par personne, la fiche d'appel. Ce qui est préparé et pas encore parti est remplacé — sauf un brouillon que vous avez corrigé. Environ 0,10 $.">
+                <RefreshCw className="w-3 h-3" /> Refaire le plan
+              </button>
+            )}
             <DeepAsk name={first.agent === 'dana' ? 'Dana' : 'Ada'} again={!!deepAt} onLaunch={(note) => onDeep(p.id, note)}
               title="L'agente va plus loin sur le web (à qui appartient l'entreprise, qui décide, comment la joindre directement) ; si elle trouve mieux, le plan préparé (aiguillage, mail, notes LinkedIn, fiche d'appel) est refait — sauf un brouillon que vous avez corrigé. Environ 0,10 $, plus la nouvelle préparation." />
           </div>
