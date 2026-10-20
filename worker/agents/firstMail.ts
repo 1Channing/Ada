@@ -44,7 +44,9 @@ import {
   DANA_FIRST_MAIL_SYSTEM, danaFirstMailPrompt, checkDanaMail, keyAccountSystem, KEY_ACCOUNT_SCHEMA, keyAccountPrompt, checkKeyAccount, linkedinSearchUrl,
   type FirstMailOutput, type KeyAccountOutput, type OfferFact, type DraftCheck, type AccountFacts,
   routingSystem, routingPrompt, ROUTING_SCHEMA, checkRouting, pickRouter, routingWanted, theirFigures, type RoutingOutput, type RouterPick,
+  planPeople, notesOf, type NoteTarget,
 } from '../../src/lib/agents/firstMail';
+import { samePerson } from '../../src/lib/agents/people';
 import { teamKnownOf, TEAM_SOURCE_LABEL, type TeamSource } from '../../src/lib/agents/teamMemory';
 import { lessonsBlock } from './lessons';
 import { segmentOf } from '../../src/lib/agents/research';
@@ -55,10 +57,10 @@ import { suppressionMatch } from '../../src/lib/agents/sendPolicy';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
 import { live } from './live';
 import { loadOffers, dealerGroupIds, lotsOfDealer, type AiAgent } from './qualify';
-import { HOME_COUNTRY, addressKind } from '../../src/lib/agents/qualification';
+import { HOME_COUNTRY, addressKind, type AddressKind } from '../../src/lib/agents/qualification';
 import { sb, journal, loadSuppressions } from './store';
 
-interface Person { nom: string; fonction: string; email: string | null; linkedin?: string | null; niveau?: string | null; perimetre?: string | null; connu?: boolean; via?: string | null }
+interface Person { nom: string; fonction: string; email: string | null; linkedin?: string | null; niveau?: string | null; perimetre?: string | null; connu?: boolean; via?: string | null; email_probable?: string | null; motif?: string | null }
 interface ProspectRow {
   id: string; agent: string; dealer_id: string | null; name: string; country: string | null; city: string | null;
   group_name: string | null; kind: string | null; brands_official: string[] | null; language: string | null; summary: string | null;
@@ -121,9 +123,25 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const verified = !!probable || (!!email && (p.emails ?? []).some((e) => e.email === email && e.mx));
   // 19/10 : sans adresse directe (rien, ou une adresse générale), un aiguillage plutôt qu'une présentation dans le vide.
   const kind = verified && email ? (probable ? 'personne' : addressKind(email, (p.emails ?? []).find((e) => e.email === email)?.nature, p.best_contact?.nom)) : null;
-  const router: RouterPick | null = !verified || kind === 'generique' ? pickRouter((p.people ?? []) as Person[], (p.emails ?? []).map((e) => ({ email: e.email, nature: e.nature ?? 'autre', mx: e.mx })), p.best_contact, addressKind) : null;
+  const bestDirect = verified && kind !== 'generique';
+  // 20/10 (Channing, sur Agilauto : « qu'elle prépare tout le plan, qu'on n'ait plus qu'à valider ») : un grand compte —
+  // les personnes du plan (qui traite, qui décide, le contact retenu). Le contact retenu sans adresse directe : une
+  // personne du plan qui en a une reçoit le mail ; sinon l'aiguillage, ET le mail à l'adresse probable (format prouvé)
+  // d'une personne du plan — marqué, que seul un administrateur envoie. D'abord une personne de l'entreprise même : le
+  // format prouvé est souvent celui de la filiale (chez Agilauto, l'adresse du directeur commercial), un pari pour un directeur du groupe.
+  const plan = key ? planPeople((p.people ?? []) as Person[], p.best_contact, (p.emails ?? []).map((e) => ({ email: e.email, nature: e.nature ?? null, mx: e.mx })), addressKind) : [];
+  const planDirect = !bestDirect ? plan.find((x) => x.email) ?? null : null;
+  const router: RouterPick | null = !bestDirect && !planDirect ? pickRouter((p.people ?? []) as Person[], (p.emails ?? []).map((e) => ({ email: e.email, nature: e.nature ?? 'autre', mx: e.mx })), p.best_contact, addressKind) : null;
+  const planProbable = !bestDirect && !planDirect ? plan.find((x) => x.probable && !x.groupe) ?? plan.find((x) => x.probable) ?? null : null;
+  const mailTo: { nom: string | null; fonction: string | null; email: string; address: AddressKind; probable: { email: string; motif: string } | null } | null = planDirect?.email
+    ? { nom: planDirect.nom, fonction: planDirect.fonction, email: planDirect.email, address: 'personne', probable: null }
+    : bestDirect && email && kind
+      ? { nom: p.best_contact?.nom ?? null, fonction: p.best_contact?.fonction ?? null, email, address: kind, probable }
+      : planProbable?.probable
+        ? { nom: planProbable.nom, fonction: planProbable.fonction, email: planProbable.probable.email, address: 'personne', probable: planProbable.probable }
+        : null;
   // Un grand compte sans e-mail publié reste joignable : LinkedIn et la fiche d'appel, préparés pour Channing.
-  if (!router && !(verified && kind !== 'generique') && !key) return skip('pas d\'adresse directe, ni personne à qui demander le bon contact');
+  if (!router && !mailTo && !key) return skip('pas d\'adresse directe, ni personne à qui demander le bon contact');
   if (!['qualifie', 'a_contacter'].includes(p.stage)) return skip(`étape « ${p.stage} »`);
   if (role === 'ada' && (p.country ?? '').toUpperCase() === HOME_COUNTRY) return skip('garage en France : MC Export y achète, Ada ne lui vend pas');
   // 19/10 : une entreprise que l'équipe connaît déjà n'a pas de mail à froid d'office.
@@ -132,12 +150,13 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
     return skip(`déjà connue de l'équipe : ${known.slice(0, 2).map((x) => `${x.nom}${x.via ? ` (${TEAM_SOURCE_LABEL[x.via as TeamSource] ?? x.via})` : ''}`).join(', ')} — pas de premier mail d'office`);
   }
   // Une adresse de l'entreprise (ou son domaine) sur « ne plus contacter » vaut pour toute l'entreprise, et pour les deux agentes.
-  const target = router?.email ?? email;
-  const blocked = suppressionMatch([target ?? '', email ?? '', ...(p.emails ?? []).map((e) => e.email)], await loadSuppressions());
+  const target = router?.email ?? mailTo?.email ?? email;
+  const blocked = suppressionMatch([target ?? '', email ?? '', mailTo?.email ?? '', ...(p.emails ?? []).map((e) => e.email)], await loadSuppressions());
   if (blocked) return skip(`${blocked} est sur « ne plus contacter »`);
   const { data: t1 } = await sb.from('agent_threads').select('id').eq('prospect_id', p.id).limit(1);
   // En conversation avec l'une ou l'autre agente : pas de premier contact à froid (sauf la personne donnée par un aiguillage).
-  const { data: t2 } = target ? await sb.from('agent_threads').select('id').eq('counterpart_email', target).limit(1) : { data: [] };
+  const targets = [...new Set([router?.email, mailTo?.email].filter((x): x is string => !!x))];
+  const { data: t2 } = targets.length ? await sb.from('agent_threads').select('id').in('counterpart_email', targets).limit(1) : { data: [] };
   if ((!opts.afterRouting && ((t1 ?? []) as unknown[]).length) || ((t2 ?? []) as unknown[]).length) return skip('déjà en conversation');
   const conflict = opts.afterRouting ? null : await groupConflict(a.agent, p, key);
   if (conflict) return skip(conflict);
@@ -160,8 +179,8 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const language = p.language || LANG_OF_COUNTRY[(p.country ?? '').toUpperCase()] || 'en';
   // L'adresse du mail et ce qu'elle est : celle de la personne, d'un service, ou une adresse générale (on demande alors de transmettre).
   const contact = {
-    name: p.best_contact?.nom ?? null, role: p.best_contact?.fonction ?? null, email: verified && !router ? email : null,
-    address: verified && email && !router ? kind : null,
+    name: mailTo?.nom ?? p.best_contact?.nom ?? null, role: mailTo ? mailTo.fonction : p.best_contact?.fonction ?? null,
+    email: mailTo?.email ?? null, address: mailTo?.address ?? null,
   };
   // Une entreprise trouvée par recherche web : son type de compte, sa taille, pourquoi elle compte.
   let account: AccountFacts | null = null;
@@ -212,7 +231,10 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
     ...(p.best_contact?.nom ? [{ nom: p.best_contact.nom, fonction: p.best_contact.fonction ?? null, linkedin: p.best_contact.linkedin ?? null }] : []),
     ...(p.people ?? []).filter((x) => x.nom && x.nom !== p.best_contact?.nom && !x.connu).map((x) => ({ nom: x.nom, fonction: x.fonction ?? null, linkedin: x.linkedin ?? null })),
   ];
-  const prompt = withLessons(key ? keyAccountPrompt(base, people) : base);
+  // Les notes LinkedIn du plan : une par personne dont le profil a été vu (3 au plus) ; sinon une, pour la première du plan.
+  const withProfile = plan.filter((x) => x.linkedin);
+  const noteTargets: NoteTarget[] = (withProfile.length ? withProfile.slice(0, 3) : plan.slice(0, 1)).map((x) => ({ nom: x.nom, fonction: x.fonction, role: x.role }));
+  const prompt = withLessons(key ? keyAccountPrompt(base, people, noteTargets) : base);
   const budget = Number(a.daily_budget_usd);
 
   // 3a. L'aiguillage (19/10) : pas d'adresse directe — un mail court pour obtenir le bon contact.
@@ -262,7 +284,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   let cost = routing?.cost ?? 0;
   let check: DraftCheck = { words: 0, warnings: [] };
   if (!routing || key) {
-    live(taskId, key ? `${p.name} : grand compte — ${routing ? 'note LinkedIn et fiche d\'appel' : 'mail, note LinkedIn et fiche d\'appel'} préparés pour vous (IA)` : `${p.name} : rédaction du premier mail (IA)`);
+    live(taskId, key ? `${p.name} : grand compte — le plan préparé pour vous : ${mailTo ? 'mail, ' : ''}notes LinkedIn et fiche d'appel (IA)` : `${p.name} : rédaction du premier mail (IA)`);
     try {
       const r = await callClaude<KeyAccountOutput | FirstMailOutput>({
         agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: key ? 'grand_compte' : 'premier_mail', model: OPUS,
@@ -292,9 +314,9 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   };
 
   // 4. Le fil, et le brouillon à valider — ou, pour un grand compte, ce que Channing envoie lui-même
-  const counterpart = routing ? router?.email ?? null : verified ? email : null;
+  const counterpart = routing ? router?.email ?? null : mailTo?.email ?? null;
   const { data: th, error: e1 } = await sb.from('agent_threads').insert({
-    agent: a.agent, mailbox: a.mailbox, subject, counterpart_email: counterpart, counterpart_name: routing ? router?.name ?? null : p.best_contact?.nom ?? null,
+    agent: a.agent, mailbox: a.mailbox, subject, counterpart_email: counterpart, counterpart_name: routing ? router?.name ?? null : mailTo?.nom ?? p.best_contact?.nom ?? null,
     prospect_id: p.id, network_contact_id: p.network_contact_id,
   }).select('id');
   const threadId = ((th ?? []) as Array<{ id: string }>)[0]?.id;
@@ -302,27 +324,38 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const rows: Array<Record<string, unknown>> = [];
   const common = { thread_id: threadId, agent: a.agent, mailbox: a.mailbox, direction: 'out', kind: 'premier_contact', author: a.agent };
   if (routing) rows.push({ ...common, ...routing.row });
+  let liNotes: Array<{ nom: string | null; note: string; url: string | null }> = [];
   if (key && out) {
     const k = out as KeyAccountOutput;
-    const linkedTarget = people.find((x) => x.linkedin) ?? null;
-    const linkedinUrl = linkedTarget?.linkedin ?? null;
-    const card = {
-      ...notes, grand_compte: true, fiche_appel: k.fiche_appel ?? null,
-      linkedin_url: linkedinUrl, linkedin_nom: linkedTarget?.nom ?? null,
-      linkedin_recherche: linkedinUrl ? null : linkedinSearchUrl(p.group_name || p.name, role, language, p.best_contact?.nom ?? null),
-    };
+    // Chaque note à sa personne du plan : par son nom, sinon par son rang (les notes sont demandées dans l'ordre) ;
+    // sans personne nommée, la note ne nomme personne (et la recherche LinkedIn se fait par le poste).
+    liNotes = notesOf(k, noteTargets[0]?.nom ?? p.best_contact?.nom ?? null).slice(0, Math.max(1, noteTargets.length)).map((n, i) => {
+      const who = plan.find((x) => samePerson(x.nom, n.nom)) ?? plan.find((x) => x.nom === noteTargets[i]?.nom) ?? null;
+      const nom = who?.nom ?? (noteTargets.length ? n.nom : null);
+      return { nom, note: n.note, url: who?.linkedin ?? (samePerson(nom, p.best_contact?.nom) ? p.best_contact?.linkedin ?? null : null) };
+    });
+    const card = { ...notes, grand_compte: true, fiche_appel: k.fiche_appel ?? null };
     const translation = language === 'fr' ? null : (k.traduction_fr ?? null);
-    // Le mail seulement vers une adresse directe publiée (Channing : « publiées seulement + LinkedIn ») ; sinon l'aiguillage.
-    if (verified && !routing && k.corps?.trim()) rows.push({ ...common, channel: 'mail', status: 'pour_channing', to_emails: [email], subject, body_text: k.corps.trim(), translation_fr: translation, ai_notes: card });
-    if ((k.linkedin ?? '').trim()) {
+    // Le mail : à une adresse directe publiée (Channing : « publiées seulement + LinkedIn »), ou — 20/10, le plan préparé —
+    // à l'adresse probable de la personne du plan, marquée : un administrateur seul l'envoie (comme « Écrire à cette adresse »).
+    if (mailTo && k.corps?.trim()) {
+      const guessed = mailTo.probable && !probable
+        ? { adresse_probable: mailTo.probable.email, motif_adresse: mailTo.probable.motif, alertes: [`Adresse probable, non publiée (${mailTo.probable.motif}) : seul un administrateur l'envoie ; un rebond abîme la réputation de mc-export.com.`, ...check.warnings] }
+        : {};
+      rows.push({ ...common, channel: 'mail', status: 'pour_channing', to_emails: [mailTo.email], subject, body_text: k.corps.trim(), translation_fr: translation, ai_notes: { ...card, personne: mailTo.nom, ...guessed } });
+    }
+    // Une note par personne du plan, avec son profil (ou la recherche LinkedIn de son nom).
+    for (const n of liNotes) {
       rows.push({
-        ...common, channel: 'linkedin', status: 'pour_channing', to_emails: [], subject: `LinkedIn — ${linkedTarget?.nom ?? p.best_contact?.nom ?? p.group_name ?? p.name}`.slice(0, 200),
-        body_text: k.linkedin.trim(), translation_fr: translation, ai_notes: card,
+        ...common, channel: 'linkedin', status: 'pour_channing', to_emails: [], subject: `LinkedIn — ${n.nom ?? p.group_name ?? p.name}`.slice(0, 200),
+        body_text: n.note, translation_fr: translation,
+        // Son texte d'origine : la note (pas le mail) — une note corrigée apprend une leçon, une note envoyée telle quelle non.
+        ai_notes: { ...card, texte_initial: n.note, personne: n.nom, linkedin_url: n.url, linkedin_nom: n.nom, linkedin_recherche: n.url ? null : linkedinSearchUrl(p.group_name || p.name, role, language, n.nom) },
       });
     }
-  } else if (!routing && out) {
+  } else if (!routing && out && mailTo) {
     rows.push({
-      ...common, channel: 'mail', status: 'a_valider', to_emails: [email], subject, body_text: withAgentSignature(out.corps, a.signature ?? ''),
+      ...common, channel: 'mail', status: 'a_valider', to_emails: [mailTo.email], subject, body_text: withAgentSignature(out.corps, a.signature ?? ''),
       translation_fr: language === 'fr' ? null : (out.traduction_fr ?? null), ai_notes: notes,
     });
   }
@@ -338,18 +371,25 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
   const points = warnings ? ` — ${warnings} point${warnings > 1 ? 's' : ''} à vérifier` : '';
   const who = router ? (router.name ? `${router.name}${router.role ? ` (${router.role})` : ''}` : router.email) : '';
   const lookingFor = p.best_contact?.nom ?? `la personne qui ${routingWanted(role, segKey ?? p.kind)}`;
+  const named = liNotes.map((n) => n.nom).filter(Boolean).join(', ');
+  const prepared = [
+    routing ? `aiguillage à ${who}` : null,
+    mailTo && rows.some((r) => r.channel === 'mail' && r.status === 'pour_channing') ? `mail à ${mailTo.nom ? `${mailTo.nom} (${mailTo.email}${mailTo.probable && !probable ? ', adresse probable' : ''})` : mailTo.email}` : null,
+    liNotes.length ? `${liNotes.length > 1 ? `${liNotes.length} notes LinkedIn` : 'note LinkedIn'}${named ? ` (${named})` : ''}` : null,
+    'fiche d\'appel',
+  ].filter(Boolean).join(', ');
   await journal({
     agent: a.agent, actor: a.agent, kind: routing ? 'aiguillage' : key ? 'grand_compte' : 'premier_mail', threadId, messageId,
     summary: key
-      ? `Grand compte ${p.name} (${p.country ?? '?'}) préparé pour vous : ${routing ? `aiguillage à ${who}, ` : verified ? `mail à ${email}, ` : ''}note LinkedIn et fiche d'appel${points}`
+      ? `Grand compte ${p.name} (${p.country ?? '?'}) préparé pour vous : ${prepared}${points}`
       : routing
         ? `Aiguillage préparé pour ${p.name} (${p.country ?? '?'}) : à ${who}, pour obtenir le contact de ${lookingFor} — à valider${points}`
-        : `Premier mail rédigé pour ${p.name} (${p.country ?? '?'}) → ${email}${probable ? ' (adresse probable)' : ''}, à valider${points}`,
+        : `Premier mail rédigé pour ${p.name} (${p.country ?? '?'}) → ${mailTo?.email ?? email}${probable ? ' (adresse probable)' : ''}, à valider${points}`,
     details: { prospect_id: p.id, cost_usd: Math.round(cost * 10_000) / 10_000, langue: language, grand_compte: key, lots: lots.length, compte: p.account_id ?? null, aiguillage: !!routing },
   });
   return {
     status: 'redige', name: p.name, cost, threadId,
-    detail: routing ? `aiguillage à ${router?.email}${key ? ' ; grand compte pour vous' : ''}` : key ? `grand compte, pour vous${verified ? ` (${email})` : ''}` : email ?? '',
+    detail: routing ? `aiguillage à ${router?.email}${key ? ' ; grand compte pour vous' : ''}` : key ? `grand compte, pour vous${mailTo ? ` (${mailTo.email})` : ''}` : mailTo?.email ?? email ?? '',
   };
 }
 

@@ -13,12 +13,18 @@
  * consigne, si vous en laissez une), et la préparation est refaite avec ce
  * qu'elle trouve. Le mail préparé part aussi de la boîte de l'agente, signé
  * par elle (« Envoyer ») : la même carte de message que la Messagerie.
+ * 20/10 (Channing, sur Agilauto : « elle propose un plan d'actions mais n'a
+ * pas préparé les mails — qu'on n'ait plus qu'à valider ») : la carte montre
+ * tout le plan préparé — l'aiguillage (à valider), le mail (adresse directe,
+ * ou probable et marquée), une note LinkedIn par personne, la fiche d'appel —
+ * et chaque piste dit ce qui est prêt pour elle.
  */
 import { useState } from 'react';
-import { Mail, Linkedin, PhoneCall, ExternalLink, ClipboardList, ChevronRight, Telescope, AlertTriangle } from 'lucide-react';
+import { Mail, Linkedin, PhoneCall, ExternalLink, ClipboardList, ChevronRight, Telescope, AlertTriangle, Compass, CheckCircle2 } from 'lucide-react';
 import type { ForYouMessage, CallSheet, AgentSettings, AgentCounts } from '../../services/agents';
 import { MessageCard } from './MessageCard';
 import { missingOf, lastDeepAt } from '../../lib/agents/deepResearch';
+import { deburr } from '../../lib/agents/people';
 import { KIND_LABEL, fmtDateTime, scoreTone } from './helpers';
 import { DeepAsk } from './shared';
 
@@ -41,7 +47,7 @@ function Sheet({ s }: { s: CallSheet }) {
   );
 }
 
-/** Un grand compte, replié sur deux lignes (qui, note, ce qui est prêt, ce qui manque) ; ouvert : la fiche d'appel, le mail et la note LinkedIn préparés. */
+/** Un grand compte, replié sur deux lignes (qui, note, ce qui est prêt, ce qui manque) ; ouvert : la fiche d'appel, l'aiguillage, le mail et les notes LinkedIn préparés. */
 export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onChanged, onError, onInfo, onDeep, deeping }: {
   items: ForYouMessage[]; settings: AgentSettings | undefined; counts: AgentCounts | undefined; isAdmin: boolean;
   onOpenThread: (id: string) => void; onChanged: () => void; onError: (e: string) => void; onInfo?: (m: string) => void;
@@ -54,6 +60,14 @@ export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onC
   const sheet = items.map((m) => m.ai_notes?.fiche_appel).find((x): x is CallSheet => !!x) ?? null;
   const mail = items.filter((m) => m.channel === 'mail');
   const notes = items.filter((m) => m.channel === 'linkedin');
+  // 20/10 : le plan préparé — à qui chaque message s'adresse, et les pistes qu'il couvre (le nom de la personne dans la piste).
+  const personOf = (m: ForYouMessage) => m.ai_notes?.personne ?? m.ai_notes?.linkedin_nom ?? m.ai_notes?.aiguillage?.routeur ?? null;
+  const routingMails = mail.filter((m) => !!m.ai_notes?.aiguillage);
+  const directMails = mail.filter((m) => !m.ai_notes?.aiguillage);
+  const noteNames = notes.map(personOf).filter(Boolean).join(', ');
+  const lastName = (n: string | null) => (n ? deburr(n).split(/[^a-z]+/).filter((w) => w.length >= 3).pop() ?? null : null);
+  const readyFor = (lead: string) => { const words = deburr(lead).split(/[^a-z]+/); return items.filter((m) => { const w = lastName(personOf(m)); return !!w && words.includes(w); }); };
+  const readyLabel = (m: ForYouMessage) => (m.channel === 'linkedin' ? 'note LinkedIn prête' : m.ai_notes?.aiguillage ? 'aiguillage à valider' : `mail prêt${m.ai_notes?.adresse_probable ? ' (adresse probable)' : ''}`);
   const kind = p?.account_kind ?? p?.kind ?? null;
   const missing = p ? missingOf({ best_contact: p.best_contact, emails: p.emails ?? [], people: p.people ?? [], phone: p.phone }) : [];
   const deepAt = lastDeepAt(p?.evidence);
@@ -74,8 +88,10 @@ export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onC
           </p>
           <p className="mt-1 flex items-center gap-x-2.5 gap-y-1 flex-wrap text-[11px]">
             {who && <span className="text-slate-800 font-medium">{who}</span>}
-            {mail.length > 0 ? <span className="inline-flex items-center gap-0.5 text-blue-800"><Mail className="w-3 h-3" /> mail prêt</span> : <span className="text-slate-400">pas de mail (aucun e-mail publié)</span>}
-            {notes.length > 0 && <span className="inline-flex items-center gap-0.5 text-sky-800"><Linkedin className="w-3 h-3" /> note LinkedIn</span>}
+            {routingMails.map((m) => <span key={`r-${m.id}`} className="inline-flex items-center gap-0.5 text-indigo-800"><Compass className="w-3 h-3" /> aiguillage{m.ai_notes?.aiguillage?.routeur ? ` à ${m.ai_notes.aiguillage.routeur}` : ''} (à valider)</span>)}
+            {directMails.map((m) => <span key={`d-${m.id}`} className="inline-flex items-center gap-0.5 text-blue-800"><Mail className="w-3 h-3" /> mail{personOf(m) ? ` à ${personOf(m)}` : ' prêt'}{m.ai_notes?.adresse_probable ? ' (adresse probable)' : ''}</span>)}
+            {mail.length === 0 && <span className="text-slate-400">pas de mail (aucune adresse publiée)</span>}
+            {notes.length > 0 && <span className="inline-flex items-center gap-0.5 text-sky-800"><Linkedin className="w-3 h-3" /> {notes.length > 1 ? `${notes.length} notes LinkedIn` : 'note LinkedIn'}{noteNames ? ` (${noteNames})` : ''}</span>}
             {sheet && <span className="inline-flex items-center gap-0.5 text-slate-700"><ClipboardList className="w-3 h-3" /> fiche d'appel</span>}
             {deepAt && <span className="inline-flex items-center gap-0.5 text-indigo-800"><Telescope className="w-3 h-3" /> recherche approfondie</span>}
             {missing.length > 0 && <span className="inline-flex items-center gap-0.5 text-amber-800"><AlertTriangle className="w-3 h-3" /> manque : {missing.join(', ')}</span>}
@@ -91,7 +107,12 @@ export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onC
       {leads.length > 0 && (
         <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-2 text-xs space-y-0.5">
           <p className="text-indigo-900 font-medium inline-flex items-center gap-1"><Telescope className="w-3.5 h-3.5" /> Pistes de la recherche approfondie{deepAt ? ` du ${fmtDateTime(deepAt)}` : ''}</p>
-          {leads.map((l, i) => <p key={`${l.note}-${i}`} className="text-slate-800">• {l.note}</p>)}
+          {leads.map((l, i) => (
+            <p key={`${l.note}-${i}`} className="text-slate-800">
+              • {l.note}
+              {readyFor(l.note).map((m) => <span key={m.id} className="ml-1.5 inline-flex items-center gap-0.5 rounded-full border border-emerald-300 bg-emerald-50 px-1.5 text-[10px] text-emerald-800 whitespace-nowrap"><CheckCircle2 className="w-3 h-3" /> {readyLabel(m)}</span>)}
+            </p>
+          ))}
         </div>
       )}
       {p && onDeep && (deeping
@@ -100,7 +121,7 @@ export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onC
           <div className="flex items-center gap-2 flex-wrap text-xs">
             {missing.length > 0 && <span className="text-amber-800">Il manque : {missing.join(', ')}.</span>}
             <DeepAsk name={first.agent === 'dana' ? 'Dana' : 'Ada'} again={!!deepAt} onLaunch={(note) => onDeep(p.id, note)}
-              title="L'agente va plus loin sur le web (à qui appartient l'entreprise, qui décide, comment la joindre directement) ; si elle trouve mieux, le mail, la note et la fiche d'appel sont refaits. Environ 0,10 $, plus la nouvelle préparation." />
+              title="L'agente va plus loin sur le web (à qui appartient l'entreprise, qui décide, comment la joindre directement) ; si elle trouve mieux, le plan préparé (aiguillage, mail, notes LinkedIn, fiche d'appel) est refait — sauf un brouillon que vous avez corrigé. Environ 0,10 $, plus la nouvelle préparation." />
           </div>
         ))}
       <div className="flex items-center gap-3 flex-wrap text-xs">

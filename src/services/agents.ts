@@ -75,6 +75,8 @@ export interface AgentMessage {
     /** 19/10 : le contact donné dans une réponse ; l'adresse probable choisie par un administrateur ; le texte d'origine de l'agente. */
     contact_donne?: { nom: string | null; fonction: string | null; email: string; telephone: string | null } | null;
     adresse_probable?: string; motif_adresse?: string; texte_initial?: string | null;
+    /** 20/10 : le plan préparé d'un grand compte — la personne à qui ce mail ou cette note s'adresse. */
+    personne?: string | null;
     /** 19/10 : une copie de l'équipe — les contacts qu'elle donne, son sujet. */
     contacts?: Array<{ nom: string | null; fonction: string | null; entreprise: string | null; email: string | null; telephone: string | null }>; sujet?: string;
   } | null;
@@ -663,9 +665,8 @@ export interface ForYouMessage extends AgentMessage {
 
 /** Ce qu'Ada et Dana ont préparé pour vous (grands comptes) : mails, notes LinkedIn et fiches d'appel, à envoyer vous-même. */
 export async function listForYou(agent?: AgentKey): Promise<{ rows: ForYouMessage[]; error: string | null }> {
-  let q = sb.from('agent_messages')
-    .select('*, thread:agent_threads(subject, counterpart_email, counterpart_name, prospect_id, prospect:agent_prospects(id, name, country, city, phone, website, group_name, kind, account_kind, score, summary, stage, best_contact, people, emails, evidence))')
-    .eq('status', 'pour_channing').order('created_at', { ascending: true }).limit(300);
+  const cols = '*, thread:agent_threads(subject, counterpart_email, counterpart_name, prospect_id, prospect:agent_prospects(id, name, country, city, phone, website, group_name, kind, account_kind, score, summary, stage, best_contact, people, emails, evidence))';
+  let q = sb.from('agent_messages').select(cols).eq('status', 'pour_channing').order('created_at', { ascending: true }).limit(300);
   if (agent) q = q.eq('agent', agent);
   const { data, error } = await q;
   if (error) {
@@ -673,7 +674,14 @@ export async function listForYou(agent?: AgentKey): Promise<{ rows: ForYouMessag
     if (/account_kind|key_account/i.test(error.message) || missing(error.message)) return { rows: [], error: null };
     return { rows: [], error: error.message };
   }
-  return { rows: (data ?? []) as ForYouMessage[], error: null };
+  const rows = (data ?? []) as ForYouMessage[];
+  // 20/10 (le plan préparé) : l'aiguillage d'un grand compte, « à valider », est aussi sur sa carte, avec le reste du plan.
+  const threads = [...new Set(rows.map((m) => m.thread_id))].slice(0, 200);
+  if (threads.length) {
+    const { data: more } = await sb.from('agent_messages').select(cols).eq('status', 'a_valider').in('thread_id', threads).order('created_at', { ascending: true });
+    rows.push(...((more ?? []) as ForYouMessage[]));
+  }
+  return { rows, error: null };
 }
 
 /** Vous l'avez envoyé (votre boîte, votre LinkedIn) : le message est figé, le prospect passe « contacté ». */

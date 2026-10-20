@@ -85,7 +85,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
   const prepare = async (p: ProspectDetail) => {
     const e = await queueFirstMails([p.id], userId, agent);
     if (e) { onError(e); return; }
-    onInfo(`${name} prépare pour vous ${p.name} (mail s'il y a un e-mail publié, note LinkedIn, fiche d'appel) : il arrive dans « Pour vous » d'ici une minute.`);
+    onInfo(`${name} prépare pour vous ${p.name} (tout le plan : le mail ou l'aiguillage, une note LinkedIn par personne, la fiche d'appel) : il arrive dans « Pour vous » d'ici une minute.`);
     void load();
   };
   const restage = async (p: ProspectDetail, stage: ProspectStage) => {
@@ -144,7 +144,7 @@ export function ValidationQueue({ agent, settings, counts, isAdmin, userId, refr
             <Crown className="w-4 h-4 text-violet-600" />
             <h3 className="text-sm font-semibold text-slate-900">Pour vous — grands comptes</h3>
             <span className="text-xs text-slate-400">{accounts.length}</span>
-            <span className="text-xs text-slate-500">— {name} prépare : « Envoyer » fait partir le mail de sa boîte, signé par elle ; la note LinkedIn et l'appel restent à vous.</span>
+            <span className="text-xs text-slate-500">— {name} prépare : « Envoyer » fait partir le mail de sa boîte, signé par elle ; les notes LinkedIn et l'appel restent à vous.</span>
           </div>
           {accounts.map((items) => {
             const pid = items[0].thread?.prospect?.id ?? '';

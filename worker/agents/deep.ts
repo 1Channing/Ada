@@ -46,14 +46,20 @@ type Row = DeepProspect & { id: string; agent: string; stage: string };
 const normUrl = (x: string) => x.trim().replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
 const hostOf = (x: string) => { try { return new URL(x).host.replace(/^www\./, '').toLowerCase(); } catch { return ''; } };
 
-/** Le fil préparé d'une fiche : aucun, préparé sans rien d'envoyé (repréparable), ou vivant (envoyé, reçu, à valider : on n'y touche pas). */
+interface ThreadMessage { status: string; channel: string | null; author: string | null; body_text: string | null; ai_notes: { texte_initial?: string | null } | null }
+/** Un message que quelqu'un a écrit, ou un mail de l'agente corrigé à la main : ce travail n'est pas jeté. */
+const handWork = (m: ThreadMessage) => m.author === 'humain'
+  || (m.status !== 'refuse' && m.channel === 'mail' && !!m.ai_notes?.texte_initial && !(m.body_text ?? '').trim().startsWith(m.ai_notes.texte_initial.trim()));
+
+/** Le fil préparé d'une fiche : aucun, préparé sans rien d'envoyé (repréparable), ou vivant (envoyé, reçu, corrigé : on n'y touche pas). */
 async function preparedThread(prospectId: string): Promise<{ kind: 'aucun' } | { kind: 'prepare'; id: string } | { kind: 'vivant' }> {
   const { data } = await sb.from('agent_threads').select('id').eq('prospect_id', prospectId).limit(5);
   const threads = (data ?? []) as Array<{ id: string }>;
   if (!threads.length) return { kind: 'aucun' };
   for (const t of threads) {
-    const { data: ms } = await sb.from('agent_messages').select('status').eq('thread_id', t.id).limit(50);
-    if (((ms ?? []) as Array<{ status: string }>).some((m) => !['pour_channing', 'refuse', 'brouillon'].includes(m.status))) return { kind: 'vivant' };
+    const { data: ms } = await sb.from('agent_messages').select('status, channel, author, body_text, ai_notes').eq('thread_id', t.id).limit(50);
+    // 20/10 : un brouillon « à valider » (l'aiguillage d'un grand compte, le premier mail d'un petit) n'est pas parti non plus.
+    if (((ms ?? []) as ThreadMessage[]).some((m) => !['pour_channing', 'refuse', 'brouillon', 'a_valider'].includes(m.status) || handWork(m))) return { kind: 'vivant' };
   }
   return { kind: 'prepare', id: threads[0].id };
 }
@@ -251,7 +257,8 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
   });
 
   // Un grand compte préparé pour Channing (rien d'envoyé) est repréparé avec le nouveau contact ;
-  // lancée à la main, la recherche prépare aussi un grand compte qui ne l'était pas.
+  // lancée à la main, la recherche prépare aussi un grand compte qui ne l'était pas — et, 20/10 (Channing : « qu'elle
+  // prépare tout le plan, qu'on n'ait plus qu'à valider »), un petit compte : son premier mail, ou l'aiguillage.
   let prepared = false;
   const fresh = news.contact || news.emails > 0 || news.linkedin > 0;
   // 19/10 : une entreprise que l'équipe connaît déjà (Florent Jabouille chez DMD, sur la carte) : rien de préparé d'office,
@@ -266,13 +273,13 @@ export async function deepResearch(prospectId: string, a: AiAgent, taskId: strin
     });
   } else if (fresh) {
     const t = await preparedThread(row.id);
-    if (t.kind === 'prepare' || (t.kind === 'aucun' && manual && patch.key_account)) {
+    if (t.kind === 'prepare' || (t.kind === 'aucun' && manual)) {
       if (t.kind === 'prepare') {
         // Rien n'en est parti : la préparation d'avant laisse la place (ses messages, puis le fil).
         await sb.from('agent_messages').delete().eq('thread_id', t.id);
         await sb.from('agent_threads').delete().eq('id', t.id);
       }
-      live(taskId, `${row.name}${row.country ? ` (${row.country})` : ''} : ${t.kind === 'prepare' ? 'nouvelle préparation' : 'préparation'} pour vous, avec ce qui a été trouvé (IA)`);
+      live(taskId, `${row.name}${row.country ? ` (${row.country})` : ''} : ${t.kind === 'prepare' ? 'nouvelle préparation' : 'préparation'} ${patch.key_account ?? row.key_account ? 'pour vous' : 'à valider'}, avec ce qui a été trouvé (IA)`);
       prepared = (await draftFirstMail(row.id, a, taskId, { manual })).status === 'redige';
     }
   }

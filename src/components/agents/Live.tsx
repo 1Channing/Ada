@@ -56,7 +56,7 @@ const kindOf = (t: AgentTask) => (t.kind === 'qualification' && t.params?.approf
   : t.kind === 'premier_mail' && t.params?.reponse_a ? { label: 'Réponse à un mail reçu', icon: <Reply className="w-4 h-4" /> }
     : t.kind === 'recherche_comptes' && t.params?.notes ? { label: 'Recherche ciblée', icon: <Search className="w-4 h-4" /> } : KIND[t.kind]);
 const PURPOSE: Record<string, string> = {
-  qualification: 'fiche', recherche_comptes: 'recherche d\'entreprises sur le web', premier_mail: 'premier mail', grand_compte: 'grand compte (mail, note LinkedIn, fiche d\'appel)',
+  qualification: 'fiche', recherche_comptes: 'recherche d\'entreprises sur le web', premier_mail: 'premier mail', grand_compte: 'grand compte (le plan : mail, notes LinkedIn, fiche d\'appel)',
   recherche_approfondie: 'recherche approfondie (à qui appartient l\'entreprise, qui décide)', reponse: 'réponse à un mail reçu',
 };
 const pl = (n: number) => (n > 1 ? 's' : '');

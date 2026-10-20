@@ -156,6 +156,7 @@ const SOPHIE = 'https://be.linkedin.com/in/sophie-peeters-remarketing';
 const keyOut: KeyAccountOutput = {
   objet: 'Vos fins de contrat en Belgique',
   corps: 'Bonjour Madame Peeters,\n\nArval Belgium gère une flotte de 160 000 véhicules, et une partie revient chaque mois en fin de contrat. Je suis Channing, de MC Export : nous achetons des véhicules récents en lots pour l\'export, partout en Europe, et nous cherchons des partenaires de leasing avec qui travailler dans la durée.\n\nQui suit la revente de vos véhicules aux professionnels ?\n\nSi ce n\'est pas un sujet pour vous, dites-le-moi et je ne reviendrai pas vers vous.',
+  notes_linkedin: [], // forme d'avant le 20/10 (une seule note) : la préparation la lit encore
   linkedin: 'Bonjour Sophie, je suis Channing, de MC Export : nous achetons des véhicules récents en lots dans toute l\'Europe. Ravi d\'échanger sur vos fins de contrat.',
   fiche_appel: { interlocuteur: 'Sophie Peeters, responsable remarketing', pourquoi: 'Elle revend les véhicules en fin de contrat.', accroche: 'Je vous appelle au sujet de vos fins de contrat.', points: ['Flotte de 160 000 véhicules'], questions: ['Quels volumes par mois ?', 'Quels modèles ?', 'Vendez-vous en lots ?'] },
   traduction_fr: null, faits: [{ fait: 'flotte de 160 000 véhicules', source: 'fiche' }],

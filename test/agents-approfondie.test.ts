@@ -181,6 +181,7 @@ ok(contactLines({ name: 'Marc Hess', role: null, email: 'm.hess@groupehess.com',
 const keyOut: KeyAccountOutput = {
   objet: 'Vos véhicules récents en lots',
   corps: 'Bonjour Monsieur Hess,\n\nVotre site de Forbach a trois Toyota Yaris de 2026 en ligne. Je suis Channing, de MC Export : nous achetons des véhicules récents en lots pour l\'export, partout en Europe, et nous cherchons des groupes avec qui travailler dans la durée.\n\nQui suit les ventes de véhicules aux marchands dans le groupe ?\n\nSi ce n\'est pas un sujet pour vous, dites-le-moi et je ne reviendrai pas vers vous.',
+  notes_linkedin: [], // forme d'avant le 20/10 (une seule note) : la préparation la lit encore
   linkedin: 'Bonjour Marc, je suis Channing, de MC Export. Nous achetons des véhicules récents en lots dans toute l\'Europe ; ravi d\'échanger avec vous.',
   fiche_appel: { interlocuteur: 'Marc Hess, directeur VO du groupe', pourquoi: 'Il décide des ventes de VO du groupe.', accroche: 'Je vous appelle au sujet de vos ventes aux marchands.', points: ['Trois Toyota Yaris 2026 à Forbach'], questions: ['Quels volumes ?', 'Quels modèles ?', 'Vendez-vous en lots ?'] },
   traduction_fr: null, faits: [{ fait: 'trois Toyota Yaris de 2026', source: 'lot' }],

@@ -128,7 +128,7 @@ export function QualifCard({ p, onStage, onRequalify, requalifying, threadId, on
             {threadId ? (
               <button onClick={() => onOpenThread(threadId)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"><MessagesSquare className="w-3.5 h-3.5" /> {key ? 'Voir ce qui a été préparé' : 'Voir la conversation'}</button>
             ) : drafting ? (
-              <span className="text-xs text-violet-700 animate-pulse">{agentName} {key ? 'prépare le mail, la note LinkedIn et la fiche d\'appel…' : 'rédige le premier mail…'}</span>
+              <span className="text-xs text-violet-700 animate-pulse">{agentName} {key ? 'prépare le plan : mail, notes LinkedIn, fiche d\'appel…' : 'rédige le premier mail…'}</span>
             ) : key && open ? (
               <button onClick={onDraft} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 text-xs font-medium" title="Opus 5.5 prépare le mail (si un e-mail publié est vérifié), la note d'invitation LinkedIn et la fiche d'appel. Ils arrivent dans « À valider › Pour vous » : « Envoyer » fait partir le mail de la boîte de l'agente ; la note et l'appel restent à vous.">
                 <Crown className="w-3.5 h-3.5" /> Préparer pour vous

@@ -12,6 +12,7 @@
 import { MC_EXPORT_FACTS } from './playbook';
 import { DANA_FACTS } from './sourcing';
 import type { AddressKind } from './qualification';
+import { samePerson } from './people';
 
 export const LANG_OF_COUNTRY: Record<string, string> = { FR: 'fr', BE: 'fr', LU: 'fr', NL: 'nl', DE: 'de', AT: 'de', CH: 'de', ES: 'es', IT: 'it', DK: 'da', SE: 'en' };
 const LANG_NAME: Record<string, string> = { fr: 'français', nl: 'néerlandais', de: 'allemand', en: 'anglais', es: 'espagnol', it: 'italien', da: 'danois' };
@@ -209,9 +210,9 @@ export function keyAccountSystem(role: 'ada' | 'dana'): string {
 
 ${role === 'ada' ? MC_EXPORT_FACTS : DANA_FACTS}
 
-Tu rends trois choses :
-1. Le mail : 80 à 140 mots, texte simple, ton d'un dirigeant qui écrit à un responsable ; droit au but : la première phrase dit ce que MC Export peut lui apporter, concrètement, et pourquoi c'est une bonne nouvelle pour lui ; ne lui récite pas son entreprise ni ses chiffres (taille, sites, volumes, historique) : il les connaît ; une seule question facile (« Avez-vous quelques minutes cette semaine ? », « Qui suit ces sujets chez vous ? ») ; une phrase pour sortir. Pas de lien, pas de pièce jointe. Objet : 3 à 7 mots.
-2. La note d'invitation LinkedIn : 300 caractères au plus, sans lien, personnelle, qui dit pourquoi se connecter.
+Tu rends tout le plan d'approche, prêt à valider (20/10, Channing : « qu'elle prépare tout le plan, qu'on n'ait plus qu'à valider ») :
+1. Le mail, pour la personne de la ligne « Adresse » : 80 à 140 mots, texte simple, ton d'un dirigeant qui écrit à un responsable ; droit au but : la première phrase dit ce que MC Export peut lui apporter, concrètement, et pourquoi c'est une bonne nouvelle pour lui ; ne lui récite pas son entreprise ni ses chiffres (taille, sites, volumes, historique) : il les connaît ; une seule question facile (« Avez-vous quelques minutes cette semaine ? », « Qui suit ces sujets chez vous ? ») ; une phrase pour sortir. Pas de lien, pas de pièce jointe. Objet : 3 à 7 mots.
+2. Les notes d'invitation LinkedIn : une par personne de la liste « notes LinkedIn à écrire », dans cet ordre, chacune de 300 caractères au plus, sans lien, personnelle et adaptée à son rôle — à celle qui traite au quotidien, savoir si c'est bien elle qui reçoit ces sujets (ou à qui s'adresser) ; à celle qui décide, ce que MC Export peut apporter à son service ; jamais deux fois la même phrase.
 3. La fiche d'appel pour Channing, en français : à qui parler et pourquoi lui, l'accroche en une phrase, 3 à 5 points à dire (faits du matériel), 3 questions à poser.
 
 Règles non négociables :
@@ -226,7 +227,11 @@ export const KEY_ACCOUNT_SCHEMA = {
   properties: {
     objet: { type: 'string', description: 'Objet du mail, dans la langue du destinataire.' },
     corps: { type: 'string', description: 'Corps du mail sans signature, à la première personne, sans nommer l\'expéditeur, dans la langue du destinataire.' },
-    linkedin: { type: 'string', description: 'Note d\'invitation LinkedIn, 300 caractères au plus, sans lien, dans la langue du destinataire.' },
+    notes_linkedin: {
+      type: 'array',
+      description: 'Une note d\'invitation LinkedIn par personne de la liste « notes LinkedIn à écrire », dans cet ordre : 300 caractères au plus, sans lien, dans la langue du destinataire.',
+      items: { type: 'object', properties: { nom: { type: 'string', description: 'La personne, telle qu\'écrite dans la liste.' }, note: { type: 'string' } }, required: ['nom', 'note'], additionalProperties: false },
+    },
     fiche_appel: {
       type: 'object',
       properties: {
@@ -239,28 +244,36 @@ export const KEY_ACCOUNT_SCHEMA = {
       required: ['interlocuteur', 'pourquoi', 'accroche', 'points', 'questions'],
       additionalProperties: false,
     },
-    traduction_fr: { type: ['string', 'null'], description: 'Mail et note traduits en français, ou null si la langue est le français.' },
+    traduction_fr: { type: ['string', 'null'], description: 'Mail et notes traduits en français, ou null si la langue est le français.' },
     faits: {
       type: 'array',
       description: 'Chaque fait cité et sa source dans le matériel.',
       items: { type: 'object', properties: { fait: { type: 'string' }, source: { type: 'string', enum: [...FACT_SOURCES] } }, required: ['fait', 'source'], additionalProperties: false },
     },
   },
-  required: ['objet', 'corps', 'linkedin', 'fiche_appel', 'traduction_fr', 'faits'],
+  required: ['objet', 'corps', 'notes_linkedin', 'fiche_appel', 'traduction_fr', 'faits'],
   additionalProperties: false,
 } as const;
 
 /** Ce qu'on sait des interlocuteurs d'un grand compte (pour la fiche d'appel ; leur profil LinkedIn s'il a été vu). */
 export interface KeyPerson { nom: string; fonction: string | null; linkedin?: string | null }
 
-/** Le message de l'appel pour un grand compte : le matériel du premier mail (Ada ou Dana), et les interlocuteurs connus. */
-export function keyAccountPrompt(base: string, people: KeyPerson[]): string {
-  const l = [base.replace(/^Écris le premier mail en ([^.\n]+)\./, 'Prépare la prise de contact de Channing en $1 : le mail, la note d\'invitation LinkedIn, et la fiche d\'appel en français.')];
+/** Une note LinkedIn à écrire : la personne (ou, sans nom, la fonction à chercher) et son rôle dans le plan. */
+export interface NoteTarget { nom: string | null; fonction: string | null; role: PlanRole }
+const ROLE_FR: Record<PlanRole, string> = { demarrer: 'pour démarrer : celle qui traite au quotidien', decider: 'pour décider', retenu: 'le contact retenu' };
+
+/** Le message de l'appel pour un grand compte : le matériel du premier mail (Ada ou Dana), les interlocuteurs connus, et les notes LinkedIn à écrire. */
+export function keyAccountPrompt(base: string, people: KeyPerson[], notes: NoteTarget[] = []): string {
+  const l = [base.replace(/^Écris le premier mail en ([^.\n]+)\./, 'Prépare la prise de contact de Channing en $1 : le mail, les notes d\'invitation LinkedIn, et la fiche d\'appel en français.')];
   l.push('');
   l.push('<interlocuteurs_connus>');
   if (people.length === 0) l.push('(aucun nom connu : la fiche d\'appel dit quelle fonction demander au standard)');
   for (const p of people.slice(0, 8)) l.push(`- ${p.nom}${p.fonction ? `, ${p.fonction}` : ''}${p.linkedin ? ' (profil LinkedIn trouvé)' : ''}`);
   l.push('</interlocuteurs_connus>');
+  l.push('');
+  l.push('Notes LinkedIn à écrire (une par ligne, dans cet ordre) :');
+  if (notes.length === 0) l.push('- une seule, pour la personne qui décide de ces sujets (son nom n\'est pas connu : la note ne nomme personne)');
+  for (const n of notes) l.push(`- ${n.nom ?? '(sans nom)'}${n.fonction ? `, ${n.fonction}` : ''} — ${ROLE_FR[n.role]}`);
   return l.join('\n');
 }
 
@@ -286,21 +299,85 @@ export function checkDanaMail(out: FirstMailOutput, material: string, figures: s
 }
 
 export interface KeyAccountOutput extends FirstMailOutput {
-  linkedin: string;
+  notes_linkedin: Array<{ nom: string; note: string }>;
+  /** Avant le 20/10 : une seule note. */
+  linkedin?: string;
   fiche_appel: { interlocuteur: string | null; pourquoi: string; accroche: string; points: string[]; questions: string[] };
 }
 
-/** Ce qu'un relecteur doit regarder dans un envoi de grand compte (mail et note LinkedIn) ; pour Dana, aucun prix. */
+/** Les notes LinkedIn d'une préparation (une seule avant le 20/10). */
+export function notesOf(out: Pick<KeyAccountOutput, 'notes_linkedin' | 'linkedin'>, fallbackName: string | null = null): Array<{ nom: string | null; note: string }> {
+  const notes = (out.notes_linkedin ?? []).filter((n) => (n?.note ?? '').trim()).map((n) => ({ nom: n.nom?.trim() || null, note: n.note.trim() }));
+  if (notes.length) return notes;
+  return (out.linkedin ?? '').trim() ? [{ nom: fallbackName, note: (out.linkedin as string).trim() }] : [];
+}
+
+/** Ce qu'un relecteur doit regarder dans un envoi de grand compte (mail et notes LinkedIn) ; pour Dana, aucun prix. */
 export function checkKeyAccount(out: KeyAccountOutput, material: string, role: 'ada' | 'dana' = 'ada', figures: string[] = []): DraftCheck {
   const c = role === 'dana' ? checkDanaMail(out, material, figures) : checkFirstMail(out, material, figures);
-  if (role === 'dana' && PRICE_WORDS.test(out.linkedin ?? '')) c.warnings.push('Note LinkedIn : parle de prix (Dana n\'en cite jamais).');
-  const note = out.linkedin ?? '';
-  if (note.length > 300) c.warnings.push(`Note LinkedIn trop longue (${note.length} caractères, 300 au plus).`);
-  if (/https?:\/\/|www\./i.test(note)) c.warnings.push('Note LinkedIn avec un lien : LinkedIn la refuse souvent.');
   const known = digits(material);
-  const unknown = numbersIn(note).filter((n) => !known.includes(n));
-  if (unknown.length) c.warnings.push(`Note LinkedIn : chiffre absent des données d'ADA (${unknown.slice(0, 3).join(', ')}).`);
+  for (const n of notesOf(out)) {
+    const who = n.nom ? ` (${n.nom})` : '';
+    if (role === 'dana' && PRICE_WORDS.test(n.note)) c.warnings.push(`Note LinkedIn${who} : parle de prix (Dana n'en cite jamais).`);
+    if (n.note.length > 300) c.warnings.push(`Note LinkedIn${who} trop longue (${n.note.length} caractères, 300 au plus).`);
+    if (/https?:\/\/|www\./i.test(n.note)) c.warnings.push(`Note LinkedIn${who} avec un lien : LinkedIn la refuse souvent.`);
+    const unknown = numbersIn(n.note).filter((x) => !known.includes(x));
+    if (unknown.length) c.warnings.push(`Note LinkedIn${who} : chiffre absent des données d'ADA (${unknown.slice(0, 3).join(', ')}).`);
+  }
   return c;
+}
+
+// --- Le plan d'approche préparé (20/10, Channing sur Agilauto : « elle propose un plan d'actions mais n'a pas
+// préparé les mails — elle est censée devenir autonome : qu'elle prépare tout le plan, qu'on n'ait plus qu'à valider ») ---
+
+/** Le rôle d'une personne dans le plan : qui traite, qui décide, ou le contact retenu s'il est un autre. */
+export type PlanRole = 'demarrer' | 'decider' | 'retenu';
+/** Une personne du plan d'approche, et ses canaux. */
+export interface PlanPerson {
+  nom: string; fonction: string | null; role: PlanRole;
+  /** Son adresse publiée et vérifiée — la sienne, pas celle d'un service ni d'un collègue. */
+  email: string | null;
+  /** Faute d'adresse publiée : son adresse probable (format de l'entreprise prouvé), envoyée par un administrateur seulement. */
+  probable: { email: string; motif: string } | null;
+  /** Son profil LinkedIn, s'il a été vu dans une page lue. */
+  linkedin: string | null;
+  /** Au niveau du groupe (périmètre « groupe ») : son adresse probable, tirée du format d'une filiale, est moins sûre. */
+  groupe: boolean;
+}
+interface PlanSource { nom: string; fonction?: string | null; email?: string | null; linkedin?: string | null; niveau?: string | null; perimetre?: string | null; connu?: boolean; email_probable?: string | null; motif?: string | null }
+
+/**
+ * Les personnes que le plan touche, dans l'ordre : celle qui traite au quotidien, celle qui décide, et le contact
+ * retenu s'il est un autre ; chacune avec son adresse vérifiée, sinon probable, et son profil LinkedIn. Jamais une
+ * personne que l'équipe connaît déjà, ni l'aiguilleur (son mail est l'aiguillage).
+ */
+export function planPeople(
+  people: PlanSource[],
+  best: { nom?: string | null; fonction?: string | null; email?: string | null; linkedin?: string | null } | null,
+  emails: Array<{ email: string; nature?: string | null; mx: boolean }>,
+  kindOf: (email: string, nature: string | null | undefined, who: string | null | undefined) => AddressKind,
+): PlanPerson[] {
+  const out: PlanPerson[] = [];
+  const own = (e: string | null | undefined, nom: string) => {
+    const x = String(e ?? '').trim().toLowerCase();
+    const row = emails.find((m) => m.email === x && m.mx);
+    return row && kindOf(x, row.nature, nom) === 'personne' ? x : null;
+  };
+  const add = (x: PlanSource | undefined, role: PlanRole) => {
+    if (!x?.nom || x.connu || out.some((y) => samePerson(y.nom, x.nom))) return;
+    const email = own(x.email, x.nom);
+    const probable = !email && x.email_probable ? { email: x.email_probable.toLowerCase(), motif: x.motif || 'format prouvé de l\'entreprise' } : null;
+    out.push({ nom: x.nom, fonction: x.fonction ?? null, role, email, probable, linkedin: x.linkedin ?? null, groupe: x.perimetre === 'groupe' });
+  };
+  add(people.find((x) => x.niveau === 'demarrer' && !x.connu), 'demarrer');
+  add(people.find((x) => x.niveau === 'decider' && !x.connu), 'decider');
+  if (best?.nom) {
+    const twin = people.find((x) => samePerson(x.nom, best.nom));
+    // Son adresse à elle : celle du contact retenu (souvent une adresse générale, « faute de mieux »), sinon celle de sa fiche.
+    const mine = [best.email, twin?.email].find((e) => own(e, best.nom as string)) ?? null;
+    add({ ...(twin ?? {}), nom: best.nom, fonction: best.fonction ?? twin?.fonction ?? null, email: mine, linkedin: best.linkedin ?? twin?.linkedin ?? null }, 'retenu');
+  }
+  return out;
 }
 
 // --- Contrôle du brouillon ------------------------------------------------------------

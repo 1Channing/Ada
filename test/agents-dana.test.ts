@@ -124,23 +124,24 @@ const goodDana: FirstMailOutput = {
 };
 ok(checkDanaMail(goodDana, pMail).warnings.length === 0, 'contrôle Dana : un bon mail passe sans remarque', checkDanaMail(goodDana, pMail));
 ok(checkDanaMail({ ...goodDana, corps: `${goodDana.corps}\nNous pourrions vous proposer un prix ferme rapidement.` }, pMail).warnings.some((w) => w.includes('prix')), 'contrôle Dana : un mot de prix est signalé au validateur');
-const pKey = keyAccountPrompt(pMail, [{ nom: 'Sophie Martin', fonction: 'directrice VO', linkedin: 'https://www.linkedin.com/in/sophie-martin-vo-8b1a2c' }]);
-ok(pKey.startsWith('Prépare la prise de contact de Channing en français : le mail, la note d\'invitation LinkedIn, et la fiche d\'appel en français.') && pKey.includes('- Sophie Martin, directrice VO (profil LinkedIn trouvé)'),
-  'consigne grand compte : pour Channing, avec les interlocuteurs connus');
+const pKey = keyAccountPrompt(pMail, [{ nom: 'Sophie Martin', fonction: 'directrice VO', linkedin: 'https://www.linkedin.com/in/sophie-martin-vo-8b1a2c' }], [{ nom: 'Sophie Martin', fonction: 'directrice VO', role: 'decider' }]);
+ok(pKey.startsWith('Prépare la prise de contact de Channing en français : le mail, les notes d\'invitation LinkedIn, et la fiche d\'appel en français.') && pKey.includes('- Sophie Martin, directrice VO (profil LinkedIn trouvé)')
+  && pKey.includes('Notes LinkedIn à écrire (une par ligne, dans cet ordre) :\n- Sophie Martin, directrice VO — pour décider'),
+  'consigne grand compte : pour Channing, avec les interlocuteurs connus et les notes LinkedIn à écrire');
 ok(/GRAND COMPTE/.test(keyAccountSystem('dana')) && /Aucun prix/.test(keyAccountSystem('dana')) && /première personne/.test(keyAccountSystem('ada')) && !/Aucun prix, aucune estimation/.test(keyAccountSystem('ada')),
   'consigne grand compte : au nom de Channing ; aucun prix côté Dana');
-ok((KEY_ACCOUNT_SCHEMA.required as readonly string[]).join() === 'objet,corps,linkedin,fiche_appel,traduction_fr,faits', 'schéma grand compte : mail, note LinkedIn, fiche d\'appel, traduction, faits');
+ok((KEY_ACCOUNT_SCHEMA.required as readonly string[]).join() === 'objet,corps,notes_linkedin,fiche_appel,traduction_fr,faits', 'schéma grand compte : mail, notes LinkedIn (une par personne), fiche d\'appel, traduction, faits');
 const keyOut: KeyAccountOutput = {
   objet: 'Vos séries de véhicules récents',
   corps: 'Bonjour Madame Martin,\n\nJe vois chez Toyota Nanterre, du groupe Autosphere, quatre Peugeot 208 de 2022 en ligne. Je suis Channing, de MC Export : nous achetons des véhicules récents en lots, partout en Europe, pour l\'export, et nous cherchons des groupes avec qui travailler dans la durée, sur leurs retours de stock et leurs séries.\n\nQui suit les cessions de véhicules aux marchands dans votre groupe ?\n\nSi ce n\'est pas un sujet pour vous, dites-le-moi et je ne reviendrai pas vers vous.',
-  linkedin: 'Bonjour Sophie, je suis Channing, de MC Export. Nous achetons des véhicules récents en lots dans toute l\'Europe ; vos sites ont souvent des séries identiques. Ravi d\'échanger avec vous.',
+  notes_linkedin: [{ nom: 'Sophie Martin', note: 'Bonjour Sophie, je suis Channing, de MC Export. Nous achetons des véhicules récents en lots dans toute l\'Europe ; vos sites ont souvent des séries identiques. Ravi d\'échanger avec vous.' }],
   fiche_appel: { interlocuteur: 'Sophie Martin, directrice VO', pourquoi: 'Elle décide des cessions de stock VO du groupe.', accroche: 'Je vous appelle au sujet de vos séries de véhicules récents.', points: ['Quatre Peugeot 208 de 2022 à Nanterre', 'Achat en lots, partout en Europe'], questions: ['Qui gère les cessions aux marchands ?', 'Quels volumes par mois ?', 'Quels modèles reviennent souvent ?'] },
   traduction_fr: null, faits: [{ fait: 'quatre Peugeot 208 de 2022', source: 'lot' }],
 };
 const pKeyAuto = keyAccountPrompt(danaFirstMailPrompt({ ...mailMaterial, company: 'TOYOTA NANTERRE - AUTOSPHERE', city: 'Nanterre', contact: { name: 'Sophie Martin', role: 'directrice VO' }, group: 'Autosphere', lots: ['4 × Peugeot 208 2022, de 20 000 à 26 000 km'] }),
   [{ nom: 'Sophie Martin', fonction: 'directrice VO', linkedin: null }]);
 ok(checkKeyAccount(keyOut, pKeyAuto, 'dana').warnings.length === 0, 'contrôle grand compte : mail et note en ordre', checkKeyAccount(keyOut, pKeyAuto, 'dana'));
-const longNote = checkKeyAccount({ ...keyOut, linkedin: `${keyOut.linkedin} ${'x'.repeat(200)} www.mc-export.com` }, pKeyAuto, 'dana');
+const longNote = checkKeyAccount({ ...keyOut, notes_linkedin: [{ nom: 'Sophie Martin', note: `${keyOut.notes_linkedin[0].note} ${'x'.repeat(200)} www.mc-export.com` }] }, pKeyAuto, 'dana');
 ok(longNote.warnings.some((w) => w.includes('trop longue')) && longNote.warnings.some((w) => w.includes('lien')), 'contrôle grand compte : note LinkedIn trop longue, lien signalés', longNote.warnings);
 ok(linkedinSearchUrl('Autosphere', 'dana', 'fr') === 'https://www.linkedin.com/search/results/people/?keywords=remarketing%20VO%20Autosphere'
   && linkedinSearchUrl('Stern', 'ada', 'nl', 'Jan de Vries').endsWith('keywords=Jan%20de%20Vries%20Stern'), 'LinkedIn sans profil vu : la recherche de la bonne fonction, ou de la personne nommée');
@@ -313,7 +314,7 @@ ok(d2.status === 'redige' && /GRAND COMPTE/.test(c4?.system ?? '') && (c4?.user 
   'grand compte : consigne pour Channing, avec la directrice VO et son profil', c4 && c4.user.split('\n')[0]);
 ok(mail2?.status === 'pour_channing' && mail2.to_emails.join() === 'vo.nanterre@autosphere.fr' && mail2.body_text === keyOut.corps && mail2.ai_notes.grand_compte === true && (mail2.ai_notes.fiche_appel?.questions.length ?? 0) === 3,
   'grand compte : le mail « pour vous », sans signature d\'agente, avec la fiche d\'appel', mail2);
-ok(li2?.status === 'pour_channing' && li2.body_text === keyOut.linkedin && li2.to_emails.length === 0 && li2.ai_notes.linkedin_url === 'https://www.linkedin.com/in/sophie-martin-vo-8b1a2c',
+ok(li2?.status === 'pour_channing' && li2.body_text === keyOut.notes_linkedin[0].note && li2.to_emails.length === 0 && li2.ai_notes.linkedin_url === 'https://www.linkedin.com/in/sophie-martin-vo-8b1a2c',
   'grand compte : la note d\'invitation LinkedIn « pour vous », avec le profil de Sophie Martin', li2);
 ok(th2?.counterpart_email === 'vo.nanterre@autosphere.fr' && (db.agent_prospects.find((p) => p.id === p2?.id) as Row).stage === 'a_contacter'
   && db.agent_journal.some((j) => j.kind === 'grand_compte' && /préparé pour vous/.test(String(j.summary))), 'grand compte : fil rattaché, prospect « à contacter », journal');
