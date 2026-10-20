@@ -134,6 +134,18 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **OFFRES : UN CRITÈRE POUR TOUTE LA LISTE D'UN MODÈLE (20/10, Channing :
+  « changer les noms pour tous les modèles en une seule fois… un critère
+  commun à toute une liste d'un modèle donné, sur cette page uniquement »)**.
+  Dans la fenêtre d'un modèle (clic sur son nom dans le choix des modèles),
+  bouton « Modifier pour tous (N) » : un champ (marque, modèle, version,
+  motorisation, énergie, boîte, ch, couleur, TVA, dommages, année), une
+  valeur pré-remplie avec celle du premier véhicule, « Appliquer à tous » ou
+  Entrée. Les N véhicules reçoivent la même correction, gardée dans
+  `manual` comme celle du crayon (relecture du fichier et export la
+  conservent) ; les autres colonnes ne bougent pas. Marque ou modèle
+  renommés (« NV 3008 » → « 3008 ») : la fenêtre suit la liste sous son
+  nouveau nom. Rien n'est écrit tant qu'on n'applique pas.
 - **AGENTS : L'ÉCHELLE D'UN GROUPE — PÔLE ACHATS ET DIRECTEURS DE CONCESSION
   (20/10, Channing : « des directeurs VO dans un groupe il peut y en avoir
   un paquet, autant que de concessions… il y a bien souvent un pôle achat

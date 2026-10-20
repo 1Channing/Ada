@@ -95,6 +95,9 @@ export function Offres() {
   const [editVehicle, setEditVehicle] = useState<string | null>(null);
   /** Fenêtre d'un modèle : ses véhicules, à cocher et corriger sans quitter le choix des modèles (11/10). */
   const [modelPopup, setModelPopup] = useState<string | null>(null);
+  // Modifier un critère pour TOUTE la liste d'un modèle (20/10, Channing : « changer les noms pour tous les
+  // modèles en une seule fois… un critère commun à toute une liste d'un modèle donné, sur cette page uniquement »).
+  const [bulk, setBulk] = useState<{ field: BulkField; value: string } | null>(null);
   const [modelQuery, setModelQuery] = useState('');
   /** Onglet Sélection : par modèle (cartes par marque) ou liste complète — retenu sur ce poste. */
   const [selectionLayout, setSelectionLayout] = useState<'models' | 'list'>(() => {
@@ -466,6 +469,21 @@ export function Offres() {
     return q ? all.filter((v) => `${v.brand} ${v.model} ${v.version} ${v.vin ?? ''} ${v.color ?? ''} ${v.engine ?? ''}`.toLowerCase().includes(q)) : all;
   }, [draft, modelQuery]);
   const setModelSelected = (key: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (modelKeyOf(v) === key ? { ...v, selected: on } : v)) }));
+  /** Un critère corrigé pour tous les véhicules d'un modèle (même mécanique que le crayon : la correction est gardée dans `manual`). */
+  const correctModel = (key: string, patch: Partial<OfferVehicle>) => {
+    let nextKey = key;
+    update((d) => ({
+      ...d,
+      vehicles: d.vehicles.map((v) => {
+        if (modelKeyOf(v) !== key) return v;
+        const nv = { ...v, ...patch, manual: { ...(v.manual ?? {}), ...patch } };
+        nextKey = modelKeyOf(nv);
+        return nv;
+      }),
+    }));
+    // Marque ou modèle renommés : la fenêtre suit la liste sous son nouveau nom.
+    if (nextKey !== key) setModelPopup(nextKey);
+  };
   const setBrandSelected = (brand: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ((v.brand || '—') === brand ? { ...v, selected: on } : v)) }));
   const setAllSelected = (on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: on })) }));
 
@@ -1091,8 +1109,19 @@ export function Offres() {
                         <span className="text-sm text-slate-500">{sel} / {units} véhicule{units > 1 ? 's' : ''} retenu{sel > 1 ? 's' : ''}</span>
                         <button onClick={() => setModelSelected(modelPopup, true)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Tout retenir</button>
                         <button onClick={() => setModelSelected(modelPopup, false)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Aucun</button>
-                        <button onClick={() => setModelPopup(null)} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-ocean text-white text-sm"><Check className="w-4 h-4" /> Terminé</button>
+                        <button onClick={() => setBulk((b) => (b ? null : { field: 'model', value: list[0]?.model ?? '' }))} className={`text-xs px-2.5 py-1.5 rounded-lg border ${bulk ? 'border-brand-ocean text-brand-ocean bg-sky-50' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`} title="Corriger un critère d'un coup pour tous les véhicules de cette liste (marque, modèle, version, énergie, boîte…)">
+                          <Pencil className="inline w-3 h-3 -mt-0.5 mr-1" />Modifier pour tous ({list.length})
+                        </button>
+                        <button onClick={() => { setBulk(null); setModelPopup(null); }} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-ocean text-white text-sm"><Check className="w-4 h-4" /> Terminé</button>
                       </div>
+                      {bulk && (
+                        <BulkEditor
+                          bulk={bulk} count={list.length} sample={list[0]}
+                          onChange={setBulk}
+                          onApply={(patch) => { correctModel(modelPopup, patch); setBulk(null); }}
+                          onCancel={() => setBulk(null)}
+                        />
+                      )}
                       <div className="overflow-auto">{vehicleTable(list)}</div>
                     </div>
                   </div>
@@ -1627,6 +1656,77 @@ export function Offres() {
 }
 
 /** Correction à la main des valeurs lues d'un véhicule (11/10 — remplace l'écran de correspondance des colonnes). */
+type BulkField = 'brand' | 'model' | 'version' | 'engine' | 'fuel' | 'gearbox' | 'power_ch' | 'color' | 'vat_recoverable' | 'damages' | 'year';
+const BULK_FIELDS: Array<{ id: BulkField; label: string }> = [
+  { id: 'brand', label: 'Marque' }, { id: 'model', label: 'Modèle' }, { id: 'version', label: 'Version' }, { id: 'engine', label: 'Motorisation' },
+  { id: 'fuel', label: 'Énergie' }, { id: 'gearbox', label: 'Boîte' }, { id: 'power_ch', label: 'Ch' }, { id: 'color', label: 'Couleur' },
+  { id: 'vat_recoverable', label: 'TVA' }, { id: 'damages', label: 'Dommages (€)' }, { id: 'year', label: 'Année' },
+];
+/** La valeur actuelle d'un véhicule pour un champ, en texte (pré-remplit le formulaire). */
+function bulkCurrent(v: OfferVehicle | undefined, f: BulkField): string {
+  if (!v) return '';
+  if (f === 'vat_recoverable') return v.vat_recoverable == null ? '' : v.vat_recoverable ? 'oui' : 'non';
+  const x = v[f];
+  return x == null ? '' : String(x);
+}
+/** Le correctif à appliquer à chaque véhicule, depuis le champ et la valeur saisie. */
+function bulkPatch(f: BulkField, value: string): Partial<OfferVehicle> {
+  const t = value.trim();
+  if (f === 'brand' || f === 'model') return { [f]: t.toUpperCase() };
+  if (f === 'version') return { version: t };
+  if (f === 'engine' || f === 'color') return { [f]: t || null };
+  if (f === 'fuel' || f === 'gearbox') return { [f]: t || null };
+  if (f === 'vat_recoverable') return { vat_recoverable: t === '' ? null : t === 'oui' };
+  return { [f]: numOrNull(t) };
+}
+/**
+ * UN CRITÈRE POUR TOUTE LA LISTE D'UN MODÈLE (20/10, Channing). Un champ, une valeur, « Appliquer » : les N
+ * véhicules reçoivent la même correction, gardée comme celle du crayon. Marque / modèle renommés : la
+ * fenêtre suit la liste sous son nouveau nom. Rien n'est écrit tant qu'on n'applique pas.
+ */
+function BulkEditor({ bulk, count, sample, onChange, onApply, onCancel }: {
+  bulk: { field: BulkField; value: string }; count: number; sample: OfferVehicle | undefined;
+  onChange: (b: { field: BulkField; value: string }) => void; onApply: (patch: Partial<OfferVehicle>) => void; onCancel: () => void;
+}) {
+  const field = 'px-2 py-1 rounded border border-slate-300 bg-white text-sm';
+  const f = bulk.field;
+  const setField = (nf: BulkField) => onChange({ field: nf, value: bulkCurrent(sample, nf) });
+  const label = BULK_FIELDS.find((x) => x.id === f)?.label ?? f;
+  const input = f === 'fuel' ? (
+    <select value={bulk.value} onChange={(e) => onChange({ ...bulk, value: e.target.value })} className={field}>
+      <option value="">—</option>{FUEL_OPTIONS.map((x) => <option key={x} value={x}>{x}</option>)}
+    </select>
+  ) : f === 'gearbox' ? (
+    <select value={bulk.value} onChange={(e) => onChange({ ...bulk, value: e.target.value })} className={field}>
+      <option value="">—</option><option value="AUTOMATIQUE">Automatique</option><option value="MANUELLE">Manuelle</option>
+    </select>
+  ) : f === 'vat_recoverable' ? (
+    <select value={bulk.value} onChange={(e) => onChange({ ...bulk, value: e.target.value })} className={field}>
+      <option value="">—</option><option value="oui">Récupérable</option><option value="non">Régime de la marge</option>
+    </select>
+  ) : (
+    <input
+      type={f === 'power_ch' || f === 'damages' || f === 'year' ? 'number' : 'text'} value={bulk.value} autoFocus
+      onChange={(e) => onChange({ ...bulk, value: e.target.value })}
+      onKeyDown={(e) => { if (e.key === 'Enter') onApply(bulkPatch(f, bulk.value)); }}
+      className={`${field} ${f === 'version' ? 'w-72' : 'w-44'} ${f === 'brand' || f === 'model' ? 'uppercase' : ''}`}
+    />
+  );
+  return (
+    <div className="px-5 py-2.5 border-b border-sky-100 bg-sky-50/60 flex items-center gap-3 flex-wrap text-sm">
+      <span className="text-slate-700">Pour les <b>{count}</b> véhicules de cette liste :</span>
+      <select value={f} onChange={(e) => setField(e.target.value as BulkField)} className={field}>
+        {BULK_FIELDS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+      </select>
+      <span className="text-slate-500">=</span>
+      {input}
+      <button onClick={() => onApply(bulkPatch(f, bulk.value))} className="px-3 py-1 rounded-lg bg-brand-ocean text-white text-sm">Appliquer à tous</button>
+      <button onClick={onCancel} className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-white">Annuler</button>
+      <span className="text-xs text-slate-500">{label} remplacé pour chaque véhicule, comme avec le crayon ; les autres colonnes ne bougent pas.</span>
+    </div>
+  );
+}
+
 function VehicleEditor({ v, onChange }: { v: OfferVehicle; onChange: (patch: Partial<OfferVehicle>) => void }) {
   const field = 'block mt-0.5 px-2 py-1 rounded border border-slate-300 bg-white';
   const regYear = (iso: string) => { const y = Number(iso.slice(0, 4)); return Number.isFinite(y) && y > 1900 ? y : null; };
