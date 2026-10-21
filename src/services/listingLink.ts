@@ -10,6 +10,7 @@
  */
 import { supabase } from '../lib/supabase';
 import { humanListingUrl } from './marketData';
+import { gaspedaalAdapter } from '../lib/study-core/marketplaces/gaspedaal';
 
 export const isBlockedRedirect = (u: string | null | undefined): boolean => /^https?:\/\/api\.gaspedaal\.nl\/redirect\//i.test(u ?? '');
 
@@ -28,13 +29,43 @@ export async function resolveListingLink(url: string): Promise<string | null> {
   }
 }
 
-/** Ouvre l'annonce dans un nouvel onglet : tout de suite pour un lien normal, après résolution pour un lien bloqué. */
-export function openListing(url: string): void {
+/**
+ * LE REPLI SÛR (21/10) : la page de résultats Gaspedaal où l'annonce figure — même marque, même modèle,
+ * même année, kilométrage au plus légèrement supérieur. Elle s'ouvre toujours, et depuis cette page le
+ * clic sur la carte mène chez le vendeur (Gaspedaal accepte ses propres clics). Deux clics au lieu d'un,
+ * mais jamais « Access Denied ». Null si la marque ou le modèle manquent.
+ */
+export function gaspedaalSearchFallback(x: { brand?: string | null; model?: string | null; fuel?: string | null; year?: number | null; mileage?: number | null }): string | null {
+  const brand = (x.brand ?? '').trim(), model = (x.model ?? '').trim();
+  if (!brand) return null;
+  try {
+    const km = x.mileage != null && x.mileage > 0 ? Math.ceil((x.mileage * 1.05) / 5000) * 5000 : undefined;
+    const base = { brand, model, fuel: x.fuel ?? undefined, yearFrom: x.year ?? undefined, yearTo: x.year ?? undefined, mileage: km, sort: 'relevance' as const };
+    let r = gaspedaalAdapter.buildSearchUrl(base);
+    // Côté navigateur, le dictionnaire des slugs modèle (moissonné par le worker) est vide : le chemin
+    // n'exprime alors que la marque. Le modèle passe par la barre de recherche du site (trefw=, grammaire
+    // prouvée) — toujours une page valide, jamais un slug deviné qui ferait un 404.
+    if (model && !r.modelExpressed) r = gaspedaalAdapter.buildSearchUrl({ ...base, trim: model });
+    return r.url || null;
+  } catch { return null; }
+}
+
+/** Au plus 8 s pour la résolution par le worker : au-delà, le repli. */
+const RESOLVE_TIMEOUT_MS = 8000;
+
+/**
+ * Ouvre l'annonce dans un nouvel onglet : tout de suite pour un lien normal. Pour un lien bloqué : la page
+ * de résultats Gaspedaal (repli) quand on sait la construire ; sinon la fiche chez le vendeur résolue par le
+ * worker, ou le lien d'origine.
+ */
+export function openListing(url: string, fallback?: string | null): void {
   const human = humanListingUrl(url);
   if (!isBlockedRedirect(human)) { window.open(human, '_blank', 'noopener'); return; }
+  if (fallback) { window.open(fallback, '_blank', 'noopener'); return; }
   const w = window.open('', '_blank');
   if (w) { try { w.document.title = 'Ouverture de l\'annonce…'; w.document.body.innerHTML = '<p style="font-family:sans-serif;color:#475569;padding:24px">Ouverture de l\'annonce chez le vendeur (Gaspedaal)…</p>'; } catch { /* onglet d\'une autre origine : rien à écrire */ } }
-  void resolveListingLink(human).then((resolved) => {
+  const timeout = new Promise<string | null>((r) => setTimeout(() => r(null), RESOLVE_TIMEOUT_MS));
+  void Promise.race([resolveListingLink(human), timeout]).then((resolved) => {
     const target = resolved ?? human;
     if (w) w.location.href = target; else window.open(target, '_blank', 'noopener');
   });

@@ -134,6 +134,22 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **ANNONCES GASPEDAAL : REPLI SUR LA PAGE DE RÉSULTATS (21/10, suite)**.
+  Constat après la livraison du résolveur : Gaspedaal (Akamai) refuse aussi
+  bien le conteneur que Zyte (« 520 Website Ban ») sur api.gaspedaal.nl, donc
+  la résolution par le worker n'est pas garantie. Classe corrigée : quand le
+  lien de l'annonce est un redirect bloqué, l'application ouvre la page de
+  résultats Gaspedaal où l'annonce figure (même marque, même année, carburant,
+  kilométrage arrondi aux 5 000 km supérieurs, tri pertinence) — depuis
+  cette page, le clic sur la carte mène chez le vendeur (Gaspedaal accepte
+  ses propres clics). Deux clics au lieu d'un, jamais « Access Denied ».
+  Côté navigateur le dictionnaire des slugs modèle est vide : le modèle
+  passe par la barre de recherche du site (`trefw=`, grammaire prouvée)
+  plutôt qu'un slug deviné (404 possible). `gaspedaalSearchFallback`
+  (src/services/listingLink.ts), prop `fallback` de `ListingLink` ; Workflow
+  (boîte avec les critères de l'étude, archives avec marque/modèle du
+  groupe). Le lien affiché est le repli ; sans marque connue, l'ancien
+  chemin (résolveur worker, puis lien d'origine) reste.
 - **ANNONCES GASPEDAAL : LE LIEN S'OUVRE À NOUVEAU (21/10, Channing : « je ne
   peux plus accéder à aucune annonce Gaspedaal que me fournit Ada »)**.
   Constat : une annonce Gaspedaal n'a pas de fiche sur gaspedaal.nl, seulement
