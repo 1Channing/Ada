@@ -134,6 +134,24 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **PANNE DU 21/10 : CRÉDIT DISQUE DE LA BASE ÉPUISÉ (Ada blanche, Channing :
+  « la page de Ada reste blanche »)**. Constat : Supabase « Database
+  unhealthy », connexion TCP en timeout, Disk IO à 97-100 % sur une machine
+  NANO (la plus petite). Rétabli par Channing en passant à Micro (inclus dans
+  le plan Pro) : base revenue en 0,7 s. Cause côté nous, mesurée : (1) les
+  tableaux du Market Intelligence recalculés ~30 fois par jour (garde
+  horaire + vagues), chaque recalcul relisant 600 000 observations (960 000
+  avec l'archive) pour tout réécrire, nuit comprise sans donnée nouvelle ;
+  (2) l'annuaire des agentes (10 813 garages, 3 025 lots, 3 013 prix) vidé
+  et réécrit toutes les 3 h et 5 min après chaque découverte, 31 s à plein
+  régime. Classe corrigée dans le worker : la garde horaire des tableaux ne
+  recalcule que s'il y a ≥ 200 observations nouvelles depuis le dernier
+  recalcul réussi (les recalculs demandés après une vague passent dès qu'il
+  y a du nouveau) ; l'annuaire toutes les 6 h seulement si une annonce ou un
+  garage a bougé depuis `agent_index_meta.computed_at`, et au plus un
+  recalcul par quart d'heure après une découverte. Fail-open : contrôle en
+  échec → on recalcule. À surveiller : Disk IO dans Settings → Infrastructure
+  sur les prochains jours ; s'il remonte vers 100 %, passer à Small (~15 $).
 - **OFFRES : UN CRITÈRE POUR TOUTE LA LISTE D'UN MODÈLE (20/10, Channing :
   « changer les noms pour tous les modèles en une seule fois… un critère
   commun à toute une liste d'un modèle donné, sur cette page uniquement »)**.
