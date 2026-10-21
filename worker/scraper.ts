@@ -542,6 +542,43 @@ function parsePriceToken(raw: string, currency = 'EUR'): number | null {
  * le fetch direct depuis Railway peut être refusé alors que la page, elle,
  * passe par Zyte). Fail-open : null = image sautée, jamais bloquant.
  */
+/**
+ * LIEN DE REDIRECTION BLOQUÉ (21/10, Channing : « je ne peux plus accéder à aucune annonce Gaspedaal
+ * que me fournit Ada ») : les annonces Gaspedaal n'ont pas de fiche sur gaspedaal.nl, seulement un
+ * lien « api.gaspedaal.nl/redirect/vehicle/<n> » qui renvoie chez le vendeur. Depuis le 21/10 ce lien
+ * répond « Access Denied » (Akamai) à un navigateur qui l'ouvre directement. Le worker le suit à la
+ * place de l'utilisateur — d'abord en direct (réponse 3xx, en-tête Location), sinon par Zyte (URL
+ * finale) — et rend l'adresse de la fiche chez le vendeur. Mémoire par processus (un lien = une
+ * résolution). Fail-open : rien de résolu → null, l'application ouvre le lien d'origine.
+ */
+const RESOLVE_CACHE = new Map<string, { url: string | null; at: number }>();
+const RESOLVE_TTL_MS = 7 * 24 * 3600_000;
+export const isBlockedRedirect = (u: string): boolean => /^https?:\/\/api\.gaspedaal\.nl\/redirect\//i.test(u);
+
+export async function resolveListingLink(url: string): Promise<string | null> {
+  if (!isBlockedRedirect(url)) return null;
+  const hit = RESOLVE_CACHE.get(url);
+  if (hit && Date.now() - hit.at < RESOLVE_TTL_MS && hit.url) return hit.url;
+  let found: string | null = null;
+  // 1. En direct : une redirection 3xx suffit, sans charger la page du vendeur.
+  try {
+    const r = await fetch(url, { redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', Referer: 'https://www.gaspedaal.nl/' }, signal: AbortSignal.timeout(10_000) });
+    const loc = r.headers.get('location');
+    if (r.status >= 300 && r.status < 400 && loc && !isBlockedRedirect(loc)) found = new URL(loc, url).toString();
+  } catch { /* bloqué ou injoignable : Zyte */ }
+  // 2. Par Zyte : l'URL finale après redirections.
+  if (!found) {
+    try {
+      const z = await fetchHtmlWithZyte(url, 1);
+      if (z.finalUrl && !isBlockedRedirect(z.finalUrl) && /^https?:\/\//.test(z.finalUrl)) found = z.finalUrl;
+    } catch { /* fail-open */ }
+  }
+  RESOLVE_CACHE.set(url, { url: found, at: Date.now() });
+  if (RESOLVE_CACHE.size > 5000) { const first = RESOLVE_CACHE.keys().next().value; if (first) RESOLVE_CACHE.delete(first); }
+  console.log(`[RESOLVE_LINK] ${url} → ${found ?? 'non résolu'}`);
+  return found;
+}
+
 export async function fetchBinaryWithZyte(url: string): Promise<{ buf: Buffer; contentType: string } | null> {
   if (!ZYTE_API_KEY) return null;
   try {

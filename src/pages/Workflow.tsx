@@ -19,7 +19,7 @@ import {
 } from '../services/workflow';
 import { studyChecks } from '../lib/study-core/studyChecks';
 import { BODY_TYPES, bodyLabel } from '../lib/study-core/bodyTypes';
-import { humanListingUrl } from '../services/marketData';
+import { ListingLink } from '../components/ListingLink';
 import { loadConfidence, CONFIDENCE_LABEL, type ConfidenceRow } from '../services/truthLoop';
 import { contactSeller } from '../services/contactSeller';
 
@@ -1227,7 +1227,7 @@ function ArchivesTab() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           {a.listing_url?.startsWith('http')
-                            ? <a href={a.listing_url} target="_blank" rel="noreferrer" className="text-slate-700 hover:text-brand-ocean hover:underline truncate">{a.title}</a>
+                            ? <ListingLink href={a.listing_url} className="text-slate-700 hover:text-brand-ocean hover:underline truncate">{a.title}</ListingLink>
                             : <span className="text-slate-700 truncate">{a.title}</span>}
                           <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shrink-0 ${a.outcome === 'rdv' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : a.outcome === 'no_callback' ? 'bg-rose-50 text-rose-700 border-rose-200' : a.outcome === 'flux' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                             {(a.outcome && NEGO_OUTCOME_LABEL[a.outcome]) || 'archivée'}
@@ -1299,7 +1299,7 @@ function ArchivedHitsSection({ archived, searches, defaultOpen = false }: { arch
               <div key={h.id} className="flex items-center gap-3 px-4 py-2">
                 <div className="min-w-0 flex-1 flex items-center gap-2">
                   {h.listing_url?.startsWith('http')
-                    ? <a href={humanListingUrl(h.listing_url)} target="_blank" rel="noreferrer" className="text-sm text-slate-700 hover:text-blue-600 hover:underline truncate">{h.title || h.listing_url}</a>
+                    ? <ListingLink href={h.listing_url} className="text-sm text-slate-700 hover:text-blue-600 hover:underline truncate">{h.title || h.listing_url}</ListingLink>
                     : <span className="text-sm text-slate-700 truncate">{h.title || '(annonce)'}</span>}
                   <SiteBadge site={h.site} />
                   <span className="text-xs text-slate-400 shrink-0">{h.year ?? '—'}</span>
@@ -1334,7 +1334,7 @@ export function HitRow({ hit, searchLabel, onChanged, compact }: {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {hit.listing_url?.startsWith('http')
-            ? <a href={humanListingUrl(hit.listing_url)} target="_blank" rel="noreferrer" className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate">{hit.title || hit.listing_url}</a>
+            ? <ListingLink href={hit.listing_url} className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate">{hit.title || hit.listing_url}</ListingLink>
             : <span className="font-medium text-slate-900 truncate">{hit.title || '(annonce)'}</span>}
           {drop != null && (
             <span className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0">
@@ -1356,7 +1356,7 @@ export function HitRow({ hit, searchLabel, onChanged, compact }: {
       {hit.status === 'inbox' && (
         <div className="flex items-center gap-1 shrink-0">
           {hit.listing_url?.startsWith('http') && !compact && (
-            <a href={humanListingUrl(hit.listing_url)} target="_blank" rel="noreferrer" title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><ExternalLink className="w-4 h-4" /></a>
+            <ListingLink href={hit.listing_url} title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><ExternalLink className="w-4 h-4" /></ListingLink>
           )}
           <HitActionsMenu hit={hit} onChanged={onChanged} />
         </div>

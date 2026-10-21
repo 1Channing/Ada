@@ -134,6 +134,23 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **ANNONCES GASPEDAAL : LE LIEN S'OUVRE À NOUVEAU (21/10, Channing : « je ne
+  peux plus accéder à aucune annonce Gaspedaal que me fournit Ada »)**.
+  Constat : une annonce Gaspedaal n'a pas de fiche sur gaspedaal.nl, seulement
+  un lien « api.gaspedaal.nl/redirect/vehicle/<n> » vers la fiche du vendeur
+  (le flux Next ne porte que klikUrl / naam / portaalType) ; depuis le 21/10
+  ce lien répond « Access Denied » (Akamai) à un navigateur qui l'ouvre
+  directement — les liens enregistrés par les études (daily_search_hits,
+  annuaire) sont tous de cette forme. Classe corrigée : le worker suit le
+  lien à la place de l'utilisateur (mode `resolve_link` de ingest-url :
+  redirection 3xx en direct, sinon URL finale par Zyte ; mémoire 7 jours ;
+  fail-open → null). Côté application, `ListingLink` (Workflow : boîte,
+  archives, fiche, bouton Ouvrir) et `openListing` (point du graphique MI) :
+  l'onglet s'ouvre tout de suite, puis reçoit la fiche chez le vendeur, ou le
+  lien d'origine si rien n'est résolu ; « Envoyer en négociation » enregistre
+  l'adresse résolue quand elle existe. Les autres sites ne changent pas.
+  À vérifier après déploiement : la résolution depuis Railway / Zyte (le
+  conteneur de développement est bloqué par Akamai, test impossible ici).
 - **PANNE DU 21/10 : CRÉDIT DISQUE DE LA BASE ÉPUISÉ (Ada blanche, Channing :
   « la page de Ada reste blanche »)**. Constat : Supabase « Database
   unhealthy », connexion TCP en timeout, Disk IO à 97-100 % sur une machine
