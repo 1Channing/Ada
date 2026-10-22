@@ -621,8 +621,13 @@ async function zyteBrowserHop(url: string, searchUrl?: string | null): Promise<s
       const data = await response.json() as { url?: string; browserHtml?: string; actions?: Array<{ action?: string; error?: string; elapsedTime?: number }> };
       const errs = (data.actions ?? []).filter((a) => a.error).map((a) => `${a.action}: ${String(a.error).slice(0, 120)}`);
       const html = data.browserHtml ?? '';
-      const at = id ? html.indexOf(`redirect/vehicle/${id}`) : -1;
-      const snippet = at >= 0 ? html.slice(Math.max(0, at - 160), at + 80).replace(/\s+/g, ' ') : null;
+      // La trace montre la forme ACTUELLE des liens de la page : celui de l'annonce s'il y est, sinon le
+      // premier lien « redirect/vehicle » ou « klikUrl » rencontré (et leur nombre) — pour constater si le
+      // site a changé la grammaire de ses liens (jeton, autre domaine…).
+      let at = id ? html.indexOf(`redirect/vehicle/${id}`) : -1;
+      if (at < 0) at = html.search(/redirect\/vehicle|klikUrl|api\.gaspedaal\.nl/);
+      const nb = (html.match(/redirect\/vehicle/g) ?? []).length;
+      const snippet = at >= 0 ? `[${nb} lien(s) redirect] ${html.slice(Math.max(0, at - 200), at + 160).replace(/\s+/g, ' ')}` : null;
       const title = (html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? '').slice(0, 80);
       console.warn(`[RESOLVE_LINK] session ${plan.nom} : url=${data.url ?? '—'} titre=« ${title} »${errs.length ? ` erreurs=${errs.join(' | ')}` : ''}${snippet ? ` lien=${snippet}` : id ? ' (lien absent de la page)' : ''}`);
       if (data.url && !isBlockedRedirect(data.url) && !/^https:\/\/www\.gaspedaal\.nl\//.test(data.url) && /^https?:\/\//.test(data.url) && !/access denied/i.test(title)) return data.url;
