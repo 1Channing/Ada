@@ -555,7 +555,8 @@ const RESOLVE_CACHE = new Map<string, { url: string | null; at: number }>();
 const RESOLVE_TTL_MS = 7 * 24 * 3600_000;
 export const isBlockedRedirect = (u: string): boolean => /^https?:\/\/api\.gaspedaal\.nl\/redirect\//i.test(u);
 
-export async function resolveListingLink(url: string, searchUrl?: string | null): Promise<string | null> {
+export async function resolveListingLink(rawUrl: string, searchUrl?: string | null): Promise<string | null> {
+  const url = rawUrl.replace(/#.*$/, ''); // le fragment (identifiant de carte, 22/10) ne concerne que le navigateur
   if (!isBlockedRedirect(url)) return null;
   const hit = RESOLVE_CACHE.get(url);
   if (hit && Date.now() - hit.at < RESOLVE_TTL_MS && hit.url) return hit.url;

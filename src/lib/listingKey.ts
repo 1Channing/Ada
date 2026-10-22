@@ -32,6 +32,9 @@ export function listingKey(url: string | null | undefined): string {
     if (id) return `mobile.de:${id}`;
   }
   if (host.endsWith('gaspedaal.nl')) {
+    // Lien de redirection (api.gaspedaal.nl/redirect/vehicle/<n>) : le numéro du chemin identifie déjà
+    // l'annonce ; le fragment ajouté le 22/10 (identifiant de carte) ne change pas l'identité.
+    if (path.startsWith('/redirect/')) return `${host}${path}`;
     const frag = u.hash.match(/(\d{6,})/)?.[1];
     return `${host}${path}${frag ? `#${frag}` : ''}`;
   }

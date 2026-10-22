@@ -134,6 +134,27 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **ANNONCES GASPEDAAL : TOUTES LES VOIES VERS LE REDIRECT SONT FERMÉES (22/10,
+  Channing : « je veux vraiment les liens des annonces spécifiquement »)**.
+  Preuves par le résolveur du worker, tracées dans worker_logs
+  (`[RESOLVE_LINK]`) : fetch direct depuis Railway → 403 ; Zyte brut sans
+  suivre la redirection, géolocalisé NL puis sans → 520 « Website Ban » ;
+  session navigateur Zyte ouverte sur gaspedaal.nl (cookies anti-bot posés,
+  la page de résultats passe) puis navigation en page vers le redirect →
+  page « Access Denied » (Akamai) ; rendu navigateur direct → 520. Dans la
+  page de résultats, le lien `api.gaspedaal.nl/redirect/vehicle/<n>` n'existe
+  QUE dans les données du flux Next (klikUrl, 479 occurrences sur une page
+  Polo), jamais comme lien cliquable : les cartes naviguent par script, le
+  clic sur la carte ne peut donc pas être reproduit par sélecteur. Le lien
+  de l'annonce chez le vendeur n'est donc atteignable par aucun automate ;
+  reste à prouver si un navigateur humain l'ouvre encore depuis gaspedaal.nl
+  (test demandé à Channing). Le résolveur reste en place (fail-open, chaque
+  voie tracée) : si Gaspedaal rouvre une voie, la fiche vendeur revient
+  sans rien changer. `resolve_link` accepte `search_url` (page de départ de
+  la session). Le repli (page de résultats) s'ancre sur la carte quand le
+  lien enregistré porte l'identifiant (#oc<id>) ; porter cet identifiant sur
+  les liens de portail changerait l'identité des annonces (dédoublonnage des
+  études, tableaux MI distinct on listing_url) — non fait, à décider.
 - **ANNONCES GASPEDAAL : REPLI SUR LA PAGE DE RÉSULTATS (21/10, suite)**.
   Constat après la livraison du résolveur : Gaspedaal (Akamai) refuse aussi
   bien le conteneur que Zyte (« 520 Website Ban ») sur api.gaspedaal.nl, donc

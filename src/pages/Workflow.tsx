@@ -1300,7 +1300,7 @@ function ArchivedHitsSection({ archived, searches, defaultOpen = false }: { arch
               <div key={h.id} className="flex items-center gap-3 px-4 py-2">
                 <div className="min-w-0 flex-1 flex items-center gap-2">
                   {h.listing_url?.startsWith('http')
-                    ? <ListingLink href={h.listing_url} fallback={/gaspedaal/i.test(h.listing_url) ? gaspedaalSearchFallback({ brand: g.brand, model: g.model, fuel: h.fuel, year: h.year, mileage: h.mileage }) : null} className="text-sm text-slate-700 hover:text-blue-600 hover:underline truncate">{h.title || h.listing_url}</ListingLink>
+                    ? <ListingLink href={h.listing_url} fallback={/gaspedaal/i.test(h.listing_url) ? gaspedaalSearchFallback({ brand: g.brand, model: g.model, fuel: h.fuel, year: h.year, mileage: h.mileage, url: h.listing_url }) : null} className="text-sm text-slate-700 hover:text-blue-600 hover:underline truncate">{h.title || h.listing_url}</ListingLink>
                     : <span className="text-sm text-slate-700 truncate">{h.title || '(annonce)'}</span>}
                   <SiteBadge site={h.site} />
                   <span className="text-xs text-slate-400 shrink-0">{h.year ?? '—'}</span>
@@ -1331,7 +1331,7 @@ export function HitRow({ hit, search, searchLabel, onChanged, compact }: {
   const drop = hit.kind === 'price_drop' && hit.previous_price != null && hit.price != null
     ? hit.previous_price - hit.price : null;
   // Gaspedaal (21/10) : le lien de l'annonce ne s'ouvre plus directement → la page de résultats où elle figure.
-  const fallback = /gaspedaal/i.test(hit.listing_url) && search ? gaspedaalSearchFallback({ brand: search.brand, model: search.model, fuel: hit.fuel || search.fuel, year: hit.year, mileage: hit.mileage }) : null;
+  const fallback = /gaspedaal/i.test(hit.listing_url) && search ? gaspedaalSearchFallback({ brand: search.brand, model: search.model, fuel: hit.fuel || search.fuel, year: hit.year, mileage: hit.mileage, url: hit.listing_url }) : null;
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
       <div className="min-w-0 flex-1">

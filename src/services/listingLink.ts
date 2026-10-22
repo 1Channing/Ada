@@ -35,9 +35,12 @@ export async function resolveListingLink(url: string): Promise<string | null> {
  * clic sur la carte mène chez le vendeur (Gaspedaal accepte ses propres clics). Deux clics au lieu d'un,
  * mais jamais « Access Denied ». Null si la marque ou le modèle manquent.
  */
-export function gaspedaalSearchFallback(x: { brand?: string | null; model?: string | null; fuel?: string | null; year?: number | null; mileage?: number | null }): string | null {
+export function gaspedaalSearchFallback(x: { brand?: string | null; model?: string | null; fuel?: string | null; year?: number | null; mileage?: number | null; url?: string | null }): string | null {
   const brand = (x.brand ?? '').trim(), model = (x.model ?? '').trim();
   if (!brand) return null;
+  // Identifiant de la carte quand le lien en porte un (forme « …#<id> » des annonces sans portail) : la page s'ouvre POSITIONNÉE
+  // sur l'annonce (#oc<id>, les cartes portent id="oc…"). Sans lui : la page de résultats, en haut.
+  const card = (x.url ?? '').match(/#(?:oc)?(\d{6,})$/)?.[1];
   try {
     const km = x.mileage != null && x.mileage > 0 ? Math.ceil((x.mileage * 1.05) / 5000) * 5000 : undefined;
     const base = { brand, model, fuel: x.fuel ?? undefined, yearFrom: x.year ?? undefined, yearTo: x.year ?? undefined, mileage: km, sort: 'relevance' as const };
@@ -46,7 +49,7 @@ export function gaspedaalSearchFallback(x: { brand?: string | null; model?: stri
     // n'exprime alors que la marque. Le modèle passe par la barre de recherche du site (trefw=, grammaire
     // prouvée) — toujours une page valide, jamais un slug deviné qui ferait un 404.
     if (model && !r.modelExpressed) r = gaspedaalAdapter.buildSearchUrl({ ...base, trim: model });
-    return r.url || null;
+    return r.url ? `${r.url}${card ? `#oc${card}` : ''}` : null;
   } catch { return null; }
 }
 
