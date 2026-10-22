@@ -570,11 +570,12 @@ export async function resolveListingLink(url: string, searchUrl?: string | null)
   // 2. Par Zyte, SANS suivre la redirection (22/10) : l'unblocker brut, géolocalisé aux Pays-Bas, ne
   //    demande que la réponse 3xx — l'en-tête Location suffit. Le rendu navigateur (essai du 21/10)
   //    suivait la redirection jusque chez le vendeur et se faisait bannir (Zyte 520).
-  if (!found) found = await zyteRedirectLocation(url, 'NL') ?? await zyteRedirectLocation(url);
+  //    Essayé APRÈS la session : chaque refus coûte ~20 s de tentatives Zyte.
   // 3. Par une SESSION navigateur Zyte ouverte sur gaspedaal.nl (22/10) : la page d'accueil passe
   //    (les études tournent), elle pose les cookies anti-bot ; la session navigue ensuite elle-même
   //    vers le redirect, comme un vrai clic — et l'URL finale est la fiche chez le vendeur.
   if (!found) found = await zyteBrowserHop(url, searchUrl);
+  if (!found) found = await zyteRedirectLocation(url, 'NL') ?? await zyteRedirectLocation(url);
   // 4. Par Zyte en rendu navigateur direct : l'URL finale après redirections (dernier recours).
   if (!found) {
     try {
@@ -598,11 +599,11 @@ async function zyteBrowserHop(url: string, searchUrl?: string | null): Promise<s
   const plans: Array<{ nom: string; actions: unknown[] }> = [
     { nom: 'script', actions: [
       { action: 'evaluate', source: `window.location.href = ${JSON.stringify(url)};` },
-      { action: 'waitForNavigation', timeout: 20 },
+      { action: 'waitForNavigation', timeout: 45 },
     ] },
     ...(id ? [{ nom: 'clic', actions: [
-      { action: 'click', selector: { type: 'css', value: `a[href*="redirect/vehicle/${id}"]` }, timeout: 10 },
-      { action: 'waitForNavigation', timeout: 20 },
+      { action: 'click', selector: { type: 'css', value: `a[href*="redirect/vehicle/${id}"]` } },
+      { action: 'waitForNavigation', timeout: 45 },
     ] }] : []),
   ];
   for (const plan of plans) {
