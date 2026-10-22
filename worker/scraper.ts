@@ -555,7 +555,7 @@ const RESOLVE_CACHE = new Map<string, { url: string | null; at: number }>();
 const RESOLVE_TTL_MS = 7 * 24 * 3600_000;
 export const isBlockedRedirect = (u: string): boolean => /^https?:\/\/api\.gaspedaal\.nl\/redirect\//i.test(u);
 
-export async function resolveListingLink(url: string): Promise<string | null> {
+export async function resolveListingLink(url: string, searchUrl?: string | null): Promise<string | null> {
   if (!isBlockedRedirect(url)) return null;
   const hit = RESOLVE_CACHE.get(url);
   if (hit && Date.now() - hit.at < RESOLVE_TTL_MS && hit.url) return hit.url;
@@ -571,7 +571,11 @@ export async function resolveListingLink(url: string): Promise<string | null> {
   //    demande que la réponse 3xx — l'en-tête Location suffit. Le rendu navigateur (essai du 21/10)
   //    suivait la redirection jusque chez le vendeur et se faisait bannir (Zyte 520).
   if (!found) found = await zyteRedirectLocation(url, 'NL') ?? await zyteRedirectLocation(url);
-  // 3. Par Zyte en rendu navigateur : l'URL finale après redirections (dernier recours).
+  // 3. Par une SESSION navigateur Zyte ouverte sur gaspedaal.nl (22/10) : la page d'accueil passe
+  //    (les études tournent), elle pose les cookies anti-bot ; la session navigue ensuite elle-même
+  //    vers le redirect, comme un vrai clic — et l'URL finale est la fiche chez le vendeur.
+  if (!found) found = await zyteBrowserHop(url, searchUrl);
+  // 4. Par Zyte en rendu navigateur direct : l'URL finale après redirections (dernier recours).
   if (!found) {
     try {
       const z = await fetchHtmlWithZyte(url, 1);
@@ -582,6 +586,50 @@ export async function resolveListingLink(url: string): Promise<string | null> {
   if (RESOLVE_CACHE.size > 5000) { const first = RESOLVE_CACHE.keys().next().value; if (first) RESOLVE_CACHE.delete(first); }
   console.warn(`[RESOLVE_LINK] ${url} → ${found ?? 'non résolu'}`);
   return found;
+}
+
+/** Session navigateur Zyte : page gaspedaal.nl (celle de recherche si fournie, sinon l'accueil) puis
+ *  navigation en page vers le redirect ; l'URL finale est rendue. Deux manières, tracées : le script
+ *  en page (location.href), puis le clic sur le lien de la carte s'il existe dans la page. */
+async function zyteBrowserHop(url: string, searchUrl?: string | null): Promise<string | null> {
+  if (!ZYTE_API_KEY) return null;
+  const id = url.match(/\/redirect\/vehicle\/(\d+)/)?.[1];
+  const page = searchUrl && /^https:\/\/www\.gaspedaal\.nl\//.test(searchUrl) ? searchUrl : 'https://www.gaspedaal.nl/';
+  const plans: Array<{ nom: string; actions: unknown[] }> = [
+    { nom: 'script', actions: [
+      { action: 'evaluate', source: `window.location.href = ${JSON.stringify(url)};` },
+      { action: 'waitForNavigation', timeout: 20 },
+    ] },
+    ...(id ? [{ nom: 'clic', actions: [
+      { action: 'click', selector: { type: 'css', value: `a[href*="redirect/vehicle/${id}"]` }, timeout: 10 },
+      { action: 'waitForNavigation', timeout: 20 },
+    ] }] : []),
+  ];
+  for (const plan of plans) {
+    try {
+      const response = await fetch(ZYTE_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Basic ${Buffer.from(`${ZYTE_API_KEY}:`).toString('base64')}` },
+        body: JSON.stringify({ url: page, browserHtml: true, geolocation: 'NL', actions: plan.actions }), signal: AbortSignal.timeout(90_000),
+      });
+      if (!response.ok) {
+        const txt = (await response.text().catch(() => '')).slice(0, 300).replace(/\s+/g, ' ');
+        console.warn(`[RESOLVE_LINK] session ${plan.nom} ${response.status} : ${txt}`);
+        continue;
+      }
+      const data = await response.json() as { url?: string; browserHtml?: string; actions?: Array<{ action?: string; error?: string; elapsedTime?: number }> };
+      const errs = (data.actions ?? []).filter((a) => a.error).map((a) => `${a.action}: ${String(a.error).slice(0, 120)}`);
+      const html = data.browserHtml ?? '';
+      const at = id ? html.indexOf(`redirect/vehicle/${id}`) : -1;
+      const snippet = at >= 0 ? html.slice(Math.max(0, at - 160), at + 80).replace(/\s+/g, ' ') : null;
+      const title = (html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? '').slice(0, 80);
+      console.warn(`[RESOLVE_LINK] session ${plan.nom} : url=${data.url ?? '—'} titre=« ${title} »${errs.length ? ` erreurs=${errs.join(' | ')}` : ''}${snippet ? ` lien=${snippet}` : id ? ' (lien absent de la page)' : ''}`);
+      if (data.url && !isBlockedRedirect(data.url) && !/^https:\/\/www\.gaspedaal\.nl\//.test(data.url) && /^https?:\/\//.test(data.url) && !/access denied/i.test(title)) return data.url;
+    } catch (e) {
+      console.warn(`[RESOLVE_LINK] session ${plan.nom} : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return null;
 }
 
 /** Zyte, réponse brute sans suivre la redirection : l'en-tête Location de la réponse 3xx, ou null.

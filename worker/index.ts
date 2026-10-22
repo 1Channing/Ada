@@ -177,7 +177,8 @@ app.post('/ingest-url', async (req, res) => {
   // (api.gaspedaal.nl, « Access Denied ») → l'adresse de la fiche chez le vendeur. Synchrone, court.
   if ((req.body ?? {}).mode === 'resolve_link') {
     try {
-      const resolved = await resolveListingLink(url);
+      const searchUrl = typeof (req.body ?? {}).search_url === 'string' ? String(req.body.search_url) : null;
+      const resolved = await resolveListingLink(url, searchUrl);
       return res.json({ url, resolved });
     } catch (e) {
       return res.json({ url, resolved: null, error: e instanceof Error ? e.message : String(e) });
