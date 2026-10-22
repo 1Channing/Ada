@@ -565,8 +565,13 @@ export async function resolveListingLink(url: string): Promise<string | null> {
     const r = await fetch(url, { redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', Referer: 'https://www.gaspedaal.nl/' }, signal: AbortSignal.timeout(10_000) });
     const loc = r.headers.get('location');
     if (r.status >= 300 && r.status < 400 && loc && !isBlockedRedirect(loc)) found = new URL(loc, url).toString();
-  } catch { /* bloqué ou injoignable : Zyte */ }
-  // 2. Par Zyte : l'URL finale après redirections.
+    else console.warn(`[RESOLVE_LINK] direct ${r.status} location=${loc ?? '—'}`);
+  } catch (e) { console.warn(`[RESOLVE_LINK] direct : ${e instanceof Error ? e.message : String(e)}`); }
+  // 2. Par Zyte, SANS suivre la redirection (22/10) : l'unblocker brut, géolocalisé aux Pays-Bas, ne
+  //    demande que la réponse 3xx — l'en-tête Location suffit. Le rendu navigateur (essai du 21/10)
+  //    suivait la redirection jusque chez le vendeur et se faisait bannir (Zyte 520).
+  if (!found) found = await zyteRedirectLocation(url, 'NL') ?? await zyteRedirectLocation(url);
+  // 3. Par Zyte en rendu navigateur : l'URL finale après redirections (dernier recours).
   if (!found) {
     try {
       const z = await fetchHtmlWithZyte(url, 1);
@@ -575,8 +580,37 @@ export async function resolveListingLink(url: string): Promise<string | null> {
   }
   RESOLVE_CACHE.set(url, { url: found, at: Date.now() });
   if (RESOLVE_CACHE.size > 5000) { const first = RESOLVE_CACHE.keys().next().value; if (first) RESOLVE_CACHE.delete(first); }
-  console.log(`[RESOLVE_LINK] ${url} → ${found ?? 'non résolu'}`);
+  console.warn(`[RESOLVE_LINK] ${url} → ${found ?? 'non résolu'}`);
   return found;
+}
+
+/** Zyte, réponse brute sans suivre la redirection : l'en-tête Location de la réponse 3xx, ou null.
+ *  Les refus sont tracés (statut Zyte, type d'erreur) pour qu'on sache quelle voie passe. */
+async function zyteRedirectLocation(url: string, geolocation?: string): Promise<string | null> {
+  if (!ZYTE_API_KEY) return null;
+  try {
+    const body: Record<string, unknown> = { url, httpResponseBody: true, httpResponseHeaders: true, followRedirect: false };
+    if (geolocation) body.geolocation = geolocation;
+    const response = await fetch(ZYTE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${Buffer.from(`${ZYTE_API_KEY}:`).toString('base64')}` },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok) {
+      const txt = (await response.text().catch(() => '')).slice(0, 300).replace(/\s+/g, ' ');
+      console.warn(`[RESOLVE_LINK] Zyte brut${geolocation ? ` (${geolocation})` : ''} ${response.status} : ${txt}`);
+      return null;
+    }
+    const data = await response.json() as { statusCode?: number; url?: string; httpResponseHeaders?: Array<{ name?: string; value?: string }> };
+    const loc = data.httpResponseHeaders?.find((h) => String(h.name ?? '').toLowerCase() === 'location')?.value;
+    console.warn(`[RESOLVE_LINK] Zyte brut${geolocation ? ` (${geolocation})` : ''} statut ${data.statusCode ?? '?'} location=${loc ?? '—'} url=${data.url ?? '—'}`);
+    if (loc && !isBlockedRedirect(loc) && /^https?:\/\//.test(loc)) return new URL(loc, url).toString();
+    if (data.url && data.url !== url && !isBlockedRedirect(data.url) && /^https?:\/\//.test(data.url)) return data.url;
+    return null;
+  } catch (e) {
+    console.warn(`[RESOLVE_LINK] Zyte brut : ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
 }
 
 export async function fetchBinaryWithZyte(url: string): Promise<{ buf: Buffer; contentType: string } | null> {
