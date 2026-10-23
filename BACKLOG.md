@@ -134,6 +134,24 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **OFFRES : LISTE ESPAGNOLE DELTA URBAN (200 Polo DSG, 22/10, Channing :
+  « apprends Ada à lire cette liste »)**. En-têtes « VIN / MODELO / AÑO / KM /
+  COMBUSTIBLE / CAMBIO / LOADING / NET Price » : AÑO, COMBUSTIBLE, MODELO et
+  LOADING n'étaient pas reconnus (196 lignes « marque introuvable »), et les
+  énergies accentuées (« Gasolina », « Diésel », « Híbrido », « Eléctrico »)
+  ne tombaient dans aucune classe. Classe corrigée dans parseSupplierFile :
+  synonymes espagnols (ano → année, combustible/brandstof → énergie, modelo →
+  ligne libre, loading/ubicacion → lieu d'enlèvement) et lecture des énergies
+  sans accents (gasolin, hibrid). Résultat : 196 Polo 1.0 TSI Life DSG 2023,
+  essence, automatique, Belgique, 10 000 € HT, VIN pour identifiant, aucun
+  avertissement.
+- **MARKET INTELLIGENCE : « l'annonce Gaspedaal manque » (22/10, Yaris Cross
+  NL 22 945 €)** — pas une perte : l'observation Gaspedaal est en base
+  (21:31, 92 ch). À l'affichage, `collapseMirroredListings` (règle du 06/10,
+  Elroq) replie les miroirs d'une même voiture (année + km + prix + puissance)
+  sur le site première source (AutoScout NL) ; Gaspedaal, agrégateur, n'est
+  montré que s'il est seul. Marktplaats restait visible car sans puissance
+  (clé différente). Rien à corriger ; expliqué à Channing.
 - **ANNONCES GASPEDAAL : TOUTES LES VOIES VERS LE REDIRECT SONT FERMÉES (22/10,
   Channing : « je veux vraiment les liens des annonces spécifiquement »)**.
   Preuves par le résolveur du worker, tracées dans worker_logs

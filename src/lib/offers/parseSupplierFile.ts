@@ -46,7 +46,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie|telaio)\b/],
   // « YEAR » (catalogue Record Rent a Car 07/10) : un millésime, pas une date.
   // « Årsmodell » (suédois), « Årgang » (danois), « Baujahr » (allemand).
-  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr)$/],
+  // « AÑO » (liste espagnole Delta Urban, 200 Polo DSG, 22/10) : normalisé en « ano ».
+  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr|ano)$/],
   // « Reg.nr » (liste suédoise Mixed Brands 13/10) : le NUMÉRO d'immatriculation,
   // pas une date — avant la règle des dates, qui attrape « reg » seul.
   ['plate', /(reg ?nr\b|regnr|\breg ?no\b|registreringsn|kennzeichen)/],
@@ -67,11 +68,13 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['report_url', /(appraisal|rapport|report|inspection|expertise|dekra|\burl\b|\blien\b|perizia)/],
   // « Färg/Colour » (suédois), « Farve » (danois), « Farge » (norvégien).
   ['color', /(colou?r|couleur|farbe|teinte|colore|\bfarg\b|farve|farge)/],
-  ['fuel', /(energy|energie|carburant|fuel|kraftstoff|carburante|alimentazione|bransle|braendstof|drivstoff)/],
+  // « COMBUSTIBLE » (espagnol), « Brandstof » (néerlandais).
+  ['fuel', /(energy|energie|carburant|fuel|kraftstoff|carburante|alimentazione|bransle|braendstof|drivstoff|combustible|brandstof)/],
   ['engine', /^(engine|moteur|motorisation|motor|motore)$/],
   ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung|potenza|effekt)/],
   ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$|cambio|vaxellada|gearkasse|girkasse)/],
-  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo)/],
+  // « LOADING » (liste espagnole 22/10 : le pays de chargement, BÉLGICA) = le lieu d'enlèvement.
+  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion)/],
   ['vat', /(\btva\b|\bvat\b|mwst|\biva\b|\bmoms\b)/],
   ['import', /(\bimport|origine|origin)/],
   // « Quantity » (liste VW ID.7 Tourer 02/10) : N exemplaires identiques → N lignes.
@@ -79,20 +82,22 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur|\bmarca\b)/],
   // « Modell » (suédois / allemand) : la colonne modèle, lue comme ligne libre quand elle porte toute la désignation.
   ['model', /^(model|modele|modello|modell)$/],
-  ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
+  // « MODELO » (espagnol) : toute la désignation sur une ligne (« Volkswagen Polo 1.0 TSI Life DSG »).
+  ['version', /(version|modele|modelo|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
 
 /** Énergies telles qu'ADA les nomme (les fichiers parlent anglais, allemand, français). */
 const FUEL_CANON: Array<[RegExp, string]> = [
   [/plug|rechargeable|phev|e-?tense 4x4/i, 'HYBRIDE RECHARGEABLE'],
-  [/hybr|mhev|bsg/i, 'HYBRIDE'],
+  // Espagnol (liste Delta Urban 22/10) : « Híbrido », « Eléctrico », « Diésel », « Gasolina » — lus sans accents.
+  [/hybr|hibrid|mhev|bsg/i, 'HYBRIDE'],
   [/electr|elektr|\bev\b|bev/i, 'ELECTRIQUE'],
   [/diesel|gasoil|gazole/i, 'DIESEL'],
-  [/petrol|essence|benzin|gasoline|super/i, 'ESSENCE'],
+  [/petrol|essence|benzin|gasolin|super/i, 'ESSENCE'],
   [/gpl|glp|lpg|eco-?g/i, 'GPL'],
 ];
 export function canonFuel(raw: string | null | undefined): string | null {
-  const s = (raw ?? '').trim();
+  const s = (raw ?? '').trim().normalize('NFD').replace(/\p{M}/gu, '');
   if (!s) return null;
   for (const [re, canon] of FUEL_CANON) if (re.test(s)) return canon;
   return s.toUpperCase();
