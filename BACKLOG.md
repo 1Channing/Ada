@@ -144,7 +144,13 @@ Trouvé et corrigé le jour même (preuves vives à chaque fois) :
   ligne libre, loading/ubicacion → lieu d'enlèvement) et lecture des énergies
   sans accents (gasolin, hibrid). Résultat : 196 Polo 1.0 TSI Life DSG 2023,
   essence, automatique, Belgique, 10 000 € HT, VIN pour identifiant, aucun
-  avertissement.
+  avertissement. Suite (stockbook multimarque Delta, même fournisseur,
+  Channing : « Ada ne lit pas les années ») : « F. matriculación » n'était
+  pas reconnu comme date de mise en circulation (l'année en découle) —
+  règle « matricul » ; « Modelo » est la colonne modèle quand « Versión »
+  existe à côté (et toute la désignation quand elle est seule) ;
+  « Automático » gardait son accent au lieu de devenir AUTOMATIQUE — la
+  ligne libre est lue sans accents.
 - **MARKET INTELLIGENCE : « l'annonce Gaspedaal manque » (22/10, Yaris Cross
   NL 22 945 €)** — pas une perte : l'observation Gaspedaal est en base
   (21:31, 92 ch). À l'affichage, `collapseMirroredListings` (règle du 06/10,

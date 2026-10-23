@@ -53,7 +53,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['plate', /(reg ?nr\b|regnr|\breg ?no\b|registreringsn|kennzeichen)/],
   // « 1st Reg. » (Flexivan Sorento 22/09) : normalisé en « 1st reg », ni
   // « reg date » ni « first reg » ne le voyaient — la date restait vide.
-  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr)/],
+  // « F. matriculación » (stockbook espagnol Delta, 22/10) : normalisé « f matriculacion » — « matricul » suffit.
+  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr|matricul)/],
   ['plate', /(\bimmat|plaque|\bplate\b|registration|\btarga\b)/],
   // « Milage » (faute courante), « Miltal » / « Mätarställning » / « Mil »
   // (suédois : l'unité est le MIL = 10 km, voir decideKmUnit).
@@ -81,9 +82,10 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['quantity', /^(quantity|qty|quantite|quantità|anzahl|stuck|units?|pcs|nombre)$/],
   ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur|\bmarca\b)/],
   // « Modell » (suédois / allemand) : la colonne modèle, lue comme ligne libre quand elle porte toute la désignation.
-  ['model', /^(model|modele|modello|modell)$/],
-  // « MODELO » (espagnol) : toute la désignation sur une ligne (« Volkswagen Polo 1.0 TSI Life DSG »).
-  ['version', /(version|modele|modelo|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
+  // « Modelo » (espagnol) : la colonne modèle (stockbook Delta : « F500 ELECTRICO » à côté de « Versión ») ;
+  // seule (liste Polo DSG), elle porte toute la désignation et se lit comme ligne libre.
+  ['model', /^(model|modele|modello|modell|modelo)$/],
+  ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
 
 /** Énergies telles qu'ADA les nomme (les fichiers parlent anglais, allemand, français). */
@@ -406,14 +408,15 @@ export function brandOfModelWord(line: string, knownModelsByBrand: Record<string
 
 /** Décomposition d'une ligne libre « 600 T-GEN3 1.2 HYBRID TURBO 145CH PACK BVA » — règles lisibles, rien de deviné au-delà. */
 export function parseFreeLine(line: string): { power_ch: number | null; gearbox: string | null; fuel: string | null; engine: string | null } {
-  const s = ` ${line} `;
+  // Sans accents : « Automático » (stockbook espagnol 22/10) restait « AUTOMÁTICO » au lieu d'AUTOMATIQUE.
+  const s = ` ${line} `.normalize('NFD').replace(/\p{M}/gu, '');
   // « 190HK » / « 150 hk » : chevaux suédois, danois, norvégiens (liste Mixed Brands 13/10).
   const p = s.match(/(\d{2,3})\s?(?:ch|cv|hp|ps|hk|hkr)\b/i);
   const kw = s.match(/(\d{2,3})\s?kw\b/i);
   const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : null;
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
   // « AUT » (catalogue Record Rent a Car 07/10 : « 252CV AUT »), « E-CVT ».
-  const gearbox = /\b(bva|automati(que|c|k)|automaat|aut|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
+  const gearbox = /\b(bva|automati(que|c|k|co)|automaat|aut|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
     : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) ? 'MANUELLE' : null;
   // « 300PHEV » collé (RAV4), « HEV » (Tucson), « GLP » / « ECO-G » (GPL
   // espagnol / Dacia) — catalogue du 07/10.
