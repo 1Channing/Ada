@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2, Sparkles, Share2, BarChart3 } from 'lucide-react';
+import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2, Sparkles, Share2, BarChart3, SlidersHorizontal } from 'lucide-react';
+import { MyTabsPanel } from '../components/MyTabs';
+import { useMyTabChoices } from '../lib/navChoices';
 import { supabase } from '../lib/supabase';
 import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, passwordWeakness } from '../services/auth';
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
@@ -106,7 +108,8 @@ const ORG_FILTER_KEY = 'equipe:org';
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
 
 export function Equipe() {
-  const { isAdmin, userId } = useAuth();
+  const { isAdmin, userId, hiddenTabs } = useAuth();
+  const myTabChoices = useMyTabChoices();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [allow, setAllow] = useState<AllowRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -276,7 +279,7 @@ export function Equipe() {
     if (a.id === userId) return; // jamais se rétrograder soi-même
     const next = !a.is_admin;
     if (!confirm(next
-      ? `Donner les droits ADMIN à ${a.email} ? (Truth Center, Télémétrie, Équipe, tous les onglets)`
+      ? `Donner les droits ADMIN à ${a.email} ? (Truth Center, Télémétrie, page Admin, tous les onglets)`
       : `Retirer les droits admin à ${a.email} ?`)) return;
     setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, is_admin: next } : x)));
     const { data, error: err } = await supabase.from('profiles').update({ is_admin: next }).eq('id', a.id).select('id');
@@ -365,13 +368,18 @@ export function Equipe() {
       <div className="flex items-center gap-3">
         <Users className="w-6 h-6 text-brand-ocean" />
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Équipe</h1>
-          <p className="text-sm text-slate-500">Comptes, onglets visibles par personne, et adresses autorisées à s'inscrire.</p>
+          <h1 className="text-xl font-bold text-slate-900">Admin</h1>
+          <p className="text-sm text-slate-500">Mes onglets, comptes, onglets visibles par personne, et adresses autorisées à s'inscrire.</p>
         </div>
       </div>
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
       {loading && <p className="text-sm text-slate-400 py-6 text-center">Chargement…</p>}
+
+      {/* ── Mes onglets (23/10) : le bandeau du compte connecté, à son goût — préférence, pas un droit ── */}
+      <Section id="mytabs" icon={<SlidersHorizontal className="w-4 h-4 text-brand-ocean" />} title={`Mes onglets${hiddenTabs.length ? ` (${hiddenTabs.length} masqué${hiddenTabs.length > 1 ? 's' : ''})` : ''}`} hint="choisir ce qui reste dans mon bandeau, pour moi seul">
+        <MyTabsPanel items={myTabChoices} />
+      </Section>
 
       {/* ── Organisations (12/10) : la liste de référence, un compte appartient à l'une d'elles ── */}
       {!loading && (

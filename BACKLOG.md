@@ -146,6 +146,12 @@ Trouvé et corrigé le jour même (preuves vives à chaque fois) :
   20261023100000, sa propre ligne via profiles_update_own) ; tant que la
   colonne manque, ce navigateur garde la liste (localStorage) et le réglage
   le dit. `src/services/hiddenTabs.ts`, `Layout.TabsChooser`, `useAuth.hiddenTabs`.
+  Suite (23/10 soir, Channing : « ajoute ce bouton de paramètres dans le menu
+  Équipe, que je veux renommer Admin ») : la page Équipe s'appelle Admin
+  (bouton du bandeau, titre ; route /equipe inchangée) et porte en tête une
+  section repliable « Mes onglets » (`MyTabsPanel`, `useMyTabChoices`) ; le
+  petit menu du bandeau ne reste que pour les comptes non admin, qui n'ont
+  pas cette page.
 - **OFFRES : LISTE ESPAGNOLE DELTA URBAN (200 Polo DSG, 22/10, Channing :
   « apprends Ada à lire cette liste »)**. En-têtes « VIN / MODELO / AÑO / KM /
   COMBUSTIBLE / CAMBIO / LOADING / NET Price » : AÑO, COMBUSTIBLE, MODELO et
