@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet, GraduationCap, BarChart3, Bot } from 'lucide-react';
+import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet, GraduationCap, BarChart3, Bot, SlidersHorizontal } from 'lucide-react';
+import { saveHiddenTabs } from '../services/hiddenTabs';
 import { listLearningCases } from '../services/learningCases';
 import { countMyOpenTasks } from '../services/userTasks';
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
@@ -90,7 +91,7 @@ export function Layout({ children }: LayoutProps) {
   const currentPath = window.location.pathname;
   // Onglets par compte (page Équipe) : un onglet retiré à un utilisateur
   // disparaît de SON bandeau — les admins voient toujours tout.
-  const { allowedTabs, isAdmin, isManager } = useAuth();
+  const { allowedTabs, isAdmin, isManager, hiddenTabs } = useAuth();
 
   // Navigation INTERNE (étage 3, 26/08) : pushState suffit — App écoute
   // 'locationchange' et bascule de page sans recharger l'application. Les
@@ -104,6 +105,9 @@ export function Layout({ children }: LayoutProps) {
     if (path === '/') return currentPath === '/';
     return currentPath.startsWith(path);
   };
+  const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>
+    (it.exact ? currentPath === it.path : isActive(it.path)) ||
+    (it.also ?? []).some((p) => currentPath.startsWith(p));
 
   const allItems: Array<{ path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[]; tab?: AppTabKey; workflow?: boolean; manager?: boolean }> = [
     { path: '/', label: 'Accueil', icon: <Home className="w-4 h-4" /> },
@@ -125,11 +129,11 @@ export function Layout({ children }: LayoutProps) {
   ];
   // Le Workflow reste visible dès qu'un de ses cinq onglets est permis —
   // la page masque elle-même les autres.
-  const items = allItems.filter((it) => (it.workflow ? canSeeWorkflow(allowedTabs, isAdmin) : it.manager ? (isManager || isAdmin) : !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab)));
-
-  const activeFor = (it: { path: string; exact?: boolean; also?: string[] }) =>
-    (it.exact ? currentPath === it.path : isActive(it.path)) ||
-    (it.also ?? []).some((p) => currentPath.startsWith(p));
+  const permitted = allItems.filter((it) => (it.workflow ? canSeeWorkflow(allowedTabs, isAdmin) : it.manager ? (isManager || isAdmin) : !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab)));
+  // Onglets MASQUÉS PAR CHOIX (23/10, Channing : « j'en ai trop ») : parmi les onglets permis, la personne
+  // décide lesquels restent dans son bandeau (réglage à droite). L'Accueil et la page en cours restent toujours
+  // visibles ; un onglet masqué garde son adresse et ses droits.
+  const items = permitted.filter((it) => it.path === '/' || !hiddenTabs.includes(it.path) || activeFor(it));
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -196,6 +200,7 @@ export function Layout({ children }: LayoutProps) {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
               {activeCount ?? '—'} connecté{(activeCount ?? 0) > 1 ? 's' : ''}
             </span>
+            <TabsChooser items={permitted.filter((it) => it.path !== '/').map((it) => ({ path: it.path, label: it.label }))} hidden={hiddenTabs} />
             <FeedbackCenter />
             {/* Rappels (tout le monde) puis re-scan (admin seulement, icône radar) — 12/10. */}
             <ReminderCenter />
@@ -242,6 +247,56 @@ export function Layout({ children }: LayoutProps) {
           {children}
         </div>
       </main>
+    </div>
+  );
+}
+
+/**
+ * MES ONGLETS (23/10, Channing : « me permettre, même en compte administrateur, d'enlever ou d'ajouter
+ * des onglets ; j'en ai trop, je veux activer ou désactiver selon mon bon vouloir »). Une case par entrée
+ * du bandeau à laquelle le compte a droit : décochée = retirée de SON bandeau, pour lui seul, sur tous
+ * ses appareils (profiles.hidden_tabs ; ce navigateur en attendant le SQL). Les droits (page Équipe)
+ * ne bougent pas : un onglet masqué s'ouvre toujours par son adresse.
+ */
+function TabsChooser({ items, hidden }: { items: Array<{ path: string; label: string }>; hidden: string[] }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('[data-tabs-chooser]')) setOpen(false); };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [open]);
+  const toggle = (path: string) => {
+    const next = hidden.includes(path) ? hidden.filter((p) => p !== path) : [...hidden, path];
+    void saveHiddenTabs(next).then(setNote);
+  };
+  const nHidden = items.filter((it) => hidden.includes(it.path)).length;
+  return (
+    <div className="relative" data-tabs-chooser>
+      <button
+        title={`Mes onglets${nHidden ? ` — ${nHidden} masqué${nHidden > 1 ? 's' : ''}` : ''}`}
+        onClick={() => setOpen((o) => !o)}
+        className={`relative p-1.5 rounded-lg transition-colors ${open ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
+      >
+        <SlidersHorizontal className="w-4 h-4" />
+        {nHidden > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-white/80 text-brand-encre text-[10px] font-bold grid place-items-center leading-none">{nHidden}</span>}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 p-3 z-50 text-slate-800">
+          <p className="text-xs font-semibold text-slate-900 mb-0.5">Mes onglets</p>
+          <p className="text-[11px] text-slate-500 mb-2">Décoche ce que tu ne veux plus voir dans ton bandeau. Réglage personnel : les droits des comptes ne changent pas.</p>
+          <div className="space-y-1 max-h-80 overflow-auto">
+            {items.map((it) => (
+              <label key={it.path} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-sm">
+                <input type="checkbox" checked={!hidden.includes(it.path)} onChange={() => toggle(it.path)} className="accent-brand-ocean" />
+                <span className={hidden.includes(it.path) ? 'text-slate-400' : ''}>{it.label}</span>
+              </label>
+            ))}
+          </div>
+          {note && <p className="text-[11px] text-amber-700 mt-2">{note}</p>}
+        </div>
+      )}
     </div>
   );
 }

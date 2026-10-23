@@ -134,6 +134,18 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **MES ONGLETS : CHACUN CHOISIT SON BANDEAU (23/10, Channing : « me permettre,
+  même en compte administrateur, d'enlever ou d'ajouter des onglets ; j'en ai
+  trop, je veux activer ou désactiver selon mon bon vouloir »)**. Bouton
+  « Mes onglets » (curseurs, à droite du bandeau, pastille = nombre de
+  masqués) : une case par entrée du bandeau à laquelle le compte a droit ;
+  décochée = retirée de SON bandeau (PC et mobile), pour lui seul.
+  Préférence, pas un droit : les droits de la page Équipe ne bougent pas, un
+  onglet masqué s'ouvre toujours par son adresse, et l'onglet de la page en
+  cours reste affiché. Enregistré dans `profiles.hidden_tabs` (SQL
+  20261023100000, sa propre ligne via profiles_update_own) ; tant que la
+  colonne manque, ce navigateur garde la liste (localStorage) et le réglage
+  le dit. `src/services/hiddenTabs.ts`, `Layout.TabsChooser`, `useAuth.hiddenTabs`.
 - **OFFRES : LISTE ESPAGNOLE DELTA URBAN (200 Polo DSG, 22/10, Channing :
   « apprends Ada à lire cette liste »)**. En-têtes « VIN / MODELO / AÑO / KM /
   COMBUSTIBLE / CAMBIO / LOADING / NET Price » : AÑO, COMBUSTIBLE, MODELO et
