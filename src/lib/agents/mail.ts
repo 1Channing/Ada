@@ -277,6 +277,16 @@ export function isBounce(fromEmail: string, subject: string, h: Headers): boolea
   return /(delivery status notification|undeliver|returned mail|mail delivery (failed|subsystem)|failure notice|non remis|non distribuable|unzustellbar|onbestelbaar|kunne ikke leveres|no se puede entregar|non recapitato)/i.test(subject ?? '');
 }
 
+/**
+ * Un anti-spam « à clic » (25/10 : la réponse de Mailinblack au premier mail de Dana au groupe Hecquet, le 20/10,
+ * restée inaperçue) : le destinataire ne reçoit le mail que si l'expéditeur clique le lien de validation.
+ */
+export function isSpamChallenge(fromEmail: string, subject: string, text: string): boolean {
+  if (/@([\w-]+\.)*(mailinblack\.com|spamarrest\.com|boxbe\.com)$/i.test((fromEmail ?? '').trim())) return true;
+  return /(un clic pour d[ée]livrer votre e-?mail|confirm(er|ez) que vous [eê]tes (bien )?(un humain|une personne)|please (confirm|verify) (that )?you are (a )?human|best[äa]tigen sie,? dass sie (ein )?mensch)/i
+    .test(`${subject ?? ''}\n${(text ?? '').slice(0, 2000)}`);
+}
+
 /** Les destinataires refusés d'un avis de non-remise (hors nos propres boîtes). */
 export function bouncedRecipients(h: Headers, text: string, ownMailboxes: string[]): string[] {
   const own = new Set(ownMailboxes.map((m) => m.toLowerCase()));

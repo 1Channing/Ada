@@ -17,6 +17,7 @@
  */
 import type { ScrapedListing, ListingSeller } from '../lib/study-core/types';
 import { toEur } from '../lib/study-core/business-logic';
+import { isPlaceholderSeller } from '../lib/agents/keys';
 
 type RpcResult = { data: unknown; error: { message: string } | null };
 // Le client Supabase du worker ou un client simulé (tests) ; rpc absent = écriture d'avant.
@@ -73,7 +74,8 @@ async function saveDealers(client: Client, rows: DealerRowIn[]): Promise<Map<str
 /** Enregistre les garages d'une page d'annonces et leurs annonces. Rend le nombre de garages vus. */
 export async function recordDealerSightings(client: Client, listings: ScrapedListing[], ctx: { site: string; country?: string | null; sourceUrl?: string | null }): Promise<number> {
   if (typeof (globalThis as { window?: unknown }).window !== 'undefined') return 0;
-  const withSeller = listings.filter((l): l is ScrapedListing & { seller: ListingSeller } => !!l.seller?.id && !!l.seller?.name);
+  // 25/10 : pas les vendeurs qui ne sont pas des entreprises (vendeur masqué, nom du site d'annonces).
+  const withSeller = listings.filter((l): l is ScrapedListing & { seller: ListingSeller } => !!l.seller?.id && !!l.seller?.name && !isPlaceholderSeller(l.seller.name));
   if (withSeller.length === 0) return 0;
   try {
     const site = dealerSiteFamily(ctx.site);

@@ -5,7 +5,7 @@
  */
 import {
   parseAddressList, replySubject, buildMime, replyReferences, htmlToText, stripQuoted,
-  headersOf, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, utf8ToBase64Url, encodeHeaderWord, isInternalMail, htmlBody, pngSize,
+  headersOf, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, utf8ToBase64Url, encodeHeaderWord, isInternalMail, htmlBody, pngSize, isSpamChallenge,
 } from '../src/lib/agents/mail';
 import { readFileSync } from 'node:fs';
 import { mailboxFacts, folderThreads, folderOf, type MailboxFacts } from '../src/lib/agents/mailbox';
@@ -107,6 +107,10 @@ ok(isInternalMail(headersOf([{ name: 'X-ADA-Interne', value: 'bilan' }])) && !is
 ok(isBounce('mailer-daemon@googlemail.com', 'Delivery Status Notification (Failure)', {}), 'rebond : avis Gmail');
 ok(isBounce('postmaster@outlook.com', 'Non remis : Vos 4 C-HR', {}), 'rebond : avis Outlook');
 ok(!isBounce('jean@garage.fr', 'Re: Vos 4 C-HR', {}), 'pas de rebond pour une réponse');
+// 25/10 : l'anti-spam « à clic » (Mailinblack, groupe Hecquet le 20/10).
+ok(isSpamChallenge('noreply@invitations.mailinblack.com', 'Re: Un acheteur export pour vos VO récents', 'Un clic pour délivrer votre email ! Bonjour, Je suis protégé par Protect de Mailinblack…'), 'anti-spam : Mailinblack (adresse et texte)');
+ok(isSpamChallenge('robot@protect.example', 'Re: Vos C-HR', 'Bonjour, merci de confirmer que vous êtes bien un humain en cliquant ici.') && isSpamChallenge('x@y.de', 'AW: Angebot', 'Bitte bestätigen Sie, dass Sie ein Mensch sind.'), 'anti-spam : la demande de confirmation, en français et en allemand');
+ok(!isSpamChallenge('jean@garage.fr', 'Re: Vos 4 C-HR', 'Bonjour, oui ça nous intéresse, appelez-moi.') && !isSpamChallenge('mailer-daemon@googlemail.com', 'Delivery Status Notification (Failure)', ''), 'pas d\'anti-spam pour une réponse ou un avis de non-remise');
 eq(bouncedRecipients({ 'x-failed-recipients': 'Morte@Garage.fr' }, '', ['dana@mc-export.com']), ['morte@garage.fr'], 'rebond : destinataire refusé (en-tête)');
 eq(bouncedRecipients({}, "Your message wasn't delivered to morte@garage.fr because the address couldn't be found. dana@mc-export.com", ['dana@mc-export.com']), ['morte@garage.fr'], 'rebond : destinataire refusé (texte), notre boîte exclue');
 ok(isStopRequest('STOP'), 'stop : « STOP »');
@@ -133,6 +137,9 @@ ok(inSendWindow(new Date('2026-10-16T21:30:00Z'), { ...w, send_to: '00:00' }) &&
   'créneau : « 08:30 à 00:00 » = jusqu\'à minuit (vendredi 23 h 30 ouvert, 8 h fermé)');
 eq(nextWindowStart(new Date('2026-10-17T09:00:00Z'), { ...allDay, send_days: [1, 2, 3, 4, 5] })?.toISOString(), '2026-10-18T22:00:00.000Z', 'créneau : toute la journée en semaine → samedi, reprise lundi 0 h (Paris)');
 eq(parisDayStart(new Date('2026-10-16T08:00:00Z')).toISOString(), '2026-10-15T22:00:00.000Z', 'plafond : le jour commence à minuit, heure de Paris');
+// 25/10 : les jours de changement d'heure, minuit est encore à l'ancienne heure.
+eq([new Date('2026-10-24T22:30:00Z'), new Date('2026-10-25T21:00:00Z')].map((t) => parisDayStart(t).toISOString()).join(), '2026-10-24T22:00:00.000Z,2026-10-24T22:00:00.000Z', 'plafond : le 25/10/2026 (passage à l\'heure d\'hiver), minuit est à 22 h UTC, toute la journée');
+eq(parisDayStart(new Date('2026-03-29T12:00:00Z')).toISOString(), '2026-03-28T23:00:00.000Z', 'plafond : le 29/03/2026 (passage à l\'heure d\'été), minuit est à 23 h UTC');
 const gap = randomGapMs(150, 420, () => 0.5);
 eq(gap, 285000, 'écart : au milieu de 150 et 420 s');
 eq(randomGapMs(420, 150, () => 0), 150000, 'écart : bornes inversées remises dans l\'ordre');

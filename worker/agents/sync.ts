@@ -21,7 +21,7 @@
  * Aucun contenu de mail n'est écrit dans les logs (worker_logs est lisible).
  */
 import {
-  headersOf, parseAddressList, stripQuoted, htmlToText, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, isInternalMail,
+  headersOf, parseAddressList, stripQuoted, htmlToText, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, isInternalMail, isSpamChallenge,
 } from '../../src/lib/agents/mail';
 import { gmail, GmailError, NotConnected } from './google';
 import { sb, journal, alertOwner, suppress, updateAgent, advanceProspect, type AgentRow } from './store';
@@ -132,6 +132,7 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
     || (!to.some((x) => x.email === a.mailbox) && cc.some((x) => x.email === a.mailbox)));
   if (direction === 'in') {
     if (isBounce(from?.email ?? '', subject, h)) classification = 'rebond';
+    else if (isSpamChallenge(from?.email ?? '', subject, text)) classification = 'antispam';
     else if (isAutoReply(h, subject)) { classification = 'absence'; autoReply = true; }
     else if (copy) classification = 'copie';
     else if (isStopRequest(fresh ?? '')) classification = 'stop';
@@ -182,8 +183,16 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
     return true;
   }
   if (classification === 'stop') await advanceProspect(thread.id, 'perdu');
-  else if (!autoReply && classification !== 'rebond') await advanceProspect(thread.id, 'repondu');
+  else if (!autoReply && classification !== 'rebond' && classification !== 'antispam') await advanceProspect(thread.id, 'repondu');
   const who = from?.name || from?.email || '?';
+  // 25/10 : un anti-spam « à clic » retient le mail — ce n'est pas une réponse ; l'équipe doit cliquer le lien de validation.
+  if (classification === 'antispam') {
+    await journal({ agent: a.agent, actor: 'systeme', kind: 'antispam', summary: `Un anti-spam retient un mail de ${a.display_name} (« ${subject} ») : cliquer le lien de validation pour qu'il soit délivré`, threadId: thread.id, messageId: row.id });
+    await alertOwner(a, `agent-antispam:${row.id}`, `${a.display_name} : un anti-spam retient son mail (« ${subject} »)`,
+      `Le destinataire ne recevra ce mail que si quelqu'un clique le lien de validation de ce message (${who}). Ouvrez le fil dans la Messagerie et cliquez le lien.`,
+      `/agents?agente=${a.agent}&fil=${thread.id}`);
+    return true;
+  }
   if (classification === 'rebond') {
     for (const dead of bouncedRecipients(h, text, ownMailboxes)) {
       if (await suppress(dead, 'rebond', a.agent, `avis de non-remise du ${at.toISOString().slice(0, 10)}`)) {

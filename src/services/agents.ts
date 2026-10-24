@@ -21,6 +21,7 @@ import type { Lesson, LessonScope } from '../lib/agents/lessons';
 import { mailboxFacts, type MailboxFacts, type MailboxMessageLite } from '../lib/agents/mailbox';
 import { asideLine, restoreLine, withNoteLine, isSetAside } from '../lib/agents/setAside';
 import { DISCUSSION_STAGES, PENDING_STATUSES, noteLine } from '../lib/agents/workflow';
+import { isPlaceholderSeller } from '../lib/agents/keys';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
@@ -509,7 +510,8 @@ export async function listLots(f: { country?: string | null; markets: string[]; 
     p_country: f.country || null, p_markets: f.markets, p_min: f.min ?? 3, p_days: f.days ?? 45, p_brand: f.brand?.trim() || null, p_limit: f.limit ?? 200,
   });
   if (error) return { rows: [], error: missing(error.message) || /agents_dealer_lots|function/i.test(error.message) ? LOTS_SQL_HINT : slow('Lots de Dana', error.message) };
-  return { rows: (data ?? []) as DealerLot[], error: null };
+  // 25/10 : pas les faux lots d'un vendeur masqué ou du site d'annonces lui-même (« Onbekende dealer »).
+  return { rows: ((data ?? []) as DealerLot[]).filter((r) => !isPlaceholderSeller(r.dealer?.name)), error: null };
 }
 
 /** L'heure du dernier calcul de l'annuaire et des lots (null tant que le SQL agents_index n'est pas collé). */

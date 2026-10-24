@@ -7,6 +7,7 @@ import { parseListings } from '../src/lib/study-core/parsers/autoscout24';
 import { discoveryUrl, discoveryPages } from '../src/lib/agents/discovery';
 import { opportunities, brandKey, sameModel, type OfferLite, type DealerListingLite } from '../src/lib/agents/opportunity';
 import { recordDealerSightings, isVanSearch } from '../src/services/dealerDirectory';
+import { isPlaceholderSeller } from '../src/lib/agents/keys';
 
 let fails = 0;
 const ok = (cond: boolean, what: string, got?: unknown) => {
@@ -71,6 +72,15 @@ ok(n === 1 && written.market_dealers?.length === 1 && written.market_dealers[0].
 ok(written.market_dealers?.[0].phone === '+33172396387' && !('first_seen_at' in (written.market_dealers?.[0] ?? {})), 'annuaire : coordonnées écrites, date de première vue préservée', written.market_dealers?.[0]);
 ok(written.market_dealer_listings?.length === 2 && written.market_dealer_listings.every((r) => r.vehicle_type === 'utilitaire' && r.brand === 'TOYOTA' && r.price_eur === 21_900), 'annuaire : 2 annonces, marquées utilitaires (page atype=X)', written.market_dealer_listings);
 ok(isVanSearch('https://www.autoscout24.nl/lst/ford?atype=X') && !isVanSearch('https://www.autoscout24.fr/lst/ford?atype=C&cy=F') && !isVanSearch(null), 'annuaire : page d\'utilitaires reconnue à son adresse (atype=X)');
+
+// 25/10 : les vendeurs qui ne sont pas des entreprises (fiches parasites « Onbekende dealer », « AutoScout24 Luxembourg »).
+ok(['Onbekende dealer', 'AutoScout24 Luxembourg', 'Autoscout 24', 'mobile.de GmbH', 'Unknown dealer', 'Particulier', 'Privé', 'Privatverkauf', ' '].every(isPlaceholderSeller),
+  'vendeur masqué, nom du site d\'annonces, particulier : pas une entreprise');
+ok(!['Autohaus Bleker GmbH', 'Private Car Center', 'Privat Auto GmbH', 'AUTOHERO FRANCE', 'Mobile Garage Dupont', 'Particulier Motors SARL', 'Inconnue SARL'].some(isPlaceholderSeller),
+  'les vraies entreprises restent, même si leur nom commence pareil');
+const masked = [{ ...parsed[0], seller: { ...parsed[0].seller!, id: 'gp-0', name: 'Onbekende dealer' } }, { ...parsed[0], seller: { ...parsed[0].seller!, id: 'as-lu', name: 'AutoScout24 Luxembourg' } }, parsed[0]];
+const nm = await recordDealerSightings(fake, masked, { site: 'AUTOSCOUT_FR', country: 'FR' });
+ok(nm === 1 && written.market_dealers?.length === 1 && written.market_dealers[0].name === parsed[0].seller?.name, 'annuaire : les vendeurs masqués et le site d\'annonces ne sont pas enregistrés', written.market_dealers);
 
 // « Plus cher que nous »
 const offers: OfferLite[] = [

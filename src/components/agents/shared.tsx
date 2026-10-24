@@ -51,6 +51,7 @@ const CLASSES: Record<string, { label: string; cls: string }> = {
   stop: { label: 'Ne plus contacter', cls: 'bg-red-50 text-red-700 border-red-200' },
   reponse: { label: 'Réponse', cls: 'bg-sky-50 text-sky-800 border-sky-200' },
   copie: { label: 'Copie de l\'équipe', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+  antispam: { label: 'Anti-spam : cliquer le lien', cls: 'bg-amber-50 text-amber-800 border-amber-200' },
 };
 export function ClassificationChip({ c }: { c: string | null }) {
   if (!c || !CLASSES[c]) return null;

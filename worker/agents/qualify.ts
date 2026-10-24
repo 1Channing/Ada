@@ -44,7 +44,7 @@ import {
 } from '../../src/lib/agents/sourcing';
 import { accountFitScore, segmentOf } from '../../src/lib/agents/research';
 import { opportunities, brandKey, type OfferLite, type DealerListingLite } from '../../src/lib/agents/opportunity';
-import { sameDealer, isoOfCountry, nameKey, phoneKey9 } from '../../src/lib/agents/keys';
+import { sameDealer, isoOfCountry, nameKey, phoneKey9, isPlaceholderSeller } from '../../src/lib/agents/keys';
 import { SITE_LABEL } from '../../src/services/dealerDirectory';
 import { countryVat } from '../../src/lib/offers/vat';
 import { HAIKU } from '../../src/lib/agents/aiCost';
@@ -280,6 +280,7 @@ export async function qualifyDealer(dealerId: string, ctx: SeriesContext): Promi
   const group = await loadDealerGroup(dealerId);
   const root = group[0] as DealerDb | undefined;
   if (!root) return { status: 'echec', name: dealerId, score: null, cost: 0, detail: 'garage introuvable dans l\'annuaire', addedToMap: false };
+  if (isPlaceholderSeller(root.name)) return { status: 'ecarte', name: root.name, score: null, cost: 0, detail: 'pas une entreprise : vendeur masqué ou nom du site d\'annonces', addedToMap: false };
   // La fiche principale, complétée par ses autres fiches (ville, code postal, rue, position).
   const placed = group.find((m) => m.lat != null && m.lng != null);
   const d: DealerDb = {
@@ -604,7 +605,12 @@ export async function nextCandidates(ctx: SeriesContext, limit: number): Promise
   });
   if (error) { if (!/does not exist|schema cache/i.test(error.message)) console.warn(`[AGENTS] candidats illisibles : ${error.message}`); return []; }
   const tried = await recentlyTried(ctx.agent.agent);
-  return ((data ?? []) as Array<{ dealer_id: string }>).map((r) => r.dealer_id).filter((id) => !tried.has(id)).slice(0, limit);
+  const ids = ((data ?? []) as Array<{ dealer_id: string }>).map((r) => r.dealer_id).filter((id) => !tried.has(id));
+  if (ids.length === 0) return [];
+  // 25/10 : sans les vendeurs qui ne sont pas des entreprises, déjà dans l'annuaire avant la règle.
+  const { data: named } = await sb.from('market_dealers').select('id, name').in('id', ids);
+  const placeholders = new Set(((named ?? []) as Array<{ id: string; name: string | null }>).filter((d) => isPlaceholderSeller(d.name)).map((d) => d.id));
+  return ids.filter((id) => !placeholders.has(id)).slice(0, limit);
 }
 
 export interface QualificationTaskRow {
@@ -694,7 +700,7 @@ export async function nextLotCandidates(ctx: SeriesContext, limit: number): Prom
   const byDealer = new Map<string, { n: number; gap: number; lots: number }>();
   for (const r of (data ?? []) as LotRpcRow[]) {
     const id = r.dealer?.id;
-    if (!id || r.prospect || tried.has(id)) continue;
+    if (!id || r.prospect || tried.has(id) || isPlaceholderSeller(r.dealer?.name)) continue;
     if (known.names.has(nameKey(r.dealer?.name)) || known.phones.has(phoneKey9(r.dealer?.phone))) continue;
     const gap = Math.max(0, ...(r.markets ?? []).map((m) => Number(m.gap) || 0));
     const cur = byDealer.get(id) ?? { n: 0, gap: 0, lots: 0 };

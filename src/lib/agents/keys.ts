@@ -20,6 +20,19 @@ export function nameKey(p: string | null | undefined): string {
 /** Téléphone comparable : les 9 derniers chiffres (indicatif et zéro initial ignorés). */
 export const phoneKey9 = (p: string | null | undefined): string => (p ?? '').replace(/\D/g, '').slice(-9);
 
+/**
+ * Un vendeur qui n'est pas une entreprise (25/10, fiches parasites « Onbekende dealer » et « AutoScout24
+ * Luxembourg ») : le vendeur masqué d'un site (« onbekende dealer » de Gaspedaal), le nom du site d'annonces
+ * lui-même, ou un particulier. Ces noms réunissent les annonces de garages différents — de faux lots — :
+ * ni annuaire, ni fiche.
+ */
+const PLACEHOLDER_SELLER = /^((onbekende?|unknown|inconnu|unbekannt|sconosciuto|desconocido)\b.*|particulier|vendeur particulier|priv[eé]|privat(person|verkauf)?|private( seller)?|particular|privato|(autoscout ?24|mobile\.de|gaspedaal|marktplaats|leboncoin|la ?centrale|subito|bilbasen|blocket|coches\.net|j[oó]fog[aá]s|skelbiu)\b.*)$/i;
+
+export function isPlaceholderSeller(name: string | null | undefined): boolean {
+  const n = (name ?? '').trim();
+  return n === '' || PLACEHOLDER_SELLER.test(n);
+}
+
 /** Même garage : même nom (hors mots génériques) ou même téléphone. */
 export function sameDealer(a: { name: string | null; phone: string | null }, b: { name: string | null; phone: string | null }): boolean {
   const na = nameKey(a.name);

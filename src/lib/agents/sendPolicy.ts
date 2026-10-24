@@ -46,10 +46,12 @@ function parisOffsetMs(at: Date): number {
 
 /** L'instant UTC d'une heure murale de Paris (jour y-m-d, minutes depuis minuit). */
 export function parisWallToDate(y: number, m: number, d: number, minutes: number): Date {
-  const guess = Date.UTC(y, m - 1, d, Math.floor(minutes / 60), minutes % 60);
-  // Le décalage du jour même (été/hiver) : on le lit à midi pour éviter la nuit du changement.
-  const offset = parisOffsetMs(new Date(Date.UTC(y, m - 1, d, 12)));
-  return new Date(guess - offset);
+  const wall = Date.UTC(y, m - 1, d, Math.floor(minutes / 60), minutes % 60);
+  // Le décalage (été/hiver) à l'instant visé, lu deux fois : la première lecture peut tomber de l'autre
+  // côté du changement d'heure. 25/10 : lu à midi, il plaçait minuit du 25/10/2026 à 1 h (encore l'heure
+  // d'été à minuit) — le plafond et les quotas du jour démarraient une heure trop tard.
+  const first = wall - parisOffsetMs(new Date(wall));
+  return new Date(wall - parisOffsetMs(new Date(first)));
 }
 
 /** Minuit à Paris (instant UTC) du jour de `at` — début du compteur du plafond. */

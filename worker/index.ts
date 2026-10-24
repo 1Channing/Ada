@@ -20,6 +20,7 @@ import { startSalesSheetSync } from './salesSheetSync';
 import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
 import { startReminderMailer } from './reminderMailer';
+import { startSiteLeads } from './siteLeads';
 import { registerAgentRoutes, startAgents } from './agents';
 import { aiStatus } from './agents/claude';
 import { runDealerStock } from './dealerStock';
@@ -708,6 +709,8 @@ app.listen(PORT, "0.0.0.0", () => {
     startMailer();
     // Rappels par e-mail à l'échéance, de soi à soi (comptes du domaine) — 12/10.
     startReminderMailer();
+    // Demandes du site mc-export.com : un rappel dans la cloche pour chacune — 25/10.
+    startSiteLeads();
     // Boîtes d'Ada et Dana (16/10) : envois validés et synchro Gmail.
     startAgents();
     // Preuve de marché modèle × carburant : première moisson dès que la
