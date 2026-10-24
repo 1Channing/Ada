@@ -6,7 +6,7 @@
  * test/site-leads.test.ts.
  */
 
-/** Une ligne de site_leads (SQL du 23/10, 20261023100000_demandes_site.sql). */
+/** Une ligne de site_leads (SQL du 23/10, 20261023100001_demandes_site.sql). */
 export interface SiteLead {
   id: string;
   created_at: string;
