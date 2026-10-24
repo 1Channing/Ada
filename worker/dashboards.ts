@@ -134,16 +134,46 @@ export async function recordTruthGap(gap: {
   }
 }
 
+/** Heure du dernier recalcul réussi : un recalcul n'a de sens que s'il y a des observations plus récentes. */
+let lastRefreshAt: string | null = null;
+/** En dessous de ce nombre d'observations nouvelles, la « garde horaire » attend la suivante (un recalcul relit 600 000 lignes). */
+const MIN_NEW_OBS_FOR_GUARD = 200;
+
+/**
+ * 21/10 (panne : crédit disque de la base épuisé, Ada blanche) : chaque recalcul relit TOUTE la table des
+ * observations (600 000 lignes) pour reconstruire dimensions et médianes — une trentaine de fois par jour,
+ * nuit comprise, alors que rien n'avait changé. La garde horaire ne recalcule plus que s'il y a au moins
+ * 200 observations nouvelles depuis le dernier recalcul réussi ; les recalculs demandés (fin de vague, étude
+ * forcée, fin de campagne) passent dès qu'il y a du nouveau. Fail-open : si le contrôle échoue, on recalcule.
+ */
+async function newObservationsSince(since: string | null): Promise<number | null> {
+  try {
+    let q = supabase.from('market_listing_observations' as never).select('id' as never, { count: 'exact', head: true });
+    if (since) q = (q as unknown as { gt: (c: string, v: string) => typeof q }).gt('created_at', since);
+    const { count, error } = await (q as unknown as PromiseLike<{ count: number | null; error: { message: string } | null }>);
+    if (error) return null;
+    return count ?? 0;
+  } catch { return null; }
+}
+
 export async function refreshDashboards(reason: string, minIntervalMs = 10 * 60_000): Promise<void> {
   if (Date.now() - lastRefreshMs < minIntervalMs) return;
+  const fresh = await newObservationsSince(lastRefreshAt);
+  const guard = /garde horaire/.test(reason);
+  if (fresh != null && lastRefreshAt && (fresh === 0 || (guard && fresh < MIN_NEW_OBS_FOR_GUARD))) {
+    console.log(`[DASHBOARDS] recalcul (${reason}) sans objet : ${fresh} observation(s) nouvelle(s) depuis ${lastRefreshAt.slice(11, 16)} UTC`);
+    return;
+  }
   lastRefreshMs = Date.now();
+  const startedAt = new Date().toISOString();
   try {
     const { error } = await supabase.rpc('mi_refresh_dashboards' as never);
     if (error) {
       console.warn(`[DASHBOARDS] recalcul (${reason}) échoué : ${error.message} — migration 20260826140000 appliquée ?`);
       lastRefreshMs = 0; // ne pas bloquer la prochaine tentative
     } else {
-      console.warn(`[DASHBOARDS] tableaux MI recalculés (${reason})`);
+      lastRefreshAt = startedAt;
+      console.warn(`[DASHBOARDS] tableaux MI recalculés (${reason}${fresh != null ? `, ${fresh} observation(s) nouvelle(s)` : ''})`);
     }
   } catch (e) {
     console.warn(`[DASHBOARDS] recalcul (${reason}) :`, e instanceof Error ? e.message : e);

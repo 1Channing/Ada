@@ -7,6 +7,7 @@ import { startNegoExtraction } from '../services/negoExtraction';
 import { writeNote } from '../lib/noteJournal';
 import { listingKey } from '../lib/listingKey';
 import { humanListingUrl } from '../services/marketData';
+import { resolveListingLink } from '../services/listingLink';
 
 /**
  * ENVOYER UNE ANNONCE EN NÉGOCIATION depuis le Market Intelligence (13/10,
@@ -51,7 +52,9 @@ export function SendToNegotiation({ url, title, price }: { url: string; title: s
   const send = async () => {
     setBusy(true); setError(null);
     try {
-      const clean = humanListingUrl(url);
+      // Lien Gaspedaal bloqué (21/10) : la fiche chez le vendeur si le worker la trouve, sinon le lien tel quel.
+      const human = humanListingUrl(url);
+      const clean = (await resolveListingLink(human)) ?? human;
       const { id, error: err } = await createNegotiation(title.trim() || clean, clean, price, [], null);
       if (err || !id) throw new Error(err || 'création impossible');
       let fid = folderId;

@@ -4,6 +4,7 @@ import {
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ComposedChart,
   ScatterChart, Scatter,
 } from 'recharts';
+import { openListing } from '../services/listingLink';
 import { LineChart as LineIcon, RefreshCw, TrendingUp, Gauge, RotateCcw, ExternalLink, Plus, X, MoreHorizontal, Loader2, Heart, Bookmark, Trash2 } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listSavedSearches, saveSearch, setSearchFavorite, deleteSearch, studiesKey, type SavedSearch } from '../services/savedSearches';
@@ -1465,7 +1466,7 @@ function ComparisonView({ perStudy }: { perStudy: StudyDerived[] }) {
                     shape={(props: { cx?: number; cy?: number; fill?: string }) => scatterMark(i, props)}
                     onClick={((pt: { o?: Observation }) => {
                       const url = humanListingUrl(pt?.o?.listing_url);
-                      if (url.startsWith('http')) window.open(url, '_blank', 'noopener');
+                      if (url.startsWith('http')) openListing(url);
                     }) as never}
                   />
                 ))}

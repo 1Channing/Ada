@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { timingSafeEqual } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
-import { executeStudy, scrapeSearch, reconScrape, scrapeListingDetailCard, fetchBinaryWithZyte } from './scraper';
+import { executeStudy, scrapeSearch, reconScrape, scrapeListingDetailCard, fetchBinaryWithZyte, resolveListingLink } from './scraper';
 import { runFuelEvidenceHarvest, startFuelEvidenceScheduler } from './fuelEvidence';
 import { findSiteAdapterByDomain, decomposeUrl } from '../src/lib/study-core/marketplaces';
 import { MAX_LISTING_PHOTOS } from '../src/lib/study-core/detailParsers';
@@ -172,6 +172,18 @@ app.post('/ingest-url', async (req, res) => {
 
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'Missing required parameter: url' });
+  }
+
+  // MODE LIEN D'ANNONCE (21/10) : un lien de redirection que le navigateur ne peut plus ouvrir
+  // (api.gaspedaal.nl, « Access Denied ») → l'adresse de la fiche chez le vendeur. Synchrone, court.
+  if ((req.body ?? {}).mode === 'resolve_link') {
+    try {
+      const searchUrl = typeof (req.body ?? {}).search_url === 'string' ? String(req.body.search_url) : null;
+      const resolved = await resolveListingLink(url, searchUrl);
+      return res.json({ url, resolved });
+    } catch (e) {
+      return res.json({ url, resolved: null, error: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   // MODE STOCK DE CONCESSION (carte du réseau, 30/09) : la page « aanbod »

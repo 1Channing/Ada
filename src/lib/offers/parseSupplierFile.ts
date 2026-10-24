@@ -46,13 +46,15 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie|telaio)\b/],
   // « YEAR » (catalogue Record Rent a Car 07/10) : un millésime, pas une date.
   // « Årsmodell » (suédois), « Årgang » (danois), « Baujahr » (allemand).
-  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr)$/],
+  // « AÑO » (liste espagnole Delta Urban, 200 Polo DSG, 22/10) : normalisé en « ano ».
+  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr|ano)$/],
   // « Reg.nr » (liste suédoise Mixed Brands 13/10) : le NUMÉRO d'immatriculation,
   // pas une date — avant la règle des dates, qui attrape « reg » seul.
   ['plate', /(reg ?nr\b|regnr|\breg ?no\b|registreringsn|kennzeichen)/],
   // « 1st Reg. » (Flexivan Sorento 22/09) : normalisé en « 1st reg », ni
   // « reg date » ni « first reg » ne le voyaient — la date restait vide.
-  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr)/],
+  // « F. matriculación » (stockbook espagnol Delta, 22/10) : normalisé « f matriculacion » — « matricul » suffit.
+  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr|matricul)/],
   ['plate', /(\bimmat|plaque|\bplate\b|registration|\btarga\b)/],
   // « Milage » (faute courante), « Miltal » / « Mätarställning » / « Mil »
   // (suédois : l'unité est le MIL = 10 km, voir decideKmUnit).
@@ -67,32 +69,37 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['report_url', /(appraisal|rapport|report|inspection|expertise|dekra|\burl\b|\blien\b|perizia)/],
   // « Färg/Colour » (suédois), « Farve » (danois), « Farge » (norvégien).
   ['color', /(colou?r|couleur|farbe|teinte|colore|\bfarg\b|farve|farge)/],
-  ['fuel', /(energy|energie|carburant|fuel|kraftstoff|carburante|alimentazione|bransle|braendstof|drivstoff)/],
+  // « COMBUSTIBLE » (espagnol), « Brandstof » (néerlandais).
+  ['fuel', /(energy|energie|carburant|fuel|kraftstoff|carburante|alimentazione|bransle|braendstof|drivstoff|combustible|brandstof)/],
   ['engine', /^(engine|moteur|motorisation|motor|motore)$/],
   ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung|potenza|effekt)/],
   ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$|cambio|vaxellada|gearkasse|girkasse)/],
-  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo)/],
+  // « LOADING » (liste espagnole 22/10 : le pays de chargement, BÉLGICA) = le lieu d'enlèvement.
+  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion)/],
   ['vat', /(\btva\b|\bvat\b|mwst|\biva\b|\bmoms\b)/],
   ['import', /(\bimport|origine|origin)/],
   // « Quantity » (liste VW ID.7 Tourer 02/10) : N exemplaires identiques → N lignes.
   ['quantity', /^(quantity|qty|quantite|quantità|anzahl|stuck|units?|pcs|nombre)$/],
   ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur|\bmarca\b)/],
   // « Modell » (suédois / allemand) : la colonne modèle, lue comme ligne libre quand elle porte toute la désignation.
-  ['model', /^(model|modele|modello|modell)$/],
+  // « Modelo » (espagnol) : la colonne modèle (stockbook Delta : « F500 ELECTRICO » à côté de « Versión ») ;
+  // seule (liste Polo DSG), elle porte toute la désignation et se lit comme ligne libre.
+  ['model', /^(model|modele|modello|modell|modelo)$/],
   ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
 
 /** Énergies telles qu'ADA les nomme (les fichiers parlent anglais, allemand, français). */
 const FUEL_CANON: Array<[RegExp, string]> = [
   [/plug|rechargeable|phev|e-?tense 4x4/i, 'HYBRIDE RECHARGEABLE'],
-  [/hybr|mhev|bsg/i, 'HYBRIDE'],
+  // Espagnol (liste Delta Urban 22/10) : « Híbrido », « Eléctrico », « Diésel », « Gasolina » — lus sans accents.
+  [/hybr|hibrid|mhev|bsg/i, 'HYBRIDE'],
   [/electr|elektr|\bev\b|bev/i, 'ELECTRIQUE'],
   [/diesel|gasoil|gazole/i, 'DIESEL'],
-  [/petrol|essence|benzin|gasoline|super/i, 'ESSENCE'],
+  [/petrol|essence|benzin|gasolin|super/i, 'ESSENCE'],
   [/gpl|glp|lpg|eco-?g/i, 'GPL'],
 ];
 export function canonFuel(raw: string | null | undefined): string | null {
-  const s = (raw ?? '').trim();
+  const s = (raw ?? '').trim().normalize('NFD').replace(/\p{M}/gu, '');
   if (!s) return null;
   for (const [re, canon] of FUEL_CANON) if (re.test(s)) return canon;
   return s.toUpperCase();
@@ -401,14 +408,15 @@ export function brandOfModelWord(line: string, knownModelsByBrand: Record<string
 
 /** Décomposition d'une ligne libre « 600 T-GEN3 1.2 HYBRID TURBO 145CH PACK BVA » — règles lisibles, rien de deviné au-delà. */
 export function parseFreeLine(line: string): { power_ch: number | null; gearbox: string | null; fuel: string | null; engine: string | null } {
-  const s = ` ${line} `;
+  // Sans accents : « Automático » (stockbook espagnol 22/10) restait « AUTOMÁTICO » au lieu d'AUTOMATIQUE.
+  const s = ` ${line} `.normalize('NFD').replace(/\p{M}/gu, '');
   // « 190HK » / « 150 hk » : chevaux suédois, danois, norvégiens (liste Mixed Brands 13/10).
   const p = s.match(/(\d{2,3})\s?(?:ch|cv|hp|ps|hk|hkr)\b/i);
   const kw = s.match(/(\d{2,3})\s?kw\b/i);
   const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : null;
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
   // « AUT » (catalogue Record Rent a Car 07/10 : « 252CV AUT »), « E-CVT ».
-  const gearbox = /\b(bva|automati(que|c|k)|automaat|aut|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
+  const gearbox = /\b(bva|automati(que|c|k|co)|automaat|aut|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
     : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) ? 'MANUELLE' : null;
   // « 300PHEV » collé (RAV4), « HEV » (Tucson), « GLP » / « ECO-G » (GPL
   // espagnol / Dacia) — catalogue du 07/10.

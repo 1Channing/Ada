@@ -134,6 +134,132 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **MES ONGLETS : CHACUN CHOISIT SON BANDEAU (23/10, Channing : « me permettre,
+  même en compte administrateur, d'enlever ou d'ajouter des onglets ; j'en ai
+  trop, je veux activer ou désactiver selon mon bon vouloir »)**. Bouton
+  « Mes onglets » (curseurs, à droite du bandeau, pastille = nombre de
+  masqués) : une case par entrée du bandeau à laquelle le compte a droit ;
+  décochée = retirée de SON bandeau (PC et mobile), pour lui seul.
+  Préférence, pas un droit : les droits de la page Équipe ne bougent pas, un
+  onglet masqué s'ouvre toujours par son adresse, et l'onglet de la page en
+  cours reste affiché. Enregistré dans `profiles.hidden_tabs` (SQL
+  20261023100000, sa propre ligne via profiles_update_own) ; tant que la
+  colonne manque, ce navigateur garde la liste (localStorage) et le réglage
+  le dit. `src/services/hiddenTabs.ts`, `Layout.TabsChooser`, `useAuth.hiddenTabs`.
+  Suite (23/10 soir, Channing : « ajoute ce bouton de paramètres dans le menu
+  Équipe, que je veux renommer Admin ») : la page Équipe s'appelle Admin
+  (bouton du bandeau, titre ; route /equipe inchangée) et porte en tête une
+  section repliable « Mes onglets » (`MyTabsPanel`, `useMyTabChoices`) ; le
+  petit menu du bandeau ne reste que pour les comptes non admin, qui n'ont
+  pas cette page.
+- **OFFRES : LISTE ESPAGNOLE DELTA URBAN (200 Polo DSG, 22/10, Channing :
+  « apprends Ada à lire cette liste »)**. En-têtes « VIN / MODELO / AÑO / KM /
+  COMBUSTIBLE / CAMBIO / LOADING / NET Price » : AÑO, COMBUSTIBLE, MODELO et
+  LOADING n'étaient pas reconnus (196 lignes « marque introuvable »), et les
+  énergies accentuées (« Gasolina », « Diésel », « Híbrido », « Eléctrico »)
+  ne tombaient dans aucune classe. Classe corrigée dans parseSupplierFile :
+  synonymes espagnols (ano → année, combustible/brandstof → énergie, modelo →
+  ligne libre, loading/ubicacion → lieu d'enlèvement) et lecture des énergies
+  sans accents (gasolin, hibrid). Résultat : 196 Polo 1.0 TSI Life DSG 2023,
+  essence, automatique, Belgique, 10 000 € HT, VIN pour identifiant, aucun
+  avertissement. Suite (stockbook multimarque Delta, même fournisseur,
+  Channing : « Ada ne lit pas les années ») : « F. matriculación » n'était
+  pas reconnu comme date de mise en circulation (l'année en découle) —
+  règle « matricul » ; « Modelo » est la colonne modèle quand « Versión »
+  existe à côté (et toute la désignation quand elle est seule) ;
+  « Automático » gardait son accent au lieu de devenir AUTOMATIQUE — la
+  ligne libre est lue sans accents.
+- **MARKET INTELLIGENCE : « l'annonce Gaspedaal manque » (22/10, Yaris Cross
+  NL 22 945 €)** — pas une perte : l'observation Gaspedaal est en base
+  (21:31, 92 ch). À l'affichage, `collapseMirroredListings` (règle du 06/10,
+  Elroq) replie les miroirs d'une même voiture (année + km + prix + puissance)
+  sur le site première source (AutoScout NL) ; Gaspedaal, agrégateur, n'est
+  montré que s'il est seul. Marktplaats restait visible car sans puissance
+  (clé différente). Rien à corriger ; expliqué à Channing.
+- **ANNONCES GASPEDAAL : TOUTES LES VOIES VERS LE REDIRECT SONT FERMÉES (22/10,
+  Channing : « je veux vraiment les liens des annonces spécifiquement »)**.
+  Preuves par le résolveur du worker, tracées dans worker_logs
+  (`[RESOLVE_LINK]`) : fetch direct depuis Railway → 403 ; Zyte brut sans
+  suivre la redirection, géolocalisé NL puis sans → 520 « Website Ban » ;
+  session navigateur Zyte ouverte sur gaspedaal.nl (cookies anti-bot posés,
+  la page de résultats passe) puis navigation en page vers le redirect →
+  page « Access Denied » (Akamai) ; rendu navigateur direct → 520. Dans la
+  page de résultats, le lien `api.gaspedaal.nl/redirect/vehicle/<n>` n'existe
+  QUE dans les données du flux Next (klikUrl, 479 occurrences sur une page
+  Polo), jamais comme lien cliquable : les cartes naviguent par script, le
+  clic sur la carte ne peut donc pas être reproduit par sélecteur. Le lien
+  de l'annonce chez le vendeur n'est donc atteignable par aucun automate ;
+  reste à prouver si un navigateur humain l'ouvre encore depuis gaspedaal.nl
+  (test demandé à Channing). Le résolveur reste en place (fail-open, chaque
+  voie tracée) : si Gaspedaal rouvre une voie, la fiche vendeur revient
+  sans rien changer. `resolve_link` accepte `search_url` (page de départ de
+  la session). Le repli (page de résultats) s'ancre sur la carte quand le
+  lien enregistré porte l'identifiant (#oc<id>) ; porter cet identifiant sur
+  les liens de portail changerait l'identité des annonces (dédoublonnage des
+  études, tableaux MI distinct on listing_url) — non fait, à décider.
+- **ANNONCES GASPEDAAL : REPLI SUR LA PAGE DE RÉSULTATS (21/10, suite)**.
+  Constat après la livraison du résolveur : Gaspedaal (Akamai) refuse aussi
+  bien le conteneur que Zyte (« 520 Website Ban ») sur api.gaspedaal.nl, donc
+  la résolution par le worker n'est pas garantie. Classe corrigée : quand le
+  lien de l'annonce est un redirect bloqué, l'application ouvre la page de
+  résultats Gaspedaal où l'annonce figure (même marque, même année, carburant,
+  kilométrage arrondi aux 5 000 km supérieurs, tri pertinence) — depuis
+  cette page, le clic sur la carte mène chez le vendeur (Gaspedaal accepte
+  ses propres clics). Deux clics au lieu d'un, jamais « Access Denied ».
+  Côté navigateur le dictionnaire des slugs modèle est vide : le modèle
+  passe par la barre de recherche du site (`trefw=`, grammaire prouvée)
+  plutôt qu'un slug deviné (404 possible). `gaspedaalSearchFallback`
+  (src/services/listingLink.ts), prop `fallback` de `ListingLink` ; Workflow
+  (boîte avec les critères de l'étude, archives avec marque/modèle du
+  groupe). Le lien affiché est le repli ; sans marque connue, l'ancien
+  chemin (résolveur worker, puis lien d'origine) reste.
+- **ANNONCES GASPEDAAL : LE LIEN S'OUVRE À NOUVEAU (21/10, Channing : « je ne
+  peux plus accéder à aucune annonce Gaspedaal que me fournit Ada »)**.
+  Constat : une annonce Gaspedaal n'a pas de fiche sur gaspedaal.nl, seulement
+  un lien « api.gaspedaal.nl/redirect/vehicle/<n> » vers la fiche du vendeur
+  (le flux Next ne porte que klikUrl / naam / portaalType) ; depuis le 21/10
+  ce lien répond « Access Denied » (Akamai) à un navigateur qui l'ouvre
+  directement — les liens enregistrés par les études (daily_search_hits,
+  annuaire) sont tous de cette forme. Classe corrigée : le worker suit le
+  lien à la place de l'utilisateur (mode `resolve_link` de ingest-url :
+  redirection 3xx en direct, sinon URL finale par Zyte ; mémoire 7 jours ;
+  fail-open → null). Côté application, `ListingLink` (Workflow : boîte,
+  archives, fiche, bouton Ouvrir) et `openListing` (point du graphique MI) :
+  l'onglet s'ouvre tout de suite, puis reçoit la fiche chez le vendeur, ou le
+  lien d'origine si rien n'est résolu ; « Envoyer en négociation » enregistre
+  l'adresse résolue quand elle existe. Les autres sites ne changent pas.
+  À vérifier après déploiement : la résolution depuis Railway / Zyte (le
+  conteneur de développement est bloqué par Akamai, test impossible ici).
+- **PANNE DU 21/10 : CRÉDIT DISQUE DE LA BASE ÉPUISÉ (Ada blanche, Channing :
+  « la page de Ada reste blanche »)**. Constat : Supabase « Database
+  unhealthy », connexion TCP en timeout, Disk IO à 97-100 % sur une machine
+  NANO (la plus petite). Rétabli par Channing en passant à Micro (inclus dans
+  le plan Pro) : base revenue en 0,7 s. Cause côté nous, mesurée : (1) les
+  tableaux du Market Intelligence recalculés ~30 fois par jour (garde
+  horaire + vagues), chaque recalcul relisant 600 000 observations (960 000
+  avec l'archive) pour tout réécrire, nuit comprise sans donnée nouvelle ;
+  (2) l'annuaire des agentes (10 813 garages, 3 025 lots, 3 013 prix) vidé
+  et réécrit toutes les 3 h et 5 min après chaque découverte, 31 s à plein
+  régime. Classe corrigée dans le worker : la garde horaire des tableaux ne
+  recalcule que s'il y a ≥ 200 observations nouvelles depuis le dernier
+  recalcul réussi (les recalculs demandés après une vague passent dès qu'il
+  y a du nouveau) ; l'annuaire toutes les 6 h seulement si une annonce ou un
+  garage a bougé depuis `agent_index_meta.computed_at`, et au plus un
+  recalcul par quart d'heure après une découverte. Fail-open : contrôle en
+  échec → on recalcule. À surveiller : Disk IO dans Settings → Infrastructure
+  sur les prochains jours ; s'il remonte vers 100 %, passer à Small (~15 $).
+- **OFFRES : UN CRITÈRE POUR TOUTE LA LISTE D'UN MODÈLE (20/10, Channing :
+  « changer les noms pour tous les modèles en une seule fois… un critère
+  commun à toute une liste d'un modèle donné, sur cette page uniquement »)**.
+  Dans la fenêtre d'un modèle (clic sur son nom dans le choix des modèles),
+  bouton « Modifier pour tous (N) » : un champ (marque, modèle, version,
+  motorisation, énergie, boîte, ch, couleur, TVA, dommages, année), une
+  valeur pré-remplie avec celle du premier véhicule, « Appliquer à tous » ou
+  Entrée. Les N véhicules reçoivent la même correction, gardée dans
+  `manual` comme celle du crayon (relecture du fichier et export la
+  conservent) ; les autres colonnes ne bougent pas. Marque ou modèle
+  renommés (« NV 3008 » → « 3008 ») : la fenêtre suit la liste sous son
+  nouveau nom. Rien n'est écrit tant qu'on n'applique pas.
 - **AGENTS : L'ÉCHELLE D'UN GROUPE — PÔLE ACHATS ET DIRECTEURS DE CONCESSION
   (20/10, Channing : « des directeurs VO dans un groupe il peut y en avoir
   un paquet, autant que de concessions… il y a bien souvent un pôle achat
