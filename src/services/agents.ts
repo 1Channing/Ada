@@ -18,7 +18,7 @@ import { SITE_LABEL } from './dealerDirectory';
 import type { DeepEvidence, DeepPerson, DeepBest, ContactLevel } from '../lib/agents/deepResearch';
 import type { BenchTrial } from '../lib/agents/bench';
 import type { Lesson, LessonScope } from '../lib/agents/lessons';
-import { mailboxFacts, type MailboxFacts, type MailboxMessageLite } from '../lib/agents/mailbox';
+import { mailboxFacts, isRealAnswer, type MailboxFacts, type MailboxMessageLite } from '../lib/agents/mailbox';
 import { asideLine, restoreLine, withNoteLine, isSetAside } from '../lib/agents/setAside';
 import { DISCUSSION_STAGES, PENDING_STATUSES, noteLine } from '../lib/agents/workflow';
 import { isPlaceholderSeller } from '../lib/agents/keys';
@@ -207,7 +207,7 @@ export async function startConversation(s: AgentSettings, d: Draft, status: NewS
 
 /** Réponse (ou relance s'il n'a jamais répondu) dans un fil existant. */
 export async function addToThread(thread: AgentThread, messages: AgentMessage[], d: Draft, status: NewStatus): Promise<string | null> {
-  const answered = messages.some((m) => m.direction === 'in' && m.classification !== 'rebond' && !m.auto_reply);
+  const answered = messages.some(isRealAnswer);
   const { error } = await sb.from('agent_messages').insert({
     thread_id: thread.id, agent: thread.agent, mailbox: thread.mailbox, direction: 'out', status,
     kind: answered ? 'reponse' : 'relance', author: 'humain',
@@ -327,7 +327,7 @@ export const withSignature = (s: AgentSettings) => `\n\n${s.signature.trim()}`;
 
 /** Brouillon de réponse dans un fil : destinataire et objet repris. */
 export function replyDraft(thread: AgentThread, messages: AgentMessage[], s: AgentSettings): Draft {
-  const lastIn = [...messages].reverse().find((m) => m.direction === 'in' && m.from_email && !m.auto_reply && m.classification !== 'rebond');
+  const lastIn = [...messages].reverse().find((m) => m.from_email && isRealAnswer(m));
   const to = lastIn?.from_email ?? thread.counterpart_email ?? '';
   return { to: to ? [to] : [], subject: replySubject(thread.subject), body: withSignature(s) };
 }

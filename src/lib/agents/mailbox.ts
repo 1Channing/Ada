@@ -36,6 +36,12 @@ export interface MailboxMessageLite {
 /** Ce qui attend dans « Brouillons » (et « À valider »). */
 export const WAITING_STATUSES = ['brouillon', 'a_valider', 'pour_channing', 'valide', 'envoi', 'echec'];
 
+/** Un vrai retour du destinataire, auquel on répond : ni absence, ni adresse
+ *  morte, ni anti-spam « à clic » (25/10, groupe Hecquet : le robot de
+ *  Mailinblack n'a pas répondu à sa place — en bas du fil, « Relancer »). */
+export const isRealAnswer = (m: { direction: string; classification: string | null; auto_reply?: boolean | null }): boolean =>
+  m.direction === 'in' && !m.auto_reply && m.classification !== 'rebond' && m.classification !== 'antispam';
+
 /** Ce que contient un fil, d'après ses messages. */
 export function mailboxFacts(ms: MailboxMessageLite[]): Omit<MailboxFacts, 'archived' | 'last_message_at' | 'created_at'> {
   const ins = ms.filter((x) => x.direction === 'in' && x.classification !== 'rebond');

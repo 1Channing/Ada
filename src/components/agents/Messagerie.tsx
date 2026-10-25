@@ -19,7 +19,7 @@ import {
   listMailbox, getThread, startConversation, addToThread, setThreadFlags, addSuppression, replyDraft, withSignature,
   type AgentKey, type AgentThread, type AgentMessage, type AgentSettings, type AgentCounts, type Draft, type MailboxThread,
 } from '../../services/agents';
-import { folderThreads, folderOf, type MailFolder } from '../../lib/agents/mailbox';
+import { folderThreads, folderOf, isRealAnswer, type MailFolder } from '../../lib/agents/mailbox';
 import { ClassificationChip, DraftEditor } from './shared';
 import { draftProblem, cleanDraft, fmtRelative } from './helpers';
 import { MessageCard } from './MessageCard';
@@ -136,7 +136,7 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
     if (e) onError(e); else onChanged();
   };
   // En bas du fil : « Répondre » s'il y a un mail reçu, « Relancer » après un mail parti resté sans réponse, rien sinon.
-  const answered = detail.messages.some((m) => m.direction === 'in' && !m.auto_reply && m.classification !== 'rebond');
+  const answered = detail.messages.some(isRealAnswer);
   const mailed = detail.messages.some((m) => m.direction === 'out' && m.channel === 'mail' && (m.status === 'envoye' || m.status === 'envoye_main'));
   const replyKind: 'reponse' | 'relance' | null = answered ? 'reponse' : mailed ? 'relance' : null;
   const whoOf = (x: MailboxThread) => x.counterpart_name || x.counterpart_email || (x.linkedinOnly ? x.subject.replace(/^LinkedIn\s+—\s+/, '') : 'Sans destinataire');

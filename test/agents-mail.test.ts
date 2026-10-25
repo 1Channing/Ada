@@ -8,7 +8,7 @@ import {
   headersOf, isAutoReply, isBounce, bouncedRecipients, isStopRequest, base64UrlToUtf8, utf8ToBase64Url, encodeHeaderWord, isInternalMail, htmlBody, pngSize, isSpamChallenge,
 } from '../src/lib/agents/mail';
 import { readFileSync } from 'node:fs';
-import { mailboxFacts, folderThreads, folderOf, type MailboxFacts } from '../src/lib/agents/mailbox';
+import { mailboxFacts, folderThreads, folderOf, isRealAnswer, type MailboxFacts } from '../src/lib/agents/mailbox';
 import {
   parisClock, inSendWindow, nextWindowStart, parisDayStart, randomGapMs, suppressionMatch, countsAgainstCap,
 } from '../src/lib/agents/sendPolicy';
@@ -111,6 +111,9 @@ ok(!isBounce('jean@garage.fr', 'Re: Vos 4 C-HR', {}), 'pas de rebond pour une r�
 ok(isSpamChallenge('noreply@invitations.mailinblack.com', 'Re: Un acheteur export pour vos VO récents', 'Un clic pour délivrer votre email ! Bonjour, Je suis protégé par Protect de Mailinblack…'), 'anti-spam : Mailinblack (adresse et texte)');
 ok(isSpamChallenge('robot@protect.example', 'Re: Vos C-HR', 'Bonjour, merci de confirmer que vous êtes bien un humain en cliquant ici.') && isSpamChallenge('x@y.de', 'AW: Angebot', 'Bitte bestätigen Sie, dass Sie ein Mensch sind.'), 'anti-spam : la demande de confirmation, en français et en allemand');
 ok(!isSpamChallenge('jean@garage.fr', 'Re: Vos 4 C-HR', 'Bonjour, oui ça nous intéresse, appelez-moi.') && !isSpamChallenge('mailer-daemon@googlemail.com', 'Delivery Status Notification (Failure)', ''), 'pas d\'anti-spam pour une réponse ou un avis de non-remise');
+ok(!isRealAnswer({ direction: 'in', classification: 'antispam', auto_reply: false }) && isRealAnswer({ direction: 'in', classification: null, auto_reply: false })
+  && !isRealAnswer({ direction: 'in', classification: 'absence', auto_reply: true }) && !isRealAnswer({ direction: 'in', classification: 'rebond', auto_reply: false }),
+  'anti-spam, absence, adresse morte : pas une réponse (en bas du fil, « Relancer », compté dans le plafond)');
 eq(bouncedRecipients({ 'x-failed-recipients': 'Morte@Garage.fr' }, '', ['dana@mc-export.com']), ['morte@garage.fr'], 'rebond : destinataire refusé (en-tête)');
 eq(bouncedRecipients({}, "Your message wasn't delivered to morte@garage.fr because the address couldn't be found. dana@mc-export.com", ['dana@mc-export.com']), ['morte@garage.fr'], 'rebond : destinataire refusé (texte), notre boîte exclue');
 ok(isStopRequest('STOP'), 'stop : « STOP »');
