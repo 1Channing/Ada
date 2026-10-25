@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, Workflow as WorkflowIcon, Settings2, RefreshCw, Building2, Layers, Search, Activity, BookOpen } from 'lucide-react';
+import { Bot, Inbox, Workflow as WorkflowIcon, Settings2, RefreshCw, Building2, Layers, Search, Activity, BookOpen, Pause, Play } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
-  listSettings, countsFor, aiSpend, budgetSpendToday, threadAgent, AGENT_LABEL,
+  listSettings, countsFor, aiSpend, budgetSpendToday, threadAgent, setAgentStatus, AGENT_LABEL,
   type AgentKey, type AgentSettings, type AgentCounts, type AiSpend,
 } from '../services/agents';
 import { fmtUsd } from '../lib/agents/aiCost';
-import { parisDayStart } from '../lib/agents/sendPolicy';
+import { parisDayStart, workHoursLabel } from '../lib/agents/sendPolicy';
 import { Banner, AgentsCtx, type AgentsCtxValue } from '../components/agents/shared';
 import { fmtRelative } from '../components/agents/helpers';
 import { Messagerie } from '../components/agents/Messagerie';
@@ -154,6 +154,17 @@ export function Agents() {
 
   const openFromQueue = (id: string) => { setOpenThread(id); setTab('messagerie'); };
   const s = settings.find((x) => x.agent === agent);
+  // 25/10 (Channing : « faut un bouton pour ça ») : la pause, un administrateur.
+  const toggleStatus = async () => {
+    if (!s) return;
+    const name = AGENT_LABEL[agent].name;
+    const next = s.status === 'pause' ? 'active' : 'pause';
+    if (next === 'pause' && !window.confirm(`Mettre ${name} en pause ?\n\nElle ne lance plus rien d'elle-même : ni relevés, ni fiches, ni recherches, ni brouillons, ni réponses préparées, ni bilan du jour — aucune IA dépensée d'elle-même. La Messagerie reste à jour, et ce que vous lancez ou validez à la main part quand même.`)) return;
+    const e = await setAgentStatus(agent, next, userId);
+    if (e) { setError(e); return; }
+    setInfo({ tone: 'ok', text: next === 'pause' ? `${name} est en pause : elle ne lance plus rien d'elle-même.` : `${name} reprend : son travail automatique repart dans ses jours et heures de travail (${workHoursLabel(s)}).` });
+    void load();
+  };
   const c = counts[agent];
   const pendingOf = (k: AgentKey) => (counts[k]?.aValider ?? 0) + (counts[k]?.pourVous ?? 0);
   const canEditMap = canSeeTab(allowedTabs, isAdmin, 'carte:edition');
@@ -173,6 +184,7 @@ export function Agents() {
                 className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${on ? (k === 'ada' ? 'bg-indigo-600 text-white' : 'bg-teal-600 text-white') : 'text-slate-600 hover:bg-slate-50'}`}>
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${on ? 'bg-white/20 text-white' : k === 'ada' ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-teal-700'}`}>{AGENT_LABEL[k].name[0]}</span>
                 {AGENT_LABEL[k].name}
+                {settings.find((x) => x.agent === k)?.status === 'pause' && <Pause className={`w-3.5 h-3.5 ${on ? 'text-white/80' : 'text-amber-600'}`} aria-label="en pause" />}
                 {counts[k]?.auTravail && <span className={`w-2 h-2 rounded-full animate-pulse ${on ? 'bg-white' : 'bg-emerald-500'}`} title="Au travail en ce moment" />}
                 <span className={`hidden sm:inline text-xs font-normal ${on ? 'text-white/80' : 'text-slate-400'}`}>{SIDE[k]}</span>
                 {!on && waiting > 0 && <span className="rounded-full bg-amber-500 text-white text-[10px] px-1.5" title="À valider ou préparé pour vous">{waiting}</span>}
@@ -193,6 +205,17 @@ export function Agents() {
         <div className="min-w-0 flex-1 basis-full md:basis-0">
           <p className="text-sm text-slate-600 truncate">{s?.mailbox ?? `${agent}@mc-export.com`}</p>
           <div className="mt-1 flex items-center gap-2 flex-wrap text-[11px]">
+            {s && (
+              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${s.status === 'pause' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}
+                title={s.status === 'pause' ? 'En pause : elle ne lance plus rien d\'elle-même (relevés, fiches, recherches, brouillons, réponses préparées, bilan du jour). La Messagerie reste à jour ; ce que vous lancez ou validez part quand même.' : `Active : elle travaille d'elle-même ${workHoursLabel(s)}.`}>
+                {s.status === 'pause' ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}{s.status === 'pause' ? 'en pause' : 'active'}
+              </span>
+            )}
+            {s && isAdmin && (
+              <button onClick={() => void toggleStatus()} className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-slate-700 hover:bg-slate-50">
+                {s.status === 'pause' ? 'Reprendre' : 'Mettre en pause'}
+              </button>
+            )}
             {s?.gmail_connected_email
               ? <span className="rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5">boîte connectée · relevée {fmtRelative(s.last_sync_at)}</span>
               : <button onClick={() => setTab('reglages')} className="rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 hover:bg-amber-100">boîte pas encore connectée</button>}

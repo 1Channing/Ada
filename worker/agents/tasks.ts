@@ -488,6 +488,8 @@ export async function autoCycle(): Promise<void> {
     try {
       const a = await agentRow(agent);
       if (!a || a.targets == null) continue; // SQL du 17/10 (qualification) pas encore collé
+      // 25/10 (Channing : « faut un bouton pour ça ») : en pause, elle ne lance plus rien d'elle-même, ni travail ni bilan.
+      if (a.status === 'pause') continue;
       await autoWork(a).catch((e: unknown) => console.warn(`[AGENTS] cycle automatique (${agent}) : ${e instanceof Error ? e.message : String(e)}`));
       // Le bilan du jour à l'équipe (18/10) : dès qu'elle a fini, ou à la fin de ses heures — donc aussi hors de ses heures.
       // APRÈS le travail du cycle : une tâche qu'il vient de poser le repousse (le 18/10, il était parti 4 s avant

@@ -41,17 +41,22 @@ interface Props {
   agent: AgentKey; rows: ProspectDetail[]; deep: Set<string>; draft: Set<string>; minScore: number; autoDraft: number; isAdmin: boolean;
   onDeep: (p: ProspectDetail, note: string) => void; onPrepare: (p: ProspectDetail) => void; onStage: (p: ProspectDetail, s: ProspectStage) => void; onRequalify: (p: ProspectDetail) => void;
   onOpenThread: (id: string) => void;
-  /** 20/10 : « Mettre de côté » ces fiches (pas pertinentes), avec le motif. */
-  onAside: (rows: ProspectDetail[], reason: string) => void;
+  /** 20/10 : « Mettre de côté » ces fiches (pas pertinentes), avec le motif ; 25/10 : le motif proposé comme leçon, si coché. */
+  onAside: (rows: ProspectDetail[], reason: string, lesson: boolean) => void;
   /** 20/10 (le Workflow) : les autres fiches de la même entreprise, réunies sur la ligne de celle-ci. */
   twinsOf?: (p: ProspectDetail) => ProspectDetail[];
 }
 
-/** « Mettre de côté » : le motif (facultatif) et, à cocher, les autres fiches de la même enseigne. */
-export function AsideAsk({ p, twins, onAside }: { p: ProspectDetail; twins: ProspectDetail[]; onAside: (rows: ProspectDetail[], reason: string) => void }) {
+/**
+ * « Mettre de côté » : le motif (facultatif) et, à cocher, les autres fiches de la même enseigne.
+ * 25/10 (Channing : « laisser l'option, mais facultatif ») : un administrateur peut proposer le motif comme
+ * leçon pour l'agente — décoché d'office ; la leçon attend sa validation dans « Ce qu'elle sait ».
+ */
+export function AsideAsk({ p, twins, onAside, agentName, canLearn = false }: { p: ProspectDetail; twins: ProspectDetail[]; onAside: (rows: ProspectDetail[], reason: string, lesson: boolean) => void; agentName?: string; canLearn?: boolean }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [all, setAll] = useState(false);
+  const [lesson, setLesson] = useState(false);
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 font-medium text-slate-600 hover:bg-slate-50"
@@ -60,7 +65,8 @@ export function AsideAsk({ p, twins, onAside }: { p: ProspectDetail; twins: Pros
       </button>
     );
   }
-  const go = () => { onAside(all ? [p, ...twins] : [p], reason); setOpen(false); setReason(''); setAll(false); };
+  const learnable = reason.trim().length >= 5;
+  const go = () => { onAside(all ? [p, ...twins] : [p], reason, canLearn && lesson && learnable); setOpen(false); setReason(''); setAll(false); setLesson(false); };
   return (
     <div className="w-full basis-full rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-1.5 text-left">
       <label className="block text-xs font-medium text-slate-800" htmlFor={`aside-${p.id}`}>Pourquoi n'est-elle pas pertinente ? (facultatif, pour l'équipe)</label>
@@ -72,6 +78,12 @@ export function AsideAsk({ p, twins, onAside }: { p: ProspectDetail; twins: Pros
         <label className="flex items-start gap-1.5 text-xs text-slate-700">
           <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} className="mt-0.5" />
           <span>Aussi {twins.length > 1 ? `les ${twins.length} autres fiches` : 'l\'autre fiche'} de la même enseigne : {twins.map((x) => x.name).join(', ')}</span>
+        </label>
+      )}
+      {canLearn && (
+        <label className={`flex items-start gap-1.5 text-xs ${learnable ? 'text-slate-700' : 'text-slate-400'}`}>
+          <input type="checkbox" checked={lesson && learnable} disabled={!learnable} onChange={(e) => setLesson(e.target.checked)} className="mt-0.5" />
+          <span>Proposer ce motif comme leçon pour {agentName ?? 'l\'agente'} (facultatif) : elle attend votre validation dans « Ce que {agentName ?? 'l\'agente'} sait », où vous pouvez la reformuler.</span>
         </label>
       )}
       <div className="flex items-center gap-2 flex-wrap">
@@ -129,7 +141,7 @@ function Row({ p, twins, company, agent, deeping, drafting, minScore, autoDraft,
                 <Crown className="w-3.5 h-3.5" /> {missing.length ? 'Préparer quand même' : 'Préparer pour vous'}
               </button>
             )}
-          <AsideAsk p={p} twins={twins} onAside={onAside} />
+          <AsideAsk p={p} twins={twins} onAside={onAside} agentName={name} canLearn={isAdmin} />
         </div>
       </div>
       {open && (

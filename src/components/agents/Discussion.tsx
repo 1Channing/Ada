@@ -55,6 +55,42 @@ function NotesBox({ p, onSave }: { p: ProspectDetail; onSave: (notes: string) =>
   );
 }
 
+/**
+ * Corriger la fiche (25/10, Channing : « Oui prépare le sql ») : le nom, le téléphone et le site, quand
+ * l'agente s'est trompée. Le contact de la carte réseau suit (services/agents.ts, updateProspectFields).
+ */
+function FicheEditor({ p, onSave }: { p: ProspectDetail; onSave: (patch: { name: string; phone: string; website: string }) => Promise<boolean> }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ name: p.name, phone: p.phone ?? '', website: p.website ?? '' });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!open) setF({ name: p.name, phone: p.phone ?? '', website: p.website ?? '' }); }, [open, p.name, p.phone, p.website]);
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 hover:underline">
+        <PenLine className="w-3.5 h-3.5" /> Modifier la fiche (nom, téléphone, site)
+      </button>
+    );
+  }
+  const changed = f.name.trim() !== p.name || f.phone.trim() !== (p.phone ?? '') || f.website.trim() !== (p.website ?? '');
+  const save = async () => { setBusy(true); const done = await onSave(f); setBusy(false); if (done) setOpen(false); };
+  const field = 'w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-ocean/40';
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 space-y-2">
+      <p className="text-[10px] uppercase tracking-wide text-slate-500">Modifier la fiche</p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="text-xs text-slate-600">Nom<input value={f.name} maxLength={200} onChange={(e) => setF({ ...f, name: e.target.value })} className={field} /></label>
+        <label className="text-xs text-slate-600">Téléphone<input value={f.phone} maxLength={60} inputMode="tel" onChange={(e) => setF({ ...f, phone: e.target.value })} className={field} /></label>
+        <label className="text-xs text-slate-600">Site<input value={f.website} maxLength={300} placeholder="https://…" onChange={(e) => setF({ ...f, website: e.target.value })} className={field} /></label>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="button" disabled={busy || !changed || !f.name.trim()} onClick={() => void save()} className="rounded-lg bg-brand-ocean hover:opacity-90 text-white px-2.5 py-1 text-xs font-medium disabled:opacity-40">Enregistrer</button>
+        <button type="button" onClick={() => setOpen(false)} className="text-xs text-slate-500 hover:text-slate-800">Annuler</button>
+        {p.network_contact_id && <span className="text-[11px] text-slate-500">Le contact de la carte réseau suit, sauf ce qui y avait été changé à la main.</span>}
+      </div>
+    </div>
+  );
+}
+
 /** Les échanges d'un fil (lus à l'ouverture de la carte) : qui, quand, le début du message. */
 function Exchanges({ thread, messages, onOpenThread }: { thread: AgentThread; messages: AgentMessage[]; onOpenThread: (id: string) => void }) {
   const shown = messages.filter((m) => ['recu', 'envoye', 'envoye_main'].includes(m.status)).slice(-6);
@@ -81,10 +117,11 @@ function Exchanges({ thread, messages, onOpenThread }: { thread: AgentThread; me
   );
 }
 
-export function DiscussionCard({ card, agentName, settings, counts, isAdmin, onOpenThread, onChanged, onError, onInfo, onStage, onNotes, onDeep, deeping, onRequalify }: {
+export function DiscussionCard({ card, agentName, settings, counts, isAdmin, onOpenThread, onChanged, onError, onInfo, onStage, onNotes, onEdit, onDeep, deeping, onRequalify }: {
   card: WfCard<ProspectDetail, ForYouMessage>; agentName: 'Ada' | 'Dana'; settings: AgentSettings | undefined; counts: AgentCounts | undefined; isAdmin: boolean;
   onOpenThread: (id: string) => void; onChanged: () => void; onError: (e: string) => void; onInfo?: (m: string) => void;
   onStage: (p: ProspectDetail, s: ProspectStage) => void; onNotes: (p: ProspectDetail, notes: string) => Promise<boolean>;
+  onEdit: (p: ProspectDetail, patch: { name: string; phone: string; website: string }) => Promise<boolean>;
   onDeep: (p: ProspectDetail, note: string) => void; deeping: boolean; onRequalify: (p: ProspectDetail) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -152,6 +189,7 @@ export function DiscussionCard({ card, agentName, settings, counts, isAdmin, onO
       {open && (
         <div className="px-4 pb-4 space-y-3">
           <NotesBox p={p} onSave={(n) => onNotes(p, n)} />
+          <FicheEditor p={p} onSave={(patch) => onEdit(p, patch)} />
           {/* Ce qui s'est dit d'abord, puis ce qui attend (la réponse à valider, la note à envoyer). */}
           {loaded === null
             ? <p className="text-xs text-slate-500 animate-pulse">Lecture des échanges…</p>

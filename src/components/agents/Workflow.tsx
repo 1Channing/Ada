@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { MessagesSquare, Contact, FilePenLine, Send, AlertTriangle, ChevronRight, MessageCircle } from 'lucide-react';
 import {
-  listWorkflow, prospectWork, setAsideProspects, restoreProspect, setProspectNotes, startDiscussion, queueDeepResearch, queueFirstMails, queueRedoPlan, queueQualification, queueAccountQualification, setProspectStage, sendFromAgent,
+  listWorkflow, prospectWork, setAsideProspects, restoreProspect, setProspectNotes, updateProspectFields, proposeAsideLesson, startDiscussion, queueDeepResearch, queueFirstMails, queueRedoPlan, queueQualification, queueAccountQualification, setProspectStage, sendFromAgent,
   AGENT_LABEL, type AgentKey, type AgentSettings, type AgentCounts, type ForYouMessage, type ProspectDetail, type ProspectStage, type WorkflowData,
 } from '../../services/agents';
 import { buildWorkflow, WF_COLUMNS, WF_LABEL, type WfColumn, type WfCard } from '../../lib/agents/workflow';
@@ -113,10 +113,13 @@ export function Workflow({ agent, settings, counts, isAdmin, userId, refreshKey,
     onInfo(`${name} refait le plan de ${label} : il remplace l'ancien ici d'ici une minute.`);
     void load();
   };
-  const putAside = async (ps: ProspectDetail[], reason: string, pendingIds: string[] = []) => {
+  const putAside = async (ps: ProspectDetail[], reason: string, pendingIds: string[] = [], lesson = false) => {
     const e = await setAsideProspects(ps, reason, pendingIds);
     if (e) { onError(e); return; }
-    onInfo(`${ps.length > 1 ? `${ps.length} fiches mises` : `${ps[0].name} : mise`} de côté — plus aucune recherche ni préparation, aucun crédit dépensé. ${ps.length > 1 ? 'Elles restent' : 'Elle reste'} dans « Brouillons › Mis de côté ».`);
+    // 25/10 : le motif proposé comme leçon, seulement si l'administrateur l'a coché.
+    const le = lesson ? await proposeAsideLesson(agent, reason, ps, userId) : null;
+    if (le) onError(le);
+    onInfo(`${ps.length > 1 ? `${ps.length} fiches mises` : `${ps[0].name} : mise`} de côté — plus aucune recherche ni préparation, aucun crédit dépensé. ${ps.length > 1 ? 'Elles restent' : 'Elle reste'} dans « Brouillons › Mis de côté ».${lesson && !le ? ` Le motif attend votre validation comme leçon dans « Ce que ${name} sait ».` : ''}`);
     changed();
   };
   const restore = async (p: ProspectDetail) => {
@@ -140,6 +143,14 @@ export function Workflow({ agent, settings, counts, isAdmin, userId, refreshKey,
   const saveNotes = async (p: ProspectDetail, notes: string): Promise<boolean> => {
     const e = await setProspectNotes(p.id, notes);
     if (e) { onError(e); return false; }
+    void load();
+    return true;
+  };
+  // 25/10 : corriger le nom, le téléphone ou le site d'une fiche (SQL fiche_modifiable).
+  const saveFields = async (p: ProspectDetail, patch: { name: string; phone: string; website: string }): Promise<boolean> => {
+    const e = await updateProspectFields(p, patch);
+    if (e) { onError(e); return false; }
+    onInfo(`Fiche ${patch.name.trim()} corrigée${p.network_contact_id ? ' (et son contact sur la carte, sauf ce qui y avait été changé à la main)' : ''}.`);
     void load();
     return true;
   };
@@ -180,7 +191,7 @@ export function Workflow({ agent, settings, counts, isAdmin, userId, refreshKey,
   const toComplete = (cards: Card[]) => (
     <ToComplete agent={agent} rows={cards.map((c) => c.lead)} deep={work.deep} draft={work.draft} minScore={minScore} autoDraft={mine?.auto_draft_per_day ?? 0} isAdmin={isAdmin}
       onDeep={(p, note) => void deepen(p.id, p.name, note)} onPrepare={(p) => void prepare(p)} onStage={(p, st) => void restage(p, st)} onRequalify={(p) => void requalify(p)} onOpenThread={onOpenThread}
-      onAside={(ps, reason) => void putAside(ps, reason)} twinsOf={twinsOf} />
+      onAside={(ps, reason, lesson) => void putAside(ps, reason, [], lesson)} twinsOf={twinsOf} />
   );
 
   const prepared = wf.fiches.filter((c) => c.pending.length > 0);
@@ -214,7 +225,7 @@ export function Workflow({ agent, settings, counts, isAdmin, userId, refreshKey,
         <div className="space-y-3">
           {active.map((c) => (
             <DiscussionCard key={c.lead.id} card={c} agentName={agentName} {...cardProps}
-              onStage={(p, st) => void restage(p, st)} onNotes={saveNotes} onDeep={(p, note) => void deepen(p.id, p.name, note)} deeping={work.deep.has(c.lead.id)} onRequalify={(p) => void requalify(p)} />
+              onStage={(p, st) => void restage(p, st)} onNotes={saveNotes} onEdit={saveFields} onDeep={(p, note) => void deepen(p.id, p.name, note)} deeping={work.deep.has(c.lead.id)} onRequalify={(p) => void requalify(p)} />
           ))}
           {active.length === 0 && wf.orphans.length === 0 && (
             <p className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">
@@ -242,7 +253,7 @@ export function Workflow({ agent, settings, counts, isAdmin, userId, refreshKey,
               </button>
               {showEnded && ended.map((c) => (
                 <DiscussionCard key={c.lead.id} card={c} agentName={agentName} {...cardProps}
-                  onStage={(p, st) => void restage(p, st)} onNotes={saveNotes} onDeep={(p, note) => void deepen(p.id, p.name, note)} deeping={work.deep.has(c.lead.id)} onRequalify={(p) => void requalify(p)} />
+                  onStage={(p, st) => void restage(p, st)} onNotes={saveNotes} onEdit={saveFields} onDeep={(p, note) => void deepen(p.id, p.name, note)} deeping={work.deep.has(c.lead.id)} onRequalify={(p) => void requalify(p)} />
               ))}
             </section>
           )}
@@ -263,7 +274,7 @@ export function Workflow({ agent, settings, counts, isAdmin, userId, refreshKey,
             <ForYouCard key={c.lead.id} items={c.pending} twins={c.twins} {...cardProps}
               onDeep={(id, note) => void deepen(id, c.lead.name, note)} deeping={work.deep.has(c.lead.id)}
               onRedo={(id) => void redo(id, c.lead.name)} redoing={work.draft.has(c.lead.id)}
-              actions={<>{talkButton(c.lead)}<AsideAsk p={c.lead} twins={c.twins} onAside={(ps, reason) => void putAside(ps, reason, c.pending.map((m) => m.id))} /></>} />
+              actions={<>{talkButton(c.lead)}<AsideAsk p={c.lead} twins={c.twins} agentName={name} canLearn={isAdmin} onAside={(ps, reason, lesson) => void putAside(ps, reason, c.pending.map((m) => m.id), lesson)} /></>} />
           ))}
           {ready.length > 0 && (
             <section className="space-y-2">

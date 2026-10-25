@@ -178,6 +178,8 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
   }
   // Une copie de l'équipe : ni étape, ni alerte, ni réponse — l'agente en apprend les contacts.
   if (classification === 'copie') {
+    // 25/10 : en pause, aucune IA d'elle-même — la copie reste dans la Messagerie, sans être apprise.
+    if (a.status === 'pause') return true;
     const { error: e3 } = await sb.from('agent_tasks').insert({ agent: a.agent, kind: 'qualification', params: { copie: row.id, auto: true }, created_by: null });
     if (e3) console.warn(`[AGENTS] ${a.agent} : copie de l'équipe non apprise (${e3.message})`);
     return true;
@@ -214,8 +216,8 @@ async function importMessage(a: AgentRow, m: GmailMessage, ownMailboxes: string[
     const title = classification === 'stop' ? `${name} : ${who} demande à ne plus être contacté` : `${name} : réponse de ${who}`;
     await alertOwner(a, `agent-mail:${row.id}`, title, `« ${subject} »\n\n${(fresh ?? '').slice(0, 600)}`, `/agents?agente=${a.agent}&fil=${thread.id}`);
   }
-  // Une vraie réponse (ni absence, ni arrêt, ni lettre d'information) : l'agente prépare la sienne.
-  if (!bulk && !autoReply && classification === null) await queueReplyDraft(a.agent, thread.id, row.id, at).catch((e: unknown) => console.warn(`[AGENTS] ${a.agent} : réponse préparée non demandée (${e instanceof Error ? e.message : String(e)})`));
+  // Une vraie réponse (ni absence, ni arrêt, ni lettre d'information) : l'agente prépare la sienne — sauf en pause (25/10).
+  if (!bulk && !autoReply && classification === null && a.status !== 'pause') await queueReplyDraft(a.agent, thread.id, row.id, at).catch((e: unknown) => console.warn(`[AGENTS] ${a.agent} : réponse préparée non demandée (${e instanceof Error ? e.message : String(e)})`));
   return true;
 }
 

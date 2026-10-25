@@ -186,10 +186,11 @@ export function Live({ agent, settings: s, otherBusy, isAdmin, refreshKey, onErr
             <span className={`relative inline-flex h-3.5 w-3.5 rounded-full ${state === 'work' ? 'bg-emerald-500' : state === 'wait' ? 'bg-amber-400' : 'bg-slate-300'}`} />
           </span>
           <div className="min-w-0">
-            <p className="text-base font-semibold text-slate-900">{state === 'work' ? `${name} travaille` : state === 'wait' ? `${name} va s'y mettre` : `${name} est au repos`}</p>
+            <p className="text-base font-semibold text-slate-900">{state === 'work' ? `${name} travaille` : state === 'wait' ? `${name} va s'y mettre` : s?.status === 'pause' ? `${name} est en pause` : `${name} est au repos`}</p>
             <p className="text-sm text-slate-600">
               {running ? `${kindOf(running).label} — ${what(running)}`
                 : queued.length ? `${queued.length} tâche${pl(queued.length)} en file : elle les prend une par une.${otherBusy ? ` Le worker fait une chose à la fois : il termine d'abord celle ${deName(agent === 'ada' ? 'Dana' : 'Ada')}.` : ''}`
+                  : s?.status === 'pause' ? 'Elle ne lance plus rien d\'elle-même (bouton « Reprendre » en haut). Ce que vous lancez à la main part tout de suite.'
                   : inHours ? 'Rien à faire pour l\'instant : son travail automatique repasse toutes les 10 minutes.'
                     : `Hors de ses horaires de travail (${s ? workHoursLabel(s) : '—'})${next ? ` : reprise ${fmtDateTime(next.toISOString())}` : ''}. Ce que vous lancez à la main part tout de suite.`}
             </p>

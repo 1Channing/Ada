@@ -111,6 +111,16 @@ export async function updateSettings(agent: AgentKey, patch: Partial<EditableSet
   return error ? err(error.message) : null;
 }
 
+/**
+ * La pause d'une agente (25/10, Channing : « faut un bouton pour ça ») — un administrateur. En pause, le worker
+ * ne lance plus rien d'elle-même (relevés, fiches, recherches, brouillons, réponses préparées, bilan du jour) ;
+ * la Messagerie reste à jour, et ce que l'équipe lance ou valide part quand même.
+ */
+export async function setAgentStatus(agent: AgentKey, status: 'pause' | 'active', userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_settings').update({ status, updated_at: new Date().toISOString(), updated_by: userId }).eq('agent', agent);
+  return error ? err(error.message) : null;
+}
+
 /** Adresse de l'écran Google pour connecter la boîte (admin). Le worker termine la connexion. */
 export async function oauthUrl(agent: AgentKey): Promise<{ url: string | null; error: string | null }> {
   const returnTo = `${window.location.origin}/agents?onglet=reglages`;
@@ -633,6 +643,36 @@ export async function setProspectNotes(id: string, notes: string): Promise<strin
   return error ? errQualif(error.message) : null;
 }
 
+export const FICHE_SQL_HINT = 'Modifier une fiche : SQL du 25/10 (fiche_modifiable) à coller dans Supabase.';
+
+/**
+ * Corriger le nom, le téléphone ou le site d'une fiche (25/10, Channing : « Oui prépare le sql ») — avant, seules
+ * l'étape et les notes l'étaient. Le contact de la carte réseau suit, pour chaque champ qui y avait encore la
+ * valeur de la fiche (ou rien) : une correction faite à la main sur la carte n'est jamais écrasée.
+ */
+export async function updateProspectFields(
+  p: Pick<ProspectDetail, 'id' | 'name' | 'website' | 'phone' | 'network_contact_id'>,
+  patch: { name: string; phone: string; website: string },
+): Promise<string | null> {
+  const row = { name: patch.name.trim(), phone: patch.phone.trim() || null, website: patch.website.trim() || null };
+  if (!row.name) return 'Le nom de la fiche ne peut pas être vide.';
+  const { error } = await sb.from('agent_prospects').update({ ...row, updated_at: new Date().toISOString() }).eq('id', p.id);
+  if (error) return /permission denied|42501/i.test(error.message) ? FICHE_SQL_HINT : errQualif(error.message);
+  if (p.network_contact_id) {
+    const { data } = await sb.from('network_contacts').select('name, phone, website').eq('id', p.network_contact_id).maybeSingle();
+    const map = data as { name: string | null; phone: string | null; website: string | null } | null;
+    if (map) {
+      const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? '').trim() === (b ?? '').trim();
+      const sync: Partial<typeof row> = {};
+      for (const k of ['name', 'phone', 'website'] as const) {
+        if (!same(row[k], p[k]) && (same(map[k], p[k]) || !(map[k] ?? '').trim())) Object.assign(sync, { [k]: row[k] });
+      }
+      if (Object.keys(sync).length) await sb.from('network_contacts').update({ ...sync, updated_at: new Date().toISOString() }).eq('id', p.network_contact_id);
+    }
+  }
+  return null;
+}
+
 /** « Passer en discussion » : contactée en dehors d'ADA (téléphone, salon…) — la fiche rejoint Discussions en cours. */
 export async function startDiscussion(p: Pick<ProspectDetail, 'id' | 'notes'>, how: string): Promise<string | null> {
   const now = new Date();
@@ -962,6 +1002,20 @@ export async function decideLesson(id: string, patch: { status?: 'validee' | 're
 export async function addLesson(agent: AgentKey, l: { text: string; scope: LessonScope; segment: string | null; country: string | null }, userId: string | null): Promise<string | null> {
   const now = new Date().toISOString();
   const { error } = await sb.from('agent_lessons').insert({ agent, status: 'validee', source: 'manuel', text: l.text.trim(), scope: l.scope, segment: l.segment, country: l.country, created_by: userId, decided_by: userId, decided_at: now });
+  return error ? errLecons(error.message) : null;
+}
+
+/**
+ * Le motif d'une mise de côté proposé comme leçon (25/10, Channing : « laisser l'option, mais facultatif ») :
+ * une leçon « proposée », pour chercher, à valider ou reformuler dans « Ce qu'elle sait ».
+ */
+export async function proposeAsideLesson(agent: AgentKey, reason: string, rows: Array<Pick<ProspectDetail, 'id' | 'name'>>, userId: string | null): Promise<string | null> {
+  const text = reason.trim().slice(0, 600);
+  if (text.length < 5) return null;
+  const { error } = await sb.from('agent_lessons').insert({
+    agent, status: 'proposee', source: 'manuel', scope: 'recherche', segment: null, country: null, text,
+    details: { mise_de_cote: rows.map((p) => ({ id: p.id, nom: p.name })) }, created_by: userId,
+  });
   return error ? errLecons(error.message) : null;
 }
 

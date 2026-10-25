@@ -320,7 +320,6 @@ const AgentForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; u
   };
   useImperativeHandle(ref, () => ({
     check: () => {
-      if (f.send_days.length === 0) return 'Cochez au moins un jour de travail.';
       if (endMinutes(f.send_to) <= toMinutes(f.send_from)) return 'L\'heure de fin doit suivre l\'heure de début (00:00 en fin = minuit ; 00:00 à 00:00 = toute la journée).';
       return null;
     },
@@ -385,6 +384,9 @@ const AgentForm = forwardRef<FormHandle, { s: AgentSettings; isAdmin: boolean; u
             <span className="text-xs text-slate-400">(heure de Paris)</span>
           </div>
           <p className="text-xs text-slate-400">{s.display_name} cherche, prépare ses fiches, écrit et envoie dans ces horaires. 00:00 en fin = minuit ; 00:00 à 00:00 = toute la journée.</p>
+          {f.send_days.length === 0 && (
+            <p className="text-xs text-amber-700">Aucun jour coché : {s.display_name} ne travaille plus d'elle-même, et les mails que vous validez attendent qu'un jour soit coché. Pour un simple arrêt, le bouton « Mettre en pause » en haut suffit : les mails validés, eux, continuent de partir.</p>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap text-sm">
           <span className="text-slate-600">Premiers contacts et relances par jour :</span>
