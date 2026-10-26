@@ -265,13 +265,25 @@ async function scrapeDvApi(url: string, firstHtml: string): Promise<DealerStockR
   if (!raw) return { provider: 'dvapi', total: null, vehicles: [], pages: 0, warnings: ['data-update-url introuvable'] };
   const api = new URL(raw.replace(/&amp;/g, '&'), origin);
   api.searchParams.set('limit', '100');
+  // ORDRE STABLE (De Waal Autogroep 26/10, 1 547 annoncés) : sans tri, l'API sert ses pages dans un ordre
+  // qui peut bouger entre deux appels — une voiture glisse d'une page à l'autre et manque au relevé.
+  // Le tri de la page vitrine (?sort=price_asc) est repris ; sinon « created_at_asc » (le plus stable,
+  // proposé par cette famille d'API). Un tri refusé (HTTP ≠ 200) est abandonné, la lecture continue.
+  const pageSort = new URL(url).searchParams.get('sort');
+  let sort: string | null = pageSort || 'created_at_asc';
   const out: DealerVehicle[] = [];
   const seen = new Set<string>();
   let total: number | null = null;
   let page = 1;
   for (; page <= MAX_PAGES; page++) {
     api.searchParams.set('page', String(page));
-    const res = await getText(api.toString(), { headers: { accept: 'application/json', referer: url } });
+    if (sort) api.searchParams.set('sort', sort); else api.searchParams.delete('sort');
+    let res = await getText(api.toString(), { headers: { accept: 'application/json', referer: url } });
+    if (res.status !== 200 && sort && page === 1) {
+      warnings.push(`tri « ${sort} » refusé par l'API (HTTP ${res.status}) — lecture sans tri`);
+      sort = null; api.searchParams.delete('sort');
+      res = await getText(api.toString(), { headers: { accept: 'application/json', referer: url } });
+    }
     if (res.status !== 200) { warnings.push(`page ${page} : HTTP ${res.status}`); break; }
     let d: { items?: DvItem[]; pages?: { total?: number }; count?: number };
     try { d = JSON.parse(res.text); } catch { warnings.push(`page ${page} : réponse illisible`); break; }
@@ -290,6 +302,10 @@ async function scrapeDvApi(url: string, firstHtml: string): Promise<DealerStockR
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
+  // Pages servies INCOMPLÈTES (De Waal 26/10 : « count » 1 547, pages de 100 qui n'en livrent que 87 à 97,
+  // 1 425 voitures au total — le site lui-même n'en montre pas plus : il filtre APRÈS avoir découpé les
+  // pages). Dit tel quel dans le bilan, pour que l'écart ne passe pas pour un relevé tronqué.
+  if (total != null && out.length < total) warnings.push(`${out.length} véhicule(s) servi(s) par le site pour ${total} annoncé(s) — ses pages sont incomplètes (il écarte des voitures après la pagination), rien de plus n'est visible`);
   return { provider: 'dvapi', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
 }
 

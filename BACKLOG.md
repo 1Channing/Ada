@@ -134,6 +134,21 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **VITRINE DE WAAL AUTOGROEP (26/10, Channing : « apprends Ada à lire cette
+  vitrine, n'oublie pas la pagination »)**. Déjà reconnue : la page porte
+  `data-update-url="/voorraad-api/vehiclelist/1/vehicles.json…"`, famille
+  `dvapi` (Hedin, 01/10). Preuve : 1 425 voitures lues en 16 pages de 100,
+  sans avertissement, années 2017–2027, prix, km, plaque, image, date. Deux
+  classes corrigées dans scrapeDvApi : (1) ORDRE STABLE — le tri de la page
+  vitrine (`?sort=price_asc`) est repris par l'API, sinon `created_at_asc`,
+  un tri refusé est abandonné ; sans tri, une voiture pouvait glisser d'une
+  page à l'autre entre deux appels ; (2) l'écart compteur/servi est DIT :
+  le site annonce 1 547 mais ses pages de 100 n'en livrent que 87 à 97 (il
+  écarte des voitures après la pagination, même sur sa propre page 1 : 9
+  sur 10) — 1 425 est tout ce que le site montre, le bilan l'explique au
+  lieu de laisser croire à un relevé tronqué. Fiche « Dewaal autogroep »
+  (a0000000-…-011) : l'adresse pointait avant sur Vallei Auto Groep
+  (Cloudflare, 3 relevés en échec) ; relevé lancé après déploiement.
 - **MES ONGLETS : CHACUN CHOISIT SON BANDEAU (23/10, Channing : « me permettre,
   même en compte administrateur, d'enlever ou d'ajouter des onglets ; j'en ai
   trop, je veux activer ou désactiver selon mon bon vouloir »)**. Bouton
