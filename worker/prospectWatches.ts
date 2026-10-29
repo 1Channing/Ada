@@ -8,20 +8,30 @@
  * ordonnanceur) : rien de commun, rien d'interférent.
  *
  * Un passage : la page de recherche telle que donnée (Leboncoin : tri « plus récentes » ajouté quand
- * l'adresse n'en porte pas), 3 pages. Mémoire = les lignes prospect_watch_hits, tous statuts.
+ * l'adresse n'en porte pas), PAGE PAR PAGE jusqu'au déjà-vu. Mémoire = les lignes
+ * prospect_watch_hits, tous statuts.
  *   - PREMIER passage : les annonces publiées depuis moins de 24 h deviennent des leads (inbox) ;
- *     les autres entrent en 'seed' (mémoire, jamais montrées) — elles ne reviendront pas le lendemain.
- *     Sans date de publication lisible : seed aussi (rien d'inventé).
- *   - Passages SUIVANTS : toute annonce inconnue devient un lead ; une annonce connue revue met à
- *     jour last_seen_at (et le prix). Jamais de doublon : clé (veille, adresse).
+ *     on tourne les pages tant qu'elles en apportent, puis on s'arrête (une page sans annonce des
+ *     dernières 24 h = la suite est plus ancienne). Les plus anciennes rencontrées entrent en 'seed'
+ *     (mémoire, jamais montrées). Sans date de publication lisible : seed (rien d'inventé).
+ *   - Passages SUIVANTS : on tourne les pages tant qu'elles apportent des annonces inconnues ; une
+ *     page dont tout est déjà connu arrête le passage. Toute inconnue devient un lead ; une connue
+ *     revue met à jour last_seen_at (et le prix). Jamais de doublon : clé (veille, adresse).
  * Tick 10 min (heure Paris ≥ run_hour, une fois par jour), « Lancer maintenant » sondé toutes les 30 s.
  */
-import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
+import { sharedSupabase } from '../src/lib/supabaseShared';
+
+// Tables hors des types générés (SQL du 29/10) : client non typé, comme dealerStock.
+const supabase = sharedSupabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 import { scrapeSearch } from './scraper';
+import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
+import type { ScrapedListing } from '../src/lib/study-core/types';
 
 const TZ = 'Europe/Paris';
 const TICK_MS = 10 * 60_000;
-const MAX_PAGES = 3;
+// Pagination JUSQU'AU DÉJÀ-VU (29/10 soir, Channing : « continuer jusqu'à trouver des annonces déjà
+// scrapées la veille ; le premier jour, toutes les annonces de J-1 ») — plafond de sûreté.
+const MAX_PAGES = 30;
 const FRESH_MS = 24 * 3600_000;
 
 interface WatchRow { id: string; user_id: string; label: string; url: string; run_hour: number; active: boolean; last_run_at: string | null; force_requested_at: string | null }
@@ -92,49 +102,72 @@ export async function runWatch(w: WatchRow): Promise<{ leads: number; seeds: num
     if (!data || data.length < 1000) break;
   }
   const firstRun = known.size === 0 && !w.last_run_at;
-  const r = await scrapeSearch(watchScrapeUrl(w.url), 'full', { maxPagesCap: MAX_PAGES, maxListingsCap: 150 });
-  if (r.error && r.listings.length === 0) {
-    const summary = `échec : ${r.error}${r.errorReason ? ` (${r.errorReason})` : ''}`;
+  const baseUrl = watchScrapeUrl(w.url);
+  const adapter = findSiteAdapterByDomain(baseUrl);
+  const nowIso = new Date().toISOString();
+  let leads = 0, seeds = 0, seen = 0, undated = 0, read = 0, pages = 0;
+  let site = '';
+  let firstError: string | null = null;
+  const rows: Array<Record<string, unknown>> = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const pageUrl = page === 1 ? baseUrl : (adapter ? adapter.buildPaginatedUrl(baseUrl, page) : baseUrl);
+    if (page > 1 && pageUrl === baseUrl) break; // site sans pagination connue
+    // 'fast' = UNE page (pas de profondeur interne) : la profondeur, c'est cette boucle qui la décide.
+    const r = await scrapeSearch(pageUrl, 'fast');
+    if (page === 1) site = r.diagnostics.site;
+    if (r.error && r.listings.length === 0) {
+      if (page === 1) { firstError = `${r.error}${r.errorReason ? ` (${r.errorReason})` : ''}`; }
+      else console.warn(`[VEILLE] « ${name} » : page ${page} illisible (${r.error}) — arrêt, ${read} annonce(s) lue(s)`);
+      break;
+    }
+    if (r.listings.length === 0) break;
+    pages = page;
+    read += r.listings.length;
+    let freshOnPage = 0, unknownOnPage = 0;
+    for (const l of r.listings as ScrapedListing[]) {
+      const url = (l.listing_url ?? '').trim();
+      if (!url.startsWith('http')) continue;
+      const prior = known.get(url);
+      if (prior) {
+        if (prior.id) {
+          seen++;
+          const patch: Record<string, unknown> = { last_seen_at: nowIso };
+          if (typeof l.price === 'number' && l.price > 0 && l.price !== prior.price) patch.price = l.price;
+          await supabase.from('prospect_watch_hits').update(patch).eq('id', prior.id);
+        }
+        continue;
+      }
+      unknownOnPage++;
+      let status: 'inbox' | 'seed' = 'inbox';
+      if (firstRun) {
+        const pub = l.publishedAt ? Date.parse(l.publishedAt) : NaN;
+        if (!Number.isFinite(pub)) { status = 'seed'; undated++; }
+        else status = startedAt.getTime() - pub <= FRESH_MS ? 'inbox' : 'seed';
+      }
+      if (status === 'inbox') { leads++; freshOnPage++; } else seeds++;
+      rows.push({
+        watch_id: w.id, listing_url: url, title: (l.title ?? '').slice(0, 200), price: typeof l.price === 'number' && l.price > 0 ? Math.round(l.price) : null,
+        year: l.year ?? null, mileage: l.mileage ?? null, fuel: l.fuel ?? '', site, published_at: l.publishedAt ?? null,
+        status, first_seen_at: nowIso, last_seen_at: nowIso,
+      });
+      known.set(url, { id: '', status, price: null });
+    }
+    // Arrêt : premier passage → plus rien des dernières 24 h sur cette page ; ensuite → plus rien d'inconnu.
+    if (firstRun ? freshOnPage === 0 : unknownOnPage === 0) break;
+  }
+  if (firstError) {
+    const summary = `échec : ${firstError}`;
     await supabase.from('prospect_watches').update({ last_run_at: startedAt.toISOString(), last_summary: summary }).eq('id', w.id);
     console.warn(`[VEILLE] « ${name} » : ${summary}`);
     return { leads: 0, seeds: 0, seen: 0 };
-  }
-  const site = r.diagnostics.site;
-  const nowIso = new Date().toISOString();
-  let leads = 0, seeds = 0, seen = 0, undated = 0;
-  const rows: Array<Record<string, unknown>> = [];
-  for (const l of r.listings) {
-    const url = (l.listing_url ?? '').trim();
-    if (!url.startsWith('http')) continue;
-    const prior = known.get(url);
-    if (prior) {
-      seen++;
-      const patch: Record<string, unknown> = { last_seen_at: nowIso };
-      if (typeof l.price === 'number' && l.price > 0 && l.price !== prior.price) patch.price = l.price;
-      await supabase.from('prospect_watch_hits').update(patch).eq('id', prior.id);
-      continue;
-    }
-    let status: 'inbox' | 'seed' = 'inbox';
-    if (firstRun) {
-      const pub = l.publishedAt ? Date.parse(l.publishedAt) : NaN;
-      if (!Number.isFinite(pub)) { status = 'seed'; undated++; }
-      else status = startedAt.getTime() - pub <= FRESH_MS ? 'inbox' : 'seed';
-    }
-    if (status === 'inbox') leads++; else seeds++;
-    rows.push({
-      watch_id: w.id, listing_url: url, title: (l.title ?? '').slice(0, 200), price: typeof l.price === 'number' && l.price > 0 ? Math.round(l.price) : null,
-      year: l.year ?? null, mileage: l.mileage ?? null, fuel: l.fuel ?? '', site, published_at: l.publishedAt ?? null,
-      status, first_seen_at: nowIso, last_seen_at: nowIso,
-    });
-    known.set(url, { id: '', status, price: null });
   }
   if (rows.length) {
     const { error } = await supabase.from('prospect_watch_hits').upsert(rows, { onConflict: 'watch_id,listing_url', ignoreDuplicates: true });
     if (error) throw new Error(`écriture impossible : ${error.message}`);
   }
   const summary = firstRun
-    ? `premier passage : ${r.listings.length} annonce(s) lue(s) sur ${site}, ${leads} des dernières 24 h → leads, ${seeds} plus anciennes en mémoire${undated ? ` (dont ${undated} sans date)` : ''}`
-    : `${r.listings.length} annonce(s) lue(s) sur ${site}, ${leads} nouvelle(s) → leads, ${seen} déjà connue(s)`;
+    ? `premier passage : ${read} annonce(s) lue(s) sur ${site} (${pages} page${pages > 1 ? 's' : ''}), ${leads} des dernières 24 h → leads, ${seeds} plus ancienne(s) en mémoire${undated ? ` (dont ${undated} sans date)` : ''}`
+    : `${read} annonce(s) lue(s) sur ${site} (${pages} page${pages > 1 ? 's' : ''}, jusqu'au déjà-vu), ${leads} nouvelle(s) → leads, ${seen} déjà connue(s)`;
   await supabase.from('prospect_watches').update({ last_run_at: startedAt.toISOString(), last_summary: summary }).eq('id', w.id);
   console.warn(`[VEILLE] « ${name} » : ${summary}`);
   return { leads, seeds, seen };

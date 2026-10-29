@@ -147,10 +147,16 @@ Trouvé et corrigé le jour même (preuves vives à chaque fois) :
   l'auteur gère sa veille ; l'organisation lit et ne peut que PRENDRE un
   lead inbox → saved à son nom). Worker `prospectWatches.ts` : ordonnanceur
   propre (tick 10 min dès run_hour heure Paris, une fois par jour ; forçage
-  sondé 30 s) ; un passage = scrapeSearch 3 pages (Leboncoin : `sort=time`
-  ajouté si l'adresse n'a pas de tri), premier passage → leads si publiées
-  depuis < 24 h sinon seed (sans date lisible : seed), passages suivants →
-  toute annonce inconnue = lead, connue = last_seen_at (prix suivi) ;
+  sondé 30 s) ; un passage = page par page (scrapeSearch 'fast' = une page,
+  `buildPaginatedUrl` du site ; Leboncoin : `sort=time` ajouté si l'adresse
+  n'a pas de tri) JUSQU'AU DÉJÀ-VU (Channing, 29/10 soir : « continuer la
+  pagination jusqu'à trouver des annonces déjà scrapées la veille ; le
+  premier jour, toutes les annonces de J-1 ») — premier passage : on tourne
+  tant qu'une page apporte des annonces publiées < 24 h (leads), les plus
+  anciennes croisées en seed (sans date lisible : seed) ; passages
+  suivants : on tourne tant qu'une page apporte des inconnues (leads), une
+  page entièrement connue arrête ; plafond 30 pages ; connue revue =
+  last_seen_at (prix suivi) ;
   bilan lisible dans `last_summary`. Front : `src/services/prospectWatches.ts`,
   `components/ProspectWatches.tsx` (WatchesSection : créer, lancer, pause,
   modifier, supprimer ; WatchLeadsSection : leads groupés par veille,
