@@ -23,6 +23,7 @@ import { ListingLink } from '../components/ListingLink';
 import { gaspedaalSearchFallback } from '../services/listingLink';
 import { loadConfidence, CONFIDENCE_LABEL, type ConfidenceRow } from '../services/truthLoop';
 import { contactSeller } from '../services/contactSeller';
+import { WatchesSection, WatchLeadsSection } from '../components/ProspectWatches';
 
 /** Identité visuelle des places de marché — badge normalisé partout. */
 const SITE_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
@@ -177,7 +178,15 @@ function confidenceOnce(): Promise<Map<string, ConfidenceRow>> {
 }
 
 function DailySearchesTab() {
-  const { isManager, isAdmin, organisation } = useAuth();
+  const { isManager, isAdmin, organisation, isMcExport } = useAuth();
+  // MODE PROSPECTION (29/10) : le manager d'une organisation de prospection (hors MC Export) n'a que les
+  // veilles par adresse — rien des études MC Export ; les admins voient les deux, les veilles en dessous.
+  const watchMode = isManager && !isMcExport;
+  if (watchMode) return <WatchesSection organisation={organisation} />;
+  return <ClassicDailySearchesTab showWatches={isAdmin} organisation={organisation} isManager={isManager} isAdmin={isAdmin} />;
+}
+
+function ClassicDailySearchesTab({ showWatches, organisation, isManager, isAdmin }: { showWatches: boolean; organisation: string; isManager: boolean; isAdmin: boolean }) {
   const [rows, setRows] = useState<DailySearch[]>([]);
   const [editing, setEditing] = useState<Partial<DailySearch> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -441,6 +450,7 @@ function DailySearchesTab() {
             modelsFor={(b) => [...(ref.modelsByBrand[b] ?? []), ...extraModels(b)]}
           />
         )}
+      {showWatches && <div className="pt-6 border-t border-slate-200"><WatchesSection organisation={organisation} /></div>}
     </div>
   );
 }
@@ -944,6 +954,7 @@ function TraceListingBox() {
 function ResultsTab({ onTaken }: { onTaken: () => void }) {
   // Leads partagés par un collègue (29/10) : comptés pour l'état vide, affichés en tête.
   const [leadCount, setLeadCount] = useState<number | null>(null);
+  const [watchLeadCount, setWatchLeadCount] = useState<number | null>(null);
   const [hits, setHits] = useState<DailyHit[]>([]);
   const [searches, setSearches] = useState<DailySearch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1021,8 +1032,9 @@ function ResultsTab({ onTaken }: { onTaken: () => void }) {
   if (searches.length === 0) {
     return (
       <div className="space-y-4">
+        <WatchLeadsSection onTaken={onTaken} onCount={setWatchLeadCount} />
         <LeadsSection onTaken={onTaken} onCount={setLeadCount} />
-        {leadCount === 0 && (
+        {leadCount === 0 && watchLeadCount === 0 && (
           <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
             Rien pour l'instant — les annonces trouvées par les études quotidiennes (les tiennes, et celles que ton manager partage) apparaîtront ici, organisées par étude.
           </div>
@@ -1033,6 +1045,7 @@ function ResultsTab({ onTaken }: { onTaken: () => void }) {
 
   return (
     <div className="space-y-4">
+      <WatchLeadsSection onTaken={onTaken} onCount={setWatchLeadCount} />
       <LeadsSection onTaken={onTaken} onCount={setLeadCount} />
       <TraceListingBox />
       <div className="flex justify-end">

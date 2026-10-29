@@ -16,6 +16,7 @@ import { startWorkerCampaign, resumeWorkerCampaigns } from './campaign';
 import { refreshDashboards } from './dashboards';
 import { initWorkerLogCapture } from './logStore';
 import { startDailySearchScheduler } from './dailySearches';
+import { startProspectWatchScheduler } from './prospectWatches';
 import { startSalesSheetSync } from './salesSheetSync';
 import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
@@ -708,6 +709,8 @@ app.listen(PORT, "0.0.0.0", () => {
     setInterval(() => void resumeWorkerCampaigns(), 2 * 60 * 1000);
     // Études quotidiennes des comptes + branchements (tableur, veille).
     startDailySearchScheduler();
+    // Veilles de prospection par adresse (29/10) : à part des études MC Export.
+    startProspectWatchScheduler();
     startSalesSheetSync();
     startLegalWatchCollector();
     // Relevés de stock hebdomadaires des concessions de la Carte (11/10).

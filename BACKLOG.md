@@ -134,6 +134,37 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **VEILLES DE PROSPECTION PAR ADRESSE (29/10 soir, Channing : « les managers
+  des organisations de prospection lancent des études quotidiennes à partir
+  d'une URL pour trouver les dernières voitures mises en vente par des
+  particuliers sur leur secteur ; premier passage = les véhicules des
+  dernières 24 h, puis chaque jour les nouveaux sans reprendre ceux déjà
+  ajoutés ; ce mode ne doit pas interférer avec les études MC Export »)**.
+  Tout à part : tables `prospect_watches` (adresse, nom, heure, active,
+  auteur, force_requested_at, last_summary) et `prospect_watch_hits`
+  (annonces vues ; 'seed' = mémoire du premier passage jamais montrée,
+  'inbox' = lead, 'saved' + taken_by = pris), SQL 20261029120000 (RLS :
+  l'auteur gère sa veille ; l'organisation lit et ne peut que PRENDRE un
+  lead inbox → saved à son nom). Worker `prospectWatches.ts` : ordonnanceur
+  propre (tick 10 min dès run_hour heure Paris, une fois par jour ; forçage
+  sondé 30 s) ; un passage = scrapeSearch 3 pages (Leboncoin : `sort=time`
+  ajouté si l'adresse n'a pas de tri), premier passage → leads si publiées
+  depuis < 24 h sinon seed (sans date lisible : seed), passages suivants →
+  toute annonce inconnue = lead, connue = last_seen_at (prix suivi) ;
+  bilan lisible dans `last_summary`. Front : `src/services/prospectWatches.ts`,
+  `components/ProspectWatches.tsx` (WatchesSection : créer, lancer, pause,
+  modifier, supprimer ; WatchLeadsSection : leads groupés par veille,
+  « Prendre en négociation »). Onglet Études quotidiennes : un manager hors
+  MC Export (`isManager && !isMcExport`) ne voit QUE les veilles ; les
+  admins voient les études classiques puis les veilles ; les comptes MC
+  Export ne voient rien de nouveau. Onglet Résultats : « Leads de
+  prospection » en tête (toute l'organisation, veilles du manager
+  comprises). Adresses acceptées : sites dont Ada lit les pages de recherche
+  (Leboncoin, La Centrale, AutoScout24, Marktplaats, Gaspedaal, mobile.de,
+  Bilbasen, Subito). Testé sur cluster jetable : lecture et prise par un
+  commercial, veille non modifiable par lui (0 ligne), seed invisible,
+  MC Export isolé, migration rejouable. Exemple Weecars : Leboncoin,
+  particuliers, Les Ponts-de-Cé 30 km, après 2006, < 200 000 km.
 - **LEADS DES COMPTES DE PROSPECTION (29/10, Channing : « deux agences
   signées ; dans le Workflow de la prospection, un onglet Leads à côté de
   Négociations ; le manager a en plus les Études quotidiennes ; ce que ses
