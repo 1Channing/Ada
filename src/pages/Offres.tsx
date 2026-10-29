@@ -3,7 +3,7 @@ import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
   PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus, MoreHorizontal,
 } from 'lucide-react';
-import { listShowcase, publishToShowcase, unpublishFromShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, setShowcaseVehicle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
+import { listShowcase, publishToShowcase, unpublishFromShowcase, reorderShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, setShowcaseVehicle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
@@ -162,6 +162,17 @@ export function Offres() {
     void reloadShowcase();
   };
   const reloadShowcase = async () => { const r = await listShowcase(); setShowcase(r.rows); setShowcaseError(r.error); };
+  /** Flèches de la liste (29/10) : déplacer une bonne affaire d'un cran, l'ordre entier est réécrit (1..n). */
+  const moveDeal = async (id: string, dir: -1 | 1) => {
+    const i = showcase.findIndex((x) => x.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= showcase.length) return;
+    const next = [...showcase];
+    [next[i], next[j]] = [next[j], next[i]];
+    setShowcase(next.map((x, k) => ({ ...x, position: k + 1 })));
+    const err = await reorderShowcase(next.map((x) => x.id));
+    if (err) { fail(err); void reloadShowcase(); }
+  };
   useEffect(() => { void reloadShowcase(); }, []);
   // Ouverture par l'URL (/offres?offer=<id>&view=analyse — bouton « Étude de marché » de la vitrine).
   const [search, setSearch] = useState(window.location.search);
@@ -1544,7 +1555,7 @@ export function Offres() {
                     <p className="px-4 py-6 text-sm text-slate-400 text-center">Aucune bonne affaire publiée.</p>
                   ) : (
                     <ul className="divide-y divide-slate-100">
-                      {showcase.map((it) => {
+                      {showcase.map((it, idx) => {
                         const isOpen = openDeal === it.id;
                         const sameOffer = !!draft.id && it.offer_id === draft.id;
                         const otherOffer = !sameOffer && it.offer_id ? offers.find((o) => o.id === it.offer_id) : undefined;
@@ -1553,6 +1564,12 @@ export function Offres() {
                         return (
                         <li key={it.id} className={`px-4 py-2 text-xs space-y-1.5 cursor-pointer ${isOpen ? 'bg-blue-50/40' : 'hover:bg-slate-50'}`} onClick={toggle} title={isOpen ? '' : 'Cliquer pour modifier le prix, le mot et les réglages'}>
                           <div className="flex items-center gap-3">
+                            {/* Ordre (29/10) : flèches, même ordre sur l'Accueil et sur le site. */}
+                            <span className="flex flex-col shrink-0 -my-1">
+                              <button onClick={() => void moveDeal(it.id, -1)} disabled={idx === 0} aria-label="Monter" title="Monter d'un cran" className="text-slate-400 hover:text-slate-800 disabled:opacity-20"><ArrowUp className="w-3 h-3" /></button>
+                              <button onClick={() => void moveDeal(it.id, 1)} disabled={idx === showcase.length - 1} aria-label="Descendre" title="Descendre d'un cran" className="text-slate-400 hover:text-slate-800 disabled:opacity-20"><ArrowDown className="w-3 h-3" /></button>
+                            </span>
+                            <span className="text-[10px] text-slate-400 tabular-nums w-5 shrink-0">{idx + 1}</span>
                             {/* Titre libre (13/10, Channing : « modifier les titres des annonces ») — repris sur l'Accueil et sur le site ; vide = marque + modèle. */}
                             <input defaultValue={it.title ?? ''} placeholder={`${it.vehicle.brand} ${it.vehicle.model}`} title="Titre de la bonne affaire (Accueil + site) — vide : marque + modèle" aria-label="Titre de la bonne affaire"
                               onBlur={async (e) => { const t = e.target.value.trim(); if (t === (it.title ?? '').trim()) return; const err = await setShowcaseTitle(it.id, t); if (err) fail(err); else void reloadShowcase(); }}

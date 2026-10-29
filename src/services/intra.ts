@@ -46,6 +46,8 @@ export interface IntraItem {
   photos?: string[];
   /** Titre libre (13/10) ; null ou vide = marque + modèle. Survit à une republication. */
   title?: string | null;
+  /** Rang choisi à la main (29/10) : 1 = en tête ; null = non rangé (après les rangés, plus récentes d'abord). */
+  position?: number | null;
 }
 export type IntraDraft = Omit<IntraItem, 'id' | 'published_by' | 'published_at' | 'published_by_name' | 'photos' | 'title'>;
 
@@ -102,7 +104,9 @@ export async function removeShowcasePhoto(item: IntraItem, url: string): Promise
 
 /** Visible par TOUS les utilisateurs d'ADA (toutes organisations) ; le nom de l'auteur vit dans la ligne. */
 export async function listShowcase(): Promise<{ rows: IntraItem[]; error: string | null }> {
-  const { data, error } = await sb.from('intra_showcase').select('*').order('published_at', { ascending: false }).limit(200);
+  // Ordre choisi à la main d'abord (position, SQL du 29/10), puis les plus récentes ; colonne absente → ordre d'avant.
+  let { data, error } = await sb.from('intra_showcase').select('*').order('position', { ascending: true, nullsFirst: false }).order('published_at', { ascending: false }).limit(200);
+  if (error && /position/.test(error.message)) ({ data, error } = await sb.from('intra_showcase').select('*').order('published_at', { ascending: false }).limit(200));
   if (error) return { rows: [], error: missing(error.message) ? INTRA_SQL_HINT : error.message };
   return { rows: ((data ?? []) as IntraItem[]).map((r) => ({ ...r, published_by_name: (r.published_by_name ?? '').trim() || 'équipe MC Export' })), error: null };
 }
@@ -137,6 +141,16 @@ export async function addManualShowcase(input: { vehicle: IntraVehicle; price_ht
     return { id: null, error: missing(error.message) ? INTRA_SQL_HINT : /row-level security/i.test(error.message) ? "Ajout refusé par la base : réservé à l'équipe MC Export avec l'onglet Offres." : error.message };
   }
   return { id: (data as { id: string } | null)?.id ?? null, error: null };
+}
+
+/** ORDRE DES BONNES AFFAIRES (29/10, Channing : « modifier l'ordre des véhicules de la liste ») : la liste
+ *  entière dans l'ordre voulu → position 1..n ; Accueil et site suivent. */
+export async function reorderShowcase(idsInOrder: string[]): Promise<string | null> {
+  for (const [i, id] of idsInOrder.entries()) {
+    const { error } = await sb.from('intra_showcase').update({ position: i + 1 }).eq('id', id);
+    if (error) return /position/.test(error.message) ? 'Ordre des bonnes affaires : SQL du 29/10 (bonnes_affaires_ordre) à coller.' : error.message;
+  }
+  return null;
 }
 
 export async function unpublishFromShowcase(ids: string[]): Promise<string | null> {

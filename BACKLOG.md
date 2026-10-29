@@ -134,6 +134,16 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **ORDRE DES BONNES AFFAIRES (29/10 soir, Channing : « modifier l'ordre
+  des véhicules présents sur la liste »)**. Flèches monter/descendre et rang
+  sur chaque ligne de « Ce que l'Accueil montre aujourd'hui » (Offres) ;
+  chaque déplacement réécrit l'ordre entier (position 1..n,
+  `reorderShowcase`). Même ordre partout : Accueil d'ADA (`listShowcase` :
+  position croissante, non rangés après, plus récentes d'abord) et
+  mc-export.com (`site_good_deals` réécrite avec cet order by). SQL
+  20261029140000 (colonne `intra_showcase.position`, fonction du site) ;
+  colonne absente → ordre d'avant et message explicite. Testé sur cluster
+  jetable : A rangée 1 passe devant les plus récentes.
 - **VEILLES DE PROSPECTION PAR ADRESSE (29/10 soir, Channing : « les managers
   des organisations de prospection lancent des études quotidiennes à partir
   d'une URL pour trouver les dernières voitures mises en vente par des
