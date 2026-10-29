@@ -134,6 +134,30 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **LEADS DES COMPTES DE PROSPECTION (29/10, Channing : « deux agences
+  signées ; dans le Workflow de la prospection, un onglet Leads à côté de
+  Négociations ; le manager a en plus les Études quotidiennes ; ce que ses
+  études trouvent tombe dans les Leads de tous ses commerciaux ; dès qu'un
+  commercial prend un lead en négociation, il disparaît pour tout le monde »)**.
+  Mécanique : le manager coche « Partager en leads avec mon organisation »
+  sur une étude (`daily_searches.shared_leads`, case visible des managers et
+  admins) ; ses annonces « à traiter » (inbox, hors seed) deviennent les leads
+  de l'organisation. Onglet Workflow « Leads » (droit `wf:leads`, sur
+  autorisation explicite ; ajouté à PROSPECTING_TABS) : groupés par étude,
+  prix croissant, bouton « Prendre en négociation » ; la prise = statut
+  saved + `taken_by` à mon nom, SEULEMENT si l'annonce est encore inbox (le
+  second au même instant apprend « déjà pris par un collègue ») ; ma
+  négociation est créée ensuite. Rien d'autre ne retire un lead (pas
+  d'écart, pas de « traitée » par un commercial). SQL 20261029100000 :
+  colonnes, fonction `ada_shared_search_visible`, policies de lecture
+  (études partagées de MON organisation et leurs annonces) et de prise
+  (inbox → saved à mon nom, with check), onglet Leads ajouté aux
+  organisations « prospection seule » et à leurs comptes, `wf:etudes` à
+  leurs managers. Testé sur cluster jetable : C1 prend le lead 1, C2 ne le
+  voit plus et sa tentative ne touche 0 ligne, C2 ne peut pas écarter, un
+  compte MC Export ne voit rien ; migration rejouable. Pages personnelles
+  (Études, Résultats, Accueil) filtrées sur `user_id` pour ne pas y mêler
+  les études partagées rendues visibles par la base.
 - **VITRINE DE WAAL AUTOGROEP (26/10, Channing : « apprends Ada à lire cette
   vitrine, n'oublie pas la pagination »)**. Déjà reconnue : la page porte
   `data-update-url="/voorraad-api/vehiclelist/1/vehicles.json…"`, famille

@@ -39,6 +39,10 @@ export interface DailySearch {
   run_hour: number;
   active: boolean;
   last_run_at: string | null;
+  /** Étude PARTAGÉE (29/10) : ses trouvailles tombent dans l'onglet Leads de toute l'organisation. */
+  shared_leads?: boolean;
+  /** Auteur (lu sur les études partagées d'un collègue ; absent sur les siennes). */
+  user_id?: string;
 }
 
 // ── Sélecteurs sans faute de frappe ─────────────────────────────────────────
@@ -138,6 +142,9 @@ export interface DailyHit {
   resolution: string | null; // motif du traitement : 'trop_chere' | 'hors_criteres'
   first_seen_at: string;
   last_seen_at: string;
+  /** Lead partagé (29/10) : qui l'a pris, quand. */
+  taken_by?: string | null;
+  taken_at?: string | null;
 }
 
 export interface Negotiation {
@@ -241,12 +248,62 @@ export async function checkSearchUrlCoverage(s: Parameters<typeof listStudyUrls>
 // ── Études quotidiennes ─────────────────────────────────────────────────────
 
 export async function listDailySearches(): Promise<DailySearch[]> {
+  // MES études seulement : depuis le 29/10 la base montre aussi les études partagées de l'organisation
+  // (onglet Leads) — elles ne doivent pas entrer dans mes pages Études / Résultats / Accueil.
   const { data, error } = await supabase
     .from('daily_searches')
     .select('*')
+    .eq('user_id', uid())
     .order('created_at', { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as DailySearch[];
+}
+
+// ── Leads partagés (29/10, agences de prospection) ───────────────────────────
+
+export interface SharedLead extends DailyHit {
+  /** L'étude partagée dont vient le lead (libellé, segment, auteur). */
+  search: Pick<DailySearch, 'id' | 'label' | 'brand' | 'model' | 'fuel' | 'source_country' | 'target_country' | 'user_id'>;
+}
+
+/**
+ * Les leads de mon organisation : les annonces « à traiter » des études PARTAGÉES (celles du manager),
+ * les miennes comprises. Un lead pris (statut saved) ou traité n'y est plus — pour tout le monde.
+ */
+export async function listSharedLeads(): Promise<SharedLead[]> {
+  const { data, error } = await supabase
+    .from('daily_search_hits')
+    .select('*, search:daily_searches!inner(id, label, brand, model, fuel, source_country, target_country, user_id, shared_leads)')
+    .eq('search.shared_leads', true)
+    .eq('status', 'inbox')
+    .neq('kind', 'seed')
+    .order('last_seen_at', { ascending: false })
+    .limit(2000);
+  if (error) {
+    if (/shared_leads|taken_by/.test(error.message)) throw new Error('Leads : SQL du 29/10 (leads_prospection) à coller.');
+    throw new Error(error.message);
+  }
+  return (data ?? []) as unknown as SharedLead[];
+}
+
+/**
+ * PRENDRE un lead : l'annonce passe « saved » à mon nom — si elle est encore « inbox ». Deux
+ * commerciaux au même instant : le premier gagne, le second apprend que le lead est déjà pris
+ * (la base refuse la seconde écriture, 0 ligne). Ensuite seulement, ma négociation est créée.
+ */
+export async function takeSharedLead(hit: DailyHit): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('daily_search_hits')
+    .update({ status: 'saved', taken_by: uid(), taken_at: new Date().toISOString() } as never)
+    .eq('id', hit.id)
+    .eq('status', 'inbox')
+    .select('id');
+  if (error) return error.message;
+  if (!data || data.length === 0) return 'Ce lead vient d\'être pris par un collègue.';
+  const { error: negErr } = await supabase.from('negotiations').insert({
+    user_id: uid(), title: hit.title || hit.listing_url, listing_url: hit.listing_url, asking_price: hit.price,
+  });
+  return negErr ? negErr.message : null;
 }
 
 /**
@@ -315,7 +372,13 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
   const write = (r: typeof row) => (s.id
     ? supabase.from('daily_searches').update(r).eq('id', s.id)
     : supabase.from('daily_searches').insert(r));
-  const { error } = await write(row);
+  let { error } = await write(row);
+  // Colonne shared_leads absente (SQL du 29/10 pas collé) : l'étude s'enregistre sans le partage, et on le dit.
+  if (error && /shared_leads/.test(error.message)) {
+    const { shared_leads, ...rest } = row;
+    ({ error } = await write(rest as typeof row));
+    if (!error && shared_leads) return 'Étude enregistrée SANS le partage en leads : SQL du 29/10 (leads_prospection) à coller.';
+  }
   // Migration gearbox pas encore appliquée : on n'empêche pas d'enregistrer
   // une étude pour autant — retry sans le champ, et on le DIT si l'opérateur
   // avait justement choisi une boîte.
@@ -403,6 +466,7 @@ export async function listInboxHits(limit = 100): Promise<DailyHit[]> {
   const { data, error } = await supabase
     .from('daily_search_hits')
     .select('*')
+    .eq('user_id', uid()) // mes annonces (les leads partagés de l'organisation vivent dans l'onglet Leads, 29/10)
     .eq('status', 'inbox')
     .neq('kind', 'seed')
     .order('last_seen_at', { ascending: false })
@@ -426,6 +490,7 @@ export async function listAllHits(limit = 40_000): Promise<DailyHit[]> {
     const { data, error } = await supabase
       .from('daily_search_hits')
       .select('*')
+      .eq('user_id', uid()) // mes annonces seulement (29/10)
       .neq('kind', 'seed')
       .neq('status', 'cleared')
       .order('last_seen_at', { ascending: false })

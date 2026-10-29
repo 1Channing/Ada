@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil, Landmark, RotateCcw } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil, Landmark, RotateCcw, Inbox } from 'lucide-react';
 import { readNote, agoLabel } from '../lib/noteJournal';
 import { fmtPhone } from '../lib/phoneKey';
 import { NegotiationsTab } from './Ventes';
@@ -12,7 +12,7 @@ import { canSeeTab } from '../lib/appTabs';
 import type { AppTabKey } from '../lib/appTabs';
 import {
   DailySearch, DailyHit, UrlGap, StudyUrl, listDailySearches, saveDailySearch, deleteDailySearch, forceRunDailySearch, setDailySearchesActive, renameDailySearches,
-  listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims,
+  listAllHits, saveHitToNegotiations, dismissHit, listRefBrandModels, listKnownTrims, listSharedLeads, takeSharedLead, type SharedLead,
   checkSearchUrlCoverage, listStudyUrls, clearSearchHits, inboxToProcess,
   traceListing, type ListingTrace,
   listOrganisationArchivedNegotiations, reactivateNegotiation, type OrgArchivedNego,
@@ -82,10 +82,10 @@ const FUELS = [
 const flagOf = (code: string) => COUNTRIES.find((c) => c.code === code)?.flag ?? code;
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 
-type Tab = 'searches' | 'results' | 'archives' | 'negotiations' | 'sales' | 'tresorerie';
+type Tab = 'searches' | 'results' | 'archives' | 'leads' | 'negotiations' | 'sales' | 'tresorerie';
 
-/** /ventes → Négociations, /admin → Ventes, /tresorerie → Trésorerie (anciens chemins, mêmes onglets). */
-const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations' : p === '/admin' ? 'sales' : p === '/tresorerie' ? 'tresorerie' : null);
+/** /ventes → Négociations, /admin → Ventes, /tresorerie → Trésorerie, /leads → Leads (anciens chemins, mêmes onglets). */
+const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations' : p === '/admin' ? 'sales' : p === '/tresorerie' ? 'tresorerie' : p === '/leads' ? 'leads' : null);
 
 export function Workflow() {
   const { allowedTabs, isAdmin } = useAuth();
@@ -98,6 +98,8 @@ export function Workflow() {
     ...(see('wf:etudes') ? [{ id: 'searches' as Tab, label: 'Études quotidiennes', icon: CalendarClock }] : []),
     ...(see('wf:resultats') ? [{ id: 'results' as Tab, label: 'Résultats', icon: BarChart3 }] : []),
     ...(see('wf:archives') ? [{ id: 'archives' as Tab, label: 'Archives', icon: Archive }] : []),
+    // Leads (29/10) : les trouvailles des études partagées du manager, pour toute l'organisation.
+    ...(see('wf:leads') ? [{ id: 'leads' as Tab, label: 'Leads', icon: Inbox }] : []),
     ...(see('wf:negociations') ? [{ id: 'negotiations' as Tab, label: 'Négociations', icon: MessageSquare }] : []),
     ...(see('wf:ventes') ? [{ id: 'sales' as Tab, label: 'Ventes', icon: FileText }] : []),
     // Trésorerie (02/10) : relevés de compte, frais, marge réelle — admin seulement.
@@ -105,7 +107,7 @@ export function Workflow() {
   ];
   // Premier onglet : les études, sinon les Négociations (un compte de prospection
   // a Archives avant Négociations dans la barre, mais arrive sur ses négociations).
-  const firstTab = (tabs.find((x) => x.id === 'searches') ?? tabs.find((x) => x.id === 'negotiations') ?? tabs[0])?.id ?? 'searches';
+  const firstTab = (tabs.find((x) => x.id === 'searches') ?? tabs.find((x) => x.id === 'leads') ?? tabs.find((x) => x.id === 'negotiations') ?? tabs[0])?.id ?? 'searches';
   const allowedTab = (t: Tab | null): Tab | null => (t && tabs.some((x) => x.id === t) ? t : null);
   const [tab, setTab] = useState<Tab>(() => allowedTab(tabFromPath(window.location.pathname)) ?? firstTab);
   // Navigation interne (Accueil → « Dossiers en cours », retour de l'historique
@@ -148,6 +150,7 @@ export function Workflow() {
       {tab === 'searches' && see('wf:etudes') && <DailySearchesTab />}
       {tab === 'results' && see('wf:resultats') && <ResultsTab />}
       {tab === 'archives' && see('wf:archives') && <ArchivesTab />}
+      {tab === 'leads' && see('wf:leads') && <LeadsTab onTaken={() => { if (see('wf:negociations')) setTab('negotiations'); }} />}
       {tab === 'negotiations' && see('wf:negociations') && <NegotiationsTab onPushed={() => { if (see('wf:ventes')) setTab('sales'); }} />}
       {tab === 'sales' && see('wf:ventes') && <Administrative />}
       {tab === 'tresorerie' && isAdmin && <Treasury />}
@@ -177,6 +180,7 @@ function confidenceOnce(): Promise<Map<string, ConfidenceRow>> {
 }
 
 function DailySearchesTab() {
+  const { isManager, isAdmin, organisation } = useAuth();
   const [rows, setRows] = useState<DailySearch[]>([]);
   const [editing, setEditing] = useState<Partial<DailySearch> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -404,6 +408,16 @@ function DailySearchesTab() {
               <input type="number" value={editing.price_gap_max ?? 10000} onChange={(e) => set({ price_gap_max: Number(e.target.value) || 0 })} className={inputCls} />
             </Field>
           </div>
+          {/* Leads partagés (29/10, agences de prospection) : le manager coche, ses commerciaux reçoivent. */}
+          {(isManager || isAdmin) && (
+            <label className="flex items-start gap-2 text-sm text-slate-700 bg-blue-50/60 border border-blue-100 rounded-lg px-3 py-2 cursor-pointer">
+              <input type="checkbox" checked={editing.shared_leads ?? false} onChange={(e) => set({ shared_leads: e.target.checked })} className="mt-0.5 accent-brand-ocean" />
+              <span>
+                <span className="font-medium">Partager en leads avec mon organisation</span>
+                <span className="block text-xs text-slate-500">Les annonces trouvées tombent dans l'onglet Leads de tous les commerciaux de {organisation} ; celui qui prend un lead en négociation le fait disparaître pour les autres.</span>
+              </span>
+            </label>
+          )}
           <p className="text-xs text-slate-500">
             Marques et modèles viennent du référentiel (zéro faute de frappe). Les finitions sont suggérées d'après ce qu'ADA a déjà vu dans chaque pays — les noms diffèrent d'un marché à l'autre, d'où les deux champs. L'écart compare le prix de l'annonce à la médiane du pays cible (filtrée sur la finition équivalente si renseignée) ; sans données cible, l'annonce est montrée quand même.
           </p>
@@ -1149,6 +1163,103 @@ function ResultsTab() {
                 </div>
               </>
             )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * ONGLET LEADS (29/10, Channing : deux agences de prospection signées). Les annonces « à traiter » des
+ * études PARTAGÉES de l'organisation (celles que le manager a cochées), vues par tous ses commerciaux,
+ * groupées par étude, prix croissant. « Prendre en négociation » : le lead passe à mon nom et disparaît
+ * pour tout le monde — pas de doublon, le tri est fait. Rien d'autre ne se décide ici (pas d'écart, pas
+ * de « traitée ») : seule la prise retire un lead. Relu toutes les 60 s et au retour sur l'onglet.
+ */
+function LeadsTab({ onTaken }: { onTaken: () => void }) {
+  const { userId, isManager, isAdmin } = useAuth();
+  const [leads, setLeads] = useState<SharedLead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const reload = () => {
+    listSharedLeads().then((l) => { setLeads(l); setError(null); }).catch((e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    reload();
+    const t = setInterval(reload, 60_000);
+    window.addEventListener('focus', reload);
+    return () => { clearInterval(t); window.removeEventListener('focus', reload); };
+  }, []);
+  const groups = useMemo(() => {
+    const by = new Map<string, { search: SharedLead['search']; list: SharedLead[] }>();
+    for (const l of leads) (by.get(l.search.id) ?? by.set(l.search.id, { search: l.search, list: [] }).get(l.search.id)!).list.push(l);
+    return [...by.values()].map((g) => ({ ...g, list: g.list.sort((a, b) => (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER)) }))
+      .sort((a, b) => (a.search.label || `${a.search.brand} ${a.search.model}`).localeCompare(b.search.label || `${b.search.brand} ${b.search.model}`));
+  }, [leads]);
+  const take = async (l: SharedLead) => {
+    setBusy(l.id);
+    const err = await takeSharedLead(l);
+    setBusy(null);
+    if (err) { setError(err); reload(); return; }
+    setLeads((cur) => cur.filter((x) => x.id !== l.id));
+    onTaken();
+  };
+  if (loading) return <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>;
+  return (
+    <div className="space-y-4">
+      {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
+      {groups.length === 0 && (
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
+          Aucun lead pour l'instant.
+          {(isManager || isAdmin)
+            ? ' Les leads viennent des études quotidiennes cochées « Partager en leads avec mon organisation » : crée ou modifie une étude dans l\'onglet Études quotidiennes.'
+            : ' Ils tombent ici dès que les études partagées de ton manager trouvent des annonces.'}
+        </div>
+      )}
+      {groups.map(({ search: s, list }) => {
+        const name = s.label || `${s.brand} ${s.model}`.trim();
+        return (
+          <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
+            <div className="px-4 py-3 border-b border-slate-100">
+              <p className="font-semibold text-slate-900">{name}</p>
+              <p className="text-xs text-slate-500">{flagOf(s.source_country)} → {flagOf(s.target_country)} · {list.length} lead{list.length > 1 ? 's' : ''} à prendre{s.user_id === userId ? ' · mon étude' : ''}</p>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {list.map((l) => {
+                const fallback = /gaspedaal/i.test(l.listing_url) ? gaspedaalSearchFallback({ brand: s.brand, model: s.model, fuel: l.fuel || s.fuel, year: l.year, mileage: l.mileage, url: l.listing_url }) : null;
+                const drop = l.kind === 'price_drop' && l.previous_price != null && l.price != null ? l.previous_price - l.price : null;
+                return (
+                  <div key={l.id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        {l.listing_url?.startsWith('http')
+                          ? <ListingLink href={l.listing_url} fallback={fallback} className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate">{l.title || l.listing_url}</ListingLink>
+                          : <span className="font-medium text-slate-900 truncate">{l.title || '(annonce)'}</span>}
+                        {drop != null && <span className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0"><ArrowDownRight className="w-3 h-3" /> −{drop.toLocaleString('fr-FR')} €</span>}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5 truncate flex items-center gap-1.5">
+                        <span>{flagOf(l.source_country)}</span>
+                        <SiteBadge site={l.site} />
+                        <span>{l.year ?? '—'} · {l.mileage != null ? `${l.mileage.toLocaleString('fr-FR')} km` : '—'}{l.price_gap != null ? ` · écart cible ${l.price_gap >= 0 ? '+' : ''}${l.price_gap.toLocaleString('fr-FR')} €` : ''}</span>
+                      </p>
+                    </div>
+                    <span className="font-semibold text-slate-900 shrink-0">{fmtEur(l.price)}</span>
+                    {l.listing_url?.startsWith('http') && (
+                      <ListingLink href={l.listing_url} fallback={fallback} title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 shrink-0"><ExternalLink className="w-4 h-4" /></ListingLink>
+                    )}
+                    <button
+                      onClick={() => void take(l)}
+                      disabled={busy === l.id}
+                      className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-ocean hover:bg-brand-encre text-white transition-colors disabled:opacity-50"
+                    >
+                      {busy === l.id ? '…' : 'Prendre en négociation'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}

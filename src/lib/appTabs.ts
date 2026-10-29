@@ -20,6 +20,9 @@ export const APP_TABS = [
   { key: 'wf:etudes', label: 'Workflow · Études quotidiennes', hint: 'Onglet Études quotidiennes (créer et suivre ses études)' },
   { key: 'wf:resultats', label: 'Workflow · Résultats', hint: 'Onglet Résultats (annonces trouvées, médianes, contact vendeur)' },
   { key: 'wf:archives', label: 'Workflow · Archives', hint: 'Onglet Archives (annonces traitées, négociations archivées de son organisation)' },
+  // Leads (29/10, agences de prospection) : les trouvailles des études PARTAGÉES du manager, pour
+  // tous les commerciaux de son organisation ; un lead pris disparaît pour les autres.
+  { key: 'wf:leads', label: 'Workflow · Leads', hint: 'Onglet Leads (annonces trouvées par les études partagées du manager de son organisation) — sur autorisation explicite' },
   { key: 'wf:negociations', label: 'Workflow · Négociations', hint: 'Onglet Négociations, Open space compris' },
   { key: 'wf:ventes', label: 'Workflow · Ventes', hint: 'Onglet Ventes et historique des ventes' },
   { key: 'atelier', label: 'Atelier', hint: 'Campagnes, ingestion et générateur de liens' },
@@ -44,7 +47,7 @@ export const APP_TABS = [
 export type AppTabKey = (typeof APP_TABS)[number]['key'];
 
 /** Les cinq droits du Workflow, dans l'ordre des onglets. */
-export const WORKFLOW_TAB_KEYS: AppTabKey[] = ['wf:etudes', 'wf:resultats', 'wf:archives', 'wf:negociations', 'wf:ventes'];
+export const WORKFLOW_TAB_KEYS: AppTabKey[] = ['wf:etudes', 'wf:resultats', 'wf:archives', 'wf:leads', 'wf:negociations', 'wf:ventes'];
 
 /** Clés historiques (avant le 07/09) → droits fins qu'elles accordaient. */
 const LEGACY_GRANTS: Record<string, AppTabKey[]> = {
@@ -55,7 +58,7 @@ const LEGACY_GRANTS: Record<string, AppTabKey[]> = {
 /** Droits SUR AUTORISATION EXPLICITE (demande Channing 07/09 : « je ne veux
  *  pas que tout le monde ait accès aux opportunités ») : « rien d'enregistré
  *  = tout » ne les inclut PAS — seule une liste qui les nomme les accorde. */
-export const OPT_IN_TABS: AppTabKey[] = ['opportunites', 'carte:edition', 'offres', 'agents'];
+export const OPT_IN_TABS: AppTabKey[] = ['opportunites', 'carte:edition', 'offres', 'agents', 'wf:leads'];
 
 /** Droits effectifs d'un compte non admin : NULL = tout sauf les droits sur
  *  autorisation explicite ; liste = ses clés fines (historiques développées). */

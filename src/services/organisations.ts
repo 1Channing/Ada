@@ -18,8 +18,8 @@ export interface Organisation {
   /** Onglets reçus par tout NOUVEAU compte de l'organisation (null = tout) — « Weecars : prospection seule ». */
   default_tabs: string[] | null;
 }
-/** Compte de prospection (Weecars, 12/10) : Négociations et Archives (archives de SON organisation), rien d'autre. */
-export const PROSPECTING_TABS = ['wf:negociations', 'wf:archives'];
+/** Compte de prospection (Weecars, 12/10) : Leads (29/10), Négociations et Archives (archives de SON organisation), rien d'autre. */
+export const PROSPECTING_TABS = ['wf:leads', 'wf:negociations', 'wf:archives'];
 export const isProspectingOrg = (o: Organisation | undefined): boolean =>
   !!o?.default_tabs && o.default_tabs.length > 0 && o.default_tabs.includes('wf:negociations') && o.default_tabs.every((t) => PROSPECTING_TABS.includes(t));
 
