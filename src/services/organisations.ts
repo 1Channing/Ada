@@ -18,10 +18,11 @@ export interface Organisation {
   /** Onglets reçus par tout NOUVEAU compte de l'organisation (null = tout) — « Weecars : prospection seule ». */
   default_tabs: string[] | null;
 }
-/** Compte de prospection (Weecars, 12/10) : Leads (29/10), Négociations et Archives (archives de SON organisation), rien d'autre. */
-export const PROSPECTING_TABS = ['wf:leads', 'wf:negociations', 'wf:archives'];
+/** Compte de prospection (Weecars, 12/10) : Résultats (29/10 : les leads partagés par son manager), Négociations et Archives (de SON organisation), rien d'autre. */
+export const PROSPECTING_TABS = ['wf:resultats', 'wf:negociations', 'wf:archives'];
+const PROSPECTING_LEGACY = [...PROSPECTING_TABS, 'wf:leads'];
 export const isProspectingOrg = (o: Organisation | undefined): boolean =>
-  !!o?.default_tabs && o.default_tabs.length > 0 && o.default_tabs.includes('wf:negociations') && o.default_tabs.every((t) => PROSPECTING_TABS.includes(t));
+  !!o?.default_tabs && o.default_tabs.length > 0 && o.default_tabs.includes('wf:negociations') && o.default_tabs.every((t) => PROSPECTING_LEGACY.includes(t));
 
 export async function listOrganisations(): Promise<{ names: string[]; rows: Organisation[]; error: string | null }> {
   let { data, error } = await untyped.from('organisations').select('name, default_tabs').order('name');

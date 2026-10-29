@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil, Landmark, RotateCcw, Inbox } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil, Landmark, RotateCcw } from 'lucide-react';
 import { readNote, agoLabel } from '../lib/noteJournal';
 import { fmtPhone } from '../lib/phoneKey';
 import { NegotiationsTab } from './Ventes';
@@ -82,10 +82,10 @@ const FUELS = [
 const flagOf = (code: string) => COUNTRIES.find((c) => c.code === code)?.flag ?? code;
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 
-type Tab = 'searches' | 'results' | 'archives' | 'leads' | 'negotiations' | 'sales' | 'tresorerie';
+type Tab = 'searches' | 'results' | 'archives' | 'negotiations' | 'sales' | 'tresorerie';
 
-/** /ventes → Négociations, /admin → Ventes, /tresorerie → Trésorerie, /leads → Leads (anciens chemins, mêmes onglets). */
-const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations' : p === '/admin' ? 'sales' : p === '/tresorerie' ? 'tresorerie' : p === '/leads' ? 'leads' : null);
+/** /ventes → Négociations, /admin → Ventes, /tresorerie → Trésorerie, /leads → Résultats (anciens chemins, mêmes onglets). */
+const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations' : p === '/admin' ? 'sales' : p === '/tresorerie' ? 'tresorerie' : p === '/leads' ? 'results' : null);
 
 export function Workflow() {
   const { allowedTabs, isAdmin } = useAuth();
@@ -98,8 +98,6 @@ export function Workflow() {
     ...(see('wf:etudes') ? [{ id: 'searches' as Tab, label: 'Études quotidiennes', icon: CalendarClock }] : []),
     ...(see('wf:resultats') ? [{ id: 'results' as Tab, label: 'Résultats', icon: BarChart3 }] : []),
     ...(see('wf:archives') ? [{ id: 'archives' as Tab, label: 'Archives', icon: Archive }] : []),
-    // Leads (29/10) : les trouvailles des études partagées du manager, pour toute l'organisation.
-    ...(see('wf:leads') ? [{ id: 'leads' as Tab, label: 'Leads', icon: Inbox }] : []),
     ...(see('wf:negociations') ? [{ id: 'negotiations' as Tab, label: 'Négociations', icon: MessageSquare }] : []),
     ...(see('wf:ventes') ? [{ id: 'sales' as Tab, label: 'Ventes', icon: FileText }] : []),
     // Trésorerie (02/10) : relevés de compte, frais, marge réelle — admin seulement.
@@ -107,7 +105,7 @@ export function Workflow() {
   ];
   // Premier onglet : les études, sinon les Négociations (un compte de prospection
   // a Archives avant Négociations dans la barre, mais arrive sur ses négociations).
-  const firstTab = (tabs.find((x) => x.id === 'searches') ?? tabs.find((x) => x.id === 'leads') ?? tabs.find((x) => x.id === 'negotiations') ?? tabs[0])?.id ?? 'searches';
+  const firstTab = (tabs.find((x) => x.id === 'searches') ?? tabs.find((x) => x.id === 'results') ?? tabs.find((x) => x.id === 'negotiations') ?? tabs[0])?.id ?? 'searches';
   const allowedTab = (t: Tab | null): Tab | null => (t && tabs.some((x) => x.id === t) ? t : null);
   const [tab, setTab] = useState<Tab>(() => allowedTab(tabFromPath(window.location.pathname)) ?? firstTab);
   // Navigation interne (Accueil → « Dossiers en cours », retour de l'historique
@@ -148,9 +146,8 @@ export function Workflow() {
         </nav>
       </div>
       {tab === 'searches' && see('wf:etudes') && <DailySearchesTab />}
-      {tab === 'results' && see('wf:resultats') && <ResultsTab />}
+      {tab === 'results' && see('wf:resultats') && <ResultsTab onTaken={() => { if (see('wf:negociations')) setTab('negotiations'); }} />}
       {tab === 'archives' && see('wf:archives') && <ArchivesTab />}
-      {tab === 'leads' && see('wf:leads') && <LeadsTab onTaken={() => { if (see('wf:negociations')) setTab('negotiations'); }} />}
       {tab === 'negotiations' && see('wf:negociations') && <NegotiationsTab onPushed={() => { if (see('wf:ventes')) setTab('sales'); }} />}
       {tab === 'sales' && see('wf:ventes') && <Administrative />}
       {tab === 'tresorerie' && isAdmin && <Treasury />}
@@ -944,7 +941,9 @@ function TraceListingBox() {
   );
 }
 
-function ResultsTab() {
+function ResultsTab({ onTaken }: { onTaken: () => void }) {
+  // Leads partagés par un collègue (29/10) : comptés pour l'état vide, affichés en tête.
+  const [leadCount, setLeadCount] = useState<number | null>(null);
   const [hits, setHits] = useState<DailyHit[]>([]);
   const [searches, setSearches] = useState<DailySearch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1021,14 +1020,20 @@ function ResultsTab() {
   if (loading) return <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>;
   if (searches.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
-        Rien pour l'instant — les résultats du scrape quotidien apparaîtront ici, organisés par étude.
+      <div className="space-y-4">
+        <LeadsSection onTaken={onTaken} onCount={setLeadCount} />
+        {leadCount === 0 && (
+          <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
+            Rien pour l'instant — les annonces trouvées par les études quotidiennes (les tiennes, et celles que ton manager partage) apparaîtront ici, organisées par étude.
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      <LeadsSection onTaken={onTaken} onCount={setLeadCount} />
       <TraceListingBox />
       <div className="flex justify-end">
         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-medium shadow-sm">
@@ -1171,27 +1176,34 @@ function ResultsTab() {
 }
 
 /**
- * ONGLET LEADS (29/10, Channing : deux agences de prospection signées). Les annonces « à traiter » des
- * études PARTAGÉES de l'organisation (celles que le manager a cochées), vues par tous ses commerciaux,
- * groupées par étude, prix croissant. « Prendre en négociation » : le lead passe à mon nom et disparaît
- * pour tout le monde — pas de doublon, le tri est fait. Rien d'autre ne se décide ici (pas d'écart, pas
- * de « traitée ») : seule la prise retire un lead. Relu toutes les 60 s et au retour sur l'onglet.
+ * LEADS DE L'ORGANISATION (29/10, Channing : deux agences de prospection signées ; 29/10 soir : « pas
+ * d'onglet à part, c'est l'onglet Résultats, pour la prospection aussi »). Les annonces « à traiter »
+ * des études PARTAGÉES d'un collègue (celles que le manager a cochées), vues par tous les commerciaux de
+ * l'organisation, groupées par étude, prix croissant. « Prendre en négociation » : le lead passe à mon
+ * nom et disparaît pour tout le monde — pas de doublon, le tri est fait. Rien d'autre ne se décide ici
+ * (pas d'écart, pas de « traitée ») : seule la prise retire un lead. Mes propres études partagées ne
+ * sont pas répétées ici : elles vivent dans mes groupes de Résultats, avec leur menu complet. Relu
+ * toutes les 60 s et au retour sur la page.
  */
-function LeadsTab({ onTaken }: { onTaken: () => void }) {
-  const { userId, isManager, isAdmin } = useAuth();
+function LeadsSection({ onTaken, onCount }: { onTaken: () => void; onCount: (n: number) => void }) {
+  const { userId } = useAuth();
   const [leads, setLeads] = useState<SharedLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const reload = () => {
-    listSharedLeads().then((l) => { setLeads(l); setError(null); }).catch((e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setLoading(false));
+    listSharedLeads()
+      .then((l) => { const mine = l.filter((x) => x.search.user_id !== userId); setLeads(mine); onCount(mine.length); setError(null); })
+      .catch((e) => { const m = e instanceof Error ? e.message : String(e); setError(/SQL du 29\/10/.test(m) ? null : m); })
+      .finally(() => setLoading(false));
   };
   useEffect(() => {
     reload();
     const t = setInterval(reload, 60_000);
     window.addEventListener('focus', reload);
     return () => { clearInterval(t); window.removeEventListener('focus', reload); };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
   const groups = useMemo(() => {
     const by = new Map<string, { search: SharedLead['search']; list: SharedLead[] }>();
     for (const l of leads) (by.get(l.search.id) ?? by.set(l.search.id, { search: l.search, list: [] }).get(l.search.id)!).list.push(l);
@@ -1206,18 +1218,14 @@ function LeadsTab({ onTaken }: { onTaken: () => void }) {
     setLeads((cur) => cur.filter((x) => x.id !== l.id));
     onTaken();
   };
-  if (loading) return <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>;
+  if (loading || (groups.length === 0 && !error)) return null;
   return (
     <div className="space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-slate-700">Leads de l'organisation</h2>
+        <p className="text-xs text-slate-500">Les annonces trouvées par les études partagées de ton manager, pour toute l'équipe. Celui qui prend un lead le fait disparaître pour les autres.</p>
+      </div>
       {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
-      {groups.length === 0 && (
-        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
-          Aucun lead pour l'instant.
-          {(isManager || isAdmin)
-            ? ' Les leads viennent des études quotidiennes cochées « Partager en leads avec mon organisation » : crée ou modifie une étude dans l\'onglet Études quotidiennes.'
-            : ' Ils tombent ici dès que les études partagées de ton manager trouvent des annonces.'}
-        </div>
-      )}
       {groups.map(({ search: s, list }) => {
         const name = s.label || `${s.brand} ${s.model}`.trim();
         return (

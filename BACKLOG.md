@@ -158,6 +158,15 @@ Trouvé et corrigé le jour même (preuves vives à chaque fois) :
   compte MC Export ne voit rien ; migration rejouable. Pages personnelles
   (Études, Résultats, Accueil) filtrées sur `user_id` pour ne pas y mêler
   les études partagées rendues visibles par la base.
+  Suite (29/10 soir, Channing : « pas d'onglet Leads à part, les deux font
+  la même chose : on utilise Résultats, pour la prospection aussi ») :
+  l'onglet Leads est retiré, la section « Leads de l'organisation » vit en
+  tête de Résultats (`LeadsSection` : études partagées d'un COLLÈGUE ; mes
+  propres études partagées restent dans mes groupes avec leur menu). Le
+  droit `wf:leads` disparaît (clé éphémère développée en `wf:resultats`
+  par normalizeTabs) ; PROSPECTING_TABS = Résultats, Négociations,
+  Archives ; le SQL remplace `wf:leads` par `wf:resultats` partout. /leads
+  mène à Résultats.
 - **VITRINE DE WAAL AUTOGROEP (26/10, Channing : « apprends Ada à lire cette
   vitrine, n'oublie pas la pagination »)**. Déjà reconnue : la page porte
   `data-update-url="/voorraad-api/vehiclelist/1/vehicles.json…"`, famille

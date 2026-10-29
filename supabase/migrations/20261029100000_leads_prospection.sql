@@ -14,9 +14,11 @@
 --    son organisation et leurs annonces. Écriture : il peut PRENDRE un lead
 --    (statut inbox → saved, à son nom) — rien d'autre ; la policy
 --    « _own » de l'auteur reste intacte.
--- 4. Onglet « wf:leads » : ajouté aux organisations « prospection seule »
---    (default_tabs) et aux comptes de ces organisations qui ont déjà
---    Négociations ; leurs managers reçoivent en plus « wf:etudes ».
+-- 4. Onglet Résultats (« wf:resultats ») — c'est là que les leads s'affichent
+--    (29/10 soir : pas d'onglet Leads à part) : ajouté aux organisations
+--    « prospection seule » (default_tabs) et aux comptes de ces organisations
+--    qui ont déjà Négociations ; leurs managers reçoivent en plus
+--    « wf:etudes ». Une clé « wf:leads » posée dans la journée est remplacée.
 -- Additif, idempotent.
 -- ═══════════════════════════════════════════════════════════════════════════
 
@@ -54,28 +56,37 @@ create policy "daily_search_hits_org_shared_take" on public.daily_search_hits
   using (status = 'inbox' and public.ada_shared_search_visible(search_id))
   with check (status = 'saved' and taken_by = auth.uid() and public.ada_shared_search_visible(search_id));
 
--- Onglet Leads pour la prospection.
+-- Onglet Résultats pour la prospection (les leads y vivent) ; « wf:leads » (clé éphémère) remplacée.
 update public.organisations
-   set default_tabs = array_append(default_tabs, 'wf:leads')
+   set default_tabs = array_remove(default_tabs, 'wf:leads')
+ where default_tabs is not null and 'wf:leads' = any(default_tabs);
+update public.profiles
+   set allowed_tabs = array_remove(allowed_tabs, 'wf:leads')
+ where allowed_tabs is not null and 'wf:leads' = any(allowed_tabs);
+
+update public.organisations
+   set default_tabs = array_append(default_tabs, 'wf:resultats')
  where default_tabs is not null
    and 'wf:negociations' = any(default_tabs)
-   and not ('wf:leads' = any(default_tabs))
-   and default_tabs <@ array['wf:negociations', 'wf:archives', 'wf:leads'];
+   and not ('wf:resultats' = any(default_tabs))
+   and default_tabs <@ array['wf:negociations', 'wf:archives', 'wf:resultats'];
 
 update public.profiles p
-   set allowed_tabs = array_append(p.allowed_tabs, 'wf:leads')
+   set allowed_tabs = array_append(p.allowed_tabs, 'wf:resultats')
   from public.organisations o
  where o.name = coalesce(nullif(p.organisation, ''), 'MC Export')
-   and o.default_tabs is not null and 'wf:leads' = any(o.default_tabs)
+   and o.default_tabs is not null and 'wf:resultats' = any(o.default_tabs)
+   and o.default_tabs <@ array['wf:negociations', 'wf:archives', 'wf:resultats']
    and p.allowed_tabs is not null
    and 'wf:negociations' = any(p.allowed_tabs)
-   and not ('wf:leads' = any(p.allowed_tabs));
+   and not ('wf:resultats' = any(p.allowed_tabs));
 
 update public.profiles p
    set allowed_tabs = array_append(p.allowed_tabs, 'wf:etudes')
   from public.organisations o
  where o.name = coalesce(nullif(p.organisation, ''), 'MC Export')
-   and o.default_tabs is not null and 'wf:leads' = any(o.default_tabs)
+   and o.default_tabs is not null
+   and o.default_tabs <@ array['wf:negociations', 'wf:archives', 'wf:resultats']
    and p.is_manager
    and p.allowed_tabs is not null
    and not ('wf:etudes' = any(p.allowed_tabs));

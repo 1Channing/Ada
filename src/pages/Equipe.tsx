@@ -384,7 +384,7 @@ export function Equipe() {
       {/* ── Organisations (12/10) : la liste de référence, un compte appartient à l'une d'elles ── */}
       {!loading && (
         <Section id="orgs" icon={<Building2 className="w-4 h-4 text-brand-ocean" />} title={`Organisations (${orgs.length})`} hint={orgs.join(' · ')}>
-          <p className="text-xs text-slate-400">Chaque organisation ne voit que ses données : Open space, « déjà en négo » et archives ne se partagent qu'en son sein, et les données MC Export (ventes, contacts, campagnes, marché, veille…) ne sont lisibles que par les comptes MC Export, dans les onglets qu'ils ont — la base refuse le reste, même par l'API. « Prospection seule » : ses nouveaux comptes n'ont que Négociations et Archives.</p>
+          <p className="text-xs text-slate-400">Chaque organisation ne voit que ses données : Open space, « déjà en négo » et archives ne se partagent qu'en son sein, et les données MC Export (ventes, contacts, campagnes, marché, veille…) ne sont lisibles que par les comptes MC Export, dans les onglets qu'ils ont — la base refuse le reste, même par l'API. « Prospection seule » : ses nouveaux comptes n'ont que Résultats (les leads partagés par leur manager), Négociations et Archives.</p>
           {orgsError && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{orgsError}</p>}
           <div className="flex flex-wrap gap-2">
             {orgs.map((o) => {
@@ -399,7 +399,7 @@ export function Equipe() {
                     return (
                       <button
                         onClick={async () => { const err = await setOrganisationDefaultTabs(o, pros ? null : PROSPECTING_TABS); if (err) setOrgsError(err); else void reload(); }}
-                        title={pros ? 'Ses nouveaux comptes reçoivent Négociations et Archives seulement — cliquer pour revenir à tous les onglets' : 'Ses nouveaux comptes reçoivent tous les onglets — cliquer pour les limiter à la prospection (Négociations, Archives)'}
+                        title={pros ? 'Ses nouveaux comptes reçoivent Résultats, Négociations et Archives seulement — cliquer pour revenir à tous les onglets' : 'Ses nouveaux comptes reçoivent tous les onglets — cliquer pour les limiter à la prospection (Résultats, Négociations, Archives)'}
                         className={`rounded-full px-1.5 py-0.5 border ${pros ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'}`}
                       >
                         {pros ? 'prospection seule' : 'tous onglets'}
@@ -436,7 +436,7 @@ export function Equipe() {
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700 px-1">
               <input type="checkbox" checked={nu.prospectingOnly} onChange={(e) => setNu({ ...nu, prospectingOnly: e.target.checked })} />
-              Prospection seule (Négociations et Archives)
+              Prospection seule (Résultats, Négociations et Archives)
             </label>
             <div className="flex gap-1 sm:col-span-2 lg:col-span-2">
               <input value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} placeholder="Mot de passe * (8 caractères, lettres et chiffres)" required autoComplete="new-password" className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
@@ -657,8 +657,8 @@ export function Equipe() {
                       <div className="flex items-center gap-2 flex-wrap text-xs">
                         <span className="text-slate-500">Préréglage :</span>
                         <button
-                          onClick={() => { if (confirm(`Donner à ${a.email} la prospection seule : onglets Négociations et Archives (de son organisation) uniquement, accueil réduit, cloche Rappels ?`)) void saveTabs(a, PROSPECTING_TABS); }}
-                          title="Compte de prospection (équipe Weecars, 12/10) : Négociations et Archives seulement — ajout d'annonces avec lecture IA et alerte doublons, notes, rappels, archives de son organisation"
+                          onClick={() => { if (confirm(`Donner à ${a.email} la prospection seule : onglets Résultats (leads du manager), Négociations et Archives (de son organisation) uniquement, accueil réduit, cloche Rappels ?`)) void saveTabs(a, PROSPECTING_TABS); }}
+                          title="Compte de prospection (équipe Weecars, 12/10) : Résultats, Négociations et Archives seulement — ajout d'annonces avec lecture IA et alerte doublons, notes, rappels, archives de son organisation"
                           className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
                         >
                           Prospection seule (Négociations, Archives)
