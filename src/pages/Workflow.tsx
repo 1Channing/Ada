@@ -7,7 +7,7 @@ import { Treasury } from '../components/Treasury';
 import { loadLearnedModelsByBrand } from '../lib/offers/knownModels';
 import { useOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
 import { Administrative } from './Administrative';
-import { useAuth } from '../services/auth';
+import { useAuth, managerScope } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import type { AppTabKey } from '../lib/appTabs';
 import {
@@ -187,6 +187,7 @@ function DailySearchesTab() {
 }
 
 function ClassicDailySearchesTab({ showWatches, organisation, isManager, isAdmin }: { showWatches: boolean; organisation: string; isManager: boolean; isAdmin: boolean }) {
+  const scope = managerScope();
   const [rows, setRows] = useState<DailySearch[]>([]);
   const [editing, setEditing] = useState<Partial<DailySearch> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -418,9 +419,15 @@ function ClassicDailySearchesTab({ showWatches, organisation, isManager, isAdmin
           {(isManager || isAdmin) && (
             <label className="flex items-start gap-2 text-sm text-slate-700 bg-blue-50/60 border border-blue-100 rounded-lg px-3 py-2 cursor-pointer">
               <input type="checkbox" checked={editing.shared_leads ?? false} onChange={(e) => set({ shared_leads: e.target.checked })} className="mt-0.5 accent-brand-ocean" />
-              <span>
-                <span className="font-medium">Partager en leads avec mon organisation</span>
-                <span className="block text-xs text-slate-500">Les annonces trouvées tombent dans l'onglet Leads de tous les commerciaux de {organisation} ; celui qui prend un lead en négociation le fait disparaître pour les autres.</span>
+              <span className="min-w-0 flex-1">
+                <span className="font-medium">Partager en leads avec {scope.length > 1 ? 'une organisation' : 'mon organisation'}</span>
+                <span className="block text-xs text-slate-500">Les annonces trouvées tombent dans les Résultats de tous les commerciaux de {editing.shared_leads && scope.length > 1 ? (editing.lead_org || organisation) : organisation} ; celui qui prend un lead en négociation le fait disparaître pour les autres.</span>
+                {/* MANAGER DE PLUSIEURS AGENCES (30/10) : à qui vont les leads de cette étude. */}
+                {editing.shared_leads && scope.length > 1 && (
+                  <select value={editing.lead_org || organisation} onChange={(e) => set({ lead_org: e.target.value === organisation ? null : e.target.value })} onClick={(e) => e.stopPropagation()} className="mt-1.5 block px-2 py-1 rounded border border-slate-300 bg-white text-sm">
+                    {scope.map((o) => <option key={o} value={o}>Leads pour {o}</option>)}
+                  </select>
+                )}
               </span>
             </label>
           )}

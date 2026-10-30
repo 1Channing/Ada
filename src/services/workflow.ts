@@ -41,6 +41,8 @@ export interface DailySearch {
   last_run_at: string | null;
   /** Étude PARTAGÉE (29/10) : ses trouvailles tombent dans l'onglet Leads de toute l'organisation. */
   shared_leads?: boolean;
+  /** Organisation qui REÇOIT les leads (30/10, manager de plusieurs agences) ; null = celle de l'auteur. */
+  lead_org?: string | null;
   /** Auteur (lu sur les études partagées d'un collègue ; absent sur les siennes). */
   user_id?: string;
 }
@@ -375,9 +377,15 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
   let { error } = await write(row);
   // Colonne shared_leads absente (SQL du 29/10 pas collé) : l'étude s'enregistre sans le partage, et on le dit.
   if (error && /shared_leads/.test(error.message)) {
-    const { shared_leads, ...rest } = row;
+    const { shared_leads, lead_org: _lo, ...rest } = row; void _lo;
     ({ error } = await write(rest as typeof row));
     if (!error && shared_leads) return 'Étude enregistrée SANS le partage en leads : SQL du 29/10 (leads_prospection) à coller.';
+  }
+  // Colonne lead_org absente (SQL du 30/10 pas collé) : l'étude s'enregistre pour l'organisation de l'auteur.
+  if (error && /lead_org/.test(error.message)) {
+    const { lead_org, ...rest } = row;
+    ({ error } = await write(rest as typeof row));
+    if (!error && lead_org) return 'Étude enregistrée pour TON organisation : SQL du 30/10 (manager_multi_organisations) à coller pour attribuer les leads à une autre agence.';
   }
   // Migration gearbox pas encore appliquée : on n'empêche pas d'enregistrer
   // une étude pour autant — retry sans le champ, et on le DIT si l'opérateur

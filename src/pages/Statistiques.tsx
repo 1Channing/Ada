@@ -26,11 +26,11 @@ interface MemberStats {
 }
 
 export function Statistiques() {
-  const { isAdmin, isManager, organisation } = useAuth();
+  const { isAdmin, isManager, organisation, managedOrgs } = useAuth();
   const allowed = isAdmin || isManager;
-  // Admin : choix de l'organisation ; manager : la sienne, imposée par la base.
+  // Admin : choix de l'organisation ; manager : la sienne et celles qu'on lui a confiées (30/10), la base vérifie.
   const [org, setOrg] = useState<string>(organisation || DEFAULT_ORG);
-  const [orgs, setOrgs] = useState<string[]>([organisation || DEFAULT_ORG]);
+  const [orgs, setOrgs] = useState<string[]>([...new Set([organisation || DEFAULT_ORG, ...managedOrgs])]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [negos, setNegos] = useState<TeamNegotiation[]>([]);
   const [analyses, setAnalyses] = useState<TeamAnalyses[]>([]);
@@ -39,10 +39,10 @@ export function Statistiques() {
   const [at, setAt] = useState<Date | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  useEffect(() => { if (isAdmin) void listOrganisations().then((r) => setOrgs(r.names)); }, [isAdmin]);
+  useEffect(() => { if (isAdmin) void listOrganisations().then((r) => setOrgs(r.names)); else setOrgs([...new Set([organisation || DEFAULT_ORG, ...managedOrgs])]); }, [isAdmin, organisation, managedOrgs]);
   const reload = async (o: string) => {
     setLoading(true);
-    const [m, n, a] = await Promise.all([listTeamMembers(isAdmin ? o : null), listTeamNegotiations(isAdmin ? o : null), listTeamAnalyses(isAdmin ? o : null)]);
+    const [m, n, a] = await Promise.all([listTeamMembers(o), listTeamNegotiations(o), listTeamAnalyses(o)]);
     setMembers(m.rows); setNegos(n.rows); setAnalyses(a.rows);
     setError(m.error ?? n.error ?? a.error);
     setAt(new Date()); setLoading(false);
@@ -108,7 +108,7 @@ export function Statistiques() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {isAdmin && (
+          {(isAdmin || orgs.length > 1) && (
             <select value={org} onChange={(e) => setOrg(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-sm text-slate-800">
               {[...new Set([org, ...orgs])].map((o) => <option key={o} value={o}>{o}</option>)}
             </select>

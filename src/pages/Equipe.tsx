@@ -33,6 +33,8 @@ interface Account {
   organisation?: string | null;
   /** Manager de son organisation (12/10 soir) : onglet Statistiques sur ses commerciaux. */
   is_manager?: boolean;
+  /** Organisations gérées en plus de la sienne (30/10). */
+  managed_orgs?: string[] | null;
   created_at: string;
   last_sign_in_at: string | null;
   /** Dernier événement de page de la télémétrie (visitor = prénom) — la
@@ -273,6 +275,15 @@ export function Equipe() {
     const { data, error: err } = await supabase.from('profiles').update({ is_manager: next } as never).eq('id', a.id).select('id');
     if (err) { setError(/is_manager|column|schema cache/i.test(err.message) ? 'Rôle manager : colle le SQL du 12/10 (manager_statistiques).' : err.message); void reload(); return; }
     if (!data?.length) { setError(`Rôle manager de ${a.email} NON enregistré : aucune ligne de profil.`); void reload(); }
+  };
+
+  /** Organisations gérées EN PLUS de la sienne (30/10, Channing : « manager de deux agences »). */
+  const toggleManagedOrg = async (a: Account, org: string) => {
+    const cur = (a.managed_orgs ?? []).filter((o) => o !== (a.organisation || DEFAULT_ORG));
+    const next = cur.includes(org) ? cur.filter((o) => o !== org) : [...cur, org];
+    setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, managed_orgs: next } : x)));
+    const { error: err } = await (supabase as unknown as { rpc: (f: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }> }).rpc('admin_set_managed_orgs', { p_user: a.id, p_orgs: next });
+    if (err) { setError(/admin_set_managed_orgs|schema cache|does not exist/i.test(err.message) ? 'Manager de plusieurs organisations : colle le SQL du 30/10 (manager_multi_organisations).' : err.message); void reload(); }
   };
 
   const toggleAdmin = async (a: Account) => {
@@ -636,6 +647,21 @@ export function Equipe() {
                                   <span className={`block text-[11px] leading-snug ${a.is_manager ? 'text-emerald-700/80' : 'text-slate-400'}`}>Les chiffres de prospection de son organisation : négociations, notes, annonces, analyses, rendez-vous pris, Open space</span>
                                 </span>
                               </button>
+                              {/* MANAGER DE PLUSIEURS ORGANISATIONS (30/10) : en plus de la sienne — Statistiques, et cible des leads de ses études. */}
+                              {a.is_manager && !a.is_admin && (
+                                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2 space-y-1">
+                                  <p className="text-xs font-medium text-emerald-900">Manager aussi de… <span className="font-normal text-emerald-800/80">(en plus de {a.organisation || DEFAULT_ORG}) : ses Statistiques couvrent ces organisations, et ses études peuvent leur attribuer les leads</span></p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {orgs.filter((o) => o !== (a.organisation || DEFAULT_ORG)).map((o) => {
+                                      const on = (a.managed_orgs ?? []).includes(o);
+                                      return (
+                                        <button key={o} onClick={() => void toggleManagedOrg(a, o)} className={`text-xs rounded-full border px-2.5 py-1 ${on ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-slate-300 text-slate-600 hover:border-emerald-400'}`}>{o}</button>
+                                      );
+                                    })}
+                                    {orgs.length <= 1 && <span className="text-[11px] text-slate-400">aucune autre organisation</span>}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}

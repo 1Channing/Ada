@@ -134,6 +134,29 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **MANAGER DE PLUSIEURS ORGANISATIONS (30/10, Channing : « segre@… gère les
+  études de Mon agence automobile Segré ET Thouaré ; dans Admin je choisis
+  de quelles organisations il est manager ; Statistiques sur tous ses
+  commerciaux ; dans ses études il attribue les leads à telle ou telle
+  organisation »)**. `profiles.managed_orgs` (posé par l'admin seul : RPC
+  `admin_set_managed_orgs`, trigger de protection étendu et recréé) ;
+  périmètre `ada_manager_orgs()` = sa propre organisation + gérées (admin :
+  toutes). Admin → carte d'un compte manager : pastilles « Manager aussi
+  de… » (une par autre organisation). Statistiques : sélecteur
+  d'organisation pour un manager à plusieurs agences ; `manager_scope_org`
+  accepte toute organisation du périmètre (hors périmètre → la sienne).
+  Cible des leads : `daily_searches.lead_org` et `prospect_watches.lead_org`
+  (null = organisation de l'auteur), choisie dans le formulaire d'étude
+  (quand « Partager en leads » est coché) et de veille (« Leads pour »), la
+  liste des veilles l'affiche ; trigger `protect_lead_org` refuse une
+  organisation hors périmètre ; visibilité des leads
+  (`ada_shared_search_visible`, `ada_watch_visible`, policies de lecture)
+  sur l'organisation CIBLE. SQL 20261030100000, testé sur cluster jetable :
+  auto-attribution refusée, étude et veille hors périmètre refusées, admin
+  attribue (organisation inconnue ignorée), T1 (Thouaré) voit la veille
+  « pour Thouaré » et son lead, C1 (Agence) ne les voit pas, stats Thouaré
+  ouvertes au manager, Weecars retombe sur la sienne. Fail-open : colonnes
+  absentes → enregistrement pour sa propre organisation, en le disant.
 - **ORDRE DES BONNES AFFAIRES (29/10 soir, Channing : « modifier l'ordre
   des véhicules présents sur la liste »)**. Flèches monter/descendre et rang
   sur chaque ligne de « Ce que l'Accueil montre aujourd'hui » (Offres) ;

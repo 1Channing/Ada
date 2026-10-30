@@ -10,7 +10,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin } from 'lucide-react';
-import { useAuth } from '../services/auth';
+import { useAuth, managerScope } from '../services/auth';
 import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, takeWatchLead, type ProspectWatch, type WatchLead } from '../services/prospectWatches';
 import { ListingLink } from './ListingLink';
 
@@ -19,6 +19,7 @@ const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\.
 const inputCls = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200';
 
 export function WatchesSection({ organisation }: { organisation: string }) {
+  const scope = managerScope();
   const [rows, setRows] = useState<ProspectWatch[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<ProspectWatch> | null>(null);
@@ -58,6 +59,13 @@ export function WatchesSection({ organisation }: { organisation: string }) {
                 {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')} h 00</option>)}
               </select></label>
           </div>
+          {/* MANAGER DE PLUSIEURS AGENCES (30/10) : l'organisation qui reçoit les leads de cette veille. */}
+          {scope.length > 1 && (
+            <label className="text-xs text-slate-600 space-y-1 block md:w-80"><span>Leads pour</span>
+              <select value={editing.lead_org || organisation} onChange={(e) => set({ lead_org: e.target.value === organisation ? null : e.target.value })} className={inputCls}>
+                {scope.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select></label>
+          )}
           <p className="text-[11px] text-slate-500">Règle tes filtres sur le site (année, kilométrage, vendeur particulier, rayon…) puis colle l'adresse telle quelle. Sur Leboncoin, Ada lit les annonces par ordre de mise en ligne, trois pages par passage.</p>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setEditing(null)} className="px-4 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100">Annuler</button>
@@ -71,7 +79,7 @@ export function WatchesSection({ organisation }: { organisation: string }) {
         ) : rows.map((w) => (
           <div key={w.id} className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-slate-900 truncate">{w.label || hostOf(w.url)} <span className="text-xs font-normal text-slate-400">· {hostOf(w.url)} · {String(w.run_hour).padStart(2, '0')} h 00{w.active ? '' : ' · en pause'}</span></p>
+              <p className="font-semibold text-slate-900 truncate">{w.label || hostOf(w.url)} <span className="text-xs font-normal text-slate-400">· {hostOf(w.url)} · {String(w.run_hour).padStart(2, '0')} h 00{w.lead_org ? ` · leads pour ${w.lead_org}` : ''}{w.active ? '' : ' · en pause'}</span></p>
               <p className="text-xs text-slate-500 truncate">{w.last_run_at ? `dernier passage ${new Date(w.last_run_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${w.last_summary ? ` — ${w.last_summary}` : ''}` : 'jamais passée — « Lancer » pour un premier passage'}</p>
             </div>
             <a href={w.url} target="_blank" rel="noreferrer" title="Ouvrir la page de recherche" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><ExternalLink className="w-4 h-4" /></a>

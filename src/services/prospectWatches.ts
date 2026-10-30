@@ -15,6 +15,8 @@ const uid = (): string => { const id = useAuth.getState().userId; if (!id) throw
 
 export interface ProspectWatch {
   id: string; user_id: string; label: string; url: string; run_hour: number; active: boolean;
+  /** Organisation qui reçoit les leads (30/10) ; null = celle de l'auteur. */
+  lead_org?: string | null;
   last_run_at: string | null; last_summary: string | null; created_at: string;
 }
 
@@ -42,10 +44,14 @@ export function watchUrlProblem(url: string): string | null {
 export async function saveWatch(w: Partial<ProspectWatch> & { url: string }): Promise<string | null> {
   const bad = watchUrlProblem(w.url);
   if (bad) return bad;
-  const row = { label: (w.label ?? '').trim(), url: w.url.trim(), run_hour: w.run_hour ?? 7, active: w.active ?? true, user_id: uid(), updated_at: new Date().toISOString() };
-  const { error } = w.id
-    ? await untyped.from('prospect_watches').update(row).eq('id', w.id)
-    : await untyped.from('prospect_watches').insert(row);
+  const row: Record<string, unknown> = { label: (w.label ?? '').trim(), url: w.url.trim(), run_hour: w.run_hour ?? 7, active: w.active ?? true, user_id: uid(), updated_at: new Date().toISOString(), lead_org: w.lead_org || null };
+  const write = (r: Record<string, unknown>) => (w.id ? untyped.from('prospect_watches').update(r).eq('id', w.id) : untyped.from('prospect_watches').insert(r));
+  let { error } = await write(row);
+  if (error && /lead_org/.test(error.message)) {
+    const { lead_org, ...rest } = row;
+    ({ error } = await write(rest));
+    if (!error && lead_org) return 'Veille enregistrée pour TON organisation : SQL du 30/10 (manager_multi_organisations) à coller pour attribuer les leads à une autre agence.';
+  }
   if (!error) return null;
   return missing(error.message) ? SQL_HINT : error.message;
 }
