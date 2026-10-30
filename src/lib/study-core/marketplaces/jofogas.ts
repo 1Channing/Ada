@@ -19,9 +19,10 @@
  *   vehicle-reg-date · badge-company_ad = pro.
  *
  * MODÈLE : slug réel « rav-4- » (tiret FINAL non dérivable mécaniquement) —
- * jamais inventé : seules les graines PROUVÉES par URL humaine posent le
- * segment (MODEL_PATH_SLUG), sinon page marque + tri structuré en aval ;
- * la voie URL apprise porte le reste. Prix en HUF (converti EUR).
+ * jamais inventé : les graines PROUVÉES par URL humaine posent le segment
+ * (MODEL_PATH_SLUG) ; sinon l'identifiant du site mo_cars, appris des
+ * annonces (30/10) ; sinon page marque + tri structuré en aval. Prix en HUF
+ * (converti EUR).
  */
 
 import type {
@@ -62,6 +63,22 @@ const MODEL_PATH_SLUG: Record<string, string> = {
 };
 const canonKey = (v: string) =>
   (v ?? '').toUpperCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Z0-9]/g, '');
+const brandKey = (v: string) => {
+  const k = canonKey(v);
+  return k === 'MERCEDESBENZ' ? 'MERCEDES' : k === 'VW' ? 'VOLKSWAGEN' : k;
+};
+
+// IDENTIFIANT MODÈLE DU SITE (mo_cars) — PROUVÉ live 30/10 :
+//   /toyota/hibrid?mo_cars=33&me=90000&rs=2021&re=2024 → 2/2 RAV 4 hybrides ;
+//   /toyota/hibrid?mo_cars=49&rs=2020 → 14/14 C-HR hybrides.
+// L'identifiant est propre à la marque (1..N) et vient du SITE lui-même : le
+// paramètre model_cars de chaque annonce ({ value: '33', label: 'RAV 4' }),
+// moissonné en jf:modelid:<marque>. Jamais déduit d'un libellé (la moisson
+// jf:model:* — slugify du libellé — reste un relevé, jamais posé dans l'URL).
+const LEARNED_MODEL_ID: Record<string, string> = {};
+const LEARNED_MODEL_LABEL: Record<string, string> = {};
+const learnedModelId = (brand: string, model: string): string | undefined =>
+  LEARNED_MODEL_ID[`${brandKey(brand)}|${canonKey(model)}`];
 
 const slugify = (s: string) =>
   s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -150,6 +167,27 @@ function parseSearchResults(html: string): ScrapedListing[] {
   return out;
 }
 
+/** Les identifiants modèle des annonces Next.js : { marque, id, libellé } (model_cars). */
+function nextModelIds(html: string): Array<{ brand: string; id: string; label: string }> {
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!m) return [];
+  let ads: JfAd[];
+  try {
+    const list = (JSON.parse(m[1]) as { props?: { pageProps?: { adList?: { ads?: unknown } } } }).props?.pageProps?.adList?.ads;
+    if (!Array.isArray(list)) return [];
+    ads = list as JfAd[];
+  } catch { return []; }
+  const out: Array<{ brand: string; id: string; label: string }> = [];
+  for (const ad of ads) {
+    const val = (key: string) => ad.parameters?.find((p) => p.key === key)?.values?.[0];
+    const brand = String(val('brand_cars')?.label ?? '').trim();
+    const id = String(val('model_cars')?.value ?? '').trim();
+    const label = String(val('model_cars')?.label ?? '').trim();
+    if (brand && /^\d+$/.test(id) && label) out.push({ brand, id, label });
+  }
+  return out;
+}
+
 /** Moisson : marque/modèle/carburant structurés des cartes (labels du site). */
 function harvestTaxonomy(html: string): Array<{ field: string; code: string; label: string }> {
   const out: Array<{ field: string; code: string; label: string }> = [];
@@ -169,7 +207,20 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
     const fuel = (l.fuel ?? '').trim();
     if (fuel) push('jf:fuel', slugify(fuel), fuel);
   }
+  for (const x of nextModelIds(html)) push(`jf:modelid:${slugify(x.brand)}`, x.id, x.label);
   return out;
+}
+
+/** Réinjection du dictionnaire : seuls les identifiants modèle du site (jf:modelid:<marque>) servent à l'URL. */
+function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  const m = field.match(/^jf:modelid:(.+)$/);
+  if (!m) return;
+  const bk = brandKey(m[1]);
+  for (const p of pairs) {
+    if (!/^\d+$/.test(p.code) || !p.label) continue;
+    const key = `${bk}|${canonKey(p.label)}`;
+    if (!LEARNED_MODEL_ID[key]) { LEARNED_MODEL_ID[key] = p.code; LEARNED_MODEL_LABEL[`${bk}|${p.code}`] = p.label; }
+  }
 }
 
 function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
@@ -182,10 +233,13 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const modelSlug = params.model
     ? MODEL_PATH_SLUG[`${canonKey(params.brand || '')}|${canonKey(params.model)}`]
     : undefined;
-  if (params.model && !modelSlug) {
-    warnings.push('[LINKGEN_WARNING] Jofogas: modèle sans slug de chemin prouvé (slugs à la « rav-4- » non dérivables) — page marque, tri structuré en aval');
+  // Sans graine de chemin : l'identifiant du site appris (mo_cars), en query.
+  const modelId = params.model && !modelSlug ? learnedModelId(params.brand || '', params.model) : undefined;
+  if (params.model && !modelSlug && !modelId) {
+    warnings.push('[LINKGEN_WARNING] Jofogas: modèle sans slug de chemin prouvé ni identifiant mo_cars appris — page marque, tri structuré en aval');
   }
   const qs = new URLSearchParams();
+  if (modelId) qs.set('mo_cars', modelId);
   if (params.mileage) qs.set('me', String(params.mileage));
   // Finition texte libre — URL humaine ?q=gr%20sport.
   if (params.trim && String(params.trim).trim()) qs.set('q', String(params.trim).trim().toLowerCase());
@@ -199,7 +253,7 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   const path = `/magyarorszag/auto/${brandSlug}${modelSlug ? `/${modelSlug}` : ''}${fuelSlug ? `/${fuelSlug}` : ''}`;
   return {
     url: `https://auto.jofogas.hu${path}?${qs.toString()}`, warnings,
-    modelExpressed: !params.model || Boolean(modelSlug),
+    modelExpressed: !params.model || Boolean(modelSlug || modelId),
   };
 }
 
@@ -213,8 +267,8 @@ function scoreSearchResults(html: string, url: string, params: SearchCriteria, l
   const issues: SiteValidationResult['issues'] = [];
   if (!brandOk && wantBrand) issues.push({ type: 'brand_missing' });
   const modelPosed = Boolean(params.model
-    && MODEL_PATH_SLUG[`${canonKey(params.brand || '')}|${canonKey(params.model || '')}`]);
-  if (params.model && !modelPosed) issues.push({ type: 'model_not_applied' }); // sans slug de chemin prouvé
+    && (MODEL_PATH_SLUG[`${canonKey(params.brand || '')}|${canonKey(params.model || '')}`] || learnedModelId(params.brand || '', params.model || '')));
+  if (params.model && !modelPosed) issues.push({ type: 'model_not_applied' }); // ni slug de chemin prouvé, ni mo_cars appris
   if (listings.length === 0) issues.push({ type: 'no_listings' });
   return {
     site: 'JOFOGAS', url, listingCount,
@@ -259,6 +313,10 @@ function prefillCriteriaFromUrl(url: string): Partial<SearchCriteria> {
         if (toks.length === 1) out.vehicleType = bodyLabel(toks[0]);
       } else if (out.brand && !out.model) out.model = seg.replace(/-+/g, ' ').trim().toUpperCase();
     }
+    // mo_cars : l'identifiant du site, relu par le dictionnaire appris.
+    const mo = u.searchParams.get('mo_cars');
+    const moLabel = mo && out.brand ? LEARNED_MODEL_LABEL[`${brandKey(out.brand)}|${mo}`] : undefined;
+    if (moLabel && !out.model) out.model = moLabel.toUpperCase();
     const q = u.searchParams.get('q');
     if (q) out.trim = q;
     const rs = u.searchParams.get('rs'), re = u.searchParams.get('re'), me = u.searchParams.get('me');
@@ -280,7 +338,7 @@ function extractCandidateSegments(url: string): CandidateSegment[] {
       const isFuel = Boolean(FUEL_PATH_TO_CANON[seg]);
       out.push({ raw: seg, location: 'path', paramName: isFuel ? '_path:fuel' : '_path:model', guessField: isFuel ? 'fuel' : 'model' });
     }
-    for (const [p, f] of [['rs', 'year'], ['re', 'year'], ['me', 'mileage']] as const) {
+    for (const [p, f] of [['mo_cars', 'model'], ['rs', 'year'], ['re', 'year'], ['me', 'mileage']] as const) {
       const v = u.searchParams.get(p);
       if (v) out.push({ raw: v, location: 'query', paramName: p, guessField: f });
     }
@@ -317,6 +375,7 @@ export const jofogasAdapter: SiteAdapter = {
   getFetchProfile: (): ZyteProfileOverrides => ({}),
 
   harvestTaxonomy,
+  learnEnumValues,
   prefillCriteriaFromUrl,
   extractCandidateSegments,
 };

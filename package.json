@@ -19,6 +19,7 @@
     "test:agents": "tsx test/agents-mail.test.ts",
     "test:annuaire": "tsx test/agents-annuaire.test.ts",
     "test:demandes": "tsx test/site-leads.test.ts",
+    "test:taxonomie": "tsx test/taxonomie.test.ts",
     "test:pause": "tsx test/agents-pause.test.ts",
     "test:qualification": "tsx test/agents-qualification.test.ts",
     "test:premier-mail": "tsx test/agents-premier-mail.test.ts",
@@ -36,7 +37,7 @@
     "test:plan": "tsx test/agents-plan.test.ts",
     "test:cote": "tsx test/agents-cote.test.ts",
     "test:workflow": "tsx test/agents-workflow.test.ts",
-    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median && npm run test:site-deal && npm run test:agents && npm run test:annuaire && npm run test:qualification && npm run test:premier-mail && npm run test:sites && npm run test:dana && npm run test:recherche && npm run test:approfondie && npm run test:bilan && npm run test:reponse && npm run test:ciblee && npm run test:banc && npm run test:memoire && npm run test:linkedin && npm run test:tableur && npm run test:plan && npm run test:cote && npm run test:workflow && npm run test:demandes && npm run test:pause",
+    "test": "npm run test:parity && npm run test:parity:parsing && npm run test:parity:e2e && npm run test:parity:scraping && npm run test:median && npm run test:site-deal && npm run test:agents && npm run test:annuaire && npm run test:qualification && npm run test:premier-mail && npm run test:sites && npm run test:dana && npm run test:recherche && npm run test:approfondie && npm run test:bilan && npm run test:reponse && npm run test:ciblee && npm run test:banc && npm run test:memoire && npm run test:linkedin && npm run test:tableur && npm run test:plan && npm run test:cote && npm run test:workflow && npm run test:demandes && npm run test:pause && npm run test:taxonomie",
     "build:worker": "cd worker && npm ci && npm run build",
     "start:worker": "cd worker && npm start",
     "gate": "tsc --noEmit -p tsconfig.app.json && tsx scripts/grammar-gate.mts && vite build"
