@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, CalendarCheck, ChevronRight, ExternalLink, MessageSquare, RefreshCw, Share2, Sparkles, Users } from 'lucide-react';
+import { BarChart3, CalendarCheck, ChevronRight, ExternalLink, MessageSquare, RefreshCw, Share2, Sparkles, Users, Inbox } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listOrganisations, DEFAULT_ORG } from '../services/organisations';
-import { listTeamMembers, listTeamNegotiations, listTeamAnalyses, isOpenTeamNego, TEAM_OUTCOME_LABEL, type TeamMember, type TeamNegotiation, type TeamAnalyses } from '../services/managerStats';
+import { listTeamMembers, listTeamNegotiations, listTeamAnalyses, countOpenLeads, conversionRate, isOpenTeamNego, TEAM_OUTCOME_LABEL, type TeamMember, type TeamNegotiation, type TeamAnalyses, type OpenLeads } from '../services/managerStats';
 import { readNote, agoLabel } from '../lib/noteJournal';
 import { fmtPhone } from '../lib/phoneKey';
 
@@ -23,6 +23,8 @@ interface MemberStats {
   open: number; openSpace: number; rdv: number; flux: number; noCallback: number; unavailable: number; deleted: number; closed: number;
   analyses: TeamAnalyses | null;
   lastActivity: string | null;
+  conversion: number | null;
+  started: number;
 }
 
 export function Statistiques() {
@@ -38,13 +40,22 @@ export function Statistiques() {
   const [error, setError] = useState<string | null>(null);
   const [at, setAt] = useState<Date | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Leads non traités par organisation (30/10) et vue « toutes mes organisations » (manager de plusieurs agences).
+  const [openLeads, setOpenLeads] = useState<Record<string, OpenLeads>>({});
+  const ALL = '__toutes__';
 
   useEffect(() => { if (isAdmin) void listOrganisations().then((r) => setOrgs(r.names)); else setOrgs([...new Set([organisation || DEFAULT_ORG, ...managedOrgs])]); }, [isAdmin, organisation, managedOrgs]);
   const reload = async (o: string) => {
     setLoading(true);
-    const [m, n, a] = await Promise.all([listTeamMembers(o), listTeamNegotiations(o), listTeamAnalyses(o)]);
-    setMembers(m.rows); setNegos(n.rows); setAnalyses(a.rows);
-    setError(m.error ?? n.error ?? a.error);
+    // « Toutes mes organisations » : une lecture par organisation du périmètre, recollées (la base borne chacune).
+    const targets = o === ALL ? orgs.filter((x) => x !== ALL) : [o];
+    const parts = await Promise.all(targets.map(async (t) => {
+      const [m, n, a, l] = await Promise.all([listTeamMembers(t), listTeamNegotiations(t), listTeamAnalyses(t), countOpenLeads(t)]);
+      return { t, m, n, a, l };
+    }));
+    setMembers(parts.flatMap((p) => p.m.rows)); setNegos(parts.flatMap((p) => p.n.rows)); setAnalyses(parts.flatMap((p) => p.a.rows));
+    setOpenLeads(Object.fromEntries(parts.filter((p) => p.l.row).map((p) => [p.t, p.l.row as OpenLeads])));
+    setError(parts.map((p) => p.m.error ?? p.n.error ?? p.a.error ?? p.l.error).find(Boolean) ?? null);
     setAt(new Date()); setLoading(false);
   };
   useEffect(() => { if (allowed) void reload(org); }, [org, allowed]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -65,6 +76,9 @@ export function Statistiques() {
         openSpace: list.filter((n) => isOpenTeamNego(n) && n.in_open_space).length,
         rdv: count('rdv'), flux: count('flux'), noCallback: count('no_callback'), unavailable: count('unavailable'), deleted: count('deleted'),
         closed: list.filter((n) => n.status === 'closed').length,
+        // Taux de conversion (30/10) : rendez-vous pris / négociations lancées.
+        conversion: conversionRate(count('rdv'), list.length),
+        started: list.length,
         analyses: anBy.get(id) ?? null,
         lastActivity: list[0]?.updated_at ?? anBy.get(id)?.last_at ?? null,
       };
@@ -79,6 +93,8 @@ export function Statistiques() {
     today: stats.reduce((s, x) => s + (x.analyses?.today ?? 0), 0),
     week: stats.reduce((s, x) => s + (x.analyses?.week ?? 0), 0),
   }), [stats]);
+  const openLeadsTotal = Object.values(openLeads).reduce((n, l) => n + l.watch_leads + l.study_leads, 0);
+  const openLeadsOldest = Object.values(openLeads).map((l) => l.oldest).filter((d): d is string => !!d).sort()[0] ?? null;
   const rdvList = useMemo(() => negos.filter((n) => n.status === 'archived' && n.outcome === 'rdv').sort((a, b) => (b.archived_at ?? '').localeCompare(a.archived_at ?? '')), [negos]);
   const openSpaceList = useMemo(() => negos.filter((n) => isOpenTeamNego(n) && n.in_open_space), [negos]);
 
@@ -103,14 +119,15 @@ export function Statistiques() {
         <div className="flex items-center gap-3">
           <BarChart3 className="w-6 h-6 text-brand-ocean" />
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Statistiques <span className="text-base font-normal text-slate-500">· {org}</span></h1>
+            <h1 className="text-xl font-bold text-slate-900">Statistiques <span className="text-base font-normal text-slate-500">· {org === ALL ? 'toutes mes organisations' : org}</span></h1>
             <p className="text-sm text-slate-500">La prospection de tes commerciaux : négociations, analyses lancées, rendez-vous pris, Open space.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {(isAdmin || orgs.length > 1) && (
             <select value={org} onChange={(e) => setOrg(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-sm text-slate-800">
-              {[...new Set([org, ...orgs])].map((o) => <option key={o} value={o}>{o}</option>)}
+              {orgs.length > 1 && <option value={ALL}>Toutes mes organisations</option>}
+              {[...new Set([...(org === ALL ? [] : [org]), ...orgs])].map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           )}
           <button onClick={() => void reload(org)} className="flex items-center gap-1.5 text-xs text-brand-ocean hover:underline"><RefreshCw className="w-3.5 h-3.5" /> Actualiser{at ? ` · ${at.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}</button>
@@ -124,6 +141,7 @@ export function Statistiques() {
             <Tile icon={<CalendarCheck className="w-4 h-4 text-emerald-600" />} label="Rendez-vous pris" value={totals.rdv} sub="depuis l'ouverture des comptes" />
             <Tile icon={<Sparkles className="w-4 h-4 text-violet-600" />} label="Analyses lancées" value={totals.analyses} sub={`aujourd'hui ${totals.today} · 7 jours ${totals.week}`} />
             <Tile icon={<Share2 className="w-4 h-4 text-violet-600" />} label="Dans l'Open space" value={totals.openSpace} sub="annonces partagées en cours" />
+            <Tile icon={<Inbox className="w-4 h-4 text-amber-600" />} label="Leads non traités" value={openLeadsTotal} sub={openLeadsOldest ? `le plus ancien du ${fmtDate(openLeadsOldest)}${Object.keys(openLeads).length > 1 ? ' · ' + Object.entries(openLeads).map(([o, l]) => `${o} ${l.watch_leads + l.study_leads}`).join(' · ') : ''}` : 'veilles et études partagées : rien en attente'} />
           </div>
 
           {/* Par commercial : une ligne, le détail derrière. */}
@@ -142,6 +160,7 @@ export function Statistiques() {
                     <th className="py-2 px-2 text-right">Open space</th>
                     <th className="py-2 px-2 text-right" title="Analyses d'annonces lancées : total · 7 jours · aujourd'hui">Analyses</th>
                     <th className="py-2 px-2 text-right text-emerald-700">RDV pris</th>
+                    <th className="py-2 px-2 text-right" title="Rendez-vous pris / négociations lancées">Conversion</th>
                     <th className="py-2 px-2 text-right">Flux</th>
                     <th className="py-2 px-2 text-right">Sans rappel</th>
                     <th className="py-2 px-2 text-right">Plus dispo</th>
@@ -150,7 +169,7 @@ export function Statistiques() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {stats.length === 0 && <tr><td colSpan={10} className="py-6 text-center text-slate-400">Aucun compte dans cette organisation.</td></tr>}
+                  {stats.length === 0 && <tr><td colSpan={11} className="py-6 text-center text-slate-400">Aucun compte dans cette organisation.</td></tr>}
                   {stats.map((s) => {
                     const isOpen = openId === s.m.id;
                     return (
@@ -164,6 +183,7 @@ export function Statistiques() {
                           <td className="py-2 px-2 text-right tabular-nums text-slate-600">{s.openSpace || '—'}</td>
                           <td className="py-2 px-2 text-right tabular-nums text-slate-700">{s.analyses ? <>{s.analyses.total}<span className="text-slate-400"> · {s.analyses.week} · {s.analyses.today}</span></> : '—'}</td>
                           <td className="py-2 px-2 text-right tabular-nums font-semibold text-emerald-700">{s.rdv || '—'}</td>
+                          <td className="py-2 px-2 text-right tabular-nums text-slate-700" title={`${s.rdv} RDV / ${s.started} négociation${s.started > 1 ? 's' : ''}`}>{s.conversion == null ? '—' : `${s.conversion} %`}</td>
                           <td className="py-2 px-2 text-right tabular-nums text-slate-600">{s.flux || '—'}</td>
                           <td className="py-2 px-2 text-right tabular-nums text-slate-600">{s.noCallback || '—'}</td>
                           <td className="py-2 px-2 text-right tabular-nums text-slate-600">{s.unavailable || '—'}</td>
@@ -172,7 +192,7 @@ export function Statistiques() {
                         </tr>
                         {isOpen && (
                           <tr key={`${s.m.id}-detail`}>
-                            <td colSpan={10} className="bg-slate-50/70 px-4 py-3">
+                            <td colSpan={11} className="bg-slate-50/70 px-4 py-3">
                               {s.negos.length === 0 ? <p className="text-slate-400">Aucune négociation.</p> : (
                                 <div className="space-y-1.5">
                                   {s.negos.map((n) => {

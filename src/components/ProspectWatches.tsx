@@ -8,13 +8,16 @@
  *   WatchesSection    : créer, modifier, lancer, mettre en pause, supprimer ses veilles (manager).
  *   WatchLeadsSection : les leads des veilles de l'organisation, à prendre (tout le monde).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2, X } from 'lucide-react';
 import { useAuth, managerScope } from '../services/auth';
 import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, takeWatchLead, rejectWatchLead, type ProspectWatch, type WatchLead } from '../services/prospectWatches';
 import { ListingLink } from './ListingLink';
 
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
+/** Âge en jours (Paris) d'une date d'acquisition, et son libellé « Reçus aujourd'hui / hier / le 28/10 ». */
+const dayAge = (iso: string) => Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) / 86_400_000);
+const dayLabel = (iso: string) => { const a = dayAge(iso); return a <= 0 ? 'Reçus aujourd\'hui' : a === 1 ? 'Reçus hier — encore à traiter' : `Reçus le ${new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} — encore à traiter`; };
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
 const inputCls = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200';
 
@@ -131,8 +134,10 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
   const groups = useMemo(() => {
     const by = new Map<string, { watch: WatchLead['watch']; list: WatchLead[] }>();
     for (const l of leads) (by.get(l.watch_id) ?? by.set(l.watch_id, { watch: l.watch, list: [] }).get(l.watch_id)!).list.push(l);
-    // Par ordre de MISE EN LIGNE (30/10, Channing), les plus récentes d'abord ; sans date, par première vue.
-    const key = (l: WatchLead) => l.published_at ?? l.first_seen_at;
+    // Par DATE D'ACQUISITION (30/10 soir, Channing : « si les leads de la veille ne sont pas traités, ça fait une
+    // différence et on peut les trouver ») : jour de première vue, les plus récents d'abord ; dans un jour, par
+    // mise en ligne décroissante. Un en-tête par jour dans la liste.
+    const key = (l: WatchLead) => `${l.first_seen_at.slice(0, 10)}|${l.published_at ?? l.first_seen_at}`;
     return [...by.values()].map((g) => ({ ...g, list: g.list.sort((a, b) => key(b).localeCompare(key(a))) }));
   }, [leads]);
   const take = async (l: WatchLead) => {
@@ -155,7 +160,7 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
     <div className="space-y-4">
       <div>
         <h2 className="text-sm font-semibold text-slate-700">Leads de prospection</h2>
-        <p className="text-xs text-slate-500">Les annonces nouvelles trouvées par les veilles de l'organisation, les plus récentes d'abord. Prendre un lead le fait disparaître pour les autres ; rejeter (✕) l'écarte pour tout le monde, définitivement.</p>
+        <p className="text-xs text-slate-500">Les annonces nouvelles trouvées par les veilles de l'organisation, par jour de réception (les plus récentes d'abord ; les jours passés restent visibles tant qu'il y a des leads à traiter). Prendre un lead le fait disparaître pour les autres ; rejeter (✕) l'écarte pour tout le monde, définitivement.</p>
       </div>
       {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
       {groups.map(({ watch: w, list }) => (
@@ -165,8 +170,12 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
             <p className="text-xs text-slate-500">{hostOf(w.url)} · {list.length} lead{list.length > 1 ? 's' : ''} à prendre{w.user_id === userId ? ' · ma veille' : ''}</p>
           </div>
           <div className="divide-y divide-slate-100">
-            {list.map((l) => (
-              <div key={l.id} className="flex items-center gap-3 px-4 py-2.5">
+            {list.map((l, i) => (
+              <Fragment key={l.id}>
+              {(i === 0 || list[i - 1].first_seen_at.slice(0, 10) !== l.first_seen_at.slice(0, 10)) && (
+                <div className={`px-4 py-1 text-[11px] font-medium ${dayAge(l.first_seen_at) >= 1 ? 'bg-amber-50 text-amber-800' : 'bg-slate-50 text-slate-500'}`}>{dayLabel(l.first_seen_at)}</div>
+              )}
+              <div className="flex items-center gap-3 px-4 py-2.5">
                 <div className="min-w-0 flex-1">
                   <ListingLink href={l.listing_url} className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate block">{l.title || l.listing_url}</ListingLink>
                   <p className="text-xs text-slate-500 mt-0.5 truncate">
@@ -182,6 +191,7 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
                 </button>
                 <button onClick={() => void reject(l)} disabled={busy === l.id} title="Rejeter : hors critères — disparaît pour toute l'organisation, ne reviendra pas" className="shrink-0 p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 disabled:opacity-50"><X className="w-4 h-4" /></button>
               </div>
+              </Fragment>
             ))}
           </div>
         </div>

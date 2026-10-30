@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil, Landmark, RotateCcw } from 'lucide-react';
+import { CalendarClock, BarChart3, Archive, Plus, ExternalLink, ArrowDownRight, X, MoreVertical, AlertTriangle, CheckCircle2, ChevronRight, MessageSquare, FileText, Play, Pause, Pencil, Landmark, RotateCcw, Trophy } from 'lucide-react';
 import { readNote, agoLabel } from '../lib/noteJournal';
 import { fmtPhone } from '../lib/phoneKey';
 import { NegotiationsTab } from './Ventes';
@@ -24,6 +24,7 @@ import { gaspedaalSearchFallback } from '../services/listingLink';
 import { loadConfidence, CONFIDENCE_LABEL, type ConfidenceRow } from '../services/truthLoop';
 import { contactSeller } from '../services/contactSeller';
 import { WatchesSection, WatchLeadsSection } from '../components/ProspectWatches';
+import { ScoreTab } from '../components/ScoreTab';
 
 /** Identité visuelle des places de marché — badge normalisé partout. */
 const SITE_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
@@ -83,13 +84,13 @@ const FUELS = [
 const flagOf = (code: string) => COUNTRIES.find((c) => c.code === code)?.flag ?? code;
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 
-type Tab = 'searches' | 'results' | 'archives' | 'negotiations' | 'sales' | 'tresorerie';
+type Tab = 'searches' | 'results' | 'archives' | 'negotiations' | 'sales' | 'tresorerie' | 'score';
 
 /** /ventes → Négociations, /admin → Ventes, /tresorerie → Trésorerie, /leads → Résultats (anciens chemins, mêmes onglets). */
 const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations' : p === '/admin' ? 'sales' : p === '/tresorerie' ? 'tresorerie' : p === '/leads' ? 'results' : null);
 
 export function Workflow() {
-  const { allowedTabs, isAdmin } = useAuth();
+  const { allowedTabs, isAdmin, isMcExport } = useAuth();
   // Pastille « nouveautés Open space » sur l'onglet Négociations (21/09).
   const openSpaceNew = useOpenSpaceUnseen();
   // Négociations et Ventes vivent ici depuis le 05/09 (demande Channing),
@@ -98,11 +99,14 @@ export function Workflow() {
   const tabs = [
     ...(see('wf:etudes') ? [{ id: 'searches' as Tab, label: 'Études quotidiennes', icon: CalendarClock }] : []),
     ...(see('wf:resultats') ? [{ id: 'results' as Tab, label: 'Résultats', icon: BarChart3 }] : []),
-    ...(see('wf:archives') ? [{ id: 'archives' as Tab, label: 'Archives', icon: Archive }] : []),
     ...(see('wf:negociations') ? [{ id: 'negotiations' as Tab, label: 'Négociations', icon: MessageSquare }] : []),
     ...(see('wf:ventes') ? [{ id: 'sales' as Tab, label: 'Ventes', icon: FileText }] : []),
     // Trésorerie (02/10) : relevés de compte, frais, marge réelle — admin seulement.
     ...(isAdmin ? [{ id: 'tresorerie' as Tab, label: 'Trésorerie', icon: Landmark }] : []),
+    // Score (30/10, Channing) : les agents d'une organisation de prospection voient vite les stats des autres.
+    ...(!isMcExport || isAdmin ? [{ id: 'score' as Tab, label: 'Score', icon: Trophy }] : []),
+    // Archives (30/10, Channing : « juste l'icône, tout à droite, comme une option »).
+    ...(see('wf:archives') ? [{ id: 'archives' as Tab, label: 'Archives', icon: Archive, iconOnly: true, right: true }] : []),
   ];
   // Premier onglet : les études, sinon les Négociations (un compte de prospection
   // a Archives avant Négociations dans la barre, mais arrive sur ses négociations).
@@ -129,16 +133,18 @@ export function Workflow() {
       </div>
       <div className="border-b border-slate-200">
         <nav className="flex gap-1 overflow-x-auto">
-          {tabs.map(({ id, label, icon: Icon }) => (
+          {tabs.map(({ id, label, icon: Icon, iconOnly, right }: { id: Tab; label: string; icon: typeof Archive; iconOnly?: boolean; right?: boolean }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`px-4 py-3 flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap ${
+              title={iconOnly ? label : undefined}
+              aria-label={label}
+              className={`px-4 py-3 flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap ${right ? 'ml-auto' : ''} ${
                 tab === id ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-600 hover:text-slate-700'
               }`}
             >
               <Icon size={18} />
-              {label}
+              {!iconOnly && label}
               {id === 'negotiations' && openSpaceNew > 0 && (
                 <span title={`${openSpaceNew} nouveauté${openSpaceNew > 1 ? 's' : ''} dans l'Open space`} className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold grid place-items-center">{openSpaceNew > 99 ? '99+' : openSpaceNew}</span>
               )}
@@ -149,6 +155,7 @@ export function Workflow() {
       {tab === 'searches' && see('wf:etudes') && <DailySearchesTab />}
       {tab === 'results' && see('wf:resultats') && <ResultsTab onTaken={() => { if (see('wf:negociations')) setTab('negotiations'); }} />}
       {tab === 'archives' && see('wf:archives') && <ArchivesTab />}
+      {tab === 'score' && (!isMcExport || isAdmin) && <ScoreTab />}
       {tab === 'negotiations' && see('wf:negociations') && <NegotiationsTab onPushed={() => { if (see('wf:ventes')) setTab('sales'); }} />}
       {tab === 'sales' && see('wf:ventes') && <Administrative />}
       {tab === 'tresorerie' && isAdmin && <Treasury />}

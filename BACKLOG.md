@@ -134,6 +134,23 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **SCORE, STATISTIQUES MULTI-ORGANISATIONS, ARCHIVES EN ICÔNE, LEADS PAR JOUR DE
+  RÉCEPTION (30/10 soir, Channing)**. (1) Onglet Workflow « Score » (organisations
+  hors MC Export, et les admins avec choix d'organisation) : par commercial,
+  leads pris (veilles + études partagées, `taken_by`), négociations lancées,
+  rendez-vous pris, taux de conversion = RDV / négociations lancées ;
+  médailles, ligne « moi », total ; RPC `org_scoreboard` bornée à MON
+  organisation côté base. (2) Statistiques : option « Toutes mes
+  organisations » pour un manager de plusieurs agences (une lecture par
+  organisation du périmètre, recollées), colonne « Conversion » par
+  commercial, tuile « Leads non traités » (veilles + études partagées
+  ciblées, le plus ancien, détail par organisation ; RPC
+  `manager_open_leads`, périmètre manager). SQL 20261030130000, testé sur
+  cluster jetable. (3) Onglet Archives : icône seule, tout à droite
+  (`iconOnly`, `right` → ml-auto, libellé en info-bulle). (4) Leads de
+  prospection triés par jour de RÉCEPTION (first_seen_at), les plus
+  récents d'abord, un en-tête par jour — « Reçus hier — encore à traiter »
+  en ambre pour les jours passés ; dans un jour, par mise en ligne.
 - **VEILLES : ORGANISATION CIBLE TOUJOURS VISIBLE, REJET D'UN LEAD, TRI PAR MISE
   EN LIGNE (30/10, Channing)**. Le choix « Leads pour » du formulaire de
   veille n'apparaissait qu'avec plusieurs organisations (le compte test
