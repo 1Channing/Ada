@@ -49,6 +49,17 @@ export async function addOrganisation(name: string): Promise<string | null> {
   return missing(error.message) ? ORG_SQL_HINT : error.message;
 }
 
+/** RENOMMER (30/10, Channing) : la clé et toutes ses recopies (profils, managers, adresses autorisées, cibles des leads) d'un bloc, par RPC admin. */
+export async function renameOrganisation(oldName: string, newName: string): Promise<string | null> {
+  const clean = newName.trim();
+  if (!clean) return 'Nom vide.';
+  if (oldName === DEFAULT_ORG) return 'MC Export ne se renomme pas.';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).rpc('admin_rename_organisation', { p_old: oldName, p_new: clean });
+  if (!error) return null;
+  return /admin_rename_organisation|schema cache|does not exist/i.test(error.message) ? 'Renommer une organisation : SQL du 30/10 (renommer_organisation) à coller.' : error.message;
+}
+
 /** Suppression d'une organisation SANS membre (la liste reste cohérente avec les comptes). */
 export async function removeOrganisation(name: string): Promise<string | null> {
   if (name === DEFAULT_ORG) return 'MC Export ne se supprime pas.';

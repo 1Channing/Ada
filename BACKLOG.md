@@ -134,6 +134,16 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **RENOMMER UNE ORGANISATION + FORMULAIRE « CRÉER UN COMPTE » ALIGNÉ (30/10,
+  Channing)**. Crayon sur la pastille d'une organisation (Admin) : nouveau
+  nom demandé, RPC `admin_rename_organisation` (admins seuls, « MC Export »
+  intouchable, doublon refusé) qui change la clé et toutes ses recopies
+  d'un bloc — profils, managers (`managed_orgs`), adresses autorisées,
+  cibles des leads des études et des veilles. SQL 20261030110000, testé sur
+  cluster jetable (refus non-admin / MC Export / doublon ; Thouaré →
+  « MAA Thouaré » suivi partout). Formulaire de création de compte : le
+  libellé « Prospection seule (…) » passait sur deux lignes et décalait la
+  rangée → libellé court sur une ligne, détail en petit, info-bulle.
 - **MANAGER DE PLUSIEURS ORGANISATIONS (30/10, Channing : « segre@… gère les
   études de Mon agence automobile Segré ET Thouaré ; dans Admin je choisis
   de quelles organisations il est manager ; Statistiques sur tous ses

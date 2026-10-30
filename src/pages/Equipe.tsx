@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, Shield, Plus, Trash2, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2, Sparkles, Share2, BarChart3, SlidersHorizontal } from 'lucide-react';
+import { Users, Shield, Plus, Trash2, Pencil, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2, Sparkles, Share2, BarChart3, SlidersHorizontal } from 'lucide-react';
 import { MyTabsPanel } from '../components/MyTabs';
 import { useMyTabChoices } from '../lib/navChoices';
 import { supabase } from '../lib/supabase';
@@ -7,7 +7,7 @@ import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, pas
 import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
 import { readNote, agoLabel } from '../lib/noteJournal';
 import { fmtPhone } from '../lib/phoneKey';
-import { listOrganisations, addOrganisation, removeOrganisation, setOrganisationDefaultTabs, isProspectingOrg, PROSPECTING_TABS, DEFAULT_ORG, type Organisation } from '../services/organisations';
+import { listOrganisations, addOrganisation, removeOrganisation, renameOrganisation, setOrganisationDefaultTabs, isProspectingOrg, PROSPECTING_TABS, DEFAULT_ORG, type Organisation } from '../services/organisations';
 
 /**
  * Page ÉQUIPE (admin) — demande Channing 30/08 :
@@ -257,6 +257,13 @@ export function Equipe() {
     setNewOrg(''); setOrgsError(null);
     void reload();
   };
+  /** Renommer (30/10) : le nom est une clé recopiée partout — la base change tout d'un bloc. */
+  const renameOrg = async (name: string) => {
+    const next = prompt(`Nouveau nom pour l'organisation « ${name} » :`, name);
+    if (next == null || !next.trim() || next.trim() === name) return;
+    const err = await renameOrganisation(name, next);
+    if (err) setOrgsError(err); else { setOrgsError(null); void reload(); }
+  };
   const dropOrg = async (name: string) => {
     const members = accounts.filter((x) => (x.organisation || DEFAULT_ORG) === name).length;
     if (members > 0) { setOrgsError(`« ${name} » a ${members} compte${members > 1 ? 's' : ''} : change-les d'organisation avant de la supprimer.`); return; }
@@ -417,6 +424,7 @@ export function Equipe() {
                       </button>
                     );
                   })()}
+                  {o !== DEFAULT_ORG && <button onClick={() => void renameOrg(o)} title="Renommer l'organisation (comptes, managers, adresses autorisées et leads suivent)" className="text-slate-400 hover:text-brand-ocean"><Pencil className="w-3 h-3" /></button>}
                   {o !== DEFAULT_ORG && n === 0 && <button onClick={() => void dropOrg(o)} title="Supprimer (aucun compte)" className="text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>}
                 </span>
               );
@@ -445,9 +453,10 @@ export function Equipe() {
                 {orgs.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700 px-1">
-              <input type="checkbox" checked={nu.prospectingOnly} onChange={(e) => setNu({ ...nu, prospectingOnly: e.target.checked })} />
-              Prospection seule (Résultats, Négociations et Archives)
+            {/* Libellé court sur une ligne (30/10 : le long libellé passait sur deux lignes et décalait la rangée). */}
+            <label className="flex items-center gap-2 text-sm text-slate-700 px-1 min-w-0" title="Le compte n'aura que Résultats (les leads de son manager), Négociations et Archives">
+              <input type="checkbox" checked={nu.prospectingOnly} onChange={(e) => setNu({ ...nu, prospectingOnly: e.target.checked })} className="shrink-0" />
+              <span className="truncate">Prospection seule <span className="text-xs text-slate-400">(Résultats, Négociations, Archives)</span></span>
             </label>
             <div className="flex gap-1 sm:col-span-2 lg:col-span-2">
               <input value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} placeholder="Mot de passe * (8 caractères, lettres et chiffres)" required autoComplete="new-password" className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
