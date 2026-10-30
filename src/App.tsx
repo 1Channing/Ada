@@ -85,6 +85,7 @@ function App() {
     if (p === '/admin/history') return 'admin-history';
     if (p === '/link-generator') return 'atelier-linkgen';
     if (p === '/ingestion') return 'atelier-ingestion';
+    if (p === '/apprentissage-sites') return 'atelier-apprentissage';
     if (p === '/ingestion/history') return 'ingestion-history';
     if (p === '/market') return 'market';
     if (p === '/etudes' || p === '/workflow') return 'workflow';
@@ -104,6 +105,7 @@ function App() {
       case 'admin-history': return <AdminHistory />;
       case 'atelier-linkgen': return <Atelier initial="linkgen" />;
       case 'atelier-ingestion': return <Atelier initial="ingestion" />;
+      case 'atelier-apprentissage': return <Atelier initial="apprentissage" />;
       case 'ingestion-history': return <IngestionHistory />;
       case 'market': return <MarketIntelligence />;
       case 'workflow': return <Workflow />;

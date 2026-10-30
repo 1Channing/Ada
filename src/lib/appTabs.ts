@@ -87,7 +87,8 @@ export function tabKeyOfPageKey(pageKey: string): AppTabKey | null {
   switch (pageKey) {
     case 'admin-history': return 'wf:ventes';
     case 'atelier-linkgen':
-    case 'atelier-ingestion': return 'atelier';
+    case 'atelier-ingestion':
+    case 'atelier-apprentissage': return 'atelier';
     case 'ingestion-history': return 'historique';
     case 'market': return 'market';
     case 'veille': return 'veille';

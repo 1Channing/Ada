@@ -1,8 +1,9 @@
 import { ReactNode, useState } from 'react';
-import { ChevronDown, ChevronRight, Link2, Upload, Rocket } from 'lucide-react';
+import { ChevronDown, ChevronRight, GraduationCap, Link2, Upload, Rocket } from 'lucide-react';
 import { CampaignPanel } from '../components/CampaignPanel';
 import { Ingestion } from './Ingestion';
 import { LinkGenerator } from './LinkGenerator';
+import { SiteLearning } from '../components/SiteLearning';
 
 /**
  * Atelier mapping — fusion Link Gen + Ingestion (demande Channing 27/07).
@@ -13,13 +14,25 @@ import { LinkGenerator } from './LinkGenerator';
  * les liens profonds (/ingestion?url=… du centre de résolution) continuent
  * de fonctionner tels quels.
  */
-export function Atelier({ initial }: { initial?: 'ingestion' | 'linkgen' }) {
+export function Atelier({ initial }: { initial?: 'ingestion' | 'linkgen' | 'apprentissage' }) {
   const deepLinkUrl = new URLSearchParams(window.location.search).get('url');
-  const [openIngestion, setOpenIngestion] = useState(initial !== 'linkgen' || !!deepLinkUrl);
+  const [openIngestion, setOpenIngestion] = useState(initial === 'ingestion' || !initial || !!deepLinkUrl);
   const [openLinkGen, setOpenLinkGen] = useState(initial === 'linkgen');
+  // Apprentissage des sites (30/10) : adresse directe /apprentissage-sites — celle que Claude ouvre.
+  const [openLearning, setOpenLearning] = useState(initial === 'apprentissage');
 
   return (
     <div className="w-full space-y-6">
+      <Section
+        icon={<GraduationCap className="w-5 h-5 text-blue-600" />}
+        title="Apprentissage des sites"
+        subtitle="Les modèles et filtres qu'ADA ne sait pas encore écrire : Claude les coche sur les sites, ADA contrôle, un administrateur valide."
+        open={openLearning}
+        onToggle={() => setOpenLearning((v) => !v)}
+      >
+        <SiteLearning initialTab={initial === 'apprentissage' && new URLSearchParams(window.location.search).get('onglet') === 'valider' ? 'valider' : 'chercher'} />
+      </Section>
+
       <Section
         icon={<Rocket className="w-5 h-5 text-blue-600" />}
         title="Campagnes de mapping"

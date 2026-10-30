@@ -31,6 +31,10 @@ export interface SearchCriteria {
   yearFrom?: string | number;
   yearTo?: string | number;
   mileage?: string | number;
+  /** Kilométrage minimum (30/10, Channing : « on sait faire kilométrage maximum, mais il faut le kilométrage
+   *  minimum également ») : posé par le registre là où il est prouvé (La Centrale), ailleurs par les règles
+   *  apprises (Atelier › Apprentissage des sites). */
+  mileageMin?: string | number;
   fuel?: string;
   trim?: string;
   minPower?: string | number;
@@ -138,6 +142,9 @@ export interface BuildUrlResult {
    *  garde d'exprimabilité des campagnes précision : pas de scrape payé pour
    *  une page qu'on sait incapable de confirmer le modèle (Channing 02/08). */
   modelExpressed?: boolean;
+  /** true = le modèle est posé mais DEVINÉ (Leboncoin : forme BRAND_Modèle supposée, pas encore moissonnée) —
+   *  à confirmer par l'apprentissage des sites ; n'empêche aucun scrape (contrairement à modelExpressed:false). */
+  modelGuessed?: boolean;
   /** URL de DÉPART quand le modèle n'a pas d'identifiant appris (mobile.de, 05/10, Channing : « qu'ADA propose quand
    *  même une URL en indiquant la nomenclature qui manque ») : page marque + tous les critères, à compléter à la main
    *  puis à coller dans l'Atelier. Jamais scrapée telle quelle (url reste vide). */

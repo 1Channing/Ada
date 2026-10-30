@@ -60,7 +60,7 @@ export function setQueryParamRaw(url: string, param: string, value: string | nul
  * hash sont l'état des filtres du site (LRP) — invariantes d'une URL à
  * l'autre, donc posables SANS mapping appris. `value: null` supprime.
  */
-function setHashParamRaw(url: string, key: string, value: string | null): string {
+export function setHashParamRaw(url: string, key: string, value: string | null): string {
   const hashIdx = url.indexOf('#');
   const base = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
   let segs = hashIdx >= 0 ? url.slice(hashIdx + 1).split('|').filter(Boolean) : [];
@@ -98,6 +98,10 @@ const mileageKm = (params: LinkGenParams): number | null => {
   const km = Number(params.mileage ?? '');
   return Number.isFinite(km) && km > 0 ? km : null;
 };
+const mileageMinKm = (params: LinkGenParams): number | null => {
+  const km = Number(params.mileageMin ?? '');
+  return Number.isFinite(km) && km > 0 ? km : null;
+};
 const isAutomatic = (params: LinkGenParams): boolean =>
   /^AUTOMAT/i.test(String(params.gearbox ?? '').trim());
 
@@ -117,6 +121,8 @@ export interface SiteGrammar {
    *  RETIRE quand il n'existe pas (règle des variables, anti-fossile). */
   year?: (url: string, yearFrom: string, yearTo: string) => string;
   mileage?: (url: string, km: number | null) => string;
+  /** Kilométrage MINIMUM (30/10) — posé-ou-retiré, seulement là où il est prouvé ; ailleurs, règles apprises. */
+  mileageMin?: (url: string, km: number | null) => string;
   power?: (url: string, ch: number | null) => string;
   gearbox?: (url: string, params: LinkGenParams) => string;
   fuel?: (url: string, params: LinkGenParams) => string;
@@ -681,6 +687,8 @@ export const SITE_GRAMMARS: SiteGrammar[] = [
       return setQueryParamRaw(out, 'yearMax', to || null);
     },
     mileage: (url, km) => setQueryParamRaw(url, 'mileageMax', km ? String(km) : null),
+    // mileageMin= : corpus d'URLs-preuves Channing du 29/08 (bornes séparées, en-tête de lacentrale.ts).
+    mileageMin: (url, km) => setQueryParamRaw(url, 'mileageMin', km ? String(km) : null),
     power: (url, ch) => setQueryParamRaw(url, 'powerDINMin', ch ? String(ch) : null),
     // Les DEUX valeurs sont prouvées (corpus) — MANUAL posé aussi, contrairement
     // aux sites où seule la grammaire automatique est connue.
@@ -856,7 +864,11 @@ export function missingUrlCriteria(url: string, params: LinkGenParams): string[]
     ['carburant', Boolean(String(params.fuel ?? '').trim())],
     ['carrosserie', Boolean(String(params.vehicleType ?? '').trim())],
   ];
-  return wanted.filter(([crit, has]) => has && !CRITERIA_DETECTORS[crit].test(url)).map(([c]) => c);
+  const missing = wanted.filter(([crit, has]) => has && !CRITERIA_DETECTORS[crit].test(url)).map(([c]) => c);
+  // Kilométrage minimum (30/10) : hors matrice du gate — seule grammaire codée prouvée, La Centrale. Ailleurs,
+  // une règle apprise peut le poser : l'URL ne le montre alors pas à ce détecteur (prudence : 3 pages).
+  if (mileageMinKm(params) !== null && !/[?&]mileageMin=\d/i.test(url)) missing.push('km min');
+  return missing;
 }
 
 // ─── LA fonction d'application unique ────────────────────────────────────────
@@ -877,6 +889,7 @@ export function applyVariableCriteria(url: string, params: LinkGenParams): strin
   if (g.repair) out = g.repair(out, params);
   if (g.year) out = g.year(out, yearFrom || '', yearTo || '');
   if (g.mileage) out = g.mileage(out, mileageKm(params));
+  if (g.mileageMin) out = g.mileageMin(out, mileageMinKm(params));
   if (g.power) out = g.power(out, powerCh(params));
   if (g.gearbox) out = g.gearbox(out, params);
   if (g.fuel) out = g.fuel(out, params);

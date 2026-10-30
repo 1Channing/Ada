@@ -22,6 +22,7 @@ import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
 import { startReminderMailer } from './reminderMailer';
 import { startSiteLeads } from './siteLeads';
+import { startTaxonomyLearning } from './taxonomyLearning';
 import { registerAgentRoutes, startAgents } from './agents';
 import { aiStatus } from './agents/claude';
 import { runDealerStock } from './dealerStock';
@@ -726,6 +727,8 @@ app.listen(PORT, "0.0.0.0", () => {
     startReminderMailer();
     // Demandes du site mc-export.com : un rappel dans la cloche pour chacune — 25/10.
     startSiteLeads();
+    // Apprentissage des sites (30/10) : propositions de Claude contrôlées, catalogue Jófogás, règles re-testées.
+    startTaxonomyLearning();
     // Boîtes d'Ada et Dana (16/10) : envois validés et synchro Gmail.
     startAgents();
     // Preuve de marché modèle × carburant : première moisson dès que la

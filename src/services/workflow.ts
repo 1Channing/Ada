@@ -31,6 +31,8 @@ export interface DailySearch {
   /** Puissance minimale (ch DIN) — null = sans critère. */
   power_min: number | null;
   mileage_max: number | null;
+  /** Kilométrage minimum (SQL du 30/10, apprentissage_sites) — optionnel tant que la colonne n'existe pas. */
+  mileage_min?: number | null;
   /** Carrosserie (token canon 'suv'|'berline'|… — '' = toutes). Optionnelle
    *  tant que la migration carrosserie n'est pas appliquée. */
   vehicle_type?: string;
@@ -212,7 +214,7 @@ export interface StudyUrl extends UrlGap {
  */
 export async function listStudyUrls(s: Pick<DailySearch,
   'source_country' | 'target_country' | 'brand' | 'model' | 'fuel' | 'trim' | 'trim_target' | 'year_min' | 'year_max'
-> & Partial<Pick<DailySearch, 'mileage_max' | 'gearbox' | 'power_min' | 'vehicle_type'>>): Promise<StudyUrl[]> {
+> & Partial<Pick<DailySearch, 'mileage_max' | 'mileage_min' | 'gearbox' | 'power_min' | 'vehicle_type'>>): Promise<StudyUrl[]> {
   const out: StudyUrl[] = [];
   const sides: Array<{ country: string; side: UrlGap['side']; trim: string }> = [
     { country: s.source_country, side: 'source', trim: s.trim },
@@ -230,6 +232,7 @@ export async function listStudyUrls(s: Pick<DailySearch,
           yearFrom: s.year_min ? String(s.year_min) : undefined,
           yearTo: s.year_max ? String(s.year_max) : undefined,
           mileage: s.mileage_max ?? undefined,
+          mileageMin: s.mileage_min ?? undefined,
           gearbox: s.gearbox || undefined,
           minPower: s.power_min != null ? String(s.power_min) : undefined,
           vehicleType: s.vehicle_type || undefined,
@@ -407,6 +410,15 @@ export async function saveDailySearch(s: Partial<DailySearch> & { source_country
       ? 'Étude enregistrée SANS le critère puissance : la migration SQL power_min n\'est pas encore appliquée en base.'
       : null;
   }
+  // Kilométrage minimum (SQL du 30/10) pas encore collé : l'étude s'enregistre sans, et on le dit.
+  if (error && /mileage_min/.test(error.message)) {
+    const { mileage_min, ...rest } = row as typeof row & { mileage_min?: number | null };
+    const { error: retryErr } = await write(rest as typeof row);
+    if (retryErr) return retryErr.message;
+    return mileage_min != null
+      ? 'Étude enregistrée SANS le kilométrage minimum : le SQL du 30/10 (apprentissage_sites) n\'est pas encore collé.'
+      : null;
+  }
   // Même dégradation pour la carrosserie (migration 20260830190000).
   if (error && /vehicle_type/.test(error.message)) {
     const { vehicle_type, ...rest } = row;
@@ -455,6 +467,7 @@ export async function forceRunDailySearch(id: string): Promise<string | null> {
 export function hitMatchesCriteria(h: DailyHit, s: DailySearch | undefined): boolean {
   if (!s) return true;
   return !(s.mileage_max != null && typeof h.mileage === 'number' && h.mileage > s.mileage_max)
+    && !(s.mileage_min != null && typeof h.mileage === 'number' && h.mileage < s.mileage_min)
     && !(s.year_min != null && typeof h.year === 'number' && h.year < s.year_min)
     && !(s.year_max != null && typeof h.year === 'number' && h.year > s.year_max);
 }
@@ -869,7 +882,7 @@ export async function pushNegotiationToSale(n: Negotiation, referenceRaw: string
 export interface ListingTrace {
   search_id: string; search_label: string; owner_id: string; owner_name: string;
   brand: string; model: string; trim: string; source_country: string; target_country: string;
-  year_min: number | null; year_max: number | null; mileage_max: number | null;
+  year_min: number | null; year_max: number | null; mileage_max: number | null; mileage_min?: number | null;
   price_gap_min: number; price_gap_max: number; active: boolean; last_run_at: string | null;
   seen: boolean; status: string | null; resolution: string | null; kind: string | null;
   price: number | null; previous_price: number | null; target_median: number | null; price_gap: number | null;

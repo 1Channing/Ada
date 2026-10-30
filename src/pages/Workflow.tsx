@@ -168,7 +168,7 @@ export function Workflow() {
 const EMPTY: Partial<DailySearch> = {
   label: '', source_country: 'DE', target_country: 'FR', brand: '', model: '',
   year_min: null, year_max: null, fuel: '', trim: '', trim_target: '',
-  gearbox: '', power_min: null, mileage_max: null, vehicle_type: '',
+  gearbox: '', power_min: null, mileage_min: null, mileage_max: null, vehicle_type: '',
   price_gap_min: 3000, price_gap_max: 10000, run_hour: 7, active: true,
 };
 
@@ -369,6 +369,9 @@ function ClassicDailySearchesTab({ showWatches, organisation, isManager, isAdmin
             <Field label="Année max">
               <input type="number" value={editing.year_max ?? ''} onChange={(e) => set({ year_max: e.target.value ? Number(e.target.value) : null })} placeholder="2026" className={inputCls} />
             </Field>
+            <Field label="Kilométrage min">
+              <input type="number" step={5000} value={editing.mileage_min ?? ''} onChange={(e) => set({ mileage_min: e.target.value ? Number(e.target.value) : null })} placeholder="20 000" className={inputCls} />
+            </Field>
             <Field label="Kilométrage max">
               <input type="number" step={5000} value={editing.mileage_max ?? ''} onChange={(e) => set({ mileage_max: e.target.value ? Number(e.target.value) : null })} placeholder="100 000" className={inputCls} />
             </Field>
@@ -482,7 +485,7 @@ function searchSignature(s: DailySearch): string {
   return [
     s.brand, s.model, s.source_country, s.target_country,
     s.year_min ?? '', s.year_max ?? '', s.fuel ?? '', s.gearbox ?? '',
-    s.power_min ?? '', s.mileage_max ?? '', s.vehicle_type ?? '',
+    s.power_min ?? '', s.mileage_min ?? '', s.mileage_max ?? '', s.vehicle_type ?? '',
     (s.trim ?? '').trim().toUpperCase(), (s.trim_target ?? '').trim().toUpperCase(),
   ].join('|');
 }
@@ -944,7 +947,7 @@ function TraceListingBox() {
                         <td className="py-1.5 pr-3">{r.seen ? <span className="text-emerald-700 font-medium">oui</span> : 'jamais'}</td>
                         <td className="py-1.5 pr-3">{r.seen ? <>{STATUS[r.status ?? ''] ?? r.status}{r.resolution ? ` · ${RES[r.resolution] ?? r.resolution}` : r.status === 'dismissed' && r.target_median == null ? ' · médiane cible inconnue, jamais montrée' : r.status === 'dismissed' ? ' · hors écart, jamais montrée' : ''}{r.kind === 'price_drop' ? ' · baisse' : ''}</> : '—'}</td>
                         <td className="py-1.5 pr-3">{r.seen ? <>{fmtEur(r.price)}{r.previous_price != null ? ` (avant ${fmtEur(r.previous_price)})` : ''} · {r.target_median != null ? fmtEur(r.target_median) : 'médiane inconnue'} · <span className={gapOk ? 'text-emerald-700' : 'text-amber-700'}>{r.price_gap != null ? `${r.price_gap.toLocaleString('fr-FR')} €` : '—'}{r.price_gap != null && !gapOk ? ` hors [${r.price_gap_min.toLocaleString('fr-FR')}–${r.price_gap_max.toLocaleString('fr-FR')}]` : ''}</span></> : '—'}</td>
-                        <td className="py-1.5 pr-3">{[r.year_min || r.year_max ? `années ${r.year_min ?? '…'}–${r.year_max ?? '…'}` : 'toutes années', r.mileage_max != null ? `≤ ${r.mileage_max.toLocaleString('fr-FR')} km` : null, r.trim ? `« ${r.trim} »` : null, `écart ${r.price_gap_min.toLocaleString('fr-FR')}–${r.price_gap_max.toLocaleString('fr-FR')} €`].filter(Boolean).join(' · ')}</td>
+                        <td className="py-1.5 pr-3">{[r.year_min || r.year_max ? `années ${r.year_min ?? '…'}–${r.year_max ?? '…'}` : 'toutes années', r.mileage_min != null ? `≥ ${r.mileage_min.toLocaleString('fr-FR')} km` : null, r.mileage_max != null ? `≤ ${r.mileage_max.toLocaleString('fr-FR')} km` : null, r.trim ? `« ${r.trim} »` : null, `écart ${r.price_gap_min.toLocaleString('fr-FR')}–${r.price_gap_max.toLocaleString('fr-FR')} €`].filter(Boolean).join(' · ')}</td>
                         <td className="py-1.5">{r.seen && r.last_seen_at ? `vue le ${new Date(r.last_seen_at).toLocaleDateString('fr-FR')}` : r.last_run_at ? `étude passée le ${new Date(r.last_run_at).toLocaleDateString('fr-FR')}` : 'jamais passée'}</td>
                       </tr>
                     );

@@ -922,7 +922,7 @@ async function generateStudyUrls(filters: MarketFilters): Promise<{ site: string
     let url: string | null = null; let draftUrl: string | null = null;
     try {
       const gen = await generateSearchUrlsWithMemory({
-        selectedSites: [site.key as SiteKey],
+        selectedSites: [site.key as SiteKey], gapSource: 'etude',
         brand: filters.brand!, model: filters.model || '',
         fuel: filters.fuel ? FUEL_TOKEN_TO_CRITERIA[filters.fuel] : undefined,
         trim: filters.trim || undefined,

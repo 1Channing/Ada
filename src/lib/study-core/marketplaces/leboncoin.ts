@@ -206,9 +206,18 @@ function harvestTaxonomy(html: string): Array<{ field: string; code: string; lab
   return out;
 }
 
+/** L'enum modèle MOISSONNÉ (la valeur exacte que le site déclare dans ses annonces), s'il est connu. */
+function learnedModelEnum(brand: string, display: string): string | undefined {
+  const compact = display.replace(/\s+/g, '');
+  const core = classCore(display);
+  const sk = seriesFamilyKey(brand, display);
+  return LEARNED_MODEL_ENUM[canonEnum(display)] ?? LEARNED_MODEL_ENUM[canonEnum(compact)]
+    ?? (core ? LEARNED_MODEL_ENUM[canonEnum(core)] : undefined)
+    ?? (sk ? LEARNED_MODEL_ENUM[`SK|${canonEnum(brand)}|${sk}`] : undefined);
+}
+
 function modelParamCandidates(brandMapped: string, modelMapped: string): string {
   const display = modelMapped.trim();
-  const compact = display.replace(/\s+/g, '');
   const brand = brandMapped.trim();
   const out: string[] = [];
   // ENUM APPRIS = candidat UNIQUE : c'est la valeur exacte que le site
@@ -217,10 +226,7 @@ function modelParamCandidates(brandMapped: string, modelMapped: string): string 
   // membre invalide peut rendre 0). Les variantes ne servent qu'en
   // DÉCOUVERTE, tant que l'enum n'a pas encore été moissonné.
   const core = classCore(display);
-  const sk = seriesFamilyKey(brand, display);
-  const learned = LEARNED_MODEL_ENUM[canonEnum(display)] ?? LEARNED_MODEL_ENUM[canonEnum(compact)]
-    ?? (core ? LEARNED_MODEL_ENUM[canonEnum(core)] : undefined)
-    ?? (sk ? LEARNED_MODEL_ENUM[`SK|${canonEnum(brand)}|${sk}`] : undefined);
+  const learned = learnedModelEnum(brand, display);
   if (learned) return encodeURIComponent(learned);
   // DÉCOUVERTE = UN SEUL candidat, le plus probable (audit 05/09) : la liste
   // de six variantes à virgules rendait total=0 sur LBC dès qu'un membre
@@ -275,7 +281,10 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // rien d'inventé) — le tri prix rendrait toujours les mêmes annonces bas de
   // gamme (décision Channing 02/08). Études/précision : prix croissant intact.
   if (params.sort === 'relevance') url = url.replace('&sort=price&order=asc', '');
-  return { url, warnings };
+  // Modèle DEVINÉ (forme BRAND_Modèle supposée, enum pas encore moissonné) : signalé à l'apprentissage des
+  // sites (30/10) pour qu'une adresse réelle le confirme — le scrape, lui, part quand même.
+  const modelGuessed = Boolean(mappedModel) && !learnedModelEnum(mappedBrand, mappedModel.trim());
+  return { url, warnings, ...(modelGuessed ? { modelGuessed: true } : {}) };
 }
 
 // ─── buildLeboncoinModelCandidates ────────────────────────────────────────────

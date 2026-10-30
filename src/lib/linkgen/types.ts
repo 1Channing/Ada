@@ -35,9 +35,14 @@ export interface LinkGenParams {
   year?: string | number;
 
   mileage?: string | number;
+  /** Kilométrage minimum (30/10) — voir SearchCriteria.mileageMin. */
+  mileageMin?: string | number;
   fuel?: string;
   trim?: string;
   minPower?: string | number;
+  /** D'où vient la recherche (30/10) : ce qu'elle ne sait pas écrire sur un site est noté pour l'apprentissage
+   *  des sites, les offres en tête de file. Absent = rien n'est noté (campagnes, diagnostics, essais). */
+  gapSource?: 'offre' | 'etude' | 'recherche';
   // Secondary criteria — parity with the Ingestion form. Consumed by adapters
   // that support them (AutoScout uses gearbox + power); passed through and
   // ignored by others until learned-mapping URL reconstruction lands (BACKLOG 2bis).
@@ -82,6 +87,9 @@ export interface LinkGenResult {
   debugLogs: LinkGenLogEntry[];
   /** Jumeau électrique posé par l'adaptateur (« Mokka-e ») — voir BuildUrlResult. */
   electricSibling?: string;
+  /** Repris de l'adaptateur (BuildUrlResult) : modèle non posé / posé mais deviné. */
+  modelExpressed?: boolean;
+  modelGuessed?: boolean;
 }
 
 export interface LinkGenDiagnostics {

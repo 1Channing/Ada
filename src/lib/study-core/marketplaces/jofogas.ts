@@ -77,6 +77,9 @@ const brandKey = (v: string) => {
 // jf:model:* — slugify du libellé — reste un relevé, jamais posé dans l'URL).
 const LEARNED_MODEL_ID: Record<string, string> = {};
 const LEARNED_MODEL_LABEL: Record<string, string> = {};
+/** Libellé retenu par clé, et clés AMBIGUËS (« Prius » / « Prius+ » → même clé) : jamais posées. */
+const LEARNED_KEY_LABEL: Record<string, string> = {};
+const AMBIGUOUS_KEYS = new Set<string>();
 const learnedModelId = (brand: string, model: string): string | undefined =>
   LEARNED_MODEL_ID[`${brandKey(brand)}|${canonKey(model)}`];
 
@@ -219,7 +222,16 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
   for (const p of pairs) {
     if (!/^\d+$/.test(p.code) || !p.label) continue;
     const key = `${bk}|${canonKey(p.label)}`;
-    if (!LEARNED_MODEL_ID[key]) { LEARNED_MODEL_ID[key] = p.code; LEARNED_MODEL_LABEL[`${bk}|${p.code}`] = p.label; }
+    LEARNED_MODEL_LABEL[`${bk}|${p.code}`] = p.label;
+    if (AMBIGUOUS_KEYS.has(key)) continue;
+    const prev = LEARNED_KEY_LABEL[key];
+    if (prev !== undefined && prev !== p.label && LEARNED_MODEL_ID[key] !== p.code) {
+      // Deux modèles du site sous la même clé : ni l'un ni l'autre — l'apprentissage des sites tranchera.
+      AMBIGUOUS_KEYS.add(key);
+      delete LEARNED_MODEL_ID[key];
+      continue;
+    }
+    if (!LEARNED_MODEL_ID[key]) { LEARNED_MODEL_ID[key] = p.code; LEARNED_KEY_LABEL[key] = p.label; }
   }
 }
 

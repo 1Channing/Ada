@@ -80,6 +80,8 @@ interface SearchRow {
    *  n'est pas appliquée, d'où le `?`. */
   power_min?: number | null;
   mileage_max: number | null;
+  /** Kilométrage minimum (SQL du 30/10, apprentissage_sites) — absent tant que la colonne n'existe pas. */
+  mileage_min?: number | null;
   /** Carrosserie (token canon 'suv'|'berline'|… — '' = toutes) ; optionnel
    *  tant que la migration carrosserie n'est pas appliquée, d'où le `?`. */
   vehicle_type?: string | null;
@@ -233,12 +235,13 @@ async function scrapeCountry(
     let genParams: Parameters<typeof generateSearchUrlsWithMemory>[0] | null = null;
     try {
       genParams = {
-        selectedSites: [site.key as SiteKey],
+        selectedSites: [site.key as SiteKey], gapSource: 'recherche',
         brand: s.brand, model: s.model || '',
         fuel: s.fuel || undefined, trim: trim || undefined,
         yearFrom: s.year_min ? String(s.year_min) : undefined,
         yearTo: s.year_max ? String(s.year_max) : undefined,
         mileage: s.mileage_max ?? undefined,
+        mileageMin: s.mileage_min ?? undefined,
         gearbox: s.gearbox || undefined,
         // Puissance min (ch DIN) : posée en URL partout où le site sait
         // (AS24 powerfrom, Bilbasen hpfrom, LBC horse_power_din appris).
@@ -433,6 +436,17 @@ async function scrapeCountry(
       });
       if (listings.length < before) {
         console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (> ${s.mileage_max} km)`);
+      }
+    }
+    // Kilométrage minimum (30/10) : même filtre dur, km illisible conservé.
+    if (s.mileage_min != null) {
+      const before = listings.length;
+      listings = listings.filter((l) => {
+        const km = (l as { mileage?: number | null }).mileage;
+        return km == null || !Number.isFinite(km) || km >= (s.mileage_min as number);
+      });
+      if (listings.length < before) {
+        console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (< ${s.mileage_min} km)`);
       }
     }
     // Puissance min : post-filtre DUR même si le site a ignoré le paramètre.
@@ -633,13 +647,14 @@ async function runDailySearch(s: SearchRow): Promise<{ failedSites: string[] }> 
     .filter((k) => k.status !== 'saved' // un véhicule en négociation n'est jamais touché
       && k.resolution !== 'hors_criteres' // déjà archivé pour ce motif
       && ((s.mileage_max != null && typeof k.mileage === 'number' && k.mileage > s.mileage_max)
+        || (s.mileage_min != null && typeof k.mileage === 'number' && k.mileage < s.mileage_min)
         || (s.year_min != null && typeof k.year === 'number' && k.year < s.year_min)
         || (s.year_max != null && typeof k.year === 'number' && k.year > s.year_max)));
   if (offCriteria.length > 0) {
     await supabase.from('daily_search_hits')
       .update({ status: 'dismissed', resolution: 'hors_criteres' })
       .in('id', offCriteria.map((k) => k.id));
-    console.warn(`[DAILY] « ${name} » : ${offCriteria.length} annonce(s) archivée(s) — hors critères actuels (km max ${s.mileage_max ?? '—'}, années ${s.year_min ?? '—'}–${s.year_max ?? '—'})`);
+    console.warn(`[DAILY] « ${name} » : ${offCriteria.length} annonce(s) archivée(s) — hors critères actuels (km ${s.mileage_min ?? '—'}–${s.mileage_max ?? '—'}, années ${s.year_min ?? '—'}–${s.year_max ?? '—'})`);
     for (const k of offCriteria) {
       const cur = [...seen.entries()].find(([, v]) => v.id === k.id);
       if (cur) seen.set(cur[0], { ...cur[1], status: 'dismissed', resolution: 'hors_criteres' });
@@ -656,6 +671,7 @@ async function runDailySearch(s: SearchRow): Promise<{ failedSites: string[] }> 
   const backInCriteria = ((known ?? []) as Array<{ id: string; resolution: string | null; mileage: number | null; year: number | null }>)
     .filter((k) => k.resolution === 'hors_criteres'
       && !(s.mileage_max != null && typeof k.mileage === 'number' && k.mileage > s.mileage_max)
+      && !(s.mileage_min != null && typeof k.mileage === 'number' && k.mileage < s.mileage_min)
       && !(s.year_min != null && typeof k.year === 'number' && k.year < s.year_min)
       && !(s.year_max != null && typeof k.year === 'number' && k.year > s.year_max));
   if (backInCriteria.length > 0) {
@@ -711,6 +727,7 @@ async function runDailySearch(s: SearchRow): Promise<{ failedSites: string[] }> 
       if (price == null || price < MIN_PRICE_EUR) continue;
       // Kilométrage max : filtre dur même si le site a ignoré le paramètre.
       if (s.mileage_max != null && typeof l.mileage === 'number' && l.mileage > s.mileage_max) continue;
+      if (s.mileage_min != null && typeof l.mileage === 'number' && l.mileage < s.mileage_min) continue;
       scanned++;
       const listingUrl = (l.listing_url ?? '').trim();
       if (!listingUrl.startsWith('http')) { noUrl++; continue; } // sans URL stable, pas de diff fiable

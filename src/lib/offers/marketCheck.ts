@@ -142,7 +142,7 @@ export async function lotTargets(lot: OfferLot, countries: string[]): Promise<Lo
     const sites = allSiteAdapters().filter((a) => a.countryCode === country);
     for (const site of sites) {
       try {
-        const gen = await generateSearchUrlsWithMemory({ selectedSites: [site.key as SiteKey], ...criteriaOf(lot), mileage: lot.kmMax ?? undefined });
+        const gen = await generateSearchUrlsWithMemory({ selectedSites: [site.key as SiteKey], ...criteriaOf(lot), mileage: lot.kmMax ?? undefined, gapSource: 'offre' });
         const g = gen[0];
         const warnings = (g?.warnings ?? []).map((w) => w.replace(/^\[LINKGEN_WARNING\]\s*/, ''));
         out.push({ country, site: site.key, url: g?.url && g.url.length > 10 ? g.url : null, warnings, brandPageOnly: warnings.some((w) => /page marque/i.test(w)) });
