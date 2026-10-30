@@ -18,6 +18,8 @@ export interface ProspectWatch {
   /** Organisation qui reçoit les leads (30/10) ; null = celle de l'auteur. */
   lead_org?: string | null;
   last_run_at: string | null; last_summary: string | null; created_at: string;
+  /** « Lancer maintenant » demandé, pas encore pris par le worker (sondé toutes les 30 s). */
+  force_requested_at?: string | null;
 }
 
 export interface WatchLead {

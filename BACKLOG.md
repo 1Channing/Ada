@@ -134,6 +134,17 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **VEILLES : L'ÉTAT DU LANCEMENT S'AFFICHE (30/10, Channing, compte test
+  manager Thouaré : « quand je lance, il ne se passe rien »)**. Preuve : le
+  worker avait pris « test 1 » à 13:35:06, premier passage terminé à 13:37:30
+  (280 annonces, 8 pages, 20 leads des dernières 24 h, 253 en mémoire) ;
+  seul l'écran restait muet. Désormais la ligne de la veille dit « lancement
+  demandé — le worker la prend dès qu'il est disponible » (drapeau
+  force_requested_at), puis « passage en cours — lecture des pages… » (le
+  worker pose `last_summary = 'passage en cours…'` au départ), puis le
+  bilan ; relecture toutes les 10 s tant qu'une veille est demandée ou en
+  cours ; le bouton Lancer est inactif pendant ce temps (le second clic de
+  Channing avait relancé un passage d'une page, 0 nouveauté).
 - **RENOMMER UNE ORGANISATION + FORMULAIRE « CRÉER UN COMPTE » ALIGNÉ (30/10,
   Channing)**. Crayon sur la pastille d'une organisation (Admin) : nouveau
   nom demandé, RPC `admin_rename_organisation` (admins seuls, « MC Export »

@@ -9,7 +9,7 @@
  *   WatchLeadsSection : les leads des veilles de l'organisation, à prendre (tout le monde).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin } from 'lucide-react';
+import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2 } from 'lucide-react';
 import { useAuth, managerScope } from '../services/auth';
 import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, takeWatchLead, type ProspectWatch, type WatchLead } from '../services/prospectWatches';
 import { ListingLink } from './ListingLink';
@@ -26,6 +26,20 @@ export function WatchesSection({ organisation }: { organisation: string }) {
   const [loading, setLoading] = useState(true);
   const reload = () => { void listMyWatches().then((r) => { setRows(r.rows); setError(r.error); }).finally(() => setLoading(false)); };
   useEffect(reload, []);
+  // Une veille demandée ou en cours : relecture toutes les 10 s jusqu'au bilan (30/10 : « il ne se passe rien »).
+  const pending = rows.some((w) => w.force_requested_at || w.last_summary === 'passage en cours…');
+  useEffect(() => {
+    if (!pending) return;
+    const t = setInterval(reload, 10_000);
+    return () => clearInterval(t);
+  }, [pending]);
+  /** État lisible d'une veille : demandée → en cours → bilan. */
+  const stateOf = (w: ProspectWatch): { text: string; tone: 'wait' | 'run' | 'ok' | 'ko' | 'none' } => {
+    if (w.force_requested_at) return { text: 'lancement demandé — le worker la prend dès qu\'il est disponible (moins d\'une minute)', tone: 'wait' };
+    if (w.last_summary === 'passage en cours…') return { text: 'passage en cours — lecture des pages, page par page jusqu\'au déjà-vu ; le bilan s\'affiche ici à la fin', tone: 'run' };
+    if (w.last_run_at) return { text: `dernier passage ${new Date(w.last_run_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${w.last_summary ? ` — ${w.last_summary}` : ''}`, tone: /^échec/.test(w.last_summary ?? '') ? 'ko' : 'ok' };
+    return { text: 'jamais passée — « Lancer » pour un premier passage', tone: 'none' };
+  };
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editing?.url) return;
@@ -80,10 +94,14 @@ export function WatchesSection({ organisation }: { organisation: string }) {
           <div key={w.id} className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-slate-900 truncate">{w.label || hostOf(w.url)} <span className="text-xs font-normal text-slate-400">· {hostOf(w.url)} · {String(w.run_hour).padStart(2, '0')} h 00{w.lead_org ? ` · leads pour ${w.lead_org}` : ''}{w.active ? '' : ' · en pause'}</span></p>
-              <p className="text-xs text-slate-500 truncate">{w.last_run_at ? `dernier passage ${new Date(w.last_run_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${w.last_summary ? ` — ${w.last_summary}` : ''}` : 'jamais passée — « Lancer » pour un premier passage'}</p>
+              {(() => { const st = stateOf(w); return (
+                <p className={`text-xs truncate ${st.tone === 'wait' ? 'text-amber-700' : st.tone === 'run' ? 'text-brand-ocean' : st.tone === 'ko' ? 'text-rose-700' : 'text-slate-500'}`}>
+                  {(st.tone === 'wait' || st.tone === 'run') && <Loader2 className="inline w-3 h-3 mr-1 animate-spin align-[-2px]" />}{st.text}
+                </p>
+              ); })()}
             </div>
             <a href={w.url} target="_blank" rel="noreferrer" title="Ouvrir la page de recherche" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><ExternalLink className="w-4 h-4" /></a>
-            <button title="Lancer maintenant" onClick={async () => { const err = await forceRunWatch(w.id); if (err) setError(err); else setError(null); }} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><Play className="w-4 h-4" /></button>
+            <button title="Lancer maintenant" disabled={!!w.force_requested_at || w.last_summary === 'passage en cours…'} onClick={async () => { const err = await forceRunWatch(w.id); if (err) setError(err); else { setError(null); reload(); } }} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-40"><Play className="w-4 h-4" /></button>
             <button title={w.active ? 'Mettre en pause' : 'Réactiver'} onClick={async () => { const err = await saveWatch({ ...w, active: !w.active }); if (err) setError(err); reload(); }} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100">{w.active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 text-emerald-600" />}</button>
             <button title="Modifier" onClick={() => setEditing(w)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>
             <button title="Supprimer" onClick={async () => { if (!confirm(`Supprimer la veille « ${w.label || hostOf(w.url)} » et sa mémoire ? Les leads déjà pris restent en négociation.`)) return; const err = await deleteWatch(w.id); if (err) setError(err); reload(); }} className="p-1.5 rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>

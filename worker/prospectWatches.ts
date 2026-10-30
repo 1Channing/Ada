@@ -93,6 +93,8 @@ async function tick(): Promise<void> {
 export async function runWatch(w: WatchRow): Promise<{ leads: number; seeds: number; seen: number }> {
   const name = w.label || w.url;
   const startedAt = new Date();
+  // L'écran suit (30/10, Channing : « quand je lance, il ne se passe rien ») : « passage en cours » tant que ça tourne.
+  await supabase.from('prospect_watches').update({ last_summary: 'passage en cours…' }).eq('id', w.id);
   // Mémoire de la veille (toutes les lignes, tous statuts).
   const known = new Map<string, { id: string; status: string; price: number | null }>();
   for (let from = 0; ; from += 1000) {
