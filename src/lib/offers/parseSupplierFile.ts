@@ -43,11 +43,12 @@ const normHeader = (h: string) => h.normalize('NFD').replace(/\p{M}/gu, '').toLo
 const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // Italien (offre Audi A6 / Q6 e-tron du 30/09) : « N° Telaio » = châssis,
   // « Targa » = plaque, « Immatricolazione », « Colore », « Cambio », « Danni »…
-  ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie|telaio)\b/],
+  // « Numéro d'identification du véhicule » (export enchères leasing, 30/10).
+  ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie|telaio|identification du vehicule)\b/],
   // « YEAR » (catalogue Record Rent a Car 07/10) : un millésime, pas une date.
   // « Årsmodell » (suédois), « Årgang » (danois), « Baujahr » (allemand).
   // « AÑO » (liste espagnole Delta Urban, 200 Polo DSG, 22/10) : normalisé en « ano ».
-  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr|ano)$/],
+  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr|ano|annee modele)$/],
   // « Reg.nr » (liste suédoise Mixed Brands 13/10) : le NUMÉRO d'immatriculation,
   // pas une date — avant la règle des dates, qui attrape « reg » seul.
   ['plate', /(reg ?nr\b|regnr|\breg ?no\b|registreringsn|kennzeichen)/],
@@ -63,6 +64,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['co2', /co2/],
   // Dommages AVANT les prix : « ESTIMATION FRE HT » (MeltingCars) contient « ht ».
   ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b)/],
+  // Prix du NEUF (« Prix catalogue VN », export enchères 30/10) : une référence, pas un prix fournisseur — ignoré (reste en extras).
+  ['ignore', /(catalogue|prix neuf|\bvn\b|list price|msrp|neupreis|listino)/],
   ['price_ht', /(proposal|\bht\b|\bnett?o?\b|export|imponibile|exkl)/],
   // « Price Brutto » / « Pris » (Suède, Danemark, Norvège) = un prix TTC.
   ['price_ttc', /(\bttc\b|wholesale|public|gross|brutto|\bprix\b|\bprice\b|\bpreis\b|prezzo|lordo|\bpris\b)/],
@@ -75,8 +78,9 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung|potenza|effekt)/],
   ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$|cambio|vaxellada|gearkasse|girkasse)/],
   // « LOADING » (liste espagnole 22/10 : le pays de chargement, BÉLGICA) = le lieu d'enlèvement.
-  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion)/],
-  ['vat', /(\btva\b|\bvat\b|mwst|\biva\b|\bmoms\b)/],
+  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion|\bville\b|\bcity\b)/],
+  // « Type de taxation » (export enchères 30/10 : « TVA récupérable (h.t.) ») = le régime de TVA.
+  ['vat', /(\btva\b|\bvat\b|mwst|\biva\b|\bmoms\b|taxation)/],
   ['import', /(\bimport|origine|origin)/],
   // « Quantity » (liste VW ID.7 Tourer 02/10) : N exemplaires identiques → N lignes.
   ['quantity', /^(quantity|qty|quantite|quantità|anzahl|stuck|units?|pcs|nombre)$/],
@@ -570,6 +574,16 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
         const dateLike = vals.filter((v) => v instanceof Date || /^\d{4}-\d{2}-\d{2}/.test(cell(v)) || /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(cell(v)) || /^(19|20)\d{2}$/.test(cell(v))).length;
         if (vals.length > 0 && dateLike * 2 < vals.length) guesses[idx] = 'plate';
       });
+      // DEUX colonnes « Modèle » (export enchères leasing 30/10 : la première porte toute la désignation
+      // « Skoda Enyaq Laurin & Klement electric 210kW… », la seconde « Enyaq ») : celle aux valeurs les plus
+      // longues est la ligne libre (version), l'autre reste le modèle — sans cela la première gagnait et le
+      // modèle devenait « SKODA ENYAQ ».
+      const modelIdx = guesses.map((g, idx) => (g === 'model' ? idx : -1)).filter((idx) => idx >= 0);
+      if (modelIdx.length >= 2 && !guesses.includes('version')) {
+        const avgLen = (idx: number) => { const vals = grid.slice(i + 1, i + 21).map((row) => cell((row ?? [])[idx])).filter(Boolean); return vals.length ? vals.reduce((n, v) => n + v.length, 0) / vals.length : 0; };
+        const longest = modelIdx.reduce((a, b) => (avgLen(b) > avgLen(a) ? b : a));
+        guesses[longest] = 'version';
+      }
       const claimed = new Set<OfferField>();
       header.forEach((h, idx) => {
         const ov = mappingOverride && h in mappingOverride ? mappingOverride[h] : undefined;
@@ -666,8 +680,16 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     const free = parseFreeLine(`${versionLine} ${cell(rec.engine)} ${cell(rec.gearbox)}`);
     const reg = toIsoDate(rec.reg_date);
     rawRegs.push(rec.reg_date);
-    const power = toNumber(rec.power);
+    // Puissance en kW dans l'EN-TÊTE (« Puissance (kW) », export enchères 30/10) : convertie en ch.
+    const powerHeader = normHeader(header[fields.indexOf('power')] ?? '');
+    const powerRaw = toNumber(rec.power);
+    const power = powerRaw != null && /\bkw\b/.test(powerHeader) ? powerRaw * 1.36 : powerRaw;
     const vin = cell(rec.vin) || null;
+    // Régime de TVA écrit en toutes lettres (« TVA récupérable (h.t.) » / « TVA sur marge ») : récupérable
+    // ou non ; un prix TTC accompagné d'un régime « h.t. » est en réalité un prix HT.
+    const vatText = cell(rec.vat).toLowerCase();
+    const vatFromText = yesNo(rec.vat) ?? (/(r[ée]cup|deductible|d[ée]ductible|\bh\.?t\b|hors taxe|netto|excl)/.test(vatText) ? true : /(marge|margin|non r[ée]cup|differenz|ttc)/.test(vatText) ? false : null);
+    if (rec.price_ht == null && rec.price_ttc != null && /(\bh\.?t\b|hors taxe)/.test(vatText)) { rec.price_ht = rec.price_ttc; rec.price_ttc = undefined; }
     if (!brand) warnings.push(`Ligne ${i + 1} : marque introuvable (${versionLine.slice(0, 40)}).`);
     if (warnings.length > 12) { warnings.length = 12; warnings.push('… (avertissements suivants masqués)'); }
     // « Variant » / « EQ » d'une liste à colonne modèle (VW ID.7 Tourer 02/10) : la version, pas un extra.
@@ -709,7 +731,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       // — dans la DEVISE du fichier (SEK, DKK… : convertis en euros par les paramètres de l'offre, 13/10).
       price_ht: priceOrNull(rec.price_ht),
       price_ttc: priceOrNull(rec.price_ttc),
-      vat_recoverable: yesNo(rec.vat),
+      vat_recoverable: vatFromText,
       imported: yesNo(rec.import),
       extras,
       selected: true,

@@ -134,6 +134,21 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **OFFRES : EXPORT ENCHÈRES LEASING (export_80.xlsx, 30/10, Channing :
+  « apprends Ada à lire cette liste »)**. Grille ag-grid de 1 000 lignes
+  dont 16 Skoda Enyaq ; 36 colonnes. Avant : modèle « SKODA ENYAQ » (deux
+  colonnes « Modèle », la première gagnait), version « 2025 » (« Année
+  modèle » pris pour la version), VIN perdu (« Numéro d'identification du
+  véhicule »), prix catalogue VN pris pour un prix TTC, kW lus comme des
+  ch. Classes corrigées dans parseSupplierFile : deux colonnes « Modèle » →
+  celle aux valeurs les plus longues est la ligne libre ; « Année modèle »
+  = année ; « identification du véhicule » = VIN ; « catalogue / prix neuf
+  / VN / list price » = ignoré (extras) ; « Puissance (kW) » dans
+  l'en-tête → ch (× 1,36) ; « Type de taxation » = régime de TVA lu en
+  toutes lettres (« TVA récupérable (h.t.) » → récupérable, et le prix
+  devient HT ; « marge » → non récupérable) ; « Ville » = lieu. Résultat :
+  ENYAQ, VIN, 36 330 € HT, TVA récupérable, 286 ch, Dijon…, expertise VO
+  en lien, aucun avertissement ; listes Delta inchangées.
 - **SCORE, STATISTIQUES MULTI-ORGANISATIONS, ARCHIVES EN ICÔNE, LEADS PAR JOUR DE
   RÉCEPTION (30/10 soir, Channing)**. (1) Onglet Workflow « Score » (organisations
   hors MC Export, et les admins avec choix d'organisation) : par commercial,
