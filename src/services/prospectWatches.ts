@@ -81,6 +81,20 @@ export async function listWatchLeads(): Promise<WatchLead[]> {
   return (data ?? []) as WatchLead[];
 }
 
+/** REJETER un lead (30/10, Channing : « lorsqu'il ne correspond pas aux critères ») : il disparaît pour toute
+ *  l'organisation, la mémoire de la veille le garde (il ne reviendra pas). Seulement s'il est encore inbox. */
+export async function rejectWatchLead(l: WatchLead): Promise<string | null> {
+  const { data, error } = await untyped
+    .from('prospect_watch_hits')
+    .update({ status: 'rejected', taken_by: uid(), taken_at: new Date().toISOString() })
+    .eq('id', l.id)
+    .eq('status', 'inbox')
+    .select('id');
+  if (error) return /row-level security/i.test(error.message) ? 'Rejet refusé par la base : SQL du 30/10 (veille_rejet) à coller.' : error.message;
+  if (!data || data.length === 0) return 'Ce lead vient d\'être pris ou rejeté par un collègue.';
+  return null;
+}
+
 /** Prendre un lead de veille : saved à mon nom si encore inbox (le second apprend qu'il est pris), puis ma négociation. */
 export async function takeWatchLead(l: WatchLead): Promise<string | null> {
   const { data, error } = await untyped

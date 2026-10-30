@@ -9,9 +9,9 @@
  *   WatchLeadsSection : les leads des veilles de l'organisation, à prendre (tout le monde).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2 } from 'lucide-react';
+import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2, X } from 'lucide-react';
 import { useAuth, managerScope } from '../services/auth';
-import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, takeWatchLead, type ProspectWatch, type WatchLead } from '../services/prospectWatches';
+import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, takeWatchLead, rejectWatchLead, type ProspectWatch, type WatchLead } from '../services/prospectWatches';
 import { ListingLink } from './ListingLink';
 
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
@@ -73,14 +73,15 @@ export function WatchesSection({ organisation }: { organisation: string }) {
                 {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')} h 00</option>)}
               </select></label>
           </div>
-          {/* MANAGER DE PLUSIEURS AGENCES (30/10) : l'organisation qui reçoit les leads de cette veille. */}
-          {scope.length > 1 && (
-            <label className="text-xs text-slate-600 space-y-1 block md:w-80"><span>Leads pour</span>
-              <select value={editing.lead_org || organisation} onChange={(e) => set({ lead_org: e.target.value === organisation ? null : e.target.value })} className={inputCls}>
-                {scope.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select></label>
-          )}
-          <p className="text-[11px] text-slate-500">Règle tes filtres sur le site (année, kilométrage, vendeur particulier, rayon…) puis colle l'adresse telle quelle. Sur Leboncoin, Ada lit les annonces par ordre de mise en ligne, trois pages par passage.</p>
+          {/* L'organisation qui reçoit les leads de cette veille (30/10) : toujours visible ; les autres agences
+              n'apparaissent que si un admin les a confiées à ce manager (Admin → « Manager aussi de… »). */}
+          <label className="text-xs text-slate-600 space-y-1 block md:w-96"><span>Leads pour (l'organisation dont les commerciaux reçoivent cette veille)</span>
+            <select value={editing.lead_org || organisation} onChange={(e) => set({ lead_org: e.target.value === organisation ? null : e.target.value })} className={inputCls}>
+              {scope.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+            {scope.length === 1 && <span className="block text-[11px] text-slate-400">Une seule organisation disponible : pour en gérer une autre, un admin te l'attribue dans Admin (« Manager aussi de… »), puis reconnecte-toi.</span>}
+          </label>
+          <p className="text-[11px] text-slate-500">Règle tes filtres sur le site (année, kilométrage, vendeur particulier, rayon…) puis colle l'adresse telle quelle. Sur Leboncoin, Ada lit les annonces par ordre de mise en ligne, page après page, jusqu'à retomber sur des annonces déjà vues par cette veille.</p>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setEditing(null)} className="px-4 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100">Annuler</button>
             <button type="submit" className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-ocean hover:bg-brand-encre text-white">Enregistrer</button>
@@ -130,7 +131,9 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
   const groups = useMemo(() => {
     const by = new Map<string, { watch: WatchLead['watch']; list: WatchLead[] }>();
     for (const l of leads) (by.get(l.watch_id) ?? by.set(l.watch_id, { watch: l.watch, list: [] }).get(l.watch_id)!).list.push(l);
-    return [...by.values()];
+    // Par ordre de MISE EN LIGNE (30/10, Channing), les plus récentes d'abord ; sans date, par première vue.
+    const key = (l: WatchLead) => l.published_at ?? l.first_seen_at;
+    return [...by.values()].map((g) => ({ ...g, list: g.list.sort((a, b) => key(b).localeCompare(key(a))) }));
   }, [leads]);
   const take = async (l: WatchLead) => {
     setBusy(l.id);
@@ -140,12 +143,19 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
     setLeads((cur) => cur.filter((x) => x.id !== l.id));
     onTaken();
   };
+  const reject = async (l: WatchLead) => {
+    setBusy(l.id);
+    const err = await rejectWatchLead(l);
+    setBusy(null);
+    if (err) { setError(err); reload(); return; }
+    setLeads((cur) => cur.filter((x) => x.id !== l.id));
+  };
   if (groups.length === 0 && !error) return null;
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-sm font-semibold text-slate-700">Leads de prospection</h2>
-        <p className="text-xs text-slate-500">Les annonces nouvelles trouvées par les veilles de l'organisation. Celui qui prend un lead le fait disparaître pour les autres.</p>
+        <p className="text-xs text-slate-500">Les annonces nouvelles trouvées par les veilles de l'organisation, les plus récentes d'abord. Prendre un lead le fait disparaître pour les autres ; rejeter (✕) l'écarte pour tout le monde, définitivement.</p>
       </div>
       {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
       {groups.map(({ watch: w, list }) => (
@@ -170,6 +180,7 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
                 <button onClick={() => void take(l)} disabled={busy === l.id} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-ocean hover:bg-brand-encre text-white transition-colors disabled:opacity-50">
                   {busy === l.id ? '…' : 'Prendre en négociation'}
                 </button>
+                <button onClick={() => void reject(l)} disabled={busy === l.id} title="Rejeter : hors critères — disparaît pour toute l'organisation, ne reviendra pas" className="shrink-0 p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 disabled:opacity-50"><X className="w-4 h-4" /></button>
               </div>
             ))}
           </div>

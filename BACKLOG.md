@@ -134,6 +134,19 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **VEILLES : ORGANISATION CIBLE TOUJOURS VISIBLE, REJET D'UN LEAD, TRI PAR MISE
+  EN LIGNE (30/10, Channing)**. Le choix « Leads pour » du formulaire de
+  veille n'apparaissait qu'avec plusieurs organisations (le compte test
+  manager Segré n'a pas encore Thouaré attribué : `managed_orgs` null) → il
+  est toujours affiché, avec la marche à suivre quand une seule organisation
+  est disponible (Admin → « Manager aussi de… », puis reconnexion). Rejet :
+  bouton ✕ sur un lead de veille → statut 'rejected' à son nom, disparaît
+  pour toute l'organisation, mémoire gardée (policy de prise élargie à
+  rejected, SQL 20261030120000, testé). Leads triés par date de mise en
+  ligne décroissante (sans date : première vue). Précision sur la mémoire :
+  elle est PAR VEILLE (clé veille + adresse) — « 253 déjà connues » = les
+  annonces plus anciennes que 24 h croisées au premier passage de CETTE
+  veille, jamais celles d'une autre organisation.
 - **VEILLES : L'ÉTAT DU LANCEMENT S'AFFICHE (30/10, Channing, compte test
   manager Thouaré : « quand je lance, il ne se passe rien »)**. Preuve : le
   worker avait pris « test 1 » à 13:35:06, premier passage terminé à 13:37:30
