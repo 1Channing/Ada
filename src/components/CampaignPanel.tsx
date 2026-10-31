@@ -480,6 +480,12 @@ export function CampaignPanel() {
                   Inconnu{preview.summary.hypothesisModels.length > 1 ? 's' : ''} de la mémoire et du référentiel, testé{preview.summary.hypothesisModels.length > 1 ? 's' : ''} tel{preview.summary.hypothesisModels.length > 1 ? 's' : ''} quel{preview.summary.hypothesisModels.length > 1 ? 's' : ''} : {preview.summary.hypothesisModels.join(', ')}
                 </p>
               )}
+              {(preview.summary.unproven ?? 0) > 0 && (
+                <p className="text-slate-600">
+                  {preview.summary.unproven} combinaison{(preview.summary.unproven ?? 0) > 1 ? 's' : ''} modèle × carburant écartée{(preview.summary.unproven ?? 0) > 1 ? 's' : ''} faute de preuve qu&apos;elle{(preview.summary.unproven ?? 0) > 1 ? 's' : ''} existe{(preview.summary.unproven ?? 0) > 1 ? 'nt' : ''} (ni annonces vues, ni immatriculations UE) — jamais scrapée{(preview.summary.unproven ?? 0) > 1 ? 's' : ''}.
+                  {preview.summary.unprovenSample?.length ? ` Par ex. ${preview.summary.unprovenSample.slice(0, 3).join(' ; ')}.` : ''}
+                </p>
+              )}
               {preview.summary.sample.length > 0 && (
                 <p className="text-slate-500">Par ex. {preview.summary.sample.slice(0, 4).join(' ; ')}{preview.summary.planned > 4 ? ' ; …' : ''}</p>
               )}

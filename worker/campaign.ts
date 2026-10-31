@@ -14,7 +14,7 @@
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { refreshDashboards } from './dashboards';
 import { planCampaign, summarizePlan } from '../src/lib/linkgen/campaignPlanner';
-import type { CampaignPlanItem, CampaignPlanOptions, CampaignPlanSummary } from '../src/lib/linkgen/campaignPlanner';
+import type { CampaignPlanItem, CampaignPlanOptions, CampaignPlanSummary, PlanStats } from '../src/lib/linkgen/campaignPlanner';
 
 /** Pourquoi le plan est vide — DIT ce qui manque au lieu d'un « no_plan » muet. */
 function noPlanReason(opts: WorkerCampaignStart): string {
@@ -97,8 +97,9 @@ export interface WorkerCampaignStartResult {
 export async function startWorkerCampaign(opts: WorkerCampaignStart): Promise<WorkerCampaignStartResult> {
   if (opts.dryRun) {
     const knowledge = await loadCampaignKnowledge();
-    const plan = Array.isArray(opts.plan) && opts.plan.length > 0 ? opts.plan : planCampaign(knowledge, opts);
-    const summary = summarizePlan(plan);
+    const stats: PlanStats = { unproven: [] };
+    const plan = Array.isArray(opts.plan) && opts.plan.length > 0 ? opts.plan : planCampaign(knowledge, opts, stats);
+    const summary = summarizePlan(plan, stats);
     console.log(`[CAMPAIGN_WORKER] aperçu : ${summary.planned} étude(s) (${summary.exploration} exploration, ${summary.reinforcement} renforcement, ${summary.discovery} découverte, ${summary.hypothesis} hypothèse) sur ${summary.sites} site(s)`);
     return { started: false, dryRun: true, summary, reason: plan.length === 0 ? noPlanReason(opts) : undefined };
   }

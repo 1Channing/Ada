@@ -83,6 +83,35 @@ export interface CampaignKnowledge {
 export const emptyComboKey = (brand: string, model: string, fuel: string): string =>
   `${refComboKey(brand, model)}|${fuel.trim().toUpperCase()}`;
 
+/**
+ * LA COMBINAISON EXISTE-T-ELLE ? (31/10, Channing : « on ne scrappe pas sans vérifier que la combinaison existe »).
+ * Une preuve POSITIVE, sinon pas de scrape :
+ *  - le MARCHÉ : des annonces de ce modèle dans ce carburant vues sur les sites (coches.net, Marktplaats) ;
+ *  - le TERRAIN : ADA l'a déjà vu vivant (ingestion, échantillon de campagne) ;
+ *  - les IMMATRICULATIONS UE (EEA) : modèle bien couvert, carburant immatriculé, et à cette année ± 1.
+ * « Inconnu » ne vaut plus preuve (campagne du 31/10 : Bugatti Chiron hybride rechargeable, Navara hybride
+ * rechargeable, Cybertruck hybride rechargeable…). `weak` : une ou deux annonces seulement — la combinaison existe,
+ * elle ne passe qu'en fin de budget.
+ */
+export function combinationProof(k: CampaignKnowledge, brand: string, model: string, fuel: string, year: number | null):
+  { proven: boolean; weak?: boolean; why: string } {
+  const market = fuelEvidenceVerdict(k.marketFuel, brand, model, fuel);
+  if (market.kind === 'proven') return { proven: true, why: `prouvé par le marché : ${market.detail}` };
+  if (k.observedFuelCombos?.has(emptyComboKey(brand, model, fuel))) return { proven: true, why: 'déjà vu en annonces par ADA' };
+  if (market.kind === 'absent') return { proven: false, why: market.detail };
+  if (k.motorisations) {
+    const total = motoFuelTotal(k.motorisations, brand, model, fuel);
+    const verdict = comboMotoVerdict(k.motorisations, brand, model, fuel, year);
+    if (total != null && total > 0 && !verdict.unlikely) return { proven: true, why: `${total.toLocaleString('fr-FR')} immatriculations UE` };
+    if (verdict.unlikely && market.kind !== 'unlikely') return { proven: false, why: verdict.detail ?? 'improbable selon les immatriculations UE' };
+  }
+  if (market.kind === 'unlikely') return { proven: true, weak: true, why: market.detail };
+  return { proven: false, why: 'aucune preuve : ni annonces vues, ni immatriculations UE' };
+}
+
+/** Ce que le plan a écarté faute de preuve (aperçu de campagne, 31/10). */
+export interface PlanStats { unproven: string[] }
+
 /** Part maximale de l'exploration allouée aux modèles « expansion référentiel »
  *  — les combos issus de notre mémoire restent prioritaires (on maintient ce
  *  qui fonctionne), l'expansion remplit le reste. */
@@ -119,9 +148,12 @@ export interface CampaignPlanSummary {
   hypothesisModels: string[];
   /** Quelques raisons, telles qu'elles apparaîtront dans le fil. */
   sample: string[];
+  /** Combinaisons écartées faute de preuve qu'elles existent (31/10) : jamais scrapées. */
+  unproven?: number;
+  unprovenSample?: string[];
 }
 
-export function summarizePlan(plan: CampaignPlanItem[]): CampaignPlanSummary {
+export function summarizePlan(plan: CampaignPlanItem[], stats?: PlanStats): CampaignPlanSummary {
   const hyp = new Set<string>();
   for (const it of plan) if (it.hypothesis) hyp.add(`${it.brand} ${it.model}`);
   return {
@@ -133,6 +165,7 @@ export function summarizePlan(plan: CampaignPlanItem[]): CampaignPlanSummary {
     sites: new Set(plan.map((it) => it.site)).size,
     hypothesisModels: [...hyp].sort(),
     sample: plan.slice(0, 6).map((it) => `${it.site} · ${it.brand} ${it.model || '(page marque)'}${it.fuel ? ' · ' + it.fuel : ''}${it.year ? ' · ' + it.year : ''}`),
+    ...(stats?.unproven.length ? { unproven: stats.unproven.length, unprovenSample: stats.unproven.slice(0, 5) } : {}),
   };
 }
 
@@ -188,7 +221,7 @@ function shuffle<T>(arr: T[], rng: () => number): T[] {
   return a;
 }
 
-export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): CampaignPlanItem[] {
+export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions, stats?: PlanStats): CampaignPlanItem[] {
   const rng = opts.rng ?? Math.random;
   const total = Math.max(1, Math.floor(opts.total));
   const reinforceShare = opts.reinforceShare ?? 0.15;
@@ -311,8 +344,8 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
   // Combos improbables (motorisations EEA) : JAMAIS exclus — mis de côté, ils
   // ne consomment le budget que s'il reste de la place (phase 1 : dépriorisation).
   const unlikelyPool: Array<{ atom: Atom; kind: CampaignPlanItem['kind'] }> = [];
-  // Combos écartés par la preuve de marché (ciblage forcé) — tracés, jamais silencieux.
-  const marketExcluded: string[] = [];
+  // Combinaisons modèle × carburant × année sans aucune preuve d'existence (31/10) — jamais scrapées.
+  const unproven: string[] = [];
   for (const site of opts.sites) {
     const covered = k.coveredBySite[site] ?? new Set<string>();
     for (const c of combos) {
@@ -330,68 +363,40 @@ export function planCampaign(k: CampaignKnowledge, opts: CampaignPlanOptions): C
       for (const year of comboYears) {
         for (const fuel of fuelChoices) {
           const atom: Atom = { site, ...c, year, fuel };
-          // PREUVE DE MARCHÉ (21/09) avant tout verdict statistique : les
-          // sites disent eux-mêmes quels modèles existent dans ce carburant.
-          const market = fuel ? fuelEvidenceVerdict(k.marketFuel, c.brand, c.model, fuel) : { kind: 'unknown' as const };
-          if (market.kind === 'proven') {
-            atom.note = `prouvé par le marché : ${market.detail}`;
+          // Sans carburant ciblé (l'existence du modèle et de l'année est prouvée par la mémoire ou le référentiel),
+          // ou hypothèse tapée par l'opérateur (intention explicite) : planifié comme avant.
+          if (!fuel || c.hypothesis) { bucket.push(atom); continue; }
+          const proof = combinationProof(k, c.brand, c.model, fuel, year);
+          if (proof.proven && !proof.weak) {
+            if (proof.why.startsWith('prouvé par le marché')) atom.note = proof.why;
             bucket.push(atom);
             continue;
           }
-          if (market.kind === 'absent' && forcedFuels.length > 0) {
-            marketExcluded.push(`${c.brand} ${c.model} — ${market.detail}`);
-            continue;
-          }
-          if (market.kind === 'unlikely') {
-            atom.moto = market.detail;
+          if (proof.proven) {
+            // Une ou deux annonces seulement : elle existe, mais ne passe qu'en fin de budget.
+            atom.moto = proof.why;
             unlikelyPool.push({ atom, kind: bucketKind });
             continue;
           }
-          // Motorisations (EEA) : un combo carburant×année jamais immatriculé
-          // est mis de côté avec sa raison chiffrée — jamais supprimé.
-          const verdict = k.motorisations && fuel
-            ? comboMotoVerdict(k.motorisations, c.brand, c.model, fuel, year)
-            : { unlikely: false as const };
-          if (verdict.unlikely) {
-            // PREUVE TERRAIN d'abord : un combo déjà vu vivant (ingestion,
-            // échantillon de campagne) n'est jamais exclu — la réalité prime.
-            const proven = fuel != null && k.observedFuelCombos?.has(emptyComboKey(c.brand, c.model, fuel));
-            const severity = (verdict as { severity?: string }).severity;
-            if (forcedFuels.length > 0 && severity === 'zero' && !proven) {
-              // PHASE 2 (28/07) : ciblage carburant FORCÉ × verdict STRICT
-              // « 0 immat. UE, modèle bien couvert » × aucune preuve terrain
-              // → le combo n'est pas planifié du tout (M5 électrique, RS7
-              // électrique… ne consomment plus la file). Fail-open intact :
-              // modèle inconnu / mal couvert / bruit → dépriorisation only.
-              if (fuel === 'HYBRIDE' && !fuelChoices.includes('PLUG_IN_HYBRID') && k.motorisations) {
-                // Le modèle n'existe qu'en RECHARGEABLE (cas M5 2024) : on
-                // étudie la variante qui existe au lieu de jeter le modèle —
-                // en repassant le verdict sur la variante (un M5 PHEV 2020
-                // n'existe pas non plus, seules les années réelles passent).
-                const phev = motoFuelTotal(k.motorisations, c.brand, c.model, 'PLUG_IN_HYBRID');
-                const phevVerdict = comboMotoVerdict(k.motorisations, c.brand, c.model, 'PLUG_IN_HYBRID', year);
-                if (phev != null && phev > 0 && !phevVerdict.unlikely) {
-                  bucket.push({
-                    ...atom, fuel: 'PLUG_IN_HYBRID',
-                    note: `hybride simple inexistant (0 immat. UE) → étudié en RECHARGEABLE (${phev.toLocaleString('fr-FR')} immat.)`,
-                  });
-                }
-              }
+          // Hybride simple inexistant mais rechargeable prouvé (cas M5 2024) : on étudie la variante qui existe.
+          if (fuel === 'HYBRIDE' && !fuelChoices.includes('PLUG_IN_HYBRID')) {
+            const phev = combinationProof(k, c.brand, c.model, 'PLUG_IN_HYBRID', year);
+            if (phev.proven && !phev.weak) {
+              bucket.push({ ...atom, fuel: 'PLUG_IN_HYBRID', note: `hybride simple sans preuve (${proof.why}) → étudié en RECHARGEABLE (${phev.why})` });
               continue;
             }
-            atom.moto = verdict.detail;
-            unlikelyPool.push({ atom, kind: bucketKind });
-          } else {
-            bucket.push(atom);
           }
+          unproven.push(`${c.brand} ${c.model} ${fuel.toLowerCase()} ${year} — ${proof.why}`);
         }
       }
     }
   }
 
-  if (marketExcluded.length > 0) {
-    const distinct = [...new Set(marketExcluded)];
-    console.warn(`[CAMPAIGN_PLAN] preuve de marché : ${distinct.length} modèle(s) non planifié(s) au ciblage ${forcedFuels.join('/')} — ${distinct.slice(0, 12).join(' · ')}${distinct.length > 12 ? ' · …' : ''}`);
+  // Combinaisons sans preuve d'existence : jamais scrapées (0 appel Zyte), tracées, rendues à l'aperçu.
+  const unprovenDistinct = [...new Set(unproven.map((u) => u.replace(/ \d{4} — /, ' — ')))];
+  if (stats) stats.unproven = unprovenDistinct;
+  if (unprovenDistinct.length > 0) {
+    console.warn(`[CAMPAIGN_PLAN] sans preuve d'existence : ${unprovenDistinct.length} combinaison(s) modèle × carburant non planifiée(s) — ${unprovenDistinct.slice(0, 8).join(' · ')}${unprovenDistinct.length > 8 ? ' · …' : ''}`);
   }
 
   // Narrow campaign whose FULL space fits the budget → exhaustive enumeration

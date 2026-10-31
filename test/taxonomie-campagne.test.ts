@@ -22,6 +22,10 @@ const notes: Array<Record<string, unknown>> = [];
 const db: FakeDb = { linkgen_learned_rules: [], linkgen_mapping_memory: [], market_snapshots: [], linkgen_enum_mappings: [] };
 setSharedSupabase(fakeSupabase(db, { linkgen_note_gap: (a) => { notes.push(a); return { data: null, error: null }; } }) as never);
 const { executeCampaignItem } = await import('../src/lib/linkgen/campaignEngine');
+const { planCampaign, summarizePlan, combinationProof, emptyComboKey } = await import('../src/lib/linkgen/campaignPlanner');
+const { brandKey: bKey } = await import('../src/services/marketData');
+const { refModelKey: rmk } = await import('../src/services/vehicleRef');
+const { modelFamilyKey } = await import('../src/lib/study-core/business-logic');
 const { setLearnedRulesForTests } = await import('../src/lib/linkgen/learnedRules');
 
 const listing = (o: Partial<ScrapedListing>): ScrapedListing => ({
@@ -84,6 +88,49 @@ await executeCampaignItem(7, plan({ site: 'MARKTPLAATS', brand: 'BMW', model: 'X
   listings: many(12, { brand: 'BMW', model: 'X3', title: 'BMW X3' }), error: null,
 }));
 ok(!notesFor('X7').some((n) => n.p_source === 'campagne_echec'), 'Marktplaats (modèle en texte libre) : pas de ligne « échec prouvé »', notesFor('X7'));
+
+console.log('\n=== CAMPAGNES : PAS DE SCRAPE SANS PREUVE QUE LA COMBINAISON EXISTE (31/10) ===\n');
+// Les trois preuves : le MARCHÉ (annonces vues par carburant), le TERRAIN (déjà vu par ADA), les IMMATRICULATIONS UE.
+const yrs = (n: number) => Object.fromEntries([2020, 2021, 2022, 2023, 2024, 2025].map((y) => [String(y), n]));
+const moto = {
+  [`${bKey('BMW')}|${rmk('BMW', 'M5')}`]: [{ fuel: 'ESSENCE', total: 20000, years: yrs(3000) }, { fuel: 'PLUG_IN_HYBRID', total: 6000, years: yrs(1000) }],
+  [`${bKey('VOLKSWAGEN')}|${rmk('VOLKSWAGEN', 'TOUAREG')}`]: [{ fuel: 'DIESEL', total: 50000, years: yrs(8000) }, { fuel: 'PLUG_IN_HYBRID', total: 9000, years: yrs(1500) }],
+};
+const marketFuel = {
+  rows: 3,
+  byCombo: { [`${bKey('TOYOTA')}|${modelFamilyKey('YARIS CROSS')}`]: { HYBRIDE: { count: 50, sites: ['COCHES', 'MARKTPLAATS'], labels: ['Yaris Cross'] } } },
+  brandSites: {},
+};
+const knowledge = {
+  brands: ['TOYOTA', 'BMW', 'VOLKSWAGEN'],
+  modelsByBrand: { TOYOTA: ['YARIS CROSS'], BMW: ['M5'], VOLKSWAGEN: ['TOUAREG'] },
+  fuelsByBrandModel: {}, trimsByBrandModel: {}, coveredBySite: {},
+  refCombos: [{ brand: 'BUGATTI', model: 'CHIRON' }, { brand: 'NISSAN', model: 'NAVARA' }, { brand: 'TESLA', model: 'CYBERTRUCK' }],
+  motorisations: moto, marketFuel, observedFuelCombos: new Set([emptyComboKey('NISSAN', 'NAVARA', 'DIESEL')]),
+} as never;
+let seed = 7; const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const stats = { unproven: [] as string[] };
+const plan1 = planCampaign(knowledge, { sites: ['AUTOSCOUT_DE'], total: 500, rng, filters: { fuels: ['PLUG_IN_HYBRID', 'HYBRIDE', 'ELECTRIQUE'], yearMin: 2023, yearMax: 2024 } }, stats);
+const has = (b: string, m: string, f?: string) => plan1.some((p) => p.brand === b && p.model === m && (!f || p.fuel === f));
+ok(!has('BUGATTI', 'CHIRON') && !has('TESLA', 'CYBERTRUCK') && !has('NISSAN', 'NAVARA'),
+  'Bugatti Chiron, Tesla Cybertruck, Nissan Navara électrifiés : aucune preuve → jamais planifiés (0 appel Zyte)', plan1.map((p) => `${p.brand} ${p.model} ${p.fuel}`));
+ok(stats.unproven.some((u) => /^BUGATTI CHIRON plug_in_hybrid — aucune preuve/.test(u)) && stats.unproven.some((u) => /^NISSAN NAVARA/.test(u)),
+  'les combinaisons écartées sont tracées, avec la raison', stats.unproven.slice(0, 4));
+ok(has('TOYOTA', 'YARIS CROSS', 'HYBRIDE') && !has('TOYOTA', 'YARIS CROSS', 'ELECTRIQUE'),
+  'Yaris Cross hybride : prouvée par le marché (50 annonces) → planifiée ; Yaris Cross électrique : aucune preuve → écartée');
+ok(has('BMW', 'M5', 'PLUG_IN_HYBRID') && !has('BMW', 'M5', 'ELECTRIQUE') && !has('VOLKSWAGEN', 'TOUAREG', 'HYBRIDE') && has('VOLKSWAGEN', 'TOUAREG', 'PLUG_IN_HYBRID'),
+  'immatriculations UE : M5 et Touareg rechargeables planifiés ; Touareg hybride simple (0 immat.) et M5 électrique écartés');
+const sum = summarizePlan(plan1, stats);
+ok((sum.unproven ?? 0) === stats.unproven.length && (sum.unprovenSample ?? []).length > 0, 'l\'aperçu de campagne affiche le nombre de combinaisons écartées et des exemples', sum.unproven);
+// « Hybride » seul ciblé, la M5 n'existant qu'en rechargeable : la variante qui existe est étudiée (comme avant).
+const plan2 = planCampaign(knowledge, { sites: ['AUTOSCOUT_DE'], total: 50, rng, filters: { fuels: ['HYBRIDE'], brands: ['BMW'], yearMin: 2024, yearMax: 2024 } });
+const m5 = plan2.filter((p) => p.model);
+ok(m5.length === 1 && m5[0].fuel === 'PLUG_IN_HYBRID', 'M5 « hybride » ciblé : étudiée en rechargeable, la seule qui existe (la page marque de découverte reste à part)', plan2.map((p) => `${p.model} ${p.fuel}`));
+// Hypothèse tapée par l'opérateur : son intention prime, planifiée sans preuve (comme avant).
+const plan3 = planCampaign(knowledge, { sites: ['AUTOSCOUT_DE'], total: 10, rng, filters: { fuels: ['ELECTRIQUE'], brands: ['TESLA'], models: ['ROADSTER 2'], yearMin: 2025, yearMax: 2025 } });
+ok(plan3.some((p) => p.model === 'ROADSTER 2' && p.hypothesis), 'un modèle tapé à la main (hypothèse) reste planifié : c\'est au site de dire s\'il existe');
+ok(combinationProof(knowledge, 'NISSAN', 'NAVARA', 'DIESEL', 2024).proven && !combinationProof(knowledge, 'NISSAN', 'NAVARA', 'PLUG_IN_HYBRID', 2024).proven,
+  'Navara diesel : déjà vue par ADA → prouvée ; Navara hybride rechargeable → non');
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
