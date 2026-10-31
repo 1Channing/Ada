@@ -98,8 +98,9 @@ export function SiteLearning({ initialTab = 'chercher' }: { initialTab?: Tab }) 
     <div className="space-y-4">
       <p className="text-sm text-slate-600">
         Quand une étude, une offre ou une recherche du jour demande un modèle ou un filtre qu&apos;ADA ne sait pas écrire sur un site,
-        une ligne arrive ici toute seule. Claude (extension Chrome) coche la chose sur le site et propose l&apos;adresse ; ADA la contrôle ;
-        un administrateur valide. Rien n&apos;entre dans la taxonomie sans cette validation.
+        une ligne arrive ici toute seule. Claude (extension Chrome) coche la chose sur le site et propose l&apos;adresse ; ADA la contrôle
+        sur deux adresses. Contrôles parfaits (100 % des annonces, au moins 5 sur chacune) : validé automatiquement. Sinon, la ligne
+        attend un administrateur dans « À valider ».
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {tabs.map((t) => (
@@ -138,7 +139,7 @@ export function SiteLearning({ initialTab = 'chercher' }: { initialTab?: Tab }) 
                 <p className="text-sm text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {checking.length} proposition(s) en cours de contrôle par ADA (environ une minute chacune).</p>
               )}
               {toValidate.length === 0
-                ? <p className="text-sm text-slate-500">Aucune proposition à valider.</p>
+                ? <p className="text-sm text-slate-500">Aucune proposition à valider : tout ce qui a été contrôlé à 100 % est déjà validé (onglet « Appris »).</p>
                 : <ul className="space-y-3">{toValidate.map((it) => <ToValidateRow key={it.id} it={it} isAdmin={isAdmin} onDone={done} />)}</ul>}
             </div>
           )}
@@ -297,6 +298,7 @@ function LearnedRow({ r, isAdmin, onDone }: { r: LearnedRule; isAdmin: boolean; 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-semibold text-slate-900">{siteName(r.site)}</span>
         <span className="text-slate-700">· {what}</span>
+        {r.validated_by === null && <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">validée automatiquement</span>}
         {r.status === 'suspendue' && <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] text-rose-700">suspendue</span>}
       </div>
       <div className="text-xs text-slate-600">{describeRule(r.rule)} · validée le {fmtDate(r.validated_at)} · dernier contrôle {fmtDate(r.last_check_at)}{r.fail_count ? ` · ${r.fail_count} échec(s)` : ''}</div>

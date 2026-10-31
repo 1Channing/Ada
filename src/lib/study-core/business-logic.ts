@@ -240,7 +240,10 @@ export function modelKeyLoose(raw: string | null | undefined): string {
  * Quand poser le jumeau : carburant électrique demandé, ou aucun carburant
  * (une étude « Mokka tous carburants » veut aussi les électriques).
  */
-const ELECTRIC_MARKER_TOKENS = new Set(['e', 'ev', 'bev', 'electric', 'electrique', 'elektrisch', 'elektro', 'elettrica', 'electrico', 'elektrisk', 'elektromos', 'elektra']);
+// « iV » (31/10, constat Channing Gaspedaal) : la marque électrifiée Skoda — l'« Enyaq iV » du site EST l'Enyaq
+// (40/40 annonces rejetées) ; même clé que « Superb iV » ≡ Superb. Le IV romain de génération (« Golf IV »)
+// tombe aussi, comme dans la clé SQL ada_model_key.
+const ELECTRIC_MARKER_TOKENS = new Set(['e', 'ev', 'bev', 'iv', 'electric', 'electrique', 'elektrisch', 'elektro', 'elettrica', 'electrico', 'elektrisk', 'elektromos', 'elektra']);
 export function modelFamilyKey(raw: string | null | undefined): string {
   const tokens = String(raw ?? '')
     .replace(/\(.*?\)/g, ' ')

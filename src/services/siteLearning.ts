@@ -26,6 +26,8 @@ export interface LearnedRule {
   id: string; site: string; kind: 'modele' | 'filtre'; brand: string; model: string; criterion: string; value: string; value_key: string;
   rule: ModelFragment | FilterRule; status: 'active' | 'suspendue' | 'retiree'; proof_url: string | null; verify_url: string | null;
   validated_at: string; fail_count: number; last_check_at: string | null; retired_at: string | null; retire_note: string | null;
+  /** null = validée automatiquement (contrôles à 100 %, 31/10). */
+  validated_by: string | null;
 }
 
 const ITEM_COLS = 'id, kind, site, brand, model, criterion, value, hits, sources, priority, first_seen_at, last_seen_at, start_url, status, proposed_url, proposed_at, absent_note, learned, check_result, verify_url, decision_note, attempts, updated_at';
@@ -44,7 +46,7 @@ export async function listLearningItems(statuses: LearningStatus[]): Promise<{ i
 
 export async function listLearnedRules(): Promise<{ rules: LearnedRule[]; error: string | null }> {
   const { data, error } = await sb.from('linkgen_learned_rules')
-    .select('id, site, kind, brand, model, criterion, value, value_key, rule, status, proof_url, verify_url, validated_at, fail_count, last_check_at, retired_at, retire_note')
+    .select('id, site, kind, brand, model, criterion, value, value_key, rule, status, proof_url, verify_url, validated_at, validated_by, fail_count, last_check_at, retired_at, retire_note')
     .in('status', ['active', 'suspendue']).order('validated_at', { ascending: false }).limit(500);
   if (error) return { rules: [], error: missing(error.message) ? SQL_HINT : error.message };
   return { rules: (data ?? []) as LearnedRule[], error: null };

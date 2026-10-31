@@ -30,6 +30,7 @@ import {
   ruleValueKey, brandKeyOf, isLearnableCriterion, isNumericCriterion, criterionParams, CRITERION_LABEL,
   type ModelFragment, type FilterRule, type LearnedRuleRow, type LearnableCriterion, type LearningParams,
 } from '../src/lib/linkgen/learning';
+import { healOpenGaps } from '../src/lib/linkgen/gapHealing';
 import { mcExportAccounts } from './agents/recap';
 
 type Sb = { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -110,7 +111,13 @@ export interface Evaluation {
   sample: number;
   detail: string;
   titles: string[];
+  /** Fiable à 100 % (31/10, Channing : « lorsqu'il est fiable à 100 % se fasse automatique ») : TOUTES les annonces
+   *  renseignées conformes, et au moins AUTO_MIN d'entre elles. */
+  strict?: boolean;
 }
+
+/** Au moins 5 annonces renseignées, toutes conformes, sur CHACUNE des deux adresses : validé sans humain. */
+export const AUTO_MIN = 5;
 
 /** Les annonces d'une adresse confirment-elles ce qui a été appris ? */
 export function evaluate(adapter: SiteAdapter, kind: 'modele' | 'filtre', criterion: string, url: string, criteria: SearchCriteria, value: string, r: ScrapeLite | null): Evaluation {
@@ -121,7 +128,10 @@ export function evaluate(adapter: SiteAdapter, kind: 'modele' | 'filtre', criter
   }
   if (kind === 'filtre' && isLearnableCriterion(criterion) && isNumericCriterion(criterion)) {
     const n = checkNumeric(criterion, value, listings as never);
-    return { verdict: n.verdict, url, sample: listings.length, detail: `${n.matching}/${n.considered} annonce(s) renseignée(s) conformes (${CRITERION_LABEL[criterion]} ${value})`, titles };
+    return {
+      verdict: n.verdict, url, sample: listings.length, titles, strict: n.considered >= AUTO_MIN && n.matching === n.considered,
+      detail: `${n.matching}/${n.considered} annonce(s) renseignée(s) conformes (${CRITERION_LABEL[criterion]} ${value})`,
+    };
   }
   const fields: IngestionField[] = kind === 'modele' ? ['brand', 'model'] : [FIELD_OF[criterion as LearnableCriterion] ?? 'brand'];
   if (listings.length < 3) return { verdict: 'humain', url, sample: listings.length, detail: `${listings.length} annonce(s) seulement : à juger sur la page`, titles };
@@ -129,7 +139,10 @@ export function evaluate(adapter: SiteAdapter, kind: 'modele' | 'filtre', criter
   const bad = a.confirmations.filter((c) => fields.includes(c.field) && c.status === 'rejected');
   const good = a.confirmations.filter((c) => fields.includes(c.field) && c.status === 'confirmed');
   if (bad.length) return { verdict: 'echec', url, sample: listings.length, detail: bad.map((c) => `${fr(c.field)} : ${c.reason ?? `${c.matchCount}/${c.sampleSize}`}`).join(' ; '), titles };
-  if (good.length === fields.length) return { verdict: 'ok', url, sample: listings.length, detail: good.map((c) => `${fr(c.field)} ${c.matchCount}/${c.sampleSize} conformes`).join(' ; '), titles };
+  if (good.length === fields.length) {
+    const strict = good.every((c) => c.sampleSize >= AUTO_MIN && c.matchCount === c.sampleSize);
+    return { verdict: 'ok', url, sample: listings.length, detail: good.map((c) => `${fr(c.field)} ${c.matchCount}/${c.sampleSize} conformes`).join(' ; '), titles, strict };
+  }
   return { verdict: 'humain', url, sample: listings.length, detail: 'contrôle incomplet : à juger sur la page', titles };
 }
 
@@ -154,8 +167,31 @@ async function harvest(adapter: SiteAdapter, r: ScrapeLite | null): Promise<void
   if (taxo?.length) await persistTaxonomyHarvest(adapter.key, taxo).catch(() => undefined);
 }
 
-/** Une proposition : déduction, contrôles, « à valider » (exporté pour les tests). */
-export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps): Promise<'a_valider' | 'refusee'> {
+/**
+ * VALIDATION AUTOMATIQUE (31/10, Channing : « Je veux que l'apprentissage de taxonomie lorsqu'il est fiable à 100 %
+ * se fasse automatique […] intervenir le moins possible ») : règle exacte, aucun conflit, et les DEUX adresses
+ * (Claude, ADA) à 100 % sur au moins 5 annonces. La règle entre active, la ligne passe « validée » ; sinon elle
+ * reste « à valider ». Une course avec une autre validation (index unique) la laisse aussi à valider.
+ */
+async function autoValidate(it: Item, learned: Record<string, unknown>, check: Record<string, unknown>, verifyUrl: string | null, detail: string): Promise<boolean> {
+  const at = new Date().toISOString();
+  const { error } = await sb().from('linkgen_learned_rules').insert({
+    site: it.site, kind: it.kind, brand_key: learned.brand_key, model_key: learned.model_key, brand: it.brand, model: it.model,
+    criterion: it.kind === 'filtre' ? it.criterion : '', value_key: learned.value_key, value: it.value, rule: learned.rule,
+    status: 'active', item_id: it.id, proof_url: it.proposed_url, verify_url: verifyUrl, check_result: check, validated_by: null, validated_at: at,
+  });
+  if (error) return false;
+  await sb().from('linkgen_learning_items').update({
+    status: 'validee', learned, check_result: check, verify_url: verifyUrl, decided_by: null, decided_at: at,
+    decision_note: `Validé automatiquement : contrôles à 100 % (${detail})`.slice(0, 500), updated_at: at,
+  }).eq('id', it.id).eq('status', 'proposee');
+  if (it.kind === 'modele') await healOpenGaps(it.site, it.brand, it.model).catch(() => 0);
+  await loadLearnedRules().catch(() => undefined);
+  return true;
+}
+
+/** Une proposition : déduction, contrôles, validation automatique à 100 % ou « à valider » (exporté pour les tests). */
+export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps): Promise<'validee' | 'a_valider' | 'refusee'> {
   const adapter = getSiteAdapter(it.site);
   if (!adapter) { await refuse(it, [`site inconnu (${it.site})`]); return 'refusee'; }
   const start = it.start_url ?? '', proposed = it.proposed_url ?? '';
@@ -196,11 +232,17 @@ export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps):
     ada: evB ?? { verdict: 'impossible', url: '', sample: 0, detail: "ADA n'a pas pu construire l'adresse de vérification avec cette règle", titles: [] },
     checked_at: new Date().toISOString(),
   };
+  const learned = { brand_key: brandKey, model_key: modelKey, value_key: valueKey, rule, change };
+  const what = `${it.site} ${it.kind === 'modele' ? `${it.brand} ${it.model}` : `${it.criterion} ${it.value}`}`;
+  if (verdict === 'ok' && !conflict && evA.strict && evB?.strict
+    && await autoValidate(it, learned, check, verif.url, `${evA.detail} ; ${evB.detail}`)) {
+    console.warn(`[APPRENTISSAGE] ${what} : ${change} → validé automatiquement (contrôles à 100 %)`);
+    return 'validee';
+  }
   await sb().from('linkgen_learning_items').update({
-    status: 'a_valider', learned: { brand_key: brandKey, model_key: modelKey, value_key: valueKey, rule, change },
-    check_result: check, verify_url: verif.url, updated_at: new Date().toISOString(),
+    status: 'a_valider', learned, check_result: check, verify_url: verif.url, updated_at: new Date().toISOString(),
   }).eq('id', it.id).eq('status', 'proposee');
-  console.warn(`[APPRENTISSAGE] ${it.site} ${it.kind === 'modele' ? `${it.brand} ${it.model}` : `${it.criterion} ${it.value}`} : ${change} → contrôle ${verdict}${conflict ? ' (conflit avec une règle active)' : ''}`);
+  console.warn(`[APPRENTISSAGE] ${what} : ${change} → contrôle ${verdict}${conflict ? ' (conflit avec une règle active)' : ''}, à valider`);
   return 'a_valider';
 }
 
