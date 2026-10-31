@@ -94,7 +94,7 @@ function learnedModelFragment(site: string, brand: string, model: string): Model
 }
 
 /** La page de départ de Claude : la page marque du site, sans aucun critère. */
-function startUrlFor(site: SiteKey, brand: string): string {
+export function startUrlFor(site: SiteKey, brand: string): string {
   try { return generateSearchUrl({ site, brand, model: '' }).url; } catch { return ''; }
 }
 
@@ -623,11 +623,13 @@ export async function generateSearchUrlsWithMemory(
     // MODÈLE APPRIS VALIDÉ (Atelier › Apprentissage des sites, 30/10) : la page marque avec tous les critères,
     // puis le modèle exactement comme le site l'écrit — vaut pour tout carburant, toute année, tout km.
     const fragment = params.model ? learnedModelFragment(site, params.brand ?? '', params.model) : null;
+    let modelLearned = false;
     if (fragment) {
       const brandPage = generateSearchUrl({ ...singleParams, model: '' });
       const withModel = brandPage.url ? applyModelFragment(brandPage.url, fragment) : null;
       if (withModel) {
         fallbackResult = { ...brandPage, url: withModel };
+        modelLearned = true;
         logs.push({ level: 'MAPPING', message: '[LEARNED_RULES] Modèle appris posé (validé dans l\'Atelier)', data: { url: withModel } });
       } else {
         logs.push({ level: 'WARNING', message: '[LEARNED_RULES] Modèle appris non posable : la marque n\'est pas là où le site l\'attend', data: { url: brandPage.url } });
@@ -683,6 +685,7 @@ export async function generateSearchUrlsWithMemory(
         ? 'not_checked'
         : 'invalid',
       mappingSource: 'default_template',
+      ...(modelLearned ? { modelLearned: true } : {}),
     });
   }
 

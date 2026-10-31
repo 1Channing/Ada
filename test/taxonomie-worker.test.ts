@@ -30,7 +30,7 @@ const db: FakeDb = {
 };
 const users = [{ id: 'u-channing', email: 'channing@mc-export.com' }];
 setSharedSupabase({ ...fakeSupabase(db), auth: { admin: { listUsers: async () => ({ data: { users }, error: null }) } } } as never);
-const { learningProposalsTick, learningHourlyTick, weeklyRecheck, learningProbeTick, checkProposal } = await import('../worker/taxonomyLearning');
+const { learningProposalsTick, learningHourlyTick, weeklyRecheck, learningProbeTick, checkProposal, forgetProbesForTests } = await import('../worker/taxonomyLearning');
 const { lacentraleAdapter } = await import('../src/lib/study-core/marketplaces/lacentrale');
 
 const scraped: string[] = [];
@@ -223,6 +223,36 @@ const flip = async (url: string) => {
 const outcome = await checkProposal(c1 as never, { scrape: flip, fetchText: async () => null });
 ok(outcome === 'deja_traitee' && c1.status === 'ignoree' && !c1.learned && !db.linkgen_learned_rules.some((r) => r.item_id === 'c1'),
   'la ligne change pendant le contrôle : la règle tout juste écrite est effacée, rien n\'est écrit sur la ligne', [outcome, c1.status, db.linkgen_learned_rules.filter((r) => r.item_id === 'c1').length]);
+
+console.log('\n=== ESSAIS SEULS ESPACÉS : 1, 3, 7, 14 JOURS, MÉMORISÉS EN BASE (31/10 après-midi) ===\n');
+db.linkgen_learning_items.push(item({ id: 'b1', kind: 'modele', site: 'LACENTRALE', brand: 'MERCEDES', model: 'EQS-CLASS', status: 'a_chercher', priority: 9, hits: 4, start_url: LC0 }));
+const b1 = db.linkgen_learning_items.find((x) => x.id === 'b1')!;
+const eqs = () => scraped.filter((u) => u.includes('EQS')).length;
+const H = 3_600_000, D = 86_400_000, T0 = NOW.getTime() + 30 * D;
+const none = { scrape: scrapeBy(() => []), fetchText: async () => null };
+await learningProbeTick(none, T0);
+ok(b1.probe_count === 1 && b1.probed_at === new Date(T0).toISOString() && eqs() > 0, 'premier essai sans succès : noté en base (essai n° 1)', [b1.probe_count, b1.probed_at]);
+let seen = eqs();
+forgetProbesForTests();
+await learningProbeTick(none, T0 + H);
+ok(eqs() === seen, 'le worker redémarre une heure après : la base dit « essayée », rien n\'est re-scrapé');
+await learningProbeTick(none, T0 + 20 * H);
+ok(eqs() === seen, 'pas de nouvel essai avant 1 jour');
+await learningProbeTick(none, T0 + 25 * H);
+ok(b1.probe_count === 2 && eqs() > seen, 'après 1 jour : ré-essayée (essai n° 2)', b1.probe_count);
+seen = eqs();
+await learningProbeTick(none, T0 + 25 * H + 2 * D);
+ok(eqs() === seen, 'puis pas avant 3 jours');
+await learningProbeTick(none, T0 + 25 * H + 3 * D + H);
+ok(b1.probe_count === 3, 'après 3 jours : ré-essayée (essai n° 3) ; ensuite 7 jours, puis tous les 14 jours', b1.probe_count);
+
+console.log('\n=== CAMPAGNES : UNE ÉCRITURE PROUVÉE FAUSSE NE SE REFERME QUE PAR UNE RÈGLE APPRISE ===\n');
+db.linkgen_learning_items.push(item({ id: 'x1', kind: 'modele', site: 'AUTOSCOUT_DE', brand: 'BMW', model: 'X5', status: 'a_chercher', sources: ['campagne', 'campagne_echec'] }));
+db.linkgen_learning_items.push(item({ id: 'x2', kind: 'modele', site: 'AUTOSCOUT_DE', brand: 'BMW', model: 'X3', status: 'a_chercher', sources: ['etude'] }));
+await learningHourlyTick(none, new Date(T0 + 40 * D));
+const x1 = db.linkgen_learning_items.find((x) => x.id === 'x1')!, x2 = db.linkgen_learning_items.find((x) => x.id === 'x2')!;
+ok(x1.status === 'a_chercher', 'AutoScout24 « sait écrire » X5 mais une campagne l\'a prouvé faux : la ligne reste ouverte', x1.status);
+ok(x2.status === 'resolue', 'sans échec prouvé, une ligne que le site sait écrire se ferme comme avant', x2.status);
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

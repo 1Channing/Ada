@@ -22,7 +22,9 @@ import { modelKeyLoose } from '../study-core/business-logic';
 import { persistIngestionResult } from './ingestion';
 import { persistTaxonomyHarvest, loadLearnedTaxonomy } from './taxonomy';
 import { loadMarketFuelEvidence } from './marketFuelEvidence';
-import { generateSearchUrlsWithMemory } from './generator';
+import { generateSearchUrlsWithMemory, startUrlFor } from './generator';
+import { noteLearningGap } from './learnedRules';
+import { brandKeyOf } from './learning';
 import { readAllPages } from '../readAllPages';
 import type { SiteKey } from './types';
 import { writeMarketSnapshot, brandKey, refModelKey } from '../../services/marketData';
@@ -300,6 +302,24 @@ export async function loadCampaignKnowledge(): Promise<CampaignKnowledge> {
 }
 
 /**
+ * ÉCHEC PROUVÉ PAR LE SCRAPE → APPRENTISSAGE DES SITES (31/10, Channing : « ajouter dans l'apprentissage des
+ * sites les recherches des scans mensuels et celles des campagnes lancées manuellement qui ne passent pas »).
+ * Le site n'a pas appliqué le modèle — page introuvable, page marque entière servie, annonces d'un autre
+ * modèle — et les sondes de l'adaptateur n'ont rien trouvé : la ligne « modèle » part dans la file, marquée
+ * « campagne_echec ». L'écriture actuelle étant PROUVÉE fausse, la ligne ne se refermera que sur une règle
+ * apprise et contrôlée (jamais sur la seule parole de l'adaptateur). Ni la découverte (hypothèses de slug
+ * attendues), ni Marktplaats (modèle en texte libre, rien à apprendre en adresse).
+ */
+function noteProvenModelFailure(p: CampaignPlanItem): void {
+  if (!p.model || p.discovery || p.site === 'MARKTPLAATS') return;
+  noteLearningGap({
+    kind: 'modele', site: p.site, brand: p.brand, model: p.model,
+    brandKey: brandKeyOf(p.brand), modelKey: refModelKey(p.brand, p.model),
+    source: 'campagne_echec', startUrl: startUrlFor(p.site as SiteKey, p.brand),
+  });
+}
+
+/**
  * One campaign study, end to end — identical to a manual ingestion, just
  * triggered automatically and signed 'Ada'.
  */
@@ -334,9 +354,12 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   // URL at ITEM time (memory-first) — learnings from earlier items apply here.
   let url: string | null = null;
   let urlSource = 'template';
+  let modelLearned = false;
   try {
     const gen = await generateSearchUrlsWithMemory({
       selectedSites: [p.site as SiteKey],
+      // Ce que le site ne sait pas écrire part dans l'apprentissage des sites (31/10) — hors découverte.
+      ...(p.discovery ? {} : { gapSource: 'campagne' as const }),
       brand: p.brand, model: p.model,
       fuel: p.fuel || undefined, trim: p.trim || undefined,
       yearFrom: p.year ? String(p.year) : undefined,
@@ -350,6 +373,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     });
     url = gen[0]?.url && gen[0].url.length > 10 ? gen[0].url : null;
     urlSource = (gen[0] as { mappingSource?: string } | undefined)?.mappingSource ?? 'template';
+    modelLearned = gen[0]?.modelLearned === true;
   } catch { url = null; }
 
   // Boîte noire — the FULL action context, not just the error line: what we
@@ -435,8 +459,10 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   // centre de résolution dit quoi apprendre. Le CARBURANT ne bloque jamais :
   // modèle posé, le post-filtre structuré le confirme gratuitement. La
   // découverte (p.discovery, sans modèle) et les URLs apprises (urlSource
-  // 'learned') passent toujours.
-  if (p.model && url && urlSource !== 'learned') {
+  // 'learned') passent toujours — comme le modèle posé par une règle APPRISE de
+  // l'Atelier (31/10 : la garde ne voyait que l'adaptateur et écartait sans
+  // scrape La Centrale « Classe CLS », Cupra Raval, Gaspedaal « Enyaq iV »).
+  if (p.model && url && urlSource !== 'learned' && !modelLearned) {
     const probe = getSiteAdapter(p.site)?.buildSearchUrl(criteria);
     if (probe && probe.modelExpressed === false) {
       return {
@@ -513,6 +539,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
       const probeReasons: string[] = [];
       const won = await probeAlternates(new Set(['page_not_found']), probeReasons);
       if (won) return won;
+      noteProvenModelFailure(p);
       return {
         ...base, url, outcome: 'taxonomy_gap', confirmedFields: [], rejected: [],
         detail: 'page introuvable — slug marque/modèle à corriger (sondes épuisées)', sampleSize: 0,
@@ -592,6 +619,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     const probeReasons: string[] = [];
     const won = await probeAlternates(new Set(['model_missing']), probeReasons);
     if (won) return won;
+    noteProvenModelFailure(p);
     return {
       ...base, url, outcome: 'taxonomy_gap', confirmedFields: [], rejected: [],
       detail: `slug modèle non reconnu par le site — page marque entière servie (${sfVerdict.evidence})`,
@@ -760,6 +788,8 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     }
     detail += ' ; auto-correction tentée sans succès';
   }
+  // Les annonces servies ne sont pas le modèle demandé (sondes comprises) : l'écriture du site est à réapprendre.
+  if (outcome === 'taxonomy_gap' && rejected.some((r) => r.field === 'model')) noteProvenModelFailure(p);
 
   return {
     ...base, url, outcome,

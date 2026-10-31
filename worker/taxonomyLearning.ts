@@ -67,8 +67,13 @@ interface Item {
   start_url: string | null; proposed_url: string | null; status: string; attempts: number;
   /** Le nom exact lu sur le site par Claude (SQL du 31/10) — ADA en construit et vérifie l'adresse. */
   proposed_label?: string | null;
+  /** D'où viennent les lacunes (offre, etude, recherche, campagne, campagne_echec). */
+  sources?: string[] | null;
+  /** Dernier essai seul d'ADA et nombre d'essais sans succès (SQL du 31/10 après-midi). */
+  probed_at?: string | null;
+  probe_count?: number | null;
 }
-const ITEM_COLS = 'id, kind, site, brand, model, criterion, value, start_url, proposed_url, status, attempts';
+const ITEM_COLS = 'id, kind, site, brand, model, criterion, value, start_url, proposed_url, status, attempts, sources';
 
 /** Un même scrape au plus une fois par passage (l'adresse candidate trouvée est re-lue par le contrôle). */
 const memoScrape = (deps: LearningDeps): LearningDeps => {
@@ -350,19 +355,36 @@ export async function checkLabel(it: Item, label: string, deps: LearningDeps): P
 const probed = new Map<string, number>();
 let probeBusy = false;
 /**
+ * ESSAIS ESPACÉS (31/10, « est-ce vraiment optimisé ? ») : une ligne qu'ADA n'a pas trouvée seule n'est ré-essayée
+ * qu'après 1 jour, puis 3, puis 7, puis tous les 14 jours — ses écritures du nom ne changent pas d'un jour à l'autre,
+ * seul le catalogue du site bouge. Mémorisé en base (probed_at, probe_count) : un redémarrage du worker ne relance
+ * plus tout. Sans le SQL, repli : une fois par jour, en mémoire.
+ */
+const PROBE_DELAY_DAYS = [1, 3, 7, 14];
+/** Tests : un redémarrage du worker (le souvenir en mémoire s'efface, la base reste). */
+export const forgetProbesForTests = () => probed.clear();
+export const probeDelayMs = (failures: number) => PROBE_DELAY_DAYS[Math.min(Math.max(failures, 1), PROBE_DELAY_DAYS.length) - 1] * 86_400_000;
+/**
  * ADA ESSAIE SEULE D'ABORD (31/10, Channing : « intervenir le moins possible ») : toutes les 10 minutes, deux lignes
- * « modèle » au plus, chacune une fois par jour — les écritures connues du nom d'ADA (« CLS-CLASS », « Classe CLS »…).
- * Trouvée à 100 % : la ligne part au contrôle (et à la validation automatique) sans personne. Sinon une note dit à
- * Claude ce qui a été essayé : il ne manque plus que le nom exact affiché sur le site. Exporté pour les tests.
+ * « modèle » au plus (priorité, puis les plus fréquentes) — les écritures connues du nom d'ADA (« CLS-CLASS »,
+ * « Classe CLS »…). Trouvée à 100 % : la ligne part au contrôle (et à la validation automatique) sans personne.
+ * Sinon une note dit à Claude ce qui a été essayé : il ne manque plus que le nom exact affiché sur le site.
+ * Exporté pour les tests.
  */
 export async function learningProbeTick(deps: LearningDeps = defaultDeps, now = Date.now()): Promise<number> {
   if (probeBusy) return 0;
   probeBusy = true;
   try {
-    const { data, error } = await sb().from('linkgen_learning_items').select(ITEM_COLS)
-      .eq('status', 'a_chercher').eq('kind', 'modele').order('priority', { ascending: false }).limit(50);
-    if (tableMissing(error)) return 0;
-    const todo = ((data ?? []) as Item[]).filter((it) => (probed.get(it.id) ?? 0) < now - 86_400_000).slice(0, 2);
+    const query = (cols: string) => sb().from('linkgen_learning_items').select(cols)
+      .eq('status', 'a_chercher').eq('kind', 'modele')
+      .order('priority', { ascending: false }).order('hits', { ascending: false }).limit(300);
+    let res = await query(`${ITEM_COLS}, probed_at, probe_count`);
+    const persisted = !(res.error && /probed_at|probe_count/.test(res.error.message));
+    if (!persisted) res = await query(ITEM_COLS);
+    if (tableMissing(res.error)) return 0;
+    const due = (it: Item) => (probed.get(it.id) ?? 0) < now - 86_400_000
+      && (!persisted || !it.probed_at || Date.parse(it.probed_at) + probeDelayMs(it.probe_count ?? 0) <= now);
+    const todo = ((res.data ?? []) as Item[]).filter(due).slice(0, 2);
     const d = memoScrape(deps);
     let n = 0;
     for (const it of todo) {
@@ -371,11 +393,13 @@ export async function learningProbeTick(deps: LearningDeps = defaultDeps, now = 
         const found = await findModelUrl(it, it.model, d);
         if (!found.url) {
           const forms = modelLabelForms(it.model).map((f) => `« ${f} »`).join(', ');
+          const failures = (it.probe_count ?? 0) + 1;
           await sb().from('linkgen_learning_items').update({
             decision_note: (found.tried.length
               ? `ADA a essayé seule ${forms} : aucune adresse à 100 %. Il faut le nom exact affiché sur le site.`
               : 'ADA ne sait pas construire ce modèle à partir d\'un nom sur ce site : il faut le nom exact (ou « Absent du site »).').slice(0, 500),
             updated_at: new Date(now).toISOString(),
+            ...(persisted ? { probed_at: new Date(now).toISOString(), probe_count: failures } : {}),
           }).eq('id', it.id).eq('status', 'a_chercher');
           continue;
         }
@@ -450,8 +474,11 @@ export async function autoResolve(items: Item[]): Promise<number> {
     if (it.kind === 'modele') {
       const bk = brandKeyOf(it.brand), mk = refModelKey(it.brand, it.model);
       const r = adapter.buildSearchUrl({ brand: it.brand, model: it.model });
+      // Écriture du site PROUVÉE fausse par une campagne (31/10) : la parole de l'adaptateur ne suffit plus,
+      // seule une règle apprise et contrôlée ferme la ligne.
+      const provenWrong = (it.sources ?? []).includes('campagne_echec');
       known = rules.some((x) => x.kind === 'modele' && x.brand_key === bk && x.model_key === mk)
-        || (Boolean(r.url) && r.modelExpressed !== false && !r.modelGuessed);
+        || (!provenWrong && Boolean(r.url) && r.modelExpressed !== false && !r.modelGuessed);
     } else if (isLearnableCriterion(it.criterion)) {
       const params: LearningParams = { brand: it.brand || 'TOYOTA', model: '', ...criterionParams(it.criterion, it.value) };
       const url = applyVariableCriteria(adapter.buildSearchUrl(params).url, params);

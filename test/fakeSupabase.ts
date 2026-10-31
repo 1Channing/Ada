@@ -1,7 +1,7 @@
 /**
  * Une base Supabase simulée pour les tests du worker des agentes (17/10) :
  * tables en mémoire, et les gestes du client que le worker utilise (select,
- * eq, neq, gte, lt, in, is, order, limit, range, maybeSingle, single, insert, upsert, update, delete),
+ * eq, neq, gte, lt, in, is, ilike, order, limit, range, maybeSingle, single, insert, upsert, update, delete),
  * et les fonctions (rpc) qu'un test simule.
  * Les défauts de la base (id, created_at) sont posés à l'insertion.
  */
@@ -28,6 +28,12 @@ class Q implements PromiseLike<{ data: unknown; error: null }> {
   in(c: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   not() { return this; }
   is(c: string, v: unknown) { this.filters.push((r) => (r[c] ?? null) === v); return this; }
+  /** Comme PostgreSQL : sans casse, « % » = n'importe quelle suite, « _ » = un caractère. */
+  ilike(c: string, pattern: string) {
+    const re = new RegExp(`^${String(pattern).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')}$`, 'i');
+    this.filters.push((r) => re.test(String(r[c] ?? '')));
+    return this;
+  }
   order(c: string, o?: { ascending?: boolean }) { this.sorts.push({ c, asc: o?.ascending !== false }); return this; }
   limit(n: number) { this.lim = n; return this; }
   range(from: number, to: number) { this.off = from; this.lim = to - from + 1; return this; }

@@ -27,7 +27,10 @@ import {
 type Tab = 'chercher' | 'valider' | 'appris' | 'couverture';
 
 const siteName = (key: string) => getSiteAdapter(key)?.displayName ?? key;
-const SOURCE_LABEL: Record<string, string> = { offre: 'offre', etude: 'étude', recherche: 'recherche du jour' };
+const SOURCE_LABEL: Record<string, string> = {
+  offre: 'offre', etude: 'étude', recherche: 'recherche du jour', campagne: 'campagne ou re-scan',
+  campagne_echec: 'campagne : le site n\'a pas appliqué le modèle',
+};
 const fmtDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 const btn = 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed';
 
