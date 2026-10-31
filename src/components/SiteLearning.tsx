@@ -130,7 +130,7 @@ export function SiteLearning({ initialTab = 'chercher' }: { initialTab?: Tab }) 
                 ? <p className="text-sm text-slate-500">Rien à chercher pour l&apos;instant : ADA sait écrire tout ce qu&apos;on lui a demandé.</p>
                 : (
                   <ul className="space-y-3">
-                    {toFind.slice(0, shown).map((it) => <ToFindRow key={it.id} it={it} onDone={done} />)}
+                    {toFind.slice(0, shown).map((it) => <ToFindRow key={it.id} it={it} isAdmin={isAdmin} onDone={done} />)}
                   </ul>
                 )}
               {toFind.length > shown && <button onClick={() => setShown((n) => n + 30)} className={`${btn} border border-slate-200 text-slate-700`}>Afficher 30 lignes de plus</button>}
@@ -174,13 +174,16 @@ function Instructions() {
   );
 }
 
-function ToFindRow({ it, onDone }: { it: LearningItem; onDone: (msg: string | null, ok: string) => Promise<void> }) {
+function ToFindRow({ it, isAdmin, onDone }: { it: LearningItem; isAdmin: boolean; onDone: (msg: string | null, ok: string) => Promise<void> }) {
   const [url, setUrl] = useState('');
   const [label, setLabel] = useState('');
   const [showUrl, setShowUrl] = useState(it.kind === 'filtre');
   const [absent, setAbsent] = useState<string | null>(null);
+  const [ignore, setIgnore] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const instruction = lineInstruction(it);
+  // Site à identifiants (mobile.de, Skelbiu…) : le worker l'a constaté, un nom n'y sert à rien (31/10).
+  const noClaude = /rien à faire pour Claude/.test(it.decision_note ?? '');
   const propose = async () => {
     setBusy(true);
     await onDone(await proposeUrl(it.id, url), `Adresse proposée pour ${siteName(it.site)} : ADA la contrôle (environ une minute).`);
@@ -194,6 +197,12 @@ function ToFindRow({ it, onDone }: { it: LearningItem; onDone: (msg: string | nu
   const absentOk = async () => {
     setBusy(true);
     await onDone(await markAbsent(it.id, absent ?? ''), `${siteName(it.site)} : « absent du site » envoyé à la validation.`);
+    setBusy(false);
+  };
+  // Une ligne sans intérêt pour MC Export (modèle exotique venu d'une campagne…) : écartée, jamais rouverte par les recherches.
+  const ignoreOk = async () => {
+    setBusy(true);
+    await onDone(await ignoreItem(it.id, ignore?.trim() || 'ignorée depuis « À chercher »'), `${siteName(it.site)} : ligne ignorée.`);
     setBusy(false);
   };
   const sources = it.sources.map((s) => SOURCE_LABEL[s] ?? s).join(', ');
@@ -211,7 +220,8 @@ function ToFindRow({ it, onDone }: { it: LearningItem; onDone: (msg: string | nu
         {it.start_url
           ? <a href={it.start_url} target="_blank" rel="noreferrer" className={`${btn} border border-blue-200 text-blue-700 hover:bg-blue-50`}>Ouvrir sur le site <ExternalLink className="w-3.5 h-3.5" /></a>
           : <span className="text-xs text-slate-400">page de départ indisponible</span>}
-        {it.kind === 'modele' && (
+        {it.kind === 'modele' && noClaude && <span className="text-xs text-slate-500">Rien à faire pour Claude sur cette ligne.</span>}
+        {it.kind === 'modele' && !noClaude && (
           <>
             <label htmlFor={`label-${it.id}`} className="sr-only">Nom exact sur le site</label>
             <input id={`label-${it.id}`} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nom exact sur le site (ex. Classe CLS)"
@@ -220,7 +230,8 @@ function ToFindRow({ it, onDone }: { it: LearningItem; onDone: (msg: string | nu
           </>
         )}
         <button onClick={() => setAbsent('')} disabled={busy} className={`${btn} border border-slate-200 text-slate-700 hover:bg-slate-50`}>Absent du site</button>
-        {it.kind === 'modele' && !showUrl && <button onClick={() => setShowUrl(true)} className="text-xs text-slate-500 hover:underline">ou coller une adresse</button>}
+        {isAdmin && ignore === null && <button onClick={() => setIgnore('')} disabled={busy} className="text-xs text-slate-500 hover:underline">Ignorer</button>}
+        {it.kind === 'modele' && !showUrl && !noClaude && <button onClick={() => setShowUrl(true)} className="text-xs text-slate-500 hover:underline">ou coller une adresse</button>}
       </div>
       {showUrl && (
         <div className="flex flex-wrap items-center gap-2">
@@ -237,6 +248,15 @@ function ToFindRow({ it, onDone }: { it: LearningItem; onDone: (msg: string | nu
             className="min-w-[16rem] flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
           <button onClick={() => void absentOk()} disabled={busy} className={`${btn} bg-slate-700 text-white hover:bg-slate-800`}>Confirmer « absent du site »</button>
           <button onClick={() => setAbsent(null)} className={`${btn} text-slate-500`}>Annuler</button>
+        </div>
+      )}
+      {ignore !== null && (
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor={`ignore-${it.id}`} className="sr-only">Pourquoi l'ignorer</label>
+          <input id={`ignore-${it.id}`} value={ignore} onChange={(e) => setIgnore(e.target.value)} placeholder="Pourquoi ? (facultatif, ex. modèle hors marché MC Export)"
+            className="min-w-[16rem] flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+          <button onClick={() => void ignoreOk()} disabled={busy} className={`${btn} bg-slate-700 text-white hover:bg-slate-800`}>Confirmer « ignorer »</button>
+          <button onClick={() => setIgnore(null)} className={`${btn} text-slate-500`}>Annuler</button>
         </div>
       )}
     </li>
