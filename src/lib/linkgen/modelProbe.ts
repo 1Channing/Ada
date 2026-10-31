@@ -7,8 +7,29 @@
  */
 import type { SiteAdapter } from '../study-core/marketplaces/types';
 import { setQueryParamRaw } from './grammar';
+import { brandKeyOf } from './learning';
+import { refModelKey } from '../../services/marketData';
 
 const deburr = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '');
+
+/**
+ * La clé d'un nom LU SUR LE SITE, comparable à celle du modèle d'ADA (refModelKey), la marque en tête retirée
+ * (« MG ZS » pour MG/MG MOTOR → ZS ; « Mercedes-Benz GLS » → GLS ; « Classe cls » → CLS ; « Enyaq iV » → ENYAQ).
+ * Une clé DIFFÉRENTE (31/10) : le nom est plus précis que le modèle — « Countryman Cooper », « GLS 350 » — une
+ * VERSION du modèle, dont l'adresse ne couvrirait qu'une partie du marché : jamais validée sans un administrateur.
+ */
+export function siteLabelKey(brand: string, label: string): string {
+  const brandTokens = new Set(deburr(brand).toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean));
+  const words = deburr(label).trim().split(/\s+/).filter(Boolean);
+  let k = 0;
+  while (k < words.length - 1) {
+    const w = words[k];
+    const tokens = w.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+    if (brandKeyOf(w) !== brandKeyOf(brand) && !(tokens.length > 0 && tokens.every((t) => brandTokens.has(t)))) break;
+    k++;
+  }
+  return refModelKey(brand, words.slice(k).join(' '));
+}
 
 /** Les écritures d'un nom de modèle à essayer : telle quelle, et les formes « Classe X » / « Série N » des sites. */
 export function modelLabelForms(model: string): string[] {

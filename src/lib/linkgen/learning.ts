@@ -508,6 +508,8 @@ Pour chaque ligne « modèle », dans l'ordre, au plus 15 lignes :
 3. Ouvre la liste des modèles de cette marque dans les filtres du site et trouve le modèle demandé, même s'il est écrit autrement (ex. « CLS-CLASS » s'appelle « Classe CLS », « Enyaq » s'appelle « Enyaq iV »). Ne choisis jamais une finition ni une version.
 4. Recopie ce nom EXACTEMENT comme le site l'affiche (majuscules, espaces, tirets) dans le champ « Nom exact sur le site » de la ligne, puis clique « Envoyer le nom ». N'essaie pas de copier l'adresse de la page : ADA la construit et la vérifie elle-même.
 5. Si le modèle n'est pas dans la liste du site, clique « Absent du site » et note en quelques mots les modèles les plus proches que le site propose.
+6. Si le site ne propose ce modèle que découpé en versions (ex. « Countryman Cooper », « Countryman Cooper SE », « GLS 350 », « GLS 400 »), n'envoie aucune version : clique « Absent du site » et note « découpé en versions : » suivi des noms proposés.
+7. Si la note de la ligne dit « rien à faire pour Claude », passe à la ligne suivante sans rien toucher.
 
 Pour une ligne « filtre » : vérifie seulement si le filtre existe sur le site. S'il n'existe pas, clique « Absent du site » ; s'il existe, passe à la ligne suivante.
 

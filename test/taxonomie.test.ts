@@ -8,7 +8,8 @@ import { jofogasAdapter } from '../src/lib/study-core/marketplaces/jofogas';
 import { lacentraleAdapter } from '../src/lib/study-core/marketplaces/lacentrale';
 import { gaspedaalAdapter } from '../src/lib/study-core/marketplaces/gaspedaal';
 import { leboncoinAdapter } from '../src/lib/study-core/marketplaces/leboncoin';
-import { modelCandidates, modelLabelForms } from '../src/lib/linkgen/modelProbe';
+import { modelCandidates, modelLabelForms, siteLabelKey } from '../src/lib/linkgen/modelProbe';
+import { refModelKey } from '../src/services/marketData';
 import {
   diffUrls, deduceModelFragment, deduceFilterRule, applyModelFragment, applyLearnedFilters, checkNumeric, verifyValueFor,
   valueKeyOf, learningKey, ruleValueKey, lineInstruction, type LearnedRuleRow, type FilterRule, type ModelFragment,
@@ -167,6 +168,15 @@ const lbcC = modelCandidates(leboncoinAdapter, 'MERCEDES', 'CLS-CLASS');
 ok(lbcC.length >= 1 && lbcC.every((u) => /u_car_model=/.test(u)), 'Leboncoin : u_car_model posé par l\'adaptateur', lbcC);
 const pathOnly = diffUrls('https://www.gaspedaal.nl/skoda?srt=pr-a', 'https://www.gaspedaal.nl/skoda/enyaq-iv');
 ok(pathOnly.changes.length === 1 && pathOnly.changes[0].type === 'segments_inserted', 'adresse sans paramètres (masqués par l\'extension) : seul le chemin compte', pathOnly.changes);
+
+console.log('\n=== NOM LU SUR LE SITE : ÉQUIVALENT OU PLUS PRÉCIS QUE LE MODÈLE (31/10) ===\n');
+const same = (b: string, label: string, model: string) => siteLabelKey(b, label) === refModelKey(b, model);
+ok(same('MERCEDES', 'Classe cls', 'CLS-CLASS') && same('SKODA', 'Enyaq iV', 'ENYAQ') && same('BMW', '8er', '8-SERIES') && same('TOYOTA', 'Yaris Cross Hybrid', 'YARIS CROSS'),
+  'équivalents : « Classe cls » = CLS-CLASS, « Enyaq iV » = ENYAQ, « 8er » = 8-SERIES, « Yaris Cross Hybrid » = YARIS CROSS');
+ok(same('MG/MG MOTOR', 'MG ZS', 'ZS') && same('MERCEDES', 'Mercedes-Benz GLS', 'GLS-CLASS') && same('TOYOTA', 'Toyota Yaris Cross', 'YARIS CROSS'),
+  'la marque en tête du nom est retirée : « MG ZS » = ZS, « Mercedes-Benz GLS » = GLS-CLASS');
+ok(!same('MINI', 'Countryman Cooper', 'COUNTRYMAN') && !same('MERCEDES', 'GLS 350', 'GLS-CLASS') && !same('CUPRA', 'Raval e', 'RAVAL'),
+  'plus précis (une version ?) : « Countryman Cooper », « GLS 350 », « Raval e »');
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

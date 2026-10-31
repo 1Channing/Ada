@@ -290,6 +290,7 @@ function ToValidateRow({ it, isAdmin, onDone }: { it: LearningItem; isAdmin: boo
         <>
           <p className="text-sm text-slate-700">Appris : <strong>{describeRule(it.learned?.rule)}</strong>{c?.change ? <span className="text-xs text-slate-500"> ({c.change})</span> : null}</p>
           {c?.conflict && <p className="text-xs text-rose-700">Conflit : une règle active existe déjà pour ce cas — retirez-la d&apos;abord (onglet Appris) si celle-ci est la bonne.</p>}
+          {c?.warning && <p className="text-xs text-amber-700">{c.warning}</p>}
           <EvalLine who="Adresse de Claude" ev={c?.claude} linkLabel="Ouvrir" />
           <EvalLine who="Adresse construite par ADA" ev={c?.ada} linkLabel="Vérifier sur le site" />
           {!c?.ada?.url && it.verify_url && (

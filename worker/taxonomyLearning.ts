@@ -31,7 +31,7 @@ import {
   type ModelFragment, type FilterRule, type LearnedRuleRow, type LearnableCriterion, type LearningParams,
 } from '../src/lib/linkgen/learning';
 import { healOpenGaps } from '../src/lib/linkgen/gapHealing';
-import { modelCandidates, modelLabelForms } from '../src/lib/linkgen/modelProbe';
+import { modelCandidates, modelLabelForms, siteLabelKey } from '../src/lib/linkgen/modelProbe';
 import { mcExportAccounts } from './agents/recap';
 
 type Sb = { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -96,11 +96,28 @@ const OTHER_BRANDS = ['VOLKSWAGEN', 'TOYOTA', 'PEUGEOT', 'RENAULT', 'BMW'];
 const thisYear = () => new Date().getFullYear();
 
 /** L'adresse construite par ADA avec la règle candidate — le lien « Vérifier sur le site ». */
-export function buildVerification(adapter: SiteAdapter, item: Pick<Item, 'kind' | 'site' | 'brand' | 'model' | 'criterion' | 'value'>, rule: ModelFragment | FilterRule, valueKey: string):
-  { url: string | null; brand: string; value: string; params: LearningParams } {
+/**
+ * L'ANNÉE DU SECOND CONTRÔLE d'un modèle (31/10, cas Leboncoin 370Z : 34/34 sur l'adresse trouvée, mais « 2020 et
+ * plus » n'en laissait qu'une — le modèle n'existe presque plus après 2020, la validation automatique échouait pour
+ * rien). Celle du marché RÉEL du modèle : au plus tard il y a 6 ans, plus tôt quand l'échantillon du premier
+ * contrôle le dit (40e centile : au moins 60 % de ses annonces y entrent).
+ */
+export function verificationYear(years: number[] = []): number {
+  const cap = thisYear() - 6;
+  const ys = years.filter((y) => Number.isInteger(y) && y > 1950 && y <= thisYear() + 1).sort((a, b) => a - b);
+  return ys.length < 5 ? cap : Math.min(cap, ys[Math.floor(ys.length * 0.4)]);
+}
+
+/**
+ * L'adresse du second contrôle, construite par ADA avec la règle. Modèle : la page marque + une année (celle du
+ * marché réel, `years` = années du premier échantillon) ; `plain` (re-test hebdomadaire) : la page marque + le modèle
+ * seuls — on vérifie que le site applique toujours le modèle, sur l'échantillon le plus large.
+ */
+export function buildVerification(adapter: SiteAdapter, item: Pick<Item, 'kind' | 'site' | 'brand' | 'model' | 'criterion' | 'value'>, rule: ModelFragment | FilterRule, valueKey: string,
+  opts: { years?: number[]; plain?: boolean } = {}): { url: string | null; brand: string; value: string; params: LearningParams } {
   if (item.kind === 'modele') {
     // Le modèle appris POSÉ sur la page marque avec une année en plus : la règle tient-elle avec d'autres critères ?
-    const params: LearningParams = { brand: item.brand, model: '', yearFrom: String(thisYear() - 6) };
+    const params: LearningParams = opts.plain ? { brand: item.brand, model: '' } : { brand: item.brand, model: '', yearFrom: String(verificationYear(opts.years)) };
     const base = applyVariableCriteria(adapter.buildSearchUrl(params).url, params);
     return { url: base ? applyModelFragment(base, rule as ModelFragment) : null, brand: item.brand, value: '', params: { ...params, model: item.model } };
   }
@@ -231,7 +248,7 @@ async function autoValidate(it: Item, learned: Record<string, unknown>, check: R
 export type Outcome = 'validee' | 'a_valider' | 'refusee' | 'deja_traitee';
 
 /** Une proposition : déduction, contrôles, validation automatique à 100 % ou « à valider » (exporté pour les tests). */
-export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps): Promise<Outcome> {
+export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps, opts: { coverage?: string } = {}): Promise<Outcome> {
   const adapter = getSiteAdapter(it.site);
   if (!adapter) { await refuse(it, [`site inconnu (${it.site})`]); return 'refusee'; }
   const start = it.start_url ?? '', proposed = it.proposed_url ?? '';
@@ -256,11 +273,12 @@ export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps):
     .eq('criterion', it.kind === 'filtre' ? it.criterion : '').eq('value_key', valueKey).limit(1);
   const conflict = ((twins ?? []) as unknown[]).length > 0;
 
-  const verif = buildVerification(adapter, it, rule, valueKey);
   const criteriaA: SearchCriteria = it.kind === 'modele'
     ? { brand: it.brand, model: it.model }
     : { brand: it.brand, model: '', ...criterionParams(it.criterion as LearnableCriterion, it.value) };
   const ra = await deps.scrape(proposed).catch((e: unknown) => ({ listings: [], error: e instanceof Error ? e.message : String(e) }) as ScrapeLite);
+  // Le second contrôle se construit APRÈS le premier : son année suit le marché réel du modèle (verificationYear).
+  const verif = buildVerification(adapter, it, rule, valueKey, { years: (ra.listings ?? []).map((l) => Number(l.year)) });
   const rb = verif.url ? await deps.scrape(verif.url).catch((e: unknown) => ({ listings: [], error: e instanceof Error ? e.message : String(e) }) as ScrapeLite) : null;
   await harvest(adapter, ra); await harvest(adapter, rb);
   const evA = evaluate(adapter, it.kind, it.criterion, proposed, criteriaA, it.value, ra);
@@ -268,13 +286,14 @@ export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps):
   const verdict = combine(evA.verdict, evB?.verdict ?? null);
   const check = {
     verdict, conflict, change,
+    ...(opts.coverage ? { warning: opts.coverage } : {}),
     claude: evA,
     ada: evB ?? { verdict: 'impossible', url: '', sample: 0, detail: "ADA n'a pas pu construire l'adresse de vérification avec cette règle", titles: [] },
     checked_at: new Date().toISOString(),
   };
   const learned = { brand_key: brandKey, model_key: modelKey, value_key: valueKey, rule, change };
   const what = whatOf(it);
-  if (verdict === 'ok' && !conflict && evA.strict && evB?.strict
+  if (verdict === 'ok' && !conflict && evA.strict && evB?.strict && !opts.coverage
     && await autoValidate(it, learned, check, verif.url, `${evA.detail} ; ${evB.detail}`)) {
     console.warn(`[APPRENTISSAGE] ${what} : ${change} → validé automatiquement (contrôles à 100 %)`);
     return 'validee';
@@ -283,7 +302,7 @@ export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps):
     status: 'a_valider', learned, check_result: check, verify_url: verif.url, updated_at: new Date().toISOString(),
   }).eq('id', it.id).eq('status', 'proposee').select('id');
   if (!touched(r)) { changedMeanwhile(it, r); return 'deja_traitee'; }
-  console.warn(`[APPRENTISSAGE] ${what} : ${change} → contrôle ${verdict}${conflict ? ' (conflit avec une règle active)' : ''}, à valider`);
+  console.warn(`[APPRENTISSAGE] ${what} : ${change} → contrôle ${verdict}${conflict ? ' (conflit avec une règle active)' : ''}${opts.coverage ? ' (nom plus précis que le modèle)' : ''}, à valider`);
   return 'a_valider';
 }
 
@@ -349,7 +368,12 @@ export async function checkLabel(it: Item, label: string, deps: LearningDeps): P
   }
   const r = await sb().from('linkgen_learning_items').update({ proposed_url: found.url }).eq('id', it.id).eq('status', 'proposee').select('id');
   if (!touched(r)) { changedMeanwhile(it, r); return 'deja_traitee'; }
-  return checkProposal({ ...it, proposed_url: found.url }, deps);
+  // Un nom PLUS PRÉCIS que le modèle (« Countryman Cooper » pour COUNTRYMAN, « GLS 350 » pour GLS-CLASS) : une
+  // version — l'adresse ne couvrirait qu'une partie du marché. Contrôlée quand même, jamais validée seule.
+  const precise = siteLabelKey(it.brand, label) !== refModelKey(it.brand, it.model);
+  return checkProposal({ ...it, proposed_url: found.url }, deps, precise
+    ? { coverage: `Le site nomme ce modèle « ${label.trim()} » : plus précis que « ${it.model} » — vérifiez sur le lien que l'adresse couvre tout le modèle, pas une seule version.` }
+    : {});
 }
 
 const probed = new Map<string, number>();
@@ -385,6 +409,8 @@ export async function learningProbeTick(deps: LearningDeps = defaultDeps, now = 
     const due = (it: Item) => (probed.get(it.id) ?? 0) < now - 86_400_000
       && (!persisted || !it.probed_at || Date.parse(it.probed_at) + probeDelayMs(it.probe_count ?? 0) <= now);
     const todo = ((res.data ?? []) as Item[]).filter(due).slice(0, 2);
+    // Le vocabulaire moissonné des sites (codes, identifiants) chargé AVANT de construire les adresses candidates.
+    if (todo.length) await ensureLearnedTaxonomy().catch(() => undefined);
     const d = memoScrape(deps);
     let n = 0;
     for (const it of todo) {
@@ -397,7 +423,7 @@ export async function learningProbeTick(deps: LearningDeps = defaultDeps, now = 
           await sb().from('linkgen_learning_items').update({
             decision_note: (found.tried.length
               ? `ADA a essayé seule ${forms} : aucune adresse à 100 %. Il faut le nom exact affiché sur le site.`
-              : 'ADA ne sait pas construire ce modèle à partir d\'un nom sur ce site : il faut le nom exact (ou « Absent du site »).').slice(0, 500),
+              : 'Ce site écrit ses modèles avec un code de sa propre liste (identifiant) : un nom ne suffit ni à ADA ni à Claude — rien à faire pour Claude sur cette ligne.').slice(0, 500),
             updated_at: new Date(now).toISOString(),
             ...(persisted ? { probed_at: new Date(now).toISOString(), probe_count: failures } : {}),
           }).eq('id', it.id).eq('status', 'a_chercher');
@@ -508,7 +534,9 @@ export async function weeklyRecheck(deps: LearningDeps = defaultDeps, now = new 
     const adapter = getSiteAdapter(r.site);
     if (!adapter) continue;
     const item = { kind: r.kind, site: r.site, brand: r.brand, model: r.model, criterion: r.criterion, value: r.value };
-    const v = buildVerification(adapter, item, r.rule, r.value_key);
+    // Modèle : la page marque + le modèle seuls (échantillon le plus large) — un vieux modèle n'a presque plus
+    // d'annonces récentes, le contrôle restait « humain » à vie et ne vérifiait rien.
+    const v = buildVerification(adapter, item, r.rule, r.value_key, { plain: r.kind === 'modele' });
     const res = v.url ? await deps.scrape(v.url).catch(() => null) : null;
     const ev = v.url ? evaluate(adapter, r.kind, r.criterion, v.url, v.params, v.value, res) : null;
     const at = now.toISOString();

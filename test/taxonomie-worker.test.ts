@@ -172,7 +172,16 @@ await learningProposalsTick({ scrape: scrapeBy(() => []), fetchText: async () =>
 ok(p2.status === 'a_chercher' && /avec le nom « Raval e »/.test(String(p2.decision_note)) && p2.proposed_label === null, 'nom envoyé mais rien de conforme : refus automatique expliqué, la ligne repart', p2.decision_note);
 p2.status = 'proposee'; p2.proposed_label = 'Raval e';
 await learningProposalsTick({ scrape: cupraScrape, fetchText: async () => null });
-ok(p2.status === 'validee' && String(p2.proposed_url).includes('CUPRA%3A%3ARAVAL%20E'), 'le nom exact lu par Claude (« Raval e ») : ADA construit l\'adresse, 6/6 → validée automatiquement', [p2.status, p2.proposed_url]);
+const p2chk = p2.check_result as { warning?: string; verdict?: string } | null;
+ok(p2.status === 'a_valider' && String(p2.proposed_url).includes('CUPRA%3A%3ARAVAL%20E') && p2chk?.verdict === 'ok' && /plus précis que « RAVAL »/.test(String(p2chk?.warning))
+  && !db.linkgen_learned_rules.some((r) => r.item_id === 'p2'),
+  'nom de Claude PLUS PRÉCIS que le modèle (« Raval e » pour RAVAL : une version ?) : contrôlé 6/6 mais jamais validé seul — « À valider » avec l\'avertissement', [p2.status, p2chk]);
+
+// Un nom ÉQUIVALENT au modèle (« Enyaq iV » = ENYAQ pour ADA) : validé seul, comme avant.
+db.linkgen_learning_items.push(item({ id: 'p3', kind: 'modele', site: 'LACENTRALE', brand: 'SKODA', model: 'ENYAQ', status: 'proposee', proposed_label: 'Enyaq iV', proposed_url: null, start_url: lacentraleAdapter.buildSearchUrl({ brand: 'SKODA', model: '' }).url }));
+await learningProposalsTick({ scrape: scrapeBy((u) => (u.includes('SKODA%3A%3AENYAQ%20IV') ? many(7, { brand: 'SKODA', model: 'ENYAQ IV' }) : [])), fetchText: async () => null });
+const p3 = db.linkgen_learning_items.find((x) => x.id === 'p3')!;
+ok(p3.status === 'validee' && !(p3.check_result as { warning?: string }).warning, 'nom équivalent au modèle (« Enyaq iV » pour ENYAQ) : validé automatiquement, sans avertissement', [p3.status, p3.check_result]);
 
 console.log('\n=== UN SEUL CONTRÔLE À LA FOIS (31/10, la course de 09:56) ===\n');
 // L'essai seul passe la ligne « proposee » puis la contrôle lui-même ; le passage des propositions (60 s) tombait
@@ -253,6 +262,39 @@ await learningHourlyTick(none, new Date(T0 + 40 * D));
 const x1 = db.linkgen_learning_items.find((x) => x.id === 'x1')!, x2 = db.linkgen_learning_items.find((x) => x.id === 'x2')!;
 ok(x1.status === 'a_chercher', 'AutoScout24 « sait écrire » X5 mais une campagne l\'a prouvé faux : la ligne reste ouverte', x1.status);
 ok(x2.status === 'resolue', 'sans échec prouvé, une ligne que le site sait écrire se ferme comme avant', x2.status);
+
+console.log('\n=== CORRECTIONS DE LA CAMPAGNE DU 31/10 14 h ===\n');
+// Le second contrôle suit le marché réel du modèle : un vieux modèle (370Z) n'a presque plus d'annonces ≥ 2020.
+const YEARS = [2009, 2010, 2010, 2011, 2012, 2012, 2013, 2014, 2016, 2018];
+const old370 = YEARS.map((y) => listing({ brand: 'NISSAN', model: '370Z', year: y }));
+const byYear = scrapeBy((u) => {
+  if (!u.includes('NISSAN%3A%3A370Z')) return [];
+  const y = Number(new URL(u).searchParams.get('yearMin') ?? 0);
+  return old370.filter((l) => (l.year ?? 0) >= y);
+});
+db.linkgen_learning_items.push(item({ id: 'z1', kind: 'modele', site: 'LACENTRALE', brand: 'NISSAN', model: '370Z', status: 'a_chercher', priority: 9, hits: 9, start_url: lacentraleAdapter.buildSearchUrl({ brand: 'NISSAN', model: '' }).url }));
+await learningProbeTick({ scrape: byYear, fetchText: async () => null }, T0 + 60 * D);
+const z1 = db.linkgen_learning_items.find((x) => x.id === 'z1')!;
+ok(z1.status === 'validee' && String(z1.verify_url).includes('yearMin=2012'),
+  'vieux modèle (370Z, annonces 2009-2018) : le second contrôle prend 2012 (marché réel), pas 2020 → 6/6, validé seul', [z1.status, z1.verify_url, (z1.check_result as { ada?: { detail?: string } })?.ada?.detail]);
+const { verificationYear } = await import('../worker/taxonomyLearning');
+ok(verificationYear([2024, 2025, 2025, 2026, 2026]) === new Date().getFullYear() - 6 && verificationYear([2011]) === new Date().getFullYear() - 6,
+  'modèle récent, ou échantillon trop petit : l\'année reste celle d\'il y a 6 ans');
+
+// Le re-test hebdomadaire d'un modèle : page marque + modèle seuls (sinon « humain » à vie pour un vieux modèle).
+const z1rule = db.linkgen_learned_rules.find((r) => r.item_id === 'z1')!;
+z1rule.last_check_at = new Date(T0).toISOString();
+const weeklyUrls: string[] = [];
+await weeklyRecheck({ scrape: async (u: string) => { weeklyUrls.push(u); return byYear(u); }, fetchText: async () => null }, new Date(T0 + 70 * D));
+const zUrl = weeklyUrls.find((u) => u.includes('NISSAN'));
+ok(Boolean(zUrl) && !zUrl!.includes('yearMin') && z1rule.fail_count === 0 && (z1rule.check_result as { verdict?: string })?.verdict === 'ok',
+  're-test hebdomadaire d\'un modèle : sans année, sur tout l\'échantillon (10/10) — un vrai contrôle', [zUrl, z1rule.fail_count, z1rule.check_result]);
+
+// mobile.de : le modèle s'écrit avec un identifiant de la liste du site — un nom ne sert à rien, la note le dit.
+db.linkgen_learning_items.push(item({ id: 'md1', kind: 'modele', site: 'MOBILE_DE', brand: 'MERCEDES', model: 'GLS-CLASS', status: 'a_chercher', priority: 9, hits: 9 }));
+await learningProbeTick({ scrape: scrapeBy(() => []), fetchText: async () => null }, T0 + 61 * D);
+const md1 = db.linkgen_learning_items.find((x) => x.id === 'md1')!;
+ok(md1.status === 'a_chercher' && /rien à faire pour Claude/.test(String(md1.decision_note)), 'mobile.de GLS-CLASS : « rien à faire pour Claude » (identifiant de la liste du site)', md1.decision_note);
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

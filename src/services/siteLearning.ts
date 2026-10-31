@@ -18,7 +18,9 @@ export interface LearningItem {
   hits: number; sources: string[]; priority: number; first_seen_at: string; last_seen_at: string;
   start_url: string | null; status: LearningStatus; proposed_url: string | null; proposed_at: string | null;
   absent_note: string | null; learned: { rule?: ModelFragment | FilterRule; change?: string; absent?: boolean; value_key?: string } | null;
-  check_result: { verdict: Evaluation['verdict']; conflict?: boolean; change?: string; claude?: Evaluation; ada?: Evaluation } | null;
+  check_result: { verdict: Evaluation['verdict']; conflict?: boolean; change?: string; claude?: Evaluation; ada?: Evaluation;
+    /** Nom de Claude plus précis que le modèle (une version ?) : jamais validé seul (31/10). */
+    warning?: string } | null;
   verify_url: string | null; decision_note: string | null; attempts: number; updated_at: string;
 }
 
