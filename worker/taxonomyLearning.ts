@@ -163,11 +163,27 @@ const combine = (a: Evaluation['verdict'], b: Evaluation['verdict'] | null): Eva
   return 'humain';
 };
 
+/**
+ * Les lignes en cours de contrôle dans ce processus (31/10) : jamais deux contrôles de la même ligne en même temps.
+ * L'essai seul d'ADA passe une ligne « proposee » puis la contrôle aussitôt ; sans ce verrou, le passage des
+ * propositions (60 s) la reprenait en parallèle — deux scrapes de trop, un journal trompeur, et dans un cas rare
+ * une règle active pendant que la ligne restait « à valider ».
+ */
+const inCheck = new Set<string>();
+/** Une écriture gardée par le statut a-t-elle touché la ligne ? (.select('id') : les lignes réellement modifiées) */
+const touched = (r: { data?: unknown } | null | undefined) => Array.isArray(r?.data) && r.data.length > 0;
+const whatOf = (it: Item) => `${it.site} ${it.kind === 'modele' ? `${it.brand} ${it.model}` : `${it.criterion} ${it.value}`}`;
+type Written = { data?: unknown; error?: { message?: string } | null } | null | undefined;
+const changedMeanwhile = (it: Item, r?: Written) => console.warn(`[APPRENTISSAGE] ${whatOf(it)} : ${r?.error
+  ? `écriture en échec (${r.error.message ?? 'erreur inconnue'}) — la ligne sera reprise au prochain passage`
+  : 'la ligne a changé pendant le contrôle (décision prise ailleurs) — rien écrit'}`);
+
 async function refuse(it: Item, reasons: string[]): Promise<void> {
-  await sb().from('linkgen_learning_items').update({
+  const r = await sb().from('linkgen_learning_items').update({
     status: 'a_chercher', decision_note: `Refus automatique : ${reasons.join(' ; ')}`.slice(0, 500), attempts: (it.attempts ?? 0) + 1,
     proposed_url: null, learned: null, check_result: null, verify_url: null, updated_at: new Date().toISOString(),
-  }).eq('id', it.id).eq('status', 'proposee');
+  }).eq('id', it.id).eq('status', 'proposee').select('id');
+  if (!touched(r)) { changedMeanwhile(it, r); return; }
   console.warn(`[APPRENTISSAGE] ${it.site} ${it.kind === 'modele' ? `${it.brand} ${it.model}` : it.criterion} : refus automatique — ${reasons.join(' ; ')}`);
 }
 
@@ -180,28 +196,37 @@ async function harvest(adapter: SiteAdapter, r: ScrapeLite | null): Promise<void
  * VALIDATION AUTOMATIQUE (31/10, Channing : « Je veux que l'apprentissage de taxonomie lorsqu'il est fiable à 100 %
  * se fasse automatique […] intervenir le moins possible ») : règle exacte, aucun conflit, et les DEUX adresses
  * (Claude, ADA) à 100 % sur au moins 5 annonces. La règle entre active, la ligne passe « validée » ; sinon elle
- * reste « à valider ». Une course avec une autre validation (index unique) la laisse aussi à valider.
+ * reste « à valider ». Une course avec une autre validation (index unique) la laisse aussi à valider. Si la ligne
+ * a changé pendant le contrôle (plus « proposee »), la règle tout juste écrite est effacée : jamais de règle active
+ * sans sa ligne validée.
  */
 async function autoValidate(it: Item, learned: Record<string, unknown>, check: Record<string, unknown>, verifyUrl: string | null, detail: string): Promise<boolean> {
   const at = new Date().toISOString();
-  const { error } = await sb().from('linkgen_learned_rules').insert({
+  const { data: rule, error } = await sb().from('linkgen_learned_rules').insert({
     site: it.site, kind: it.kind, brand_key: learned.brand_key, model_key: learned.model_key, brand: it.brand, model: it.model,
     criterion: it.kind === 'filtre' ? it.criterion : '', value_key: learned.value_key, value: it.value, rule: learned.rule,
     status: 'active', item_id: it.id, proof_url: it.proposed_url, verify_url: verifyUrl, check_result: check, validated_by: null, validated_at: at,
     last_check_at: at, // contrôlée à l'instant : le re-test hebdomadaire part d'ici
-  });
-  if (error) return false;
-  await sb().from('linkgen_learning_items').update({
+  }).select('id').single();
+  if (error || !rule?.id) return false;
+  const r = await sb().from('linkgen_learning_items').update({
     status: 'validee', learned, check_result: check, verify_url: verifyUrl, decided_by: null, decided_at: at,
     decision_note: `Validé automatiquement : contrôles à 100 % (${detail})`.slice(0, 500), updated_at: at,
-  }).eq('id', it.id).eq('status', 'proposee');
+  }).eq('id', it.id).eq('status', 'proposee').select('id');
+  if (!touched(r)) {
+    await sb().from('linkgen_learned_rules').delete().eq('id', rule.id);
+    return false;
+  }
   if (it.kind === 'modele') await healOpenGaps(it.site, it.brand, it.model).catch(() => 0);
   await loadLearnedRules().catch(() => undefined);
   return true;
 }
 
+/** Ce que devient une proposition ; « deja_traitee » : la ligne a changé pendant le contrôle, rien n'est écrit. */
+export type Outcome = 'validee' | 'a_valider' | 'refusee' | 'deja_traitee';
+
 /** Une proposition : déduction, contrôles, validation automatique à 100 % ou « à valider » (exporté pour les tests). */
-export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps): Promise<'validee' | 'a_valider' | 'refusee'> {
+export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps): Promise<Outcome> {
   const adapter = getSiteAdapter(it.site);
   if (!adapter) { await refuse(it, [`site inconnu (${it.site})`]); return 'refusee'; }
   const start = it.start_url ?? '', proposed = it.proposed_url ?? '';
@@ -243,15 +268,16 @@ export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps):
     checked_at: new Date().toISOString(),
   };
   const learned = { brand_key: brandKey, model_key: modelKey, value_key: valueKey, rule, change };
-  const what = `${it.site} ${it.kind === 'modele' ? `${it.brand} ${it.model}` : `${it.criterion} ${it.value}`}`;
+  const what = whatOf(it);
   if (verdict === 'ok' && !conflict && evA.strict && evB?.strict
     && await autoValidate(it, learned, check, verif.url, `${evA.detail} ; ${evB.detail}`)) {
     console.warn(`[APPRENTISSAGE] ${what} : ${change} → validé automatiquement (contrôles à 100 %)`);
     return 'validee';
   }
-  await sb().from('linkgen_learning_items').update({
+  const r = await sb().from('linkgen_learning_items').update({
     status: 'a_valider', learned, check_result: check, verify_url: verif.url, updated_at: new Date().toISOString(),
-  }).eq('id', it.id).eq('status', 'proposee');
+  }).eq('id', it.id).eq('status', 'proposee').select('id');
+  if (!touched(r)) { changedMeanwhile(it, r); return 'deja_traitee'; }
   console.warn(`[APPRENTISSAGE] ${what} : ${change} → contrôle ${verdict}${conflict ? ' (conflit avec une règle active)' : ''}, à valider`);
   return 'a_valider';
 }
@@ -264,20 +290,23 @@ export async function learningProposalsTick(deps: LearningDeps = defaultDeps): P
   try {
     // proposed_label : SQL du 31/10 — sans lui, la file se lit comme avant (adresses seulement).
     let res = await sb().from('linkgen_learning_items').select(`${ITEM_COLS}, proposed_label`)
-      .eq('status', 'proposee').order('proposed_at', { ascending: true }).limit(2);
+      .eq('status', 'proposee').order('proposed_at', { ascending: true }).limit(6);
     if (res.error && /proposed_label/.test(res.error.message)) {
-      res = await sb().from('linkgen_learning_items').select(ITEM_COLS).eq('status', 'proposee').order('proposed_at', { ascending: true }).limit(2);
+      res = await sb().from('linkgen_learning_items').select(ITEM_COLS).eq('status', 'proposee').order('proposed_at', { ascending: true }).limit(6);
     }
     if (tableMissing(res.error)) return 0;
     const d = memoScrape(deps);
     let n = 0;
-    for (const it of (res.data ?? []) as Item[]) {
+    // Une ligne déjà en contrôle (l'essai seul d'ADA la contrôle lui-même) n'est pas reprise.
+    for (const it of ((res.data ?? []) as Item[]).filter((x) => !inCheck.has(x.id)).slice(0, 2)) {
+      inCheck.add(it.id);
       try {
         if (it.proposed_url) await checkProposal(it, d);
         else if (it.kind === 'modele' && it.proposed_label) await checkLabel(it, it.proposed_label, d);
         else await refuse(it, ['proposition vide (ni adresse ni nom)']);
         n++;
       } catch (e) { console.warn(`[APPRENTISSAGE] contrôle en échec (${it.id}) : ${e instanceof Error ? e.message : String(e)}`); }
+      finally { inCheck.delete(it.id); }
     }
     return n;
   } finally {
@@ -304,16 +333,17 @@ export async function findModelUrl(it: Pick<Item, 'site' | 'brand' | 'model'>, n
 }
 
 /** Le nom exact envoyé par Claude : ADA construit l'adresse, la vérifie, puis le contrôle habituel (exporté pour les tests). */
-export async function checkLabel(it: Item, label: string, deps: LearningDeps): Promise<'validee' | 'a_valider' | 'refusee'> {
+export async function checkLabel(it: Item, label: string, deps: LearningDeps): Promise<Outcome> {
   const found = await findModelUrl(it, label, deps);
   if (!found.url) {
-    await sb().from('linkgen_learning_items').update({ proposed_label: null }).eq('id', it.id);
+    await sb().from('linkgen_learning_items').update({ proposed_label: null }).eq('id', it.id).eq('status', 'proposee');
     await refuse(it, [found.tried.length
       ? `avec le nom « ${label} », aucune des ${found.tried.length} adresse(s) construites n'a donné 100 % d'annonces conformes — vérifier l'orthographe exacte sur le site`
       : `ADA ne sait pas construire d'adresse sur ce site à partir d'un nom (identifiant numérique nécessaire)`]);
     return 'refusee';
   }
-  await sb().from('linkgen_learning_items').update({ proposed_url: found.url }).eq('id', it.id).eq('status', 'proposee');
+  const r = await sb().from('linkgen_learning_items').update({ proposed_url: found.url }).eq('id', it.id).eq('status', 'proposee').select('id');
+  if (!touched(r)) { changedMeanwhile(it, r); return 'deja_traitee'; }
   return checkProposal({ ...it, proposed_url: found.url }, deps);
 }
 
@@ -350,11 +380,21 @@ export async function learningProbeTick(deps: LearningDeps = defaultDeps, now = 
           continue;
         }
         const at = new Date(now).toISOString();
-        await sb().from('linkgen_learning_items').update({ status: 'proposee', proposed_url: found.url, proposed_by: null, proposed_at: at, updated_at: at })
-          .eq('id', it.id).eq('status', 'a_chercher');
-        console.warn(`[APPRENTISSAGE] ${it.site} ${it.brand} ${it.model} : adresse trouvée seule (${found.url})`);
-        await checkProposal({ ...it, status: 'proposee', proposed_url: found.url }, d);
-        n++;
+        // Le verrou AVANT le passage en « proposee » : le passage des propositions ne la reprendra pas en parallèle.
+        inCheck.add(it.id);
+        try {
+          const claimed = await sb().from('linkgen_learning_items').update({ status: 'proposee', proposed_url: found.url, proposed_by: null, proposed_at: at, updated_at: at })
+            .eq('id', it.id).eq('status', 'a_chercher').select('id');
+          // Proposée (ou écartée) pendant l'essai : c'est cette proposition-là qui compte, rien n'est contrôlé ici.
+          if (!touched(claimed)) {
+            console.warn(`[APPRENTISSAGE] ${it.site} ${it.brand} ${it.model} : adresse trouvée seule, mais ${claimed?.error
+              ? `écriture en échec (${claimed.error.message ?? 'erreur inconnue'})` : 'la ligne a changé entre-temps'} — laissée telle quelle`);
+            continue;
+          }
+          console.warn(`[APPRENTISSAGE] ${it.site} ${it.brand} ${it.model} : adresse trouvée seule (${found.url})`);
+          await checkProposal({ ...it, status: 'proposee', proposed_url: found.url }, d);
+          n++;
+        } finally { inCheck.delete(it.id); }
       } catch (e) { console.warn(`[APPRENTISSAGE] essai seul en échec (${it.id}) : ${e instanceof Error ? e.message : String(e)}`); }
     }
     return n;

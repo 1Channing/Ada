@@ -30,7 +30,7 @@ const db: FakeDb = {
 };
 const users = [{ id: 'u-channing', email: 'channing@mc-export.com' }];
 setSharedSupabase({ ...fakeSupabase(db), auth: { admin: { listUsers: async () => ({ data: { users }, error: null }) } } } as never);
-const { learningProposalsTick, learningHourlyTick, weeklyRecheck, learningProbeTick } = await import('../worker/taxonomyLearning');
+const { learningProposalsTick, learningHourlyTick, weeklyRecheck, learningProbeTick, checkProposal } = await import('../worker/taxonomyLearning');
 const { lacentraleAdapter } = await import('../src/lib/study-core/marketplaces/lacentrale');
 
 const scraped: string[] = [];
@@ -173,6 +173,56 @@ ok(p2.status === 'a_chercher' && /avec le nom « Raval e »/.test(String(p2.deci
 p2.status = 'proposee'; p2.proposed_label = 'Raval e';
 await learningProposalsTick({ scrape: cupraScrape, fetchText: async () => null });
 ok(p2.status === 'validee' && String(p2.proposed_url).includes('CUPRA%3A%3ARAVAL%20E'), 'le nom exact lu par Claude (« Raval e ») : ADA construit l\'adresse, 6/6 → validée automatiquement', [p2.status, p2.proposed_url]);
+
+console.log('\n=== UN SEUL CONTRÔLE À LA FOIS (31/10, la course de 09:56) ===\n');
+// L'essai seul passe la ligne « proposee » puis la contrôle lui-même ; le passage des propositions (60 s) tombait
+// pendant ce contrôle et la reprenait : deux scrapes de trop, et un journal « à valider » après « validé ».
+const GLC = 'MERCEDES%3A%3ACLASSE%20GLC';
+db.linkgen_learning_items.push(item({ id: 'q1', kind: 'modele', site: 'LACENTRALE', brand: 'MERCEDES', model: 'GLC-CLASS', status: 'a_chercher', priority: 9, start_url: LC0 }));
+let passResult: number | null = null;
+const passScraped: string[] = [];
+const raceScrape = async (url: string) => {
+  scraped.push(url);
+  if (passResult === null && db.linkgen_learning_items.find((x) => x.id === 'q1')!.status === 'proposee') {
+    passResult = await learningProposalsTick({ scrape: async (u: string) => { passScraped.push(u); return { listings: [] }; }, fetchText: async () => null });
+  }
+  return { listings: url.includes(GLC) ? many(8, { brand: 'MERCEDES', model: 'CLASSE GLC' }) : [] };
+};
+await learningProbeTick({ scrape: raceScrape, fetchText: async () => null }, NOW.getTime() + 120_000);
+const q1 = db.linkgen_learning_items.find((x) => x.id === 'q1')!;
+ok(passResult === 0 && passScraped.length === 0, 'le passage des propositions tombe pendant le contrôle de l\'essai seul : il laisse la ligne (aucun scrape en double)', [passResult, passScraped]);
+ok(q1.status === 'validee' && db.linkgen_learned_rules.filter((r) => r.item_id === 'q1').length === 1, 'contrôlée une seule fois : validée, une seule règle', q1.status);
+
+// Claude envoie le nom pendant que l'essai seul scrape : c'est SA proposition qui compte, l'essai ne contrôle rien.
+const GLE = 'MERCEDES%3A%3ACLASSE%20GLE';
+db.linkgen_learning_items.push(item({ id: 'q2', kind: 'modele', site: 'LACENTRALE', brand: 'MERCEDES', model: 'GLE-CLASS', status: 'a_chercher', priority: 9, start_url: LC0 }));
+const q2 = db.linkgen_learning_items.find((x) => x.id === 'q2')!;
+const fromQ2 = scraped.length;
+const claudeMeanwhile = async (url: string) => {
+  scraped.push(url);
+  if (q2.status === 'a_chercher') { q2.status = 'proposee'; q2.proposed_label = 'Classe GLE'; q2.proposed_url = null; }
+  return { listings: url.includes(GLE) ? many(8, { brand: 'MERCEDES', model: 'CLASSE GLE' }) : [] };
+};
+await learningProbeTick({ scrape: claudeMeanwhile, fetchText: async () => null }, NOW.getTime() + 180_000);
+ok(q2.status === 'proposee' && q2.proposed_label === 'Classe GLE' && q2.proposed_url == null && !db.linkgen_learned_rules.some((r) => r.item_id === 'q2')
+  && scraped.slice(fromQ2).every((u) => !u.includes('yearMin')),
+  'la ligne a été proposée pendant l\'essai seul : elle garde la proposition de Claude, l\'essai n\'écrit ni ne contrôle rien', [q2.status, q2.proposed_url, scraped.slice(fromQ2)]);
+await learningProposalsTick({ scrape: scrapeBy((u) => (u.includes(GLE) ? many(8, { brand: 'MERCEDES', model: 'CLASSE GLE' }) : [])), fetchText: async () => null });
+ok(q2.status === 'validee' && db.linkgen_learned_rules.filter((r) => r.item_id === 'q2').length === 1, 'puis le passage suivant contrôle la proposition de Claude : validée, une règle', q2.status);
+
+// La ligne change pendant le contrôle (décision prise ailleurs) : jamais de règle active sans sa ligne validée.
+const SB5 = SB0.replace('/auto/bmw/', '/auto/bmw/serie-5/');
+db.linkgen_learning_items.push(item({ id: 'c1', kind: 'modele', site: 'SUBITO', brand: 'BMW', model: 'Serie 5', start_url: SB0, proposed_url: SB5 }));
+const c1 = db.linkgen_learning_items.find((x) => x.id === 'c1')!;
+let calls = 0;
+const flip = async (url: string) => {
+  scraped.push(url);
+  if (++calls === 2) c1.status = 'ignoree';
+  return { listings: many(6, { brand: 'BMW', model: 'Serie 5', title: 'BMW Serie 5 520d' }) };
+};
+const outcome = await checkProposal(c1 as never, { scrape: flip, fetchText: async () => null });
+ok(outcome === 'deja_traitee' && c1.status === 'ignoree' && !c1.learned && !db.linkgen_learned_rules.some((r) => r.item_id === 'c1'),
+  'la ligne change pendant le contrôle : la règle tout juste écrite est effacée, rien n\'est écrit sur la ligne', [outcome, c1.status, db.linkgen_learned_rules.filter((r) => r.item_id === 'c1').length]);
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
