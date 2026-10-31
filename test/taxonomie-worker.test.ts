@@ -296,5 +296,28 @@ await learningProbeTick({ scrape: scrapeBy(() => []), fetchText: async () => nul
 const md1 = db.linkgen_learning_items.find((x) => x.id === 'md1')!;
 ok(md1.status === 'a_chercher' && /rien à faire pour Claude/.test(String(md1.decision_note)), 'mobile.de GLS-CLASS : « rien à faire pour Claude » (identifiant de la liste du site)', md1.decision_note);
 
+console.log('\n=== LA LISTE DU SITE DANS L\'ESSAI SEUL (31/10) ===\n');
+const { loadLearnedTaxonomy } = await import('../src/lib/linkgen/taxonomy');
+const { skelbiuAdapter } = await import('../src/lib/study-core/marketplaces/skelbiu');
+db.linkgen_enum_mappings.push(
+  { id: 'e1', site: 'SKELBIU', field: 'sk:cat', code: '2924', label: 'MG ZS' },
+  { id: 'e2', site: 'MOBILE_DE', field: 'ms:make', code: '17200', label: 'Mercedes-Benz' },
+  { id: 'e3', site: 'MOBILE_DE', field: 'ms:model', code: '17200;401', label: 'GLE 350 d' },
+  { id: 'e4', site: 'MOBILE_DE', field: 'ms:model', code: '17200;402', label: 'GLE 450' },
+);
+await loadLearnedTaxonomy();
+db.linkgen_learning_items.push(item({ id: 'v1', kind: 'modele', site: 'SKELBIU', brand: 'MG/MG MOTOR', model: 'ZS', status: 'a_chercher', priority: 9, hits: 9, start_url: skelbiuAdapter.buildSearchUrl({ brand: 'MG/MG MOTOR', model: '' }).url }));
+const mgScrape = scrapeBy((u) => (/category_id=2924(&|$)/.test(u) ? many(8, { brand: 'MG', model: 'ZS', title: 'MG ZS EV Luxury' }) : []));
+await learningProbeTick({ scrape: mgScrape, fetchText: async () => null }, T0 + 80 * D);
+const v1 = db.linkgen_learning_items.find((x) => x.id === 'v1')!;
+const v1rule = db.linkgen_learned_rules.find((r) => r.item_id === 'v1');
+ok(v1.status === 'validee' && JSON.stringify(v1rule?.rule).includes('2924'),
+  'Skelbiu MG/MG MOTOR ZS : « MG ZS » trouvé dans la liste du site, adresse prouvée (8/8), validé seul — sans Claude', [v1.status, v1rule?.rule, v1.decision_note]);
+db.linkgen_learning_items.push(item({ id: 'md2', kind: 'modele', site: 'MOBILE_DE', brand: 'MERCEDES', model: 'GLE-CLASS', status: 'a_chercher', priority: 9, hits: 9 }));
+await learningProbeTick({ scrape: scrapeBy(() => []), fetchText: async () => null }, T0 + 81 * D);
+const md2 = db.linkgen_learning_items.find((x) => x.id === 'md2')!;
+ok(md2.status === 'a_chercher' && /découpe ce modèle en versions \(GLE 350 d, GLE 450\)/.test(String(md2.decision_note)) && /rien à faire pour Claude/.test(String(md2.decision_note)),
+  'mobile.de GLE : la liste montre un modèle découpé en versions — dit tel quel, rien à faire pour Claude', md2.decision_note);
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

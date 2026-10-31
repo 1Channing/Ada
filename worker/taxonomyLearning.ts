@@ -21,7 +21,7 @@ import { getSiteAdapter } from '../src/lib/study-core/marketplaces';
 import type { SiteAdapter, SearchCriteria } from '../src/lib/study-core/marketplaces/types';
 import type { ScrapedListing } from '../src/lib/study-core/types';
 import { analyzeIngestion, type IngestionField } from '../src/lib/study-core/ingestion';
-import { persistTaxonomyHarvest, ensureLearnedTaxonomy } from '../src/lib/linkgen/taxonomy';
+import { persistTaxonomyHarvest, ensureLearnedTaxonomy, learnedVocabulary } from '../src/lib/linkgen/taxonomy';
 import { applyVariableCriteria, missingUrlCriteria } from '../src/lib/linkgen/grammar';
 import { loadLearnedRules, learnedRulesFor } from '../src/lib/linkgen/learnedRules';
 import { refModelKey } from '../src/services/marketData';
@@ -31,7 +31,7 @@ import {
   type ModelFragment, type FilterRule, type LearnedRuleRow, type LearnableCriterion, type LearningParams,
 } from '../src/lib/linkgen/learning';
 import { healOpenGaps } from '../src/lib/linkgen/gapHealing';
-import { modelCandidates, modelLabelForms, siteLabelKey } from '../src/lib/linkgen/modelProbe';
+import { modelCandidates, modelLabelForms, siteLabelKey, vocabularyMatches } from '../src/lib/linkgen/modelProbe';
 import { mcExportAccounts } from './agents/recap';
 
 type Sb = { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -342,11 +342,13 @@ export async function learningProposalsTick(deps: LearningDeps = defaultDeps): P
  * L'adresse d'un modèle à partir d'un NOM (31/10) : les adresses candidates « page marque + modèle » (modelProbe.ts)
  * scrapées une à une ; la première dont les annonces sont conformes à 100 % (au moins 5) — null sinon.
  */
-export async function findModelUrl(it: Pick<Item, 'site' | 'brand' | 'model'>, name: string, deps: LearningDeps): Promise<{ url: string | null; tried: string[] }> {
+export async function findModelUrl(it: Pick<Item, 'site' | 'brand' | 'model'>, names: string | string[], deps: LearningDeps): Promise<{ url: string | null; tried: string[] }> {
   const adapter = getSiteAdapter(it.site);
   if (!adapter) return { url: null, tried: [] };
   const tried: string[] = [];
-  for (const url of modelCandidates(adapter, it.brand, name)) {
+  // Plusieurs noms (la liste du site d'abord, puis celui d'ADA) : au plus 5 adresses scrapées par essai.
+  const urls = [...new Set((Array.isArray(names) ? names : [names]).flatMap((n) => modelCandidates(adapter, it.brand, n)))].slice(0, 5);
+  for (const url of urls) {
     tried.push(url);
     const r = await deps.scrape(url).catch(() => null);
     await harvest(adapter, r);
@@ -416,14 +418,29 @@ export async function learningProbeTick(deps: LearningDeps = defaultDeps, now = 
     for (const it of todo) {
       probed.set(it.id, now);
       try {
-        const found = await findModelUrl(it, it.model, d);
+        // LA LISTE DU SITE D'ABORD (31/10) : le nom exact que le site emploie déjà (« MG ZS » pour ZS), puis celui d'ADA.
+        const adapter = getSiteAdapter(it.site);
+        const vm = adapter ? vocabularyMatches(adapter, it.brand, it.model, learnedVocabulary(it.site)) : { exact: [], versions: [] };
+        let found = await findModelUrl(it, [...vm.exact, it.model], d);
+        let coverage: string | undefined;
+        // Un seul nom plus long dans la liste (« 5 E-Tech » pour 5) : peut-être le nom complet — prouvé, mais validé par vous.
+        if (!found.url && vm.versions.length === 1) {
+          const one = await findModelUrl(it, [vm.versions[0]], d);
+          if (one.url) {
+            found = one;
+            coverage = `La liste du site ne connaît ce modèle que sous « ${vm.versions[0]} » : plus précis que « ${it.model} » — vérifiez sur le lien que l'adresse couvre tout le modèle, pas une seule version.`;
+          }
+        }
         if (!found.url) {
           const forms = modelLabelForms(it.model).map((f) => `« ${f} »`).join(', ');
           const failures = (it.probe_count ?? 0) + 1;
+          const split = vm.versions.length >= 2
+            ? `Ce site découpe ce modèle en versions (${vm.versions.slice(0, 6).join(', ')}${vm.versions.length > 6 ? '…' : ''}) : aucune adresse ne couvre tout le modèle — rien à faire pour Claude sur cette ligne.`
+            : null;
           await sb().from('linkgen_learning_items').update({
-            decision_note: (found.tried.length
-              ? `ADA a essayé seule ${forms} : aucune adresse à 100 %. Il faut le nom exact affiché sur le site.`
-              : 'Ce site écrit ses modèles avec un code de sa propre liste (identifiant) : un nom ne suffit ni à ADA ni à Claude — rien à faire pour Claude sur cette ligne.').slice(0, 500),
+            decision_note: (split ?? (found.tried.length
+              ? `ADA a essayé seule ${forms}${vm.exact.length ? ` et le nom de la liste du site (${vm.exact.map((l) => `« ${l} »`).join(', ')})` : ''} : aucune adresse à 100 %. Il faut le nom exact affiché sur le site.`
+              : 'Ce site écrit ses modèles avec un code de sa propre liste (identifiant) : un nom ne suffit ni à ADA ni à Claude — rien à faire pour Claude sur cette ligne.')).slice(0, 500),
             updated_at: new Date(now).toISOString(),
             ...(persisted ? { probed_at: new Date(now).toISOString(), probe_count: failures } : {}),
           }).eq('id', it.id).eq('status', 'a_chercher');
@@ -441,8 +458,8 @@ export async function learningProbeTick(deps: LearningDeps = defaultDeps, now = 
               ? `écriture en échec (${claimed.error.message ?? 'erreur inconnue'})` : 'la ligne a changé entre-temps'} — laissée telle quelle`);
             continue;
           }
-          console.warn(`[APPRENTISSAGE] ${it.site} ${it.brand} ${it.model} : adresse trouvée seule (${found.url})`);
-          await checkProposal({ ...it, status: 'proposee', proposed_url: found.url }, d);
+          console.warn(`[APPRENTISSAGE] ${it.site} ${it.brand} ${it.model} : adresse trouvée seule (${found.url})${vm.exact.length ? ` — liste du site : ${vm.exact.join(', ')}` : ''}`);
+          await checkProposal({ ...it, status: 'proposee', proposed_url: found.url }, d, coverage ? { coverage } : {});
           n++;
         } finally { inCheck.delete(it.id); }
       } catch (e) { console.warn(`[APPRENTISSAGE] essai seul en échec (${it.id}) : ${e instanceof Error ? e.message : String(e)}`); }

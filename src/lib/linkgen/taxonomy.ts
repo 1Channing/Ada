@@ -124,6 +124,15 @@ export async function ensureLearnedTaxonomy(maxAgeMs = 10 * 60_000): Promise<voi
  * site (le dictionnaire porte aussi du bruit : « 5-serie → HYBRIDE »).
  */
 const LEARNED_CODES = new Map<string, Map<string, Map<string, string>>>();
+/**
+ * LA LISTE DU SITE, BRUTE (31/10, Channing : « apprendre directement les noms avec les listes présentes ») : les
+ * libellés d'origine moissonnés par site (« MG ZS », « GLS 350 », « Countryman Cooper ») — l'essai seul d'ADA y
+ * cherche le nom exact du site avant de deviner (modelProbe.vocabularyMatches).
+ */
+const LEARNED_VOCAB = new Map<string, Array<{ field: string; code: string; label: string }>>();
+export function learnedVocabulary(site: string): ReadonlyArray<{ field: string; code: string; label: string }> {
+  return LEARNED_VOCAB.get(site) ?? [];
+}
 const enumKey = (label: string) => label.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
 export function learnedEnumCode(site: string, field: string, label: string | null | undefined): string | null {
   const l = String(label ?? '').trim();
@@ -162,6 +171,7 @@ export async function loadLearnedTaxonomy(): Promise<void> {
       if (!page || page.length < 1000) break;
     }
     if (readError || !data.length) continue;
+    LEARNED_VOCAB.set(String(adapter.key), data);
     for (const r of data) rememberLearnedCode(String(adapter.key), r.field, r.code, r.label);
     const byField = new Map<string, Array<{ code: string; label: string }>>();
     for (const r of data) {

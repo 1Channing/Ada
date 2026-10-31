@@ -8,7 +8,8 @@ import { jofogasAdapter } from '../src/lib/study-core/marketplaces/jofogas';
 import { lacentraleAdapter } from '../src/lib/study-core/marketplaces/lacentrale';
 import { gaspedaalAdapter } from '../src/lib/study-core/marketplaces/gaspedaal';
 import { leboncoinAdapter } from '../src/lib/study-core/marketplaces/leboncoin';
-import { modelCandidates, modelLabelForms, siteLabelKey } from '../src/lib/linkgen/modelProbe';
+import { modelCandidates, modelLabelForms, siteLabelKey, vocabularyMatches } from '../src/lib/linkgen/modelProbe';
+import { getSiteAdapter as siteAdapter } from '../src/lib/study-core/marketplaces';
 import { refModelKey } from '../src/services/marketData';
 import {
   diffUrls, deduceModelFragment, deduceFilterRule, applyModelFragment, applyLearnedFilters, checkNumeric, verifyValueFor,
@@ -177,6 +178,30 @@ ok(same('MG/MG MOTOR', 'MG ZS', 'ZS') && same('MERCEDES', 'Mercedes-Benz GLS', '
   'la marque en tête du nom est retirée : « MG ZS » = ZS, « Mercedes-Benz GLS » = GLS-CLASS');
 ok(!same('MINI', 'Countryman Cooper', 'COUNTRYMAN') && !same('MERCEDES', 'GLS 350', 'GLS-CLASS') && !same('CUPRA', 'Raval e', 'RAVAL'),
   'plus précis (une version ?) : « Countryman Cooper », « GLS 350 », « Raval e »');
+
+console.log('\n=== LA LISTE DU SITE : LE NOM QUE LE SITE EMPLOIE DÉJÀ (31/10) ===\n');
+const SK = siteAdapter('SKELBIU')!, MD = siteAdapter('MOBILE_DE')!, SBA = siteAdapter('SUBITO')!, BB = siteAdapter('BILBASEN')!, LBA = siteAdapter('LEBONCOIN')!;
+const skV = [{ field: 'sk:cat', code: '2924', label: 'MG ZS' }, { field: 'sk:cat', code: '101', label: 'Toyota' }, { field: 'sk:cat', code: '3554', label: 'Toyota Yaris' }];
+SK.learnEnumValues!('sk:cat', skV);
+const skM = vocabularyMatches(SK, 'MG/MG MOTOR', 'ZS', skV);
+ok(skM.exact.join() === 'MG ZS' && skM.versions.length === 0, 'Skelbiu : « MG ZS » est le nom du site pour MG/MG MOTOR ZS (marque en tête retirée, écrit sans deviner)', skM);
+ok(vocabularyMatches(SK, 'TOYOTA', 'YARIS CROSS', skV).exact.length === 0, 'Skelbiu : « Toyota Yaris » n\'est pas la Yaris Cross');
+const mdV = [{ field: 'ms:make', code: '17200', label: 'Mercedes-Benz' }, { field: 'ms:make', code: '3500', label: 'BMW' },
+  { field: 'ms:model', code: '17200;268', label: 'GLS 350' }, { field: 'ms:model', code: '17200;269', label: 'GLS 400' },
+  { field: 'ms:model', code: '17200;340', label: 'GLS 450' }, { field: 'ms:model', code: '3500;99', label: 'GLS 999' }];
+const mdM = vocabularyMatches(MD, 'MERCEDES', 'GLS-CLASS', mdV);
+ok(mdM.exact.length === 0 && [...mdM.versions].sort().join() === 'GLS 350,GLS 400,GLS 450',
+  'mobile.de : le GLS n\'existe qu\'en versions (350, 400, 450) — la marque lue dans le code (17200 = Mercedes-Benz), jamais le « GLS 999 » de BMW', mdM);
+const sbV = [{ field: 'sb:model:fiat', code: '1', label: '500X' }, { field: 'sb:model:fiat', code: '2', label: '500L' }, { field: 'sb:model:renault', code: '3', label: 'Clio' }];
+const sbM = vocabularyMatches(SBA, 'RENAULT', '5', sbV);
+ok(sbM.exact.length === 0 && sbM.versions.length === 0, 'Subito : les 500X / 500L de Fiat ne sont jamais des versions de la Renault 5 (marque lue dans le champ)', sbM);
+const bbV = [{ field: 'bb:model', code: 'mini;countryman-cooper', label: 'Countryman Cooper' }, { field: 'bb:model', code: 'mini;countryman-cooper-se', label: 'Countryman Cooper SE' }, { field: 'bb:model', code: 'mini;cooper', label: 'Cooper' }];
+const bbM = vocabularyMatches(BB, 'MINI', 'COUNTRYMAN', bbV);
+ok(bbM.exact.length === 0 && bbM.versions.length === 2, 'Bilbasen : Countryman découpé en « Countryman Cooper », « Countryman Cooper SE »', bbM);
+const lbV = [{ field: 'u_car_model', code: 'NISSAN_370Z', label: '370Z' }, { field: 'u_car_model', code: 'MAZDA_5', label: '5' }];
+LBA.learnEnumValues!('u_car_model', lbV);
+ok(vocabularyMatches(LBA, 'NISSAN', '370Z', lbV).exact.join() === '370Z' && vocabularyMatches(LBA, 'RENAULT', '5', lbV).exact.length === 0,
+  'Leboncoin : « 370Z » pour Nissan ; le « 5 » de Mazda n\'est jamais une Renault 5');
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
