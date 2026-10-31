@@ -31,6 +31,7 @@ import {
   type ModelFragment, type FilterRule, type LearnedRuleRow, type LearnableCriterion, type LearningParams,
 } from '../src/lib/linkgen/learning';
 import { healOpenGaps } from '../src/lib/linkgen/gapHealing';
+import { modelCandidates, modelLabelForms } from '../src/lib/linkgen/modelProbe';
 import { mcExportAccounts } from './agents/recap';
 
 type Sb = { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -64,8 +65,16 @@ const defaultDeps: LearningDeps = {
 interface Item {
   id: string; kind: 'modele' | 'filtre'; site: string; brand: string; model: string; criterion: string; value: string;
   start_url: string | null; proposed_url: string | null; status: string; attempts: number;
+  /** Le nom exact lu sur le site par Claude (SQL du 31/10) — ADA en construit et vérifie l'adresse. */
+  proposed_label?: string | null;
 }
 const ITEM_COLS = 'id, kind, site, brand, model, criterion, value, start_url, proposed_url, status, attempts';
+
+/** Un même scrape au plus une fois par passage (l'adresse candidate trouvée est re-lue par le contrôle). */
+const memoScrape = (deps: LearningDeps): LearningDeps => {
+  const memo = new Map<string, Promise<ScrapeLite>>();
+  return { ...deps, scrape: (u) => { if (!memo.has(u)) memo.set(u, deps.scrape(u)); return memo.get(u)!; } };
+};
 
 let warned = false;
 const tableMissing = (e: { message: string } | null): boolean => {
@@ -179,6 +188,7 @@ async function autoValidate(it: Item, learned: Record<string, unknown>, check: R
     site: it.site, kind: it.kind, brand_key: learned.brand_key, model_key: learned.model_key, brand: it.brand, model: it.model,
     criterion: it.kind === 'filtre' ? it.criterion : '', value_key: learned.value_key, value: it.value, rule: learned.rule,
     status: 'active', item_id: it.id, proof_url: it.proposed_url, verify_url: verifyUrl, check_result: check, validated_by: null, validated_at: at,
+    last_check_at: at, // contrôlée à l'instant : le re-test hebdomadaire part d'ici
   });
   if (error) return false;
   await sb().from('linkgen_learning_items').update({
@@ -252,16 +262,104 @@ export async function learningProposalsTick(deps: LearningDeps = defaultDeps): P
   if (busy) return 0;
   busy = true;
   try {
-    const { data, error } = await sb().from('linkgen_learning_items').select(ITEM_COLS)
+    // proposed_label : SQL du 31/10 — sans lui, la file se lit comme avant (adresses seulement).
+    let res = await sb().from('linkgen_learning_items').select(`${ITEM_COLS}, proposed_label`)
       .eq('status', 'proposee').order('proposed_at', { ascending: true }).limit(2);
-    if (tableMissing(error)) return 0;
+    if (res.error && /proposed_label/.test(res.error.message)) {
+      res = await sb().from('linkgen_learning_items').select(ITEM_COLS).eq('status', 'proposee').order('proposed_at', { ascending: true }).limit(2);
+    }
+    if (tableMissing(res.error)) return 0;
+    const d = memoScrape(deps);
     let n = 0;
-    for (const it of (data ?? []) as Item[]) {
-      try { await checkProposal(it, deps); n++; } catch (e) { console.warn(`[APPRENTISSAGE] contrôle en échec (${it.id}) : ${e instanceof Error ? e.message : String(e)}`); }
+    for (const it of (res.data ?? []) as Item[]) {
+      try {
+        if (it.proposed_url) await checkProposal(it, d);
+        else if (it.kind === 'modele' && it.proposed_label) await checkLabel(it, it.proposed_label, d);
+        else await refuse(it, ['proposition vide (ni adresse ni nom)']);
+        n++;
+      } catch (e) { console.warn(`[APPRENTISSAGE] contrôle en échec (${it.id}) : ${e instanceof Error ? e.message : String(e)}`); }
     }
     return n;
   } finally {
     busy = false;
+  }
+}
+
+/**
+ * L'adresse d'un modèle à partir d'un NOM (31/10) : les adresses candidates « page marque + modèle » (modelProbe.ts)
+ * scrapées une à une ; la première dont les annonces sont conformes à 100 % (au moins 5) — null sinon.
+ */
+export async function findModelUrl(it: Pick<Item, 'site' | 'brand' | 'model'>, name: string, deps: LearningDeps): Promise<{ url: string | null; tried: string[] }> {
+  const adapter = getSiteAdapter(it.site);
+  if (!adapter) return { url: null, tried: [] };
+  const tried: string[] = [];
+  for (const url of modelCandidates(adapter, it.brand, name)) {
+    tried.push(url);
+    const r = await deps.scrape(url).catch(() => null);
+    await harvest(adapter, r);
+    const ev = evaluate(adapter, 'modele', '', url, { brand: it.brand, model: it.model }, '', r);
+    if (ev.verdict === 'ok' && ev.strict) return { url, tried };
+  }
+  return { url: null, tried };
+}
+
+/** Le nom exact envoyé par Claude : ADA construit l'adresse, la vérifie, puis le contrôle habituel (exporté pour les tests). */
+export async function checkLabel(it: Item, label: string, deps: LearningDeps): Promise<'validee' | 'a_valider' | 'refusee'> {
+  const found = await findModelUrl(it, label, deps);
+  if (!found.url) {
+    await sb().from('linkgen_learning_items').update({ proposed_label: null }).eq('id', it.id);
+    await refuse(it, [found.tried.length
+      ? `avec le nom « ${label} », aucune des ${found.tried.length} adresse(s) construites n'a donné 100 % d'annonces conformes — vérifier l'orthographe exacte sur le site`
+      : `ADA ne sait pas construire d'adresse sur ce site à partir d'un nom (identifiant numérique nécessaire)`]);
+    return 'refusee';
+  }
+  await sb().from('linkgen_learning_items').update({ proposed_url: found.url }).eq('id', it.id).eq('status', 'proposee');
+  return checkProposal({ ...it, proposed_url: found.url }, deps);
+}
+
+const probed = new Map<string, number>();
+let probeBusy = false;
+/**
+ * ADA ESSAIE SEULE D'ABORD (31/10, Channing : « intervenir le moins possible ») : toutes les 10 minutes, deux lignes
+ * « modèle » au plus, chacune une fois par jour — les écritures connues du nom d'ADA (« CLS-CLASS », « Classe CLS »…).
+ * Trouvée à 100 % : la ligne part au contrôle (et à la validation automatique) sans personne. Sinon une note dit à
+ * Claude ce qui a été essayé : il ne manque plus que le nom exact affiché sur le site. Exporté pour les tests.
+ */
+export async function learningProbeTick(deps: LearningDeps = defaultDeps, now = Date.now()): Promise<number> {
+  if (probeBusy) return 0;
+  probeBusy = true;
+  try {
+    const { data, error } = await sb().from('linkgen_learning_items').select(ITEM_COLS)
+      .eq('status', 'a_chercher').eq('kind', 'modele').order('priority', { ascending: false }).limit(50);
+    if (tableMissing(error)) return 0;
+    const todo = ((data ?? []) as Item[]).filter((it) => (probed.get(it.id) ?? 0) < now - 86_400_000).slice(0, 2);
+    const d = memoScrape(deps);
+    let n = 0;
+    for (const it of todo) {
+      probed.set(it.id, now);
+      try {
+        const found = await findModelUrl(it, it.model, d);
+        if (!found.url) {
+          const forms = modelLabelForms(it.model).map((f) => `« ${f} »`).join(', ');
+          await sb().from('linkgen_learning_items').update({
+            decision_note: (found.tried.length
+              ? `ADA a essayé seule ${forms} : aucune adresse à 100 %. Il faut le nom exact affiché sur le site.`
+              : 'ADA ne sait pas construire ce modèle à partir d\'un nom sur ce site : il faut le nom exact (ou « Absent du site »).').slice(0, 500),
+            updated_at: new Date(now).toISOString(),
+          }).eq('id', it.id).eq('status', 'a_chercher');
+          continue;
+        }
+        const at = new Date(now).toISOString();
+        await sb().from('linkgen_learning_items').update({ status: 'proposee', proposed_url: found.url, proposed_by: null, proposed_at: at, updated_at: at })
+          .eq('id', it.id).eq('status', 'a_chercher');
+        console.warn(`[APPRENTISSAGE] ${it.site} ${it.brand} ${it.model} : adresse trouvée seule (${found.url})`);
+        await checkProposal({ ...it, status: 'proposee', proposed_url: found.url }, d);
+        n++;
+      } catch (e) { console.warn(`[APPRENTISSAGE] essai seul en échec (${it.id}) : ${e instanceof Error ? e.message : String(e)}`); }
+    }
+    return n;
+  } finally {
+    probeBusy = false;
   }
 }
 
@@ -421,7 +519,9 @@ export async function learningHourlyTick(deps: LearningDeps = defaultDeps, now =
 export function startTaxonomyLearning(): void {
   setInterval(() => void learningProposalsTick(), 60_000);
   setTimeout(() => void learningProposalsTick(), 50_000);
+  setInterval(() => void learningProbeTick(), 10 * 60_000);
+  setTimeout(() => void learningProbeTick(), 2 * 60_000);
   setInterval(() => void learningHourlyTick(), 3_600_000);
   setTimeout(() => void learningHourlyTick(), 5 * 60_000);
-  console.log('[APPRENTISSAGE] propositions toutes les 60 s, catalogue/résolution/contrôles toutes les heures');
+  console.log('[APPRENTISSAGE] propositions toutes les 60 s, essais seuls toutes les 10 min, catalogue/résolution/contrôles toutes les heures');
 }

@@ -30,12 +30,13 @@ const db: FakeDb = {
 };
 const users = [{ id: 'u-channing', email: 'channing@mc-export.com' }];
 setSharedSupabase({ ...fakeSupabase(db), auth: { admin: { listUsers: async () => ({ data: { users }, error: null }) } } } as never);
-const { learningProposalsTick, learningHourlyTick, weeklyRecheck } = await import('../worker/taxonomyLearning');
+const { learningProposalsTick, learningHourlyTick, weeklyRecheck, learningProbeTick } = await import('../worker/taxonomyLearning');
+const { lacentraleAdapter } = await import('../src/lib/study-core/marketplaces/lacentrale');
 
 const scraped: string[] = [];
 const scrapeBy = (f: (url: string) => ScrapedListing[]) => async (url: string) => { scraped.push(url); return { listings: f(url) }; };
 const item = (o: Record<string, unknown>) => ({
-  id: `it-${db.linkgen_learning_items.length + 1}`, brand: '', model: '', criterion: '', value: '', attempts: 0, status: 'proposee',
+  id: `it-${db.linkgen_learning_items.length + 1}`, brand: '', model: '', criterion: '', value: '', attempts: 0, status: 'proposee', priority: 0,
   proposed_at: new Date().toISOString(), ...o,
 });
 
@@ -146,6 +147,32 @@ const f1b = db.linkgen_learning_items.find((x) => x.id === 'f1')!;
 ok(r1.status === 'suspendue' && f1b.status === 'a_chercher' && /suspendue/.test(String(f1b.decision_note)), 'deux échecs : la règle est suspendue, la ligne repart à chercher', [r1.status, f1b.status]);
 ok(db.user_tasks.some((t) => t.key === 'apprentissage-suspendue:r1'), 'alerte de suspension dans la cloche');
 ok(db.linkgen_learning_items.find((x) => x.id === 'm3')!.status === 'a_valider', 'ce qui n\'est pas à 100 % attend toujours un administrateur');
+
+console.log('\n=== ADA ESSAIE SEULE, PUIS LE NOM EXACT DE CLAUDE (31/10) ===\n');
+const LC0 = lacentraleAdapter.buildSearchUrl({ brand: 'MERCEDES', model: '' }).url;
+const lcScrape = scrapeBy((u) => (u.includes('MERCEDES%3A%3ACLASSE%20CLS') ? many(8, { brand: 'MERCEDES', model: 'CLASSE CLS' })
+  : u.includes('CUPRA%3A%3A') ? [] : many(8, { brand: 'MERCEDES', model: 'CLASSE E' })));
+db.linkgen_learning_items.push(item({ id: 'p1', kind: 'modele', site: 'LACENTRALE', brand: 'MERCEDES', model: 'CLS-CLASS', status: 'a_chercher', priority: 2, start_url: LC0 }));
+db.linkgen_learning_items.push(item({ id: 'p2', kind: 'modele', site: 'LACENTRALE', brand: 'CUPRA', model: 'RAVAL', status: 'a_chercher', priority: 1, start_url: lacentraleAdapter.buildSearchUrl({ brand: 'CUPRA', model: '' }).url }));
+await learningProbeTick({ scrape: lcScrape, fetchText: async () => null }, NOW.getTime());
+const p1 = db.linkgen_learning_items.find((x) => x.id === 'p1')!;
+const p1rule = db.linkgen_learned_rules.find((r) => r.item_id === 'p1');
+ok(p1.status === 'validee' && JSON.stringify(p1rule?.rule) === JSON.stringify({ op: 'param', param: 'makesModelsCommercialNames', value: 'MERCEDES::CLASSE CLS' }),
+  'La Centrale CLS-CLASS : ADA essaie « CLS-CLASS », « Classe CLS »… trouve seule la bonne adresse (8/8) et la valide — sans Claude', [p1.status, p1rule?.rule]);
+const p2 = db.linkgen_learning_items.find((x) => x.id === 'p2')!;
+ok(p2.status === 'a_chercher' && /ADA a essayé seule « RAVAL »/.test(String(p2.decision_note)), 'Raval : rien de conforme — la ligne reste pour Claude, avec ce qui a été essayé', p2.decision_note);
+const cupra = () => scraped.filter((u) => u.includes('CUPRA')).length;
+const before = cupra();
+await learningProbeTick({ scrape: lcScrape, fetchText: async () => null }, NOW.getTime() + 60_000);
+ok(cupra() === before, 'une ligne déjà essayée n\'est pas re-scrapée avant 24 h');
+
+const cupraScrape = scrapeBy((u) => (u.includes('CUPRA%3A%3ARAVAL%20E') ? many(6, { brand: 'CUPRA', model: 'RAVAL E' }) : []));
+p2.status = 'proposee'; p2.proposed_label = 'Raval e'; p2.proposed_url = null;
+await learningProposalsTick({ scrape: scrapeBy(() => []), fetchText: async () => null });
+ok(p2.status === 'a_chercher' && /avec le nom « Raval e »/.test(String(p2.decision_note)) && p2.proposed_label === null, 'nom envoyé mais rien de conforme : refus automatique expliqué, la ligne repart', p2.decision_note);
+p2.status = 'proposee'; p2.proposed_label = 'Raval e';
+await learningProposalsTick({ scrape: cupraScrape, fetchText: async () => null });
+ok(p2.status === 'validee' && String(p2.proposed_url).includes('CUPRA%3A%3ARAVAL%20E'), 'le nom exact lu par Claude (« Raval e ») : ADA construit l\'adresse, 6/6 → validée automatiquement', [p2.status, p2.proposed_url]);
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

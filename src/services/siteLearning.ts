@@ -58,6 +58,11 @@ const call = async (fn: string, args: Record<string, unknown>): Promise<{ data: 
 };
 
 export const proposeUrl = async (id: string, url: string) => (await call('linkgen_learning_propose', { p_id: id, p_url: url.trim() })).error;
+/** Le nom exact du modèle lu sur le site (31/10) : ADA construit et vérifie l'adresse elle-même. */
+export const proposeLabel = async (id: string, label: string) => {
+  const r = await call('linkgen_learning_propose_label', { p_id: id, p_label: label.trim() });
+  return r.error && /propose_label|Could not find the function/i.test(r.error) ? 'Le SQL du 31/10 (20261031100000_apprentissage_nom_exact.sql) n\'est pas encore collé dans Supabase.' : r.error;
+};
 export const markAbsent = async (id: string, note: string) => (await call('linkgen_learning_absent', { p_id: id, p_note: note })).error;
 export const ignoreItem = async (id: string, note: string) => (await call('linkgen_learning_ignore', { p_id: id, p_note: note })).error;
 

@@ -8,7 +8,7 @@ import {
   type LearnableCriterion, type LearningParams,
 } from '../lib/linkgen/learning';
 import {
-  decide, describeRule, ignoreItem, listLearnedRules, listLearningItems, markAbsent, proposeUrl, retireRule,
+  decide, describeRule, ignoreItem, listLearnedRules, listLearningItems, markAbsent, proposeLabel, proposeUrl, retireRule,
   type Evaluation, type LearnedRule, type LearningItem,
 } from '../services/siteLearning';
 
@@ -98,8 +98,8 @@ export function SiteLearning({ initialTab = 'chercher' }: { initialTab?: Tab }) 
     <div className="space-y-4">
       <p className="text-sm text-slate-600">
         Quand une étude, une offre ou une recherche du jour demande un modèle ou un filtre qu&apos;ADA ne sait pas écrire sur un site,
-        une ligne arrive ici toute seule. Claude (extension Chrome) coche la chose sur le site et propose l&apos;adresse ; ADA la contrôle
-        sur deux adresses. Contrôles parfaits (100 % des annonces, au moins 5 sur chacune) : validé automatiquement. Sinon, la ligne
+        une ligne arrive ici toute seule. ADA essaie d&apos;abord seule ; sinon Claude (extension Chrome) lit sur le site le nom exact du
+        modèle, et ADA en construit l&apos;adresse et la contrôle sur deux adresses. Contrôles parfaits (100 % des annonces, au moins 5 sur chacune) : validé automatiquement. Sinon, la ligne
         attend un administrateur dans « À valider ».
       </p>
       <div className="flex flex-wrap items-center gap-2">
@@ -173,12 +173,19 @@ function Instructions() {
 
 function ToFindRow({ it, onDone }: { it: LearningItem; onDone: (msg: string | null, ok: string) => Promise<void> }) {
   const [url, setUrl] = useState('');
+  const [label, setLabel] = useState('');
+  const [showUrl, setShowUrl] = useState(it.kind === 'filtre');
   const [absent, setAbsent] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const instruction = lineInstruction(it);
   const propose = async () => {
     setBusy(true);
     await onDone(await proposeUrl(it.id, url), `Adresse proposée pour ${siteName(it.site)} : ADA la contrôle (environ une minute).`);
+    setBusy(false);
+  };
+  const sendLabel = async () => {
+    setBusy(true);
+    await onDone(await proposeLabel(it.id, label), `${siteName(it.site)} : nom « ${label.trim()} » envoyé — ADA construit et vérifie l'adresse (environ une minute).`);
     setBusy(false);
   };
   const absentOk = async () => {
@@ -201,12 +208,25 @@ function ToFindRow({ it, onDone }: { it: LearningItem; onDone: (msg: string | nu
         {it.start_url
           ? <a href={it.start_url} target="_blank" rel="noreferrer" className={`${btn} border border-blue-200 text-blue-700 hover:bg-blue-50`}>Ouvrir sur le site <ExternalLink className="w-3.5 h-3.5" /></a>
           : <span className="text-xs text-slate-400">page de départ indisponible</span>}
-        <label htmlFor={`url-${it.id}`} className="sr-only">Adresse obtenue</label>
-        <input id={`url-${it.id}`} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Adresse obtenue (https://…)"
-          className="min-w-[16rem] flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-        <button onClick={() => void propose()} disabled={busy || !/^https:\/\/\S+$/.test(url.trim())} className={`${btn} bg-blue-600 text-white hover:bg-blue-700`}>Proposer</button>
+        {it.kind === 'modele' && (
+          <>
+            <label htmlFor={`label-${it.id}`} className="sr-only">Nom exact sur le site</label>
+            <input id={`label-${it.id}`} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nom exact sur le site (ex. Classe CLS)"
+              className="min-w-[14rem] flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+            <button onClick={() => void sendLabel()} disabled={busy || !label.trim()} className={`${btn} bg-blue-600 text-white hover:bg-blue-700`}>Envoyer le nom</button>
+          </>
+        )}
         <button onClick={() => setAbsent('')} disabled={busy} className={`${btn} border border-slate-200 text-slate-700 hover:bg-slate-50`}>Absent du site</button>
+        {it.kind === 'modele' && !showUrl && <button onClick={() => setShowUrl(true)} className="text-xs text-slate-500 hover:underline">ou coller une adresse</button>}
       </div>
+      {showUrl && (
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor={`url-${it.id}`} className="sr-only">Adresse obtenue</label>
+          <input id={`url-${it.id}`} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Adresse obtenue (https://…)"
+            className="min-w-[16rem] flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+          <button onClick={() => void propose()} disabled={busy || !/^https:\/\/\S+$/.test(url.trim())} className={`${btn} bg-slate-700 text-white hover:bg-slate-800`}>Proposer</button>
+        </div>
+      )}
       {absent !== null && (
         <div className="flex flex-wrap items-center gap-2">
           <label htmlFor={`absent-${it.id}`} className="sr-only">Ce que le site propose à la place</label>

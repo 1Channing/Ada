@@ -5,6 +5,10 @@
  */
 import { readFileSync } from 'node:fs';
 import { jofogasAdapter } from '../src/lib/study-core/marketplaces/jofogas';
+import { lacentraleAdapter } from '../src/lib/study-core/marketplaces/lacentrale';
+import { gaspedaalAdapter } from '../src/lib/study-core/marketplaces/gaspedaal';
+import { leboncoinAdapter } from '../src/lib/study-core/marketplaces/leboncoin';
+import { modelCandidates, modelLabelForms } from '../src/lib/linkgen/modelProbe';
 import {
   diffUrls, deduceModelFragment, deduceFilterRule, applyModelFragment, applyLearnedFilters, checkNumeric, verifyValueFor,
   valueKeyOf, learningKey, ruleValueKey, lineInstruction, type LearnedRuleRow, type FilterRule, type ModelFragment,
@@ -150,6 +154,19 @@ ok(verifyValueFor('mileageMin', '20000') === '40000' && verifyValueFor('mileageM
 ok(valueKeyOf('fuel', 'HYBRIDE') === 'hybrid' && valueKeyOf('fuel', 'Hybride rechargeable') === 'phev' && valueKeyOf('mileageMin', '20 000') === '20000', 'clés de valeur : jetons canoniques d\'ADA');
 ok(learningKey('modele', 'SUBITO', { brandKey: 'BMW', modelKey: 'SERIE1' }) === 'modele|SUBITO|BMW|SERIE1' && learningKey('filtre', 'SUBITO', { criterion: 'mileageMin' }) === 'filtre|SUBITO|mileageMin|*', 'clés de la file');
 ok(/kilométrage minimum sur 20\u202f000 km/.test(lineInstruction({ kind: 'filtre', brand: 'TOYOTA', model: '', criterion: 'mileageMin', value: '20000' })), 'consigne de ligne : la valeur en clair', lineInstruction({ kind: 'filtre', brand: 'TOYOTA', model: '', criterion: 'mileageMin', value: '20000' }));
+
+console.log('\n=== ADA CHERCHE L\'ADRESSE ELLE-MÊME (31/10) ===\n');
+ok(JSON.stringify(modelLabelForms('CLS-CLASS')) === JSON.stringify(['CLS-CLASS', 'Classe CLS', 'CLS']) && JSON.stringify(modelLabelForms('Classe cls')) === JSON.stringify(['Classe cls', 'Classe CLS', 'CLS']),
+  'les écritures d\'un nom : telle quelle, « Classe X », le code seul', [modelLabelForms('CLS-CLASS'), modelLabelForms('Classe cls')]);
+const lcC = modelCandidates(lacentraleAdapter, 'MERCEDES', 'CLS-CLASS');
+ok(lcC.length === 3 && lcC.some((u) => u.includes('makesModelsCommercialNames=MERCEDES%3A%3ACLASSE%20CLS')) && lcC.every((u) => u.startsWith('https://www.lacentrale.fr/listing?')),
+  'La Centrale : « MARQUE::LIBELLÉ » en capitales, page marque de départ inchangée par ailleurs', lcC);
+const gpC = modelCandidates(gaspedaalAdapter, 'SKODA', 'Enyaq iV');
+ok(gpC.length >= 1 && gpC[0].includes('/skoda/enyaq-iv'), 'Gaspedaal : le slug du nom, par la grammaire de l\'adaptateur', gpC);
+const lbcC = modelCandidates(leboncoinAdapter, 'MERCEDES', 'CLS-CLASS');
+ok(lbcC.length >= 1 && lbcC.every((u) => /u_car_model=/.test(u)), 'Leboncoin : u_car_model posé par l\'adaptateur', lbcC);
+const pathOnly = diffUrls('https://www.gaspedaal.nl/skoda?srt=pr-a', 'https://www.gaspedaal.nl/skoda/enyaq-iv');
+ok(pathOnly.changes.length === 1 && pathOnly.changes[0].type === 'segments_inserted', 'adresse sans paramètres (masqués par l\'extension) : seul le chemin compte', pathOnly.changes);
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
