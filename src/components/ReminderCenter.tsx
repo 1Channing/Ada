@@ -165,7 +165,7 @@ export function ReminderCenter() {
           {loading ? (
             <p className="text-xs text-slate-500 flex items-center gap-2 py-3"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement…</p>
           ) : tasks.length === 0 ? (
-            <p className="text-xs text-slate-500 py-3">Aucun rappel. Pose-en un depuis une annonce (menu ⋯ → « Ajouter un rappel ») ou avec le bouton Rappel. À l'échéance, les comptes @mc-export.com reçoivent aussi un e-mail.</p>
+            <p className="text-xs text-slate-500 py-3">Aucun rappel. Pose-en un depuis une annonce (menu ⋯ → « Ajouter un rappel ») ou avec le bouton Rappel. Tes rappels sont personnels : à l'échéance, tu reçois aussi un e-mail, toi seul.</p>
           ) : (
             <div className="max-h-[60vh] overflow-y-auto space-y-3">
               {due.length > 0 && <ul className="space-y-1.5">{due.map((t) => <Row key={t.id} t={t} tone="due" />)}</ul>}

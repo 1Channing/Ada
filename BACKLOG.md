@@ -134,6 +134,19 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **RAPPELS PERSONNELS (01/11, Channing : « attention que MC Export ne reçoive
+  pas les rappels des autres organisations ; les rappels sont tous
+  personnels »)**. Preuve : les e-mails partaient déjà de la personne à
+  elle-même (jamais à MC Export) ; en revanche les policies du 02/10
+  laissaient un admin lire et modifier TOUTES les lignes de user_tasks, donc
+  aussi les rappels personnels des agences (liste « Tâches confiées »).
+  Classe corrigée (SQL 20261101130000) : un rappel qu'on se pose soi-même
+  (created_by = assignee_id) n'est visible que par soi ; un admin ne voit et
+  ne gère que les tâches confiées à autrui — testé (admin : la tâche
+  confiée seulement ; C1 : les deux ; C2 : rien). E-mail à l'échéance pour
+  TOUTES les organisations : de soi à soi pour le domaine, sinon depuis la
+  boîte d'Ada à la personne seule (en-tête interne). Texte de la cloche
+  corrigé (« tes rappels sont personnels : tu reçois un e-mail, toi seul »).
 - **LEADS : LIBELLÉ DES 24 H, VEILLES SANS RÉSULTAT AFFICHÉES, MÉNAGE DES LEADS DE
   PLUS DE DEUX SEMAINES (01/11, Channing)**. (1) En-tête de jour : « Leads du
   01/11 (aujourd'hui) · annonces mises en ligne dans les 24 h précédant le

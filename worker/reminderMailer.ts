@@ -16,6 +16,8 @@
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { mailCreds, sendPlainMail } from './mailer';
+import { loadAgents } from './agents/store';
+import { INTERNAL_HEADER } from '../src/lib/agents/mail';
 
 const POLL_MS = 60_000;
 let running = false;
@@ -69,8 +71,17 @@ async function tick(): Promise<void> {
           '',
           "— ADA. Ce message t'est envoyé depuis ta propre adresse, à l'échéance du rappel.",
         ].join('\n');
-        await sendPlainMail(creds, { from: email, fromName: name ? `${name} (ADA)` : 'ADA', to: email, subject: `Rappel ADA : ${r.title}`, body });
-        console.warn(`[RAPPEL] e-mail envoyé à ${email} : « ${r.title} » (échéance ${when})`);
+        // Toujours PERSONNEL (01/11, Channing) : au propriétaire seul. Compte du domaine : de lui à lui ; autre
+        // organisation (Google refuse son adresse) : depuis la boîte d'Ada, à lui seul — jamais à MC Export.
+        try {
+          await sendPlainMail(creds, { from: email, fromName: name ? `${name} (ADA)` : 'ADA', to: email, subject: `Rappel ADA : ${r.title}`, body });
+          console.warn(`[RAPPEL] e-mail envoyé à ${email} : « ${r.title} » (échéance ${when})`);
+        } catch (selfErr) {
+          const ada = (await loadAgents()).find((a) => a.agent === 'ada');
+          if (!ada) throw selfErr;
+          await sendPlainMail(creds, { from: ada.mailbox, fromName: `${ada.display_name} (ADA)`, to: email, subject: `Rappel ADA : ${r.title}`, body: body.replace("Ce message t'est envoyé depuis ta propre adresse", "Ce message t'est envoyé par Ada"), headers: { [INTERNAL_HEADER]: 'rappel' } });
+          console.warn(`[RAPPEL] e-mail envoyé à ${email} depuis la boîte d'Ada (hors domaine) : « ${r.title} » (échéance ${when})`);
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await sb.from('user_tasks').update({ notify_error: msg.slice(0, 500) }).eq('id', r.id);
