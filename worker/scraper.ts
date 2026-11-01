@@ -35,6 +35,8 @@ import { recordLearningCase } from './learningBox';
 import { canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { StudyLogger } from './studyLogger';
 import { recordDealerSightings } from '../src/services/dealerDirectory';
+import { sharedSupabase } from '../src/lib/supabaseShared';
+import { brandKey, refModelKey } from '../src/services/marketData';
 
 const ZYTE_API_KEY = process.env.ZYTE_API_KEY || '';
 const ZYTE_ENDPOINT = 'https://api.zyte.com/v1/extract';
@@ -554,6 +556,66 @@ function parsePriceToken(raw: string, currency = 'EUR'): number | null {
 const RESOLVE_CACHE = new Map<string, { url: string | null; at: number }>();
 const RESOLVE_TTL_MS = 7 * 24 * 3600_000;
 export const isBlockedRedirect = (u: string): boolean => /^https?:\/\/api\.gaspedaal\.nl\/redirect\//i.test(u);
+
+/**
+ * APPARIEMENT GASPEDAAL → SOURCE (01/11, décision Channing « solution mixte » : on garde toutes les
+ * données Gaspedaal, et chaque annonce reçoit le lien de sa JUMELLE sur AutoScout24 NL ou Marktplaats
+ * quand Ada l'a déjà relevée ; sinon le lien de l'étude reste le repli côté front).
+ * Preuve 01/11 : 76 % des annonces Gaspedaal de six segments NL ont une jumelle dans les relevés de
+ * 30 jours. Règle (celle des doublons de veille) : même année, km à 2 % près (500 km mini), prix à
+ * 3 % près. Zéro scrape : une lecture en base par (marque, modèle). Fail-open : erreur = liens inchangés.
+ */
+const PAIR_SITES = ['AUTOSCOUT_NL', 'MARKTPLAATS'];
+const PAIR_WINDOW_DAYS = 45;
+export async function pairGaspedaalListings(listings: ScrapedListing[]): Promise<{ paired: number; candidates: number }> {
+  const cands = listings.filter((l) => isBlockedRedirect(l.listing_url) && l.year != null && l.mileage != null && l.price > 0);
+  if (cands.length === 0) return { paired: 0, candidates: 0 };
+  const since = new Date(Date.now() - PAIR_WINDOW_DAYS * 86_400_000).toISOString();
+  const groups = new Map<string, ScrapedListing[]>();
+  for (const l of cands) {
+    const b = (l.brand ?? '').trim(); const m = (l.model ?? '').trim();
+    if (!b || !m) continue;
+    const key = `${brandKey(b)}|${refModelKey(b, m)}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(l);
+  }
+  type Twin = { listing_url: string; year: number | null; mileage: number | null; price: number | null; scraped_at: string };
+  let paired = 0;
+  for (const [key, group] of groups) {
+    const [bk, mk] = key.split('|');
+    // Par lots de 10 annonces, une clause (année, bande de km, bande de prix) par annonce : la lecture
+    // ne ramène que des jumelles plausibles (un relevé global plafonnait à 1 000 lignes de doublons
+    // récents et ratait les jumelles plus anciennes — constat 01/11).
+    const twins: Twin[] = [];
+    for (let i = 0; i < group.length; i += 10) {
+      const chunk = group.slice(i, i + 10);
+      const clauses = chunk.map((l) => {
+        const km = l.mileage as number; const tol = Math.max(500, Math.ceil(0.02 * km * 1.03)); const p = Math.round(l.price);
+        return `and(year.eq.${l.year},mileage.gte.${Math.max(0, km - tol)},mileage.lte.${km + tol},price.gte.${Math.floor(p * 0.97)},price.lte.${Math.ceil(p * 1.03)})`;
+      });
+      const { data, error } = await (sharedSupabase as unknown as { from: (t: string) => any }) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .from('market_listing_observations')
+        .select('listing_url, year, mileage, price, scraped_at')
+        .in('site', PAIR_SITES).eq('brand_key', bk).eq('model_key', mk)
+        .gte('scraped_at', since).or(clauses.join(','))
+        .order('scraped_at', { ascending: false }).limit(1000);
+      if (error) { console.warn(`[GASPEDAAL_PAIR] lecture ${key} : ${error.message}`); continue; }
+      twins.push(...((data ?? []) as Twin[]));
+    }
+    for (const l of group) {
+      const km = l.mileage as number; const price = Math.round(l.price);
+      const t = twins.find((x) => x.year === l.year && x.mileage != null
+        && Math.abs(x.mileage - km) <= Math.max(500, 0.02 * Math.max(x.mileage, km))
+        && (x.price == null || Math.abs(x.price - price) <= 0.03 * Math.max(x.price, price))
+        && /^https?:\/\//.test(x.listing_url) && !isBlockedRedirect(x.listing_url));
+      if (!t) continue;
+      (l as ScrapedListing & { gaspedaalUrl?: string }).gaspedaalUrl = l.listing_url;
+      l.listing_url = t.listing_url;
+      paired++;
+    }
+  }
+  console.log(`[GASPEDAAL_PAIR] ${paired}/${cands.length} annonce(s) appariée(s) à leur source (AutoScout24 NL / Marktplaats)`);
+  return { paired, candidates: cands.length };
+}
 
 export async function resolveListingLink(rawUrl: string, searchUrl?: string | null): Promise<string | null> {
   const url = rawUrl.replace(/#.*$/, ''); // le fragment (identifiant de carte, 22/10) ne concerne que le navigateur
@@ -1654,6 +1716,7 @@ export async function scrapeSearch(
         console.warn(`[WORKER_SCRAPER] ⚠️ filtre modèle NON appliqué par le site — ${silentFallback.evidence}`);
       }
       const taxonomyHarvest = sfAdapter?.harvestTaxonomy?.(html) ?? null;
+      if (marketplace === 'GASPEDAAL') { try { await pairGaspedaalListings(all); } catch (e) { console.warn('[GASPEDAAL_PAIR] erreur (liens inchangés) :', e instanceof Error ? e.message : e); } }
       return finalize({ listings: all, totalCount }, { attempts: attempt + 1, htmlLength: html.length, silentFallback, taxonomyHarvest }, true);
     }
 
