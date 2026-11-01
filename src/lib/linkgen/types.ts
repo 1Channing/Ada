@@ -40,10 +40,6 @@ export interface LinkGenParams {
   fuel?: string;
   trim?: string;
   minPower?: string | number;
-  /** D'où vient la recherche (30/10) : ce qu'elle ne sait pas écrire sur un site est noté pour l'apprentissage
-   *  des sites, les offres en tête de file. Campagnes et re-scans mensuels depuis le 31/10 (« campagne »), en
-   *  dernier. Absent = rien n'est noté (découverte, diagnostics, essais). */
-  gapSource?: 'offre' | 'etude' | 'recherche' | 'campagne';
   // Secondary criteria — parity with the Ingestion form. Consumed by adapters
   // that support them (AutoScout uses gearbox + power); passed through and
   // ignored by others until learned-mapping URL reconstruction lands (BACKLOG 2bis).
@@ -91,6 +87,8 @@ export interface LinkGenResult {
   /** Repris de l'adaptateur (BuildUrlResult) : modèle non posé / posé mais deviné. */
   modelExpressed?: boolean;
   modelGuessed?: boolean;
+  /** Modèle écrit avec le nom exact du livre du site (« Enyaq iV » pour ENYAQ), l'adaptateur seul ne le sachant pas. */
+  modelFromBook?: boolean;
 }
 
 export interface LinkGenDiagnostics {
@@ -167,9 +165,9 @@ export interface LinkGenUrlResult {
   validationScoreAfter?: number;
   // Memory-first lookup result
   mappingSource?: 'learned' | 'default_template';
-  /** Modèle posé par une règle APPRISE et validée (Atelier › Apprentissage des sites) : exprimé même quand
-   *  l'adaptateur seul ne sait pas l'écrire — les campagnes le scrapent (31/10). */
-  modelLearned?: boolean;
+  /** Modèle écrit avec le nom exact du livre du site (01/11) : exprimé même quand l'adaptateur seul ne sait pas
+   *  l'écrire — les campagnes le scrapent. */
+  modelFromBook?: boolean;
   // Scout multi-hypothesis results (max 2 hypotheses tested)
   testedHypotheses?: ScoutHypothesis[];
   // Best URL selected after all hypotheses — may differ from correctedUrl if best was hypothesis 2

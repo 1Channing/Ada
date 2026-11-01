@@ -227,24 +227,6 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   };
 }
 
-/**
- * Adresse de NAVIGATION Skelbiu (« /transportas/automobiliai/mg/zs », celle qu'on obtient en cliquant sur le site,
- * collée dans l'Atelier le 31/10) → l'adresse de RECHERCHE équivalente : la catégorie que la page déclare elle-même
- * (moisson sk:cat, <input name="category_id">), posée sur la page de départ « /skelbimai/?…&category_id=… ».
- */
-function searchUrlFromPage(pageUrl: string, harvest: Array<{ field: string; code: string; label: string }>, startUrl: string): string | null {
-  try {
-    const page = new URL(pageUrl);
-    if (!/(^|\.)skelbiu\.lt$/.test(page.hostname) || page.pathname.startsWith('/skelbimai')) return null;
-    const cat = harvest.find((h) => h.field === 'sk:cat' && /^\d+$/.test(h.code))?.code;
-    if (!cat || cat === CATEGORY_ALL_CARS) return null;
-    const u = new URL(startUrl);
-    if (!u.pathname.startsWith('/skelbimai')) return null;
-    u.searchParams.set('category_id', cat);
-    return u.toString();
-  } catch { return null; }
-}
-
 function scoreSearchResults(html: string, url: string, params: SearchCriteria, listingCount: number): SiteValidationResult {
   const listings = parseSearchResults(html);
   const wantBrand = (params.brand ?? '').trim().toLowerCase();
@@ -332,7 +314,6 @@ export const skelbiuAdapter: SiteAdapter = {
   mapFuel: (raw) => FUEL_CODE[raw.trim().toUpperCase()] ?? '',
   supportsParam: () => false,
   learnEnumValues,
-  searchUrlFromPage,
 
   buildSearchUrl,
   // Pagination /skelbimai/N?… — PROUVÉE par URL humaine (page 2 dans le CHEMIN).

@@ -1,16 +1,17 @@
 /**
- * Campagnes et re-scans mensuels → apprentissage des sites (31/10 après-midi, Channing : « il faut ajouter dans
- * l'apprentissage des sites les recherches des scans mensuels et celles des campagnes lancées manuellement qui ne
- * passent pas »). Le moteur de campagne (le même pour les campagnes manuelles et le re-scan mensuel) :
- *   - scrape un modèle appris dans l'Atelier au lieu de l'écarter comme « non exprimable » ;
- *   - note ce qu'un site ne sait pas écrire (source « campagne ») ;
- *   - note ce que le scrape a prouvé faux (source « campagne_echec ») ;
- *   - ne note rien pour la découverte, un échec technique ou Marktplaats.
+ * LE LIVRE DU SITE, SOURCE UNIQUE (01/11, Channing : « chaque site a un livre unique… on ne devine jamais une
+ * adresse »). Les 8 modèles appris par l'ancien « Apprentissage des sites » s'écrivent désormais depuis le seul livre
+ * de leur site (linkgen_enum_mappings) — plus aucune règle apprise à part :
+ *   - 6 directement par l'adaptateur (le livre contient déjà le nom du site) ;
+ *   - 2 par la traduction canonique du générateur (ENYAQ → « Enyaq iV » sur Gaspedaal, ZS → « MG ZS » sur Skelbiu).
+ * Les campagnes (et le re-scan mensuel, même moteur) les scrapent ; un modèle absent du livre reste écarté sans scrape.
+ * Puis : pas de scrape sans preuve que la combinaison existe (31/10).
  */
 import { setSharedSupabase } from '../src/lib/supabaseShared';
 import { fakeSupabase, type FakeDb } from './fakeSupabase';
 import type { ScrapedListing } from '../src/lib/study-core/types';
 import type { CampaignPlanItem } from '../src/lib/linkgen/campaignPlanner';
+import type { SiteKey } from '../src/lib/linkgen/types';
 
 let fails = 0;
 const ok = (cond: boolean, what: string, got?: unknown) => {
@@ -18,15 +19,15 @@ const ok = (cond: boolean, what: string, got?: unknown) => {
   else { fails++; console.error(`✗ ${what}${got !== undefined ? ` — obtenu : ${JSON.stringify(got)}` : ''}`); }
 };
 
-const notes: Array<Record<string, unknown>> = [];
-const db: FakeDb = { linkgen_learned_rules: [], linkgen_mapping_memory: [], market_snapshots: [], linkgen_enum_mappings: [] };
-setSharedSupabase(fakeSupabase(db, { linkgen_note_gap: (a) => { notes.push(a); return { data: null, error: null }; } }) as never);
+const db: FakeDb = { linkgen_mapping_memory: [], market_snapshots: [], linkgen_enum_mappings: [] };
+setSharedSupabase(fakeSupabase(db) as never);
+const { generateSearchUrlsWithMemory } = await import('../src/lib/linkgen/generator');
+const { ensureLearnedTaxonomy } = await import('../src/lib/linkgen/taxonomy');
 const { executeCampaignItem } = await import('../src/lib/linkgen/campaignEngine');
 const { planCampaign, summarizePlan, combinationProof, emptyComboKey } = await import('../src/lib/linkgen/campaignPlanner');
 const { brandKey: bKey } = await import('../src/services/marketData');
 const { refModelKey: rmk } = await import('../src/services/vehicleRef');
 const { modelFamilyKey } = await import('../src/lib/study-core/business-logic');
-const { setLearnedRulesForTests } = await import('../src/lib/linkgen/learnedRules');
 
 const listing = (o: Partial<ScrapedListing>): ScrapedListing => ({
   title: `${o.brand ?? ''} ${o.model ?? ''}`.trim(), description: '', price: 20000, currency: 'EUR', price_type: 'one-off',
@@ -34,60 +35,72 @@ const listing = (o: Partial<ScrapedListing>): ScrapedListing => ({
 } as ScrapedListing);
 const many = (n: number, o: Partial<ScrapedListing>) => Array.from({ length: n }, (_, i) => listing({ price: 20000 + i * 100, ...o }));
 const plan = (o: Partial<CampaignPlanItem>) => ({ site: '', brand: '', model: '', year: 2021, kind: 'reinforcement', ...o }) as CampaignPlanItem;
-const notesFor = (model: string) => notes.filter((n) => n.p_model === model);
+const gen = async (site: string, brand: string, model: string) => (await generateSearchUrlsWithMemory({ selectedSites: [site as SiteKey], brand, model }))[0];
 
-console.log('\n=== UN MODÈLE APPRIS DANS L\'ATELIER EST SCRAPÉ PAR LES CAMPAGNES ===\n');
-setLearnedRulesForTests([{
-  id: 'r-cls', site: 'LACENTRALE', kind: 'modele', brand_key: 'MERCEDES', model_key: 'CLS', criterion: '', value_key: '',
-  rule: { op: 'param', param: 'makesModelsCommercialNames', value: 'MERCEDES::CLASSE CLS' }, status: 'active',
-} as never]);
+// Les 8 modèles de l'ancien apprentissage, tels qu'ils sont dans le livre de leur site en base (relevé du 01/11).
+const THE_8: Array<{ site: string; brand: string; model: string; expect: string; viaBook?: true }> = [
+  { site: 'GASPEDAAL', brand: 'SKODA', model: 'ENYAQ', expect: '/skoda/enyaq-iv', viaBook: true },
+  { site: 'LACENTRALE', brand: 'CUPRA', model: 'RAVAL', expect: 'makesModelsCommercialNames=CUPRA%3A%3ARAVAL' },
+  { site: 'LEBONCOIN', brand: 'MERCEDES', model: 'CLS-CLASS', expect: 'u_car_model=MERCEDES-BENZ_Classe%20CLS' },
+  { site: 'LACENTRALE', brand: 'MERCEDES', model: 'CLS-CLASS', expect: 'makesModelsCommercialNames=MERCEDES%3A%3ACLASSE%20CLS' },
+  { site: 'LACENTRALE', brand: 'PEUGEOT', model: '3008', expect: 'makesModelsCommercialNames=PEUGEOT%3A%3A3008' },
+  { site: 'LEBONCOIN', brand: 'NISSAN', model: '370Z', expect: 'u_car_model=NISSAN_370Z' },
+  { site: 'LEBONCOIN', brand: 'NISSAN', model: 'NAVARA', expect: 'u_car_model=NISSAN_Navara' },
+  { site: 'SKELBIU', brand: 'MG/MG MOTOR', model: 'ZS', expect: 'category_id=2924', viaBook: true },
+];
+
+console.log('\n=== SANS LE LIVRE : RIEN N\'EST DEVINÉ ===\n');
+const before = await gen('GASPEDAAL', 'SKODA', 'ENYAQ');
+ok(!before.url.includes('enyaq-iv') && !before.modelFromBook, 'Gaspedaal ENYAQ, livre vide : pas de « Enyaq iV » sorti de nulle part', before.url);
+const beforeSk = await gen('SKELBIU', 'MG/MG MOTOR', 'ZS');
+ok(!beforeSk.url.includes('2924'), 'Skelbiu ZS, livre vide : aucune catégorie inventée', beforeSk.url);
+
+console.log('\n=== LES 8 MODÈLES S\'ÉCRIVENT DEPUIS LE LIVRE DE LEUR SITE ===\n');
+let id = 0;
+const book = (site: string, field: string, code: string, label: string) => db.linkgen_enum_mappings.push({ id: ++id, site, field, code, label });
+book('GASPEDAAL', 'gp:brand', 'skoda', 'Skoda');
+book('GASPEDAAL', 'gp:model:skoda', 'enyaq-iv', 'Enyaq iV');
+book('LACENTRALE', 'lc:make', 'cupra', 'CUPRA');
+book('LACENTRALE', 'lc:make', 'mercedes', 'MERCEDES');
+book('LACENTRALE', 'lc:make', 'peugeot', 'PEUGEOT');
+book('LACENTRALE', 'lc:model:cupra', 'raval', 'RAVAL');
+book('LACENTRALE', 'lc:model:mercedes', 'classe-cls', 'CLASSE CLS');
+book('LACENTRALE', 'lc:model:peugeot', '3008', '3008');
+book('LEBONCOIN', 'u_car_brand', 'MERCEDES-BENZ', 'MERCEDES-BENZ');
+book('LEBONCOIN', 'u_car_brand', 'NISSAN', 'NISSAN');
+book('LEBONCOIN', 'u_car_model', 'MERCEDES-BENZ_Classe CLS', 'Classe CLS');
+book('LEBONCOIN', 'u_car_model', 'NISSAN_370Z', '370Z');
+book('LEBONCOIN', 'u_car_model', 'NISSAN_Navara', 'Navara');
+book('SKELBIU', 'sk:cat', '2924', 'MG ZS');
+await ensureLearnedTaxonomy(0);
+
+for (const m of THE_8) {
+  const r = await gen(m.site, m.brand, m.model);
+  ok(r.url.includes(m.expect) && r.mappingSource === 'default_template' && Boolean(r.modelFromBook) === Boolean(m.viaBook),
+    `${m.site} ${m.brand} ${m.model} → ${m.expect}${m.viaBook ? ' (nom du livre)' : ''}`, [r.url, r.modelFromBook ?? false]);
+}
+const fuelYear = (await generateSearchUrlsWithMemory({ selectedSites: ['GASPEDAAL'], brand: 'SKODA', model: 'ENYAQ', fuel: 'ELECTRIQUE', yearFrom: '2023', yearTo: '2023' }))[0];
+ok(fuelYear.url.includes('/skoda/enyaq-iv') && fuelYear.url.includes('bmin=2023'), 'le nom du livre vaut avec tous les critères (carburant, années)', fuelYear.url);
+const unknown = await gen('LACENTRALE', 'MERCEDES', 'GLB-CLASS');
+ok(!unknown.modelFromBook && !/GLB/i.test(unknown.url), 'GLB absent du livre de La Centrale : rien n\'est inventé', unknown.url);
+
+console.log('\n=== LES CAMPAGNES (ET LE RE-SCAN MENSUEL) LES SCRAPENT ===\n');
 const urls: string[] = [];
-const r1 = await executeCampaignItem(1, plan({ site: 'LACENTRALE', brand: 'MERCEDES', model: 'CLS-CLASS' }), async (u) => {
+const r1 = await executeCampaignItem(1, plan({ site: 'GASPEDAAL', brand: 'SKODA', model: 'ENYAQ' }), async (u) => {
   urls.push(u);
-  return { listings: many(8, { brand: 'MERCEDES', model: 'CLASSE CLS', title: 'MERCEDES CLASSE CLS 350 D' }), error: null };
+  return { listings: many(8, { brand: 'SKODA', model: 'ENYAQ', title: 'Skoda Enyaq iV 80' }), error: null };
 });
-ok(r1.outcome !== 'no_url' && urls.length > 0 && urls[0].includes('MERCEDES%3A%3ACLASSE%20CLS'),
-  'La Centrale « CLS-CLASS » (appris : « Classe CLS ») : la campagne scrape l\'adresse apprise au lieu de « segment non exprimable »', [r1.outcome, r1.detail, urls[0]]);
-ok(notesFor('CLS-CLASS').length === 0, 'modèle appris : aucune lacune notée');
-
-console.log('\n=== CE QU\'UN SITE NE SAIT PAS ÉCRIRE PART DANS LA FILE (« campagne ») ===\n');
+ok(r1.outcome !== 'no_url' && urls.length > 0 && urls[0].includes('/skoda/enyaq-iv'),
+  'Gaspedaal ENYAQ : la campagne scrape l\'adresse écrite avec le nom du livre (« Enyaq iV ») au lieu de « segment non exprimable »', [r1.outcome, r1.detail, urls[0]]);
+const skUrls: string[] = [];
+const r1b = await executeCampaignItem(2, plan({ site: 'SKELBIU', brand: 'MG/MG MOTOR', model: 'ZS' }), async (u) => {
+  skUrls.push(u);
+  return { listings: many(8, { title: 'MG ZS, 2021 m.' }), error: null };
+});
+ok(r1b.outcome !== 'no_url' && skUrls.length > 0 && skUrls[0].includes('category_id=2924'), 'Skelbiu ZS : scrapé sur sa catégorie « MG ZS »', [r1b.outcome, skUrls[0]]);
 const r2urls: string[] = [];
-const r2 = await executeCampaignItem(2, plan({ site: 'LACENTRALE', brand: 'MERCEDES', model: 'GLB-CLASS' }), async (u) => { r2urls.push(u); return { listings: [], error: null }; });
-const n2 = notesFor('GLB-CLASS');
-ok(r2.outcome === 'no_url' && r2urls.length === 0, 'modèle inconnu de La Centrale et jamais appris : toujours écarté sans scrape (0 appel Zyte)', [r2.outcome, r2urls]);
-ok(n2.length === 1 && n2[0].p_kind === 'modele' && n2[0].p_source === 'campagne' && n2[0].p_site === 'LACENTRALE'
-  && String(n2[0].p_start_url).includes('makesModelsCommercialNames=MERCEDES'),
-  '… et noté pour l\'apprentissage : ligne modèle, source « campagne », page de départ = page marque', n2);
-
-console.log('\n=== CE QUE LE SCRAPE A PROUVÉ FAUX PART DANS LA FILE (« campagne_echec ») ===\n');
-// AutoScout24 « sait écrire » X5 (slug /bmw/x5), mais le site sert la page marque entière : repli silencieux.
-const fallback = async () => ({
-  listings: many(12, { brand: 'BMW', model: 'X3', title: 'BMW X3 xDrive20d' }), error: null,
-  diagnostics: { silentFallback: { modelApplied: false, evidence: 'compteur de la page marque' } },
-});
-const r3 = await executeCampaignItem(3, plan({ site: 'AUTOSCOUT_DE', brand: 'BMW', model: 'X5' }), fallback);
-const n3 = notesFor('X5');
-ok(r3.outcome === 'taxonomy_gap' && n3.length === 1 && n3[0].p_source === 'campagne_echec',
-  'repli silencieux (page marque entière), sondes épuisées : ligne notée « campagne_echec »', [r3.outcome, n3.map((n) => n.p_source)]);
-
-// Le site applique un filtre, mais les annonces sont d'un autre modèle : analyse « modèle rejeté ».
-const r4 = await executeCampaignItem(4, plan({ site: 'AUTOSCOUT_DE', brand: 'BMW', model: 'X6' }), async () => ({
-  listings: many(12, { brand: 'BMW', model: 'X3', title: 'BMW X3 xDrive20d' }), error: null,
-}));
-const n4 = notesFor('X6');
-ok(r4.outcome === 'taxonomy_gap' && n4.length === 1 && n4[0].p_source === 'campagne_echec',
-  'annonces d\'un autre modèle (X3 servies pour X6) : ligne notée « campagne_echec »', [r4.outcome, r4.detail, n4.map((n) => n.p_source)]);
-
-console.log('\n=== CE QUI N\'EST PAS UN PROBLÈME DE TAXONOMIE N\'Y VA PAS ===\n');
-const r5 = await executeCampaignItem(5, plan({ site: 'AUTOSCOUT_DE', brand: 'BMW', model: 'X1' }), async () => ({ listings: [], error: 'BLOCKED: 403' }));
-ok(r5.outcome === 'technical' && notesFor('X1').length === 0, 'blocage technique (403) : rien n\'est noté', [r5.outcome, notesFor('X1')]);
-const before = notes.length;
-await executeCampaignItem(6, plan({ site: 'AUTOSCOUT_DE', brand: 'BMW', model: '', discovery: true, kind: 'exploration' }), async () => ({ listings: many(12, { brand: 'BMW', model: 'X3' }), error: null }));
-ok(notes.length === before, 'découverte (moisson, sans modèle) : rien n\'est noté');
-await executeCampaignItem(7, plan({ site: 'MARKTPLAATS', brand: 'BMW', model: 'X7' }), async () => ({
-  listings: many(12, { brand: 'BMW', model: 'X3', title: 'BMW X3' }), error: null,
-}));
-ok(!notesFor('X7').some((n) => n.p_source === 'campagne_echec'), 'Marktplaats (modèle en texte libre) : pas de ligne « échec prouvé »', notesFor('X7'));
+const r2 = await executeCampaignItem(3, plan({ site: 'LACENTRALE', brand: 'MERCEDES', model: 'GLB-CLASS' }), async (u) => { r2urls.push(u); return { listings: [], error: null }; });
+ok(r2.outcome === 'no_url' && r2urls.length === 0, 'modèle absent du livre : toujours écarté sans scrape (0 appel Zyte)', [r2.outcome, r2urls]);
 
 console.log('\n=== CAMPAGNES : PAS DE SCRAPE SANS PREUVE QUE LA COMBINAISON EXISTE (31/10) ===\n');
 // Les trois preuves : le MARCHÉ (annonces vues par carburant), le TERRAIN (déjà vu par ADA), les IMMATRICULATIONS UE.

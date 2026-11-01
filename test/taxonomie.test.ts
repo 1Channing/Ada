@@ -1,20 +1,14 @@
 /**
- * L'APPRENTISSAGE DES SITES (30/10, Channing : « Il est important que nous ne polluons pas nos taxonomies, elles
- * doivent être parfaites »).
- * Jófogás : l'identifiant modèle du site (mo_cars), moissonné des annonces, jamais déduit d'un libellé.
+ * LE LIVRE DE CHAQUE SITE (30/10 → 01/11, Channing : « Il est important que nous ne polluons pas nos taxonomies,
+ * elles doivent être parfaites » ; « le Truth Center, c'est notre vérité »).
+ * - Jófogás : l'identifiant modèle du site (mo_cars), moissonné des annonces, jamais déduit d'un libellé.
+ * - Les noms du livre se comparent par clé canonique, comme partout dans ADA (générateur ET Truth Center › Lacunes).
  */
 import { readFileSync } from 'node:fs';
 import { jofogasAdapter } from '../src/lib/study-core/marketplaces/jofogas';
-import { lacentraleAdapter } from '../src/lib/study-core/marketplaces/lacentrale';
-import { gaspedaalAdapter } from '../src/lib/study-core/marketplaces/gaspedaal';
-import { leboncoinAdapter } from '../src/lib/study-core/marketplaces/leboncoin';
-import { modelCandidates, modelLabelForms, siteLabelKey, vocabularyMatches } from '../src/lib/linkgen/modelProbe';
+import { siteLabelKey, vocabularyMatches, bookModelLabel, readSiteBook, brandKeyAmong } from '../src/lib/linkgen/siteVocabulary';
 import { getSiteAdapter as siteAdapter } from '../src/lib/study-core/marketplaces';
 import { refModelKey } from '../src/services/marketData';
-import {
-  diffUrls, deduceModelFragment, deduceFilterRule, applyModelFragment, applyLearnedFilters, checkNumeric, verifyValueFor,
-  valueKeyOf, learningKey, ruleValueKey, lineInstruction, type LearnedRuleRow, type FilterRule, type ModelFragment,
-} from '../src/lib/linkgen/learning';
 
 let fails = 0;
 const ok = (cond: boolean, what: string, got?: unknown) => {
@@ -58,118 +52,6 @@ ok(jofogasAdapter.buildSearchUrl({ brand: 'TOYOTA', model: 'PRIUS' }).modelExpre
 jofogasAdapter.learnEnumValues!('jf:modelid:mercedes-benz', [{ code: '12', label: 'GLC' }]);
 ok(jofogasAdapter.buildSearchUrl({ brand: 'MERCEDES', model: 'GLC' }).url.includes('mo_cars=12'), 'Mercedes-Benz côté site = MERCEDES côté ADA');
 
-console.log('\n=== APPRENTISSAGE : LIRE L\'ADRESSE OBTENUE ===\n');
-
-const LBC0 = 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&sort=price&order=asc';
-const d0 = diffUrls(LBC0, 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Corolla%20Cross&page=2');
-ok(d0.ok && d0.changes.length === 1 && d0.changes[0].type === 'param_added', 'diff : seul le modèle compte (tri retiré et pagination ignorés)', d0.changes);
-
-const lbc = deduceModelFragment(LBC0, 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&u_car_model=TOYOTA_Corolla%20Cross&sort=price&order=asc', 'leboncoin.fr');
-ok(lbc.ok && (lbc.learned as ModelFragment).op === 'param' && JSON.stringify(lbc.learned) === JSON.stringify({ op: 'param', param: 'u_car_model', value: 'TOYOTA_Corolla Cross' }),
-  'Leboncoin : le modèle = le paramètre u_car_model, valeur exacte du site', lbc);
-const lc = deduceModelFragment('https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA&sortBy=priceAsc', 'https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA%3A%3ARAV%204&sortBy=priceAsc', 'lacentrale.fr');
-ok(lc.ok && JSON.stringify(lc.learned) === JSON.stringify({ op: 'param', param: 'makesModelsCommercialNames', value: 'TOYOTA::RAV 4' }), 'La Centrale : le paramètre réécrit « TOYOTA::RAV 4 »', lc);
-const as = deduceModelFragment('https://www.autoscout24.fr/lst/toyota?atype=C&cy=F&sort=price', 'https://www.autoscout24.fr/lst/toyota/c-hr?atype=C&cy=F&sort=price', 'autoscout24.fr');
-ok(as.ok && JSON.stringify(as.learned) === JSON.stringify({ op: 'segments', after: 'toyota', segments: ['c-hr'] }), 'AutoScout24 : un segment après la marque', as);
-const sb = deduceModelFragment('https://www.subito.it/annunci-italia/vendita/auto/bmw/?order=priceasc', 'https://www.subito.it/annunci-italia/vendita/auto/bmw/serie-1/?order=priceasc', 'subito.it');
-ok(sb.ok && JSON.stringify(sb.learned) === JSON.stringify({ op: 'segments', after: 'bmw', segments: ['serie-1'] }), 'Subito : le segment du modèle', sb);
-const jf = deduceModelFragment('https://auto.jofogas.hu/magyarorszag/auto/toyota?rs=2000&sp=1', 'https://auto.jofogas.hu/magyarorszag/auto/toyota?mo_cars=49&rs=2000&sp=1', 'jofogas.hu');
-ok(jf.ok && JSON.stringify(jf.learned) === JSON.stringify({ op: 'param', param: 'mo_cars', value: '49' }), 'Jófogás : mo_cars=49', jf);
-
-const no = (r: { ok: boolean; reasons?: string[] }, re: RegExp, what: string) => ok(!r.ok && (r.reasons ?? []).some((x) => re.test(x)), what, r);
-no(deduceModelFragment(LBC0, 'https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA%3A%3ARAV%204', 'leboncoin.fr'), /n'est pas sur leboncoin\.fr/, 'refus : adresse d\'un autre site');
-no(deduceModelFragment(LBC0, `${LBC0}&u_car_model=TOYOTA_C-HR&fuel=4`, 'leboncoin.fr'), /Plusieurs choses ont changé/, 'refus : Claude a touché à un autre filtre (carburant)');
-no(deduceModelFragment(LBC0, `${LBC0}&u_car_model=TOYOTA_C-HR&text=gr%20sport`, 'leboncoin.fr'), /finition/, 'refus : texte libre (finition) touché');
-no(deduceModelFragment(LBC0, LBC0, 'leboncoin.fr'), /Rien n'a changé/, 'refus : rien de coché');
-no(deduceModelFragment('https://www.autoscout24.fr/lst/toyota?atype=C', 'https://www.autoscout24.fr/lst/lexus/ux?atype=C', 'autoscout24.fr'), /Forme non prise en charge/, 'refus : la marque a changé (chemin réécrit)');
-
-console.log('\n=== APPRENTISSAGE : POSER LE MODÈLE APPRIS ===\n');
-ok(applyModelFragment('https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&mileage=min-90000', lbc.ok ? lbc.learned : ({} as ModelFragment))
-  === 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA&mileage=min-90000&u_car_model=TOYOTA_Corolla%20Cross', 'Leboncoin : le modèle posé, le reste de l\'adresse intact (%20)');
-ok(applyModelFragment('https://www.subito.it/annunci-italia/vendita/auto/bmw/diesel/?order=priceasc&ys=2021', { op: 'segments', after: 'bmw', segments: ['serie-1'] })
-  === 'https://www.subito.it/annunci-italia/vendita/auto/bmw/serie-1/diesel/?order=priceasc&ys=2021', 'Subito : le modèle s\'insère entre la marque et le carburant');
-ok(applyModelFragment('https://www.subito.it/annunci-italia/vendita/auto/bmw/serie-1/?x=1', { op: 'segments', after: 'bmw', segments: ['serie-1'] }) === 'https://www.subito.it/annunci-italia/vendita/auto/bmw/serie-1/?x=1', 'déjà posé : rien ne double');
-ok(applyModelFragment('https://www.autoscout24.fr/lst/lexus?x=1', { op: 'segments', after: 'toyota', segments: ['c-hr'] }) === null, 'marque introuvable dans l\'adresse : rien n\'est posé (null)');
-
-console.log('\n=== APPRENTISSAGE : LES FILTRES ===\n');
-const BRAND = 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=TOYOTA';
-const r1 = deduceFilterRule('mileageMin', '20000', BRAND, `${BRAND}&mileage=20000-max`, 'leboncoin.fr');
-ok(r1.ok && JSON.stringify(r1.learned) === JSON.stringify({ encoding: 'range', param: 'mileage', side: 'min', sep: '-', openMin: '', openMax: 'max' }), 'Leboncoin km min : plage « 20000-max » (borne ouverte « max » vue sur le site)', r1);
-const r2 = deduceFilterRule('mileageMin', '20 000', 'https://www.autoscout24.fr/lst/toyota?atype=C', 'https://www.autoscout24.fr/lst/toyota?atype=C&kmfrom=20000', 'autoscout24.fr');
-ok(r2.ok && JSON.stringify(r2.learned) === JSON.stringify({ encoding: 'param', param: 'kmfrom' }), 'km min en valeur nue (kmfrom=20000)', r2);
-const r3 = deduceFilterRule('mileageMin', '20000', 'https://www.marktplaats.nl/l/auto-s/toyota/#constructionYearFrom:2020', 'https://www.marktplaats.nl/l/auto-s/toyota/#constructionYearFrom:2020|mileageFrom:20000', 'marktplaats.nl');
-ok(r3.ok && JSON.stringify(r3.learned) === JSON.stringify({ encoding: 'hash', key: 'mileageFrom' }), 'Marktplaats : clé d\'ancre mileageFrom', r3);
-const r4 = deduceFilterRule('mileageMin', '20000', 'https://www.subito.it/annunci-italia/vendita/auto/bmw/', 'https://www.subito.it/annunci-italia/vendita/auto/bmw/?ms=12', 'subito.it');
-ok(r4.ok && JSON.stringify(r4.learned) === JSON.stringify({ encoding: 'code', param: 'ms', code: '12' }), 'liste du site : un code pour CETTE valeur (ms=12)', r4);
-const r5 = deduceFilterRule('powerFrom', '150', 'https://www.autoscout24.fr/lst/toyota?atype=C', 'https://www.autoscout24.fr/lst/toyota?atype=C&powerfrom=110', 'autoscout24.fr');
-ok(r5.ok && JSON.stringify(r5.learned) === JSON.stringify({ encoding: 'param', param: 'powerfrom', unit: 'kw' }), 'puissance : l\'unité du site (kW) reconnue d\'elle-même', r5);
-const r6 = deduceFilterRule('fuel', 'HYBRIDE', 'https://auto.jofogas.hu/magyarorszag/auto/toyota?rs=2000', 'https://auto.jofogas.hu/magyarorszag/auto/toyota/hibrid?rs=2000', 'jofogas.hu');
-ok(r6.ok && JSON.stringify(r6.learned) === JSON.stringify({ encoding: 'segment', segment: 'hibrid' }), 'carburant en segment de chemin (/hibrid)', r6);
-const r7 = deduceFilterRule('fuel', 'HYBRIDE', BRAND, `${BRAND}&fuel=4`, 'leboncoin.fr');
-ok(r7.ok && JSON.stringify(r7.learned) === JSON.stringify({ encoding: 'code', param: 'fuel', code: '4' }), 'carburant en code (fuel=4)', r7);
-no(deduceFilterRule('mileageMin', '20000', BRAND, `${BRAND}&mileage=20000-max&regdate=2020-max`, 'leboncoin.fr'), /Plusieurs choses ont changé/, 'refus : deux filtres réglés au lieu d\'un');
-no(deduceFilterRule('mileageMin', '20000', BRAND, `${BRAND}&mileage=30000-max`, 'leboncoin.fr'), /Valeur illisible|non prise en charge/, 'refus : la valeur réglée n\'est pas celle demandée');
-no(deduceFilterRule('mileageMin', '20000', 'https://www.autoscout24.fr/lst/toyota?atype=C', 'https://www.autoscout24.fr/lst/toyota?atype=C&kmfrom=30000', 'autoscout24.fr'), /différente de la valeur demandée/, 'refus : 30 000 réglés pour 20 000 demandés (jamais pris pour un code)');
-ok(ruleValueKey('mileageMin', { encoding: 'param', param: 'kmfrom' }, '20000') === '*' && ruleValueKey('mileageMin', { encoding: 'code', param: 'ms', code: '12' }, '20000') === '20000', 'une forme générale vaut pour toutes les valeurs, un code pour la sienne');
-
-const rule = (criterion: string, value_key: string, r: FilterRule): LearnedRuleRow => ({ id: `${criterion}-${value_key}`, site: 'X', kind: 'filtre', brand_key: '', model_key: '', criterion, value_key, rule: r, status: 'active' });
-const kmMinLbc = rule('mileageMin', '*', { encoding: 'range', param: 'mileage', side: 'min', sep: '-', openMin: '', openMax: 'max' });
-const NONE = new Set<string>(['km min']);
-let a = applyLearnedFilters(`${BRAND}&mileage=min-90000`, { brand: 'TOYOTA', model: '', mileage: 90000, mileageMin: 20000 }, [kmMinLbc], NONE);
-ok(a.url === `${BRAND}&mileage=20000-90000` && a.applied.includes('mileageMin'), 'km min appris + km max codé : « 20000-90000 »', a.url);
-a = applyLearnedFilters(BRAND, { brand: 'TOYOTA', model: '', mileageMin: 20000 }, [kmMinLbc], NONE);
-ok(a.url === `${BRAND}&mileage=20000-max`, 'km min seul : « 20000-max »', a.url);
-a = applyLearnedFilters(`${BRAND}&mileage=min-90000`, { brand: 'TOYOTA', model: '', mileage: 90000 }, [kmMinLbc], NONE);
-ok(a.url === `${BRAND}&mileage=min-90000`, 'sans km min : la plage du registre n\'est pas touchée', a.url);
-a = applyLearnedFilters(`${BRAND}&mileage=20000-max`, { brand: 'TOYOTA', model: '' }, [kmMinLbc], NONE);
-ok(a.url === BRAND, 'sans km min ni max : un km min hérité est retiré (anti-fossile)', a.url);
-a = applyLearnedFilters('https://www.lacentrale.fr/listing?makesModelsCommercialNames=TOYOTA&mileageMin=20000', { brand: 'TOYOTA', model: '', mileageMin: 20000 }, [rule('mileageMin', '*', { encoding: 'param', param: 'kmMinBidon' })], new Set());
-ok(!a.url.includes('kmMinBidon') && a.applied.length === 0, 'priorité au code : La Centrale écrit déjà mileageMin, la règle apprise ne touche à rien', a.url);
-
-const SB = 'https://www.subito.it/annunci-italia/vendita/auto/bmw/';
-const codes = [rule('mileageMin', '10000', { encoding: 'code', param: 'ms', code: '11' }), rule('mileageMin', '20000', { encoding: 'code', param: 'ms', code: '12' })];
-a = applyLearnedFilters(SB, { brand: 'BMW', model: '', mileageMin: 25000 }, codes, NONE);
-ok(a.url === `${SB}?ms=12`, 'liste du site : 25 000 demandé → 20 000 (en dessous : la recherche n\'est jamais rétrécie)', a.url);
-a = applyLearnedFilters(SB, { brand: 'BMW', model: '', mileageMin: 5000 }, codes, NONE);
-ok(a.url === SB && a.gaps.length === 1 && a.gaps[0].criterion === 'mileageMin' && a.gaps[0].valueKey === '5000', 'valeur absente de la liste apprise : une lacune pour CETTE valeur', a.gaps);
-const fuelRules = [rule('fuel', 'hybrid', { encoding: 'code', param: 'fuel', code: '4' })];
-a = applyLearnedFilters(BRAND, { brand: 'TOYOTA', model: '', fuel: 'HYBRIDE' }, fuelRules, new Set(['carburant']));
-ok(a.url === `${BRAND}&fuel=4`, 'carburant appris posé', a.url);
-a = applyLearnedFilters(BRAND, { brand: 'TOYOTA', model: '', fuel: 'DIESEL' }, fuelRules, new Set(['carburant']));
-ok(a.gaps.length === 1 && a.gaps[0].valueKey === 'diesel', 'carburant non appris : lacune « diesel »', a.gaps);
-a = applyLearnedFilters(`${BRAND}&fuel=4`, { brand: 'TOYOTA', model: '' }, fuelRules, new Set());
-ok(a.url === BRAND, 'carburant non demandé : le code appris est retiré', a.url);
-const JF = 'https://auto.jofogas.hu/magyarorszag/auto/toyota?rs=2000';
-const seg = [rule('fuel', 'hybrid', { encoding: 'segment', segment: 'hibrid' })];
-a = applyLearnedFilters(JF, { brand: 'TOYOTA', model: '', fuel: 'Hybride' }, seg, new Set(['carburant']));
-ok(a.url === 'https://auto.jofogas.hu/magyarorszag/auto/toyota/hibrid?rs=2000', 'segment appris posé en fin de chemin', a.url);
-a = applyLearnedFilters('https://auto.jofogas.hu/magyarorszag/auto/toyota/hibrid?rs=2000', { brand: 'TOYOTA', model: '' }, seg, new Set());
-ok(a.url === JF, 'segment appris retiré quand le carburant n\'est pas demandé', a.url);
-a = applyLearnedFilters(BRAND, { brand: 'TOYOTA', model: '', mileageMin: 30000 }, [], NONE);
-ok(a.gaps.length === 1 && a.gaps[0].valueKey === '*' && a.gaps[0].value === '30000', 'rien d\'appris : lacune de forme (« * ») avec la valeur à demander', a.gaps);
-
-console.log('\n=== APPRENTISSAGE : CONTRÔLE, CLÉS, CONSIGNES ===\n');
-ok(checkNumeric('mileageMin', '20000', [{ mileage: 25000 }, { mileage: 30000 }, { mileage: 19800 }, { mileage: 50000 }]).verdict === 'ok', 'contrôle km min : conformes (tolérance d\'arrondi de 2 %)');
-ok(checkNumeric('mileageMin', '20000', [{ mileage: 5000 }, { mileage: 8000 }, { mileage: 30000 }, { mileage: 9000 }]).verdict === 'echec', 'contrôle km min : trop d\'annonces sous la borne → échec');
-ok(checkNumeric('mileageMin', '20000', [{ mileage: 25000 }, { mileage: null }]).verdict === 'humain', 'moins de 3 annonces renseignées → à vous de juger');
-ok(verifyValueFor('mileageMin', '20000') === '40000' && verifyValueFor('mileageMax', '90000') === '63000' && verifyValueFor('yearFrom', '2021') === '2020' && verifyValueFor('fuel', 'HYBRIDE') === 'HYBRIDE', 'vérification : une autre valeur que celle de Claude');
-ok(valueKeyOf('fuel', 'HYBRIDE') === 'hybrid' && valueKeyOf('fuel', 'Hybride rechargeable') === 'phev' && valueKeyOf('mileageMin', '20 000') === '20000', 'clés de valeur : jetons canoniques d\'ADA');
-ok(learningKey('modele', 'SUBITO', { brandKey: 'BMW', modelKey: 'SERIE1' }) === 'modele|SUBITO|BMW|SERIE1' && learningKey('filtre', 'SUBITO', { criterion: 'mileageMin' }) === 'filtre|SUBITO|mileageMin|*', 'clés de la file');
-ok(/kilométrage minimum sur 20\u202f000 km/.test(lineInstruction({ kind: 'filtre', brand: 'TOYOTA', model: '', criterion: 'mileageMin', value: '20000' })), 'consigne de ligne : la valeur en clair', lineInstruction({ kind: 'filtre', brand: 'TOYOTA', model: '', criterion: 'mileageMin', value: '20000' }));
-
-console.log('\n=== ADA CHERCHE L\'ADRESSE ELLE-MÊME (31/10) ===\n');
-ok(JSON.stringify(modelLabelForms('CLS-CLASS')) === JSON.stringify(['CLS-CLASS', 'Classe CLS', 'CLS']) && JSON.stringify(modelLabelForms('Classe cls')) === JSON.stringify(['Classe cls', 'Classe CLS', 'CLS']),
-  'les écritures d\'un nom : telle quelle, « Classe X », le code seul', [modelLabelForms('CLS-CLASS'), modelLabelForms('Classe cls')]);
-const lcC = modelCandidates(lacentraleAdapter, 'MERCEDES', 'CLS-CLASS');
-ok(lcC.length === 3 && lcC.some((u) => u.includes('makesModelsCommercialNames=MERCEDES%3A%3ACLASSE%20CLS')) && lcC.every((u) => u.startsWith('https://www.lacentrale.fr/listing?')),
-  'La Centrale : « MARQUE::LIBELLÉ » en capitales, page marque de départ inchangée par ailleurs', lcC);
-const gpC = modelCandidates(gaspedaalAdapter, 'SKODA', 'Enyaq iV');
-ok(gpC.length >= 1 && gpC[0].includes('/skoda/enyaq-iv'), 'Gaspedaal : le slug du nom, par la grammaire de l\'adaptateur', gpC);
-const lbcC = modelCandidates(leboncoinAdapter, 'MERCEDES', 'CLS-CLASS');
-ok(lbcC.length >= 1 && lbcC.every((u) => /u_car_model=/.test(u)), 'Leboncoin : u_car_model posé par l\'adaptateur', lbcC);
-const pathOnly = diffUrls('https://www.gaspedaal.nl/skoda?srt=pr-a', 'https://www.gaspedaal.nl/skoda/enyaq-iv');
-ok(pathOnly.changes.length === 1 && pathOnly.changes[0].type === 'segments_inserted', 'adresse sans paramètres (masqués par l\'extension) : seul le chemin compte', pathOnly.changes);
-
 console.log('\n=== NOM LU SUR LE SITE : ÉQUIVALENT OU PLUS PRÉCIS QUE LE MODÈLE (31/10) ===\n');
 const same = (b: string, label: string, model: string) => siteLabelKey(b, label) === refModelKey(b, model);
 ok(same('MERCEDES', 'Classe cls', 'CLS-CLASS') && same('SKODA', 'Enyaq iV', 'ENYAQ') && same('BMW', '8er', '8-SERIES') && same('TOYOTA', 'Yaris Cross Hybrid', 'YARIS CROSS'),
@@ -203,7 +85,7 @@ LBA.learnEnumValues!('u_car_model', lbV);
 ok(vocabularyMatches(LBA, 'NISSAN', '370Z', lbV).exact.join() === '370Z' && vocabularyMatches(LBA, 'RENAULT', '5', lbV).exact.length === 0,
   'Leboncoin : « 370Z » pour Nissan ; le « 5 » de Mazda n\'est jamais une Renault 5');
 
-console.log('\n=== MARQUE « X/Y » DU RÉFÉRENTIEL, ADRESSE DE NAVIGATION SKELBIU (01/11) ===\n');
+console.log('\n=== MARQUE « X/Y » DU RÉFÉRENTIEL (01/11) ===\n');
 const { analyzeIngestion: ai } = await import('../src/lib/study-core/ingestion');
 const tl = (title: string) => ({ title, description: '', price: 15000, currency: 'EUR', price_type: 'one-off', year: 2021, mileage: 30000, trim: null, listing_url: `https://x/${Math.random()}`, brand: null, model: null, fuel: null });
 const brandOf = (b: string, titles: string[]) => ai('https://www.skelbiu.lt/skelbimai/?category_id=2924', { brand: b, model: 'ZS' }, titles.map(tl) as never, SK).confirmations.find((c) => c.field === 'brand');
@@ -211,13 +93,60 @@ const mgOk = brandOf('MG/MG MOTOR', ['MG ZS, 2021 m.', 'MG ZS EV', 'MG ZS 1.5', 
 ok(mgOk?.status === 'confirmed' && mgOk.matchCount === 5, 'marque « MG/MG MOTOR » : des titres « MG ZS » la prouvent (l\'une OU l\'autre écriture)', mgOk);
 const motor = brandOf('MG/MG MOTOR', ['Motor 1.5 Toyota', 'Motor Opel Astra', 'Motor Audi A4', 'Motor BMW', 'MG ZS']);
 ok(motor?.status === 'rejected' && motor.matchCount === 1, 'le mot générique « Motor » seul ne prouve jamais la marque MG', motor);
-const nav = SK.searchUrlFromPage!('https://www.skelbiu.lt/transportas/automobiliai/mg/zs', [{ field: 'sk:fuel', code: '5', label: 'Elektra' }, { field: 'sk:cat', code: '2924', label: 'MG ZS' }],
-  SK.buildSearchUrl({ brand: 'MG/MG MOTOR', model: '' }).url);
-ok(Boolean(nav) && new URL(nav!).pathname === '/skelbimai/' && new URL(nav!).searchParams.get('category_id') === '2924',
-  'Skelbiu : adresse de navigation /transportas/automobiliai/mg/zs → adresse de recherche category_id=2924', nav);
-ok(SK.searchUrlFromPage!('https://www.skelbiu.lt/skelbimai/?category_id=2924', [{ field: 'sk:cat', code: '2924', label: 'MG ZS' }], SK.buildSearchUrl({ brand: 'MG', model: '' }).url) === null
-  && SK.searchUrlFromPage!('https://www.skelbiu.lt/transportas/automobiliai/mg/zs', [], SK.buildSearchUrl({ brand: 'MG', model: '' }).url) === null,
-  'déjà une adresse de recherche, ou page qui ne dit pas sa catégorie : rien n\'est converti');
+console.log('\n=== LE LIVRE D\'UN SITE : UN SEUL NOM À EMPLOYER (01/11) ===\n');
+const GP = siteAdapter('GASPEDAAL')!;
+const gpV = [{ field: 'gp:brand', code: 'skoda', label: 'Skoda' }, { field: 'gp:model:skoda', code: 'enyaq-iv', label: 'Enyaq iV' }];
+GP.learnEnumValues!('gp:model:skoda', [{ code: 'enyaq-iv', label: 'Enyaq iV' }]);
+ok(bookModelLabel(GP, 'SKODA', 'ENYAQ', gpV) === 'Enyaq iV', 'Gaspedaal : ENYAQ s\'écrit « Enyaq iV », le nom du livre');
+ok(bookModelLabel(SK, 'MG/MG MOTOR', 'ZS', skV) === 'MG ZS', 'Skelbiu : ZS s\'écrit « MG ZS »');
+ok(bookModelLabel(MD, 'MERCEDES', 'GLS-CLASS', mdV) === null, 'mobile.de : que des versions (GLS 350, 400, 450) — aucun nom choisi');
+const twoNames = [...gpV, { field: 'gp:model:skoda', code: 'enyaq', label: 'Enyaq' }];
+GP.learnEnumValues!('gp:model:skoda', [{ code: 'enyaq', label: 'Enyaq' }]);
+ok(vocabularyMatches(GP, 'SKODA', 'ENYAQ', twoNames).exact.length === 2 && bookModelLabel(GP, 'SKODA', 'ENYAQ', twoNames) === null,
+  'deux noms du livre pour la même clé (« Enyaq iV », « Enyaq ») : rien n\'est choisi au hasard');
+
+const SBB = siteAdapter('SUBITO')!;
+const sbScenic = [{ field: 'sb:model:renault', code: '009120', label: 'Scénic Electric' }];
+SBB.learnEnumValues!('sb:model:renault', [{ code: '009120', label: 'Scénic Electric' }]);
+ok(bookModelLabel(SBB, 'RENAULT', 'SCENIC', sbScenic) === null && bookModelLabel(SBB, 'RENAULT', 'SCENIC', sbScenic, 'DIESEL') === null,
+  'Subito : « Scénic Electric » n\'est jamais employé pour un Scénic tout court ou diesel (la recherche ne garderait que les électriques)');
+ok(bookModelLabel(SBB, 'RENAULT', 'SCENIC', sbScenic, 'ELECTRIQUE') === 'Scénic Electric', '… mais l\'est pour un Scénic électrique');
+ok(bookModelLabel(GP, 'SKODA', 'ENYAQ', gpV, 'DIESEL') === 'Enyaq iV', '« iV » n\'est pas une motorisation lue : Enyaq iV reste le nom d\'ENYAQ');
+
+console.log('\n=== TRUTH CENTER › LACUNES : LE LIVRE COMPARÉ PAR NOM CANONIQUE (01/11) ===\n');
+const REF = ['Toyota', 'MG', 'Mercedes', 'Land Rover', 'Škoda', 'Nissan'];
+const as24 = readSiteBook([
+  { field: 'as:make', code: '68', label: 'Toyota' }, { field: 'as:make', code: '47', label: 'Mercedes-Benz' },
+  { field: 'as:model', code: '68;2081', label: 'RAV 4' }, { field: 'as:model', code: '68;74398', label: 'C-HR' },
+  { field: 'as:model', code: '47;20389', label: 'GLS' }, { field: 'as:model', code: '47;1655', label: 'Classe CLS' },
+], REF);
+ok(as24.models.get('TOYOTA')?.has(refModelKey('Toyota', 'RAV4')) === true && as24.models.get('TOYOTA')?.get('RAV4') === 'RAV 4',
+  'AutoScout24 : « RAV 4 » du site = RAV4 du référentiel (plus jamais « manquant » pour une espace)', [...(as24.models.get('TOYOTA') ?? [])]);
+ok(as24.models.get('MERCEDES')?.has(refModelKey('Mercedes', 'CLS-CLASS')) === true && as24.brands.has('MERCEDES'),
+  'Mercedes-Benz du site = Mercedes du référentiel, « Classe CLS » = CLS-CLASS', [...as24.brands.keys()]);
+const lbc = readSiteBook([
+  { field: 'u_car_brand', code: 'MG/MG MOTOR', label: 'MG/MG MOTOR' }, { field: 'u_car_model', code: 'MG/MG MOTOR_ZS', label: 'ZS' },
+  { field: 'u_car_model', code: 'NISSAN_Navara', label: 'Navara' },
+], REF);
+ok(lbc.brands.has('MG') && lbc.models.get('MG')?.has('ZS') === true && !lbc.brands.has('MGMGMOTOR'),
+  'marque « MG/MG MOTOR » du site rangée sous MG, la clé du référentiel', [...lbc.brands.keys()]);
+ok(lbc.models.get('NISSAN')?.has('NAVARA') === true && lbc.brands.has('NISSAN'), 'marque lue dans le code (NISSAN_Navara) quand le site ne la liste pas');
+ok(brandKeyAmong('MG/MG MOTOR', new Set(['MG', 'TOYOTA'])) === 'MG' && brandKeyAmong('Mercedes-Benz', new Set(['MERCEDES'])) === 'MERCEDES',
+  'une étude « MG/MG MOTOR » compte pour la marque MG du référentiel');
+const sk = readSiteBook([
+  { field: 'sk:cat', code: '101', label: 'Toyota' }, { field: 'sk:cat', code: '3554', label: 'Toyota Yaris' },
+  { field: 'sk:cat', code: '2924', label: 'MG ZS' }, { field: 'sk:cat', code: '555', label: 'Land Rover' },
+  { field: 'sk:cat', code: '556', label: 'Land Rover Defender' }, { field: 'sk:cat', code: '31', label: 'Automobiliai' },
+], REF);
+ok(sk.brands.has('TOYOTA') && sk.brands.has('LANDROVER') && sk.models.get('MG')?.get('ZS') === 'MG ZS'
+  && sk.models.get('LANDROVER')?.has('DEFENDER') === true && sk.models.get('TOYOTA')?.has('YARIS') === true && !sk.brands.has('AUTOMOBILIAI'),
+  'Skelbiu : la marque lue en tête du libellé (« MG ZS », « Land Rover Defender ») ; une catégorie générique n\'est ni marque ni modèle',
+  { brands: [...sk.brands.keys()], models: [...sk.models].map(([b, m]) => `${b}:${[...m.keys()].join('/')}`) });
+const sbBook = readSiteBook([{ field: 'sb:brand', code: '000004', label: 'RENAULT' }, ...sbScenic, { field: 'sb:model:renault', code: '1', label: 'Clio' }], [...REF, 'Renault']);
+ok(!sbBook.models.get('RENAULT')?.has('SCENIC') && sbBook.models.get('RENAULT')?.has('CLIO') === true && [...(sbBook.models.get('RENAULT')?.values() ?? [])].includes('Scénic Electric'),
+  'Lacunes : le Scénic reste manquant quand le livre ne connaît que « Scénic Electric » (affiché parmi les noms du site)', [...(sbBook.models.get('RENAULT') ?? [])]);
+const mp = readSiteBook([{ field: 'model_facet', code: 'skoda;enyaq-iv;13881', label: 'Enyaq iV' }], REF);
+ok(mp.models.get('SKODA')?.has(refModelKey('Škoda', 'ENYAQ')) === true, 'Marktplaats : « Enyaq iV » (marque dans le code) = ENYAQ du référentiel « Škoda »', [...mp.models.keys()]);
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

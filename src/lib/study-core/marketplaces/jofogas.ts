@@ -226,7 +226,7 @@ function learnEnumValues(field: string, pairs: Array<{ code: string; label: stri
     if (AMBIGUOUS_KEYS.has(key)) continue;
     const prev = LEARNED_KEY_LABEL[key];
     if (prev !== undefined && prev !== p.label && LEARNED_MODEL_ID[key] !== p.code) {
-      // Deux modèles du site sous la même clé : ni l'un ni l'autre — l'apprentissage des sites tranchera.
+      // Deux modèles du site sous la même clé : ni l'un ni l'autre — rien n'est choisi au hasard.
       AMBIGUOUS_KEYS.add(key);
       delete LEARNED_MODEL_ID[key];
       continue;

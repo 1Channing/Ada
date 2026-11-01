@@ -235,7 +235,7 @@ async function scrapeCountry(
     let genParams: Parameters<typeof generateSearchUrlsWithMemory>[0] | null = null;
     try {
       genParams = {
-        selectedSites: [site.key as SiteKey], gapSource: 'recherche',
+        selectedSites: [site.key as SiteKey],
         brand: s.brand, model: s.model || '',
         fuel: s.fuel || undefined, trim: trim || undefined,
         yearFrom: s.year_min ? String(s.year_min) : undefined,

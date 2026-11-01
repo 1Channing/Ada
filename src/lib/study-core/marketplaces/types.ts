@@ -142,8 +142,9 @@ export interface BuildUrlResult {
    *  garde d'exprimabilité des campagnes précision : pas de scrape payé pour
    *  une page qu'on sait incapable de confirmer le modèle (Channing 02/08). */
   modelExpressed?: boolean;
-  /** true = le modèle est posé mais DEVINÉ (Leboncoin : forme BRAND_Modèle supposée, pas encore moissonnée) —
-   *  à confirmer par l'apprentissage des sites ; n'empêche aucun scrape (contrairement à modelExpressed:false). */
+  /** true = le modèle est posé mais DEVINÉ (Leboncoin : forme BRAND_Modèle supposée, pas encore moissonnée) — le
+   *  générateur prend alors le nom exact du livre du site s'il le connaît ; n'empêche aucun scrape (contrairement à
+   *  modelExpressed:false). */
   modelGuessed?: boolean;
   /** URL de DÉPART quand le modèle n'a pas d'identifiant appris (mobile.de, 05/10, Channing : « qu'ADA propose quand
    *  même une URL en indiquant la nomenclature qui manque ») : page marque + tous les critères, à compléter à la main
@@ -276,14 +277,6 @@ export interface SiteAdapter {
    * buildSearchUrl/prefill can use codes learned in earlier runs.
    */
   learnEnumValues?(field: string, pairs: Array<{ code: string; label: string }>): void;
-
-  /**
-   * Adresse de NAVIGATION → adresse de RECHERCHE (01/11, Skelbiu). Une adresse obtenue en cliquant sur le site
-   * (« /transportas/automobiliai/mg/zs ») n'a pas la forme que le générateur écrit (« /skelbimai/?…&category_id=… ») :
-   * à partir de la moisson de cette page (sa propre catégorie) et de la page de départ, l'adresse de recherche
-   * équivalente — ou null si la page ne le dit pas. Sert à l'apprentissage des sites avant la déduction de la règle.
-   */
-  searchUrlFromPage?(pageUrl: string, harvest: Array<{ field: string; code: string; label: string }>, startUrl: string): string | null;
 
   // ─── Ingestion (URL learning from human-pasted searches) ──────────────────
 

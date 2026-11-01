@@ -281,8 +281,8 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
   // rien d'inventé) — le tri prix rendrait toujours les mêmes annonces bas de
   // gamme (décision Channing 02/08). Études/précision : prix croissant intact.
   if (params.sort === 'relevance') url = url.replace('&sort=price&order=asc', '');
-  // Modèle DEVINÉ (forme BRAND_Modèle supposée, enum pas encore moissonné) : signalé à l'apprentissage des
-  // sites (30/10) pour qu'une adresse réelle le confirme — le scrape, lui, part quand même.
+  // Modèle DEVINÉ (forme BRAND_Modèle supposée, enum pas encore moissonné) : signalé au générateur, qui prend le
+  // nom exact du livre du site s'il le connaît (01/11) — le scrape, lui, part quand même.
   const modelGuessed = Boolean(mappedModel) && !learnedModelEnum(mappedBrand, mappedModel.trim());
   return { url, warnings, ...(modelGuessed ? { modelGuessed: true } : {}) };
 }

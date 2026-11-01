@@ -125,9 +125,9 @@ export async function ensureLearnedTaxonomy(maxAgeMs = 10 * 60_000): Promise<voi
  */
 const LEARNED_CODES = new Map<string, Map<string, Map<string, string>>>();
 /**
- * LA LISTE DU SITE, BRUTE (31/10, Channing : « apprendre directement les noms avec les listes présentes ») : les
- * libellés d'origine moissonnés par site (« MG ZS », « GLS 350 », « Countryman Cooper ») — l'essai seul d'ADA y
- * cherche le nom exact du site avant de deviner (modelProbe.vocabularyMatches).
+ * LE LIVRE DU SITE, BRUT (31/10, Channing : « apprendre directement les noms avec les listes présentes ») : les
+ * libellés d'origine moissonnés par site (« MG ZS », « GLS 350 », « Countryman Cooper ») — le générateur y prend le
+ * nom exact d'un modèle que l'adaptateur ne sait pas écrire seul (siteVocabulary.bookModelLabel).
  */
 const LEARNED_VOCAB = new Map<string, Array<{ field: string; code: string; label: string }>>();
 export function learnedVocabulary(site: string): ReadonlyArray<{ field: string; code: string; label: string }> {

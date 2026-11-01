@@ -6,7 +6,8 @@ import type { SiteKey } from '../lib/study-core/marketplaces';
 import { generateSearchUrlsWithMemory } from '../lib/linkgen/generator';
 import { CRITERIA_DETECTORS } from '../lib/linkgen/grammar';
 import { getRefWindowsCached, type RefWindowMap } from '../services/vehicleRef';
-import { brandKey } from '../services/marketData';
+import { refModelKey } from '../services/marketData';
+import { brandKeyAmong, readSiteBook } from '../lib/linkgen/siteVocabulary';
 import { addGolden } from '../services/truthLoop';
 import { useAuth } from '../services/auth';
 
@@ -34,16 +35,6 @@ interface StudyLike { brand: string; model: string | null; source_country: strin
 interface DictRow { field: string; code: string; label: string; updated_at: string }
 interface MemoryRow { brand: string; model: string; validation_status: string; updated_at: string }
 
-// Champ « marque » et forme du code « modèle » (marque;… ou MARQUE_…) par site —
-// conventions RÉELLES des dictionnaires (inventaire base 03/09).
-const BRAND_FIELD: Record<string, string> = {
-  LEBONCOIN: 'u_car_brand', LACENTRALE: 'lc:make', MOBILE_DE: 'ms:make', GASPEDAAL: 'gp:brand',
-  BILBASEN: 'bb:filter:Make', BLOCKET: 'bl:brand', SUBITO: 'sb:brand', JOFOGAS: 'jf:brand',
-};
-const MODEL_FIELD_PREFIX: Record<string, string> = {
-  LEBONCOIN: 'u_car_model', LACENTRALE: 'lc:model:', MOBILE_DE: 'ms:model', MARKTPLAATS: 'model_facet',
-  GASPEDAAL: 'gp:model:', BILBASEN: 'bb:model', BLOCKET: 'bl:model:', SUBITO: 'sb:model:', JOFOGAS: 'jf:model:',
-};
 const siteFamily = (key: string) => (key.startsWith('AUTOSCOUT') ? 'AUTOSCOUT' : key);
 
 // Critères du canon ADA, chacun avec ses VALEURS (demande Channing 03/09 :
@@ -137,49 +128,28 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [site?.key]);
 
-  // ── Marques / modèles : dictionnaire ↔ référentiel ──
-  const learned = useMemo(() => {
-    const brands = new Map<string, string>();          // brandKey → label
-    const models = new Map<string, Set<string>>();     // brandKey → modelKeys (softs)
-    if (!dict || !site) return { brands, models };
-    const fam = siteFamily(site.key);
-    const bf = BRAND_FIELD[fam] ?? (fam === 'AUTOSCOUT' ? 'as:make' : '');
-    const mp = MODEL_FIELD_PREFIX[fam] ?? (fam === 'AUTOSCOUT' ? 'as:model' : '');
-    // Codes marque → label (mobile.de / AutoScout encodent le modèle par id de marque).
-    const brandById = new Map<string, string>();
-    for (const r of dict) {
-      if (bf && r.field === bf) { brands.set(brandKey(r.label), r.label); brandById.set(r.code, r.label); }
-    }
-    for (const r of dict) {
-      if (!mp) continue;
-      let brandLabel: string | null = null;
-      if (mp.endsWith(':')) { if (!r.field.startsWith(mp)) continue; brandLabel = r.field.slice(mp.length); }
-      else if (r.field === mp) {
-        // « audi;100;563 » / « aiways;u5 » / « 1100;14 » (id) / « ALFA ROMEO_Junior »
-        const semi = r.code.split(';')[0];
-        brandLabel = r.code.includes(';') ? (brandById.get(semi) ?? semi) : r.code.split('_')[0];
-      } else continue;
-      if (!brandLabel) continue;
-      const bk = brandKey(brandLabel);
-      if (!brands.has(bk)) brands.set(bk, brandLabel);
-      (models.get(bk) ?? models.set(bk, new Set()).get(bk)!).add(soft(r.label));
-    }
-    return { brands, models };
-  }, [dict, site]);
-
-  const activeBrands = useMemo(() => new Set(studies.filter((s) => s.active !== false).map((s) => brandKey(s.brand))), [studies]);
-  const activeModels = useMemo(() => new Set(studies.filter((s) => s.active !== false && s.model).map((s) => `${brandKey(s.brand)}|${soft(s.model!)}`)), [studies]);
-
+  // ── Marques / modèles : livre du site ↔ référentiel ──
+  // Lu d'UNE seule façon (siteVocabulary, comme le générateur) et comparé par CLÉ CANONIQUE, comme partout dans
+  // ADA (01/11) : « RAV 4 » du site = RAV4 du référentiel, « Enyaq iV » = ENYAQ, « MG ZS » (Skelbiu) = ZS ; une
+  // marque « MG/MG MOTOR » est rangée sous la clé MG du référentiel.
   const refBrands = useMemo(() => {
     const out = new Map<string, { label: string; models: Map<string, string> }>();
     if (!ref) return out;
     for (const [k, w] of ref) {
-      const bk = k.split('|')[0];
+      const [bk, mk] = k.split('|');
       const e = out.get(bk) ?? out.set(bk, { label: w.brandLabel, models: new Map() }).get(bk)!;
-      e.models.set(soft(w.modelLabel), w.modelLabel);
+      if (mk) e.models.set(mk, w.modelLabel);
     }
     return out;
   }, [ref]);
+
+  const learned = useMemo(() => {
+    if (!dict || !ref) return { brands: new Map<string, string>(), models: new Map<string, Map<string, string>>() };
+    return readSiteBook(dict, [...refBrands.values()].map((b) => b.label));
+  }, [dict, ref, refBrands]);
+
+  const activeBrands = useMemo(() => new Set(studies.filter((s) => s.active !== false).map((s) => brandKeyAmong(s.brand, refBrands))), [studies, refBrands]);
+  const activeModels = useMemo(() => new Set(studies.filter((s) => s.active !== false && s.model).map((s) => `${brandKeyAmong(s.brand, refBrands)}|${refModelKey(s.brand, s.model!)}`)), [studies, refBrands]);
 
   const brandRows = useMemo(() => {
     const keys = new Set<string>([...refBrands.keys(), ...learned.brands.keys()]);
@@ -188,7 +158,7 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
       .map((bk) => {
         const label = refBrands.get(bk)?.label ?? learned.brands.get(bk) ?? bk;
         const refModels = refBrands.get(bk)?.models ?? new Map<string, string>();
-        const got = learned.models.get(bk) ?? new Set<string>();
+        const got = learned.models.get(bk) ?? new Map<string, string>();
         const wanted = [...refModels.keys()].filter((m) => !activeOnly || activeModels.has(`${bk}|${m}`));
         const missing = wanted.filter((m) => !got.has(m));
         return { bk, label, known: learned.brands.has(bk) || got.size > 0, got, refModels, wanted, missing };
@@ -311,8 +281,7 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
       <section className="bg-white border border-slate-200 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-slate-800 mb-1">Marques et modèles</h3>
         <p className="text-xs text-slate-500 mb-3">
-          Référentiel constructeur ↔ dictionnaire moissonné du site.{activeOnly ? ' Limité aux marques et modèles des études quotidiennes actives (« Recherche active »).' : ' Tout le référentiel.'}
-          {siteFamily(site.key) === 'SKELBIU' && ' Skelbiu : recherche par mots-clés, pas de dictionnaire de modèles — rien à apprendre ici.'}
+          Référentiel constructeur ↔ livre du site (dictionnaire moissonné), comparés par nom canonique : « RAV 4 » = « RAV4 ».{activeOnly ? ' Limité aux marques et modèles des études quotidiennes actives (« Recherche active »).' : ' Tout le référentiel.'}
           {siteFamily(site.key) === 'MARKTPLAATS' && ' Marktplaats : la marque vit dans le chemin (jamais moissonnée), seuls les modèles sont appris.'}
         </p>
         {!dict || !ref ? <p className="text-xs text-slate-400"><Loader2 className="w-3.5 h-3.5 inline animate-spin" /> chargement…</p> : brandRows.length === 0 ? (
@@ -336,7 +305,7 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
                     <div className="ml-6 mt-1.5 mb-1 grid md:grid-cols-2 gap-3 text-xs">
                       <div>
                         <p className="text-slate-500 mb-1">Appris sur le site ({b.got.size})</p>
-                        <p className="text-slate-700 leading-5">{[...b.got].sort().join(' · ') || '—'}</p>
+                        <p className="text-slate-700 leading-5">{[...b.got.values()].sort((x, y) => x.localeCompare(y)).join(' · ') || '—'}</p>
                       </div>
                       <div>
                         <p className="text-slate-500 mb-1">Manquants vs référentiel ({b.missing.length}{activeOnly ? ', recherche active' : ''})</p>
@@ -492,4 +461,3 @@ function Kpi({ label, value, hint }: { label: string; value: string; hint?: stri
   );
 }
 
-const soft = (v: string) => v.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z0-9]+/g, ' ').trim();

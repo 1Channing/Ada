@@ -3,10 +3,9 @@ import { getSiteAdapter } from '../study-core/marketplaces';
 import { canonicalizeAutoscoutModelPath } from '../study-core/marketplaces/autoscout24';
 import { resolveYearRange } from '../study-core/marketplaces/urlTemplate';
 import { sharedSupabase as supabase } from '../supabaseShared';
-import { ensureLearnedTaxonomy, learnedTaxonomyAgeMs } from './taxonomy';
-import { applyVariableCriteria, injectTrimIntoUrl, missingUrlCriteria, mpNormalize, setQueryParamRaw } from './grammar';
-import { ensureLearnedRules, learnedRulesFor, noteLearningGap } from './learnedRules';
-import { applyLearnedFilters, applyModelFragment, brandKeyOf, type ModelFragment } from './learning';
+import { ensureLearnedTaxonomy, learnedTaxonomyAgeMs, learnedVocabulary } from './taxonomy';
+import { applyVariableCriteria, injectTrimIntoUrl, mpNormalize, setQueryParamRaw } from './grammar';
+import { bookModelLabel } from './siteVocabulary';
 
 // Le REGISTRE UNIQUE des grammaires (année/km/puissance/boîte/finition par
 // site) vit dans ./grammar.ts — les deux voies (native et mémoire) le
@@ -50,7 +49,27 @@ export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): Li
     },
   });
 
-  const { url, warnings, electricSibling, draftUrl, modelExpressed, modelGuessed } = adapter.buildSearchUrl(params);
+  let built = adapter.buildSearchUrl(params);
+  // LE LIVRE DU SITE (01/11) : un modèle que l'adaptateur ne sait pas écrire seul (« ENYAQ » sur Gaspedaal, « ZS »
+  // sur Skelbiu) mais que la liste moissonnée du site connaît sous la même clé canonique (« Enyaq iV », « MG ZS ») est
+  // écrit avec le nom exact du site — rien de deviné : un seul nom du livre, que l'adaptateur sait poser.
+  let modelFromBook = false;
+  if (params.model && (built.modelExpressed === false || built.modelGuessed)) {
+    const label = bookModelLabel(adapter, params.brand ?? '', params.model, learnedVocabulary(String(params.site)), params.fuel);
+    if (label && label !== params.model) {
+      const viaBook = adapter.buildSearchUrl({ ...params, model: label });
+      if (viaBook.url && viaBook.modelExpressed !== false && !viaBook.modelGuessed) {
+        built = viaBook;
+        modelFromBook = true;
+        logs.push({
+          level: 'MAPPING',
+          message: `[LINKGEN_MAPPING] Modèle écrit avec le nom du livre du site : « ${params.model} » → « ${label} »`,
+          data: { model: params.model ?? '', label },
+        });
+      }
+    }
+  }
+  const { url, warnings, electricSibling, draftUrl, modelExpressed, modelGuessed } = built;
   if (electricSibling) {
     logs.push({
       level: 'MAPPING',
@@ -81,43 +100,8 @@ export function generateSearchUrl(params: LinkGenParams & { site: SiteKey }): Li
   return {
     url, site: params.site, debugLogs: logs, ...(electricSibling ? { electricSibling } : {}), ...(draftUrl ? { draftUrl } : {}),
     ...(modelExpressed === false ? { modelExpressed } : {}), ...(modelGuessed ? { modelGuessed } : {}),
+    ...(modelFromBook ? { modelFromBook } : {}),
   };
-}
-
-// ─── Apprentissage des sites (Atelier, 30/10) ────────────────────────────────
-
-/** Le modèle appris VALIDÉ de ce site, s'il existe (marque + refModelKey, comme la mémoire). */
-function learnedModelFragment(site: string, brand: string, model: string): ModelFragment | null {
-  const bk = brandKeyOf(brand), mk = refModelKey(brand, model);
-  const r = learnedRulesFor(site).find((x) => x.kind === 'modele' && x.brand_key === bk && x.model_key === mk);
-  return r ? (r.rule as ModelFragment) : null;
-}
-
-/** La page de départ de Claude : la page marque du site, sans aucun critère. */
-export function startUrlFor(site: SiteKey, brand: string): string {
-  try { return generateSearchUrl({ site, brand, model: '' }).url; } catch { return ''; }
-}
-
-/**
- * Les filtres appris VALIDÉS, posés-ou-retirés après le registre codé (priorité au code). Sur la voie native
- * d'une recherche réelle (gapSource), ce que le site ne sait toujours pas écrire est noté pour Claude.
- */
-function applyLearnedLayer(url: string, params: LinkGenParams, site: SiteKey, logs: LinkGenLogEntry[], noteGaps: boolean): string {
-  if (!url) return url;
-  const res = applyLearnedFilters(url, params, learnedRulesFor(site), new Set(missingUrlCriteria(url, params)));
-  if (res.applied.length) {
-    logs.push({ level: 'MAPPING', message: `[LEARNED_RULES] Filtre(s) appris posé(s) : ${res.applied.join(', ')}`, data: { url: res.url } });
-  }
-  if (noteGaps && params.gapSource && res.gaps.length) {
-    const startUrl = startUrlFor(site, params.brand);
-    for (const g of res.gaps) {
-      noteLearningGap({
-        kind: 'filtre', site, brand: params.brand, model: '', brandKey: '', modelKey: '',
-        criterion: g.criterion, value: g.value, valueKey: g.valueKey, source: params.gapSource, startUrl,
-      });
-    }
-  }
-  return res.url;
 }
 
 export function generateSearchUrls(params: LinkGenParams): LinkGenUrlResult[] {
@@ -441,7 +425,6 @@ export async function generateSearchUrlsWithMemory(
   // Codes taxonomie moissonnés (marques/modèles mobile.de) → adaptateurs,
   // une fois par session : sans ça le FRONT ne connaît que les graines.
   await ensureLearnedTaxonomy().catch(() => { /* dictionnaire indisponible — graines seules */ });
-  await ensureLearnedRules().catch(() => { /* règles apprises indisponibles — code seul */ });
   const sites = params.selectedSites ?? (params.site ? [params.site] : []);
   const results: LinkGenUrlResult[] = [];
 
@@ -580,7 +563,6 @@ export async function generateSearchUrlsWithMemory(
             url = nativeSib.url;
           }
         }
-        url = applyLearnedLayer(url, params, site, logs, false);
         logs.push({
           level: 'OUTPUT',
           message: '[MAPPING_MEMORY] Reusing human-validated URL (variables overridden)',
@@ -619,28 +601,7 @@ export async function generateSearchUrlsWithMemory(
 
     // Fallback to standard template
     const singleParams = { ...params, site };
-    let fallbackResult = generateSearchUrl(singleParams);
-    // MODÈLE APPRIS VALIDÉ (Atelier › Apprentissage des sites, 30/10) : la page marque avec tous les critères,
-    // puis le modèle exactement comme le site l'écrit — vaut pour tout carburant, toute année, tout km.
-    const fragment = params.model ? learnedModelFragment(site, params.brand ?? '', params.model) : null;
-    let modelLearned = false;
-    if (fragment) {
-      const brandPage = generateSearchUrl({ ...singleParams, model: '' });
-      const withModel = brandPage.url ? applyModelFragment(brandPage.url, fragment) : null;
-      if (withModel) {
-        fallbackResult = { ...brandPage, url: withModel };
-        modelLearned = true;
-        logs.push({ level: 'MAPPING', message: '[LEARNED_RULES] Modèle appris posé (validé dans l\'Atelier)', data: { url: withModel } });
-      } else {
-        logs.push({ level: 'WARNING', message: '[LEARNED_RULES] Modèle appris non posable : la marque n\'est pas là où le site l\'attend', data: { url: brandPage.url } });
-      }
-    } else if (params.gapSource && params.model && (fallbackResult.modelExpressed === false || fallbackResult.modelGuessed)) {
-      noteLearningGap({
-        kind: 'modele', site, brand: params.brand ?? '', model: params.model, brandKey: brandKeyOf(params.brand),
-        modelKey: refModelKey(params.brand ?? '', params.model), source: params.gapSource, startUrl: startUrlFor(site, params.brand ?? ''),
-      });
-    }
-
+    const fallbackResult = generateSearchUrl(singleParams);
     // Even on template fallback, a memory record's learned secondary params
     // (power/doors/seats + enum codes) still apply on top of the template URL.
     let fallbackUrl = fallbackResult.url;
@@ -670,7 +631,6 @@ export async function generateSearchUrlsWithMemory(
     // a tout posé (mêmes grammaires prouvées), filet quand une réinjection
     // apprise a déposé une unité ou une forme fausse par-dessus.
     fallbackUrl = applyVariableCriteria(fallbackUrl, params);
-    fallbackUrl = applyLearnedLayer(fallbackUrl, params, site, logs, true);
 
     results.push({
       site,
@@ -685,7 +645,7 @@ export async function generateSearchUrlsWithMemory(
         ? 'not_checked'
         : 'invalid',
       mappingSource: 'default_template',
-      ...(modelLearned ? { modelLearned: true } : {}),
+      ...(fallbackResult.modelFromBook ? { modelFromBook: true } : {}),
     });
   }
 
