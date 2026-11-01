@@ -134,6 +134,15 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **SUPPRIMER UN COMPTE (01/11, Channing : « Hugolin ne fait plus partie de
+  Weecars »)**. Bouton rouge « Supprimer le compte » sur la carte (jamais sur
+  soi ni sur un admin), confirmation par l'adresse tapée ; RPC
+  `admin_delete_account` (SQL 20261101140000, admins seuls, refus de soi et
+  d'un admin) : profil puis auth.users, cascade sur ce qui est à lui
+  (études, négociations personnelles, rappels, veilles), leads pris gardés
+  (taken_by remis à null), bonnes affaires publiées gardées, adresse retirée
+  de la liste autorisée. Testé : non-admin refusé, auto-suppression refusée,
+  compte supprimé avec profil et adresse autorisée.
 - **DOUBLONS ENTRE PLATEFORMES DANS LES LEADS (01/11, Channing : « une Volvo
   XC40 D3 sur Leboncoin ET La Centrale : un signal « doublon La Centrale »,
   et dire si le lead est disponible ou pris par X »)**. Règle `sameVehicle`

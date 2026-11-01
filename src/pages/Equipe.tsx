@@ -391,6 +391,17 @@ export function Equipe() {
     if (r.error) { setError(/admin_set_blocked/.test(r.error.message) ? 'Blocage indisponible : colle la migration 20261006120000 (profiles.blocked, RPC admin_set_blocked).' : r.error.message); return; }
     await reload();
   };
+  /** SUPPRIMER UN COMPTE (01/11, Channing : « Hugolin ne fait plus partie de Weecars ») : RPC admin, confirmation par l'adresse tapée. */
+  const deleteAccount = async (a: Account) => {
+    const typed = prompt(`Supprimer définitivement le compte de ${a.email} ?\n\nSon profil, ses études, ses négociations personnelles, ses rappels et ses veilles partent avec lui ; les leads qu'il avait pris restent pris, ses bonnes affaires publiées restent.\n\nPour confirmer, tape son adresse :`);
+    if (typed == null) return;
+    if (typed.trim().toLowerCase() !== a.email.toLowerCase()) { setError('Suppression annulée : l\'adresse tapée ne correspond pas.'); return; }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await (supabase as any).rpc('admin_delete_account', { p_user: a.id });
+    if (r.error) { setError(/admin_delete_account|schema cache|does not exist/i.test(r.error.message) ? 'Suppression de compte : colle le SQL du 01/11 (supprimer_compte).' : r.error.message); return; }
+    setError(null); setOpenId(null);
+    await reload();
+  };
   const sendReset = async (a: Account) => {
     if (!confirm(`Envoyer à ${a.email} un email de réinitialisation du mot de passe ?`)) return;
     const err = await requestPasswordReset(a.email);
@@ -765,6 +776,11 @@ export function Equipe() {
                       <button onClick={() => void sendReset(a)} className="flex items-center gap-1.5 text-xs font-medium text-slate-600 border border-slate-300 rounded-lg px-2.5 py-1.5 hover:bg-slate-50">
                         <KeyRound className="w-3.5 h-3.5" /> Envoyer un lien de nouveau mot de passe
                       </button>
+                      {!a.is_admin && a.id !== userId && (
+                        <button onClick={() => void deleteAccount(a)} title="Supprimer définitivement ce compte (confirmation par l'adresse)" className="flex items-center gap-1.5 text-xs font-medium text-red-700 border border-red-200 rounded-lg px-2.5 py-1.5 hover:bg-red-50 ml-auto">
+                          <Trash2 className="w-3.5 h-3.5" /> Supprimer le compte
+                        </button>
+                      )}
                       {(() => { const w = welcome[a.email]; if (!w) return null; return (
                         <span className={`text-[11px] rounded-full border px-2 py-0.5 ${w.status === 'sent' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : w.status === 'failed' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`} title={w.error ?? ''}>
                           mail de bienvenue {w.status === 'sent' ? `envoyé par Ada le ${w.sent_at ? fmtDate(w.sent_at) : ''}` : w.status === 'failed' ? `en échec : ${w.error ?? ''}` : 'en file, Ada l\'envoie dans la minute'}
