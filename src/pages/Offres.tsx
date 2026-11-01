@@ -573,6 +573,27 @@ export function Offres() {
   const [targets, setTargets] = useState<Record<string, LotTarget[]>>({});
   const targetsRef = useRef<Record<string, LotTarget[]>>({});
   const [targetsOpen, setTargetsOpen] = useState<string | null>(null);
+  /** LIGNES BRUTES D'UN LOT (01/11, Channing : « un petit bouton qui affiche les lignes brutes des véhicules
+   *  concernés ») : la ligne du fichier conservé pour chaque véhicule du lot (retrouvée par son VIN, sinon par
+   *  son rang), telle quelle, en-tête par en-tête ; sans fichier conservé (PDF), la ligne lue. */
+  const [rowsOpen, setRowsOpen] = useState<string | null>(null);
+  const rawRowsOf = (lot: OfferLot): Array<{ v: OfferVehicle; cells: Array<[string, string]> | null }> => {
+    const grid = draft?.source_grid ?? null;
+    const headers = new Set(draft?.mappings.map((m) => m.header.trim().toLowerCase()) ?? []);
+    const txt = (x: unknown) => (x == null ? '' : x instanceof Date ? x.toLocaleDateString('fr-FR') : String(x)).trim();
+    let hdr = -1, best = 0;
+    if (grid) grid.slice(0, 40).forEach((row, i) => { const n = row.filter((c) => headers.has(txt(c).toLowerCase())).length; if (n > best) { best = n; hdr = i; } });
+    const head = hdr >= 0 && grid ? grid[hdr].map(txt) : [];
+    const vehicles = draft?.vehicles.filter((v) => lot.vehicleIds.includes(v.id)) ?? [];
+    return vehicles.map((v) => {
+      if (!grid || hdr < 0) return { v, cells: null };
+      const vin = (v.vin ?? '').trim().toUpperCase();
+      const idx = vin ? grid.findIndex((row, i) => i > hdr && row.some((c) => txt(c).toUpperCase() === vin)) : -1;
+      if (idx < 0) return { v, cells: null };
+      const cells = head.map((h, i) => [h, txt(grid[idx][i])] as [string, string]).filter(([h, c]) => h && c);
+      return { v, cells };
+    });
+  };
   const [survey, setSurvey] = useState<{ done: number; total: number; current: string; errors: string[] } | null>(null);
   const cancelSurvey = useRef(false);
   const surveyRunning = !!survey && survey.done < survey.total && survey.current !== 'arrêté';
@@ -1220,7 +1241,10 @@ export function Offres() {
                                   {lotChips(lot).map((chip) => <span key={chip} className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{chip}</span>)}
                                   {lot.adjusted && <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-brand-encre border border-blue-200">critères réglés</span>}
                                 </span>
-                                <span className="block mt-1 text-[11px] text-slate-500">{lot.count} véhicule{lot.count > 1 ? 's' : ''} de l'offre</span>
+                                <span className="block mt-1 text-[11px] text-slate-500">
+                                  {lot.count} véhicule{lot.count > 1 ? 's' : ''} de l'offre ·{' '}
+                                  <button onClick={() => setRowsOpen(rowsOpen === lot.key ? null : lot.key)} className="text-brand-ocean hover:underline">{rowsOpen === lot.key ? 'masquer les lignes' : `voir ${lot.count > 1 ? `les ${lot.count} lignes` : 'la ligne'}`}</button>
+                                </span>
                               </td>
                               <td className="py-3 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap align-top">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(toShown(lot.ourPriceMin, S))} – ${fmtEur(toShown(lot.ourPriceMax, S))}` : fmtEur(toShown(lot.ourPriceAvg, S))}</td>
                               {draft.countries.map((c) => {
@@ -1283,6 +1307,22 @@ export function Offres() {
                                 </div>
                               </td>
                             </tr>
+                            {rowsOpen === lot.key && (
+                              <tr className="bg-amber-50/40">
+                                <td colSpan={3 + draft.countries.length} className="px-3 py-2">
+                                  <p className="text-[11px] text-slate-500 mb-1.5">{draft.source_grid ? `Lignes du fichier ${draft.source_filename}, telles quelles.` : 'Lignes lues (pas de fichier tableur conservé).'}</p>
+                                  <ul className="space-y-1.5">
+                                    {rawRowsOf(lot).map(({ v, cells }) => (
+                                      <li key={v.id} className="rounded border border-slate-200 bg-white px-2 py-1.5 text-[11px] leading-5">
+                                        {cells ? cells.map(([h, c]) => <span key={h} className="inline-block mr-3"><span className="text-slate-400">{h} :</span> <span className="text-slate-800">{c}</span></span>)
+                                          : [['VIN', v.vin], ['Version', v.version], ['Année', v.year], ['Km', v.km != null ? fmtKm(v.km) : ''], ['Énergie', v.fuel], ['Boîte', v.gearbox], ['Puissance', v.power_ch ? `${v.power_ch} ch` : ''], ['Couleur', v.color], ['Prix HT', v.price_ht != null ? fmtEur(v.price_ht) : ''], ['Prix TTC', v.price_ttc != null ? fmtEur(v.price_ttc) : ''], ['Lieu', v.location]]
+                                            .filter(([, c]) => c != null && c !== '').map(([h, c]) => <span key={String(h)} className="inline-block mr-3"><span className="text-slate-400">{h} :</span> <span className="text-slate-800">{String(c)}</span></span>)}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </td>
+                              </tr>
+                            )}
                             {editLot === lot.key && (
                               <tr className="bg-blue-50/40">
                                 <td colSpan={3 + draft.countries.length} className="px-3 py-2">
