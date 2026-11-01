@@ -41,6 +41,8 @@ export const CAMPAIGN_SUBMITTER = 'Ada';
 // Cache 10 min, rechargé en cours de campagne ; échec de lecture = fail-open
 // (on scrape comme avant).
 const FRESH_DAYS = 3;
+/** Kilométrage maximal de toute recherche de campagne (01/11) — même borne que le radar des opportunités. */
+export const CAMPAIGN_MAX_KM = 100_000;
 let freshCache: { at: number; keys: Set<string> } | null = null;
 
 async function getFreshSegments(): Promise<Set<string>> {
@@ -320,6 +322,10 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
     model: p.model,
     fuel: p.fuel || undefined,
     trim: p.trim || undefined,
+    // 01/11 (Channing) : toute recherche de campagne borne le kilométrage — la page 1 triée prix
+    // croissant se remplissait de voitures à gros kilométrage, et le radar (≤ 100 000 km) n'avait
+    // plus ses 5 annonces.
+    mileage: CAMPAIGN_MAX_KM,
     // Découverte : tri PERTINENCE (le tri prix rend toujours les mêmes
     // annonces bas de gamme — décision Channing 02/08) + hypothèse de slug
     // modèle autorisée (validée par le modèle structuré du scrape).
@@ -342,6 +348,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
       fuel: p.fuel || undefined, trim: p.trim || undefined,
       yearFrom: p.year ? String(p.year) : undefined,
       yearTo: p.year ? String(p.year) : undefined,
+      mileage: CAMPAIGN_MAX_KM,
       // Drapeaux découverte — sans eux l'URL retombait en page marque triée
       // prix (constat campagne 02/08 17h : /auto/ford/?order=priceasc sans
       // q=, 0/30, lacune à tort) : les critères d'ANALYSE les portaient,
@@ -455,7 +462,7 @@ export async function executeCampaignItem(seq: number, p: CampaignPlanItem, scra
   // ── Saut de FRAÎCHEUR (approuvé 02/08, N=3 j) : segment exact déjà scanné
   // récemment → rien à réapprendre ni à re-mesurer, scrape évité. Jamais en
   // découverte (elle vise la moisson, pas la donnée marché).
-  if (!p.discovery && p.model) {
+  if (!p.discovery && !p.force && p.model) {
     const fkey = [p.site, brandKey(p.brand), refModelKey(p.brand, p.model), (p.fuel ?? '').toUpperCase(), (p.trim ?? '').trim()].join('|');
     const fresh = await getFreshSegments().catch(() => null);
     if (fresh?.has(fkey)) {

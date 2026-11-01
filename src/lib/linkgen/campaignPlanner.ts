@@ -134,6 +134,9 @@ export interface CampaignPlanItem {
   /** HYPOTHÈSE OPÉRATEUR (01/10) : modèle tapé, inconnu de la mémoire et du
    *  référentiel, planifié tel quel — c'est au site de dire s'il existe. */
   hypothesis?: boolean;
+  /** RELANCE (01/11, Channing : « relancer en campagne les opportunités ») : scrape même si le segment
+   *  a été scanné il y a moins de 3 jours — les pages d'avant n'avaient pas la borne 100 000 km. */
+  force?: boolean;
 }
 
 /** Résumé d'un plan, pour l'aperçu avant lancement (01/10). */

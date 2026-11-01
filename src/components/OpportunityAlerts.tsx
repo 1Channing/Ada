@@ -24,6 +24,9 @@ import { saveDailySearch, listDailySearches } from '../services/workflow';
 import { refModelKey } from '../services/vehicleRef';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
+import { startCampaign } from '../services/campaignRunner';
+import { useCampaignStore } from '../store/campaignStore';
+import type { CampaignPlanItem } from '../lib/linkgen/campaignPlanner';
 
 const COUNTRY_FLAG: Record<string, string> = {
   FR: '🇫🇷', NL: '🇳🇱', DK: '🇩🇰', DE: '🇩🇪', IT: '🇮🇹', ES: '🇪🇸', BE: '🇧🇪',
@@ -138,6 +141,9 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
     setRefreshedAt(getDashboardsRefreshedAt()); setLoading(false);
   };
   const allowed = canSeeTab(allowedTabs, isAdmin, 'opportunites');
+  const canCampaign = canSeeTab(allowedTabs, isAdmin, 'atelier');
+  const campaignStatus = useCampaignStore((st) => st.status);
+  const [relaunching, setRelaunching] = useState(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (allowed) void refresh(threshold); }, [threshold, touchedSince, allowed]);
 
@@ -181,6 +187,34 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
     setShown(PAGE_SIZE);
   };
   const resetFilters = () => { setFilters(NO_FILTERS); setShown(PAGE_SIZE); };
+
+  /** RELANCER EN CAMPAGNE (01/11, Channing : « une option pour relancer en campagne toutes les opportunités
+   *  sélectionnées ») : chaque opportunité de la liste filtrée redevient deux études de campagne (site du pays
+   *  bas, site du pays haut : même marque, modèle, carburant, millésime), forcées malgré le saut de fraîcheur,
+   *  avec la borne 100 000 km désormais posée sur toute recherche de campagne. Les tableaux (et donc les
+   *  opportunités) sont recalculés par le worker à la fin de la campagne. */
+  const handleRelaunch = async () => {
+    const seen = new Set<string>();
+    const plan: CampaignPlanItem[] = [];
+    for (const o of filtered) {
+      for (const [site, country] of [[o.lowSite, o.lowCountry], [o.highSite, o.highCountry]] as const) {
+        const fuel = TOKEN_TO_CRITERIA[o.fuel] ?? undefined;
+        const key = [site, o.brand, o.model, fuel ?? '', o.year].join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        plan.push({ site, brand: o.brand, model: o.model, fuel, year: o.year, kind: 'reinforcement', force: true, reason: `relance opportunité ${o.brand} ${o.model} ${o.year} (${country}, ≤ 100 000 km)` });
+      }
+    }
+    if (plan.length === 0) return;
+    if (!window.confirm(`Relancer ${plan.length} recherche${plan.length > 1 ? 's' : ''} de campagne (≤ 100 000 km) pour ${filtered.length} opportunité${filtered.length > 1 ? 's' : ''} ?`)) return;
+    setRelaunching(true);
+    setNotice(null);
+    const r = await startCampaign({ sites: [...new Set(plan.map((p) => p.site))], total: plan.length, plan, label: `Relance opportunités (${filtered.length})` });
+    setRelaunching(false);
+    setNotice(r.started
+      ? `Campagne lancée : ${plan.length} recherches, suivi dans l'Atelier. Les opportunités seront recalculées à la fin.`
+      : `Relance impossible : ${r.reason ?? 'raison inconnue'}`);
+  };
 
   const handleAck = async (o: MarketOpportunity) => {
     const by = window.prompt('Contrôlée par (votre nom) :', defaultName())?.trim();
@@ -299,6 +333,17 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
               <option value={8000}>8 000 €</option>
             </select>
           </label>
+        )}
+        {!collapsed && canCampaign && filtered.length > 0 && (
+          <button
+            onClick={() => void handleRelaunch()}
+            disabled={relaunching || campaignStatus === 'running' || campaignStatus === 'planning' || campaignStatus === 'stopping'}
+            title={campaignStatus === 'running' ? 'Une campagne tourne déjà' : 'Relance les recherches de campagne de ces opportunités (pays bas et pays haut), avec la borne 100 000 km'}
+            className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-brand-ocean text-brand-ocean hover:bg-blue-50 disabled:opacity-40"
+          >
+            {relaunching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+            Relancer en campagne ({filtered.length}{filtersActive ? ' filtrée' + (filtered.length > 1 ? 's' : '') : ''})
+          </button>
         )}
       </div>
 
