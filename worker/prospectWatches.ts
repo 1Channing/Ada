@@ -122,7 +122,12 @@ export async function runWatch(w: WatchRow): Promise<{ leads: number; seeds: num
     if (page > 1 && pageUrl === baseUrl) break; // site sans pagination connue
     // 'fast' = UNE page (pas de profondeur interne) : la profondeur, c'est cette boucle qui la décide.
     const r = await scrapeSearch(pageUrl, 'fast');
-    if (page === 1) site = r.diagnostics.site;
+    if (page === 1) {
+      // Le site tel que reconnu, sinon l'hôte (La Centrale 01/11 : « UNKNOWN » dans le bilan) ; l'adresse
+      // réellement lue (tri compris) est tracée pour vérification.
+      site = r.diagnostics.site && r.diagnostics.site !== 'UNKNOWN' ? r.diagnostics.site : (() => { try { return new URL(pageUrl).hostname.replace(/^www\./, '').toUpperCase(); } catch { return 'SITE'; } })();
+      console.warn(`[VEILLE] « ${name} » : adresse lue ${pageUrl.slice(0, 220)}`);
+    }
     if (r.error && r.listings.length === 0) {
       if (page === 1) { firstError = `${r.error}${r.errorReason ? ` (${r.errorReason})` : ''}`; }
       else console.warn(`[VEILLE] « ${name} » : page ${page} illisible (${r.error}) — arrêt, ${read} annonce(s) lue(s)`);

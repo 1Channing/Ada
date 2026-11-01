@@ -25,7 +25,7 @@ export interface ProspectWatch {
 export interface WatchLead {
   id: string; watch_id: string; listing_url: string; title: string; price: number | null; year: number | null; mileage: number | null;
   fuel: string; site: string; published_at: string | null; status: string; first_seen_at: string;
-  watch: Pick<ProspectWatch, 'id' | 'label' | 'url' | 'user_id'>;
+  watch: Pick<ProspectWatch, 'id' | 'label' | 'url' | 'user_id' | 'last_run_at'>;
 }
 
 /** Mes veilles (celles que j'ai créées). */
@@ -73,7 +73,7 @@ export async function forceRunWatch(id: string): Promise<string | null> {
 export async function listWatchLeads(): Promise<WatchLead[]> {
   const { data, error } = await untyped
     .from('prospect_watch_hits')
-    .select('*, watch:prospect_watches!inner(id, label, url, user_id)')
+    .select('*, watch:prospect_watches!inner(id, label, url, user_id, last_run_at)')
     .eq('status', 'inbox')
     .order('first_seen_at', { ascending: false })
     .limit(2000);

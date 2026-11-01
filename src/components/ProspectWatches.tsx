@@ -9,8 +9,8 @@
  *   WatchLeadsSection : les leads des veilles de l'organisation, à prendre (tout le monde).
  */
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2, X } from 'lucide-react';
-import { useAuth, managerScope } from '../services/auth';
+import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2, X, ChevronRight } from 'lucide-react';
+import { managerScope } from '../services/auth';
 import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, takeWatchLead, rejectWatchLead, type ProspectWatch, type WatchLead } from '../services/prospectWatches';
 import { ListingLink } from './ListingLink';
 
@@ -117,8 +117,11 @@ export function WatchesSection({ organisation }: { organisation: string }) {
 
 /** Les leads des veilles de l'organisation : groupés par veille, les plus récents d'abord ; « Prendre en négociation » les retire pour tous. */
 export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; onCount: (n: number) => void }) {
-  const { userId } = useAuth();
   const [leads, setLeads] = useState<WatchLead[]>([]);
+  // Groupes REPLIABLES (01/11, Channing : « réduire la recherche pour voir aussi les leads de La Centrale ») :
+  // le choix est retenu sur ce navigateur, ouvert par défaut.
+  const [closed, setClosed] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('ada_watch_leads_closed') ?? '{}'); } catch { return {}; } });
+  const toggleGroup = (id: string) => setClosed((c) => { const n = { ...c, [id]: !c[id] }; try { localStorage.setItem('ada_watch_leads_closed', JSON.stringify(n)); } catch { /* stockage indispo */ } return n; });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const reload = () => {
@@ -165,11 +168,14 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
       {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
       {groups.map(({ watch: w, list }) => (
         <div key={w.id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
-          <div className="px-4 py-3 border-b border-slate-100">
-            <p className="font-semibold text-slate-900">{w.label || hostOf(w.url)}</p>
-            <p className="text-xs text-slate-500">{hostOf(w.url)} · {list.length} lead{list.length > 1 ? 's' : ''} à prendre{w.user_id === userId ? ' · ma veille' : ''}</p>
-          </div>
-          <div className="divide-y divide-slate-100">
+          <button onClick={() => toggleGroup(w.id)} className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${closed[w.id] ? 'rounded-xl' : 'rounded-t-xl border-b border-slate-100'}`} aria-expanded={!closed[w.id]}>
+            <ChevronRight className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${closed[w.id] ? '' : 'rotate-90'}`} />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold text-slate-900 truncate">{w.label || hostOf(w.url)}</span>
+              <span className="block text-xs text-slate-500">{hostOf(w.url)} · {list.length} lead{list.length > 1 ? 's' : ''} à prendre{w.last_run_at ? ` · passage du ${new Date(w.last_run_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}</span>
+            </span>
+          </button>
+          {!closed[w.id] && <div className="divide-y divide-slate-100">
             {list.map((l, i) => (
               <Fragment key={l.id}>
               {(i === 0 || list[i - 1].first_seen_at.slice(0, 10) !== l.first_seen_at.slice(0, 10)) && (
@@ -193,7 +199,7 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
               </div>
               </Fragment>
             ))}
-          </div>
+          </div>}
         </div>
       ))}
     </div>
