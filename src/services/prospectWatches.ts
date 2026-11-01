@@ -78,6 +78,13 @@ export async function forceRunWatch(id: string): Promise<string | null> {
   return error ? error.message : null;
 }
 
+/** Les veilles de l'organisation telles que la base les montre (pour afficher aussi celles sans lead, 01/11). */
+export async function listOrgWatches(): Promise<Array<Pick<ProspectWatch, 'id' | 'label' | 'url' | 'user_id' | 'last_run_at' | 'last_summary' | 'active'>>> {
+  const { data, error } = await untyped.from('prospect_watches').select('id, label, url, user_id, last_run_at, last_summary, active').order('created_at');
+  if (error) return [];
+  return (data ?? []) as Array<Pick<ProspectWatch, 'id' | 'label' | 'url' | 'user_id' | 'last_run_at' | 'last_summary' | 'active'>>;
+}
+
 /** Les leads des veilles de mon organisation (les miennes comprises), encore à prendre. */
 export async function listWatchLeads(): Promise<WatchLead[]> {
   const { data, error } = await untyped

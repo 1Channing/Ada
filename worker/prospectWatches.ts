@@ -23,7 +23,7 @@ import { sharedSupabase } from '../src/lib/supabaseShared';
 
 // Tables hors des types générés (SQL du 29/10) : client non typé, comme dealerStock.
 const supabase = sharedSupabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
-import { scrapeSearch } from './scraper';
+import { scrapeSearch, fetchHtmlWithZyte } from './scraper';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import type { ScrapedListing } from '../src/lib/study-core/types';
 
@@ -183,5 +183,41 @@ export async function runWatch(w: WatchRow): Promise<{ leads: number; seeds: num
     : `${read} annonce(s) lue(s) sur ${site} (${pages} page${pages > 1 ? 's' : ''}, jusqu'au déjà-vu), ${leads} nouvelle(s) → leads, ${seen} déjà connue(s)`;
   await supabase.from('prospect_watches').update({ last_run_at: startedAt.toISOString(), last_summary: summary }).eq('id', w.id);
   console.warn(`[VEILLE] « ${name} » : ${summary}`);
+  // Puis le ménage des vieux leads (01/11) — après le passage, jamais avant.
+  await checkStaleLeads(w, name);
   return { leads, seeds, seen };
+}
+
+/**
+ * LEADS DE PLUS DE DEUX SEMAINES (01/11, Channing : « quand le worker a fini la veille, il regarde ceux de
+ * deux semaines ou plus et vérifie s'ils sont encore en ligne ; comme ça pas de pollution »). Pour chaque lead
+ * encore « à prendre » vu pour la première fois il y a ≥ 14 jours : la page de l'annonce est rechargée ;
+ * disparue (404/410, « annonce désactivée / n'est plus disponible / supprimée ») → statut 'expired', elle
+ * sort des leads pour tout le monde (mémoire gardée). Page illisible ou bloquée → on ne décide rien (fail-open).
+ * Au plus 40 vérifications par passage, pour borner le coût Zyte ; le reste attend le passage suivant.
+ */
+const STALE_DAYS = 14;
+const STALE_MAX_PER_PASS = 40;
+export function listingGone(html: string | null, status: number | null): boolean {
+  if (status === 404 || status === 410) return true;
+  if (!html) return false;
+  const h = html.slice(0, 200_000);
+  return /n['’]est plus disponible|n['’]est plus en ligne|annonce (?:est )?(?:d[ée]sactiv[ée]e|supprim[ée]e|expir[ée]e|retir[ée]e|introuvable)|a (?:[ée]t[ée] )?(?:vendue?|retir[ée]e|supprim[ée]e)|cette annonce n['’]existe plus|ad (?:is )?no longer available|page introuvable|<title[^>]*>\s*(?:404|erreur 404|page non trouv)/i.test(h);
+}
+async function checkStaleLeads(w: WatchRow, name: string): Promise<void> {
+  const since = new Date(Date.now() - STALE_DAYS * 86_400_000).toISOString();
+  const { data, error } = await supabase.from('prospect_watch_hits').select('id, listing_url, first_seen_at').eq('watch_id', w.id).eq('status', 'inbox').lte('first_seen_at', since).order('first_seen_at').limit(STALE_MAX_PER_PASS);
+  if (error || !data?.length) return;
+  let gone = 0, kept = 0, unknown = 0;
+  for (const h of data as Array<{ id: string; listing_url: string; first_seen_at: string }>) {
+    try {
+      const r = await fetchHtmlWithZyte(h.listing_url, 1);
+      if (listingGone(r.html, r.status)) {
+        await supabase.from('prospect_watch_hits').update({ status: 'expired', last_seen_at: new Date().toISOString() }).eq('id', h.id).eq('status', 'inbox');
+        gone++;
+      } else if (r.html) { kept++; await supabase.from('prospect_watch_hits').update({ last_seen_at: new Date().toISOString() }).eq('id', h.id); }
+      else unknown++;
+    } catch { unknown++; }
+  }
+  console.warn(`[VEILLE] « ${name} » : ${data.length} lead(s) de plus de ${STALE_DAYS} jours vérifié(s) — ${gone} retiré(s) (plus en ligne), ${kept} toujours en ligne${unknown ? `, ${unknown} page(s) illisible(s) (revérifiées au prochain passage)` : ''}${data.length === STALE_MAX_PER_PASS ? ' — suite au prochain passage' : ''}`);
 }

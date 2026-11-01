@@ -11,13 +11,14 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2, X, ChevronRight } from 'lucide-react';
 import { managerScope } from '../services/auth';
-import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, takeWatchLead, rejectWatchLead, type ProspectWatch, type WatchLead } from '../services/prospectWatches';
+import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, listOrgWatches, takeWatchLead, rejectWatchLead, type ProspectWatch, type WatchLead } from '../services/prospectWatches';
 import { ListingLink } from './ListingLink';
 
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 /** Âge en jours (Paris) d'une date d'acquisition, et son libellé « Reçus aujourd'hui / hier / le 28/10 ». */
 const dayAge = (iso: string) => Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) / 86_400_000);
-const dayLabel = (iso: string) => { const a = dayAge(iso); return a <= 0 ? 'Reçus aujourd\'hui' : a === 1 ? 'Reçus hier — encore à traiter' : `Reçus le ${new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} — encore à traiter`; };
+/** « Leads du 01/11 · annonces des 24 h précédant le passage » ; les jours passés : « encore à traiter ». */
+const dayLabel = (iso: string) => { const a = dayAge(iso); const d = new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }); return `Leads du ${d}${a <= 0 ? ' (aujourd\'hui)' : a === 1 ? ' (hier)' : ''} · annonces mises en ligne dans les 24 h précédant le passage${a >= 1 ? ' — encore à traiter' : ''}`; };
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
 const inputCls = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200';
 
@@ -118,6 +119,8 @@ export function WatchesSection({ organisation }: { organisation: string }) {
 /** Les leads des veilles de l'organisation : groupés par veille, les plus récents d'abord ; « Prendre en négociation » les retire pour tous. */
 export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; onCount: (n: number) => void }) {
   const [leads, setLeads] = useState<WatchLead[]>([]);
+  // Toutes les veilles de l'organisation, même sans lead (01/11 : « que les commerciaux sachent qu'une étude est en place »).
+  const [watches, setWatches] = useState<Awaited<ReturnType<typeof listOrgWatches>>>([]);
   // Groupes REPLIABLES (01/11, Channing : « réduire la recherche pour voir aussi les leads de La Centrale ») :
   // le choix est retenu sur ce navigateur, ouvert par défaut.
   const [closed, setClosed] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('ada_watch_leads_closed') ?? '{}'); } catch { return {}; } });
@@ -126,6 +129,7 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
   const [busy, setBusy] = useState<string | null>(null);
   const reload = () => {
     listWatchLeads().then((l) => { setLeads(l); onCount(l.length); setError(null); }).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    void listOrgWatches().then(setWatches);
   };
   useEffect(() => {
     reload();
@@ -141,8 +145,11 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
     // différence et on peut les trouver ») : jour de première vue, les plus récents d'abord ; dans un jour, par
     // mise en ligne décroissante. Un en-tête par jour dans la liste.
     const key = (l: WatchLead) => `${l.first_seen_at.slice(0, 10)}|${l.published_at ?? l.first_seen_at}`;
-    return [...by.values()].map((g) => ({ ...g, list: g.list.sort((a, b) => key(b).localeCompare(key(a))) }));
-  }, [leads]);
+    // Les veilles sans lead gardent leur bloc (passage du …, aucun lead) ; une veille connue par ses leads seuls aussi.
+    for (const w of watches) if (!by.has(w.id)) by.set(w.id, { watch: w, list: [] });
+    const meta = new Map(watches.map((w) => [w.id, w]));
+    return [...by.values()].map((g) => ({ ...g, watch: { ...g.watch, ...(meta.get(g.watch.id) ?? {}) }, list: g.list.sort((a, b) => key(b).localeCompare(key(a))) }));
+  }, [leads, watches]);
   const take = async (l: WatchLead) => {
     setBusy(l.id);
     const err = await takeWatchLead(l);
@@ -172,10 +179,17 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
             <ChevronRight className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${closed[w.id] ? '' : 'rotate-90'}`} />
             <span className="min-w-0 flex-1">
               <span className="block font-semibold text-slate-900 truncate">{w.label || hostOf(w.url)}</span>
-              <span className="block text-xs text-slate-500">{hostOf(w.url)} · {list.length} lead{list.length > 1 ? 's' : ''} à prendre{w.last_run_at ? ` · passage du ${new Date(w.last_run_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}</span>
+              <span className="block text-xs text-slate-500">{hostOf(w.url)} · {list.length ? `${list.length} lead${list.length > 1 ? 's' : ''} à prendre` : 'aucun lead à prendre'}{w.last_run_at ? ` · passage du ${new Date(w.last_run_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ' · jamais passée'}{(w as { active?: boolean }).active === false ? ' · en pause' : ''}</span>
             </span>
           </button>
-          {!closed[w.id] && <div className="divide-y divide-slate-100">
+          {!closed[w.id] && list.length === 0 && (
+            <p className="px-4 py-4 text-xs text-slate-500">
+              {w.last_run_at
+                ? `Veille en place : au dernier passage, aucune annonce nouvelle${(w as { last_summary?: string | null }).last_summary ? ` (${(w as { last_summary?: string | null }).last_summary})` : ''}. Les prochaines tomberont ici.`
+                : 'Veille en place : premier passage à venir à l\'heure programmée.'}
+            </p>
+          )}
+          {!closed[w.id] && list.length > 0 && <div className="divide-y divide-slate-100">
             {list.map((l, i) => (
               <Fragment key={l.id}>
               {(i === 0 || list[i - 1].first_seen_at.slice(0, 10) !== l.first_seen_at.slice(0, 10)) && (

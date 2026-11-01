@@ -134,6 +134,20 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **LEADS : LIBELLÉ DES 24 H, VEILLES SANS RÉSULTAT AFFICHÉES, MÉNAGE DES LEADS DE
+  PLUS DE DEUX SEMAINES (01/11, Channing)**. (1) En-tête de jour : « Leads du
+  01/11 (aujourd'hui) · annonces mises en ligne dans les 24 h précédant le
+  passage », « — encore à traiter » pour les jours passés. (2) Toutes les
+  veilles de l'organisation ont leur bloc dans Résultats, même sans lead
+  (« Veille en place : au dernier passage, aucune annonce nouvelle (bilan) »
+  / « premier passage à venir »), via `listOrgWatches` (lecture bornée par la
+  base) ; en pause signalé. (3) Après chaque passage d'une veille, le worker
+  vérifie jusqu'à 40 leads encore « à prendre » vus pour la première fois il
+  y a ≥ 14 jours : page rechargée (Zyte), disparue (404/410, « annonce
+  désactivée / n'est plus disponible / supprimée », `listingGone`, 5 cas
+  testés) → statut 'expired', hors des leads pour tous, mémoire gardée ;
+  page illisible ou bloquée → rien décidé, revérifiée au passage suivant ;
+  bilan dans worker_logs (`[VEILLE] … vérifié(s) — retiré(s)…`).
 - **VEILLES PARTAGÉES ENTRE MANAGERS + PREMIER PASSAGE = MÉMOIRE VIDE + LA CENTRALE
   (01/11, Channing)**. (1) « Deux managers d'une même organisation voient les
   veilles des uns et des autres et les corrigent » : la liste des veilles
