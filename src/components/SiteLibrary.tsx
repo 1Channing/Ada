@@ -82,7 +82,9 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
   const [memory, setMemory] = useState<MemoryRow[] | null>(null);
   const [registry, setRegistry] = useState<RegistryRow[] | null>(null);
   const [ref, setRef] = useState<RefWindowMap | null>(null);
-  const [activeOnly, setActiveOnly] = useState(true);
+  // 01/11 (Channing) : le LIVRE COMPLET par défaut — toutes les marques et tous les modèles connus du site ;
+  // la case « Recherche active seulement » reste un filtre optionnel.
+  const [activeOnly, setActiveOnly] = useState(false);
   const [openBrand, setOpenBrand] = useState<string | null>(null);
   // Geste PAR VALEUR (demande Channing 03/09) : cliquer une puce non native
   // ouvre le champ URL pour CE critère seulement ; ADA ingère avec la valeur
@@ -281,7 +283,7 @@ export function SiteLibrary({ studies }: { studies: StudyLike[] }) {
       <section className="bg-white border border-slate-200 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-slate-800 mb-1">Marques et modèles</h3>
         <p className="text-xs text-slate-500 mb-3">
-          Référentiel constructeur ↔ livre du site (dictionnaire moissonné), comparés par nom canonique : « RAV 4 » = « RAV4 ».{activeOnly ? ' Limité aux marques et modèles des études quotidiennes actives (« Recherche active »).' : ' Tout le référentiel.'}
+          Référentiel constructeur ↔ livre du site (dictionnaire moissonné), comparés par nom canonique : « RAV 4 » = « RAV4 ».{activeOnly ? ' Limité aux marques et modèles des études quotidiennes actives (« Recherche active »).' : ' Livre complet : toutes les marques et tous les modèles connus du site.'}
           {siteFamily(site.key) === 'MARKTPLAATS' && ' Marktplaats : la marque vit dans le chemin (jamais moissonnée), seuls les modèles sont appris.'}
         </p>
         {!dict || !ref ? <p className="text-xs text-slate-400"><Loader2 className="w-3.5 h-3.5 inline animate-spin" /> chargement…</p> : brandRows.length === 0 ? (

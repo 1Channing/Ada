@@ -134,6 +134,7 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **TRUTH CENTER : LIVRE COMPLET (01/11, Channing : « je veux le livre complet des marques et modèles connus pour chaque site ») — LIVRÉ.** Cause : la case « Recherche active seulement » (SiteLibrary) était cochée par défaut, donc le livre ne montrait que les marques/modèles des études quotidiennes actives. Désormais le livre complet (référentiel ∪ dictionnaire moissonné, tous les modèles appris) s'affiche par défaut ; la case reste disponible comme filtre.
 - **SUPPRIMER UN COMPTE (01/11, Channing : « Hugolin ne fait plus partie de
   Weecars »)**. Bouton rouge « Supprimer le compte » sur la carte (jamais sur
   soi ni sur un admin), confirmation par l'adresse tapée ; RPC
