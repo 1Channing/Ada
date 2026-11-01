@@ -134,6 +134,23 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **VEILLES PARTAGÉES ENTRE MANAGERS + PREMIER PASSAGE = MÉMOIRE VIDE + LA CENTRALE
+  (01/11, Channing)**. (1) « Deux managers d'une même organisation voient les
+  veilles des uns et des autres et les corrigent » : la liste des veilles
+  montre toutes celles de l'organisation (lecture déjà bornée par la base),
+  avec « veille de <auteur> » ; policies d'écriture pour les managers de
+  l'organisation cible (SQL 20261101120000 : update + delete,
+  `ada_is_manager()`), l'auteur reste l'auteur (user_id non réécrit à la
+  modification), un commercial ne peut rien changer (testé). (2) Incident
+  Segré : un lancement coupé par un redéploiement avait laissé une trace de
+  passage sans mémoire → le passage suivant s'est cru « suivant » et a fait
+  913 leads de tout le stock Leboncoin ; règle corrigée (premier passage =
+  mémoire vide), SQL de nettoyage donné à Channing. (3) La Centrale : le
+  tri « plus récentes » collé par le manager est respecté tel quel (un tri
+  n'est posé que s'il manque) ; le bilan nomme le site par l'hôte quand le
+  diagnostic dit UNKNOWN, et l'adresse réellement lue est tracée. (4) Leads
+  : groupes repliables (choix retenu), « ma veille » retiré, date du
+  passage dans l'en-tête.
 - **MAILS DE BIENVENUE VISIBLES DANS LA MESSAGERIE D'ADA (01/11, Channing :
   « dans la boîte d'envoi d'Ada je ne vois pas les mails envoyés »)**. Preuve :
   6 mails partis entre 14:43 et 14:48 UTC (worker_logs), mais envoyés avec

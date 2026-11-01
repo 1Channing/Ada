@@ -23,7 +23,7 @@ const inputCls = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm fo
 
 export function WatchesSection({ organisation }: { organisation: string }) {
   const scope = managerScope();
-  const [rows, setRows] = useState<ProspectWatch[]>([]);
+  const [rows, setRows] = useState<Array<ProspectWatch & { author_name?: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<ProspectWatch> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +56,7 @@ export function WatchesSection({ organisation }: { organisation: string }) {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2"><MapPin className="w-4 h-4 text-brand-ocean" /> Veilles de prospection</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Une adresse de page de recherche (particuliers, ton secteur, tes filtres), une heure : chaque jour, les annonces nouvelles tombent dans les leads de {organisation}. Premier passage : les annonces des dernières 24 h.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Une adresse de page de recherche (particuliers, ton secteur, tes filtres), une heure : chaque jour, les annonces nouvelles tombent dans les leads de {organisation}. Premier passage : les annonces des dernières 24 h. Les veilles des autres managers de l'organisation sont ici aussi, modifiables.</p>
         </div>
         <button onClick={() => setEditing({ label: '', url: '', run_hour: 7, active: true })} className="flex items-center gap-2 bg-brand-ocean hover:bg-brand-encre text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
           <Plus className="w-4 h-4" /> Nouvelle veille
@@ -97,7 +97,7 @@ export function WatchesSection({ organisation }: { organisation: string }) {
         ) : rows.map((w) => (
           <div key={w.id} className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-slate-900 truncate">{w.label || hostOf(w.url)} <span className="text-xs font-normal text-slate-400">· {hostOf(w.url)} · {String(w.run_hour).padStart(2, '0')} h 00{w.lead_org ? ` · leads pour ${w.lead_org}` : ''}{w.active ? '' : ' · en pause'}</span></p>
+              <p className="font-semibold text-slate-900 truncate">{w.label || hostOf(w.url)} <span className="text-xs font-normal text-slate-400">· {hostOf(w.url)} · {String(w.run_hour).padStart(2, '0')} h 00{w.lead_org ? ` · leads pour ${w.lead_org}` : ''}{w.author_name ? ` · veille de ${w.author_name}` : ''}{w.active ? '' : ' · en pause'}</span></p>
               {(() => { const st = stateOf(w); return (
                 <p className={`text-xs truncate ${st.tone === 'wait' ? 'text-amber-700' : st.tone === 'run' ? 'text-brand-ocean' : st.tone === 'ko' ? 'text-rose-700' : 'text-slate-500'}`}>
                   {(st.tone === 'wait' || st.tone === 'run') && <Loader2 className="inline w-3 h-3 mr-1 animate-spin align-[-2px]" />}{st.text}

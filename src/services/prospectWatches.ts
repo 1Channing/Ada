@@ -28,11 +28,19 @@ export interface WatchLead {
   watch: Pick<ProspectWatch, 'id' | 'label' | 'url' | 'user_id' | 'last_run_at'>;
 }
 
-/** Mes veilles (celles que j'ai créées). */
-export async function listMyWatches(): Promise<{ rows: ProspectWatch[]; error: string | null }> {
-  const { data, error } = await untyped.from('prospect_watches').select('*').eq('user_id', uid()).order('created_at');
+/** Les veilles de l'organisation (01/11 : deux managers d'une même organisation voient et corrigent celles des
+ *  uns et des autres — la base borne la lecture à l'organisation et l'écriture aux managers), avec l'auteur. */
+export async function listMyWatches(): Promise<{ rows: Array<ProspectWatch & { author_name?: string }>; error: string | null }> {
+  const { data, error } = await untyped.from('prospect_watches').select('*').order('created_at');
   if (error) return { rows: [], error: missing(error.message) ? SQL_HINT : error.message };
-  return { rows: (data ?? []) as ProspectWatch[], error: null };
+  const rows = (data ?? []) as Array<ProspectWatch & { author_name?: string }>;
+  const ids = [...new Set(rows.map((r) => r.user_id))].filter((id) => id !== uid());
+  if (ids.length) {
+    const { data: ps } = await untyped.from('profiles').select('id, display_name').in('id', ids);
+    const names = new Map(((ps ?? []) as Array<{ id: string; display_name: string | null }>).map((p) => [p.id, (p.display_name ?? '').trim() || 'collègue']));
+    for (const r of rows) if (r.user_id !== uid()) r.author_name = names.get(r.user_id) ?? 'collègue';
+  }
+  return { rows, error: null };
 }
 
 export function watchUrlProblem(url: string): string | null {
@@ -46,7 +54,8 @@ export function watchUrlProblem(url: string): string | null {
 export async function saveWatch(w: Partial<ProspectWatch> & { url: string }): Promise<string | null> {
   const bad = watchUrlProblem(w.url);
   if (bad) return bad;
-  const row: Record<string, unknown> = { label: (w.label ?? '').trim(), url: w.url.trim(), run_hour: w.run_hour ?? 7, active: w.active ?? true, user_id: uid(), updated_at: new Date().toISOString(), lead_org: w.lead_org || null };
+  // L'auteur ne change pas quand un collègue manager corrige la veille (01/11).
+  const row: Record<string, unknown> = { label: (w.label ?? '').trim(), url: w.url.trim(), run_hour: w.run_hour ?? 7, active: w.active ?? true, ...(w.id ? {} : { user_id: uid() }), updated_at: new Date().toISOString(), lead_org: w.lead_org || null };
   const write = (r: Record<string, unknown>) => (w.id ? untyped.from('prospect_watches').update(r).eq('id', w.id) : untyped.from('prospect_watches').insert(r));
   let { error } = await write(row);
   if (error && /lead_org/.test(error.message)) {
