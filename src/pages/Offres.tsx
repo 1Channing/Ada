@@ -30,7 +30,7 @@ import {
 import { FILE_CURRENCIES, type FileCurrency } from '../lib/offers/parseSupplierFile';
 import { colorLabel } from '../lib/offers/colorTranslate';
 import { currentFx } from '../services/fxRates';
-import { listOffers, saveOffer, deleteOffer, applyPriceRule, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
+import { listOffers, saveOffer, deleteOffer, applyPriceRule, priceWithMargin, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
 import {
   lotsOf, lotTargets, startLotJob, awaitLotJob, mergeCountry, verdictOf, applyLotCriteria, COUNTRY_CAVEAT,
   type OfferMarket, type OfferLot, type LotTarget, type SiteResult, type LotCriteria,
@@ -242,7 +242,7 @@ export function Offres() {
     const vehicles = applyPriceRule(p.vehicles, base.price_rule, (v) => supplierHtWith(v, baseSettings), true)
       .map((v) => {
         const o = prev.get(v.id);
-        return o ? { ...v, ...(o.manual ?? {}), manual: o.manual, custom: o.custom, selected: o.selected, sale_price: o.sale_price } : v;
+        return o ? { ...v, ...(o.manual ?? {}), manual: o.manual, custom: o.custom, selected: o.selected, sale_price: o.sale_price, margin: o.margin ?? null } : v;
       });
     const models = [...new Set(vehicles.map((v) => `${v.brand} ${v.model}`))];
     const firstBrand = vehicles[0]?.brand ?? '';
@@ -378,7 +378,13 @@ export function Offres() {
   const setCustomValue = (id: string, colId: string, value: string) => update((d) => ({
     ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, custom: { ...(v.custom ?? {}), [colId]: value } } : v)),
   }));
-  const applyRule = (rule: PriceRule) => update((d) => { const st = resolveSettings(d.settings); return { ...d, price_rule: rule, vehicles: applyPriceRule(d.vehicles, rule, (v) => supplierHtWith(v, st), true) }; });
+  const applyRule = (rule: PriceRule, resetMargins = false) => update((d) => { const st = resolveSettings(d.settings); return { ...d, price_rule: rule, vehicles: applyPriceRule(d.vehicles, rule, (v) => supplierHtWith(v, st), true, resetMargins) }; });
+  /** MARGE PROPRE d'un véhicule (01/11) : la poser (ou l'effacer : retour à la marge commune) recalcule son prix MC Export. */
+  const setMargin = (id: string, margin: number | null) => update((d) => {
+    const st = resolveSettings(d.settings);
+    return { ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, margin, sale_price: priceWithMargin(supplierHtWith(v, st), margin, d.price_rule) } : v)) };
+  });
+  const ownMargins = useMemo(() => (draft?.vehicles ?? []).filter((v) => v.margin != null).length, [draft]);
   /** Paramètres de l'offre. Prix du fichier ou TVA fournisseur changés : les prix MC Export sont recalculés avec la règle. */
   const updateSettings = (patch: Partial<OfferSettings>) => update((d) => {
     const settings = { ...(d.settings ?? {}), ...patch };
@@ -753,7 +759,7 @@ export function Offres() {
           <thead><tr className="text-left text-slate-400 border-b border-slate-100">
             <th className="py-1.5 px-3"><span className="sr-only">Retenu</span></th><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3 text-right">Qté</th><th className="py-1.5 pr-3">Motorisation · version</th><th className="py-1.5 pr-3">Immat.</th>
             <th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3">Énergie · boîte</th><th className="py-1.5 pr-3 text-right">Ch</th>
-            <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur {B}</th><th className="py-1.5 pr-3 text-right">MC Export {B}</th>
+            <th className="py-1.5 pr-3 text-right">Dommages</th><th className="py-1.5 pr-3">TVA</th><th className="py-1.5 pr-3 text-right">Fournisseur {B}</th>{draft.price_rule.mode === 'margin' && <th className="py-1.5 pr-3 text-right" title="Marge propre à ce véhicule ; vide = marge commune de la règle">Marge</th>}<th className="py-1.5 pr-3 text-right">MC Export {B}</th>
             {customColumns.map((c) => <th key={c.id} className="py-1.5 pr-3 text-brand-encre">{c.label}</th>)}
             <th className="py-1.5 pr-3">Rapport</th><th className="py-1.5 pr-3"><span className="sr-only">Corriger</span></th>
           </tr></thead>
@@ -775,6 +781,9 @@ export function Offres() {
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={v.damages != null && S.supplierCurrency !== 'EUR' ? `Fichier : ${fileMoney(v.damages, S)}` : ''}>{fmtEur(dmgEur(v))}</td>
                     <td className="py-1.5 pr-3">{v.vat_recoverable == null ? '—' : v.vat_recoverable ? <span className="text-emerald-700">récup.</span> : <span className="text-amber-700">marge</span>}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={[v.price_ttc != null ? `Fichier TTC : ${fileMoney(v.price_ttc, S)}` : '', v.price_ht != null ? `Fichier HT : ${fileMoney(v.price_ht, S)}` : '', S.supplierCurrency !== 'EUR' ? fxRateLabel(S) : ''].filter(Boolean).join(' · ')}>{fmtEur(base)}</td>
+                    {draft.price_rule.mode === 'margin' && (
+                      <td className="py-1.5 pr-3 text-right"><input type="number" step={100} aria-label="Marge propre (€ HT)" placeholder={String(draft.price_rule.margin)} value={v.margin ?? ''} onChange={(e) => setMargin(v.id, e.target.value === '' ? null : Number(e.target.value))} title={v.margin != null ? `Marge propre : ${v.margin} € (vider = marge commune ${draft.price_rule.margin} €)` : `Marge commune ${draft.price_rule.margin} € — tape une autre marge pour ce véhicule`} className={`w-20 px-2 py-1 rounded border text-right tabular-nums ${v.margin != null ? 'border-amber-300 bg-amber-50 font-semibold text-amber-800' : 'border-slate-200 text-slate-500'}`} /></td>
+                    )}
                     <td className="py-1.5 pr-3 text-right"><input type="number" aria-label={`Prix MC Export ${B}`} value={toShown(v.sale_price, S) ?? ''} onChange={(e) => setVehicle(v.id, { sale_price: fromShown(e.target.value === '' ? null : Number(e.target.value), S) })} className="w-24 px-2 py-1 rounded border border-slate-300 text-right tabular-nums font-semibold text-brand-encre" /></td>
                     {customColumns.map((c) => (
                       <td key={c.id} className="py-1.5 pr-3"><input aria-label={`${c.label} — ${v.brand} ${v.model}`} value={v.custom?.[c.id] ?? ''} onChange={(e) => setCustomValue(v.id, c.id, e.target.value)} className="w-28 px-2 py-1 rounded border border-blue-200 bg-blue-50/40" /></td>
@@ -1385,7 +1394,10 @@ export function Offres() {
                 {draft.price_rule.mode !== 'none' && <>
                   <input type="number" aria-label="Montant" value={draft.price_rule.margin} onChange={(e) => update({ price_rule: { ...draft.price_rule, margin: Number(e.target.value) || 0 } })} className="w-24 px-2 py-1.5 rounded-lg border border-slate-300 text-right" />
                   <span className="text-slate-500">€</span>
-                  <button onClick={() => applyRule(draft.price_rule)} className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-900 text-white">Appliquer à tous</button>
+                  <button onClick={() => applyRule(draft.price_rule)} className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-900 text-white" title={ownMargins > 0 ? `Recalcule tous les prix ; les ${ownMargins} véhicule${ownMargins > 1 ? 's' : ''} à marge propre gardent la leur` : 'Recalcule tous les prix avec cette règle'}>Appliquer à tous</button>
+                  {draft.price_rule.mode === 'margin' && (ownMargins > 0
+                    ? <span className="text-xs text-amber-800">{ownMargins} véhicule{ownMargins > 1 ? 's' : ''} avec sa marge propre (onglet Sélection, colonne Marge) · <button onClick={() => applyRule(draft.price_rule, true)} className="text-brand-ocean hover:underline">tout remettre à {draft.price_rule.margin} €</button></span>
+                    : <span className="text-xs text-slate-500">Une marge différente pour un véhicule : onglet Sélection, colonne Marge.</span>)}
                 </>}
                 <span className="ml-auto text-slate-500">Total {B} retenu : <span className="font-semibold text-slate-900">{draft.price_rule.mode === 'none' ? 'sans prix' : fmtEur(toShown(selected.reduce((a, v) => a + (v.sale_price ?? 0) * qtyOf(v), 0), S))}</span></span>
               </div>
@@ -1454,7 +1466,7 @@ export function Offres() {
                       <tbody>
                         {selected.map((v, i) => (
                           <tr key={v.id} className={i % 2 ? 'bg-slate-50' : ''}>
-                            {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}</td>)}
+                            {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}{c.builtin === 'price' && v.margin != null && draft.price_rule.mode === 'margin' && <span className="ml-1 text-[10px] font-normal text-amber-700" title="Marge propre à ce véhicule">marge {v.margin} €</span>}</td>)}
                           </tr>
                         ))}
                       </tbody>
@@ -1519,7 +1531,7 @@ export function Offres() {
                                     {it ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${stale(v) ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`} title={stale(v) ? 'Le prix ou le relevé a changé depuis la publication — recoche ou « Republier » pour rafraîchir' : `Publié le ${new Date(it.published_at).toLocaleDateString('fr-FR')}`}>{stale(v) ? 'à rafraîchir' : 'publié'}</span> : <span className="text-[10px] text-slate-400">non</span>}
                                   </label>
                                 </td>
-                                {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}</td>)}
+                                {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}{c.builtin === 'price' && v.margin != null && draft.price_rule.mode === 'margin' && <span className="ml-1 text-[10px] font-normal text-amber-700" title="Marge propre à ce véhicule">marge {v.margin} €</span>}</td>)}
                                 <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
                                   {countries.length === 0 ? <span className="text-slate-400">aucun relevé</span> : countries.map((c) => {
                                     const vd = verdictOf(draft.price_rule.mode === 'none' ? null : v.sale_price, draft.market?.[lot!.key]?.[c], c);

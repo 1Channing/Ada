@@ -134,6 +134,9 @@ export interface OfferVehicle {
   extras: Record<string, string>;   // colonnes non reconnues, gardées telles quelles
   selected: boolean;
   sale_price: number | null;        // prix MC Export HT (règle appliquée, modifiable)
+  /** MARGE PROPRE à ce véhicule (01/11, Channing : « des marges différentes suivant les véhicules ») :
+   *  remplace la marge de la règle pour lui seul ; absent/null = marge commune. */
+  margin?: number | null;
   /** Exemplaires identiques sur cette ligne (catalogue Record Rent a Car 07/10 :
    *  « UNITS » 37 Bigster) — UNE ligne, pas 37 ; absent = 1 (offres d'avant). */
   quantity?: number;

@@ -82,15 +82,23 @@ export async function deleteOffer(id: string): Promise<string | null> {
   return error ? error.message : null;
 }
 
-/** Applique la règle de prix MC Export à chaque véhicule (HT fournisseur + marge, ou prix fixe) sans écraser un prix saisi à la main. */
-export function applyPriceRule(vehicles: OfferVehicle[], rule: PriceRule, supplierHt: (v: OfferVehicle) => number | null, force = false): OfferVehicle[] {
-  return vehicles.map((v) => {
+/** Applique la règle de prix MC Export à chaque véhicule (HT fournisseur + marge, ou prix fixe) sans écraser un prix saisi à la main.
+ *  Un véhicule qui a sa MARGE PROPRE (01/11) la garde — sauf `resetMargins`, qui remet tout le monde à la marge commune. */
+export function applyPriceRule(vehicles: OfferVehicle[], rule: PriceRule, supplierHt: (v: OfferVehicle) => number | null, force = false, resetMargins = false): OfferVehicle[] {
+  return vehicles.map((v0) => {
+    const v = resetMargins && v0.margin != null ? { ...v0, margin: null } : v0;
     if (rule.mode === 'none') return { ...v, sale_price: null };
     if (v.sale_price != null && !force) return v;
     const base = supplierHt(v);
-    const price = rule.mode === 'fixed' ? rule.margin : base != null ? base + rule.margin : null;
+    const price = rule.mode === 'fixed' ? rule.margin : base != null ? base + (v.margin ?? rule.margin) : null;
     return { ...v, sale_price: price != null ? Math.round(price) : null };
   });
+}
+/** Prix MC Export HT d'un véhicule pour une marge donnée (null = marge commune). */
+export function priceWithMargin(base: number | null, margin: number | null | undefined, rule: PriceRule): number | null {
+  if (rule.mode === 'none') return null;
+  if (rule.mode === 'fixed') return Math.round(rule.margin);
+  return base != null ? Math.round(base + (margin ?? rule.margin)) : null;
 }
 
 /** Pays où l'équipe vend — l'ordre est celui des menus. */
