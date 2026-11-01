@@ -134,6 +134,16 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **DOUBLONS ENTRE PLATEFORMES DANS LES LEADS (01/11, Channing : « une Volvo
+  XC40 D3 sur Leboncoin ET La Centrale : un signal « doublon La Centrale »,
+  et dire si le lead est disponible ou pris par X »)**. Règle `sameVehicle`
+  (même année, kilométrage à 2 % ou 500 km près, prix à 3 % près quand les
+  deux sont connus ; 7 cas testés) appliquée entre veilles différentes de
+  l'organisation sur les annonces des 45 derniers jours (`listTwinCandidates`,
+  statuts à prendre / pris / rejeté, prénom de qui a pris). Pastille sur le
+  lead : « Doublon lacentrale · lead disponible » (bleu), « · pris par
+  Prénom » (ambre), « · rejeté par Prénom » (gris) ; cliquable vers
+  l'annonce jumelle, détails au survol.
 - **RAPPELS PERSONNELS (01/11, Channing : « attention que MC Export ne reçoive
   pas les rappels des autres organisations ; les rappels sont tous
   personnels »)**. Preuve : les e-mails partaient déjà de la personne à

@@ -11,7 +11,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2, X, ChevronRight } from 'lucide-react';
 import { managerScope } from '../services/auth';
-import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, listOrgWatches, takeWatchLead, rejectWatchLead, type ProspectWatch, type WatchLead } from '../services/prospectWatches';
+import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, listOrgWatches, listTwinCandidates, sameVehicle, takeWatchLead, rejectWatchLead, type ProspectWatch, type WatchLead, type TwinHit } from '../services/prospectWatches';
 import { ListingLink } from './ListingLink';
 
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
@@ -121,6 +121,8 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
   const [leads, setLeads] = useState<WatchLead[]>([]);
   // Toutes les veilles de l'organisation, même sans lead (01/11 : « que les commerciaux sachent qu'une étude est en place »).
   const [watches, setWatches] = useState<Awaited<ReturnType<typeof listOrgWatches>>>([]);
+  // Doublons entre plateformes (01/11) : la même voiture vue par une autre veille (Leboncoin ↔ La Centrale).
+  const [twins, setTwins] = useState<TwinHit[]>([]);
   // Groupes REPLIABLES (01/11, Channing : « réduire la recherche pour voir aussi les leads de La Centrale ») :
   // le choix est retenu sur ce navigateur, ouvert par défaut.
   const [closed, setClosed] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('ada_watch_leads_closed') ?? '{}'); } catch { return {}; } });
@@ -130,6 +132,7 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
   const reload = () => {
     listWatchLeads().then((l) => { setLeads(l); onCount(l.length); setError(null); }).catch((e) => setError(e instanceof Error ? e.message : String(e)));
     void listOrgWatches().then(setWatches);
+    void listTwinCandidates().then(setTwins);
   };
   useEffect(() => {
     reload();
@@ -150,6 +153,8 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
     const meta = new Map(watches.map((w) => [w.id, w]));
     return [...by.values()].map((g) => ({ ...g, watch: { ...g.watch, ...(meta.get(g.watch.id) ?? {}) }, list: g.list.sort((a, b) => key(b).localeCompare(key(a))) }));
   }, [leads, watches]);
+  /** Les jumeaux d'un lead : même véhicule, autre veille (donc l'autre plateforme), avec leur état. */
+  const twinsOf = (l: WatchLead) => twins.filter((t) => t.watch_id !== l.watch_id && t.id !== l.id && sameVehicle(l, t));
   const take = async (l: WatchLead) => {
     setBusy(l.id);
     const err = await takeWatchLead(l);
@@ -197,7 +202,15 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
               )}
               <div className="flex items-center gap-3 px-4 py-2.5">
                 <div className="min-w-0 flex-1">
-                  <ListingLink href={l.listing_url} className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate block">{l.title || l.listing_url}</ListingLink>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ListingLink href={l.listing_url} className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate">{l.title || l.listing_url}</ListingLink>
+                    {twinsOf(l).map((t) => (
+                      <a key={t.id} href={t.listing_url} target="_blank" rel="noreferrer" title={`${t.title || t.listing_url} — ${t.year ?? '—'} · ${t.mileage != null ? `${t.mileage.toLocaleString('fr-FR')} km` : '—'} · ${t.price != null ? `${t.price.toLocaleString('fr-FR')} €` : '—'}`}
+                        className={`shrink-0 inline-flex items-center gap-1 text-[10px] font-medium rounded-full border px-1.5 py-0.5 ${t.status === 'saved' ? 'bg-amber-50 border-amber-200 text-amber-800' : t.status === 'rejected' ? 'bg-slate-50 border-slate-200 text-slate-500' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+                        Doublon {hostOf(t.watch.url).replace(/\.fr$|\.nl$|\.de$/, '')} · {t.status === 'saved' ? `pris par ${t.taken_by_name ?? 'un collègue'}` : t.status === 'rejected' ? `rejeté par ${t.taken_by_name ?? 'un collègue'}` : 'lead disponible'}
+                      </a>
+                    ))}
+                  </div>
                   <p className="text-xs text-slate-500 mt-0.5 truncate">
                     {l.year ?? '—'} · {l.mileage != null ? `${l.mileage.toLocaleString('fr-FR')} km` : '—'}{l.fuel ? ` · ${l.fuel}` : ''}
                     {l.published_at ? ` · mise en ligne ${new Date(l.published_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}

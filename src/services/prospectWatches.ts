@@ -97,6 +97,37 @@ export async function listWatchLeads(): Promise<WatchLead[]> {
   return (data ?? []) as WatchLead[];
 }
 
+/** DOUBLONS ENTRE PLATEFORMES (01/11, Channing : « une Volvo XC40 D3 sur Leboncoin ET La Centrale : un signal,
+ *  et dire si le lead est disponible ou pris par X »). Les annonces des 45 derniers jours de toutes les veilles de
+ *  l'organisation, tous statuts sauf la mémoire silencieuse, avec le prénom de qui a pris ou rejeté. */
+export interface TwinHit { id: string; watch_id: string; listing_url: string; site: string; title: string; price: number | null; year: number | null; mileage: number | null; status: string; taken_by: string | null; taken_by_name: string | null; watch: Pick<ProspectWatch, 'id' | 'label' | 'url'> }
+export async function listTwinCandidates(): Promise<TwinHit[]> {
+  const since = new Date(Date.now() - 45 * 86_400_000).toISOString();
+  const { data, error } = await untyped
+    .from('prospect_watch_hits')
+    .select('id, watch_id, listing_url, site, title, price, year, mileage, status, taken_by, watch:prospect_watches!inner(id, label, url)')
+    .in('status', ['inbox', 'saved', 'rejected'])
+    .gte('first_seen_at', since)
+    .limit(4000);
+  if (error) return [];
+  const rows = (data ?? []) as TwinHit[];
+  const ids = [...new Set(rows.map((r) => r.taken_by).filter((x): x is string => !!x))];
+  const names = new Map<string, string>();
+  if (ids.length) {
+    const { data: ps } = await untyped.from('profiles').select('id, display_name').in('id', ids);
+    for (const p of (ps ?? []) as Array<{ id: string; display_name: string | null }>) names.set(p.id, (p.display_name ?? '').trim() || 'un collègue');
+  }
+  return rows.map((r) => ({ ...r, taken_by_name: r.taken_by ? names.get(r.taken_by) ?? 'un collègue' : null }));
+}
+/** Même véhicule ? Même année, kilométrage à 2 % (ou 500 km) près, prix à 3 % près quand les deux sont connus. */
+export function sameVehicle(a: { year: number | null; mileage: number | null; price: number | null }, b: { year: number | null; mileage: number | null; price: number | null }): boolean {
+  if (a.year == null || b.year == null || a.year !== b.year) return false;
+  if (a.mileage == null || b.mileage == null) return false;
+  if (Math.abs(a.mileage - b.mileage) > Math.max(500, 0.02 * Math.max(a.mileage, b.mileage))) return false;
+  if (a.price != null && b.price != null && Math.abs(a.price - b.price) > 0.03 * Math.max(a.price, b.price)) return false;
+  return true;
+}
+
 /** REJETER un lead (30/10, Channing : « lorsqu'il ne correspond pas aux critères ») : il disparaît pour toute
  *  l'organisation, la mémoire de la veille le garde (il ne reviendra pas). Seulement s'il est encore inbox. */
 export async function rejectWatchLead(l: WatchLead): Promise<string | null> {
