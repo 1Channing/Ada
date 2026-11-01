@@ -1360,6 +1360,8 @@ export interface MarketOpportunity {
 
 const OPP_WINDOW_DAYS = 30;
 const OPP_MIN_PRICE_EUR = 1000; // wrecks/leasing noise guard
+/** 01/11 (Channing) : kilométrage maximal des annonces qui confirment une opportunité (règle posée en base, migration 20261101150000). */
+export const OPP_MAX_KM = 100_000;
 
 export function opportunityKey(o: MarketOpportunity): string {
   return [o.brand, o.model, o.fuel, o.year, o.lowCountry, o.highCountry].join('|');
@@ -1373,7 +1375,8 @@ export const MARKET_STUDIES_KEY = 'ada_market_studies';
  * même carburant et même millésime des deux côtés.
  */
 export function studiesFromOpportunity(o: MarketOpportunity): MarketFilters[] {
-  const base = { brand: o.brand, model: o.model, fuel: o.fuel as FuelToken, yearMin: o.year, yearMax: o.year };
+  // 01/11 : le radar ne compte que les annonces ≤ 100 000 km — l'inspection regarde les mêmes.
+  const base = { brand: o.brand, model: o.model, fuel: o.fuel as FuelToken, yearMin: o.year, yearMax: o.year, mileageMax: OPP_MAX_KM };
   return [{ ...base, country: o.lowCountry }, { ...base, country: o.highCountry }];
 }
 

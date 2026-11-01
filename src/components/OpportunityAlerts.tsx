@@ -17,7 +17,7 @@ import { Bell, Search, ClipboardCheck, FlaskConical, Loader2, ChevronDown, Chevr
 import { COUNTRY_NAMES } from '../data/cities';
 import {
   loadMarketOpportunities, loadOpportunityAcks, ackOpportunity, opportunityKey, fuelLabel,
-  brandKey, FUEL_TOKEN_TO_CRITERIA, wasLastOpportunitiesLoadPartial, getDashboardsRefreshedAt,
+  brandKey, FUEL_TOKEN_TO_CRITERIA, wasLastOpportunitiesLoadPartial, getDashboardsRefreshedAt, OPP_MAX_KM,
 } from '../services/marketData';
 import type { MarketOpportunity } from '../services/marketData';
 import { saveDailySearch, listDailySearches } from '../services/workflow';
@@ -236,7 +236,7 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
         fuel: TOKEN_TO_CRITERIA[o.fuel] ?? '',
         trim: '',
         trim_target: '',
-        mileage_max: null,
+        mileage_max: OPP_MAX_KM,
         price_gap_min: threshold,
         price_gap_max: gapMax,
         run_hour: 7,
@@ -305,8 +305,8 @@ export function OpportunityAlerts({ onInspect, touchedSince }: {
       {!collapsed && (
         <>
           <p className="text-xs text-slate-500">
-            Médiane des 5 annonces les moins chères par pays — <span className="text-slate-600">même carburant
-            ET même année des deux côtés</span> (30 derniers jours, prix &lt; 1 000 € exclus), triées par
+            Prix d'attaque = médiane des 5 annonces les moins chères par pays (8 sur un gros marché) — <span className="text-slate-600">même carburant
+            ET même année des deux côtés, au moins 5 annonces de chaque côté, kilométrage connu et ≤ 100 000 km</span> (30 derniers jours, prix &lt; 2 000 € exclus), triées par
             écart × volume. « Inspecter » ouvre la comparaison des deux marchés en dessous.
           </p>
           {notice && <p className="text-xs text-emerald-600">{notice}</p>}
