@@ -310,6 +310,8 @@ export interface AdminCreateInput {
   organisation?: string;
   /** Compte de prospection seule : onglet Négociations uniquement, dès la création. */
   prospectingOnly?: boolean;
+  /** Onglets choisis à la création (01/11) ; null/absent = tous les onglets ordinaires (ou prospectingOnly). */
+  tabs?: string[] | null;
 }
 export async function adminCreateAccount(input: AdminCreateInput): Promise<{ error: string | null; needsConfirmation: boolean; userId: string | null; warning: string | null }> {
   const firstName = input.firstName.trim();
@@ -347,9 +349,10 @@ export async function adminCreateAccount(input: AdminCreateInput): Promise<{ err
     const org = (input.organisation ?? '').trim() || 'MC Export';
     const r1 = await rpc('admin_set_organisation', { p_user: userId, p_org: org });
     if (r1.error) warnings.push(`organisation « ${org} » non posée (${/does not exist|function|schema cache/i.test(r1.error.message) ? 'SQL du 12/10 à coller' : r1.error.message}) — règle-la sur le compte`);
-    if (input.prospectingOnly) {
-      const r2 = await rpc('admin_set_allowed_tabs', { p_user: userId, p_tabs: PROSPECTING_TABS });
-      if (r2.error) warnings.push(`préréglage prospection non posé (${r2.error.message}) — règle les onglets sur le compte`);
+    const tabs = Array.isArray(input.tabs) ? input.tabs : input.prospectingOnly ? PROSPECTING_TABS : null;
+    if (tabs) {
+      const r2 = await rpc('admin_set_allowed_tabs', { p_user: userId, p_tabs: tabs });
+      if (r2.error) warnings.push(`onglets non posés (${r2.error.message}) — règle les onglets sur le compte`);
     }
   }
   // Session absente = confirmation d'email requise côté Supabase.

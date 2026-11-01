@@ -134,6 +134,26 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **MAIL DE BIENVENUE À LA CRÉATION D'UN COMPTE (01/11, Channing : « envoyer un
+  e-mail à la personne depuis la boîte d'Ada avec sa signature : identifiants,
+  mot de passe en clair avec la possibilité de le changer, lien ; je choisis
+  les onglets à la création et je visualise le mail ; les réponses vont à
+  Ada »)**. Admin → « Créer un compte » : cases des onglets du compte
+  (défaut : tous les ordinaires ; « prospection seule » ou une organisation
+  de prospection les réduit à Résultats, Négociations, Archives), posés par
+  `admin_set_allowed_tabs` dès la création (`adminCreateAccount({ tabs })`) ;
+  case « Envoyer le mail de bienvenue » (cochée) et « Voir le mail » :
+  aperçu exact (`src/lib/welcomeMail.ts`, pur : objet, corps, paragraphe
+  « ce que vous trouverez » déduit des onglets donnés + Score hors MC Export
+  + Statistiques pour un manager). À la création, le texte de l'aperçu est
+  déposé dans `welcome_mails` (SQL 20261101100000, RLS admins seuls) ; le
+  worker (`worker/welcomeMails.ts`, sondage 30 s) l'envoie depuis la boîte
+  d'Ada (`sendInternal`, délégation Gmail, signature texte d'Ada ajoutée,
+  en-tête interne), marque envoyé / échec avec la raison exacte ; jamais
+  rejoué d'office. La carte du compte affiche l'état (en file / envoyé le… /
+  en échec : raison), relu toutes les 15 s tant qu'il est en file. Testé :
+  RLS (admin dépose et lit, non-admin rien), rendu du mail pour un compte
+  de prospection et un compte MC Export manager.
 - **OFFRES : EXPORT ENCHÈRES LEASING (export_80.xlsx, 30/10, Channing :
   « apprends Ada à lire cette liste »)**. Grille ag-grid de 1 000 lignes
   dont 16 Skoda Enyaq ; 36 colonnes. Avant : modèle « SKODA ENYAQ » (deux

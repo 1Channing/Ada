@@ -4,7 +4,9 @@ import { MyTabsPanel } from '../components/MyTabs';
 import { useMyTabChoices } from '../lib/navChoices';
 import { supabase } from '../lib/supabase';
 import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, passwordWeakness } from '../services/auth';
-import { APP_TABS, WORKFLOW_TAB_KEYS, grantedTabs } from '../lib/appTabs';
+import { APP_TABS, WORKFLOW_TAB_KEYS, OPT_IN_TABS, grantedTabs } from '../lib/appTabs';
+import { welcomeMail } from '../lib/welcomeMail';
+import { queueWelcomeMail, lastWelcomeMail, type WelcomeMailRow } from '../services/welcomeMails';
 import { readNote, agoLabel } from '../lib/noteJournal';
 import { fmtPhone } from '../lib/phoneKey';
 import { listOrganisations, addOrganisation, removeOrganisation, renameOrganisation, setOrganisationDefaultTabs, isProspectingOrg, PROSPECTING_TABS, DEFAULT_ORG, type Organisation } from '../services/organisations';
@@ -138,9 +140,26 @@ export function Equipe() {
   const [newOrg, setNewOrg] = useState('');
   // Création de compte par l'admin (07/09).
   const [nu, setNu] = useState({ firstName: '', lastName: '', phone: '', email: '', password: '', organisation: DEFAULT_ORG, prospectingOnly: false });
+  // ONGLETS DÈS LA CRÉATION + MAIL DE BIENVENUE (01/11, Channing : « je choisis directement les onglets et je
+  // visualise le mail qui s'envoie »). Par défaut : tous les onglets ordinaires ; « prospection seule » les réduit.
+  const defaultTabs = () => APP_TABS.map((t) => t.key as string).filter((k) => !OPT_IN_TABS.includes(k as never));
+  const [nuTabs, setNuTabs] = useState<string[]>(defaultTabs());
+  const [nuMail, setNuMail] = useState(true);
+  const [nuPreview, setNuPreview] = useState(false);
   const [nuBusy, setNuBusy] = useState(false);
   const [nuInfo, setNuInfo] = useState<string | null>(null);
   const [resetInfo, setResetInfo] = useState<string | null>(null);
+  // État du mail de bienvenue (01/11) : lu à l'ouverture d'une carte, relu toutes les 15 s tant qu'il est en file.
+  const [welcome, setWelcome] = useState<Record<string, WelcomeMailRow | null>>({});
+  useEffect(() => {
+    const a = openId ? accounts.find((x) => x.id === openId) : null;
+    if (!a) return;
+    const read = () => { void lastWelcomeMail(a.email).then((r) => setWelcome((w) => ({ ...w, [a.email]: r }))); };
+    read();
+    const t = setInterval(() => { const cur = welcome[a.email]; if (!cur || cur.status === 'queued' || cur.status === 'sending') read(); }, 15_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
 
   const reload = async () => {
     setError(null);
@@ -344,14 +363,23 @@ export function Equipe() {
       if (err && /organisation/.test(err.message)) ({ error: err } = await supabase.from('auth_allowlist').upsert({ email, note: nu.firstName.trim() || null }, { onConflict: 'email', ignoreDuplicates: true }));
       if (err) { setError(`Liste d'inscription : ${err.message}`); setNuBusy(false); return; }
     }
-    const r = await adminCreateAccount({ ...nu, email });
+    const allDefault = nuTabs.length === defaultTabs().length && defaultTabs().every((k) => nuTabs.includes(k));
+    const r = await adminCreateAccount({ ...nu, email, tabs: allDefault ? null : nuTabs });
+    if (r.error) { setNuBusy(false); setError(r.error); return; }
+    // Mail de bienvenue (01/11) : le texte de l'aperçu, déposé pour la boîte d'Ada.
+    let mailNote = '';
+    if (nuMail) {
+      const m = welcomeMail({ firstName: nu.firstName, email, password: nu.password, organisation: nu.organisation, tabs: allDefault ? null : nuTabs });
+      const err = await queueWelcomeMail({ to_email: email, to_name: `${nu.firstName.trim()} ${nu.lastName.trim()}`.trim(), subject: m.subject, body: m.body });
+      mailNote = err ? ` — ⚠ mail de bienvenue NON envoyé : ${err}` : ' — mail de bienvenue déposé : Ada l\'envoie dans la minute (état sur la carte du compte).';
+    }
     setNuBusy(false);
-    if (r.error) { setError(r.error); return; }
-    const scope = `${nu.organisation}${nu.prospectingOnly ? ', prospection seule (Négociations, Archives)' : ''}`;
+    const scope = `${nu.organisation} · ${nuTabs.length} onglet${nuTabs.length > 1 ? 's' : ''}`;
     setNuInfo(`${r.needsConfirmation
-      ? `Compte créé pour ${email} (${scope}). Supabase lui a envoyé un email de confirmation : le mot de passe fonctionne après le clic. Transmets-lui le mot de passe : ${nu.password}`
-      : `Compte créé pour ${email} (${scope}). Transmets-lui le mot de passe : ${nu.password}`}${r.warning ? ` — ⚠ ${r.warning}` : ''}`);
+      ? `Compte créé pour ${email} (${scope}). Supabase lui a envoyé un email de confirmation : le mot de passe fonctionne après le clic. Mot de passe : ${nu.password}`
+      : `Compte créé pour ${email} (${scope}). Mot de passe : ${nu.password}`}${r.warning ? ` — ⚠ ${r.warning}` : ''}${mailNote}`);
     setNu({ firstName: '', lastName: '', phone: '', email: '', password: '', organisation: nu.organisation, prospectingOnly: false });
+    setNuTabs(defaultTabs()); setNuPreview(false);
     void reload();
   };
 
@@ -449,13 +477,13 @@ export function Equipe() {
             <input type="email" value={nu.email} onChange={(e) => setNu({ ...nu, email: e.target.value })} placeholder="prenom@mc-export.com *" required autoComplete="off" className="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
-              <select value={nu.organisation} onChange={(e) => setNu({ ...nu, organisation: e.target.value, prospectingOnly: isProspectingOrg(orgRows.find((o) => o.name === e.target.value)) })} className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-ocean/40">
+              <select value={nu.organisation} onChange={(e) => { const pros = isProspectingOrg(orgRows.find((o) => o.name === e.target.value)); setNu({ ...nu, organisation: e.target.value, prospectingOnly: pros }); setNuTabs(pros ? [...PROSPECTING_TABS] : defaultTabs()); }} className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-ocean/40">
                 {orgs.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </label>
             {/* Libellé court sur une ligne (30/10 : le long libellé passait sur deux lignes et décalait la rangée). */}
             <label className="flex items-center gap-2 text-sm text-slate-700 px-1 min-w-0" title="Le compte n'aura que Résultats (les leads de son manager), Négociations et Archives">
-              <input type="checkbox" checked={nu.prospectingOnly} onChange={(e) => setNu({ ...nu, prospectingOnly: e.target.checked })} className="shrink-0" />
+              <input type="checkbox" checked={nu.prospectingOnly} onChange={(e) => { setNu({ ...nu, prospectingOnly: e.target.checked }); setNuTabs(e.target.checked ? [...PROSPECTING_TABS] : defaultTabs()); }} className="shrink-0" />
               <span className="truncate">Prospection seule <span className="text-xs text-slate-400">(Résultats, Négociations, Archives)</span></span>
             </label>
             <div className="flex gap-1 sm:col-span-2 lg:col-span-2">
@@ -464,9 +492,39 @@ export function Equipe() {
               <button type="button" onClick={() => { void navigator.clipboard?.writeText(nu.password); }} title="Copier le mot de passe" className="px-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="w-4 h-4" /></button>
             </div>
           </div>
+          {/* Onglets du compte, choisis ici (01/11). */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 space-y-1.5">
+            <p className="text-xs font-medium text-slate-700">Onglets du compte <span className="font-normal text-slate-400">· {nuTabs.length}/{APP_TABS.length} — modifiables ensuite sur sa carte</span></p>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-1">
+              {APP_TABS.map((t) => (
+                <label key={t.key} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer" title={t.hint}>
+                  <input type="checkbox" checked={nuTabs.includes(t.key)} onChange={(e) => setNuTabs((cur) => (e.target.checked ? [...cur, t.key] : cur.filter((k) => k !== t.key)))} />
+                  <span className={nuTabs.includes(t.key) ? '' : 'text-slate-400'}>{t.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          {/* Mail de bienvenue : envoyé par Ada à la création, texte visible avant (01/11). */}
+          <div className="rounded-lg border border-blue-100 bg-blue-50/40 px-3 py-2 space-y-1.5">
+            <div className="flex items-center gap-3 flex-wrap text-xs">
+              <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={nuMail} onChange={(e) => setNuMail(e.target.checked)} />
+                <span className="font-medium">Envoyer le mail de bienvenue</span>
+                <span className="text-slate-500">depuis la boîte d'Ada, avec ses accès et le lien d'ADA</span>
+              </label>
+              <button type="button" onClick={() => setNuPreview((o) => !o)} className="ml-auto text-brand-ocean hover:underline">{nuPreview ? 'Masquer le mail' : 'Voir le mail'}</button>
+            </div>
+            {nuPreview && (() => { const m = welcomeMail({ firstName: nu.firstName, email: nu.email || 'adresse@exemple.fr', password: nu.password || '(mot de passe)', organisation: nu.organisation, tabs: nuTabs }); return (
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800">
+                <p className="text-slate-500 mb-1">De : Ada (ADA) · À : {nu.email || 'adresse@exemple.fr'} · Objet : <span className="font-medium text-slate-800">{m.subject}</span></p>
+                <pre className="whitespace-pre-wrap font-sans leading-relaxed">{m.body}</pre>
+                <p className="text-slate-400 mt-1">+ la signature d'Ada (texte réglé dans l'onglet Agents)</p>
+              </div>
+            ); })()}
+          </div>
           <div className="flex items-center gap-3 flex-wrap">
             <button type="submit" disabled={nuBusy} className="flex items-center gap-1.5 bg-brand-ocean hover:bg-brand-encre disabled:opacity-50 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
-              <Plus className="w-4 h-4" /> {nuBusy ? 'Création…' : 'Créer le compte'}
+              <Plus className="w-4 h-4" /> {nuBusy ? 'Création…' : nuMail ? 'Créer le compte et envoyer le mail' : 'Créer le compte'}
             </button>
             {allow.length > 0 && <span className="text-xs text-slate-400">L'adresse sera ajoutée à la liste des adresses autorisées.</span>}
           </div>
@@ -707,6 +765,11 @@ export function Equipe() {
                       <button onClick={() => void sendReset(a)} className="flex items-center gap-1.5 text-xs font-medium text-slate-600 border border-slate-300 rounded-lg px-2.5 py-1.5 hover:bg-slate-50">
                         <KeyRound className="w-3.5 h-3.5" /> Envoyer un lien de nouveau mot de passe
                       </button>
+                      {(() => { const w = welcome[a.email]; if (!w) return null; return (
+                        <span className={`text-[11px] rounded-full border px-2 py-0.5 ${w.status === 'sent' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : w.status === 'failed' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`} title={w.error ?? ''}>
+                          mail de bienvenue {w.status === 'sent' ? `envoyé par Ada le ${w.sent_at ? fmtDate(w.sent_at) : ''}` : w.status === 'failed' ? `en échec : ${w.error ?? ''}` : 'en file, Ada l\'envoie dans la minute'}
+                        </span>
+                      ); })()}
                     </div>
                     {/* Études et leads : seulement pour un compte qui a ces onglets (un compte de prospection n'en a pas). */}
                     {searches && hasStudies && (() => {

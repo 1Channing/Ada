@@ -17,6 +17,7 @@ import { refreshDashboards } from './dashboards';
 import { initWorkerLogCapture } from './logStore';
 import { startDailySearchScheduler } from './dailySearches';
 import { startProspectWatchScheduler } from './prospectWatches';
+import { startWelcomeMails } from './welcomeMails';
 import { startSalesSheetSync } from './salesSheetSync';
 import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
@@ -711,6 +712,8 @@ app.listen(PORT, "0.0.0.0", () => {
     startDailySearchScheduler();
     // Veilles de prospection par adresse (29/10) : à part des études MC Export.
     startProspectWatchScheduler();
+    // Mails de bienvenue des nouveaux comptes, depuis la boîte d'Ada (01/11).
+    startWelcomeMails();
     startSalesSheetSync();
     startLegalWatchCollector();
     // Relevés de stock hebdomadaires des concessions de la Carte (11/10).
