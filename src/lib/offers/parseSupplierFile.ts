@@ -420,7 +420,7 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : null;
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
   // « AUT » (catalogue Record Rent a Car 07/10 : « 252CV AUT »), « E-CVT ».
-  const gearbox = /\b(bva|automati(que|c|k|co)|automaat|aut|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
+  const gearbox = /\b(bva|au?to?ma?ti?(que|c|k|co)|automaat|aut|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
     : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) ? 'MANUELLE' : null;
   // « 300PHEV » collé (RAV4), « HEV » (Tucson), « GLP » / « ECO-G » (GPL
   // espagnol / Dacia) — catalogue du 07/10.
@@ -462,6 +462,9 @@ export function stripGenerationSuffix(model: string): string {
  * commence la ligne gagne ; sans référentiel, les premiers jetons avant la
  * cylindrée/puissance, marqueur de génération retiré.
  */
+/** Mots de finition qui ne font jamais partie du nom d'un modèle. */
+const TRIM_WORDS = new Set(['EDITION', 'ELEGANCE', 'SHINE', 'COMFORT', 'DESIGN', 'LUXURY', 'PRIME', 'PLUS', 'FEEL', 'MAX', 'CORE', 'ULTRA', 'ULTIMATE', 'BUSINESS', 'ADVANCE', 'ADVANCED', 'STYLE', 'LIFE', 'SPRINT', 'SUMMIT', 'LONGITUDE', 'LIMITED', 'TREND', 'TITANIUM', 'ACTIVE', 'ALLURE', 'RIVOLI', 'PERFORMANCE', 'BOOST', 'VISION', 'AVANTGARDE', 'INTENS', 'ZEN', 'TECHNO', 'ICONIC', 'ESPRIT', 'INITIALE', 'EXCLUSIVE', 'PREMIUM', 'AMBIENTE', 'SELECTION', 'EXECUTIVE', 'INSCRIPTION', 'MOMENTUM']);
+
 export function guessModel(_brand: string, line: string, knownModels: string[]): string {
   const up = line.toUpperCase().replace(/\s+/g, ' ').trim();
   const candidates = [...knownModels].map((m) => m.toUpperCase()).sort((a, b) => b.length - a.length);
@@ -471,10 +474,14 @@ export function guessModel(_brand: string, line: string, knownModels: string[]):
   // « NOUVEAU 5008 … », « NEW DOBLO … » : sauter le mot de nouveauté.
   const stripped = up.replace(/^(NOUVEAU|NOUVELLE|NEW|NEUE?)\s+/, '');
   for (const m of candidates) if (stripped.startsWith(`${m} `) || stripped === m) return m;
+  // « MOKKA-E EDITION », « E-C4 SHINE » : la déclinaison électrique d'un modèle connu (stock CQS 01/11).
+  for (const m of candidates) if (stripped.startsWith(`${m}-E `) || stripped === `${m}-E` || stripped.startsWith(`E-${m} `) || stripped === `E-${m}`) return m;
   const tokens = stripped.split(' ');
   const out: string[] = [];
   for (const t of tokens) {
-    if (/^\d\.\d$/.test(t) || /^\d{2,3}(CH|CV|KW|HK)$/.test(t) || /^(HYBRID|HYBRIDE|PHEV|DIESEL|ESSENCE|TURBO|PURETECH|TCE|TSI|BLUEHDI|HDI|DCI|E-TECH|MILD|ELECTRIQUE)/.test(t)) break;
+    // Cylindrée (« 1.6 » ou « 1,6 »), puissance, code moteur Volvo (« B4 », « T8 »), énergie, ou mot de
+    // FINITION (« Shine », « Edition », « Elegance »…) : le modèle s'arrête là (stock CQS 01/11).
+    if (/^\d[.,]\d$/.test(t) || /^\d{2,3}(CH|CV|KW|HK)$/.test(t) || /^[BTD]\d$/.test(t) || /^(HYBRID|HYBRIDE|PHEV|DIESEL|ESSENCE|TURBO|PURETECH|TCE|TSI|BLUEHDI|HDI|DCI|E-TECH|MILD|ELECTRIQUE)/.test(t) || TRIM_WORDS.has(t)) break;
     out.push(t);
     if (out.length >= 2) break;
   }
