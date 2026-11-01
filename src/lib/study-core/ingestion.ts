@@ -321,12 +321,22 @@ const BRAND_ALIAS_GROUPS: string[][] = [
   ['mercedes', 'mercedes benz'],
 ];
 
-/** All normalized spellings of a brand (itself + alias-group members). */
+/**
+ * All normalized spellings of a brand (itself + alias-group members). Le référentiel écrit certaines marques
+ * « MG/MG MOTOR », « DS/DS AUTOMOBILES » : l'une OU l'autre écriture, jamais la chaîne entière (01/11 — Skelbiu, titres
+ * seuls : « 0/5 annonces contiennent "MG/MG MOTOR" » sur une page 100 % MG ZS).
+ */
 function brandVariants(raw: string): string[] {
-  const n = normalizeForMatch(raw);
-  const grp = BRAND_ALIAS_GROUPS.find((g) => g.includes(n));
-  return grp ?? [n];
+  const alts = raw.split('/').map((a) => normalizeForMatch(a)).filter(Boolean);
+  const out: string[] = [];
+  for (const n of alts.length ? alts : [normalizeForMatch(raw)]) {
+    for (const v of BRAND_ALIAS_GROUPS.find((g) => g.includes(n)) ?? [n]) if (!out.includes(v)) out.push(v);
+  }
+  return out;
 }
+
+/** Mots génériques d'une écriture de marque (« MG MOTOR », « DS AUTOMOBILES ») : jamais une preuve de marque à eux seuls. */
+const BRAND_GENERIC_TOKENS = new Set(['motor', 'motors', 'automobiles', 'automobile', 'auto', 'autos', 'cars', 'car', 'group']);
 
 /** Canonical label for structured comparison ("VW" and "Volkswagen" → same). */
 function canonBrandLabel(raw: string): string {
@@ -337,7 +347,7 @@ function canonBrandLabel(raw: string): string {
 function brandMatchesTitle(title: string, brand: string): boolean {
   const normTitle = normalizeForMatch(title);
   return brandVariants(brand).some((variant) =>
-    variant.split(' ').filter(Boolean).some((t) => t.length >= 2 && tokenInText(normTitle, t)));
+    variant.split(' ').filter(Boolean).some((t) => t.length >= 2 && !BRAND_GENERIC_TOKENS.has(t) && tokenInText(normTitle, t)));
 }
 
 /** Model matches if ALL its DISTINCTIVE tokens appear (generic words stripped).
@@ -403,8 +413,12 @@ export function confirmCriteriaAgainstSample(
     if (structuredBrandCount >= INGESTION_MIN_SAMPLE) {
       // Compare canonical alias forms so "VW" == "Volkswagen"; the report keeps
       // the user's original spelling via declaredValue below.
+      // « MG Motor » (annonce) pour « MG/MG MOTOR » (critère) : une écriture commune suffit.
+      const declaredVariants = brandVariants(brand);
       const c = confirmStructuredLabel('brand', canonBrandLabel(brand), listings,
-        (l) => (l.brand ? canonBrandLabel(l.brand) : null), n);
+        (l) => (l.brand
+          ? (brandVariants(l.brand).some((v) => declaredVariants.includes(v)) ? canonBrandLabel(brand) : canonBrandLabel(l.brand))
+          : null), n);
       out.push({ ...c, declaredValue: brand });
     } else {
       pushMatch('brand', brand, (l) => brandMatchesTitle(l.title ?? '', brand));

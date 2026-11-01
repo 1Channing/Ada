@@ -277,6 +277,14 @@ export interface SiteAdapter {
    */
   learnEnumValues?(field: string, pairs: Array<{ code: string; label: string }>): void;
 
+  /**
+   * Adresse de NAVIGATION → adresse de RECHERCHE (01/11, Skelbiu). Une adresse obtenue en cliquant sur le site
+   * (« /transportas/automobiliai/mg/zs ») n'a pas la forme que le générateur écrit (« /skelbimai/?…&category_id=… ») :
+   * à partir de la moisson de cette page (sa propre catégorie) et de la page de départ, l'adresse de recherche
+   * équivalente — ou null si la page ne le dit pas. Sert à l'apprentissage des sites avant la déduction de la règle.
+   */
+  searchUrlFromPage?(pageUrl: string, harvest: Array<{ field: string; code: string; label: string }>, startUrl: string): string | null;
+
   // ─── Ingestion (URL learning from human-pasted searches) ──────────────────
 
   /**

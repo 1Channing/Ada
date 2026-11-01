@@ -203,5 +203,21 @@ LBA.learnEnumValues!('u_car_model', lbV);
 ok(vocabularyMatches(LBA, 'NISSAN', '370Z', lbV).exact.join() === '370Z' && vocabularyMatches(LBA, 'RENAULT', '5', lbV).exact.length === 0,
   'Leboncoin : « 370Z » pour Nissan ; le « 5 » de Mazda n\'est jamais une Renault 5');
 
+console.log('\n=== MARQUE « X/Y » DU RÉFÉRENTIEL, ADRESSE DE NAVIGATION SKELBIU (01/11) ===\n');
+const { analyzeIngestion: ai } = await import('../src/lib/study-core/ingestion');
+const tl = (title: string) => ({ title, description: '', price: 15000, currency: 'EUR', price_type: 'one-off', year: 2021, mileage: 30000, trim: null, listing_url: `https://x/${Math.random()}`, brand: null, model: null, fuel: null });
+const brandOf = (b: string, titles: string[]) => ai('https://www.skelbiu.lt/skelbimai/?category_id=2924', { brand: b, model: 'ZS' }, titles.map(tl) as never, SK).confirmations.find((c) => c.field === 'brand');
+const mgOk = brandOf('MG/MG MOTOR', ['MG ZS, 2021 m.', 'MG ZS EV', 'MG ZS 1.5', 'MG ZS, elektra', 'MG ZS EV Luxury']);
+ok(mgOk?.status === 'confirmed' && mgOk.matchCount === 5, 'marque « MG/MG MOTOR » : des titres « MG ZS » la prouvent (l\'une OU l\'autre écriture)', mgOk);
+const motor = brandOf('MG/MG MOTOR', ['Motor 1.5 Toyota', 'Motor Opel Astra', 'Motor Audi A4', 'Motor BMW', 'MG ZS']);
+ok(motor?.status === 'rejected' && motor.matchCount === 1, 'le mot générique « Motor » seul ne prouve jamais la marque MG', motor);
+const nav = SK.searchUrlFromPage!('https://www.skelbiu.lt/transportas/automobiliai/mg/zs', [{ field: 'sk:fuel', code: '5', label: 'Elektra' }, { field: 'sk:cat', code: '2924', label: 'MG ZS' }],
+  SK.buildSearchUrl({ brand: 'MG/MG MOTOR', model: '' }).url);
+ok(Boolean(nav) && new URL(nav!).pathname === '/skelbimai/' && new URL(nav!).searchParams.get('category_id') === '2924',
+  'Skelbiu : adresse de navigation /transportas/automobiliai/mg/zs → adresse de recherche category_id=2924', nav);
+ok(SK.searchUrlFromPage!('https://www.skelbiu.lt/skelbimai/?category_id=2924', [{ field: 'sk:cat', code: '2924', label: 'MG ZS' }], SK.buildSearchUrl({ brand: 'MG', model: '' }).url) === null
+  && SK.searchUrlFromPage!('https://www.skelbiu.lt/transportas/automobiliai/mg/zs', [], SK.buildSearchUrl({ brand: 'MG', model: '' }).url) === null,
+  'déjà une adresse de recherche, ou page qui ne dit pas sa catégorie : rien n\'est converti');
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

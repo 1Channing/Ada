@@ -307,12 +307,29 @@ db.linkgen_enum_mappings.push(
 );
 await loadLearnedTaxonomy();
 db.linkgen_learning_items.push(item({ id: 'v1', kind: 'modele', site: 'SKELBIU', brand: 'MG/MG MOTOR', model: 'ZS', status: 'a_chercher', priority: 9, hits: 9, start_url: skelbiuAdapter.buildSearchUrl({ brand: 'MG/MG MOTOR', model: '' }).url }));
-const mgScrape = scrapeBy((u) => (/category_id=2924(&|$)/.test(u) ? many(8, { brand: 'MG', model: 'ZS', title: 'MG ZS EV Luxury' }) : []));
+// Skelbiu n'a NI marque NI modèle structurés : tout se lit dans le TITRE (« MG ZS, 2021 m. ») — comme sur le site.
+const mgScrape = scrapeBy((u) => (/category_id=2924(&|$)/.test(u) ? many(8, { brand: null, model: null, title: 'MG ZS EV Luxury, 2021 m.' }) : []));
 await learningProbeTick({ scrape: mgScrape, fetchText: async () => null }, T0 + 80 * D);
 const v1 = db.linkgen_learning_items.find((x) => x.id === 'v1')!;
 const v1rule = db.linkgen_learned_rules.find((r) => r.item_id === 'v1');
 ok(v1.status === 'validee' && JSON.stringify(v1rule?.rule).includes('2924'),
-  'Skelbiu MG/MG MOTOR ZS : « MG ZS » trouvé dans la liste du site, adresse prouvée (8/8), validé seul — sans Claude', [v1.status, v1rule?.rule, v1.decision_note]);
+  'Skelbiu MG/MG MOTOR ZS : « MG ZS » trouvé dans la liste du site, titres « MG ZS » reconnus pour la marque « MG/MG MOTOR » (8/8), validé seul — sans Claude', [v1.status, v1rule?.rule, v1.decision_note]);
+
+// L'adresse de NAVIGATION collée à la main (« /transportas/automobiliai/mg/hs », comme le 31/10) : ADA lit la catégorie
+// que la page déclare, contrôle l'adresse de RECHERCHE équivalente, et apprend la règle category_id.
+const SK0 = skelbiuAdapter.buildSearchUrl({ brand: 'MG/MG MOTOR', model: '' }).url;
+db.linkgen_learning_items.push(item({ id: 'v2', kind: 'modele', site: 'SKELBIU', brand: 'MG/MG MOTOR', model: 'HS', start_url: SK0, proposed_url: 'https://www.skelbiu.lt/transportas/automobiliai/mg/hs' }));
+const hsScrape = async (u: string) => {
+  scraped.push(u);
+  const listings = /\/transportas\/automobiliai\/mg\/hs|category_id=2950(&|$)/.test(u) ? many(9, { brand: null, model: null, title: 'MG HS Plug-in, 2022 m.' }) : [];
+  return { listings, diagnostics: u.includes('/transportas/') ? { taxonomyHarvest: [{ field: 'sk:cat', code: '2950', label: 'MG HS' }] } : null };
+};
+await learningProposalsTick({ scrape: hsScrape, fetchText: async () => null });
+const v2 = db.linkgen_learning_items.find((x) => x.id === 'v2')!;
+const v2rule = db.linkgen_learned_rules.find((r) => r.item_id === 'v2');
+ok(v2.status === 'validee' && JSON.stringify(v2rule?.rule) === JSON.stringify({ op: 'param', param: 'category_id', value: '2950' })
+  && (v2.check_result as { navigation?: string }).navigation === 'https://www.skelbiu.lt/transportas/automobiliai/mg/hs',
+  'adresse de navigation Skelbiu collée : catégorie 2950 lue sur la page, adresse de recherche contrôlée (9/9), règle category_id apprise', [v2.status, v2rule?.rule, v2.decision_note]);
 db.linkgen_learning_items.push(item({ id: 'md2', kind: 'modele', site: 'MOBILE_DE', brand: 'MERCEDES', model: 'GLE-CLASS', status: 'a_chercher', priority: 9, hits: 9 }));
 await learningProbeTick({ scrape: scrapeBy(() => []), fetchText: async () => null }, T0 + 81 * D);
 const md2 = db.linkgen_learning_items.find((x) => x.id === 'md2')!;

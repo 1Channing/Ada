@@ -192,6 +192,7 @@ const combine = (a: Evaluation['verdict'], b: Evaluation['verdict'] | null): Eva
  * une règle active pendant que la ligne restait « à valider ».
  */
 const inCheck = new Set<string>();
+const pathOf = (u: string) => { try { return new URL(u).pathname; } catch { return ''; } };
 /** Une écriture gardée par le statut a-t-elle touché la ligne ? (.select('id') : les lignes réellement modifiées) */
 const touched = (r: { data?: unknown } | null | undefined) => Array.isArray(r?.data) && r.data.length > 0;
 const whatOf = (it: Item) => `${it.site} ${it.kind === 'modele' ? `${it.brand} ${it.model}` : `${it.criterion} ${it.value}`}`;
@@ -248,10 +249,24 @@ async function autoValidate(it: Item, learned: Record<string, unknown>, check: R
 export type Outcome = 'validee' | 'a_valider' | 'refusee' | 'deja_traitee';
 
 /** Une proposition : déduction, contrôles, validation automatique à 100 % ou « à valider » (exporté pour les tests). */
-export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps, opts: { coverage?: string } = {}): Promise<Outcome> {
+export async function checkProposal(item: Item, deps: LearningDeps = defaultDeps, opts: { coverage?: string } = {}): Promise<Outcome> {
+  let it = item;
   const adapter = getSiteAdapter(it.site);
   if (!adapter) { await refuse(it, [`site inconnu (${it.site})`]); return 'refusee'; }
-  const start = it.start_url ?? '', proposed = it.proposed_url ?? '';
+  const start = it.start_url ?? '';
+  let proposed = it.proposed_url ?? '';
+  // Adresse de NAVIGATION collée à la main (Skelbiu « /transportas/automobiliai/mg/zs », 31/10) : ADA lit sur la page sa
+  // catégorie et contrôle l'adresse de RECHERCHE équivalente — la seule forme que le générateur sait écrire (01/11).
+  let navigation: string | null = null;
+  if (adapter.searchUrlFromPage && start && proposed && pathOf(proposed) !== pathOf(start)) {
+    const page = await deps.scrape(proposed).catch(() => null);
+    await harvest(adapter, page);
+    const alt = adapter.searchUrlFromPage(proposed, page?.diagnostics?.taxonomyHarvest ?? [], start);
+    if (alt) {
+      navigation = proposed; proposed = alt; it = { ...it, proposed_url: alt };
+      console.warn(`[APPRENTISSAGE] ${whatOf(it)} : adresse de navigation lue (${navigation}) → adresse de recherche ${alt}`);
+    }
+  }
   let rule: ModelFragment | FilterRule;
   let change: string;
   let brandKey = '', modelKey = '', valueKey = '';
@@ -287,6 +302,7 @@ export async function checkProposal(it: Item, deps: LearningDeps = defaultDeps, 
   const check = {
     verdict, conflict, change,
     ...(opts.coverage ? { warning: opts.coverage } : {}),
+    ...(navigation ? { navigation } : {}),
     claude: evA,
     ada: evB ?? { verdict: 'impossible', url: '', sample: 0, detail: "ADA n'a pas pu construire l'adresse de vérification avec cette règle", titles: [] },
     checked_at: new Date().toISOString(),
@@ -439,7 +455,9 @@ export async function learningProbeTick(deps: LearningDeps = defaultDeps, now = 
             : null;
           await sb().from('linkgen_learning_items').update({
             decision_note: (split ?? (found.tried.length
-              ? `ADA a essayé seule ${forms}${vm.exact.length ? ` et le nom de la liste du site (${vm.exact.map((l) => `« ${l} »`).join(', ')})` : ''} : aucune adresse à 100 %. Il faut le nom exact affiché sur le site.`
+              ? (vm.exact.length
+                ? `ADA connaît déjà le nom du site (${vm.exact.map((l) => `« ${l} »`).join(', ')}, liste du site) et a essayé ${forms} : aucune adresse à 100 %. Le nom n'est pas en cause — rien à faire pour Claude sur cette ligne ; à vérifier sur le site (« Ouvrir sur le site »).`
+                : `ADA a essayé seule ${forms} : aucune adresse à 100 %. Il faut le nom exact affiché sur le site.`)
               : 'Ce site écrit ses modèles avec un code de sa propre liste (identifiant) : un nom ne suffit ni à ADA ni à Claude — rien à faire pour Claude sur cette ligne.')).slice(0, 500),
             updated_at: new Date(now).toISOString(),
             ...(persisted ? { probed_at: new Date(now).toISOString(), probe_count: failures } : {}),
