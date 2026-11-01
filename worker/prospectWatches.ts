@@ -48,6 +48,9 @@ export function watchScrapeUrl(url: string): string {
   try {
     const u = new URL(url);
     if (/leboncoin\.fr$/i.test(u.hostname) && !u.searchParams.has('sort')) u.searchParams.set('sort', 'time');
+    // La Centrale (01/11) : « plus récentes » = sortBy=firstOnlineDateDesc ; un tri prix collé par l'utilisateur
+    // est remplacé, sinon les nouveautés seraient éparpillées dans les pages et l'arrêt au déjà-vu raterait.
+    if (/lacentrale\.fr$/i.test(u.hostname) && u.searchParams.get('sortBy') !== 'firstOnlineDateDesc') u.searchParams.set('sortBy', 'firstOnlineDateDesc');
     return u.toString();
   } catch { return url; }
 }
