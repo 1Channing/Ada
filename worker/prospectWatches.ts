@@ -106,7 +106,10 @@ export async function runWatch(w: WatchRow): Promise<{ leads: number; seeds: num
     for (const r of (data ?? []) as Array<{ id: string; listing_url: string; status: string; price: number | null }>) known.set(r.listing_url, r);
     if (!data || data.length < 1000) break;
   }
-  const firstRun = known.size === 0 && !w.last_run_at;
+  // PREMIER PASSAGE = mémoire vide (01/11, Segré : un lancement coupé par un redéploiement avait posé
+  // last_run_at sans rien écrire ; le passage suivant s'est cru « suivant » et a fait 913 leads de tout
+  // le stock). Tant qu'aucune annonce n'est en mémoire, on applique la règle des 24 h.
+  const firstRun = known.size === 0;
   const baseUrl = watchScrapeUrl(w.url);
   const adapter = findSiteAdapterByDomain(baseUrl);
   const nowIso = new Date().toISOString();
