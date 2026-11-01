@@ -134,6 +134,16 @@ similarHits le portent) — la puissance reste un filtre d'URL.
 ## AUDIT 05/09 (tour complet, logs 48 h / dossiers / campagnes / snapshots) — CORRIGÉ
 
 Trouvé et corrigé le jour même (preuves vives à chaque fois) :
+- **MAILS DE BIENVENUE VISIBLES DANS LA MESSAGERIE D'ADA (01/11, Channing :
+  « dans la boîte d'envoi d'Ada je ne vois pas les mails envoyés »)**. Preuve :
+  6 mails partis entre 14:43 et 14:48 UTC (worker_logs), mais envoyés avec
+  l'en-tête interne, que la synchro Gmail ignore par construction (comme les
+  bilans). Classe corrigée : le worker crée lui-même le fil (agent_threads,
+  identifiant Gmail du fil, destinataire) et le message « envoyé »
+  (agent_messages, author systeme, kind reponse — hors plafond) → onglet
+  Envoyés ; la réponse du destinataire rejoindra ce fil. Les 6 déjà partis
+  sont rattrapés au démarrage (fil sans identifiant Gmail). SQL
+  20261101110000 (`welcome_mails.thread_id`).
 - **MAIL DE BIENVENUE À LA CRÉATION D'UN COMPTE (01/11, Channing : « envoyer un
   e-mail à la personne depuis la boîte d'Ada avec sa signature : identifiants,
   mot de passe en clair avec la possibilité de le changer, lien ; je choisis
