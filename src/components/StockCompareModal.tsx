@@ -5,7 +5,9 @@
  */
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { X, Loader2, ExternalLink, Scale, BadgeCheck, Filter, ChevronDown, ChevronRight, ArrowDownWideNarrow, ArrowUpNarrowWide, Radar } from 'lucide-react';
-import { LiveMarketColumn } from './LiveMarketColumn';
+import { LiveMarketColumn, type LivePick } from './LiveMarketColumn';
+import { theirsFuelTrim } from '../services/stockCompare';
+import { toEur } from '../services/fxRates';
 import { OFFER_COUNTRIES } from '../services/offers';
 import { COUNTRY_VAT, countryVat } from '../lib/offers/vat';
 import { fmtMoney } from '../lib/fx';
@@ -49,7 +51,12 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
   const [query, setQuery] = useState('');
   // MARCHÉ EN DIRECT (02/11) : colonne de droite repliée par défaut, ligne choisie par « Marché ».
   const [liveOpen, setLiveOpen] = useState(false);
-  const [picked, setPicked] = useState<CompareMatch | null>(null);
+  const [picked, setPicked] = useState<LivePick | null>(null);
+  // VUE (02/11, Channing : « comparer leurs autres stocks même sans correspondance, en cliquant sur la tuile ») :
+  // 'matches' = les correspondances ; 'stock' = tout leur stock en vente, correspondance quand il y en a une.
+  const [view, setView] = useState<'matches' | 'stock'>('matches');
+  // Stock complet par tranches de 300 lignes (4 706 voitures chez Kamux : pas tout d'un coup).
+  const [stockShown, setStockShown] = useState(300);
   const defaultCountry = OFFER_COUNTRIES.some((c) => c.code === (country ?? '').toUpperCase()) ? (country as string).toUpperCase() : 'FR';
   // TVA DU PAYS DU CONTACT (02/11) : leurs prix sont TTC, les nôtres HT → notre prix × (1 + TVA) avant l'écart.
   const cc = (country ?? '').toUpperCase();
@@ -97,6 +104,26 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
   }, [result, onlyOk, query, sortKey, sortAsc]);
 
   const loading = !theirs || !sales || !offers;
+  /** Tout leur stock en vente (prix connu), la meilleure correspondance quand elle existe — même tri et même recherche. */
+  const stockRows = useMemo((): LivePick[] => {
+    if (!theirs || !result) return [];
+    const best = new Map(result.matches.map((m) => [m.theirs.id, m]));
+    const q = query.trim().toLowerCase();
+    const out: LivePick[] = [];
+    for (const t of theirs) {
+      if (t.price == null || t.price <= 0) continue;
+      const eur = toEur(t.price, t.currency ?? 'EUR');
+      if (eur == null) continue;
+      if (q && !`${t.title ?? ''} ${t.brand ?? ''} ${t.model ?? ''} ${t.plate ?? ''}`.toLowerCase().includes(q)) continue;
+      const m = best.get(t.id);
+      if (m) { out.push(m); continue; }
+      const tf = theirsFuelTrim(t);
+      out.push({ theirs: t, theirsEur: Math.round(eur), theirsFuel: tf.fuel, theirsTrim: tf.trim, theirsPower: tf.power, ours: null, ourTtc: null });
+    }
+    const asMatch = (p: LivePick): CompareMatch => ('gap' in p ? p as CompareMatch : { ...p, ours: p.ours as CompareMatch['ours'], ourTtc: 0, gap: -Infinity, ok: false, fuelCompared: false, trimCompared: false, powerCompared: false, others: [] });
+    const sorted = sortMatches(out.map(asMatch), sortKey, sortAsc);
+    return sorted.map((m) => (m.gap === -Infinity ? out.find((p) => p.theirs.id === m.theirs.id)! : m));
+  }, [theirs, result, query, sortKey, sortAsc]);
   const okCount = result?.matches.filter((m) => m.ok).length ?? 0;
 
   return (
@@ -125,7 +152,7 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
             {!isDefault && <button onClick={() => { setThreshold('sales', SALES_THRESHOLD_EUR); setThreshold('offers', OFFERS_THRESHOLD_EUR); }} className="text-brand-ocean hover:underline" title={`Ventes ${fmtMoney(SALES_THRESHOLD_EUR, 'EUR')}, offres ${fmtMoney(OFFERS_THRESHOLD_EUR, 'EUR')}`}>défauts</button>}
           </label>
           <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer ml-2">
-            <input type="checkbox" checked={onlyOk} onChange={(e) => setOnlyOk(e.target.checked)} /> <Filter className="w-3.5 h-3.5" /> Au-dessus du seuil seulement
+            <input type="checkbox" checked={onlyOk} onChange={(e) => setOnlyOk(e.target.checked)} disabled={view === 'stock'} /> <Filter className="w-3.5 h-3.5" /> Au-dessus du seuil seulement{view === 'stock' ? ' (vue stock complet)' : ''}
           </label>
           <label className="ml-auto flex items-center gap-1.5 text-xs text-slate-600">
             Trier par
@@ -147,7 +174,7 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
 
         {result && !loading && (
           <div className="px-5 pt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-            <Kpi label="Leur stock en vente" value={String(result.theirsTotal)} hint={result.theirsPriced < result.theirsTotal ? `${result.theirsPriced} avec prix` : 'tous avec prix'} />
+            <Kpi label="Leur stock en vente" value={String(result.theirsTotal)} hint={`${result.theirsPriced < result.theirsTotal ? `${result.theirsPriced} avec prix · ` : ''}${view === 'stock' ? 'affiché — cliquer pour revenir aux correspondances' : 'cliquer pour tout afficher'}`} active={view === 'stock'} onClick={() => setView((v) => (v === 'stock' ? 'matches' : 'stock'))} />
             <Kpi label={mode === 'sales' ? 'Nos ventes connues' : 'Véhicules de nos offres'} value={String(result.oursTotal)} />
             <Kpi label="Leurs voitures appariées" value={String(result.matches.length)} hint={result.pairs > result.matches.length ? `${result.pairs} paires au total, la meilleure des nôtres en face` : 'une des nôtres en face de chacune'} />
             <Kpi label="Au-dessus du seuil" value={String(okCount)} hint="de leurs voitures, face à notre meilleure offre" tone={okCount > 0 ? 'ok' : undefined} />
@@ -165,6 +192,28 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
               <p>Aucun relevé de stock pour cette concession : il faut d'abord lire sa vitrine.</p>
               {onOpenStock && <button onClick={onOpenStock} className="text-sm px-3 py-1.5 rounded-lg bg-brand-ocean text-white">Relever le stock</button>}
             </div>
+          ) : view === 'stock' ? (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-200">
+                  <th className="py-2 pr-3 font-medium">Leur voiture <span className="font-normal text-slate-400">· {stockRows.length} en vente</span></th>
+                  <th className="py-2 pr-3 font-medium text-right">Leur prix</th>
+                  <th className="py-2 pr-3 font-medium">{mode === 'sales' ? 'Notre vente' : 'Notre offre'} <span className="font-normal text-slate-400">· quand elle existe</span></th>
+                  <th className="py-2 pr-3 font-medium text-right">{mode === 'sales' ? 'Notre vente' : 'Notre achat'} TTC {cc}</th>
+                  <th className="py-2 pr-3 font-medium text-right">Écart</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {stockRows.slice(0, stockShown).map((p) => ('gap' in p
+                  ? <MatchRows key={p.theirs.id} m={p as CompareMatch} mode={mode} picked={picked?.theirs.id === p.theirs.id} onPick={() => { setPicked(p); setLiveOpen(true); }} />
+                  : <StockOnlyRow key={p.theirs.id} p={p} picked={picked?.theirs.id === p.theirs.id} onPick={() => { setPicked(p); setLiveOpen(true); }} />))}
+              </tbody>
+              {stockRows.length > stockShown && (
+                <tfoot><tr><td colSpan={5} className="py-3 text-center">
+                  <button onClick={() => setStockShown((n) => n + 300)} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Afficher 300 de plus ({stockRows.length - stockShown} restantes)</button>
+                </td></tr></tfoot>
+              )}
+            </table>
           ) : rows.length === 0 ? (
             <p className="text-sm text-slate-500">
               {result && result.matches.length > 0 && onlyOk
@@ -258,12 +307,38 @@ function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false, pi
   );
 }
 
-function Kpi({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: 'ok' }) {
+/** Voiture du stock sans correspondance chez nous : juste elle, et le bouton « Marché » (02/11). */
+function StockOnlyRow({ p, picked, onPick }: { p: LivePick; picked: boolean; onPick: () => void }) {
+  const t = p.theirs;
   return (
-    <div className={`rounded-xl border px-3 py-2 ${tone === 'ok' ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-slate-50/60'}`}>
+    <tr className={picked ? 'bg-blue-50/60' : ''}>
+      <td className="py-2 pr-3 align-top">
+        <span className="font-medium text-slate-800">{t.title || `${t.brand ?? ''} ${t.model ?? ''}`}</span>
+        {t.url && <a href={t.url} target="_blank" rel="noreferrer" className="ml-1 inline-flex text-brand-ocean align-middle" aria-label="Ouvrir l'annonce"><ExternalLink className="w-3 h-3" /></a>}
+        <span className="block text-slate-500">{t.year ?? '—'} · {fmtKm(t.km)}{t.plate ? ` · ${t.plate}` : ''}{p.theirsFuel ? ` · ${FUEL_LABEL[p.theirsFuel]}` : ''}{p.theirsPower ? ` · ${p.theirsPower} ch` : ''}{p.theirsTrim ? ` · ${p.theirsTrim}` : ''}</span>
+      </td>
+      <td className="py-2 pr-3 align-top text-right tabular-nums whitespace-nowrap">
+        <span className="font-semibold text-slate-800">{fmtMoney(p.theirsEur, 'EUR')}</span>
+        {t.currency && t.currency !== 'EUR' && t.price != null && <span className="block text-[10px] text-slate-400">{fmtMoney(t.price, t.currency)}</span>}
+      </td>
+      <td className="py-2 pr-3 align-top text-slate-400 italic">aucune correspondance chez nous</td>
+      <td className="py-2 pr-3 align-top text-right text-slate-300">—</td>
+      <td className="py-2 pr-3 align-top text-right whitespace-nowrap">
+        <button onClick={onPick} className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border ${picked ? 'border-brand-ocean bg-brand-ocean text-white' : 'border-slate-300 text-brand-ocean hover:bg-blue-50'}`} title="Relever le marché en direct pour cette voiture (colonne de droite)">
+          <Radar className="w-3 h-3" /> Marché
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function Kpi({ label, value, hint, tone, active, onClick }: { label: string; value: string; hint?: string; tone?: 'ok'; active?: boolean; onClick?: () => void }) {
+  const Tag = onClick ? 'button' : 'div';
+  return (
+    <Tag onClick={onClick} className={`text-left rounded-xl border px-3 py-2 ${tone === 'ok' ? 'border-emerald-200 bg-emerald-50/50' : active ? 'border-brand-ocean bg-blue-50/60' : 'border-slate-200 bg-slate-50/60'} ${onClick ? 'hover:border-brand-ocean cursor-pointer' : ''}`}>
       <p className="text-[11px] text-slate-500">{label}</p>
       <p className={`text-lg font-bold tabular-nums ${tone === 'ok' ? 'text-emerald-700' : 'text-slate-900'}`}>{value}</p>
       {hint && <p className="text-[10px] text-slate-400">{hint}</p>}
-    </div>
+    </Tag>
   );
 }

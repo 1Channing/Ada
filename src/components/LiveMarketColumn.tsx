@@ -12,6 +12,10 @@ import { OFFER_COUNTRIES } from '../services/offers';
 import { lotTargets, startLotJob, awaitLotJob, mergeCountry, lotLabel, type OfferLot, type LotTarget, type SiteResult, type CountryResult } from '../lib/offers/marketCheck';
 import type { CompareMatch, FuelFamily } from '../services/stockCompare';
 
+/** Voiture choisie pour le marché en direct : une correspondance, ou une voiture du stock SANS correspondance
+ *  (02/11, Channing : « comparer leurs autres stocks même sans correspondance »). */
+export type LivePick = Pick<CompareMatch, 'theirs' | 'theirsEur' | 'theirsFuel' | 'theirsTrim' | 'theirsPower'> & { ours: CompareMatch['ours'] | null; ourTtc: number | null };
+
 const FUEL_CANON_OF: Record<FuelFamily, string> = { phev: 'HYBRIDE RECHARGEABLE', hybrid: 'HYBRIDE', electric: 'ELECTRIQUE', diesel: 'DIESEL', petrol: 'ESSENCE', gas: 'GPL' };
 const FUEL_OPTIONS = ['', 'ESSENCE', 'DIESEL', 'HYBRIDE', 'HYBRIDE RECHARGEABLE', 'ELECTRIQUE', 'GPL'];
 const SITE_LABEL = (key: string) => key.replace(/^autoscout24_/, 'AS24 ').replace(/_/g, ' ');
@@ -22,7 +26,7 @@ export interface LiveFilters {
 }
 
 /** Filtres pré-remplis depuis la voiture du contact (ceux du MI). */
-export function filtersFromMatch(m: CompareMatch, defaultCountry: string): LiveFilters {
+export function filtersFromMatch(m: LivePick, defaultCountry: string): LiveFilters {
   const t = m.theirs;
   return {
     country: defaultCountry,
@@ -43,7 +47,7 @@ function lotOf(f: LiveFilters): OfferLot {
 type SiteState = { t: LotTarget; status: 'queued' | 'running' | 'done'; r?: SiteResult };
 
 export function LiveMarketColumn({ open, onToggle, picked, defaultCountry, ourLabel }: {
-  open: boolean; onToggle: () => void; picked: CompareMatch | null; defaultCountry: string; ourLabel: string;
+  open: boolean; onToggle: () => void; picked: LivePick | null; defaultCountry: string; ourLabel: string;
 }) {
   const [filters, setFilters] = useState<LiveFilters | null>(null);
   const [sites, setSites] = useState<SiteState[]>([]);
@@ -117,7 +121,7 @@ export function LiveMarketColumn({ open, onToggle, picked, defaultCountry, ourLa
           <>
             <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
               <p className="font-medium text-slate-800 truncate" title={picked.theirs.title ?? ''}>{picked.theirs.title || `${picked.theirs.brand ?? ''} ${picked.theirs.model ?? ''}`}</p>
-              <p className="text-slate-500">leur prix {fmtMoney(theirsEur ?? 0, 'EUR')} · {ourLabel} {ourPrice != null ? fmtMoney(ourPrice, 'EUR') : '—'}</p>
+              <p className="text-slate-500">leur prix {fmtMoney(theirsEur ?? 0, 'EUR')} · {ourPrice != null ? `${ourLabel} ${fmtMoney(ourPrice, 'EUR')}` : 'sans correspondance chez nous'}</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <L label="Marque"><input value={filters.brand} onChange={(e) => set('brand', e.target.value.toUpperCase())} className={inp} /></L>
@@ -151,7 +155,7 @@ export function LiveMarketColumn({ open, onToggle, picked, defaultCountry, ourLa
               <div className={`rounded-lg border px-2.5 py-2 space-y-1 ${attack != null ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-white'}`}>
                 <p className="text-slate-800"><span className="font-semibold">{attack != null ? fmtMoney(attack, 'EUR') : '—'}</span> <span className="text-slate-500">prix d'attaque{result.medianTtc != null ? ` · méd. ${fmtMoney(result.medianTtc, 'EUR')}` : ''} · {result.competitors} annonce{result.competitors > 1 ? 's' : ''}</span></p>
                 <p className="text-slate-700">Leur prix : <span className="font-semibold">{pctLabel(theirsEur)}</span></p>
-                <p className="text-slate-700">{ourLabel} : <span className="font-semibold">{pctLabel(ourPrice)}</span></p>
+                {ourPrice != null && <p className="text-slate-700">{ourLabel} : <span className="font-semibold">{pctLabel(ourPrice)}</span></p>}
                 {attack != null && theirsEur != null && <p className="text-[10px] text-slate-400">Prix du marché : affichés dans le pays relevé (TTC local). Notre prix : TTC du pays du contact.</p>}
               </div>
             )}
