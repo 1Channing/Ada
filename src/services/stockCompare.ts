@@ -21,7 +21,22 @@ import { brandKey, refModelKey } from './marketData';
 import { listStockVehicles, type StockVehicle } from './dealerStock';
 import { listOffers } from './offers';
 import { toEur } from './fxRates';
-import { TRIM_WORDS } from '../lib/offers/parseSupplierFile';
+import { TRIM_WORDS, guessModel } from '../lib/offers/parseSupplierFile';
+
+/** MODÈLE NORMALISÉ (02/11, constat Channing : Kamux écrit « EQC 400 » comme modèle → Leboncoin et La Centrale
+ *  ne savent pas poser ce modèle, 0 annonce, alors qu'« EQC » en donne 7). Rapproché des modèles connus de la
+ *  marque (référentiel + livres des sites, clés par marque canonique) : le plus long modèle connu qui commence
+ *  le libellé gagne ; sans liste connue, le libellé est gardé tel quel. */
+export type KnownModels = Record<string, string[]>;
+export function normalizeModel(brand: string | null | undefined, model: string | null | undefined, known: KnownModels | null | undefined): string {
+  const m = (model ?? '').trim();
+  if (!brand || !m || !known) return m;
+  const bk = brandKey(brand);
+  const list = known[brand.toUpperCase()] ?? Object.entries(known).find(([k]) => brandKey(k) === bk)?.[1];
+  if (!list || list.length === 0) return m;
+  const g = guessModel(brand, m, list);
+  return list.map((x) => x.toUpperCase()).includes(g) ? g : m;
+}
 import { powerFromText, samePower } from '../lib/powerText';
 import { resolveSettings, supplierHtWith } from '../lib/offers/offerSettings';
 
@@ -215,7 +230,7 @@ export function theirsFuelTrim(t: StockVehicle): { fuel: FuelFamily | null; trim
   return { fuel: fuelFamily(t.fuel) ?? fuelFamily(t.title), trim: trimOf(t.title), power: t.power_ch ?? powerFromText(t.title) };
 }
 
-export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], threshold: number, vat = 0.2): CompareResult {
+export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], threshold: number, vat = 0.2, known: KnownModels | null = null): CompareResult {
   const matches: CompareMatch[] = [];
   const warnings: string[] = [];
   let priced = 0;
@@ -229,8 +244,9 @@ export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], thresho
     priced++;
     const tf = theirsFuelTrim(t);
     const mine: CompareMatch[] = [];
+    const tModel = normalizeModel(t.brand, t.model, known);
     for (const o of ours) {
-      const seg = sameSegment({ ...t, ...tf }, o);
+      const seg = sameSegment({ ...t, ...tf, model: tModel }, { ...o, model: normalizeModel(o.brand, o.model, known) });
       if (!seg) continue;
       const ourTtc = Math.round(o.price * (1 + vat));
       const gap = Math.round(eur - ourTtc);

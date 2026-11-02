@@ -10,7 +10,7 @@ import { ChevronLeft, ChevronRight, Loader2, Radar, ExternalLink, Search } from 
 import { fmtMoney } from '../lib/fx';
 import { OFFER_COUNTRIES } from '../services/offers';
 import { lotTargets, startLotJob, awaitLotJob, mergeCountry, lotLabel, type OfferLot, type LotTarget, type SiteResult, type CountryResult } from '../lib/offers/marketCheck';
-import type { CompareMatch, FuelFamily } from '../services/stockCompare';
+import { normalizeModel, type CompareMatch, type FuelFamily, type KnownModels } from '../services/stockCompare';
 
 /** Voiture choisie pour le marché en direct : une correspondance, ou une voiture du stock SANS correspondance
  *  (02/11, Channing : « comparer leurs autres stocks même sans correspondance »). */
@@ -26,11 +26,11 @@ export interface LiveFilters {
 }
 
 /** Filtres pré-remplis depuis la voiture du contact (ceux du MI). */
-export function filtersFromMatch(m: LivePick, defaultCountry: string): LiveFilters {
+export function filtersFromMatch(m: LivePick, defaultCountry: string, known: KnownModels | null): LiveFilters {
   const t = m.theirs;
   return {
     country: defaultCountry,
-    brand: (t.brand ?? '').toUpperCase(), model: (t.model ?? '').toUpperCase(),
+    brand: (t.brand ?? '').toUpperCase(), model: normalizeModel(t.brand, t.model, known).toUpperCase(),
     trim: m.theirsTrim ?? '', fuel: m.theirsFuel ? FUEL_CANON_OF[m.theirsFuel] : '',
     gearbox: /auto/i.test(t.gearbox ?? '') ? 'AUTOMATIQUE' : /manu/i.test(t.gearbox ?? '') ? 'MANUELLE' : '',
     yearFrom: t.year, yearTo: t.year,
@@ -46,8 +46,8 @@ function lotOf(f: LiveFilters): OfferLot {
 
 type SiteState = { t: LotTarget; status: 'queued' | 'running' | 'done'; r?: SiteResult };
 
-export function LiveMarketColumn({ open, onToggle, picked, defaultCountry, ourLabel }: {
-  open: boolean; onToggle: () => void; picked: LivePick | null; defaultCountry: string; ourLabel: string;
+export function LiveMarketColumn({ open, onToggle, picked, defaultCountry, ourLabel, known }: {
+  open: boolean; onToggle: () => void; picked: LivePick | null; defaultCountry: string; ourLabel: string; known: KnownModels | null;
 }) {
   const [filters, setFilters] = useState<LiveFilters | null>(null);
   const [sites, setSites] = useState<SiteState[]>([]);
@@ -61,9 +61,9 @@ export function LiveMarketColumn({ open, onToggle, picked, defaultCountry, ourLa
     if (!picked) return;
     if (picked.theirs.id === forId) return;
     setForId(picked.theirs.id);
-    setFilters((prev) => filtersFromMatch(picked, prev?.country ?? defaultCountry));
+    setFilters((prev) => filtersFromMatch(picked, prev?.country ?? defaultCountry, known));
     setSites([]); setResult(null); setNotice(null);
-  }, [picked, forId, defaultCountry]);
+  }, [picked, forId, defaultCountry, known]);
 
   const set = <K extends keyof LiveFilters>(k: K, v: LiveFilters[K]) => setFilters((f) => (f ? { ...f, [k]: v } : f));
   const num = (s: string) => (s === '' ? null : Number(s) || null);

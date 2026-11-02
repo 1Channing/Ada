@@ -6,7 +6,9 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { X, Loader2, ExternalLink, Scale, BadgeCheck, Filter, ChevronDown, ChevronRight, ArrowDownWideNarrow, ArrowUpNarrowWide, Radar } from 'lucide-react';
 import { LiveMarketColumn, type LivePick } from './LiveMarketColumn';
-import { theirsFuelTrim } from '../services/stockCompare';
+import { theirsFuelTrim, type KnownModels } from '../services/stockCompare';
+import { listRefBrandModels } from '../services/workflow';
+import { loadLearnedModelsByBrand, mergeKnownModels } from '../lib/offers/knownModels';
 import { toEur } from '../services/fxRates';
 import { OFFER_COUNTRIES } from '../services/offers';
 import { COUNTRY_VAT, countryVat } from '../lib/offers/vat';
@@ -52,6 +54,16 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
   // MARCHÉ EN DIRECT (02/11) : colonne de droite repliée par défaut, ligne choisie par « Marché ».
   const [liveOpen, setLiveOpen] = useState(false);
   const [picked, setPicked] = useState<LivePick | null>(null);
+  // MODÈLES CONNUS (référentiel + livres des sites) pour normaliser « EQC 400 » → « EQC » (02/11).
+  const [known, setKnown] = useState<KnownModels | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void Promise.all([
+      listRefBrandModels().then((r) => r.modelsByBrand).catch(() => ({} as Record<string, string[]>)),
+      loadLearnedModelsByBrand().catch(() => ({} as Record<string, string[]>)),
+    ]).then(([ref, learned]) => { if (alive) setKnown(mergeKnownModels(ref, learned)); });
+    return () => { alive = false; };
+  }, []);
   // VUE (02/11, Channing : « comparer leurs autres stocks même sans correspondance, en cliquant sur la tuile ») :
   // 'matches' = les correspondances ; 'stock' = tout leur stock en vente, correspondance quand il y en a une.
   const [view, setView] = useState<'matches' | 'stock'>('matches');
@@ -95,8 +107,8 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
     if (!theirs) return null;
     const ours = mode === 'sales' ? sales : offers;
     if (!ours) return null;
-    return compareStock(theirs, ours, threshold, vat);
-  }, [theirs, sales, offers, mode, threshold, vat]);
+    return compareStock(theirs, ours, threshold, vat, known);
+  }, [theirs, sales, offers, mode, threshold, vat, known]);
 
   const rows = useMemo(() => {
     if (!result) return [];
@@ -247,7 +259,7 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
             </table>
           )}
         </div>
-        <LiveMarketColumn open={liveOpen} onToggle={() => setLiveOpen((v) => !v)} picked={picked} defaultCountry={defaultCountry} ourLabel={mode === 'sales' ? `notre vente TTC ${cc}` : `notre achat TTC ${cc}`} />
+        <LiveMarketColumn open={liveOpen} onToggle={() => setLiveOpen((v) => !v)} picked={picked} defaultCountry={defaultCountry} ourLabel={mode === 'sales' ? `notre vente TTC ${cc}` : `notre achat TTC ${cc}`} known={known} />
         </div>
       </div>
     </div>
