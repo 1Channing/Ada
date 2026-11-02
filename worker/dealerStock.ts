@@ -30,8 +30,8 @@ import { recordLearningCase, resolveLearningCase } from './learningBox';
 import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -201,6 +201,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/class="cc-vehicle card/.test(html) && /cc-link-vehicle-detail/.test(html)) return 'carzilla';
   // hexon (Oostendorp Automotive, 14/10) : cartes <div class="card-car-slider" data-voertuignrhexon="…">, 21 par page, « ?from=21 ».
   if (/data-voertuignrhexon="\d+"/.test(html) && /card_content__title/.test(html)) return 'hexon';
+  // kamux (Kamux, Finlande / Suède / Allemagne, 02/11) : Next.js, liste servie par /api/search (JSON) ; la page porte « outletPhoneNumberMap ».
+  if (/"outletPhoneNumberMap"/.test(html) && /kamux/i.test(html)) return 'kamux';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -1190,6 +1192,80 @@ async function scrapeCartelCaw(url: string, firstHtml: string): Promise<DealerSt
   return { provider: 'cartelcaw', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
 }
 
+// ── kamux (Kamux Oyj, 02/11 — www.kamux.fi/search, aussi kamux.se / kamux.de) ──────────────────
+//    Preuve : GET /api/search?locale=fi → { resultCount, results[], facets{manufacturer:[{value,count}]} }.
+//    « top » plafonné à 100. Particularité PROUVÉE (02/11) : skip ≥ top → la réponse livre TOUT le lot
+//    filtré (sans filtre : 4 708 voitures = 92 Mo en une fois) ; skip < top → top − skip voitures.
+//    Lecture par MARQUE (facette manufacturer, 628 Mercedes au plus = 12 Mo) avec top=100&skip=100 :
+//    une réponse par marque, complète, comparée au compte de la facette. Chaque voiture porte
+//    productId, regNo (plaque, = URL /cars/<regNo>), VIN, manufacturer/model/modelType, modelYear,
+//    mileage, price, kamuxFuelType (code → libellé i18n du site), gearType, powerValueKw, photos,
+//    purchaseDate (entrée en stock), firstRegistrationDate, isUpForAuction / isDeleted.
+const KAMUX_FUEL: Record<number, string> = {
+  1: 'Essence', 3: 'Diesel', 5: 'Fioul', 6: 'Électrique', 7: 'Gaz', 8: 'Pétrole', 10: 'E85', 11: 'Hybride essence', 12: 'Hybride diesel',
+  13: 'Essence / gaz', 14: 'Diesel / gaz', 15: 'Hydrogène', 16: 'Hybride E85', 17: 'Hybride essence', 18: 'Hybride diesel',
+  19: 'Hybride rechargeable essence', 20: 'Hybride rechargeable diesel', 21: 'Hybride E85', 22: 'Hybride rechargeable E85',
+};
+interface KamuxItem {
+  productId?: number; id?: string; regNo?: string; manufacturer?: string; model?: string; manufacturerAndModel?: string; modelType?: string;
+  modelYear?: number; mileage?: number; price?: number; kamuxFuelType?: number; fuelTypeCode?: string; plugIn?: boolean; gearType?: string;
+  powerValueKw?: number; photos?: string[]; purchaseDate?: string; firstRegistrationDate?: string; vehicleIdentificationNumber?: string;
+  vehicleType?: string; bodyType?: string; isUpForAuction?: boolean; isDeleted?: boolean; family?: string; akeneoChannel?: string; outlet?: string;
+}
+function kamuxItemToVehicle(it: KamuxItem, origin: string): DealerVehicle | null {
+  const id = String(it.productId ?? it.id ?? '').trim();
+  if (!id || it.isDeleted) return null;
+  const reg = (it.regNo ?? '').trim();
+  const price = priceOrNull(it.price);
+  const fuelCode = num(it.kamuxFuelType);
+  const fuel = fuelCode != null ? KAMUX_FUEL[fuelCode] ?? (it.plugIn ? 'Hybride rechargeable' : null) : null;
+  return {
+    external_id: id, url: reg ? `${origin}/cars/${encodeURIComponent(reg)}` : null,
+    title: [it.manufacturerAndModel ?? [it.manufacturer, it.model].filter(Boolean).join(' '), it.modelType].filter(Boolean).join(' ').trim(),
+    brand: it.manufacturer ?? null, model: it.model ?? null,
+    price, km: num(it.mileage), year: num(it.modelYear), fuel,
+    gearbox: it.gearType === 'automatic' ? 'Automatique' : it.gearType === 'manual' ? 'Manuelle' : it.gearType ?? null,
+    plate: reg || null, vin: (it.vehicleIdentificationNumber ?? '').trim() || null,
+    body: it.vehicleType ?? null, image: it.photos?.[0] ?? null,
+    listed_at: it.purchaseDate ? new Date(it.purchaseDate).toISOString() : null,
+    status: it.isUpForAuction ? 'reserved' : price == null ? 'price_on_request' : null,
+  };
+}
+async function scrapeKamux(url: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const origin = u.origin;
+  const locale = /kamux\.se$/i.test(u.hostname) ? 'sv' : /kamux\.de$/i.test(u.hostname) ? 'de' : 'fi';
+  const warnings: string[] = [];
+  const headers = { accept: 'application/json', referer: url };
+  const first = await getText(`${origin}/api/search?top=1&locale=${locale}`, { headers });
+  if (first.status !== 200) return { provider: 'kamux', total: null, declared: null, vehicles: [], pages: 0, warnings: [`/api/search : HTTP ${first.status}`] };
+  let head: { resultCount?: number; facets?: { manufacturer?: Array<{ value?: string; count?: number }> } };
+  try { head = JSON.parse(first.text); } catch { return { provider: 'kamux', total: null, declared: null, vehicles: [], pages: 0, warnings: ['/api/search : réponse illisible'] }; }
+  const declared = num(head.resultCount);
+  const brands = (head.facets?.manufacturer ?? []).map((f) => ({ name: String(f.value ?? '').trim(), count: num(f.count) })).filter((b) => b.name);
+  if (brands.length === 0) return { provider: 'kamux', total: declared, declared, vehicles: [], pages: 1, warnings: ['facette marques vide'] };
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let pages = 1;
+  for (const { name: brand, count } of brands) {
+    pages++;
+    const res = await getText(`${origin}/api/search?manufacturer=${encodeURIComponent(brand)}&top=100&skip=100&locale=${locale}`, { headers });
+    if (res.status !== 200) { warnings.push(`marque ${brand} : HTTP ${res.status}`); continue; }
+    let d: { results?: KamuxItem[] };
+    try { d = JSON.parse(res.text); } catch { warnings.push(`marque ${brand} : réponse illisible`); continue; }
+    let added = 0;
+    for (const it of d.results ?? []) {
+      const v = kamuxItemToVehicle(it, origin);
+      if (!v || seen.has(v.external_id)) continue;
+      seen.add(v.external_id); out.push(v); added++;
+    }
+    if (count != null && added < count) warnings.push(`marque ${brand} : ${added} lue(s) pour ${count} annoncée(s)`);
+    await sleep(PAGE_DELAY_MS);
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s) par le site`);
+  return { provider: 'kamux', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string): Promise<DealerStockResult> {
   const first = await getText(url);
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -1202,6 +1278,7 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
       { host: new URL(url).hostname, url, title, hints },
     );
   }
+  if (provider === 'kamux') return scrapeKamux(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text);
