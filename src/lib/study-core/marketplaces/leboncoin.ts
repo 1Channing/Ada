@@ -102,7 +102,8 @@ const deburr = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '');
 
 function mapBrand(raw: string): string {
   const clean = deburr(raw.trim());
-  return BRAND_MAP[clean.toUpperCase()] ?? clean;
+  // Code de marque APPRIS du site d'abord (« MG » → « MG/MG MOTOR »), sinon la table fixe, sinon tel quel.
+  return LEARNED_BRAND_ENUM[canonEnum(clean)] ?? BRAND_MAP[clean.toUpperCase()] ?? clean;
 }
 
 function mapModel(raw: string): string {
@@ -136,7 +137,19 @@ function mapFuel(raw: string): string {
 // nos 4 graphies (IX1, Ix1…) → total=0, 'BMW_iX1' → 18 annonces. Moissonné à
 // chaque scrape (harvestTaxonomy), persisté au dictionnaire, réinjecté ici.
 const LEARNED_MODEL_ENUM: Record<string, string> = {};
+/** MARQUES APPRISES (02/11, constat Channing : MG ingéré, URL générée « u_car_brand=MG » → marque non choisie).
+ *  Le site code certaines marques autrement que leur nom : « MG/MG MOTOR », « ALFA ROMEO ». Indexées par le
+ *  libellé entier et par chaque morceau séparé d'un « / » (« MG », « MG MOTOR »), premier appris gagne. */
+const LEARNED_BRAND_ENUM: Record<string, string> = {};
 const canonEnum = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+function rememberBrandEnum(code: string, label: string): void {
+  const c = code.trim();
+  if (!c) return;
+  for (const raw of [label || '', c, ...c.split('/'), ...(label || '').split('/')]) {
+    const k = canonEnum(raw);
+    if (k && !LEARNED_BRAND_ENUM[k]) LEARNED_BRAND_ENUM[k] = c;
+  }
+}
 
 // Mercedes FRANCISE ses classes chez LBC : le référentiel dit « GLA-Class »,
 // l'enum du site est « MERCEDES-BENZ_Classe GLA » (URL humaine 27/08 :
@@ -149,10 +162,13 @@ function classCore(s: string): string | null {
 }
 
 function learnEnumValues(field: string, pairs: Array<{ code: string; label: string }>): void {
+  if (field === 'u_car_brand') { for (const p of pairs) rememberBrandEnum(p.code, p.label); return; }
   if (field !== 'u_car_model') return;
   for (const p of pairs) {
     const code = p.code.trim();
     if (!code) continue;
+    // Le préfixe d'un code modèle est le code MARQUE du site (« MG/MG MOTOR_HS » → « MG/MG MOTOR »).
+    if (code.includes('_')) rememberBrandEnum(code.slice(0, code.indexOf('_')), '');
     // Indexé par label ('iX1') ET par suffixe du code ('BMW_iX1' → 'IX1') —
     // premier appris gagne (certain-ou-rien, jamais d'écrasement). Les formes
     // « Classe X » sont aussi indexées par leur cœur (« Classe GLA » → 'GLA')
@@ -261,8 +277,15 @@ function buildSearchUrl(params: SearchCriteria): BuildUrlResult {
 
   // Sans modèle (« toute la marque ») : pas de u_car_model — « SKODA_ » vide
   // rendait total=0 (journal du 21/09) ; placeholder laissé → paramètre retiré.
-  const vars: Record<string, string> = { brand: mappedBrand };
-  if (mappedModel) vars['model'] = modelParamCandidates(mappedBrand, mappedModel);
+  // Marque ENCODÉE (02/11) : « MG/MG MOTOR » porte une barre et un espace — l'URL humaine validée les encode
+  // (u_car_brand=MG%2FMG%20MOTOR) ; les codes simples (TOYOTA) ressortent inchangés.
+  const vars: Record<string, string> = { brand: encodeURIComponent(mappedBrand) };
+  if (mappedModel) {
+    vars['model'] = modelParamCandidates(mappedBrand, mappedModel);
+    // Marque dérivée du code modèle APPRIS (02/11) : « MG/MG MOTOR_HS » dit que la marque s'écrit « MG/MG MOTOR ».
+    const learned = learnedModelEnum(mappedBrand, mappedModel.trim());
+    if (learned && learned.includes('_')) vars['brand'] = encodeURIComponent(learned.slice(0, learned.indexOf('_')));
+  }
   // Formes regdate prouvées par URLs humaines : '2021-2021' (borné) et
   // '2021-max' (ouvert vers le haut) — mêmes règles que enforceYearParams.
   // Avant : yearTo absent → placeholder vide → regdate ENTIER supprimé par
