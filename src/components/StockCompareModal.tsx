@@ -14,7 +14,7 @@ import { fmtMoney } from '../lib/fx';
 import { loadFxRates } from '../services/fxRates';
 import {
   compareStock, loadOurOffers, loadOurSales, loadTheirStock, KM_TOLERANCE, SALES_THRESHOLD_EUR, OFFERS_THRESHOLD_EUR,
-  FUEL_LABEL, type CompareMatch, type CompareResult, type OurVehicle,
+  FUEL_LABEL, type CompareMatch, type CompareResult, type OurVehicle, type FuelFamily,
 } from '../services/stockCompare';
 import type { StockVehicle } from '../services/dealerStock';
 
@@ -63,6 +63,8 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
   const vat = countryVat(cc);
   const vatKnown = cc in COUNTRY_VAT;
   const [sortKey, setSortKey] = useState<SortKey>('gap');
+  // FILTRE ÉNERGIE (02/11, Channing) : sur l'énergie de LEUR voiture, dans les deux vues ; '' = toutes.
+  const [fuelFilter, setFuelFilter] = useState<FuelFamily | ''>('');
   const [sortAsc, setSortAsc] = useState(false);
   // SEUILS MODIFIABLES (02/11, Channing : « garder 5 000 € et 7 000 € par défaut ») — mémorisés dans ce
   // navigateur, remis aux valeurs par défaut d'un clic.
@@ -99,9 +101,9 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
   const rows = useMemo(() => {
     if (!result) return [];
     const q = query.trim().toLowerCase();
-    const kept = result.matches.filter((m) => (!onlyOk || m.ok) && (!q || `${m.theirs.title ?? ''} ${m.theirs.brand ?? ''} ${m.theirs.model ?? ''} ${m.ours.label} ${m.theirs.plate ?? ''}`.toLowerCase().includes(q)));
+    const kept = result.matches.filter((m) => (!onlyOk || m.ok) && (!fuelFilter || m.theirsFuel === fuelFilter) && (!q || `${m.theirs.title ?? ''} ${m.theirs.brand ?? ''} ${m.theirs.model ?? ''} ${m.ours.label} ${m.theirs.plate ?? ''}`.toLowerCase().includes(q)));
     return sortMatches(kept, sortKey, sortAsc);
-  }, [result, onlyOk, query, sortKey, sortAsc]);
+  }, [result, onlyOk, query, sortKey, sortAsc, fuelFilter]);
 
   const loading = !theirs || !sales || !offers;
   /** Tout leur stock en vente (prix connu), la meilleure correspondance quand elle existe — même tri et même recherche. */
@@ -116,14 +118,15 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
       if (eur == null) continue;
       if (q && !`${t.title ?? ''} ${t.brand ?? ''} ${t.model ?? ''} ${t.plate ?? ''}`.toLowerCase().includes(q)) continue;
       const m = best.get(t.id);
+      const tf = m ? { fuel: m.theirsFuel, trim: m.theirsTrim, power: m.theirsPower } : theirsFuelTrim(t);
+      if (fuelFilter && tf.fuel !== fuelFilter) continue;
       if (m) { out.push(m); continue; }
-      const tf = theirsFuelTrim(t);
       out.push({ theirs: t, theirsEur: Math.round(eur), theirsFuel: tf.fuel, theirsTrim: tf.trim, theirsPower: tf.power, ours: null, ourTtc: null });
     }
     const asMatch = (p: LivePick): CompareMatch => ('gap' in p ? p as CompareMatch : { ...p, ours: p.ours as CompareMatch['ours'], ourTtc: 0, gap: -Infinity, ok: false, fuelCompared: false, trimCompared: false, powerCompared: false, others: [] });
     const sorted = sortMatches(out.map(asMatch), sortKey, sortAsc);
     return sorted.map((m) => (m.gap === -Infinity ? out.find((p) => p.theirs.id === m.theirs.id)! : m));
-  }, [theirs, result, query, sortKey, sortAsc]);
+  }, [theirs, result, query, sortKey, sortAsc, fuelFilter]);
   const okCount = result?.matches.filter((m) => m.ok).length ?? 0;
 
   return (
@@ -155,6 +158,13 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
             <input type="checkbox" checked={onlyOk} onChange={(e) => setOnlyOk(e.target.checked)} disabled={view === 'stock'} /> <Filter className="w-3.5 h-3.5" /> Au-dessus du seuil seulement{view === 'stock' ? ' (vue stock complet)' : ''}
           </label>
           <label className="ml-auto flex items-center gap-1.5 text-xs text-slate-600">
+            Énergie
+            <select value={fuelFilter} onChange={(e) => setFuelFilter(e.target.value as FuelFamily | '')} className={`px-2 py-1.5 rounded-lg border bg-white text-sm ${fuelFilter ? 'border-brand-ocean text-brand-encre' : 'border-slate-300'}`}>
+              <option value="">toutes</option>
+              {(Object.keys(FUEL_LABEL) as FuelFamily[]).map((f) => <option key={f} value={f}>{FUEL_LABEL[f]}</option>)}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
             Trier par
             <select value={sortKey} onChange={(e) => { const k = e.target.value as SortKey; setSortKey(k); setSortAsc(k === 'brand' || k === 'model' || k === 'fuel'); }} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-sm">
               {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => <option key={k} value={k}>{SORT_LABEL[k]}</option>)}
