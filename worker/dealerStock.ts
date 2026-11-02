@@ -29,6 +29,7 @@ import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { recordLearningCase, resolveLearningCase } from './learningBox';
 import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
+import { powerFromText } from '../src/lib/powerText';
 
 export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux';
 const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux'];
@@ -72,6 +73,8 @@ export interface DealerVehicle {
   status: DealerVehicleStatus | null;
   /** Devise du prix TEL QU'AFFICHÉ par le site ('EUR' par défaut ; 'DKK' raevhede.dk 06/10). */
   currency?: string;
+  /** Puissance en chevaux (02/11) : donnée structurée du site, sinon lue dans le titre à l'enregistrement. */
+  power_ch?: number | null;
 }
 
 /** Prix > 0 sinon null — un 0 € de site est un prix absent, pas un prix. */
@@ -250,6 +253,8 @@ function dvItemToVehicle(it: DvItem, origin: string): DealerVehicle | null {
     vin: a('vin') ? String(a('vin')) : null, body: a('carrosserie') ? String(a('carrosserie')) : null,
     image: it.images?.[0]?.path ?? null, listed_at: it.createdAt ? new Date(it.createdAt).toISOString() : null,
     status,
+    // Puissance (02/11) : attributs dvnl « vermogen_pk » / « vermogen » (pk) ou « vermogen_kw ».
+    power_ch: num(a('vermogen_pk')) ?? num(a('vermogen')) ?? (num(a('vermogen_kw')) != null ? Math.round((num(a('vermogen_kw')) as number) * 1.35962) : null),
   };
 }
 
@@ -651,8 +656,9 @@ export function parseAutradoCards(html: string, origin: string): DealerVehicle[]
       plate: null, vin: null, body: category, image: inner.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
       status: price == null ? 'price_on_request' : null,
       currency: 'EUR',
+      power_ch: ps ? num(ps) : kw ? Math.round((num(kw) ?? 0) * 1.35962) || null : null,
     });
-    void ps; void kw; void delivery;
+    void delivery;
   }
   return out;
 }
@@ -1229,6 +1235,7 @@ function kamuxItemToVehicle(it: KamuxItem, origin: string): DealerVehicle | null
     body: it.vehicleType ?? null, image: it.photos?.[0] ?? null,
     listed_at: it.purchaseDate ? new Date(it.purchaseDate).toISOString() : null,
     status: it.isUpForAuction ? 'reserved' : price == null ? 'price_on_request' : null,
+    power_ch: num(it.powerValueKw) != null && (num(it.powerValueKw) as number) > 0 ? Math.round((num(it.powerValueKw) as number) * 1.35962) : null,
   };
 }
 async function scrapeKamux(url: string): Promise<DealerStockResult> {
@@ -1396,6 +1403,8 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
         status: v.status, price_first: priceFirst, price_history: history,
         // Devise du site (06/10) : prix gardés tels quels, conversion à l'affichage.
         currency: v.currency ?? 'EUR',
+        // Puissance (02/11) : structurée par l'adaptateur, sinon lue dans le titre. Colonne absente = retirée (strip).
+        power_ch: v.power_ch ?? powerFromText(v.title),
       };
     });
     // Colonnes récentes (status 01/10, price_first / price_history 01/10 soir) :
@@ -1412,7 +1421,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
         const missing = error && /schema cache|does not exist/i.test(error.message) ? error.message.match(/'([a-z_]+)' column/)?.[1] ?? error.message.match(/column "?([a-z_]+)"? /)?.[1] : null;
         if (!missing || dropped.has(missing)) break;
         dropped.add(missing);
-        stock.warnings.push(`colonne ${missing} absente (SQL du 01/10 à coller) : non enregistrée`);
+        stock.warnings.push(`colonne ${missing} absente (SQL ${missing === 'power_ch' ? 'du 02/11 (stock_puissance)' : 'du 01/10'} à coller) : non enregistrée`);
       }
       if (error) throw new Error(`écriture des véhicules : ${error.message}`);
     }

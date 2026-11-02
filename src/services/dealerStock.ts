@@ -17,6 +17,8 @@ export interface StockVehicle {
   price_history?: Array<{ at: string; price: number }> | null;
   /** Devise des prix du site ('EUR' par défaut, 'DKK' raevhede.dk 06/10). Absente tant que le SQL du 06/10 n'est pas collé. */
   currency?: string | null;
+  /** Puissance en chevaux (02/11) — absente tant que le SQL stock_puissance n'est pas collé. */
+  power_ch?: number | null;
 }
 
 /**

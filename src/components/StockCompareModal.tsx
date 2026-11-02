@@ -4,7 +4,7 @@
  * km ± 15 000. Deux onglets, un tableau : leur voiture ↔ la nôtre, l'écart en couleur.
  */
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { X, Loader2, ExternalLink, Scale, BadgeCheck, Filter, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, Loader2, ExternalLink, Scale, BadgeCheck, Filter, ChevronDown, ChevronRight, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
 import { fmtMoney } from '../lib/fx';
 import { loadFxRates } from '../services/fxRates';
 import {
@@ -14,6 +14,25 @@ import {
 import type { StockVehicle } from '../services/dealerStock';
 
 type Mode = 'sales' | 'offers';
+/** TRI (02/11, Channing : « trier par motorisation, marque, modèle… ») — écart par défaut. */
+type SortKey = 'gap' | 'brand' | 'model' | 'fuel' | 'year' | 'km' | 'price' | 'power';
+const SORT_LABEL: Record<SortKey, string> = { gap: 'Écart', brand: 'Marque', model: 'Modèle', fuel: 'Motorisation', year: 'Année', km: 'Kilométrage', price: 'Leur prix', power: 'Puissance' };
+const cmpStr = (a: string | null | undefined, b: string | null | undefined) => (a ?? '').localeCompare(b ?? '', 'fr');
+const cmpNum = (a: number | null | undefined, b: number | null | undefined) => (a ?? -Infinity) - (b ?? -Infinity);
+function sortMatches(rows: CompareMatch[], key: SortKey, asc: boolean): CompareMatch[] {
+  const dir = asc ? 1 : -1;
+  const by: Record<SortKey, (a: CompareMatch, b: CompareMatch) => number> = {
+    gap: (a, b) => a.gap - b.gap,
+    brand: (a, b) => cmpStr(a.theirs.brand, b.theirs.brand) || cmpStr(a.theirs.model, b.theirs.model) || b.gap - a.gap,
+    model: (a, b) => cmpStr(a.theirs.model, b.theirs.model) || cmpStr(a.theirs.brand, b.theirs.brand) || b.gap - a.gap,
+    fuel: (a, b) => cmpStr(a.theirsFuel ? FUEL_LABEL[a.theirsFuel] : 'zz', b.theirsFuel ? FUEL_LABEL[b.theirsFuel] : 'zz') || b.gap - a.gap,
+    year: (a, b) => cmpNum(a.theirs.year, b.theirs.year) || b.gap - a.gap,
+    km: (a, b) => cmpNum(a.theirs.km, b.theirs.km) || b.gap - a.gap,
+    price: (a, b) => a.theirsEur - b.theirsEur || b.gap - a.gap,
+    power: (a, b) => cmpNum(a.theirsPower, b.theirsPower) || b.gap - a.gap,
+  };
+  return [...rows].sort((a, b) => dir * by[key](a, b));
+}
 const fmtKm = (km: number | null) => (km == null ? '—' : `${km.toLocaleString('fr-FR')} km`);
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '');
 
@@ -25,6 +44,8 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
   const [errors, setErrors] = useState<string[]>([]);
   const [onlyOk, setOnlyOk] = useState(true);
   const [query, setQuery] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('gap');
+  const [sortAsc, setSortAsc] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -52,8 +73,9 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
   const rows = useMemo(() => {
     if (!result) return [];
     const q = query.trim().toLowerCase();
-    return result.matches.filter((m) => (!onlyOk || m.ok) && (!q || `${m.theirs.title ?? ''} ${m.theirs.brand ?? ''} ${m.theirs.model ?? ''} ${m.ours.label} ${m.theirs.plate ?? ''}`.toLowerCase().includes(q)));
-  }, [result, onlyOk, query]);
+    const kept = result.matches.filter((m) => (!onlyOk || m.ok) && (!q || `${m.theirs.title ?? ''} ${m.theirs.brand ?? ''} ${m.theirs.model ?? ''} ${m.ours.label} ${m.theirs.plate ?? ''}`.toLowerCase().includes(q)));
+    return sortMatches(kept, sortKey, sortAsc);
+  }, [result, onlyOk, query, sortKey, sortAsc]);
 
   const loading = !theirs || !sales || !offers;
   const okCount = result?.matches.filter((m) => m.ok).length ?? 0;
@@ -64,7 +86,7 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
         <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-slate-100">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Scale className="w-5 h-5 text-brand-ocean" /> Comparer le stock de {name}</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Même marque et modèle, même année, kilométrage à ± {KM_TOLERANCE.toLocaleString('fr-FR')} km ; même énergie et même finition quand elles sont connues des deux côtés. Leur prix de vente converti en euros.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Même marque et modèle, même année, kilométrage à ± {KM_TOLERANCE.toLocaleString('fr-FR')} km ; même énergie, même finition et puissance équivalente (à 10 % près) quand elles sont connues des deux côtés. Leur prix de vente converti en euros.</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
@@ -80,7 +102,16 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
           <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer ml-2">
             <input type="checkbox" checked={onlyOk} onChange={(e) => setOnlyOk(e.target.checked)} /> <Filter className="w-3.5 h-3.5" /> Au-dessus du seuil seulement
           </label>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrer : modèle, plaque…" className="ml-auto w-56 px-3 py-1.5 rounded-lg border border-slate-300 text-sm" />
+          <label className="ml-auto flex items-center gap-1.5 text-xs text-slate-600">
+            Trier par
+            <select value={sortKey} onChange={(e) => { const k = e.target.value as SortKey; setSortKey(k); setSortAsc(k === 'brand' || k === 'model' || k === 'fuel'); }} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-sm">
+              {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => <option key={k} value={k}>{SORT_LABEL[k]}</option>)}
+            </select>
+            <button onClick={() => setSortAsc((v) => !v)} title={sortAsc ? 'Croissant — cliquer pour décroissant' : 'Décroissant — cliquer pour croissant'} className="p-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+              {sortAsc ? <ArrowUpNarrowWide className="w-3.5 h-3.5" /> : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
+            </button>
+          </label>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrer : modèle, plaque…" className="w-52 px-3 py-1.5 rounded-lg border border-slate-300 text-sm" />
         </div>
 
         <p className="px-5 pt-2 text-xs text-slate-500">
@@ -159,7 +190,7 @@ function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false }: 
           <>
             <span className="font-medium text-slate-800">{t.title || `${t.brand ?? ''} ${t.model ?? ''}`}</span>
             {t.url && <a href={t.url} target="_blank" rel="noreferrer" className="ml-1 inline-flex text-brand-ocean align-middle" aria-label="Ouvrir l'annonce"><ExternalLink className="w-3 h-3" /></a>}
-            <span className="block text-slate-500">{t.year ?? '—'} · {fmtKm(t.km)}{t.plate ? ` · ${t.plate}` : ''}{m.theirsFuel ? ` · ${FUEL_LABEL[m.theirsFuel]}` : ''}{m.theirsTrim ? ` · ${m.theirsTrim}` : ''}</span>
+            <span className="block text-slate-500">{t.year ?? '—'} · {fmtKm(t.km)}{t.plate ? ` · ${t.plate}` : ''}{m.theirsFuel ? ` · ${FUEL_LABEL[m.theirsFuel]}` : ''}{m.theirsPower ? ` · ${m.theirsPower} ch` : ''}{m.theirsTrim ? ` · ${m.theirsTrim}` : ''}</span>
             {othersCount > 0 && onToggle && (
               <button onClick={onToggle} className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] text-brand-ocean hover:underline">
                 {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} {open ? 'masquer' : 'voir'} {othersCount} autre{othersCount > 1 ? 's' : ''} correspondance{othersCount > 1 ? 's' : ''}
@@ -174,7 +205,7 @@ function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false }: 
       </td>
       <td className="py-2 pr-3 align-top">
         <span className="font-medium text-slate-800">{o.label}</span>
-        <span className="block text-slate-500">{o.year ?? '—'} · {fmtKm(o.km)}{o.plate ? ` · ${o.plate}` : ''}{o.fuel ? ` · ${FUEL_LABEL[o.fuel]}` : ''}{o.trim ? ` · ${o.trim}` : ''}</span>
+        <span className="block text-slate-500">{o.year ?? '—'} · {fmtKm(o.km)}{o.plate ? ` · ${o.plate}` : ''}{o.fuel ? ` · ${FUEL_LABEL[o.fuel]}` : ''}{o.power ? ` · ${o.power} ch` : ''}{o.trim ? ` · ${o.trim}` : ''}</span>
         <span className="block text-slate-400">{o.detail}{o.date ? ` · ${fmtDate(o.date)}` : ''}</span>
       </td>
       <td className="py-2 pr-3 align-top text-right tabular-nums whitespace-nowrap">
@@ -186,7 +217,7 @@ function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false }: 
           {m.ok && <BadgeCheck className="w-3 h-3" />}{m.gap >= 0 ? '+' : ''}{fmtMoney(m.gap, 'EUR')}
         </span>
         <span className="block mt-0.5 text-[10px] text-slate-400">
-          {m.fuelCompared ? 'énergie ✓' : 'énergie non comparée'} · {m.trimCompared ? 'finition ✓' : 'finition non comparée'}
+          {m.fuelCompared ? 'énergie ✓' : 'énergie non comparée'} · {m.powerCompared ? 'puissance ✓' : 'puissance non comparée'} · {m.trimCompared ? 'finition ✓' : 'finition non comparée'}
         </span>
       </td>
     </tr>

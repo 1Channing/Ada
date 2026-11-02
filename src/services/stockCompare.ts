@@ -22,6 +22,7 @@ import { listStockVehicles, type StockVehicle } from './dealerStock';
 import { listOffers } from './offers';
 import { toEur } from './fxRates';
 import { TRIM_WORDS } from '../lib/offers/parseSupplierFile';
+import { powerFromText, samePower } from '../lib/powerText';
 
 /** Famille d'énergie, lue dans n'importe quelle langue des sites (Kamux « Hybride rechargeable essence »,
  *  dvnl « Benzine », Bilbasen « benzin / el », nos offres « HYBRIDE RECHARGEABLE », ventes « RAV4 PLUG IN »). */
@@ -67,6 +68,8 @@ export interface OurVehicle {
   km: number | null;
   fuel: FuelFamily | null;
   trim: string | null;
+  /** Puissance (ch) quand elle est connue (02/11). */
+  power: number | null;
   /** Vente : notre prix de VENTE. Offre : notre prix d'ACHAT (HT fournisseur). */
   price: number;
   /** Vente : prix d'achat (pour information). */
@@ -89,8 +92,10 @@ export interface CompareMatch {
   /** Énergie / finition comparées (connues des deux côtés) ou non. */
   fuelCompared: boolean;
   trimCompared: boolean;
+  powerCompared: boolean;
   theirsFuel: FuelFamily | null;
   theirsTrim: string | null;
+  theirsPower: number | null;
   /** Les AUTRES de nos véhicules appariés à la même voiture du contact (02/11 : une ligne par voiture, la
    *  meilleure de nos offres en face, le reste replié), du meilleur au moins bon écart. */
   others: CompareMatch[];
@@ -138,7 +143,7 @@ export async function loadOurSales(): Promise<{ rows: OurVehicle[]; error: strin
       out.push({
         kind: 'sale', id: String(r.id), label: `${v.brand} ${sheetLabel || v.commercial_name?.trim() || v.model}`.replace(/\s+/g, ' ').trim(),
         brand: String(v.brand), model: String(v.model), year: yearOf(v.first_registration_date), km: typeof v.mileage === 'number' ? v.mileage : null,
-        fuel: fuelFamily(freeText), trim: trimOf(sheetLabel || v.commercial_name),
+        fuel: fuelFamily(freeText), trim: trimOf(sheetLabel || v.commercial_name), power: powerFromText(freeText),
         price: sale, purchase: typeof r.purchase_price === 'number' ? r.purchase_price : null,
         detail: [r.reference ? `réf. ${r.reference}` : '', status === 'cloturee' ? 'clôturée' : status === 'en_cours' ? 'en cours' : status].filter(Boolean).join(' · '),
         date: (r.transaction_date as string | null) ?? null, plate: v.plate_number ?? null,
@@ -161,7 +166,7 @@ export async function loadOurOffers(): Promise<{ rows: OurVehicle[]; error: stri
       out.push({
         kind: 'offer', id: v.id, label: `${v.brand} ${v.model}${v.version ? ` · ${v.version}` : ''}`, brand: v.brand, model: v.model,
         year: v.year ?? yearOf(v.reg_date), km: v.km, price: buy,
-        fuel: fuelFamily(v.fuel) ?? fuelFamily(v.version), trim: trimOf(v.version),
+        fuel: fuelFamily(v.fuel) ?? fuelFamily(v.version), trim: trimOf(v.version), power: v.power_ch ?? powerFromText(v.version),
         detail: [o.title || o.source_filename, o.supplier].filter(Boolean).join(' · '), date: o.updated_at ?? null, offerId: o.id,
       });
     }
@@ -179,9 +184,9 @@ export async function loadTheirStock(contactId: string): Promise<{ rows: StockVe
 /** Règle d'appariement : même marque et modèle (clés du référentiel), même année, km à ± 15 000 ; énergie et
  *  finition égales quand elles sont connues des deux côtés. Rend ce qui a pu être comparé, ou null. */
 export function sameSegment(
-  a: { brand: string | null; model: string | null; year: number | null; km: number | null; fuel?: FuelFamily | null; trim?: string | null },
-  b: { brand: string; model: string; year: number | null; km: number | null; fuel?: FuelFamily | null; trim?: string | null },
-): { fuelCompared: boolean; trimCompared: boolean } | null {
+  a: { brand: string | null; model: string | null; year: number | null; km: number | null; fuel?: FuelFamily | null; trim?: string | null; power?: number | null },
+  b: { brand: string; model: string; year: number | null; km: number | null; fuel?: FuelFamily | null; trim?: string | null; power?: number | null },
+): { fuelCompared: boolean; trimCompared: boolean; powerCompared: boolean } | null {
   if (!a.brand || !a.model || a.year == null || b.year == null || a.year !== b.year) return null;
   if (a.km == null || b.km == null || Math.abs(a.km - b.km) > KM_TOLERANCE) return null;
   if (brandKey(a.brand) !== brandKey(b.brand)) return null;
@@ -190,11 +195,15 @@ export function sameSegment(
   if (fuelCompared && a.fuel !== b.fuel) return null;
   const trimCompared = !!a.trim && !!b.trim;
   if (trimCompared && a.trim !== b.trim) return null;
-  return { fuelCompared, trimCompared };
+  // Puissance (02/11) : équivalente à 10 % près quand elle est connue des deux côtés.
+  const same = samePower(a.power, b.power);
+  const powerCompared = same != null;
+  if (same === false) return null;
+  return { fuelCompared, trimCompared, powerCompared };
 }
 /** Énergie et finition d'une voiture du contact : colonne énergie du relevé, sinon le titre. */
-export function theirsFuelTrim(t: StockVehicle): { fuel: FuelFamily | null; trim: string | null } {
-  return { fuel: fuelFamily(t.fuel) ?? fuelFamily(t.title), trim: trimOf(t.title) };
+export function theirsFuelTrim(t: StockVehicle): { fuel: FuelFamily | null; trim: string | null; power: number | null } {
+  return { fuel: fuelFamily(t.fuel) ?? fuelFamily(t.title), trim: trimOf(t.title), power: t.power_ch ?? powerFromText(t.title) };
 }
 
 export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], threshold: number): CompareResult {
@@ -217,13 +226,13 @@ export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], thresho
       const gap = Math.round(eur - o.price);
       const ok = gap >= threshold;
       if (ok) okIds.add(t.id);
-      mine.push({ theirs: t, theirsEur: Math.round(eur), ours: o, gap, ok, fuelCompared: seg.fuelCompared, trimCompared: seg.trimCompared, theirsFuel: tf.fuel, theirsTrim: tf.trim, others: [] });
+      mine.push({ theirs: t, theirsEur: Math.round(eur), ours: o, gap, ok, fuelCompared: seg.fuelCompared, trimCompared: seg.trimCompared, powerCompared: seg.powerCompared, theirsFuel: tf.fuel, theirsTrim: tf.trim, theirsPower: tf.power, others: [] });
     }
     if (mine.length === 0) continue;
     pairs += mine.length;
     // La MEILLEURE de nos offres en face (plus grand écart = notre prix le plus bas) ; à écart égal, celle qui
     // a pu être comparée sur l'énergie et la finition. Les autres repliées derrière.
-    mine.sort((a, b) => b.gap - a.gap || Number(b.fuelCompared) + Number(b.trimCompared) - Number(a.fuelCompared) - Number(a.trimCompared));
+    mine.sort((a, b) => b.gap - a.gap || Number(b.fuelCompared) + Number(b.trimCompared) + Number(b.powerCompared) - Number(a.fuelCompared) - Number(a.trimCompared) - Number(a.powerCompared));
     const best = mine[0];
     best.others = mine.slice(1);
     matches.push(best);
