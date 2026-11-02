@@ -91,13 +91,19 @@ export interface CompareMatch {
   trimCompared: boolean;
   theirsFuel: FuelFamily | null;
   theirsTrim: string | null;
+  /** Les AUTRES de nos véhicules appariés à la même voiture du contact (02/11 : une ligne par voiture, la
+   *  meilleure de nos offres en face, le reste replié), du meilleur au moins bon écart. */
+  others: CompareMatch[];
 }
 
 export interface CompareResult {
   theirsTotal: number;
   theirsPriced: number;
   oursTotal: number;
+  /** Une entrée par voiture du contact appariée : la meilleure correspondance, les autres dans `others`. */
   matches: CompareMatch[];
+  /** Nombre total de paires (toutes nos offres/ventes confondues). */
+  pairs: number;
   /** Voitures du contact avec au moins un match au-dessus du seuil. */
   theirsOk: number;
   warnings: string[];
@@ -196,6 +202,7 @@ export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], thresho
   const warnings: string[] = [];
   let priced = 0;
   let unknownCurrency = 0;
+  let pairs = 0;
   const okIds = new Set<string>();
   for (const t of theirs) {
     if (t.price == null || t.price <= 0) continue;
@@ -203,16 +210,25 @@ export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], thresho
     if (eur == null) { unknownCurrency++; continue; }
     priced++;
     const tf = theirsFuelTrim(t);
+    const mine: CompareMatch[] = [];
     for (const o of ours) {
       const seg = sameSegment({ ...t, ...tf }, o);
       if (!seg) continue;
       const gap = Math.round(eur - o.price);
       const ok = gap >= threshold;
       if (ok) okIds.add(t.id);
-      matches.push({ theirs: t, theirsEur: Math.round(eur), ours: o, gap, ok, fuelCompared: seg.fuelCompared, trimCompared: seg.trimCompared, theirsFuel: tf.fuel, theirsTrim: tf.trim });
+      mine.push({ theirs: t, theirsEur: Math.round(eur), ours: o, gap, ok, fuelCompared: seg.fuelCompared, trimCompared: seg.trimCompared, theirsFuel: tf.fuel, theirsTrim: tf.trim, others: [] });
     }
+    if (mine.length === 0) continue;
+    pairs += mine.length;
+    // La MEILLEURE de nos offres en face (plus grand écart = notre prix le plus bas) ; à écart égal, celle qui
+    // a pu être comparée sur l'énergie et la finition. Les autres repliées derrière.
+    mine.sort((a, b) => b.gap - a.gap || Number(b.fuelCompared) + Number(b.trimCompared) - Number(a.fuelCompared) - Number(a.trimCompared));
+    const best = mine[0];
+    best.others = mine.slice(1);
+    matches.push(best);
   }
   if (unknownCurrency > 0) warnings.push(`${unknownCurrency} voiture(s) du contact dans une devise sans taux connu — ignorées`);
   matches.sort((a, b) => b.gap - a.gap);
-  return { theirsTotal: theirs.length, theirsPriced: priced, oursTotal: ours.length, matches, theirsOk: okIds.size, warnings };
+  return { theirsTotal: theirs.length, theirsPriced: priced, oursTotal: ours.length, matches, pairs, theirsOk: okIds.size, warnings };
 }

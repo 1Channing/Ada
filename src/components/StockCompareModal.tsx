@@ -3,8 +3,8 @@
  * (seuil 5 000 €) ou à nos offres fournisseurs (seuil 7 000 €). Même marque/modèle, même année,
  * km ± 15 000. Deux onglets, un tableau : leur voiture ↔ la nôtre, l'écart en couleur.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { X, Loader2, ExternalLink, Scale, BadgeCheck, Filter } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { X, Loader2, ExternalLink, Scale, BadgeCheck, Filter, ChevronDown, ChevronRight } from 'lucide-react';
 import { fmtMoney } from '../lib/fx';
 import { loadFxRates } from '../services/fxRates';
 import {
@@ -93,8 +93,8 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
           <div className="px-5 pt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
             <Kpi label="Leur stock en vente" value={String(result.theirsTotal)} hint={result.theirsPriced < result.theirsTotal ? `${result.theirsPriced} avec prix` : 'tous avec prix'} />
             <Kpi label={mode === 'sales' ? 'Nos ventes connues' : 'Véhicules de nos offres'} value={String(result.oursTotal)} />
-            <Kpi label="Correspondances" value={String(result.matches.length)} hint={`${okCount} au-dessus du seuil`} tone={okCount > 0 ? 'ok' : undefined} />
-            <Kpi label="Leurs voitures concernées" value={String(result.theirsOk)} hint="avec au moins un match au-dessus du seuil" tone={result.theirsOk > 0 ? 'ok' : undefined} />
+            <Kpi label="Leurs voitures appariées" value={String(result.matches.length)} hint={result.pairs > result.matches.length ? `${result.pairs} paires au total, la meilleure des nôtres en face` : 'une des nôtres en face de chacune'} />
+            <Kpi label="Au-dessus du seuil" value={String(okCount)} hint="de leurs voitures, face à notre meilleure offre" tone={okCount > 0 ? 'ok' : undefined} />
           </div>
         )}
         {errors.length > 0 && <div className="px-5 pt-2">{errors.map((e) => <p key={e} className="text-xs text-red-600">{e}</p>)}</div>}
@@ -126,7 +126,7 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((m) => <Row key={`${m.theirs.id}|${m.ours.id}`} m={m} mode={mode} />)}
+                {rows.map((m) => <MatchRows key={m.theirs.id} m={m} mode={mode} />)}
               </tbody>
             </table>
           )}
@@ -136,19 +136,41 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
   );
 }
 
-function Row({ m, mode }: { m: CompareMatch; mode: Mode }) {
+/** Une voiture du contact : sa meilleure correspondance, puis les autres dépliables (02/11). */
+function MatchRows({ m, mode }: { m: CompareMatch; mode: Mode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Fragment>
+      <Row m={m} mode={mode} othersCount={m.others.length} open={open} onToggle={() => setOpen((v) => !v)} />
+      {open && m.others.map((x) => <Row key={x.ours.id} m={x} mode={mode} alt />)}
+    </Fragment>
+  );
+}
+
+function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false }: { m: CompareMatch; mode: Mode; othersCount?: number; open?: boolean; onToggle?: () => void; alt?: boolean }) {
   const t = m.theirs;
   const o = m.ours;
   return (
-    <tr className={m.ok ? '' : 'opacity-70'}>
+    <tr className={`${m.ok ? '' : 'opacity-70'} ${alt ? 'bg-slate-50/60' : ''}`}>
       <td className="py-2 pr-3 align-top">
-        <span className="font-medium text-slate-800">{t.title || `${t.brand ?? ''} ${t.model ?? ''}`}</span>
-        {t.url && <a href={t.url} target="_blank" rel="noreferrer" className="ml-1 inline-flex text-brand-ocean align-middle" aria-label="Ouvrir l'annonce"><ExternalLink className="w-3 h-3" /></a>}
-        <span className="block text-slate-500">{t.year ?? '—'} · {fmtKm(t.km)}{t.plate ? ` · ${t.plate}` : ''}{m.theirsFuel ? ` · ${FUEL_LABEL[m.theirsFuel]}` : ''}{m.theirsTrim ? ` · ${m.theirsTrim}` : ''}</span>
+        {alt ? (
+          <span className="block pl-5 text-slate-400 italic">même voiture, autre correspondance</span>
+        ) : (
+          <>
+            <span className="font-medium text-slate-800">{t.title || `${t.brand ?? ''} ${t.model ?? ''}`}</span>
+            {t.url && <a href={t.url} target="_blank" rel="noreferrer" className="ml-1 inline-flex text-brand-ocean align-middle" aria-label="Ouvrir l'annonce"><ExternalLink className="w-3 h-3" /></a>}
+            <span className="block text-slate-500">{t.year ?? '—'} · {fmtKm(t.km)}{t.plate ? ` · ${t.plate}` : ''}{m.theirsFuel ? ` · ${FUEL_LABEL[m.theirsFuel]}` : ''}{m.theirsTrim ? ` · ${m.theirsTrim}` : ''}</span>
+            {othersCount > 0 && onToggle && (
+              <button onClick={onToggle} className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] text-brand-ocean hover:underline">
+                {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} {open ? 'masquer' : 'voir'} {othersCount} autre{othersCount > 1 ? 's' : ''} correspondance{othersCount > 1 ? 's' : ''}
+              </button>
+            )}
+          </>
+        )}
       </td>
       <td className="py-2 pr-3 align-top text-right tabular-nums whitespace-nowrap">
-        <span className="font-semibold text-slate-800">{fmtMoney(m.theirsEur, 'EUR')}</span>
-        {t.currency && t.currency !== 'EUR' && t.price != null && <span className="block text-[10px] text-slate-400">{fmtMoney(t.price, t.currency)}</span>}
+        {!alt && <span className="font-semibold text-slate-800">{fmtMoney(m.theirsEur, 'EUR')}</span>}
+        {!alt && t.currency && t.currency !== 'EUR' && t.price != null && <span className="block text-[10px] text-slate-400">{fmtMoney(t.price, t.currency)}</span>}
       </td>
       <td className="py-2 pr-3 align-top">
         <span className="font-medium text-slate-800">{o.label}</span>
