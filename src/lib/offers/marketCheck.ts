@@ -190,9 +190,9 @@ export function listingIsLot(
   return true;
 }
 
-export async function startLotJob(url: string, lot: OfferLot): Promise<string> {
+export async function startLotJob(url: string, lot: OfferLot, submittedBy = 'Offres fournisseur'): Promise<string> {
   const start = await supabase.functions.invoke('ingest-url', {
-    body: { url, async: true, criteria: criteriaOf(lot), submittedBy: 'Offres fournisseur' },
+    body: { url, async: true, criteria: criteriaOf(lot), submittedBy },
   });
   if (start.error) throw new Error(start.error.message ?? 'edge ingest-url en échec');
   const jobId = (start.data as { jobId?: string } | null)?.jobId;

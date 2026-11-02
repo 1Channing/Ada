@@ -78,7 +78,7 @@ export function LiveMarketColumn({ open, onToggle, picked, defaultCountry, ourLa
     await Promise.all(usable.map(async (t) => {
       const url = t.url as string;
       let r: SiteResult;
-      try { const jobId = await startLotJob(url, lot); r = await awaitLotJob(jobId, t.site, url, { model: lot.model, strict: t.brandPageOnly, trim: lot.trim, powerMin: lot.powerMin }); }
+      try { const jobId = await startLotJob(url, lot, 'Comparer (carte)'); r = await awaitLotJob(jobId, t.site, url, { model: lot.model, strict: t.brandPageOnly, trim: lot.trim, powerMin: lot.powerMin }); }
       catch (e) { r = { site: t.site, url, at: new Date().toISOString(), count: 0, total: null, median: null, p25: null, min: null, error: e instanceof Error ? e.message : String(e) }; }
       merged = mergeCountry(merged, filters.country, r);
       setResult(merged);
