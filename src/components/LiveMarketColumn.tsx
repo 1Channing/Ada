@@ -98,7 +98,7 @@ export function LiveMarketColumn({ open, onToggle, picked, defaultCountry, ourLa
   }
 
   const theirsEur = picked?.theirsEur ?? null;
-  const ourPrice = picked?.ours.price ?? null;
+  const ourPrice = picked?.ourTtc ?? null;
   const attack = result?.attackTtc ?? result?.medianTtc ?? null;
   const pct = (p: number | null) => (p != null && attack != null && attack > 0 ? Math.round(((p - attack) / attack) * 100) : null);
   const pctLabel = (p: number | null) => { const x = pct(p); return x == null ? '—' : `${x >= 0 ? '+' : ''}${x} % vs attaque`; };
@@ -152,7 +152,7 @@ export function LiveMarketColumn({ open, onToggle, picked, defaultCountry, ourLa
                 <p className="text-slate-800"><span className="font-semibold">{attack != null ? fmtMoney(attack, 'EUR') : '—'}</span> <span className="text-slate-500">prix d'attaque{result.medianTtc != null ? ` · méd. ${fmtMoney(result.medianTtc, 'EUR')}` : ''} · {result.competitors} annonce{result.competitors > 1 ? 's' : ''}</span></p>
                 <p className="text-slate-700">Leur prix : <span className="font-semibold">{pctLabel(theirsEur)}</span></p>
                 <p className="text-slate-700">{ourLabel} : <span className="font-semibold">{pctLabel(ourPrice)}</span></p>
-                {attack != null && theirsEur != null && <p className="text-[10px] text-slate-400">Prix affichés du pays (TTC local), le nôtre tel quel : à lire avec la TVA du pays en tête.</p>}
+                {attack != null && theirsEur != null && <p className="text-[10px] text-slate-400">Prix du marché : affichés dans le pays relevé (TTC local). Notre prix : TTC du pays du contact.</p>}
               </div>
             )}
             {sites.length > 0 && (

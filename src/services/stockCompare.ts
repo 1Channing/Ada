@@ -85,7 +85,10 @@ export interface CompareMatch {
   theirs: StockVehicle;
   theirsEur: number;
   ours: OurVehicle;
-  /** Leur prix (€) − notre prix. */
+  /** NOTRE prix mis en TTC du pays du contact (02/11, Channing : « à gauche des TTC finlandais à 25,5 %, à droite
+   *  notre HT : normaliser notre prix en TTC selon le pays ») = prix HT × (1 + TVA du pays). */
+  ourTtc: number;
+  /** Leur prix TTC (€) − notre prix TTC du pays. */
   gap: number;
   /** gap ≥ seuil. */
   ok: boolean;
@@ -206,7 +209,7 @@ export function theirsFuelTrim(t: StockVehicle): { fuel: FuelFamily | null; trim
   return { fuel: fuelFamily(t.fuel) ?? fuelFamily(t.title), trim: trimOf(t.title), power: t.power_ch ?? powerFromText(t.title) };
 }
 
-export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], threshold: number): CompareResult {
+export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], threshold: number, vat = 0.2): CompareResult {
   const matches: CompareMatch[] = [];
   const warnings: string[] = [];
   let priced = 0;
@@ -223,10 +226,11 @@ export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], thresho
     for (const o of ours) {
       const seg = sameSegment({ ...t, ...tf }, o);
       if (!seg) continue;
-      const gap = Math.round(eur - o.price);
+      const ourTtc = Math.round(o.price * (1 + vat));
+      const gap = Math.round(eur - ourTtc);
       const ok = gap >= threshold;
       if (ok) okIds.add(t.id);
-      mine.push({ theirs: t, theirsEur: Math.round(eur), ours: o, gap, ok, fuelCompared: seg.fuelCompared, trimCompared: seg.trimCompared, powerCompared: seg.powerCompared, theirsFuel: tf.fuel, theirsTrim: tf.trim, theirsPower: tf.power, others: [] });
+      mine.push({ theirs: t, theirsEur: Math.round(eur), ours: o, ourTtc, gap, ok, fuelCompared: seg.fuelCompared, trimCompared: seg.trimCompared, powerCompared: seg.powerCompared, theirsFuel: tf.fuel, theirsTrim: tf.trim, theirsPower: tf.power, others: [] });
     }
     if (mine.length === 0) continue;
     pairs += mine.length;

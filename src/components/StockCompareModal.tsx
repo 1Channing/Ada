@@ -7,6 +7,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { X, Loader2, ExternalLink, Scale, BadgeCheck, Filter, ChevronDown, ChevronRight, ArrowDownWideNarrow, ArrowUpNarrowWide, Radar } from 'lucide-react';
 import { LiveMarketColumn } from './LiveMarketColumn';
 import { OFFER_COUNTRIES } from '../services/offers';
+import { COUNTRY_VAT, countryVat } from '../lib/offers/vat';
 import { fmtMoney } from '../lib/fx';
 import { loadFxRates } from '../services/fxRates';
 import {
@@ -50,6 +51,10 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
   const [liveOpen, setLiveOpen] = useState(false);
   const [picked, setPicked] = useState<CompareMatch | null>(null);
   const defaultCountry = OFFER_COUNTRIES.some((c) => c.code === (country ?? '').toUpperCase()) ? (country as string).toUpperCase() : 'FR';
+  // TVA DU PAYS DU CONTACT (02/11) : leurs prix sont TTC, les nôtres HT → notre prix × (1 + TVA) avant l'écart.
+  const cc = (country ?? '').toUpperCase();
+  const vat = countryVat(cc);
+  const vatKnown = cc in COUNTRY_VAT;
   const [sortKey, setSortKey] = useState<SortKey>('gap');
   const [sortAsc, setSortAsc] = useState(false);
   // SEUILS MODIFIABLES (02/11, Channing : « garder 5 000 € et 7 000 € par défaut ») — mémorisés dans ce
@@ -81,8 +86,8 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
     if (!theirs) return null;
     const ours = mode === 'sales' ? sales : offers;
     if (!ours) return null;
-    return compareStock(theirs, ours, threshold);
-  }, [theirs, sales, offers, mode, threshold]);
+    return compareStock(theirs, ours, threshold, vat);
+  }, [theirs, sales, offers, mode, threshold, vat]);
 
   const rows = useMemo(() => {
     if (!result) return [];
@@ -100,7 +105,7 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
         <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-slate-100">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Scale className="w-5 h-5 text-brand-ocean" /> Comparer le stock de {name}</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Même marque et modèle, même année, kilométrage à ± {KM_TOLERANCE.toLocaleString('fr-FR')} km ; même énergie, même finition et puissance équivalente (à 10 % près) quand elles sont connues des deux côtés. Leur prix de vente converti en euros.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Même marque et modèle, même année, kilométrage à ± {KM_TOLERANCE.toLocaleString('fr-FR')} km ; même énergie, même finition et puissance équivalente (à 10 % près) quand elles sont connues des deux côtés. Leur prix de vente converti en euros ; le nôtre (HT) mis en TTC {cc || 'du pays'} à {Math.round(vat * 1000) / 10} %{vatKnown ? '' : ' (pays sans taux connu : 20 % par défaut)'}.</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
@@ -136,8 +141,8 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
 
         <p className="px-5 pt-2 text-xs text-slate-500">
           {mode === 'sales'
-            ? <>Ça passe quand <strong>notre prix de vente</strong> est au plus <strong>leur prix moins {fmtMoney(thresholds.sales, 'EUR')}</strong> : on a déjà vendu la même voiture à un prix qui leur laisse de la marge.</>
-            : <>Intéressant quand <strong>leur prix de vente moins notre prix d'achat</strong> (HT fournisseur, dans nos offres) atteint <strong>{fmtMoney(thresholds.offers, 'EUR')}</strong>.</>}
+            ? <>Ça passe quand <strong>notre prix de vente, mis en TTC {cc}</strong>, est au plus <strong>leur prix moins {fmtMoney(thresholds.sales, 'EUR')}</strong> : on a déjà vendu la même voiture à un prix qui leur laisse de la marge.</>
+            : <>Intéressant quand <strong>leur prix de vente moins notre prix d'achat mis en TTC {cc}</strong> (HT fournisseur × TVA du pays) atteint <strong>{fmtMoney(thresholds.offers, 'EUR')}</strong>.</>}
         </p>
 
         {result && !loading && (
@@ -173,7 +178,7 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
                   <th className="py-2 pr-3 font-medium">Leur voiture</th>
                   <th className="py-2 pr-3 font-medium text-right">Leur prix</th>
                   <th className="py-2 pr-3 font-medium">{mode === 'sales' ? 'Notre vente' : 'Notre offre'}</th>
-                  <th className="py-2 pr-3 font-medium text-right">{mode === 'sales' ? 'Notre prix de vente' : 'Notre prix d\'achat HT'}</th>
+                  <th className="py-2 pr-3 font-medium text-right">{mode === 'sales' ? 'Notre vente' : 'Notre achat'} TTC {cc}<span className="block font-normal text-[10px]">HT en dessous</span></th>
                   <th className="py-2 pr-3 font-medium text-right">Écart</th>
                 </tr>
               </thead>
@@ -183,7 +188,7 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
             </table>
           )}
         </div>
-        <LiveMarketColumn open={liveOpen} onToggle={() => setLiveOpen((v) => !v)} picked={picked} defaultCountry={defaultCountry} ourLabel={mode === 'sales' ? 'notre vente' : 'notre achat HT'} />
+        <LiveMarketColumn open={liveOpen} onToggle={() => setLiveOpen((v) => !v)} picked={picked} defaultCountry={defaultCountry} ourLabel={mode === 'sales' ? `notre vente TTC ${cc}` : `notre achat TTC ${cc}`} />
         </div>
       </div>
     </div>
@@ -232,8 +237,9 @@ function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false, pi
         <span className="block text-slate-400">{o.detail}{o.date ? ` · ${fmtDate(o.date)}` : ''}</span>
       </td>
       <td className="py-2 pr-3 align-top text-right tabular-nums whitespace-nowrap">
-        <span className="font-semibold text-slate-800">{fmtMoney(o.price, 'EUR')}</span>
-        {mode === 'sales' && o.purchase != null && <span className="block text-[10px] text-slate-400">acheté {fmtMoney(o.purchase, 'EUR')}</span>}
+        <span className="font-semibold text-slate-800">{fmtMoney(m.ourTtc, 'EUR')}</span>
+        <span className="block text-[10px] text-slate-400">HT {fmtMoney(o.price, 'EUR')}</span>
+        {mode === 'sales' && o.purchase != null && <span className="block text-[10px] text-slate-400">acheté HT {fmtMoney(o.purchase, 'EUR')}</span>}
       </td>
       <td className="py-2 pr-3 align-top text-right whitespace-nowrap">
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold tabular-nums ${m.ok ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : m.gap >= 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
