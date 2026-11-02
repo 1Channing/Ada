@@ -78,7 +78,7 @@ export function Carte() {
   // STOCK DE LA VITRINE (30/09) : fenêtre avec les voitures relevées et le diff.
   const [stockFor, setStockFor] = useState<{ id: string; name: string; url: string } | null>(null);
   // COMPARER (02/11) : le stock relevé du contact face à nos ventes passées ou nos offres.
-  const [compareFor, setCompareFor] = useState<{ id: string; name: string; url: string | null } | null>(null);
+  const [compareFor, setCompareFor] = useState<{ id: string; name: string; url: string | null; country: string | null } | null>(null);
   const [hoverCountry, setHoverCountry] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'tous' | ContactRole>('tous');
@@ -528,9 +528,9 @@ export function Carte() {
         {editing ? (
           <ContactForm value={editing} models={editModels} onChange={setEditing} onModels={setEditModels} onPlace={() => setPlacing('form')} onCancel={() => { setEditing(null); setPlacing(null); }} onSubmit={submit} busy={busy} />
         ) : selected ? (<>
-          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onStock={() => selected.website && setStockFor({ id: selected.id, name: selected.name, url: selected.website })} onCompare={() => setCompareFor({ id: selected.id, name: selected.name, url: selected.website })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
+          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onStock={() => selected.website && setStockFor({ id: selected.id, name: selected.name, url: selected.website })} onCompare={() => setCompareFor({ id: selected.id, name: selected.name, url: selected.website, country: selected.country })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
           {stockFor && <DealerStockModal contactId={stockFor.id} name={stockFor.name} url={stockFor.url} onClose={() => { setStockFor(null); void reload(); }} />}
-          {compareFor && <StockCompareModal contactId={compareFor.id} name={compareFor.name} onClose={() => setCompareFor(null)} onOpenStock={compareFor.url ? () => { const { id, name, url } = compareFor; setCompareFor(null); setStockFor({ id, name, url: url! }); } : undefined} />}
+          {compareFor && <StockCompareModal contactId={compareFor.id} name={compareFor.name} country={compareFor.country} onClose={() => setCompareFor(null)} onOpenStock={compareFor.url ? () => { const { id, name, url } = compareFor; setCompareFor(null); setStockFor({ id, name, url: url! }); } : undefined} />}
         </>) : (
           <>
             <div className="p-4 border-b border-slate-100 space-y-3">

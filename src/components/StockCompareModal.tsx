@@ -4,7 +4,9 @@
  * km ± 15 000. Deux onglets, un tableau : leur voiture ↔ la nôtre, l'écart en couleur.
  */
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { X, Loader2, ExternalLink, Scale, BadgeCheck, Filter, ChevronDown, ChevronRight, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
+import { X, Loader2, ExternalLink, Scale, BadgeCheck, Filter, ChevronDown, ChevronRight, ArrowDownWideNarrow, ArrowUpNarrowWide, Radar } from 'lucide-react';
+import { LiveMarketColumn } from './LiveMarketColumn';
+import { OFFER_COUNTRIES } from '../services/offers';
 import { fmtMoney } from '../lib/fx';
 import { loadFxRates } from '../services/fxRates';
 import {
@@ -36,7 +38,7 @@ function sortMatches(rows: CompareMatch[], key: SortKey, asc: boolean): CompareM
 const fmtKm = (km: number | null) => (km == null ? '—' : `${km.toLocaleString('fr-FR')} km`);
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '');
 
-export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { contactId: string; name: string; onClose: () => void; onOpenStock?: () => void }) {
+export function StockCompareModal({ contactId, name, country, onClose, onOpenStock }: { contactId: string; name: string; country?: string | null; onClose: () => void; onOpenStock?: () => void }) {
   const [mode, setMode] = useState<Mode>('sales');
   const [theirs, setTheirs] = useState<StockVehicle[] | null>(null);
   const [sales, setSales] = useState<OurVehicle[] | null>(null);
@@ -44,6 +46,10 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
   const [errors, setErrors] = useState<string[]>([]);
   const [onlyOk, setOnlyOk] = useState(true);
   const [query, setQuery] = useState('');
+  // MARCHÉ EN DIRECT (02/11) : colonne de droite repliée par défaut, ligne choisie par « Marché ».
+  const [liveOpen, setLiveOpen] = useState(false);
+  const [picked, setPicked] = useState<CompareMatch | null>(null);
+  const defaultCountry = OFFER_COUNTRIES.some((c) => c.code === (country ?? '').toUpperCase()) ? (country as string).toUpperCase() : 'FR';
   const [sortKey, setSortKey] = useState<SortKey>('gap');
   const [sortAsc, setSortAsc] = useState(false);
   // SEUILS MODIFIABLES (02/11, Channing : « garder 5 000 € et 7 000 € par défaut ») — mémorisés dans ce
@@ -90,7 +96,7 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[96vw] h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-slate-100">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Scale className="w-5 h-5 text-brand-ocean" /> Comparer le stock de {name}</h2>
@@ -145,6 +151,7 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
         {errors.length > 0 && <div className="px-5 pt-2">{errors.map((e) => <p key={e} className="text-xs text-red-600">{e}</p>)}</div>}
         {result?.warnings.map((w) => <p key={w} className="px-5 pt-1 text-xs text-amber-700">{w}</p>)}
 
+        <div className="flex-1 min-h-0 flex">
         <div className="flex-1 overflow-auto px-5 py-3">
           {loading ? (
             <p className="text-sm text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture du stock, des ventes et des offres…</p>
@@ -171,10 +178,12 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((m) => <MatchRows key={m.theirs.id} m={m} mode={mode} />)}
+                {rows.map((m) => <MatchRows key={m.theirs.id} m={m} mode={mode} picked={picked?.theirs.id === m.theirs.id} onPick={() => { setPicked(m); setLiveOpen(true); }} />)}
               </tbody>
             </table>
           )}
+        </div>
+        <LiveMarketColumn open={liveOpen} onToggle={() => setLiveOpen((v) => !v)} picked={picked} defaultCountry={defaultCountry} ourLabel={mode === 'sales' ? 'notre vente' : 'notre achat HT'} />
         </div>
       </div>
     </div>
@@ -182,21 +191,21 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
 }
 
 /** Une voiture du contact : sa meilleure correspondance, puis les autres dépliables (02/11). */
-function MatchRows({ m, mode }: { m: CompareMatch; mode: Mode }) {
+function MatchRows({ m, mode, picked, onPick }: { m: CompareMatch; mode: Mode; picked: boolean; onPick: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <Fragment>
-      <Row m={m} mode={mode} othersCount={m.others.length} open={open} onToggle={() => setOpen((v) => !v)} />
+      <Row m={m} mode={mode} othersCount={m.others.length} open={open} onToggle={() => setOpen((v) => !v)} picked={picked} onPick={onPick} />
       {open && m.others.map((x) => <Row key={x.ours.id} m={x} mode={mode} alt />)}
     </Fragment>
   );
 }
 
-function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false }: { m: CompareMatch; mode: Mode; othersCount?: number; open?: boolean; onToggle?: () => void; alt?: boolean }) {
+function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false, picked = false, onPick }: { m: CompareMatch; mode: Mode; othersCount?: number; open?: boolean; onToggle?: () => void; alt?: boolean; picked?: boolean; onPick?: () => void }) {
   const t = m.theirs;
   const o = m.ours;
   return (
-    <tr className={`${m.ok ? '' : 'opacity-70'} ${alt ? 'bg-slate-50/60' : ''}`}>
+    <tr className={`${m.ok ? '' : 'opacity-70'} ${alt ? 'bg-slate-50/60' : ''} ${picked ? 'bg-blue-50/60' : ''}`}>
       <td className="py-2 pr-3 align-top">
         {alt ? (
           <span className="block pl-5 text-slate-400 italic">même voiture, autre correspondance</span>
@@ -233,6 +242,11 @@ function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false }: 
         <span className="block mt-0.5 text-[10px] text-slate-400">
           {m.fuelCompared ? 'énergie ✓' : 'énergie non comparée'} · {m.powerCompared ? 'puissance ✓' : 'puissance non comparée'} · {m.trimCompared ? 'finition ✓' : 'finition non comparée'}
         </span>
+        {!alt && onPick && (
+          <button onClick={onPick} className={`mt-1 inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border ${picked ? 'border-brand-ocean bg-brand-ocean text-white' : 'border-slate-300 text-brand-ocean hover:bg-blue-50'}`} title="Relever le marché en direct pour cette voiture (colonne de droite)">
+            <Radar className="w-3 h-3" /> Marché
+          </button>
+        )}
       </td>
     </tr>
   );
