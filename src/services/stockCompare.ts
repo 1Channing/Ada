@@ -23,6 +23,7 @@ import { listOffers } from './offers';
 import { toEur } from './fxRates';
 import { TRIM_WORDS } from '../lib/offers/parseSupplierFile';
 import { powerFromText, samePower } from '../lib/powerText';
+import { resolveSettings, supplierHtWith } from '../lib/offers/offerSettings';
 
 /** Famille d'énergie, lue dans n'importe quelle langue des sites (Kamux « Hybride rechargeable essence »,
  *  dvnl « Benzine », Bilbasen « benzin / el », nos offres « HYBRIDE RECHARGEABLE », ventes « RAV4 PLUG IN »). */
@@ -163,8 +164,13 @@ export async function loadOurOffers(): Promise<{ rows: OurVehicle[]; error: stri
   if (error) return { rows: [], error };
   const out: OurVehicle[] = [];
   for (const o of offers) {
+    // PRIX EN EUROS HT PAR LA RÈGLE DE L'OFFRE (02/11, constat Channing : « des véhicules à plus de 100 000 €
+    // alors que ce ne sont pas du tout ces prix dans mes offres » — liste suédoise « Mixed Brands » en
+    // couronnes : le prix brut du fichier était pris pour des euros). Même calcul que l'onglet Offres :
+    // devise du fichier (taux figé à l'import), base HT/TTC, TVA fournisseur.
+    const st = resolveSettings(o.settings);
     for (const v of o.vehicles ?? []) {
-      const buy = v.price_ht ?? (v.price_ttc != null ? Math.round(v.price_ttc / (1 + (v.vat_rate ?? 0.2))) : null);
+      const buy = supplierHtWith(v, st);
       if (!v.brand || !v.model || buy == null || buy <= 0) continue;
       out.push({
         kind: 'offer', id: v.id, label: `${v.brand} ${v.model}${v.version ? ` · ${v.version}` : ''}`, brand: v.brand, model: v.model,
