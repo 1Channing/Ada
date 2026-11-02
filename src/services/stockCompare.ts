@@ -6,6 +6,9 @@
  *   • les OFFRES de l'onglet Offres (fichiers déjà analysés, nos prix d'achat) : leur prix de vente
  *     moins notre prix d'achat, intéressant à partir de 7 000 €.
  * Marque / modèle équivalents, année STRICTEMENT égale, kilométrage ± 15 000 km. »
+ * Deuxième passe (02/11) : « ajouter le carburant en correspondance (essence, hybride, diesel) et la
+ * finition lorsque c'est possible » — énergie et finition comparées dès qu'elles sont connues DES DEUX
+ * côtés (sinon non comparées, et dit tel quel sur la ligne).
  *
  * Sources, toutes déjà en base : network_stock_vehicles (dernier relevé, voitures encore en vente),
  * transactions_admin + vehicles_admin (ventes : prix, plaque, 1re immatriculation → année, km),
@@ -18,6 +21,34 @@ import { brandKey, refModelKey } from './marketData';
 import { listStockVehicles, type StockVehicle } from './dealerStock';
 import { listOffers } from './offers';
 import { toEur } from './fxRates';
+import { TRIM_WORDS } from '../lib/offers/parseSupplierFile';
+
+/** Famille d'énergie, lue dans n'importe quelle langue des sites (Kamux « Hybride rechargeable essence »,
+ *  dvnl « Benzine », Bilbasen « benzin / el », nos offres « HYBRIDE RECHARGEABLE », ventes « RAV4 PLUG IN »). */
+export type FuelFamily = 'phev' | 'hybrid' | 'electric' | 'diesel' | 'petrol' | 'gas';
+export const FUEL_LABEL: Record<FuelFamily, string> = { phev: 'hybride rechargeable', hybrid: 'hybride', electric: 'électrique', diesel: 'diesel', petrol: 'essence', gas: 'gaz' };
+export function fuelFamily(text: string | null | undefined): FuelFamily | null {
+  const t = (text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (!t.trim()) return null;
+  if (/plug[- ]?in|rechargeable|phev|e-?hybrid|\bplugin\b/.test(t)) return 'phev';
+  if (/hybrid|hybride|hybridi|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)) return 'hybrid';
+  if (/electri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric/.test(t)) return 'electric';
+  if (/diesel|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';
+  if (/essence|benzin|bensin|bensiini|petrol|gasolin|\btsi\b|\btfsi\b|\btce\b|puretech|\bvti\b/.test(t)) return 'petrol';
+  if (/\bgpl\b|\blpg\b|\bcng\b|\bgnv\b|kaasu|\bgaz\b|\bgas\b/.test(t)) return 'gas';
+  return null;
+}
+
+/** Finition lue dans une ligne libre (version d'offre, titre d'annonce, libellé de vente) : la première
+ *  finition connue rencontrée, les composées d'abord (« GR SPORT » avant « GR », « GT LINE » avant « GT »). */
+const TRIM_MULTI = ['GR SPORT', 'GT LINE', 'GT-LINE', 'N LINE', 'N-LINE', 'R-DESIGN', 'R DESIGN', 'S LINE', 'S-LINE', 'M SPORT', 'AMG LINE', 'ST-LINE', 'ST LINE', 'BLACK EDITION', 'FIRST EDITION', 'LAUNCH EDITION', 'PERFORMANCE LINE', 'LONG RANGE', 'LA PRIMA', 'DARK EDITION', 'X-LINE', 'XLINE', 'LOUNGE', 'TREKKING', 'COLLECTION', 'PREMIERE', 'DYNAMIC', 'TRAIL', 'GR', 'GT', 'RS', 'AMG', 'TI', 'VELOCE', 'COMPETIZIONE', 'TITANIUM X', 'VIGNALE', 'TEKNA', 'ACENTA', 'N-CONNECTA', 'VISIA', 'INTENSE', 'PLATINUM', 'LIMITED'];
+export function trimOf(text: string | null | undefined): string | null {
+  const t = ` ${(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[*]+/g, ' ').replace(/\s+/g, ' ').trim()} `;
+  if (t.trim().length === 0) return null;
+  for (const m of TRIM_MULTI) if (t.includes(` ${m} `)) return m.replace(/-/g, ' ');
+  for (const w of t.trim().split(' ')) if (TRIM_WORDS.has(w)) return w;
+  return null;
+}
 
 export const KM_TOLERANCE = 15_000;
 export const SALES_THRESHOLD_EUR = 5_000;
@@ -34,6 +65,8 @@ export interface OurVehicle {
   model: string;
   year: number | null;
   km: number | null;
+  fuel: FuelFamily | null;
+  trim: string | null;
   /** Vente : notre prix de VENTE. Offre : notre prix d'ACHAT (HT fournisseur). */
   price: number;
   /** Vente : prix d'achat (pour information). */
@@ -53,6 +86,11 @@ export interface CompareMatch {
   gap: number;
   /** gap ≥ seuil. */
   ok: boolean;
+  /** Énergie / finition comparées (connues des deux côtés) ou non. */
+  fuelCompared: boolean;
+  trimCompared: boolean;
+  theirsFuel: FuelFamily | null;
+  theirsTrim: string | null;
 }
 
 export interface CompareResult {
@@ -77,19 +115,24 @@ export async function loadOurSales(): Promise<{ rows: OurVehicle[]; error: strin
   for (let from = 0; ; from += 1000) {
     const { data, error } = await untyped
       .from('transactions_admin')
-      .select('id, reference, purchase_price, sale_price, transaction_date, status, vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(plate_number, brand, model, commercial_name, first_registration_date, mileage)')
+      .select('id, reference, purchase_price, sale_price, transaction_date, status, notes, vehicle:vehicles_admin!transactions_admin_vehicle_id_fkey(plate_number, brand, model, commercial_name, type_variant_version, first_registration_date, mileage)')
       .order('created_at', { ascending: false })
       .range(from, from + 999);
     if (error) return { rows: out, error: error.message };
     const batch = (data ?? []) as Array<Record<string, unknown>>;
     for (const r of batch) {
-      const v = (r.vehicle ?? null) as { plate_number?: string | null; brand?: string | null; model?: string | null; commercial_name?: string | null; first_registration_date?: string | null; mileage?: number | null } | null;
+      const v = (r.vehicle ?? null) as { plate_number?: string | null; brand?: string | null; model?: string | null; commercial_name?: string | null; type_variant_version?: string | null; first_registration_date?: string | null; mileage?: number | null } | null;
       const sale = Number(r.sale_price);
       if (!v || !v.brand || !v.model || !Number.isFinite(sale) || sale <= 0) continue;
       const status = String(r.status ?? '');
+      // Énergie et finition : la fiche véhicule n'a pas de colonne énergie — lues dans le libellé du dossier
+      // (« Véhicule : RAV4 PLUG IN », « YARIS CROSS GR 130H ») et le nom commercial.
+      const sheetLabel = String(r.notes ?? '').match(/Véhicule : (.*)/)?.[1]?.trim() ?? '';
+      const freeText = [sheetLabel, v.commercial_name ?? '', v.type_variant_version ?? ''].join(' ');
       out.push({
-        kind: 'sale', id: String(r.id), label: `${v.brand} ${v.commercial_name?.trim() || v.model}`.replace(/\s+/g, ' ').trim(),
+        kind: 'sale', id: String(r.id), label: `${v.brand} ${sheetLabel || v.commercial_name?.trim() || v.model}`.replace(/\s+/g, ' ').trim(),
         brand: String(v.brand), model: String(v.model), year: yearOf(v.first_registration_date), km: typeof v.mileage === 'number' ? v.mileage : null,
+        fuel: fuelFamily(freeText), trim: trimOf(sheetLabel || v.commercial_name),
         price: sale, purchase: typeof r.purchase_price === 'number' ? r.purchase_price : null,
         detail: [r.reference ? `réf. ${r.reference}` : '', status === 'cloturee' ? 'clôturée' : status === 'en_cours' ? 'en cours' : status].filter(Boolean).join(' · '),
         date: (r.transaction_date as string | null) ?? null, plate: v.plate_number ?? null,
@@ -112,6 +155,7 @@ export async function loadOurOffers(): Promise<{ rows: OurVehicle[]; error: stri
       out.push({
         kind: 'offer', id: v.id, label: `${v.brand} ${v.model}${v.version ? ` · ${v.version}` : ''}`, brand: v.brand, model: v.model,
         year: v.year ?? yearOf(v.reg_date), km: v.km, price: buy,
+        fuel: fuelFamily(v.fuel) ?? fuelFamily(v.version), trim: trimOf(v.version),
         detail: [o.title || o.source_filename, o.supplier].filter(Boolean).join(' · '), date: o.updated_at ?? null, offerId: o.id,
       });
     }
@@ -126,12 +170,25 @@ export async function loadTheirStock(contactId: string): Promise<{ rows: StockVe
   return { rows: vehicles.filter((v) => !v.gone_at), error: null };
 }
 
-/** Règle d'appariement : même marque et modèle (clés du référentiel), même année, km à ± 15 000. */
-export function sameSegment(a: { brand: string | null; model: string | null; year: number | null; km: number | null }, b: { brand: string; model: string; year: number | null; km: number | null }): boolean {
-  if (!a.brand || !a.model || a.year == null || b.year == null || a.year !== b.year) return false;
-  if (a.km == null || b.km == null || Math.abs(a.km - b.km) > KM_TOLERANCE) return false;
-  if (brandKey(a.brand) !== brandKey(b.brand)) return false;
-  return refModelKey(a.brand, a.model) === refModelKey(b.brand, b.model);
+/** Règle d'appariement : même marque et modèle (clés du référentiel), même année, km à ± 15 000 ; énergie et
+ *  finition égales quand elles sont connues des deux côtés. Rend ce qui a pu être comparé, ou null. */
+export function sameSegment(
+  a: { brand: string | null; model: string | null; year: number | null; km: number | null; fuel?: FuelFamily | null; trim?: string | null },
+  b: { brand: string; model: string; year: number | null; km: number | null; fuel?: FuelFamily | null; trim?: string | null },
+): { fuelCompared: boolean; trimCompared: boolean } | null {
+  if (!a.brand || !a.model || a.year == null || b.year == null || a.year !== b.year) return null;
+  if (a.km == null || b.km == null || Math.abs(a.km - b.km) > KM_TOLERANCE) return null;
+  if (brandKey(a.brand) !== brandKey(b.brand)) return null;
+  if (refModelKey(a.brand, a.model) !== refModelKey(b.brand, b.model)) return null;
+  const fuelCompared = a.fuel != null && b.fuel != null;
+  if (fuelCompared && a.fuel !== b.fuel) return null;
+  const trimCompared = !!a.trim && !!b.trim;
+  if (trimCompared && a.trim !== b.trim) return null;
+  return { fuelCompared, trimCompared };
+}
+/** Énergie et finition d'une voiture du contact : colonne énergie du relevé, sinon le titre. */
+export function theirsFuelTrim(t: StockVehicle): { fuel: FuelFamily | null; trim: string | null } {
+  return { fuel: fuelFamily(t.fuel) ?? fuelFamily(t.title), trim: trimOf(t.title) };
 }
 
 export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], threshold: number): CompareResult {
@@ -145,12 +202,14 @@ export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], thresho
     const eur = toEur(t.price, t.currency ?? 'EUR');
     if (eur == null) { unknownCurrency++; continue; }
     priced++;
+    const tf = theirsFuelTrim(t);
     for (const o of ours) {
-      if (!sameSegment(t, o)) continue;
+      const seg = sameSegment({ ...t, ...tf }, o);
+      if (!seg) continue;
       const gap = Math.round(eur - o.price);
       const ok = gap >= threshold;
       if (ok) okIds.add(t.id);
-      matches.push({ theirs: t, theirsEur: Math.round(eur), ours: o, gap, ok });
+      matches.push({ theirs: t, theirsEur: Math.round(eur), ours: o, gap, ok, fuelCompared: seg.fuelCompared, trimCompared: seg.trimCompared, theirsFuel: tf.fuel, theirsTrim: tf.trim });
     }
   }
   if (unknownCurrency > 0) warnings.push(`${unknownCurrency} voiture(s) du contact dans une devise sans taux connu — ignorées`);

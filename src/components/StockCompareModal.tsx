@@ -9,7 +9,7 @@ import { fmtMoney } from '../lib/fx';
 import { loadFxRates } from '../services/fxRates';
 import {
   compareStock, loadOurOffers, loadOurSales, loadTheirStock, KM_TOLERANCE, SALES_THRESHOLD_EUR, OFFERS_THRESHOLD_EUR,
-  type CompareMatch, type CompareResult, type OurVehicle,
+  FUEL_LABEL, type CompareMatch, type CompareResult, type OurVehicle,
 } from '../services/stockCompare';
 import type { StockVehicle } from '../services/dealerStock';
 
@@ -64,7 +64,7 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
         <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-slate-100">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Scale className="w-5 h-5 text-brand-ocean" /> Comparer le stock de {name}</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Même marque et modèle, même année, kilométrage à ± {KM_TOLERANCE.toLocaleString('fr-FR')} km. Leur prix de vente converti en euros.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Même marque et modèle, même année, kilométrage à ± {KM_TOLERANCE.toLocaleString('fr-FR')} km ; même énergie et même finition quand elles sont connues des deux côtés. Leur prix de vente converti en euros.</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
@@ -144,7 +144,7 @@ function Row({ m, mode }: { m: CompareMatch; mode: Mode }) {
       <td className="py-2 pr-3 align-top">
         <span className="font-medium text-slate-800">{t.title || `${t.brand ?? ''} ${t.model ?? ''}`}</span>
         {t.url && <a href={t.url} target="_blank" rel="noreferrer" className="ml-1 inline-flex text-brand-ocean align-middle" aria-label="Ouvrir l'annonce"><ExternalLink className="w-3 h-3" /></a>}
-        <span className="block text-slate-500">{t.year ?? '—'} · {fmtKm(t.km)}{t.plate ? ` · ${t.plate}` : ''}{t.fuel ? ` · ${t.fuel}` : ''}</span>
+        <span className="block text-slate-500">{t.year ?? '—'} · {fmtKm(t.km)}{t.plate ? ` · ${t.plate}` : ''}{m.theirsFuel ? ` · ${FUEL_LABEL[m.theirsFuel]}` : ''}{m.theirsTrim ? ` · ${m.theirsTrim}` : ''}</span>
       </td>
       <td className="py-2 pr-3 align-top text-right tabular-nums whitespace-nowrap">
         <span className="font-semibold text-slate-800">{fmtMoney(m.theirsEur, 'EUR')}</span>
@@ -152,7 +152,7 @@ function Row({ m, mode }: { m: CompareMatch; mode: Mode }) {
       </td>
       <td className="py-2 pr-3 align-top">
         <span className="font-medium text-slate-800">{o.label}</span>
-        <span className="block text-slate-500">{o.year ?? '—'} · {fmtKm(o.km)}{o.plate ? ` · ${o.plate}` : ''}</span>
+        <span className="block text-slate-500">{o.year ?? '—'} · {fmtKm(o.km)}{o.plate ? ` · ${o.plate}` : ''}{o.fuel ? ` · ${FUEL_LABEL[o.fuel]}` : ''}{o.trim ? ` · ${o.trim}` : ''}</span>
         <span className="block text-slate-400">{o.detail}{o.date ? ` · ${fmtDate(o.date)}` : ''}</span>
       </td>
       <td className="py-2 pr-3 align-top text-right tabular-nums whitespace-nowrap">
@@ -162,6 +162,9 @@ function Row({ m, mode }: { m: CompareMatch; mode: Mode }) {
       <td className="py-2 pr-3 align-top text-right whitespace-nowrap">
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold tabular-nums ${m.ok ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : m.gap >= 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
           {m.ok && <BadgeCheck className="w-3 h-3" />}{m.gap >= 0 ? '+' : ''}{fmtMoney(m.gap, 'EUR')}
+        </span>
+        <span className="block mt-0.5 text-[10px] text-slate-400">
+          {m.fuelCompared ? 'énergie ✓' : 'énergie non comparée'} · {m.trimCompared ? 'finition ✓' : 'finition non comparée'}
         </span>
       </td>
     </tr>

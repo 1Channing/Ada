@@ -466,7 +466,7 @@ export function stripGenerationSuffix(model: string): string {
  * cylindrée/puissance, marqueur de génération retiré.
  */
 /** Mots de finition qui ne font jamais partie du nom d'un modèle. */
-const TRIM_WORDS = new Set(['EDITION', 'ELEGANCE', 'SHINE', 'COMFORT', 'DESIGN', 'LUXURY', 'PRIME', 'PLUS', 'FEEL', 'MAX', 'CORE', 'ULTRA', 'ULTIMATE', 'BUSINESS', 'ADVANCE', 'ADVANCED', 'STYLE', 'LIFE', 'SPRINT', 'SUMMIT', 'LONGITUDE', 'LIMITED', 'TREND', 'TITANIUM', 'ACTIVE', 'ALLURE', 'RIVOLI', 'PERFORMANCE', 'BOOST', 'VISION', 'AVANTGARDE', 'INTENS', 'ZEN', 'TECHNO', 'ICONIC', 'ESPRIT', 'INITIALE', 'EXCLUSIVE', 'PREMIUM', 'AMBIENTE', 'SELECTION', 'EXECUTIVE', 'INSCRIPTION', 'MOMENTUM']);
+export const TRIM_WORDS = new Set(['EDITION', 'ELEGANCE', 'SHINE', 'COMFORT', 'DESIGN', 'LUXURY', 'PRIME', 'PLUS', 'FEEL', 'MAX', 'CORE', 'ULTRA', 'ULTIMATE', 'BUSINESS', 'ADVANCE', 'ADVANCED', 'STYLE', 'LIFE', 'SPRINT', 'SUMMIT', 'LONGITUDE', 'LIMITED', 'TREND', 'TITANIUM', 'ACTIVE', 'ALLURE', 'RIVOLI', 'PERFORMANCE', 'BOOST', 'VISION', 'AVANTGARDE', 'INTENS', 'ZEN', 'TECHNO', 'ICONIC', 'ESPRIT', 'INITIALE', 'EXCLUSIVE', 'PREMIUM', 'AMBIENTE', 'SELECTION', 'EXECUTIVE', 'INSCRIPTION', 'MOMENTUM']);
 
 export function guessModel(_brand: string, line: string, knownModels: string[]): string {
   const up = line.toUpperCase().replace(/\s+/g, ' ').trim();
