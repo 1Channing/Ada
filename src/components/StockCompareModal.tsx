@@ -46,6 +46,14 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('gap');
   const [sortAsc, setSortAsc] = useState(false);
+  // SEUILS MODIFIABLES (02/11, Channing : « garder 5 000 € et 7 000 € par défaut ») — mémorisés dans ce
+  // navigateur, remis aux valeurs par défaut d'un clic.
+  const [thresholds, setThresholds] = useState<Record<Mode, number>>(() => {
+    try { const raw = JSON.parse(localStorage.getItem('ada_compare_thresholds') ?? 'null'); if (raw && typeof raw.sales === 'number' && typeof raw.offers === 'number') return raw; } catch { /* repli défaut */ }
+    return { sales: SALES_THRESHOLD_EUR, offers: OFFERS_THRESHOLD_EUR };
+  });
+  const setThreshold = (m: Mode, v: number) => setThresholds((t) => { const next = { ...t, [m]: Math.max(0, Math.round(v)) }; try { localStorage.setItem('ada_compare_thresholds', JSON.stringify(next)); } catch { /* ignoré */ } return next; });
+  const isDefault = thresholds.sales === SALES_THRESHOLD_EUR && thresholds.offers === OFFERS_THRESHOLD_EUR;
 
   useEffect(() => {
     let alive = true;
@@ -62,7 +70,7 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
     return () => { alive = false; };
   }, [contactId]);
 
-  const threshold = mode === 'sales' ? SALES_THRESHOLD_EUR : OFFERS_THRESHOLD_EUR;
+  const threshold = thresholds[mode];
   const result: CompareResult | null = useMemo(() => {
     if (!theirs) return null;
     const ours = mode === 'sales' ? sales : offers;
@@ -93,12 +101,18 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
 
         <div className="px-5 pt-3 flex flex-wrap items-center gap-2">
           <div role="tablist" className="flex rounded-lg bg-slate-100 p-0.5">
-            {([['sales', 'Ventes MC Export', SALES_THRESHOLD_EUR], ['offers', 'Offres fournisseurs', OFFERS_THRESHOLD_EUR]] as const).map(([id, label, th]) => (
+            {([['sales', 'Ventes MC Export'], ['offers', 'Offres fournisseurs']] as const).map(([id, label]) => (
               <button key={id} role="tab" aria-selected={mode === id} onClick={() => setMode(id)} className={`px-3 py-1.5 rounded-md text-sm ${mode === id ? 'bg-white shadow text-slate-900 font-semibold' : 'text-slate-600 hover:text-slate-900'}`}>
-                {label} <span className="text-xs text-slate-400 font-normal">· seuil {fmtMoney(th, 'EUR')}</span>
+                {label} <span className="text-xs text-slate-400 font-normal">· seuil {fmtMoney(thresholds[id], 'EUR')}</span>
               </button>
             ))}
           </div>
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            Seuil
+            <input type="number" step={500} min={0} value={threshold} onChange={(e) => setThreshold(mode, Number(e.target.value) || 0)} aria-label={`Seuil ${mode === 'sales' ? 'ventes' : 'offres'} en euros`} className="w-24 px-2 py-1.5 rounded-lg border border-slate-300 text-right text-sm tabular-nums" />
+            €
+            {!isDefault && <button onClick={() => { setThreshold('sales', SALES_THRESHOLD_EUR); setThreshold('offers', OFFERS_THRESHOLD_EUR); }} className="text-brand-ocean hover:underline" title={`Ventes ${fmtMoney(SALES_THRESHOLD_EUR, 'EUR')}, offres ${fmtMoney(OFFERS_THRESHOLD_EUR, 'EUR')}`}>défauts</button>}
+          </label>
           <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer ml-2">
             <input type="checkbox" checked={onlyOk} onChange={(e) => setOnlyOk(e.target.checked)} /> <Filter className="w-3.5 h-3.5" /> Au-dessus du seuil seulement
           </label>
@@ -116,8 +130,8 @@ export function StockCompareModal({ contactId, name, onClose, onOpenStock }: { c
 
         <p className="px-5 pt-2 text-xs text-slate-500">
           {mode === 'sales'
-            ? <>Ça passe quand <strong>notre prix de vente</strong> est au plus <strong>leur prix moins {fmtMoney(SALES_THRESHOLD_EUR, 'EUR')}</strong> : on a déjà vendu la même voiture à un prix qui leur laisse de la marge.</>
-            : <>Intéressant quand <strong>leur prix de vente moins notre prix d'achat</strong> (HT fournisseur, dans nos offres) atteint <strong>{fmtMoney(OFFERS_THRESHOLD_EUR, 'EUR')}</strong>.</>}
+            ? <>Ça passe quand <strong>notre prix de vente</strong> est au plus <strong>leur prix moins {fmtMoney(thresholds.sales, 'EUR')}</strong> : on a déjà vendu la même voiture à un prix qui leur laisse de la marge.</>
+            : <>Intéressant quand <strong>leur prix de vente moins notre prix d'achat</strong> (HT fournisseur, dans nos offres) atteint <strong>{fmtMoney(thresholds.offers, 'EUR')}</strong>.</>}
         </p>
 
         {result && !loading && (
