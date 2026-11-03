@@ -237,16 +237,38 @@ export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], thresho
   let unknownCurrency = 0;
   let pairs = 0;
   const okIds = new Set<string>();
+  // INDEX DE NOS VÉHICULES par (marque, modèle normalisé, année) — 03/11, constat Channing : « la page Comparer
+  // gèle » : la normalisation du modèle tournait DANS la boucle des paires (4 706 × 1 988 ≈ 9 millions de
+  // rapprochements sur les listes de modèles). Chaque véhicule est normalisé UNE fois, et chaque voiture du
+  // contact ne rencontre que nos véhicules de son segment.
+  const normCache = new Map<string, string>();
+  const norm = (brand: string | null, model: string | null): string => {
+    const k = `${brand ?? ''}|${model ?? ''}`;
+    let v = normCache.get(k);
+    if (v == null) { v = normalizeModel(brand, model, known); normCache.set(k, v); }
+    return v;
+  };
+  const segKey = (brand: string | null, model: string, year: number | null) => `${brandKey(brand ?? '')}|${refModelKey(brand ?? '', model)}|${year ?? '?'}`;
+  const index = new Map<string, Array<{ o: OurVehicle; model: string }>>();
+  for (const o of ours) {
+    if (o.year == null) continue;
+    const model = norm(o.brand, o.model);
+    const k = segKey(o.brand, model, o.year);
+    (index.get(k) ?? index.set(k, []).get(k)!).push({ o, model });
+  }
   for (const t of theirs) {
     if (t.price == null || t.price <= 0) continue;
     const eur = toEur(t.price, t.currency ?? 'EUR');
     if (eur == null) { unknownCurrency++; continue; }
     priced++;
+    if (!t.brand || !t.model || t.year == null) continue;
+    const tModel = norm(t.brand, t.model);
+    const candidates = index.get(segKey(t.brand, tModel, t.year));
+    if (!candidates || candidates.length === 0) continue;
     const tf = theirsFuelTrim(t);
     const mine: CompareMatch[] = [];
-    const tModel = normalizeModel(t.brand, t.model, known);
-    for (const o of ours) {
-      const seg = sameSegment({ ...t, ...tf, model: tModel }, { ...o, model: normalizeModel(o.brand, o.model, known) });
+    for (const { o, model } of candidates) {
+      const seg = sameSegment({ ...t, ...tf, model: tModel }, { ...o, model });
       if (!seg) continue;
       const ourTtc = Math.round(o.price * (1 + vat));
       const gap = Math.round(eur - ourTtc);
