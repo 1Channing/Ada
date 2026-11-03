@@ -1335,8 +1335,31 @@ export interface DealerStockSummary {
   provider: DealerProvider; total: number; newCount: number; goneCount: number; priceChanges: number; pages: number; warnings: string[]; runId: string | null;
 }
 
-/** Relève le stock d'une concession de la carte et le compare au relevé précédent. */
-export async function runDealerStock(contactId: string, url: string, submittedBy: string): Promise<DealerStockSummary> {
+/** VITRINE PARTAGÉE (03/11, Channing : « partage le relevé entre les fiches avec la même vitrine ») : même hôte
+ *  (sans www), même chemin, mêmes paramètres = même stock. BYMYCAR : quatre fiches (Villeneuve-Loubet, Noisy,
+ *  Paris, Toulon), un seul site du groupe. */
+export function showcaseKey(url: string | null | undefined): string | null {
+  try {
+    const u = new URL(String(url ?? '').trim());
+    if (!/^https?:$/.test(u.protocol)) return null;
+    return `${u.hostname.toLowerCase().replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '').toLowerCase()}${u.search}`;
+  } catch { return null; }
+}
+/** Les autres fiches de la carte qui pointent sur la même vitrine. */
+export async function showcaseSiblings(contactId: string, url: string): Promise<Array<{ id: string; name: string }>> {
+  const key = showcaseKey(url);
+  if (!key) return [];
+  const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const host = key.split('/')[0];
+  const { data } = await sb.from('network_contacts').select('id,name,website').ilike('website', `%${host}%`).limit(500);
+  return ((data ?? []) as Array<{ id: string; name: string; website: string | null }>)
+    .filter((c) => c.id !== contactId && showcaseKey(c.website) === key)
+    .map((c) => ({ id: c.id, name: c.name }));
+}
+
+/** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
+ *  partagée), la lecture du site est réutilisée : seul l'enregistrement et le diff sont faits pour cette fiche. */
+export async function runDealerStock(contactId: string, url: string, submittedBy: string, prefetched?: DealerStockResult): Promise<DealerStockSummary> {
   const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
   const startedAt = new Date().toISOString();
   // started_at = LE MÊME instant que first_seen_at / last_seen_at des véhicules
@@ -1356,8 +1379,8 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       lastProgressAt = Date.now();
       void sb.from('network_stock_runs').update({ pages, total: vehicles }).eq('id', runId);
     };
-    const stock = await fetchDealerStock(url, onProgress);
-    const currencies = [...new Set(stock.vehicles.map((v) => (v.currency ?? 'EUR').toUpperCase()).filter((c) => c !== 'EUR'))];
+    const stock: DealerStockResult = prefetched ? { ...prefetched, warnings: [...prefetched.warnings] } : await fetchDealerStock(url, onProgress);
+    const currencies = prefetched ? [] : [...new Set(stock.vehicles.map((v) => (v.currency ?? 'EUR').toUpperCase()).filter((c) => c !== 'EUR'))];
     if (currencies.length > 0) {
       const fx = await getFxRates();
       for (const c of currencies) {
@@ -1367,7 +1390,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
           : `Prix en ${c} sur le site — devise sans taux connu, affichés tels quels`);
       }
     }
-    if (zyteCallsThisRun > 0) stock.warnings.push(`${zyteCallsThisRun} page(s) lue(s) via Zyte (site protégé par Cloudflare) — relevé payant`);
+    if (!prefetched && zyteCallsThisRun > 0) stock.warnings.push(`${zyteCallsThisRun} page(s) lue(s) via Zyte (site protégé par Cloudflare) — relevé payant`);
     // GARDE-FOU (01/10, constat Van Mossel : reconnu « datamotive », 0
     // véhicule) : un relevé vide sur un site reconnu n'est pas un stock vide,
     // c'est une lecture ratée — on n'écrit rien et on ne marque rien disparu.
@@ -1474,6 +1497,18 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     void resolveLearningCase('dealer_site_unknown', host, `relevé réussi (${stock.provider}, ${stock.vehicles.length} véhicules)`);
     void resolveLearningCase('dealer_scan_empty', host, `relevé réussi (${stock.provider}, ${stock.vehicles.length} véhicules)`);
     console.warn(`[DEALER_STOCK] ${url} : ${stock.provider}, ${stock.vehicles.length} véhicules (${newCount} nouveaux, ${goneCount} disparus, ${priceChanges} prix changés) — ${submittedBy}`);
+    // VITRINE PARTAGÉE (03/11) : les autres fiches sur le même site reçoivent le MÊME relevé (enregistrement et
+    // diff par fiche, une seule lecture du site). Un échec sur une fiche sœur ne défait pas celui-ci.
+    if (!prefetched) {
+      const siblings = await showcaseSiblings(contactId, url).catch(() => []);
+      for (const sib of siblings) {
+        try {
+          const shared: DealerStockResult = { ...stock, warnings: [...stock.warnings, `relevé partagé : même vitrine, lue une fois (${siblings.length + 1} fiches)`] };
+          await runDealerStock(sib.id, url, `${submittedBy} · vitrine partagée`, shared);
+        } catch (e) { console.warn(`[DEALER_STOCK] vitrine partagée → ${sib.name} : ${e instanceof Error ? e.message : String(e)}`); }
+      }
+      if (siblings.length) stock.warnings.push(`relevé partagé avec ${siblings.length} autre(s) fiche(s) sur la même vitrine : ${siblings.map((x) => x.name).join(', ')}`);
+    }
     return { provider: stock.provider, total: stock.vehicles.length, newCount, goneCount, priceChanges, pages: stock.pages, warnings: stock.warnings, runId };
   } catch (e) {
     let msg = e instanceof Error ? e.message : String(e);

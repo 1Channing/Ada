@@ -13,7 +13,7 @@
  * matin : 3 h, elles partent à 5 h). Bilan en warn → worker_logs.
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
-import { runDealerStock } from './dealerStock';
+import { runDealerStock, showcaseKey } from './dealerStock';
 
 // 03/11 (décision Channing) : créneau 1 h Paris, TOUTES les vitrines enregistrées, quotidien par défaut ;
 // « weekly » = relevée si plus de 6 jours ; « off » = jamais. Les vitrines jamais lues avec succès partent
@@ -64,6 +64,10 @@ export async function runWeeklyDealerStocks(force = false): Promise<void> {
       if (done && (done.warnings ?? []).some((w) => /Zyte/i.test(w))) { skipped.push(`${c.name} (Zyte, payant)`); continue; }
       due.push(c);
     }
+    // VITRINE PARTAGÉE (03/11) : une seule lecture par site, le relevé est recopié sur les fiches sœurs par runDealerStock.
+    const seenShowcase = new Set<string>();
+    const dueUnique = due.filter((c) => { const k = showcaseKey(c.website) ?? c.id; if (seenShowcase.has(k)) { skipped.push(`${c.name} (même vitrine, relevé partagé)`); return false; } seenShowcase.add(k); return true; });
+    due.length = 0; due.push(...dueUnique);
     if (due.length === 0) { console.warn(`[DEALER_STOCK_WEEKLY] rien à relever${skipped.length ? ` · ignorés : ${skipped.join(', ')}` : ''}`); return; }
     console.warn(`[DEALER_STOCK_WEEKLY] ${due.length} concession(s) à relever : ${due.map((c) => c.name).join(', ')}${skipped.length ? ` · ignorés : ${skipped.join(', ')}` : ''}`);
     let ok = 0, ko = 0;
