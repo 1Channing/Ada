@@ -60,23 +60,38 @@ type Tab = 'stock' | 'new' | 'gone' | 'price';
 const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
 const days = (a: string | null, b: string | null) => (a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000)) : null);
 
-/** DISTRIBUTION DES PRIX (03/11) : histogramme SVG de la sélection, quartiles, et la médiane des disparus
- *  sous les mêmes filtres — ce qui part face à ce qui reste. */
+/** DISTRIBUTION DES PRIX (03/11, revu le soir même : « tranches de 10 000 €, pas proportionnelles ; on voit les
+ *  axes, il est écrasé ») : histogramme SVG par tranches FIXES de 10 000 €, la queue au-delà du 99e centile
+ *  regroupée dans une dernière tranche « et + », axes et libellés par tranche, médiane de la sélection et
+ *  médiane des disparus sous les mêmes filtres en repères verticaux. */
+const STEP = 10_000;
 function PriceDistribution({ prices, gone, label }: { prices: number[]; gone: number[]; label: string }) {
   if (prices.length === 0) return <p className="text-xs text-slate-400">Aucun prix dans la sélection.</p>;
   const q = (xs: number[], f: number) => xs[Math.min(xs.length - 1, Math.floor((xs.length - 1) * f))];
   const min = prices[0], max = prices[prices.length - 1];
-  const buckets = Math.min(16, Math.max(6, Math.round(Math.sqrt(prices.length))));
-  const width = Math.max(1, (max - min) / buckets);
-  const counts = Array.from({ length: buckets }, () => 0);
-  for (const p of prices) counts[Math.min(buckets - 1, Math.floor((p - min) / width))]++;
-  const top = Math.max(...counts, 1);
-  const W = 720, H = 140, padL = 8, padB = 22, bw = (W - padL * 2) / buckets;
-  const x = (p: number) => padL + ((p - min) / Math.max(1, max - min)) * (W - padL * 2);
   const med = q(prices, 0.5), goneMed = gone.length ? q(gone, 0.5) : null;
+  const lo = Math.floor(min / STEP) * STEP;
+  // Dernière tranche pleine = celle du 99e centile (au moins 3 tranches) ; tout ce qui dépasse va dans « et + ».
+  const p99 = q(prices, 0.99);
+  const hiFull = Math.max(lo + 3 * STEP, Math.ceil((p99 + 1) / STEP) * STEP);
+  const nFull = Math.round((hiFull - lo) / STEP);
+  const hasTail = max >= hiFull;
+  const n = nFull + (hasTail ? 1 : 0);
+  const counts = Array.from({ length: n }, () => 0);
+  const goneCounts = Array.from({ length: n }, () => 0);
+  const idx = (p: number) => Math.min(n - 1, Math.max(0, Math.floor((p - lo) / STEP)));
+  for (const p of prices) counts[idx(p)]++;
+  for (const p of gone) goneCounts[idx(p)]++;
+  const top = Math.max(...counts, 1);
+  const W = 960, H = 300, padL = 44, padR = 12, padT = 18, padB = 40;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const bw = plotW / n;
+  const xOf = (p: number) => padL + Math.min(n, Math.max(0, (p - lo) / STEP)) * bw;
+  const k = (v: number) => `${Math.round(v / 1000)} k€`;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(top * f));
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 mb-2">
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600 mb-3">
         <span><strong className="text-slate-900">{prices.length}</strong> {label} avec prix</span>
         <span>min <strong>{fmtMoney(min, 'EUR')}</strong></span>
         <span>quart bas <strong>{fmtMoney(q(prices, 0.25), 'EUR')}</strong></span>
@@ -85,16 +100,32 @@ function PriceDistribution({ prices, gone, label }: { prices: number[]; gone: nu
         <span>max <strong>{fmtMoney(max, 'EUR')}</strong></span>
         {goneMed != null && <span className="text-amber-700">disparus (mêmes filtres) : {gone.length}, médiane <strong>{fmtMoney(goneMed, 'EUR')}</strong>{med > 0 ? ` (${goneMed >= med ? '+' : ''}${Math.round(((goneMed - med) / med) * 100)} % vs sélection)` : ''}</span>}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-36" role="img" aria-label="Distribution des prix">
-        {counts.map((c, i) => {
-          const h = (c / top) * (H - padB - 6);
-          return <g key={i}><rect x={padL + i * bw + 1} y={H - padB - h} width={Math.max(1, bw - 2)} height={h} rx={2} fill="#2563eb" opacity={0.75} /><text x={padL + i * bw + bw / 2} y={H - padB - h - 3} fontSize={9} textAnchor="middle" fill="#475569">{c || ''}</text></g>;
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 'min(44vh, 320px)' }} role="img" aria-label="Distribution des prix par tranches de 10 000 €">
+        {ticks.map((t) => {
+          const y = padT + plotH - (t / top) * plotH;
+          return <g key={t}><line x1={padL} x2={W - padR} y1={y} y2={y} stroke="#e2e8f0" /><text x={padL - 6} y={y + 3} fontSize={10} textAnchor="end" fill="#64748b">{t}</text></g>;
         })}
-        <line x1={x(med)} x2={x(med)} y1={4} y2={H - padB} stroke="#1e3a8a" strokeDasharray="4 3" />
-        {goneMed != null && goneMed >= min && goneMed <= max && <line x1={x(goneMed)} x2={x(goneMed)} y1={4} y2={H - padB} stroke="#b45309" strokeDasharray="2 3" />}
-        <text x={padL} y={H - 6} fontSize={10} fill="#64748b">{fmtMoney(min, 'EUR')}</text>
-        <text x={W - padL} y={H - 6} fontSize={10} fill="#64748b" textAnchor="end">{fmtMoney(max, 'EUR')}</text>
-        <text x={W / 2} y={H - 6} fontSize={10} fill="#64748b" textAnchor="middle">tranches de {fmtMoney(width, 'EUR')}</text>
+        {counts.map((c, i) => {
+          const h = (c / top) * plotH;
+          const gh = (goneCounts[i] / top) * plotH;
+          const x = padL + i * bw;
+          const tail = hasTail && i === n - 1;
+          return (
+            <g key={i}>
+              <rect x={x + 3} y={padT + plotH - h} width={Math.max(1, bw - 6)} height={h} rx={3} fill={tail ? '#94a3b8' : '#2563eb'} opacity={0.8} />
+              {gh > 0 && <rect x={x + 3} y={padT + plotH - gh} width={Math.max(1, bw - 6)} height={gh} rx={3} fill="none" stroke="#b45309" strokeWidth={1.5} strokeDasharray="3 2" />}
+              {c > 0 && <text x={x + bw / 2} y={padT + plotH - h - 4} fontSize={11} textAnchor="middle" fill="#0f172a" fontWeight={600}>{c}</text>}
+              <text x={x + bw / 2} y={H - padB + 14} fontSize={10} textAnchor="middle" fill="#475569">{tail ? `${k(lo + i * STEP)} et +` : `${k(lo + i * STEP)}–${k(lo + (i + 1) * STEP)}`}</text>
+            </g>
+          );
+        })}
+        <line x1={padL} x2={W - padR} y1={padT + plotH} y2={padT + plotH} stroke="#94a3b8" />
+        <line x1={padL} x2={padL} y1={padT} y2={padT + plotH} stroke="#94a3b8" />
+        <line x1={xOf(med)} x2={xOf(med)} y1={padT} y2={padT + plotH} stroke="#1e3a8a" strokeWidth={1.5} strokeDasharray="5 3" />
+        <text x={xOf(med) + 4} y={padT + 10} fontSize={10} fill="#1e3a8a">médiane {fmtMoney(med, 'EUR')}</text>
+        {goneMed != null && <line x1={xOf(goneMed)} x2={xOf(goneMed)} y1={padT} y2={padT + plotH} stroke="#b45309" strokeWidth={1.5} strokeDasharray="2 3" />}
+        {goneMed != null && <text x={xOf(goneMed) + 4} y={padT + 22} fontSize={10} fill="#b45309">disparus {fmtMoney(goneMed, 'EUR')}</text>}
+        <text x={W - padR} y={H - 6} fontSize={10} textAnchor="end" fill="#64748b">tranches de {fmtMoney(STEP, 'EUR')} · pointillés ambre : disparus sous les mêmes filtres</text>
       </svg>
     </div>
   );
@@ -232,7 +263,7 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[96vw] h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-3 border-b border-slate-200 flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <h3 className="font-semibold text-slate-900 truncate">Stock de {name}</h3>
