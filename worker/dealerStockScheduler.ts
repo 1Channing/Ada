@@ -15,8 +15,11 @@
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { runDealerStock } from './dealerStock';
 
-const TICK_MS = 60 * 60 * 1000;
-const RUN_HOUR_PARIS = 3;
+// 03/11 (décision Channing) : créneau 1 h Paris, TOUTES les vitrines enregistrées, quotidien par défaut ;
+// « weekly » = relevée si plus de 6 jours ; « off » = jamais. Les vitrines jamais lues avec succès partent
+// aussi : leur échec est enregistré (boîte à apprendre) pour être corrigé le lendemain.
+const TICK_MS = 15 * 60 * 1000;
+const RUN_HOUR_PARIS = 1;
 const STALE_DAYS = 6;
 let running = false;
 let lastDay = '';
@@ -25,14 +28,18 @@ const parisHour = () => Number(new Intl.DateTimeFormat('fr-FR', { hour: 'numeric
 const parisDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
 
 type Run = { contact_id: string; started_at: string; status: string; warnings: string[] | null };
-type Contact = { id: string; name: string; website: string | null };
+type Contact = { id: string; name: string; website: string | null; stock_frequency?: string | null };
 
 export async function runWeeklyDealerStocks(force = false): Promise<void> {
   if (running) return;
   running = true;
   try {
     const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const { data: contacts } = await sb.from('network_contacts').select('id,name,website').not('website', 'is', null).limit(2000);
+    // Colonne stock_frequency absente tant que le SQL du 03/11 n'est pas collé : tout le monde en quotidien.
+    const first = await sb.from('network_contacts').select('id,name,website,stock_frequency').not('website', 'is', null).limit(2000);
+    const contacts = first.error && /stock_frequency/.test(first.error.message)
+      ? (await sb.from('network_contacts').select('id,name,website').not('website', 'is', null).limit(2000)).data
+      : first.data;
     const { data: runs } = await sb.from('network_stock_runs').select('contact_id,started_at,status,warnings').order('started_at', { ascending: false }).limit(5000);
     const lastByContact = new Map<string, Run>();
     const lastDoneByContact = new Map<string, Run>();
@@ -43,13 +50,18 @@ export async function runWeeklyDealerStocks(force = false): Promise<void> {
     const cutoff = Date.now() - STALE_DAYS * 86_400_000;
     const due: Contact[] = [];
     const skipped: string[] = [];
+    const todayCutoff = Date.now() - 20 * 3600_000;
     for (const c of (contacts ?? []) as Contact[]) {
       if (!c.website || !/^https?:\/\//i.test(c.website)) continue;
+      const freq = c.stock_frequency ?? 'daily';
+      if (freq === 'off') { skipped.push(`${c.name} (arrêté)`); continue; }
       const done = lastDoneByContact.get(c.id);
-      if (!done) continue;                                        // jamais relevé avec succès : reste manuel
-      const last = lastByContact.get(c.id)!;
-      if (!force && Date.parse(last.started_at) > cutoff) continue;  // relevé récent (réussi ou non)
-      if ((done.warnings ?? []).some((w) => /Zyte/i.test(w))) { skipped.push(`${c.name} (Zyte, payant)`); continue; }
+      const last = lastByContact.get(c.id);
+      if (!force && last) {
+        if (Date.parse(last.started_at) > todayCutoff) continue;                       // déjà relevée aujourd'hui
+        if (freq === 'weekly' && Date.parse(last.started_at) > cutoff) continue;      // hebdomadaire : moins de 6 j
+      }
+      if (done && (done.warnings ?? []).some((w) => /Zyte/i.test(w))) { skipped.push(`${c.name} (Zyte, payant)`); continue; }
       due.push(c);
     }
     if (due.length === 0) { console.warn(`[DEALER_STOCK_WEEKLY] rien à relever${skipped.length ? ` · ignorés : ${skipped.join(', ')}` : ''}`); return; }
@@ -57,7 +69,7 @@ export async function runWeeklyDealerStocks(force = false): Promise<void> {
     let ok = 0, ko = 0;
     for (const c of due) {
       try {
-        const s = await runDealerStock(c.id, c.website!, 'ADA (hebdo)');
+        const s = await runDealerStock(c.id, c.website!, 'ADA (nuit)');
         ok++;
         console.warn(`[DEALER_STOCK_WEEKLY] ${c.name} : ${s.total} véhicules, ${s.newCount} nouveaux, ${s.goneCount} sortis, ${s.priceChanges} prix bougés (${s.provider}, ${s.pages} page(s))`);
       } catch (e) {
@@ -78,5 +90,5 @@ export function startDealerStockScheduler(): void {
   };
   setInterval(tick, TICK_MS);
   setTimeout(tick, 120_000);
-  console.warn(`[DEALER_STOCK_WEEKLY] ordonnanceur actif (chaque nuit ${RUN_HOUR_PARIS} h Paris, concessions non relevées depuis ${STALE_DAYS} j, lecture directe seulement)`);
+  console.warn(`[DEALER_STOCK_WEEKLY] ordonnanceur actif (chaque nuit ${RUN_HOUR_PARIS} h Paris, toutes les vitrines : quotidien par défaut, hebdomadaire = ${STALE_DAYS} j, lecture directe seulement)`);
 }

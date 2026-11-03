@@ -4,6 +4,8 @@ import { useAuth } from '../services/auth';
 import { listStockRuns, listStockVehicles, STATUS_LABEL, priceMoves, startDealerScan, isDealerScanning, subscribeDealerScans, takeDealerScanOutcome, type StockRun, type StockVehicle } from '../services/dealerStock';
 import { currentFx, toEur } from '../services/fxRates';
 import { fmtMoney } from '../lib/fx';
+import { trimOf, fuelFamily, FUEL_LABEL, type FuelFamily } from '../services/stockCompare';
+import { BarChart3 } from 'lucide-react';
 
 const eur = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} €`;
 const shortDate = (s: string) => new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
@@ -58,6 +60,46 @@ type Tab = 'stock' | 'new' | 'gone' | 'price';
 const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
 const days = (a: string | null, b: string | null) => (a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000)) : null);
 
+/** DISTRIBUTION DES PRIX (03/11) : histogramme SVG de la sélection, quartiles, et la médiane des disparus
+ *  sous les mêmes filtres — ce qui part face à ce qui reste. */
+function PriceDistribution({ prices, gone, label }: { prices: number[]; gone: number[]; label: string }) {
+  if (prices.length === 0) return <p className="text-xs text-slate-400">Aucun prix dans la sélection.</p>;
+  const q = (xs: number[], f: number) => xs[Math.min(xs.length - 1, Math.floor((xs.length - 1) * f))];
+  const min = prices[0], max = prices[prices.length - 1];
+  const buckets = Math.min(16, Math.max(6, Math.round(Math.sqrt(prices.length))));
+  const width = Math.max(1, (max - min) / buckets);
+  const counts = Array.from({ length: buckets }, () => 0);
+  for (const p of prices) counts[Math.min(buckets - 1, Math.floor((p - min) / width))]++;
+  const top = Math.max(...counts, 1);
+  const W = 720, H = 140, padL = 8, padB = 22, bw = (W - padL * 2) / buckets;
+  const x = (p: number) => padL + ((p - min) / Math.max(1, max - min)) * (W - padL * 2);
+  const med = q(prices, 0.5), goneMed = gone.length ? q(gone, 0.5) : null;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 mb-2">
+        <span><strong className="text-slate-900">{prices.length}</strong> {label} avec prix</span>
+        <span>min <strong>{fmtMoney(min, 'EUR')}</strong></span>
+        <span>quart bas <strong>{fmtMoney(q(prices, 0.25), 'EUR')}</strong></span>
+        <span>médiane <strong className="text-brand-encre">{fmtMoney(med, 'EUR')}</strong></span>
+        <span>quart haut <strong>{fmtMoney(q(prices, 0.75), 'EUR')}</strong></span>
+        <span>max <strong>{fmtMoney(max, 'EUR')}</strong></span>
+        {goneMed != null && <span className="text-amber-700">disparus (mêmes filtres) : {gone.length}, médiane <strong>{fmtMoney(goneMed, 'EUR')}</strong>{med > 0 ? ` (${goneMed >= med ? '+' : ''}${Math.round(((goneMed - med) / med) * 100)} % vs sélection)` : ''}</span>}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-36" role="img" aria-label="Distribution des prix">
+        {counts.map((c, i) => {
+          const h = (c / top) * (H - padB - 6);
+          return <g key={i}><rect x={padL + i * bw + 1} y={H - padB - h} width={Math.max(1, bw - 2)} height={h} rx={2} fill="#2563eb" opacity={0.75} /><text x={padL + i * bw + bw / 2} y={H - padB - h - 3} fontSize={9} textAnchor="middle" fill="#475569">{c || ''}</text></g>;
+        })}
+        <line x1={x(med)} x2={x(med)} y1={4} y2={H - padB} stroke="#1e3a8a" strokeDasharray="4 3" />
+        {goneMed != null && goneMed >= min && goneMed <= max && <line x1={x(goneMed)} x2={x(goneMed)} y1={4} y2={H - padB} stroke="#b45309" strokeDasharray="2 3" />}
+        <text x={padL} y={H - 6} fontSize={10} fill="#64748b">{fmtMoney(min, 'EUR')}</text>
+        <text x={W - padL} y={H - 6} fontSize={10} fill="#64748b" textAnchor="end">{fmtMoney(max, 'EUR')}</text>
+        <text x={W / 2} y={H - 6} fontSize={10} fill="#64748b" textAnchor="middle">tranches de {fmtMoney(width, 'EUR')}</text>
+      </svg>
+    </div>
+  );
+}
+
 export function DealerStockModal({ contactId, name, url, onClose }: { contactId: string; name: string; url: string; onClose: () => void }) {
   const { displayName, email } = useAuth();
   const [vehicles, setVehicles] = useState<StockVehicle[]>([]);
@@ -67,6 +109,15 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('stock');
   const [query, setQuery] = useState('');
+  // FILTRES D'ANALYSE (03/11, Channing : « trier par marque, modèle, carburant, année min, année max, finition »)
+  // + GRAPHIQUE de distribution des prix sur la sélection.
+  const [fBrand, setFBrand] = useState('');
+  const [fModel, setFModel] = useState('');
+  const [fFuel, setFFuel] = useState<FuelFamily | ''>('');
+  const [fYearMin, setFYearMin] = useState<number | null>(null);
+  const [fYearMax, setFYearMax] = useState<number | null>(null);
+  const [fTrim, setFTrim] = useState('');
+  const [showChart, setShowChart] = useState(false);
   // Relevé en cours : lancé depuis cette page (service d'arrière-plan) OU
   // encore « running » côté base (page rechargée pendant le relevé).
   const [localScan, setLocalScan] = useState(() => isDealerScanning(contactId));
@@ -139,8 +190,35 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
     return d.length >= 3 ? d[Math.floor(d.length / 2)] : null;
   }, [gone]);
 
+  // Énergie et finition lues une fois par véhicule (colonne du relevé, sinon le titre).
+  const facets = useMemo(() => {
+    const m = new Map<string, { fuel: FuelFamily | null; trim: string | null }>();
+    for (const v of vehicles) m.set(v.id, { fuel: fuelFamily(v.fuel) ?? fuelFamily(v.title), trim: trimOf(v.title) });
+    return m;
+  }, [vehicles]);
+  const uniq = (xs: Array<string | null | undefined>) => [...new Set(xs.map((x) => (x ?? '').trim().toUpperCase()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+  const brandOptions = useMemo(() => uniq(vehicles.map((v) => v.brand)), [vehicles]);
+  const modelOptions = useMemo(() => uniq(vehicles.filter((v) => !fBrand || (v.brand ?? '').toUpperCase() === fBrand).map((v) => v.model)), [vehicles, fBrand]);
+  const trimOptions = useMemo(() => uniq(vehicles.filter((v) => (!fBrand || (v.brand ?? '').toUpperCase() === fBrand) && (!fModel || (v.model ?? '').toUpperCase() === fModel)).map((v) => facets.get(v.id)?.trim)), [vehicles, facets, fBrand, fModel]);
+  const yearOptions = useMemo(() => [...new Set(vehicles.map((v) => v.year).filter((y): y is number => y != null))].sort((a, b) => a - b), [vehicles]);
+  const matchesFilters = (v: StockVehicle): boolean => {
+    if (fBrand && (v.brand ?? '').toUpperCase() !== fBrand) return false;
+    if (fModel && (v.model ?? '').toUpperCase() !== fModel) return false;
+    const f = facets.get(v.id);
+    if (fFuel && f?.fuel !== fFuel) return false;
+    if (fTrim && (f?.trim ?? '') !== fTrim) return false;
+    if (fYearMin != null && (v.year == null || v.year < fYearMin)) return false;
+    if (fYearMax != null && (v.year == null || v.year > fYearMax)) return false;
+    return true;
+  };
+  const filtersActive = Boolean(fBrand || fModel || fFuel || fTrim || fYearMin != null || fYearMax != null);
   const rows = (tab === 'stock' ? inStock : tab === 'new' ? fresh : tab === 'gone' ? gone : priced)
+    .filter(matchesFilters)
     .filter((v) => !query.trim() || `${v.title ?? ''} ${v.brand ?? ''} ${v.model ?? ''} ${v.plate ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()));
+  // Distribution des prix (en euros) de la sélection, et celle des DISPARUS sous les mêmes filtres (ce qui se vend).
+  const pricesOf = (list: StockVehicle[]) => list.map((v) => (v.price != null && v.price > 0 ? toEur(v.price, v.currency ?? 'EUR') : null)).filter((p): p is number => p != null).sort((a, b) => a - b);
+  const selPrices = useMemo(() => pricesOf(rows), [rows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gonePrices = useMemo(() => pricesOf(gone.filter(matchesFilters)), [gone, fBrand, fModel, fFuel, fTrim, fYearMin, fYearMax, facets]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scan = async () => {
     setError(null); setNotice(null);
@@ -177,6 +255,22 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
           {tabBtn('price', 'Prix bougé depuis l\'arrivée', priced.length)}
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrer : modèle, plaque…" className="ml-auto px-3 py-1.5 rounded-lg border border-slate-300 text-sm w-56" />
         </div>
+        <div className="px-5 pt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <select value={fBrand} onChange={(e) => { setFBrand(e.target.value); setFModel(''); setFTrim(''); }} className={`px-2 py-1 rounded-lg border bg-white ${fBrand ? 'border-brand-ocean text-brand-encre' : 'border-slate-300'}`}><option value="">Marque : toutes</option>{brandOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select>
+          <select value={fModel} onChange={(e) => { setFModel(e.target.value); setFTrim(''); }} className={`px-2 py-1 rounded-lg border bg-white ${fModel ? 'border-brand-ocean text-brand-encre' : 'border-slate-300'}`}><option value="">Modèle : tous</option>{modelOptions.map((m) => <option key={m} value={m}>{m}</option>)}</select>
+          <select value={fFuel} onChange={(e) => setFFuel(e.target.value as FuelFamily | '')} className={`px-2 py-1 rounded-lg border bg-white ${fFuel ? 'border-brand-ocean text-brand-encre' : 'border-slate-300'}`}><option value="">Carburant : tous</option>{(Object.keys(FUEL_LABEL) as FuelFamily[]).map((f) => <option key={f} value={f}>{FUEL_LABEL[f]}</option>)}</select>
+          <select value={fYearMin ?? ''} onChange={(e) => setFYearMin(e.target.value === '' ? null : Number(e.target.value))} className={`px-2 py-1 rounded-lg border bg-white ${fYearMin != null ? 'border-brand-ocean text-brand-encre' : 'border-slate-300'}`}><option value="">Année min</option>{yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}</select>
+          <select value={fYearMax ?? ''} onChange={(e) => setFYearMax(e.target.value === '' ? null : Number(e.target.value))} className={`px-2 py-1 rounded-lg border bg-white ${fYearMax != null ? 'border-brand-ocean text-brand-encre' : 'border-slate-300'}`}><option value="">Année max</option>{yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}</select>
+          <select value={fTrim} onChange={(e) => setFTrim(e.target.value)} className={`px-2 py-1 rounded-lg border bg-white ${fTrim ? 'border-brand-ocean text-brand-encre' : 'border-slate-300'}`}><option value="">Finition : toutes</option>{trimOptions.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+          {filtersActive && <button onClick={() => { setFBrand(''); setFModel(''); setFFuel(''); setFYearMin(null); setFYearMax(null); setFTrim(''); }} className="text-brand-ocean hover:underline">Effacer</button>}
+          <span className="text-slate-400">{rows.length} véhicule{rows.length > 1 ? 's' : ''}</span>
+          <button onClick={() => setShowChart((v) => !v)} className={`ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border ${showChart ? 'bg-brand-ocean border-brand-ocean text-white' : 'border-slate-300 text-brand-ocean hover:bg-blue-50'}`}><BarChart3 className="w-3.5 h-3.5" /> Distribution des prix</button>
+        </div>
+        {showChart && (
+          <div className="mx-5 mt-2">
+            <PriceDistribution prices={selPrices} gone={gonePrices} label={tab === 'gone' ? 'disparus' : tab === 'new' ? 'nouveaux' : tab === 'price' ? 'prix bougés' : 'en stock'} />
+          </div>
+        )}
         {(error || notice) && <p className={`mx-5 mt-2 text-xs ${error ? 'text-red-600' : 'text-emerald-700'}`}>{error ?? notice}</p>}
         {lastFailure && !scanning && lastFailure.error !== error && (
           <p className="mx-5 mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">

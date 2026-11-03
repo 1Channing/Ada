@@ -358,7 +358,7 @@ export function Carte() {
   };
   const startEdit = (c: NetworkContact) => {
     const { id, name, kind, role, country, city, lat, lng, contact_name, phone, email, website, relation, vehicle_types, monthly_volume, opportunity, margin, reliability, comment, notes, market_share, stock_total } = c;
-    setEditing({ id, name, kind, role, country, city, lat, lng, contact_name, phone, email, website, relation, vehicle_types, monthly_volume, opportunity, margin, reliability, comment, notes, market_share, stock_total, people: Array.isArray(c.people) ? c.people : [] });
+    setEditing({ id, name, kind, role, country, city, lat, lng, contact_name, phone, email, website, relation, vehicle_types, monthly_volume, opportunity, margin, reliability, comment, notes, market_share, stock_total, stock_frequency: c.stock_frequency ?? 'daily', people: Array.isArray(c.people) ? c.people : [] });
     setEditModels(c.models.map((m) => ({ brand: m.brand, model: m.model, qty: m.qty, note: m.note })));
     setPanelOpen(true);
   };
@@ -713,6 +713,7 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
   const rows: Array<[string, string]> = [
     ['Véhicules', c.vehicle_types], ['Volume mensuel', c.monthly_volume], ['Opportunité', c.opportunity],
     ['Marge potentielle', c.margin], ['Fiabilité', c.reliability],
+    ['Relevé auto', c.website ? ({ daily: 'quotidien (1 h)', weekly: 'hebdomadaire', off: 'arrêté' } as Record<string, string>)[c.stock_frequency ?? 'daily'] : ''],
   ].filter((r): r is [string, string] => Boolean(r[1]));
   return (
     <div className="flex flex-col h-full">
@@ -896,7 +897,15 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
             ))}
           </div>
         </div>
-        <div><label className={label}>Vitrine (URL du stock)</label><input value={v.website ?? ''} onChange={(e) => set({ website: e.target.value })} className={inp} placeholder="https://…" /></div>
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <div><label className={label}>Vitrine (URL du stock)</label><input value={v.website ?? ''} onChange={(e) => set({ website: e.target.value })} className={inp} placeholder="https://…" /></div>
+          {/* RELEVÉ AUTOMATIQUE (03/11, Channing) : quotidien par défaut, hebdomadaire ou arrêté — lu par le worker à 1 h. */}
+          <div><label className={label}>Relevé auto</label>
+            <select value={v.stock_frequency ?? 'daily'} onChange={(e) => set({ stock_frequency: e.target.value as 'daily' | 'weekly' | 'off' })} className={inp} title="Relevé automatique de la vitrine par Ada, chaque nuit à 1 h">
+              <option value="daily">quotidien</option><option value="weekly">hebdomadaire</option><option value="off">arrêté</option>
+            </select>
+          </div>
+        </div>
         <div>
           <label className={label}>Relation</label>
           <div className="flex flex-wrap gap-1.5">

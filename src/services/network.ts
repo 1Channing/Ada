@@ -36,6 +36,8 @@ export interface NetworkContact {
   notes: string;
   market_share: number | null;
   stock_total: number | null;
+  /** Relevé automatique de la vitrine (03/11) : quotidien (défaut), hebdomadaire ou arrêté. Absent tant que le SQL du 03/11 n'est pas collé. */
+  stock_frequency?: 'daily' | 'weekly' | 'off';
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -101,6 +103,11 @@ export async function saveContact(input: ContactInput, userId: string | null): P
   let peopleDropped = false;
   if (error && /people/.test(error.message) && /column|schema cache/i.test(error.message)) {
     delete row.people; peopleDropped = true;
+    ({ data, error } = await sb.from('network_contacts').upsert(row, { onConflict: 'id' }).select('id').maybeSingle());
+  }
+  // Fréquence de relevé (03/11) : colonne absente tant que le SQL n'est pas collé → enregistré sans.
+  if (error && /stock_frequency/.test(error.message) && /column|schema cache/i.test(error.message)) {
+    delete row.stock_frequency;
     ({ data, error } = await sb.from('network_contacts').upsert(row, { onConflict: 'id' }).select('id').maybeSingle());
   }
   if (error) return { id: null, error: frenchDbError(error.message) };
