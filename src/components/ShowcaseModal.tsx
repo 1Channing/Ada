@@ -9,7 +9,7 @@
  * Les services et le worker ne changent pas : cette fenêtre ne fait que réunir ce qui existait.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, RefreshCw, X, Loader2, BarChart3, Scale, Boxes, ListChecks, Radar, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
+import { ExternalLink, RefreshCw, X, Loader2, BarChart3, Scale, Boxes, ListChecks, Radar, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Info } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listStockRuns, listStockVehicles, STATUS_LABEL, priceMoves, startDealerScan, isDealerScanning, subscribeDealerScans, takeDealerScanOutcome, type StockRun, type StockVehicle } from '../services/dealerStock';
 import { toEur, loadFxRates } from '../services/fxRates';
@@ -25,6 +25,8 @@ import { loadLearnedModelsByBrand, mergeKnownModels } from '../lib/offers/knownM
 import { setStockFrequency } from '../services/network';
 
 type Tab = 'stock' | 'compare' | 'analyse' | 'runs';
+const ROTATION_HELP = 'Rotation = disparus ÷ (en stock + disparus), sur toutes les voitures de ce modèle vues par Ada depuis le premier relevé. 30 % = trois voitures sur dix ont quitté la vitrine (vendues ou retirées) depuis qu\'Ada la suit. Plus c\'est haut, plus le modèle tourne vite chez ce vendeur.';
+const DAYS_HELP = 'Jours en stock (médiane) : pour les voitures disparues de ce modèle, le temps entre la mise en ligne (ou la première vue par Ada si le site ne donne pas la date) et la disparition. Si Ada n\'a vu la vitrine que deux fois, toutes les durées valent l\'écart entre ces deux relevés.';
 type StockView = 'in' | 'new' | 'gone' | 'price';
 /** TRI DU STOCK (03/11, Channing : « date d'ajout croissant / décroissant, alphabétique, prix croissant / décroissant »). */
 type StockSort = 'date_desc' | 'date_asc' | 'alpha' | 'price_asc' | 'price_desc' | 'km_asc' | 'year_desc';
@@ -368,7 +370,7 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
                   <h4 className="text-sm font-semibold text-slate-800 mb-1">Par modèle <span className="font-normal text-xs text-slate-500">— sous les filtres actifs</span></h4>
                   {byModel.length === 0 ? <p className="text-xs text-slate-400">Rien.</p> : (
                     <table className="w-full text-xs">
-                      <thead><tr className="text-left text-slate-500 border-b border-slate-200"><th className="py-1.5 pr-3 font-medium">Modèle</th><th className="py-1.5 pr-3 font-medium text-right">En stock</th><th className="py-1.5 pr-3 font-medium text-right">Médiane en stock</th><th className="py-1.5 pr-3 font-medium text-right">Disparus</th><th className="py-1.5 pr-3 font-medium text-right">Médiane disparus</th><th className="py-1.5 pr-3 font-medium text-right">Jours en stock (méd.)</th><th className="py-1.5 pr-3 font-medium text-right">Rotation</th></tr></thead>
+                      <thead><tr className="text-left text-slate-500 border-b border-slate-200"><th className="py-1.5 pr-3 font-medium">Modèle</th><th className="py-1.5 pr-3 font-medium text-right">En stock</th><th className="py-1.5 pr-3 font-medium text-right">Médiane en stock</th><th className="py-1.5 pr-3 font-medium text-right">Disparus</th><th className="py-1.5 pr-3 font-medium text-right">Médiane disparus</th><th className="py-1.5 pr-3 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end" title={DAYS_HELP}>Jours en stock (méd.) <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" aria-label={DAYS_HELP} /></span></th><th className="py-1.5 pr-3 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end" title={ROTATION_HELP}>Rotation <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" aria-label={ROTATION_HELP} /></span></th></tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {byModel.slice(0, 80).map((r) => (
                           <tr key={r.key} className="hover:bg-slate-50 cursor-pointer" onClick={() => { const [b, m] = r.key.split('|'); setFBrand(b); setFModel(m); setTab('stock'); }} title="Filtrer sur ce modèle">
@@ -384,7 +386,7 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
                       </tbody>
                     </table>
                   )}
-                  <p className="text-[10px] text-slate-400 mt-1">Rotation = disparus / (en stock + disparus) depuis le premier relevé. Clique une ligne pour filtrer le Stock sur ce modèle.</p>
+                  <p className="text-[10px] text-slate-400 mt-1">{ROTATION_HELP} Clique une ligne pour filtrer le Stock sur ce modèle.</p>
                 </div>
               </div>
             ) : (

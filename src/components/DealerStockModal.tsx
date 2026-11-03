@@ -70,62 +70,65 @@ export function PriceDistribution({ prices, gone, label }: { prices: number[]; g
   const q = (xs: number[], f: number) => xs[Math.min(xs.length - 1, Math.floor((xs.length - 1) * f))];
   const min = prices[0], max = prices[prices.length - 1];
   const med = q(prices, 0.5), goneMed = gone.length ? q(gone, 0.5) : null;
-  const lo = Math.floor(min / STEP) * STEP;
+  const lo = Math.floor(Math.min(min, gone[0] ?? min) / STEP) * STEP;
   // Dernière tranche pleine = celle du 99e centile (au moins 3 tranches) ; tout ce qui dépasse va dans « et + ».
   const p99 = q(prices, 0.99);
   const hiFull = Math.max(lo + 3 * STEP, Math.ceil((p99 + 1) / STEP) * STEP);
   const nFull = Math.round((hiFull - lo) / STEP);
-  const hasTail = max >= hiFull;
+  const hasTail = max >= hiFull || (gone.length > 0 && gone[gone.length - 1] >= hiFull);
   const n = nFull + (hasTail ? 1 : 0);
   const counts = Array.from({ length: n }, () => 0);
   const goneCounts = Array.from({ length: n }, () => 0);
   const idx = (p: number) => Math.min(n - 1, Math.max(0, Math.floor((p - lo) / STEP)));
   for (const p of prices) counts[idx(p)]++;
   for (const p of gone) goneCounts[idx(p)]++;
-  const top = Math.max(...counts, 1);
-  const W = 960, H = 300, padL = 44, padR = 12, padT = 18, padB = 40;
+  // DEUX BARRES CÔTE À CÔTE par tranche (03/11 soir, Channing : « les pointillés ne sont pas assez clairs ») :
+  // bleu = la sélection, ambre = les disparus sous les mêmes filtres, légende en tête, médianes en repères.
+  const top = Math.max(...counts, ...goneCounts, 1);
+  const W = 960, H = 300, padL = 44, padR = 12, padT = 14, padB = 40;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const bw = plotW / n;
+  const gap = 4, half = (bw - gap * 2) / 2;
   const xOf = (p: number) => padL + Math.min(n, Math.max(0, (p - lo) / STEP)) * bw;
   const k = (v: number) => `${Math.round(v / 1000)} k€`;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(top * f));
+  const Bar = ({ x, c, fill }: { x: number; c: number; fill: string }) => {
+    const h = (c / top) * plotH;
+    return <g><rect x={x} y={padT + plotH - h} width={Math.max(1, half)} height={h} rx={2} fill={fill} /><text x={x + half / 2} y={padT + plotH - h - 3} fontSize={10} textAnchor="middle" fill="#334155">{c || ''}</text></g>;
+  };
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600 mb-3">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600 mb-2">
         <span><strong className="text-slate-900">{prices.length}</strong> {label} avec prix</span>
         <span>min <strong>{fmtMoney(min, 'EUR')}</strong></span>
         <span>quart bas <strong>{fmtMoney(q(prices, 0.25), 'EUR')}</strong></span>
         <span>médiane <strong className="text-brand-encre">{fmtMoney(med, 'EUR')}</strong></span>
         <span>quart haut <strong>{fmtMoney(q(prices, 0.75), 'EUR')}</strong></span>
         <span>max <strong>{fmtMoney(max, 'EUR')}</strong></span>
-        {goneMed != null && <span className="text-amber-700">disparus (mêmes filtres) : {gone.length}, médiane <strong>{fmtMoney(goneMed, 'EUR')}</strong>{med > 0 ? ` (${goneMed >= med ? '+' : ''}${Math.round(((goneMed - med) / med) * 100)} % vs sélection)` : ''}</span>}
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs mb-2">
+        <span className="inline-flex items-center gap-1.5 text-slate-700"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#2563eb' }} /> {label} aujourd'hui ({prices.length}) — trait bleu : médiane {fmtMoney(med, 'EUR')}</span>
+        {gone.length > 0 && goneMed != null && <span className="inline-flex items-center gap-1.5 text-slate-700"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#f59e0b' }} /> disparus sous les mêmes filtres ({gone.length}) — trait ambre : médiane {fmtMoney(goneMed, 'EUR')}{med > 0 ? ` (${goneMed >= med ? '+' : ''}${Math.round(((goneMed - med) / med) * 100)} %)` : ''}</span>}
+        {hasTail && <span className="inline-flex items-center gap-1.5 text-slate-500"><span className="inline-block w-3 h-3 rounded-sm bg-slate-400" /> dernière tranche « et + » : tout ce qui dépasse</span>}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 'min(44vh, 320px)' }} role="img" aria-label="Distribution des prix par tranches de 10 000 €">
-        {ticks.map((t) => {
-          const y = padT + plotH - (t / top) * plotH;
-          return <g key={t}><line x1={padL} x2={W - padR} y1={y} y2={y} stroke="#e2e8f0" /><text x={padL - 6} y={y + 3} fontSize={10} textAnchor="end" fill="#64748b">{t}</text></g>;
-        })}
+        {ticks.map((t) => { const y = padT + plotH - (t / top) * plotH; return <g key={t}><line x1={padL} x2={W - padR} y1={y} y2={y} stroke="#e2e8f0" /><text x={padL - 6} y={y + 3} fontSize={10} textAnchor="end" fill="#64748b">{t}</text></g>; })}
         {counts.map((c, i) => {
-          const h = (c / top) * plotH;
-          const gh = (goneCounts[i] / top) * plotH;
           const x = padL + i * bw;
           const tail = hasTail && i === n - 1;
           return (
             <g key={i}>
-              <rect x={x + 3} y={padT + plotH - h} width={Math.max(1, bw - 6)} height={h} rx={3} fill={tail ? '#94a3b8' : '#2563eb'} opacity={0.8} />
-              {gh > 0 && <rect x={x + 3} y={padT + plotH - gh} width={Math.max(1, bw - 6)} height={gh} rx={3} fill="none" stroke="#b45309" strokeWidth={1.5} strokeDasharray="3 2" />}
-              {c > 0 && <text x={x + bw / 2} y={padT + plotH - h - 4} fontSize={11} textAnchor="middle" fill="#0f172a" fontWeight={600}>{c}</text>}
+              <Bar x={x + gap} c={c} fill={tail ? '#94a3b8' : '#2563eb'} />
+              {gone.length > 0 && <Bar x={x + gap + half + 2} c={goneCounts[i]} fill={tail ? '#cbd5e1' : '#f59e0b'} />}
               <text x={x + bw / 2} y={H - padB + 14} fontSize={10} textAnchor="middle" fill="#475569">{tail ? `${k(lo + i * STEP)} et +` : `${k(lo + i * STEP)}–${k(lo + (i + 1) * STEP)}`}</text>
             </g>
           );
         })}
         <line x1={padL} x2={W - padR} y1={padT + plotH} y2={padT + plotH} stroke="#94a3b8" />
         <line x1={padL} x2={padL} y1={padT} y2={padT + plotH} stroke="#94a3b8" />
-        <line x1={xOf(med)} x2={xOf(med)} y1={padT} y2={padT + plotH} stroke="#1e3a8a" strokeWidth={1.5} strokeDasharray="5 3" />
-        <text x={xOf(med) + 4} y={padT + 10} fontSize={10} fill="#1e3a8a">médiane {fmtMoney(med, 'EUR')}</text>
-        {goneMed != null && <line x1={xOf(goneMed)} x2={xOf(goneMed)} y1={padT} y2={padT + plotH} stroke="#b45309" strokeWidth={1.5} strokeDasharray="2 3" />}
-        {goneMed != null && <text x={xOf(goneMed) + 4} y={padT + 22} fontSize={10} fill="#b45309">disparus {fmtMoney(goneMed, 'EUR')}</text>}
-        <text x={W - padR} y={H - 6} fontSize={10} textAnchor="end" fill="#64748b">tranches de {fmtMoney(STEP, 'EUR')} · pointillés ambre : disparus sous les mêmes filtres</text>
+        <line x1={xOf(med)} x2={xOf(med)} y1={padT} y2={padT + plotH} stroke="#1e3a8a" strokeWidth={2} />
+        {goneMed != null && <line x1={xOf(goneMed)} x2={xOf(goneMed)} y1={padT} y2={padT + plotH} stroke="#b45309" strokeWidth={2} />}
+        <text x={W - padR} y={H - 6} fontSize={10} textAnchor="end" fill="#64748b">tranches de {fmtMoney(STEP, 'EUR')}</text>
       </svg>
     </div>
   );
