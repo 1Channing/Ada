@@ -63,6 +63,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['km', /(\bkms?\b|kilom|mil(e)?age|kilometer|chilometr|miltal|matarstallning|\bmil\b)/],
   ['co2', /co2/],
   // Dommages AVANT les prix : « ESTIMATION FRE HT » (MeltingCars) contient « ht ».
+  // « Damage report » (offre Vito Mixto 03/11) = le RAPPORT de dommages (lien), pas le montant : avant la règle des dommages.
+  ['report_url', /(damage|dommage|schaden|danni).*(report|rapport|link|url|lien)/],
   ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b)/],
   // Prix du NEUF (« Prix catalogue VN », export enchères 30/10) : une référence, pas un prix fournisseur — ignoré (reste en extras).
   ['ignore', /(catalogue|prix neuf|\bvn\b|list price|msrp|neupreis|listino)/],
@@ -179,11 +181,38 @@ export interface ParseOptions {
 /** Grille JSON-sûre : dates → « AAAA-MM-JJ », lignes vides de fin retirées. */
 export function readSupplierGrid(buf: ArrayBuffer): { sheet: string; grid: unknown[][] } {
   const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-  const sheet = wb.SheetNames[0];
-  const raw: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, raw: true, defval: null }) as unknown[][];
-  const grid = raw.map((r) => r.map((c) => (c instanceof Date ? (Number.isNaN(c.getTime()) ? null : c.toISOString().slice(0, 10)) : c)));
-  while (grid.length && grid[grid.length - 1].every((c) => c == null || c === '')) grid.pop();
-  return { sheet, grid };
+  const toGrid = (name: string): unknown[][] => {
+    const ws = wb.Sheets[name];
+    const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }) as unknown[][];
+    const grid = raw.map((r) => r.map((c) => (c instanceof Date ? (Number.isNaN(c.getTime()) ? null : c.toISOString().slice(0, 10)) : c)));
+    // LIENS DES CELLULES (offre Vito Mixto 03/11 : « Open report » est un lien vers le rapport Dekra) :
+    // l'adresse remplace le texte de la cellule, le rapport devient cliquable.
+    for (const [addr, c] of Object.entries(ws)) {
+      const link = (c as { l?: { Target?: string } })?.l?.Target;
+      if (!link || !/^https?:\/\//i.test(link) || addr.startsWith('!')) continue;
+      const { r, c: col } = XLSX.utils.decode_cell(addr);
+      if (grid[r] && col < grid[r].length) grid[r][col] = link;
+    }
+    while (grid.length && grid[grid.length - 1].every((c) => c == null || c === '')) grid.pop();
+    return grid;
+  };
+  // LA BONNE FEUILLE (offre Vito Mixto 03/11 : la première feuille « Overview » est un récapitulatif, les
+  // voitures sont sur la deuxième) : celle dont une ligne d'en-têtes reconnaît le plus de colonnes VÉHICULE
+  // (VIN, km, date, prix, modèle…) avec des lignes dessous ; à égalité la première.
+  let best = { sheet: wb.SheetNames[0], grid: toGrid(wb.SheetNames[0]), score: -1 };
+  for (const name of wb.SheetNames) {
+    const grid = name === best.sheet && best.score === -1 ? best.grid : toGrid(name);
+    let score = 0;
+    for (let i = 0; i < Math.min(grid.length, 40); i++) {
+      const row = grid[i] ?? [];
+      const fields = row.map((c) => (typeof c === 'string' && c.trim() ? guessField(c) : 'ignore'));
+      const strong = fields.filter((f) => ['vin', 'km', 'reg_date', 'price_ht', 'price_ttc', 'model', 'version', 'brand', 'plate', 'year'].includes(f)).length;
+      const dataRows = grid.slice(i + 1).filter((r) => (r ?? []).filter((c) => c != null && c !== '').length >= 2).length;
+      if (strong >= 2 && dataRows >= 1) score = Math.max(score, strong * 100 + Math.min(dataRows, 99));
+    }
+    if (score > best.score) best = { sheet: name, grid, score };
+  }
+  return { sheet: best.sheet, grid: best.grid };
 }
 
 const cell = (v: unknown): string => (v == null ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim());
@@ -594,6 +623,14 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
         const longest = modelIdx.reduce((a, b) => (avgLen(b) > avgLen(a) ? b : a));
         guesses[longest] = 'version';
       }
+      // PRIX DE LOT (offre Vito Mixto 03/11, Channing : « le prix pour chaque unité, hors taxe ») : quand une
+      // colonne de prix dit « special / deal / lot / combi / bundle / package » (prix par unité du lot), c'est
+      // NOTRE prix d'achat HT ; les autres prix (« Offer price », prix unitaire hors lot) restent en extras.
+      const lotIdx = guesses.map((g, idx) => ((g === 'price_ht' || g === 'price_ttc') && /(special|deal|\blot\b|combi|bundle|package|paquet|volume)/.test(normHeader((header ?? [])[idx] ?? '')) ? idx : -1)).filter((idx) => idx >= 0);
+      if (lotIdx.length > 0) {
+        guesses.forEach((g, idx) => { if ((g === 'price_ht' || g === 'price_ttc') && !lotIdx.includes(idx)) guesses[idx] = 'ignore'; });
+        guesses[lotIdx[0]] = 'price_ht';
+      }
       const claimed = new Set<OfferField>();
       header.forEach((h, idx) => {
         const ov = mappingOverride && h in mappingOverride ? mappingOverride[h] : undefined;
@@ -611,6 +648,8 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     if (!header) continue;
     const filled = r.filter((c) => c != null && c !== '');
     if (filled.length < 2) continue;
+    // Ligne de TOTAL du tableau (« Total · 9 units · 328 100 », offre Vito Mixto 03/11) : pas une voiture.
+    if (/^(total|totaal|totale|gesamt|somme|sum|subtotal)\b/i.test(cell(r[0]))) continue;
     // Une ligne de données : au moins une valeur dans une colonne reconnue.
     const rec: Partial<Record<OfferField, unknown>> = {};
     const extras: Record<string, string> = {};
