@@ -26,7 +26,7 @@ function Money({ amount, currency }: { amount: number; currency: string }) {
 /** MOUVEMENTS DE PRIX (01/10 soir) : sous le prix courant, le chemin depuis le
  *  premier prix vu (« 32 900 → 31 500 → 29 900 ») et l'écart total. À la
  *  disparition, c'est la réponse à « ont-ils dû baisser pour vendre ? ». */
-function PriceMovesLine({ v }: { v: StockVehicle }) {
+export function PriceMovesLine({ v }: { v: StockVehicle }) {
   const m = priceMoves(v);
   if (m.steps.length < 2 || m.delta == null) return null;
   const down = m.delta < 0;
@@ -44,7 +44,7 @@ function PriceMovesLine({ v }: { v: StockVehicle }) {
 
 /** Prix absent (01/10) : le statut du site plutôt qu'un 0 € ; sans statut (SQL
  *  du 01/10 pas collé) : « sans prix ». */
-function PriceCell({ v }: { v: StockVehicle }) {
+export function PriceCell({ v }: { v: StockVehicle }) {
   if (v.price != null && v.price > 0) return <Money amount={v.price} currency={curOf(v)} />;
   const s = v.status ? STATUS_LABEL[v.status] : undefined;
   return <span title={s?.title ?? 'Le site n\'affiche pas de prix pour cette annonce'} className={`inline-block px-1.5 py-0.5 rounded border text-[11px] font-medium ${s?.cls ?? 'bg-amber-50 text-amber-700 border-amber-200'}`}>{s?.label ?? 'sans prix'}</span>;
@@ -57,15 +57,15 @@ function PriceCell({ v }: { v: StockVehicle }) {
  * prix changés. « Relever maintenant » relance le worker.
  */
 type Tab = 'stock' | 'new' | 'gone' | 'price';
-const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
-const days = (a: string | null, b: string | null) => (a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000)) : null);
+export const fmtStockDate = (s: string | null) => (s ? new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
+export const daysBetween = (a: string | null, b: string | null) => (a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000)) : null);
 
 /** DISTRIBUTION DES PRIX (03/11, revu le soir même : « tranches de 10 000 €, pas proportionnelles ; on voit les
  *  axes, il est écrasé ») : histogramme SVG par tranches FIXES de 10 000 €, la queue au-delà du 99e centile
  *  regroupée dans une dernière tranche « et + », axes et libellés par tranche, médiane de la sélection et
  *  médiane des disparus sous les mêmes filtres en repères verticaux. */
 const STEP = 10_000;
-function PriceDistribution({ prices, gone, label }: { prices: number[]; gone: number[]; label: string }) {
+export function PriceDistribution({ prices, gone, label }: { prices: number[]; gone: number[]; label: string }) {
   if (prices.length === 0) return <p className="text-xs text-slate-400">Aucun prix dans la sélection.</p>;
   const q = (xs: number[], f: number) => xs[Math.min(xs.length - 1, Math.floor((xs.length - 1) * f))];
   const min = prices[0], max = prices[prices.length - 1];
@@ -217,7 +217,7 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
   // Vélocité : durée médiane en stock des voitures disparues (mise en ligne
   // quand le site la donne, sinon première vue par ADA).
   const velocity = useMemo(() => {
-    const d = gone.map((v) => days(v.listed_at ?? v.first_seen_at, v.gone_at)).filter((x): x is number => x != null).sort((a, b) => a - b);
+    const d = gone.map((v) => daysBetween(v.listed_at ?? v.first_seen_at, v.gone_at)).filter((x): x is number => x != null).sort((a, b) => a - b);
     return d.length >= 3 ? d[Math.floor(d.length / 2)] : null;
   }, [gone]);
 
@@ -349,8 +349,8 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
                     <td className="px-3 py-2 text-slate-600">{v.plate ?? '—'}</td>
                     <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
                       {tab === 'gone'
-                        ? <>{fmtDate(v.gone_at)}{days(v.listed_at ?? v.first_seen_at, v.gone_at) != null && <span className="text-slate-400"> · {days(v.listed_at ?? v.first_seen_at, v.gone_at)} j</span>}</>
-                        : <>{fmtDate(v.listed_at ?? v.first_seen_at)}{v.listed_at ? '' : <span className="text-slate-400" title="Le site ne donne pas la date de mise en ligne : première vue par ADA"> *</span>}</>}
+                        ? <>{fmtStockDate(v.gone_at)}{daysBetween(v.listed_at ?? v.first_seen_at, v.gone_at) != null && <span className="text-slate-400"> · {daysBetween(v.listed_at ?? v.first_seen_at, v.gone_at)} j</span>}</>
+                        : <>{fmtStockDate(v.listed_at ?? v.first_seen_at)}{v.listed_at ? '' : <span className="text-slate-400" title="Le site ne donne pas la date de mise en ligne : première vue par ADA"> *</span>}</>}
                     </td>
                   </tr>
                 ))}

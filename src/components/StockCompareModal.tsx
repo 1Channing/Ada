@@ -20,13 +20,13 @@ import {
 } from '../services/stockCompare';
 import type { StockVehicle } from '../services/dealerStock';
 
-type Mode = 'sales' | 'offers';
+export type Mode = 'sales' | 'offers';
 /** TRI (02/11, Channing : « trier par motorisation, marque, modèle… ») — écart par défaut. */
-type SortKey = 'gap' | 'brand' | 'model' | 'fuel' | 'year' | 'km' | 'price' | 'power';
-const SORT_LABEL: Record<SortKey, string> = { gap: 'Écart', brand: 'Marque', model: 'Modèle', fuel: 'Motorisation', year: 'Année', km: 'Kilométrage', price: 'Leur prix', power: 'Puissance' };
+export type SortKey = 'gap' | 'brand' | 'model' | 'fuel' | 'year' | 'km' | 'price' | 'power';
+export const SORT_LABEL: Record<SortKey, string> = { gap: 'Écart', brand: 'Marque', model: 'Modèle', fuel: 'Motorisation', year: 'Année', km: 'Kilométrage', price: 'Leur prix', power: 'Puissance' };
 const cmpStr = (a: string | null | undefined, b: string | null | undefined) => (a ?? '').localeCompare(b ?? '', 'fr');
 const cmpNum = (a: number | null | undefined, b: number | null | undefined) => (a ?? -Infinity) - (b ?? -Infinity);
-function sortMatches(rows: CompareMatch[], key: SortKey, asc: boolean): CompareMatch[] {
+export function sortMatches(rows: CompareMatch[], key: SortKey, asc: boolean): CompareMatch[] {
   const dir = asc ? 1 : -1;
   const by: Record<SortKey, (a: CompareMatch, b: CompareMatch) => number> = {
     gap: (a, b) => a.gap - b.gap,
@@ -267,7 +267,7 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
 }
 
 /** Une voiture du contact : sa meilleure correspondance, puis les autres dépliables (02/11). */
-function MatchRows({ m, mode, picked, onPick }: { m: CompareMatch; mode: Mode; picked: boolean; onPick: () => void }) {
+export function MatchRows({ m, mode, picked, onPick }: { m: CompareMatch; mode: Mode; picked: boolean; onPick: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <Fragment>
@@ -330,7 +330,7 @@ function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false, pi
 }
 
 /** Voiture du stock sans correspondance chez nous : juste elle, et le bouton « Marché » (02/11). */
-function StockOnlyRow({ p, picked, onPick }: { p: LivePick; picked: boolean; onPick: () => void }) {
+export function StockOnlyRow({ p, picked, onPick }: { p: LivePick; picked: boolean; onPick: () => void }) {
   const t = p.theirs;
   return (
     <tr className={picked ? 'bg-blue-50/60' : ''}>
@@ -354,7 +354,7 @@ function StockOnlyRow({ p, picked, onPick }: { p: LivePick; picked: boolean; onP
   );
 }
 
-function Kpi({ label, value, hint, tone, active, onClick }: { label: string; value: string; hint?: string; tone?: 'ok'; active?: boolean; onClick?: () => void }) {
+export function Kpi({ label, value, hint, tone, active, onClick }: { label: string; value: string; hint?: string; tone?: 'ok'; active?: boolean; onClick?: () => void }) {
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag onClick={onClick} className={`text-left rounded-xl border px-3 py-2 ${tone === 'ok' ? 'border-emerald-200 bg-emerald-50/50' : active ? 'border-brand-ocean bg-blue-50/60' : 'border-slate-200 bg-slate-50/60'} ${onClick ? 'hover:border-brand-ocean cursor-pointer' : ''}`}>

@@ -173,3 +173,10 @@ function frenchDbError(msg: string): string {
   if (/does not exist|schema cache/i.test(msg)) return `Table absente — la migration 20260907180000 est-elle collée ? (${msg})`;
   return msg;
 }
+
+/** Fréquence du relevé automatique de la vitrine (03/11) : quotidien / hebdomadaire / arrêté. Colonne absente = dit. */
+export async function setStockFrequency(contactId: string, freq: 'daily' | 'weekly' | 'off'): Promise<string | null> {
+  const { error } = await sb.from('network_contacts').update({ stock_frequency: freq }).eq('id', contactId);
+  if (!error) return null;
+  return /stock_frequency/.test(error.message) ? 'SQL du 03/11 (stock_frequence) à coller pour régler la fréquence.' : error.message;
+}

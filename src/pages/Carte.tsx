@@ -16,12 +16,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapPin, Plus, Search, Pencil, Trash2, Crosshair, ExternalLink, Phone, Mail, X,
-  ZoomIn, ZoomOut, Maximize2, Move, Loader2, Check, Car, ListChecks, Scale,
+  ZoomIn, ZoomOut, Maximize2, Move, Loader2, Check, Car, ListChecks,
 } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
-import { DealerStockModal } from '../components/DealerStockModal';
-import { StockCompareModal } from '../components/StockCompareModal';
+import { ShowcaseModal } from '../components/ShowcaseModal';
 import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDealerScanning, activeDealerScans, queueDealerScans, queuedDealerScans, cancelQueuedDealerScans, type LatestStockRun } from '../services/dealerStock';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
@@ -76,9 +75,8 @@ export function Carte() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // STOCK DE LA VITRINE (30/09) : fenêtre avec les voitures relevées et le diff.
-  const [stockFor, setStockFor] = useState<{ id: string; name: string; url: string } | null>(null);
-  // COMPARER (02/11) : le stock relevé du contact face à nos ventes passées ou nos offres.
-  const [compareFor, setCompareFor] = useState<{ id: string; name: string; url: string | null; country: string | null } | null>(null);
+  // VITRINE (03/11) : une seule fenêtre par contact — stock, comparer, analyse, relevés, marché en direct.
+  const [showcaseFor, setShowcaseFor] = useState<{ id: string; name: string; url: string | null; country: string | null; frequency: 'daily' | 'weekly' | 'off' | null } | null>(null);
   const [hoverCountry, setHoverCountry] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'tous' | ContactRole>('tous');
@@ -528,9 +526,8 @@ export function Carte() {
         {editing ? (
           <ContactForm value={editing} models={editModels} onChange={setEditing} onModels={setEditModels} onPlace={() => setPlacing('form')} onCancel={() => { setEditing(null); setPlacing(null); }} onSubmit={submit} busy={busy} />
         ) : selected ? (<>
-          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onStock={() => selected.website && setStockFor({ id: selected.id, name: selected.name, url: selected.website })} onCompare={() => setCompareFor({ id: selected.id, name: selected.name, url: selected.website, country: selected.country })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
-          {stockFor && <DealerStockModal contactId={stockFor.id} name={stockFor.name} url={stockFor.url} onClose={() => { setStockFor(null); void reload(); }} />}
-          {compareFor && <StockCompareModal contactId={compareFor.id} name={compareFor.name} country={compareFor.country} onClose={() => setCompareFor(null)} onOpenStock={compareFor.url ? () => { const { id, name, url } = compareFor; setCompareFor(null); setStockFor({ id, name, url: url! }); } : undefined} />}
+          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, country: selected.country, frequency: selected.stock_frequency ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
+          {showcaseFor && <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.url} country={showcaseFor.country} frequency={showcaseFor.frequency} onClose={() => { setShowcaseFor(null); void reload(); }} />}
         </>) : (
           <>
             <div className="p-4 border-b border-slate-100 space-y-3">
@@ -706,9 +703,9 @@ function StockFigure({ c, run, chip, scanning }: { c: { stock_total: number | nu
   return null;
 }
 
-function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onStock, onCompare, run, scanning }: {
+function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onShowcase, run, scanning }: {
   run?: LatestStockRun; scanning?: boolean;
-  c: NetworkContact; canEdit: boolean; busy: boolean; onClose: () => void; onEdit: () => void; onMove: () => void; onDelete: () => void; onFilterBrand: (b: string) => void; onStock: () => void; onCompare: () => void;
+  c: NetworkContact; canEdit: boolean; busy: boolean; onClose: () => void; onEdit: () => void; onMove: () => void; onDelete: () => void; onFilterBrand: (b: string) => void; onShowcase: () => void;
 }) {
   const rows: Array<[string, string]> = [
     ['Véhicules', c.vehicle_types], ['Volume mensuel', c.monthly_volume], ['Opportunité', c.opportunity],
@@ -754,9 +751,8 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
             {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-brand-ocean hover:underline"><ExternalLink className="w-4 h-4 shrink-0" /> Vitrine du stock</a>}
             {/* STOCK RELEVÉ PAR ADA (30/09) : la liste de leurs voitures et ce
                 qui a bougé depuis le dernier relevé (vélocité, propositions). */}
-            {c.website && <button onClick={onStock} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700" title="Lire la vitrine et comparer au relevé précédent"><Car className="w-3.5 h-3.5" /> Stock relevé</button>}
-            {/* COMPARER (02/11, Channing) : leur stock face à nos ventes passées (seuil 5 000 €) ou nos offres (7 000 €). */}
-            <button onClick={onCompare} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-brand-ocean bg-white hover:bg-blue-50 text-brand-ocean" title="Leur stock relevé face à nos ventes passées ou à nos offres fournisseurs"><Scale className="w-3.5 h-3.5" /> Comparer</button>
+            {/* VITRINE (03/11, Channing) : une seule fenêtre — stock relevé, comparer, analyse, relevés, marché en direct. */}
+            <button onClick={onShowcase} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-brand-ocean bg-white hover:bg-blue-50 text-brand-ocean" title="Stock relevé, comparaison avec nos ventes et nos offres, analyse, relevés, marché en direct"><Car className="w-3.5 h-3.5" /> Vitrine</button>
           </div>
         </div>
         {rows.length > 0 && (
