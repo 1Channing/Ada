@@ -26,6 +26,9 @@ import { setStockFrequency } from '../services/network';
 
 type Tab = 'stock' | 'compare' | 'analyse' | 'runs';
 type StockView = 'in' | 'new' | 'gone' | 'price';
+/** TRI DU STOCK (03/11, Channing : « date d'ajout croissant / décroissant, alphabétique, prix croissant / décroissant »). */
+type StockSort = 'date_desc' | 'date_asc' | 'alpha' | 'price_asc' | 'price_desc' | 'km_asc' | 'year_desc';
+const STOCK_SORT_LABEL: Record<StockSort, string> = { date_desc: 'Date d\'ajout ↓ (récents d\'abord)', date_asc: 'Date d\'ajout ↑ (anciens d\'abord)', alpha: 'Alphabétique', price_asc: 'Prix ↑', price_desc: 'Prix ↓', km_asc: 'Kilométrage ↑', year_desc: 'Année ↓' };
 type Freq = 'daily' | 'weekly' | 'off';
 const FREQ_LABEL: Record<Freq, string> = { daily: 'quotidien (1 h)', weekly: 'hebdomadaire', off: 'arrêté' };
 
@@ -52,6 +55,7 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
   const [fYearMax, setFYearMax] = useState<number | null>(null);
   const [fTrim, setFTrim] = useState('');
   const [showChart, setShowChart] = useState(false);
+  const [stockSort, setStockSort] = useState<StockSort>('date_desc');
   // Comparer.
   const [mode, setMode] = useState<Mode>('sales');
   const [onlyOk, setOnlyOk] = useState(true);
@@ -147,7 +151,22 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
   const filtersActive = Boolean(fBrand || fModel || fFuel || fTrim || fYearMin != null || fYearMax != null);
   const filterDeps = [fBrand, fModel, fFuel, fTrim, fYearMin, fYearMax, facets, query]; // eslint-disable-line react-hooks/exhaustive-deps
 
-  const stockRows = useMemo(() => (view === 'in' ? inStock : view === 'new' ? fresh : view === 'gone' ? gone : priced).filter(matchesFilters).filter(matchesQuery), [view, inStock, fresh, gone, priced, ...filterDeps]); // eslint-disable-line react-hooks/exhaustive-deps
+  const stockRows = useMemo(() => {
+    const list = (view === 'in' ? inStock : view === 'new' ? fresh : view === 'gone' ? gone : priced).filter(matchesFilters).filter(matchesQuery);
+    const eurOf = (v: StockVehicle) => (v.price != null && v.price > 0 ? toEur(v.price, v.currency ?? 'EUR') ?? null : null);
+    const dateOf = (v: StockVehicle) => (view === 'gone' ? v.gone_at ?? '' : v.listed_at ?? v.first_seen_at);
+    const title = (v: StockVehicle) => (v.title || `${v.brand ?? ''} ${v.model ?? ''}`).trim();
+    const by: Record<StockSort, (a: StockVehicle, b: StockVehicle) => number> = {
+      date_desc: (a, b) => dateOf(b).localeCompare(dateOf(a)) || title(a).localeCompare(title(b), 'fr'),
+      date_asc: (a, b) => dateOf(a).localeCompare(dateOf(b)) || title(a).localeCompare(title(b), 'fr'),
+      alpha: (a, b) => title(a).localeCompare(title(b), 'fr'),
+      price_asc: (a, b) => (eurOf(a) ?? Infinity) - (eurOf(b) ?? Infinity),
+      price_desc: (a, b) => (eurOf(b) ?? -Infinity) - (eurOf(a) ?? -Infinity),
+      km_asc: (a, b) => (a.km ?? Infinity) - (b.km ?? Infinity),
+      year_desc: (a, b) => (b.year ?? -Infinity) - (a.year ?? -Infinity) || (eurOf(a) ?? Infinity) - (eurOf(b) ?? Infinity),
+    };
+    return [...list].sort(by[stockSort]);
+  }, [view, inStock, fresh, gone, priced, stockSort, ...filterDeps]); // eslint-disable-line react-hooks/exhaustive-deps
   const stockFiltered = useMemo(() => inStock.filter(matchesFilters).filter(matchesQuery), [inStock, ...filterDeps]); // eslint-disable-line react-hooks/exhaustive-deps
   const goneFiltered = useMemo(() => gone.filter(matchesFilters).filter(matchesQuery), [gone, ...filterDeps]); // eslint-disable-line react-hooks/exhaustive-deps
   const pricesOf = (list: StockVehicle[]) => list.map((v) => (v.price != null && v.price > 0 ? toEur(v.price, v.currency ?? 'EUR') : null)).filter((p): p is number => p != null).sort((a, b) => a - b);
@@ -261,7 +280,12 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
                   {([['in', 'En stock', inStock.length], ['new', 'Nouveaux depuis le relevé précédent', fresh.length], ['gone', 'Disparus (vendus ?)', gone.length], ['price', 'Prix bougé depuis l\'arrivée', priced.length]] as const).map(([v, label, n]) => (
                     <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-full text-xs border ${view === v ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}>{label} · {n}</button>
                   ))}
-                  <button onClick={() => setShowChart((v) => !v)} className={`ml-auto inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border ${showChart ? 'bg-brand-ocean border-brand-ocean text-white' : 'border-slate-300 text-brand-ocean hover:bg-blue-50'}`}><BarChart3 className="w-3.5 h-3.5" /> Distribution des prix</button>
+                  <label className="ml-auto flex items-center gap-1.5 text-xs text-slate-600">Trier par
+                    <select value={stockSort} onChange={(e) => setStockSort(e.target.value as StockSort)} className="px-2 py-1 rounded-lg border border-slate-300 bg-white text-xs">
+                      {(Object.keys(STOCK_SORT_LABEL) as StockSort[]).map((k) => <option key={k} value={k}>{k.startsWith('date') && view === 'gone' ? STOCK_SORT_LABEL[k].replace('Date d\'ajout', 'Date de départ') : STOCK_SORT_LABEL[k]}</option>)}
+                    </select>
+                  </label>
+                  <button onClick={() => setShowChart((v) => !v)} className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border ${showChart ? 'bg-brand-ocean border-brand-ocean text-white' : 'border-slate-300 text-brand-ocean hover:bg-blue-50'}`}><BarChart3 className="w-3.5 h-3.5" /> Distribution des prix</button>
                 </div>
                 {showChart && <div className="mx-5 mb-2"><PriceDistribution prices={selPrices} gone={gonePrices} label={view === 'gone' ? 'disparus' : view === 'new' ? 'nouveaux' : view === 'price' ? 'prix bougés' : 'en stock'} /></div>}
                 {stockRows.length === 0 ? <p className="p-6 text-sm text-slate-500">Rien dans cette vue avec ces filtres.</p> : (
