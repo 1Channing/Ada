@@ -183,7 +183,12 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
             Dernier relevé en échec le {new Date(lastFailure.started_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} : {lastFailure.error ?? 'sans détail'}
           </p>
         )}
-        {scanning && <p className="mx-5 mt-2 text-xs text-brand-ocean flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Relevé en cours sur le serveur : tu peux fermer cette fenêtre ou changer de page, la carte garde l'indicateur et le résultat t'attend ici.</p>}
+        {scanning && (() => {
+          // PROGRESSION (03/11) : le worker écrit pages et véhicules lus dans la ligne du relevé toutes les 5 s.
+          const cur = runs.find((x) => x.status === 'running');
+          const prog = cur && (cur.pages ?? 0) > 0 ? ` — page ${cur.pages}, ${cur.total ?? 0} véhicule${(cur.total ?? 0) > 1 ? 's' : ''} déjà lus (${Math.round((Date.now() - new Date(cur.started_at).getTime()) / 60_000)} min)` : '';
+          return <p className="mx-5 mt-2 text-xs text-brand-ocean flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Relevé en cours sur le serveur{prog} : tu peux fermer cette fenêtre ou changer de page, la carte garde l'indicateur et le résultat t'attend ici.</p>;
+        })()}
         <div className="flex-1 overflow-y-auto">
           {loading ? <p className="p-6 text-sm text-slate-500">Chargement…</p> : rows.length === 0 ? (
             <p className="p-6 text-sm text-slate-500">

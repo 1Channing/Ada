@@ -379,7 +379,9 @@ function pageTotal(html: string): number | null {
     ?? text.match(new RegExp(`${n}\\s*(?:resultaten|résultats?)\\b`, 'i'));
   return m ? num(m[1].replace(/[\s  .]/g, '')) : null;
 }
-async function scrapeDatamotive(url: string, firstHtml: string): Promise<DealerStockResult> {
+/** Progression d'un relevé long (03/11) : pages lues et véhicules déjà lus, pour le bilan en cours. */
+export type StockProgress = (pages: number, vehicles: number, pagesTotal: number | null) => void;
+async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const warnings: string[] = [];
   const out: DealerVehicle[] = [];
   const seen = new Set<string>();
@@ -404,14 +406,18 @@ async function scrapeDatamotive(url: string, firstHtml: string): Promise<DealerS
     }
     return { parsed: null, status };
   };
-  for (let page = 1; page <= pagesCap; page++) {
-    const got = page === 1 ? { parsed: first, status: 200 } : await readPage(page);
+  // PAGES LUES PAR LOTS DE 4 EN PARALLÈLE (03/11, constat Channing : BYMYCAR « tourne depuis plusieurs
+  // minutes » — 6 489 voitures = 541 pages de 12, à 3,5 s la page une par une : plus de 25 min). Les lots se
+  // suivent dans l'ordre ; le premier trou (page vide, 404, échec) arrête la lecture comme avant.
+  const PARALLEL = 4;
+  let stop = false;
+  const pagesTotal = total != null && perPage > 0 ? Math.min(pagesCap, Math.ceil(total / perPage)) : null;
+  const handlePage = (page: number, got: { parsed: ReturnType<typeof parseItemList>; status: number }): boolean => {
     const parsed = got.parsed;
-    first = null;
     pages = page;
     // 404 = au-delà de la dernière page (Century : page 101 sur 100), fin normale.
-    if (!parsed) { if (got.status !== 404) warnings.push(`arrêt à la page ${page} : HTTP ${got.status} ou JSON-LD absent — relevé partiel`); break; }
-    if (parsed.items.length === 0) break;
+    if (!parsed) { if (got.status !== 404) warnings.push(`arrêt à la page ${page} : HTTP ${got.status} ou JSON-LD absent — relevé partiel`); return false; }
+    if (parsed.items.length === 0) return false;
     let added = 0;
     for (const el of parsed.items) {
       const item = (el.item ?? {}) as Record<string, unknown>;
@@ -442,9 +448,21 @@ async function scrapeDatamotive(url: string, firstHtml: string): Promise<DealerS
             : priceOrNull(offers.price) == null ? 'price_on_request' : null,
       });
     }
-    if (added === 0) { if (total != null && out.length < total) warnings.push(`page ${page} : aucun véhicule nouveau — arrêt à ${out.length} / ${total}`); break; }
-    if (total != null && out.length >= total) break;
-    await sleep(PAGE_DELAY_MS);
+    if (added === 0) { if (total != null && out.length < total) warnings.push(`page ${page} : aucun véhicule nouveau — arrêt à ${out.length} / ${total}`); return false; }
+    if (total != null && out.length >= total) return false;
+    return true;
+  };
+  if (!handlePage(1, { parsed: first, status: 200 })) stop = true;
+  first = null;
+  onProgress?.(pages, out.length, pagesTotal);
+  for (let page = 2; page <= pagesCap && !stop; page += PARALLEL) {
+    const batch = Array.from({ length: Math.min(PARALLEL, pagesCap - page + 1) }, (_, k) => page + k);
+    const results = await Promise.all(batch.map((pg) => readPage(pg)));
+    for (let k = 0; k < batch.length; k++) {
+      if (!handlePage(batch[k], results[k])) { stop = true; break; }
+    }
+    onProgress?.(pages, out.length, pagesTotal);
+    if (!stop) await sleep(PAGE_DELAY_MS);
   }
   if (out.length > 0 && out.every((v) => v.km == null)) warnings.push('Ce fournisseur ne publie ni km ni année dans la liste (fiche détaillée seulement).');
   return { provider: 'datamotive', total: total ?? out.length, declared: total, vehicles: out, pages, warnings };
@@ -1273,7 +1291,7 @@ async function scrapeKamux(url: string): Promise<DealerStockResult> {
   return { provider: 'kamux', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
-export async function fetchDealerStock(url: string): Promise<DealerStockResult> {
+export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getText(url);
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
   const provider = detectDealerProvider(first.text);
@@ -1288,7 +1306,7 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
   if (provider === 'kamux') return scrapeKamux(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
-  if (provider === 'datamotive') return scrapeDatamotive(url, first.text);
+  if (provider === 'datamotive') return scrapeDatamotive(url, first.text, onProgress);
   if (provider === 'dtcvm') return scrapeDtcVm(url, first.text);
   if (provider === 'carcards') return scrapeCarCards(url, first.text);
   if (provider === 'autrado') return scrapeAutrado(url, first.text);
@@ -1299,6 +1317,18 @@ export async function fetchDealerStock(url: string): Promise<DealerStockResult> 
   if (provider === 'dmapi') return scrapeDmApi(url, first.text);
   if (provider === 'cartelcaw') return scrapeCartelCaw(url, first.text);
   return scrapeAutodata(url, first.text, first.headers);
+}
+
+/** RELEVÉS LAISSÉS « EN COURS » (03/11) : un redémarrage du worker (déploiement) tue la lecture en vol et la
+ *  ligne restait « running » pour toujours (BYMYCAR 16/10). Au démarrage, toute ligne en cours depuis plus de
+ *  2 h est marquée échouée, en le disant. */
+export async function failStaleStockRuns(): Promise<void> {
+  const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const cutoff = new Date(Date.now() - 2 * 3600_000).toISOString();
+  const { data, error } = await sb.from('network_stock_runs').update({ status: 'failed', error: 'interrompu : le worker a redémarré pendant le relevé (déploiement) — relance-le', finished_at: new Date().toISOString() })
+    .eq('status', 'running').lt('started_at', cutoff).select('id');
+  if (error) console.warn('[DEALER_STOCK] relevés interrompus : lecture impossible —', error.message);
+  else if ((data ?? []).length) console.warn(`[DEALER_STOCK] ${(data ?? []).length} relevé(s) laissé(s) « en cours » par un redémarrage marqué(s) interrompu(s)`);
 }
 
 export interface DealerStockSummary {
@@ -1318,7 +1348,15 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
   const runId = (run as { id: string }).id;
   try {
     zyteCallsThisRun = 0;
-    const stock = await fetchDealerStock(url);
+    // PROGRESSION dans la ligne du relevé (03/11) : pages et véhicules lus, au plus toutes les 5 s — la fenêtre
+    // de la carte les affiche pendant un relevé long, et un relevé sans progression depuis longtemps se voit.
+    let lastProgressAt = 0;
+    const onProgress: StockProgress = (pages, vehicles) => {
+      if (Date.now() - lastProgressAt < 5000) return;
+      lastProgressAt = Date.now();
+      void sb.from('network_stock_runs').update({ pages, total: vehicles }).eq('id', runId);
+    };
+    const stock = await fetchDealerStock(url, onProgress);
     const currencies = [...new Set(stock.vehicles.map((v) => (v.currency ?? 'EUR').toUpperCase()).filter((c) => c !== 'EUR'))];
     if (currencies.length > 0) {
       const fx = await getFxRates();
