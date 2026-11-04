@@ -31,8 +31,8 @@ import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -235,6 +235,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/class="result-item"/.test(html) && /filerender-api\.openflex\.eu/.test(html) && /id="veh-grid"/.test(html)) return 'yooflex';
   // dutchvans (NL, 04/11) : WordPress maison, cartes « item-summary » + « vehicle-specs », pages « ?pagina=N ».
   if (/item-summary/.test(html) && /class="vehicle-specs"/.test(html)) return 'dutchvans';
+  // vehiclelistapi (Gruppo Bossoni, 04/11) : liste Vue rendue côté client, l'API du site « /api/filtered-vehicle-list »
+  // livre tout (4 017 voitures par pages de 500) avec lien, version, prix, km, année, énergie, boîte, puissance, photo.
+  if (/filteredVehicleListUrl\s*=\s*"\/api\/filtered-vehicle-list"/.test(html)) return 'vehiclelistapi';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -1919,6 +1922,47 @@ async function scrapeDutchvans(url: string, firstHtml: string): Promise<DealerSt
   return { provider: 'dutchvans', total: out.length, declared: null, vehicles: out, pages, warnings };
 }
 
+// ── vehiclelistapi (Gruppo Bossoni, 04/11) : « /api/filtered-vehicle-list?<filtres de l'URL>&pag=N&pageSize=500 ».
+async function scrapeVehicleListApi(url: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const origin = u.origin;
+  const params = new URLSearchParams(u.search);
+  params.delete('pag'); params.delete('pageSize');
+  if (!params.has('groupTypes') && !params.has('groupType')) params.set('groupTypes', 'auto');
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  type Row = { id: string | number; urlName?: string | null; brand?: string | null; model?: string | null; version?: string | null; frameType?: string | null; archive?: string | null; finalPrice?: number | null; listPrice?: number | null; fuel?: string | null; km?: number | null; gearType?: string | null; powerHp?: number | null; image?: string | null; registrationDate?: string | null; registrationYear?: number | null; isBooked?: boolean | null; vehicleStatus?: string | null };
+  let declared: number | null = null;
+  let pages = 0;
+  for (let p = 1; p <= 100; p++) {
+    if (p > 1) await sleep(PAGE_DELAY_MS);
+    const r = await getTextPatient(`${origin}/api/filtered-vehicle-list?${params.toString()}&pag=${p}&pageSize=500`, { headers: { Accept: 'application/json' } });
+    if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+    let d: { pagesCount?: number; totalItems?: number; vehicleList?: Row[] };
+    try { d = JSON.parse(r.text); } catch { warnings.push(`page ${p} : réponse illisible`); break; }
+    declared = declared ?? (typeof d.totalItems === 'number' ? d.totalItems : null);
+    pages = p;
+    let added = 0;
+    for (const v of d.vehicleList ?? []) {
+      const id = String(v.id);
+      if (seen.has(id)) continue;
+      seen.add(id); added++;
+      const price = v.finalPrice ?? v.listPrice ?? null;
+      const year = v.registrationYear ?? num(v.registrationDate?.match(/(\d{4})/)?.[1]);
+      out.push({
+        external_id: id, url: v.urlName ? origin + v.urlName : null, title: [v.brand, v.model, v.version].filter(Boolean).join(' '),
+        brand: v.brand ?? null, model: v.model ?? null, price: price != null && price > 0 ? Math.round(price) : null, km: v.km ?? null, year,
+        fuel: v.fuel ?? null, gearbox: gearboxOf(v.gearType), plate: null, vin: null, body: v.frameType ?? null, image: v.image ?? null, listed_at: null,
+        status: v.isBooked ? 'reserved' : price == null || price <= 0 ? 'price_on_request' : null, currency: 'EUR', power_ch: v.powerHp ?? null,
+      });
+    }
+    if (added === 0 || (d.pagesCount != null && p >= d.pagesCount)) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'vehiclelistapi', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -1946,6 +1990,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'vgrf') return scrapeVgrf(url, first.text);
   if (provider === 'yooflex') return scrapeYooflex(url, first.text);
   if (provider === 'dutchvans') return scrapeDutchvans(url, first.text);
+  if (provider === 'vehiclelistapi') return scrapeVehicleListApi(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text, onProgress);
