@@ -60,12 +60,19 @@ type Tab = 'stock' | 'new' | 'gone' | 'price';
 export const fmtStockDate = (s: string | null) => (s ? new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
 export const daysBetween = (a: string | null, b: string | null) => (a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000)) : null);
 
-/** DISTRIBUTION DES PRIX (03/11, revu le soir même : « tranches de 10 000 €, pas proportionnelles ; on voit les
- *  axes, il est écrasé ») : histogramme SVG par tranches FIXES de 10 000 €, la queue au-delà du 99e centile
- *  regroupée dans une dernière tranche « et + », axes et libellés par tranche, médiane de la sélection et
- *  médiane des disparus sous les mêmes filtres en repères verticaux. */
+/** DISTRIBUTION DES PRIX v4 (04/11, Channing : « il y a des traits au milieu qu'on ne comprend pas, choix des
+ *  couleurs pas bon, voit ce qui se fait en ligne et on prend ce qui se fait de mieux ») : histogramme à la
+ *  manière des outils de référence (Observable Plot / Tremor) — tranches FIXES de 10 000 €, queue « et + »
+ *  au-delà du 99e centile, deux séries côte à côte (sélection en bleu, disparus sous les mêmes filtres en
+ *  orange, palette validée daltonisme), barres fines à coins arrondis, grille horizontale discrète sans axes,
+ *  AUCUN trait dans le tracé : médianes et quartiles dans les tuiles et la légende, détail au survol d'une
+ *  tranche (infobulle), vue tableau en un clic. */
 const STEP = 10_000;
+const SERIES_SEL = '#2a78d6';
+const SERIES_GONE = '#eb6834';
 export function PriceDistribution({ prices, gone, label }: { prices: number[]; gone: number[]; label: string }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const [asTable, setAsTable] = useState(false);
   if (prices.length === 0) return <p className="text-xs text-slate-400">Aucun prix dans la sélection.</p>;
   const q = (xs: number[], f: number) => xs[Math.min(xs.length - 1, Math.floor((xs.length - 1) * f))];
   const min = prices[0], max = prices[prices.length - 1];
@@ -82,54 +89,101 @@ export function PriceDistribution({ prices, gone, label }: { prices: number[]; g
   const idx = (p: number) => Math.min(n - 1, Math.max(0, Math.floor((p - lo) / STEP)));
   for (const p of prices) counts[idx(p)]++;
   for (const p of gone) goneCounts[idx(p)]++;
-  // DEUX BARRES CÔTE À CÔTE par tranche (03/11 soir, Channing : « les pointillés ne sont pas assez clairs ») :
-  // bleu = la sélection, ambre = les disparus sous les mêmes filtres, légende en tête, médianes en repères.
+  const withGone = gone.length > 0;
   const top = Math.max(...counts, ...goneCounts, 1);
-  const W = 960, H = 300, padL = 44, padR = 12, padT = 14, padB = 40;
+  // Graduations « rondes » (1, 2, 5 × 10^k) : 3 à 5 lignes de grille, jamais de décimales.
+  const rawStep = top / 4;
+  const mag = 10 ** Math.floor(Math.log10(rawStep));
+  const tickStep = [1, 2, 5, 10].map((m) => m * mag).find((v) => v >= rawStep) ?? mag;
+  const yMax = Math.ceil(top / tickStep) * tickStep;
+  const ticks = Array.from({ length: Math.round(yMax / tickStep) + 1 }, (_, i) => i * tickStep);
+  const W = 960, H = 280, padL = 36, padR = 8, padT = 12, padB = 30;
   const plotW = W - padL - padR, plotH = H - padT - padB;
-  const bw = plotW / n;
-  const gap = 4, half = (bw - gap * 2) / 2;
-  const xOf = (p: number) => padL + Math.min(n, Math.max(0, (p - lo) / STEP)) * bw;
+  const slot = plotW / n;
+  const BAR_MAX = 24, GAP = 2;
+  const barW = Math.max(3, Math.min(BAR_MAX, (slot - 10 - (withGone ? GAP : 0)) / (withGone ? 2 : 1)));
+  const groupW = withGone ? barW * 2 + GAP : barW;
+  const yOf = (c: number) => padT + plotH - (c / yMax) * plotH;
   const k = (v: number) => `${Math.round(v / 1000)} k€`;
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(top * f));
-  const Bar = ({ x, c, fill }: { x: number; c: number; fill: string }) => {
-    const h = (c / top) * plotH;
-    return <g><rect x={x} y={padT + plotH - h} width={Math.max(1, half)} height={h} rx={2} fill={fill} /><text x={x + half / 2} y={padT + plotH - h - 3} fontSize={10} textAnchor="middle" fill="#334155">{c || ''}</text></g>;
+  const rangeLabel = (i: number) => (hasTail && i === n - 1 ? `${k(lo + i * STEP)} et +` : `${k(lo + i * STEP)}–${k(lo + (i + 1) * STEP)}`);
+  const rangeLong = (i: number) => (hasTail && i === n - 1 ? `${fmtMoney(lo + i * STEP, 'EUR')} et plus` : `${fmtMoney(lo + i * STEP, 'EUR')} à ${fmtMoney(lo + (i + 1) * STEP, 'EUR')}`);
+  // Barre fine, coins arrondis EN HAUT seulement, ancrée sur la ligne de base.
+  const barPath = (x: number, c: number, w: number) => {
+    if (c <= 0) return '';
+    const y = yOf(c), h = padT + plotH - y, r = Math.min(4, w / 2, h);
+    return `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`;
   };
+  const labelEvery = n > 14 ? 2 : 1;
+  const pct = (c: number, total: number) => (total > 0 ? `${Math.round((c / total) * 100)} %` : '');
+  const tile = (title: string, value: string, accent?: string) => (
+    <div className="rounded-lg bg-slate-50 px-3 py-1.5 min-w-[92px]">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{title}</div>
+      <div className={`text-sm font-semibold ${accent ?? 'text-slate-900'}`}>{value}</div>
+    </div>
+  );
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600 mb-2">
-        <span><strong className="text-slate-900">{prices.length}</strong> {label} avec prix</span>
-        <span>min <strong>{fmtMoney(min, 'EUR')}</strong></span>
-        <span>quart bas <strong>{fmtMoney(q(prices, 0.25), 'EUR')}</strong></span>
-        <span>médiane <strong className="text-brand-encre">{fmtMoney(med, 'EUR')}</strong></span>
-        <span>quart haut <strong>{fmtMoney(q(prices, 0.75), 'EUR')}</strong></span>
-        <span>max <strong>{fmtMoney(max, 'EUR')}</strong></span>
+      <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+        <div className="flex flex-wrap gap-2">
+          {tile(`${label} avec prix`, String(prices.length))}
+          {tile('minimum', fmtMoney(min, 'EUR'))}
+          {tile('quart bas', fmtMoney(q(prices, 0.25), 'EUR'))}
+          {tile('médiane', fmtMoney(med, 'EUR'), 'text-brand-encre')}
+          {tile('quart haut', fmtMoney(q(prices, 0.75), 'EUR'))}
+          {tile('maximum', fmtMoney(max, 'EUR'))}
+          {goneMed != null && tile('médiane des disparus', `${fmtMoney(goneMed, 'EUR')}${med > 0 ? ` (${goneMed >= med ? '+' : ''}${Math.round(((goneMed - med) / med) * 100)} %)` : ''}`)}
+        </div>
+        <button type="button" onClick={() => setAsTable((v) => !v)} className="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-2 shrink-0">{asTable ? 'Voir le graphique' : 'Voir en tableau'}</button>
       </div>
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs mb-2">
-        <span className="inline-flex items-center gap-1.5 text-slate-700"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#2563eb' }} /> {label} aujourd'hui ({prices.length}) — trait bleu : médiane {fmtMoney(med, 'EUR')}</span>
-        {gone.length > 0 && goneMed != null && <span className="inline-flex items-center gap-1.5 text-slate-700"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#f59e0b' }} /> disparus sous les mêmes filtres ({gone.length}) — trait ambre : médiane {fmtMoney(goneMed, 'EUR')}{med > 0 ? ` (${goneMed >= med ? '+' : ''}${Math.round(((goneMed - med) / med) * 100)} %)` : ''}</span>}
-        {hasTail && <span className="inline-flex items-center gap-1.5 text-slate-500"><span className="inline-block w-3 h-3 rounded-sm bg-slate-400" /> dernière tranche « et + » : tout ce qui dépasse</span>}
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-700 mb-2">
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: SERIES_SEL }} /> {label} aujourd'hui ({prices.length})</span>
+        {withGone && <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: SERIES_GONE }} /> disparus sous les mêmes filtres ({gone.length})</span>}
+        <span className="text-slate-500">tranches de {fmtMoney(STEP, 'EUR')}{hasTail ? ' · dernière tranche « et + » : tout ce qui dépasse' : ''}</span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 'min(44vh, 320px)' }} role="img" aria-label="Distribution des prix par tranches de 10 000 €">
-        {ticks.map((t) => { const y = padT + plotH - (t / top) * plotH; return <g key={t}><line x1={padL} x2={W - padR} y1={y} y2={y} stroke="#e2e8f0" /><text x={padL - 6} y={y + 3} fontSize={10} textAnchor="end" fill="#64748b">{t}</text></g>; })}
-        {counts.map((c, i) => {
-          const x = padL + i * bw;
-          const tail = hasTail && i === n - 1;
-          return (
-            <g key={i}>
-              <Bar x={x + gap} c={c} fill={tail ? '#94a3b8' : '#2563eb'} />
-              {gone.length > 0 && <Bar x={x + gap + half + 2} c={goneCounts[i]} fill={tail ? '#cbd5e1' : '#f59e0b'} />}
-              <text x={x + bw / 2} y={H - padB + 14} fontSize={10} textAnchor="middle" fill="#475569">{tail ? `${k(lo + i * STEP)} et +` : `${k(lo + i * STEP)}–${k(lo + (i + 1) * STEP)}`}</text>
-            </g>
-          );
-        })}
-        <line x1={padL} x2={W - padR} y1={padT + plotH} y2={padT + plotH} stroke="#94a3b8" />
-        <line x1={padL} x2={padL} y1={padT} y2={padT + plotH} stroke="#94a3b8" />
-        <line x1={xOf(med)} x2={xOf(med)} y1={padT} y2={padT + plotH} stroke="#1e3a8a" strokeWidth={2} />
-        {goneMed != null && <line x1={xOf(goneMed)} x2={xOf(goneMed)} y1={padT} y2={padT + plotH} stroke="#b45309" strokeWidth={2} />}
-        <text x={W - padR} y={H - 6} fontSize={10} textAnchor="end" fill="#64748b">tranches de {fmtMoney(STEP, 'EUR')}</text>
-      </svg>
+      {asTable ? (
+        <table className="w-full text-xs">
+          <thead><tr className="text-left text-slate-500 border-b border-slate-200"><th className="py-1 pr-3 font-medium">Tranche</th><th className="py-1 pr-3 font-medium text-right">{label}</th><th className="py-1 pr-3 font-medium text-right">part</th>{withGone && <><th className="py-1 pr-3 font-medium text-right">disparus</th><th className="py-1 font-medium text-right">part</th></>}</tr></thead>
+          <tbody>
+            {counts.map((c, i) => (
+              <tr key={i} className="border-b border-slate-100 text-slate-800">
+                <td className="py-1 pr-3">{rangeLong(i)}</td><td className="py-1 pr-3 text-right tabular-nums">{c}</td><td className="py-1 pr-3 text-right tabular-nums text-slate-500">{pct(c, prices.length)}</td>
+                {withGone && <><td className="py-1 pr-3 text-right tabular-nums">{goneCounts[i]}</td><td className="py-1 text-right tabular-nums text-slate-500">{pct(goneCounts[i], gone.length)}</td></>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="relative" onMouseLeave={() => setHover(null)}>
+          <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 'min(42vh, 300px)' }} role="img" aria-label="Distribution des prix par tranches de 10 000 €">
+            {ticks.map((t) => (
+              <g key={t}>
+                <line x1={padL} x2={W - padR} y1={yOf(t)} y2={yOf(t)} stroke={t === 0 ? '#cbd5e1' : '#eef2f7'} />
+                <text x={padL - 8} y={yOf(t) + 3} fontSize={11} textAnchor="end" fill="#94a3b8">{t}</text>
+              </g>
+            ))}
+            {counts.map((c, i) => {
+              const x0 = padL + i * slot;
+              const gx = x0 + (slot - groupW) / 2;
+              const lit = hover === i;
+              return (
+                <g key={i} onMouseEnter={() => setHover(i)}>
+                  <rect x={x0} y={padT} width={slot} height={plotH} fill={lit ? '#f1f5f9' : 'transparent'} />
+                  <path d={barPath(gx, c, barW)} fill={SERIES_SEL} opacity={hover == null || lit ? 1 : 0.55} />
+                  {withGone && <path d={barPath(gx + barW + GAP, goneCounts[i], barW)} fill={SERIES_GONE} opacity={hover == null || lit ? 1 : 0.55} />}
+                  {(i % labelEvery === 0 || (hasTail && i === n - 1)) && <text x={x0 + slot / 2} y={H - padB + 17} fontSize={11} textAnchor="middle" fill="#64748b">{rangeLabel(i)}</text>}
+                </g>
+              );
+            })}
+          </svg>
+          {hover != null && (
+            <div className="pointer-events-none absolute top-1 rounded-lg border border-slate-200 bg-white shadow-md px-3 py-2 text-xs text-slate-700 whitespace-nowrap" style={{ left: `${((padL + (hover + 0.5) * slot) / W) * 100}%`, transform: hover > n / 2 ? 'translateX(-105%)' : 'translateX(5%)' }}>
+              <div className="font-semibold text-slate-900 mb-0.5">{rangeLong(hover)}</div>
+              <div className="inline-flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-sm" style={{ background: SERIES_SEL }} /> {label} : <strong>{counts[hover]}</strong> <span className="text-slate-500">{pct(counts[hover], prices.length)}</span></div>
+              {withGone && <div className="inline-flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-sm" style={{ background: SERIES_GONE }} /> disparus : <strong>{goneCounts[hover]}</strong> <span className="text-slate-500">{pct(goneCounts[hover], gone.length)}</span></div>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

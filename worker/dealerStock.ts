@@ -31,8 +31,8 @@ import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -206,6 +206,13 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/data-voertuignrhexon="\d+"/.test(html) && /card_content__title/.test(html)) return 'hexon';
   // kamux (Kamux, Finlande / Suède / Allemagne, 02/11) : Next.js, liste servie par /api/search (JSON) ; la page porte « outletPhoneNumberMap ».
   if (/"outletPhoneNumberMap"/.test(html) && /kamux/i.test(html)) return 'kamux';
+  // openflex (Vikings Auto, 04/11) : liste PHP « listeproduits », cartes <a href="/occasions/…-<id>.html"> avec
+  // <span class="nom">, <span class="vehiculeinfos">2016 / 123844km / Essence</span>, <span class="prix">, pages « entrant=N ».
+  if (/class="vehiculeinfos"/.test(html) && /class="nom"/.test(html) && /entrant=\d+|résultat\(s\)/.test(html)) return 'openflex';
+  // autopolis (autopolis.sk, 04/11) : cartes <div class="car-item"> avec car-item__title et paires paramètre/valeur, « strana=N ».
+  if (/class="car-item__title"/.test(html) && /car-item__parameter-info/.test(html)) return 'autopolis';
+  // webspark / dealerk (Cobredia, 04/11) : WordPress + plugin webspark, cartes « vcard » data-id, paires label/info, « page=N ».
+  if (/vcard-main-info__make-model/.test(html) && /vcard-submain-info__label/.test(html)) return 'webspark';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -1291,6 +1298,162 @@ async function scrapeKamux(url: string): Promise<DealerStockResult> {
   return { provider: 'kamux', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+/** Texte d'un fragment HTML : balises retirées, entités décodées, espaces repliés. */
+const htmlText = (s: string) => decode(s.replace(/<[^>]+>/g, ' ')).replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/\s+/g, ' ').trim();
+/** GET avec reprise sur HTTP 429/503 (5 s, 10 s, 20 s, 40 s) : l'origine MotorK de Cobredia répond 429 pendant ~20 s
+ *  après deux pages hors cache rapprochées (mesuré le 04/11 : 429 à t+11 s, 200 dès t+24 s). */
+async function getTextPatient(url: string): Promise<{ status: number; text: string }> {
+  let r = await getText(url);
+  for (let i = 0; i < 4 && (r.status === 429 || r.status === 503); i++) { await sleep(5000 * 2 ** i); r = await getText(url); }
+  return r;
+}
+/** Même URL avec un paramètre de requête changé. */
+const withParam = (url: string, key: string, value: string) => { const u = new URL(url); u.searchParams.set(key, value); return u.toString(); };
+
+// ── openflex (Vikings Auto, 04/11) : 1 823 voitures, 37 par page, « entrant=N », total « N résultat(s) ».
+async function scrapeOpenflex(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const declared = num(firstHtml.match(/(\d[\d\s ]*)\s*résultat\(s\)/)?.[1]?.replace(/[\s ]/g, ''));
+  // Modèle des pages : le premier lien « entrant=2 », sinon le paramètre posé sur l'URL de départ.
+  const tpl = firstHtml.match(/href="([^"]*entrant=\d+[^"]*)"/)?.[1]?.replace(/&amp;/g, '&');
+  const pageUrl = (p: number) => (tpl ? withParam(new URL(tpl, origin).toString(), 'entrant', String(p)) : withParam(url, 'entrant', String(p)));
+  const parse = (html: string): number => {
+    let added = 0;
+    // Occasions ET véhicules neufs (« /vehicules-neufs/… ») : la vitrine liste les deux, 37 cartes par page.
+    for (const m of html.matchAll(/<a[^>]+href="([^"]*-(\d{4,})\.html)"[^>]*>([\s\S]*?)<\/a>/g)) {
+      const [, href, id, inner] = m;
+      if (!/class="vehiculeinfos"/.test(inner) || seen.has(id)) continue;
+      const nom = htmlText(inner.match(/class="nom">([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const info = htmlText(inner.match(/class="info">([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const infos = htmlText(inner.match(/class="vehiculeinfos">([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const prixRaw = htmlText(inner.match(/class="prix">([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const [yearS, kmS, fuel] = infos.split('/').map((x) => x.trim());
+      const brand = nom.split(/\s+/)[0] || null;
+      const model = nom.split(/\s+/).slice(1).join(' ') || null;
+      const price = priceOrNull(prixRaw.replace(/[^\d]/g, ''));
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href.startsWith('http') ? href : origin + href, title: [nom, info].filter(Boolean).join(' ').trim(), brand, model,
+        price, km: num((kmS ?? '').replace(/km/i, '').replace(/\s/g, '')), year: num(yearS), fuel: fuel ?? null,
+        gearbox: /BVA|DSG|EAT|automati|powershift|s-?tronic|dct/i.test(info) ? 'Automatique' : /BVM/i.test(info) ? 'Manuelle' : null,
+        plate: null, vin: null, body: null, image: inner.match(/data-original="([^"]+)"/)?.[1] ?? null, listed_at: null,
+        status: price == null ? (/vendu/i.test(inner) ? 'sold' : 'price_on_request') : null, currency: 'EUR',
+      });
+    }
+    return added;
+  };
+  let pages = 1;
+  let added = parse(firstHtml);
+  const perPage = added;
+  const cap = declared != null && perPage > 0 ? Math.min(MAX_PAGES, Math.ceil(declared / perPage) + 1) : MAX_PAGES;
+  for (let p = 2; p <= cap && added > 0; p++) {
+    await sleep(PAGE_DELAY_MS);
+    const r = await getTextPatient(pageUrl(p));
+    if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+    added = parse(r.text); pages = p;
+    if (declared != null && out.length >= declared) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'openflex', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
+// ── autopolis (autopolis.sk, 04/11) : cartes « car-item », 100 par page avec « pocet-na-stranu=100 », « strana=N ».
+async function scrapeAutopolis(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const pageUrl = (p: number) => withParam(withParam(url, 'pocet-na-stranu', '100'), 'strana', String(p));
+  const parse = (html: string): number => {
+    let added = 0;
+    const parts = html.split(/<div class="car-item"/).slice(1);
+    for (const part of parts) {
+      const title = part.match(/<a\s+class="car-item__title"\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+      if (!title) continue;
+      const href = title[1];
+      const id = href.replace(/\/+$/, '').split('/').pop() ?? href;
+      if (seen.has(id)) continue;
+      const name = htmlText(title[2].match(/<strong>([\s\S]*?)<\/strong>/)?.[1] ?? '');
+      const version = htmlText(title[2].match(/<span>([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const params = new Map<string, string>();
+      for (const m of part.matchAll(/car-item__parameter-title">([\s\S]*?)<\/div>\s*<div class="car-item__parameter-info">([\s\S]*?)<\/div>/g)) params.set(htmlText(m[1]).toLowerCase(), htmlText(m[2]));
+      const ttc = priceOrNull((part.match(/Cena s dph\s*<\/p>\s*<p>\s*([\d\s ]+)€/i)?.[1] ?? '').replace(/[\s ]/g, ''));
+      const ht = priceOrNull((part.match(/priceWithoutTax"><b>([\d\s ]+)€/i)?.[1] ?? '').replace(/[\s ]/g, ''));
+      const kw = num(params.get('objem a výkon motora')?.match(/(\d+)\s*kw/i)?.[1]);
+      const gear = params.get('prevodovka') ?? '';
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href, title: [name, version].filter(Boolean).join(' ').trim(), brand: name.split(/\s+/)[0] || null, model: name.split(/\s+/).slice(1).join(' ') || null,
+        price: ttc ?? ht, km: num(params.get('počet km')?.replace(/km/i, '').replace(/\s/g, '')), year: num(params.get('rok výroby')),
+        fuel: params.get('palivo') ?? null, gearbox: /automat/i.test(gear) ? 'Automatique' : /manu/i.test(gear) ? 'Manuelle' : gear || null,
+        plate: null, vin: null, body: null, image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+        status: ttc == null && ht == null ? 'price_on_request' : null, currency: 'EUR', power_ch: kw != null ? Math.round(kw * 1.35962) : null,
+      });
+    }
+    return added;
+  };
+  let pages = 1;
+  let added = parse(firstHtml);
+  if (added > 0 && !/pocet-na-stranu=100/.test(url)) { seen.clear(); out.length = 0; const r = await getTextPatient(pageUrl(1)); added = r.status === 200 ? parse(r.text) : 0; }
+  for (let p = 2; p <= MAX_PAGES && added > 0; p++) {
+    await sleep(PAGE_DELAY_MS);
+    const r = await getTextPatient(pageUrl(p));
+    if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+    added = parse(r.text); if (added > 0) pages = p;
+  }
+  return { provider: 'autopolis', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
+// ── webspark / dealerk (Cobredia, 04/11) : cartes « vcard » data-id, paires label/info, prix « vcard-price__price », « page=N ».
+async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const parse = (html: string): number => {
+    let added = 0;
+    const parts = html.split(/<div class="card [^"]*\bvcard\b[^"]*" data-id="/).slice(1);
+    for (const part of parts) {
+      const id = part.match(/^(\d+)"/)?.[1];
+      if (!id || seen.has(id)) continue;
+      const link = part.match(/<a href="([^"]+)" class="vcard--link">([\s\S]*?)<\/a>/);
+      const makeModel = htmlText(link?.[2] ?? '');
+      const version = htmlText(part.match(/vcard-main-info__version-heading">([\s\S]*?)<\/h3>/)?.[1] ?? '');
+      const params = new Map<string, string>();
+      for (const m of part.matchAll(/vcard-submain-info__label">([\s\S]*?)<\/span>\s*<span[^>]*vcard-submain-info__info">([\s\S]*?)<\/span>/g)) params.set(htmlText(m[1]).toLowerCase(), htmlText(m[2]));
+      const price = priceOrNull((part.match(/vcard-price__price[^"]*">\s*([\d\s ]+)€/)?.[1] ?? '').replace(/[\s ]/g, ''));
+      const mec = params.get('mise en circulation') ?? '';
+      const year = num(mec.match(/(\d{4})/)?.[1]);
+      const gear = params.get('boîte de vitesses') ?? params.get('boite de vitesses') ?? '';
+      const sold = /vcard--status-(sold|reserved)/.test(part.slice(0, 400));
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: link?.[1] ?? null, title: [makeModel, version].filter(Boolean).join(' ').trim(), brand: makeModel.split(/\s+/)[0] || null, model: makeModel.split(/\s+/).slice(1).join(' ') || null,
+        price, km: num(params.get('kilométrage')?.replace(/km/i, '').replace(/\s/g, '')), year, fuel: params.get('energie') ?? params.get('énergie') ?? null,
+        gearbox: /auto/i.test(gear) ? 'Automatique' : /manu/i.test(gear) ? 'Manuelle' : gear || null,
+        plate: null, vin: null, body: null, image: part.match(/<img src="([^"]+)"/)?.[1] ?? null,
+        listed_at: mec && /^\d{2}\/\d{4}$/.test(mec) ? null : null,
+        status: sold ? 'sold' : price == null ? 'price_on_request' : null, currency: 'EUR',
+      });
+    }
+    return added;
+  };
+  let pages = 1;
+  let added = parse(firstHtml);
+  const perPage = added;
+  const lastLinked = Math.max(0, ...[...firstHtml.matchAll(/[?&]page=(\d+)/g)].map((m) => Number(m[1])));
+  const cap = Math.min(MAX_PAGES, Math.max(lastLinked, 1) + 20);
+  // Une page plus courte que la première est la dernière (au-delà, l'origine répond 429 et non 404).
+  for (let p = 2; p <= cap && added >= perPage && added > 0; p++) {
+    await sleep(10_000); // rythme toléré par l'origine : une page hors cache toutes les ~10 s
+    const r = await getTextPatient(withParam(url, 'page', String(p)));
+    if (r.status !== 200) { if (r.status !== 404) warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+    added = parse(r.text); if (added > 0) pages = p;
+  }
+  return { provider: 'webspark', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getText(url);
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -1304,6 +1467,9 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
     );
   }
   if (provider === 'kamux') return scrapeKamux(url);
+  if (provider === 'openflex') return scrapeOpenflex(url, first.text);
+  if (provider === 'autopolis') return scrapeAutopolis(url, first.text);
+  if (provider === 'webspark') return scrapeWebspark(url, first.text);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text, onProgress);
