@@ -24,7 +24,14 @@ const STALE_DAYS = 6;
 let running = false;
 let lastDay = '';
 
-const parisHour = () => Number(new Intl.DateTimeFormat('fr-FR', { hour: 'numeric', hour12: false, timeZone: 'Europe/Paris' }).format(new Date()));
+// 04/11 (preuve : aucun [DEALER_STOCK_WEEKLY] en base entre 23 h et 7 h, aucun relevé nocturne depuis la mise en
+// place) : fr-FR formate « 01 h » → Number() = NaN → l'heure n'était JAMAIS égale à 1. Même bogue déjà corrigé dans
+// dailySearches le 27/07 : on ne garde que les chiffres, repli UTC.
+const parisHour = () => {
+  const raw = new Intl.DateTimeFormat('fr-FR', { hour: 'numeric', hour12: false, timeZone: 'Europe/Paris' }).format(new Date());
+  const h = Number(raw.replace(/\D/g, ''));
+  return Number.isFinite(h) ? h : new Date().getUTCHours();
+};
 const parisDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
 
 type Run = { contact_id: string; started_at: string; status: string; warnings: string[] | null };
@@ -50,7 +57,7 @@ export async function runWeeklyDealerStocks(force = false): Promise<void> {
     const cutoff = Date.now() - STALE_DAYS * 86_400_000;
     const due: Contact[] = [];
     const skipped: string[] = [];
-    const todayCutoff = Date.now() - 20 * 3600_000;
+    const todayCutoff = Date.now() - 22 * 3600_000;
     for (const c of (contacts ?? []) as Contact[]) {
       if (!c.website || !/^https?:\/\//i.test(c.website)) continue;
       const freq = c.stock_frequency ?? 'daily';
@@ -88,7 +95,9 @@ export async function runWeeklyDealerStocks(force = false): Promise<void> {
 export function startDealerStockScheduler(): void {
   const tick = () => {
     const day = parisDay();
-    if (parisHour() !== RUN_HOUR_PARIS || lastDay === day) return;
+    // Rattrapage (04/11) : si le créneau de 1 h est passé et que rien n'est parti aujourd'hui (redémarrage,
+    // déploiement), le passage part maintenant — les vitrines relevées il y a moins de 22 h sont ignorées.
+    if (parisHour() < RUN_HOUR_PARIS || lastDay === day) return;
     lastDay = day;
     void runWeeklyDealerStocks();
   };
