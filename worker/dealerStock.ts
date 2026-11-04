@@ -31,8 +31,8 @@ import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -212,7 +212,29 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // autopolis (autopolis.sk, 04/11) : cartes <div class="car-item"> avec car-item__title et paires paramètre/valeur, « strana=N ».
   if (/class="car-item__title"/.test(html) && /car-item__parameter-info/.test(html)) return 'autopolis';
   // webspark / dealerk (Cobredia, 04/11) : WordPress + plugin webspark, cartes « vcard » data-id, paires label/info, « page=N ».
-  if (/vcard-main-info__make-model/.test(html) && /vcard-submain-info__label/.test(html)) return 'webspark';
+  // 04/11 : variante compacte (Bony, Sofibrie, Edenauto, SIPA) — pas d'étiquettes, la ligne « 12/2025 - 10 Km - Hybride »
+  // est dans vcard-consumption__title.
+  if (/vcard-main-info__make-model/.test(html) && /vcard-submain-info__label|vcard-consumption__title|vcard-icons-info__item-label/.test(html)) return 'webspark';
+  // flexicar (ES, 04/11) : Next.js, la liste vient de services.flexicar.es/api/v1/vehicles (12 par page).
+  if (/__NEXT_DATA__/.test(html) && /"initialVehicles"/.test(html) && /flexicar\.(es|pt)/i.test(html)) return 'flexicar';
+  // interstrip (DE, 04/11) : Next.js rendu serveur, grille « vehicle-grid », photos mobile.de (classistatic).
+  if (/class="vehicle-grid/.test(html) && /img\.classistatic\.de/.test(html)) return 'interstrip';
+  // shopware (Bleker, 04/11) : boutique Shopware, cartes « product-box box-vehicle », pages « p=N ».
+  if (/product-box box-vehicle/.test(html) && /Fahrzeugnr\./.test(html)) return 'shopware';
+  // wpcarsync (Voets, 04/11) : WordPress + plugin wpcarsync, cartes « voets_single_vehicle », pages « /page/N/ ».
+  if (/voets_single_vehicle/.test(html) && /price_brutto/.test(html)) return 'wpcarsync';
+  // divivoertuig (Van Dijk, 04/11) : WordPress Divi, cartes <article class="item"> avec « voertuig-prijs ».
+  if (/class="voertuig-prijs"/.test(html) && /class="item-content"/.test(html)) return 'divivoertuig';
+  // carwp (C.A.R, 04/11) : WordPress maison, une page par marque « /occasions/occasions-<marque>/ », cartes data-ref.
+  if (/class="vo car-name"/.test(html) && /class="vo car-prix"/.test(html)) return 'carwp';
+  // regeljelease (Van der Wal Vans, 04/11) : cartes « card-click » data-advertiser-id, pages « ?page=N ».
+  if (/card-click/.test(html) && /data-advertiser-id="/.test(html)) return 'regeljelease';
+  // vgrf (Škoda Nantes, 04/11) : Joomla VGRF, cartes « ListeNewVoiture », pages « start=N » par 12.
+  if (/data-vgrf-module="VehiculesFilterNew"/.test(html) && /ListeNewVoiture/.test(html)) return 'vgrf';
+  // yooflex (Groupe Hecquet, 04/11) : WordPress YOOtheme + flux openflex, cartes « result-item », pages « ?paged=N ».
+  if (/class="result-item"/.test(html) && /filerender-api\.openflex\.eu/.test(html) && /id="veh-grid"/.test(html)) return 'yooflex';
+  // dutchvans (NL, 04/11) : WordPress maison, cartes « item-summary » + « vehicle-specs », pages « ?pagina=N ».
+  if (/item-summary/.test(html) && /class="vehicle-specs"/.test(html)) return 'dutchvans';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -1305,9 +1327,10 @@ async function scrapeKamux(url: string): Promise<DealerStockResult> {
 const htmlText = (s: string) => decode(s.replace(/<[^>]+>/g, ' ')).replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/\s+/g, ' ').trim();
 /** GET avec reprise sur HTTP 429/503 (5 s, 10 s, 20 s, 40 s) : l'origine MotorK de Cobredia répond 429 pendant ~20 s
  *  après deux pages hors cache rapprochées (mesuré le 04/11 : 429 à t+11 s, 200 dès t+24 s). */
-async function getTextPatient(url: string): Promise<{ status: number; text: string }> {
-  let r = await getText(url);
-  for (let i = 0; i < 4 && (r.status === 429 || r.status === 503); i++) { await sleep(5000 * 2 ** i); r = await getText(url); }
+async function getTextPatient(url: string, init?: RequestInit): Promise<{ status: number; text: string; headers: Headers }> {
+  let r = await getText(url, init);
+  // 5 reprises (5 s → 80 s, 155 s en tout) : SIPA a tenu 41 pages puis 429 persistant pendant qu'une autre vitrine MotorK était lue.
+  for (let i = 0; i < 5 && (r.status === 429 || r.status === 503); i++) { await sleep(5000 * 2 ** i); r = await getText(url, init); }
   return r;
 }
 /** Même URL avec un paramètre de requête changé. */
@@ -1425,6 +1448,19 @@ async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerSto
       const version = htmlText(part.match(/vcard-main-info__version-heading">([\s\S]*?)<\/h3>/)?.[1] ?? '');
       const params = new Map<string, string>();
       for (const m of part.matchAll(/vcard-submain-info__label">([\s\S]*?)<\/span>\s*<span[^>]*vcard-submain-info__info">([\s\S]*?)<\/span>/g)) params.set(htmlText(m[1]).toLowerCase(), htmlText(m[2]));
+      // Variante compacte (04/11) : « 12/2025 - 10 Km - Hybride » ou « 2026 - Essence » dans vcard-consumption__title.
+      if (params.size === 0) {
+        // Edenauto : titre vide, les mêmes données sont dans trois <… class="vcard-consumption__item"> (ville, 12/2023, 39 223 Km, Hybride).
+        const line = htmlText(part.match(/<p class="vcard-consumption__title">([\s\S]*?)<\/p>/)?.[1] ?? ''); // Edenauto : le titre est un <div> qui englobe les items
+        const items = [...part.matchAll(/vcard-consumption__item"[\s\S]*?<p>([\s\S]*?)<\/p>/g)].map((m) => htmlText(m[1]));
+        // SIPA : troisième variante, trois « vcard-icons-info__item-label » (date, km, énergie).
+        for (const m of part.matchAll(/vcard-icons-info__item-label[^>]*>([\s\S]*?)<\/(?:span|div|p)>/g)) items.push(htmlText(m[1]));
+        for (const tok of (line ? line.split(/\s+-\s+/) : items).map((x) => x.trim()).filter(Boolean)) {
+          if (/^(\d{2}\/)?\d{4}$/.test(tok)) params.set('mise en circulation', tok);
+          else if (/^[\d\s ]+km$/i.test(tok)) params.set('kilométrage', tok);
+          else params.set('energie', tok);
+        }
+      }
       const price = priceOrNull((part.match(/vcard-price__price[^"]*">\s*([\d\s ]+)€/)?.[1] ?? '').replace(/[\s ]/g, ''));
       const mec = params.get('mise en circulation') ?? '';
       const year = num(mec.match(/(\d{4})/)?.[1]);
@@ -1515,8 +1551,376 @@ async function scrapeCatalogPager(url: string, firstHtml: string): Promise<Deale
   return { provider: 'catalogpager', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+/** Texte d'un bloc HTML en jetons : balises → séparateurs, entités décodées, blancs repliés. */
+const htmlTokens = (s: string): string[] => htmlText(s.replace(/<[^>]+>/g, ' | ')).split('|').map((x) => x.trim()).filter((x) => /[\p{L}\p{N}€]/u.test(x));
+/** Paires « Étiquette | Valeur » lues dans une liste de jetons (Kilometerstand | 27514 km…). */
+const pairsOf = (tokens: string[], labels: RegExp): Map<string, string> => {
+  const m = new Map<string, string>();
+  for (let i = 0; i + 1 < tokens.length; i++) if (labels.test(tokens[i]) && !m.has(tokens[i].toLowerCase())) m.set(tokens[i].toLowerCase().replace(/[:\s]+$/, ''), tokens[i + 1]);
+  return m;
+};
+const gearboxOf = (t: string | null | undefined): string | null => (!t ? null : /auto|dsg|dct|eat|bva|cvt|steptronic|s-?tronic|tiptronic|powershift|séquentielle|sequentielle/i.test(t) ? 'Automatique' : /manu|schalt|bvm|handgeschakeld/i.test(t) ? 'Manuelle' : t);
+const euro = (t: string | null | undefined): number | null => {
+  // « 34.999,00 € », « 11 955€ », « € 64.990,- », « 17.500€ » → entier d'euros.
+  const m = (t ?? '').match(/(\d{1,3}(?:[\s .]\d{3})+|\d+)(?:[.,]\d{1,2})?\s*(?:€|&euro;|,-)|(?:€|&euro;)\s*(\d{1,3}(?:[\s .]\d{3})+|\d+)/);
+  const raw = m?.[1] ?? m?.[2];
+  return raw ? priceOrNull(raw.replace(/[\s .]/g, '')) : null;
+};
+const kmOf = (t: string | null | undefined): number | null => { const m = (t ?? '').match(/(\d{1,3}(?:[\s .]\d{3})+|\d+)\s*km/i); return m ? num(m[1].replace(/[\s .]/g, '')) : null; };
+const yearOf = (t: string | null | undefined): number | null => { const m = (t ?? '').match(/\b((?:19|20)\d{2})\b/); return m ? num(m[1]) : null; };
+/** Pagination générique : lit page 1 (déjà chargée) puis `urlOf(p)` tant que des cartes nouvelles arrivent. */
+async function paginate(firstHtml: string, parse: (html: string) => number, urlOf: (p: number) => string, opts: { cap?: number; delay?: number; stopWhenShort?: boolean } = {}): Promise<{ pages: number; warnings: string[] }> {
+  const warnings: string[] = [];
+  let pages = 1;
+  let added = parse(firstHtml);
+  const perPage = added;
+  const cap = opts.cap ?? MAX_PAGES;
+  for (let p = 2; p <= cap && added > 0 && !(opts.stopWhenShort && added < perPage); p++) {
+    await sleep(opts.delay ?? PAGE_DELAY_MS);
+    const r = await getTextPatient(urlOf(p));
+    if (r.status !== 200) { if (r.status !== 404) warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+    added = parse(r.text); if (added > 0) pages = p;
+  }
+  return { pages, warnings };
+}
+
+// ── flexicar (ES, 04/11) : API publique du site, 12 par page. L'URL de la fiche choisit le périmètre :
+//    « /concesionario-<slug>/ » ou « /delegaciones-flexicar/<slug>/ » = une concession, « /coches-<province>/segunda-mano/ »
+//    = une province, sinon tout le réseau (23 000 voitures, ~1 900 pages).
+async function scrapeFlexicar(url: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const dealer = u.pathname.match(/\/(?:concesionario|delegaciones-flexicar)[-/]([a-z0-9-]+)\//)?.[1] ?? null;
+  const province = dealer ? null : u.pathname.match(/\/coches-([a-z0-9-]+)\/segunda-mano\//)?.[1] ?? null;
+  const api = u.hostname.endsWith('.pt') ? 'https://services.flexicar.pt/api/v1/vehicles' : 'https://services.flexicar.es/api/v1/vehicles';
+  const scope = dealer ? `carDealership=${encodeURIComponent(dealer)}` : province ? `province=${encodeURIComponent(province)}` : '';
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let declared: number | null = null;
+  let pages = 0;
+  type Fx = { id: number | string; brand?: string; model?: string; version?: string; fuel?: string; km?: number; price?: number; cashPrice?: number; year?: number; transmission?: string; image?: string; slug?: string; reserved?: boolean; carDealership?: string };
+  for (let p = 1; p <= 2000; p++) {
+    if (p > 1) await sleep(PAGE_DELAY_MS);
+    const r = await getTextPatient(`${api}?${scope ? scope + '&' : ''}page=${p}&limit=100`);
+    if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+    let d: { hasNext?: boolean; total?: number; results?: Fx[] };
+    try { d = JSON.parse(r.text); } catch { warnings.push(`page ${p} : réponse illisible`); break; }
+    declared = declared ?? (typeof d.total === 'number' ? d.total : null);
+    pages = p;
+    let added = 0;
+    for (const v of d.results ?? []) {
+      const id = String(v.id);
+      if (seen.has(id)) continue;
+      seen.add(id); added++;
+      const price = v.cashPrice ?? v.price ?? null;
+      out.push({
+        external_id: id, url: v.slug ? `https://${u.hostname}/coches-ocasion/${v.slug}/` : null, title: [v.brand, v.model, v.version].filter(Boolean).join(' '),
+        brand: v.brand ?? null, model: v.model ?? null, price: price != null && price > 0 ? Math.round(price) : null, km: v.km ?? null, year: v.year ?? null, fuel: v.fuel ?? null,
+        gearbox: gearboxOf(v.transmission), plate: null, vin: null, body: null, image: v.image ?? null, listed_at: null,
+        status: v.reserved ? 'reserved' : price == null || price <= 0 ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(v.version),
+      });
+    }
+    if (!d.hasNext || added === 0) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  if (!scope) warnings.push('périmètre : tout le réseau Flexicar (aucune concession dans l\'URL)');
+  return { provider: 'flexicar', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
+// ── interstrip (DE, 04/11) : une page, 12 voitures, texte de la carte « BMW | X5 | version | 10 / 2025 | 17.800 km | Automatik | Hybrid | 64.990 € ».
+async function scrapeInterstrip(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const grid = firstHtml.slice(firstHtml.indexOf('class="vehicle-grid'));
+  for (const m of grid.matchAll(/<a class="group block" href="([^"]+)">([\s\S]*?)<\/article>/g)) {
+    const [, href, inner] = m;
+    const id = href.match(/-(\d{8,})$/)?.[1] ?? href;
+    if (seen.has(id)) continue;
+    const t = htmlTokens(inner.replace(/<svg[\s\S]*?<\/svg>/g, ''));
+    const brand = htmlText(inner.match(/<h3[^>]*>([\s\S]*?)<\/h3>/)?.[1] ?? '').replace(/<!--.*?-->/g, '');
+    const [bk, ...rest] = brand.split(/\s+/);
+    const version = inner.match(/<p[^>]*title="([^"]*)"/)?.[1] ?? null;
+    const txt = t.join(' ');
+    const date = t.find((x) => /^(?:19|20)\d{2}$/.test(x)) ?? null;
+    const price = euro(txt.match(/[\d.]+\s*€/)?.[0]);
+    seen.add(id);
+    out.push({
+      external_id: id, url: origin + href, title: [brand, version].filter(Boolean).join(' '), brand: bk || null, model: rest.join(' ') || null,
+      price, km: kmOf(txt), year: yearOf(date), fuel: t.find((x) => /benzin|diesel|hybrid|elektro|lpg|cng/i.test(x)) ?? null,
+      gearbox: gearboxOf(t.find((x) => /^(automatik|schaltgetriebe|halbautomatik)$/i.test(x))), plate: null, vin: null, body: null,
+      image: decodeURIComponent(inner.match(/url=([^&"]+)/)?.[1] ?? '') || null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
+    });
+  }
+  return { provider: 'interstrip', total: out.length, declared: null, vehicles: out, pages: 1, warnings: [] };
+}
+
+// ── shopware (Bleker, 04/11) : cartes « product-box box-vehicle », paires Fahrzeugnr./Kraftstoff/Kilometerstand/Getriebe/Leistung/Erstzulassung, pages « ?p=N ».
+async function scrapeShopware(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/product-box box-vehicle"/).slice(1)) {
+      const link = part.match(/href="(https?:\/\/[^"]+\/(\d{4,}))"[^>]*\stitle="([^"]*)"/);
+      if (!link) continue;
+      const [, href, id, title] = link;
+      if (seen.has(id)) continue;
+      const brand = part.match(/itemprop="brand"\s+content="([^"]*)"/)?.[1] ?? null;
+      const t = htmlTokens(part.replace(/<style>[\s\S]*?<\/style>/g, '').replace(/<svg[\s\S]*?<\/svg>/g, ''));
+      const pr = pairsOf(t, /^(Fahrzeugnr\.|Zustand|Kraftstoff|Kilometerstand|Getriebe|Leistung|Erstzulassung|Barpreis)$/i);
+      const price = euro(pr.get('barpreis') ?? t.find((x) => /€/.test(x)));
+      const kw = num(pr.get('leistung')?.match(/(\d+)\s*kw/i)?.[1]);
+      const model = brand && title.toLowerCase().startsWith(brand.toLowerCase()) ? title.slice(brand.length).trim().split(/\s+/)[0] ?? null : splitTitle(title).model;
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href, title: htmlText(title), brand, model, price, km: kmOf(pr.get('kilometerstand')), year: yearOf(pr.get('erstzulassung')),
+        fuel: pr.get('kraftstoff') ?? null, gearbox: gearboxOf(pr.get('getriebe')), plate: null, vin: null, body: null,
+        image: part.match(/<img[^>]+(?:data-src|src)="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR',
+        power_ch: kw != null ? Math.round(kw * 1.35962) : powerFromText(pr.get('leistung')),
+      });
+    }
+    return added;
+  };
+  const { pages, warnings } = await paginate(firstHtml, parse, (p) => withParam(url, 'p', String(p)), { cap: 400 }); // Bleker : ~2 600 voitures, 12 par page
+  return { provider: 'shopware', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
+// ── wpcarsync (Voets, 04/11) : cartes « voets_single_vehicle », make/model/model_description, paires Erstzulassung/Leistung/Getriebe/Kilometerstand, pages « /page/N/ ».
+async function scrapeWpcarsync(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/voets_single_vehicle"/).slice(1)) {
+      const href = part.match(/<a[^>]+href="([^"]+)"/)?.[1];
+      if (!href) continue;
+      const id = href.match(/-([0-9a-f]{16,})\/?$/)?.[1] ?? href;
+      if (seen.has(id)) continue;
+      const make = htmlText(part.match(/class="make">([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const model = htmlText(part.match(/class="model">([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const desc = htmlText(part.match(/class="model_description">([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const t = htmlTokens(part.replace(/<svg[\s\S]*?<\/svg>/g, ''));
+      const pr = pairsOf(t, /^(Erstzulassung|Leistung|Getriebe|Kilometerstand|Kraftstoff|Antrieb|Farbe)$/i);
+      const price = euro(part.match(/price_brutto[^>]*>([\s\S]*?)<\/span>/)?.[1]);
+      const kw = num(pr.get('leistung')?.match(/(\d+)\s*kw/i)?.[1]);
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href, title: [make, model, desc].filter(Boolean).join(' '), brand: make || null, model: model || null, price,
+        km: kmOf(pr.get('kilometerstand')), year: yearOf(pr.get('erstzulassung')), fuel: pr.get('kraftstoff') ?? null, gearbox: gearboxOf(pr.get('getriebe')),
+        plate: null, vin: null, body: null, image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+        status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: kw != null ? Math.round(kw * 1.35962) : null,
+      });
+    }
+    return added;
+  };
+  // « /page/N/ » renvoie la vitrine des modèles, pas le stock : la vraie pagination est « ?wpcs_paged=N » (prouvé 04/11).
+  const { pages, warnings } = await paginate(firstHtml, parse, (p) => withParam(url, 'wpcs_paged', String(p)), { cap: 250 });
+  if (pages === 1 && /Mehr als [\d.]+ Fahrzeuge/i.test(firstHtml)) warnings.push('seule la première page est lisible : la pagination du site se fait en JavaScript (toutes les variantes d\'URL testées le 04/11 renvoient la même page)');
+  return { provider: 'wpcarsync', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
+// ── divivoertuig (Van Dijk Automotive, 04/11) : <article class="item">, prix « voertuig-prijs », liste Bouwjaar/Km.stand/Transm/Brandstof, pages « /page/N/ ».
+async function scrapeDiviVoertuig(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const base = url.replace(/#.*$/, '').replace(/\/page\/\d+\/?$/, '').replace(/\/?$/, '/');
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/class="item">/).slice(1)) {
+      const href = part.match(/<a href="([^"]+\/voertuig\/[^"]+)"/)?.[1];
+      if (!href) continue;
+      const id = href.match(/\/voertuig\/(\d+)/)?.[1] ?? href;
+      if (seen.has(id)) continue;
+      const title = htmlText(part.match(/<h1>([\s\S]*?)<\/h1>/)?.[1] ?? '');
+      const li = new Map<string, string>();
+      for (const m of part.matchAll(/<li>([^:<]+):\s*([^<]*)<\/li>/g)) li.set(m[1].trim().toLowerCase(), htmlText(m[2]));
+      const price = euro(part.match(/voertuig-prijs">([\s\S]*?)<\/div>/)?.[1]);
+      const { brand, model } = splitTitle(title);
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href, title, brand, model, price, km: kmOf((li.get('km.stand') ?? '') + ' km'), year: yearOf(li.get('bouwjaar')),
+        fuel: li.get('brandstof') ?? null, gearbox: gearboxOf(li.get('transm')), plate: null, vin: null, body: li.get('carrosserie') ?? null,
+        image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR',
+      });
+    }
+    return added;
+  };
+  const { pages, warnings } = await paginate(firstHtml, parse, (p) => `${base}page/${p}/`);
+  return { provider: 'divivoertuig', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
+// ── carwp (C.A.R, 04/11) : une page par marque (liens « /occasions/occasions-<marque>/ » du menu), cartes data-ref, h2.car-name, h3.car-prix.
+async function scrapeCarWp(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/<article[^>]*data-ref="/).slice(1)) {
+      const id = part.match(/^(\d+)"/)?.[1];
+      if (!id || seen.has(id)) continue;
+      const name = htmlText(part.match(/car-name"[^>]*>\s*<a[^>]*>([\s\S]*?)<\/a>/)?.[1] ?? '');
+      const href = part.match(/car-name"[^>]*>\s*<a href="([^"]+)"/)?.[1] ?? null;
+      const price = euro(part.match(/car-prix"[^>]*>\s*<a[^>]*>([\s\S]*?)<\/a>/)?.[1]);
+      const desc = htmlText(part.match(/car-shortdesc"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '');
+      const { brand, model } = splitTitle(name);
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href, title: name, brand, model, price, km: kmOf(desc), year: yearOf(desc),
+        fuel: desc.match(/diesel|essence|hybride|électrique|electrique|gpl/i)?.[0] ?? null, gearbox: gearboxOf(name + ' ' + desc) === 'Automatique' ? 'Automatique' : /BVM/i.test(name + ' ' + desc) ? 'Manuelle' : null,
+        plate: null, vin: null, body: null, image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(name),
+      });
+    }
+    return added;
+  };
+  parse(firstHtml);
+  const brandPages = [...new Set([...firstHtml.matchAll(/href="((?:https?:\/\/[^/"]+)?\/occasions\/occasions-[a-z0-9-]+\/)"/g)].map((m) => (m[1].startsWith('http') ? m[1] : origin + m[1])))].filter((u) => u !== url);
+  let pages = 1;
+  for (const bp of brandPages) {
+    await sleep(PAGE_DELAY_MS);
+    const r = await getTextPatient(bp);
+    if (r.status !== 200) { warnings.push(`${bp.replace(origin, '')} : HTTP ${r.status}`); continue; }
+    parse(r.text); pages++;
+  }
+  return { provider: 'carwp', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
+// ── regeljelease (Van der Wal Vans, 04/11) : cartes « card-click » (titre | année | carburant | km | boîte | … | prix), pages « ?page=N ».
+async function scrapeRegeljelease(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const m of html.matchAll(/<a class="card[^"]*card-click[^"]*"\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)) {
+      const [, href, inner] = m;
+      const id = href.match(/-(\d{6,})(?:\?|$)/)?.[1] ?? href;
+      if (seen.has(id)) continue;
+      const t = htmlTokens(inner.replace(/<picture>[\s\S]*?<\/picture>/g, '').replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/data-gallery="[^"]*"/g, ''));
+      const title = t[0] ?? '';
+      const prices = t.filter((x) => /(€|&euro;)\s*[\d.]+,\d{2}$/.test(x) && !/p\/m/i.test(x));
+      const price = euro(prices[prices.length - 1]);
+      const { brand, model } = splitTitle(title);
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href.startsWith('http') ? href : origin + href, title, brand, model, price,
+        km: kmOf(t.find((x) => /km$/i.test(x))), year: num(t.find((x) => /^(19|20)\d{2}$/.test(x))), fuel: t.find((x) => /^(diesel|benzine|elektrisch|hybride|lpg|cng|waterstof)/i.test(x)) ?? null,
+        gearbox: gearboxOf(t.find((x) => /^(automaat|handgeschakeld)$/i.test(x))), plate: null, vin: null, body: null,
+        image: inner.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: /data-is-sold="true"/.test(inner) ? 'sold' : price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(title),
+      });
+    }
+    return added;
+  };
+  const last = Math.max(1, ...[...firstHtml.matchAll(/[?&]page=(\d+)/g)].map((m) => Number(m[1])));
+  const { pages, warnings } = await paginate(firstHtml, parse, (p) => withParam(url, 'page', String(p)), { cap: Math.min(MAX_PAGES, last + 3) });
+  return { provider: 'regeljelease', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
+// ── vgrf (Škoda Nantes / VGRF, 04/11) : cartes « ListeNewVoiture » data-vehicule-id, 12 par page « ?start=N », total « data-vehicules-listing-total ».
+async function scrapeVgrf(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const declared = num(firstHtml.match(/data-vehicules-listing-total="(\d+)"/)?.[1]);
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/class="ListeNewVoiture/).slice(1)) {
+      const id = part.match(/data-vehicule-id="([^"]+)"/)?.[1];
+      if (!id || seen.has(id)) continue;
+      const href = part.match(/href="(https?:\/\/[^"]+\/occasion\/[^"]+)"/)?.[1] ?? null;
+      const alt = part.match(/alt="Voitures occasions ([^"]+)"/)?.[1] ?? '';
+      const t = htmlTokens(part.replace(/<style>[\s\S]*?<\/style>/g, '').replace(/<svg[\s\S]*?<\/svg>/g, ''));
+      const iPrix = t.findIndex((x) => /^Prix TTC/i.test(x));
+      const price = euro(iPrix >= 0 ? t[iPrix + 1] : t.find((x) => /\d\s*€$/.test(x)));
+      const year = num(t.find((x) => /^(19|20)\d{2}$/.test(x)));
+      const km = kmOf(t.find((x) => /km$/i.test(x)));
+      const fuel = t.find((x) => /^(essence|diesel|hybride|électrique|electrique|gpl|hybride rechargeable|hybride non rechargeable)/i.test(x)) ?? null;
+      const gear = t.find((x) => /^(manuelle|automatique|séquentielle|sequentielle)$/i.test(x)) ?? null;
+      const { brand, model } = splitTitle(alt);
+      const version = brand && model ? alt.replace(new RegExp(`^${brand}\\s+${model}\\s*`, 'i'), '') : alt;
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href, title: alt, brand, model, price, km, year, fuel, gearbox: gearboxOf(gear), plate: null, vin: null, body: null,
+        image: part.match(/data-src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
+      });
+    }
+    return added;
+  };
+  let pages = 1;
+  let added = parse(firstHtml);
+  const perPage = Math.max(added, 12);
+  const warnings: string[] = [];
+  for (let start = perPage; added > 0 && (declared == null ? start < perPage * MAX_PAGES : start < declared); start += perPage) {
+    await sleep(PAGE_DELAY_MS);
+    const r = await getTextPatient(withParam(url, 'start', String(start)));
+    if (r.status !== 200) { warnings.push(`start=${start} : HTTP ${r.status}`); break; }
+    added = parse(r.text); if (added > 0) pages++;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'vgrf', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
+// ── yooflex (Groupe Hecquet, 04/11) : cartes « result-item » (titre | puissance ｜ année | boîte | km | énergie | ville | prix), « N résultats », pages « ?paged=N ».
+async function scrapeYooflex(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const declared = num(firstHtml.match(/(\d[\d\s ]*)\s*résultats?/)?.[1]?.replace(/[\s ]/g, ''));
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/class="result-item"/).slice(1)) {
+      const href = part.match(/href="([^"]+\/vehicule\/(\d+))"/);
+      if (!href || seen.has(href[2])) continue;
+      const t = htmlTokens(part.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<ul class="uk-slider-items[\s\S]*?<\/ul>/g, ''));
+      const title = t[0] ?? '';
+      const { brand, model } = splitTitle(title);
+      const price = euro(t.find((x) => /\d\s*€$/.test(x)));
+      seen.add(href[2]); added++;
+      out.push({
+        external_id: href[2], url: href[1], title, brand, model, price, km: kmOf(t.find((x) => /km$/i.test(x))), year: num(t.map((x) => x.match(/\b((?:19|20)\d{2})\b/)?.[1]).find(Boolean)),
+        fuel: t.find((x) => /^(essence|diesel|hybride|électrique|electrique|gpl)/i.test(x)) ?? null, gearbox: gearboxOf(t.find((x) => /^(manuelle|automatique|séquentielle|sequentielle)$/i.test(x))),
+        plate: null, vin: null, body: null, image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(title + ' ' + (t[1] ?? '')),
+      });
+    }
+    return added;
+  };
+  const { pages, warnings } = await paginate(firstHtml, parse, (p) => withParam(url, 'paged', String(p)));
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'yooflex', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
+// ── dutchvans (NL, 04/11) : cartes « item-summary » (titre | km | année | boîte | Euro | Kopen | prix | Excl. btw), pages « ?pagina=N ».
+async function scrapeDutchvans(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/item-summary"/).slice(1)) {
+      const href = part.match(/href="(https?:\/\/[^"]+\/bedrijfswagen\/[^"]+)"/)?.[1];
+      if (!href) continue;
+      const id = part.match(/cdn\.dutchvans\.com\/([A-Z0-9]{10,})\//)?.[1] ?? href;
+      if (seen.has(id)) continue;
+      const t = htmlTokens(part.replace(/<svg[\s\S]*?<\/svg>/g, ''));
+      const start = t.findIndex((x) => /bekeken$/i.test(x));
+      const title = t[start + 1] ?? t[0] ?? '';
+      const iKopen = t.findIndex((x) => /^kopen$/i.test(x));
+      const price = euro(iKopen >= 0 ? t[iKopen + 1] : t.find((x) => /^€/.test(x)));
+      const { brand, model } = splitTitle(title);
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href, title, brand, model, price, km: kmOf(t.find((x) => /km$/i.test(x))), year: num(t.find((x) => /^(19|20)\d{2}$/.test(x))),
+        fuel: null, gearbox: gearboxOf(t.find((x) => /^(automaat|handgeschakeld)$/i.test(x))), plate: null, vin: /^[A-Z0-9]{17}$/.test(id) ? id : null, body: null,
+        image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(title),
+      });
+    }
+    return added;
+  };
+  const { pages, warnings } = await paginate(firstHtml, parse, (p) => withParam(url, 'pagina', String(p)));
+  return { provider: 'dutchvans', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
-  const first = await getText(url);
+  const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
   const provider = detectDealerProvider(first.text);
   if (!provider) {
@@ -1532,6 +1936,16 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'autopolis') return scrapeAutopolis(url, first.text);
   if (provider === 'webspark') return scrapeWebspark(url, first.text);
   if (provider === 'catalogpager') return scrapeCatalogPager(url, first.text);
+  if (provider === 'flexicar') return scrapeFlexicar(url);
+  if (provider === 'interstrip') return scrapeInterstrip(url, first.text);
+  if (provider === 'shopware') return scrapeShopware(url, first.text);
+  if (provider === 'wpcarsync') return scrapeWpcarsync(url, first.text);
+  if (provider === 'divivoertuig') return scrapeDiviVoertuig(url, first.text);
+  if (provider === 'carwp') return scrapeCarWp(url, first.text);
+  if (provider === 'regeljelease') return scrapeRegeljelease(url, first.text);
+  if (provider === 'vgrf') return scrapeVgrf(url, first.text);
+  if (provider === 'yooflex') return scrapeYooflex(url, first.text);
+  if (provider === 'dutchvans') return scrapeDutchvans(url, first.text);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text, onProgress);
