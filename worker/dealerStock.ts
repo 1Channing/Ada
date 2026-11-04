@@ -31,8 +31,8 @@ import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -238,6 +238,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // vehiclelistapi (Gruppo Bossoni, 04/11) : liste Vue rendue côté client, l'API du site « /api/filtered-vehicle-list »
   // livre tout (4 017 voitures par pages de 500) avec lien, version, prix, km, année, énergie, boîte, puissance, photo.
   if (/filteredVehicleListUrl\s*=\s*"\/api\/filtered-vehicle-list"/.test(html)) return 'vehiclelistapi';
+  // rswusato (Gruppo Ghedini, 04/11) : WordPress thème rswstarter, cartes « card vehicle … usato » avec vehicle-brand /
+  // vehicle-model / vehicle-version / vehicle-date / vehicle-km / vehicle-fuel / vehicle-gear / price, pages « /page/N/ ».
+  if (/class="card vehicle[^"]*"/.test(html) && /class="vehicle-brand"/.test(html) && /class="[^"]*\bvehicle-km\b/.test(html)) return 'rswusato';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -1963,6 +1966,39 @@ async function scrapeVehicleListApi(url: string): Promise<DealerStockResult> {
   return { provider: 'vehiclelistapi', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+// ── rswusato (Gruppo Ghedini, 04/11) : 16 cartes par page, « /usato/veicoli/page/N/ ».
+async function scrapeRswUsato(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const base = url.replace(/\/page\/\d+\/?$/, '').replace(/\/?$/, '/');
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const span = (part: string, cls: string) => htmlText(part.match(new RegExp(`class="[^"]*\\b${cls}\\b[^"]*"[^>]*>([\\s\\S]*?)<\\/span>`))?.[1] ?? '');
+  // Les détails (date, km, énergie, boîte) contiennent d'abord un <span class="icon"> : le texte vient après lui.
+  const detail = (part: string, cls: string) => htmlText(part.match(new RegExp(`class="[^"]*\\b${cls}\\b[^"]*"[^>]*>\\s*<span class="icon">[\\s\\S]*?<\\/span>([^<]*)<`))?.[1] ?? '');
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/<div class="card vehicle[^"]*">/).slice(1)) {
+      const href = part.match(/<a href="([^"]+)"/)?.[1];
+      if (!href) continue;
+      const id = href.match(/-(\d+)\/?$/)?.[1] ?? href;
+      if (seen.has(id)) continue;
+      const brand = span(part, 'vehicle-brand'), model = span(part, 'vehicle-model'), version = span(part, 'vehicle-version');
+      const price = euro(part.match(/class="price">([\s\S]*?)<\/span>\s*<\/span>/)?.[1]?.replace(/<[^>]+>/g, '') ?? part.match(/class="price">([^<]*)/)?.[1] + ' €');
+      const date = detail(part, 'vehicle-date');
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href, title: [brand, model, version].filter(Boolean).join(' '), brand: brand || null, model: model || null, price,
+        km: kmOf(detail(part, 'vehicle-km')), year: yearOf(date), fuel: detail(part, 'vehicle-fuel') || null, gearbox: gearboxOf(detail(part, 'vehicle-gear') || null),
+        plate: null, vin: null, body: null, image: part.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+        status: /label-venduto|Venduto/i.test(part) ? 'sold' : price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
+      });
+    }
+    return added;
+  };
+  const last = Math.max(1, ...[...firstHtml.matchAll(/\/page\/(\d+)\//g)].map((m) => Number(m[1])));
+  const { pages, warnings } = await paginate(firstHtml, parse, (p) => `${base}page/${p}/`, { cap: Math.min(MAX_PAGES, last + 3) });
+  return { provider: 'rswusato', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -1991,6 +2027,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'yooflex') return scrapeYooflex(url, first.text);
   if (provider === 'dutchvans') return scrapeDutchvans(url, first.text);
   if (provider === 'vehiclelistapi') return scrapeVehicleListApi(url);
+  if (provider === 'rswusato') return scrapeRswUsato(url, first.text);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text, onProgress);
