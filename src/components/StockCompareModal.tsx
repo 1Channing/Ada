@@ -92,7 +92,12 @@ export function StockCompareModal({ contactId, name, country, onClose, onOpenSto
     (async () => {
       const errs: string[] = [];
       await loadFxRates().catch(() => { /* taux : repli EUR */ });
-      const [t, s, o] = await Promise.all([loadTheirStock(contactId), loadOurSales(), loadOurOffers()]);
+      // Modèles connus d'abord : les ventes sans dossier véhicule en ont besoin (04/11).
+      const kn = await Promise.all([
+        listRefBrandModels().then((r) => r.modelsByBrand).catch(() => ({} as Record<string, string[]>)),
+        loadLearnedModelsByBrand().catch(() => ({} as Record<string, string[]>)),
+      ]).then(([ref, learned]) => mergeKnownModels(ref, learned));
+      const [t, s, o] = await Promise.all([loadTheirStock(contactId), loadOurSales(kn), loadOurOffers()]);
       if (!alive) return;
       if (t.error) errs.push(`Stock du contact : ${t.error}`);
       if (s.error) errs.push(`Ventes MC Export : ${s.error}`);

@@ -14,7 +14,7 @@ import { useAuth } from '../services/auth';
 import { listStockRuns, listStockVehicles, STATUS_LABEL, priceMoves, startDealerScan, isDealerScanning, subscribeDealerScans, takeDealerScanOutcome, type StockRun, type StockVehicle } from '../services/dealerStock';
 import { toEur, loadFxRates } from '../services/fxRates';
 import { fmtMoney } from '../lib/fx';
-import { FUEL_LABEL, compareStock, loadOurOffers, loadOurSales, theirsFuelTrim, SALES_THRESHOLD_EUR, OFFERS_THRESHOLD_EUR, KM_TOLERANCE, type FuelFamily, type OurVehicle, type KnownModels } from '../services/stockCompare';
+import { FUEL_LABEL, compareStock, commonModels, loadOurOffers, loadOurSales, theirsFuelTrim, SALES_THRESHOLD_EUR, OFFERS_THRESHOLD_EUR, KM_TOLERANCE, type FuelFamily, type OurVehicle, type KnownModels } from '../services/stockCompare';
 import { PriceDistribution, PriceCell, PriceMovesLine, fmtStockDate, daysBetween } from './DealerStockModal';
 import { MatchRows, Kpi, sortMatches, SORT_LABEL, type SortKey, type Mode } from './StockCompareModal';
 import { LiveMarketColumn, type LivePick } from './LiveMarketColumn';
@@ -96,13 +96,15 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
     let alive = true;
     (async () => {
       await loadFxRates().catch(() => { /* repli EUR */ });
-      const [s, o, ref, learned] = await Promise.all([
-        loadOurSales(), loadOurOffers(),
+      // Les modèles connus d'abord : les ventes sans dossier véhicule en ont besoin pour lire leur libellé (04/11).
+      const [ref, learned] = await Promise.all([
         listRefBrandModels().then((r) => r.modelsByBrand).catch(() => ({} as Record<string, string[]>)),
         loadLearnedModelsByBrand().catch(() => ({} as Record<string, string[]>)),
       ]);
+      const kn = mergeKnownModels(ref, learned);
+      const [s, o] = await Promise.all([loadOurSales(kn), loadOurOffers()]);
       if (!alive) return;
-      setSales(s.rows); setOffers(o.rows); setKnown(mergeKnownModels(ref, learned));
+      setSales(s.rows); setOffers(o.rows); setKnown(kn);
       if (s.error || o.error) setError([s.error && `Ventes : ${s.error}`, o.error && `Offres : ${o.error}`].filter(Boolean).join(' · '));
     })();
     return () => { alive = false; };
@@ -178,6 +180,9 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
   // Comparer : leur stock FILTRÉ face à nos ventes ou nos offres.
   const threshold = thresholds[mode];
   const result = useMemo(() => { const ours = mode === 'sales' ? sales : offers; return ours ? compareStock(stockFiltered, ours, threshold, vat, known) : null; }, [stockFiltered, sales, offers, mode, threshold, vat, known]);
+  // Modèles en commun (04/11) : sans condition d'année ni de km — « ce genre de modèles ».
+  const common = useMemo(() => (sales && offers ? commonModels(stockFiltered, sales, offers, known) : []), [stockFiltered, sales, offers, known]);
+  const [commonOpen, setCommonOpen] = useState(true);
   const compareRows = useMemo(() => (result ? sortMatches(result.matches.filter((m) => !onlyOk || m.ok), sortKey, sortAsc) : []), [result, onlyOk, sortKey, sortAsc]);
   const okCount = result?.matches.filter((m) => m.ok).length ?? 0;
   const bestById = useMemo(() => new Map((result?.matches ?? []).map((m) => [m.theirs.id, m])), [result]);
@@ -340,9 +345,34 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
                 {result && (
                   <div className="px-5 pt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
                     <Kpi label="Leur stock (filtres)" value={String(result.theirsTotal)} hint={result.theirsPriced < result.theirsTotal ? `${result.theirsPriced} avec prix` : 'tous avec prix'} />
-                    <Kpi label={mode === 'sales' ? 'Nos ventes connues' : 'Véhicules de nos offres'} value={String(result.oursTotal)} />
+                    <Kpi label={mode === 'sales' ? 'Nos ventes connues' : 'Véhicules de nos offres'} value={String(result.oursTotal)} hint={result.oursUndated > 0 ? `dont ${result.oursUndated} sans année ou km : hors appariement` : undefined} />
                     <Kpi label="Leurs voitures appariées" value={String(result.matches.length)} hint={result.pairs > result.matches.length ? `${result.pairs} paires, la meilleure des nôtres en face` : undefined} />
                     <Kpi label="Au-dessus du seuil" value={String(okCount)} tone={okCount > 0 ? 'ok' : undefined} />
+                  </div>
+                )}
+                {common.length > 0 && (
+                  <div className="mx-5 mt-3 rounded-xl border border-slate-200 bg-white">
+                    <button type="button" onClick={() => setCommonOpen((v) => !v)} className="w-full flex items-center justify-between px-4 py-2 text-left">
+                      <span className="text-sm font-semibold text-slate-800">Modèles en commun <span className="text-slate-400 font-normal">· {common.length} — ce qu'ils ont en stock et que nous vendons ou avons en offre, sans condition d'année ni de km</span></span>
+                      <span className="text-xs text-brand-ocean">{commonOpen ? 'replier' : 'déplier'}</span>
+                    </button>
+                    {commonOpen && (
+                      <table className="w-full text-xs border-t border-slate-100">
+                        <thead><tr className="text-left text-slate-500 border-b border-slate-200"><th className="py-1.5 px-4 font-medium">Marque · modèle</th><th className="py-1.5 pr-3 font-medium text-right">Chez eux</th><th className="py-1.5 pr-3 font-medium text-right">Leur prix mini</th><th className="py-1.5 pr-3 font-medium text-right">Nos ventes</th><th className="py-1.5 pr-3 font-medium text-right">Dans nos offres</th><th className="py-1.5 pr-4 font-medium text-right">Notre achat HT mini</th></tr></thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {common.map((r) => (
+                            <tr key={`${r.brand}|${r.model}`} className="text-slate-800">
+                              <td className="py-1.5 px-4"><button type="button" onClick={() => { setFBrand(r.brand); setFModel(''); }} className="hover:underline text-left" title="Filtrer leur stock sur cette marque">{r.brand}</button> · {r.model}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums">{r.theirs}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums text-slate-500">{r.theirsMinEur != null ? fmtMoney(r.theirsMinEur, 'EUR') : '—'}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums">{r.sales}{r.sales > r.salesDated && <span className="text-slate-400"> ({r.sales - r.salesDated} sans année)</span>}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums">{r.offers || '—'}</td>
+                              <td className="py-1.5 pr-4 text-right tabular-nums text-slate-500">{r.offersMinHt != null ? fmtMoney(r.offersMinHt, 'EUR') : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 )}
                 {result?.warnings.map((w) => <p key={w} className="px-5 pt-1 text-xs text-amber-700">{w}</p>)}

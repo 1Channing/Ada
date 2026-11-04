@@ -538,8 +538,16 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
   const warnings: string[] = [];
   const noCurrency: CurrencyDetection = { currency: 'EUR', confidence: 'default', why: 'aucune devise indiquée : euros' };
   const noUnit: KmUnitDecision = { unit: 'km', confidence: 'default', why: 'rien n’indique une autre unité que le km' };
-  const isHeaderRow = (r: unknown[]) => r.filter((c) => typeof c === 'string' && c.trim()).length >= 5
-    && r.filter((c) => c != null && c !== '').every((c) => typeof c === 'string');
+  // Une ligne d'en-têtes : au moins 5 intitulés, tous texte, AUCUN qui ressemble à une valeur (nombre, date)
+  // et au moins 3 colonnes reconnues. Offre Cupra Raval 21/10 : les valeurs étaient stockées en TEXTE (« 50 »,
+  // « 01-12-26 », « 1 »), chaque ligne de voiture passait pour un en-tête → « blocs », 0 véhicule.
+  const looksLikeValue = (c: string) => /^[\d\s.,:/-]+$/.test(c.trim());
+  const isHeaderRow = (r: unknown[]) => {
+    const strs = r.filter((c): c is string => typeof c === 'string' && !!c.trim());
+    if (strs.length < 5 || !r.filter((c) => c != null && c !== '').every((c) => typeof c === 'string')) return false;
+    if (strs.some(looksLikeValue)) return false;
+    return strs.filter((c) => guessField(c) !== 'ignore').length >= 3;
+  };
   const knownBrands = Object.keys(knownModelsByBrand).map((b) => b.toUpperCase()).sort((a, b) => b.length - a.length);
   // Titre de bloc : une seule cellule, TOUT en majuscules (« OPEL »), OU qui
   // COMMENCE par une marque (offre Audi 30/09 : « AUDI A6 e-tron  (21 units) »

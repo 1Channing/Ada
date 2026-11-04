@@ -124,6 +124,8 @@ export interface CompareResult {
   theirsTotal: number;
   theirsPriced: number;
   oursTotal: number;
+  /** Les nôtres SANS année ou km (ventes sans dossier véhicule, 04/11) : comptées, jamais appariées. */
+  oursUndated: number;
   /** Une entrée par voiture du contact appariée : la meilleure correspondance, les autres dans `others`. */
   matches: CompareMatch[];
   /** Nombre total de paires (toutes nos offres/ventes confondues). */
@@ -140,7 +142,7 @@ const yearOf = (iso: string | null | undefined): number | null => {
 };
 
 /** Ventes passées de MC Export : un dossier = une voiture vendue (prix de vente connu). */
-export async function loadOurSales(): Promise<{ rows: OurVehicle[]; error: string | null }> {
+export async function loadOurSales(known: KnownModels | null = null): Promise<{ rows: OurVehicle[]; error: string | null }> {
   const out: OurVehicle[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await untyped
@@ -153,11 +155,30 @@ export async function loadOurSales(): Promise<{ rows: OurVehicle[]; error: strin
     for (const r of batch) {
       const v = (r.vehicle ?? null) as { plate_number?: string | null; brand?: string | null; model?: string | null; commercial_name?: string | null; type_variant_version?: string | null; first_registration_date?: string | null; mileage?: number | null } | null;
       const sale = Number(r.sale_price);
-      if (!v || !v.brand || !v.model || !Number.isFinite(sale) || sale <= 0) continue;
+      if (!Number.isFinite(sale) || sale <= 0) continue;
       const status = String(r.status ?? '');
       // Énergie et finition : la fiche véhicule n'a pas de colonne énergie — lues dans le libellé du dossier
       // (« Véhicule : RAV4 PLUG IN », « YARIS CROSS GR 130H ») et le nom commercial.
       const sheetLabel = String(r.notes ?? '').match(/Véhicule : (.*)/)?.[1]?.trim() ?? '';
+      if (!v || !v.brand || !v.model) {
+        // VENTE SANS DOSSIER VÉHICULE (04/11, constat Zeeuw & Zeeuw : 216 ventes sur 305 n'ont pas de dossier, donc
+        // Comparer ne les voyait pas). Marque et modèle lus dans le libellé du tableur, km dans la ligne
+        // « [Négociation] TOYOTA COROLLA … 44 200 km » quand elle existe ; l'année reste inconnue : la vente
+        // compte dans « modèles en commun », jamais dans un appariement strict.
+        const nego = String(r.notes ?? '').match(/\[Négociation\] (.*)/)?.[1]?.trim() ?? '';
+        const bm = brandModelFromLabel(sheetLabel, known) ?? brandModelFromLabel(nego, known);
+        if (!bm) continue;
+        const km = nego.match(/(\d{1,3}(?:[\s  ]\d{3})+|\d{4,6})\s*km/i)?.[1]?.replace(/[\s  ]/g, '');
+        out.push({
+          kind: 'sale', id: String(r.id), label: `${bm.brand} ${sheetLabel || nego}`.replace(/\s+/g, ' ').trim(),
+          brand: bm.brand, model: bm.model, year: null, km: km ? Number(km) : null,
+          fuel: fuelFamily(`${sheetLabel} ${nego}`), trim: trimOf(sheetLabel || nego), power: powerFromText(`${sheetLabel} ${nego}`),
+          price: sale, purchase: typeof r.purchase_price === 'number' ? r.purchase_price : null,
+          detail: [r.reference ? `réf. ${r.reference}` : '', status === 'cloturee' ? 'clôturée' : status === 'en_cours' ? 'en cours' : status, 'sans dossier véhicule : année inconnue'].filter(Boolean).join(' · '),
+          date: (r.transaction_date as string | null) ?? null, plate: null,
+        });
+        continue;
+      }
       const freeText = [sheetLabel, v.commercial_name ?? '', v.type_variant_version ?? ''].join(' ');
       out.push({
         kind: 'sale', id: String(r.id), label: `${v.brand} ${sheetLabel || v.commercial_name?.trim() || v.model}`.replace(/\s+/g, ' ').trim(),
@@ -287,5 +308,60 @@ export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], thresho
   }
   if (unknownCurrency > 0) warnings.push(`${unknownCurrency} voiture(s) du contact dans une devise sans taux connu — ignorées`);
   matches.sort((a, b) => b.gap - a.gap);
-  return { theirsTotal: theirs.length, theirsPriced: priced, oursTotal: ours.length, matches, pairs, theirsOk: okIds.size, warnings };
+  return { theirsTotal: theirs.length, theirsPriced: priced, oursTotal: ours.length, oursUndated: ours.filter((o) => o.year == null || o.km == null).length, matches, pairs, theirsOk: okIds.size, warnings };
+}
+
+/** MODÈLES EN COMMUN (04/11, Channing : « ils ont plein de Toyota et une Suzuki Ignis, on aurait pu leur proposer ce
+ *  genre de modèles ») : par marque + modèle normalisé, ce qu'ils ont en stock face à ce que nous avons vendu (y
+ *  compris les ventes sans dossier véhicule) et ce que nos offres fournisseurs contiennent — sans condition
+ *  d'année ni de km. Ne garde que les modèles présents des deux côtés. */
+export interface CommonModelRow {
+  brand: string; model: string;
+  theirs: number; theirsMinEur: number | null;
+  sales: number; salesDated: number;
+  offers: number; offersMinHt: number | null;
+}
+export function commonModels(theirs: StockVehicle[], sales: OurVehicle[], offers: OurVehicle[], known: KnownModels | null): CommonModelRow[] {
+  const rows = new Map<string, CommonModelRow>();
+  const keyOf = (brand: string, model: string) => `${brandKey(brand)}|${refModelKey(brand, normalizeModel(brand, model, known))}`;
+  const row = (brand: string, model: string) => {
+    const k = keyOf(brand, model);
+    let r = rows.get(k);
+    if (!r) { r = { brand: brand.toUpperCase(), model: normalizeModel(brand, model, known).toUpperCase(), theirs: 0, theirsMinEur: null, sales: 0, salesDated: 0, offers: 0, offersMinHt: null }; rows.set(k, r); }
+    return r;
+  };
+  for (const t of theirs) {
+    if (!t.brand || !t.model) continue;
+    const r = row(t.brand, t.model);
+    r.theirs++;
+    const eur = t.price != null && t.price > 0 ? toEur(t.price, t.currency ?? 'EUR') : null;
+    if (eur != null) r.theirsMinEur = r.theirsMinEur == null ? Math.round(eur) : Math.min(r.theirsMinEur, Math.round(eur));
+  }
+  for (const o of sales) { const r = row(o.brand, o.model); r.sales++; if (o.year != null && o.km != null) r.salesDated++; }
+  for (const o of offers) { const r = row(o.brand, o.model); r.offers++; r.offersMinHt = r.offersMinHt == null ? Math.round(o.price) : Math.min(r.offersMinHt, Math.round(o.price)); }
+  return [...rows.values()].filter((r) => r.theirs > 0 && (r.sales > 0 || r.offers > 0)).sort((a, b) => b.theirs - a.theirs || a.brand.localeCompare(b.brand) || a.model.localeCompare(b.model));
+}
+
+/** Marque et modèle d'un libellé de vente SANS dossier véhicule (« SUZUK IGNIS », « YARIS CROSS TRAIL »,
+ *  « COROLLA TS GR SPORT 44* ») : la marque en tête si elle est connue (même tronquée : SUZUK → SUZUKI), sinon
+ *  la marque dont un modèle connu commence le libellé (YARIS CROSS → TOYOTA). Null si rien n'est reconnu. */
+export function brandModelFromLabel(label: string, known: KnownModels | null): { brand: string; model: string } | null {
+  const up = label.toUpperCase().replace(/[*]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!up || !known) return null;
+  const first = up.split(' ')[0];
+  const brands = Object.keys(known);
+  let brand = brands.find((b) => brandKey(b) === brandKey(first)) ?? (first.length >= 4 ? brands.find((b) => b.toUpperCase().startsWith(first)) : undefined);
+  let rest = up;
+  if (brand) rest = up.slice(first.length).trim();
+  else {
+    let best: { brand: string; model: string } | null = null;
+    for (const [b, models] of Object.entries(known)) for (const m of models) {
+      const mu = m.toUpperCase();
+      if ((up === mu || up.startsWith(`${mu} `)) && (!best || mu.length > best.model.length)) best = { brand: b, model: mu };
+    }
+    if (!best) return null;
+    brand = best.brand;
+  }
+  const model = normalizeModel(brand, rest || up, known);
+  return model ? { brand, model } : null;
 }
