@@ -186,11 +186,15 @@ export function Equipe() {
     if (e1) setError(`Comptes : ${e1.message} — la migration 20260830120000 est-elle appliquée ?`);
     else {
       // Blocage (SQL 20261006120000) : lu à part, la RPC des comptes ne le porte pas ; colonne absente = personne de bloqué.
-      let { data: bl } = await supabase.from('profiles').select('id, blocked, organisation, is_manager' as never);
+      // managed_orgs (04/11, Channing : « le fait qu'il soit aussi manager pour Thouaré saute de temps en temps ») :
+      // la colonne n'était PAS relue ici, donc après chaque rechargement la page croyait la liste vide, et le clic
+      // suivant sur une pastille enregistrait cette seule organisation — l'autre sautait. Relue, avec repli si absente.
+      let { data: bl } = await supabase.from('profiles').select('id, blocked, organisation, is_manager, managed_orgs' as never);
+      if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked, organisation, is_manager' as never)); // colonne managed_orgs absente (SQL du 30/10)
       if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked, organisation' as never)); // colonne is_manager absente (SQL du 12/10 soir)
       if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked' as never)); // colonne organisation absente (SQL du 12/10)
-      const extra = new Map(((bl ?? []) as unknown as Array<{ id: string; blocked?: boolean; organisation?: string | null; is_manager?: boolean | null }>).map((p) => [p.id, p]));
-      setAccounts(((acc ?? []) as Account[]).map((a) => ({ ...a, blocked: !!extra.get(a.id)?.blocked, organisation: extra.get(a.id)?.organisation ?? null, is_manager: extra.get(a.id)?.is_manager === true })));
+      const extra = new Map(((bl ?? []) as unknown as Array<{ id: string; blocked?: boolean; organisation?: string | null; is_manager?: boolean | null; managed_orgs?: string[] | null }>).map((p) => [p.id, p]));
+      setAccounts(((acc ?? []) as Account[]).map((a) => ({ ...a, blocked: !!extra.get(a.id)?.blocked, organisation: extra.get(a.id)?.organisation ?? null, is_manager: extra.get(a.id)?.is_manager === true, managed_orgs: Array.isArray(extra.get(a.id)?.managed_orgs) ? extra.get(a.id)?.managed_orgs : (a.managed_orgs ?? null) })));
     }
     if (e2) setError((prev) => prev ?? `Liste d'inscription : ${e2.message}`);
     else setAllow((al ?? []) as AllowRow[]);
@@ -305,11 +309,18 @@ export function Equipe() {
 
   /** Organisations gérées EN PLUS de la sienne (30/10, Channing : « manager de deux agences »). */
   const toggleManagedOrg = async (a: Account, org: string) => {
-    const cur = (a.managed_orgs ?? []).filter((o) => o !== (a.organisation || DEFAULT_ORG));
+    // On part de la liste EN BASE (relue à l'instant), jamais de l'état affiché : un écran périmé effaçait l'autre agence.
+    const fresh = await supabase.from('profiles').select('managed_orgs' as never).eq('id', a.id).maybeSingle();
+    const base = fresh.error ? (a.managed_orgs ?? []) : ((fresh.data as unknown as { managed_orgs?: string[] | null } | null)?.managed_orgs ?? []);
+    const cur = base.filter((o) => o !== (a.organisation || DEFAULT_ORG));
     const next = cur.includes(org) ? cur.filter((o) => o !== org) : [...cur, org];
     setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, managed_orgs: next } : x)));
     const { error: err } = await (supabase as unknown as { rpc: (f: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }> }).rpc('admin_set_managed_orgs', { p_user: a.id, p_orgs: next });
-    if (err) { setError(/admin_set_managed_orgs|schema cache|does not exist/i.test(err.message) ? 'Manager de plusieurs organisations : colle le SQL du 30/10 (manager_multi_organisations).' : err.message); void reload(); }
+    if (err) { setError(/admin_set_managed_orgs|schema cache|does not exist/i.test(err.message) ? 'Manager de plusieurs organisations : colle le SQL du 30/10 (manager_multi_organisations).' : err.message); void reload(); return; }
+    // Vérifié en base : ce qui est affiché est ce qui est enregistré.
+    const check = await supabase.from('profiles').select('managed_orgs' as never).eq('id', a.id).maybeSingle();
+    const saved = (check.data as unknown as { managed_orgs?: string[] | null } | null)?.managed_orgs ?? [];
+    if (!check.error && (saved.length !== next.length || next.some((o) => !saved.includes(o)))) { setError(`« Manager aussi de… » de ${a.email} : enregistré « ${saved.join(', ') || 'rien'} » au lieu de « ${next.join(', ') || 'rien'} »`); void reload(); }
   };
 
   const toggleAdmin = async (a: Account) => {
