@@ -31,8 +31,8 @@ import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -213,6 +213,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/class="car-item__title"/.test(html) && /car-item__parameter-info/.test(html)) return 'autopolis';
   // webspark / dealerk (Cobredia, 04/11) : WordPress + plugin webspark, cartes « vcard » data-id, paires label/info, « page=N ».
   if (/vcard-main-info__make-model/.test(html) && /vcard-submain-info__label/.test(html)) return 'webspark';
+  // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
+  // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
+  if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -1454,6 +1457,64 @@ async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerSto
   return { provider: 'webspark', total: out.length, declared: null, vehicles: out, pages, warnings };
 }
 
+// ── catalogpager (Groupe DMD, 04/11) : 1 143 voitures, 12 par page, 96 pages servies en POST « filters[page]=N ».
+async function scrapeCatalogPager(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const endpoint = firstHtml.match(/data-ajax-request-search="([^"]+)"/)?.[1] ?? '/ajax/search';
+  const declared = num(firstHtml.match(/<strong>\s*([\d\s ]+)\s*véhicules?\s*<\/strong>/i)?.[1]?.replace(/[\s ]/g, ''));
+  const lastLinked = Math.max(1, ...[...firstHtml.matchAll(/data-page="(\d+)"/g)].map((m) => Number(m[1])));
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const m of html.matchAll(/<a href="([^"]+)" class="fiche_vehicule[^"]*">([\s\S]*?)<\/a>/g)) {
+      const [, href, inner] = m;
+      const id = inner.match(/\/media\/upload\/vo\/(\d+)\//)?.[1] ?? href;
+      if (seen.has(id)) continue;
+      const nom = htmlText(inner.match(/class="nom">([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const version = htmlText(inner.match(/class="version">([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const prix = htmlText(inner.match(/class="prix">([\s\S]*?)<\/div>\s*<\/div>/)?.[1] ?? '');
+      const date = htmlText(inner.match(/icon-ui-calendrier"><span>([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const kmS = htmlText(inner.match(/icon-ui-kilometrage"><span>([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const fuel = htmlText(inner.match(/icon-ui-energie"><span>([\s\S]*?)<\/span>/)?.[1] ?? '');
+      const price = priceOrNull((prix.match(/([\d\s ]+)€/)?.[1] ?? '').replace(/[\s ]/g, ''));
+      // « Land-rover Range Rover Sport », « Mg-motor ZS » : le site soude la marque par un tiret ; on la déplie puis
+      // splitTitle sépare marque (une ou deux mots) et modèle comme pour les autres vitrines.
+      const nomClean = nom.replace(/^([A-Za-z]+)-([A-Za-z]+)\b/, '$1 $2');
+      const { brand, model } = splitTitle(nomClean);
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href.startsWith('http') ? href : origin + href, title: [nomClean, version].filter(Boolean).join(' ').trim(),
+        brand, model: model ? nomClean.split(/\s+/).slice((brand ?? '').split(' ').length).join(' ') || model : null,
+        price, km: num(kmS.replace(/km/i, '').replace(/\s/g, '')), year: num(date.match(/(\d{4})/)?.[1]), fuel: fuel || null,
+        gearbox: /BVA|DSG|EAT|DCT|automati|S-?tronic|Steptronic/i.test(version) ? 'Automatique' : /BVM/i.test(version) ? 'Manuelle' : null,
+        plate: null, vin: null, body: null, image: inner.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+        status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
+      });
+    }
+    return added;
+  };
+  let pages = 1;
+  let added = parse(firstHtml);
+  const cap = Math.min(MAX_PAGES, lastLinked + 5);
+  for (let p = 2; p <= cap && added > 0; p++) {
+    await sleep(PAGE_DELAY_MS);
+    const r = await getText(origin + endpoint + '?flag=html', {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded', Referer: url },
+      body: `filters[page]=${p}`,
+    });
+    if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+    let html = '';
+    try { html = String((JSON.parse(r.text) as { html?: string }).html ?? ''); } catch { warnings.push(`page ${p} : réponse illisible`); break; }
+    added = parse(html); if (added > 0) pages = p;
+    if (declared != null && out.length >= declared) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'catalogpager', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getText(url);
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -1470,6 +1531,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'openflex') return scrapeOpenflex(url, first.text);
   if (provider === 'autopolis') return scrapeAutopolis(url, first.text);
   if (provider === 'webspark') return scrapeWebspark(url, first.text);
+  if (provider === 'catalogpager') return scrapeCatalogPager(url, first.text);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text, onProgress);
