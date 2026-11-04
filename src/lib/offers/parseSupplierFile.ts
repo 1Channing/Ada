@@ -55,7 +55,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « 1st Reg. » (Flexivan Sorento 22/09) : normalisé en « 1st reg », ni
   // « reg date » ni « first reg » ne le voyaient — la date restait vide.
   // « F. matriculación » (stockbook espagnol Delta, 22/10) : normalisé « f matriculacion » — « matricul » suffit.
-  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr|matricul)/],
+  // « Date Imm. » (listes Stellantis/Toyota/Kia 04/11 : quatre fichiers du même fournisseur).
+  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr|matricul|date ?imm\b|date ?imm\.)/],
   ['plate', /(\bimmat|plaque|\bplate\b|registration|\btarga\b)/],
   // « Milage » (faute courante), « Miltal » / « Mätarställning » / « Mil »
   // (suédois : l'unité est le MIL = 10 km, voir decideKmUnit).
@@ -83,7 +84,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « LOADING » (liste espagnole 22/10 : le pays de chargement, BÉLGICA) = le lieu d'enlèvement.
   ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion|\bville\b|\bcity\b)/],
   // « Type de taxation » (export enchères 30/10 : « TVA récupérable (h.t.) ») = le régime de TVA.
-  ['vat', /(\btva\b|\bvat\b|mwst|\biva\b|\bmoms\b|taxation)/],
+  // « Facturation » (04/11) : « TVA Récupérable - Prix HT (HT) » / « TVA sur marge » = le régime de TVA.
+  ['vat', /(\btva\b|\bvat\b|mwst|\biva\b|\bmoms\b|taxation|facturation)/],
   ['import', /(\bimport|origine|origin)/],
   // « Quantity » (liste VW ID.7 Tourer 02/10) : N exemplaires identiques → N lignes.
   ['quantity', /^(quantity|qty|quantite|quantità|anzahl|stuck|units?|pcs|nombre)$/],
@@ -93,7 +95,7 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // seule (liste Polo DSG), elle porte toute la désignation et se lit comme ligne libre.
   // « Modellgruppe » = le modèle (« Vito Kasten »), « Modellname » = la désignation complète (« Vito 116 CDI Extralang ») — 04/11.
   ['model', /^(model|modele|modello|modell|modelo|modellgruppe|modelgroep|model ?group|baureihe|modellreihe)$/],
-  ['version', /^(modellname|modelnaam|model ?name)$/],
+  ['version', /^(modellname|modelnaam|model ?name|carline)$/], // « Carline » (04/11) : « Byd Atto 3 Comfort », « Ev9 Rwd Earth… » — modèle + version
   ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
 
@@ -505,13 +507,13 @@ export function stripGenerationSuffix(model: string): string {
 export const TRIM_WORDS = new Set(['EDITION', 'ELEGANCE', 'SHINE', 'COMFORT', 'DESIGN', 'LUXURY', 'PRIME', 'PLUS', 'FEEL', 'MAX', 'CORE', 'ULTRA', 'ULTIMATE', 'BUSINESS', 'ADVANCE', 'ADVANCED', 'STYLE', 'LIFE', 'SPRINT', 'SUMMIT', 'LONGITUDE', 'LIMITED', 'TREND', 'TITANIUM', 'ACTIVE', 'ALLURE', 'RIVOLI', 'PERFORMANCE', 'BOOST', 'VISION', 'AVANTGARDE', 'INTENS', 'ZEN', 'TECHNO', 'ICONIC', 'ESPRIT', 'INITIALE', 'EXCLUSIVE', 'PREMIUM', 'AMBIENTE', 'SELECTION', 'EXECUTIVE', 'INSCRIPTION', 'MOMENTUM']);
 
 export function guessModel(_brand: string, line: string, knownModels: string[]): string {
-  const up = line.toUpperCase().replace(/\s+/g, ' ').trim();
+  const up = line.toUpperCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim(); // « Ceed_sw » (Kia 04/11) = « CEED SW »
   const candidates = [...knownModels].map((m) => m.toUpperCase()).sort((a, b) => b.length - a.length);
   for (const m of candidates) {
     if (up === m || up.startsWith(`${m} `)) return m;
   }
   // « NOUVEAU 5008 … », « NEW DOBLO … » : sauter le mot de nouveauté.
-  const stripped = up.replace(/^(NOUVEAU|NOUVELLE|NEW|NEUE?)\s+/, '');
+  const stripped = up.replace(/^(NOUVEAU|NOUVELLE|NEW|NEUE?R?|NUOV[OA]|NUEV[OA])\s+/, ''); // « Nuova C5 X », « Nuovo Doblo' » (04/11)
   for (const m of candidates) if (stripped.startsWith(`${m} `) || stripped === m) return m;
   // « MOKKA-E EDITION », « E-C4 SHINE » : la déclinaison électrique d'un modèle connu (stock CQS 01/11).
   for (const m of candidates) if (stripped.startsWith(`${m}-E `) || stripped === `${m}-E` || stripped.startsWith(`E-${m} `) || stripped === `E-${m}`) return m;
@@ -746,6 +748,9 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     const vatText = cell(rec.vat).toLowerCase();
     const vatFromText = yesNo(rec.vat) ?? (/(r[ée]cup|deductible|d[ée]ductible|\bh\.?t\b|hors taxe|netto|excl)/.test(vatText) ? true : /(marge|margin|non r[ée]cup|differenz|ttc)/.test(vatText) ? false : null);
     if (rec.price_ht == null && rec.price_ttc != null && /(\bh\.?t\b|hors taxe)/.test(vatText)) { rec.price_ht = rec.price_ttc; rec.price_ttc = undefined; }
+    // Et l'inverse (liste « Prix HT / TTC » + « Facturation » 04/11) : la colonne est lue en HT mais la ligne dit
+    // « TVA sur marge - Prix TTC » → c'est un TTC non récupérable.
+    if (rec.price_ttc == null && rec.price_ht != null && /\bttc\b/.test(vatText) && !/(\bh\.?t\b|hors taxe)/.test(vatText)) { rec.price_ttc = rec.price_ht; rec.price_ht = undefined; }
     if (!brand) warnings.push(`Ligne ${i + 1} : marque introuvable (${versionLine.slice(0, 40)}).`);
     if (warnings.length > 12) { warnings.length = 12; warnings.push('… (avertissements suivants masqués)'); }
     // « Variant » / « EQ » d'une liste à colonne modèle (VW ID.7 Tourer 02/10) : la version, pas un extra.
