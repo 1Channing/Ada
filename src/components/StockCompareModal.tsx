@@ -305,7 +305,15 @@ function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false, pi
       <td className="py-2 pr-3 align-top">
         <span className="font-medium text-slate-800">{o.label}</span>
         <span className="block text-slate-500">{o.year ?? '—'} · {fmtKm(o.km)}{o.plate ? ` · ${o.plate}` : ''}{o.fuel ? ` · ${FUEL_LABEL[o.fuel]}` : ''}{o.power ? ` · ${o.power} ch` : ''}{o.trim ? ` · ${o.trim}` : ''}</span>
-        <span className="block text-slate-400">{o.detail}{o.date ? ` · ${fmtDate(o.date)}` : ''}</span>
+        {o.offerId ? (
+          // 04/11 (Channing) : l'offre est cliquable et ouvre Offres sur ce lot ; la Carte reste montée telle quelle
+          // (keep-alive d'App), un clic sur « Carte » dans le menu ramène exactement où on s'est arrêté.
+          <button type="button" onClick={() => window.history.pushState({}, '', `/offres?offer=${encodeURIComponent(o.offerId!)}&view=analyse&t=${Date.now()}`)} className="block text-left text-brand-ocean hover:underline" title="Ouvrir cette offre dans Offres — « Carte » dans le menu te ramène ici">
+            {o.detail}{o.date ? ` · ${fmtDate(o.date)}` : ''}
+          </button>
+        ) : (
+          <span className="block text-slate-400">{o.detail}{o.date ? ` · ${fmtDate(o.date)}` : ''}</span>
+        )}
       </td>
       <td className="py-2 pr-3 align-top text-right tabular-nums whitespace-nowrap">
         <span className="font-semibold text-slate-800">{fmtMoney(m.ourTtc, 'EUR')}</span>
