@@ -44,7 +44,7 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // Italien (offre Audi A6 / Q6 e-tron du 30/09) : « N° Telaio » = châssis,
   // « Targa » = plaque, « Immatricolazione », « Colore », « Cambio », « Danni »…
   // « Numéro d'identification du véhicule » (export enchères leasing, 30/10).
-  ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell|serial|n[o°] ?de ?serie|telaio|identification du vehicule)\b/],
+  ['vin', /\b(vin|vh ?code|ch[aâ]ssis|chassis|fahrgestell(nummer|nr)?|serial|n[o°] ?de ?serie|telaio|identification du vehicule)\b/],
   // « YEAR » (catalogue Record Rent a Car 07/10) : un millésime, pas une date.
   // « Årsmodell » (suédois), « Årgang » (danois), « Baujahr » (allemand).
   // « AÑO » (liste espagnole Delta Urban, 200 Polo DSG, 22/10) : normalisé en « ano ».
@@ -64,7 +64,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['co2', /co2/],
   // Dommages AVANT les prix : « ESTIMATION FRE HT » (MeltingCars) contient « ht ».
   // « Damage report » (offre Vito Mixto 03/11) = le RAPPORT de dommages (lien), pas le montant : avant la règle des dommages.
-  ['report_url', /(damage|dommage|schaden|danni).*(report|rapport|link|url|lien)/],
+  // « Gutachten » (04/11, liste « 14 x Vito Kasten met Gutachten ») : colonne d'expertise, lien dans la cellule.
+  ['report_url', /(damage|dommage|schaden|danni).*(report|rapport|link|url|lien)|\bgutachten\b/],
   ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b)/],
   // Prix du NEUF (« Prix catalogue VN », export enchères 30/10) : une référence, pas un prix fournisseur — ignoré (reste en extras).
   ['ignore', /(catalogue|prix neuf|\bvn\b|list price|msrp|neupreis|listino)/],
@@ -90,7 +91,9 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « Modell » (suédois / allemand) : la colonne modèle, lue comme ligne libre quand elle porte toute la désignation.
   // « Modelo » (espagnol) : la colonne modèle (stockbook Delta : « F500 ELECTRICO » à côté de « Versión ») ;
   // seule (liste Polo DSG), elle porte toute la désignation et se lit comme ligne libre.
-  ['model', /^(model|modele|modello|modell|modelo)$/],
+  // « Modellgruppe » = le modèle (« Vito Kasten »), « Modellname » = la désignation complète (« Vito 116 CDI Extralang ») — 04/11.
+  ['model', /^(model|modele|modello|modell|modelo|modellgruppe|modelgroep|model ?group|baureihe|modellreihe)$/],
+  ['version', /^(modellname|modelnaam|model ?name)$/],
   ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
 
@@ -187,11 +190,15 @@ export function readSupplierGrid(buf: ArrayBuffer): { sheet: string; grid: unkno
     const grid = raw.map((r) => r.map((c) => (c instanceof Date ? (Number.isNaN(c.getTime()) ? null : c.toISOString().slice(0, 10)) : c)));
     // LIENS DES CELLULES (offre Vito Mixto 03/11 : « Open report » est un lien vers le rapport Dekra) :
     // l'adresse remplace le texte de la cellule, le rapport devient cliquable.
+    // La grille commence à la première cellule de la plage (liste Vito Kasten 04/11 : plage B2:M16, les liens
+    // « Gutachten » en colonne M tombaient hors grille) : on soustrait l'origine de la plage.
+    const origin = XLSX.utils.decode_range(ws['!ref'] ?? 'A1').s;
     for (const [addr, c] of Object.entries(ws)) {
       const link = (c as { l?: { Target?: string } })?.l?.Target;
       if (!link || !/^https?:\/\//i.test(link) || addr.startsWith('!')) continue;
-      const { r, c: col } = XLSX.utils.decode_cell(addr);
-      if (grid[r] && col < grid[r].length) grid[r][col] = link;
+      const { r: ar, c: ac } = XLSX.utils.decode_cell(addr);
+      const r = ar - origin.r, col = ac - origin.c;
+      if (r >= 0 && col >= 0 && grid[r] && col < grid[r].length) grid[r][col] = link;
     }
     while (grid.length && grid[grid.length - 1].every((c) => c == null || c === '')) grid.pop();
     return grid;
