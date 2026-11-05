@@ -57,7 +57,13 @@ export async function runWeeklyDealerStocks(force = false): Promise<void> {
     const cutoff = Date.now() - STALE_DAYS * 86_400_000;
     const due: Contact[] = [];
     const skipped: string[] = [];
-    const todayCutoff = Date.now() - 22 * 3600_000;
+    // 05/11 (Channing : « les relevés quotidiens ne se sont pas faits ? ») : la règle « relevée il y a moins de
+    // 22 h = déjà faite » sautait toute la nuit dès qu'un rattrapage avait tourné dans la journée (04/11 : rattrapage
+    // à 10 h, passage de 1 h → « rien à relever »). Règle de classe : une vitrine est due si son dernier relevé
+    // n'a pas commencé AUJOURD'HUI (jour civil de Paris) — le passage de 1 h relit tout, un redémarrage en
+    // journée ne relit pas ce qui a déjà été fait le jour même.
+    const today = parisDay();
+    const dayOf = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date(iso));
     for (const c of (contacts ?? []) as Contact[]) {
       if (!c.website || !/^https?:\/\//i.test(c.website)) continue;
       const freq = c.stock_frequency ?? 'daily';
@@ -65,7 +71,7 @@ export async function runWeeklyDealerStocks(force = false): Promise<void> {
       const done = lastDoneByContact.get(c.id);
       const last = lastByContact.get(c.id);
       if (!force && last) {
-        if (Date.parse(last.started_at) > todayCutoff) continue;                       // déjà relevée aujourd'hui
+        if (dayOf(last.started_at) === today) continue;                                // déjà relevée aujourd'hui (jour Paris)
         if (freq === 'weekly' && Date.parse(last.started_at) > cutoff) continue;      // hebdomadaire : moins de 6 j
       }
       if (done && (done.warnings ?? []).some((w) => /Zyte/i.test(w))) { skipped.push(`${c.name} (Zyte, payant)`); continue; }
