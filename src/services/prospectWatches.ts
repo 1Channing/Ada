@@ -6,6 +6,8 @@
  * absentes (SQL du 29/10 pas collé) → message explicite, rien ne casse.
  */
 import { supabase } from '../lib/supabase';
+import { compatibleTitles } from '../lib/vehicleIdentity';
+import { fuelFamily } from './stockCompare';
 import { useAuth } from './auth';
 
 const SQL_HINT = 'Veilles de prospection : SQL du 29/10 (veille_prospection) à coller.';
@@ -100,12 +102,12 @@ export async function listWatchLeads(): Promise<WatchLead[]> {
 /** DOUBLONS ENTRE PLATEFORMES (01/11, Channing : « une Volvo XC40 D3 sur Leboncoin ET La Centrale : un signal,
  *  et dire si le lead est disponible ou pris par X »). Les annonces des 45 derniers jours de toutes les veilles de
  *  l'organisation, tous statuts sauf la mémoire silencieuse, avec le prénom de qui a pris ou rejeté. */
-export interface TwinHit { id: string; watch_id: string; listing_url: string; site: string; title: string; price: number | null; year: number | null; mileage: number | null; status: string; taken_by: string | null; taken_by_name: string | null; watch: Pick<ProspectWatch, 'id' | 'label' | 'url'> }
+export interface TwinHit { id: string; watch_id: string; listing_url: string; site: string; title: string; price: number | null; year: number | null; mileage: number | null; fuel?: string | null; status: string; taken_by: string | null; taken_by_name: string | null; watch: Pick<ProspectWatch, 'id' | 'label' | 'url'> }
 export async function listTwinCandidates(): Promise<TwinHit[]> {
   const since = new Date(Date.now() - 45 * 86_400_000).toISOString();
   const { data, error } = await untyped
     .from('prospect_watch_hits')
-    .select('id, watch_id, listing_url, site, title, price, year, mileage, status, taken_by, watch:prospect_watches!inner(id, label, url)')
+    .select('id, watch_id, listing_url, site, title, price, year, mileage, fuel, status, taken_by, watch:prospect_watches!inner(id, label, url)')
     .in('status', ['inbox', 'saved', 'rejected'])
     .gte('first_seen_at', since)
     .limit(4000);
@@ -119,12 +121,20 @@ export async function listTwinCandidates(): Promise<TwinHit[]> {
   }
   return rows.map((r) => ({ ...r, taken_by_name: r.taken_by ? names.get(r.taken_by) ?? 'un collègue' : null }));
 }
-/** Même véhicule ? Même année, kilométrage à 2 % (ou 500 km) près, prix à 3 % près quand les deux sont connus. */
-export function sameVehicle(a: { year: number | null; mileage: number | null; price: number | null }, b: { year: number | null; mileage: number | null; price: number | null }): boolean {
+/** Même véhicule ? Même année, kilométrage à 2 % (ou 500 km) près, prix à 3 % près quand les deux sont connus —
+ *  ET même marque, même modèle, même énergie quand ils sont connus des deux côtés (05/11, Segré : « un T-Roc La
+ *  Centrale en doublon avec un GLA Leboncoin » — l'ancienne règle ignorait le titre). */
+export function sameVehicle(
+  a: { year: number | null; mileage: number | null; price: number | null; title?: string | null; fuel?: string | null },
+  b: { year: number | null; mileage: number | null; price: number | null; title?: string | null; fuel?: string | null },
+): boolean {
   if (a.year == null || b.year == null || a.year !== b.year) return false;
   if (a.mileage == null || b.mileage == null) return false;
   if (Math.abs(a.mileage - b.mileage) > Math.max(500, 0.02 * Math.max(a.mileage, b.mileage))) return false;
   if (a.price != null && b.price != null && Math.abs(a.price - b.price) > 0.03 * Math.max(a.price, b.price)) return false;
+  if (!compatibleTitles(a.title, b.title)) return false;
+  const fa = fuelFamily(a.fuel), fb = fuelFamily(b.fuel);
+  if (fa && fb && fa !== fb) return false;
   return true;
 }
 
