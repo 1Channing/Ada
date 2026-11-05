@@ -75,6 +75,8 @@ export interface DealerVehicle {
   currency?: string;
   /** Puissance en chevaux (02/11) : donnée structurée du site, sinon lue dans le titre à l'enregistrement. */
   power_ch?: number | null;
+  /** Lieu / agence affiché sur la carte (05/11, VPN Autos : sert à filtrer une agence du réseau). */
+  location?: string | null;
 }
 
 /** Prix > 0 sinon null — un 0 € de site est un prix absent, pas un prix. */
@@ -2014,6 +2016,7 @@ async function scrapeEveho(url: string, firstHtml: string): Promise<DealerStockR
       const href = part.match(/<a href="([^"]+)" class="single-vehicle/)?.[1] ?? part.match(/<a href="(\/voiture-[^"]+)"/)?.[1];
       if (!href) continue;
       const id = href.split('-').pop()?.replace(/\W/g, '') || href;
+      added++; // cartes vues (pas seulement nouvelles) : une 2e lecture dans un autre tri ne doit pas s'arrêter sur une page déjà connue
       if (seen.has(id)) continue;
       const brandBlock = part.match(/class="brand[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
       const model = htmlText(brandBlock.match(/class="model[^"]*"[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '');
@@ -2024,7 +2027,7 @@ async function scrapeEveho(url: string, firstHtml: string): Promise<DealerStockR
       const other = [...part.matchAll(/otherFields[^"]*"[^>]*>([\s\S]*?)<\/span>/g)].map((m) => htmlText(m[1]).replace(/\s*-\s*$/, ''));
       const fuel = other.find((x) => /essence|diesel|hybride|électrique|electrique|gpl|gnv/i.test(x)) ?? null;
       const gear = other.find((x) => /manuelle|automatique|auto\b|séquentielle/i.test(x)) ?? null;
-      seen.add(id); added++;
+      seen.add(id);
       out.push({
         external_id: id, url: href.startsWith('http') ? href : origin + href, title: [brand, model, version].filter(Boolean).join(' '),
         brand: brand ? brand.charAt(0).toUpperCase() + brand.slice(1) : null, model: model || null, price,
@@ -2032,6 +2035,7 @@ async function scrapeEveho(url: string, firstHtml: string): Promise<DealerStockR
         fuel, gearbox: gearboxOf(gear), plate: null, vin: null, body: null,
         image: (part.match(/<img src="([^"]+)"/)?.[1] ?? '').replace(/^\/_ipx\/[^/]+\//, '') || null, listed_at: null,
         status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
+        location: htmlText(part.match(/class="location[^"]*"[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '') || null,
       });
     }
     return added;
@@ -2039,10 +2043,27 @@ async function scrapeEveho(url: string, firstHtml: string): Promise<DealerStockR
   const last = Math.max(1, ...[...firstHtml.matchAll(/[?&]page=(\d+)/g)].map((m) => Number(m[1])));
   // Tri par date de publication imposé : le tri par prix de l'URL n'est pas stable d'une page à l'autre
   // (1 393 lues sur 1 461 le 05/11, doublons entre pages) ; par date : 1 461 / 1 461.
-  const stable = withParam(url, 'sort', 'order_desc=date_publication');
+  // Le paramètre « page » doit être LE DERNIER de l'adresse (fiche VPN Angers 05/11 : « ?page=2&pdv_name=… » rendait
+  // la page 1, « ?pdv_name=…&page=2 » la bonne) : on le retire puis on le rajoute en fin.
+  // AUCUN TRI N'EST STABLE SEUL (05/11) : par prix, les ex æquo changent de page ; par date, pareil sur une agence
+  // (194 lues sur 294). La RÉUNION de deux lectures (prix croissant puis prix décroissant) donne le compte juste
+  // (294 / 294 sur Angers, 1 461 / 1 461 sur le réseau) ; par date en troisième lecture s'il en manque encore.
+  // Le paramètre « page » doit être LE DERNIER de l'adresse (« ?page=2&pdv_name=… » rendait la page 1).
+  const u = new URL(url); u.searchParams.delete('page');
+  const pageUrl = (sort: string, p: number) => { const x = new URL(u.toString()); x.searchParams.set('sort', sort); x.searchParams.append('page', String(p)); return x.toString(); };
+  const allPages = Math.max(last, 1);
   seen.clear(); out.length = 0;
-  const first = await getTextPatient(withParam(stable, 'page', '1'));
-  const { pages, warnings } = await paginate(first.status === 200 ? first.text : firstHtml, parse, (p) => withParam(stable, 'page', String(p)), { cap: Math.min(MAX_PAGES, last + 3) });
+  let pages = 0;
+  const warnings: string[] = [];
+  for (const sort of ['order_asc=price', 'order_desc=price', 'order_desc=date_publication']) {
+    if (sort === 'order_desc=date_publication' && (declared == null || out.length >= declared)) break;
+    const first = await getTextPatient(pageUrl(sort, 1));
+    if (first.status !== 200) { warnings.push(`tri ${sort} : HTTP ${first.status}`); continue; }
+    const cap = Math.min(MAX_PAGES, Math.max(allPages, ...[...first.text.matchAll(/[?&]page=(\d+)/g)].map((m) => Number(m[1]))) + 3);
+    const r = await paginate(first.text, parse, (p) => pageUrl(sort, p), { cap });
+    pages += r.pages; warnings.push(...r.warnings);
+    if (declared != null && out.length >= declared) break;
+  }
   if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
   return { provider: 'eveho', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
