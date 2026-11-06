@@ -56,8 +56,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « reg date » ni « first reg » ne le voyaient — la date restait vide.
   // « F. matriculación » (stockbook espagnol Delta, 22/10) : normalisé « f matriculacion » — « matricul » suffit.
   // « Date Imm. » (listes Stellantis/Toyota/Kia 04/11 : quatre fichiers du même fournisseur).
-  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr|matricul|date ?imm\b|date ?imm\.)/],
-  ['plate', /(\bimmat|plaque|\bplate\b|registration|\btarga\b)/],
+  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr|matricul|date ?imm\b|date ?imm\.|licreg)/],
+  ['plate', /(\bimmat|plaque|\bplate\b|registration|\btarga\b|\blicen[cs]e\b|matricula)/],
   // « Milage » (faute courante), « Miltal » / « Mätarställning » / « Mil »
   // (suédois : l'unité est le MIL = 10 km, voir decideKmUnit).
   // « KMS » (liste Megane E-Tech 14/10) : le pluriel n'était pas reconnu, le kilométrage restait vide.
@@ -89,13 +89,14 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['import', /(\bimport|origine|origin)/],
   // « Quantity » (liste VW ID.7 Tourer 02/10) : N exemplaires identiques → N lignes.
   ['quantity', /^(quantity|qty|quantite|quantità|anzahl|stuck|units?|pcs|nombre)$/],
-  ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur|\bmarca\b)/],
+  // « MFG » (Stock Export espagnol 06/11 : MFG = CUPRA, DACIA…), « fabricante », « hersteller ».
+  ['brand', /(brand|marque|\bmake\b|\bmarke\b|constructeur|\bmarca\b|\bmfg\b|fabricante|hersteller)/],
   // « Modell » (suédois / allemand) : la colonne modèle, lue comme ligne libre quand elle porte toute la désignation.
   // « Modelo » (espagnol) : la colonne modèle (stockbook Delta : « F500 ELECTRICO » à côté de « Versión ») ;
   // seule (liste Polo DSG), elle porte toute la désignation et se lit comme ligne libre.
   // « Modellgruppe » = le modèle (« Vito Kasten »), « Modellname » = la désignation complète (« Vito 116 CDI Extralang ») — 04/11.
   ['model', /^(model|modele|modello|modell|modelo|modellgruppe|modelgroep|model ?group|baureihe|modellreihe)$/],
-  ['version', /^(modellname|modelnaam|model ?name|carline)$/], // « Carline » (04/11) : « Byd Atto 3 Comfort », « Ev9 Rwd Earth… » — modèle + version
+  ['version', /^(modellname|modelnaam|model ?name|carline|trim ?model)$/], // « Carline » (04/11) : « Byd Atto 3 Comfort », « Ev9 Rwd Earth… » — modèle + version
   ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
 
@@ -507,7 +508,8 @@ export function stripGenerationSuffix(model: string): string {
 export const TRIM_WORDS = new Set(['EDITION', 'ELEGANCE', 'SHINE', 'COMFORT', 'DESIGN', 'LUXURY', 'PRIME', 'PLUS', 'FEEL', 'MAX', 'CORE', 'ULTRA', 'ULTIMATE', 'BUSINESS', 'ADVANCE', 'ADVANCED', 'STYLE', 'LIFE', 'SPRINT', 'SUMMIT', 'LONGITUDE', 'LIMITED', 'TREND', 'TITANIUM', 'ACTIVE', 'ALLURE', 'RIVOLI', 'PERFORMANCE', 'BOOST', 'VISION', 'AVANTGARDE', 'INTENS', 'ZEN', 'TECHNO', 'ICONIC', 'ESPRIT', 'INITIALE', 'EXCLUSIVE', 'PREMIUM', 'AMBIENTE', 'SELECTION', 'EXECUTIVE', 'INSCRIPTION', 'MOMENTUM']);
 
 export function guessModel(_brand: string, line: string, knownModels: string[]): string {
-  const up = line.toUpperCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim(); // « Ceed_sw » (Kia 04/11) = « CEED SW »
+  // « León » (Stock Export 06/11) = LEON : accents retirés ; « Ceed_sw » (Kia 04/11) = « CEED SW ».
+  const up = line.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
   const candidates = [...knownModels].map((m) => m.toUpperCase()).sort((a, b) => b.length - a.length);
   for (const m of candidates) {
     if (up === m || up.startsWith(`${m} `)) return m;
@@ -679,7 +681,11 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       if (f === 'ignore' || f === 'plate') { extras[h] = cell(v); return; }
       // Deux colonnes pour le même champ : la PREMIÈRE gagne (« Version » avant
       // « Trim »), la seconde est gardée en extras — rien n'est perdu.
-      if (rec[f] != null) { extras[h] = cell(v); return; }
+      if (rec[f] != null) {
+        // Couleur en deux colonnes (code « GRA » puis « Gris Graphene », 06/11) : la plus parlante gagne.
+        if (f === 'color' && cell(v).length > cell(rec[f]).length && /[a-z]/.test(cell(v))) { extras[h] = cell(rec[f]); rec[f] = v; return; }
+        extras[h] = cell(v); return;
+      }
       rec[f] = v;
     });
     if (Object.keys(rec).length === 0) continue;
@@ -734,6 +740,16 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     // de son marqueur de génération ; sans colonne, la ligne libre est décomposée.
     if (!model || model === versionLine) model = guessModel(brand, versionLine || model, known);
     else model = guessModel(brand, model, known);
+    // Colonne « MODEL » qui porte un CODE de flotte (« CW41 », « DV19 » — Stock Export 06/11) et désignation à côté
+    // (« Formentor 1.5 eTSI DSG 150 ») : quand le code n'est pas un modèle connu de la marque mais que la
+    // désignation commence par un modèle connu, c'est elle qui donne le modèle. Le code reste dans la version.
+    if (known.length && versionLine && model !== versionLine) {
+      const knownUp = known.map((k) => k.toUpperCase());
+      if (!knownUp.includes(model)) {
+        const fromVersion = guessModel(brand, versionLine, known);
+        if (fromVersion && knownUp.includes(fromVersion)) model = fromVersion;
+      }
+    }
     // Le titre du bloc précise le modèle (« A6 e-tron » alors que la ligne dit
     // « A6 Avant e-tron… ») : on le prend quand il est connu de la marque, ou
     // quand rien n'est connu et qu'il prolonge le modèle de la ligne.
