@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Inbox, Phone, Mail, Loader2, Check, AlertTriangle, RefreshCw, ExternalLink, Send } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listSiteLeads, setLeadStatus, saveLeadNotes, queueLeadEmail, listLeadEmails, leadsWithEmail, LEAD_STATUS_LABEL, type SiteLeadRow, type LeadStatus, type LeadEmail } from '../services/siteLeads';
-import { leadTemplates, leadTemplate, renderLeadMail, leadCar, LEAD_TEMPLATE_LABEL, type LeadTemplateKey } from '../lib/leadMail';
+import { leadTemplates, leadTemplate, leadTemplateFr, leadLang, renderLeadMail, leadCar, LEAD_TEMPLATE_LABEL, type LeadTemplateKey } from '../lib/leadMail';
 import { notifyRemindersChanged } from '../services/userTasks';
 
 const KIND_LABEL: Record<string, string> = { acheteur: 'Acheteur pro', vendeur: 'Vendeur pro', particulier: 'Rachat particulier', autre: 'Demande pro' };
@@ -144,6 +144,8 @@ function LeadDetail({ lead, onPatch, onMailed }: { lead: SiteLeadRow; onPatch: (
   const finalSubject = renderLeadMail(subject, lead, { prix, signature });
   const finalBody = renderLeadMail(body, lead, { prix, signature });
   const needsPrice = tplKey === 'offre' && /\{prix\}/i.test(subject + body) && !prix.trim();
+  const foreign = leadLang(lead) !== 'fr';
+  const edited = subject !== leadTemplate(tplKey, lead).subject || body !== leadTemplate(tplKey, lead).body;
   const send = async () => {
     if (!lead.email) { setErr('Cette demande n\'a pas d\'adresse e-mail : appelle le contact.'); return; }
     if (!email || !userId) { setErr('Connecte-toi avec ton adresse Google Workspace : le serveur envoie en ton nom.'); return; }
@@ -209,12 +211,24 @@ function LeadDetail({ lead, onPatch, onMailed }: { lead: SiteLeadRow; onPatch: (
                 <input value={prix} onChange={(e) => setPrix(e.target.value)} placeholder="ex. 18 500" className="mt-1 w-48 px-3 py-2 rounded-lg border border-slate-300 text-sm" />
               </label>
             )}
-            <label className="block text-xs text-slate-600">Objet
-              <input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
-            </label>
-            <label className="block text-xs text-slate-600">Texte
-              <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
-            </label>
+            {/* Demande dans une autre langue : le même mail type en français à droite, pour relire ce qu'on envoie (07/11). */}
+            <div className={`grid gap-4 ${foreign ? 'lg:grid-cols-2' : ''}`}>
+              <div className="space-y-3 min-w-0">
+                <label className="block text-xs text-slate-600">Objet
+                  <input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+                </label>
+                <label className="block text-xs text-slate-600">Texte
+                  <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+                </label>
+              </div>
+              {foreign && (
+                <div className="min-w-0 text-xs rounded-lg border border-dashed border-slate-300 bg-white p-3 space-y-2">
+                  <p className="text-slate-500">Traduction française du mail type « {LEAD_TEMPLATE_LABEL[tplKey]} »{edited ? ' — le texte de gauche a été modifié, cette traduction suit le modèle, pas tes retouches' : ''}</p>
+                  <p className="font-medium text-slate-800">{renderLeadMail(leadTemplateFr(tplKey).subject, lead, { prix, signature })}</p>
+                  <pre className="whitespace-pre-wrap font-sans text-slate-700">{renderLeadMail(leadTemplateFr(tplKey).body, lead, { prix, signature })}</pre>
+                </div>
+              )}
+            </div>
             <p className="text-[11px] text-slate-500">Champs : <code>{'{prenom}'}</code>, <code>{'{voiture}'}</code>, <code>{'{prix}'}</code>, <code>{'{signature}'}</code>. Texte brut.</p>
             <div className="text-xs rounded-lg border border-slate-200 bg-slate-50 p-3">
               <p className="text-slate-500 mb-1">Aperçu — à {lead.email} :</p>

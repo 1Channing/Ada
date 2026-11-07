@@ -70,3 +70,8 @@ export function renderLeadMail(tpl: string, l: SiteLead, p: { prix: string; sign
     .replace(/\{prix\}/gi, p.prix.trim() || '……').replace(/\{signature\}/gi, p.signature)
     .replace(/^(Bonjour|Hello|Buongiorno|Hola|Guten Tag|Beste) ,/m, '$1,');
 }
+
+/** Le même modèle en français, pour lire à côté ce qu'on envoie dans une autre langue (07/11, Channing). */
+export function leadTemplateFr(key: LeadTemplateKey): Tpl {
+  return T[key].fr ?? { subject: '', body: '' };
+}
