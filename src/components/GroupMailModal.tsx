@@ -123,7 +123,8 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
   const toggle = (id: string) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const recipients = withMail.filter((c) => picked.has(c.id));
   const firstName = (c: NetworkContact) => (c.contact_name ?? '').trim().split(/\s+/)[0] || '';
-  const signature = `${displayName || email || ''}\nMC Export${email ? `\n${email}` : ''}`;
+  // Nom + société seulement : la signature Gmail enregistrée de l'expéditeur est ajoutée par le serveur (07/11).
+  const signature = `${displayName || email || ''}\nMC Export`;
   const render = (tpl: string, c: NetworkContact) => tpl
     .replace(/\{prenom\}/gi, firstName(c)).replace(/\{societe\}/gi, c.name).replace(/\{ville\}/gi, c.city ?? '')
     .replace(/\{pays\}/gi, COUNTRY_NAMES[c.country] ?? c.country).replace(/\{signature\}/gi, signature)
@@ -222,7 +223,7 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
                 <label className="block text-xs text-slate-600">Texte
                   <textarea value={current.body} onChange={(e) => setDraft(tab, { body: e.target.value })} rows={11} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                 </label>
-                <p className="text-[11px] text-slate-500">Champs remplis pour chacun : <code>{'{prenom}'}</code> (interlocuteur), <code>{'{societe}'}</code>, <code>{'{ville}'}</code>, <code>{'{pays}'}</code>, <code>{'{signature}'}</code> (ton nom, MC Export, ton adresse). Texte brut, sans mise en forme.</p>
+                <p className="text-[11px] text-slate-500">Champs remplis pour chacun : <code>{'{prenom}'}</code> (interlocuteur), <code>{'{societe}'}</code>, <code>{'{ville}'}</code>, <code>{'{pays}'}</code>, <code>{'{signature}'}</code> (ton nom, MC Export). Ta signature Gmail enregistrée est ajoutée dessous par le serveur.</p>
                 {previewFor && (
                   <div className="text-xs rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="text-slate-500 mb-1">Aperçu pour {previewFor.name} :</p>

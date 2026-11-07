@@ -118,7 +118,8 @@ function LeadDetail({ lead, onPatch, onMailed }: { lead: SiteLeadRow; onPatch: (
   const templates = leadTemplates(lead);
   const [tplKey, setTplKey] = useState<LeadTemplateKey>(templates[0]);
   const [prix, setPrix] = useState('');
-  const signature = `${displayName || email || ''}\nMC Export${email ? `\n${email}` : ''}`;
+  // Nom + société seulement : la signature Gmail enregistrée de l'expéditeur est ajoutée par le serveur (07/11).
+  const signature = `${displayName || email || ''}\nMC Export`;
   const [subject, setSubject] = useState(() => leadTemplate(templates[0], lead).subject);
   const [body, setBody] = useState(() => leadTemplate(templates[0], lead).body);
   const [sending, setSending] = useState(false);
@@ -229,7 +230,7 @@ function LeadDetail({ lead, onPatch, onMailed }: { lead: SiteLeadRow; onPatch: (
                 </div>
               )}
             </div>
-            <p className="text-[11px] text-slate-500">Champs : <code>{'{prenom}'}</code>, <code>{'{voiture}'}</code>, <code>{'{prix}'}</code>, <code>{'{signature}'}</code>. Texte brut.</p>
+            <p className="text-[11px] text-slate-500">Champs : <code>{'{prenom}'}</code>, <code>{'{voiture}'}</code>, <code>{'{prix}'}</code>, <code>{'{signature}'}</code> (ton nom, MC Export). Ta signature Gmail enregistrée est ajoutée dessous par le serveur.</p>
             <div className="text-xs rounded-lg border border-slate-200 bg-slate-50 p-3">
               <p className="text-slate-500 mb-1">Aperçu — à {lead.email} :</p>
               <p className="font-medium text-slate-800">{finalSubject}</p>

@@ -17,10 +17,18 @@
 import { createSign } from 'node:crypto';
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { recordLearningCase } from './learningBox';
+import { buildMime, type MimeAttachment } from './mailMime';
 
 const POLL_MS = 20_000;
 const BUCKET = 'admin-documents';
 export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+/** SIGNATURE GMAIL (07/11, Channing : « ma signature qui est enregistrée… c'est possible de l'intégrer ? ») :
+ *  lue dans les paramètres Gmail de l'expéditeur (sendAs → signature) et ajoutée sous le texte des e-mails
+ *  envoyés en son nom depuis Ada. Demande un droit de plus dans la délégation domaine ; sans lui, l'envoi
+ *  part sans signature (fail-open) et worker_logs le dit une fois par adresse. */
+export const GMAIL_SETTINGS_SCOPE = 'https://www.googleapis.com/auth/gmail.settings.basic';
+const SIGNATURE_TTL_MS = 30 * 60 * 1000;
+const signatureCache = new Map<string, { html: string | null; at: number }>();
 
 interface Creds { client_email: string; private_key: string; client_id?: string }
 interface Attachment { path: string; name?: string }
@@ -54,7 +62,7 @@ export function startMailer(): void {
   const creds = mailCreds();
   if (!creds) { console.warn('[MAIL] GOOGLE_SERVICE_ACCOUNT_JSON illisible — envoi inactif'); return; }
   // Visible dans worker_logs : ce qu'il faut autoriser dans Google Admin.
-  console.warn(`[MAIL] compte de service ${creds.client_email} — client_id ${creds.client_id ?? '(absent du JSON)'} : à autoriser dans Google Admin → Sécurité → Contrôle des API → Délégation au niveau du domaine, avec le droit ${GMAIL_SCOPE}`);
+  console.warn(`[MAIL] compte de service ${creds.client_email} — client_id ${creds.client_id ?? '(absent du JSON)'} : à autoriser dans Google Admin → Sécurité → Contrôle des API → Délégation au niveau du domaine, avec les droits ${GMAIL_SCOPE} et ${GMAIL_SETTINGS_SCOPE} (signature)`);
   setInterval(() => void tick(creds), POLL_MS);
   setTimeout(() => void tick(creds), 15_000);
   console.log('[MAIL] boucle d\'envoi active (poll 20 s)');
@@ -93,7 +101,7 @@ async function tick(creds: Creds): Promise<void> {
         for (const a of m.attachments ?? []) {
           if (!ALLOWED_PREFIXES.some((p) => a.path.startsWith(p)) || a.path.includes('..')) throw new Error(`pièce jointe hors du dossier refusée : ${a.path}`);
         }
-        const { id, threadId } = await sendOne(creds, m);
+        const { id, threadId } = await sendOne(creds, m, {}, true);
         await supabase.from('dossier_emails').update({ status: 'sent', sent_at: new Date().toISOString(), gmail_message_id: id, gmail_thread_id: threadId, error: null } as never).eq('id', m.id);
         console.warn(`[MAIL] envoyé : « ${m.subject} » → ${m.to_email} de ${m.sender_email} (${(m.attachments ?? []).length} pièce(s))`);
       } catch (e) {
@@ -109,10 +117,10 @@ async function tick(creds: Creds): Promise<void> {
 }
 
 /** Jeton Gmail au nom de `sub` (délégation domaine). */
-async function gmailToken(creds: Creds, sub: string): Promise<string> {
+async function gmailToken(creds: Creds, sub: string, scope: string = GMAIL_SCOPE): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: creds.client_email, sub, scope: GMAIL_SCOPE, aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 })}`;
+  const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: creds.client_email, sub, scope, aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 })}`;
   const sig = createSign('RSA-SHA256').update(unsigned).sign(creds.private_key).toString('base64url');
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -121,36 +129,48 @@ async function gmailToken(creds: Creds, sub: string): Promise<string> {
   const j = (await res.json()) as { access_token?: string; error?: string; error_description?: string };
   if (!j.access_token) {
     const why = j.error === 'unauthorized_client'
-      ? `délégation domaine non accordée au compte de service (client_id ${creds.client_id ?? '?'}) pour ${GMAIL_SCOPE}, ou ${sub} hors du domaine Google Workspace`
+      ? `délégation domaine non accordée au compte de service (client_id ${creds.client_id ?? '?'}) pour ${scope}, ou ${sub} hors du domaine Google Workspace`
       : `${j.error ?? res.status} — ${j.error_description ?? ''}`;
     throw new Error(`Google refuse le jeton : ${why}`);
   }
   return j.access_token;
 }
 
-const encodeHeader = (s: string) => (/[^\x20-\x7e]/.test(s) ? `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=` : s);
-const wrap76 = (b64: string) => b64.replace(/(.{76})/g, '$1\r\n');
+/** La signature Gmail enregistrée de l'expéditeur (HTML), ou null : droit non accordé, pas de signature,
+ *  ou Google injoignable — jamais bloquant. Gardée 30 min par adresse. */
+export async function gmailSignature(creds: Creds, sender: string): Promise<string | null> {
+  const key = sender.trim().toLowerCase();
+  const hit = signatureCache.get(key);
+  if (hit && Date.now() - hit.at < SIGNATURE_TTL_MS) return hit.html;
+  let html: string | null = null;
+  try {
+    const token = await gmailToken(creds, key, GMAIL_SETTINGS_SCOPE);
+    const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/${encodeURIComponent(key)}`, { headers: { authorization: `Bearer ${token}` } });
+    const j = (await res.json()) as { signature?: string; error?: { message?: string } };
+    if (!res.ok) throw new Error(`Gmail ${res.status} : ${j.error?.message ?? 'lecture refusée'}`);
+    html = (j.signature ?? '').trim() || null;
+    if (!hit) console.warn(`[MAIL] signature Gmail de ${key} : ${html ? `${html.length} caractères` : 'aucune (vide dans Gmail)'}`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!hit) console.warn(`[MAIL] signature Gmail de ${key} illisible — envoi sans signature : ${msg}`);
+  }
+  signatureCache.set(key, { html, at: Date.now() });
+  return html;
+}
 
-async function sendOne(creds: Creds, m: QueuedMail, extraHeaders: Record<string, string> = {}): Promise<{ id: string; threadId: string }> {
+async function sendOne(creds: Creds, m: QueuedMail, extraHeaders: Record<string, string> = {}, withSignature = false): Promise<{ id: string; threadId: string }> {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m.to_email)) throw new Error(`destinataire invalide : « ${m.to_email} »`);
   const token = await gmailToken(creds, m.sender_email);
-  const boundary = `ada_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-  const from = m.sender_name ? `${encodeHeader(m.sender_name)} <${m.sender_email}>` : m.sender_email;
-  const parts: string[] = [];
-  parts.push(`--${boundary}\r\nContent-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap76(Buffer.from(m.body, 'utf8').toString('base64'))}\r\n`);
+  const attachments: MimeAttachment[] = [];
   for (const a of m.attachments ?? []) {
     const { data, error } = await supabase.storage.from(BUCKET).download(a.path);
     if (error || !data) throw new Error(`pièce jointe introuvable dans le storage : ${a.path} (${error?.message ?? 'vide'})`);
-    const bytes = Buffer.from(await data.arrayBuffer());
     const name = a.name || a.path.split('/').pop() || 'document.pdf';
     const type = name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : name.toLowerCase().endsWith('.png') ? 'image/png' : /\.jpe?g$/i.test(name) ? 'image/jpeg' : 'application/octet-stream';
-    parts.push(`--${boundary}\r\nContent-Type: ${type}; name="${encodeHeader(name)}"\r\nContent-Disposition: attachment; filename="${encodeHeader(name)}"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap76(bytes.toString('base64'))}\r\n`);
+    attachments.push({ name, type, bytes: Buffer.from(await data.arrayBuffer()) });
   }
-  const mime = [
-    `From: ${from}`, `To: ${m.to_email}`, `Subject: ${encodeHeader(m.subject)}`, 'MIME-Version: 1.0',
-    ...Object.entries(extraHeaders).map(([k, v]) => `${k}: ${v.replace(/[\r\n]+/g, ' ')}`),
-    `Content-Type: multipart/mixed; boundary="${boundary}"`, '', ...parts, `--${boundary}--`, '',
-  ].join('\r\n');
+  const signatureHtml = withSignature ? await gmailSignature(creds, m.sender_email) : null;
+  const mime = buildMime({ from: m.sender_email, fromName: m.sender_name, to: m.to_email, subject: m.subject, body: m.body, signatureHtml, attachments, headers: extraHeaders });
   const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ raw: Buffer.from(mime).toString('base64url') }),
