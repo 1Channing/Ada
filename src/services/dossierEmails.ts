@@ -32,6 +32,27 @@ export async function queueDossierEmail(input: {
   return { mail: data as DossierEmail, error: null };
 }
 
+/** RELANCE GROUPÉE DEPUIS LA CARTE (07/11, Channing : « envoyer un mail à plusieurs personnes sans qu'ils voient les
+ *  autres destinataires ») : UN e-mail par destinataire, même file, même worker, même expéditeur (la personne
+ *  connectée) ; `batch_id` relie les envois d'une même relance. Sans dossier (transaction_id null — SQL du 07/11). */
+export async function queueContactEmail(input: {
+  contactId: string; batchId: string; to: string; subject: string; body: string; senderEmail: string; senderName: string | null; sentBy: string | null;
+}): Promise<{ id: string | null; error: string | null }> {
+  const { data, error } = await untyped.from('dossier_emails').insert({
+    transaction_id: null, contact_id: input.contactId, batch_id: input.batchId, kind: 'relance_contact',
+    to_email: input.to.trim(), subject: input.subject.trim(), body: input.body, attachments: [],
+    sender_email: input.senderEmail, sender_name: input.senderName, sent_by: input.sentBy,
+  }).select('id').single();
+  if (error) return { id: null, error: /contact_id|batch_id|null value in column "transaction_id"|schema cache/i.test(error.message) ? 'Relance groupée : colle le SQL du 07/11 (relance_contacts).' : error.message };
+  return { id: (data as { id: string }).id, error: null };
+}
+
+/** Les envois d'une relance groupée (statut par destinataire). */
+export async function listBatchEmails(batchId: string): Promise<Array<{ id: string; to_email: string; status: string; error: string | null; sent_at: string | null }>> {
+  const { data } = await untyped.from('dossier_emails').select('id, to_email, status, error, sent_at').eq('batch_id', batchId).order('created_at');
+  return (data ?? []) as Array<{ id: string; to_email: string; status: string; error: string | null; sent_at: string | null }>;
+}
+
 /** Retire une ligne en file ou en échec (jamais un envoi parti). */
 export async function deleteDossierEmail(id: string): Promise<string | null> {
   const { error } = await untyped.from('dossier_emails').delete().eq('id', id).neq('status', 'sent');

@@ -10,7 +10,8 @@ import { supabase } from '../lib/supabase';
 import { brandKey, canonKey } from './marketData';
 import { capped } from './capacity';
 
-export type ContactKind = 'concession' | 'loueur' | 'trader' | 'convoyeur' | 'autre';
+// 07/11 (Channing) : « dissocier loueur et leasing » — Hertz, Europcar… sont des loueurs ; Leasys, Agilauto, Ayvens… du leasing.
+export type ContactKind = 'concession' | 'loueur' | 'leasing' | 'trader' | 'convoyeur' | 'autre';
 export type ContactRole = 'vendeur' | 'acheteur' | 'les_deux';
 
 export interface NetworkContact {
@@ -66,7 +67,7 @@ export interface NetworkContactModel {
 }
 
 export const KIND_LABEL: Record<ContactKind, string> = {
-  concession: 'Concession', loueur: 'Loueur', trader: 'Trader', convoyeur: 'Convoyeur', autre: 'Autre',
+  concession: 'Concession', loueur: 'Loueur', leasing: 'Leasing', trader: 'Trader', convoyeur: 'Convoyeur', autre: 'Autre',
 };
 export const ROLE_LABEL: Record<ContactRole, string> = {
   vendeur: 'Vendeur', acheteur: 'Acheteur', les_deux: 'Acheteur & vendeur',

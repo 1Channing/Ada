@@ -21,6 +21,7 @@ import {
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import { ShowcaseModal } from '../components/ShowcaseModal';
+import { GroupMailModal } from '../components/GroupMailModal';
 import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDealerScanning, activeDealerScans, queueDealerScans, queuedDealerScans, cancelQueuedDealerScans, type LatestStockRun } from '../services/dealerStock';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
@@ -80,6 +81,10 @@ export function Carte() {
   const [hoverCountry, setHoverCountry] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'tous' | ContactRole>('tous');
+  // Catégorie et marque (07/11, Channing : « trier par catégorie directement en plus des pays… et par marques »).
+  const [kindFilter, setKindFilter] = useState<ContactKind | null>(null);
+  const [brandFilter, setBrandFilter] = useState<string | null>(null);
+  const [mailOpen, setMailOpen] = useState(false);
   const [countryFilter, setCountryFilter] = useState<string | null>(null);
   const [relationFilter, setRelationFilter] = useState<string | null>(null);
   // Contacts ajoutés par Ada et Dana (16/10) : un filtre, et un badge « IA » sur chaque ligne.
@@ -322,9 +327,14 @@ export function Carte() {
   const filtered = useMemo(() => contacts.filter((c) =>
     (roleFilter === 'tous' || c.role === roleFilter || c.role === 'les_deux')
     && (!countryFilter || c.country === countryFilter)
+    && (!kindFilter || c.kind === kindFilter)
+    && (!brandFilter || c.models.some((m) => m.brand.trim().toUpperCase() === brandFilter))
     && (!relationFilter || c.relation === relationFilter)
     && (!aiOnly || isAiContact(c))
-    && contactMatchesQuery(c, query)), [contacts, roleFilter, countryFilter, relationFilter, aiOnly, query]);
+    && contactMatchesQuery(c, query)), [contacts, roleFilter, countryFilter, kindFilter, brandFilter, relationFilter, aiOnly, query]);
+  const kinds = useMemo(() => (Object.keys(KIND_LABEL) as ContactKind[]).filter((k) => contacts.some((c) => c.kind === k)), [contacts]);
+  const brands = useMemo(() => { const m = new Map<string, number>(); for (const c of contacts) for (const b of new Set(c.models.map((x) => x.brand.trim().toUpperCase()).filter(Boolean))) m.set(b, (m.get(b) ?? 0) + 1); return [...m.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])); }, [contacts]);
+  const scopeLabel = [kindFilter && KIND_LABEL[kindFilter], countryFilter && (COUNTRY_NAMES[countryFilter] ?? countryFilter), brandFilter, relationFilter && RELATION_LABEL[relationFilter], roleFilter !== 'tous' && ROLE_LABEL[roleFilter], query && `« ${query} »`].filter(Boolean).join(' · ') || 'tous les contacts';
   const aiCount = useMemo(() => contacts.filter(isAiContact).length, [contacts]);
   const selected = contacts.find((c) => c.id === selectedId) ?? null;
   const countries = useMemo(() => [...new Set(contacts.map((c) => c.country))].sort(), [contacts]);
@@ -528,6 +538,7 @@ export function Carte() {
         ) : selected ? (<>
           <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, country: selected.country, frequency: selected.stock_frequency ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
           {showcaseFor && <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.url} country={showcaseFor.country} frequency={showcaseFor.frequency} onClose={() => { setShowcaseFor(null); void reload(); }} />}
+          {mailOpen && <GroupMailModal contacts={filtered} scope={scopeLabel} onClose={() => setMailOpen(false)} />}
         </>) : (
           <>
             <div className="p-4 border-b border-slate-100 space-y-3">
@@ -552,8 +563,22 @@ export function Carte() {
                     Ajoutés par IA <span className="opacity-70">{aiCount}</span>
                   </button>
                 )}
-                {(countryFilter || relationFilter || roleFilter !== 'tous' || query || aiOnly) && (
-                  <button onClick={() => { setCountryFilter(null); setRelationFilter(null); setRoleFilter('tous'); setQuery(''); setAiOnly(false); }} className="text-xs text-slate-500 hover:text-slate-700 underline px-1">tout afficher</button>
+                {(countryFilter || relationFilter || roleFilter !== 'tous' || query || aiOnly || kindFilter || brandFilter) && (
+                  <button onClick={() => { setCountryFilter(null); setRelationFilter(null); setRoleFilter('tous'); setQuery(''); setAiOnly(false); setKindFilter(null); setBrandFilter(null); }} className="text-xs text-slate-500 hover:text-slate-700 underline px-1">tout afficher</button>
+                )}
+              </div>
+              {/* Catégories (07/11) : loueurs et leasing séparés, comptes sous le filtre pays courant. */}
+              <div className="flex flex-wrap gap-1.5 items-center">
+                {kinds.map((k) => { const n = contacts.filter((c) => c.kind === k && (!countryFilter || c.country === countryFilter)).length; return (
+                  <button key={k} onClick={() => setKindFilter((f) => (f === k ? null : k))} className={`text-xs rounded-full px-2 py-0.5 border transition-colors ${kindFilter === k ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-100'}`}>
+                    {KIND_LABEL[k]} <span className="opacity-60">{n}</span>
+                  </button>
+                ); })}
+                {brands.length > 0 && (
+                  <select value={brandFilter ?? ''} onChange={(e) => setBrandFilter(e.target.value || null)} className="text-xs rounded-full px-2 py-0.5 border border-slate-300 bg-white text-slate-600" title="Contacts qui vendent ou cherchent cette marque">
+                    <option value="">Marque : toutes</option>
+                    {brands.map(([b, n]) => <option key={b} value={b}>{b} ({n})</option>)}
+                  </select>
                 )}
               </div>
               {canEdit && (
@@ -574,6 +599,11 @@ export function Carte() {
                       <button onClick={() => { setGroupMode((m) => !m); setPicked(new Set()); }} aria-pressed={groupMode} className={`flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 border transition-colors ${groupMode ? 'bg-sky-600 text-white border-sky-600' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title="Cocher plusieurs vitrines de la liste et lancer leurs relevés d'un coup (deux à la fois)">
                         <ListChecks className="w-3.5 h-3.5" /> {groupMode ? 'Annuler la sélection' : 'Relevé groupé'}
                       </button>
+                      {!groupMode && filtered.some((c) => !!(c.email ?? '').trim()) && (
+                        <button onClick={() => setMailOpen(true)} className="flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50" title="Un e-mail séparé par contact de la sélection : personne ne voit les autres destinataires">
+                          <Mail className="w-3.5 h-3.5" /> Relance groupée ({filtered.filter((c) => !!(c.email ?? '').trim()).length})
+                        </button>
+                      )}
                       {groupMode && (
                         <>
                           <button onClick={() => setPicked(new Set(withSite.map((c) => c.id)))} className="text-xs text-brand-ocean hover:underline">tout cocher ({withSite.length})</button>
