@@ -18,6 +18,7 @@ import { Telemetrie } from './pages/Telemetrie';
 import { Apprendre } from './pages/Apprendre';
 import { Login, ResetPassword } from './pages/Login';
 import { Equipe } from './pages/Equipe';
+import { Demandes } from './pages/Demandes';
 import { Statistiques } from './pages/Statistiques';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
 import { canSeeTab, canSeeWorkflow, tabKeyOfPageKey } from './lib/appTabs';
@@ -97,6 +98,7 @@ function App() {
     if (p === '/verite') return 'truth';
     if (p === '/telemetrie') return 'telemetrie';
     if (p === '/equipe') return 'equipe';
+    if (p === '/demandes') return 'demandes';
     if (p === '/apprendre') return 'apprendre';
     if (p === '/statistiques') return 'stats';
     return 'home';
@@ -116,6 +118,7 @@ function App() {
       case 'truth': return <TruthCenter />;
       case 'telemetrie': return <Telemetrie />;
       case 'equipe': return <Equipe />;
+      case 'demandes': return <Demandes />;
       case 'apprendre': return <Apprendre />;
       case 'stats': return <Statistiques />;
       default: return <Home />;
@@ -131,6 +134,8 @@ function App() {
   const workflowOk = canSeeWorkflow(allowedTabs, isAdmin);
   const activeKey = rawKey === 'workflow' ? (workflowOk ? rawKey : 'home')
     : rawKey === 'stats' ? (isManager || isAdmin ? rawKey : 'home')
+      // Demandes du site (07/11) : administrateurs seulement.
+      : rawKey === 'demandes' ? (isAdmin ? rawKey : 'home')
       : gateTab && !canSeeTab(allowedTabs, isAdmin, gateTab) ? 'home' : rawKey;
   const [visited, setVisited] = useState<string[]>([activeKey]);
   useEffect(() => {

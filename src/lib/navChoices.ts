@@ -7,10 +7,10 @@ import { canSeeTab, canSeeWorkflow, type AppTabKey } from './appTabs';
 import { useAuth } from '../services/auth';
 import type { NavChoice } from '../components/MyTabs';
 
-export type NavItem = { path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[]; tab?: AppTabKey; workflow?: boolean; manager?: boolean };
+export type NavItem = { path: string; label: string; icon?: ReactNode; exact?: boolean; also?: string[]; tab?: AppTabKey; workflow?: boolean; manager?: boolean; admin?: boolean };
 
 export function permittedNavItems(all: NavItem[], allowedTabs: string[] | null | undefined, isAdmin: boolean, isManager: boolean): NavItem[] {
-  return all.filter((it) => (it.workflow ? canSeeWorkflow(allowedTabs, isAdmin) : it.manager ? (isManager || isAdmin) : !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab)));
+  return all.filter((it) => (it.workflow ? canSeeWorkflow(allowedTabs, isAdmin) : it.admin ? isAdmin : it.manager ? (isManager || isAdmin) : !it.tab || canSeeTab(allowedTabs, isAdmin, it.tab)));
 }
 
 /** Les entrées du bandeau que le compte connecté peut choisir de masquer (page Admin, section « Mes onglets »). */
@@ -26,6 +26,7 @@ export function useMyTabChoices(): NavChoice[] {
     { path: '/offres', label: 'Offres', tab: 'offres' },
     { path: '/agents', label: 'Agents', tab: 'agents' },
     { path: '/statistiques', label: 'Statistiques', manager: true },
+    { path: '/demandes', label: 'Demandes du site', admin: true },
   ];
   return permittedNavItems(all, allowedTabs, isAdmin, isManager).map((it) => ({ path: it.path, label: it.label }));
 }
