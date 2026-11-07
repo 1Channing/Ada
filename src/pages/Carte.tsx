@@ -538,7 +538,6 @@ export function Carte() {
         ) : selected ? (<>
           <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, country: selected.country, frequency: selected.stock_frequency ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
           {showcaseFor && <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.url} country={showcaseFor.country} frequency={showcaseFor.frequency} onClose={() => { setShowcaseFor(null); void reload(); }} />}
-          {mailOpen && <GroupMailModal contacts={filtered} scope={scopeLabel} onClose={() => setMailOpen(false)} />}
         </>) : (
           <>
             <div className="p-4 border-b border-slate-100 space-y-3">
@@ -660,6 +659,7 @@ export function Carte() {
           </>
         )}
       </aside>
+      {mailOpen && <GroupMailModal contacts={filtered} scope={scopeLabel} onClose={() => setMailOpen(false)} />}
     </div>
   );
 }
