@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { Upload, History, LineChart, Home, ClipboardList, Scale, ShieldCheck, LogOut, Activity, RefreshCw, Users, AlertTriangle, Map as MapIcon, Menu, X , FileSpreadsheet, GraduationCap, BarChart3, Bot, SlidersHorizontal, Inbox } from 'lucide-react';
 import { MyTabsPanel } from './MyTabs';
+import { MySignaturePanel } from './MySignature';
 import { permittedNavItems, type NavItem } from '../lib/navChoices';
 import { listLearningCases } from '../services/learningCases';
 import { countMyOpenTasks } from '../services/userTasks';
@@ -285,6 +286,8 @@ function TabsChooser({ items, hidden }: { items: Array<{ path: string; label: st
         <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 p-3 z-50 text-slate-800">
           <p className="text-xs font-semibold text-slate-900 mb-0.5">Mes onglets</p>
           <MyTabsPanel items={items} />
+          <p className="text-xs font-semibold text-slate-900 mt-3 mb-1 pt-3 border-t border-slate-100">Ma signature e-mail</p>
+          <MySignaturePanel />
         </div>
       )}
     </div>

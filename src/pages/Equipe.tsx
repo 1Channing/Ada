@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Users, Shield, Plus, Trash2, Pencil, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2, Sparkles, Share2, BarChart3, SlidersHorizontal } from 'lucide-react';
+import { Users, Shield, Plus, Trash2, Pencil, ChevronRight, CheckCircle2, ClipboardList, UserPlus, KeyRound, Wand2, Copy, Building2, Sparkles, Share2, BarChart3, SlidersHorizontal, PenLine } from 'lucide-react';
 import { MyTabsPanel } from '../components/MyTabs';
+import { MySignaturePanel } from '../components/MySignature';
 import { useMyTabChoices } from '../lib/navChoices';
 import { supabase } from '../lib/supabase';
 import { useAuth, adminCreateAccount, requestPasswordReset, suggestPassword, passwordWeakness } from '../services/auth';
@@ -447,6 +448,10 @@ export function Equipe() {
       {/* ── Mes onglets (23/10) : le bandeau du compte connecté, à son goût — préférence, pas un droit ── */}
       <Section id="mytabs" icon={<SlidersHorizontal className="w-4 h-4 text-brand-ocean" />} title={`Mes onglets${hiddenTabs.length ? ` (${hiddenTabs.length} masqué${hiddenTabs.length > 1 ? 's' : ''})` : ''}`} hint="choisir ce qui reste dans mon bandeau, pour moi seul">
         <MyTabsPanel items={myTabChoices} />
+      </Section>
+
+      <Section id="mysignature" icon={<PenLine className="w-4 h-4 text-brand-ocean" />} title="Ma signature e-mail" hint="l'image ajoutée sous mes e-mails envoyés depuis Ada, pour moi seul">
+        <MySignaturePanel />
       </Section>
 
       {/* ── Organisations (12/10) : la liste de référence, un compte appartient à l'une d'elles ── */}

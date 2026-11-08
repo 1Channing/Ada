@@ -11,6 +11,8 @@ export interface MimeInput {
   from: string; fromName?: string | null; to: string; subject: string; body: string;
   /** Signature HTML de l'expéditeur (Gmail → paramètres → signature), ajoutée sous le texte. */
   signatureHtml?: string | null;
+  /** Signature en IMAGE (08/11) : déposée dans Ada, envoyée en ligne (cid) sous le texte — et sous la signature HTML s'il y en a une. */
+  signatureImage?: { bytes: Buffer; type: string } | null;
   attachments?: MimeAttachment[];
   headers?: Record<string, string>;
 }
@@ -33,14 +35,28 @@ export function buildMime(m: MimeInput): string {
   const stamp = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   const textPart = (b: string) => `Content-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${b64body(b)}\r\n`;
   let bodyPart: string;
-  if (m.signatureHtml && m.signatureHtml.trim()) {
-    // Même présentation que Gmail : le texte, une ligne vide, puis le bloc de signature.
-    const html = `<html><body>${textToHtml(m.body)}<div><br></div><div class="gmail_signature">${m.signatureHtml}</div></body></html>`;
+  const sigHtml = (m.signatureHtml ?? '').trim();
+  const sigImg = m.signatureImage && m.signatureImage.bytes.length > 0 ? m.signatureImage : null;
+  if (sigHtml || sigImg) {
+    // Même présentation que Gmail : le texte, une ligne vide, puis le bloc de signature (HTML et/ou image).
+    const cid = `signature_${stamp}@ada.mc-export`;
+    const blocks = [sigHtml ? `<div class="gmail_signature">${sigHtml}</div>` : '', sigImg ? `<div><img src="cid:${cid}" alt="Signature" style="max-width:420px;height:auto;display:block"></div>` : ''].filter(Boolean).join('');
+    const html = `<html><body>${textToHtml(m.body)}<div><br></div>${blocks}</body></html>`;
+    const htmlPart = [`Content-Type: text/html; charset="UTF-8"`, 'Content-Transfer-Encoding: base64', '', b64body(html), ''].join('\r\n');
+    // L'image voyage DANS le message (multipart/related) : affichée sans téléchargement ni blocage d'URL externe.
+    const htmlOrRelated = sigImg
+      ? (() => { const rel = `rel_${stamp}`; return [
+          `Content-Type: multipart/related; boundary="${rel}"`, '',
+          `--${rel}`, htmlPart,
+          `--${rel}`, `Content-Type: ${sigImg.type}`, `Content-ID: <${cid}>`, 'Content-Disposition: inline; filename="signature"', 'Content-Transfer-Encoding: base64', '', b64body(sigImg.bytes), '',
+          `--${rel}--`, '',
+        ].join('\r\n'); })()
+      : htmlPart;
     const alt = `alt_${stamp}`;
     bodyPart = [
       `Content-Type: multipart/alternative; boundary="${alt}"`, '',
       `--${alt}`, textPart(m.body).trimEnd(), '',
-      `--${alt}`, `Content-Type: text/html; charset="UTF-8"`, 'Content-Transfer-Encoding: base64', '', b64body(html), '',
+      `--${alt}`, htmlOrRelated.trimEnd(), '',
       `--${alt}--`, '',
     ].join('\r\n');
   } else {

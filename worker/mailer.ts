@@ -158,6 +158,25 @@ export async function gmailSignature(creds: Creds, sender: string): Promise<stri
   return html;
 }
 
+/** SIGNATURE EN IMAGE (08/11, Channing : « voici l'image de base à intégrer dans le mail ») : déposée dans Ada
+ *  (page Admin → Ma signature e-mail), storage admin-documents/signatures/<adresse>.png|jpg — même règle de nom
+ *  que src/services/signature.ts. Gardée 30 min par adresse ; absente → null, jamais bloquant. */
+const signatureImageCache = new Map<string, { img: { bytes: Buffer; type: string } | null; at: number }>();
+export async function signatureImage(sender: string): Promise<{ bytes: Buffer; type: string } | null> {
+  const key = sender.trim().toLowerCase();
+  const hit = signatureImageCache.get(key);
+  if (hit && Date.now() - hit.at < SIGNATURE_TTL_MS) return hit.img;
+  const base = `signatures/${key.replace(/[^a-z0-9._-]/g, '_')}`;
+  let img: { bytes: Buffer; type: string } | null = null;
+  for (const [ext, type] of [['png', 'image/png'], ['jpg', 'image/jpeg']] as const) {
+    const { data, error } = await supabase.storage.from(BUCKET).download(`${base}.${ext}`);
+    if (!error && data) { img = { bytes: Buffer.from(await data.arrayBuffer()), type }; break; }
+  }
+  if (!hit || !!hit.img !== !!img) console.warn(`[MAIL] signature en image de ${key} : ${img ? `${Math.round(img.bytes.length / 1024)} Ko (${img.type})` : 'aucune (Admin → Ma signature e-mail)'}`);
+  signatureImageCache.set(key, { img, at: Date.now() });
+  return img;
+}
+
 async function sendOne(creds: Creds, m: QueuedMail, extraHeaders: Record<string, string> = {}, withSignature = false): Promise<{ id: string; threadId: string }> {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m.to_email)) throw new Error(`destinataire invalide : « ${m.to_email} »`);
   const token = await gmailToken(creds, m.sender_email);
@@ -170,7 +189,8 @@ async function sendOne(creds: Creds, m: QueuedMail, extraHeaders: Record<string,
     attachments.push({ name, type, bytes: Buffer.from(await data.arrayBuffer()) });
   }
   const signatureHtml = withSignature ? await gmailSignature(creds, m.sender_email) : null;
-  const mime = buildMime({ from: m.sender_email, fromName: m.sender_name, to: m.to_email, subject: m.subject, body: m.body, signatureHtml, attachments, headers: extraHeaders });
+  const sigImage = withSignature ? await signatureImage(m.sender_email) : null;
+  const mime = buildMime({ from: m.sender_email, fromName: m.sender_name, to: m.to_email, subject: m.subject, body: m.body, signatureHtml, signatureImage: sigImage, attachments, headers: extraHeaders });
   const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ raw: Buffer.from(mime).toString('base64url') }),
