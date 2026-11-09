@@ -31,8 +31,8 @@ import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -253,6 +253,10 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // jetlisting (Regge Autogroep, 09/11) : WordPress + Elementor + JetEngine, cartes « jet-listing-grid__item » avec
   // data-url, titre <h3> (marque modèle), <p> version, champs dynamiques (km, année, énergie, boîte, prix), pages « /page/N/ ».
   if (/class="jet-listing-grid__item /.test(html) && /jet-engine-listing-overlay-wrap" data-url="/.test(html) && /jet-listing-dynamic-field__content/.test(html)) return 'jetlisting';
+  // gatsbyvehicles (Autobedrijf Wijnne, 09/11) : site Gatsby « gatsby-theme-vehicles » (Strapi derrière) — la liste se
+  // charge en GraphQL dans le navigateur, mais chaque fiche est générée à la construction du site : le plan de site
+  // (sitemap-0.xml) donne les fiches, et /page-data/<fiche>/page-data.json contient la voiture entière. Sans clé.
+  if (/id="___gatsby"/.test(html) && /gatsby-theme-vehicles/.test(html)) return 'gatsbyvehicles';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -1715,6 +1719,59 @@ async function scrapeJetListing(url: string, firstHtml: string): Promise<DealerS
   return { provider: 'jetlisting', total: out.length, declared, vehicles: out, pages, warnings };
 }
 
+// ── gatsbyvehicles (Autobedrijf Wijnne, 09/11) : plan de site → fiches /page-data/…/page-data.json (105 voitures).
+async function scrapeGatsbyVehicles(url: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const prefix = u.pathname.replace(/\/?$/, '/');
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  // Plan de site : sitemap-0.xml directement, sinon l'index.
+  const smUrls = [`${u.origin}/sitemap-0.xml`, `${u.origin}/sitemap-index.xml`];
+  let locs: string[] = [];
+  for (const sm of smUrls) {
+    const r = await getTextPatient(sm);
+    if (r.status !== 200) continue;
+    const found = [...r.text.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim());
+    const pages = found.filter((l) => l.includes(prefix) && /\/\d+\/?$/.test(l) && !/\/aanvraag\//.test(l));
+    if (pages.length) { locs = pages; break; }
+    // Index : les sous-plans
+    for (const sub of found.filter((l) => /sitemap[^/]*\.xml$/.test(l))) {
+      const rs = await getTextPatient(sub);
+      if (rs.status !== 200) continue;
+      locs.push(...[...rs.text.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim()).filter((l) => l.includes(prefix) && /\/\d+\/?$/.test(l) && !/\/aanvraag\//.test(l)));
+    }
+    if (locs.length) break;
+  }
+  if (locs.length === 0) return { provider: 'gatsbyvehicles', total: null, declared: null, vehicles: [], pages: 1, warnings: ['plan de site sans fiche de véhicule (sitemap-0.xml)'] };
+  type GV = { make?: string; model?: string; type?: string; name?: string; lowestPrice?: number | null; regularPrice?: number | null; salePrice?: number | null; odometer?: number | null; odometerUnit?: string | null; buildyear?: number | null; fuel?: string | null; transmission?: string | null; powerHp?: number | null; licensePlate?: string | null; vin?: string | null; baseColor?: string | null; color?: string | null; body?: string | null; isNewVehicle?: boolean | null; image?: { url?: string } | null; slug?: string | null };
+  const seen = new Set<string>();
+  let read = 0;
+  for (const loc of [...new Set(locs)]) {
+    const path = new URL(loc).pathname.replace(/\/?$/, '/');
+    const id = path.match(/\/(\d+)\/$/)?.[1] ?? path;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    await sleep(120);
+    const r = await getTextPatient(`${u.origin}/page-data${path}page-data.json`);
+    if (r.status !== 200) { warnings.push(`fiche ${id} : HTTP ${r.status}`); continue; }
+    let v: GV | undefined;
+    try { v = (JSON.parse(r.text) as { result?: { data?: { vehicle?: GV } } }).result?.data?.vehicle; } catch { /* JSON cassé */ }
+    if (!v) { warnings.push(`fiche ${id} : pas de véhicule dans page-data`); continue; }
+    read++;
+    const price = v.lowestPrice ?? v.salePrice ?? v.regularPrice ?? null;
+    const title = [v.make, v.model, v.type].filter(Boolean).join(' ') || (v.name ?? '').split(' - ')[0];
+    const kmRaw = v.odometer ?? null;
+    out.push({
+      external_id: id, url: loc, title, brand: v.make ?? null, model: v.model ?? null, price: price != null && price > 0 ? Math.round(price) : null,
+      km: kmRaw != null ? Math.round(/mile/i.test(v.odometerUnit ?? '') ? kmRaw * 1.609 : kmRaw) : null, year: v.buildyear ?? null,
+      fuel: v.fuel ?? null, gearbox: gearboxOf(v.transmission ?? null), plate: v.licensePlate ?? null, vin: v.vin ?? null, body: v.body ?? null,
+      image: v.image?.url ?? null, listed_at: null, status: price == null || price <= 0 ? 'price_on_request' : null, currency: 'EUR', power_ch: v.powerHp ?? null,
+    });
+  }
+  if (warnings.length > 12) { warnings.length = 12; warnings.push('…'); }
+  return { provider: 'gatsbyvehicles', total: out.length, declared: locs.length, vehicles: out, pages: Math.max(1, read), warnings };
+}
+
 async function paginate(firstHtml: string, parse: (html: string) => number, urlOf: (p: number) => string, opts: { cap?: number; delay?: number; stopWhenShort?: boolean } = {}): Promise<{ pages: number; warnings: string[] }> {
   const warnings: string[] = [];
   let pages = 1;
@@ -2234,6 +2291,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'rswusato') return scrapeRswUsato(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'jetlisting') return scrapeJetListing(url, first.text);
+  if (provider === 'gatsbyvehicles') return scrapeGatsbyVehicles(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text, onProgress);
