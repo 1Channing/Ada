@@ -670,7 +670,7 @@ export function MarketIntelligence() {
           <h1 className="text-2xl font-bold flex items-center gap-3"><LineIcon className="w-6 h-6 text-blue-500" /> Find Your Customer</h1>
           <p className="text-slate-600 mt-1 text-sm">Une inspection, notre prix d'attaque, face au marché cible et au stock d'un client.</p>
         </div>
-        <FycView onOpenMarket={openMarketFromFyc} />
+        <FycView onOpenMarket={openMarketFromFyc} active={view === 'fyc'} />
       </div>
       <div className={view === 'mi' ? 'space-y-6' : 'hidden'}>
       <div className="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch">
@@ -1649,7 +1649,9 @@ function Select({ label, value, options, onChange, flag }: { label: string; valu
   );
 }
 function SelectFuel({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
-  const present = FUEL_TOKENS.filter((t) => options.includes(t));
+  // La valeur courante reste proposée même si aucune annonce en base ne la porte encore (11/11 : « hybride »
+  // venu du FYC s'affichait « Tous »).
+  const present = FUEL_TOKENS.filter((t) => options.includes(t) || t === value);
   return (
     <div>
       <label className="block text-xs text-slate-600 mb-1">{label}</label>

@@ -90,16 +90,34 @@ function documentXmlToLines(xml: string): string[] {
   return out;
 }
 
-export async function docxToLines(file: Blob): Promise<string[]> {
+export async function docxToLines(file: Blob): Promise<string[]> { return (await docxToLinesEx(file)).lines; }
+
+/** Les photos du véhicule référencées par la page HTML (11/11 : « ajouter les photos ») : les <img> d'au moins
+ *  100 px de large, ou dont l'adresse est une image du véhicule (GIS@WEB : …/images/<VIN>/…) — les icônes
+ *  (couleur, pays, équipements, 30 px) sont écartées. */
+export function photoUrlsOfHtml(html: string): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+    const tag = m[0];
+    const src = tag.match(/\bsrc\s*=\s*"?([^"\s>]+)"?/i)?.[1];
+    if (!src || !/^https?:\/\//i.test(src)) continue;
+    const w = Number(tag.match(/\bwidth\s*=\s*"?(\d+)/i)?.[1] ?? 0);
+    if (w >= 100 || /\/images\/[A-Z0-9]{11,17}\//i.test(src)) { const u = decodeEntities(src); if (!out.includes(u)) out.push(u); }
+  }
+  return out;
+}
+
+export async function docxToLinesEx(file: Blob): Promise<{ lines: string[]; photoUrls: string[] }> {
   const buf = new Uint8Array(await file.arrayBuffer());
   const entries = readCentralDirectory(buf);
   const byName = (n: string) => entries.find((e) => e.name === n);
   const chunk = entries.find((e) => /^word\/afchunk.*\.mht$/i.test(e.name));
   if (chunk) {
     const raw = new TextDecoder().decode(await readEntry(buf, chunk));
-    return htmlToLines(mhtToHtml(raw));
+    const html = mhtToHtml(raw);
+    return { lines: htmlToLines(html), photoUrls: photoUrlsOfHtml(html) };
   }
   const doc = byName('word/document.xml');
   if (!doc) throw new Error('ce .docx ne contient pas de document Word lisible');
-  return documentXmlToLines(new TextDecoder().decode(await readEntry(buf, doc)));
+  return { lines: documentXmlToLines(new TextDecoder().decode(await readEntry(buf, doc))), photoUrls: [] };
 }

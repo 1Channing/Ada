@@ -11,7 +11,9 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { signedUrl } from './storageAccess';
 import { pdfToLinesEx } from '../lib/pdfText';
-import { docxToLines } from '../lib/docxText';
+import { docxToLinesEx } from '../lib/docxText';
+import { extractPdfPhotos } from '../lib/pdfImages';
+import type { FycTranslation } from '../lib/fycTranslation';
 import { ADMIN_BUCKET } from './storageAccess';
 import { parseFycReport, type FycReportFields } from '../lib/fycReport';
 import type { MarketFilters } from './marketData';
@@ -24,6 +26,11 @@ export interface FycInspection extends FycReportFields {
   created_by: string | null; created_by_name: string; created_at: string; updated_at: string;
   /** Archivée (10/11 soir, Channing : « un petit onglet archive ») : sortie de la liste courante, rouvrable. */
   archived_at: string | null;
+  /** Photos du rapport (11/11 : « ajouter les photos ») : chemins dans le storage admin-documents (fyc/<id>/photo_N.jpg). */
+  photos: string[];
+  /** Valeurs du rapport traduites par langue (11/11), et la langue demandée au worker (null quand rien n'est en attente). */
+  translations: Record<string, FycTranslation>;
+  translate_to: string | null;
 }
 
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -39,6 +46,9 @@ function normalize(r: Record<string, unknown>): FycInspection {
     equipment: Array.isArray(r.equipment) ? (r.equipment as string[]) : [],
     tyres: Array.isArray(r.tyres) ? (r.tyres as string[]) : [],
     archived_at: (r.archived_at as string | null | undefined) ?? null,
+    photos: Array.isArray(r.photos) ? (r.photos as string[]).filter((p) => typeof p === 'string') : [],
+    translations: (r.translations && typeof r.translations === 'object' ? r.translations : {}) as Record<string, FycTranslation>,
+    translate_to: typeof r.translate_to === 'string' ? r.translate_to : null,
     market_filters: (r.market_filters ?? {}) as MarketFilters,
     notes: typeof r.notes === 'string' ? r.notes : '',
     asking_price: r.asking_price == null ? null : Number(r.asking_price),
@@ -68,7 +78,7 @@ export async function addInspections(text: string): Promise<{ added: number; exi
   return { added: fresh.length, existing: urls.length - fresh.length, error: null };
 }
 
-export async function updateInspection(id: string, patch: Partial<Pick<FycInspection, 'purchase_price' | 'attack_price' | 'notes' | 'market_filters' | 'client_contact_id' | 'brand' | 'model' | 'year' | 'km' | 'fuel' | 'gearbox' | 'archived_at'>>): Promise<string | null> {
+export async function updateInspection(id: string, patch: Partial<Pick<FycInspection, 'purchase_price' | 'attack_price' | 'notes' | 'market_filters' | 'client_contact_id' | 'brand' | 'model' | 'year' | 'km' | 'fuel' | 'gearbox' | 'archived_at' | 'translate_to'>>): Promise<string | null> {
   const { error } = await untyped.from('fyc_inspections').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
   return error ? error.message : null;
 }
@@ -82,6 +92,44 @@ export async function deleteInspection(id: string): Promise<string | null> {
 export async function retryInspection(id: string): Promise<string | null> {
   const { error } = await untyped.from('fyc_inspections').update({ status: 'queued', error: null, updated_at: new Date().toISOString() }).eq('id', id);
   return error ? error.message : null;
+}
+
+/** Relit le rapport déjà rangé dans le storage (champs ET photos) — pour les dossiers lus avant les photos (11/11). */
+export async function rereadInspection(row: FycInspection): Promise<string | null> {
+  if (!row.pdf_path) return 'rapport absent du storage : relance le téléchargement';
+  const { error } = await untyped.from('fyc_inspections').update({ status: 'fetched', error: null, updated_at: new Date().toISOString() }).eq('id', row.id);
+  return error ? error.message : null;
+}
+
+/** Demande au worker la traduction des valeurs du rapport dans une langue (traitée en moins d'une minute). */
+export async function requestTranslation(id: string, lang: string): Promise<string | null> {
+  const { error } = await untyped.from('fyc_inspections').update({ translate_to: lang, updated_at: new Date().toISOString() }).eq('id', id);
+  return error ? error.message : null;
+}
+
+/** La ligne à jour (pour attendre une traduction). */
+export async function getInspection(id: string): Promise<FycInspection | null> {
+  const { data } = await untyped.from('fyc_inspections').select('*').eq('id', id).maybeSingle();
+  return data ? normalize(data as Record<string, unknown>) : null;
+}
+
+/** PHOTOS (11/11) : celles du PDF (pdf.js) ou celles que la page du .docx référence (adresses publiques), rangées
+ *  dans le storage à côté du rapport. Fail-open : une photo illisible n'empêche pas la lecture du rapport. */
+async function storePhotos(id: string, blobs: Blob[]): Promise<string[]> {
+  const paths: string[] = [];
+  for (let i = 0; i < blobs.length; i++) {
+    const path = `fyc/${id}/photo_${i + 1}.jpg`;
+    const up = await supabase.storage.from(ADMIN_BUCKET).upload(path, blobs[i], { contentType: 'image/jpeg', upsert: true });
+    if (!up.error) paths.push(path);
+  }
+  return paths;
+}
+async function fetchPhotos(urls: string[]): Promise<Blob[]> {
+  const out: Blob[] = [];
+  for (const u of urls.slice(0, 8)) {
+    try { const r = await fetch(u, { mode: 'cors' }); if (r.ok) { const b = await r.blob(); if (b.size > 5_000) out.push(b); } } catch { /* photo non lisible depuis le navigateur */ }
+  }
+  return out;
 }
 
 /** DÉPÔT D'UN FICHIER (10/11 soir, Channing : « ajouter un docx à la place d'une URL ») : PDF ou .docx (export GIS@WEB
@@ -107,12 +155,19 @@ export async function readInspection(row: FycInspection): Promise<string | null>
     const res = await fetch(await signedUrl(row.pdf_path));
     if (!res.ok) throw new Error(`fichier illisible (HTTP ${res.status})`);
     const blob = await res.blob();
-    const lines = /\.docx$/i.test(row.pdf_path) ? await docxToLines(blob) : (await pdfToLinesEx(blob)).lines;
+    const isDocx = /\.docx$/i.test(row.pdf_path);
+    const docx = isDocx ? await docxToLinesEx(blob) : null;
+    const lines = docx ? docx.lines : (await pdfToLinesEx(blob)).lines;
     const fields = parseFycReport(lines);
     if (!fields.brand && !fields.vin) throw new Error('rapport lu mais sans marque ni VIN : format inconnu');
     // Prix demandé par la plateforme (VWFS) : proposé comme prix d'achat tant qu'aucun n'est saisi.
     const patch: Record<string, unknown> = { ...fields, status: 'read', error: null, updated_at: new Date().toISOString() };
     if (row.purchase_price == null && fields.asking_price != null) patch.purchase_price = fields.asking_price;
+    // Photos (11/11) : du PDF, ou des adresses de la page .docx. Une traduction déjà faite reste valable (mêmes valeurs).
+    try {
+      const blobs = docx ? await fetchPhotos(docx.photoUrls) : await extractPdfPhotos(blob);
+      if (blobs.length) patch.photos = await storePhotos(row.id, blobs);
+    } catch (e) { console.warn('[FYC] photos non extraites :', e instanceof Error ? e.message : e); }
     const { error } = await untyped.from('fyc_inspections').update(patch).eq('id', row.id);
     return error ? error.message : null;
   } catch (e) {

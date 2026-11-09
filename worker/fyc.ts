@@ -9,8 +9,16 @@
  *
  * Liens compris : la visionneuse VTI / Macadam (admin.vti-easi.eu/reportviewer/<type>/<id>/<langue>, dont
  * l'API est /api/reportviewer?reportType=&reportId=) et tout lien qui répond directement un PDF.
+ *
+ * TRADUCTIONS (11/11, Channing : « sur les PDF il y a beaucoup de français, pas de possibilité de traduire ? ») :
+ * une ligne lue dont translate_to est posé → les valeurs du rapport (énergie, boîte, carrosserie, couleur,
+ * équipements, pneus, constats) traduites par Claude dans cette langue, gardées dans translations[langue] ;
+ * demandées par la fiche PDF client, une fois par langue.
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
+import { callClaude, AiUnavailable, BudgetReached } from './agents/claude';
+import { HAIKU } from '../src/lib/agents/aiCost';
+import { translationSource, translationSystem, translationFits, FYC_TRANSLATION_SCHEMA, FYC_LANG_NAMES, type FycTranslation, type FycTranslatable } from '../src/lib/fycTranslation';
 
 const POLL_MS = 20_000;
 const BUCKET = 'admin-documents';
@@ -54,11 +62,42 @@ async function fetchPdf(sourceUrl: string): Promise<{ buf: Buffer; from: string 
   throw new Error(`rapport introuvable — ${errors.join(' ; ')}`);
 }
 
+/** Plafond du jour pour les traductions FYC (quelques centimes par fiche) — compté avec les appels de l'agente Ada. */
+const TRANSLATION_BUDGET_USD = 5;
+
+async function translate(sb: { from: (t: string) => any }, row: { id: string; translate_to: string; translations: Record<string, unknown> | null } & FycTranslatable): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const lang = String(row.translate_to).toLowerCase();
+  const src = translationSource({ ...row, equipment: Array.isArray(row.equipment) ? row.equipment : [], tyres: Array.isArray(row.tyres) ? row.tyres : [], damages: { devaluation: row.damages?.devaluation ?? [], usage: row.damages?.usage ?? [] } });
+  const done = (t: FycTranslation | null, err: string | null) => sb.from('fyc_inspections').update({
+    translate_to: null, updated_at: new Date().toISOString(),
+    ...(t ? { translations: { ...(row.translations ?? {}), [lang]: t } } : {}),
+    ...(err ? { error: `traduction ${lang} : ${err}`.slice(0, 800) } : {}),
+  }).eq('id', row.id);
+  if (!FYC_LANG_NAMES[lang]) { await done(null, 'langue inconnue'); return; }
+  try {
+    const r = await callClaude<FycTranslation>({
+      agent: 'ada', budgetUsd: TRANSLATION_BUDGET_USD, purpose: 'fyc_traduction', model: HAIKU,
+      system: translationSystem(lang), user: JSON.stringify(src), schema: FYC_TRANSLATION_SCHEMA as unknown as Record<string, unknown>,
+      maxTokens: 6000, effort: 'low',
+    });
+    if (!translationFits(src, r.data)) { await done(null, 'réponse incomplète (listes de longueur différente)'); console.warn(`[FYC] traduction ${lang} incomplète pour ${row.id}`); return; }
+    await done(r.data, null);
+    console.warn(`[FYC] valeurs traduites en ${lang} (${src.equipment.length} équipements, ${r.costUsd.toFixed(3)} $)`);
+  } catch (e) {
+    const msg = e instanceof BudgetReached || e instanceof AiUnavailable ? e.message : (e instanceof Error ? e.message : String(e));
+    await done(null, msg);
+    console.warn(`[FYC] traduction ${lang} en échec : ${msg.slice(0, 200)}`);
+  }
+}
+
 async function tick(): Promise<void> {
   if (running) return;
   running = true;
   try {
     const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    // Traductions demandées (fiche PDF client) : avant les téléchargements, quelqu'un attend devant l'écran.
+    const tr = await sb.from('fyc_inspections').select('id, translate_to, translations, fuel, gearbox, body, color, equipment, tyres, damages').eq('status', 'read').not('translate_to', 'is', null).order('updated_at', { ascending: true }).limit(3);
+    if (!tr.error) for (const row of (tr.data ?? []) as Array<Parameters<typeof translate>[1]>) await translate(sb, row);
     const { data, error } = await sb.from('fyc_inspections').select('id, source_url').eq('status', 'queued').order('created_at', { ascending: true }).limit(3);
     if (error) { if (!warned && !/does not exist|schema cache/i.test(error.message)) console.warn(`[FYC] file illisible : ${error.message}`); warned = true; return; }
     for (const row of (data ?? []) as Array<{ id: string; source_url: string }>) {

@@ -4,17 +4,19 @@
  *
  * Document DESTINÉ AU CLIENT : la voiture du rapport (données, équipements, pneus, état constaté), notre prix
  * (prix d'attaque) et nos coordonnées. Jamais le prix d'achat, jamais les notes internes. Libellés dans la langue
- * du pays cible (fr, en, nl, de, da, sv, es, it) ; les constats du rapport restent dans la langue du rapport.
+ * du pays cible (fr, en, nl, de, da, sv, es, it) ; les VALEURS du rapport (énergie, équipements, constats…) aussi quand
+ * leur traduction est fournie (worker, 11/11) ; les photos du rapport en tête et en fin de fiche (11/11).
  * A4 portrait, même en-tête que les offres (logo, MC EXPORT, titre, date). Police Helvetica : ASCII (« EUR »).
  */
 import jsPDF from 'jspdf';
 import type { FycInspection } from '../services/fyc';
+import type { FycTranslation } from './fycTranslation';
 
 const ENCRE: [number, number, number] = [0x22, 0x34, 0x6e];
 const OCEAN: [number, number, number] = [0x2c, 0x5f, 0x9e];
 const GRIS: [number, number, number] = [0x64, 0x74, 0x8b];
-const safe = (t: string) => t.replace(/€/g, 'EUR').replace(/[–—]/g, '-').replace(/[  ]/g, ' ').replace(/[«»]/g, '"').replace(/[’]/g, "'");
-const num = (n: number | null | undefined) => (n == null ? '-' : Math.round(n).toLocaleString('fr-FR').replace(/[  ]/g, ' '));
+const safe = (t: string) => t.replace(/€/g, 'EUR').replace(/[–—]/g, '-').replace(/[\u202f\u00a0]/g, ' ').replace(/[«»]/g, '"').replace(/[’]/g, "'");
+const num = (n: number | null | undefined) => (n == null ? '-' : Math.round(n).toLocaleString('fr-FR').replace(/[\u202f\u00a0]/g, ' '));
 
 export type FycLang = 'fr' | 'en' | 'nl' | 'de' | 'da' | 'sv' | 'es' | 'it';
 /** Langue du document d'après le pays cible du marché. */
@@ -32,14 +34,14 @@ export function langOfCountry(country: string | null | undefined): FycLang {
 
 type Dict = Record<string, string>;
 const T: Record<FycLang, Dict> = {
-  fr: { title: 'Fiche vehicule', subtitle: 'Vehicule inspecte - disponible a la vente', data: 'Donnees du vehicule', make: 'Marque', model: 'Modele', version: 'Type constructeur', body: 'Carrosserie', vin: 'N° de chassis', reg: '1re immatriculation', km: 'Kilometrage', fuel: 'Energie', gearbox: 'Boite de vitesses', power: 'Puissance', color: 'Couleur', doors: 'Portes', seats: 'Places', equipment: 'Equipements', tyres: 'Pneus montes', condition: 'Etat constate (inspection independante)', deval: 'Points a prevoir', usage: "Traces d'usage, acceptables", none: 'Rien a signaler', repainted: 'Peinture refaite', yes: 'oui', no: 'non', report: 'Rapport d\'inspection', of: 'du', price: 'Notre prix', priceNote: 'Prix net vendeur, vehicule tel que decrit, depart France. Validite 7 jours.', contact: 'Votre contact MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Page', date: 'Date', more: 'et {n} autres', ch: 'ch' },
-  en: { title: 'Vehicle sheet', subtitle: 'Inspected vehicle - available for sale', data: 'Vehicle data', make: 'Make', model: 'Model', version: 'Manufacturer type code', body: 'Body', vin: 'VIN', reg: 'First registration', km: 'Mileage', fuel: 'Fuel', gearbox: 'Gearbox', power: 'Power', color: 'Colour', doors: 'Doors', seats: 'Seats', equipment: 'Equipment', tyres: 'Mounted tyres', condition: 'Condition (independent inspection)', deval: 'Points to plan for', usage: 'Usage marks, acceptable', none: 'Nothing to report', repainted: 'Repainted', yes: 'yes', no: 'no', report: 'Inspection report', of: 'of', price: 'Our price', priceNote: 'Net price, vehicle as described, ex France. Valid 7 days.', contact: 'Your MC Export contact', footer: 'MC Export - Export from France - mc-export.com', page: 'Page', date: 'Date', more: 'and {n} more', ch: 'hp' },
-  nl: { title: 'Voertuigfiche', subtitle: 'Geinspecteerd voertuig - te koop', data: 'Voertuiggegevens', make: 'Merk', model: 'Model', version: 'Typecode fabrikant', body: 'Carrosserie', vin: 'Chassisnummer', reg: 'Eerste toelating', km: 'Kilometerstand', fuel: 'Brandstof', gearbox: 'Transmissie', power: 'Vermogen', color: 'Kleur', doors: 'Deuren', seats: 'Zitplaatsen', equipment: 'Uitrusting', tyres: 'Gemonteerde banden', condition: 'Staat (onafhankelijke inspectie)', deval: 'Te voorzien', usage: 'Gebruikssporen, acceptabel', none: 'Niets te melden', repainted: 'Overgespoten', yes: 'ja', no: 'nee', report: 'Inspectierapport', of: 'van', price: 'Onze prijs', priceNote: 'Nettoprijs, voertuig zoals beschreven, af Frankrijk. 7 dagen geldig.', contact: 'Uw contact bij MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Pagina', date: 'Datum', more: 'en {n} andere', ch: 'pk' },
-  de: { title: 'Fahrzeugblatt', subtitle: 'Begutachtetes Fahrzeug - zum Verkauf', data: 'Fahrzeugdaten', make: 'Marke', model: 'Modell', version: 'HSN / TSN', body: 'Karosserie', vin: 'Fahrgestellnummer', reg: 'Erstzulassung', km: 'Kilometerstand', fuel: 'Kraftstoff', gearbox: 'Getriebe', power: 'Leistung', color: 'Farbe', doors: 'Tueren', seats: 'Sitze', equipment: 'Ausstattung', tyres: 'Montierte Reifen', condition: 'Zustand (unabhaengiges Gutachten)', deval: 'Einzuplanen', usage: 'Gebrauchsspuren, akzeptabel', none: 'Nichts zu melden', repainted: 'Nachlackiert', yes: 'ja', no: 'nein', report: 'Gutachten', of: 'vom', price: 'Unser Preis', priceNote: 'Nettopreis, Fahrzeug wie beschrieben, ab Frankreich. 7 Tage gueltig.', contact: 'Ihr Ansprechpartner bei MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Seite', date: 'Datum', more: 'und {n} weitere', ch: 'PS' },
-  da: { title: 'Koeretoejsblad', subtitle: 'Inspiceret koeretoej - til salg', data: 'Koeretoejsdata', make: 'Maerke', model: 'Model', version: 'Typekode', body: 'Karrosseri', vin: 'Stelnummer', reg: '1. registrering', km: 'Kilometerstand', fuel: 'Braendstof', gearbox: 'Gearkasse', power: 'Effekt', color: 'Farve', doors: 'Doere', seats: 'Saeder', equipment: 'Udstyr', tyres: 'Monterede daek', condition: 'Stand (uafhaengig inspektion)', deval: 'Skal paaregnes', usage: 'Brugsspor, acceptable', none: 'Intet at bemaerke', repainted: 'Omlakeret', yes: 'ja', no: 'nej', report: 'Inspektionsrapport', of: 'af', price: 'Vores pris', priceNote: 'Nettopris, koeretoej som beskrevet, ab Frankrig. Gaelder 7 dage.', contact: 'Din kontakt hos MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Side', date: 'Dato', more: 'og {n} andre', ch: 'hk' },
-  sv: { title: 'Fordonsblad', subtitle: 'Besiktigat fordon - till salu', data: 'Fordonsdata', make: 'Maerke', model: 'Modell', version: 'Typkod', body: 'Kaross', vin: 'Chassinummer', reg: 'Foersta registrering', km: 'Miltal', fuel: 'Braensle', gearbox: 'Vaexellaada', power: 'Effekt', color: 'Faerg', doors: 'Doerrar', seats: 'Saeten', equipment: 'Utrustning', tyres: 'Monterade daeck', condition: 'Skick (oberoende besiktning)', deval: 'Att raekna med', usage: 'Bruksspaar, acceptabla', none: 'Inget att anmaerka', repainted: 'Omlackerad', yes: 'ja', no: 'nej', report: 'Besiktningsrapport', of: 'fraan', price: 'Vaart pris', priceNote: 'Nettopris, fordon enligt beskrivning, fritt Frankrike. Gaeller 7 dagar.', contact: 'Din kontakt paa MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Sida', date: 'Datum', more: 'och {n} till', ch: 'hk' },
-  es: { title: 'Ficha del vehiculo', subtitle: 'Vehiculo inspeccionado - en venta', data: 'Datos del vehiculo', make: 'Marca', model: 'Modelo', version: 'Codigo de tipo', body: 'Carroceria', vin: 'Bastidor', reg: '1a matriculacion', km: 'Kilometraje', fuel: 'Combustible', gearbox: 'Cambio', power: 'Potencia', color: 'Color', doors: 'Puertas', seats: 'Plazas', equipment: 'Equipamiento', tyres: 'Neumaticos montados', condition: 'Estado (inspeccion independiente)', deval: 'A prever', usage: 'Marcas de uso, aceptables', none: 'Nada que senalar', repainted: 'Repintado', yes: 'si', no: 'no', report: 'Informe de inspeccion', of: 'del', price: 'Nuestro precio', priceNote: 'Precio neto, vehiculo segun descripcion, salida Francia. Validez 7 dias.', contact: 'Su contacto en MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Pagina', date: 'Fecha', more: 'y {n} mas', ch: 'CV' },
-  it: { title: 'Scheda veicolo', subtitle: 'Veicolo ispezionato - in vendita', data: 'Dati del veicolo', make: 'Marca', model: 'Modello', version: 'Codice tipo', body: 'Carrozzeria', vin: 'Telaio', reg: '1a immatricolazione', km: 'Chilometraggio', fuel: 'Alimentazione', gearbox: 'Cambio', power: 'Potenza', color: 'Colore', doors: 'Porte', seats: 'Posti', equipment: 'Dotazioni', tyres: 'Pneumatici montati', condition: 'Stato (ispezione indipendente)', deval: 'Da prevedere', usage: "Segni d'uso, accettabili", none: 'Nulla da segnalare', repainted: 'Riverniciato', yes: 'si', no: 'no', report: 'Rapporto di ispezione', of: 'del', price: 'Il nostro prezzo', priceNote: 'Prezzo netto, veicolo come descritto, franco Francia. Validita 7 giorni.', contact: 'Il vostro contatto MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Pagina', date: 'Data', more: 'e altri {n}', ch: 'CV' },
+  fr: { photos: "Photos", title: 'Fiche vehicule', subtitle: 'Vehicule inspecte - disponible a la vente', data: 'Donnees du vehicule', make: 'Marque', model: 'Modele', version: 'Type constructeur', body: 'Carrosserie', vin: 'N° de chassis', reg: '1re immatriculation', km: 'Kilometrage', fuel: 'Energie', gearbox: 'Boite de vitesses', power: 'Puissance', color: 'Couleur', doors: 'Portes', seats: 'Places', equipment: 'Equipements', tyres: 'Pneus montes', condition: 'Etat constate (inspection independante)', deval: 'Points a prevoir', usage: "Traces d'usage, acceptables", none: 'Rien a signaler', repainted: 'Peinture refaite', yes: 'oui', no: 'non', report: 'Rapport d\'inspection', of: 'du', price: 'Notre prix', priceNote: 'Prix net vendeur, vehicule tel que decrit, depart France. Validite 7 jours.', contact: 'Votre contact MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Page', date: 'Date', more: 'et {n} autres', ch: 'ch' },
+  en: { photos: "Photos", title: 'Vehicle sheet', subtitle: 'Inspected vehicle - available for sale', data: 'Vehicle data', make: 'Make', model: 'Model', version: 'Manufacturer type code', body: 'Body', vin: 'VIN', reg: 'First registration', km: 'Mileage', fuel: 'Fuel', gearbox: 'Gearbox', power: 'Power', color: 'Colour', doors: 'Doors', seats: 'Seats', equipment: 'Equipment', tyres: 'Mounted tyres', condition: 'Condition (independent inspection)', deval: 'Points to plan for', usage: 'Usage marks, acceptable', none: 'Nothing to report', repainted: 'Repainted', yes: 'yes', no: 'no', report: 'Inspection report', of: 'of', price: 'Our price', priceNote: 'Net price, vehicle as described, ex France. Valid 7 days.', contact: 'Your MC Export contact', footer: 'MC Export - Export from France - mc-export.com', page: 'Page', date: 'Date', more: 'and {n} more', ch: 'hp' },
+  nl: { photos: "Foto's", title: 'Voertuigfiche', subtitle: 'Geinspecteerd voertuig - te koop', data: 'Voertuiggegevens', make: 'Merk', model: 'Model', version: 'Typecode fabrikant', body: 'Carrosserie', vin: 'Chassisnummer', reg: 'Eerste toelating', km: 'Kilometerstand', fuel: 'Brandstof', gearbox: 'Transmissie', power: 'Vermogen', color: 'Kleur', doors: 'Deuren', seats: 'Zitplaatsen', equipment: 'Uitrusting', tyres: 'Gemonteerde banden', condition: 'Staat (onafhankelijke inspectie)', deval: 'Te voorzien', usage: 'Gebruikssporen, acceptabel', none: 'Niets te melden', repainted: 'Overgespoten', yes: 'ja', no: 'nee', report: 'Inspectierapport', of: 'van', price: 'Onze prijs', priceNote: 'Nettoprijs, voertuig zoals beschreven, af Frankrijk. 7 dagen geldig.', contact: 'Uw contact bij MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Pagina', date: 'Datum', more: 'en {n} andere', ch: 'pk' },
+  de: { photos: "Fotos", title: 'Fahrzeugblatt', subtitle: 'Begutachtetes Fahrzeug - zum Verkauf', data: 'Fahrzeugdaten', make: 'Marke', model: 'Modell', version: 'HSN / TSN', body: 'Karosserie', vin: 'Fahrgestellnummer', reg: 'Erstzulassung', km: 'Kilometerstand', fuel: 'Kraftstoff', gearbox: 'Getriebe', power: 'Leistung', color: 'Farbe', doors: 'Tueren', seats: 'Sitze', equipment: 'Ausstattung', tyres: 'Montierte Reifen', condition: 'Zustand (unabhaengiges Gutachten)', deval: 'Einzuplanen', usage: 'Gebrauchsspuren, akzeptabel', none: 'Nichts zu melden', repainted: 'Nachlackiert', yes: 'ja', no: 'nein', report: 'Gutachten', of: 'vom', price: 'Unser Preis', priceNote: 'Nettopreis, Fahrzeug wie beschrieben, ab Frankreich. 7 Tage gueltig.', contact: 'Ihr Ansprechpartner bei MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Seite', date: 'Datum', more: 'und {n} weitere', ch: 'PS' },
+  da: { photos: "Fotos", title: 'Koeretoejsblad', subtitle: 'Inspiceret koeretoej - til salg', data: 'Koeretoejsdata', make: 'Maerke', model: 'Model', version: 'Typekode', body: 'Karrosseri', vin: 'Stelnummer', reg: '1. registrering', km: 'Kilometerstand', fuel: 'Braendstof', gearbox: 'Gearkasse', power: 'Effekt', color: 'Farve', doors: 'Doere', seats: 'Saeder', equipment: 'Udstyr', tyres: 'Monterede daek', condition: 'Stand (uafhaengig inspektion)', deval: 'Skal paaregnes', usage: 'Brugsspor, acceptable', none: 'Intet at bemaerke', repainted: 'Omlakeret', yes: 'ja', no: 'nej', report: 'Inspektionsrapport', of: 'af', price: 'Vores pris', priceNote: 'Nettopris, koeretoej som beskrevet, ab Frankrig. Gaelder 7 dage.', contact: 'Din kontakt hos MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Side', date: 'Dato', more: 'og {n} andre', ch: 'hk' },
+  sv: { photos: "Foton", title: 'Fordonsblad', subtitle: 'Besiktigat fordon - till salu', data: 'Fordonsdata', make: 'Maerke', model: 'Modell', version: 'Typkod', body: 'Kaross', vin: 'Chassinummer', reg: 'Foersta registrering', km: 'Miltal', fuel: 'Braensle', gearbox: 'Vaexellaada', power: 'Effekt', color: 'Faerg', doors: 'Doerrar', seats: 'Saeten', equipment: 'Utrustning', tyres: 'Monterade daeck', condition: 'Skick (oberoende besiktning)', deval: 'Att raekna med', usage: 'Bruksspaar, acceptabla', none: 'Inget att anmaerka', repainted: 'Omlackerad', yes: 'ja', no: 'nej', report: 'Besiktningsrapport', of: 'fraan', price: 'Vaart pris', priceNote: 'Nettopris, fordon enligt beskrivning, fritt Frankrike. Gaeller 7 dagar.', contact: 'Din kontakt paa MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Sida', date: 'Datum', more: 'och {n} till', ch: 'hk' },
+  es: { photos: "Fotos", title: 'Ficha del vehiculo', subtitle: 'Vehiculo inspeccionado - en venta', data: 'Datos del vehiculo', make: 'Marca', model: 'Modelo', version: 'Codigo de tipo', body: 'Carroceria', vin: 'Bastidor', reg: '1a matriculacion', km: 'Kilometraje', fuel: 'Combustible', gearbox: 'Cambio', power: 'Potencia', color: 'Color', doors: 'Puertas', seats: 'Plazas', equipment: 'Equipamiento', tyres: 'Neumaticos montados', condition: 'Estado (inspeccion independiente)', deval: 'A prever', usage: 'Marcas de uso, aceptables', none: 'Nada que senalar', repainted: 'Repintado', yes: 'si', no: 'no', report: 'Informe de inspeccion', of: 'del', price: 'Nuestro precio', priceNote: 'Precio neto, vehiculo segun descripcion, salida Francia. Validez 7 dias.', contact: 'Su contacto en MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Pagina', date: 'Fecha', more: 'y {n} mas', ch: 'CV' },
+  it: { photos: "Foto", title: 'Scheda veicolo', subtitle: 'Veicolo ispezionato - in vendita', data: 'Dati del veicolo', make: 'Marca', model: 'Modello', version: 'Codice tipo', body: 'Carrozzeria', vin: 'Telaio', reg: '1a immatricolazione', km: 'Chilometraggio', fuel: 'Alimentazione', gearbox: 'Cambio', power: 'Potenza', color: 'Colore', doors: 'Porte', seats: 'Posti', equipment: 'Dotazioni', tyres: 'Pneumatici montati', condition: 'Stato (ispezione indipendente)', deval: 'Da prevedere', usage: "Segni d'uso, accettabili", none: 'Nulla da segnalare', repainted: 'Riverniciato', yes: 'si', no: 'no', report: 'Rapporto di ispezione', of: 'del', price: 'Il nostro prezzo', priceNote: 'Prezzo netto, veicolo come descritto, franco Francia. Validita 7 giorni.', contact: 'Il vostro contatto MC Export', footer: 'MC Export - Export from France - mc-export.com', page: 'Pagina', date: 'Data', more: 'e altri {n}', ch: 'CV' },
 };
 const LOCALE: Record<FycLang, string> = { fr: 'fr-FR', en: 'en-GB', nl: 'nl-NL', de: 'de-DE', da: 'da-DK', sv: 'sv-SE', es: 'es-ES', it: 'it-IT' };
 
@@ -53,9 +55,17 @@ async function loadLogo(): Promise<string | null> {
 }
 
 export interface FycPdfContact { name: string; email: string | null; phone?: string | null }
+/** Compléments de la fiche : photos (data URL JPEG, dans l'ordre) et valeurs traduites. */
+export interface FycPdfExtras { photos?: string[]; translation?: FycTranslation | null }
 
-export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: FycPdfContact): Promise<Blob> {
+export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: FycPdfContact, extras: FycPdfExtras = {}): Promise<Blob> {
   const t = T[lang];
+  // Valeurs traduites quand elles existent, sinon celles du rapport.
+  const tr = extras.translation ?? null;
+  const v = { fuel: tr?.fuel ?? insp.fuel, gearbox: tr?.gearbox ?? insp.gearbox, body: tr?.body ?? insp.body, color: tr?.color ?? insp.color,
+    equipment: tr?.equipment ?? insp.equipment, tyres: tr?.tyres ?? insp.tyres,
+    devaluation: tr?.devaluation ?? insp.damages.devaluation.map((d) => d.raw), usage: tr?.usage ?? insp.damages.usage.map((d) => d.raw) };
+  const photos = (extras.photos ?? []).filter(Boolean);
   const loc = LOCALE[lang];
   const date = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString(loc) : '-');
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -134,12 +144,25 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
     y += 2;
   };
   const subtitle = (s: string) => { ensure(7); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.8); pdf.setTextColor(...OCEAN); pdf.text(safe(s), margin, y + 3.5); y += 5.5; };
+  /** Photos en grille (2 par ligne, 4:3), chacune dans un cadre fin. */
+  const photoGrid = (list: string[], perRow = 2) => {
+    const gap = 4; const w = (W - 2 * margin - gap * (perRow - 1)) / perRow; const h = w * 0.75;
+    for (let i = 0; i < list.length; i += perRow) {
+      ensure(h + gap);
+      for (let c = 0; c < perRow; c++) {
+        const p = list[i + c]; if (!p) continue;
+        const x = margin + c * (w + gap);
+        try { pdf.addImage(p, 'JPEG', x, y, w, h, undefined, 'FAST'); pdf.setDrawColor(203, 213, 225); pdf.setLineWidth(0.2); pdf.rect(x, y, w, h); } catch { /* photo illisible : case vide */ }
+      }
+      y += h + gap;
+    }
+  };
 
   header();
   pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.setTextColor(...ENCRE);
   pdf.text(safe(car), margin, y + 5);
   pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(...GRIS);
-  pdf.text(safe([insp.year ? String(insp.year) : null, insp.km != null ? `${num(insp.km)} km` : null, insp.fuel, insp.gearbox, insp.power_ch ? `${insp.power_ch} ${t.ch}` : null].filter(Boolean).join(' - ')), margin, y + 11);
+  pdf.text(safe([insp.year ? String(insp.year) : null, insp.km != null ? `${num(insp.km)} km` : null, v.fuel, v.gearbox, insp.power_ch ? `${insp.power_ch} ${t.ch}` : null].filter(Boolean).join(' - ')), margin, y + 11);
   // Prix en évidence, à droite
   if (insp.attack_price != null) {
     pdf.setFillColor(236, 253, 245); pdf.setDrawColor(167, 243, 208); pdf.roundedRect(W - margin - 58, y - 1, 58, 15, 2, 2, 'FD');
@@ -148,24 +171,27 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
   }
   y += 18;
 
+  // Les deux premières photos en tête (la voiture d'abord), les autres en fin de fiche.
+  if (photos.length) photoGrid(photos.slice(0, 2));
+
   section(t.data);
   kv([
     [t.make, insp.brand ?? '-'], [t.model, insp.model ?? '-'],
     [t.reg, date(insp.first_registration)], [t.km, insp.km != null ? `${num(insp.km)} km` : '-'],
-    [t.fuel, insp.fuel ?? '-'], [t.gearbox, insp.gearbox ?? '-'],
-    [t.power, insp.power_ch ? `${insp.power_ch} ${t.ch}` : '-'], [t.body, insp.body ?? '-'],
-    [t.color, insp.color ?? '-'], [`${t.doors} / ${t.seats}`, `${insp.doors ?? '-'} / ${insp.seats ?? '-'}`],
+    [t.fuel, v.fuel ?? '-'], [t.gearbox, v.gearbox ?? '-'],
+    [t.power, insp.power_ch ? `${insp.power_ch} ${t.ch}` : '-'], [t.body, v.body ?? '-'],
+    [t.color, v.color ?? '-'], [`${t.doors} / ${t.seats}`, `${insp.doors ?? '-'} / ${insp.seats ?? '-'}`],
     [t.vin, insp.vin ?? '-'], [t.version, insp.version ?? '-'],
   ]);
 
-  if (insp.equipment.length) { section(t.equipment); twoColumns(insp.equipment); }
-  if (insp.tyres.length) { section(t.tyres); bullets(insp.tyres); }
+  if (v.equipment.length) { section(t.equipment); twoColumns(v.equipment); }
+  if (v.tyres.length) { section(t.tyres); bullets(v.tyres); }
 
   section(t.condition);
-  const dev = insp.damages.devaluation; const use = insp.damages.usage;
+  const dev = v.devaluation; const use = v.usage;
   kv([[t.repainted, insp.repainted == null ? '-' : insp.repainted ? t.yes : t.no], [t.report, `n° ${insp.report_number ?? '-'} ${t.of} ${date(insp.report_date)}`]]);
-  if (dev.length) { subtitle(t.deval); bullets(dev.map((d) => d.raw)); }
-  if (use.length) { subtitle(t.usage); bullets(use.map((d) => d.raw), GRIS); }
+  if (dev.length) { subtitle(t.deval); bullets(dev); }
+  if (use.length) { subtitle(t.usage); bullets(use, GRIS); }
   if (!dev.length && !use.length) bullets([t.none]);
 
   section(t.price);
@@ -178,6 +204,8 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
 
   section(t.contact);
   kv([['MC Export', contact.name], ['E-mail', contact.email ?? '-'], ['Web', 'mc-export.com'], [t.date, today]]);
+
+  if (photos.length > 2) { section(t.photos); photoGrid(photos.slice(2)); }
 
   footer();
   return pdf.output('blob');

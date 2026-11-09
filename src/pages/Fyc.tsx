@@ -12,11 +12,13 @@
  * Export PDF à la charte (src/lib/fycPdf.ts).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore } from 'lucide-react';
+import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, readInspection, filtersFromInspection, type FycInspection } from '../services/fyc';
+import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, requestTranslation, getInspection, filtersFromInspection, type FycInspection } from '../services/fyc';
+import { translationSource, translationFits } from '../lib/fycTranslation';
+import { signedUrl, useSignedUrls } from '../services/storageAccess';
 import { damageSummary } from '../lib/fycReport';
-import { loadObservationsForStudy, latestPerListing, priceStats, attackPrice as miAttackPrice, canonKey, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type GearboxToken } from '../services/marketData';
+import { loadObservationsForStudy, latestPerListing, filterObservations, priceStats, attackPrice as miAttackPrice, canonKey, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type GearboxToken } from '../services/marketData';
 import { BODY_TYPES } from '../lib/study-core/bodyTypes';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import { loadNetwork, type NetworkContact } from '../services/network';
@@ -31,16 +33,15 @@ const fmtDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocal
 const LAST_COUNTRY_KEY = 'ada_fyc_country';
 const inp = 'px-2.5 py-2 rounded-lg border border-slate-300 text-sm bg-white w-full';
 
-function fuelMatches(obsFuel: string, want: string): boolean {
-  if (!want) return true;
-  const o = (obsFuel ?? '').toLowerCase();
-  if (want === 'hybrid') return o.startsWith('hybrid') || o === 'mild_hybrid' || o === 'phev';
-  return o === want;
-}
-
-export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => void }) {
+/** `active` : la vue FYC est affichée (le switch MI | FYC) — au retour du MI, les annonces sont relues. */
+export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: MarketFilters) => void; active?: boolean }) {
   const { displayName, email } = useAuth();
   const [rows, setRows] = useState<FycInspection[]>([]);
+  // Contacts de la Carte : le client comparé (liste des archives) et le choix du client cible (dossier).
+  const [contacts, setContacts] = useState<NetworkContact[]>([]);
+  useEffect(() => { void loadNetwork().then((n) => setContacts(n.contacts)); }, []);
+  const [refreshTick, setRefreshTick] = useState(0);
+  useEffect(() => { if (active) setRefreshTick((t) => t + 1); }, [active]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [addText, setAddText] = useState('');
@@ -121,11 +122,32 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-slate-400"><th className="py-2 pr-3">Véhicule (du rapport)</th><th className="py-2 pr-3">1re immat.</th><th className="py-2 pr-3 text-right">Km</th><th className="py-2 pr-3">Énergie · boîte</th><th className="py-2 pr-3">État</th><th className="py-2 pr-3 text-right">Achat</th><th className="py-2 pr-3 text-right">Attaque</th><th className="py-2 pr-3">Par</th><th></th></tr></thead>
+              {tab === 'archives'
+                ? <thead><tr className="text-left text-xs text-slate-400"><th className="py-2 pr-3">Inspection analysée</th><th className="py-2 pr-3">Année · km</th><th className="py-2 pr-3 text-right">Prix d'achat</th><th className="py-2 pr-3 text-right">Prix d'attaque</th><th className="py-2 pr-3">Client comparé</th><th className="py-2 pr-3">Archivée</th><th></th></tr></thead>
+                : <thead><tr className="text-left text-xs text-slate-400"><th className="py-2 pr-3">Véhicule (du rapport)</th><th className="py-2 pr-3">1re immat.</th><th className="py-2 pr-3 text-right">Km</th><th className="py-2 pr-3 text-right">Ch</th><th className="py-2 pr-3">Énergie · boîte</th><th className="py-2 pr-3">État</th><th className="py-2 pr-3 text-right">Achat</th><th className="py-2 pr-3 text-right">Attaque</th><th className="py-2 pr-3">Par</th><th></th></tr></thead>}
               <tbody className="divide-y divide-slate-100">
                 {shown.map((r) => {
                   const car = [r.brand, r.model].filter(Boolean).join(' ');
                   const sel = selected?.id === r.id;
+                  // ARCHIVES (11/11, Channing : « juste la liste des inspections analysées, le prix d'achat, le prix
+                  // d'attaque, client comparé ») : une ligne compacte ; le clic rouvre tout le dossier.
+                  if (tab === 'archives') {
+                    const cl = r.client_contact_id ? contacts.find((c) => c.id === r.client_contact_id) : null;
+                    return (
+                      <tr key={r.id} onClick={() => setSelectedId(r.id)} className={`cursor-pointer ${sel ? 'bg-blue-50/60' : 'hover:bg-slate-50'}`}>
+                        <td className="py-2 pr-3"><div className="font-medium text-slate-900">{car || 'Rapport non lu'}</div><div className="text-[11px] text-slate-500">{[r.fuel, r.gearbox, r.power_ch ? `${r.power_ch} ch` : null].filter(Boolean).join(' · ')}{r.vin ? ` · VIN ${r.vin}` : ''}</div></td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{r.year ?? '—'} · {fmtNum(r.km)} km</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{fmtEur(r.purchase_price)}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums font-semibold text-slate-900">{fmtEur(r.attack_price)}</td>
+                        <td className="py-2 pr-3">{cl ? `${cl.name} (${COUNTRY_NAMES[cl.country] ?? cl.country})` : r.client_contact_id ? 'contact retiré de la Carte' : <span className="text-slate-400">aucun</span>}</td>
+                        <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtDate(r.archived_at)}<br />{r.created_by_name || ''}</td>
+                        <td className="py-2 text-right whitespace-nowrap">
+                          <button onClick={(e) => { e.stopPropagation(); void archive(r, false); }} title="Remettre en cours" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><ArchiveRestore className="w-4 h-4" /></button>
+                          <button onClick={async (e) => { e.stopPropagation(); if (!confirm('Supprimer cette inspection de FYC ?')) return; await deleteInspection(r.id); if (selectedId === r.id) setSelectedId(null); await reload(); }} title="Supprimer" className="inline-flex p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                        </td>
+                      </tr>
+                    );
+                  }
                   return (
                     <tr key={r.id} onClick={() => setSelectedId(r.id)} className={`cursor-pointer ${sel ? 'bg-blue-50/60' : 'hover:bg-slate-50'}`}>
                       <td className="py-2 pr-3">
@@ -134,6 +156,7 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
                       </td>
                       <td className="py-2 pr-3 whitespace-nowrap">{fmtDate(r.first_registration)}</td>
                       <td className="py-2 pr-3 text-right tabular-nums">{fmtNum(r.km)}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{r.power_ch ?? '—'}</td>
                       <td className="py-2 pr-3">{[r.fuel, r.gearbox].filter(Boolean).join(' · ') || '—'}</td>
                       <td className="py-2 pr-3">
                         {r.status === 'queued' && <span className="text-[11px] rounded-full px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 animate-pulse">téléchargement…</span>}
@@ -147,6 +170,7 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
                       <td className="py-2 text-right whitespace-nowrap">
                         {/^https?:/.test(r.source_url) && <a href={r.source_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Ouvrir le rapport" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><ExternalLink className="w-4 h-4" /></a>}
                         {r.status === 'failed' && <button onClick={async (e) => { e.stopPropagation(); await retryInspection(r.id); await reload(); }} title="Réessayer" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><RefreshCw className="w-4 h-4" /></button>}
+                        {r.status === 'read' && r.pdf_path && <button onClick={async (e) => { e.stopPropagation(); const err = await rereadInspection(r); setNotice(err ?? 'Rapport relu dans quelques secondes (champs et photos).'); await reload(); }} title={r.photos.length ? `Relire le rapport (champs et ${r.photos.length} photos)` : 'Relire le rapport : champs et photos (dossier lu avant les photos)'} className={`inline-flex p-1 ${r.photos.length ? 'text-slate-400' : 'text-amber-500'} hover:text-brand-ocean`}><Images className="w-4 h-4" /></button>}
                         <button onClick={(e) => { e.stopPropagation(); void archive(r, !r.archived_at); }} title={r.archived_at ? 'Remettre en cours' : 'Archiver'} className="inline-flex p-1 text-slate-400 hover:text-brand-ocean">{r.archived_at ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}</button>
                         <button onClick={async (e) => { e.stopPropagation(); if (!confirm('Supprimer cette inspection de FYC ?')) return; await deleteInspection(r.id); if (selectedId === r.id) setSelectedId(null); await reload(); }} title="Supprimer" className="inline-flex p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                       </td>
@@ -159,13 +183,13 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
         )}
       </div>
 
-      {selected && selected.status === 'read' && <InspectionPanel key={selected.id} insp={selected} onChanged={reload} onOpenMarket={onOpenMarket} author={displayName || email || ''} authorEmail={email ?? null} />}
+      {selected && selected.status === 'read' && <InspectionPanel key={selected.id} insp={selected} contacts={contacts} refreshTick={refreshTick} onChanged={reload} onOpenMarket={onOpenMarket} author={displayName || email || ''} authorEmail={email ?? null} />}
       {selected && selected.status === 'failed' && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2"><AlertTriangle className="w-4 h-4 inline mr-1" /> Rapport non lu : {selected.error ?? 'sans détail'}. Vérifie le lien (il doit ouvrir le rapport sans mot de passe), puis « Réessayer ».</p>}
     </div>
   );
 }
 
-function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }: { insp: FycInspection; onChanged: () => Promise<void>; onOpenMarket: (f: MarketFilters) => void; author: string; authorEmail: string | null }) {
+function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket, author, authorEmail }: { insp: FycInspection; contacts: NetworkContact[]; refreshTick: number; onChanged: () => Promise<void>; onOpenMarket: (f: MarketFilters) => void; author: string; authorEmail: string | null }) {
   const [purchase, setPurchase] = useState(insp.purchase_price != null ? String(insp.purchase_price) : '');
   const [attack, setAttack] = useState(insp.attack_price != null ? String(insp.attack_price) : '');
   const [notes, setNotes] = useState(insp.notes);
@@ -189,6 +213,7 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
   // ── Marché : annonces déjà en base pour ces filtres (le scrape se lance côté MI).
   const [obs, setObs] = useState<Observation[] | null>(null);
   const [obsLoading, setObsLoading] = useState(false);
+  const [obsTick, setObsTick] = useState(0);
   useEffect(() => {
     if (!filters.brand || !filters.country) { setObs(null); return; }
     const t = setTimeout(() => {
@@ -197,18 +222,14 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
         .then((o) => setObs(o)).catch(() => setObs([])).finally(() => setObsLoading(false));
     }, 800);
     return () => clearTimeout(t);
-  }, [filters.brand, filters.model, filters.country, filters.site]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters.brand, filters.model, filters.country, filters.site, refreshTick, obsTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const market = useMemo(() => {
     if (!obs) return null;
-    const latest = latestPerListing(obs).filter((o) =>
-      (!filters.country || o.country?.toUpperCase() === filters.country) && (!filters.site || o.site === filters.site)
-      && (!filters.model || canonKey(o.model ?? '').includes(canonKey(filters.model)) || canonKey(filters.model).includes(canonKey(o.model ?? '')))
-      && fuelMatches(o.fuel, filters.fuel ?? '')
-      && (!filters.trim || canonKey(`${o.trim ?? ''} ${o.title ?? ''}`).includes(canonKey(filters.trim)))
-      && (!filters.gearbox || (o.gearbox ?? '').toLowerCase().startsWith(filters.gearbox.slice(0, 4).toLowerCase()))
-      && (!filters.vehicleType || (o.vehicle_type ?? '') === filters.vehicleType)
-      && (filters.yearMin == null || (o.year != null && o.year >= filters.yearMin)) && (filters.yearMax == null || (o.year != null && o.year <= filters.yearMax))
-      && (filters.mileageMax == null || (o.mileage != null && o.mileage <= filters.mileageMax)) && (filters.powerMin == null || (o.power_din != null && o.power_din >= filters.powerMin)));
+    // MÊME FILTRAGE QUE LE MI (11/11, Channing : « il dit ne rien trouver en équivalent, or le MI en trouve ») :
+    // filterObservations (modèle par identité unifiée, énergie, boîte et carrosserie canonisées, accidentées
+    // écartées) puis la dernière observation de chaque annonce — plus de règle maison.
+    const inBase = latestPerListing(obs).length;
+    const latest = latestPerListing(filterObservations(obs, filters));
     const stats = priceStats(latest);
     const comp = latest.filter((o) => insp.year != null && o.year != null && Math.abs(o.year - insp.year) <= 1 && insp.km != null && o.mileage != null && Math.abs(o.mileage - insp.km) <= insp.km * 0.3);
     const compStats = priceStats(comp);
@@ -225,7 +246,7 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
     const pct = effective != null && priced.length ? Math.round((below / priced.length) * 100) : null;
     const lastScan = latest.reduce<string | null>((m, o) => (!m || o.scraped_at > m ? o.scraped_at : m), null);
     const position = effective == null ? 'pas d\'annonce avec prix' : pct == null ? 'pas d\'annonce avec prix' : pct === 0 ? `sous ${comp.length ? 'tous les comparables' : 'toutes les annonces'}` : `${pct} % ${comp.length ? 'des comparables' : 'des annonces'} sont moins chers`;
-    return { latest, stats, comp, compStats, baseStats, usingComparables: comp.length > 0, mi, effective, pct, lastScan, position, cheapest: [...base].filter((o) => o.price).sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 5) };
+    return { inBase, latest, stats, comp, compStats, baseStats, usingComparables: comp.length > 0, mi, effective, pct, lastScan, position, cheapest: [...base].filter((o) => o.price).sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 5) };
   }, [obs, filtersKey, typedAttack, insp.year, insp.km]); // eslint-disable-line react-hooks/exhaustive-deps
   /** Le prix d'attaque EFFECTIF : saisi, sinon celui que le MI calcule sur les comparables. */
   const attackPrice = typedAttack ?? market?.mi?.price ?? null;
@@ -233,9 +254,8 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
   const takeMiPrice = async () => { if (!market?.mi) return; setAttack(String(market.mi.price)); await updateInspection(insp.id, { attack_price: market.mi.price }); await onChanged(); };
 
   // ── Client cible : vitrines lues seulement.
-  const [contacts, setContacts] = useState<NetworkContact[]>([]);
   const [runs, setRuns] = useState<Map<string, LatestStockRun>>(new Map());
-  useEffect(() => { void Promise.all([loadNetwork(), listLatestStockRuns()]).then(([n, r]) => { setContacts(n.contacts); setRuns(r); }); }, []);
+  useEffect(() => { void listLatestStockRuns().then((r) => setRuns(r)); }, []);
   const eligible = useMemo(() => {
     const b = canonKey(insp.brand ?? ''); const m = canonKey(insp.model ?? '');
     return contacts
@@ -261,14 +281,42 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
   const clientMedian = clientPrices.length ? clientPrices[Math.floor(clientPrices.length / 2)] : null;
   const chooseClient = async (id: string | null) => { setClientId(id); await updateInspection(insp.id, { client_contact_id: id }); };
 
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [exportNote, setExportNote] = useState<string | null>(null);
   const pdfLang = langOfCountry(filters.country);
+  const photoUrls = useSignedUrls(insp.photos);
+  /** Fiche PDF : photos du storage, valeurs traduites (demandées au worker si la langue n'est pas encore faite :
+   *  moins d'une minute ; sans réponse, la fiche part avec les valeurs d'origine et le dit). */
   const exportPdf = async () => {
-    setExporting(true);
+    setExportNote(null);
     try {
-      const blob = await buildFycPdf(insp, pdfLang, { name: author, email: authorEmail });
+      setExporting('photos…');
+      const photos: string[] = [];
+      for (const p of insp.photos.slice(0, 8)) {
+        try { const r = await fetch(await signedUrl(p)); if (r.ok) photos.push(await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; r.blob().then((b) => fr.readAsDataURL(b)).catch(rej); })); } catch { /* photo illisible : fiche sans elle */ }
+      }
+      const src = translationSource(insp);
+      let translation = translationFits(src, insp.translations[pdfLang]) ? insp.translations[pdfLang] : null;
+      if (!translation) {
+        const err = await requestTranslation(insp.id, pdfLang);
+        if (err) setExportNote(`Traduction non demandée (${err}) : fiche avec les valeurs du rapport.`);
+        else {
+          const until = Date.now() + 90_000;
+          while (Date.now() < until) {
+            setExporting(`traduction ${pdfLang.toUpperCase()}… ${Math.ceil((until - Date.now()) / 1000)} s`);
+            await new Promise((r) => setTimeout(r, 4000));
+            const fresh = await getInspection(insp.id);
+            if (fresh && translationFits(src, fresh.translations[pdfLang])) { translation = fresh.translations[pdfLang]; break; }
+            if (fresh && fresh.translate_to == null) { setExportNote(`Traduction ${pdfLang.toUpperCase()} refusée par le worker${fresh.error ? ` (${fresh.error})` : ''} : fiche avec les valeurs du rapport.`); break; }
+          }
+          if (!translation && !exportNote) setExportNote(`Traduction ${pdfLang.toUpperCase()} non reçue (worker arrêté ?) : fiche avec les valeurs du rapport. Réessaie dans une minute.`);
+          void onChanged();
+        }
+      }
+      setExporting('mise en page…');
+      const blob = await buildFycPdf(insp, pdfLang, { name: author, email: authorEmail }, { photos, translation });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `MC-Export-${[insp.brand, insp.model].filter(Boolean).join('-') || 'vehicule'}-${pdfLang.toUpperCase()}-${new Date().toISOString().slice(0, 10)}.pdf`; a.click(); URL.revokeObjectURL(a.href);
-    } finally { setExporting(false); }
+    } finally { setExporting(null); }
   };
 
   const car = [insp.brand, insp.model].filter(Boolean).join(' ');
@@ -280,8 +328,10 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
           <h2 className="text-base font-semibold text-slate-900">{car} — nos prix</h2>
           {insp.archived_at && <span className="text-[11px] rounded-full px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200">archivée le {fmtDate(insp.archived_at)}</span>}
           <span className="text-xs text-slate-500">{insp.year ?? '—'} · {fmtNum(insp.km)} km · {insp.fuel ?? '—'} · {insp.gearbox ?? '—'}{insp.power_ch ? ` · ${insp.power_ch} ch` : ''}{insp.color ? ` · ${insp.color}` : ''}</span>
-          <button onClick={() => void exportPdf()} disabled={exporting} title={`Fiche véhicule à la charte MC Export, dans la langue du pays cible (${pdfLang.toUpperCase()}) : données, équipements, pneus, état, notre prix d'attaque, nos coordonnées — jamais le prix d'achat ni les notes`} className="ml-auto flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">{exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} Fiche PDF client ({pdfLang.toUpperCase()})</button>
+          <button onClick={() => void exportPdf()} disabled={!!exporting} title={`Fiche véhicule à la charte MC Export, dans la langue du pays cible (${pdfLang.toUpperCase()}) : photos, données, équipements, pneus, état (valeurs traduites), notre prix d'attaque, nos coordonnées — jamais le prix d'achat ni les notes`} className="ml-auto flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">{exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} {exporting ?? `Fiche PDF client (${pdfLang.toUpperCase()})`}</button>
         </div>
+        {exportNote && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{exportNote}</p>}
+        {photoUrls.length > 0 && <div className="flex gap-2 overflow-x-auto">{photoUrls.map((u, i) => <a key={i} href={u} target="_blank" rel="noreferrer" className="shrink-0"><img src={u} alt="" className="h-20 w-auto rounded-md border border-slate-200 object-cover" /></a>)}</div>}
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
           <label className="block text-xs text-slate-600">Prix d'achat (€)<input value={purchase} onChange={(e) => setPurchase(e.target.value)} onBlur={() => void saveNum('purchase_price', purchase)} placeholder="ex. 17 500" className={`${inp} mt-1 text-right`} /></label>
           <label className="block text-xs text-slate-600">Prix d'attaque (€) <span className="text-slate-400">— notre prix face au marché</span>
@@ -307,7 +357,8 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
         <div className="flex items-center gap-2 flex-wrap">
           <h2 className="text-base font-semibold text-slate-900">Marché cible</h2>
           <span className="text-xs text-slate-500">Filtres MI pré-remplis depuis le rapport, tous modifiables. Les chiffres viennent des annonces déjà en base ; « Voir dans le MI » lance la recherche.</span>
-          <button onClick={() => onOpenMarket(filters)} disabled={!filters.country || !filters.brand} className="ml-auto flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50"><Search className="w-4 h-4" /> Voir dans le MI (lance la recherche)</button>
+          <button onClick={() => setObsTick((t) => t + 1)} disabled={obsLoading} title="Relire les annonces en base (après une recherche MI)" className="ml-auto flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"><RefreshCw className={`w-3.5 h-3.5 ${obsLoading ? 'animate-spin' : ''}`} /> Annonces</button>
+          <button onClick={() => onOpenMarket(filters)} disabled={!filters.country || !filters.brand} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50"><Search className="w-4 h-4" /> Voir dans le MI (lance la recherche)</button>
         </div>
         <div className="grid sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs text-slate-600">
           <label>Pays<select value={filters.country ?? ''} onChange={(e) => setF({ country: e.target.value || undefined, site: undefined })} className={`${inp} mt-1`}><option value="">—</option>{countries.map((c) => <option key={c} value={c}>{COUNTRY_NAMES[c] ?? c}</option>)}</select></label>
@@ -341,7 +392,7 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
             )}
             <p className="text-xs text-slate-500">Les 5 moins chères : {market.cheapest.map((o, i) => <span key={i}>{i ? ' · ' : ''}{o.listing_url ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline">{fmtEur(o.price)}</a> : fmtEur(o.price)} ({o.year ?? '—'}, {fmtNum(o.mileage)} km)</span>)}</p>
           </>
-        ) : market ? <p className="text-sm text-slate-500">Aucune annonce en base pour ces filtres : clique « Voir dans le MI (lance la recherche) », puis reviens ici.</p> : <p className="text-sm text-slate-500">Choisis un pays et une marque.</p>}
+        ) : market ? <p className="text-sm text-slate-500">{market.inBase > 0 ? `${market.inBase} annonces en base pour ${filters.brand} ${filters.model ?? ''} (${COUNTRY_NAMES[filters.country ?? ''] ?? filters.country}), aucune ne passe les filtres (énergie, boîte, carrosserie, années, km, puissance) : assouplis-les, ou lance la recherche dans le MI.` : 'Aucune annonce en base pour ce modèle dans ce pays : clique « Voir dans le MI (lance la recherche) », puis reviens ici (les annonces sont relues au retour).'}</p> : <p className="text-sm text-slate-500">Choisis un pays et une marque.</p>}
       </div>
 
       {/* 4. Client cible */}
