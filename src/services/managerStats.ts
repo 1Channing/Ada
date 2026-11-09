@@ -59,8 +59,11 @@ export async function countOpenLeads(org: string | null): Promise<{ row: OpenLea
 
 /** SCORE D'ORGANISATION (30/10, Channing : « un onglet Score où les agents voient vite les stats des autres »). */
 export interface ScoreRow { user_id: string; display_name: string; organisation?: string; is_manager: boolean; leads_taken: number; negotiations: number; rdv: number }
-export async function listScoreboard(org: string | null): Promise<{ rows: ScoreRow[]; error: string | null }> {
-  const { data, error } = await rpc('org_scoreboard', { p_org: org });
+/** `since` (09/11 soir) : début de période (ISO) ou null = depuis toujours — SQL du 09/11 (score_pour_tous). */
+export async function listScoreboard(org: string | null, since: string | null = null): Promise<{ rows: ScoreRow[]; error: string | null }> {
+  let { data, error } = await rpc('org_scoreboard', { p_org: org, p_since: since });
+  // Fonction d'avant le 09/11 soir (sans p_since) : on la lit quand même, depuis toujours.
+  if (error && /p_since|function public.org_scoreboard/i.test(error.message)) ({ data, error } = await rpc('org_scoreboard', { p_org: org }));
   if (error) return { rows: [], error: missing(error.message) ? 'Score : SQL du 30/10 (score_et_leads_non_traites) à coller.' : error.message };
   return { rows: ((data ?? []) as ScoreRow[]).map((r) => ({ ...r, leads_taken: Number(r.leads_taken), negotiations: Number(r.negotiations), rdv: Number(r.rdv) })), error: null };
 }

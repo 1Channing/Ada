@@ -10,13 +10,18 @@
 
   Et (même jour, Channing : « dans Équipe, pour chaque compte, sélectionner ceux dont les scores s'affichent ») :
   profiles.score_visible (vrai par défaut), posé depuis la page Admin ; un compte à faux n'apparaît pas.
+
+  Et (09/11 soir, Channing : « une option monthly, remise à jour tous les mois, et une option All time ») :
+  p_since = début de période ; vide = depuis toujours. Leads pris par date de prise, négociations par date
+  d'ouverture, rendez-vous par date de validation.
   Additif, idempotent.
 */
 
 alter table public.profiles add column if not exists score_visible boolean not null default true;
 
 drop function if exists public.org_scoreboard(text);
-create function public.org_scoreboard(p_org text default null)
+drop function if exists public.org_scoreboard(text, timestamptz);
+create function public.org_scoreboard(p_org text default null, p_since timestamptz default null)
 returns table (user_id uuid, display_name text, organisation text, is_manager boolean, leads_taken bigint, negotiations bigint, rdv bigint)
 language sql stable security definer set search_path = public
 as $$
@@ -33,18 +38,19 @@ as $$
          m.display_name,
          m.organisation,
          m.is_manager,
-         (coalesce((select count(*) from public.prospect_watch_hits h where h.taken_by = m.id and h.status = 'saved'), 0)
-          + coalesce((select count(*) from public.daily_search_hits d where d.taken_by = m.id and d.status = 'saved'), 0))::bigint as leads_taken,
-         (select count(*) from public.negotiations n where n.user_id = m.id)::bigint as negotiations,
-         (select count(*) from public.negotiations n where n.user_id = m.id and n.status = 'archived' and n.outcome = 'rdv')::bigint as rdv
+         (coalesce((select count(*) from public.prospect_watch_hits h where h.taken_by = m.id and h.status = 'saved' and (p_since is null or coalesce(h.taken_at, h.first_seen_at) >= p_since)), 0)
+          + coalesce((select count(*) from public.daily_search_hits d where d.taken_by = m.id and d.status = 'saved' and (p_since is null or coalesce(d.taken_at, d.first_seen_at) >= p_since)), 0))::bigint as leads_taken,
+         (select count(*) from public.negotiations n where n.user_id = m.id and (p_since is null or n.created_at >= p_since))::bigint as negotiations,
+         (select count(*) from public.negotiations n where n.user_id = m.id and n.status = 'archived' and n.outcome = 'rdv' and (p_since is null or coalesce(n.archived_at, n.updated_at) >= p_since))::bigint as rdv
     from members m
    order by rdv desc, leads_taken desc, m.display_name;
 $$;
-revoke all on function public.org_scoreboard(text) from public, anon;
-grant execute on function public.org_scoreboard(text) to authenticated;
+revoke all on function public.org_scoreboard(text, timestamptz) from public, anon;
+grant execute on function public.org_scoreboard(text, timestamptz) to authenticated;
 
 select exists (
   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'org_scoreboard'
      and pg_get_function_result(p.oid) like '%organisation text%'
+     and pg_get_function_arguments(p.oid) like '%p_since%'
 ) and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'score_visible') as tout_est_bon;
