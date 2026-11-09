@@ -38,6 +38,8 @@ interface Account {
   is_manager?: boolean;
   /** Organisations gérées en plus de la sienne (30/10). */
   managed_orgs?: string[] | null;
+  /** Apparaît dans l'onglet Score du Workflow (09/11) ; absent = oui. */
+  score_visible?: boolean;
   created_at: string;
   last_sign_in_at: string | null;
   /** Dernier événement de page de la télémétrie (visitor = prénom) — la
@@ -190,12 +192,13 @@ export function Equipe() {
       // managed_orgs (04/11, Channing : « le fait qu'il soit aussi manager pour Thouaré saute de temps en temps ») :
       // la colonne n'était PAS relue ici, donc après chaque rechargement la page croyait la liste vide, et le clic
       // suivant sur une pastille enregistrait cette seule organisation — l'autre sautait. Relue, avec repli si absente.
-      let { data: bl } = await supabase.from('profiles').select('id, blocked, organisation, is_manager, managed_orgs' as never);
+      let { data: bl } = await supabase.from('profiles').select('id, blocked, organisation, is_manager, managed_orgs, score_visible' as never);
+      if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked, organisation, is_manager, managed_orgs' as never)); // colonne score_visible absente (SQL du 09/11)
       if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked, organisation, is_manager' as never)); // colonne managed_orgs absente (SQL du 30/10)
       if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked, organisation' as never)); // colonne is_manager absente (SQL du 12/10 soir)
       if (!bl) ({ data: bl } = await supabase.from('profiles').select('id, blocked' as never)); // colonne organisation absente (SQL du 12/10)
-      const extra = new Map(((bl ?? []) as unknown as Array<{ id: string; blocked?: boolean; organisation?: string | null; is_manager?: boolean | null; managed_orgs?: string[] | null }>).map((p) => [p.id, p]));
-      setAccounts(((acc ?? []) as Account[]).map((a) => ({ ...a, blocked: !!extra.get(a.id)?.blocked, organisation: extra.get(a.id)?.organisation ?? null, is_manager: extra.get(a.id)?.is_manager === true, managed_orgs: Array.isArray(extra.get(a.id)?.managed_orgs) ? extra.get(a.id)?.managed_orgs : (a.managed_orgs ?? null) })));
+      const extra = new Map(((bl ?? []) as unknown as Array<{ id: string; blocked?: boolean; organisation?: string | null; is_manager?: boolean | null; managed_orgs?: string[] | null; score_visible?: boolean | null }>).map((p) => [p.id, p]));
+      setAccounts(((acc ?? []) as Account[]).map((a) => ({ ...a, blocked: !!extra.get(a.id)?.blocked, organisation: extra.get(a.id)?.organisation ?? null, is_manager: extra.get(a.id)?.is_manager === true, managed_orgs: Array.isArray(extra.get(a.id)?.managed_orgs) ? extra.get(a.id)?.managed_orgs : (a.managed_orgs ?? null), score_visible: extra.get(a.id)?.score_visible !== false })));
     }
     if (e2) setError((prev) => prev ?? `Liste d'inscription : ${e2.message}`);
     else setAllow((al ?? []) as AllowRow[]);
@@ -306,6 +309,16 @@ export function Equipe() {
     const { data, error: err } = await supabase.from('profiles').update({ is_manager: next } as never).eq('id', a.id).select('id');
     if (err) { setError(/is_manager|column|schema cache/i.test(err.message) ? 'Rôle manager : colle le SQL du 12/10 (manager_statistiques).' : err.message); void reload(); return; }
     if (!data?.length) { setError(`Rôle manager de ${a.email} NON enregistré : aucune ligne de profil.`); void reload(); }
+  };
+
+  /** Apparaît dans l'onglet Score (09/11, Channing : « dans Équipe, pour chaque compte, sélectionner ceux dont les
+   *  scores s'affichent dans l'onglet Score ») — écrit puis vérifié par relecture, comme le rôle manager. */
+  const toggleScoreVisible = async (a: Account) => {
+    const next = a.score_visible === false;
+    setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, score_visible: next } : x)));
+    const { data, error: err } = await supabase.from('profiles').update({ score_visible: next } as never).eq('id', a.id).select('id');
+    if (err) { setError(/score_visible|column|schema cache/i.test(err.message) ? 'Score par compte : colle le SQL du 09/11 (score_par_compte).' : err.message); void reload(); return; }
+    if (!data?.length) { setError(`Score de ${a.email} NON enregistré : aucune ligne de profil.`); void reload(); }
   };
 
   /** Organisations gérées EN PLUS de la sienne (30/10, Channing : « manager de deux agences »). */
@@ -739,6 +752,18 @@ export function Equipe() {
                                 <span className="min-w-0">
                                   <span className={`block text-xs font-medium ${a.is_manager ? 'text-emerald-800' : 'text-slate-400 line-through'}`}>Statistiques <span className="font-normal">(rôle manager)</span></span>
                                   <span className={`block text-[11px] leading-snug ${a.is_manager ? 'text-emerald-700/80' : 'text-slate-400'}`}>Les chiffres de prospection de son organisation : négociations, notes, annonces, analyses, rendez-vous pris, Open space</span>
+                                </span>
+                              </button>
+                              {/* SCORE (09/11) : ce compte apparaît-il dans l'onglet Score du Workflow, visible par tous ? */}
+                              <button
+                                onClick={() => void toggleScoreVisible(a)}
+                                title="Onglet Score du Workflow (visible par tous) : ce compte y apparaît-il avec ses leads, négociations et rendez-vous ?"
+                                className={`flex items-start gap-2 rounded-lg text-left border transition-colors px-3 py-2 ${a.score_visible !== false ? 'bg-amber-50 border-amber-300 hover:bg-amber-100' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`}
+                              >
+                                <CheckCircle2 className={`w-4 h-4 mt-0.5 shrink-0 ${a.score_visible !== false ? 'text-amber-600' : 'text-slate-300'}`} />
+                                <span className="min-w-0">
+                                  <span className={`block text-xs font-medium ${a.score_visible !== false ? 'text-amber-900' : 'text-slate-400 line-through'}`}>Score <span className="font-normal">(apparaît dans l'onglet Score)</span></span>
+                                  <span className={`block text-[11px] leading-snug ${a.score_visible !== false ? 'text-amber-800/80' : 'text-slate-400'}`}>Ses leads pris, négociations lancées, rendez-vous pris et taux de conversion, vus par tous les comptes</span>
                                 </span>
                               </button>
                               {/* MANAGER DE PLUSIEURS ORGANISATIONS (30/10) : en plus de la sienne — Statistiques, et cible des leads de ses études. */}

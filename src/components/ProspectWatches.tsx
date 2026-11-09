@@ -13,6 +13,7 @@ import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2, X, Ch
 import { managerScope, useAuth } from '../services/auth';
 import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, listOrgWatches, listTwinCandidates, sameVehicle, takeWatchLead, rejectWatchLead, type ProspectWatch, type WatchLead, type TwinHit } from '../services/prospectWatches';
 import { ListingLink } from './ListingLink';
+import { matchesQuery } from '../lib/leadSearch';
 
 const fmtEur = (n: number | null) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} €`);
 /** Âge en jours (Paris) d'une date d'acquisition, et son libellé « Reçus aujourd'hui / hier / le 28/10 ». */
@@ -127,10 +128,6 @@ function SiteLogo({ site, url }: { site?: string | null; url?: string | null }) 
   const host = hostOf(url ?? site ?? '').replace(/\..*$/, '');
   return <span title={host} className="shrink-0 inline-grid place-items-center w-5 h-5 rounded-md bg-slate-500 text-white text-[9px] font-black leading-none uppercase">{host.slice(0, 2) || '?'}</span>;
 }
-
-/** Mots de la recherche, sans accents : un lead correspond s'il contient tous les mots dans son titre. */
-const norm = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-const matchesQuery = (title: string, q: string) => { const t = norm(title); return norm(q).split(/\s+/).filter(Boolean).every((w) => t.includes(w)); };
 
 /** Les leads des veilles de l'organisation : groupés par veille, les plus récents d'abord ; « Prendre en négociation » les retire pour tous. */
 export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; onCount: (n: number) => void }) {
