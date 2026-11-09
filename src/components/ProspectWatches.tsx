@@ -9,8 +9,8 @@
  *   WatchLeadsSection : les leads des veilles de l'organisation, à prendre (tout le monde).
  */
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2, X, ChevronRight } from 'lucide-react';
-import { managerScope } from '../services/auth';
+import { Plus, Play, Pause, Pencil, Trash2, ExternalLink, MapPin, Loader2, X, ChevronRight, Search } from 'lucide-react';
+import { managerScope, useAuth } from '../services/auth';
 import { listMyWatches, saveWatch, deleteWatch, forceRunWatch, listWatchLeads, listOrgWatches, listTwinCandidates, sameVehicle, takeWatchLead, rejectWatchLead, type ProspectWatch, type WatchLead, type TwinHit } from '../services/prospectWatches';
 import { ListingLink } from './ListingLink';
 
@@ -116,8 +116,28 @@ export function WatchesSection({ organisation }: { organisation: string }) {
   );
 }
 
+/** LOGO DE LA PLATEFORME d'un lead (09/11, Channing : « un petit logo Le bon coin ou La centrale ») : pastille aux
+ *  couleurs du site, dessinée ici (pas d'image externe). */
+function SiteLogo({ site, url }: { site?: string | null; url?: string | null }) {
+  const key = `${site ?? ''} ${url ?? ''}`.toLowerCase();
+  if (/leboncoin/.test(key)) return <span title="Leboncoin" className="shrink-0 inline-grid place-items-center w-5 h-5 rounded-md bg-[#ff6e14] text-white text-[9px] font-black leading-none">lbc</span>;
+  if (/lacentrale/.test(key)) return <span title="La Centrale" className="shrink-0 inline-grid place-items-center w-5 h-5 rounded-md bg-[#c8102e] text-white text-[9px] font-black leading-none">LC</span>;
+  if (/autoscout/.test(key)) return <span title="AutoScout24" className="shrink-0 inline-grid place-items-center w-5 h-5 rounded-md bg-[#f7a600] text-white text-[9px] font-black leading-none">AS</span>;
+  if (/mobile\.de/.test(key)) return <span title="mobile.de" className="shrink-0 inline-grid place-items-center w-5 h-5 rounded-md bg-[#f7941d] text-white text-[9px] font-black leading-none">mb</span>;
+  const host = hostOf(url ?? site ?? '').replace(/\..*$/, '');
+  return <span title={host} className="shrink-0 inline-grid place-items-center w-5 h-5 rounded-md bg-slate-500 text-white text-[9px] font-black leading-none uppercase">{host.slice(0, 2) || '?'}</span>;
+}
+
+/** Mots de la recherche, sans accents : un lead correspond s'il contient tous les mots dans son titre. */
+const norm = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+const matchesQuery = (title: string, q: string) => { const t = norm(title); return norm(q).split(/\s+/).filter(Boolean).every((w) => t.includes(w)); };
+
 /** Les leads des veilles de l'organisation : groupés par veille, les plus récents d'abord ; « Prendre en négociation » les retire pour tous. */
 export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; onCount: (n: number) => void }) {
+  const { isMcExport } = useAuth();
+  // RECHERCHE (09/11, Channing : « une barre de recherche qui cherche dans les titres des leads, puis propose les
+  // leads de toutes les veilles avec un petit logo Le bon coin ou La centrale ») — comptes de prospection, manager compris.
+  const [query, setQuery] = useState('');
   const [leads, setLeads] = useState<WatchLead[]>([]);
   // Toutes les veilles de l'organisation, même sans lead (01/11 : « que les commerciaux sachent qu'une étude est en place »).
   const [watches, setWatches] = useState<Awaited<ReturnType<typeof listOrgWatches>>>([]);
@@ -171,14 +191,63 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
     setLeads((cur) => cur.filter((x) => x.id !== l.id));
   };
   if (groups.length === 0 && !error) return null;
+  const q = query.trim();
+  const found = q.length >= 2 ? leads.filter((l) => matchesQuery(l.title || l.listing_url, q)).sort((a, b) => (b.published_at ?? b.first_seen_at).localeCompare(a.published_at ?? a.first_seen_at)) : null;
+  const leadRow = (l: WatchLead, withSite: boolean) => (
+    <div key={l.id} className="flex items-center gap-3 px-4 py-2.5">
+      {withSite && <SiteLogo site={l.site} url={l.watch?.url ?? l.listing_url} />}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <ListingLink href={l.listing_url} className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate">{l.title || l.listing_url}</ListingLink>
+          {twinsOf(l).map((t) => (
+            <a key={t.id} href={t.listing_url} target="_blank" rel="noreferrer" title={`${t.title || t.listing_url} — ${t.year ?? '—'} · ${t.mileage != null ? `${t.mileage.toLocaleString('fr-FR')} km` : '—'} · ${t.price != null ? `${t.price.toLocaleString('fr-FR')} €` : '—'}`}
+              className={`shrink-0 inline-flex items-center gap-1 text-[10px] font-medium rounded-full border px-1.5 py-0.5 ${t.status === 'saved' ? 'bg-amber-50 border-amber-200 text-amber-800' : t.status === 'rejected' ? 'bg-slate-50 border-slate-200 text-slate-500' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+              Doublon {hostOf(t.watch.url).replace(/\.fr$|\.nl$|\.de$/, '')} · {t.status === 'saved' ? `pris par ${t.taken_by_name ?? 'un collègue'}` : t.status === 'rejected' ? `rejeté par ${t.taken_by_name ?? 'un collègue'}` : 'lead disponible'}
+            </a>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500 mt-0.5 truncate">
+          {withSite ? `${l.watch?.label || hostOf(l.watch?.url ?? '')} · ` : ''}{l.year ?? '—'} · {l.mileage != null ? `${l.mileage.toLocaleString('fr-FR')} km` : '—'}{l.fuel ? ` · ${l.fuel}` : ''}
+          {l.published_at ? ` · mise en ligne ${new Date(l.published_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}
+          {` · vue ${new Date(l.first_seen_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`}
+        </p>
+      </div>
+      <span className="font-semibold text-slate-900 shrink-0">{fmtEur(l.price)}</span>
+      <ListingLink href={l.listing_url} title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 shrink-0"><ExternalLink className="w-4 h-4" /></ListingLink>
+      <button onClick={() => void take(l)} disabled={busy === l.id} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-ocean hover:bg-brand-encre text-white transition-colors disabled:opacity-50">
+        {busy === l.id ? '…' : 'Prendre en négociation'}
+      </button>
+      <button onClick={() => void reject(l)} disabled={busy === l.id} title="Rejeter : hors critères — disparaît pour toute l'organisation, ne reviendra pas" className="shrink-0 p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 disabled:opacity-50"><X className="w-4 h-4" /></button>
+    </div>
+  );
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold text-slate-700">Leads de prospection</h2>
-        <p className="text-xs text-slate-500">Les annonces nouvelles trouvées par les veilles de l'organisation, par jour de réception (les plus récentes d'abord ; les jours passés restent visibles tant qu'il y a des leads à traiter). Prendre un lead le fait disparaître pour les autres ; rejeter (✕) l'écarte pour tout le monde, définitivement.</p>
+      <div className="flex items-start gap-3 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-slate-700">Leads de prospection</h2>
+          <p className="text-xs text-slate-500">Les annonces nouvelles trouvées par les veilles de l'organisation, par jour de réception (les plus récentes d'abord ; les jours passés restent visibles tant qu'il y a des leads à traiter). Prendre un lead le fait disparaître pour les autres ; rejeter (✕) l'écarte pour tout le monde, définitivement.</p>
+        </div>
+        {!isMcExport && (
+          <div className="relative w-80 max-w-full">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Chercher un lead : marque, modèle, finition…" className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" />
+            {query && <button onClick={() => setQuery('')} className="absolute right-2 top-2 text-slate-400 hover:text-slate-600" aria-label="Effacer"><X className="w-4 h-4" /></button>}
+          </div>
+        )}
       </div>
       {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
-      {groups.map(({ watch: w, list }) => (
+      {found && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+            <Search className="w-4 h-4 text-slate-400" />
+            <span className="font-semibold text-slate-900">« {q} »</span>
+            <span className="text-xs text-slate-500">{found.length ? `${found.length} lead${found.length > 1 ? 's' : ''} à prendre, toutes veilles confondues` : 'aucun lead à prendre ne correspond'}</span>
+            <button onClick={() => setQuery('')} className="ml-auto text-xs text-brand-ocean hover:underline">Revenir aux veilles</button>
+          </div>
+          {found.length > 0 && <div className="divide-y divide-slate-100">{found.map((l) => leadRow(l, true))}</div>}
+        </div>
+      )}
+      {!found && groups.map(({ watch: w, list }) => (
         <div key={w.id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <button onClick={() => toggleGroup(w.id)} className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${closed[w.id] ? 'rounded-xl' : 'rounded-t-xl border-b border-slate-100'}`} aria-expanded={!closed[w.id]}>
             <ChevronRight className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${closed[w.id] ? '' : 'rotate-90'}`} />
@@ -200,30 +269,7 @@ export function WatchLeadsSection({ onTaken, onCount }: { onTaken: () => void; o
               {(i === 0 || list[i - 1].first_seen_at.slice(0, 10) !== l.first_seen_at.slice(0, 10)) && (
                 <div className={`px-4 py-1 text-[11px] font-medium ${dayAge(l.first_seen_at) >= 1 ? 'bg-amber-50 text-amber-800' : 'bg-slate-50 text-slate-500'}`}>{dayLabel(l.first_seen_at)}</div>
               )}
-              <div className="flex items-center gap-3 px-4 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <ListingLink href={l.listing_url} className="font-medium text-slate-900 hover:text-blue-600 hover:underline truncate">{l.title || l.listing_url}</ListingLink>
-                    {twinsOf(l).map((t) => (
-                      <a key={t.id} href={t.listing_url} target="_blank" rel="noreferrer" title={`${t.title || t.listing_url} — ${t.year ?? '—'} · ${t.mileage != null ? `${t.mileage.toLocaleString('fr-FR')} km` : '—'} · ${t.price != null ? `${t.price.toLocaleString('fr-FR')} €` : '—'}`}
-                        className={`shrink-0 inline-flex items-center gap-1 text-[10px] font-medium rounded-full border px-1.5 py-0.5 ${t.status === 'saved' ? 'bg-amber-50 border-amber-200 text-amber-800' : t.status === 'rejected' ? 'bg-slate-50 border-slate-200 text-slate-500' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                        Doublon {hostOf(t.watch.url).replace(/\.fr$|\.nl$|\.de$/, '')} · {t.status === 'saved' ? `pris par ${t.taken_by_name ?? 'un collègue'}` : t.status === 'rejected' ? `rejeté par ${t.taken_by_name ?? 'un collègue'}` : 'lead disponible'}
-                      </a>
-                    ))}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-0.5 truncate">
-                    {l.year ?? '—'} · {l.mileage != null ? `${l.mileage.toLocaleString('fr-FR')} km` : '—'}{l.fuel ? ` · ${l.fuel}` : ''}
-                    {l.published_at ? ` · mise en ligne ${new Date(l.published_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}
-                    {` · vue ${new Date(l.first_seen_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`}
-                  </p>
-                </div>
-                <span className="font-semibold text-slate-900 shrink-0">{fmtEur(l.price)}</span>
-                <ListingLink href={l.listing_url} title="Ouvrir l'annonce" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 shrink-0"><ExternalLink className="w-4 h-4" /></ListingLink>
-                <button onClick={() => void take(l)} disabled={busy === l.id} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-ocean hover:bg-brand-encre text-white transition-colors disabled:opacity-50">
-                  {busy === l.id ? '…' : 'Prendre en négociation'}
-                </button>
-                <button onClick={() => void reject(l)} disabled={busy === l.id} title="Rejeter : hors critères — disparaît pour toute l'organisation, ne reviendra pas" className="shrink-0 p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 disabled:opacity-50"><X className="w-4 h-4" /></button>
-              </div>
+              {leadRow(l, false)}
               </Fragment>
             ))}
           </div>}

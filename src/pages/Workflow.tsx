@@ -90,7 +90,7 @@ type Tab = 'searches' | 'results' | 'archives' | 'negotiations' | 'sales' | 'tre
 const tabFromPath = (p: string): Tab | null => (p === '/ventes' ? 'negotiations' : p === '/admin' ? 'sales' : p === '/tresorerie' ? 'tresorerie' : p === '/leads' ? 'results' : null);
 
 export function Workflow() {
-  const { allowedTabs, isAdmin, isMcExport } = useAuth();
+  const { allowedTabs, isAdmin } = useAuth();
   // Pastille « nouveautés Open space » sur l'onglet Négociations (21/09).
   const openSpaceNew = useOpenSpaceUnseen();
   // Négociations et Ventes vivent ici depuis le 05/09 (demande Channing),
@@ -104,7 +104,8 @@ export function Workflow() {
     // Trésorerie (02/10) : relevés de compte, frais, marge réelle — admin seulement.
     ...(isAdmin ? [{ id: 'tresorerie' as Tab, label: 'Trésorerie', icon: Landmark }] : []),
     // Score (30/10, Channing) : les agents d'une organisation de prospection voient vite les stats des autres.
-    ...(!isMcExport || isAdmin ? [{ id: 'score' as Tab, label: 'Score', icon: Trophy }] : []),
+    // 09/11 : « tout le monde y a accès, tout le monde voit les scores de tout le monde » — plus de condition.
+    { id: 'score' as Tab, label: 'Score', icon: Trophy },
     // Archives (30/10, Channing : « juste l'icône, tout à droite, comme une option »).
     ...(see('wf:archives') ? [{ id: 'archives' as Tab, label: 'Archives', icon: Archive, iconOnly: true, right: true }] : []),
   ];
@@ -155,7 +156,7 @@ export function Workflow() {
       {tab === 'searches' && see('wf:etudes') && <DailySearchesTab />}
       {tab === 'results' && see('wf:resultats') && <ResultsTab onTaken={() => { if (see('wf:negociations')) setTab('negotiations'); }} />}
       {tab === 'archives' && see('wf:archives') && <ArchivesTab />}
-      {tab === 'score' && (!isMcExport || isAdmin) && <ScoreTab />}
+      {tab === 'score' && <ScoreTab />}
       {tab === 'negotiations' && see('wf:negociations') && <NegotiationsTab onPushed={() => { if (see('wf:ventes')) setTab('sales'); }} />}
       {tab === 'sales' && see('wf:ventes') && <Administrative />}
       {tab === 'tresorerie' && isAdmin && <Treasury />}

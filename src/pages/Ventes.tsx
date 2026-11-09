@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock, Phone, PhoneCall, ArrowRight, BadgeCheck } from 'lucide-react';
+import { CalendarCheck, MessageSquare, FileText, MoreVertical, ExternalLink, Plus, Images, Loader2, Sparkles, Users, ArrowLeft, Share2, Trash2, Send, Folder, FolderPlus, ChevronDown, ChevronRight, Check, AlarmClock, Phone, PhoneCall, ArrowRight, BadgeCheck } from 'lucide-react';
 import { listingKey } from '../lib/listingKey';
 import { phoneKey, fmtPhone } from '../lib/phoneKey';
 import { readNote, writeNote, lastNoteDate, agoLabel, worthRelaunch, RELANCE_AFTER_DAYS } from '../lib/noteJournal';
@@ -22,6 +22,7 @@ import {
 } from '../services/openSpace';
 import { useOpenSpaceUnseen, clearOpenSpaceUnseen, refreshOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
 import { NegotiationPhotosModal } from '../components/NegotiationPhotos';
+import { RdvList } from '../components/RdvList';
 import { StorageBg } from '../components/StorageLink';
 import { contactSeller } from '../services/contactSeller';
 import { resumeNegoExtractions, subscribeNegoExtractions, isExtracting, extractingCount, extractionError, startNegoExtraction } from '../services/negoExtraction';
@@ -95,6 +96,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   // Archivées après l'appel (12/10) : lues ici pour les doublons et le numéro
   // déjà vu seulement — elles s'affichent dans l'onglet Archives.
   const [archived, setArchived] = useState<Negotiation[]>([]);
+  const rdvCount = archived.filter((n) => n.outcome === 'rdv').length;
   // Rappels posés sur mes annonces (12/10) : icône sur la ligne jusqu'à l'échéance.
   const [reminders, setReminders] = useState<Map<string, string>>(new Map());
   const [, setTick] = useState(0);
@@ -120,6 +122,8 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
   const [analyzing, setAnalyzing] = useState(false);
   // Open space (05/09) : l'espace partagé et son badge de nouveautés.
   const [openSpace, setOpenSpace] = useState(false);
+  // Rendez-vous pris (09/11, Channing) : petit onglet à côté des négociations en cours.
+  const [view, setView] = useState<'open' | 'rdv'>('open');
   // Compteur partagé avec le bandeau et l'onglet (hooks/useOpenSpaceUnseen).
   const openSpaceNew = useOpenSpaceUnseen();
   // UNE ANNONCE PARTAGÉE NE VIT QUE DANS L'OPEN SPACE (12/10, Channing, pour
@@ -279,8 +283,12 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">Négociations en cours</h2>
-          <p className="text-sm text-slate-600 mt-1">Tes annonces enregistrées — pousse-les en vente quand l'affaire se conclut.</p>
+          <h2 className="text-xl font-bold text-slate-900">{view === 'rdv' ? 'Rendez-vous pris' : 'Négociations en cours'}</h2>
+          <p className="text-sm text-slate-600 mt-1">{view === 'rdv' ? 'Les véhicules validés après l\'appel, avec toutes les infos et les notes — les tiens et ceux de ton organisation.' : 'Tes annonces enregistrées — pousse-les en vente quand l\'affaire se conclut.'}</p>
+          <div className="mt-2 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs">
+            <button onClick={() => setView('open')} className={`px-2.5 py-1 rounded-md ${view === 'open' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>En cours{rows.length ? ` · ${rows.length}` : ''}</button>
+            <button onClick={() => setView('rdv')} className={`px-2.5 py-1 rounded-md flex items-center gap-1 ${view === 'rdv' ? 'bg-emerald-700 text-white' : 'text-emerald-800 hover:bg-emerald-50'}`}><CalendarCheck className="w-3.5 h-3.5" /> Rendez-vous pris{rdvCount ? ` · ${rdvCount}` : ''}</button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -369,7 +377,7 @@ export function NegotiationsTab({ onPushed }: { onPushed: () => void }) {
 
       {/* Les annonces poussées dans l'Open space ne vivent que là-bas (12/10) — sans bandeau :
           le badge du bouton Open space signale les nouvelles annonces, rien d'autre. */}
-      {loading ? <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>
+      {view === 'rdv' ? <RdvList onChanged={reload} /> : loading ? <p className="text-sm text-slate-400 py-8 text-center">Chargement…</p>
         : visible.length === 0 ? (
           <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 text-sm">
             {sharedCount > 0
