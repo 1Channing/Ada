@@ -31,8 +31,8 @@ import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -246,6 +246,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // eveho (VPN Autos, 05/11) : Nuxt rendu serveur, cartes « component-single-vehicle » (marque/modèle, version, prix,
   // « filedKmYear » km et année, « otherFields » énergie et boîte, lieu), 23 par page « ?page=N », « N résultats ».
   if (/class="component-single-vehicle"/.test(html) && /filedKmYear/.test(html)) return 'eveho';
+  // jetlisting (Regge Autogroep, 09/11) : WordPress + Elementor + JetEngine, cartes « jet-listing-grid__item » avec
+  // data-url, titre <h3> (marque modèle), <p> version, champs dynamiques (km, année, énergie, boîte, prix), pages « /page/N/ ».
+  if (/class="jet-listing-grid__item /.test(html) && /jet-engine-listing-overlay-wrap" data-url="/.test(html) && /jet-listing-dynamic-field__content/.test(html)) return 'jetlisting';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -520,7 +523,7 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
 // transmissie, verkocht, verwacht, deeplink, afbeeldingen, created_at.
 // Pagination par `from=` (décalage), total = hits.total.
 type DtcHit = Record<string, unknown>;
-function parseDtcVm(html: string): { total: number | null; from: number; size: number; hits: DtcHit[] } | null {
+function parseDtcVm(html: string): { total: number | null; from: number; size: number; orderby: string | null; hits: DtcHit[] } | null {
   const marker = html.match(/window\.dtcVm\.initialHits\s*=\s*/);
   if (!marker || marker.index == null) return null;
   const start = marker.index + marker[0].length;
@@ -534,9 +537,9 @@ function parseDtcVm(html: string): { total: number | null; from: number; size: n
       depth--;
       if (depth === 0) {
         try {
-          const d = JSON.parse(html.slice(start, i + 1)) as { hits?: { total?: unknown; from?: unknown; size?: unknown; hits?: unknown } };
+          const d = JSON.parse(html.slice(start, i + 1)) as { hits?: { total?: unknown; from?: unknown; size?: unknown; orderby?: unknown; hits?: unknown } };
           const h = d.hits ?? {};
-          return { total: num(h.total), from: num(h.from) ?? 0, size: num(h.size) ?? 0, hits: Array.isArray(h.hits) ? (h.hits as DtcHit[]) : [] };
+          return { total: num(h.total), from: num(h.from) ?? 0, size: num(h.size) ?? 0, orderby: typeof h.orderby === 'string' ? h.orderby : null, hits: Array.isArray(h.hits) ? (h.hits as DtcHit[]) : [] };
         } catch { return null; }
       }
     }
@@ -575,14 +578,27 @@ async function scrapeDtcVm(url: string, firstHtml: string): Promise<DealerStockR
   if (!first) return { provider: 'dtcvm', total: null, declared: null, vehicles: [], pages: 1, warnings: ['bloc dtcVm.initialHits illisible'] };
   const total = first.total;
   const u = new URL(url);
+  // TRI ALÉATOIRE (Bochane Groep 09/11 : « orderby=random », 60 lues sur 2 143 — chaque page remélange, les mêmes
+  // voitures reviennent et la lecture s'arrête « aucun véhicule nouveau ») : on pagine sur un tri STABLE, la date
+  // d'ajout (« created-desc », présent sur tous les sites dtcVm). La taille de page est celle du site (10 chez Bochane,
+  // le paramètre size y est ignoré) : 215 pages, lues l'une après l'autre.
+  const randomSort = /random/i.test(u.searchParams.get('orderby') ?? '') || /random/i.test(first.orderby ?? '');
   const size = first.size > 0 ? first.size : Number(u.searchParams.get('size') || 12);
+  if (randomSort) warnings.push('tri « au hasard » de la vitrine remplacé par la date d\'ajout pour lire toutes les pages');
+  // PAS de « from » du site : Bochane sert 10 voitures par page mais ses liens de pages avancent de 12, et le serveur
+  // convertit « from » en page (arrondi au-dessus) × 10 — from=60 rendait la page 50 : doublons, arrêt à 60 / 2 143.
+  // On avance donc du pas des liens de pagination de la vitrine (12 chez Bochane, = size ailleurs).
+  const linkSteps = [...firstHtml.matchAll(/[?&;](?:amp;)?from=(\d+)/g)].map((m) => Number(m[1])).filter((n) => n > 0);
+  const step = linkSteps.length ? Math.min(...linkSteps) : size;
   const pagesCap = total != null && size > 0 ? Math.min(400, Math.ceil(total / size)) : MAX_PAGES;
   let pages = 0;
+  let lastFrom = -1;
   for (let page = 1; page <= pagesCap; page++) {
-    let parsed = page === 1 ? first : null;
-    if (page > 1) {
+    let parsed = page === 1 && !randomSort ? first : null;
+    if (!parsed) {
       const pu = new URL(url);
-      pu.searchParams.set('from', String((page - 1) * size));
+      if (randomSort) pu.searchParams.set('orderby', 'created-desc');
+      pu.searchParams.set('from', String((page - 1) * step));
       pu.searchParams.set('size', String(size));
       for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
         if (attempt > 0) await sleep(1500);
@@ -593,6 +609,8 @@ async function scrapeDtcVm(url: string, firstHtml: string): Promise<DealerStockR
       if (!parsed) { warnings.push(`arrêt à la page ${page} : bloc dtcVm absent — relevé partiel`); break; }
     }
     pages = page;
+    if (parsed!.from <= lastFrom && page > 1) { warnings.push(`page ${page} : le site renvoie encore la position ${parsed!.from} — arrêt à ${out.length} / ${total ?? '?'}`); break; }
+    lastFrom = parsed!.from;
     let added = 0;
     for (const h of parsed!.hits) {
       const v = dtcHitToVehicle(h);
@@ -1580,6 +1598,95 @@ const euro = (t: string | null | undefined): number | null => {
 const kmOf = (t: string | null | undefined): number | null => { const m = (t ?? '').match(/(\d{1,3}(?:[\s .]\d{3})+|\d+)\s*km/i); return m ? num(m[1].replace(/[\s .]/g, '')) : null; };
 const yearOf = (t: string | null | undefined): number | null => { const m = (t ?? '').match(/\b((?:19|20)\d{2})\b/); return m ? num(m[1]) : null; };
 /** Pagination générique : lit page 1 (déjà chargée) puis `urlOf(p)` tant que des cartes nouvelles arrivent. */
+// ── jetlisting (Regge Autogroep, 09/11) : la liste est paginée en AJAX signé (« /page/N/ » rend toujours les 6 mêmes
+//    voitures, l'appel JetEngine refuse « Invalid query signature »). Lecture par l'API REST WordPress du site
+//    (/wp-json/wp/v2/vehicle : 156 fiches, titre, lien, marque/modèle/énergie/boîte en classes) puis CHAQUE fiche
+//    pour km, année, couleur et prix (champs dynamiques JetEngine, mêmes que sur les cartes).
+async function scrapeJetListing(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const base = url.replace(/\/page\/\d+\/?$/, '').replace(/\/?$/, '/');
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/<div class="jet-listing-grid__item /).slice(1)) {
+      const href = part.match(/data-url="([^"]+)"/)?.[1];
+      if (!href) continue;
+      const id = href.match(/\/(\d+)-[^/]*\/?$/)?.[1] ?? href;
+      if (seen.has(id)) continue;
+      const heads = [...part.matchAll(/<(?:h\d|p) class="elementor-heading-title[^"]*">([\s\S]*?)<\/(?:h\d|p)>/g)].map((m) => htmlText(m[1]));
+      const fields = [...part.matchAll(/jet-listing-dynamic-field__content"\s*>([\s\S]*?)<\/div>/g)].map((m) => htmlText(m[1]));
+      const title = heads[0] ?? '';
+      const version = heads[1] ?? '';
+      if (!title) continue;
+      const kmText = fields.find((f) => /\bkm\b/i.test(f)) ?? null;
+      const year = fields.map(yearOf).find((y) => y != null) ?? null;
+      const fuel = fields.find((f) => /^(elektrisch|benzine|diesel|hybride|plug-?in|lpg|cng|waterstof|hybrid)/i.test(f)) ?? null;
+      const gear = fields.find((f) => /^(automaat|handgeschakeld|automatisch|handmatig)/i.test(f)) ?? null;
+      const priceText = fields.find((f) => /^€/.test(f) && !/p\/m|per maand/i.test(f)) ?? null;
+      const price = euro(priceText);
+      const { brand, model } = splitTitle(title);
+      seen.add(id); added++;
+      out.push({
+        external_id: id, url: href, title: [title, version].filter(Boolean).join(' '), brand, model, price,
+        km: kmOf(kmText), year, fuel, gearbox: gearboxOf(gear), plate: null, vin: null, body: null,
+        image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+        status: /verkocht|gereserveerd/i.test(part) ? 'sold' : price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
+      });
+    }
+    return added;
+  };
+  parse(firstHtml);
+  const warnings: string[] = [];
+  let pages = 1;
+  let declared: number | null = null;
+  // Liste complète par l'API REST du site, puis fiches pour les données chiffrées.
+  type WpPost = { id: number; link: string; title?: { rendered?: string }; class_list?: string[] };
+  const origin = new URL(base).origin;
+  const slugOf = (cls: string[] | undefined, prefix: string) => (cls ?? []).find((c) => c.startsWith(prefix))?.slice(prefix.length).replace(/-/g, ' ') ?? null;
+  const cap = (t: string | null) => (t ? t.replace(/\b\p{L}/gu, (c) => c.toUpperCase()) : null);
+  try {
+    for (let p = 1; p <= 40; p++) {
+      const r = await getTextPatient(`${origin}/wp-json/wp/v2/vehicle?per_page=100&page=${p}&_fields=id,link,title,class_list`);
+      if (r.status !== 200) { if (p > 1 && r.status === 400) break; warnings.push(`API REST du site : HTTP ${r.status} (page ${p})`); break; }
+      if (p === 1) declared = num(r.headers.get('x-wp-total')) ?? null;
+      const posts = JSON.parse(r.text) as WpPost[];
+      if (!Array.isArray(posts) || posts.length === 0) break;
+      pages = p;
+      for (const post of posts) {
+        const id = post.link.match(/\/(\d+)-[^/]*\/?$/)?.[1] ?? String(post.id);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const title = htmlText(post.title?.rendered ?? '');
+        await sleep(150);
+        const d = await getTextPatient(post.link);
+        const fields = d.status === 200 ? [...d.text.matchAll(/jet-listing-dynamic-field__content"\s*>([\s\S]*?)<\/div>/g)].map((m) => htmlText(m[1])) : [];
+        if (d.status !== 200) warnings.push(`fiche ${id} : HTTP ${d.status}`);
+        const kmText = fields.find((f) => /\bkm\b/i.test(f)) ?? null;
+        const year = fields.map(yearOf).find((y) => y != null) ?? null;
+        const priceText = fields.find((f) => /^€/.test(f) && !/p\/m|per maand/i.test(f)) ?? null;
+        const price = euro(priceText);
+        const sp = splitTitle(title);
+        const brand = cap(slugOf(post.class_list, 'merk-')) ?? sp.brand;
+        const model = cap(slugOf(post.class_list, 'model-')) ?? sp.model;
+        const fuel = cap(slugOf(post.class_list, 'brandstof-')) ?? fields.find((f) => /^(elektrisch|benzine|diesel|hybride|plug-?in|lpg|cng|waterstof|hybrid)/i.test(f)) ?? null;
+        const gear = cap(slugOf(post.class_list, 'transmissie-')) ?? fields.find((f) => /^(automaat|handgeschakeld)/i.test(f)) ?? null;
+        out.push({
+          external_id: id, url: post.link, title, brand, model, price, km: kmOf(kmText), year, fuel, gearbox: gearboxOf(gear),
+          plate: null, vin: null, body: cap(slugOf(post.class_list, 'carrosserie-')), image: d.status === 200 ? d.text.match(/<meta property="og:image" content="([^"]+)"/)?.[1] ?? null : null,
+          listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(title),
+        });
+      }
+      if (posts.length < 100) break;
+      await sleep(PAGE_DELAY_MS);
+    }
+  } catch (e) {
+    warnings.push(`API REST du site illisible : ${e instanceof Error ? e.message : String(e)}`);
+  }
+  // Les cartes de la première page ont été lues d'abord (seen) : pour elles, pas de fiche relue → on les garde telles quelles.
+  if (warnings.length > 12) { warnings.length = 12; warnings.push('…'); }
+  return { provider: 'jetlisting', total: out.length, declared, vehicles: out, pages, warnings };
+}
+
 async function paginate(firstHtml: string, parse: (html: string) => number, urlOf: (p: number) => string, opts: { cap?: number; delay?: number; stopWhenShort?: boolean } = {}): Promise<{ pages: number; warnings: string[] }> {
   const warnings: string[] = [];
   let pages = 1;
@@ -2098,6 +2205,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'vehiclelistapi') return scrapeVehicleListApi(url);
   if (provider === 'rswusato') return scrapeRswUsato(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
+  if (provider === 'jetlisting') return scrapeJetListing(url, first.text);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
   if (provider === 'dvapi') return scrapeDvApi(url, first.text);
   if (provider === 'datamotive') return scrapeDatamotive(url, first.text, onProgress);

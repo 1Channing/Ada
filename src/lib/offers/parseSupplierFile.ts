@@ -227,10 +227,23 @@ export function readSupplierGrid(buf: ArrayBuffer): { sheet: string; grid: unkno
 
 const cell = (v: unknown): string => (v == null ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim());
 
+/** Fourchette « A hasta B » / « A - B » / « A à B » / « A to B » / « A bis B » (deux nombres) : borne basse + texte. */
+function splitRange(v: unknown): { lo: number; text: string } | null {
+  if (typeof v !== 'string') return null;
+  const m = v.trim().match(/^([\d][\d\s.,]*)\s*(?:km|€|eur|kms?)?\s*(?:hasta|a|à|-|–|—|to|bis|\/)\s*([\d][\d\s.,]*)\s*(?:km|€|eur|kms?)?$/i);
+  if (!m) return null;
+  const lo = toNumber(m[1]), hi = toNumber(m[2]);
+  if (lo == null || hi == null || hi < lo) return null;
+  return { lo, text: v.trim() };
+}
+
 function toNumber(v: unknown): number | null {
   if (v == null || v === '') return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  const s = String(v).replace(/\s|€| /g, '').replace(/,(?=\d{1,2}$)/, '.').replace(/,/g, '');
+  let s = String(v).replace(/\s|€| /g, '').replace(/,(?=\d{1,2}$)/, '.').replace(/,/g, '');
+  // Points de MILLIERS (« 51.049km », « 13.250€ » — lots espagnols 09/11) : un nombre en groupes de trois chiffres
+  // séparés par des points n'est pas un décimal.
+  if (/^-?\d{1,3}(?:\.\d{3})+[a-z€]*$/i.test(s)) s = s.replace(/\./g, '');
   // Pas un seul chiffre (« AUDI », « n.d. ») = pas un nombre — l'ancienne
   // lecture rendait 0 (constat 07/10 : la marque « AUDI » prise pour 0, la
   // remise en place des colonnes inversées YEAR/MAKE ne se déclenchait pas).
@@ -544,11 +557,14 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
   // et au moins 3 colonnes reconnues. Offre Cupra Raval 21/10 : les valeurs étaient stockées en TEXTE (« 50 »,
   // « 01-12-26 », « 1 »), chaque ligne de voiture passait pour un en-tête → « blocs », 0 véhicule.
   const looksLikeValue = (c: string) => /^[\d\s.,:/-]+$/.test(c.trim());
+  // Liste à 4 colonnes seulement (« tableau_vehicules.xlsx » 09/11 : Marque / Modèle / Kilométrage / Prix) : moins de
+  // 5 intitulés passent quand TOUS sont des colonnes reconnues (au moins 3).
   const isHeaderRow = (r: unknown[]) => {
     const strs = r.filter((c): c is string => typeof c === 'string' && !!c.trim());
-    if (strs.length < 5 || !r.filter((c) => c != null && c !== '').every((c) => typeof c === 'string')) return false;
+    if (strs.length < 3 || !r.filter((c) => c != null && c !== '').every((c) => typeof c === 'string')) return false;
     if (strs.some(looksLikeValue)) return false;
-    return strs.filter((c) => guessField(c) !== 'ignore').length >= 3;
+    const recognized = strs.filter((c) => guessField(c) !== 'ignore').length;
+    return recognized >= 3 && (strs.length >= 5 || recognized === strs.length);
   };
   const knownBrands = Object.keys(knownModelsByBrand).map((b) => b.toUpperCase()).sort((a, b) => b.length - a.length);
   // Titre de bloc : une seule cellule, TOUT en majuscules (« OPEL »), OU qui
@@ -586,7 +602,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
   const headerRows = grid.map((r, i) => (isHeaderRow(r) ? i : -1)).filter((i) => i >= 0);
   const layout: ParsedSupplierFile['layout'] = headerRows.length > 1 ? 'blocks' : 'flat';
   if (headerRows.length === 0) {
-    return { sheet: sheetName, layout, mappings: [], vehicles: [], warnings: ["Aucune ligne d'en-tête reconnue (il faut au moins 5 intitulés de colonnes sur une ligne)."], grid, currency: noCurrency, kmUnit: noUnit };
+    return { sheet: sheetName, layout, mappings: [], vehicles: [], warnings: ["Aucune ligne d'en-tête reconnue (il faut au moins 5 intitulés de colonnes sur une ligne, ou 3 à 4 tous reconnus)."], grid, currency: noCurrency, kmUnit: noUnit };
   }
 
   const mappingsByHeader = new Map<string, ColumnMapping>();
@@ -604,6 +620,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
 
   const rawRegs: unknown[] = [];
   const rawKms: Array<number | null> = [];
+  const rangeRows = new Set<number>();
   for (let i = 0; i < grid.length; i++) {
     const r = grid[i] ?? [];
     if (isBlockTitle(r)) {
@@ -784,6 +801,17 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     // 07/10 : « plusieurs unités par modèle, on ne veut pas 18 pages, juste la
     // même liste ») — l'ancienne lecture dupliquait la ligne N fois.
     const qty = Math.max(1, Math.round(toNumber(rec.quantity) ?? 1));
+    // LOT à FOURCHETTE (« 51.049km hasta 76.659km », « 13.250€ hasta 14.400€ » — tableau_vehicules.xlsx 09/11, lots
+    // espagnols) : la borne BASSE est retenue, la fourchette entière reste visible en extras.
+    for (const [f, label] of [['km', 'Fourchette km'], ['price_ht', 'Fourchette prix'], ['price_ttc', 'Fourchette prix']] as const) {
+      const rg = splitRange(rec[f]);
+      if (rg) { extras[label] = rg.text; rec[f] = rg.lo; rangeRows.add(i); }
+    }
+    // Millésime en tête de la désignation (« 2025 C4X HYBRID 136… ») sans colonne année : lu, puis retiré du libellé.
+    if (rec.year == null && !rec.reg_date) {
+      const m = versionLine.match(/^((?:19|20)\d{2})\s+(.+)$/);
+      if (m) { rec.year = m[1]; versionLine = m[2]; if (/^(?:19|20)\d{2}\b/.test(model)) model = guessModel(brand, m[2], known); }
+    }
     const yearCol = toNumber(rec.year);
     const km = toNumber(rec.km);
     rawKms.push(km);
@@ -824,6 +852,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     });
   }
   checkUnits();
+  if (rangeRows.size) warnings.push(`${rangeRows.size} ligne(s) sont des lots à fourchette (km ou prix « de … à … ») : borne basse retenue, fourchette gardée en colonne « Fourchette km / prix ».`);
   if (sheetLocation) for (const v of vehicles) if (!v.location) v.location = sheetLocation;
   if (vehicles.length === 0) warnings.push('Aucune ligne de véhicule lue sous les en-têtes reconnus.');
   const noPrice = vehicles.filter((v) => v.price_ht == null && v.price_ttc == null).length;
