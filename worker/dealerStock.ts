@@ -196,6 +196,10 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // Avant datamotive : ces pages portent AUSSI un JSON-LD ItemList, mais aux
   // prix de leasing mensuels (Wassink 06/10 : « 554 € » pour une 308).
   if (/window\.dtcVm\.initialHits\s*=\s*\{/.test(html)) return 'dtcvm';
+  // dtcvm « next » (Kooijman Autogroep, 09/11) : même plateforme (plugin voorraad de Powerkraut), mais la page
+  // /occasion-voorraad/ est rendue par Vue dans <div id="nextVoorraad"> sans initialHits ; ses filtres sont dans
+  // window.dtcVm.seoListingFilters → le lecteur relit la page classique /voorraad/ avec ces filtres.
+  if (/id="nextVoorraad"/.test(html) && /window\.dtcVm\.seoListingFilters\s*=/.test(html)) return 'dtcvm';
   // Cartes HTML à attributs data-* (raevhede.dk 06/10 : <a class="car-card"
   // data-make data-model data-year data-price data-km …>, tout le stock sur
   // une page, filtres côté client).
@@ -570,10 +574,34 @@ function dtcHitToVehicle(h: DtcHit): DealerVehicle | null {
     status,
   };
 }
+/** Filtres de la page « next » (window.dtcVm.seoListingFilters, JSON dans une chaîne JS) → paramètres de /voorraad/. */
+function dtcNextFilters(html: string): string | null {
+  const m = html.match(/window\.dtcVm\.seoListingFilters\s*=\s*JSON\.parse\('([^']*)'\)/);
+  if (!m) return null;
+  try {
+    const f = JSON.parse(m[1].replace(/\\'/g, "'")) as Record<string, unknown>;
+    const parts: string[] = [];
+    for (const [k, v] of Object.entries(f)) {
+      if (Array.isArray(v)) for (const x of v) parts.push(`${encodeURIComponent(k)}[]=${encodeURIComponent(String(x))}`);
+      else if (v != null && v !== '') parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+    }
+    return parts.join('&');
+  } catch { return null; }
+}
+
 async function scrapeDtcVm(url: string, firstHtml: string): Promise<DealerStockResult> {
   const warnings: string[] = [];
   const out: DealerVehicle[] = [];
   const seen = new Set<string>();
+  // Page « next » sans initialHits (Kooijman, 09/11) : on relit la page classique /voorraad/ avec les mêmes filtres.
+  if (!/window\.dtcVm\.initialHits\s*=/.test(firstHtml) && /id="nextVoorraad"/.test(firstHtml)) {
+    const filters = dtcNextFilters(firstHtml);
+    const classic = `${new URL(url).origin}/voorraad/${filters ? `?${filters}` : ''}`;
+    const r = await getTextPatient(classic);
+    if (r.status !== 200 || !/window\.dtcVm\.initialHits\s*=/.test(r.text)) return { provider: 'dtcvm', total: null, declared: null, vehicles: [], pages: 1, warnings: [`page classique ${classic} illisible (HTTP ${r.status})`] };
+    warnings.push(`vitrine « next » : lue par la page classique ${classic}`);
+    url = classic; firstHtml = r.text;
+  }
   const first = parseDtcVm(firstHtml);
   if (!first) return { provider: 'dtcvm', total: null, declared: null, vehicles: [], pages: 1, warnings: ['bloc dtcVm.initialHits illisible'] };
   const total = first.total;
