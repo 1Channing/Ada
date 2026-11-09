@@ -24,6 +24,7 @@ import type { DimensionRow } from '../services/marketData';
 import type { MarketData, MarketFilters, Observation, Snapshot, KnownDimensions } from '../services/marketData';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import { BODY_TYPES, bodyLabel, canonicalizeBody } from '../lib/study-core/bodyTypes';
+import { FycView } from './Fyc';
 import { getRefWindowsCached, findRefWindow } from '../services/vehicleRef';
 import type { RefWindowMap, RefWindow } from '../services/vehicleRef';
 import { OpportunityAlerts } from '../components/OpportunityAlerts';
@@ -203,6 +204,12 @@ export function MarketIntelligence() {
   const [data, setData] = useState<MarketData>({ snapshots: [], observations: [] });
   const [loading, setLoading] = useState(true);
   const [studies, setStudies] = useState<MarketFilters[]>(loadStudies);
+  // SWITCH « MI | FYC » (10/11, Channing) : les deux vues restent montées, rien ne disparaît en basculant.
+  const [view, setView] = useState<'mi' | 'fyc'>(() => { try { return sessionStorage.getItem('ada_mi_view') === 'fyc' ? 'fyc' : 'mi'; } catch { return 'mi'; } });
+  useEffect(() => { try { sessionStorage.setItem('ada_mi_view', view); } catch { /* rien */ } }, [view]);
+  // FYC → MI : « Voir dans le MI » pose les filtres de l'inspection comme étude unique et lance la recherche.
+  const launchAfterApply = useRef(false);
+  const openMarketFromFyc = (f: MarketFilters) => { setStudies([{ ...f }]); setActiveIdx(0); launchAfterApply.current = true; setView('mi'); window.scrollTo({ top: 0 }); };
   // RECHERCHES SAUVEGARDÉES (08/10, Channing) : le jeu d'études courant (pays
   // + tous les filtres) enregistré sous un nom, partagé par l'équipe ; onglet
   // « Recherches sauvegardées », cœur = favori, suppression.
@@ -279,6 +286,7 @@ export function MarketIntelligence() {
   };
   useEffect(() => { refresh(); }, []);
   useEffect(() => { try { sessionStorage.setItem(STUDIES_KEY, JSON.stringify(studies)); } catch { /* ignore */ } }, [studies]);
+  useEffect(() => { if (launchAfterApply.current) { launchAfterApply.current = false; void updateStudy(0); } }, [studies]); // eslint-disable-line react-hooks/exhaustive-deps
   // Keep-alive (étage 3) : « Inspecter » un écart depuis une autre page ne
   // remonte plus le composant — l'événement applique les études déposées.
   useEffect(() => {
@@ -652,6 +660,19 @@ export function MarketIntelligence() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      {/* SWITCH MI | FYC (10/11) */}
+      <div className="inline-flex rounded-xl border border-slate-300 bg-white p-1 gap-1">
+        <button onClick={() => setView('mi')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${view === 'mi' ? 'bg-brand-ocean text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Market Intelligence</button>
+        <button onClick={() => setView('fyc')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${view === 'fyc' ? 'bg-brand-ocean text-white' : 'text-slate-600 hover:bg-slate-100'}`} title="Find Your Customer : une inspection comparée au marché et à un client cible">FYC · Find Your Customer</button>
+      </div>
+      <div className={view === 'fyc' ? '' : 'hidden'}>
+        <div className="mb-5">
+          <h1 className="text-2xl font-bold flex items-center gap-3"><LineIcon className="w-6 h-6 text-blue-500" /> Find Your Customer</h1>
+          <p className="text-slate-600 mt-1 text-sm">Une inspection, notre prix d'attaque, face au marché cible et au stock d'un client.</p>
+        </div>
+        <FycView onOpenMarket={openMarketFromFyc} />
+      </div>
+      <div className={view === 'mi' ? 'space-y-6' : 'hidden'}>
       <div className="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-3"><LineIcon className="w-6 h-6 text-blue-500" /> Market Intelligence</h1>
@@ -896,6 +917,7 @@ export function MarketIntelligence() {
             : <SingleStudyView study={perStudy[0]} filters={active} priceBand={priceBand} setPriceBand={setPriceBand} />}
         </>
       )}
+      </div>
     </div>
   );
 }

@@ -23,6 +23,7 @@ import { startLegalWatchCollector } from './legalWatchCollector';
 import { startMailer } from './mailer';
 import { startReminderMailer } from './reminderMailer';
 import { startSiteLeads } from './siteLeads';
+import { startFyc } from './fyc';
 import { registerAgentRoutes, startAgents } from './agents';
 import { aiStatus } from './agents/claude';
 import { runDealerStock, failStaleStockRuns } from './dealerStock';
@@ -730,6 +731,7 @@ app.listen(PORT, "0.0.0.0", () => {
     startReminderMailer();
     // Demandes du site mc-export.com : un rappel dans la cloche pour chacune — 25/10.
     startSiteLeads();
+    startFyc();
     // Boîtes d'Ada et Dana (16/10) : envois validés et synchro Gmail.
     startAgents();
     // Preuve de marché modèle × carburant : première moisson dès que la
