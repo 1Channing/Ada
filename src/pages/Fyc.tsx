@@ -16,7 +16,7 @@ import { ClipboardList, ExternalLink, FileDown, Loader2, RefreshCw, Trash2, Sear
 import { useAuth } from '../services/auth';
 import { listInspections, addInspections, updateInspection, deleteInspection, retryInspection, readInspection, filtersFromInspection, type FycInspection } from '../services/fyc';
 import { damageSummary } from '../lib/fycReport';
-import { loadObservationsForStudy, latestPerListing, priceStats, canonKey, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type GearboxToken } from '../services/marketData';
+import { loadObservationsForStudy, latestPerListing, priceStats, attackPrice as miAttackPrice, canonKey, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type GearboxToken } from '../services/marketData';
 import { BODY_TYPES } from '../lib/study-core/bodyTypes';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import { loadNetwork, type NetworkContact } from '../services/network';
@@ -157,7 +157,7 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
   const [purchase, setPurchase] = useState(insp.purchase_price != null ? String(insp.purchase_price) : '');
   const [attack, setAttack] = useState(insp.attack_price != null ? String(insp.attack_price) : '');
   const [notes, setNotes] = useState(insp.notes);
-  const attackPrice = Number(attack.replace(/[^\d.]/g, '')) || null;
+  const typedAttack = Number(attack.replace(/[^\d.]/g, '')) || null;
   const saveNum = async (field: 'purchase_price' | 'attack_price', v: string) => { const n = Number(v.replace(/[^\d.]/g, '')); await updateInspection(insp.id, { [field]: v.trim() === '' || !Number.isFinite(n) ? null : n }); await onChanged(); };
 
   // ── Filtres MI : tous modifiables, gardés sur l'inspection.
@@ -204,13 +204,21 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
     // sans comparable, sur toutes les annonces filtrées.
     const base = comp.length ? comp : latest;
     const baseStats = comp.length ? compStats : stats;
+    // PRIX D'ATTAQUE DU MI (10/11 soir, Channing : « que le prix d'attaque s'affiche en fonction du MI ») : la règle
+    // du Market Intelligence (médiane de la tranche basse des annonces) appliquée aux comparables.
+    const mi = miAttackPrice(base);
+    const effective = typedAttack ?? mi?.price ?? null;
     const priced = base.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0).sort((a, b) => a - b);
-    const below = attackPrice != null ? priced.filter((p) => p < attackPrice).length : 0;
-    const pct = attackPrice != null && priced.length ? Math.round((below / priced.length) * 100) : null;
+    const below = effective != null ? priced.filter((p) => p < effective).length : 0;
+    const pct = effective != null && priced.length ? Math.round((below / priced.length) * 100) : null;
     const lastScan = latest.reduce<string | null>((m, o) => (!m || o.scraped_at > m ? o.scraped_at : m), null);
-    const position = attackPrice == null ? 'prix d\'attaque non saisi' : pct == null ? 'pas d\'annonce avec prix' : pct === 0 ? `sous ${comp.length ? 'tous les comparables' : 'toutes les annonces'}` : `${pct} % ${comp.length ? 'des comparables' : 'des annonces'} sont moins chers`;
-    return { latest, stats, comp, compStats, baseStats, usingComparables: comp.length > 0, pct, lastScan, position, cheapest: [...base].filter((o) => o.price).sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 5) };
-  }, [obs, filtersKey, attackPrice, insp.year, insp.km]); // eslint-disable-line react-hooks/exhaustive-deps
+    const position = effective == null ? 'pas d\'annonce avec prix' : pct == null ? 'pas d\'annonce avec prix' : pct === 0 ? `sous ${comp.length ? 'tous les comparables' : 'toutes les annonces'}` : `${pct} % ${comp.length ? 'des comparables' : 'des annonces'} sont moins chers`;
+    return { latest, stats, comp, compStats, baseStats, usingComparables: comp.length > 0, mi, effective, pct, lastScan, position, cheapest: [...base].filter((o) => o.price).sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 5) };
+  }, [obs, filtersKey, typedAttack, insp.year, insp.km]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** Le prix d'attaque EFFECTIF : saisi, sinon celui que le MI calcule sur les comparables. */
+  const attackPrice = typedAttack ?? market?.mi?.price ?? null;
+  const attackFromMi = typedAttack == null && market?.mi != null;
+  const takeMiPrice = async () => { if (!market?.mi) return; setAttack(String(market.mi.price)); await updateInspection(insp.id, { attack_price: market.mi.price }); await onChanged(); };
 
   // ── Client cible : vitrines lues seulement.
   const [contacts, setContacts] = useState<NetworkContact[]>([]);
@@ -264,7 +272,12 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
           <label className="block text-xs text-slate-600">Prix d'achat (€)<input value={purchase} onChange={(e) => setPurchase(e.target.value)} onBlur={() => void saveNum('purchase_price', purchase)} placeholder="ex. 17 500" className={`${inp} mt-1 text-right`} /></label>
-          <label className="block text-xs text-slate-600">Prix d'attaque (€) <span className="text-slate-400">— notre prix face au marché</span><input value={attack} onChange={(e) => setAttack(e.target.value)} onBlur={() => void saveNum('attack_price', attack)} placeholder="ex. 23 900" className={`${inp} mt-1 text-right font-semibold`} /></label>
+          <label className="block text-xs text-slate-600">Prix d'attaque (€) <span className="text-slate-400">— notre prix face au marché</span>
+            <div className="mt-1 flex items-center gap-1.5">
+              <input value={attack} onChange={(e) => setAttack(e.target.value)} onBlur={() => void saveNum('attack_price', attack)} placeholder={market?.mi ? `MI : ${fmtNum(market.mi.price)}` : 'ex. 23 900'} className={`${inp} text-right font-semibold`} />
+              {market?.mi && <button type="button" onClick={() => void takeMiPrice()} title={`Reprendre le prix d'attaque calculé par le MI (${fmtEur(market.mi.price)}, sur les ${market.mi.window} annonces les moins chères)`} className="shrink-0 text-xs px-2 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 whitespace-nowrap">← MI {fmtEur(market.mi.price)}</button>}
+            </div>
+          </label>
           <label className="block text-xs text-slate-600 lg:col-span-2">Notes<input value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={async () => { await updateInspection(insp.id, { notes }); }} placeholder="remise en état, transport, remarque…" className={`${inp} mt-1`} /></label>
         </div>
         <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-700">
@@ -302,7 +315,7 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
           <>
             <div className="grid sm:grid-cols-2 gap-3">
               <Tile label={`Comparables · ${COUNTRY_NAMES[filters.country ?? ''] ?? filters.country} (année ±1, km ±30 %)`} value={String(market.comp.length)} hint={market.compStats.count ? `de ${fmtEur(market.compStats.min)} à ${fmtEur(market.compStats.max)} · P25–P75 ${fmtEur(market.compStats.p25)} – ${fmtEur(market.compStats.p75)}${market.lastScan ? ` · scan ${fmtDate(market.lastScan)}` : ''}` : `aucun comparable, ${market.stats.count} annonces filtrées${market.lastScan ? ` · scan ${fmtDate(market.lastScan)}` : ''}`} />
-              <Tile label="Notre prix d'attaque" value={fmtEur(attackPrice)} hint={market.position} strong />
+              <Tile label={attackFromMi ? 'Prix d\'attaque proposé par le MI' : 'Notre prix d\'attaque'} value={fmtEur(attackPrice)} hint={`${market.position}${attackFromMi && market.mi ? ` · règle MI sur les ${market.mi.window} moins chères — saisis le tien pour le remplacer` : !attackFromMi && market.mi ? ` · le MI proposerait ${fmtEur(market.mi.price)}` : ''}`} strong />
             </div>
             {attackPrice != null && market.baseStats.count > 0 && (
               <div className="relative h-12 rounded-lg bg-slate-50 border border-slate-200" title={market.usingComparables ? 'Les comparables, du moins cher au plus cher' : 'Toutes les annonces filtrées'}>
@@ -340,7 +353,7 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
                 <Tile label={`${client.name} · stock relevé`} value={fmtNum(runs.get(client.id)?.total)} hint={`le ${fmtDate(runs.get(client.id)?.at)}`} />
                 <Tile label={`${car} en stock`} value={String(clientRows.length)} hint={clientRows.length ? `de ${fmtEur(clientMin)} à ${fmtEur(clientPrices[clientPrices.length - 1])}` : 'aucun exemplaire'} />
                 <Tile label="Leur prix le plus bas / médiane" value={fmtEur(clientMin)} hint={`médiane ${fmtEur(clientMedian)}`} />
-                <Tile label="Notre prix d'attaque" value={fmtEur(attackPrice)} hint={attackPrice != null && clientMin != null ? (attackPrice < clientMin ? `${Math.round(((clientMin - attackPrice) / clientMin) * 100)} % sous leur prix le plus bas` : `${Math.round(((attackPrice - clientMin) / clientMin) * 100)} % au-dessus de leur prix le plus bas`) : clientRows.length ? 'prix d\'attaque non saisi' : 'pas de comparable chez lui'} strong />
+                <Tile label={attackFromMi ? 'Prix d\'attaque proposé par le MI' : 'Notre prix d\'attaque'} value={fmtEur(attackPrice)} hint={attackPrice != null && clientMin != null ? (attackPrice < clientMin ? `${Math.round(((clientMin - attackPrice) / clientMin) * 100)} % sous leur prix le plus bas` : `${Math.round(((attackPrice - clientMin) / clientMin) * 100)} % au-dessus de leur prix le plus bas`) : attackPrice == null ? 'ni saisi, ni calculable (pas d\'annonce en base)' : 'pas de comparable chez lui'} strong />
               </div>
               {clientRows.length > 0 && (
                 <div className="overflow-x-auto">
