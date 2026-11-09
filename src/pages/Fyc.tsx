@@ -12,9 +12,9 @@
  * Export PDF à la charte (src/lib/fycPdf.ts).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ClipboardList, ExternalLink, FileDown, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore } from 'lucide-react';
+import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listInspections, addInspections, updateInspection, deleteInspection, retryInspection, readInspection, filtersFromInspection, type FycInspection } from '../services/fyc';
+import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, readInspection, filtersFromInspection, type FycInspection } from '../services/fyc';
 import { damageSummary } from '../lib/fycReport';
 import { loadObservationsForStudy, latestPerListing, priceStats, attackPrice as miAttackPrice, canonKey, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type GearboxToken } from '../services/marketData';
 import { BODY_TYPES } from '../lib/study-core/bodyTypes';
@@ -83,6 +83,16 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
   // archive ; un clic sur une ligne rouvre tout le FYC du dossier »).
   const [tab, setTab] = useState<'current' | 'archives'>('current');
   const shown = rows.filter((r) => (tab === 'archives') === !!r.archived_at);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const addFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setAdding(true); setNotice(null);
+    let ok = 0; let last: string | null = null;
+    for (const f of Array.from(files)) { const r = await addInspectionFile(f); if (r.error) last = r.error; else { ok++; last = null; } }
+    setAdding(false);
+    setNotice(last ? last : `${ok} fichier${ok > 1 ? 's' : ''} déposé${ok > 1 ? 's' : ''} — lecture en cours.`);
+    await reload();
+  };
   const selected = rows.find((r) => r.id === selectedId) ?? shown[0] ?? null;
   const archive = async (r: FycInspection, on: boolean) => { await updateInspection(r.id, { archived_at: on ? new Date().toISOString() : null }); await reload(); };
 
@@ -95,12 +105,14 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
             <button onClick={() => setTab('current')} className={`px-2.5 py-1 rounded-md ${tab === 'current' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Inspections en cours · {rows.filter((r) => !r.archived_at).length}</button>
             <button onClick={() => setTab('archives')} className={`px-2.5 py-1 rounded-md flex items-center gap-1 ${tab === 'archives' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Archive className="w-3.5 h-3.5" /> Archives · {rows.filter((r) => !!r.archived_at).length}</button>
           </div>
-          <span className="text-xs text-slate-500">{tab === 'current' ? 'Colle un lien de rapport (VTI / Macadam), ou plusieurs, un par ligne. Ada télécharge le rapport et en sort la voiture.' : 'Les dossiers archivés : un clic sur une ligne rouvre tout le FYC (prix, marché, client).'}</span>
+          <span className="text-xs text-slate-500">{tab === 'current' ? 'Colle un lien de rapport (VTI / Macadam), un par ligne, ou dépose le fichier du rapport (PDF, export .docx de VWFS). Ada en sort la voiture.' : 'Les dossiers archivés : un clic sur une ligne rouvre tout le FYC (prix, marché, client).'}</span>
           <button onClick={() => void reload()} className="ml-auto text-xs text-brand-ocean hover:underline flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" /> Actualiser</button>
         </div>
         {tab === 'current' && <div className="flex gap-2 items-start flex-wrap">
           <textarea value={addText} onChange={(e) => setAddText(e.target.value)} rows={2} placeholder="https://admin.vti-easi.eu/reportviewer/…" className={`${inp} flex-1 min-w-[320px] font-mono text-xs`} />
           <button onClick={() => void add()} disabled={adding || !addText.trim()} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardList className="w-4 h-4" />} Lire les rapports</button>
+          <input ref={fileInput} type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple className="hidden" onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }} />
+          <button onClick={() => fileInput.current?.click()} disabled={adding} title="Un rapport exporté en fichier : PDF, ou .docx (export GIS@WEB de VWFS)" className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"><FileUp className="w-4 h-4" /> Déposer un fichier (PDF, DOCX)</button>
         </div>}
         {notice && <p className="text-xs text-slate-600">{notice}</p>}
         {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
@@ -133,7 +145,7 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
                       <td className="py-2 pr-3 text-right tabular-nums font-semibold text-slate-900">{fmtEur(r.attack_price)}</td>
                       <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{r.created_by_name || '—'}<br />{fmtDate(r.created_at)}</td>
                       <td className="py-2 text-right whitespace-nowrap">
-                        <a href={r.source_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Ouvrir le rapport" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><ExternalLink className="w-4 h-4" /></a>
+                        {/^https?:/.test(r.source_url) && <a href={r.source_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Ouvrir le rapport" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><ExternalLink className="w-4 h-4" /></a>}
                         {r.status === 'failed' && <button onClick={async (e) => { e.stopPropagation(); await retryInspection(r.id); await reload(); }} title="Réessayer" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><RefreshCw className="w-4 h-4" /></button>}
                         <button onClick={(e) => { e.stopPropagation(); void archive(r, !r.archived_at); }} title={r.archived_at ? 'Remettre en cours' : 'Archiver'} className="inline-flex p-1 text-slate-400 hover:text-brand-ocean">{r.archived_at ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}</button>
                         <button onClick={async (e) => { e.stopPropagation(); if (!confirm('Supprimer cette inspection de FYC ?')) return; await deleteInspection(r.id); if (selectedId === r.id) setSelectedId(null); await reload(); }} title="Supprimer" className="inline-flex p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
@@ -281,7 +293,7 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }:
           <label className="block text-xs text-slate-600 lg:col-span-2">Notes<input value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={async () => { await updateInspection(insp.id, { notes }); }} placeholder="remise en état, transport, remarque…" className={`${inp} mt-1`} /></label>
         </div>
         <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-700">
-          <p><span className="text-slate-500">Rapport : </span>n° {insp.report_number ?? '—'} du {fmtDate(insp.report_date)} · <a href={insp.source_url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline">ouvrir</a></p>
+          <p><span className="text-slate-500">Rapport : </span>{insp.report_number ? `n° ${insp.report_number} du ${fmtDate(insp.report_date)}` : insp.source_url.replace(/^fichier:/, '')}{/^https?:/.test(insp.source_url) && <> · <a href={insp.source_url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline">ouvrir</a></>}{insp.asking_price != null && <> · <span className="text-slate-500">prix demandé par la plateforme : </span>{fmtEur(insp.asking_price)}</>}{insp.repair_cost != null && <> · <span className="text-slate-500">remise en état chiffrée : </span>{fmtEur(insp.repair_cost)}</>}</p>
           <p><span className="text-slate-500">VIN : </span>{insp.vin ?? '—'} · <span className="text-slate-500">1re immat. : </span>{fmtDate(insp.first_registration)}</p>
           <p><span className="text-slate-500">Dévaluation : </span>{insp.damages.devaluation.length ? insp.damages.devaluation.map((d) => d.raw).join(' ; ') : 'rien'}</p>
           <p><span className="text-slate-500">Usage : </span>{insp.damages.usage.length ? insp.damages.usage.map((d) => d.raw).join(' ; ') : 'rien'}{insp.repainted ? ' · repeinte' : ''}</p>

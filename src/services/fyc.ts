@@ -11,6 +11,8 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
 import { signedUrl } from './storageAccess';
 import { pdfToLinesEx } from '../lib/pdfText';
+import { docxToLines } from '../lib/docxText';
+import { ADMIN_BUCKET } from './storageAccess';
 import { parseFycReport, type FycReportFields } from '../lib/fycReport';
 import type { MarketFilters } from './marketData';
 
@@ -39,6 +41,8 @@ function normalize(r: Record<string, unknown>): FycInspection {
     archived_at: (r.archived_at as string | null | undefined) ?? null,
     market_filters: (r.market_filters ?? {}) as MarketFilters,
     notes: typeof r.notes === 'string' ? r.notes : '',
+    asking_price: r.asking_price == null ? null : Number(r.asking_price),
+    repair_cost: r.repair_cost == null ? null : Number(r.repair_cost),
     purchase_price: r.purchase_price == null ? null : Number(r.purchase_price),
     attack_price: r.attack_price == null ? null : Number(r.attack_price),
   };
@@ -80,17 +84,36 @@ export async function retryInspection(id: string): Promise<string | null> {
   return error ? error.message : null;
 }
 
-/** Le PDF est dans le storage (worker) : le navigateur en lit les champs et les enregistre. */
+/** DÉPÔT D'UN FICHIER (10/11 soir, Channing : « ajouter un docx à la place d'une URL ») : PDF ou .docx (export GIS@WEB
+ *  de VWFS) rangé dans le storage, ligne « fetched » lue aussitôt par le navigateur — le worker n'intervient pas. */
+export async function addInspectionFile(file: File): Promise<{ id: string | null; error: string | null }> {
+  const ext = /\.docx$/i.test(file.name) ? 'docx' : /\.pdf$/i.test(file.name) ? 'pdf' : null;
+  if (!ext) return { id: null, error: 'Fichier PDF ou .docx seulement.' };
+  if (file.size > 40_000_000) return { id: null, error: 'Fichier trop lourd (40 Mo au plus).' };
+  const { userId, displayName, email } = useAuth.getState();
+  const id = crypto.randomUUID();
+  const path = `fyc/${id}.${ext}`;
+  const up = await supabase.storage.from(ADMIN_BUCKET).upload(path, file, { contentType: ext === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', upsert: true });
+  if (up.error) return { id: null, error: `Dépôt en échec : ${up.error.message}` };
+  const { error } = await untyped.from('fyc_inspections').insert({ id, source_url: `fichier:${file.name}`, status: 'fetched', pdf_path: path, created_by: userId, created_by_name: displayName || email || '' });
+  if (error) return { id: null, error: missing(error.message) ? FYC_SQL_HINT : error.message };
+  return { id, error: null };
+}
+
+/** Le rapport est dans le storage (worker, ou dépôt direct) : le navigateur en lit les champs et les enregistre. */
 export async function readInspection(row: FycInspection): Promise<string | null> {
   if (!row.pdf_path) return 'PDF absent';
   try {
     const res = await fetch(await signedUrl(row.pdf_path));
-    if (!res.ok) throw new Error(`PDF illisible (HTTP ${res.status})`);
+    if (!res.ok) throw new Error(`fichier illisible (HTTP ${res.status})`);
     const blob = await res.blob();
-    const { lines } = await pdfToLinesEx(blob);
+    const lines = /\.docx$/i.test(row.pdf_path) ? await docxToLines(blob) : (await pdfToLinesEx(blob)).lines;
     const fields = parseFycReport(lines);
     if (!fields.brand && !fields.vin) throw new Error('rapport lu mais sans marque ni VIN : format inconnu');
-    const { error } = await untyped.from('fyc_inspections').update({ ...fields, status: 'read', error: null, updated_at: new Date().toISOString() }).eq('id', row.id);
+    // Prix demandé par la plateforme (VWFS) : proposé comme prix d'achat tant qu'aucun n'est saisi.
+    const patch: Record<string, unknown> = { ...fields, status: 'read', error: null, updated_at: new Date().toISOString() };
+    if (row.purchase_price == null && fields.asking_price != null) patch.purchase_price = fields.asking_price;
+    const { error } = await untyped.from('fyc_inspections').update(patch).eq('id', row.id);
     return error ? error.message : null;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -36,6 +36,8 @@ create table if not exists public.fyc_inspections (
   equipment jsonb not null default '[]'::jsonb,
   tyres jsonb not null default '[]'::jsonb,
   raw_fields jsonb not null default '{}'::jsonb,
+  asking_price numeric,
+  repair_cost numeric,
   purchase_price numeric,
   attack_price numeric,
   notes text not null default '',
@@ -51,6 +53,8 @@ create table if not exists public.fyc_inspections (
 alter table public.fyc_inspections add column if not exists equipment jsonb not null default '[]'::jsonb;
 alter table public.fyc_inspections add column if not exists tyres jsonb not null default '[]'::jsonb;
 alter table public.fyc_inspections add column if not exists archived_at timestamptz;
+alter table public.fyc_inspections add column if not exists asking_price numeric;
+alter table public.fyc_inspections add column if not exists repair_cost numeric;
 create index if not exists fyc_inspections_status_idx on public.fyc_inspections (status, created_at);
 alter table public.fyc_inspections enable row level security;
 drop policy if exists fyc_inspections_team on public.fyc_inspections;
