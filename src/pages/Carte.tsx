@@ -77,7 +77,7 @@ export function Carte() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // STOCK DE LA VITRINE (30/09) : fenêtre avec les voitures relevées et le diff.
   // VITRINE (03/11) : une seule fenêtre par contact — stock, comparer, analyse, relevés, marché en direct.
-  const [showcaseFor, setShowcaseFor] = useState<{ id: string; name: string; url: string | null; country: string | null; frequency: 'daily' | 'weekly' | 'off' | null } | null>(null);
+  const [showcaseFor, setShowcaseFor] = useState<{ id: string; name: string; url: string | null; country: string | null; frequency: 'daily' | 'weekly' | 'off' | null; unreadable: string | null } | null>(null);
   const [hoverCountry, setHoverCountry] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'tous' | ContactRole>('tous');
@@ -536,8 +536,8 @@ export function Carte() {
         {editing ? (
           <ContactForm value={editing} models={editModels} onChange={setEditing} onModels={setEditModels} onPlace={() => setPlacing('form')} onCancel={() => { setEditing(null); setPlacing(null); }} onSubmit={submit} busy={busy} />
         ) : selected ? (<>
-          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, country: selected.country, frequency: selected.stock_frequency ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
-          {showcaseFor && <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.url} country={showcaseFor.country} frequency={showcaseFor.frequency} onClose={() => { setShowcaseFor(null); void reload(); }} />}
+          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, country: selected.country, frequency: selected.stock_frequency ?? null, unreadable: selected.showcase_unreadable ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
+          {showcaseFor && <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.url} country={showcaseFor.country} frequency={showcaseFor.frequency} unreadable={showcaseFor.unreadable} onClose={() => { setShowcaseFor(null); void reload(); }} />}
         </>) : (
           <>
             <div className="p-4 border-b border-slate-100 space-y-3">
@@ -695,8 +695,15 @@ const LandLayer = memo(function LandLayer({ paths, activeIso, onHover }: {
  * DÉCLARATION (stock_total saisi à la main) — jamais le même mot pour les
  * deux. Rien sans donnée.
  */
-function StockFigure({ c, run, chip, scanning }: { c: { stock_total: number | null }; run?: LatestStockRun; chip?: boolean; scanning?: boolean }) {
+function StockFigure({ c, run, chip, scanning }: { c: { stock_total: number | null; showcase_unreadable?: string | null }; run?: LatestStockRun; chip?: boolean; scanning?: boolean }) {
   // INDICATEUR DE RELEVÉ ACTIF (01/10) : visible depuis la liste et la fiche,
+  // VITRINE NON LISIBLE (09/11 soir) : le signal prime sur tout le reste, la raison au survol.
+  if (c.showcase_unreadable) {
+    const title = `Vitrine non lisible par Ada : ${c.showcase_unreadable}`;
+    return chip
+      ? <span title={title} className="text-[11px] bg-orange-50 text-orange-800 border border-orange-300 rounded-full px-2 py-0.5">⚠ vitrine non lisible</span>
+      : <><span>·</span><span title={title} className="text-orange-700 font-medium">⚠ vitrine non lisible</span></>;
+  }
   // fenêtre fermée ou page rechargée, tant que le worker n'a pas fini.
   if (scanning) {
     const text = 'relevé en cours…';
@@ -741,6 +748,7 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
     ['Véhicules', c.vehicle_types], ['Volume mensuel', c.monthly_volume], ['Opportunité', c.opportunity],
     ['Marge potentielle', c.margin], ['Fiabilité', c.reliability],
     ['Relevé auto', c.website ? ({ daily: 'quotidien (1 h)', weekly: 'hebdomadaire', off: 'arrêté' } as Record<string, string>)[c.stock_frequency ?? 'daily'] : ''],
+    ['Vitrine', c.showcase_unreadable ? `⚠ non lisible par Ada — ${c.showcase_unreadable}` : ''],
   ].filter((r): r is [string, string] => Boolean(r[1]));
   return (
     <div className="flex flex-col h-full">

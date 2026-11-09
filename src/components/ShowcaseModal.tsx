@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink, RefreshCw, X, Loader2, BarChart3, Scale, Boxes, ListChecks, Radar, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Info } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listStockRuns, listStockVehicles, STATUS_LABEL, priceMoves, startDealerScan, isDealerScanning, subscribeDealerScans, takeDealerScanOutcome, type StockRun, type StockVehicle } from '../services/dealerStock';
+import { listStockRuns, listStockVehicles, STATUS_LABEL, priceMoves, startDealerScan, isDealerScanning, subscribeDealerScans, takeDealerScanOutcome, setShowcaseUnreadable, type StockRun, type StockVehicle } from '../services/dealerStock';
 import { toEur, loadFxRates } from '../services/fxRates';
 import { fmtMoney } from '../lib/fx';
 import { FUEL_LABEL, compareStock, commonModels, loadOurOffers, loadOurSales, theirsFuelTrim, SALES_THRESHOLD_EUR, OFFERS_THRESHOLD_EUR, KM_TOLERANCE, type FuelFamily, type OurVehicle, type KnownModels } from '../services/stockCompare';
@@ -34,8 +34,8 @@ const STOCK_SORT_LABEL: Record<StockSort, string> = { date_desc: 'Date d\'ajout 
 type Freq = 'daily' | 'weekly' | 'off';
 const FREQ_LABEL: Record<Freq, string> = { daily: 'quotidien (1 h)', weekly: 'hebdomadaire', off: 'arrêté' };
 
-export function ShowcaseModal({ contactId, name, url, country, frequency, onClose, onFrequencyChange }: {
-  contactId: string; name: string; url: string | null; country?: string | null; frequency?: Freq | null; onClose: () => void; onFrequencyChange?: (f: Freq) => void;
+export function ShowcaseModal({ contactId, name, url, country, frequency, unreadable, onClose, onFrequencyChange }: {
+  contactId: string; name: string; url: string | null; country?: string | null; frequency?: Freq | null; unreadable?: string | null; onClose: () => void; onFrequencyChange?: (f: Freq) => void;
 }) {
   const { displayName, email } = useAuth();
   const [tab, setTab] = useState<Tab>('stock');
@@ -214,6 +214,22 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
     setLocalScan(true);
     setTab('runs');
   };
+  // Signal « vitrine non lisible » (09/11 soir) : posé ou retiré ici, visible sur la fiche et dans la liste.
+  const [unread, setUnread] = useState<string | null>(unreadable ?? null);
+  const [unreadDraft, setUnreadDraft] = useState('');
+  const [unreadMsg, setUnreadMsg] = useState<string | null>(null);
+  const markUnreadable = async () => {
+    const reason = unreadDraft.trim();
+    if (!reason) { setUnreadMsg('Écris la raison (ex. « liste chargée par une API à clé »).'); return; }
+    const err = await setShowcaseUnreadable(contactId, reason);
+    if (err) { setUnreadMsg(err); return; }
+    setUnread(reason); setUnreadDraft(''); setFreq('off'); setUnreadMsg('Signal posé : fiche et liste le montrent ; relevé automatique arrêté.'); onFrequencyChange?.('off');
+  };
+  const clearUnreadable = async () => {
+    const err = await setShowcaseUnreadable(contactId, null);
+    if (err) { setUnreadMsg(err); return; }
+    setUnread(null); setUnreadMsg('Signal retiré. Pense à remettre le relevé automatique si la vitrine est lisible.');
+  };
   const changeFreq = async (f: Freq) => {
     setFreq(f); setFreqMsg(null);
     const err = await setStockFrequency(contactId, f);
@@ -241,7 +257,7 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
             <p className="text-xs text-slate-500 truncate">
               {url ? <a href={url} target="_blank" rel="noreferrer" className="hover:underline">{url}</a> : <span className="text-amber-700">pas d'adresse de vitrine sur cette fiche</span>}
               {lastRun && <> · dernier relevé {new Date(lastRun.started_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} ({lastRun.provider}, {lastRun.total} véhicules)</>}
-              {' · '}relevé auto : {FREQ_LABEL[freq]}
+              {' · '}relevé auto : {FREQ_LABEL[freq]}{unread ? <span className="text-orange-700 font-medium"> · ⚠ vitrine non lisible par Ada — {unread}</span> : null}
             </p>
           </div>
           <button onClick={() => void scan()} disabled={scanning} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre disabled:opacity-60 text-white text-sm font-medium">
@@ -429,6 +445,23 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, onClos
                   </label>
                   {freqMsg && <span className={`text-xs ${/SQL/.test(freqMsg) ? 'text-amber-700' : 'text-emerald-700'}`}>{freqMsg}</span>}
                   <span className="ml-auto text-xs text-slate-500">{runs.length} relevé{runs.length > 1 ? 's' : ''}</span>
+                </div>
+                {/* VITRINE NON LISIBLE (09/11 soir, Channing) : signal avec sa raison, posé ou retiré ici. */}
+                <div className={`rounded-lg border px-3 py-2 text-sm ${unread ? 'bg-orange-50 border-orange-300' : 'bg-slate-50 border-slate-200'}`}>
+                  {unread ? (
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <span className="text-orange-800 font-medium">⚠ Vitrine non lisible par Ada</span>
+                      <span className="text-orange-900/80">— {unread}</span>
+                      <button onClick={() => void clearUnreadable()} className="ml-auto text-xs px-2 py-1 rounded-lg border border-orange-300 text-orange-800 hover:bg-orange-100">Retirer le signal</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-slate-600 text-xs">Vitrine impossible à lire ? Pose un signal visible sur la fiche et dans la liste :</span>
+                      <input value={unreadDraft} onChange={(e) => setUnreadDraft(e.target.value)} placeholder="raison (ex. liste servie par une API à clé)" className="flex-1 min-w-[220px] px-2 py-1 rounded-lg border border-slate-300 text-xs" />
+                      <button onClick={() => void markUnreadable()} className="text-xs px-2 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100">Marquer non lisible</button>
+                    </div>
+                  )}
+                  {unreadMsg && <p className={`text-xs mt-1 ${/SQL|refus/.test(unreadMsg) ? 'text-amber-700' : 'text-emerald-700'}`}>{unreadMsg}</p>}
                 </div>
                 {lastFailure && !scanning && <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">Dernier relevé en échec le {new Date(lastFailure.started_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} : {lastFailure.error ?? 'sans détail'}</p>}
                 {runs.length === 0 ? <p className="text-sm text-slate-500">Aucun relevé encore.</p> : (

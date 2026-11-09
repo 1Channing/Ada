@@ -181,6 +181,17 @@ export async function listRunningStockRuns(): Promise<Map<string, { at: string }
   return map;
 }
 
+/** SIGNAL « VITRINE NON LISIBLE » (09/11 soir) : la raison, ou null pour le retirer. Poser le signal arrête aussi le
+ *  relevé automatique (plus d'échec chaque nuit dans la boîte à apprendre). */
+export async function setShowcaseUnreadable(contactId: string, reason: string | null): Promise<string | null> {
+  const patch: Record<string, unknown> = { showcase_unreadable: reason?.trim() || null };
+  if (reason?.trim()) patch.stock_frequency = 'off';
+  const { data, error } = await untyped.from('network_contacts').update(patch).eq('id', contactId).select('id');
+  if (error) return /showcase_unreadable/.test(error.message) ? 'SQL du 09/11 (vitrine_non_lisible) à coller.' : error.message;
+  if (!data?.length) return 'Écriture refusée par la base (droit « Carte du réseau · édition » manquant ?).';
+  return null;
+}
+
 /** Lance le relevé et attend son bilan (4 s de sondage, 15 min au plus). */
 export async function scanDealerStock(contactId: string, url: string, submittedBy: string): Promise<StockSummary> {
   const start = await supabase.functions.invoke('ingest-url', { body: { mode: 'dealer_stock', url, contactId, submittedBy, async: true } });

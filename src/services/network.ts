@@ -39,6 +39,9 @@ export interface NetworkContact {
   stock_total: number | null;
   /** Relevé automatique de la vitrine (03/11) : quotidien (défaut), hebdomadaire ou arrêté. Absent tant que le SQL du 03/11 n'est pas collé. */
   stock_frequency?: 'daily' | 'weekly' | 'off';
+  /** VITRINE NON LISIBLE (09/11 soir, Channing : « un petit signal sur la fiche quand on ne peut pas apprendre une
+   *  vitrine ») : la raison, en clair ; null = lisible ou pas encore jugée. Absent tant que le SQL du 09/11 n'est pas collé. */
+  showcase_unreadable?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
