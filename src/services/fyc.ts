@@ -20,6 +20,8 @@ export interface FycInspection extends FycReportFields {
   purchase_price: number | null; attack_price: number | null; notes: string;
   market_filters: MarketFilters; client_contact_id: string | null;
   created_by: string | null; created_by_name: string; created_at: string; updated_at: string;
+  /** Archivée (10/11 soir, Channing : « un petit onglet archive ») : sortie de la liste courante, rouvrable. */
+  archived_at: string | null;
 }
 
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -32,6 +34,9 @@ function normalize(r: Record<string, unknown>): FycInspection {
     ...(r as unknown as FycInspection),
     damages: { devaluation: Array.isArray(d.devaluation) ? d.devaluation : [], usage: Array.isArray(d.usage) ? d.usage : [] },
     raw_fields: (r.raw_fields ?? {}) as Record<string, string>,
+    equipment: Array.isArray(r.equipment) ? (r.equipment as string[]) : [],
+    tyres: Array.isArray(r.tyres) ? (r.tyres as string[]) : [],
+    archived_at: (r.archived_at as string | null | undefined) ?? null,
     market_filters: (r.market_filters ?? {}) as MarketFilters,
     notes: typeof r.notes === 'string' ? r.notes : '',
     purchase_price: r.purchase_price == null ? null : Number(r.purchase_price),
@@ -59,7 +64,7 @@ export async function addInspections(text: string): Promise<{ added: number; exi
   return { added: fresh.length, existing: urls.length - fresh.length, error: null };
 }
 
-export async function updateInspection(id: string, patch: Partial<Pick<FycInspection, 'purchase_price' | 'attack_price' | 'notes' | 'market_filters' | 'client_contact_id' | 'brand' | 'model' | 'year' | 'km' | 'fuel' | 'gearbox'>>): Promise<string | null> {
+export async function updateInspection(id: string, patch: Partial<Pick<FycInspection, 'purchase_price' | 'attack_price' | 'notes' | 'market_filters' | 'client_contact_id' | 'brand' | 'model' | 'year' | 'km' | 'fuel' | 'gearbox' | 'archived_at'>>): Promise<string | null> {
   const { error } = await untyped.from('fyc_inspections').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
   return error ? error.message : null;
 }
@@ -83,7 +88,7 @@ export async function readInspection(row: FycInspection): Promise<string | null>
     if (!res.ok) throw new Error(`PDF illisible (HTTP ${res.status})`);
     const blob = await res.blob();
     const { lines } = await pdfToLinesEx(blob);
-    const fields = parseFycReport(lines.map((l) => l.text));
+    const fields = parseFycReport(lines);
     if (!fields.brand && !fields.vin) throw new Error('rapport lu mais sans marque ni VIN : format inconnu');
     const { error } = await untyped.from('fyc_inspections').update({ ...fields, status: 'read', error: null, updated_at: new Date().toISOString() }).eq('id', row.id);
     return error ? error.message : null;
@@ -94,7 +99,8 @@ export async function readInspection(row: FycInspection): Promise<string | null>
   }
 }
 
-/** Filtres MI proposés depuis le rapport : marque, modèle, énergie, boîte, année ± 1, km jusqu'à 1,5 ×. */
+/** Filtres MI proposés depuis le rapport : marque, modèle, énergie, boîte, l'année exacte de la voiture (Channing 10/11 soir),
+ *  km jusqu'à 1,5 ×. */
 export function filtersFromInspection(r: FycInspection, country?: string): MarketFilters {
   const fuel = fuelTokenOf(r.fuel);
   const gb = /auto|dsg|dct|cvt/i.test(r.gearbox ?? '') ? 'automatique' : /manu|schalt|handgesch/i.test(r.gearbox ?? '') ? 'manuelle' : undefined;
@@ -104,8 +110,8 @@ export function filtersFromInspection(r: FycInspection, country?: string): Marke
     model: r.model ? r.model.toUpperCase() : undefined,
     fuel: fuel || undefined,
     gearbox: gb,
-    yearMin: r.year != null ? r.year - 1 : null,
-    yearMax: r.year != null ? r.year + 1 : null,
+    yearMin: r.year ?? null,
+    yearMax: r.year ?? null,
     mileageMax: r.km != null ? Math.round((r.km * 1.5) / 1000) * 1000 : null,
   };
 }

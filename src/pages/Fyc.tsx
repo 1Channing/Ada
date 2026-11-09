@@ -12,7 +12,7 @@
  * Export PDF à la charte (src/lib/fycPdf.ts).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ClipboardList, ExternalLink, FileDown, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check } from 'lucide-react';
+import { ClipboardList, ExternalLink, FileDown, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listInspections, addInspections, updateInspection, deleteInspection, retryInspection, readInspection, filtersFromInspection, type FycInspection } from '../services/fyc';
 import { damageSummary } from '../lib/fycReport';
@@ -22,7 +22,7 @@ import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import { loadNetwork, type NetworkContact } from '../services/network';
 import { listLatestStockRuns, listStockVehicles, type LatestStockRun, type StockVehicle } from '../services/dealerStock';
 import { COUNTRY_NAMES } from '../data/cities';
-import { buildFycPdf, type FycMarketSummary, type FycClientSummary } from '../lib/fycPdf';
+import { buildFycPdf, langOfCountry } from '../lib/fycPdf';
 
 const FUEL_LABEL: Record<string, string> = { electric: 'Électrique', petrol: 'Essence', diesel: 'Diesel', hybrid: 'Hybride', mild_hybrid: 'Micro-hybride', phev: 'Hybride rechargeable', lpg: 'GPL', cng: 'GNV' };
 const fmtEur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
@@ -79,32 +79,39 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
     setNotice(`${r.added} lien${r.added > 1 ? 's' : ''} déposé${r.added > 1 ? 's' : ''}${r.existing ? ` · ${r.existing} déjà présent${r.existing > 1 ? 's' : ''}` : ''} — Ada télécharge le rapport puis le lit (moins d'une minute).`);
     await reload();
   };
-  const selected = rows.find((r) => r.id === selectedId) ?? rows[0] ?? null;
+  // ARCHIVES (10/11 soir, Channing : « retrouver l'historique de l'ensemble des inspections analysées, un petit onglet
+  // archive ; un clic sur une ligne rouvre tout le FYC du dossier »).
+  const [tab, setTab] = useState<'current' | 'archives'>('current');
+  const shown = rows.filter((r) => (tab === 'archives') === !!r.archived_at);
+  const selected = rows.find((r) => r.id === selectedId) ?? shown[0] ?? null;
+  const archive = async (r: FycInspection, on: boolean) => { await updateInspection(r.id, { archived_at: on ? new Date().toISOString() : null }); await reload(); };
 
   return (
     <div className="space-y-5">
-      {/* 1. Inspections */}
+      {/* Inspections */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-grid place-items-center w-6 h-6 rounded-full bg-brand-ocean text-white text-xs font-bold">1</span>
-          <h2 className="text-base font-semibold text-slate-900">Inspections</h2>
-          <span className="text-xs text-slate-500">Colle un lien de rapport (VTI / Macadam), ou plusieurs, un par ligne. Ada télécharge le rapport et en sort la voiture.</span>
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs">
+            <button onClick={() => setTab('current')} className={`px-2.5 py-1 rounded-md ${tab === 'current' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Inspections en cours · {rows.filter((r) => !r.archived_at).length}</button>
+            <button onClick={() => setTab('archives')} className={`px-2.5 py-1 rounded-md flex items-center gap-1 ${tab === 'archives' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Archive className="w-3.5 h-3.5" /> Archives · {rows.filter((r) => !!r.archived_at).length}</button>
+          </div>
+          <span className="text-xs text-slate-500">{tab === 'current' ? 'Colle un lien de rapport (VTI / Macadam), ou plusieurs, un par ligne. Ada télécharge le rapport et en sort la voiture.' : 'Les dossiers archivés : un clic sur une ligne rouvre tout le FYC (prix, marché, client).'}</span>
           <button onClick={() => void reload()} className="ml-auto text-xs text-brand-ocean hover:underline flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" /> Actualiser</button>
         </div>
-        <div className="flex gap-2 items-start flex-wrap">
+        {tab === 'current' && <div className="flex gap-2 items-start flex-wrap">
           <textarea value={addText} onChange={(e) => setAddText(e.target.value)} rows={2} placeholder="https://admin.vti-easi.eu/reportviewer/…" className={`${inp} flex-1 min-w-[320px] font-mono text-xs`} />
           <button onClick={() => void add()} disabled={adding || !addText.trim()} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardList className="w-4 h-4" />} Lire les rapports</button>
-        </div>
+        </div>}
         {notice && <p className="text-xs text-slate-600">{notice}</p>}
         {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
-        {loading ? <p className="text-sm text-slate-400 py-4 text-center">Chargement…</p> : rows.length === 0 ? (
-          <p className="text-sm text-slate-500">Aucune inspection pour l'instant.</p>
+        {loading ? <p className="text-sm text-slate-400 py-4 text-center">Chargement…</p> : shown.length === 0 ? (
+          <p className="text-sm text-slate-500">{tab === 'current' ? 'Aucune inspection en cours.' : 'Aucun dossier archivé.'}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-xs text-slate-400"><th className="py-2 pr-3">Véhicule (du rapport)</th><th className="py-2 pr-3">1re immat.</th><th className="py-2 pr-3 text-right">Km</th><th className="py-2 pr-3">Énergie · boîte</th><th className="py-2 pr-3">État</th><th className="py-2 pr-3 text-right">Achat</th><th className="py-2 pr-3 text-right">Attaque</th><th className="py-2 pr-3">Par</th><th></th></tr></thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((r) => {
+                {shown.map((r) => {
                   const car = [r.brand, r.model].filter(Boolean).join(' ');
                   const sel = selected?.id === r.id;
                   return (
@@ -128,6 +135,7 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
                       <td className="py-2 text-right whitespace-nowrap">
                         <a href={r.source_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Ouvrir le rapport" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><ExternalLink className="w-4 h-4" /></a>
                         {r.status === 'failed' && <button onClick={async (e) => { e.stopPropagation(); await retryInspection(r.id); await reload(); }} title="Réessayer" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><RefreshCw className="w-4 h-4" /></button>}
+                        <button onClick={(e) => { e.stopPropagation(); void archive(r, !r.archived_at); }} title={r.archived_at ? 'Remettre en cours' : 'Archiver'} className="inline-flex p-1 text-slate-400 hover:text-brand-ocean">{r.archived_at ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}</button>
                         <button onClick={async (e) => { e.stopPropagation(); if (!confirm('Supprimer cette inspection de FYC ?')) return; await deleteInspection(r.id); if (selectedId === r.id) setSelectedId(null); await reload(); }} title="Supprimer" className="inline-flex p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                       </td>
                     </tr>
@@ -139,13 +147,13 @@ export function FycView({ onOpenMarket }: { onOpenMarket: (f: MarketFilters) => 
         )}
       </div>
 
-      {selected && selected.status === 'read' && <InspectionPanel key={selected.id} insp={selected} onChanged={reload} onOpenMarket={onOpenMarket} author={displayName || email || ''} />}
+      {selected && selected.status === 'read' && <InspectionPanel key={selected.id} insp={selected} onChanged={reload} onOpenMarket={onOpenMarket} author={displayName || email || ''} authorEmail={email ?? null} />}
       {selected && selected.status === 'failed' && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2"><AlertTriangle className="w-4 h-4 inline mr-1" /> Rapport non lu : {selected.error ?? 'sans détail'}. Vérifie le lien (il doit ouvrir le rapport sans mot de passe), puis « Réessayer ».</p>}
     </div>
   );
 }
 
-function InspectionPanel({ insp, onChanged, onOpenMarket, author }: { insp: FycInspection; onChanged: () => Promise<void>; onOpenMarket: (f: MarketFilters) => void; author: string }) {
+function InspectionPanel({ insp, onChanged, onOpenMarket, author, authorEmail }: { insp: FycInspection; onChanged: () => Promise<void>; onOpenMarket: (f: MarketFilters) => void; author: string; authorEmail: string | null }) {
   const [purchase, setPurchase] = useState(insp.purchase_price != null ? String(insp.purchase_price) : '');
   const [attack, setAttack] = useState(insp.attack_price != null ? String(insp.attack_price) : '');
   const [notes, setNotes] = useState(insp.notes);
@@ -192,12 +200,16 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author }: { insp: FycI
     const stats = priceStats(latest);
     const comp = latest.filter((o) => insp.year != null && o.year != null && Math.abs(o.year - insp.year) <= 1 && insp.km != null && o.mileage != null && Math.abs(o.mileage - insp.km) <= insp.km * 0.3);
     const compStats = priceStats(comp);
-    const priced = latest.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0).sort((a, b) => a - b);
+    // La comparaison se fait sur les COMPARABLES (Channing 10/11 soir : « c'est là qu'on fait les comparaisons ») ;
+    // sans comparable, sur toutes les annonces filtrées.
+    const base = comp.length ? comp : latest;
+    const baseStats = comp.length ? compStats : stats;
+    const priced = base.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0).sort((a, b) => a - b);
     const below = attackPrice != null ? priced.filter((p) => p < attackPrice).length : 0;
     const pct = attackPrice != null && priced.length ? Math.round((below / priced.length) * 100) : null;
     const lastScan = latest.reduce<string | null>((m, o) => (!m || o.scraped_at > m ? o.scraped_at : m), null);
-    const position = attackPrice == null ? 'prix d\'attaque non saisi' : pct == null ? 'pas d\'annonce avec prix' : pct === 0 ? 'sous toutes les annonces' : `${pct} % des annonces sont moins chères`;
-    return { latest, stats, comp, compStats, pct, lastScan, position, cheapest: [...latest].filter((o) => o.price).sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 5) };
+    const position = attackPrice == null ? 'prix d\'attaque non saisi' : pct == null ? 'pas d\'annonce avec prix' : pct === 0 ? `sous ${comp.length ? 'tous les comparables' : 'toutes les annonces'}` : `${pct} % ${comp.length ? 'des comparables' : 'des annonces'} sont moins chers`;
+    return { latest, stats, comp, compStats, baseStats, usingComparables: comp.length > 0, pct, lastScan, position, cheapest: [...base].filter((o) => o.price).sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 5) };
   }, [obs, filtersKey, attackPrice, insp.year, insp.km]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Client cible : vitrines lues seulement.
@@ -230,21 +242,12 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author }: { insp: FycI
   const chooseClient = async (id: string | null) => { setClientId(id); await updateInspection(insp.id, { client_contact_id: id }); };
 
   const [exporting, setExporting] = useState(false);
+  const pdfLang = langOfCountry(filters.country);
   const exportPdf = async () => {
     setExporting(true);
     try {
-      const ms: FycMarketSummary | null = market ? {
-        country: COUNTRY_NAMES[filters.country ?? ''] ?? filters.country ?? '—', sites: sitesOfCountry.join(', ') || '—',
-        count: market.stats.count, median: market.stats.median, p25: market.stats.p25, p75: market.stats.p75, min: market.stats.min, max: market.stats.max,
-        comparables: market.comp.length, comparablesMedian: market.compStats.count ? market.compStats.median : null, position: market.position,
-        filtersLabel: filtersLabel(filters), lastScan: market.lastScan ? fmtDate(market.lastScan) : null,
-      } : null;
-      const cs: FycClientSummary | null = client ? {
-        name: client.name, country: COUNTRY_NAMES[client.country] ?? client.country, stockTotal: runs.get(client.id)?.total ?? null, stockDate: runs.get(client.id) ? fmtDate(runs.get(client.id)!.at) : null,
-        rows: clientRows.map((v) => ({ title: v.title ?? [v.brand, v.model].filter(Boolean).join(' '), year: v.year, km: v.km, price: v.price })), min: clientMin, median: clientMedian,
-      } : null;
-      const blob = await buildFycPdf(insp, ms, cs, author);
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `FYC-${[insp.brand, insp.model].filter(Boolean).join('-') || 'vehicule'}-${new Date().toISOString().slice(0, 10)}.pdf`; a.click(); URL.revokeObjectURL(a.href);
+      const blob = await buildFycPdf(insp, pdfLang, { name: author, email: authorEmail });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `MC-Export-${[insp.brand, insp.model].filter(Boolean).join('-') || 'vehicule'}-${pdfLang.toUpperCase()}-${new Date().toISOString().slice(0, 10)}.pdf`; a.click(); URL.revokeObjectURL(a.href);
     } finally { setExporting(false); }
   };
 
@@ -254,10 +257,10 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author }: { insp: FycI
       {/* Voiture + nos prix */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-grid place-items-center w-6 h-6 rounded-full bg-brand-ocean text-white text-xs font-bold">2</span>
           <h2 className="text-base font-semibold text-slate-900">{car} — nos prix</h2>
+          {insp.archived_at && <span className="text-[11px] rounded-full px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200">archivée le {fmtDate(insp.archived_at)}</span>}
           <span className="text-xs text-slate-500">{insp.year ?? '—'} · {fmtNum(insp.km)} km · {insp.fuel ?? '—'} · {insp.gearbox ?? '—'}{insp.power_ch ? ` · ${insp.power_ch} ch` : ''}{insp.color ? ` · ${insp.color}` : ''}</span>
-          <button onClick={() => void exportPdf()} disabled={exporting} className="ml-auto flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">{exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} Export PDF MC Export</button>
+          <button onClick={() => void exportPdf()} disabled={exporting} title={`Fiche véhicule à la charte MC Export, dans la langue du pays cible (${pdfLang.toUpperCase()}) : données, équipements, pneus, état, notre prix d'attaque, nos coordonnées — jamais le prix d'achat ni les notes`} className="ml-auto flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">{exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} Fiche PDF client ({pdfLang.toUpperCase()})</button>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
           <label className="block text-xs text-slate-600">Prix d'achat (€)<input value={purchase} onChange={(e) => setPurchase(e.target.value)} onBlur={() => void saveNum('purchase_price', purchase)} placeholder="ex. 17 500" className={`${inp} mt-1 text-right`} /></label>
@@ -269,13 +272,14 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author }: { insp: FycI
           <p><span className="text-slate-500">VIN : </span>{insp.vin ?? '—'} · <span className="text-slate-500">1re immat. : </span>{fmtDate(insp.first_registration)}</p>
           <p><span className="text-slate-500">Dévaluation : </span>{insp.damages.devaluation.length ? insp.damages.devaluation.map((d) => d.raw).join(' ; ') : 'rien'}</p>
           <p><span className="text-slate-500">Usage : </span>{insp.damages.usage.length ? insp.damages.usage.map((d) => d.raw).join(' ; ') : 'rien'}{insp.repainted ? ' · repeinte' : ''}</p>
+          {insp.tyres.length > 0 && <p><span className="text-slate-500">Pneus : </span>{insp.tyres.join(' ; ')}</p>}
+          {insp.equipment.length > 0 && <p><span className="text-slate-500">Équipements : </span>{insp.equipment.length} dans le rapport (repris dans la fiche PDF)</p>}
         </div>
       </div>
 
       {/* 3. Marché cible */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-grid place-items-center w-6 h-6 rounded-full bg-brand-ocean text-white text-xs font-bold">3</span>
           <h2 className="text-base font-semibold text-slate-900">Marché cible</h2>
           <span className="text-xs text-slate-500">Filtres MI pré-remplis depuis le rapport, tous modifiables. Les chiffres viennent des annonces déjà en base ; « Voir dans le MI » lance la recherche.</span>
           <button onClick={() => onOpenMarket(filters)} disabled={!filters.country || !filters.brand} className="ml-auto flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50"><Search className="w-4 h-4" /> Voir dans le MI (lance la recherche)</button>
@@ -296,17 +300,14 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author }: { insp: FycI
         </div>
         {obsLoading ? <p className="text-sm text-slate-400 py-2">Lecture des annonces en base…</p> : market && market.stats.count > 0 ? (
           <>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <Tile label={`Annonces · ${COUNTRY_NAMES[filters.country ?? ''] ?? filters.country}`} value={String(market.stats.count)} hint={market.lastScan ? `dernier scan ${fmtDate(market.lastScan)}` : ''} />
-              <Tile label="Médiane marché" value={fmtEur(market.stats.median)} hint={`P25–P75 : ${fmtEur(market.stats.p25)} – ${fmtEur(market.stats.p75)}`} />
-              <Tile label="Comparables (année ±1, km ±30 %)" value={String(market.comp.length)} hint={market.compStats.count ? `médiane ${fmtEur(market.compStats.median)}` : 'aucune'} />
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Tile label={`Comparables · ${COUNTRY_NAMES[filters.country ?? ''] ?? filters.country} (année ±1, km ±30 %)`} value={String(market.comp.length)} hint={market.compStats.count ? `de ${fmtEur(market.compStats.min)} à ${fmtEur(market.compStats.max)} · P25–P75 ${fmtEur(market.compStats.p25)} – ${fmtEur(market.compStats.p75)}${market.lastScan ? ` · scan ${fmtDate(market.lastScan)}` : ''}` : `aucun comparable, ${market.stats.count} annonces filtrées${market.lastScan ? ` · scan ${fmtDate(market.lastScan)}` : ''}`} />
               <Tile label="Notre prix d'attaque" value={fmtEur(attackPrice)} hint={market.position} strong />
             </div>
-            {attackPrice != null && market.stats.count > 0 && (
-              <div className="relative h-12 rounded-lg bg-slate-50 border border-slate-200">
-                {(() => { const lo = market.stats.min, hi = market.stats.max, span = Math.max(1, hi - lo); const x = (v: number) => `${Math.min(98, Math.max(1, ((v - lo) / span) * 100))}%`; return (<>
-                  <div className="absolute top-5 h-3 rounded bg-blue-100" style={{ left: x(market.stats.p25), width: `calc(${x(market.stats.p75)} - ${x(market.stats.p25)})` }} />
-                  <div className="absolute top-3 w-0.5 h-7 bg-blue-800" style={{ left: x(market.stats.median) }} title={`médiane ${fmtEur(market.stats.median)}`} />
+            {attackPrice != null && market.baseStats.count > 0 && (
+              <div className="relative h-12 rounded-lg bg-slate-50 border border-slate-200" title={market.usingComparables ? 'Les comparables, du moins cher au plus cher' : 'Toutes les annonces filtrées'}>
+                {(() => { const lo = market.baseStats.min, hi = market.baseStats.max, span = Math.max(1, hi - lo); const x = (v: number) => `${Math.min(98, Math.max(1, ((v - lo) / span) * 100))}%`; return (<>
+                  <div className="absolute top-5 h-3 rounded bg-blue-100" style={{ left: x(market.baseStats.p25), width: `calc(${x(market.baseStats.p75)} - ${x(market.baseStats.p25)})` }} />
                   <div className="absolute top-2 w-1 h-9 bg-emerald-600 rounded" style={{ left: x(attackPrice) }} title={`notre prix ${fmtEur(attackPrice)}`} />
                   <span className="absolute left-1 bottom-0.5 text-[10px] text-slate-500">{fmtEur(lo)}</span>
                   <span className="absolute right-1 bottom-0.5 text-[10px] text-slate-500">{fmtEur(hi)}</span>
@@ -321,7 +322,6 @@ function InspectionPanel({ insp, onChanged, onOpenMarket, author }: { insp: FycI
       {/* 4. Client cible */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-grid place-items-center w-6 h-6 rounded-full bg-brand-ocean text-white text-xs font-bold">4</span>
           <h2 className="text-base font-semibold text-slate-900">Client cible</h2>
           <span className="text-xs text-slate-500">Un contact de la Carte dont la vitrine est lue (jamais en échec ni non lisible). Ceux qui vendent la marque sont en tête.</span>
         </div>

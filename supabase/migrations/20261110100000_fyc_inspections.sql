@@ -33,6 +33,8 @@ create table if not exists public.fyc_inspections (
   seats int,
   repainted boolean,
   damages jsonb not null default '{}'::jsonb,
+  equipment jsonb not null default '[]'::jsonb,
+  tyres jsonb not null default '[]'::jsonb,
   raw_fields jsonb not null default '{}'::jsonb,
   purchase_price numeric,
   attack_price numeric,
@@ -42,8 +44,13 @@ create table if not exists public.fyc_inspections (
   created_by uuid,
   created_by_name text not null default '',
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  archived_at timestamptz
 );
+-- Si la table existait déjà (premier collage du 10/11) : colonnes ajoutées.
+alter table public.fyc_inspections add column if not exists equipment jsonb not null default '[]'::jsonb;
+alter table public.fyc_inspections add column if not exists tyres jsonb not null default '[]'::jsonb;
+alter table public.fyc_inspections add column if not exists archived_at timestamptz;
 create index if not exists fyc_inspections_status_idx on public.fyc_inspections (status, created_at);
 alter table public.fyc_inspections enable row level security;
 drop policy if exists fyc_inspections_team on public.fyc_inspections;
@@ -52,4 +59,5 @@ create policy fyc_inspections_team on public.fyc_inspections for all to authenti
 grant select, insert, update, delete on public.fyc_inspections to authenticated;
 
 select exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'fyc_inspections')
+   and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'fyc_inspections' and column_name = 'archived_at')
    and exists (select 1 from pg_policies where tablename = 'fyc_inspections' and policyname = 'fyc_inspections_team') as tout_est_bon;

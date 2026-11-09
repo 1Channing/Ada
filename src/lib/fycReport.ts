@@ -7,6 +7,8 @@
  * (« Marque » puis « Cupra ») : les deux formes sont lues.
  */
 export interface FycDamage { zone: string; kind: string; action: string; raw: string }
+/** Une ligne de texte avec, si on l'a, ses morceaux et leur abscisse (pdfjs) : sert à séparer deux colonnes. */
+export type FycLine = string | { text: string; frags?: Array<{ x: number; s: string }> };
 export interface FycReportFields {
   report_number: string | null; report_date: string | null; vin: string | null;
   brand: string | null; model: string | null; version: string | null; body: string | null;
@@ -14,6 +16,10 @@ export interface FycReportFields {
   fuel: string | null; gearbox: string | null; power_ch: number | null; color: string | null;
   doors: number | null; seats: number | null; repainted: boolean | null;
   damages: { devaluation: FycDamage[]; usage: FycDamage[] };
+  /** Équipements listés par le rapport (section « Vehicle Equipment »), un libellé par entrée. */
+  equipment: string[];
+  /** Pneus montés : une ligne par roue (« Continental Front Left Summer … 215/50 R 19 93 T 3.7 mm »). */
+  tyres: string[];
   raw_fields: Record<string, string>;
 }
 
@@ -45,8 +51,42 @@ const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
 const num = (s: string | null): number | null => { if (!s) return null; const m = s.replace(/[\s  .,](?=\d{3}\b)/g, '').match(/\d+/); return m ? Number(m[0]) : null; };
 const isoDate = (s: string | null): string | null => { const m = (s ?? '').match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null; };
 
-export function parseFycReport(lines: string[]): FycReportFields {
-  const L = lines.map(clean).filter(Boolean);
+const PAGE_NOISE = /^(Page \d+ of \d+|Macadam|Assessment Number|From:|- Vehicle Inspection Report|Rapport d'inspection|N[°o] de rapport|Du:|VIN:)/i;
+// La section équipements n'a pas toujours son titre « » » dans le texte du PDF : la ligne « "Basic" Equipment options
+// subset for … » (ou « Équipement du véhicule ») l'ouvre aussi.
+const EQUIP_HEAD = /^(?:»\s*)?(?:Vehicle Equipment|Équipement du véhicule|Equipement du vehicule|Ausstattung|"?(?:Basic|Base|Standard)"?\s+Equipment options subset)/i;
+const TYRES_HEAD = /^»\s*(Tyres|Pneus|Pneumatiques|Reifen|Banden)/i;
+
+export function parseFycReport(input: FycLine[]): FycReportFields {
+  const src = input.map((l) => (typeof l === 'string' ? { text: clean(l), frags: undefined } : { text: clean(l.text), frags: l.frags })).filter((l) => l.text);
+  const lines = src.map((l) => l.text);
+  // Équipements : la section est sur DEUX colonnes ; avec les abscisses (pdfjs) chaque morceau va dans sa colonne,
+  // une ligne qui commence en minuscule prolonge l'entrée précédente de sa colonne.
+  const equipment: string[] = [];
+  const tyres: string[] = [];
+  { let inEq = false, inTy = false; const cols: [string[], string[]] = [[], []]; let mid: number | null = null;
+    for (const l of src) {
+      if (/^»/.test(l.text) || EQUIP_HEAD.test(l.text)) { inEq = EQUIP_HEAD.test(l.text); inTy = TYRES_HEAD.test(l.text); continue; }
+      if (PAGE_NOISE.test(l.text)) continue;
+      if (inTy) {
+        if (/^(Permitted|Roadworthy|SPARE|Toolkit|Autoris|Roulable|Trousse)/i.test(l.text)) { inTy = false; continue; }
+        if (/\d{3}\/\d{2}\s*R\s*\d{2}/.test(l.text) || /\d+([.,]\d)?\s*mm\b/.test(l.text)) tyres.push(l.text);
+        continue;
+      }
+      if (!inEq) continue;
+      if (/^"?(Basic|Base|Standard)"?\s|Equipment options subset|^"CARGO"|^"Base"/i.test(l.text)) continue;
+      const frags = (l.frags ?? []).filter((f) => f.s.trim());
+      if (frags.length >= 1) {
+        if (mid == null) { const xs = src.filter((m) => m.frags).flatMap((m) => m.frags!.map((f) => f.x)); const lo = Math.min(...xs), hi = Math.max(...xs); mid = lo + (hi - lo) * 0.45; }
+        for (const f of frags) {
+          const col = f.x < mid ? 0 : 1; const t = f.s.trim();
+          if (/^[a-zà-ÿ(]/.test(t) && cols[col].length) cols[col][cols[col].length - 1] += ` ${t}`; else cols[col].push(t);
+        }
+      } else if (/^[a-zà-ÿ(]/.test(l.text) && cols[0].length) cols[0][cols[0].length - 1] += ` ${l.text}`; else cols[0].push(l.text);
+    }
+    equipment.push(...cols[0], ...cols[1]);
+  }
+  const L = lines;
   const raw: Record<string, string> = {};
   const got: Partial<Record<Rule['key'], string>> = {};
   const valueAt = (i: number, re: RegExp): string => {
@@ -109,6 +149,8 @@ export function parseFycReport(lines: string[]): FycReportFields {
     seats: num(got.seats ?? null),
     repainted: repaint == null ? null : /^(yes|oui|ja)/i.test(repaint) ? true : /^(no|non|nein)/i.test(repaint) ? false : null,
     damages: { devaluation: dev, usage: use },
+    equipment: equipment.map((e) => e.replace(/\s+/g, ' ').trim()).filter((e) => e.length > 2),
+    tyres,
     raw_fields: raw,
   };
 }
